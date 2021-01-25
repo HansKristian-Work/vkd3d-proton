@@ -84,6 +84,11 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_TIMELINE_SEMAPHORE, KHR_timeline_semaphore),
     VK_EXTENSION(KHR_SHADER_FLOAT16_INT8, KHR_shader_float16_int8),
     VK_EXTENSION(KHR_SHADER_SUBGROUP_EXTENDED_TYPES, KHR_shader_subgroup_extended_types),
+    VK_EXTENSION(KHR_RAY_TRACING_PIPELINE, KHR_ray_tracing_pipeline),
+    VK_EXTENSION(KHR_ACCELERATION_STRUCTURE, KHR_acceleration_structure),
+    VK_EXTENSION(KHR_DEFERRED_HOST_OPERATIONS, KHR_deferred_host_operations),
+    VK_EXTENSION(KHR_SPIRV_1_4, KHR_spirv_1_4),
+    VK_EXTENSION(KHR_SHADER_FLOAT_CONTROLS, KHR_shader_float_controls),
     /* EXT extensions */
     VK_EXTENSION(EXT_CALIBRATED_TIMESTAMPS, EXT_calibrated_timestamps),
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
@@ -776,8 +781,11 @@ static uint32_t vkd3d_physical_device_get_time_domains(struct d3d12_device *devi
 static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *info, struct d3d12_device *device)
 {
     VkPhysicalDeviceShaderSubgroupExtendedTypesFeaturesKHR *shader_subgroup_extended_types_features;
+    VkPhysicalDeviceAccelerationStructurePropertiesKHR *acceleration_structure_properties;
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     VkPhysicalDeviceSubgroupSizeControlPropertiesEXT *subgroup_size_control_properties;
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR *acceleration_structure_features;
+    VkPhysicalDeviceRayTracingPipelinePropertiesKHR *ray_tracing_pipeline_properties;
     VkPhysicalDeviceInlineUniformBlockPropertiesEXT *inline_uniform_block_properties;
     VkPhysicalDeviceExtendedDynamicStateFeaturesEXT *extended_dynamic_state_features;
     VkPhysicalDeviceExternalMemoryHostPropertiesEXT *external_memory_host_properties;
@@ -789,6 +797,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT *vertex_divisor_properties;
     VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT *buffer_alignment_properties;
     VkPhysicalDeviceTimelineSemaphorePropertiesKHR *timeline_semaphore_properties;
+    VkPhysicalDeviceRayTracingPipelineFeaturesKHR *ray_tracing_pipeline_features;
     VkPhysicalDeviceInlineUniformBlockFeaturesEXT *inline_uniform_block_features;
     VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing_features;
     VkPhysicalDeviceShaderSMBuiltinsPropertiesNV *shader_sm_builtins_properties;
@@ -798,6 +807,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     VkPhysicalDeviceCustomBorderColorFeaturesEXT *custom_border_color_features;
     VkPhysicalDeviceTimelineSemaphoreFeaturesKHR *timeline_semaphore_features;
     VkPhysicalDevicePushDescriptorPropertiesKHR *push_descriptor_properties;
+    VkPhysicalDeviceFloatControlsPropertiesKHR *float_control_properties;
     VkPhysicalDeviceMutableDescriptorTypeFeaturesVALVE *mutable_features;
     VkPhysicalDeviceShaderFloat16Int8FeaturesKHR *float16_int8_features;
     VkPhysicalDeviceShaderCoreProperties2AMD *shader_core_properties2;
@@ -846,6 +856,11 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     extended_dynamic_state_features = &info->extended_dynamic_state_features;
     external_memory_host_properties = &info->external_memory_host_properties;
     mutable_features = &info->mutable_descriptor_features;
+    acceleration_structure_properties = &info->acceleration_structure_properties;
+    acceleration_structure_features = &info->acceleration_structure_features;
+    ray_tracing_pipeline_properties = &info->ray_tracing_pipeline_properties;
+    ray_tracing_pipeline_features = &info->ray_tracing_pipeline_features;
+    float_control_properties = &info->float_control_properties;
 
     info->features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     info->properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
@@ -1012,6 +1027,25 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         mutable_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MUTABLE_DESCRIPTOR_TYPE_FEATURES_VALVE;
         vk_prepend_struct(&info->features2, mutable_features);
+    }
+
+    if (vulkan_info->KHR_acceleration_structure && vulkan_info->KHR_ray_tracing_pipeline &&
+        vulkan_info->KHR_deferred_host_operations && vulkan_info->KHR_spirv_1_4)
+    {
+        acceleration_structure_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+        acceleration_structure_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
+        ray_tracing_pipeline_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+        ray_tracing_pipeline_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR;
+        vk_prepend_struct(&info->features2, acceleration_structure_features);
+        vk_prepend_struct(&info->features2, ray_tracing_pipeline_features);
+        vk_prepend_struct(&info->properties2, acceleration_structure_properties);
+        vk_prepend_struct(&info->properties2, ray_tracing_pipeline_properties);
+    }
+
+    if (vulkan_info->KHR_shader_float_controls)
+    {
+        float_control_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT_CONTROLS_PROPERTIES_KHR;
+        vk_prepend_struct(&info->properties2, float_control_properties);
     }
 
     VK_CALL(vkGetPhysicalDeviceFeatures2(physical_device, &info->features2));

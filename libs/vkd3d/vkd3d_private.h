@@ -113,6 +113,11 @@ struct vkd3d_vulkan_info
     bool KHR_timeline_semaphore;
     bool KHR_shader_float16_int8;
     bool KHR_shader_subgroup_extended_types;
+    bool KHR_ray_tracing_pipeline;
+    bool KHR_acceleration_structure;
+    bool KHR_deferred_host_operations;
+    bool KHR_spirv_1_4;
+    bool KHR_shader_float_controls;
     /* EXT device extensions */
     bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;
@@ -2051,6 +2056,9 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceSamplerFilterMinmaxPropertiesEXT sampler_filter_minmax_properties;
     VkPhysicalDeviceRobustness2PropertiesEXT robustness2_properties;
     VkPhysicalDeviceExternalMemoryHostPropertiesEXT external_memory_host_properties;
+    VkPhysicalDeviceRayTracingPipelinePropertiesKHR ray_tracing_pipeline_properties;
+    VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration_structure_properties;
+    VkPhysicalDeviceFloatControlsPropertiesKHR float_control_properties;
 
     VkPhysicalDeviceProperties2KHR properties2;
 
@@ -2071,6 +2079,8 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceRobustness2FeaturesEXT robustness2_features;
     VkPhysicalDeviceExtendedDynamicStateFeaturesEXT extended_dynamic_state_features;
     VkPhysicalDeviceMutableDescriptorTypeFeaturesVALVE mutable_descriptor_features;
+    VkPhysicalDeviceRayTracingPipelineFeaturesKHR ray_tracing_pipeline_features;
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
