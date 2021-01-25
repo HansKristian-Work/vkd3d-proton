@@ -4911,6 +4911,7 @@ static void d3d12_device_caps_override(struct d3d12_device *device)
         { "11_1", D3D_FEATURE_LEVEL_11_1 },
         { "12_0", D3D_FEATURE_LEVEL_12_0 },
         { "12_1", D3D_FEATURE_LEVEL_12_1 },
+        { "12_2", D3D_FEATURE_LEVEL_12_2 },
     };
 
     if (!(fl_string = getenv("VKD3D_FEATURE_LEVEL")))
@@ -4938,6 +4939,7 @@ static void d3d12_device_caps_override(struct d3d12_device *device)
     {
         caps->options.TiledResourcesTier = max(caps->options.TiledResourcesTier, D3D12_TILED_RESOURCES_TIER_2);
         caps->options.ResourceBindingTier = max(caps->options.ResourceBindingTier, D3D12_RESOURCE_BINDING_TIER_2);
+        caps->max_shader_model = max(caps->max_shader_model, D3D_SHADER_MODEL_6_0);
         caps->options.TypedUAVLoadAdditionalFormats = TRUE;
     }
 
@@ -4945,6 +4947,18 @@ static void d3d12_device_caps_override(struct d3d12_device *device)
     {
         caps->options.ROVsSupported = TRUE;
         caps->options.ConservativeRasterizationTier = max(caps->options.ConservativeRasterizationTier, D3D12_CONSERVATIVE_RASTERIZATION_TIER_1);
+    }
+
+    if (fl_override >= D3D_FEATURE_LEVEL_12_2)
+    {
+        caps->options5.RaytracingTier = max(caps->options5.RaytracingTier, D3D12_RAYTRACING_TIER_1_1);
+        caps->options6.VariableShadingRateTier = max(caps->options6.VariableShadingRateTier, D3D12_VARIABLE_SHADING_RATE_TIER_1);
+        caps->options.ResourceBindingTier = max(caps->options.ResourceBindingTier, D3D12_RESOURCE_BINDING_TIER_3);
+        caps->options.TiledResourcesTier = max(caps->options.TiledResourcesTier, D3D12_TILED_RESOURCES_TIER_3);
+        caps->options.ConservativeRasterizationTier = max(caps->options.ConservativeRasterizationTier, D3D12_CONSERVATIVE_RASTERIZATION_TIER_3);
+        caps->max_shader_model = max(caps->max_shader_model, D3D_SHADER_MODEL_6_5);
+        caps->options7.MeshShaderTier = max(caps->options7.MeshShaderTier, D3D12_MESH_SHADER_TIER_1);
+        caps->options7.SamplerFeedbackTier = max(caps->options7.SamplerFeedbackTier, D3D12_SAMPLER_FEEDBACK_TIER_1_0);
     }
 
     caps->max_feature_level = fl_override;
