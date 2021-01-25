@@ -4583,6 +4583,29 @@ static D3D12_TILED_RESOURCES_TIER d3d12_device_determine_tiled_resources_tier(st
     return D3D12_TILED_RESOURCES_TIER_2;
 }
 
+static D3D12_RAYTRACING_TIER d3d12_device_determine_ray_tracing_tier(struct d3d12_device *device)
+{
+    const struct vkd3d_physical_device_info *info = &device->device_info;
+
+    /* Currently disabled until fully supported, but add checks for now. */
+    if (info->ray_tracing_pipeline_features.rayTracingPipeline &&
+        info->acceleration_structure_features.accelerationStructure &&
+        info->ray_tracing_pipeline_properties.maxRayHitAttributeSize >= D3D12_RAYTRACING_MAX_ATTRIBUTE_SIZE_IN_BYTES &&
+        /* Group handle size must match exactly or ShaderRecord layout will not match.
+         * Can potentially fixup local root signature if HandleSize < 32,
+         * but Vulkan is essentially specced to match DXR directly. */
+        info->ray_tracing_pipeline_properties.shaderGroupHandleSize == D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES &&
+        info->ray_tracing_pipeline_properties.shaderGroupBaseAlignment <= D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT &&
+        info->ray_tracing_pipeline_properties.shaderGroupHandleAlignment <= D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT &&
+        info->ray_tracing_pipeline_properties.maxRayRecursionDepth >= D3D12_RAYTRACING_MAX_DECLARABLE_TRACE_RECURSION_DEPTH)
+    {
+        INFO("DXR could potentially be supported, but not enabling by default for now.\n");
+        return D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
+    }
+    else
+        return D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
+}
+
 static D3D12_RESOURCE_HEAP_TIER d3d12_device_determine_heap_tier(struct d3d12_device *device)
 {
     const VkPhysicalDeviceLimits *limits = &device->device_info.properties2.properties.limits;
@@ -4731,8 +4754,7 @@ static void d3d12_device_caps_init_feature_options5(struct d3d12_device *device)
     options5->SRVOnlyTiledResourceTier3 = options->TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_3;
     /* Currently not supported */
     options5->RenderPassesTier = D3D12_RENDER_PASS_TIER_0;
-    /* Currently not supported */
-    options5->RaytracingTier = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
+    options5->RaytracingTier = d3d12_device_determine_ray_tracing_tier(device);
 }
 
 static void d3d12_device_caps_init_feature_options6(struct d3d12_device *device)
