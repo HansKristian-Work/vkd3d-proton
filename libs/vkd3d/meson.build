@@ -38,6 +38,7 @@ vkd3d_src = [
   'utils.c',
   'debug_ring.c',
   'vkd3d_main.c',
+  'raytracing_pipeline.c',
 ]
 
 if enable_d3d12

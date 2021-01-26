@@ -4442,10 +4442,17 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateMetaCommand(d3d12_device_ifa
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateStateObject(d3d12_device_iface *iface,
         const D3D12_STATE_OBJECT_DESC *desc, REFIID iid, void **state_object)
 {
-    FIXME("iface %p, desc %p, iid %s, state_object %p stub!\n",
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_state_object *state;
+    HRESULT hr;
+
+    TRACE("iface %p, desc %p, iid %s, state_object %p!\n",
             iface, desc, debugstr_guid(iid), state_object);
 
-    return E_NOTIMPL;
+    if (FAILED(hr = d3d12_state_object_create(device, desc, &state)))
+        return hr;
+
+    return return_interface(&state->ID3D12StateObject_iface, &IID_ID3D12StateObject, iid, state_object);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePrebuildInfo(d3d12_device_iface *iface,

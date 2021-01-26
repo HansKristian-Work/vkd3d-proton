@@ -1159,7 +1159,7 @@ HRESULT d3d12_root_signature_create(struct d3d12_device *device,
     return S_OK;
 }
 
-static unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_root_signature *root_signature)
+unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_root_signature *root_signature)
 {
     unsigned int flags = 0;
 
