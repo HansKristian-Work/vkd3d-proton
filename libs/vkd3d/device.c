@@ -3387,6 +3387,23 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             return S_OK;
         }
 
+        case D3D12_FEATURE_D3D12_OPTIONS7:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS7 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            *data = device->d3d12_caps.options7;
+
+            TRACE("Mesh shading tier %#x.\n", data->MeshShaderTier);
+            TRACE("Sampler feedback tier %#x.\n", data->SamplerFeedbackTier);
+            return S_OK;
+        }
+
         case D3D12_FEATURE_QUERY_META_COMMAND:
         {
             D3D12_FEATURE_DATA_QUERY_META_COMMAND *data = feature_data;
@@ -4706,6 +4723,15 @@ static void d3d12_device_caps_init_feature_options6(struct d3d12_device *device)
     options6->BackgroundProcessingSupported = FALSE;
 }
 
+static void d3d12_device_caps_init_feature_options7(struct d3d12_device *device)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS7 *options7 = &device->d3d12_caps.options7;
+
+    /* Not supported */
+    options7->MeshShaderTier = D3D12_MESH_SHADER_TIER_NOT_SUPPORTED;
+    options7->SamplerFeedbackTier = D3D12_SAMPLER_FEEDBACK_TIER_NOT_SUPPORTED;
+}
+
 static void d3d12_device_caps_init_feature_level(struct d3d12_device *device)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
@@ -4871,6 +4897,7 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
     d3d12_device_caps_init_feature_options4(device);
     d3d12_device_caps_init_feature_options5(device);
     d3d12_device_caps_init_feature_options6(device);
+    d3d12_device_caps_init_feature_options7(device);
     d3d12_device_caps_init_feature_level(device);
 
     d3d12_device_caps_override(device);
