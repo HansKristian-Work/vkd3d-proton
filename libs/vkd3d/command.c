@@ -2865,7 +2865,7 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
 
     /* Allocate scratch buffer and resolve virtual Vulkan queries into it */
     if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
-            resolve_buffer_size, ssbo_alignment, &resolve_buffer))
+            resolve_buffer_size, max(ssbo_alignment, sizeof(uint64_t)), &resolve_buffer))
         goto cleanup;
 
     for (i = 0; i < resolve_count; i++)
