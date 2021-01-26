@@ -41773,6 +41773,9 @@ static void test_raytracing(void)
         geom_desc[1].Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
         geom_desc[1].Triangles.VertexCount = 6;
 
+        /* Guard against stubbed variant. */
+        prebuild_info.ScratchDataSizeInBytes = 16;
+        prebuild_info.ResultDataMaxSizeInBytes = 16;
         ID3D12Device5_GetRaytracingAccelerationStructurePrebuildInfo(device5, &inputs, &prebuild_info);
 
         /* An AS in D3D12 is just a plain UAV-enabled buffer. */
@@ -41781,20 +41784,24 @@ static void test_raytracing(void)
         bottom_acceleration_structure = create_default_buffer(context.device, prebuild_info.ResultDataMaxSizeInBytes,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
 
-        memset(&build_info, 0, sizeof(build_info));
-        build_info.DestAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structure);
-        build_info.Inputs = inputs;
-        build_info.ScratchAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(scratch_buffer_bottom);
-        ID3D12GraphicsCommandList4_BuildRaytracingAccelerationStructure(command_list4, &build_info, 0, NULL);
+        if (scratch_buffer_bottom && bottom_acceleration_structure)
+        {
+            memset(&build_info, 0, sizeof(build_info));
+            build_info.DestAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structure);
+            build_info.Inputs = inputs;
+            build_info.ScratchAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(scratch_buffer_bottom);
+            ID3D12GraphicsCommandList4_BuildRaytracingAccelerationStructure(command_list4, &build_info, 0, NULL);
 
-        /* An UAV barrier serves as a raytracing barrier as well ... */
-        resource_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-        resource_barrier.Flags = 0;
-        resource_barrier.UAV.pResource = bottom_acceleration_structure;
-        ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &resource_barrier);
+            /* An UAV barrier serves as a raytracing barrier as well ... */
+            resource_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+            resource_barrier.Flags = 0;
+            resource_barrier.UAV.pResource = bottom_acceleration_structure;
+            ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &resource_barrier);
+        }
     }
 
     /* Create instance buffer. One for every top-level entry into the AS. */
+    if (bottom_acceleration_structure)
     {
         D3D12_RAYTRACING_INSTANCE_DESC instance_desc[3];
         memset(instance_desc, 0, sizeof(instance_desc));
@@ -41824,8 +41831,11 @@ static void test_raytracing(void)
 
         instance_buffer = create_upload_buffer(context.device, sizeof(instance_desc), instance_desc);
     }
+    else
+        instance_buffer = NULL;
 
     /* Create top AS */
+    if (bottom_acceleration_structure)
     {
         memset(&inputs, 0, sizeof(inputs));
         memset(geom_desc, 0, sizeof(geom_desc));
@@ -41843,16 +41853,24 @@ static void test_raytracing(void)
         top_acceleration_structure = create_default_buffer(context.device, prebuild_info.ResultDataMaxSizeInBytes,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
 
-        memset(&build_info, 0, sizeof(build_info));
-        build_info.DestAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structure);
-        build_info.Inputs = inputs;
-        build_info.ScratchAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(scratch_buffer_top);
-        ID3D12GraphicsCommandList4_BuildRaytracingAccelerationStructure(command_list4, &build_info, 0, NULL);
+        if (scratch_buffer_top && top_acceleration_structure)
+        {
+            memset(&build_info, 0, sizeof(build_info));
+            build_info.DestAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structure);
+            build_info.Inputs = inputs;
+            build_info.ScratchAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(scratch_buffer_top);
+            ID3D12GraphicsCommandList4_BuildRaytracingAccelerationStructure(command_list4, &build_info, 0, NULL);
 
-        resource_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-        resource_barrier.Flags = 0;
-        resource_barrier.UAV.pResource = top_acceleration_structure;
-        ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &resource_barrier);
+            resource_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+            resource_barrier.Flags = 0;
+            resource_barrier.UAV.pResource = top_acceleration_structure;
+            ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &resource_barrier);
+        }
+    }
+    else
+    {
+        scratch_buffer_top = NULL;
+        top_acceleration_structure = NULL;
     }
 
     /* Create global root signature. All RT shaders can access these parameters. */
@@ -42228,6 +42246,7 @@ static void test_raytracing(void)
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
     gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
 
+    if (top_acceleration_structure)
     {
         D3D12_SHADER_RESOURCE_VIEW_DESC as_desc;
         memset(&as_desc, 0, sizeof(as_desc));
@@ -42301,14 +42320,19 @@ static void test_raytracing(void)
     ID3D12Device5_Release(device5);
     ID3D12GraphicsCommandList4_Release(command_list4);
     ID3D12Resource_Release(vbo);
-    ID3D12Resource_Release(instance_buffer);
+    if (instance_buffer)
+        ID3D12Resource_Release(instance_buffer);
     ID3D12Resource_Release(transform_buffer);
     ID3D12RootSignature_Release(global_rs);
     ID3D12RootSignature_Release(local_rs);
-    ID3D12Resource_Release(top_acceleration_structure);
-    ID3D12Resource_Release(bottom_acceleration_structure);
-    ID3D12Resource_Release(scratch_buffer_top);
-    ID3D12Resource_Release(scratch_buffer_bottom);
+    if (top_acceleration_structure)
+        ID3D12Resource_Release(top_acceleration_structure);
+    if (bottom_acceleration_structure)
+        ID3D12Resource_Release(bottom_acceleration_structure);
+    if (scratch_buffer_top)
+        ID3D12Resource_Release(scratch_buffer_top);
+    if (scratch_buffer_bottom)
+        ID3D12Resource_Release(scratch_buffer_bottom);
     ID3D12StateObject_Release(rt_pso);
     ID3D12Resource_Release(ray_colors);
     ID3D12Resource_Release(ray_positions);
