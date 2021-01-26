@@ -859,6 +859,7 @@ struct d3d12_root_signature
 HRESULT d3d12_root_signature_create(struct d3d12_device *device, const void *bytecode,
         size_t bytecode_length, struct d3d12_root_signature **root_signature);
 struct d3d12_root_signature *unsafe_impl_from_ID3D12RootSignature(ID3D12RootSignature *iface);
+unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_root_signature *root_signature);
 
 int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *desc);
@@ -2209,6 +2210,47 @@ struct d3d_blob
 };
 
 HRESULT d3d_blob_create(void *buffer, SIZE_T size, struct d3d_blob **blob);
+
+/* ID3D12StateObject */
+typedef ID3D12StateObject d3d12_state_object_iface;
+typedef ID3D12StateObjectProperties d3d12_state_object_properties_iface;
+
+struct d3d12_state_object_identifier
+{
+    WCHAR *mangled_export;
+    WCHAR *plain_export;
+    /* Must be a persistent pointer as long as the StateObject object is live. */
+    uint8_t identifier[D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES];
+
+    VkDeviceSize stack_size_general;
+    VkDeviceSize stack_size_closest;
+    VkDeviceSize stack_size_any;
+    VkDeviceSize stack_size_intersection;
+};
+
+struct d3d12_state_object
+{
+    d3d12_state_object_iface ID3D12StateObject_iface;
+    d3d12_state_object_properties_iface ID3D12StateObjectProperties_iface;
+    LONG refcount;
+    struct d3d12_device *device;
+
+    ID3D12RootSignature **owned_signatures;
+    size_t owned_signature_count;
+    size_t owned_signature_size;
+
+    /* Could potentially be a hashmap. */
+    struct d3d12_state_object_identifier *exports;
+    size_t exports_size;
+    size_t exports_count;
+
+    VkPipeline pipeline;
+
+    struct vkd3d_private_store private_store;
+};
+
+HRESULT d3d12_state_object_create(struct d3d12_device *device, const D3D12_STATE_OBJECT_DESC *desc,
+        struct d3d12_state_object **object);
 
 /* utils */
 enum vkd3d_format_type
