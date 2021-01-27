@@ -55,6 +55,20 @@ static uint32_t vkd3d_select_memory_types(struct d3d12_device *device, const D3D
     return type_mask;
 }
 
+static uint32_t vkd3d_find_memory_types_with_flags(struct d3d12_device *device, VkMemoryPropertyFlags type_flags)
+{
+    const VkPhysicalDeviceMemoryProperties *memory_info = &device->memory_properties;
+    uint32_t i, mask = 0;
+
+    for (i = 0; i < memory_info->memoryTypeCount; i++)
+    {
+        if ((memory_info->memoryTypes[i].propertyFlags & type_flags) == type_flags)
+            mask |= 1u << i;
+    }
+
+    return mask;
+}
+
 static HRESULT vkd3d_select_memory_flags(struct d3d12_device *device, const D3D12_HEAP_PROPERTIES *heap_properties, VkMemoryPropertyFlags *type_flags)
 {
     switch (heap_properties->Type)
@@ -380,11 +394,223 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     return S_OK;
 }
 
+static void vkd3d_memory_chunk_insert_range(struct vkd3d_memory_chunk *chunk,
+        size_t index, VkDeviceSize offset, VkDeviceSize length)
+{
+    if (!vkd3d_array_reserve((void**)&chunk->free_ranges, &chunk->free_ranges_size,
+            chunk->free_ranges_count + 1, sizeof(*chunk->free_ranges)))
+    {
+        ERR("Failed to insert free range.\n");
+        return;
+    }
+
+    memmove(&chunk->free_ranges[index + 1], &chunk->free_ranges[index],
+            sizeof(*chunk->free_ranges) * (chunk->free_ranges_count - index));
+
+    chunk->free_ranges[index].offset = offset;
+    chunk->free_ranges[index].length = length;
+    chunk->free_ranges_count++;
+}
+
+static void vkd3d_memory_chunk_remove_range(struct vkd3d_memory_chunk *chunk, size_t index)
+{
+    chunk->free_ranges_count--;
+
+    memmove(&chunk->free_ranges[index], &chunk->free_ranges[index + 1],
+            sizeof(*chunk->free_ranges) * (chunk->free_ranges_count - index));
+}
+
+static HRESULT vkd3d_memory_chunk_allocate_range(struct vkd3d_memory_chunk *chunk, const VkMemoryRequirements *memory_requirements,
+        struct vkd3d_memory_allocation *allocation)
+{
+    struct vkd3d_memory_free_range *pick_range;
+    VkDeviceSize l_length, r_length;
+    size_t i, pick_index;
+
+    if (!chunk->free_ranges_count)
+        return E_OUTOFMEMORY;
+
+    pick_index = chunk->free_ranges_count;
+    pick_range = NULL;
+
+    for (i = 0; i < chunk->free_ranges_count; i++)
+    {
+        struct vkd3d_memory_free_range *range = &chunk->free_ranges[i];
+
+        if (range->offset + range->length - align(range->offset, memory_requirements->alignment) < memory_requirements->size)
+            continue;
+
+        /* Exact fit leaving no gaps */
+        if (range->length == memory_requirements->size)
+        {
+            pick_index = i;
+            pick_range = range;
+            break;
+        }
+
+        /* Alignment is almost always going to be 64 KiB, so
+         * don't worry too much about misalignment gaps here */
+        if (!pick_range || range->length > pick_range->length)
+        {
+            pick_index = i;
+            pick_range = range;
+        }
+    }
+
+    if (!pick_range)
+        return E_OUTOFMEMORY;
+
+    /* Adjust offsets and addresses of the base allocation */
+    vkd3d_memory_allocation_slice(allocation, &chunk->allocation,
+            align(pick_range->offset, memory_requirements->alignment),
+            memory_requirements->size);
+
+    /* Remove allocated range from the free list */
+    l_length = allocation->offset - pick_range->offset;
+    r_length = pick_range->offset + pick_range->length
+            - allocation->offset - allocation->resource.size;
+
+    if (l_length)
+    {
+        pick_range->length = l_length;
+
+        if (r_length)
+        {
+            vkd3d_memory_chunk_insert_range(chunk, pick_index + 1,
+                allocation->offset + allocation->resource.size, r_length);
+        }
+    }
+    else if (r_length)
+    {
+        pick_range->offset = allocation->offset + allocation->resource.size;
+        pick_range->length = r_length;
+    }
+    else
+    {
+        vkd3d_memory_chunk_remove_range(chunk, pick_index);
+    }
+
+    return S_OK;
+}
+
+static size_t vkd3d_memory_chunk_find_range(struct vkd3d_memory_chunk *chunk, VkDeviceSize offset)
+{
+    struct vkd3d_memory_free_range *range;
+    size_t index, hi, lo;
+
+    lo = 0;
+    hi = chunk->free_ranges_count;
+
+    while (lo < hi)
+    {
+        index = lo + (hi - lo) / 2;
+        range = &chunk->free_ranges[index];
+
+        if (range->offset > offset)
+            hi = index;
+        else
+            lo = index + 1;
+    }
+
+    return lo;
+}
+
+static void vkd3d_memory_chunk_free_range(struct vkd3d_memory_chunk *chunk, const struct vkd3d_memory_allocation *allocation)
+{
+    struct vkd3d_memory_free_range *range;
+    bool adjacent_l, adjacent_r;
+    size_t index;
+
+    index = vkd3d_memory_chunk_find_range(chunk, allocation->offset);
+
+    adjacent_l = false;
+    adjacent_r = false;
+
+    if (index > 0)
+    {
+        range = &chunk->free_ranges[index - 1];
+        adjacent_l = range->offset + range->length == allocation->offset;
+    }
+
+    if (index < chunk->free_ranges_count)
+    {
+        range = &chunk->free_ranges[index];
+        adjacent_r = range->offset == allocation->offset + allocation->resource.size;
+    }
+
+    if (adjacent_l)
+    {
+        range = &chunk->free_ranges[index - 1];
+        range->length += allocation->resource.size;
+
+        if (adjacent_r)
+        {
+            range->length += chunk->free_ranges[index].length;
+            vkd3d_memory_chunk_remove_range(chunk, index);
+        }
+    }
+    else if (adjacent_r)
+    {
+        range = &chunk->free_ranges[index];
+        range->offset = allocation->offset;
+        range->length += allocation->resource.size;
+    }
+    else
+    {
+        vkd3d_memory_chunk_insert_range(chunk, index,
+                allocation->offset, allocation->resource.size);
+    }
+}
+
+static bool vkd3d_memory_chunk_is_free(struct vkd3d_memory_chunk *chunk)
+{
+    return chunk->free_ranges_count == 1 && chunk->free_ranges[0].length == chunk->allocation.resource.size;
+}
+
+static HRESULT vkd3d_memory_chunk_create(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
+        const struct vkd3d_allocate_memory_info *info, struct vkd3d_memory_chunk **chunk)
+{
+    struct vkd3d_memory_chunk *object;
+    HRESULT hr;
+
+    if (!(object = vkd3d_malloc(sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    memset(object, 0, sizeof(*object));
+
+    if (FAILED(hr = vkd3d_memory_allocation_init(&object->allocation, device, allocator, info)))
+    {
+        vkd3d_free(object);
+        return hr;
+    }
+
+    object->allocation.chunk = object;
+    vkd3d_memory_chunk_insert_range(object, 0, 0, object->allocation.resource.size);
+    *chunk = object;
+    return S_OK;
+}
+
 static void vkd3d_memory_chunk_destroy(struct vkd3d_memory_chunk *chunk, struct d3d12_device *device, struct vkd3d_memory_allocator *allocator)
 {
     vkd3d_memory_allocation_free(&chunk->allocation, device, allocator);
     vkd3d_free(chunk->free_ranges);
     vkd3d_free(chunk);
+}
+
+static void vkd3d_memory_allocator_remove_chunk(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device, struct vkd3d_memory_chunk *chunk)
+{
+    size_t i;
+
+    for (i = 0; i < allocator->chunks_count; i++)
+    {
+        if (allocator->chunks[i] == chunk)
+        {
+            allocator->chunks[i] = allocator->chunks[--allocator->chunks_count];
+            break;
+        }
+    }
+
+    vkd3d_memory_chunk_destroy(chunk, device, allocator);
 }
 
 HRESULT vkd3d_memory_allocator_init(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device)
@@ -412,18 +638,132 @@ void vkd3d_memory_allocator_cleanup(struct vkd3d_memory_allocator *allocator, st
     pthread_mutex_destroy(&allocator->mutex);
 }
 
+static HRESULT vkd3d_memory_allocator_add_chunk(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, uint32_t type_mask, struct vkd3d_memory_chunk **chunk)
+{
+    struct vkd3d_allocate_memory_info alloc_info;
+    struct vkd3d_memory_chunk *object;
+    HRESULT hr;
+
+    memset(&alloc_info, 0, sizeof(alloc_info));
+    alloc_info.memory_requirements.size = VKD3D_MEMORY_CHUNK_SIZE;
+    alloc_info.memory_requirements.alignment = 0;
+    alloc_info.memory_requirements.memoryTypeBits = type_mask;
+    alloc_info.heap_properties = *heap_properties;
+    alloc_info.heap_flags = heap_flags;
+
+    if (!(heap_flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
+        alloc_info.flags |= VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER;
+
+    if (!vkd3d_array_reserve((void**)&allocator->chunks, &allocator->chunks_size,
+            allocator->chunks_count + 1, sizeof(*allocator->chunks)))
+    {
+        ERR("Failed to allocate space for new chunk.\n");
+        return E_OUTOFMEMORY;
+    }
+
+    if (FAILED(hr = vkd3d_memory_chunk_create(device, allocator, &alloc_info, &object)))
+        return hr;
+
+    allocator->chunks[allocator->chunks_count++] = *chunk = object;
+    return S_OK;
+}
+
+static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory_allocator *allocator,
+        struct d3d12_device *device, const VkMemoryRequirements *memory_requirements, uint32_t type_mask,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        struct vkd3d_memory_allocation *allocation)
+{
+    struct vkd3d_memory_chunk *chunk;
+    HRESULT hr;
+    size_t i;
+
+    type_mask &= device->memory_info.global_mask;
+    type_mask &= memory_requirements->memoryTypeBits;
+
+    for (i = 0; i < allocator->chunks_count; i++)
+    {
+        chunk = allocator->chunks[i];
+
+        /* Match flags since otherwise the backing buffer
+         * may not support our required usage flags */
+        if (chunk->allocation.heap_type != heap_properties->Type ||
+                chunk->allocation.heap_flags != heap_flags)
+            continue;
+
+        /* Filter out unsupported memory types */
+        if (!(type_mask & (1u << chunk->allocation.vk_memory_type)))
+            continue;
+
+        if (SUCCEEDED(hr = vkd3d_memory_chunk_allocate_range(chunk, memory_requirements, allocation)))
+            return hr;
+    }
+
+    /* Try allocating a new chunk on one of the supported memory type
+     * before the caller falls back to potentially slower memory */
+    if (FAILED(hr = vkd3d_memory_allocator_add_chunk(allocator, device, heap_properties,
+            heap_flags, memory_requirements->memoryTypeBits, &chunk)))
+        return hr;
+
+    return vkd3d_memory_chunk_allocate_range(chunk, memory_requirements, allocation);
+}
+
 void vkd3d_free_memory_2(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
         const struct vkd3d_memory_allocation *allocation)
 {
-    /* TODO resolve suballocations */
-    vkd3d_memory_allocation_free(allocation, device, allocator);
+    if (allocation->chunk)
+    {
+        pthread_mutex_lock(&allocator->mutex);
+        vkd3d_memory_chunk_free_range(allocation->chunk, allocation);
+
+        if (vkd3d_memory_chunk_is_free(allocation->chunk))
+            vkd3d_memory_allocator_remove_chunk(allocator, device, allocation->chunk);
+        pthread_mutex_unlock(&allocator->mutex);
+    }
+    else
+        vkd3d_memory_allocation_free(allocation, device, allocator);
+}
+
+static HRESULT vkd3d_suballocate_memory(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
+        const struct vkd3d_allocate_memory_info *info, struct vkd3d_memory_allocation *allocation)
+{
+    const VkMemoryPropertyFlags optional_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    VkMemoryRequirements memory_requirements = info->memory_requirements;
+    uint32_t required_mask, optional_mask;
+    VkMemoryPropertyFlags type_flags;
+    HRESULT hr;
+    
+    if (FAILED(hr = vkd3d_select_memory_flags(device, &info->heap_properties, &type_flags)))
+        return hr;
+
+    /* Prefer device-local memory if allowed for this allocation */
+    required_mask = vkd3d_find_memory_types_with_flags(device, type_flags & ~optional_flags);
+    optional_mask = vkd3d_find_memory_types_with_flags(device, type_flags);
+
+    pthread_mutex_lock(&allocator->mutex);
+
+    hr = vkd3d_memory_allocator_try_suballocate_memory(allocator, device,
+            &memory_requirements, optional_mask, &info->heap_properties,
+            info->heap_flags, allocation);
+
+    if (FAILED(hr) && (required_mask & ~optional_mask))
+    {
+        hr = vkd3d_memory_allocator_try_suballocate_memory(allocator, device,
+                &memory_requirements, required_mask & ~optional_mask,
+                &info->heap_properties, info->heap_flags, allocation);
+    }
+
+    pthread_mutex_unlock(&allocator->mutex);
+    return hr;
 }
 
 static HRESULT vkd3d_allocate_memory_2(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
         const struct vkd3d_allocate_memory_info *info, struct vkd3d_memory_allocation *allocation)
 {
-    /* TODO suballocate */
-    return vkd3d_memory_allocation_init(allocation, device, allocator, info);
+    if (!info->pNext && !info->host_ptr && info->memory_requirements.size < VKD3D_VA_BLOCK_SIZE)
+        return vkd3d_suballocate_memory(device, allocator, info, allocation);
+    else
+        return vkd3d_memory_allocation_init(allocation, device, allocator, info);
 }
 
 HRESULT vkd3d_allocate_heap_memory_2(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
@@ -438,7 +778,9 @@ HRESULT vkd3d_allocate_heap_memory_2(struct d3d12_device *device, struct vkd3d_m
     alloc_info.heap_properties = info->heap_desc.Properties;
     alloc_info.heap_flags = info->heap_desc.Flags;
     alloc_info.host_ptr = info->host_ptr;
-    alloc_info.flags = VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER;
+
+    if (!(info->heap_desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
+        alloc_info.flags |= VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER;
 
     return vkd3d_allocate_memory_2(device, allocator, &alloc_info, allocation);
 }

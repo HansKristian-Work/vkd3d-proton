@@ -484,6 +484,8 @@ enum vkd3d_allocation_flag
     VKD3D_ALLOCATION_FLAG_CPU_ACCESS        = (1u << 3),
 };
 
+#define VKD3D_MEMORY_CHUNK_SIZE (VKD3D_VA_BLOCK_SIZE * 16)
+
 struct vkd3d_memory_chunk;
 
 struct vkd3d_allocate_memory_info
@@ -538,6 +540,18 @@ struct vkd3d_memory_allocation
 
     struct vkd3d_memory_chunk *chunk;
 };
+
+static inline void vkd3d_memory_allocation_slice(struct vkd3d_memory_allocation *dst,
+        const struct vkd3d_memory_allocation *src, VkDeviceSize offset, VkDeviceSize size)
+{
+    *dst = *src;
+    dst->offset += offset;
+    dst->resource.size = size;
+    dst->resource.va += offset;
+
+    if (dst->cpu_address)
+        dst->cpu_address = void_ptr_offset(dst->cpu_address, offset);
+}
 
 struct vkd3d_memory_free_range
 {
