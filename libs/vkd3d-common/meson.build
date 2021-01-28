@@ -2,7 +2,8 @@ vkd3d_common_src = [
   'debug.c',
   'memory.c',
   'utf8.c',
-  'profiling.c'
+  'profiling.c',
+  'string.c',
 ]
 
 vkd3d_common_lib = static_library('vkd3d_common', vkd3d_common_src, vkd3d_header_files,
