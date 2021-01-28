@@ -1539,6 +1539,7 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         struct vkd3d_physical_device_info *physical_device_info)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR *acceleration_structure;
     VkPhysicalDeviceBufferDeviceAddressFeaturesKHR *buffer_device_address;
     VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing;
     VkPhysicalDevice physical_device = device->vk_physical_device;
@@ -1600,6 +1601,9 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     descriptor_indexing = &physical_device_info->descriptor_indexing_features;
     descriptor_indexing->shaderInputAttachmentArrayDynamicIndexing = VK_FALSE;
     descriptor_indexing->shaderInputAttachmentArrayNonUniformIndexing = VK_FALSE;
+
+    acceleration_structure = &physical_device_info->acceleration_structure_features;
+    acceleration_structure->accelerationStructureCaptureReplay = VK_FALSE;
 
     if (vulkan_info->EXT_descriptor_indexing && descriptor_indexing
             && (descriptor_indexing->descriptorBindingUniformBufferUpdateAfterBind
