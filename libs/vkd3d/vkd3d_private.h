@@ -2318,6 +2318,8 @@ struct d3d12_device
     struct vkd3d_private_store private_store;
     struct d3d12_caps d3d12_caps;
 
+    struct vkd3d_memory_allocator memory_allocator;
+
     struct vkd3d_scratch_buffer scratch_buffers[VKD3D_SCRATCH_BUFFER_COUNT];
     size_t scratch_buffer_count;
 
