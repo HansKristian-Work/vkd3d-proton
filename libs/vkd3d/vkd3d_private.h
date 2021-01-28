@@ -616,6 +616,22 @@ HRESULT d3d12_heap_create_from_host_pointer(struct d3d12_device *device, void *a
 bool d3d12_heap_needs_host_barrier_for_write(struct d3d12_heap *heap);
 struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface);
 
+struct d3d12_heap_2
+{
+    d3d12_heap_iface ID3D12Heap_iface;
+    LONG refcount;
+
+    D3D12_HEAP_DESC desc;
+    struct vkd3d_memory_allocation allocation;
+
+    struct d3d12_device *device;
+    struct vkd3d_private_store private_store;
+};
+
+HRESULT d3d12_heap_create_2(struct d3d12_device *device, const D3D12_HEAP_DESC *desc,
+        void *host_address, struct d3d12_heap_2 **heap);
+struct d3d12_heap_2 *unsafe_impl_from_ID3D12Heap_2(ID3D12Heap *iface);
+
 #define VKD3D_RESOURCE_EXTERNAL       0x00000004
 #define VKD3D_RESOURCE_DEDICATED_HEAP 0x00000008
 #define VKD3D_RESOURCE_LINEAR_TILING  0x00000010
