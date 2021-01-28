@@ -31,6 +31,7 @@ vkd3d_src = [
   'cache.c',
   'command.c',
   'device.c',
+  'heap.c',
   'memory.c',
   'meta.c',
   'platform.c',
