@@ -571,7 +571,7 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
 {
     struct vkd3d_bindless_state *bindless_state = &root_signature->device->bindless_state;
     struct vkd3d_shader_resource_binding binding;
-    struct d3d12_root_descriptor_table *table;
+    struct vkd3d_shader_descriptor_table *table;
     unsigned int i, j, t, range_count;
     uint32_t range_descriptor_offset;
     bool local_root_signature;
@@ -709,7 +709,7 @@ static HRESULT d3d12_root_signature_init_shader_record_descriptors(
         struct vkd3d_descriptor_set_context *context)
 {
     struct vkd3d_shader_resource_binding *binding;
-    struct d3d12_root_parameter *param;
+    struct vkd3d_shader_root_parameter *param;
     unsigned int i;
 
     for (i = 0; i < desc->NumParameters; ++i)
@@ -750,7 +750,7 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
     VkDescriptorSetLayoutBinding *vk_binding, *vk_binding_info = NULL;
     struct vkd3d_shader_resource_binding *binding;
     VkDescriptorSetLayoutCreateFlags vk_flags;
-    struct d3d12_root_parameter *param;
+    struct vkd3d_shader_root_parameter *param;
     unsigned int i, j;
     HRESULT hr = S_OK;
 
