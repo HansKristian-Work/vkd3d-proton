@@ -435,7 +435,8 @@ struct vkd3d_instance_application_meta
     uint64_t global_flags_remove;
 };
 static const struct vkd3d_instance_application_meta application_override[] = {
-
+    /* MSVC fails to compile empty array. */
+    { NULL, 0, 0 }
 };
 
 static void vkd3d_instance_apply_application_workarounds(const char *app, uint64_t *flags)
@@ -446,7 +447,7 @@ static void vkd3d_instance_apply_application_workarounds(const char *app, uint64
 
     for (i = 0; i < ARRAY_SIZE(application_override); i++)
     {
-        if (!strcmp(app, application_override[i].name))
+        if (application_override[i].name && !strcmp(app, application_override[i].name))
         {
             *flags |= application_override[i].global_flags_add;
             *flags &= ~application_override[i].global_flags_remove;
