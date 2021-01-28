@@ -383,10 +383,13 @@ static HRESULT d3d12_root_signature_info_count_descriptors(struct d3d12_root_sig
 static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_info *info,
         struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC *desc)
 {
+    bool local_root_signature;
     unsigned int i, j;
     HRESULT hr;
 
     memset(info, 0, sizeof(*info));
+
+    local_root_signature = !!(desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
 
     for (i = 0; i < desc->NumParameters; ++i)
     {
@@ -399,11 +402,19 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
                     if (FAILED(hr = d3d12_root_signature_info_count_descriptors(info,
                             device, &p->DescriptorTable.pDescriptorRanges[j])))
                         return hr;
-                info->cost += 1;
+
+                /* Local root signature directly affects memory layout. */
+                if (local_root_signature)
+                    info->cost = (info->cost + 1u) & ~1u;
+                info->cost += local_root_signature ? 2 : 1;
                 break;
 
             case D3D12_ROOT_PARAMETER_TYPE_CBV:
-                if (!(device->bindless_state.flags & VKD3D_RAW_VA_ROOT_DESCRIPTOR_CBV))
+
+                /* Local root signature directly affects memory layout. */
+                if (local_root_signature)
+                    info->cost = (info->cost + 1u) & ~1u;
+                else if (!(device->bindless_state.flags & VKD3D_RAW_VA_ROOT_DESCRIPTOR_CBV))
                     info->push_descriptor_count += 1;
 
                 info->binding_count += 1;
@@ -412,7 +423,10 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
 
             case D3D12_ROOT_PARAMETER_TYPE_SRV:
             case D3D12_ROOT_PARAMETER_TYPE_UAV:
-                if (!(device->bindless_state.flags & VKD3D_RAW_VA_ROOT_DESCRIPTOR_SRV_UAV))
+                /* Local root signature directly affects memory layout. */
+                if (local_root_signature)
+                    info->cost = (info->cost + 1u) & ~1u;
+                else if (!(device->bindless_state.flags & VKD3D_RAW_VA_ROOT_DESCRIPTOR_SRV_UAV))
                     info->push_descriptor_count += 1;
 
                 info->binding_count += 1;
@@ -443,6 +457,35 @@ static bool d3d12_root_signature_parameter_is_raw_va(struct d3d12_root_signature
         return !!(root_signature->device->bindless_state.flags & VKD3D_RAW_VA_ROOT_DESCRIPTOR_SRV_UAV);
     else
         return false;
+}
+
+static HRESULT d3d12_root_signature_init_shader_record_constants(
+        struct d3d12_root_signature *root_signature,
+        const D3D12_ROOT_SIGNATURE_DESC *desc, const struct d3d12_root_signature_info *info)
+{
+    unsigned int i, j;
+
+    for (i = 0, j = 0; i < desc->NumParameters; ++i)
+    {
+        const D3D12_ROOT_PARAMETER *p = &desc->pParameters[i];
+
+        if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS)
+            continue;
+
+        root_signature->parameters[i].parameter_type = p->ParameterType;
+        root_signature->parameters[i].constant.constant_index = j;
+        root_signature->parameters[i].constant.constant_count = p->Constants.Num32BitValues;
+
+        root_signature->root_constants[j].register_space = p->Constants.RegisterSpace;
+        root_signature->root_constants[j].register_index = p->Constants.ShaderRegister;
+        root_signature->root_constants[j].shader_visibility = vkd3d_shader_visibility_from_d3d12(p->ShaderVisibility);
+        root_signature->root_constants[j].offset = 0;
+        root_signature->root_constants[j].size = p->Constants.Num32BitValues * sizeof(uint32_t);
+
+        ++j;
+    }
+
+    return S_OK;
 }
 
 static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signature *root_signature,
@@ -543,6 +586,9 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
     struct d3d12_root_descriptor_table *table;
     unsigned int i, j, t, range_count;
     uint32_t range_descriptor_offset;
+    bool local_root_signature;
+
+    local_root_signature = !!(desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
 
     for (i = 0, t = 0; i < desc->NumParameters; ++i)
     {
@@ -550,7 +596,8 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
         if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
             continue;
 
-        root_signature->descriptor_table_mask |= 1ull << i;
+        if (!local_root_signature)
+            root_signature->descriptor_table_mask |= 1ull << i;
 
         table = &root_signature->parameters[i].descriptor_table;
         range_count = p->DescriptorTable.NumDescriptorRanges;
@@ -558,7 +605,11 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
 
         root_signature->parameters[i].parameter_type = p->ParameterType;
 
-        table->table_index = t++;
+        if (local_root_signature)
+            table->table_index = i;
+        else
+            table->table_index = t++;
+
         table->binding_count = 0;
         table->first_binding = &root_signature->bindings[context->binding_index];
 
@@ -635,6 +686,70 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
         }
 
         context->binding_index += table->binding_count;
+    }
+
+    return S_OK;
+}
+
+static void d3d12_root_signature_init_extra_bindings(struct d3d12_root_signature *root_signature,
+        const struct d3d12_root_signature_info *info)
+{
+    if (info->has_raw_va_uav_counters)
+    {
+        root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_RAW_VA_UAV_COUNTERS;
+
+        vkd3d_bindless_state_find_binding(&root_signature->device->bindless_state,
+                VKD3D_BINDLESS_SET_EXTRA_UAV_COUNTER_BUFFER,
+                &root_signature->uav_counter_binding);
+    }
+
+    if (info->has_ssbo_offset_buffer || info->has_typed_offset_buffer)
+    {
+        if (info->has_ssbo_offset_buffer)
+            root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER;
+        if (info->has_typed_offset_buffer)
+            root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER;
+
+        vkd3d_bindless_state_find_binding(&root_signature->device->bindless_state,
+                VKD3D_BINDLESS_SET_EXTRA_OFFSET_BUFFER,
+                &root_signature->offset_buffer_binding);
+    }
+}
+
+static HRESULT d3d12_root_signature_init_shader_record_descriptors(
+        struct d3d12_root_signature *root_signature,
+        const D3D12_ROOT_SIGNATURE_DESC *desc, const struct d3d12_root_signature_info *info,
+        struct vkd3d_descriptor_set_context *context)
+{
+    struct vkd3d_shader_resource_binding *binding;
+    struct d3d12_root_parameter *param;
+    unsigned int i;
+
+    for (i = 0; i < desc->NumParameters; ++i)
+    {
+        const D3D12_ROOT_PARAMETER *p = &desc->pParameters[i];
+
+        if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_CBV
+            && p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_SRV
+            && p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_UAV)
+            continue;
+
+        binding = &root_signature->bindings[context->binding_index];
+        binding->type = vkd3d_descriptor_type_from_d3d12_root_parameter_type(p->ParameterType);
+        binding->register_space = p->Descriptor.RegisterSpace;
+        binding->register_index = p->Descriptor.ShaderRegister;
+        binding->register_count = 1;
+        binding->descriptor_table = 0;  /* ignored */
+        binding->descriptor_offset = 0; /* ignored */
+        binding->shader_visibility = vkd3d_shader_visibility_from_d3d12(p->ShaderVisibility);
+        binding->flags = VKD3D_SHADER_BINDING_FLAG_BUFFER;
+        binding->binding.binding = 0; /* ignored */
+        binding->binding.set = 0; /* ignored */
+        binding->flags |= VKD3D_SHADER_BINDING_FLAG_RAW_VA;
+
+        param = &root_signature->parameters[i];
+        param->parameter_type = p->ParameterType;
+        param->descriptor.binding = binding;
     }
 
     return S_OK;
@@ -802,7 +917,69 @@ cleanup:
     return hr;
 }
 
-static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signature,
+static HRESULT d3d12_root_signature_init_local(struct d3d12_root_signature *root_signature,
+        struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC *desc)
+{
+    /* Local root signatures map to the ShaderRecordBufferKHR. */
+    struct vkd3d_descriptor_set_context context;
+    struct d3d12_root_signature_info info;
+    HRESULT hr;
+
+    memset(&context, 0, sizeof(context));
+
+    if (desc->NumStaticSamplers)
+    {
+        /* TODO: This is supposed to work, but all static samplers must match for
+         * all static samplers in a pipeline.
+         * Need to either use two split immutable sampler sets,
+         * or combine immutable sample set in pipeline compilation. */
+        FIXME("Unsupported static samplers in local root signature.\n");
+        return E_INVALIDARG;
+    }
+
+    if (FAILED(hr = d3d12_root_signature_info_from_desc(&info, device, desc)))
+        return hr;
+
+#define D3D12_MAX_SHADER_RECORD_SIZE 4096
+    if (info.cost * 4 + D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES > D3D12_MAX_SHADER_RECORD_SIZE)
+    {
+        ERR("Local root signature is too large.\n");
+        hr = E_INVALIDARG;
+        goto fail;
+    }
+
+    hr = E_OUTOFMEMORY;
+    root_signature->parameter_count = desc->NumParameters;
+    if (!(root_signature->parameters = vkd3d_calloc(root_signature->parameter_count,
+            sizeof(*root_signature->parameters))))
+        return hr;
+    if (!(root_signature->bindings = vkd3d_calloc(root_signature->binding_count,
+            sizeof(*root_signature->bindings))))
+        return hr;
+    root_signature->root_constant_count = info.root_constant_count;
+    if (!(root_signature->root_constants = vkd3d_calloc(root_signature->root_constant_count,
+            sizeof(*root_signature->root_constants))))
+        return hr;
+
+    d3d12_root_signature_init_extra_bindings(root_signature, &info);
+
+    if (FAILED(hr = d3d12_root_signature_init_shader_record_constants(root_signature, desc, &info)))
+        return hr;
+    if (FAILED(hr = d3d12_root_signature_init_shader_record_descriptors(root_signature, desc, &info, &context)))
+        return hr;
+    if (FAILED(hr = d3d12_root_signature_init_root_descriptor_tables(root_signature, desc, &info, &context)))
+        return hr;
+
+    if (FAILED(hr = vkd3d_private_store_init(&root_signature->private_store)))
+        goto fail;
+
+    return S_OK;
+
+fail:
+    return hr;
+}
+
+static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *root_signature,
         struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC *desc)
 {
     const VkPhysicalDeviceProperties *vk_device_properties = &device->device_info.properties2.properties;
@@ -814,11 +991,6 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     HRESULT hr;
 
     memset(&context, 0, sizeof(context));
-    memset(root_signature, 0, sizeof(*root_signature));
-    root_signature->ID3D12RootSignature_iface.lpVtbl = &d3d12_root_signature_vtbl;
-    root_signature->refcount = 1;
-
-    root_signature->d3d12_flags = desc->Flags;
 
     if (desc->Flags & ~(D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT
             | D3D12_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT))
@@ -833,8 +1005,6 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
         return E_INVALIDARG;
     }
 
-    /* needed by some methods, increment ref count later */
-    root_signature->device = device;
     root_signature->binding_count = info.binding_count;
     root_signature->static_sampler_count = desc->NumStaticSamplers;
 
@@ -842,24 +1012,24 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     root_signature->parameter_count = desc->NumParameters;
     if (!(root_signature->parameters = vkd3d_calloc(root_signature->parameter_count,
             sizeof(*root_signature->parameters))))
-        goto fail;
+        return hr;
     if (!(root_signature->bindings = vkd3d_calloc(root_signature->binding_count,
             sizeof(*root_signature->bindings))))
-        goto fail;
+        return hr;
     root_signature->root_constant_count = info.root_constant_count;
     if (!(root_signature->root_constants = vkd3d_calloc(root_signature->root_constant_count,
             sizeof(*root_signature->root_constants))))
-        goto fail;
+        return hr;
     if (!(root_signature->static_samplers = vkd3d_calloc(root_signature->static_sampler_count,
             sizeof(*root_signature->static_samplers))))
-        goto fail;
+        return hr;
 
     for (i = 0; i < bindless_state->set_count; i++)
         set_layouts[context.vk_set++] = bindless_state->set_info[i].vk_set_layout;
 
     if (FAILED(hr = d3d12_root_signature_init_static_samplers(root_signature, desc,
                 &context, &root_signature->vk_sampler_descriptor_layout)))
-        goto fail;
+        return hr;
 
     if (root_signature->vk_sampler_descriptor_layout)
     {
@@ -873,7 +1043,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
 
     if (FAILED(hr = d3d12_root_signature_init_push_constants(root_signature, desc, &info,
             &root_signature->push_constant_range)))
-        goto fail;
+        return hr;
 
     if (root_signature->push_constant_range.size <= vk_device_properties->limits.maxPushConstantsSize)
     {
@@ -891,34 +1061,15 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     {
         ERR("Root signature requires %d bytes of push constant space, but device only supports %d bytes.\n",
                 root_signature->push_constant_range.size, vk_device_properties->limits.maxPushConstantsSize);
-        goto fail;
+        return hr;
     }
 
-    if (info.has_raw_va_uav_counters)
-    {
-        root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_RAW_VA_UAV_COUNTERS;
-
-        vkd3d_bindless_state_find_binding(&device->bindless_state,
-                VKD3D_BINDLESS_SET_EXTRA_UAV_COUNTER_BUFFER,
-                &root_signature->uav_counter_binding);
-    }
-
-    if (info.has_ssbo_offset_buffer || info.has_typed_offset_buffer)
-    {
-        if (info.has_ssbo_offset_buffer)
-            root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER;
-        if (info.has_typed_offset_buffer)
-            root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER;
-
-        vkd3d_bindless_state_find_binding(&device->bindless_state,
-                VKD3D_BINDLESS_SET_EXTRA_OFFSET_BUFFER,
-                &root_signature->offset_buffer_binding);
-    }
+    d3d12_root_signature_init_extra_bindings(root_signature, &info);
 
     if (FAILED(hr = d3d12_root_signature_init_root_descriptors(root_signature, desc,
                 &info, &root_signature->push_constant_range, &context,
                 &root_signature->vk_root_descriptor_layout)))
-        goto fail;
+        return hr;
 
     if (root_signature->vk_root_descriptor_layout)
     {
@@ -931,7 +1082,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     }
 
     if (FAILED(hr = d3d12_root_signature_init_root_descriptor_tables(root_signature, desc, &info, &context)))
-        goto fail;
+        return hr;
 
     push_constant_range_count = 0;
 
@@ -942,12 +1093,38 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     if (FAILED(hr = vkd3d_create_pipeline_layout(device, context.vk_set, set_layouts,
             push_constant_range_count, &root_signature->push_constant_range,
             &root_signature->vk_pipeline_layout)))
+        return hr;
+
+    return S_OK;
+}
+
+static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signature,
+        struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC *desc)
+{
+    HRESULT hr;
+
+    memset(root_signature, 0, sizeof(*root_signature));
+    root_signature->ID3D12RootSignature_iface.lpVtbl = &d3d12_root_signature_vtbl;
+    root_signature->refcount = 1;
+
+    root_signature->d3d12_flags = desc->Flags;
+    /* needed by some methods, increment ref count later */
+    root_signature->device = device;
+
+    if (desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE)
+        hr = d3d12_root_signature_init_local(root_signature, device, desc);
+    else
+        hr = d3d12_root_signature_init_global(root_signature, device, desc);
+
+    if (FAILED(hr))
         goto fail;
 
     if (FAILED(hr = vkd3d_private_store_init(&root_signature->private_store)))
         goto fail;
 
-    d3d12_device_add_ref(root_signature->device);
+    if (SUCCEEDED(hr))
+        d3d12_device_add_ref(root_signature->device);
+
     return S_OK;
 
 fail:
