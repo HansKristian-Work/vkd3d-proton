@@ -805,35 +805,6 @@ enum vkd3d_root_signature_flag
     VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER    = 0x00000010u,
 };
 
-struct d3d12_root_descriptor_table
-{
-    uint32_t table_index;
-    uint32_t binding_count;
-    struct vkd3d_shader_resource_binding *first_binding;
-};
-
-struct d3d12_root_constant
-{
-    uint32_t constant_index;
-    uint32_t constant_count;
-};
-
-struct d3d12_root_descriptor
-{
-    struct vkd3d_shader_resource_binding *binding;
-};
-
-struct d3d12_root_parameter
-{
-    D3D12_ROOT_PARAMETER_TYPE parameter_type;
-    union
-    {
-        struct d3d12_root_constant constant;
-        struct d3d12_root_descriptor descriptor;
-        struct d3d12_root_descriptor_table descriptor_table;
-    };
-};
-
 /* ID3D12RootSignature */
 struct d3d12_root_signature
 {
@@ -847,7 +818,7 @@ struct d3d12_root_signature
     VkDescriptorPool vk_sampler_pool;
     VkDescriptorSet vk_sampler_set;
 
-    struct d3d12_root_parameter *parameters;
+    struct vkd3d_shader_root_parameter *parameters;
     unsigned int parameter_count;
 
     uint32_t sampler_descriptor_set;

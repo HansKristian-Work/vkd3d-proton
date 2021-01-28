@@ -528,33 +528,33 @@ HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
     return S_OK;
 }
 
-static const struct d3d12_root_parameter *root_signature_get_parameter(
+static const struct vkd3d_shader_root_parameter *root_signature_get_parameter(
         const struct d3d12_root_signature *root_signature, unsigned int index)
 {
     assert(index < root_signature->parameter_count);
     return &root_signature->parameters[index];
 }
 
-static const struct d3d12_root_descriptor_table *root_signature_get_descriptor_table(
+static const struct vkd3d_shader_descriptor_table *root_signature_get_descriptor_table(
         const struct d3d12_root_signature *root_signature, unsigned int index)
 {
-    const struct d3d12_root_parameter *p = root_signature_get_parameter(root_signature, index);
+    const struct vkd3d_shader_root_parameter *p = root_signature_get_parameter(root_signature, index);
     assert(p->parameter_type == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE);
     return &p->descriptor_table;
 }
 
-static const struct d3d12_root_constant *root_signature_get_32bit_constants(
+static const struct vkd3d_shader_root_constant *root_signature_get_32bit_constants(
         const struct d3d12_root_signature *root_signature, unsigned int index)
 {
-    const struct d3d12_root_parameter *p = root_signature_get_parameter(root_signature, index);
+    const struct vkd3d_shader_root_parameter *p = root_signature_get_parameter(root_signature, index);
     assert(p->parameter_type == D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS);
     return &p->constant;
 }
 
-static const struct d3d12_root_parameter *root_signature_get_root_descriptor(
+static const struct vkd3d_shader_root_parameter *root_signature_get_root_descriptor(
         const struct d3d12_root_signature *root_signature, unsigned int index)
 {
-    const struct d3d12_root_parameter *p = root_signature_get_parameter(root_signature, index);
+    const struct vkd3d_shader_root_parameter *p = root_signature_get_parameter(root_signature, index);
     assert(p->parameter_type == D3D12_ROOT_PARAMETER_TYPE_CBV
         || p->parameter_type == D3D12_ROOT_PARAMETER_TYPE_SRV
         || p->parameter_type == D3D12_ROOT_PARAMETER_TYPE_UAV);
@@ -4126,7 +4126,7 @@ static void d3d12_command_list_update_descriptor_table_offsets(struct d3d12_comm
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    const struct d3d12_root_descriptor_table *table;
+    const struct vkd3d_shader_descriptor_table *table;
     const struct d3d12_desc *base_descriptor;
     uint32_t table_offsets[D3D12_MAX_ROOT_COST];
     unsigned int root_parameter_index;
@@ -4156,7 +4156,7 @@ static void d3d12_command_list_update_descriptor_table_offsets(struct d3d12_comm
 }
 
 static bool vk_write_descriptor_set_from_root_descriptor(struct d3d12_command_list *list,
-        VkWriteDescriptorSet *vk_descriptor_write, const struct d3d12_root_parameter *root_parameter,
+        VkWriteDescriptorSet *vk_descriptor_write, const struct vkd3d_shader_root_parameter *root_parameter,
         VkDescriptorSet vk_descriptor_set, const struct vkd3d_root_descriptor_info *descriptor)
 {
     bool is_buffer, is_defined;
@@ -4242,7 +4242,7 @@ static void d3d12_command_list_update_root_constants(struct d3d12_command_list *
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    const struct d3d12_root_constant *root_constant;
+    const struct vkd3d_shader_root_constant *root_constant;
     unsigned int root_parameter_index;
 
     while (bindings->root_constant_dirty_mask)
@@ -4290,9 +4290,9 @@ static void d3d12_command_list_fetch_inline_uniform_block_data(struct d3d12_comm
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     uint64_t root_constant_mask = root_signature->root_constant_mask;
+    const struct vkd3d_shader_root_constant *root_constant;
     const uint32_t *src_data = bindings->root_constants;
-    const struct d3d12_root_descriptor_table *table;
-    const struct d3d12_root_constant *root_constant;
+    const struct vkd3d_shader_descriptor_table *table;
     const struct d3d12_desc *base_descriptor;
     unsigned int root_parameter_index;
     uint64_t descriptor_table_mask;
@@ -4336,7 +4336,7 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkWriteDescriptorSetInlineUniformBlockEXT inline_uniform_block_write;
     VkWriteDescriptorSet descriptor_writes[D3D12_MAX_ROOT_COST / 2 + 2];
-    const struct d3d12_root_parameter *root_parameter;
+    const struct vkd3d_shader_root_parameter *root_parameter;
     VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
     union root_parameter_data root_parameter_data;
     unsigned int descriptor_write_count = 0;
@@ -6250,7 +6250,7 @@ static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *l
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
-    const struct d3d12_root_descriptor_table *table;
+    const struct vkd3d_shader_descriptor_table *table;
 
     table = root_signature_get_descriptor_table(root_signature, index);
 
@@ -6292,7 +6292,7 @@ static void d3d12_command_list_set_root_constants(struct d3d12_command_list *lis
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
-    const struct d3d12_root_constant *c;
+    const struct vkd3d_shader_root_constant *c;
 
     c = root_signature_get_32bit_constants(root_signature, index);
     memcpy(&bindings->root_constants[c->constant_index + offset], data, count * sizeof(uint32_t));
@@ -6355,7 +6355,7 @@ static void d3d12_command_list_set_push_descriptor_info(struct d3d12_command_lis
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct vkd3d_vulkan_info *vk_info = &list->device->vk_info;
-    const struct d3d12_root_parameter *root_parameter;
+    const struct vkd3d_shader_root_parameter *root_parameter;
     struct vkd3d_root_descriptor_info *descriptor;
     struct d3d12_resource *resource;
     VkBufferView vk_buffer_view;

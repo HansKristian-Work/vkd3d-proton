@@ -24,6 +24,7 @@
 #include <stddef.h>
 #include <hashmap.h>
 #include <vkd3d_types.h>
+#include <vkd3d_d3d12.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -210,6 +211,43 @@ struct vkd3d_shader_interface_info
     const struct vkd3d_shader_descriptor_binding *push_constant_ubo_binding;
     /* Ignored unless VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER or TYPED_OFFSET_BUFFER is set */
     const struct vkd3d_shader_descriptor_binding *offset_buffer_binding;
+};
+
+struct vkd3d_shader_descriptor_table
+{
+    uint32_t table_index;
+    uint32_t binding_count;
+    struct vkd3d_shader_resource_binding *first_binding;
+};
+
+struct vkd3d_shader_root_constant
+{
+    uint32_t constant_index;
+    uint32_t constant_count;
+};
+
+struct vkd3d_shader_root_descriptor
+{
+    struct vkd3d_shader_resource_binding *binding;
+};
+
+struct vkd3d_shader_root_parameter
+{
+    D3D12_ROOT_PARAMETER_TYPE parameter_type;
+    union
+    {
+        struct vkd3d_shader_root_constant constant;
+        struct vkd3d_shader_root_descriptor descriptor;
+        struct vkd3d_shader_descriptor_table descriptor_table;
+    };
+};
+
+struct vkd3d_shader_interface_local_info
+{
+    const struct vkd3d_shader_root_parameter *local_root_parameters;
+    unsigned int local_root_parameter_count;
+    const struct vkd3d_shader_push_constant_buffer *shader_record_constant_buffers;
+    unsigned int shader_record_buffer_count;
 };
 
 struct vkd3d_shader_transform_feedback_element
