@@ -19,6 +19,8 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_SHADER
 
 #include "vkd3d_shader_private.h"
+#include "vkd3d_utf8.h"
+#include "vkd3d_string.h"
 #include <inttypes.h>
 #include <stdio.h>
 #include <dxil_spirv_c.h>
@@ -62,6 +64,10 @@ static unsigned dxil_resource_flags_from_kind(dxil_spv_resource_kind kind, bool 
         case DXIL_SPV_RESOURCE_KIND_TYPED_BUFFER:
             return VKD3D_SHADER_BINDING_FLAG_BUFFER;
 
+        case DXIL_SPV_RESOURCE_KIND_RT_ACCELERATION_STRUCTURE:
+            /* Acceleration structures use aux buffer to store raw AS pointers. */
+            return VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER;
+
         default:
             return VKD3D_SHADER_BINDING_FLAG_IMAGE;
     }
@@ -90,6 +96,7 @@ static bool vkd3d_shader_binding_is_root_descriptor(const struct vkd3d_shader_re
 struct vkd3d_dxil_remap_userdata
 {
     const struct vkd3d_shader_interface_info *shader_interface_info;
+    const struct vkd3d_shader_interface_local_info *shader_interface_local_info;
     unsigned int num_root_descriptors;
 };
 
@@ -145,6 +152,10 @@ static dxil_spv_bool dxil_remap_inner(
                     return DXIL_SPV_FALSE;
                 }
                 vk_binding->root_constant_index -= 2 * remap->num_root_descriptors;
+
+                /* Acceleration structures are mapped to SSBO uvec2[] array instead of normal heap. */
+                if (d3d_binding->kind == DXIL_SPV_RESOURCE_KIND_RT_ACCELERATION_STRUCTURE)
+                    vk_binding->descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO;
             }
             else
             {
@@ -166,17 +177,37 @@ static dxil_spv_bool dxil_remap(const struct vkd3d_dxil_remap_userdata *remap,
         enum vkd3d_shader_descriptor_type descriptor_type, const struct dxil_spv_d3d_binding *d3d_binding,
         struct dxil_spv_vulkan_binding *vk_binding, unsigned int resource_flags)
 {
+    const struct vkd3d_shader_interface_local_info *shader_interface_local_info;
     const struct vkd3d_shader_interface_info *shader_interface_info;
     struct vkd3d_dxil_remap_info remap_info;
 
     shader_interface_info = remap->shader_interface_info;
+    shader_interface_local_info = remap->shader_interface_local_info;
 
     remap_info.bindings = shader_interface_info->bindings;
     remap_info.binding_count = shader_interface_info->binding_count;
     remap_info.descriptor_table_offset_words = shader_interface_info->descriptor_tables.offset / sizeof(uint32_t);
     remap_info.num_root_descriptors = remap->num_root_descriptors;
 
-    return dxil_remap_inner(&remap_info, descriptor_type, d3d_binding, vk_binding, resource_flags);
+    if (!dxil_remap_inner(&remap_info, descriptor_type, d3d_binding, vk_binding, resource_flags))
+    {
+        if (shader_interface_local_info)
+        {
+            /* This fallback is relevant only so that we can report
+             * set/binding for bindless record buffer TABLE descriptor.
+             * Root descriptor and constants are resolved internally in dxil-spirv. */
+            remap_info.bindings = shader_interface_local_info->bindings;
+            remap_info.binding_count = shader_interface_local_info->binding_count;
+            /* Not relevant. */
+            remap_info.descriptor_table_offset_words = 0;
+            remap_info.num_root_descriptors = 0;
+            return dxil_remap_inner(&remap_info, descriptor_type, d3d_binding, vk_binding, resource_flags);
+        }
+        else
+            return DXIL_SPV_FALSE;
+    }
+    else
+        return DXIL_SPV_TRUE;
 }
 
 static dxil_spv_bool dxil_srv_remap(void *userdata, const dxil_spv_d3d_binding *d3d_binding,
@@ -662,6 +693,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     }
 
     remap_userdata.shader_interface_info = shader_interface_info;
+    remap_userdata.shader_interface_local_info = NULL;
     remap_userdata.num_root_descriptors = num_root_descriptors;
 
     dxil_spv_converter_set_root_constant_word_count(converter, root_constant_words);
@@ -708,3 +740,482 @@ end:
     return ret;
 }
 
+int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
+        const char *export,
+        struct vkd3d_shader_code *spirv,
+        const struct vkd3d_shader_interface_info *shader_interface_info,
+        const struct vkd3d_shader_interface_local_info *shader_interface_local_info,
+        const struct vkd3d_shader_compile_arguments *compiler_args)
+{
+    const struct vkd3d_shader_push_constant_buffer *record_constant_buffer;
+    const struct vkd3d_shader_resource_binding *resource_binding;
+    const struct vkd3d_shader_root_parameter *root_parameter;
+    struct vkd3d_dxil_remap_userdata remap_userdata;
+    unsigned int non_raw_va_binding_count = 0;
+    unsigned int raw_va_binding_count = 0;
+    unsigned int num_root_descriptors = 0;
+    unsigned int root_constant_words = 0;
+    dxil_spv_converter converter = NULL;
+    dxil_spv_parsed_blob blob = NULL;
+    dxil_spv_compiled_spirv compiled;
+    unsigned int i, j, max_size;
+    vkd3d_shader_hash_t hash;
+    int ret = VKD3D_OK;
+    void *code;
+
+    dxil_spv_set_thread_log_callback(vkd3d_dxil_log_callback, NULL);
+
+    hash = vkd3d_shader_hash(dxil);
+    spirv->meta.replaced = false;
+    spirv->meta.hash = hash;
+
+    /* TODO: Probably need to add per-export shader replacement. */
+
+    dxil_spv_begin_thread_allocator_context();
+
+    vkd3d_shader_dump_shader(hash, dxil, "lib.dxil");
+
+    if (dxil_spv_parse_dxil_blob(dxil->code, dxil->size, &blob) != DXIL_SPV_SUCCESS)
+    {
+        ret = VKD3D_ERROR_INVALID_SHADER;
+        goto end;
+    }
+
+    if (dxil_spv_create_converter(blob, &converter) != DXIL_SPV_SUCCESS)
+    {
+        ret = VKD3D_ERROR_INVALID_SHADER;
+        goto end;
+    }
+
+    /* Figure out how many words we need for push constants. */
+    for (i = 0; i < shader_interface_info->push_constant_buffer_count; i++)
+    {
+        max_size = shader_interface_info->push_constant_buffers[i].offset +
+                   shader_interface_info->push_constant_buffers[i].size;
+        max_size = (max_size + 3) / 4;
+        if (max_size > root_constant_words)
+            root_constant_words = max_size;
+    }
+
+    max_size = shader_interface_info->descriptor_tables.offset / sizeof(uint32_t) +
+               shader_interface_info->descriptor_tables.count;
+    if (max_size > root_constant_words)
+        root_constant_words = max_size;
+
+    for (i = 0; i < shader_interface_info->binding_count; i++)
+    {
+        /* Bindless UAV counters are implemented as physical storage buffer pointers.
+         * For simplicity, dxil-spirv only accepts either fully RAW VA, or all non-raw VA. */
+        if ((shader_interface_info->bindings[i].flags &
+             (VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER | VKD3D_SHADER_BINDING_FLAG_BINDLESS)) ==
+            (VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER | VKD3D_SHADER_BINDING_FLAG_BINDLESS))
+        {
+            if (shader_interface_info->bindings[i].flags & VKD3D_SHADER_BINDING_FLAG_RAW_VA)
+                raw_va_binding_count++;
+            else
+                non_raw_va_binding_count++;
+        }
+
+        if (vkd3d_shader_binding_is_root_descriptor(&shader_interface_info->bindings[i]))
+            num_root_descriptors++;
+    }
+
+    /* Push local root parameters. We cannot rely on callbacks here
+     * since the local root signature has a physical layout in ShaderRecordKHR
+     * which needs to be precisely specified up front. */
+    for (i = 0; i < shader_interface_local_info->local_root_parameter_count; i++)
+    {
+        root_parameter = &shader_interface_local_info->local_root_parameters[i];
+        switch (root_parameter->parameter_type)
+        {
+            case D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
+                record_constant_buffer =
+                        &shader_interface_local_info->shader_record_constant_buffers[root_parameter->constant.constant_index];
+                dxil_spv_converter_add_local_root_constants(converter,
+                        record_constant_buffer->register_space, record_constant_buffer->register_index,
+                        root_parameter->constant.constant_count);
+                break;
+
+            case D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+                if (dxil_spv_converter_begin_local_root_descriptor_table(converter) != DXIL_SPV_SUCCESS)
+                {
+                    ret = VKD3D_ERROR_INVALID_ARGUMENT;
+                    goto end;
+                }
+
+                for (j = 0; j < root_parameter->descriptor_table.binding_count; j++)
+                {
+                    dxil_spv_resource_class resource_class;
+                    resource_binding = &root_parameter->descriptor_table.first_binding[j];
+
+                    switch (resource_binding->type)
+                    {
+                        case VKD3D_SHADER_DESCRIPTOR_TYPE_CBV:
+                            resource_class = DXIL_SPV_RESOURCE_CLASS_CBV;
+                            break;
+
+                        case VKD3D_SHADER_DESCRIPTOR_TYPE_SRV:
+                            resource_class = DXIL_SPV_RESOURCE_CLASS_SRV;
+                            break;
+
+                        case VKD3D_SHADER_DESCRIPTOR_TYPE_UAV:
+                            resource_class = DXIL_SPV_RESOURCE_CLASS_UAV;
+                            break;
+
+                        case VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER:
+                            resource_class = DXIL_SPV_RESOURCE_CLASS_SAMPLER;
+                            break;
+
+                        default:
+                            ret = VKD3D_ERROR_INVALID_ARGUMENT;
+                            goto end;
+                    }
+
+                    dxil_spv_converter_add_local_root_descriptor_table(converter,
+                            resource_class,
+                            resource_binding->register_space, resource_binding->register_index,
+                            resource_binding->register_count, resource_binding->descriptor_offset);
+                }
+
+                if (dxil_spv_converter_end_local_root_descriptor_table(converter) != DXIL_SPV_SUCCESS)
+                {
+                    ret = VKD3D_ERROR_INVALID_ARGUMENT;
+                    goto end;
+                }
+                break;
+
+            case D3D12_ROOT_PARAMETER_TYPE_CBV:
+                dxil_spv_converter_add_local_root_descriptor(converter,
+                        DXIL_SPV_RESOURCE_CLASS_CBV, root_parameter->descriptor.binding->register_space,
+                        root_parameter->descriptor.binding->register_index);
+                break;
+
+            case D3D12_ROOT_PARAMETER_TYPE_SRV:
+                dxil_spv_converter_add_local_root_descriptor(converter,
+                        DXIL_SPV_RESOURCE_CLASS_SRV, root_parameter->descriptor.binding->register_space,
+                        root_parameter->descriptor.binding->register_index);
+                break;
+
+            case D3D12_ROOT_PARAMETER_TYPE_UAV:
+                dxil_spv_converter_add_local_root_descriptor(converter,
+                        DXIL_SPV_RESOURCE_CLASS_UAV, root_parameter->descriptor.binding->register_space,
+                        root_parameter->descriptor.binding->register_index);
+                break;
+
+            default:
+                ret = VKD3D_ERROR_INVALID_ARGUMENT;
+                goto end;
+        }
+    }
+
+    if (raw_va_binding_count && non_raw_va_binding_count)
+    {
+        ERR("dxil-spirv currently cannot mix and match bindless UAV counters with RAW VA and texel buffer.\n");
+        ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+        goto end;
+    }
+
+    /* Root constants come after root descriptors. Offset the counts. */
+    if (root_constant_words < num_root_descriptors * 2)
+        root_constant_words = num_root_descriptors * 2;
+    root_constant_words -= num_root_descriptors * 2;
+
+    {
+        const struct dxil_spv_option_ssbo_alignment helper =
+                { { DXIL_SPV_OPTION_SSBO_ALIGNMENT }, shader_interface_info->min_ssbo_alignment };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support SSBO_ALIGNMENT.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
+    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_PUSH_CONSTANTS_AS_UNIFORM_BUFFER)
+    {
+        const struct dxil_spv_option_root_constant_inline_uniform_block helper =
+                { { DXIL_SPV_OPTION_ROOT_CONSTANT_INLINE_UNIFORM_BLOCK },
+                  shader_interface_info->push_constant_ubo_binding->set,
+                  shader_interface_info->push_constant_ubo_binding->binding,
+                  DXIL_SPV_TRUE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support PUSH_CONSTANTS_AS_UNIFORM_BUFFER.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
+    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_BINDLESS_CBV_AS_STORAGE_BUFFER)
+    {
+        static const struct dxil_spv_option_bindless_cbv_ssbo_emulation helper =
+                { { DXIL_SPV_OPTION_BINDLESS_CBV_SSBO_EMULATION },
+                  DXIL_SPV_TRUE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support BINDLESS_CBV_AS_STORAGE_BUFFER.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
+    /* BDA is mandatory for RT. */
+    {
+        const struct dxil_spv_option_physical_storage_buffer helper =
+                { { DXIL_SPV_OPTION_PHYSICAL_STORAGE_BUFFER }, DXIL_SPV_TRUE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support PHYSICAL_STORAGE_BUFFER.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
+    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER)
+    {
+        const struct dxil_spv_option_bindless_typed_buffer_offsets helper =
+                { { DXIL_SPV_OPTION_BINDLESS_TYPED_BUFFER_OFFSETS },
+                  DXIL_SPV_TRUE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support BINDLESS_TYPED_BUFFER_OFFSETS.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
+    {
+        const struct dxil_spv_option_bindless_offset_buffer_layout helper =
+                { { DXIL_SPV_OPTION_BINDLESS_OFFSET_BUFFER_LAYOUT },
+                  0, 1, 2 };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support BINDLESS_OFFSET_BUFFER_LAYOUT.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
+    {
+        char buffer[1024];
+        const struct dxil_spv_option_shader_source_file helper =
+                { { DXIL_SPV_OPTION_SHADER_SOURCE_FILE }, buffer };
+
+        snprintf(buffer, sizeof(buffer), "%016"PRIx64".%s.dxil", spirv->meta.hash, export);
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+            WARN("dxil-spirv does not support SHADER_SOURCE_FILE.\n");
+    }
+
+    if (compiler_args)
+    {
+        for (i = 0; i < compiler_args->target_extension_count; i++)
+        {
+            if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_READ_STORAGE_IMAGE_WITHOUT_FORMAT)
+            {
+                static const dxil_spv_option_typed_uav_read_without_format helper =
+                        { { DXIL_SPV_OPTION_TYPED_UAV_READ_WITHOUT_FORMAT }, DXIL_SPV_TRUE };
+                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support TYPED_UAV_READ_WITHOUT_FORMAT.\n");
+                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+                    goto end;
+                }
+            }
+        }
+    }
+
+    dxil_spv_converter_set_entry_point(converter, export);
+
+    remap_userdata.shader_interface_info = shader_interface_info;
+    remap_userdata.shader_interface_local_info = shader_interface_local_info;
+    remap_userdata.num_root_descriptors = num_root_descriptors;
+
+    dxil_spv_converter_set_root_constant_word_count(converter, root_constant_words);
+    dxil_spv_converter_set_root_descriptor_count(converter, num_root_descriptors);
+    dxil_spv_converter_set_srv_remapper(converter, dxil_srv_remap, &remap_userdata);
+    dxil_spv_converter_set_sampler_remapper(converter, dxil_sampler_remap, &remap_userdata);
+    dxil_spv_converter_set_uav_remapper(converter, dxil_uav_remap, &remap_userdata);
+    dxil_spv_converter_set_cbv_remapper(converter, dxil_cbv_remap, &remap_userdata);
+
+    if (dxil_spv_converter_run(converter) != DXIL_SPV_SUCCESS)
+    {
+        ret = VKD3D_ERROR_INVALID_SHADER;
+        goto end;
+    }
+
+    if (dxil_spv_converter_get_compiled_spirv(converter, &compiled) != DXIL_SPV_SUCCESS)
+    {
+        ret = VKD3D_ERROR_INVALID_SHADER;
+        goto end;
+    }
+
+    if (!(code = vkd3d_malloc(compiled.size)))
+    {
+        ret = VKD3D_ERROR_OUT_OF_MEMORY;
+        goto end;
+    }
+
+    memcpy(code, compiled.data, compiled.size);
+    spirv->code = code;
+    spirv->size = compiled.size;
+
+    vkd3d_shader_dump_spirv_shader(hash, spirv);
+
+end:
+    dxil_spv_converter_free(converter);
+    dxil_spv_parsed_blob_free(blob);
+    dxil_spv_end_thread_allocator_context();
+    return ret;
+}
+
+void vkd3d_shader_dxil_free_library_entry_points(struct vkd3d_shader_library_entry_point *entry_points, size_t count)
+{
+    size_t i;
+    for (i = 0; i < count; i++)
+    {
+        vkd3d_free(entry_points[i].mangled_entry_point);
+        vkd3d_free(entry_points[i].plain_entry_point);
+        vkd3d_free(entry_points[i].real_entry_point);
+    }
+
+    vkd3d_free(entry_points);
+}
+
+static VkShaderStageFlagBits convert_stage(dxil_spv_shader_stage stage)
+{
+    /* Only interested in RT stages. There is no way yet to use lib_6_3+ for non-RT. */
+    switch (stage)
+    {
+        case DXIL_SPV_STAGE_RAY_GENERATION:
+            return VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+        case DXIL_SPV_STAGE_CLOSEST_HIT:
+            return VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+        case DXIL_SPV_STAGE_MISS:
+            return VK_SHADER_STAGE_MISS_BIT_KHR;
+        case DXIL_SPV_STAGE_CALLABLE:
+            return VK_SHADER_STAGE_CALLABLE_BIT_KHR;
+        case DXIL_SPV_STAGE_INTERSECTION:
+            return VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
+        default:
+            return VK_SHADER_STAGE_ALL;
+    }
+}
+
+static bool vkd3d_dxil_build_entry(struct vkd3d_shader_library_entry_point *entry,
+        unsigned int identifier,
+        const char *mangled_name, dxil_spv_shader_stage stage)
+{
+    entry->identifier = identifier;
+    entry->mangled_entry_point = vkd3d_dup_entry_point(mangled_name);
+    if (!entry->mangled_entry_point)
+        return false;
+
+    entry->plain_entry_point = vkd3d_dup_demangled_entry_point(mangled_name);
+    if (!entry->plain_entry_point)
+    {
+        vkd3d_free(entry->mangled_entry_point);
+        return false;
+    }
+
+    entry->real_entry_point = vkd3d_strdup(mangled_name);
+    entry->stage = convert_stage(stage);
+    return true;
+}
+
+int vkd3d_shader_dxil_append_library_entry_points(
+        const D3D12_DXIL_LIBRARY_DESC *library_desc,
+        unsigned int identifier,
+        struct vkd3d_shader_library_entry_point **entry_points,
+        size_t *entry_point_size, size_t *entry_point_count)
+{
+    struct vkd3d_shader_library_entry_point new_entry;
+    dxil_spv_parsed_blob blob = NULL;
+    dxil_spv_shader_stage stage;
+    const char *mangled_entry;
+    char *ascii_entry = NULL;
+    unsigned int count, i;
+    int ret = VKD3D_OK;
+
+    memset(&new_entry, 0, sizeof(new_entry));
+    dxil_spv_begin_thread_allocator_context();
+
+    if (dxil_spv_parse_dxil_blob(
+            library_desc->DXILLibrary.pShaderBytecode,
+            library_desc->DXILLibrary.BytecodeLength,
+            &blob) != DXIL_SPV_SUCCESS)
+    {
+        ret = VKD3D_ERROR_INVALID_SHADER;
+        goto end;
+    }
+
+    if (library_desc->NumExports)
+    {
+        for (i = 0; i < library_desc->NumExports; i++)
+        {
+            if (library_desc->pExports[i].ExportToRename)
+                ascii_entry = vkd3d_strdup_w_utf8(library_desc->pExports[i].ExportToRename, sizeof(WCHAR), 0);
+            else
+                ascii_entry = vkd3d_strdup_w_utf8(library_desc->pExports[i].Name, sizeof(WCHAR), 0);
+
+            stage = dxil_spv_parsed_blob_get_shader_stage_for_entry(blob, ascii_entry);
+            if (stage == DXIL_SPV_STAGE_UNKNOWN)
+            {
+                ret = VKD3D_ERROR_INVALID_SHADER;
+                goto end;
+            }
+
+            new_entry.real_entry_point = ascii_entry;
+            new_entry.plain_entry_point = vkd3d_wstrdup(library_desc->pExports[i].Name);
+            new_entry.mangled_entry_point = NULL;
+            new_entry.identifier = identifier;
+            new_entry.stage = convert_stage(stage);
+            ascii_entry = NULL;
+
+            vkd3d_array_reserve((void**)entry_points, entry_point_size,
+                    *entry_point_count + 1, sizeof(new_entry));
+            (*entry_points)[(*entry_point_count)++] = new_entry;
+            memset(&new_entry, 0, sizeof(new_entry));
+        }
+    }
+    else
+    {
+        if (dxil_spv_parsed_blob_get_num_entry_points(blob, &count) != DXIL_SPV_SUCCESS)
+        {
+            ret = VKD3D_ERROR_INVALID_SHADER;
+            goto end;
+        }
+
+        for (i = 0; i < count; i++)
+        {
+            dxil_spv_parsed_blob_get_entry_point_name(blob, i, &mangled_entry);
+            stage = dxil_spv_parsed_blob_get_shader_stage_for_entry(blob, mangled_entry);
+            if (stage == DXIL_SPV_STAGE_UNKNOWN)
+            {
+                ERR("Invalid shader stage for %s.\n", mangled_entry);
+                ret = VKD3D_ERROR_INVALID_SHADER;
+                goto end;
+            }
+
+            if (!vkd3d_dxil_build_entry(&new_entry, identifier, mangled_entry, stage))
+            {
+                ret = VKD3D_ERROR_INVALID_SHADER;
+                goto end;
+            }
+
+            vkd3d_array_reserve((void**)entry_points, entry_point_size,
+                    *entry_point_count + 1, sizeof(new_entry));
+            (*entry_points)[(*entry_point_count)++] = new_entry;
+            memset(&new_entry, 0, sizeof(new_entry));
+        }
+    }
+
+end:
+    vkd3d_free(ascii_entry);
+    vkd3d_free(new_entry.mangled_entry_point);
+    vkd3d_free(new_entry.plain_entry_point);
+    vkd3d_free(new_entry.real_entry_point);
+    if (blob)
+        dxil_spv_parsed_blob_free(blob);
+    dxil_spv_end_thread_allocator_context();
+    return ret;
+}
