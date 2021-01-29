@@ -197,6 +197,14 @@ VK_DEVICE_EXT_PFN(vkCmdDrawIndexedIndirectCountKHR)
 /* VK_KHR_push_descriptor */
 VK_DEVICE_EXT_PFN(vkCmdPushDescriptorSetKHR)
 
+/* VK_KHR_ray_tracing_pipeline */
+VK_DEVICE_EXT_PFN(vkCreateRayTracingPipelinesKHR)
+VK_DEVICE_EXT_PFN(vkGetRayTracingShaderGroupHandlesKHR)
+VK_DEVICE_EXT_PFN(vkGetRayTracingShaderGroupStackSizeKHR)
+VK_DEVICE_EXT_PFN(vkCmdSetRayTracingPipelineStackSizeKHR)
+VK_DEVICE_EXT_PFN(vkCmdTraceRaysKHR)
+VK_DEVICE_EXT_PFN(vkCmdTraceRaysIndirectKHR)
+
 /* VK_EXT_calibrated_timestamps */
 VK_DEVICE_EXT_PFN(vkGetCalibratedTimestampsEXT)
 VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceCalibrateableTimeDomainsEXT)
