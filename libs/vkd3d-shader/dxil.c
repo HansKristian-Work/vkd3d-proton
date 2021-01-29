@@ -93,20 +93,27 @@ struct vkd3d_dxil_remap_userdata
     unsigned int num_root_descriptors;
 };
 
-static dxil_spv_bool dxil_remap(const struct vkd3d_dxil_remap_userdata *remap,
+struct vkd3d_dxil_remap_info
+{
+    const struct vkd3d_shader_resource_binding *bindings;
+    unsigned int binding_count;
+    unsigned int num_root_descriptors;
+    unsigned int descriptor_table_offset_words;
+};
+
+static dxil_spv_bool dxil_remap_inner(
+        const struct vkd3d_dxil_remap_info *remap,
         enum vkd3d_shader_descriptor_type descriptor_type,
         const dxil_spv_d3d_binding *d3d_binding,
         dxil_spv_vulkan_binding *vk_binding,
         uint32_t resource_flags)
 {
-    const struct vkd3d_shader_interface_info *shader_interface_info = remap->shader_interface_info;
-    unsigned int binding_count = shader_interface_info->binding_count;
     unsigned int root_descriptor_index = 0;
     unsigned int i;
 
-    for (i = 0; i < binding_count; i++)
+    for (i = 0; i < remap->binding_count; i++)
     {
-        const struct vkd3d_shader_resource_binding *binding = &shader_interface_info->bindings[i];
+        const struct vkd3d_shader_resource_binding *binding = &remap->bindings[i];
         const uint32_t mask = ~(VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_RAW_VA);
         uint32_t match_flags = binding->flags & mask;
 
@@ -127,8 +134,7 @@ static dxil_spv_bool dxil_remap(const struct vkd3d_dxil_remap_userdata *remap,
                 vk_binding->bindless.use_heap = DXIL_SPV_TRUE;
                 vk_binding->bindless.heap_root_offset = binding->descriptor_offset +
                         d3d_binding->register_index - binding->register_index;
-                vk_binding->root_constant_index = binding->descriptor_table +
-                        (shader_interface_info->descriptor_tables.offset / sizeof(uint32_t));
+                vk_binding->root_constant_index = binding->descriptor_table + remap->descriptor_table_offset_words;
                 vk_binding->set = binding->binding.set;
                 vk_binding->binding = binding->binding.binding;
 
@@ -154,6 +160,23 @@ static dxil_spv_bool dxil_remap(const struct vkd3d_dxil_remap_userdata *remap,
     }
 
     return DXIL_SPV_FALSE;
+}
+
+static dxil_spv_bool dxil_remap(const struct vkd3d_dxil_remap_userdata *remap,
+        enum vkd3d_shader_descriptor_type descriptor_type, const struct dxil_spv_d3d_binding *d3d_binding,
+        struct dxil_spv_vulkan_binding *vk_binding, unsigned int resource_flags)
+{
+    const struct vkd3d_shader_interface_info *shader_interface_info;
+    struct vkd3d_dxil_remap_info remap_info;
+
+    shader_interface_info = remap->shader_interface_info;
+
+    remap_info.bindings = shader_interface_info->bindings;
+    remap_info.binding_count = shader_interface_info->binding_count;
+    remap_info.descriptor_table_offset_words = shader_interface_info->descriptor_tables.offset / sizeof(uint32_t);
+    remap_info.num_root_descriptors = remap->num_root_descriptors;
+
+    return dxil_remap_inner(&remap_info, descriptor_type, d3d_binding, vk_binding, resource_flags);
 }
 
 static dxil_spv_bool dxil_srv_remap(void *userdata, const dxil_spv_d3d_binding *d3d_binding,
@@ -364,6 +387,7 @@ static dxil_spv_bool dxil_cbv_remap(void *userdata, const dxil_spv_d3d_binding *
         }
     }
 
+    vk_binding->push_constant = DXIL_SPV_FALSE;
     return dxil_remap(remap, VKD3D_SHADER_DESCRIPTOR_TYPE_CBV,
             d3d_binding, &vk_binding->vulkan.uniform_binding,
             VKD3D_SHADER_BINDING_FLAG_BUFFER);
