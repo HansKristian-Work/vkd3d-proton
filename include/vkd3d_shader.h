@@ -25,6 +25,7 @@
 #include <hashmap.h>
 #include <vkd3d_types.h>
 #include <vkd3d_d3d12.h>
+#include <vkd3d.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -248,6 +249,8 @@ struct vkd3d_shader_interface_local_info
     unsigned int local_root_parameter_count;
     const struct vkd3d_shader_push_constant_buffer *shader_record_constant_buffers;
     unsigned int shader_record_buffer_count;
+    const struct vkd3d_shader_resource_binding *bindings;
+    unsigned int binding_count;
 };
 
 struct vkd3d_shader_transform_feedback_element
@@ -716,6 +719,31 @@ struct vkd3d_shader_signature_element *vkd3d_shader_find_signature_element(
         const struct vkd3d_shader_signature *signature, const char *semantic_name,
         unsigned int semantic_index, unsigned int stream_index);
 void vkd3d_shader_free_shader_signature(struct vkd3d_shader_signature *signature);
+
+/* For DXR, use special purpose entry points since there's a lot of special purpose reflection required. */
+struct vkd3d_shader_library_entry_point
+{
+    unsigned int identifier;
+    WCHAR *mangled_entry_point;
+    WCHAR *plain_entry_point;
+    char *real_entry_point;
+    VkShaderStageFlagBits stage;
+};
+
+int vkd3d_shader_dxil_append_library_entry_points(
+        const D3D12_DXIL_LIBRARY_DESC *library_desc,
+        unsigned int identifier,
+        struct vkd3d_shader_library_entry_point **entry_points,
+        size_t *entry_point_size, size_t *entry_point_count);
+
+void vkd3d_shader_dxil_free_library_entry_points(struct vkd3d_shader_library_entry_point *entry_points, size_t count);
+
+int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
+        const char *export,
+        struct vkd3d_shader_code *spirv,
+        const struct vkd3d_shader_interface_info *shader_interface_info,
+        const struct vkd3d_shader_interface_local_info *shader_interface_local_info,
+        const struct vkd3d_shader_compile_arguments *compiler_args);
 
 #endif  /* VKD3D_SHADER_NO_PROTOTYPES */
 
