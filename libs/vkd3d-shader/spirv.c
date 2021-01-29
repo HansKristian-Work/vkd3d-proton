@@ -2558,7 +2558,7 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
     descriptor_type = vkd3d_shader_descriptor_type_from_register_type(reg->type);
     assert(!is_uav_counter || descriptor_type == VKD3D_SHADER_DESCRIPTOR_TYPE_UAV);
 
-    binding_flags = is_uav_counter ? VKD3D_SHADER_BINDING_FLAG_COUNTER
+    binding_flags = is_uav_counter ? VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER
             : vkd3d_binding_flags_from_resource_type(resource_type, raw_ssbo);
 
     if ((resource = vkd3d_dxbc_compiler_get_resource_binding(compiler, reg, binding_flags)))
@@ -5342,7 +5342,7 @@ static const struct vkd3d_shader_global_binding *vkd3d_dxbc_compiler_get_global_
     }
     else if (data_type == VKD3D_DATA_UAV)
     {
-        if (binding->flags & VKD3D_SHADER_BINDING_FLAG_COUNTER)
+        if (binding->flags & VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER)
         {
             if (binding->flags & VKD3D_SHADER_BINDING_FLAG_RAW_VA)
             {
@@ -5733,7 +5733,7 @@ static void vkd3d_dxbc_compiler_emit_push_constant_buffers(struct vkd3d_dxbc_com
     {
         const struct vkd3d_shader_resource_binding *binding = &compiler->shader_interface.bindings[i];
 
-        if ((binding->flags & (VKD3D_SHADER_BINDING_FLAG_RAW_VA | VKD3D_SHADER_BINDING_FLAG_COUNTER)) == VKD3D_SHADER_BINDING_FLAG_RAW_VA)
+        if ((binding->flags & (VKD3D_SHADER_BINDING_FLAG_RAW_VA | VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER)) == VKD3D_SHADER_BINDING_FLAG_RAW_VA)
             root_descriptor_count += 1;
     }
 
@@ -5766,7 +5766,7 @@ static void vkd3d_dxbc_compiler_emit_push_constant_buffers(struct vkd3d_dxbc_com
     {
         const struct vkd3d_shader_resource_binding *binding = &compiler->shader_interface.bindings[i];
 
-        if ((binding->flags & (VKD3D_SHADER_BINDING_FLAG_RAW_VA | VKD3D_SHADER_BINDING_FLAG_COUNTER)) != VKD3D_SHADER_BINDING_FLAG_RAW_VA)
+        if ((binding->flags & (VKD3D_SHADER_BINDING_FLAG_RAW_VA | VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER)) != VKD3D_SHADER_BINDING_FLAG_RAW_VA)
             continue;
 
         if (!uint32x2_id)
@@ -6284,7 +6284,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
         assert(structure_stride); /* counters are valid only for structured buffers */
 
         counter_binding = vkd3d_dxbc_compiler_get_resource_binding(compiler, reg,
-                VKD3D_SHADER_BINDING_FLAG_COUNTER);
+                VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER);
 
         if (counter_binding && (counter_binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS))
         {

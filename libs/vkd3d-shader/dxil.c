@@ -82,7 +82,7 @@ static bool dxil_resource_is_in_range(const struct vkd3d_shader_resource_binding
 static bool vkd3d_shader_binding_is_root_descriptor(const struct vkd3d_shader_resource_binding *binding)
 {
     const uint32_t relevant_flags = VKD3D_SHADER_BINDING_FLAG_RAW_VA |
-                                    VKD3D_SHADER_BINDING_FLAG_COUNTER;
+                                    VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER;
     const uint32_t expected_flags = VKD3D_SHADER_BINDING_FLAG_RAW_VA;
     return (binding->flags & relevant_flags) == expected_flags;
 }
@@ -324,7 +324,7 @@ static dxil_spv_bool dxil_uav_remap(void *userdata, const dxil_spv_uav_d3d_bindi
     if (d3d_binding->has_counter)
     {
         if (!dxil_remap(remap, VKD3D_SHADER_DESCRIPTOR_TYPE_UAV, &d3d_binding->d3d_binding,
-                &vk_binding->counter_binding, VKD3D_SHADER_BINDING_FLAG_COUNTER))
+                &vk_binding->counter_binding, VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER))
         {
             return DXIL_SPV_FALSE;
         }
@@ -456,8 +456,8 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         /* Bindless UAV counters are implemented as physical storage buffer pointers.
          * For simplicity, dxil-spirv only accepts either fully RAW VA, or all non-raw VA. */
         if ((shader_interface_info->bindings[i].flags &
-             (VKD3D_SHADER_BINDING_FLAG_COUNTER | VKD3D_SHADER_BINDING_FLAG_BINDLESS)) ==
-            (VKD3D_SHADER_BINDING_FLAG_COUNTER | VKD3D_SHADER_BINDING_FLAG_BINDLESS))
+             (VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER | VKD3D_SHADER_BINDING_FLAG_BINDLESS)) ==
+            (VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER | VKD3D_SHADER_BINDING_FLAG_BINDLESS))
         {
             if (shader_interface_info->bindings[i].flags & VKD3D_SHADER_BINDING_FLAG_RAW_VA)
                 raw_va_binding_count++;

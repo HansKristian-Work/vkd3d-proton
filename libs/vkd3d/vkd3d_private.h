@@ -749,7 +749,7 @@ struct d3d12_descriptor_heap
     VkBuffer vk_buffer;
     void *host_memory;
 
-    struct vkd3d_host_visible_buffer_range uav_counters;
+    struct vkd3d_host_visible_buffer_range raw_va_aux_buffer;
     struct vkd3d_host_visible_buffer_range buffer_ranges;
 
     struct d3d12_device *device;
@@ -801,7 +801,7 @@ enum vkd3d_root_signature_flag
 {
     VKD3D_ROOT_SIGNATURE_USE_ROOT_DESCRIPTOR_SET    = 0x00000001u,
     VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK   = 0x00000002u,
-    VKD3D_ROOT_SIGNATURE_USE_RAW_VA_UAV_COUNTERS    = 0x00000004u,
+    VKD3D_ROOT_SIGNATURE_USE_RAW_VA_AUX_BUFFER      = 0x00000004u,
     VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER     = 0x00000008u,
     VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER    = 0x00000010u,
 };
@@ -871,7 +871,7 @@ struct d3d12_root_signature
     /* Use one global push constant range */
     VkPushConstantRange push_constant_range;
     struct vkd3d_shader_descriptor_binding push_constant_ubo_binding;
-    struct vkd3d_shader_descriptor_binding uav_counter_binding;
+    struct vkd3d_shader_descriptor_binding raw_va_aux_buffer_binding;
     struct vkd3d_shader_descriptor_binding offset_buffer_binding;
 
     uint32_t descriptor_table_offset;
@@ -1671,7 +1671,7 @@ enum vkd3d_bindless_flags
     VKD3D_BINDLESS_CBV                   = (1u << 1),
     VKD3D_BINDLESS_SRV                   = (1u << 2),
     VKD3D_BINDLESS_UAV                   = (1u << 3),
-    VKD3D_RAW_VA_UAV_COUNTER             = (1u << 4),
+    VKD3D_RAW_VA_AUX_BUFFER              = (1u << 4),
     VKD3D_BINDLESS_CBV_AS_SSBO           = (1u << 5),
     VKD3D_BINDLESS_RAW_SSBO              = (1u << 6),
     VKD3D_SSBO_OFFSET_BUFFER             = (1u << 7),
@@ -1685,17 +1685,17 @@ enum vkd3d_bindless_flags
 
 enum vkd3d_bindless_set_flag
 {
-    VKD3D_BINDLESS_SET_SAMPLER  = (1u << 0),
-    VKD3D_BINDLESS_SET_CBV      = (1u << 1),
-    VKD3D_BINDLESS_SET_SRV      = (1u << 2),
-    VKD3D_BINDLESS_SET_UAV      = (1u << 3),
-    VKD3D_BINDLESS_SET_IMAGE    = (1u << 4),
-    VKD3D_BINDLESS_SET_BUFFER   = (1u << 5),
-    VKD3D_BINDLESS_SET_COUNTER  = (1u << 6),
-    VKD3D_BINDLESS_SET_RAW_SSBO = (1u << 7),
-    VKD3D_BINDLESS_SET_MUTABLE  = (1u << 8),
+    VKD3D_BINDLESS_SET_SAMPLER    = (1u << 0),
+    VKD3D_BINDLESS_SET_CBV        = (1u << 1),
+    VKD3D_BINDLESS_SET_SRV        = (1u << 2),
+    VKD3D_BINDLESS_SET_UAV        = (1u << 3),
+    VKD3D_BINDLESS_SET_IMAGE      = (1u << 4),
+    VKD3D_BINDLESS_SET_BUFFER     = (1u << 5),
+    VKD3D_BINDLESS_SET_AUX_BUFFER = (1u << 6),
+    VKD3D_BINDLESS_SET_RAW_SSBO   = (1u << 7),
+    VKD3D_BINDLESS_SET_MUTABLE    = (1u << 8),
 
-    VKD3D_BINDLESS_SET_EXTRA_UAV_COUNTER_BUFFER = (1u << 24),
+    VKD3D_BINDLESS_SET_EXTRA_RAW_VA_AUX_BUFFER  = (1u << 24),
     VKD3D_BINDLESS_SET_EXTRA_OFFSET_BUFFER      = (1u << 25),
     VKD3D_BINDLESS_SET_EXTRA_MASK = 0xff000000u
 };
