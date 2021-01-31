@@ -4740,8 +4740,8 @@ static void d3d12_device_caps_init_feature_options3(struct d3d12_device *device)
 
     options3->CopyQueueTimestampQueriesSupported = !!device->queues[VKD3D_QUEUE_FAMILY_TRANSFER]->timestamp_bits;
     options3->CastingFullyTypedFormatSupported = TRUE;
-    /* Currently not supported */
-    options3->WriteBufferImmediateSupportFlags = 0;
+    options3->WriteBufferImmediateSupportFlags = D3D12_COMMAND_LIST_SUPPORT_FLAG_DIRECT |
+            D3D12_COMMAND_LIST_SUPPORT_FLAG_COMPUTE | D3D12_COMMAND_LIST_SUPPORT_FLAG_COPY;
     /* Currently not supported */
     options3->ViewInstancingTier = D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED;
     /* Currently not supported */
@@ -4955,6 +4955,7 @@ static void d3d12_device_caps_override(struct d3d12_device *device)
 
     if (fl_override >= D3D_FEATURE_LEVEL_12_2)
     {
+        caps->options3.WriteBufferImmediateSupportFlags |= D3D12_COMMAND_LIST_SUPPORT_FLAG_BUNDLE;
         caps->options5.RaytracingTier = max(caps->options5.RaytracingTier, D3D12_RAYTRACING_TIER_1_1);
         caps->options6.VariableShadingRateTier = max(caps->options6.VariableShadingRateTier, D3D12_VARIABLE_SHADING_RATE_TIER_1);
         caps->options.ResourceBindingTier = max(caps->options.ResourceBindingTier, D3D12_RESOURCE_BINDING_TIER_3);
