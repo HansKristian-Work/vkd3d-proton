@@ -2713,6 +2713,12 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc, struct d3d
                 WARN("Invalid parameters for a buffer resource.\n");
                 return E_INVALIDARG;
             }
+
+            if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS)
+            {
+                WARN("D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS cannot be set for buffers.\n");
+                return E_INVALIDARG;
+            }
             break;
 
         case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
@@ -2745,37 +2751,72 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc, struct d3d
     return S_OK;
 }
 
-static bool d3d12_resource_validate_heap_properties(const struct d3d12_resource *resource,
+static HRESULT d3d12_resource_validate_heap_properties(const D3D12_RESOURCE_DESC *desc,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_RESOURCE_STATES initial_state)
 {
     if (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD
             || heap_properties->Type == D3D12_HEAP_TYPE_READBACK)
     {
-        if (d3d12_resource_is_texture(resource))
+        if (desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
         {
             WARN("Textures cannot be created on upload/readback heaps.\n");
-            return false;
+            return E_INVALIDARG;
         }
 
-        if (resource->desc.Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS))
+        if (desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS))
         {
             WARN("Render target and unordered access buffers cannot be created on upload/readback heaps.\n");
-            return false;
+            return E_INVALIDARG;
         }
     }
 
     if (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD && initial_state != D3D12_RESOURCE_STATE_GENERIC_READ)
     {
         WARN("For D3D12_HEAP_TYPE_UPLOAD the state must be D3D12_RESOURCE_STATE_GENERIC_READ.\n");
-        return false;
+        return E_INVALIDARG;
     }
     if (heap_properties->Type == D3D12_HEAP_TYPE_READBACK && initial_state != D3D12_RESOURCE_STATE_COPY_DEST)
     {
         WARN("For D3D12_HEAP_TYPE_READBACK the state must be D3D12_RESOURCE_STATE_COPY_DEST.\n");
-        return false;
+        return E_INVALIDARG;
     }
 
-    return true;
+    return S_OK;
+}
+
+static HRESULT d3d12_resource_validate_create_info(const D3D12_RESOURCE_DESC *desc,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_RESOURCE_STATES initial_state,
+        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_device *device)
+{
+    HRESULT hr;
+
+    if (FAILED(hr = d3d12_resource_validate_desc(desc, device)))
+        return hr;
+
+    if (heap_properties)
+    {
+        if (FAILED(hr = d3d12_resource_validate_heap_properties(desc, heap_properties, initial_state)))
+            return hr;
+    }
+
+    if (optimized_clear_value)
+    {
+        if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+        {
+            WARN("Optimized clear value must be NULL for buffers.\n");
+            return E_INVALIDARG;
+        }
+
+        WARN("Ignoring optimized clear value.\n");
+    }
+
+    if (!is_valid_resource_state(initial_state))
+    {
+        WARN("Invalid initial resource state %#x.\n", initial_state);
+        return E_INVALIDARG;
+    }
+
+    return S_OK;
 }
 
 static HRESULT d3d12_resource_bind_sparse_metadata(struct d3d12_resource *resource,
@@ -3046,6 +3087,10 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
 {
     HRESULT hr;
 
+    if (FAILED(hr = d3d12_resource_validate_create_info(desc,
+            heap_properties, initial_state, optimized_clear_value, device)))
+        return hr;
+
     resource->ID3D12Resource_iface.lpVtbl = &d3d12_resource_vtbl;
     resource->refcount = 1;
     resource->internal_refcount = 1;
@@ -3064,24 +3109,6 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
     resource->view_map.resource_cookie = resource->cookie;
 #endif
 
-    if (heap_properties && !d3d12_resource_validate_heap_properties(resource, heap_properties, initial_state))
-        return E_INVALIDARG;
-
-    if (!is_valid_resource_state(initial_state))
-    {
-        WARN("Invalid initial resource state %#x.\n", initial_state);
-        return E_INVALIDARG;
-    }
-
-    if (optimized_clear_value && d3d12_resource_is_buffer(resource))
-    {
-        WARN("Optimized clear value must be NULL for buffers.\n");
-        return E_INVALIDARG;
-    }
-
-    if (optimized_clear_value)
-        WARN("Ignoring optimized clear value.\n");
-
     resource->gpu_address = 0;
     resource->flags = 0;
     resource->initial_layout_transition = 0;
@@ -3092,9 +3119,6 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
 
     if (!heap_properties)
         resource->flags |= VKD3D_RESOURCE_SPARSE;
-
-    if (FAILED(hr = d3d12_resource_validate_desc(&resource->desc, device)))
-        return hr;
 
     resource->format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0);
 
