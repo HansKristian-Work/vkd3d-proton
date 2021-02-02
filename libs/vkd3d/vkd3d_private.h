@@ -2235,10 +2235,6 @@ struct d3d12_state_object
     LONG refcount;
     struct d3d12_device *device;
 
-    ID3D12RootSignature **owned_signatures;
-    size_t owned_signature_count;
-    size_t owned_signature_size;
-
     /* Could potentially be a hashmap. */
     struct d3d12_state_object_identifier *exports;
     size_t exports_size;
