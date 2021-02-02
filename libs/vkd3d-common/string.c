@@ -63,6 +63,25 @@ bool vkd3d_export_strequal(const WCHAR *a, const WCHAR *b)
     return *a == *b;
 }
 
+bool vkd3d_export_strequal_substr(const WCHAR *a, size_t expected_n, const WCHAR *b)
+{
+    size_t n = 0;
+
+    if (!a || !b)
+        return false;
+
+    while (*a != '\0' && *b != '\0' && n < expected_n)
+    {
+        if (*a != *b)
+            return false;
+        a++;
+        b++;
+        n++;
+    }
+
+    return n == expected_n && *b == '\0';
+}
+
 WCHAR *vkd3d_dup_entry_point(const char *str)
 {
     return vkd3d_dup_entry_point_n(str, strlen(str));
