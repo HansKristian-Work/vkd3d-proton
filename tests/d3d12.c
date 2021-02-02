@@ -42205,6 +42205,25 @@ static void test_raytracing(void)
             const void* ray_gen_sbt;
             const void* ray_hit_sbt;
             const void* ray_miss_sbt;
+            unsigned int ref_count;
+
+            /* Test reference count semantics for non-derived interface. */
+            ref_count = ID3D12StateObjectProperties_AddRef(props);
+            ok(ref_count == 3, "Unexpected refcount %u", ref_count);
+            ref_count = ID3D12StateObjectProperties_AddRef(props);
+            ok(ref_count == 4, "Unexpected refcount %u", ref_count);
+            ref_count = ID3D12StateObject_AddRef(rt_pso);
+            ok(ref_count == 5, "Unexpected refcount %u", ref_count);
+            ref_count = ID3D12StateObject_AddRef(rt_pso);
+            ok(ref_count == 6, "Unexpected refcount %u", ref_count);
+            ref_count = ID3D12StateObjectProperties_Release(props);
+            ok(ref_count == 5, "Unexpected refcount %u", ref_count);
+            ref_count = ID3D12StateObjectProperties_Release(props);
+            ok(ref_count == 4, "Unexpected refcount %u", ref_count);
+            ref_count = ID3D12StateObject_Release(props);
+            ok(ref_count == 3, "Unexpected refcount %u", ref_count);
+            ref_count = ID3D12StateObject_Release(props);
+            ok(ref_count == 2, "Unexpected refcount %u", ref_count);
 
             ray_gen_sbt = ID3D12StateObjectProperties_GetShaderIdentifier(props, ray_gen);
             ray_hit_sbt = ID3D12StateObjectProperties_GetShaderIdentifier(props, ray_hit);
