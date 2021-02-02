@@ -92,10 +92,6 @@ static void d3d12_state_object_cleanup(struct d3d12_state_object *object)
     const struct vkd3d_vk_device_procs *vk_procs = &object->device->vk_procs;
     size_t i;
 
-    for (i = 0; i < object->owned_signature_count; i++)
-        ID3D12RootSignature_Release(object->owned_signatures[i]);
-    vkd3d_free(object->owned_signatures);
-
     for (i = 0; i < object->exports_count; i++)
     {
         vkd3d_free(object->exports[i].mangled_export);
