@@ -41672,6 +41672,7 @@ static void test_raytracing(void)
     ID3D12CommandQueue *queue;
     ID3D12StateObject *rt_pso;
     ID3D12Device5 *device5;
+    unsigned int ref_count;
     ID3D12Resource *vbo;
     ID3D12Resource *sbt;
     HRESULT hr;
@@ -42192,6 +42193,14 @@ static void test_raytracing(void)
         ok(SUCCEEDED(hr), "Failed to create RT PSO, hr %#x.\n", hr);
     }
 
+    /* Docs say that refcount should be held by RTPSO, but apparently it doesn't on native drivers. */
+    ID3D12RootSignature_AddRef(global_rs);
+    ID3D12RootSignature_AddRef(local_rs);
+    ref_count = ID3D12RootSignature_Release(global_rs);
+    ok(ref_count == 1, "Ref count %u != 1.\n", ref_count);
+    ref_count = ID3D12RootSignature_Release(local_rs);
+    ok(ref_count == 1, "Ref count %u != 1.\n", ref_count);
+
     /* Build SBT (Shader Binding Table) */
     {
         ID3D12StateObjectProperties *props;
@@ -42199,35 +42208,79 @@ static void test_raytracing(void)
         if (SUCCEEDED(ID3D12StateObject_QueryInterface(rt_pso, &IID_ID3D12StateObjectProperties, (void**)&props)))
         {
             uint8_t sbt_data[4096];
+            static const uint16_t ray_closest[] = { 'R', 'a', 'y', 'H', 'i', 't', ':', ':', 'c', 'l', 'o', 's', 'e', 's', 't', 'h', 'i', 't', '\0' };
+            static const uint16_t ray_anyhit[] = { 'R', 'a', 'y', 'H', 'i', 't', ':', ':', 'a', 'n', 'y', 'h', 'i', 't', '\0' };
+            static const uint16_t ray_broken3[] = { 'R', 'a', 'y', 'H', 'i', 't', ':', ':', 'X', '\0' };
+            static const uint16_t ray_broken2[] = { 'R', 'a', 'y', 'H', 'i', 't', ':', ':', '\0' };
+            static const uint16_t ray_broken1[] = { 'R', 'a', 'y', 'H', 'i', 't', ':', '\0' };
+            static const uint16_t ray_broken0[] = { 'R', 'a', 'y', 'H', 'i', 't', '\0' };
             static const uint16_t ray_gen[] = { 'R', 'a', 'y', 'G', 'e', 'n', '\0' };
             static const uint16_t ray_hit[] = { 'R', 'a', 'y', 'H', 'i', 't', '\0' };
             static const uint16_t ray_miss[] = { 'R', 'a', 'y', 'M', 'i', 's', 's', '\0' };
+            ID3D12StateObject *tmp_rt_pso;
+            unsigned int min_stack_size;
             const void* ray_gen_sbt;
             const void* ray_hit_sbt;
             const void* ray_miss_sbt;
-            unsigned int ref_count;
+            unsigned int stack_size;
+
+            hr = ID3D12StateObjectProperties_QueryInterface(props, &IID_ID3D12StateObject, (void **)&tmp_rt_pso);
+            ok(SUCCEEDED(hr), "Failed to query state object interface from properties.\n");
+            if (SUCCEEDED(hr))
+                ID3D12StateObject_Release(tmp_rt_pso);
 
             /* Test reference count semantics for non-derived interface. */
             ref_count = ID3D12StateObjectProperties_AddRef(props);
-            ok(ref_count == 3, "Unexpected refcount %u", ref_count);
+            ok(ref_count == 3, "Unexpected refcount %u.\n", ref_count);
             ref_count = ID3D12StateObjectProperties_AddRef(props);
-            ok(ref_count == 4, "Unexpected refcount %u", ref_count);
+            ok(ref_count == 4, "Unexpected refcount %u.\n", ref_count);
             ref_count = ID3D12StateObject_AddRef(rt_pso);
-            ok(ref_count == 5, "Unexpected refcount %u", ref_count);
+            ok(ref_count == 5, "Unexpected refcount %u.\n", ref_count);
             ref_count = ID3D12StateObject_AddRef(rt_pso);
-            ok(ref_count == 6, "Unexpected refcount %u", ref_count);
+            ok(ref_count == 6, "Unexpected refcount %u.\n", ref_count);
             ref_count = ID3D12StateObjectProperties_Release(props);
-            ok(ref_count == 5, "Unexpected refcount %u", ref_count);
+            ok(ref_count == 5, "Unexpected refcount %u.\n", ref_count);
             ref_count = ID3D12StateObjectProperties_Release(props);
-            ok(ref_count == 4, "Unexpected refcount %u", ref_count);
-            ref_count = ID3D12StateObject_Release(props);
-            ok(ref_count == 3, "Unexpected refcount %u", ref_count);
-            ref_count = ID3D12StateObject_Release(props);
-            ok(ref_count == 2, "Unexpected refcount %u", ref_count);
+            ok(ref_count == 4, "Unexpected refcount %u.\n", ref_count);
+            ref_count = ID3D12StateObject_Release(rt_pso);
+            ok(ref_count == 3, "Unexpected refcount %u.\n", ref_count);
+            ref_count = ID3D12StateObject_Release(rt_pso);
+            ok(ref_count == 2, "Unexpected refcount %u.\n", ref_count);
+
+            /* AMD Windows returns 0 here for all stack sizes. There is no well defined return value we expect here,
+             * but verify we return something sane. */
+            stack_size = ID3D12StateObjectProperties_GetShaderStackSize(props, ray_gen);
+            ok(stack_size <= 8, "Stack size %u > 8.\n", stack_size);
+            stack_size = ID3D12StateObjectProperties_GetShaderStackSize(props, ray_miss);
+            ok(stack_size <= 8, "Stack size %u > 8.\n", stack_size);
+            stack_size = ID3D12StateObjectProperties_GetShaderStackSize(props, ray_closest);
+            ok(stack_size <= 8, "Stack size %u > 8.\n", stack_size);
+            stack_size = ID3D12StateObjectProperties_GetShaderStackSize(props, ray_broken0);
+            ok(stack_size == ~0u, "Stack size %u != UINT_MAX.\n", stack_size);
+            stack_size = ID3D12StateObjectProperties_GetShaderStackSize(props, ray_broken1);
+            ok(stack_size == ~0u, "Stack size %u != UINT_MAX.\n", stack_size);
+            stack_size = ID3D12StateObjectProperties_GetShaderStackSize(props, ray_broken2);
+            ok(stack_size == ~0u, "Stack size %u != UINT_MAX.\n", stack_size);
+            stack_size = ID3D12StateObjectProperties_GetShaderStackSize(props, ray_broken3);
+            ok(stack_size == ~0u, "Stack size %u != UINT_MAX.\n", stack_size);
+            stack_size = ID3D12StateObjectProperties_GetShaderStackSize(props, ray_anyhit);
+            ok(stack_size == ~0u, "Stack size %u != UINT_MAX.\n", stack_size);
+
+            stack_size = ID3D12StateObjectProperties_GetPipelineStackSize(props);
+            ok(stack_size <= 8, "Stack size %u < 8.\n", stack_size);
+
+            /* Apparently even if we set stack size here, it will be clamped to the conservative stack size? */
+            min_stack_size = stack_size;
+            ID3D12StateObjectProperties_SetPipelineStackSize(props, 64);
+            stack_size = ID3D12StateObjectProperties_GetPipelineStackSize(props);
+            ok(stack_size <= min_stack_size, "Stack size %u > %u.\n", stack_size, min_stack_size);
 
             ray_gen_sbt = ID3D12StateObjectProperties_GetShaderIdentifier(props, ray_gen);
             ray_hit_sbt = ID3D12StateObjectProperties_GetShaderIdentifier(props, ray_hit);
             ray_miss_sbt = ID3D12StateObjectProperties_GetShaderIdentifier(props, ray_miss);
+            ok(!!ray_gen_sbt, "Failed to get SBT.\n");
+            ok(!!ray_hit_sbt, "Failed to get SBT.\n");
+            ok(!!ray_miss_sbt, "Failed to get SBT.\n");
 
             memcpy(sbt_data + 0 * 64, ray_gen_sbt, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
             for (i = 0; i < 4; i++)
