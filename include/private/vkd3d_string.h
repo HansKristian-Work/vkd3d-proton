@@ -29,6 +29,7 @@ WCHAR *vkd3d_dup_entry_point_n(const char *str, size_t len);
 WCHAR *vkd3d_dup_demangled_entry_point(const char *str);
 
 bool vkd3d_export_strequal(const WCHAR *a, const WCHAR *b);
+bool vkd3d_export_strequal_substr(const WCHAR *a, size_t n, const WCHAR *b);
 
 char *vkd3d_strdup(const char *str);
 WCHAR *vkd3d_wstrdup(const WCHAR *str);
