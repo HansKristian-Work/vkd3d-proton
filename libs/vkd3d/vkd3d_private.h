@@ -2242,6 +2242,9 @@ struct d3d12_state_object
 
     VkPipeline pipeline;
 
+    UINT64 conservative_pipeline_stack_size;
+    UINT64 pipeline_stack_size;
+
     struct vkd3d_private_store private_store;
 };
 

@@ -205,21 +205,64 @@ static void * STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderIdentifie
 static UINT64 STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderStackSize(ID3D12StateObjectProperties *iface,
         LPCWSTR export_name)
 {
-    FIXME("iface %p, export_name %p stub!\n", iface, export_name);
-    /* UINT_MAX is the error value for this function. */
+    static const WCHAR intersection[] = { ':', ':', 'i', 'n', 't', 'e', 'r', 's', 'e', 'c', 't', 'i', 'o', 'n', '\0' };
+    static const WCHAR closesthit[] = { ':', ':', 'c', 'l', 'o', 's', 'e', 's', 't', 'h', 'i', 't', '\0' };
+    struct d3d12_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
+    static const WCHAR anyhit[] = { ':', ':', 'a', 'n', 'y', 'h', 'i', 't', '\0' };
+    const WCHAR *subtype = NULL;
+    size_t i, n;
+
+    TRACE("iface %p, export_name %p!\n", iface, export_name);
+
+    /* Need to check for hitgroup::{closesthit,anyhit,intersection}. */
+    n = 0;
+    while (export_name[n] != 0 && export_name[n] != ':')
+        n++;
+
+    if (export_name[n] == ':')
+        subtype = export_name + n;
+
+    for (i = 0; i < object->exports_count; i++)
+    {
+        if (vkd3d_export_strequal_substr(export_name, n, object->exports[i].mangled_export) ||
+            vkd3d_export_strequal_substr(export_name, n, object->exports[i].plain_export))
+        {
+            if (subtype)
+            {
+                if (vkd3d_export_strequal(subtype, intersection))
+                    return object->exports[i].stack_size_intersection;
+                else if (vkd3d_export_strequal(subtype, anyhit))
+                    return object->exports[i].stack_size_any;
+                else if (vkd3d_export_strequal(subtype, closesthit))
+                    return object->exports[i].stack_size_closest;
+                else
+                    return 0xffffffff;
+            }
+            else
+            {
+                return object->exports[i].stack_size_general;
+            }
+        }
+    }
+
     return 0xffffffffu;
 }
 
 static UINT64 STDMETHODCALLTYPE d3d12_state_object_properties_GetPipelineStackSize(ID3D12StateObjectProperties *iface)
 {
-    FIXME("iface %p, stub!\n", iface);
-    return 0;
+    struct d3d12_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
+    TRACE("iface %p\n", iface);
+    return object->pipeline_stack_size;
 }
 
 static void STDMETHODCALLTYPE d3d12_state_object_properties_SetPipelineStackSize(ID3D12StateObjectProperties *iface,
         UINT64 stack_size_in_bytes)
 {
-    FIXME("iface %p, stack_size_in_bytes %llu, stub!\n", iface, (unsigned long long)stack_size_in_bytes);
+    struct d3d12_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
+    TRACE("iface %p, stack_size_in_bytes %llu!\n", iface);
+
+    /* This behavior seems to match what I'm seeing on AMD Windows driver. */
+    object->pipeline_stack_size = min(object->conservative_pipeline_stack_size, stack_size_in_bytes);
 }
 
 static CONST_VTBL struct ID3D12StateObjectVtbl d3d12_state_object_vtbl =
@@ -672,10 +715,10 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
         if (vr)
             return hresult_from_vk_result(vr);
 
-        data->exports[i].stack_size_general = 0;
-        data->exports[i].stack_size_any = 0;
-        data->exports[i].stack_size_closest = 0;
-        data->exports[i].stack_size_intersection = 0;
+        data->exports[i].stack_size_general = ~0u;
+        data->exports[i].stack_size_any = ~0u;
+        data->exports[i].stack_size_closest = ~0u;
+        data->exports[i].stack_size_intersection = ~0u;
 
         if (data->groups[i].type == VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR)
         {
