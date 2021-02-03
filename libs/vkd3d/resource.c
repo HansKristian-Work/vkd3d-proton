@@ -1978,6 +1978,8 @@ static void d3d12_resource_get_tiling(struct d3d12_device *device, struct d3d12_
     }
 }
 
+static void d3d12_resource_destroy_2(struct d3d12_resource *resource, struct d3d12_device *device);
+
 static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -2030,18 +2032,15 @@ static ULONG d3d12_resource_decref(struct d3d12_resource *resource)
     TRACE("%p decreasing refcount to %u.\n", resource, refcount);
 
     if (!refcount)
-    {
-        vkd3d_private_store_destroy(&resource->private_store);
-        d3d12_resource_destroy(resource, resource->device);
-        vkd3d_free(resource);
-    }
+        d3d12_resource_destroy_2(resource, resource->device);
 
     return refcount;
 }
 
 bool d3d12_resource_is_cpu_accessible(const struct d3d12_resource *resource)
 {
-    return resource->heap && is_cpu_accessible_heap(&resource->heap->desc.Properties);
+    return !(resource->flags & VKD3D_RESOURCE_SPARSE) &&
+            is_cpu_accessible_heap(&resource->heap_properties);
 }
 
 static bool d3d12_resource_validate_box(const struct d3d12_resource *resource,
@@ -2133,13 +2132,7 @@ static ULONG STDMETHODCALLTYPE d3d12_resource_Release(d3d12_resource_iface *ifac
     TRACE("%p decreasing refcount to %u.\n", resource, refcount);
 
     if (!refcount)
-    {
-        struct d3d12_device *device = resource->device;
-
         d3d12_resource_decref(resource);
-
-        d3d12_device_release(device);
-    }
 
     return refcount;
 }
@@ -2177,22 +2170,19 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_SetPrivateDataInterface(d3d12_re
 static HRESULT STDMETHODCALLTYPE d3d12_resource_SetName(d3d12_resource_iface *iface, const WCHAR *name)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
-    HRESULT hr;
 
     TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
 
-    if (resource->flags & VKD3D_RESOURCE_DEDICATED_HEAP)
-    {
-        if (FAILED(hr = d3d12_heap_SetName(&resource->heap->ID3D12Heap_iface, name)))
-            return hr;
-    }
-
-    if (d3d12_resource_is_buffer(resource))
+    /* Multiple committed and placed buffers may refer to the same VkBuffer,
+     * which may cause race conditions if the app calls this concurrently */
+    if (d3d12_resource_is_buffer(resource) && (resource->flags & VKD3D_RESOURCE_SPARSE))
         return vkd3d_set_vk_object_name(resource->device, (uint64_t)resource->vk_buffer,
                 VK_OBJECT_TYPE_BUFFER, name);
-    else
+    else if (d3d12_resource_is_texture(resource))
         return vkd3d_set_vk_object_name(resource->device, (uint64_t)resource->vk_image,
                 VK_OBJECT_TYPE_IMAGE, name);
+    else
+        return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_resource_GetDevice(d3d12_resource_iface *iface, REFIID iid, void **device)
@@ -2208,17 +2198,16 @@ static bool d3d12_resource_get_mapped_memory_range(struct d3d12_resource *resour
         UINT subresource, const D3D12_RANGE *range, VkMappedMemoryRange *vk_mapped_range)
 {
     const struct d3d12_device *device = resource->device;
-    const struct d3d12_heap *heap = resource->heap;
 
     if (range && range->End <= range->Begin)
         return false;
 
-    if (device->memory_properties.memoryTypes[heap->vk_memory_type].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+    if (device->memory_properties.memoryTypes[resource->mem.vk_memory_type].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
         return false;
 
     vk_mapped_range->sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
     vk_mapped_range->pNext = NULL;
-    vk_mapped_range->memory = heap->vk_memory;
+    vk_mapped_range->memory = resource->mem.vk_memory;
 
     if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
     {
@@ -2266,8 +2255,8 @@ static void d3d12_resource_flush_range(struct d3d12_resource *resource,
 
 static void d3d12_resource_get_map_ptr(struct d3d12_resource *resource, void **data)
 {
-    assert(resource->heap->map_ptr);
-    *data = (BYTE *)resource->heap->map_ptr + resource->heap_offset;
+    assert(resource->mem.cpu_address);
+    *data = resource->mem.cpu_address;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(d3d12_resource_iface *iface, UINT sub_resource,
@@ -2299,7 +2288,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(d3d12_resource_iface *iface,
         return E_INVALIDARG;
     }
 
-    if (!resource->heap)
+    if (resource->flags & VKD3D_RESOURCE_SPARSE)
     {
         FIXME("Not implemented for this resource type.\n");
         return E_NOTIMPL;
@@ -2516,7 +2505,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_GetHeapProperties(d3d12_resource
         D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS *flags)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
-    struct d3d12_heap *heap;
 
     TRACE("iface %p, heap_properties %p, flags %p.\n",
             iface, heap_properties, flags);
@@ -2535,16 +2523,16 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_GetHeapProperties(d3d12_resource
         return S_OK;
     }
 
-    if (!(heap = resource->heap))
+    if (resource->flags & VKD3D_RESOURCE_SPARSE)
     {
         WARN("Cannot get heap properties for reserved resources.\n");
         return E_INVALIDARG;
     }
 
     if (heap_properties)
-        *heap_properties = heap->desc.Properties;
+        *heap_properties = resource->heap_properties;
     if (flags)
-        *flags = heap->desc.Flags;
+        *flags = resource->mem.heap_flags;
 
     return S_OK;
 }
@@ -4390,8 +4378,8 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
         struct d3d12_device *device, const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    const struct vkd3d_unique_resource *resource = NULL;
     union vkd3d_descriptor_info descriptor_info;
-    struct d3d12_resource *resource = NULL;
     VkDescriptorType vk_descriptor_type;
     VkWriteDescriptorSet vk_write;
     uint32_t info_index;
@@ -4410,10 +4398,10 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
 
     if (desc->BufferLocation)
     {
-        resource = vkd3d_gpu_va_allocator_dereference(&device->gpu_va_allocator, desc->BufferLocation);
+        resource = vkd3d_va_map_deref(&device->memory_allocator.va_map, desc->BufferLocation);
         descriptor_info.buffer.buffer = resource->vk_buffer;
-        descriptor_info.buffer.offset = desc->BufferLocation - resource->gpu_address;
-        descriptor_info.buffer.range = min(desc->SizeInBytes, resource->desc.Width - descriptor_info.buffer.offset);
+        descriptor_info.buffer.offset = desc->BufferLocation - resource->va;
+        descriptor_info.buffer.range = min(desc->SizeInBytes, resource->size - descriptor_info.buffer.offset);
     }
     else if (device->device_info.robustness2_features.nullDescriptor)
     {
@@ -5232,17 +5220,17 @@ void d3d12_desc_create_uav(struct d3d12_desc *descriptor, struct d3d12_device *d
 bool vkd3d_create_raw_buffer_view(struct d3d12_device *device,
         D3D12_GPU_VIRTUAL_ADDRESS gpu_address, VkBufferView *vk_buffer_view)
 {
+    const struct vkd3d_unique_resource *resource;
     const struct vkd3d_format *format;
-    struct d3d12_resource *resource;
     uint64_t range;
     uint64_t offset;
 
     format = vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
-    resource = vkd3d_gpu_va_allocator_dereference(&device->gpu_va_allocator, gpu_address);
-    assert(d3d12_resource_is_buffer(resource));
+    resource = vkd3d_va_map_deref(&device->memory_allocator.va_map, gpu_address);
+    assert(resource && resource->va && resource->size);
 
-    offset = gpu_address - resource->gpu_address;
-    range = min(resource->desc.Width - offset, device->vk_info.device_limits.maxStorageBufferRange);
+    offset = gpu_address - resource->va;
+    range = min(resource->size - offset, device->vk_info.device_limits.maxStorageBufferRange);
 
     return vkd3d_create_vk_buffer_view(device, resource->vk_buffer, format,
             offset, range, vk_buffer_view);
