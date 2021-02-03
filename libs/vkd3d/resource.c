@@ -3181,6 +3181,347 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
     return S_OK;
 }
 
+static void d3d12_resource_destroy_2(struct d3d12_resource *resource, struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    vkd3d_view_map_destroy(&resource->view_map, resource->device);
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    vkd3d_descriptor_debug_unregister_cookie(resource->cookie);
+#endif
+
+    if (resource->flags & VKD3D_RESOURCE_EXTERNAL)
+        return;
+
+    if (resource->flags & VKD3D_RESOURCE_SPARSE)
+    {
+        VK_CALL(vkFreeMemory(device->vk_device, resource->sparse.vk_metadata_memory, NULL));
+
+        vkd3d_free(resource->sparse.tiles);
+        vkd3d_free(resource->sparse.tilings);
+
+        if (resource->res.va)
+        {
+            vkd3d_va_map_remove(&device->memory_allocator.va_map, &resource->res);
+
+            if (!device->device_info.buffer_device_address_features.bufferDeviceAddress)
+                vkd3d_va_map_free_fake_va(&device->memory_allocator.va_map, resource->res.va, resource->res.size);
+        }
+    }
+
+    if (d3d12_resource_is_texture(resource))
+        VK_CALL(vkDestroyImage(device->vk_device, resource->vk_image, NULL));
+    else if (resource->flags & VKD3D_RESOURCE_SPARSE)
+        VK_CALL(vkDestroyBuffer(device->vk_device, resource->vk_buffer, NULL));
+
+    if ((resource->flags & VKD3D_RESOURCE_ALLOCATION) && resource->mem.vk_memory)
+        vkd3d_free_memory_2(device, &device->memory_allocator, &resource->mem);
+
+    vkd3d_private_store_destroy(&resource->private_store);
+    d3d12_device_release(resource->device);
+    vkd3d_free(resource);
+}
+
+static HRESULT d3d12_resource_create_vk_resource(struct d3d12_resource *resource, struct d3d12_device *device)
+{
+    const D3D12_HEAP_PROPERTIES *heap_properties;
+    HRESULT hr;
+
+    heap_properties = resource->flags & VKD3D_RESOURCE_SPARSE
+        ? NULL : &resource->heap_properties;
+
+    if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+    {
+        if (FAILED(hr = vkd3d_create_buffer(device, heap_properties,
+                D3D12_HEAP_FLAG_NONE, &resource->desc, &resource->vk_buffer)))
+            return hr;
+    }
+    else
+    {
+        resource->initial_layout_transition = 1;
+
+        if (!resource->desc.MipLevels)
+            resource->desc.MipLevels = max_miplevel_count(&resource->desc);
+
+        if (FAILED(hr = vkd3d_create_image(device, heap_properties,
+                D3D12_HEAP_FLAG_NONE, &resource->desc, resource, &resource->vk_image)))
+            return hr;
+    }
+
+    return S_OK;
+}
+
+static HRESULT d3d12_resource_create_2(struct d3d12_device *device, uint32_t flags,
+        const D3D12_RESOURCE_DESC *desc, const D3D12_HEAP_PROPERTIES *heap_properties,
+        D3D12_RESOURCE_STATES initial_state, const D3D12_CLEAR_VALUE *optimized_clear_value,
+        struct d3d12_resource **resource)
+{
+    struct d3d12_resource *object;
+    HRESULT hr;
+
+    if (FAILED(hr = d3d12_resource_validate_create_info(desc,
+            heap_properties, initial_state, optimized_clear_value, device)))
+        return hr;
+
+    if (!(object = vkd3d_malloc(sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    memset(object, 0, sizeof(*object));
+    object->ID3D12Resource_iface.lpVtbl = &d3d12_resource_vtbl;
+
+    if (FAILED(hr = vkd3d_view_map_init(&object->view_map)))
+    {
+        vkd3d_free(object);
+        return hr;
+    }
+
+    if (FAILED(hr = vkd3d_private_store_init(&object->private_store)))
+    {
+        vkd3d_view_map_destroy(&object->view_map, device);
+        vkd3d_free(object);
+        return hr;
+    }
+
+    object->refcount = 1;
+    object->internal_refcount = 1;
+    object->desc = *desc;
+    object->device = device;
+    object->flags = flags;
+    object->cookie = InterlockedIncrement64(&global_cookie_counter);
+    object->format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0);
+
+    if (heap_properties)
+        object->heap_properties = *heap_properties;
+
+    d3d12_device_add_ref(device);
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    vkd3d_descriptor_debug_register_resource_cookie(object->cookie, desc);
+#endif
+
+    *resource = object;
+    return S_OK;
+}
+
+HRESULT d3d12_resource_create_committed_2(struct d3d12_device *device, const D3D12_RESOURCE_DESC *desc,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, D3D12_RESOURCE_STATES initial_state,
+        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
+{
+    struct d3d12_resource *object;
+    HRESULT hr;
+
+    if (FAILED(hr = d3d12_resource_create_2(device, VKD3D_RESOURCE_COMMITTED | VKD3D_RESOURCE_ALLOCATION,
+            desc, heap_properties, initial_state, optimized_clear_value, &object)))
+        return hr;
+
+    if (d3d12_resource_is_texture(object))
+    {
+        struct vkd3d_allocate_resource_memory_info allocate_info;
+
+        if (FAILED(hr = d3d12_resource_create_vk_resource(object, device)))
+            goto fail;
+
+        memset(&allocate_info, 0, sizeof(allocate_info));
+        allocate_info.heap_properties = *heap_properties;
+        allocate_info.heap_flags = heap_flags;
+
+        if (desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
+            allocate_info.heap_flags |= D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES;
+        else
+            allocate_info.heap_flags |= D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
+
+        allocate_info.vk_image = object->vk_image;
+
+        if (FAILED(hr = vkd3d_allocate_resource_memory_2(device,
+                &device->memory_allocator, &allocate_info, &object->mem)))
+            goto fail;
+
+        object->heap_offset = object->mem.offset;
+    }
+    else
+    {
+        struct vkd3d_allocate_heap_memory_info allocate_info;
+
+        memset(&allocate_info, 0, sizeof(allocate_info));
+        allocate_info.heap_desc.Properties = *heap_properties;
+        allocate_info.heap_desc.Alignment = desc->Alignment ? desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+        allocate_info.heap_desc.SizeInBytes = align(desc->Width, allocate_info.heap_desc.Alignment);
+        allocate_info.heap_desc.Flags = heap_flags | D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+
+        if (FAILED(hr = vkd3d_allocate_heap_memory_2(device,
+                &device->memory_allocator, &allocate_info, &object->mem)))
+            goto fail;
+
+        object->vk_buffer = object->mem.resource.vk_buffer;
+        object->gpu_address = object->mem.resource.va;
+        object->heap_offset = object->mem.offset;
+    }
+
+    *resource = object;
+    return S_OK;
+
+fail:
+    d3d12_resource_destroy_2(object, device);
+    return hr;
+}
+
+static HRESULT d3d12_resource_bind_image_memory_2(struct d3d12_resource *resource, struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkMemoryRequirements memory_requirements;
+    VkResult vr;
+    HRESULT hr;
+
+    VK_CALL(vkGetImageMemoryRequirements(device->vk_device, resource->vk_image, &memory_requirements));
+
+    /* TODO implement sparse fallback instead to enforce alignment */
+    if (resource->heap_offset & (memory_requirements.alignment - 1))
+    {
+        struct vkd3d_allocate_heap_memory_info allocate_info;
+
+        FIXME("Cannot allocate image %p with alignment %#"PRIx64" at heap offset %#"PRIx64", allocating device memory.\n",
+                resource->vk_image, memory_requirements.alignment, resource->heap_offset);
+
+        memset(&allocate_info, 0, sizeof(allocate_info));
+        allocate_info.heap_desc.Properties = resource->heap_2->desc.Properties;
+        allocate_info.heap_desc.SizeInBytes = memory_requirements.size;
+        allocate_info.heap_desc.Alignment = memory_requirements.alignment;
+        allocate_info.heap_desc.Flags = resource->heap_2->desc.Flags | D3D12_HEAP_FLAG_DENY_BUFFERS;
+
+        if (FAILED(hr = vkd3d_allocate_heap_memory_2(device,
+                &device->memory_allocator, &allocate_info, &resource->mem)))
+            return hr;
+
+        resource->flags |= VKD3D_RESOURCE_ALLOCATION;
+        resource->heap_offset = resource->mem.offset;
+    }
+
+    if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, resource->vk_image,
+            resource->mem.vk_memory, resource->heap_offset)) < 0))
+    {
+        ERR("Failed to bind image memory, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    return S_OK;
+}
+
+static HRESULT d3d12_resource_validate_heap(const D3D12_RESOURCE_DESC *resource_desc, struct d3d12_heap_2 *heap)
+{
+    D3D12_HEAP_FLAGS deny_flag;
+
+    if (resource_desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+        deny_flag = D3D12_HEAP_FLAG_DENY_BUFFERS;
+    else if (resource_desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
+        deny_flag = D3D12_HEAP_FLAG_DENY_RT_DS_TEXTURES;
+    else
+        deny_flag = D3D12_HEAP_FLAG_DENY_NON_RT_DS_TEXTURES;
+
+    if (heap->desc.Flags & deny_flag)
+    {
+        WARN("Cannot create placed resource on heap that denies resource category %#x.\n", deny_flag);
+        return E_INVALIDARG;
+    }
+
+    if ((heap->desc.Flags & D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER) &&
+            !(resource_desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER))
+    {
+        ERR("Must declare ALLOW_CROSS_ADAPTER resource flag when heap is cross adapter.\n");
+        return E_INVALIDARG;
+    }
+
+    return S_OK;
+}
+
+HRESULT d3d12_resource_create_placed_2(struct d3d12_device *device, const D3D12_RESOURCE_DESC *desc,
+        struct d3d12_heap_2 *heap, uint64_t heap_offset, D3D12_RESOURCE_STATES initial_state,
+        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
+{
+    struct d3d12_resource *object;
+    HRESULT hr;
+
+    if (FAILED(hr = d3d12_resource_validate_heap(desc, heap)))
+        return hr;
+
+    if (FAILED(hr = d3d12_resource_create_2(device, VKD3D_RESOURCE_PLACED,
+            desc, &heap->desc.Properties, initial_state, optimized_clear_value, &object)))
+        return hr;
+
+    object->heap_2 = heap;
+    /* The exact allocation size is not important here since the
+     * resource does not own the allocation, so just set it to 0. */
+    vkd3d_memory_allocation_slice(&object->mem, &heap->allocation, heap_offset, 0);
+    object->heap_offset = object->mem.offset;
+
+    if (d3d12_resource_is_texture(object))
+    {
+        if (FAILED(hr = d3d12_resource_create_vk_resource(object, device)))
+            goto fail;
+
+        if (FAILED(hr = d3d12_resource_bind_image_memory_2(object, device)))
+            goto fail;
+    }
+    else
+    {
+        object->vk_buffer = object->mem.resource.vk_buffer;
+        object->gpu_address = object->mem.resource.va;
+    }
+
+    *resource = object;
+    return S_OK;
+
+fail:
+    d3d12_resource_destroy_2(object, device);
+    return hr;
+}
+
+HRESULT d3d12_resource_create_reserved_2(struct d3d12_device *device,
+        const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
+        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
+{
+    struct d3d12_resource *object;
+    HRESULT hr;
+
+    if (FAILED(hr = d3d12_resource_create_2(device, VKD3D_RESOURCE_SPARSE,
+            desc, NULL, initial_state, optimized_clear_value, &object)))
+        return hr;
+
+    if (FAILED(hr = d3d12_resource_create_vk_resource(object, device)))
+        goto fail;
+
+    if (FAILED(hr = d3d12_resource_init_sparse_info(object, device, &object->sparse)))
+        goto fail;
+
+    if (d3d12_resource_is_buffer(object))
+    {
+        object->res.vk_buffer = object->vk_buffer;
+        object->res.cookie = object->cookie;
+        object->res.size = object->desc.Width;
+
+        if (device->device_info.buffer_device_address_features.bufferDeviceAddress)
+            object->res.va = vkd3d_get_buffer_device_address(device, object->vk_buffer);
+        else
+            object->res.va = vkd3d_va_map_alloc_fake_va(&device->memory_allocator.va_map, object->res.size);
+
+        if (!object->res.va)
+        {
+            ERR("Failed to get VA for sparse resource.\n");
+            return E_FAIL;
+        }
+
+        object->gpu_address = object->res.va;
+        vkd3d_va_map_insert(&device->memory_allocator.va_map, &object->res);
+    }
+
+    *resource = object;
+    return S_OK;
+
+fail:
+    d3d12_resource_destroy_2(object, device);
+    return hr;
+}
+
 static HRESULT d3d12_resource_create(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,

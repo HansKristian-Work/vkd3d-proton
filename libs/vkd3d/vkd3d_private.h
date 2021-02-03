@@ -632,11 +632,17 @@ HRESULT d3d12_heap_create_2(struct d3d12_device *device, const D3D12_HEAP_DESC *
         void *host_address, struct d3d12_heap_2 **heap);
 struct d3d12_heap_2 *unsafe_impl_from_ID3D12Heap_2(ID3D12Heap *iface);
 
-#define VKD3D_RESOURCE_EXTERNAL       0x00000004
-#define VKD3D_RESOURCE_DEDICATED_HEAP 0x00000008
-#define VKD3D_RESOURCE_LINEAR_TILING  0x00000010
-#define VKD3D_RESOURCE_PLACED_BUFFER  0x00000020
-#define VKD3D_RESOURCE_SPARSE         0x00000040
+enum vkd3d_resource_flag
+{
+    VKD3D_RESOURCE_COMMITTED      = (1u << 0),
+    VKD3D_RESOURCE_PLACED         = (1u << 1),
+    VKD3D_RESOURCE_SPARSE         = (1u << 2),
+    VKD3D_RESOURCE_ALLOCATION     = (1u << 3),
+    VKD3D_RESOURCE_LINEAR_TILING  = (1u << 4),
+    VKD3D_RESOURCE_EXTERNAL       = (1u << 5),
+    VKD3D_RESOURCE_DEDICATED_HEAP = (1u << 6),
+    VKD3D_RESOURCE_PLACED_BUFFER  = (1u << 7),
+};
 
 struct d3d12_sparse_image_region
 {
@@ -697,8 +703,10 @@ struct d3d12_resource
     uint64_t cookie;
 
     D3D12_RESOURCE_DESC desc;
-
+    D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
+    struct vkd3d_memory_allocation mem;
+    struct vkd3d_unique_resource res;
     union
     {
         VkBuffer vk_buffer;
@@ -706,6 +714,7 @@ struct d3d12_resource
     };
 
     struct d3d12_heap *heap;
+    struct d3d12_heap_2 *heap_2;
     uint64_t heap_offset;
 
     uint32_t flags;
@@ -753,6 +762,15 @@ HRESULT d3d12_placed_resource_create(struct d3d12_device *device, struct d3d12_h
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource);
 HRESULT d3d12_reserved_resource_create(struct d3d12_device *device,
+        const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
+        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource);
+HRESULT d3d12_resource_create_committed_2(struct d3d12_device *device, const D3D12_RESOURCE_DESC *desc,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, D3D12_RESOURCE_STATES initial_state,
+        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource);
+HRESULT d3d12_resource_create_placed_2(struct d3d12_device *device, const D3D12_RESOURCE_DESC *desc,
+        struct d3d12_heap_2 *heap, uint64_t heap_offset, D3D12_RESOURCE_STATES initial_state,
+        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource);
+HRESULT d3d12_resource_create_reserved_2(struct d3d12_device *device,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource);
 struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface);
