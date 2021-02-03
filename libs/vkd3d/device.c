@@ -3832,8 +3832,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource(d3d12_device_
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, REFIID iid, void **resource)
 {
+    struct d3d12_heap_2 *heap_object = unsafe_impl_from_ID3D12Heap_2(heap);
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    struct d3d12_heap *heap_object;
     struct d3d12_resource *object;
     HRESULT hr;
 
@@ -3842,10 +3842,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource(d3d12_device_
             iface, heap, heap_offset, desc, initial_state,
             optimized_clear_value, debugstr_guid(iid), resource);
 
-    heap_object = unsafe_impl_from_ID3D12Heap(heap);
-
-    if (FAILED(hr = d3d12_placed_resource_create(device, heap_object, heap_offset,
-            desc, initial_state, optimized_clear_value, &object)))
+    if (FAILED(hr = d3d12_resource_create_placed_2(device, desc, heap_object,
+            heap_offset, initial_state, optimized_clear_value, &object)))
         return hr;
 
     return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);
@@ -4174,7 +4172,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress(d3d12_
 #ifdef _WIN32
     MEMORY_BASIC_INFORMATION info;
     struct d3d12_device *device;
-    struct d3d12_heap *object;
+    struct d3d12_heap_2 *object;
+    D3D12_HEAP_DESC heap_desc;
     size_t allocation_size;
     HRESULT hr;
 
@@ -4209,7 +4208,18 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress(d3d12_
 
     device = impl_from_ID3D12Device(iface);
 
-    if (FAILED(hr = d3d12_heap_create_from_host_pointer(device, address, allocation_size, &object)))
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS |
+            (address ? (D3D12_HEAP_FLAG_SHARED | D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER) : 0);
+    heap_desc.Properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
+    heap_desc.Properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_CUSTOM;
+    heap_desc.Properties.CreationNodeMask = 1;
+    heap_desc.Properties.VisibleNodeMask = 1;
+    heap_desc.SizeInBytes = allocation_size;
+
+    if (FAILED(hr = d3d12_heap_create_2(device, &heap_desc, address, &object)))
     {
         *heap = NULL;
         return hr;
@@ -4301,8 +4311,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource1(d3d12_dev
     if (protected_session)
         FIXME("Ignoring protected session %p.\n", protected_session);
 
-    if (FAILED(hr = d3d12_committed_resource_create(device, heap_properties, heap_flags,
-            desc, initial_state, optimized_clear_value, &object)))
+    if (FAILED(hr = d3d12_resource_create_committed_2(device, desc, heap_properties,
+            heap_flags, initial_state, optimized_clear_value, &object)))
     {
         *resource = NULL;
         return hr;
@@ -4316,7 +4326,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateHeap1(d3d12_device_iface *if
         REFIID iid, void **heap)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    struct d3d12_heap *object;
+    struct d3d12_heap_2 *object;
     HRESULT hr;
 
     TRACE("iface %p, desc %p, protected_session %p, iid %s, heap %p.\n",
@@ -4325,7 +4335,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateHeap1(d3d12_device_iface *if
     if (protected_session)
         FIXME("Ignoring protected session %p.\n", protected_session);
 
-    if (FAILED(hr = d3d12_heap_create(device, desc, NULL, &object)))
+    if (FAILED(hr = d3d12_heap_create_2(device, desc, NULL, &object)))
     {
         *heap = NULL;
         return hr;
@@ -4348,8 +4358,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource1(d3d12_devi
     if (protected_session)
         FIXME("Ignoring protected session %p.\n", protected_session);
 
-    if (FAILED(hr = d3d12_reserved_resource_create(device,
-            desc, initial_state, optimized_clear_value, &object)))
+    if (FAILED(hr = d3d12_resource_create_reserved_2(device, desc,
+            initial_state, optimized_clear_value, &object)))
         return hr;
 
     return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);

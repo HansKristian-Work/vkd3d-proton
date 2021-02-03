@@ -5975,7 +5975,7 @@ static bool d3d12_resource_may_alias_other_resources(struct d3d12_resource *reso
         return true;
 
     /* Cannot alias if the resource is allocated in a dedicated heap. */
-    if (resource->flags & VKD3D_RESOURCE_DEDICATED_HEAP)
+    if (resource->flags & VKD3D_RESOURCE_ALLOCATION)
         return false;
 
     return true;
@@ -6364,7 +6364,7 @@ static void d3d12_command_list_set_push_descriptor_info(struct d3d12_command_lis
     const struct vkd3d_vulkan_info *vk_info = &list->device->vk_info;
     const struct vkd3d_shader_root_parameter *root_parameter;
     struct vkd3d_root_descriptor_info *descriptor;
-    struct d3d12_resource *resource;
+    const struct vkd3d_unique_resource *resource;
     VkBufferView vk_buffer_view;
     bool null_descriptors, ssbo;
     VkDeviceSize max_range;
@@ -6385,10 +6385,10 @@ static void d3d12_command_list_set_push_descriptor_info(struct d3d12_command_lis
                     ? vk_info->device_limits.maxUniformBufferRange
                     : vk_info->device_limits.maxStorageBufferRange;
 
-            resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, gpu_address);
+            resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, gpu_address);
             descriptor->info.buffer.buffer = resource->vk_buffer;
-            descriptor->info.buffer.offset = gpu_address - resource->gpu_address;
-            descriptor->info.buffer.range = min(resource->desc.Width - descriptor->info.buffer.offset, max_range);
+            descriptor->info.buffer.offset = gpu_address - resource->va;
+            descriptor->info.buffer.range = min(resource->size - descriptor->info.buffer.offset, max_range);
         }
         else if (null_descriptors)
         {
@@ -6441,18 +6441,8 @@ static void d3d12_command_list_set_push_descriptor_info(struct d3d12_command_lis
 static void d3d12_command_list_set_root_descriptor_va(struct d3d12_command_list *list,
         struct vkd3d_root_descriptor_info *descriptor, D3D12_GPU_VIRTUAL_ADDRESS gpu_address)
 {
-    const struct d3d12_resource *resource;
-    VkDeviceAddress va = 0;
-
-    if (gpu_address)
-    {
-        /* We're not actually passing real VAs to the app, so we need to remap the address */
-        resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, gpu_address);
-        va = vkd3d_get_buffer_device_address(list->device, resource->vk_buffer) + gpu_address - resource->gpu_address;
-    }
-
     descriptor->vk_descriptor_type = VK_DESCRIPTOR_TYPE_MAX_ENUM;
-    descriptor->info.va = va;
+    descriptor->info.va = gpu_address;
 }
 
 static void d3d12_command_list_set_root_descriptor(struct d3d12_command_list *list,
@@ -6546,8 +6536,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(d3d12_command_
         const D3D12_INDEX_BUFFER_VIEW *view)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct vkd3d_vk_device_procs *vk_procs;
-    struct d3d12_resource *resource;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const struct vkd3d_unique_resource *resource;
     enum VkIndexType index_type;
 
     TRACE("iface %p, view %p.\n", iface, view);
@@ -6558,8 +6548,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(d3d12_command_
         list->has_valid_index_buffer = false;
         return;
     }
-
-    vk_procs = &list->device->vk_procs;
 
     switch (view->Format)
     {
@@ -6580,9 +6568,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(d3d12_command_
     list->has_valid_index_buffer = view->BufferLocation != 0;
     if (list->has_valid_index_buffer)
     {
-        resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, view->BufferLocation);
+        resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, view->BufferLocation);
         VK_CALL(vkCmdBindIndexBuffer(list->vk_command_buffer, resource->vk_buffer,
-                view->BufferLocation - resource->gpu_address, index_type));
+                view->BufferLocation - resource->va, index_type));
     }
 }
 
@@ -6592,8 +6580,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(d3d12_comman
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct vkd3d_dynamic_state *dyn_state = &list->dynamic_state;
     const struct vkd3d_null_resources *null_resources;
-    struct vkd3d_gpu_va_allocator *gpu_va_allocator;
-    struct d3d12_resource *resource;
+    const struct vkd3d_unique_resource *resource;
     uint32_t vbo_invalidate_mask;
     bool invalidate = false;
     unsigned int i;
@@ -6601,7 +6588,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(d3d12_comman
     TRACE("iface %p, start_slot %u, view_count %u, views %p.\n", iface, start_slot, view_count, views);
 
     null_resources = &list->device->null_resources;
-    gpu_va_allocator = &list->device->gpu_va_allocator;
 
     if (start_slot >= ARRAY_SIZE(dyn_state->vertex_strides) ||
             view_count > ARRAY_SIZE(dyn_state->vertex_strides) - start_slot)
@@ -6620,11 +6606,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(d3d12_comman
 
         if (views[i].BufferLocation)
         {
-            resource = vkd3d_gpu_va_allocator_dereference(gpu_va_allocator, views[i].BufferLocation);
-            if (resource)
+            if ((resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, views[i].BufferLocation)))
             {
                 buffer = resource->vk_buffer;
-                offset = views[i].BufferLocation - resource->gpu_address;
+                offset = views[i].BufferLocation - resource->va;
                 stride = views[i].StrideInBytes;
                 size = views[i].SizeInBytes;
             }
@@ -6667,12 +6652,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_SOSetTargets(d3d12_command_list
         UINT start_slot, UINT view_count, const D3D12_STREAM_OUTPUT_BUFFER_VIEW *views)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkDeviceSize offsets[ARRAY_SIZE(list->so_counter_buffers)];
     VkDeviceSize sizes[ARRAY_SIZE(list->so_counter_buffers)];
     VkBuffer buffers[ARRAY_SIZE(list->so_counter_buffers)];
-    struct vkd3d_gpu_va_allocator *gpu_va_allocator;
-    const struct vkd3d_vk_device_procs *vk_procs;
-    struct d3d12_resource *resource;
+    const struct vkd3d_unique_resource *resource;
     unsigned int i, first, count;
 
     TRACE("iface %p, start_slot %u, view_count %u, views %p.\n", iface, start_slot, view_count, views);
@@ -6691,23 +6675,20 @@ static void STDMETHODCALLTYPE d3d12_command_list_SOSetTargets(d3d12_command_list
         return;
     }
 
-    vk_procs = &list->device->vk_procs;
-    gpu_va_allocator = &list->device->gpu_va_allocator;
-
     count = 0;
     first = start_slot;
     for (i = 0; i < view_count; ++i)
     {
         if (views[i].BufferLocation && views[i].SizeInBytes)
         {
-            resource = vkd3d_gpu_va_allocator_dereference(gpu_va_allocator, views[i].BufferLocation);
+            resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, views[i].BufferLocation);
             buffers[count] = resource->vk_buffer;
-            offsets[count] = views[i].BufferLocation - resource->gpu_address;
+            offsets[count] = views[i].BufferLocation - resource->va;
             sizes[count] = views[i].SizeInBytes;
 
-            resource = vkd3d_gpu_va_allocator_dereference(gpu_va_allocator, views[i].BufferFilledSizeLocation);
+            resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, views[i].BufferFilledSizeLocation);
             list->so_counter_buffers[start_slot + i] = resource->vk_buffer;
-            list->so_counter_buffer_offsets[start_slot + i] = views[i].BufferFilledSizeLocation - resource->gpu_address;
+            list->so_counter_buffer_offsets[start_slot + i] = views[i].BufferFilledSizeLocation - resource->va;
             ++count;
         }
         else
@@ -8024,7 +8005,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_WriteBufferImmediate(d3d12_comm
     VkPipelineStageFlags wait_stage_mask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkPipelineStageFlagBits stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-    struct d3d12_resource *resource;
+    const struct vkd3d_unique_resource *resource;
     VkDeviceSize offset;
     unsigned int i;
 
@@ -8032,13 +8013,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_WriteBufferImmediate(d3d12_comm
 
     for (i = 0; i < count; ++i)
     {
-        if (!(resource = vkd3d_gpu_va_allocator_dereference(&list->device->gpu_va_allocator, parameters[i].Dest)))
+        if (!(resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, parameters[i].Dest)))
         {
             d3d12_command_list_mark_as_invalid(list, "Invalid target address %p.\n", parameters[i].Dest);
             return;
         }
 
-        offset = parameters[i].Dest - resource->gpu_address;
+        offset = parameters[i].Dest - resource->va;
 
         if (modes && !vk_pipeline_stage_from_wbi_mode(modes[i], &stage))
         {
@@ -8552,7 +8533,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12Comma
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
     unsigned int region_tile = 0, region_idx = 0, range_tile = 0, range_idx = 0;
     struct d3d12_resource *res = unsafe_impl_from_ID3D12Resource(resource);
-    struct d3d12_heap *memory_heap = unsafe_impl_from_ID3D12Heap(heap);
+    struct d3d12_heap_2 *memory_heap = unsafe_impl_from_ID3D12Heap_2(heap);
     struct vkd3d_sparse_memory_bind *bind, **bound_tiles;
     struct d3d12_sparse_info *sparse = &res->sparse;
     D3D12_TILED_RESOURCE_COORDINATE region_coord;
@@ -8638,8 +8619,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12Comma
             }
             else
             {
-                bind->vk_memory = memory_heap->vk_memory;
-                bind->vk_offset = VKD3D_TILE_SIZE * range_offset;
+                bind->vk_memory = memory_heap->allocation.vk_memory;
+                bind->vk_offset = memory_heap->allocation.offset + VKD3D_TILE_SIZE * range_offset;
 
                 if (range_flag != D3D12_TILE_RANGE_FLAG_REUSE_SINGLE_TILE)
                     bind->vk_offset += VKD3D_TILE_SIZE * range_tile;
