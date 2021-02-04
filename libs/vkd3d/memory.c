@@ -190,7 +190,7 @@ static HRESULT vkd3d_try_allocate_device_memory_2(struct d3d12_device *device,
     return E_OUTOFMEMORY;
 }
 
-static HRESULT vkd3d_allocate_device_memory_2(struct d3d12_device *device,
+HRESULT vkd3d_allocate_device_memory_2(struct d3d12_device *device,
         VkDeviceSize size, VkMemoryPropertyFlags type_flags, uint32_t type_mask,
         void *pNext, VkDeviceMemory *vk_memory, uint32_t *vk_memory_type)
 {
