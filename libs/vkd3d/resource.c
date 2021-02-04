@@ -1138,7 +1138,7 @@ static ULONG d3d12_resource_decref(struct d3d12_resource *resource)
 
 bool d3d12_resource_is_cpu_accessible(const struct d3d12_resource *resource)
 {
-    return !(resource->flags & VKD3D_RESOURCE_SPARSE) &&
+    return !(resource->flags & VKD3D_RESOURCE_RESERVED) &&
             is_cpu_accessible_heap(&resource->heap_properties);
 }
 
@@ -1274,7 +1274,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_SetName(d3d12_resource_iface *if
 
     /* Multiple committed and placed buffers may refer to the same VkBuffer,
      * which may cause race conditions if the app calls this concurrently */
-    if (d3d12_resource_is_buffer(resource) && (resource->flags & VKD3D_RESOURCE_SPARSE))
+    if (d3d12_resource_is_buffer(resource) && (resource->flags & VKD3D_RESOURCE_RESERVED))
         return vkd3d_set_vk_object_name(resource->device, (uint64_t)resource->vk_buffer,
                 VK_OBJECT_TYPE_BUFFER, name);
     else if (d3d12_resource_is_texture(resource))
@@ -1387,7 +1387,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(d3d12_resource_iface *iface,
         return E_INVALIDARG;
     }
 
-    if (resource->flags & VKD3D_RESOURCE_SPARSE)
+    if (resource->flags & VKD3D_RESOURCE_RESERVED)
     {
         FIXME("Not implemented for this resource type.\n");
         return E_NOTIMPL;
@@ -1622,7 +1622,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_GetHeapProperties(d3d12_resource
         return S_OK;
     }
 
-    if (resource->flags & VKD3D_RESOURCE_SPARSE)
+    if (resource->flags & VKD3D_RESOURCE_RESERVED)
     {
         WARN("Cannot get heap properties for reserved resources.\n");
         return E_INVALIDARG;
@@ -2074,7 +2074,7 @@ static HRESULT d3d12_resource_init_sparse_info(struct d3d12_resource *resource,
 
     memset(sparse, 0, sizeof(*sparse));
 
-    if (!(resource->flags & VKD3D_RESOURCE_SPARSE))
+    if (!(resource->flags & VKD3D_RESOURCE_RESERVED))
         return S_OK;
 
     sparse->tiling_count = d3d12_resource_desc_get_sub_resource_count(&resource->desc);
@@ -2180,7 +2180,7 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
     if (resource->flags & VKD3D_RESOURCE_EXTERNAL)
         return;
 
-    if (resource->flags & VKD3D_RESOURCE_SPARSE)
+    if (resource->flags & VKD3D_RESOURCE_RESERVED)
     {
         VK_CALL(vkFreeMemory(device->vk_device, resource->sparse.vk_metadata_memory, NULL));
 
@@ -2198,7 +2198,7 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
 
     if (d3d12_resource_is_texture(resource))
         VK_CALL(vkDestroyImage(device->vk_device, resource->vk_image, NULL));
-    else if (resource->flags & VKD3D_RESOURCE_SPARSE)
+    else if (resource->flags & VKD3D_RESOURCE_RESERVED)
         VK_CALL(vkDestroyBuffer(device->vk_device, resource->vk_buffer, NULL));
 
     if ((resource->flags & VKD3D_RESOURCE_ALLOCATION) && resource->mem.vk_memory)
@@ -2214,7 +2214,7 @@ static HRESULT d3d12_resource_create_vk_resource(struct d3d12_resource *resource
     const D3D12_HEAP_PROPERTIES *heap_properties;
     HRESULT hr;
 
-    heap_properties = resource->flags & VKD3D_RESOURCE_SPARSE
+    heap_properties = resource->flags & VKD3D_RESOURCE_RESERVED
         ? NULL : &resource->heap_properties;
 
     if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
@@ -2469,7 +2469,7 @@ HRESULT d3d12_resource_create_reserved(struct d3d12_device *device,
     struct d3d12_resource *object;
     HRESULT hr;
 
-    if (FAILED(hr = d3d12_resource_create(device, VKD3D_RESOURCE_SPARSE,
+    if (FAILED(hr = d3d12_resource_create(device, VKD3D_RESOURCE_RESERVED,
             desc, NULL, initial_state, optimized_clear_value, &object)))
         return hr;
 

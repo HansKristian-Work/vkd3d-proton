@@ -618,12 +618,10 @@ enum vkd3d_resource_flag
 {
     VKD3D_RESOURCE_COMMITTED      = (1u << 0),
     VKD3D_RESOURCE_PLACED         = (1u << 1),
-    VKD3D_RESOURCE_SPARSE         = (1u << 2),
+    VKD3D_RESOURCE_RESERVED       = (1u << 2),
     VKD3D_RESOURCE_ALLOCATION     = (1u << 3),
     VKD3D_RESOURCE_LINEAR_TILING  = (1u << 4),
     VKD3D_RESOURCE_EXTERNAL       = (1u << 5),
-    VKD3D_RESOURCE_DEDICATED_HEAP = (1u << 6),
-    VKD3D_RESOURCE_PLACED_BUFFER  = (1u << 7),
 };
 
 struct d3d12_sparse_image_region
