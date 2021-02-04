@@ -20,6 +20,10 @@
 
 #include "vkd3d_private.h"
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+#include "vkd3d_descriptor_debug.h"
+#endif
+
 static inline bool is_cpu_accessible_heap(const D3D12_HEAP_PROPERTIES *properties)
 {
     if (properties->Type == D3D12_HEAP_TYPE_DEFAULT)
@@ -258,6 +262,10 @@ static void vkd3d_memory_allocation_free(const struct vkd3d_memory_allocation *a
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    vkd3d_descriptor_debug_unregister_cookie(allocation->resource.cookie);
+#endif
+
     if ((allocation->flags & VKD3D_ALLOCATION_FLAG_GPU_ADDRESS) && allocation->resource.va)
     {
         vkd3d_va_map_remove(&allocator->va_map, &allocation->resource);
@@ -391,6 +399,9 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     }
 
     allocation->resource.cookie = vkd3d_allocate_cookie();
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    vkd3d_descriptor_debug_register_allocation_cookie(allocation->resource.cookie, info);
+#endif
     return S_OK;
 }
 

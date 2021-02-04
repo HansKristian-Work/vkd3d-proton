@@ -164,6 +164,16 @@ void vkd3d_descriptor_debug_register_resource_cookie(uint64_t cookie, const D3D1
     FLUSH_BUFFER();
 }
 
+void vkd3d_descriptor_debug_register_allocation_cookie(uint64_t cookie, const struct vkd3d_allocate_memory_info *info)
+{
+    D3D12_RESOURCE_DESC desc;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    desc.Width = info->memory_requirements.size;
+    vkd3d_descriptor_debug_register_resource_cookie(cookie, &desc);
+}
+
 void vkd3d_descriptor_debug_register_view_cookie(uint64_t cookie, uint64_t resource_cookie)
 {
     DECL_BUFFER();
