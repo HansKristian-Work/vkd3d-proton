@@ -51,57 +51,6 @@ static inline bool is_cpu_accessible_heap(const D3D12_HEAP_PROPERTIES *propertie
     return true;
 }
 
-static HRESULT vkd3d_select_memory_flags(struct d3d12_device *device, const D3D12_HEAP_PROPERTIES *heap_properties, VkMemoryPropertyFlags *type_flags)
-{
-    switch (heap_properties->Type)
-    {
-        case D3D12_HEAP_TYPE_DEFAULT:
-            *type_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-            break;
-
-        case D3D12_HEAP_TYPE_UPLOAD:
-            *type_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-            break;
-
-        case D3D12_HEAP_TYPE_READBACK:
-            *type_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
-            break;
-
-        case D3D12_HEAP_TYPE_CUSTOM:
-            if (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_UNKNOWN
-                    || (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_L1
-                    && (is_cpu_accessible_heap(heap_properties) || d3d12_device_is_uma(device, NULL))))
-            {
-                WARN("Invalid memory pool preference.\n");
-                return E_INVALIDARG;
-            }
-
-            switch (heap_properties->CPUPageProperty)
-            {
-                case D3D12_CPU_PAGE_PROPERTY_WRITE_BACK:
-                    *type_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
-                    break;
-                case D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE:
-                    *type_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-                    break;
-                case D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE:
-                    *type_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-                    break;
-                case D3D12_CPU_PAGE_PROPERTY_UNKNOWN:
-                default:
-                    WARN("Invalid CPU page property.\n");
-                    return E_INVALIDARG;
-            }
-            break;
-
-        default:
-            WARN("Invalid heap type %#x.\n", heap_properties->Type);
-            return E_INVALIDARG;
-    }
-
-    return S_OK;
-}
-
 static HRESULT vkd3d_try_allocate_memory(struct d3d12_device *device,
         VkDeviceSize size, VkMemoryPropertyFlags type_flags, uint32_t type_mask,
         void *pNext, VkDeviceMemory *vk_memory, uint32_t *vk_memory_type)
@@ -161,65 +110,6 @@ static HRESULT vkd3d_allocate_memory(struct d3d12_device *device,
     }
 
     return hr;
-}
-
-static HRESULT vkd3d_allocate_image_memory(struct d3d12_device *device, VkImage vk_image,
-        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        VkDeviceMemory *vk_memory, uint32_t *vk_memory_type, VkDeviceSize *vk_memory_size)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkMemoryDedicatedRequirements dedicated_requirements;
-    VkMemoryDedicatedAllocateInfo dedicated_info;
-    VkMemoryRequirements2 memory_requirements2;
-    VkMemoryRequirements *memory_requirements;
-    VkImageMemoryRequirementsInfo2 info;
-    VkMemoryPropertyFlags type_flags;
-    void *pNext = NULL;
-    VkResult vr;
-    HRESULT hr;
-
-    memory_requirements = &memory_requirements2.memoryRequirements;
-
-    info.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2;
-    info.pNext = NULL;
-    info.image = vk_image;
-
-    dedicated_requirements.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS;
-    dedicated_requirements.pNext = NULL;
-
-    memory_requirements2.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
-    memory_requirements2.pNext = &dedicated_requirements;
-
-    VK_CALL(vkGetImageMemoryRequirements2(device->vk_device, &info, &memory_requirements2));
-
-    if (dedicated_requirements.prefersDedicatedAllocation)
-    {
-        dedicated_info.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
-        dedicated_info.pNext = NULL;
-        dedicated_info.image = vk_image;
-        dedicated_info.buffer = VK_NULL_HANDLE;
-        pNext = &dedicated_info;
-    }
-
-    if (FAILED(hr = vkd3d_select_memory_flags(device, heap_properties, &type_flags)))
-        return hr;
-
-    if (FAILED(hr = vkd3d_allocate_memory(device, memory_requirements->size, type_flags,
-            memory_requirements->memoryTypeBits, pNext, vk_memory, vk_memory_type)))
-        return hr;
-
-    if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, vk_image, *vk_memory, 0))) < 0)
-    {
-        WARN("Failed to bind memory, vr %d.\n", vr);
-        VK_CALL(vkFreeMemory(device->vk_device, *vk_memory, NULL));
-        *vk_memory = VK_NULL_HANDLE;
-        return hresult_from_vk_result(vr);
-    }
-
-    if (vk_memory_size)
-        *vk_memory_size = memory_requirements->size;
-
-    return S_OK;
 }
 
 static VkImageType vk_image_type_from_d3d12_resource_dimension(D3D12_RESOURCE_DIMENSION dimension)
@@ -5889,7 +5779,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
             &resource_desc, NULL, &null_resources->vk_2d_image)))
         goto fail;
     if (FAILED(hr = vkd3d_allocate_image_memory(device, null_resources->vk_2d_image,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_2d_image_memory, NULL, NULL)))
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &null_resources->vk_2d_image_memory)))
         goto fail;
 
     /* 2D UAV */
@@ -5910,7 +5800,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
             &resource_desc, NULL, &null_resources->vk_2d_storage_image)))
         goto fail;
     if (!use_sparse_resources && FAILED(hr = vkd3d_allocate_image_memory(device, null_resources->vk_2d_storage_image,
-            &heap_properties, D3D12_HEAP_FLAG_NONE, &null_resources->vk_2d_storage_image_memory, NULL, NULL)))
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &null_resources->vk_2d_storage_image_memory)))
         goto fail;
 
     /* set Vulkan object names */
