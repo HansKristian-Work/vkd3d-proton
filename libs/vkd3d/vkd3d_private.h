@@ -686,7 +686,6 @@ struct d3d12_resource
     struct vkd3d_unique_resource res;
 
     struct d3d12_heap *heap;
-    uint64_t heap_offset;
 
     uint32_t flags;
 
@@ -2578,7 +2577,7 @@ VkDeviceAddress vkd3d_get_buffer_device_address(struct d3d12_device *device, VkB
 
 static inline VkDeviceAddress d3d12_resource_get_va(const struct d3d12_resource *resource, VkDeviceSize offset)
 {
-    return vkd3d_get_buffer_device_address(resource->device, resource->res.vk_buffer) + resource->heap_offset + offset;
+    return vkd3d_get_buffer_device_address(resource->device, resource->res.vk_buffer) + resource->mem.offset + offset;
 }
 
 static inline unsigned int vkd3d_compute_workgroup_count(unsigned int thread_count, unsigned int workgroup_size)
