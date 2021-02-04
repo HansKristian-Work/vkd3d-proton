@@ -51,29 +51,6 @@ static inline bool is_cpu_accessible_heap(const D3D12_HEAP_PROPERTIES *propertie
     return true;
 }
 
-static uint32_t vkd3d_select_memory_types(struct d3d12_device *device, const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
-{
-    const VkPhysicalDeviceMemoryProperties *memory_info = &device->memory_properties;
-    uint32_t type_mask = (1 << memory_info->memoryTypeCount) - 1;
-
-    if (!(heap_flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
-        type_mask &= device->memory_info.buffer_type_mask;
-
-    if (!(heap_flags & D3D12_HEAP_FLAG_DENY_NON_RT_DS_TEXTURES))
-        type_mask &= device->memory_info.sampled_type_mask;
-
-    /* Render targets are not allowed on UPLOAD and READBACK heaps */
-    if (!(heap_flags & D3D12_HEAP_FLAG_DENY_RT_DS_TEXTURES) &&
-            heap_properties->Type != D3D12_HEAP_TYPE_UPLOAD &&
-            heap_properties->Type != D3D12_HEAP_TYPE_READBACK)
-        type_mask &= device->memory_info.rt_ds_type_mask;
-
-    if (!type_mask)
-        ERR("No memory type found for heap flags %#x.\n", heap_flags);
-
-    return type_mask;
-}
-
 static HRESULT vkd3d_select_memory_flags(struct d3d12_device *device, const D3D12_HEAP_PROPERTIES *heap_properties, VkMemoryPropertyFlags *type_flags)
 {
     switch (heap_properties->Type)
@@ -184,131 +161,6 @@ static HRESULT vkd3d_allocate_memory(struct d3d12_device *device,
     }
 
     return hr;
-}
-
-static HRESULT vkd3d_import_host_memory(struct d3d12_device *device,
-        void *host_address, VkDeviceSize size, VkMemoryPropertyFlags type_flags, uint32_t type_mask,
-        void *pNext, VkDeviceMemory *vk_memory, uint32_t *vk_memory_type)
-{
-    VkImportMemoryHostPointerInfoEXT import_info;
-    HRESULT hr;
-
-    import_info.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_HOST_POINTER_INFO_EXT;
-    import_info.pNext = pNext;
-    import_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT;
-    import_info.pHostPointer = host_address;
-    if (SUCCEEDED(hr = vkd3d_try_allocate_memory(device, size, type_flags, type_mask, &import_info, vk_memory, vk_memory_type)))
-        return hr;
-
-    /* If we failed, fall back to just being host visible / coherent (NVIDIA).
-     * Generally the app will access the memory thorugh the main host pointer, so it's fine. */
-    return vkd3d_try_allocate_memory(device, size,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            type_mask, &import_info, vk_memory, vk_memory_type);
-}
-
-HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer, void *host_memory,
-        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        VkDeviceMemory *vk_memory, uint32_t *vk_memory_type, VkDeviceSize *vk_memory_size)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkMemoryDedicatedRequirements dedicated_requirements;
-    VkMemoryHostPointerPropertiesEXT host_properties;
-    VkMemoryDedicatedAllocateInfo dedicated_info;
-    VkMemoryRequirements2 memory_requirements2;
-    VkMemoryRequirements *memory_requirements;
-    VkBufferMemoryRequirementsInfo2 info;
-    VkMemoryAllocateFlagsInfo flags_info;
-    VkMemoryPropertyFlags type_flags;
-    VkResult vr;
-    HRESULT hr;
-
-    memory_requirements = &memory_requirements2.memoryRequirements;
-
-    info.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_REQUIREMENTS_INFO_2;
-    info.pNext = NULL;
-    info.buffer = vk_buffer;
-
-    dedicated_requirements.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS;
-    dedicated_requirements.pNext = NULL;
-
-    memory_requirements2.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
-    memory_requirements2.pNext = &dedicated_requirements;
-
-    VK_CALL(vkGetBufferMemoryRequirements2(device->vk_device, &info, &memory_requirements2));
-
-    if (host_memory)
-    {
-        if (((uintptr_t)host_memory) &
-            (device->device_info.external_memory_host_properties.minImportedHostPointerAlignment - 1))
-        {
-            FIXME("Imported host memory is misaligned.\n");
-            return E_INVALIDARG;
-        }
-
-        host_properties.sType = VK_STRUCTURE_TYPE_MEMORY_HOST_POINTER_PROPERTIES_EXT;
-        host_properties.pNext = NULL;
-        if (VK_CALL(vkGetMemoryHostPointerPropertiesEXT(device->vk_device,
-                VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT,
-                host_memory, &host_properties)) != VK_SUCCESS)
-            return E_INVALIDARG;
-
-        memory_requirements->memoryTypeBits &= host_properties.memoryTypeBits;
-    }
-
-    if (heap_flags != D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS)
-        memory_requirements->memoryTypeBits &= vkd3d_select_memory_types(device, heap_properties, heap_flags);
-
-    flags_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
-    flags_info.pNext = NULL;
-    flags_info.flags = 0;
-
-    if (device->device_info.buffer_device_address_features.bufferDeviceAddress)
-        flags_info.flags |= VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR;
-
-    if (heap_flags == D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS && dedicated_requirements.prefersDedicatedAllocation)
-    {
-        dedicated_info.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
-        dedicated_info.pNext = NULL;
-        dedicated_info.image = VK_NULL_HANDLE;
-        dedicated_info.buffer = vk_buffer;
-
-        flags_info.pNext = &dedicated_info;
-    }
-
-    if (FAILED(hr = vkd3d_select_memory_flags(device, heap_properties, &type_flags)))
-        return hr;
-
-    if (host_memory)
-    {
-        if (FAILED(hr = vkd3d_import_host_memory(device, host_memory, memory_requirements->size, type_flags,
-                memory_requirements->memoryTypeBits, &flags_info, vk_memory,
-                vk_memory_type)))
-        {
-            return hr;
-        }
-    }
-    else
-    {
-        if (FAILED(hr = vkd3d_allocate_memory(device, memory_requirements->size, type_flags,
-                memory_requirements->memoryTypeBits, &flags_info, vk_memory,
-                vk_memory_type)))
-        {
-            return hr;
-        }
-    }
-
-    if ((vr = VK_CALL(vkBindBufferMemory(device->vk_device, vk_buffer, *vk_memory, 0))) < 0)
-    {
-        WARN("Failed to bind memory, vr %d.\n", vr);
-        VK_CALL(vkFreeMemory(device->vk_device, *vk_memory, NULL));
-        *vk_memory = VK_NULL_HANDLE;
-    }
-
-    if (vk_memory_size)
-        *vk_memory_size = memory_requirements->size;
-
-    return hresult_from_vk_result(vr);
 }
 
 static HRESULT vkd3d_allocate_image_memory(struct d3d12_device *device, VkImage vk_image,
@@ -5271,8 +5123,9 @@ static HRESULT d3d12_descriptor_heap_init_data_buffer(struct d3d12_descriptor_he
         if (FAILED(hr = vkd3d_create_buffer(device, &heap_info, heap_flags, &buffer_desc, &descriptor_heap->vk_buffer)))
             return hr;
 
-        if (FAILED(hr = vkd3d_allocate_buffer_memory(device, descriptor_heap->vk_buffer, NULL,
-                &heap_info, heap_flags, &descriptor_heap->vk_memory, NULL, NULL)))
+        if (FAILED(hr = vkd3d_allocate_buffer_memory(device, descriptor_heap->vk_buffer,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                &descriptor_heap->vk_memory)))
             return hr;
 
         if ((vr = VK_CALL(vkMapMemory(device->vk_device, descriptor_heap->vk_memory,
@@ -5753,8 +5606,8 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
             return hr;
         }
 
-        if (FAILED(hr = vkd3d_allocate_buffer_memory(device, object->vk_buffer, NULL,
-                &heap_properties, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS, &object->vk_memory, NULL, NULL)))
+        if (FAILED(hr = vkd3d_allocate_buffer_memory(device, object->vk_buffer,
+                VK_MEMORY_HEAP_DEVICE_LOCAL_BIT, &object->vk_memory)))
         {
             VK_CALL(vkDestroyBuffer(device->vk_device, object->vk_buffer, NULL));
             vkd3d_free(object);
@@ -5997,8 +5850,8 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
     if (FAILED(hr = vkd3d_create_buffer(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, &null_resources->vk_buffer)))
         goto fail;
-    if (FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_buffer, NULL,
-            &heap_properties, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS, &null_resources->vk_buffer_memory, NULL, NULL)))
+    if (FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_buffer,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &null_resources->vk_buffer_memory)))
         goto fail;
     if (!vkd3d_create_vk_buffer_view(device, null_resources->vk_buffer,
             vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false),
@@ -6011,8 +5864,8 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
     if (FAILED(hr = vkd3d_create_buffer(device, use_sparse_resources ? NULL : &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, &null_resources->vk_storage_buffer)))
         goto fail;
-    if (!use_sparse_resources && FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_storage_buffer, NULL,
-            &heap_properties, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS, &null_resources->vk_storage_buffer_memory, NULL, NULL)))
+    if (!use_sparse_resources && FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_storage_buffer,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &null_resources->vk_storage_buffer_memory)))
         goto fail;
     if (!vkd3d_create_vk_buffer_view(device, null_resources->vk_storage_buffer,
             vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false),

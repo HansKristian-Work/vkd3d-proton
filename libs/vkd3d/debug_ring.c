@@ -214,8 +214,9 @@ HRESULT vkd3d_shader_debug_ring_init(struct vkd3d_shader_debug_ring *ring,
                                    &resource_desc, &ring->host_buffer)))
         goto err_free_buffers;
 
-    if (FAILED(vkd3d_allocate_buffer_memory(device, ring->host_buffer, NULL,
-                                            &heap_properties, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS, &ring->host_buffer_memory, NULL, NULL)))
+    if (FAILED(vkd3d_allocate_buffer_memory(device, ring->host_buffer,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
+            &ring->host_buffer_memory)))
         goto err_free_buffers;
 
     ring->ring_device_address = vkd3d_get_buffer_device_address(device, ring->host_buffer) + ring->ring_offset;
@@ -228,8 +229,8 @@ HRESULT vkd3d_shader_debug_ring_init(struct vkd3d_shader_debug_ring *ring,
                                    &resource_desc, &ring->device_atomic_buffer)))
         goto err_free_buffers;
 
-    if (FAILED(vkd3d_allocate_buffer_memory(device, ring->device_atomic_buffer, NULL,
-                                            &heap_properties, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS, &ring->device_atomic_buffer_memory, NULL, NULL)))
+    if (FAILED(vkd3d_allocate_buffer_memory(device, ring->device_atomic_buffer,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &ring->device_atomic_buffer_memory)))
         goto err_free_buffers;
 
     if (VK_CALL(vkMapMemory(device->vk_device, ring->host_buffer_memory, 0, VK_WHOLE_SIZE, 0, &ring->mapped)) != VK_SUCCESS)

@@ -1246,3 +1246,31 @@ HRESULT vkd3d_allocate_resource_memory_2(struct d3d12_device *device, struct vkd
 
     return S_OK;
 }
+
+HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer,
+        VkMemoryPropertyFlags type_flags, VkDeviceMemory *vk_memory)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkMemoryRequirements memory_requirements;
+    VkMemoryAllocateFlagsInfo flags_info;
+    VkResult vr;
+    HRESULT hr;
+
+    flags_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
+    flags_info.pNext = NULL;
+    flags_info.flags = 0;
+
+    if (device->device_info.buffer_device_address_features.bufferDeviceAddress)
+        flags_info.flags |= VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR;
+
+    VK_CALL(vkGetBufferMemoryRequirements(device->vk_device, vk_buffer, &memory_requirements));
+
+    if (FAILED(hr = vkd3d_allocate_device_memory_2(device, memory_requirements.size,
+            type_flags, memory_requirements.memoryTypeBits, &flags_info, vk_memory, NULL)))
+        return hr;
+
+    if (FAILED(vr = VK_CALL(vkBindBufferMemory(device->vk_device, vk_buffer, *vk_memory, 0))))
+        return hresult_from_vk_result(vr);
+
+    return hr;
+}
