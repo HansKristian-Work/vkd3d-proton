@@ -136,6 +136,7 @@ struct vkd3d_vulkan_info
     bool EXT_vertex_attribute_divisor;
     bool EXT_extended_dynamic_state;
     bool EXT_external_memory_host;
+    bool EXT_4444_formats;
     /* AMD device extensions */
     bool AMD_buffer_marker;
     bool AMD_shader_core_properties;
@@ -2073,6 +2074,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceTransformFeedbackFeaturesEXT xfb_features;
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT vertex_divisor_features;
     VkPhysicalDeviceCustomBorderColorFeaturesEXT custom_border_color_features;
+    VkPhysicalDevice4444FormatsFeaturesEXT ext_4444_formats_features;
     VkPhysicalDeviceTimelineSemaphoreFeaturesKHR timeline_semaphore_features;
     VkPhysicalDeviceFloat16Int8FeaturesKHR float16_int8_features;
     VkPhysicalDeviceShaderSubgroupExtendedTypesFeaturesKHR subgroup_extended_types_features;
