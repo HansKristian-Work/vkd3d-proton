@@ -542,6 +542,8 @@ static inline VkImageLayout d3d12_resource_pick_layout(const struct d3d12_resour
     return resource->flags & VKD3D_RESOURCE_LINEAR_TILING ? VK_IMAGE_LAYOUT_GENERAL : layout;
 }
 
+LONG64 vkd3d_allocate_cookie();
+
 bool d3d12_resource_is_cpu_accessible(const struct d3d12_resource *resource);
 HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc, struct d3d12_device *device);
 VkImageSubresource d3d12_resource_get_vk_subresource(const struct d3d12_resource *resource, uint32_t subresource_idx, bool all_aspects);
