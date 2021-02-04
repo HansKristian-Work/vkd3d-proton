@@ -3820,6 +3820,10 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     list->dynamic_state.primitive_topology = D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
     list->dynamic_state.vk_primitive_topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
 
+    list->dynamic_state.fragment_shading_rate.fragment_size = (VkExtent2D) { 1u, 1u };
+    list->dynamic_state.fragment_shading_rate.combiner_ops[0] = VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR;
+    list->dynamic_state.fragment_shading_rate.combiner_ops[1] = VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR;
+
     memset(list->pipeline_bindings, 0, sizeof(list->pipeline_bindings));
     memset(list->descriptor_heaps, 0, sizeof(list->descriptor_heaps));
 
@@ -4620,6 +4624,13 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
                         dyn_state->vertex_offsets + range.offset));
             }
         }
+    }
+
+    if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE)
+    {
+        VK_CALL(vkCmdSetFragmentShadingRateKHR(list->vk_command_buffer,
+                &dyn_state->fragment_shading_rate.fragment_size,
+                dyn_state->fragment_shading_rate.combiner_ops));
     }
 
     dyn_state->dirty_flags = 0;
@@ -8126,10 +8137,60 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchRays(d3d12_command_list
     FIXME("iface %p, desc %p stub!\n", iface, desc);
 }
 
+static VkFragmentShadingRateCombinerOpKHR vk_shading_rate_combiner_from_d3d12(D3D12_SHADING_RATE_COMBINER combiner)
+{
+    switch (combiner)
+    {
+        case D3D12_SHADING_RATE_COMBINER_PASSTHROUGH:
+            return VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR;
+        case D3D12_SHADING_RATE_COMBINER_OVERRIDE:
+            return VK_FRAGMENT_SHADING_RATE_COMBINER_OP_REPLACE_KHR;
+        case D3D12_SHADING_RATE_COMBINER_MAX:
+            return VK_FRAGMENT_SHADING_RATE_COMBINER_OP_MAX_KHR;
+        case D3D12_SHADING_RATE_COMBINER_MIN:
+            return VK_FRAGMENT_SHADING_RATE_COMBINER_OP_MIN_KHR;
+        case D3D12_SHADING_RATE_COMBINER_SUM:
+            /* Undocumented log space */
+            return VK_FRAGMENT_SHADING_RATE_COMBINER_OP_MUL_KHR;
+        default:
+            ERR("Unhandled shading rate combiner %u.\n", combiner);
+            /* Default to passthrough for unknown */
+            return VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR;
+    }
+}
+
+static uint32_t vk_fragment_size_from_d3d12(D3D12_AXIS_SHADING_RATE axis_rate)
+{
+    switch (axis_rate)
+    {
+        case D3D12_AXIS_SHADING_RATE_1X: return 1;
+        case D3D12_AXIS_SHADING_RATE_2X: return 2;
+        case D3D12_AXIS_SHADING_RATE_4X: return 4;
+        default:
+            ERR("Unhandled axis shading rate %u.\n", axis_rate);
+            return 1;
+    }
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRate(d3d12_command_list_iface *iface,
         D3D12_SHADING_RATE base, const D3D12_SHADING_RATE_COMBINER *combiners)
 {
-    FIXME("iface %p, base %#x, combiners %p stub!\n", iface, base, combiners);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct vkd3d_dynamic_state *dyn_state = &list->dynamic_state;
+
+    TRACE("iface %p, base %#x, combiners %p\n", iface, base, combiners);
+
+    dyn_state->fragment_shading_rate.fragment_size = (VkExtent2D) {
+        vk_fragment_size_from_d3d12(D3D12_GET_COARSE_SHADING_RATE_X_AXIS(base)),
+        vk_fragment_size_from_d3d12(D3D12_GET_COARSE_SHADING_RATE_Y_AXIS(base))
+    };
+
+    for (uint32_t i = 0; i < D3D12_RS_SET_SHADING_RATE_COMBINER_COUNT; i++)
+        dyn_state->fragment_shading_rate.combiner_ops[i] = combiners
+            ? vk_shading_rate_combiner_from_d3d12(combiners[i])
+            : VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR;
+    
+    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRateImage(d3d12_command_list_iface *iface,

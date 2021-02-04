@@ -205,6 +205,10 @@ VK_DEVICE_EXT_PFN(vkCmdSetRayTracingPipelineStackSizeKHR)
 VK_DEVICE_EXT_PFN(vkCmdTraceRaysKHR)
 VK_DEVICE_EXT_PFN(vkCmdTraceRaysIndirectKHR)
 
+/* VK_KHR_fragment_shading_rate */
+VK_INSTANCE_PFN(vkGetPhysicalDeviceFragmentShadingRatesKHR)
+VK_DEVICE_EXT_PFN(vkCmdSetFragmentShadingRateKHR)
+
 /* VK_EXT_calibrated_timestamps */
 VK_DEVICE_EXT_PFN(vkGetCalibratedTimestampsEXT)
 VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceCalibrateableTimeDomainsEXT)
