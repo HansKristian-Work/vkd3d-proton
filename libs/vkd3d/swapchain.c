@@ -952,7 +952,7 @@ static HRESULT d3d12_swapchain_create_user_buffers(struct d3d12_swapchain *swapc
             return hr;
         }
 
-        swapchain->vk_images[i] = object->vk_image;
+        swapchain->vk_images[i] = object->res.vk_image;
         swapchain->buffers[i] = (ID3D12Resource *)&object->ID3D12Resource_iface;
 
         vkd3d_resource_incref(swapchain->buffers[i]);
