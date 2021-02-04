@@ -51,67 +51,6 @@ static inline bool is_cpu_accessible_heap(const D3D12_HEAP_PROPERTIES *propertie
     return true;
 }
 
-static HRESULT vkd3d_try_allocate_memory(struct d3d12_device *device,
-        VkDeviceSize size, VkMemoryPropertyFlags type_flags, uint32_t type_mask,
-        void *pNext, VkDeviceMemory *vk_memory, uint32_t *vk_memory_type)
-{
-    const VkPhysicalDeviceMemoryProperties *memory_info = &device->memory_properties;
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkMemoryAllocateInfo allocate_info;
-    VkResult vr;
-    uint32_t i;
-
-    /* buffer_mask / sampled_mask etc will generally take care of this, but for certain fallback scenarios
-     * where we select other memory types, we need to mask here as well. */
-    type_mask &= device->memory_info.global_mask;
-
-    allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocate_info.pNext = pNext;
-    allocate_info.allocationSize = size;
-
-    for (i = 0; i < memory_info->memoryTypeCount; i++)
-    {
-        if (!(type_mask & (1u << i)))
-            continue;
-
-        if ((memory_info->memoryTypes[i].propertyFlags & type_flags) != type_flags)
-            continue;
-
-        allocate_info.memoryTypeIndex = i;
-
-        if ((vr = VK_CALL(vkAllocateMemory(device->vk_device,
-                &allocate_info, NULL, vk_memory))) == VK_SUCCESS)
-        {
-            if (vk_memory_type)
-                *vk_memory_type = i;
-
-            return S_OK;
-        }
-    }
-
-    return E_OUTOFMEMORY;
-}
-
-static HRESULT vkd3d_allocate_memory(struct d3d12_device *device,
-        VkDeviceSize size, VkMemoryPropertyFlags type_flags, uint32_t type_mask,
-        void *pNext, VkDeviceMemory *vk_memory, uint32_t *vk_memory_type)
-{
-    const VkMemoryPropertyFlags optional_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-    HRESULT hr;
-
-    hr = vkd3d_try_allocate_memory(device, size, type_flags,
-            type_mask, pNext, vk_memory, vk_memory_type);
-
-    if (FAILED(hr) && (type_flags & optional_flags))
-    {
-        WARN("Memory allocation failed, falling back to system memory.\n");
-        hr = vkd3d_try_allocate_memory(device, size, type_flags & ~optional_flags,
-                type_mask, pNext, vk_memory, vk_memory_type);
-    }
-
-    return hr;
-}
-
 static VkImageType vk_image_type_from_d3d12_resource_dimension(D3D12_RESOURCE_DIMENSION dimension)
 {
     switch (dimension)
@@ -2031,7 +1970,7 @@ static HRESULT d3d12_resource_bind_sparse_metadata(struct d3d12_resource *resour
 
     VK_CALL(vkGetImageMemoryRequirements(device->vk_device, resource->vk_image, &memory_requirements));
 
-    if ((vr = vkd3d_allocate_memory(device, metadata_size, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+    if ((vr = vkd3d_allocate_device_memory_2(device, metadata_size, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             memory_requirements.memoryTypeBits, NULL, &sparse->vk_metadata_memory, NULL)))
     {
         ERR("Failed to allocate device memory for sparse metadata, vr %d.\n", vr);
