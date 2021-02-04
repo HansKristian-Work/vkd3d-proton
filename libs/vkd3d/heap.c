@@ -64,7 +64,7 @@ static void d3d12_heap_destroy(struct d3d12_heap *heap)
 {
     TRACE("Destroying heap %p.\n", heap);
 
-    vkd3d_free_memory_2(heap->device, &heap->device->memory_allocator, &heap->allocation);
+    vkd3d_free_memory(heap->device, &heap->device->memory_allocator, &heap->allocation);
     vkd3d_private_store_destroy(&heap->private_store);
     d3d12_device_release(heap->device);
     vkd3d_free(heap);
@@ -238,7 +238,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap, struct d3d12_device *dev
     if (FAILED(hr = vkd3d_private_store_init(&heap->private_store)))
         return hr;
 
-    if (FAILED(hr = vkd3d_allocate_heap_memory_2(device,
+    if (FAILED(hr = vkd3d_allocate_heap_memory(device,
             &device->memory_allocator, &alloc_info, &heap->allocation)))
     {
         vkd3d_private_store_destroy(&heap->private_store);

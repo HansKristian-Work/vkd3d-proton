@@ -2085,7 +2085,7 @@ static HRESULT d3d12_device_create_scratch_buffer(struct d3d12_device *device, V
     alloc_info.heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     alloc_info.heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
 
-    if (FAILED(hr = vkd3d_allocate_heap_memory_2(device, &device->memory_allocator,
+    if (FAILED(hr = vkd3d_allocate_heap_memory(device, &device->memory_allocator,
             &alloc_info, &scratch->allocation)))
         return hr;
 
@@ -2097,7 +2097,7 @@ static void d3d12_device_destroy_scratch_buffer(struct d3d12_device *device, con
 {
     TRACE("device %p, scratch %p.\n", device, scratch);
 
-    vkd3d_free_memory_2(device, &device->memory_allocator, &scratch->allocation);
+    vkd3d_free_memory(device, &device->memory_allocator, &scratch->allocation);
 }
 
 HRESULT d3d12_device_get_scratch_buffer(struct d3d12_device *device, VkDeviceSize min_size, struct vkd3d_scratch_buffer *scratch)

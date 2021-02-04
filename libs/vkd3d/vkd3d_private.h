@@ -584,11 +584,11 @@ struct vkd3d_memory_allocator
     struct vkd3d_memory_clear_queue clear_queue;
 };
 
-void vkd3d_free_memory_2(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
+void vkd3d_free_memory(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
         const struct vkd3d_memory_allocation *allocation);
-HRESULT vkd3d_allocate_heap_memory_2(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
+HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
         const struct vkd3d_allocate_heap_memory_info *info, struct vkd3d_memory_allocation *allocation);
-HRESULT vkd3d_allocate_resource_memory_2(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
+HRESULT vkd3d_allocate_resource_memory(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
         const struct vkd3d_allocate_resource_memory_info *info, struct vkd3d_memory_allocation *allocation);
 
 HRESULT vkd3d_memory_allocator_init(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device);
@@ -746,7 +746,7 @@ HRESULT d3d12_resource_create_reserved(struct d3d12_device *device,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource);
 struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface);
 
-HRESULT vkd3d_allocate_device_memory_2(struct d3d12_device *device,
+HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
         VkDeviceSize size, VkMemoryPropertyFlags type_flags, uint32_t type_mask,
         void *pNext, VkDeviceMemory *vk_memory, uint32_t *vk_memory_type);
 HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer,
