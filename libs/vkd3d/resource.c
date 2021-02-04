@@ -2370,10 +2370,10 @@ static HRESULT d3d12_resource_bind_image_memory_2(struct d3d12_resource *resourc
                 resource->vk_image, memory_requirements.alignment, resource->heap_offset);
 
         memset(&allocate_info, 0, sizeof(allocate_info));
-        allocate_info.heap_desc.Properties = resource->heap_2->desc.Properties;
+        allocate_info.heap_desc.Properties = resource->heap->desc.Properties;
         allocate_info.heap_desc.SizeInBytes = memory_requirements.size;
         allocate_info.heap_desc.Alignment = memory_requirements.alignment;
-        allocate_info.heap_desc.Flags = resource->heap_2->desc.Flags | D3D12_HEAP_FLAG_DENY_BUFFERS;
+        allocate_info.heap_desc.Flags = resource->heap->desc.Flags | D3D12_HEAP_FLAG_DENY_BUFFERS;
 
         if (FAILED(hr = vkd3d_allocate_heap_memory_2(device,
                 &device->memory_allocator, &allocate_info, &resource->mem)))
@@ -2393,7 +2393,7 @@ static HRESULT d3d12_resource_bind_image_memory_2(struct d3d12_resource *resourc
     return S_OK;
 }
 
-static HRESULT d3d12_resource_validate_heap(const D3D12_RESOURCE_DESC *resource_desc, struct d3d12_heap_2 *heap)
+static HRESULT d3d12_resource_validate_heap(const D3D12_RESOURCE_DESC *resource_desc, struct d3d12_heap *heap)
 {
     D3D12_HEAP_FLAGS deny_flag;
 
@@ -2421,7 +2421,7 @@ static HRESULT d3d12_resource_validate_heap(const D3D12_RESOURCE_DESC *resource_
 }
 
 HRESULT d3d12_resource_create_placed_2(struct d3d12_device *device, const D3D12_RESOURCE_DESC *desc,
-        struct d3d12_heap_2 *heap, uint64_t heap_offset, D3D12_RESOURCE_STATES initial_state,
+        struct d3d12_heap *heap, uint64_t heap_offset, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
 {
     struct d3d12_resource *object;
@@ -2434,7 +2434,7 @@ HRESULT d3d12_resource_create_placed_2(struct d3d12_device *device, const D3D12_
             desc, &heap->desc.Properties, initial_state, optimized_clear_value, &object)))
         return hr;
 
-    object->heap_2 = heap;
+    object->heap = heap;
     /* The exact allocation size is not important here since the
      * resource does not own the allocation, so just set it to 0. */
     vkd3d_memory_allocation_slice(&object->mem, &heap->allocation, heap_offset, 0);

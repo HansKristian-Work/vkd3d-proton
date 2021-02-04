@@ -3524,7 +3524,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource(d3d12_device_
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, REFIID iid, void **resource)
 {
-    struct d3d12_heap_2 *heap_object = unsafe_impl_from_ID3D12Heap_2(heap);
+    struct d3d12_heap *heap_object = unsafe_impl_from_ID3D12Heap(heap);
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
     struct d3d12_resource *object;
     HRESULT hr;
@@ -3864,7 +3864,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress(d3d12_
 #ifdef _WIN32
     MEMORY_BASIC_INFORMATION info;
     struct d3d12_device *device;
-    struct d3d12_heap_2 *object;
+    struct d3d12_heap *object;
     D3D12_HEAP_DESC heap_desc;
     size_t allocation_size;
     HRESULT hr;
@@ -3911,7 +3911,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenExistingHeapFromAddress(d3d12_
     heap_desc.Properties.VisibleNodeMask = 1;
     heap_desc.SizeInBytes = allocation_size;
 
-    if (FAILED(hr = d3d12_heap_create_2(device, &heap_desc, address, &object)))
+    if (FAILED(hr = d3d12_heap_create(device, &heap_desc, address, &object)))
     {
         *heap = NULL;
         return hr;
@@ -4018,7 +4018,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateHeap1(d3d12_device_iface *if
         REFIID iid, void **heap)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    struct d3d12_heap_2 *object;
+    struct d3d12_heap *object;
     HRESULT hr;
 
     TRACE("iface %p, desc %p, protected_session %p, iid %s, heap %p.\n",
@@ -4027,7 +4027,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateHeap1(d3d12_device_iface *if
     if (protected_session)
         FIXME("Ignoring protected session %p.\n", protected_session);
 
-    if (FAILED(hr = d3d12_heap_create_2(device, desc, NULL, &object)))
+    if (FAILED(hr = d3d12_heap_create(device, desc, NULL, &object)))
     {
         *heap = NULL;
         return hr;
