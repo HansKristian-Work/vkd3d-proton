@@ -107,6 +107,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_VERTEX_ATTRIBUTE_DIVISOR, EXT_vertex_attribute_divisor),
     VK_EXTENSION(EXT_EXTENDED_DYNAMIC_STATE, EXT_extended_dynamic_state),
     VK_EXTENSION(EXT_EXTERNAL_MEMORY_HOST, EXT_external_memory_host),
+    VK_EXTENSION(EXT_4444_FORMATS, EXT_4444_formats),
     /* AMD extensions */
     VK_EXTENSION(AMD_BUFFER_MARKER, AMD_buffer_marker),
     VK_EXTENSION(AMD_SHADER_CORE_PROPERTIES, AMD_shader_core_properties),
@@ -811,6 +812,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     VkPhysicalDeviceMutableDescriptorTypeFeaturesVALVE *mutable_features;
     VkPhysicalDeviceShaderFloat16Int8FeaturesKHR *float16_int8_features;
     VkPhysicalDeviceShaderCoreProperties2AMD *shader_core_properties2;
+    VkPhysicalDevice4444FormatsFeaturesEXT *ext_4444_formats_features;
     VkPhysicalDeviceDepthClipEnableFeaturesEXT *depth_clip_features;
     VkPhysicalDeviceRobustness2PropertiesEXT *robustness2_properties;
     VkPhysicalDeviceShaderCorePropertiesAMD *shader_core_properties;
@@ -861,6 +863,7 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     ray_tracing_pipeline_properties = &info->ray_tracing_pipeline_properties;
     ray_tracing_pipeline_features = &info->ray_tracing_pipeline_features;
     float_control_properties = &info->float_control_properties;
+    ext_4444_formats_features = &info->ext_4444_formats_features;
 
     info->features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     info->properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
@@ -1003,6 +1006,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         external_memory_host_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_MEMORY_HOST_PROPERTIES_EXT;
         vk_prepend_struct(&info->properties2, external_memory_host_properties);
+    }
+
+    if (vulkan_info->EXT_4444_formats)
+    {
+        ext_4444_formats_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_4444_FORMATS_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, ext_4444_formats_features);
     }
 
     if (vulkan_info->AMD_shader_core_properties)
