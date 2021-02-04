@@ -2432,10 +2432,11 @@ static bool vk_blend_attachment_needs_blend_constants(const VkPipelineColorBlend
             vk_blend_factor_needs_blend_constants(attachment->dstAlphaBlendFactor));
 }
 
-static uint32_t d3d12_graphics_pipeline_state_init_dynamic_state(const struct d3d12_graphics_pipeline_state *graphics,
+static uint32_t d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_pipeline_state *state,
         VkPipelineDynamicStateCreateInfo *dynamic_desc, VkDynamicState *dynamic_state_buffer,
         const struct vkd3d_pipeline_key *key)
 {
+    struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     uint32_t dynamic_state_flags;
     unsigned int i, count;
 
@@ -2446,15 +2447,16 @@ static uint32_t d3d12_graphics_pipeline_state_init_dynamic_state(const struct d3
     }
     dynamic_state_list[] =
     {
-        { VKD3D_DYNAMIC_STATE_VIEWPORT,             VK_DYNAMIC_STATE_VIEWPORT },
-        { VKD3D_DYNAMIC_STATE_SCISSOR,              VK_DYNAMIC_STATE_SCISSOR },
-        { VKD3D_DYNAMIC_STATE_VIEWPORT_COUNT,       VK_DYNAMIC_STATE_VIEWPORT_WITH_COUNT_EXT },
-        { VKD3D_DYNAMIC_STATE_SCISSOR_COUNT,        VK_DYNAMIC_STATE_SCISSOR_WITH_COUNT_EXT },
-        { VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS,      VK_DYNAMIC_STATE_BLEND_CONSTANTS },
-        { VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE,    VK_DYNAMIC_STATE_STENCIL_REFERENCE },
-        { VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS,         VK_DYNAMIC_STATE_DEPTH_BOUNDS },
-        { VKD3D_DYNAMIC_STATE_TOPOLOGY,             VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY_EXT },
-        { VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE, VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE_EXT },
+        { VKD3D_DYNAMIC_STATE_VIEWPORT,              VK_DYNAMIC_STATE_VIEWPORT },
+        { VKD3D_DYNAMIC_STATE_SCISSOR,               VK_DYNAMIC_STATE_SCISSOR },
+        { VKD3D_DYNAMIC_STATE_VIEWPORT_COUNT,        VK_DYNAMIC_STATE_VIEWPORT_WITH_COUNT_EXT },
+        { VKD3D_DYNAMIC_STATE_SCISSOR_COUNT,         VK_DYNAMIC_STATE_SCISSOR_WITH_COUNT_EXT },
+        { VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS,       VK_DYNAMIC_STATE_BLEND_CONSTANTS },
+        { VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE,     VK_DYNAMIC_STATE_STENCIL_REFERENCE },
+        { VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS,          VK_DYNAMIC_STATE_DEPTH_BOUNDS },
+        { VKD3D_DYNAMIC_STATE_TOPOLOGY,              VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY_EXT },
+        { VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE,  VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE_EXT },
+        { VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE, VK_DYNAMIC_STATE_FRAGMENT_SHADING_RATE_KHR },
     };
 
     dynamic_state_flags = 0;
@@ -2493,6 +2495,14 @@ static uint32_t d3d12_graphics_pipeline_state_init_dynamic_state(const struct d3
             dynamic_state_flags |= VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS;
         }
     }
+
+    /* We always need to enable fragment shading rate dynamic state when rasterizing.
+     * D3D12 has no information about this ahead of time for a pipeline
+     * unlike Vulkan.
+     * Target Independent Rasterization (ForcedSampleCount) is not supported when this is used
+     * so we don't need to worry about side effects when there are no render targets. */
+    if (d3d12_device_supports_variable_shading_rate_tier_1(state->device) && graphics->rt_count)
+        dynamic_state_flags |= VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE;
 
     /* Build dynamic state create info */
     for (i = 0, count = 0; i < ARRAY_SIZE(dynamic_state_list); i++)
@@ -3359,7 +3369,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     HRESULT hr;
 
     memcpy(bindings, graphics->attribute_bindings, graphics->attribute_binding_count * sizeof(*bindings));
-    *dynamic_state_flags = d3d12_graphics_pipeline_state_init_dynamic_state(graphics, &dynamic_create_info,
+    *dynamic_state_flags = d3d12_graphics_pipeline_state_init_dynamic_state(state, &dynamic_create_info,
             dynamic_state_buffer, key);
 
     if (key && !key->dynamic_stride)

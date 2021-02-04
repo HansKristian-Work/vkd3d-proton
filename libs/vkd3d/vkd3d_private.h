@@ -118,6 +118,7 @@ struct vkd3d_vulkan_info
     bool KHR_deferred_host_operations;
     bool KHR_spirv_1_4;
     bool KHR_shader_float_controls;
+    bool KHR_fragment_shading_rate;
     /* EXT device extensions */
     bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;
@@ -867,16 +868,17 @@ int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
 
 enum vkd3d_dynamic_state_flag
 {
-    VKD3D_DYNAMIC_STATE_VIEWPORT             = (1 << 0),
-    VKD3D_DYNAMIC_STATE_SCISSOR              = (1 << 1),
-    VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS      = (1 << 2),
-    VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE    = (1 << 3),
-    VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS         = (1 << 4),
-    VKD3D_DYNAMIC_STATE_TOPOLOGY             = (1 << 5),
-    VKD3D_DYNAMIC_STATE_VERTEX_BUFFER        = (1 << 6),
-    VKD3D_DYNAMIC_STATE_VIEWPORT_COUNT       = (1 << 7),
-    VKD3D_DYNAMIC_STATE_SCISSOR_COUNT        = (1 << 8),
-    VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE = (1 << 9),
+    VKD3D_DYNAMIC_STATE_VIEWPORT              = (1 << 0),
+    VKD3D_DYNAMIC_STATE_SCISSOR               = (1 << 1),
+    VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS       = (1 << 2),
+    VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE     = (1 << 3),
+    VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS          = (1 << 4),
+    VKD3D_DYNAMIC_STATE_TOPOLOGY              = (1 << 5),
+    VKD3D_DYNAMIC_STATE_VERTEX_BUFFER         = (1 << 6),
+    VKD3D_DYNAMIC_STATE_VIEWPORT_COUNT        = (1 << 7),
+    VKD3D_DYNAMIC_STATE_SCISSOR_COUNT         = (1 << 8),
+    VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE  = (1 << 9),
+    VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE = (1 << 10),
 };
 
 struct vkd3d_shader_debug_ring_spec_constants
@@ -1245,6 +1247,12 @@ struct vkd3d_dynamic_state
 
     D3D12_PRIMITIVE_TOPOLOGY primitive_topology;
     VkPrimitiveTopology vk_primitive_topology;
+
+    struct
+    {
+        VkExtent2D fragment_size;
+        VkFragmentShadingRateCombinerOpKHR combiner_ops[D3D12_RS_SET_SHADING_RATE_COMBINER_COUNT];
+    } fragment_shading_rate;
 };
 
 /* ID3D12CommandList */
@@ -2031,6 +2039,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceRayTracingPipelinePropertiesKHR ray_tracing_pipeline_properties;
     VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration_structure_properties;
     VkPhysicalDeviceFloatControlsPropertiesKHR float_control_properties;
+    VkPhysicalDeviceFragmentShadingRatePropertiesKHR fragment_shading_rate_properties;
 
     VkPhysicalDeviceProperties2KHR properties2;
 
@@ -2054,11 +2063,14 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceMutableDescriptorTypeFeaturesVALVE mutable_descriptor_features;
     VkPhysicalDeviceRayTracingPipelineFeaturesKHR ray_tracing_pipeline_features;
     VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features;
+    VkPhysicalDeviceFragmentShadingRateFeaturesKHR fragment_shading_rate_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
     /* others, for extensions that have no feature bits */
     uint32_t time_domains;  /* vkd3d_time_domain_flag */
+
+    bool additional_shading_rates_supported; /* d3d12 additional fragment shading rates cap */
 };
 
 struct d3d12_caps
@@ -2196,6 +2208,8 @@ static inline bool d3d12_device_use_ssbo_root_descriptors(struct d3d12_device *d
     return d3d12_device_use_ssbo_raw_buffer(device) &&
             d3d12_device_get_ssbo_alignment(device) <= 4;
 }
+
+bool d3d12_device_supports_variable_shading_rate_tier_1(struct d3d12_device *device);
 
 /* ID3DBlob */
 struct d3d_blob

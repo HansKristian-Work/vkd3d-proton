@@ -89,6 +89,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_DEFERRED_HOST_OPERATIONS, KHR_deferred_host_operations),
     VK_EXTENSION(KHR_SPIRV_1_4, KHR_spirv_1_4),
     VK_EXTENSION(KHR_SHADER_FLOAT_CONTROLS, KHR_shader_float_controls),
+    VK_EXTENSION(KHR_FRAGMENT_SHADING_RATE, KHR_fragment_shading_rate),
     /* EXT extensions */
     VK_EXTENSION(EXT_CALIBRATED_TIMESTAMPS, EXT_calibrated_timestamps),
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
@@ -774,17 +775,101 @@ static uint32_t vkd3d_physical_device_get_time_domains(struct d3d12_device *devi
     return result;
 }
 
+bool d3d12_device_supports_variable_shading_rate_tier_1(struct d3d12_device *device)
+{
+    const struct vkd3d_physical_device_info *info = &device->device_info;
+
+    return info->fragment_shading_rate_features.pipelineFragmentShadingRate &&
+            (device->vk_info.device_limits.framebufferColorSampleCounts & VK_SAMPLE_COUNT_2_BIT);
+}
+
+static D3D12_VARIABLE_SHADING_RATE_TIER d3d12_device_determine_variable_shading_rate_tier(struct d3d12_device *device)
+{
+    if (!d3d12_device_supports_variable_shading_rate_tier_1(device))
+        return D3D12_VARIABLE_SHADING_RATE_TIER_NOT_SUPPORTED;
+
+    /* TODO: TIER_2
+        - impl RSSetShadingRateImage
+        - prop fragmentShadingRateNonTrivialCombinerOp
+        - feat primitiveFragmentShadingRate
+            - DXIL bringup for PrimitiveShadingRateKHR built-in
+        - feat attachmentFragmentShadingRate
+    */
+
+    return D3D12_VARIABLE_SHADING_RATE_TIER_1;
+}
+
+static const struct
+{
+    VkExtent2D         fragment_size;
+    VkSampleCountFlags min_sample_counts;
+} additional_shading_rates[] =
+{
+    { { 2, 4 }, VK_SAMPLE_COUNT_1_BIT | VK_SAMPLE_COUNT_2_BIT },
+    { { 4, 2 }, VK_SAMPLE_COUNT_1_BIT },
+    { { 4, 4 }, VK_SAMPLE_COUNT_1_BIT },
+};
+
+static bool d3d12_device_determine_additional_shading_rates_supported(struct d3d12_device *device)
+{
+    const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
+    VkPhysicalDeviceFragmentShadingRateKHR *fragment_shading_rates;
+    VkPhysicalDevice physical_device = device->vk_physical_device;
+    uint32_t additional_shading_rates_supported = 0;
+    uint32_t fragment_shading_rate_count;
+    VkResult vr;
+
+    /* Early out if we don't support at least variable shading rate TIER1 */
+    if (d3d12_device_determine_variable_shading_rate_tier(device) == D3D12_VARIABLE_SHADING_RATE_TIER_NOT_SUPPORTED)
+        return false;
+
+    if ((vr = VK_CALL(vkGetPhysicalDeviceFragmentShadingRatesKHR(physical_device, &fragment_shading_rate_count, NULL))) < 0)
+    {
+        ERR("Failed to enumerate additional shading rates, vr %d.\n", vr);
+        return false;
+    }
+
+    if (!(fragment_shading_rates = vkd3d_calloc(fragment_shading_rate_count, sizeof(*fragment_shading_rates))))
+        return false;
+
+    if ((vr = VK_CALL(vkGetPhysicalDeviceFragmentShadingRatesKHR(physical_device, &fragment_shading_rate_count, fragment_shading_rates))) < 0)
+    {
+        ERR("Failed to enumerate additional shading rates, vr %d.\n", vr);
+        vkd3d_free(fragment_shading_rates);
+        return false;
+    }
+
+    for (uint32_t i = 0; i < fragment_shading_rate_count; i++)
+    {
+        for (uint32_t j = 0; j < ARRAY_SIZE(additional_shading_rates); j++)
+        {
+            if (fragment_shading_rates[i].fragmentSize.width  == additional_shading_rates[j].fragment_size.width &&
+                fragment_shading_rates[i].fragmentSize.height == additional_shading_rates[j].fragment_size.height &&
+                (fragment_shading_rates[i].sampleCounts & additional_shading_rates[j].min_sample_counts) == additional_shading_rates[j].min_sample_counts)
+            {
+                additional_shading_rates_supported++;
+                break;
+            }
+        }
+    }
+    vkd3d_free(fragment_shading_rates);
+
+    return additional_shading_rates_supported == ARRAY_SIZE(additional_shading_rates);
+}
+
 static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *info, struct d3d12_device *device)
 {
     VkPhysicalDeviceShaderSubgroupExtendedTypesFeaturesKHR *shader_subgroup_extended_types_features;
     VkPhysicalDeviceAccelerationStructurePropertiesKHR *acceleration_structure_properties;
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     VkPhysicalDeviceSubgroupSizeControlPropertiesEXT *subgroup_size_control_properties;
+    VkPhysicalDeviceFragmentShadingRatePropertiesKHR *fragment_shading_rate_properties;
     VkPhysicalDeviceAccelerationStructureFeaturesKHR *acceleration_structure_features;
     VkPhysicalDeviceRayTracingPipelinePropertiesKHR *ray_tracing_pipeline_properties;
     VkPhysicalDeviceInlineUniformBlockPropertiesEXT *inline_uniform_block_properties;
     VkPhysicalDeviceExtendedDynamicStateFeaturesEXT *extended_dynamic_state_features;
     VkPhysicalDeviceExternalMemoryHostPropertiesEXT *external_memory_host_properties;
+    VkPhysicalDeviceFragmentShadingRateFeaturesKHR *fragment_shading_rate_features;
     VkPhysicalDeviceBufferDeviceAddressFeaturesKHR *buffer_device_address_features;
     VkPhysicalDeviceCustomBorderColorPropertiesEXT *custom_border_color_properties;
     VkPhysicalDeviceConditionalRenderingFeaturesEXT *conditional_rendering_features;
@@ -859,6 +944,8 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     ray_tracing_pipeline_features = &info->ray_tracing_pipeline_features;
     float_control_properties = &info->float_control_properties;
     ext_4444_formats_features = &info->ext_4444_formats_features;
+    fragment_shading_rate_features = &info->fragment_shading_rate_features;
+    fragment_shading_rate_properties = &info->fragment_shading_rate_properties;
 
     info->features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     info->properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
@@ -1050,6 +1137,14 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         float_control_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT_CONTROLS_PROPERTIES_KHR;
         vk_prepend_struct(&info->properties2, float_control_properties);
+    }
+
+    if (vulkan_info->KHR_fragment_shading_rate)
+    {
+        fragment_shading_rate_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_PROPERTIES_KHR;
+        fragment_shading_rate_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR;
+        vk_prepend_struct(&info->properties2, fragment_shading_rate_properties);
+        vk_prepend_struct(&info->features2, fragment_shading_rate_features);
     }
 
     VK_CALL(vkGetPhysicalDeviceFeatures2(physical_device, &info->features2));
@@ -1626,6 +1721,9 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         ERR("Timeline semaphores are not supported by this implementation. This is required for correct operation.\n");
         return E_INVALIDARG;
     }
+
+    if (vulkan_info->KHR_fragment_shading_rate)
+        physical_device_info->additional_shading_rates_supported = d3d12_device_determine_additional_shading_rates_supported(device);
 
     return S_OK;
 }
@@ -4781,10 +4879,11 @@ static void d3d12_device_caps_init_feature_options6(struct d3d12_device *device)
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS6 *options6 = &device->d3d12_caps.options6;
 
-    /* Currently not supported */
-    options6->AdditionalShadingRatesSupported = FALSE;
+    options6->AdditionalShadingRatesSupported = device->device_info.additional_shading_rates_supported;
+    options6->VariableShadingRateTier = d3d12_device_determine_variable_shading_rate_tier(device);
+
+    /* Currently not supported, requires TIER_2 shading rate */
     options6->PerPrimitiveShadingRateSupportedWithViewportIndexing = FALSE;
-    options6->VariableShadingRateTier = D3D12_VARIABLE_SHADING_RATE_TIER_NOT_SUPPORTED;
     options6->ShadingRateImageTileSize = 0;
     /* Not implemented */
     options6->BackgroundProcessingSupported = FALSE;
