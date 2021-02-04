@@ -680,8 +680,6 @@ struct d3d12_resource
     LONG refcount;
     LONG internal_refcount;
 
-    uint64_t cookie;
-
     D3D12_RESOURCE_DESC desc;
     D3D12_HEAP_PROPERTIES heap_properties;
     struct vkd3d_memory_allocation mem;

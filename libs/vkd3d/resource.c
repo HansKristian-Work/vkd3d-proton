@@ -2274,8 +2274,8 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
     object->desc = *desc;
     object->device = device;
     object->flags = flags;
-    object->cookie = InterlockedIncrement64(&global_cookie_counter);
     object->format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0);
+    object->res.cookie = vkd3d_allocate_cookie();
 
     if (heap_properties)
         object->heap_properties = *heap_properties;
@@ -2481,7 +2481,6 @@ HRESULT d3d12_resource_create_reserved(struct d3d12_device *device,
 
     if (d3d12_resource_is_buffer(object))
     {
-        object->res.cookie = object->cookie;
         object->res.size = object->desc.Width;
 
         if (device->device_info.buffer_device_address_features.bufferDeviceAddress)
@@ -3426,7 +3425,7 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
                 VKD3D_BINDLESS_SET_SRV | VKD3D_BINDLESS_SET_RAW_SSBO);
 
         descriptor->info.buffer = descriptor_info[vk_write_count].buffer;
-        descriptor->metadata.cookie = resource ? resource->cookie : 0;
+        descriptor->metadata.cookie = resource ? resource->res.cookie : 0;
         descriptor->metadata.set_info_mask |= 1u << info_index;
 
         descriptor->metadata.flags |= VKD3D_DESCRIPTOR_FLAG_OFFSET_RANGE;
@@ -3763,7 +3762,7 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
                 VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_RAW_SSBO);
 
         descriptor->info.buffer = *buffer_info;
-        descriptor->metadata.cookie = resource ? resource->cookie : 0;
+        descriptor->metadata.cookie = resource ? resource->res.cookie : 0;
         descriptor->metadata.set_info_mask |= 1u << info_index;
 
         descriptor->metadata.flags |= VKD3D_DESCRIPTOR_FLAG_OFFSET_RANGE;
