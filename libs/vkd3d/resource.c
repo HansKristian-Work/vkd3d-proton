@@ -1113,7 +1113,7 @@ static void d3d12_resource_get_tiling(struct d3d12_device *device, struct d3d12_
     }
 }
 
-static void d3d12_resource_destroy_2(struct d3d12_resource *resource, struct d3d12_device *device);
+static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12_device *device);
 
 static ULONG d3d12_resource_incref(struct d3d12_resource *resource)
 {
@@ -1131,7 +1131,7 @@ static ULONG d3d12_resource_decref(struct d3d12_resource *resource)
     TRACE("%p decreasing refcount to %u.\n", resource, refcount);
 
     if (!refcount)
-        d3d12_resource_destroy_2(resource, resource->device);
+        d3d12_resource_destroy(resource, resource->device);
 
     return refcount;
 }
@@ -2167,7 +2167,7 @@ static HRESULT d3d12_resource_init_sparse_info(struct d3d12_resource *resource,
     return S_OK;
 }
 
-static void d3d12_resource_destroy_2(struct d3d12_resource *resource, struct d3d12_device *device)
+static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
@@ -2238,7 +2238,7 @@ static HRESULT d3d12_resource_create_vk_resource(struct d3d12_resource *resource
     return S_OK;
 }
 
-static HRESULT d3d12_resource_create_2(struct d3d12_device *device, uint32_t flags,
+static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags,
         const D3D12_RESOURCE_DESC *desc, const D3D12_HEAP_PROPERTIES *heap_properties,
         D3D12_RESOURCE_STATES initial_state, const D3D12_CLEAR_VALUE *optimized_clear_value,
         struct d3d12_resource **resource)
@@ -2290,14 +2290,14 @@ static HRESULT d3d12_resource_create_2(struct d3d12_device *device, uint32_t fla
     return S_OK;
 }
 
-HRESULT d3d12_resource_create_committed_2(struct d3d12_device *device, const D3D12_RESOURCE_DESC *desc,
+HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12_RESOURCE_DESC *desc,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
 {
     struct d3d12_resource *object;
     HRESULT hr;
 
-    if (FAILED(hr = d3d12_resource_create_2(device, VKD3D_RESOURCE_COMMITTED | VKD3D_RESOURCE_ALLOCATION,
+    if (FAILED(hr = d3d12_resource_create(device, VKD3D_RESOURCE_COMMITTED | VKD3D_RESOURCE_ALLOCATION,
             desc, heap_properties, initial_state, optimized_clear_value, &object)))
         return hr;
 
@@ -2348,11 +2348,11 @@ HRESULT d3d12_resource_create_committed_2(struct d3d12_device *device, const D3D
     return S_OK;
 
 fail:
-    d3d12_resource_destroy_2(object, device);
+    d3d12_resource_destroy(object, device);
     return hr;
 }
 
-static HRESULT d3d12_resource_bind_image_memory_2(struct d3d12_resource *resource, struct d3d12_device *device)
+static HRESULT d3d12_resource_bind_image_memory(struct d3d12_resource *resource, struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkMemoryRequirements memory_requirements;
@@ -2420,7 +2420,7 @@ static HRESULT d3d12_resource_validate_heap(const D3D12_RESOURCE_DESC *resource_
     return S_OK;
 }
 
-HRESULT d3d12_resource_create_placed_2(struct d3d12_device *device, const D3D12_RESOURCE_DESC *desc,
+HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RESOURCE_DESC *desc,
         struct d3d12_heap *heap, uint64_t heap_offset, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
 {
@@ -2430,7 +2430,7 @@ HRESULT d3d12_resource_create_placed_2(struct d3d12_device *device, const D3D12_
     if (FAILED(hr = d3d12_resource_validate_heap(desc, heap)))
         return hr;
 
-    if (FAILED(hr = d3d12_resource_create_2(device, VKD3D_RESOURCE_PLACED,
+    if (FAILED(hr = d3d12_resource_create(device, VKD3D_RESOURCE_PLACED,
             desc, &heap->desc.Properties, initial_state, optimized_clear_value, &object)))
         return hr;
 
@@ -2445,7 +2445,7 @@ HRESULT d3d12_resource_create_placed_2(struct d3d12_device *device, const D3D12_
         if (FAILED(hr = d3d12_resource_create_vk_resource(object, device)))
             goto fail;
 
-        if (FAILED(hr = d3d12_resource_bind_image_memory_2(object, device)))
+        if (FAILED(hr = d3d12_resource_bind_image_memory(object, device)))
             goto fail;
     }
     else
@@ -2458,18 +2458,18 @@ HRESULT d3d12_resource_create_placed_2(struct d3d12_device *device, const D3D12_
     return S_OK;
 
 fail:
-    d3d12_resource_destroy_2(object, device);
+    d3d12_resource_destroy(object, device);
     return hr;
 }
 
-HRESULT d3d12_resource_create_reserved_2(struct d3d12_device *device,
+HRESULT d3d12_resource_create_reserved(struct d3d12_device *device,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
 {
     struct d3d12_resource *object;
     HRESULT hr;
 
-    if (FAILED(hr = d3d12_resource_create_2(device, VKD3D_RESOURCE_SPARSE,
+    if (FAILED(hr = d3d12_resource_create(device, VKD3D_RESOURCE_SPARSE,
             desc, NULL, initial_state, optimized_clear_value, &object)))
         return hr;
 
@@ -2504,7 +2504,7 @@ HRESULT d3d12_resource_create_reserved_2(struct d3d12_device *device,
     return S_OK;
 
 fail:
-    d3d12_resource_destroy_2(object, device);
+    d3d12_resource_destroy(object, device);
     return hr;
 }
 
