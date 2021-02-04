@@ -4922,8 +4922,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_
 
     d3d12_command_list_end_current_render_pass(list, true);
 
-    buffer_copy.srcOffset = src_offset + src_resource->heap_offset;
-    buffer_copy.dstOffset = dst_offset + dst_resource->heap_offset;
+    buffer_copy.srcOffset = src_offset + src_resource->mem.offset;
+    buffer_copy.dstOffset = dst_offset + dst_resource->mem.offset;
     buffer_copy.size = byte_count;
 
     VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
@@ -5388,7 +5388,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
 
         vk_image_buffer_copy_from_d3d12(&buffer_image_copy, &dst->PlacedFootprint,
                 src->SubresourceIndex, &src_resource->desc, dst_format, src_box, dst_x, dst_y, dst_z);
-        buffer_image_copy.bufferOffset += dst_resource->heap_offset;
+        buffer_image_copy.bufferOffset += dst_resource->mem.offset;
 
         vk_layout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
@@ -5430,7 +5430,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
 
         vk_buffer_image_copy_from_d3d12(&buffer_image_copy, &src->PlacedFootprint,
                 dst->SubresourceIndex, &dst_resource->desc, src_format, src_box, dst_x, dst_y, dst_z);
-        buffer_image_copy.bufferOffset += src_resource->heap_offset;
+        buffer_image_copy.bufferOffset += src_resource->mem.offset;
 
         vk_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
@@ -5516,8 +5516,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
         assert(d3d12_resource_is_buffer(src_resource));
         assert(src_resource->desc.Width == dst_resource->desc.Width);
 
-        vk_buffer_copy.srcOffset = src_resource->heap_offset;
-        vk_buffer_copy.dstOffset = dst_resource->heap_offset;
+        vk_buffer_copy.srcOffset = src_resource->mem.offset;
+        vk_buffer_copy.dstOffset = dst_resource->mem.offset;
         vk_buffer_copy.size = dst_resource->desc.Width;
         VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
                 src_resource->res.vk_buffer, dst_resource->res.vk_buffer, 1, &vk_buffer_copy));
@@ -7510,7 +7510,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
         if (type != D3D12_QUERY_TYPE_BINARY_OCCLUSION)
         {
             copy_region.srcOffset = stride * start_index;
-            copy_region.dstOffset = buffer->heap_offset + aligned_dst_buffer_offset;
+            copy_region.dstOffset = buffer->mem.offset + aligned_dst_buffer_offset;
             copy_region.size = stride * query_count;
 
             VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
@@ -7523,7 +7523,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
 
             d3d12_command_list_resolve_binary_occlusion_queries(list,
                     query_heap->vk_buffer, start_index, buffer->res.vk_buffer,
-                    buffer->heap_offset, buffer->desc.Width, dst_index,
+                    buffer->mem.offset, buffer->desc.Width, dst_index,
                     query_count);
         }
     }
@@ -7531,7 +7531,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
     {
         d3d12_command_list_read_query_range(list, query_heap->vk_query_pool, start_index, query_count);
         VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer, query_heap->vk_query_pool,
-                start_index, query_count, buffer->res.vk_buffer, buffer->heap_offset + aligned_dst_buffer_offset,
+                start_index, query_count, buffer->res.vk_buffer, buffer->mem.offset + aligned_dst_buffer_offset,
                 stride, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
     }
 }
@@ -7606,7 +7606,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
         {
             FIXME_ONCE("64-bit predicates not supported.\n");
 
-            copy_region.srcOffset = resource->heap_offset + aligned_buffer_offset;
+            copy_region.srcOffset = resource->mem.offset + aligned_buffer_offset;
             copy_region.dstOffset = scratch.offset;
             copy_region.size = sizeof(uint32_t);
 
@@ -7832,12 +7832,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
         else if (count_buffer)
         {
             scratch.buffer = count_impl->res.vk_buffer;
-            scratch.offset = count_impl->heap_offset + count_buffer_offset;
+            scratch.offset = count_impl->mem.offset + count_buffer_offset;
         }
         else
         {
             scratch.buffer = arg_impl->res.vk_buffer;
-            scratch.offset = arg_impl->heap_offset + arg_buffer_offset;
+            scratch.offset = arg_impl->mem.offset + arg_buffer_offset;
         }
 
         switch (arg_desc->Type)
@@ -7852,13 +7852,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                 if (count_buffer || list->predicate_va)
                 {
                     VK_CALL(vkCmdDrawIndirectCountKHR(list->vk_command_buffer, arg_impl->res.vk_buffer,
-                            arg_buffer_offset + arg_impl->heap_offset, scratch.buffer, scratch.offset,
+                            arg_buffer_offset + arg_impl->mem.offset, scratch.buffer, scratch.offset,
                             max_command_count, signature_desc->ByteStride));
                 }
                 else
                 {
                     VK_CALL(vkCmdDrawIndirect(list->vk_command_buffer, arg_impl->res.vk_buffer,
-                            arg_buffer_offset + arg_impl->heap_offset, max_command_count, signature_desc->ByteStride));
+                            arg_buffer_offset + arg_impl->mem.offset, max_command_count, signature_desc->ByteStride));
                 }
                 break;
 
@@ -7880,13 +7880,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                 if (count_buffer || list->predicate_va)
                 {
                     VK_CALL(vkCmdDrawIndexedIndirectCountKHR(list->vk_command_buffer, arg_impl->res.vk_buffer,
-                            arg_buffer_offset + arg_impl->heap_offset, scratch.buffer, scratch.offset,
+                            arg_buffer_offset + arg_impl->mem.offset, scratch.buffer, scratch.offset,
                             max_command_count, signature_desc->ByteStride));
                 }
                 else
                 {
                     VK_CALL(vkCmdDrawIndexedIndirect(list->vk_command_buffer, arg_impl->res.vk_buffer,
-                            arg_buffer_offset + arg_impl->heap_offset, max_command_count, signature_desc->ByteStride));
+                            arg_buffer_offset + arg_impl->mem.offset, max_command_count, signature_desc->ByteStride));
                 }
                 break;
 

@@ -1310,7 +1310,7 @@ static bool d3d12_resource_get_mapped_memory_range(struct d3d12_resource *resour
 
     if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
     {
-        vk_mapped_range->offset = resource->heap_offset;
+        vk_mapped_range->offset = resource->mem.offset;
         vk_mapped_range->size = resource->desc.Width;
     }
     else
@@ -2322,8 +2322,6 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         if (FAILED(hr = vkd3d_allocate_resource_memory(device,
                 &device->memory_allocator, &allocate_info, &object->mem)))
             goto fail;
-
-        object->heap_offset = object->mem.offset;
     }
     else
     {
@@ -2341,7 +2339,6 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
 
         object->res.vk_buffer = object->mem.resource.vk_buffer;
         object->res.va = object->mem.resource.va;
-        object->heap_offset = object->mem.offset;
     }
 
     *resource = object;
@@ -2362,12 +2359,12 @@ static HRESULT d3d12_resource_bind_image_memory(struct d3d12_resource *resource,
     VK_CALL(vkGetImageMemoryRequirements(device->vk_device, resource->res.vk_image, &memory_requirements));
 
     /* TODO implement sparse fallback instead to enforce alignment */
-    if (resource->heap_offset & (memory_requirements.alignment - 1))
+    if (resource->mem.offset & (memory_requirements.alignment - 1))
     {
         struct vkd3d_allocate_heap_memory_info allocate_info;
 
         FIXME("Cannot allocate image %p with alignment %#"PRIx64" at heap offset %#"PRIx64", allocating device memory.\n",
-                resource->res.vk_image, memory_requirements.alignment, resource->heap_offset);
+                resource->res.vk_image, memory_requirements.alignment, resource->mem.offset);
 
         memset(&allocate_info, 0, sizeof(allocate_info));
         allocate_info.heap_desc.Properties = resource->heap->desc.Properties;
@@ -2380,11 +2377,10 @@ static HRESULT d3d12_resource_bind_image_memory(struct d3d12_resource *resource,
             return hr;
 
         resource->flags |= VKD3D_RESOURCE_ALLOCATION;
-        resource->heap_offset = resource->mem.offset;
     }
 
     if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, resource->res.vk_image,
-            resource->mem.vk_memory, resource->heap_offset)) < 0))
+            resource->mem.vk_memory, resource->mem.offset)) < 0))
     {
         ERR("Failed to bind image memory, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
@@ -2438,7 +2434,6 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
     /* The exact allocation size is not important here since the
      * resource does not own the allocation, so just set it to 0. */
     vkd3d_memory_allocation_slice(&object->mem, &heap->allocation, heap_offset, 0);
-    object->heap_offset = object->mem.offset;
 
     if (d3d12_resource_is_texture(object))
     {
@@ -2939,7 +2934,7 @@ static bool vkd3d_create_buffer_view_for_resource(struct d3d12_device *device,
     key.view_type = VKD3D_VIEW_TYPE_BUFFER;
     key.u.buffer.buffer = resource->res.vk_buffer;
     key.u.buffer.format = format;
-    key.u.buffer.offset = resource->heap_offset + offset * element_size;
+    key.u.buffer.offset = resource->mem.offset + offset * element_size;
     key.u.buffer.size = size * element_size;
 
     return !!(*view = vkd3d_view_map_create_view(&resource->view_map, device, &key));
@@ -3279,7 +3274,7 @@ static void vkd3d_buffer_view_get_bound_range_ssbo(struct d3d12_desc *descriptor
 
         /* heap_offset is guaranteed to have 64KiB alignment */
         vk_buffer->buffer = resource->res.vk_buffer;
-        vk_buffer->offset = resource->heap_offset + aligned_begin;
+        vk_buffer->offset = resource->mem.offset + aligned_begin;
         vk_buffer->range = aligned_end - aligned_begin;
 
         bound_range->byte_offset = offset - aligned_begin;
@@ -3841,7 +3836,7 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
         if (device->bindless_state.flags & VKD3D_RAW_VA_AUX_BUFFER)
         {
             VkDeviceAddress address = vkd3d_get_buffer_device_address(device, counter_resource->res.vk_buffer);
-            uav_counter_address = address + counter_resource->heap_offset + desc->Buffer.CounterOffsetInBytes;
+            uav_counter_address = address + counter_resource->mem.offset + desc->Buffer.CounterOffsetInBytes;
         }
         else
         {
