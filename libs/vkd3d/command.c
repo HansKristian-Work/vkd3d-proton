@@ -2311,7 +2311,7 @@ static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_l
     barrier.newLayout = layout;
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = resource->vk_image;
+    barrier.image = resource->res.vk_image;
     barrier.subresourceRange = vk_subresource_range_from_layers(subresource);
 
     VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
@@ -2506,7 +2506,7 @@ static VkPipelineStageFlags vk_render_pass_barrier_from_view(const struct vkd3d_
 
     vk_barrier->srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     vk_barrier->dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    vk_barrier->image = resource->vk_image;
+    vk_barrier->image = resource->res.vk_image;
     vk_barrier->subresourceRange = vk_subresource_range_from_view(view);
     return stages;
 }
@@ -4927,7 +4927,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_
     buffer_copy.size = byte_count;
 
     VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
-            src_resource->vk_buffer, dst_resource->vk_buffer, 1, &buffer_copy));
+            src_resource->res.vk_buffer, dst_resource->res.vk_buffer, 1, &buffer_copy));
 }
 
 static void vk_image_subresource_layers_from_d3d12(VkImageSubresourceLayers *subresource,
@@ -5121,14 +5121,14 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
      * This is also an optimization, since we can avoid a potential decompress when entering TRANSFER_DST layout. */
     vk_image_barriers[0].oldLayout = writes_full_subresource ? VK_IMAGE_LAYOUT_UNDEFINED : dst_resource->common_layout;
     vk_image_barriers[0].newLayout = dst_layout;
-    vk_image_barriers[0].image = dst_resource->vk_image;
+    vk_image_barriers[0].image = dst_resource->res.vk_image;
     vk_image_barriers[0].subresourceRange = vk_subresource_range_from_layers(&region->dstSubresource);
 
     vk_image_barriers[1].srcAccessMask = 0;
     vk_image_barriers[1].dstAccessMask = src_access;
     vk_image_barriers[1].oldLayout = src_resource->common_layout;
     vk_image_barriers[1].newLayout = src_layout;
-    vk_image_barriers[1].image = src_resource->vk_image;
+    vk_image_barriers[1].image = src_resource->res.vk_image;
     vk_image_barriers[1].subresourceRange = vk_subresource_range_from_layers(&region->srcSubresource);
 
     VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
@@ -5139,8 +5139,8 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
     if (use_copy)
     {
         VK_CALL(vkCmdCopyImage(list->vk_command_buffer,
-                src_resource->vk_image, src_layout,
-                dst_resource->vk_image, dst_layout,
+                src_resource->res.vk_image, src_layout,
+                dst_resource->res.vk_image, dst_layout,
                 1, region));
     }
     else
@@ -5168,7 +5168,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_GRAPHICS, true);
 
         memset(&dst_view_desc, 0, sizeof(dst_view_desc));
-        dst_view_desc.image = dst_resource->vk_image;
+        dst_view_desc.image = dst_resource->res.vk_image;
         dst_view_desc.view_type = pipeline_key.view_type;
         dst_view_desc.layout = dst_layout;
         dst_view_desc.format = dst_format;
@@ -5179,7 +5179,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         dst_view_desc.allowed_swizzle = false;
 
         memset(&src_view_desc, 0, sizeof(src_view_desc));
-        src_view_desc.image = src_resource->vk_image;
+        src_view_desc.image = src_resource->res.vk_image;
         src_view_desc.view_type = pipeline_key.view_type;
         src_view_desc.layout = src_layout;
         src_view_desc.format = src_format;
@@ -5392,16 +5392,16 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
 
         vk_layout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
-        d3d12_command_list_transition_image_layout(list, src_resource->vk_image,
+        d3d12_command_list_transition_image_layout(list, src_resource->res.vk_image,
                 &buffer_image_copy.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT,
                 0, src_resource->common_layout, VK_PIPELINE_STAGE_TRANSFER_BIT,
                 VK_ACCESS_TRANSFER_READ_BIT, vk_layout);
 
         VK_CALL(vkCmdCopyImageToBuffer(list->vk_command_buffer,
-                src_resource->vk_image, vk_layout,
-                dst_resource->vk_buffer, 1, &buffer_image_copy));
+                src_resource->res.vk_image, vk_layout,
+                dst_resource->res.vk_buffer, 1, &buffer_image_copy));
 
-        d3d12_command_list_transition_image_layout(list, src_resource->vk_image,
+        d3d12_command_list_transition_image_layout(list, src_resource->res.vk_image,
                 &buffer_image_copy.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
                 vk_layout, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, src_resource->common_layout);
     }
@@ -5439,17 +5439,17 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
 
         d3d12_command_list_track_resource_usage(list, dst_resource, !writes_full_subresource);
 
-        d3d12_command_list_transition_image_layout(list, dst_resource->vk_image,
+        d3d12_command_list_transition_image_layout(list, dst_resource->res.vk_image,
                 &buffer_image_copy.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT,
                 0, writes_full_subresource ? VK_IMAGE_LAYOUT_UNDEFINED : dst_resource->common_layout,
                 VK_PIPELINE_STAGE_TRANSFER_BIT,
                 VK_ACCESS_TRANSFER_WRITE_BIT, vk_layout);
 
         VK_CALL(vkCmdCopyBufferToImage(list->vk_command_buffer,
-                src_resource->vk_buffer, dst_resource->vk_image,
+                src_resource->res.vk_buffer, dst_resource->res.vk_image,
                 vk_layout, 1, &buffer_image_copy));
 
-        d3d12_command_list_transition_image_layout(list, dst_resource->vk_image,
+        d3d12_command_list_transition_image_layout(list, dst_resource->res.vk_image,
                 &buffer_image_copy.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT,
                 VK_ACCESS_TRANSFER_WRITE_BIT, vk_layout, VK_PIPELINE_STAGE_TRANSFER_BIT,
                 0, dst_resource->common_layout);
@@ -5520,7 +5520,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
         vk_buffer_copy.dstOffset = dst_resource->heap_offset;
         vk_buffer_copy.size = dst_resource->desc.Width;
         VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
-                src_resource->vk_buffer, dst_resource->vk_buffer, 1, &vk_buffer_copy));
+                src_resource->res.vk_buffer, dst_resource->res.vk_buffer, 1, &vk_buffer_copy));
     }
     else
     {
@@ -5602,7 +5602,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
         vk_image_barrier.dstAccessMask = copy_to_buffer ? VK_ACCESS_TRANSFER_READ_BIT : VK_ACCESS_TRANSFER_WRITE_BIT;
         vk_image_barrier.oldLayout = tiled_res->common_layout;
         vk_image_barrier.newLayout = vk_image_layout;
-        vk_image_barrier.image = tiled_res->vk_image;
+        vk_image_barrier.image = tiled_res->res.vk_image;
 
         /* The entire resource must be in the appropriate copy state */
         vk_image_barrier.subresourceRange.aspectMask = tiled_res->format->vk_aspect_mask;
@@ -5631,13 +5631,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
             if (copy_to_buffer)
             {
                 VK_CALL(vkCmdCopyImageToBuffer(list->vk_command_buffer,
-                        tiled_res->vk_image, vk_image_layout, linear_res->vk_buffer,
+                        tiled_res->res.vk_image, vk_image_layout, linear_res->res.vk_buffer,
                         1, &buffer_image_copy));
             }
             else
             {
                 VK_CALL(vkCmdCopyBufferToImage(list->vk_command_buffer,
-                        linear_res->vk_buffer, tiled_res->vk_image, vk_image_layout,
+                        linear_res->res.vk_buffer, tiled_res->res.vk_image, vk_image_layout,
                         1, &buffer_image_copy));
             }
         }
@@ -5667,8 +5667,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
         }
 
         VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
-                copy_to_buffer ? tiled_res->vk_buffer : linear_res->vk_buffer,
-                copy_to_buffer ? linear_res->vk_buffer : tiled_res->vk_buffer,
+                copy_to_buffer ? tiled_res->res.vk_buffer : linear_res->res.vk_buffer,
+                copy_to_buffer ? linear_res->res.vk_buffer : tiled_res->res.vk_buffer,
                 1, &buffer_copy));
     }
 }
@@ -5754,22 +5754,22 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
     vk_image_barriers[0].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     vk_image_barriers[0].oldLayout = writes_full_subresource ? VK_IMAGE_LAYOUT_UNDEFINED : dst_resource->common_layout;
     vk_image_barriers[0].newLayout = dst_layout;
-    vk_image_barriers[0].image = dst_resource->vk_image;
+    vk_image_barriers[0].image = dst_resource->res.vk_image;
     vk_image_barriers[0].subresourceRange = vk_subresource_range_from_layers(&vk_image_resolve.dstSubresource);
 
     vk_image_barriers[1].srcAccessMask = 0;
     vk_image_barriers[1].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
     vk_image_barriers[1].oldLayout = src_resource->common_layout;
     vk_image_barriers[1].newLayout = src_layout;
-    vk_image_barriers[1].image = src_resource->vk_image;
+    vk_image_barriers[1].image = src_resource->res.vk_image;
     vk_image_barriers[1].subresourceRange = vk_subresource_range_from_layers(&vk_image_resolve.srcSubresource);
 
     VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
             VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
             0, 0, NULL, 0, NULL, ARRAY_SIZE(vk_image_barriers), vk_image_barriers));
 
-    VK_CALL(vkCmdResolveImage(list->vk_command_buffer, src_resource->vk_image,
-            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_resource->vk_image,
+    VK_CALL(vkCmdResolveImage(list->vk_command_buffer, src_resource->res.vk_image,
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_resource->res.vk_image,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &vk_image_resolve));
 
     vk_image_barriers[0].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -5960,7 +5960,7 @@ static void vk_image_memory_barrier_for_after_aliasing_barrier(struct d3d12_devi
     vk_barrier->newLayout = after->common_layout;
     vk_barrier->srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     vk_barrier->dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    vk_barrier->image = after->vk_image;
+    vk_barrier->image = after->res.vk_image;
     vk_barrier->subresourceRange.aspectMask = after->format->vk_aspect_mask;
     vk_barrier->subresourceRange.baseMipLevel = 0;
     vk_barrier->subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
@@ -6995,7 +6995,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list, const 
             write_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             write_set.pBufferInfo = &buffer_info;
             /* resource heap offset is already in descriptor */
-            buffer_info.buffer = resource->vk_buffer;
+            buffer_info.buffer = resource->res.vk_buffer;
             buffer_info.offset = args->u.buffer.offset;
             buffer_info.range = args->u.buffer.range;
         }
@@ -7159,7 +7159,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
             struct vkd3d_texture_view_desc view_desc;
             memset(&view_desc, 0, sizeof(view_desc));
 
-            view_desc.image = resource_impl->vk_image;
+            view_desc.image = resource_impl->res.vk_image;
             view_desc.view_type = base_view->info.texture.vk_view_type;
             view_desc.layout = base_view->info.texture.vk_layout;
             view_desc.format = uint_format;
@@ -7178,7 +7178,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
         else
         {
             struct vkd3d_buffer_view_desc view_desc;
-            view_desc.buffer = resource_impl->vk_buffer;
+            view_desc.buffer = resource_impl->res.vk_buffer;
             view_desc.format = uint_format;
             view_desc.offset = base_view->info.buffer.offset;
             view_desc.size = base_view->info.buffer.size;
@@ -7514,7 +7514,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
             copy_region.size = stride * query_count;
 
             VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
-                    query_heap->vk_buffer, buffer->vk_buffer,
+                    query_heap->vk_buffer, buffer->res.vk_buffer,
                     1, &copy_region));
         }
         else
@@ -7522,7 +7522,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
             uint32_t dst_index = aligned_dst_buffer_offset / sizeof(uint64_t);
 
             d3d12_command_list_resolve_binary_occlusion_queries(list,
-                    query_heap->vk_buffer, start_index, buffer->vk_buffer,
+                    query_heap->vk_buffer, start_index, buffer->res.vk_buffer,
                     buffer->heap_offset, buffer->desc.Width, dst_index,
                     query_count);
         }
@@ -7531,7 +7531,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
     {
         d3d12_command_list_read_query_range(list, query_heap->vk_query_pool, start_index, query_count);
         VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer, query_heap->vk_query_pool,
-                start_index, query_count, buffer->vk_buffer, buffer->heap_offset + aligned_dst_buffer_offset,
+                start_index, query_count, buffer->res.vk_buffer, buffer->heap_offset + aligned_dst_buffer_offset,
                 stride, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
     }
 }
@@ -7611,7 +7611,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
             copy_region.size = sizeof(uint32_t);
 
             VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
-                    resource->vk_buffer, scratch.buffer, 1, &copy_region));
+                    resource->res.vk_buffer, scratch.buffer, 1, &copy_region));
 
             src_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
             src_access = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -7831,12 +7831,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
         }
         else if (count_buffer)
         {
-            scratch.buffer = count_impl->vk_buffer;
+            scratch.buffer = count_impl->res.vk_buffer;
             scratch.offset = count_impl->heap_offset + count_buffer_offset;
         }
         else
         {
-            scratch.buffer = arg_impl->vk_buffer;
+            scratch.buffer = arg_impl->res.vk_buffer;
             scratch.offset = arg_impl->heap_offset + arg_buffer_offset;
         }
 
@@ -7851,13 +7851,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
 
                 if (count_buffer || list->predicate_va)
                 {
-                    VK_CALL(vkCmdDrawIndirectCountKHR(list->vk_command_buffer, arg_impl->vk_buffer,
+                    VK_CALL(vkCmdDrawIndirectCountKHR(list->vk_command_buffer, arg_impl->res.vk_buffer,
                             arg_buffer_offset + arg_impl->heap_offset, scratch.buffer, scratch.offset,
                             max_command_count, signature_desc->ByteStride));
                 }
                 else
                 {
-                    VK_CALL(vkCmdDrawIndirect(list->vk_command_buffer, arg_impl->vk_buffer,
+                    VK_CALL(vkCmdDrawIndirect(list->vk_command_buffer, arg_impl->res.vk_buffer,
                             arg_buffer_offset + arg_impl->heap_offset, max_command_count, signature_desc->ByteStride));
                 }
                 break;
@@ -7879,13 +7879,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
 
                 if (count_buffer || list->predicate_va)
                 {
-                    VK_CALL(vkCmdDrawIndexedIndirectCountKHR(list->vk_command_buffer, arg_impl->vk_buffer,
+                    VK_CALL(vkCmdDrawIndexedIndirectCountKHR(list->vk_command_buffer, arg_impl->res.vk_buffer,
                             arg_buffer_offset + arg_impl->heap_offset, scratch.buffer, scratch.offset,
                             max_command_count, signature_desc->ByteStride));
                 }
                 else
                 {
-                    VK_CALL(vkCmdDrawIndexedIndirect(list->vk_command_buffer, arg_impl->vk_buffer,
+                    VK_CALL(vkCmdDrawIndexedIndirect(list->vk_command_buffer, arg_impl->res.vk_buffer,
                             arg_buffer_offset + arg_impl->heap_offset, max_command_count, signature_desc->ByteStride));
                 }
                 break;
@@ -9257,7 +9257,7 @@ static void d3d12_command_queue_transition_pool_add_barrier(struct d3d12_command
     barrier->newLayout = resource->common_layout;
     barrier->srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier->dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier->image = resource->vk_image;
+    barrier->image = resource->res.vk_image;
     barrier->subresourceRange.aspectMask = resource->format->vk_aspect_mask;
     barrier->subresourceRange.baseMipLevel = 0;
     barrier->subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
@@ -9535,7 +9535,7 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
             goto cleanup;
         }
 
-        buffer_info.buffer = dst_resource->vk_buffer;
+        buffer_info.buffer = dst_resource->res.vk_buffer;
         buffer_info.bindCount = count;
         buffer_info.pBinds = memory_binds;
 
@@ -9568,7 +9568,7 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
                 goto cleanup;
             }
 
-            opaque_info.image = dst_resource->vk_image;
+            opaque_info.image = dst_resource->res.vk_image;
             opaque_info.bindCount = opaque_bind_count;
             opaque_info.pBinds = memory_binds;
 
@@ -9584,7 +9584,7 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
                 goto cleanup;
             }
 
-            image_info.image = dst_resource->vk_image;
+            image_info.image = dst_resource->res.vk_image;
             image_info.bindCount = image_bind_count;
             image_info.pBinds = image_binds;
 

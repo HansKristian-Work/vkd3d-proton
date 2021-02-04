@@ -1027,7 +1027,7 @@ static void d3d12_resource_get_tiling(struct d3d12_device *device, struct d3d12_
     else
     {
         VK_CALL(vkGetImageSparseMemoryRequirements(device->vk_device,
-                resource->vk_image, &memory_requirement_count, NULL));
+                resource->res.vk_image, &memory_requirement_count, NULL));
 
         if (!memory_requirement_count)
         {
@@ -1038,7 +1038,7 @@ static void d3d12_resource_get_tiling(struct d3d12_device *device, struct d3d12_
         memory_requirements = vkd3d_malloc(memory_requirement_count * sizeof(*memory_requirements));
 
         VK_CALL(vkGetImageSparseMemoryRequirements(device->vk_device,
-                resource->vk_image, &memory_requirement_count, memory_requirements));
+                resource->res.vk_image, &memory_requirement_count, memory_requirements));
 
         for (i = 0; i < memory_requirement_count; i++)
         {
@@ -1275,10 +1275,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_SetName(d3d12_resource_iface *if
     /* Multiple committed and placed buffers may refer to the same VkBuffer,
      * which may cause race conditions if the app calls this concurrently */
     if (d3d12_resource_is_buffer(resource) && (resource->flags & VKD3D_RESOURCE_RESERVED))
-        return vkd3d_set_vk_object_name(resource->device, (uint64_t)resource->vk_buffer,
+        return vkd3d_set_vk_object_name(resource->device, (uint64_t)resource->res.vk_buffer,
                 VK_OBJECT_TYPE_BUFFER, name);
     else if (d3d12_resource_is_texture(resource))
-        return vkd3d_set_vk_object_name(resource->device, (uint64_t)resource->vk_image,
+        return vkd3d_set_vk_object_name(resource->device, (uint64_t)resource->res.vk_image,
                 VK_OBJECT_TYPE_IMAGE, name);
     else
         return S_OK;
@@ -1505,7 +1505,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(d3d12_resourc
         return E_NOTIMPL;
     }
 
-    VK_CALL(vkGetImageSubresourceLayout(device->vk_device, resource->vk_image, &vk_sub_resource, &vk_layout));
+    VK_CALL(vkGetImageSubresourceLayout(device->vk_device, resource->res.vk_image, &vk_sub_resource, &vk_layout));
     TRACE("Offset %#"PRIx64", size %#"PRIx64", row pitch %#"PRIx64", depth pitch %#"PRIx64".\n",
             vk_layout.offset, vk_layout.size, vk_layout.rowPitch, vk_layout.depthPitch);
 
@@ -1584,7 +1584,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(d3d12_resour
         return E_NOTIMPL;
     }
 
-    VK_CALL(vkGetImageSubresourceLayout(device->vk_device, resource->vk_image, &vk_sub_resource, &vk_layout));
+    VK_CALL(vkGetImageSubresourceLayout(device->vk_device, resource->res.vk_image, &vk_sub_resource, &vk_layout));
     TRACE("Offset %#"PRIx64", size %#"PRIx64", row pitch %#"PRIx64", depth pitch %#"PRIx64".\n",
             vk_layout.offset, vk_layout.size, vk_layout.rowPitch, vk_layout.depthPitch);
 
@@ -1930,7 +1930,7 @@ static HRESULT d3d12_resource_bind_sparse_metadata(struct d3d12_resource *resour
      * drivers, so most of the time we'll just return early. The implementation
      * is therefore aimed at simplicity, and not very well tested in practice. */
     VK_CALL(vkGetImageSparseMemoryRequirements(device->vk_device,
-        resource->vk_image, &sparse_requirement_count, NULL));
+        resource->res.vk_image, &sparse_requirement_count, NULL));
 
     if (!(sparse_requirements = vkd3d_malloc(sparse_requirement_count * sizeof(*sparse_requirements))))
     {
@@ -1940,7 +1940,7 @@ static HRESULT d3d12_resource_bind_sparse_metadata(struct d3d12_resource *resour
     }
 
     VK_CALL(vkGetImageSparseMemoryRequirements(device->vk_device,
-        resource->vk_image, &sparse_requirement_count, sparse_requirements));
+        resource->res.vk_image, &sparse_requirement_count, sparse_requirements));
 
     /* Find out how much memory and how many bind infos we need */
     metadata_size = 0;
@@ -1968,7 +1968,7 @@ static HRESULT d3d12_resource_bind_sparse_metadata(struct d3d12_resource *resour
     /* Allocate memory for metadata mip tail */
     TRACE("Allocating sparse metadata for resource %p.\n", resource);
 
-    VK_CALL(vkGetImageMemoryRequirements(device->vk_device, resource->vk_image, &memory_requirements));
+    VK_CALL(vkGetImageMemoryRequirements(device->vk_device, resource->res.vk_image, &memory_requirements));
 
     if ((vr = vkd3d_allocate_device_memory(device, metadata_size, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             memory_requirements.memoryTypeBits, NULL, &sparse->vk_metadata_memory, NULL)))
@@ -2014,7 +2014,7 @@ static HRESULT d3d12_resource_bind_sparse_metadata(struct d3d12_resource *resour
     }
 
     /* Bind metadata memory to the image */
-    opaque_bind.image = resource->vk_image;
+    opaque_bind.image = resource->res.vk_image;
     opaque_bind.bindCount = bind_count;
     opaque_bind.pBinds = memory_binds;
 
@@ -2197,9 +2197,9 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
     }
 
     if (d3d12_resource_is_texture(resource))
-        VK_CALL(vkDestroyImage(device->vk_device, resource->vk_image, NULL));
+        VK_CALL(vkDestroyImage(device->vk_device, resource->res.vk_image, NULL));
     else if (resource->flags & VKD3D_RESOURCE_RESERVED)
-        VK_CALL(vkDestroyBuffer(device->vk_device, resource->vk_buffer, NULL));
+        VK_CALL(vkDestroyBuffer(device->vk_device, resource->res.vk_buffer, NULL));
 
     if ((resource->flags & VKD3D_RESOURCE_ALLOCATION) && resource->mem.vk_memory)
         vkd3d_free_memory(device, &device->memory_allocator, &resource->mem);
@@ -2220,7 +2220,7 @@ static HRESULT d3d12_resource_create_vk_resource(struct d3d12_resource *resource
     if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
     {
         if (FAILED(hr = vkd3d_create_buffer(device, heap_properties,
-                D3D12_HEAP_FLAG_NONE, &resource->desc, &resource->vk_buffer)))
+                D3D12_HEAP_FLAG_NONE, &resource->desc, &resource->res.vk_buffer)))
             return hr;
     }
     else
@@ -2231,7 +2231,7 @@ static HRESULT d3d12_resource_create_vk_resource(struct d3d12_resource *resource
             resource->desc.MipLevels = max_miplevel_count(&resource->desc);
 
         if (FAILED(hr = vkd3d_create_image(device, heap_properties,
-                D3D12_HEAP_FLAG_NONE, &resource->desc, resource, &resource->vk_image)))
+                D3D12_HEAP_FLAG_NONE, &resource->desc, resource, &resource->res.vk_image)))
             return hr;
     }
 
@@ -2317,7 +2317,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         else
             allocate_info.heap_flags |= D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
 
-        allocate_info.vk_image = object->vk_image;
+        allocate_info.vk_image = object->res.vk_image;
 
         if (FAILED(hr = vkd3d_allocate_resource_memory(device,
                 &device->memory_allocator, &allocate_info, &object->mem)))
@@ -2339,7 +2339,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
                 &device->memory_allocator, &allocate_info, &object->mem)))
             goto fail;
 
-        object->vk_buffer = object->mem.resource.vk_buffer;
+        object->res.vk_buffer = object->mem.resource.vk_buffer;
         object->gpu_address = object->mem.resource.va;
         object->heap_offset = object->mem.offset;
     }
@@ -2359,7 +2359,7 @@ static HRESULT d3d12_resource_bind_image_memory(struct d3d12_resource *resource,
     VkResult vr;
     HRESULT hr;
 
-    VK_CALL(vkGetImageMemoryRequirements(device->vk_device, resource->vk_image, &memory_requirements));
+    VK_CALL(vkGetImageMemoryRequirements(device->vk_device, resource->res.vk_image, &memory_requirements));
 
     /* TODO implement sparse fallback instead to enforce alignment */
     if (resource->heap_offset & (memory_requirements.alignment - 1))
@@ -2367,7 +2367,7 @@ static HRESULT d3d12_resource_bind_image_memory(struct d3d12_resource *resource,
         struct vkd3d_allocate_heap_memory_info allocate_info;
 
         FIXME("Cannot allocate image %p with alignment %#"PRIx64" at heap offset %#"PRIx64", allocating device memory.\n",
-                resource->vk_image, memory_requirements.alignment, resource->heap_offset);
+                resource->res.vk_image, memory_requirements.alignment, resource->heap_offset);
 
         memset(&allocate_info, 0, sizeof(allocate_info));
         allocate_info.heap_desc.Properties = resource->heap->desc.Properties;
@@ -2383,7 +2383,7 @@ static HRESULT d3d12_resource_bind_image_memory(struct d3d12_resource *resource,
         resource->heap_offset = resource->mem.offset;
     }
 
-    if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, resource->vk_image,
+    if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, resource->res.vk_image,
             resource->mem.vk_memory, resource->heap_offset)) < 0))
     {
         ERR("Failed to bind image memory, vr %d.\n", vr);
@@ -2450,7 +2450,7 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
     }
     else
     {
-        object->vk_buffer = object->mem.resource.vk_buffer;
+        object->res.vk_buffer = object->mem.resource.vk_buffer;
         object->gpu_address = object->mem.resource.va;
     }
 
@@ -2481,12 +2481,11 @@ HRESULT d3d12_resource_create_reserved(struct d3d12_device *device,
 
     if (d3d12_resource_is_buffer(object))
     {
-        object->res.vk_buffer = object->vk_buffer;
         object->res.cookie = object->cookie;
         object->res.size = object->desc.Width;
 
         if (device->device_info.buffer_device_address_features.bufferDeviceAddress)
-            object->res.va = vkd3d_get_buffer_device_address(device, object->vk_buffer);
+            object->res.va = vkd3d_get_buffer_device_address(device, object->res.vk_buffer);
         else
             object->res.va = vkd3d_va_map_alloc_fake_va(&device->memory_allocator.va_map, object->res.size);
 
@@ -2536,7 +2535,7 @@ VKD3D_EXPORT HRESULT vkd3d_create_image_resource(ID3D12Device *device,
     object->refcount = 1;
     object->internal_refcount = 1;
     object->desc = create_info->desc;
-    object->vk_image = create_info->vk_image;
+    object->res.vk_image = create_info->vk_image;
     object->flags = create_info->flags;
     object->flags |= VKD3D_RESOURCE_EXTERNAL;
     object->initial_layout_transition = 1;
@@ -2940,7 +2939,7 @@ static bool vkd3d_create_buffer_view_for_resource(struct d3d12_device *device,
     assert(d3d12_resource_is_buffer(resource));
 
     key.view_type = VKD3D_VIEW_TYPE_BUFFER;
-    key.u.buffer.buffer = resource->vk_buffer;
+    key.u.buffer.buffer = resource->res.vk_buffer;
     key.u.buffer.format = format;
     key.u.buffer.offset = resource->heap_offset + offset * element_size;
     key.u.buffer.size = size * element_size;
@@ -3099,7 +3098,7 @@ static bool init_default_texture_view_desc(struct vkd3d_texture_view_desc *desc,
         return false;
     }
 
-    desc->image = resource->vk_image;
+    desc->image = resource->res.vk_image;
     desc->layout = resource->common_layout;
     desc->miplevel_idx = 0;
     desc->miplevel_count = 1;
@@ -3281,7 +3280,7 @@ static void vkd3d_buffer_view_get_bound_range_ssbo(struct d3d12_desc *descriptor
         VkDeviceSize aligned_end = min((offset + range + alignment - 1) & ~(alignment - 1), resource->desc.Width);
 
         /* heap_offset is guaranteed to have 64KiB alignment */
-        vk_buffer->buffer = resource->vk_buffer;
+        vk_buffer->buffer = resource->res.vk_buffer;
         vk_buffer->offset = resource->heap_offset + aligned_begin;
         vk_buffer->range = aligned_end - aligned_begin;
 
@@ -3843,7 +3842,7 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
 
         if (device->bindless_state.flags & VKD3D_RAW_VA_AUX_BUFFER)
         {
-            VkDeviceAddress address = vkd3d_get_buffer_device_address(device, counter_resource->vk_buffer);
+            VkDeviceAddress address = vkd3d_get_buffer_device_address(device, counter_resource->res.vk_buffer);
             uav_counter_address = address + counter_resource->heap_offset + desc->Buffer.CounterOffsetInBytes;
         }
         else
