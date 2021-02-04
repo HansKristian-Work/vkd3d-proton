@@ -1351,11 +1351,8 @@ enum vkd3d_descriptor_pool_types
 
 struct vkd3d_scratch_buffer
 {
-    VkBuffer vk_buffer;
-    VkDeviceMemory vk_memory;
-    VkDeviceSize size;
+    struct vkd3d_memory_allocation allocation;
     VkDeviceSize offset;
-    VkDeviceAddress va;
 };
 
 #define VKD3D_QUERY_TYPE_INDEX_OCCLUSION (0u)
