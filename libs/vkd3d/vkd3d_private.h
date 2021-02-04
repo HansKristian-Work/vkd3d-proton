@@ -598,7 +598,7 @@ HRESULT vkd3d_memory_allocator_flush_clears(struct vkd3d_memory_allocator *alloc
 /* ID3D12Heap */
 typedef ID3D12Heap1 d3d12_heap_iface;
 
-struct d3d12_heap_2
+struct d3d12_heap
 {
     d3d12_heap_iface ID3D12Heap_iface;
     LONG refcount;
@@ -610,9 +610,9 @@ struct d3d12_heap_2
     struct vkd3d_private_store private_store;
 };
 
-HRESULT d3d12_heap_create_2(struct d3d12_device *device, const D3D12_HEAP_DESC *desc,
-        void *host_address, struct d3d12_heap_2 **heap);
-struct d3d12_heap_2 *unsafe_impl_from_ID3D12Heap_2(ID3D12Heap *iface);
+HRESULT d3d12_heap_create(struct d3d12_device *device, const D3D12_HEAP_DESC *desc,
+        void *host_address, struct d3d12_heap **heap);
+struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface);
 
 enum vkd3d_resource_flag
 {
@@ -695,7 +695,7 @@ struct d3d12_resource
         VkImage vk_image;
     };
 
-    struct d3d12_heap_2 *heap_2;
+    struct d3d12_heap *heap;
     uint64_t heap_offset;
 
     uint32_t flags;
@@ -739,7 +739,7 @@ HRESULT d3d12_resource_create_committed_2(struct d3d12_device *device, const D3D
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource);
 HRESULT d3d12_resource_create_placed_2(struct d3d12_device *device, const D3D12_RESOURCE_DESC *desc,
-        struct d3d12_heap_2 *heap, uint64_t heap_offset, D3D12_RESOURCE_STATES initial_state,
+        struct d3d12_heap *heap, uint64_t heap_offset, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource);
 HRESULT d3d12_resource_create_reserved_2(struct d3d12_device *device,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,

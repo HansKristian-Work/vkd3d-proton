@@ -8533,7 +8533,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12Comma
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
     unsigned int region_tile = 0, region_idx = 0, range_tile = 0, range_idx = 0;
     struct d3d12_resource *res = unsafe_impl_from_ID3D12Resource(resource);
-    struct d3d12_heap_2 *memory_heap = unsafe_impl_from_ID3D12Heap_2(heap);
+    struct d3d12_heap *memory_heap = unsafe_impl_from_ID3D12Heap(heap);
     struct vkd3d_sparse_memory_bind *bind, **bound_tiles;
     struct d3d12_sparse_info *sparse = &res->sparse;
     D3D12_TILED_RESOURCE_COORDINATE region_coord;
