@@ -684,7 +684,6 @@ struct d3d12_resource
 
     D3D12_RESOURCE_DESC desc;
     D3D12_HEAP_PROPERTIES heap_properties;
-    D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
     struct vkd3d_memory_allocation mem;
     struct vkd3d_unique_resource res;
 
