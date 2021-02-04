@@ -32,6 +32,13 @@
 #define VKD3D_NULL_SRV_FORMAT DXGI_FORMAT_R8G8B8A8_UNORM
 #define VKD3D_NULL_UAV_FORMAT DXGI_FORMAT_R32_UINT
 
+static LONG64 global_cookie_counter;
+
+LONG64 vkd3d_allocate_cookie()
+{
+    return InterlockedIncrement64(&global_cookie_counter);
+}
+
 static inline bool is_cpu_accessible_heap(const D3D12_HEAP_PROPERTIES *properties)
 {
     if (properties->Type == D3D12_HEAP_TYPE_DEFAULT)
@@ -3032,8 +3039,6 @@ static HRESULT d3d12_resource_init_sparse_info(struct d3d12_resource *resource,
     return S_OK;
 }
 
-static LONG64 global_cookie_counter;
-
 static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
@@ -3046,7 +3051,7 @@ static HRESULT d3d12_resource_init(struct d3d12_resource *resource, struct d3d12
     resource->internal_refcount = 1;
 
     resource->desc = *desc;
-    resource->cookie = InterlockedIncrement64(&global_cookie_counter);
+    resource->cookie = vkd3d_allocate_cookie();
 
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     vkd3d_descriptor_debug_register_resource_cookie(resource->cookie, desc);
@@ -3406,7 +3411,7 @@ static struct vkd3d_view *vkd3d_view_create(enum vkd3d_view_type type)
     {
         view->refcount = 1;
         view->type = type;
-        view->cookie = InterlockedIncrement64(&global_cookie_counter);
+        view->cookie = vkd3d_allocate_cookie();
     }
     return view;
 }
