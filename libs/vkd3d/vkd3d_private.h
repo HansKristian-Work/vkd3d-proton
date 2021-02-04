@@ -323,26 +323,6 @@ struct vkd3d_gpu_va_slab
     void *ptr;
 };
 
-struct vkd3d_gpu_va_allocator
-{
-    pthread_mutex_t mutex;
-
-    D3D12_GPU_VIRTUAL_ADDRESS fallback_floor;
-    struct vkd3d_gpu_va_allocation *fallback_allocations;
-    size_t fallback_allocations_size;
-    size_t fallback_allocation_count;
-
-    struct vkd3d_gpu_va_slab *slabs;
-    struct vkd3d_gpu_va_slab *free_slab;
-};
-
-D3D12_GPU_VIRTUAL_ADDRESS vkd3d_gpu_va_allocator_allocate(struct vkd3d_gpu_va_allocator *allocator,
-        size_t alignment, size_t size, void *ptr);
-void *vkd3d_gpu_va_allocator_dereference(struct vkd3d_gpu_va_allocator *allocator,
-        D3D12_GPU_VIRTUAL_ADDRESS address);
-void vkd3d_gpu_va_allocator_free(struct vkd3d_gpu_va_allocator *allocator,
-        D3D12_GPU_VIRTUAL_ADDRESS address);
-
 struct vkd3d_render_pass_key
 {
     unsigned int attachment_count;
@@ -2319,7 +2299,6 @@ struct d3d12_device
     struct vkd3d_vk_device_procs vk_procs;
     PFN_vkd3d_signal_event signal_event;
 
-    struct vkd3d_gpu_va_allocator gpu_va_allocator;
     struct vkd3d_fence_worker fence_worker;
 
     pthread_mutex_t mutex;
