@@ -28,6 +28,7 @@ void vkd3d_descriptor_debug_register_heap(void *heap, const D3D12_DESCRIPTOR_HEA
 void vkd3d_descriptor_debug_unregister_heap(void *heap);
 
 void vkd3d_descriptor_debug_register_resource_cookie(uint64_t cookie, const D3D12_RESOURCE_DESC *desc);
+void vkd3d_descriptor_debug_register_allocation_cookie(uint64_t cookie, const struct vkd3d_allocate_memory_info *info);
 void vkd3d_descriptor_debug_register_view_cookie(uint64_t cookie, uint64_t resource_cookie);
 void vkd3d_descriptor_debug_unregister_cookie(uint64_t cookie);
 
