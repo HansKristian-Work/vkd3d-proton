@@ -944,7 +944,7 @@ static HRESULT d3d12_swapchain_create_user_buffers(struct d3d12_swapchain *swapc
 
     for (i = 0; i < swapchain->desc.BufferCount; i++)
     {
-        if (FAILED(hr = d3d12_resource_create_committed_2(d3d12_swapchain_device(swapchain),
+        if (FAILED(hr = d3d12_resource_create_committed(d3d12_swapchain_device(swapchain),
                 &resource_desc, &heap_properties, D3D12_HEAP_FLAG_NONE,
                 D3D12_RESOURCE_STATE_PRESENT, NULL, &object)))
         {

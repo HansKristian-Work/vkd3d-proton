@@ -3534,7 +3534,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource(d3d12_device_
             iface, heap, heap_offset, desc, initial_state,
             optimized_clear_value, debugstr_guid(iid), resource);
 
-    if (FAILED(hr = d3d12_resource_create_placed_2(device, desc, heap_object,
+    if (FAILED(hr = d3d12_resource_create_placed(device, desc, heap_object,
             heap_offset, initial_state, optimized_clear_value, &object)))
         return hr;
 
@@ -4003,7 +4003,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource1(d3d12_dev
     if (protected_session)
         FIXME("Ignoring protected session %p.\n", protected_session);
 
-    if (FAILED(hr = d3d12_resource_create_committed_2(device, desc, heap_properties,
+    if (FAILED(hr = d3d12_resource_create_committed(device, desc, heap_properties,
             heap_flags, initial_state, optimized_clear_value, &object)))
     {
         *resource = NULL;
@@ -4050,7 +4050,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource1(d3d12_devi
     if (protected_session)
         FIXME("Ignoring protected session %p.\n", protected_session);
 
-    if (FAILED(hr = d3d12_resource_create_reserved_2(device, desc,
+    if (FAILED(hr = d3d12_resource_create_reserved(device, desc,
             initial_state, optimized_clear_value, &object)))
         return hr;
 
