@@ -1439,7 +1439,7 @@ static D3D12_GPU_VIRTUAL_ADDRESS STDMETHODCALLTYPE d3d12_resource_GetGPUVirtualA
 
     TRACE("iface %p.\n", iface);
 
-    return resource->gpu_address;
+    return resource->res.va;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(d3d12_resource_iface *iface,
@@ -2340,7 +2340,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
             goto fail;
 
         object->res.vk_buffer = object->mem.resource.vk_buffer;
-        object->gpu_address = object->mem.resource.va;
+        object->res.va = object->mem.resource.va;
         object->heap_offset = object->mem.offset;
     }
 
@@ -2451,7 +2451,7 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
     else
     {
         object->res.vk_buffer = object->mem.resource.vk_buffer;
-        object->gpu_address = object->mem.resource.va;
+        object->res.va = object->mem.resource.va;
     }
 
     *resource = object;
@@ -2495,7 +2495,6 @@ HRESULT d3d12_resource_create_reserved(struct d3d12_device *device,
             return E_FAIL;
         }
 
-        object->gpu_address = object->res.va;
         vkd3d_va_map_insert(&device->memory_allocator.va_map, &object->res);
     }
 
