@@ -1850,13 +1850,13 @@ static bool d3d12_command_allocator_allocate_scratch_memory(struct d3d12_command
         scratch = &allocator->scratch_buffers[i - 1];
         aligned_offset = align(scratch->offset, alignment);
 
-        if (aligned_offset + aligned_size <= scratch->size)
+        if (aligned_offset + aligned_size <= scratch->allocation.resource.size)
         {
             scratch->offset = aligned_offset + aligned_size;
 
-            allocation->buffer = scratch->vk_buffer;
-            allocation->offset = aligned_offset;
-            allocation->va = scratch->va + aligned_offset;
+            allocation->buffer = scratch->allocation.resource.vk_buffer;
+            allocation->offset = scratch->allocation.offset + aligned_offset;
+            allocation->va = scratch->allocation.resource.va + aligned_offset;
             return true;
         }
     }
@@ -1878,9 +1878,9 @@ static bool d3d12_command_allocator_allocate_scratch_memory(struct d3d12_command
     allocator->scratch_buffer_count += 1;
     scratch->offset = aligned_size;
 
-    allocation->buffer = scratch->vk_buffer;
-    allocation->offset = 0;
-    allocation->va = scratch->va;
+    allocation->buffer = scratch->allocation.resource.vk_buffer;
+    allocation->offset = scratch->allocation.offset;
+    allocation->va = scratch->allocation.resource.va;
     return true;
 }
 
