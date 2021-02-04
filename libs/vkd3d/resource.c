@@ -1970,7 +1970,7 @@ static HRESULT d3d12_resource_bind_sparse_metadata(struct d3d12_resource *resour
 
     VK_CALL(vkGetImageMemoryRequirements(device->vk_device, resource->vk_image, &memory_requirements));
 
-    if ((vr = vkd3d_allocate_device_memory_2(device, metadata_size, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+    if ((vr = vkd3d_allocate_device_memory(device, metadata_size, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             memory_requirements.memoryTypeBits, NULL, &sparse->vk_metadata_memory, NULL)))
     {
         ERR("Failed to allocate device memory for sparse metadata, vr %d.\n", vr);
@@ -2202,7 +2202,7 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
         VK_CALL(vkDestroyBuffer(device->vk_device, resource->vk_buffer, NULL));
 
     if ((resource->flags & VKD3D_RESOURCE_ALLOCATION) && resource->mem.vk_memory)
-        vkd3d_free_memory_2(device, &device->memory_allocator, &resource->mem);
+        vkd3d_free_memory(device, &device->memory_allocator, &resource->mem);
 
     vkd3d_private_store_destroy(&resource->private_store);
     d3d12_device_release(resource->device);
@@ -2319,7 +2319,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
 
         allocate_info.vk_image = object->vk_image;
 
-        if (FAILED(hr = vkd3d_allocate_resource_memory_2(device,
+        if (FAILED(hr = vkd3d_allocate_resource_memory(device,
                 &device->memory_allocator, &allocate_info, &object->mem)))
             goto fail;
 
@@ -2335,7 +2335,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         allocate_info.heap_desc.SizeInBytes = align(desc->Width, allocate_info.heap_desc.Alignment);
         allocate_info.heap_desc.Flags = heap_flags | D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
 
-        if (FAILED(hr = vkd3d_allocate_heap_memory_2(device,
+        if (FAILED(hr = vkd3d_allocate_heap_memory(device,
                 &device->memory_allocator, &allocate_info, &object->mem)))
             goto fail;
 
@@ -2375,7 +2375,7 @@ static HRESULT d3d12_resource_bind_image_memory(struct d3d12_resource *resource,
         allocate_info.heap_desc.Alignment = memory_requirements.alignment;
         allocate_info.heap_desc.Flags = resource->heap->desc.Flags | D3D12_HEAP_FLAG_DENY_BUFFERS;
 
-        if (FAILED(hr = vkd3d_allocate_heap_memory_2(device,
+        if (FAILED(hr = vkd3d_allocate_heap_memory(device,
                 &device->memory_allocator, &allocate_info, &resource->mem)))
             return hr;
 
