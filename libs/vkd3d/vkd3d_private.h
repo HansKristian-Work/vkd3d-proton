@@ -746,9 +746,8 @@ HRESULT d3d12_resource_create_reserved_2(struct d3d12_device *device,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource);
 struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface);
 
-HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer, void *host_memory,
-        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        VkDeviceMemory *vk_memory, uint32_t *vk_memory_type, VkDeviceSize *vk_memory_size);
+HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer,
+        VkMemoryPropertyFlags type_flags, VkDeviceMemory *vk_memory);
 HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, VkBuffer *vk_buffer);
