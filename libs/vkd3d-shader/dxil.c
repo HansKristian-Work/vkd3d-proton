@@ -1153,9 +1153,9 @@ int vkd3d_shader_dxil_append_library_entry_points(
         for (i = 0; i < library_desc->NumExports; i++)
         {
             if (library_desc->pExports[i].ExportToRename)
-                ascii_entry = vkd3d_strdup_w_utf8(library_desc->pExports[i].ExportToRename, sizeof(WCHAR), 0);
+                ascii_entry = vkd3d_strdup_w_utf8(library_desc->pExports[i].ExportToRename, 0);
             else
-                ascii_entry = vkd3d_strdup_w_utf8(library_desc->pExports[i].Name, sizeof(WCHAR), 0);
+                ascii_entry = vkd3d_strdup_w_utf8(library_desc->pExports[i].Name, 0);
 
             stage = dxil_spv_parsed_blob_get_shader_stage_for_entry(blob, ascii_entry);
             if (stage == DXIL_SPV_STAGE_UNKNOWN)

@@ -23,6 +23,6 @@
 
 /* max_elements is 0 if only nul-terminator should be used.
  * Otherwise, terminate the string after either a nul-termination byte or max_elements. */
-char *vkd3d_strdup_w_utf8(const WCHAR *wstr, size_t wchar_size, size_t max_elements);
+char *vkd3d_strdup_w_utf8(const WCHAR *wstr, size_t max_elements);
 
 #endif /* __VKD3D_UTF8_H */

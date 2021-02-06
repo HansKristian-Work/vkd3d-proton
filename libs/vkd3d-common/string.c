@@ -21,6 +21,8 @@
 #include "vkd3d_string.h"
 #include "vkd3d_memory.h"
 
+STATIC_ASSERT(sizeof(WCHAR) == sizeof(uint16_t));
+
 char *vkd3d_strdup(const char *str)
 {
     /* strdup() is actually not standard. */
@@ -40,7 +42,7 @@ WCHAR *vkd3d_wstrdup(const WCHAR *str)
     WCHAR *duped;
     size_t len;
 
-    len = vkd3d_wcslen(str, sizeof(WCHAR)) + 1;
+    len = vkd3d_wcslen(str) + 1;
 
     duped = vkd3d_malloc(len * sizeof(WCHAR));
     if (duped)

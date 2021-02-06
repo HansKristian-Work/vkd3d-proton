@@ -2979,9 +2979,9 @@ typedef enum D3D12_AUTO_BREADCRUMB_OP
 typedef struct D3D12_AUTO_BREADCRUMB_NODE
 {
     const char *pCommandListDebugNameA;
-    const wchar_t *pCommandListDebugNameW;
+    const WCHAR *pCommandListDebugNameW;
     const char *pCommandQueueDebugNameA;
-    const wchar_t *pCommandQueueDebugNameW;
+    const WCHAR *pCommandQueueDebugNameW;
     ID3D12GraphicsCommandList *pCommandList;
     ID3D12CommandQueue *pCommandQueue;
     UINT32 BreadcrumbCount;
@@ -2993,15 +2993,15 @@ typedef struct D3D12_AUTO_BREADCRUMB_NODE
 typedef struct D3D12_DRED_BREADCRUMB_CONTEXT
 {
     UINT BreadcrumbIndex;
-    const wchar_t *pContextString;
+    const WCHAR *pContextString;
 } D3D12_DRED_BREADCRUMB_CONTEXT;
 
 typedef struct D3D12_AUTO_BREADCRUMB_NODE1
 {
     const char *pCommandListDebugNameA;
-    const wchar_t *pCommandListDebugNameW;
+    const WCHAR *pCommandListDebugNameW;
     const char *pCommandQueueDebugNameA;
-    const wchar_t *pCommandQueueDebugNameW;
+    const WCHAR *pCommandQueueDebugNameW;
     ID3D12GraphicsCommandList *pCommandList;
     ID3D12CommandQueue *pCommandQueue;
     UINT BreadcrumbCount;
@@ -3074,7 +3074,7 @@ typedef enum D3D12_DRED_ALLOCATION_TYPE
 typedef struct D3D12_DRED_ALLOCATION_NODE
 {
     const char *ObjectNameA;
-    const wchar_t *ObjectNameW;
+    const WCHAR *ObjectNameW;
     D3D12_DRED_ALLOCATION_TYPE AllocationType;
     const struct D3D12_DRED_ALLOCATION_NODE *pNext;
 } D3D12_DRED_ALLOCATION_NODE;
@@ -3082,7 +3082,7 @@ typedef struct D3D12_DRED_ALLOCATION_NODE
 typedef struct D3D12_DRED_ALLOCATION_NODE1
 {
     const char *ObjectNameA;
-    const wchar_t *ObjectNameW;
+    const WCHAR *ObjectNameW;
     D3D12_DRED_ALLOCATION_TYPE AllocationType;
     const struct D3D12_DRED_ALLOCATION_NODE1 *pNext;
     const IUnknown *pObject;

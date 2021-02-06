@@ -335,7 +335,6 @@ HRESULT WINAPI DLLEXPORT D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL 
     instance_create_info.pfn_signal_event = d3d12_signal_event;
     instance_create_info.pfn_create_thread = d3d12_create_thread;
     instance_create_info.pfn_join_thread = d3d12_join_thread;
-    instance_create_info.wchar_size = sizeof(WCHAR);
     instance_create_info.pfn_vkGetInstanceProcAddr = pfn_vkGetInstanceProcAddr;
     instance_create_info.instance_extensions = instance_extensions;
     instance_create_info.instance_extension_count = ARRAYSIZE(instance_extensions);

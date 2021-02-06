@@ -845,9 +845,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_SetPrivateDataInterface(d3d12_fence
 
 static HRESULT STDMETHODCALLTYPE d3d12_fence_SetName(d3d12_fence_iface *iface, const WCHAR *name)
 {
-    struct d3d12_fence *fence = impl_from_ID3D12Fence(iface);
-
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name, fence->device->wchar_size));
+    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
 
     return name ? S_OK : E_INVALIDARG;
 }
@@ -1596,7 +1594,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_SetName(ID3D12CommandAl
 {
     struct d3d12_command_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
 
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name, allocator->device->wchar_size));
+    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
 
     return vkd3d_set_vk_object_name(allocator->device, (uint64_t)allocator->vk_command_pool,
             VK_OBJECT_TYPE_COMMAND_POOL, name);
@@ -3502,9 +3500,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_SetPrivateDataInterface(d3d1
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_SetName(d3d12_command_list_iface *iface, const WCHAR *name)
 {
-    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name, list->device->wchar_size));
+    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
 
     return name ? S_OK : E_INVALIDARG;
 }
@@ -7663,7 +7659,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
     }
 }
 
-static char *decode_pix_string(size_t wchar_size, UINT metadata, const void *data, size_t size)
+static char *decode_pix_string(UINT metadata, const void *data, size_t size)
 {
     char *label_str;
 
@@ -7682,7 +7678,7 @@ static char *decode_pix_string(size_t wchar_size, UINT metadata, const void *dat
         break;
 
     case PIX_EVENT_UNICODE_VERSION:
-        label_str = vkd3d_strdup_w_utf8(data, wchar_size, size / wchar_size);
+        label_str = vkd3d_strdup_w_utf8(data, size / sizeof(WCHAR));
         if (!label_str)
             return NULL;
         break;
@@ -7711,7 +7707,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetMarker(d3d12_command_list_if
     if (!list->device->vk_info.EXT_debug_utils)
         return;
 
-    label_str = decode_pix_string(list->device->wchar_size, metadata, data, size);
+    label_str = decode_pix_string(metadata, data, size);
     if (!label_str)
     {
         FIXME("Failed to decode PIX debug event.\n");
@@ -7743,7 +7739,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginEvent(d3d12_command_list_i
     if (!list->device->vk_info.EXT_debug_utils)
         return;
 
-    label_str = decode_pix_string(list->device->wchar_size, metadata, data, size);
+    label_str = decode_pix_string(metadata, data, size);
     if (!label_str)
     {
         FIXME("Failed to decode PIX debug event.\n");
@@ -8431,7 +8427,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_SetName(ID3D12CommandQueue 
     VkQueue vk_queue;
     HRESULT hr;
 
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name, command_queue->device->wchar_size));
+    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
 
     if (!(vk_queue = vkd3d_queue_acquire(command_queue->vkd3d_queue)))
     {
@@ -10032,9 +10028,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_signature_SetPrivateDataInterface
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_signature_SetName(ID3D12CommandSignature *iface, const WCHAR *name)
 {
-    struct d3d12_command_signature *signature = impl_from_ID3D12CommandSignature(iface);
-
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name, signature->device->wchar_size));
+    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
 
     return name ? S_OK : E_INVALIDARG;
 }

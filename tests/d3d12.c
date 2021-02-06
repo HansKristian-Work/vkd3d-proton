@@ -3844,8 +3844,6 @@ static void test_object_interface(void)
     static const GUID test_guid2
             = {0x2e5afac2, 0x87b5, 0x4c10, {0x9b, 0x4b, 0x89, 0xd7, 0xd1, 0x12, 0xe7, 0x2b}};
     static const DWORD data[] = {1, 2, 3, 4};
-    static const WCHAR deadbeefW[] = {'d', 'e', 'a', 'd', 'b', 'e', 'e', 'f', 0};
-    static const WCHAR emptyW[] = {0};
     static const GUID *tests[] =
     {
         &IID_ID3D12CommandAllocator,
@@ -4072,10 +4070,10 @@ static void test_object_interface(void)
             ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
         }
 
-        hr = ID3D12Object_SetName(object, emptyW);
+        hr = ID3D12Object_SetName(object, u"");
         ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
-        hr = ID3D12Object_SetName(object, deadbeefW);
+        hr = ID3D12Object_SetName(object, u"deadbeef");
         ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
         ID3D12Object_Release(object);
@@ -42173,16 +42171,8 @@ static void test_raytracing(void)
 
         memset(&hit_group, 0, sizeof(hit_group));
         hit_group.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
-        {
-            /* For some weird reason, the exports are WCHAR, even though localization is irrelevant for internal, mangled symbols ...
-               Deal with ABI uncertainty around WCHAR with array of u16.
-               wchar_t is typically 4 bytes on Linux/MinGW unless special compiler flags are used. */
-            static const uint16_t ray_closest[] = { 'R', 'a', 'y', 'C', 'l', 'o', 's', 'e', 's', 't', '\0' };
-            static const uint16_t ray_hit[] = { 'R', 'a', 'y', 'H', 'i', 't', '\0' };
-
-            hit_group.ClosestHitShaderImport = ray_closest;
-            hit_group.HitGroupExport = ray_hit;
-        }
+        hit_group.ClosestHitShaderImport = u"RayClosest";
+        hit_group.HitGroupExport = u"RayHit";
 
         memset(&desc, 0, sizeof(desc));
         desc.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
@@ -46191,8 +46181,8 @@ static void test_pipeline_library(void)
         0x3f800000, 0x3f800000, 0x3f800000, 0x3f800000, 0x0100003e,
     };
 
-    static const WCHAR graphics_name[] = {'G','R','A','P','H','I','C','S',0};
-    static const WCHAR compute_name[] = {'C','O','M','P','U','T','E',0};
+    const WCHAR *graphics_name = u"GRAPHICS";
+    const WCHAR *compute_name  = u"COMPUTE";
 
     if (!init_test_context(&context, NULL))
         return;

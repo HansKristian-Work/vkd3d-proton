@@ -128,9 +128,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_root_signature_SetPrivateDataInterface(ID
 
 static HRESULT STDMETHODCALLTYPE d3d12_root_signature_SetName(ID3D12RootSignature *iface, const WCHAR *name)
 {
-    struct d3d12_root_signature *root_signature = impl_from_ID3D12RootSignature(iface);
-
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name, root_signature->device->wchar_size));
+    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
 
     return name ? S_OK : E_INVALIDARG;
 }
@@ -1733,7 +1731,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_SetName(ID3D12PipelineStat
 {
     struct d3d12_pipeline_state *state = impl_from_ID3D12PipelineState(iface);
 
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name, state->device->wchar_size));
+    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
 
     if (d3d12_pipeline_state_is_compute(state))
     {

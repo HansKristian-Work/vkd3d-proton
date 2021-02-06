@@ -495,7 +495,6 @@ static HRESULT create_vkd3d_instance(struct vkd3d_instance **instance)
     instance_create_info.type = VKD3D_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     instance_create_info.next = &optional_extensions_info;
     instance_create_info.pfn_signal_event = vkd3d_signal_event;
-    instance_create_info.wchar_size = sizeof(WCHAR);
 
     return vkd3d_create_instance(&instance_create_info, instance);
 }

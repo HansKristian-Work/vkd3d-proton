@@ -64,7 +64,6 @@ VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
     instance_create_info.type = VKD3D_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     instance_create_info.next = &optional_extensions_info;
     instance_create_info.pfn_signal_event = vkd3d_signal_event;
-    instance_create_info.wchar_size = sizeof(WCHAR);
     instance_create_info.instance_extensions = instance_extensions;
     instance_create_info.instance_extension_count = ARRAY_SIZE(instance_extensions);
 

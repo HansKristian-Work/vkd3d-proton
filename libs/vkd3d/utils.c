@@ -1172,7 +1172,7 @@ HRESULT vkd3d_set_vk_object_name(struct d3d12_device *device, uint64_t vk_object
     if (!device->vk_info.EXT_debug_utils)
         return S_OK;
 
-    if (!(name_utf8 = vkd3d_strdup_w_utf8(name, device->wchar_size, 0)))
+    if (!(name_utf8 = vkd3d_strdup_w_utf8(name, 0)))
         return E_OUTOFMEMORY;
 
     vr = vkd3d_set_vk_object_name_utf8(device, vk_object, vk_object_type, name_utf8);

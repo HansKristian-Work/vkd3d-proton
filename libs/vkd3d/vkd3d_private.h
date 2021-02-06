@@ -176,7 +176,6 @@ struct vkd3d_instance
     PFN_vkd3d_signal_event signal_event;
     PFN_vkd3d_create_thread create_thread;
     PFN_vkd3d_join_thread join_thread;
-    size_t wchar_size;
 
     struct vkd3d_vulkan_info vk_info;
     struct vkd3d_vk_global_procs vk_global_procs;
@@ -2100,7 +2099,6 @@ struct d3d12_device
     VkPhysicalDevice vk_physical_device;
     struct vkd3d_vk_device_procs vk_procs;
     PFN_vkd3d_signal_event signal_event;
-    size_t wchar_size;
 
     struct vkd3d_gpu_va_allocator gpu_va_allocator;
     struct vkd3d_fence_worker fence_worker;
