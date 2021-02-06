@@ -6,7 +6,7 @@ cpu_family = target_machine.cpu_family()
 
 vkd3d_compiler = meson.get_compiler('c')
 vkd3d_msvc     = vkd3d_compiler.get_id() == 'msvc'
-vkd3d_c_std    = 'c99'
+vkd3d_c_std    = 'c11'
 vkd3d_platform = target_machine.system()
 
 enable_tests             = get_option('enable_tests')

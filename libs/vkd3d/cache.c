@@ -320,9 +320,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_SetPrivateDataInterface(
 
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_SetName(d3d12_pipeline_library_iface *iface, const WCHAR *name)
 {
-    struct d3d12_pipeline_library *pipeline_library = impl_from_ID3D12PipelineLibrary(iface);
-
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name, pipeline_library->device->wchar_size));
+    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
 
     return name ? S_OK : E_INVALIDARG;
 }
@@ -342,13 +340,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_StorePipeline(d3d12_pipe
 {
     struct d3d12_pipeline_library *pipeline_library = impl_from_ID3D12PipelineLibrary(iface);
     struct d3d12_pipeline_state *pipeline_state = unsafe_impl_from_ID3D12PipelineState(pipeline);
-    size_t wchar_size = pipeline_library->device->wchar_size;
     struct vkd3d_cached_pipeline_entry entry;
     void *new_name, *new_blob;
     VkResult vr;
     int rc;
 
-    TRACE("iface %p, name %s, pipeline %p.\n", iface, debugstr_w(name, pipeline_library->device->wchar_size), pipeline);
+    TRACE("iface %p, name %s, pipeline %p.\n", iface, debugstr_w(name), pipeline);
 
     if ((rc = pthread_mutex_lock(&pipeline_library->mutex)))
     {
@@ -356,12 +353,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_StorePipeline(d3d12_pipe
         return hresult_from_errno(rc);
     }
 
-    entry.key.name_length = vkd3d_wcslen(name, wchar_size) * wchar_size;
+    entry.key.name_length = vkd3d_wcslen(name) * sizeof(WCHAR);
     entry.key.name = name;
 
     if (hash_map_find(&pipeline_library->map, &entry.key))
     {
-        WARN("Pipeline %s already exists.\n", debugstr_w(name, pipeline_library->device->wchar_size));
+        WARN("Pipeline %s already exists.\n", debugstr_w(name));
         pthread_mutex_unlock(&pipeline_library->mutex);
         return E_INVALIDARG;
     }
@@ -416,7 +413,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_StorePipeline(d3d12_pipe
 static HRESULT d3d12_pipeline_library_load_pipeline(struct d3d12_pipeline_library *pipeline_library, LPCWSTR name,
         VkPipelineBindPoint bind_point, struct d3d12_pipeline_state_desc *desc, struct d3d12_pipeline_state **state)
 {
-    size_t wchar_size = pipeline_library->device->wchar_size;
     const struct vkd3d_cached_pipeline_entry *e;
     struct vkd3d_cached_pipeline_key key;
     int rc;
@@ -427,12 +423,12 @@ static HRESULT d3d12_pipeline_library_load_pipeline(struct d3d12_pipeline_librar
         return hresult_from_errno(rc);
     }
 
-    key.name_length = vkd3d_wcslen(name, wchar_size) * wchar_size;
+    key.name_length = vkd3d_wcslen(name) * sizeof(WCHAR);
     key.name = name;
 
     if (!(e = (const struct vkd3d_cached_pipeline_entry*)hash_map_find(&pipeline_library->map, &key)))
     {
-        WARN("Pipeline %s does not exist.\n", debugstr_w(name, pipeline_library->device->wchar_size));
+        WARN("Pipeline %s does not exist.\n", debugstr_w(name));
         pthread_mutex_unlock(&pipeline_library->mutex);
         return E_INVALIDARG;
     }
@@ -453,8 +449,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_LoadGraphicsPipeline(d3d
     HRESULT hr;
 
     TRACE("iface %p, name %s, desc %p, iid %s, pipeline_state %p.\n", iface,
-            debugstr_w(name, pipeline_library->device->wchar_size),
-            desc, debugstr_guid(iid), pipeline_state);
+            debugstr_w(name), desc, debugstr_guid(iid), pipeline_state);
 
     if (FAILED(hr = vkd3d_pipeline_state_desc_from_d3d12_graphics_desc(&pipeline_desc, desc)))
         return hr;
@@ -476,8 +471,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_LoadComputePipeline(d3d1
     HRESULT hr;
 
     TRACE("iface %p, name %s, desc %p, iid %s, pipeline_state %p.\n", iface,
-            debugstr_w(name, pipeline_library->device->wchar_size),
-            desc, debugstr_guid(iid), pipeline_state);
+            debugstr_w(name), desc, debugstr_guid(iid), pipeline_state);
 
     if (FAILED(hr = vkd3d_pipeline_state_desc_from_d3d12_compute_desc(&pipeline_desc, desc)))
         return hr;
@@ -587,8 +581,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_LoadPipeline(d3d12_pipel
     HRESULT hr;
 
     TRACE("iface %p, name %s, desc %p, iid %s, pipeline_state %p.\n", iface,
-            debugstr_w(name, pipeline_library->device->wchar_size),
-            desc, debugstr_guid(iid), pipeline_state);
+            debugstr_w(name), desc, debugstr_guid(iid), pipeline_state);
 
     if (FAILED(hr = vkd3d_pipeline_state_desc_from_d3d12_stream_desc(&pipeline_desc, desc, &pipeline_type)))
         return hr;

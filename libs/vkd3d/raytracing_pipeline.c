@@ -164,9 +164,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_state_object_SetPrivateDataInterface(ID3D
 
 static HRESULT STDMETHODCALLTYPE d3d12_state_object_SetName(ID3D12StateObject *iface, const WCHAR *name)
 {
-    struct d3d12_state_object *state_object = impl_from_ID3D12StateObject(iface);
-
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name, state_object->device->wchar_size));
+    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
 
     return name ? S_OK : E_INVALIDARG;
 }
@@ -205,10 +203,7 @@ static void * STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderIdentifie
 static UINT64 STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderStackSize(ID3D12StateObjectProperties *iface,
         LPCWSTR export_name)
 {
-    static const WCHAR intersection[] = { ':', ':', 'i', 'n', 't', 'e', 'r', 's', 'e', 'c', 't', 'i', 'o', 'n', '\0' };
-    static const WCHAR closesthit[] = { ':', ':', 'c', 'l', 'o', 's', 'e', 's', 't', 'h', 'i', 't', '\0' };
     struct d3d12_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
-    static const WCHAR anyhit[] = { ':', ':', 'a', 'n', 'y', 'h', 'i', 't', '\0' };
     const WCHAR *subtype = NULL;
     size_t i, n;
 
@@ -229,11 +224,11 @@ static UINT64 STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderStackSize
         {
             if (subtype)
             {
-                if (vkd3d_export_strequal(subtype, intersection))
+                if (vkd3d_export_strequal(subtype, u"::intersection"))
                     return object->exports[i].stack_size_intersection;
-                else if (vkd3d_export_strequal(subtype, anyhit))
+                else if (vkd3d_export_strequal(subtype, u"::anyhit"))
                     return object->exports[i].stack_size_any;
-                else if (vkd3d_export_strequal(subtype, closesthit))
+                else if (vkd3d_export_strequal(subtype, u"::closesthit"))
                     return object->exports[i].stack_size_closest;
                 else
                     return 0xffffffff;

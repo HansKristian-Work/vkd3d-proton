@@ -506,7 +506,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_SetName(d3d12_heap_iface *iface, con
 {
     struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
 
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name, heap->device->wchar_size));
+    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
 
     return vkd3d_set_vk_object_name(heap->device, (uint64_t)heap->vk_memory,
             VK_OBJECT_TYPE_DEVICE_MEMORY, name);
@@ -2172,7 +2172,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_SetName(d3d12_resource_iface *if
     struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
     HRESULT hr;
 
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name, resource->device->wchar_size));
+    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
 
     if (resource->flags & VKD3D_RESOURCE_DEDICATED_HEAP)
     {
@@ -5457,9 +5457,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_SetPrivateDataInterface(I
 
 static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_SetName(ID3D12DescriptorHeap *iface, const WCHAR *name)
 {
-    struct d3d12_descriptor_heap *heap = impl_from_ID3D12DescriptorHeap(iface);
-
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name, heap->device->wchar_size));
+    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
 
     return name ? S_OK : E_INVALIDARG;
 }
@@ -6104,7 +6102,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_query_heap_SetName(ID3D12QueryHeap *iface
 {
     struct d3d12_query_heap *heap = impl_from_ID3D12QueryHeap(iface);
 
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name, heap->device->wchar_size));
+    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
 
     return vkd3d_set_vk_object_name(heap->device, (uint64_t)heap->vk_query_pool,
             VK_OBJECT_TYPE_QUERY_POOL, name);

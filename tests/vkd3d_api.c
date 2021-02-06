@@ -61,7 +61,6 @@ static HRESULT signal_event(HANDLE event)
 static const struct vkd3d_instance_create_info instance_default_create_info =
 {
     .type = VKD3D_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-    .wchar_size = sizeof(WCHAR),
     .pfn_signal_event = signal_event,
 };
 
@@ -97,11 +96,6 @@ static void test_create_instance(void)
     vkd3d_instance_decref(instance);
     refcount = vkd3d_instance_decref(instance);
     ok(!refcount, "Instance has %u references left.\n", refcount);
-
-    create_info = instance_default_create_info;
-    create_info.wchar_size = 1;
-    hr = vkd3d_create_instance(&create_info, &instance);
-    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
     create_info = instance_default_create_info;
     create_info.pfn_signal_event = NULL;

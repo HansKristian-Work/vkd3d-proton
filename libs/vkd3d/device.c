@@ -492,16 +492,10 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
         ERR("Invalid create/join thread function pointers.\n");
         return E_INVALIDARG;
     }
-    if (create_info->wchar_size != 2 && create_info->wchar_size != 4)
-    {
-        ERR("Unexpected WCHAR size %zu.\n", create_info->wchar_size);
-        return E_INVALIDARG;
-    }
 
     instance->signal_event = create_info->pfn_signal_event;
     instance->create_thread = create_info->pfn_create_thread;
     instance->join_thread = create_info->pfn_join_thread;
-    instance->wchar_size = create_info->wchar_size;
 
     instance->config_flags = vkd3d_init_config_flags();
 
@@ -2676,7 +2670,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_SetName(d3d12_device_iface *iface,
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
 
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name, device->wchar_size));
+    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
 
     return vkd3d_set_vk_object_name(device, (uint64_t)(uintptr_t)device->vk_device,
             VK_OBJECT_TYPE_DEVICE, name);
@@ -3842,10 +3836,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateSharedHandle(d3d12_device_if
         ID3D12DeviceChild *object, const SECURITY_ATTRIBUTES *attributes, DWORD access,
         const WCHAR *name, HANDLE *handle)
 {
-    struct d3d12_device *device = impl_from_ID3D12Device(iface);
-
     FIXME("iface %p, object %p, attributes %p, access %#x, name %s, handle %p stub!\n",
-            iface, object, attributes, access, debugstr_w(name, device->wchar_size), handle);
+            iface, object, attributes, access, debugstr_w(name), handle);
 
     return E_NOTIMPL;
 }
@@ -3862,10 +3854,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenSharedHandle(d3d12_device_ifac
 static HRESULT STDMETHODCALLTYPE d3d12_device_OpenSharedHandleByName(d3d12_device_iface *iface,
         const WCHAR *name, DWORD access, HANDLE *handle)
 {
-    struct d3d12_device *device = impl_from_ID3D12Device(iface);
-
     FIXME("iface %p, name %s, access %#x, handle %p stub!\n",
-            iface, debugstr_w(name, device->wchar_size), access, handle);
+            iface, debugstr_w(name), access, handle);
 
     return E_NOTIMPL;
 }
@@ -5046,7 +5036,6 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     vkd3d_instance_incref(device->vkd3d_instance = instance);
     device->vk_info = instance->vk_info;
     device->signal_event = instance->signal_event;
-    device->wchar_size = instance->wchar_size;
 
     device->adapter_luid = create_info->adapter_luid;
     device->removed_reason = S_OK;

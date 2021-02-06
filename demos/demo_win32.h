@@ -20,7 +20,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-#define DEMO_WINDOW_CLASS_NAME L"demo_wc"
+#define DEMO_WINDOW_CLASS_NAME u"demo_wc"
 
 struct demo
 {

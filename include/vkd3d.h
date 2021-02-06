@@ -89,7 +89,6 @@ struct vkd3d_instance_create_info
     PFN_vkd3d_signal_event pfn_signal_event;
     PFN_vkd3d_create_thread pfn_create_thread;
     PFN_vkd3d_join_thread pfn_join_thread;
-    size_t wchar_size;
 
     /* If set to NULL, libvkd3d loads libvulkan. */
     PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr;
