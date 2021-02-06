@@ -2687,7 +2687,7 @@ static bool d3d12_command_list_disable_query(struct d3d12_command_list *list,
         }
     }
 
-    WARN("Query (%#"PRIx64",%u) not active.\n", (uint64_t)heap, index);
+    WARN("Query (%p, %u) not active.\n", heap, index);
     return true;
 }
 
