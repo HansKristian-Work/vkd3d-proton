@@ -3645,27 +3645,33 @@ static uint32_t d3d12_max_host_descriptor_count_from_heap_type(struct d3d12_devi
     }
 }
 
-static uint32_t vkd3d_bindless_build_mutable_type_list(VkDescriptorType *list, uint32_t flags)
+uint32_t vkd3d_bindless_build_mutable_type_list(VkDescriptorType *list, uint32_t flags,
+        uint32_t device_flags)
 {
     uint32_t count = 0;
-    if (flags & VKD3D_BINDLESS_CBV)
+    if (flags & VKD3D_BINDLESS_SET_BUFFER)
     {
-        list[count++] = flags & VKD3D_BINDLESS_CBV_AS_SSBO ?
-                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        if (flags & VKD3D_BINDLESS_SET_CBV)
+        {
+            list[count++] = device_flags & VKD3D_BINDLESS_CBV_AS_SSBO ?
+                    VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        }
+
+        /* SSBO for untyped UAV is deliberately left out since it has its own descriptor set. */
+
+        if (flags & VKD3D_BINDLESS_SET_UAV)
+            list[count++] = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+
+        if (flags & VKD3D_BINDLESS_SET_SRV)
+            list[count++] = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
     }
 
-    /* SSBO for untyped UAV is deliberately left out since it has its own descriptor set. */
-
-    if (flags & VKD3D_BINDLESS_UAV)
+    if (flags & VKD3D_BINDLESS_SET_IMAGE)
     {
-        list[count++] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        list[count++] = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
-    }
-
-    if (flags & VKD3D_BINDLESS_SRV)
-    {
-        list[count++] = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-        list[count++] = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+        if (flags & VKD3D_BINDLESS_SET_UAV)
+            list[count++] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        if (flags & VKD3D_BINDLESS_SET_SRV)
+            list[count++] = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     }
 
     return count;
@@ -3745,7 +3751,8 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
 
         memset(mutable_descriptor_list, 0, sizeof(mutable_descriptor_list));
         mutable_descriptor_list[set_info->binding_index].descriptorTypeCount =
-                vkd3d_bindless_build_mutable_type_list(mutable_descriptor_types, device->bindless_state.flags);
+                vkd3d_bindless_build_mutable_type_list(mutable_descriptor_types, flags,
+                        device->bindless_state.flags);
         mutable_descriptor_list[set_info->binding_index].pDescriptorTypes = mutable_descriptor_types;
     }
 
@@ -3770,7 +3777,7 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
     return hresult_from_vk_result(vr);
 }
 
-static bool vkd3d_bindless_supports_mutable_type(struct d3d12_device *device, uint32_t flags)
+static bool vkd3d_bindless_supports_mutable_type(struct d3d12_device *device, uint32_t device_flags)
 {
     VkDescriptorType descriptor_types[VKD3D_MAX_MUTABLE_DESCRIPTOR_TYPES];
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -3795,7 +3802,10 @@ static bool vkd3d_bindless_supports_mutable_type(struct d3d12_device *device, ui
     mutable_info.pMutableDescriptorTypeLists = &mutable_list;
     mutable_info.mutableDescriptorTypeListCount = 1;
 
-    mutable_list.descriptorTypeCount = vkd3d_bindless_build_mutable_type_list(descriptor_types, flags);
+    mutable_list.descriptorTypeCount = vkd3d_bindless_build_mutable_type_list(descriptor_types,
+            VKD3D_BINDLESS_SET_BUFFER | VKD3D_BINDLESS_SET_IMAGE |
+            VKD3D_BINDLESS_SET_CBV | VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_SRV,
+            device_flags);
     mutable_list.pDescriptorTypes = descriptor_types;
 
     binding.binding = 0;
@@ -3938,12 +3948,34 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
         /* If we can, prefer to use one universal descriptor type which works for any descriptor.
          * The exception is SSBOs since we need to workaround buggy applications which create typed buffers,
          * but assume they can be read as untyped buffers. */
-        if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-                VKD3D_BINDLESS_SET_CBV | VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_SRV |
-                VKD3D_BINDLESS_SET_BUFFER | VKD3D_BINDLESS_SET_IMAGE |
-                VKD3D_BINDLESS_SET_MUTABLE | extra_bindings,
-                VK_DESCRIPTOR_TYPE_MUTABLE_VALVE)))
-            goto fail;
+        if (device->vkd3d_instance->config_flags & VKD3D_CONFIG_SPLIT_MUTABLE_TYPES)
+        {
+            INFO("Splitting mutable types.\n");
+            /* For testing purposes, attempt to split descriptors into images and buffers
+             * for theoretically better packing in some cases. */
+            if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
+                    VKD3D_BINDLESS_SET_CBV | VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_SRV |
+                    VKD3D_BINDLESS_SET_BUFFER |
+                    VKD3D_BINDLESS_SET_MUTABLE | extra_bindings,
+                    VK_DESCRIPTOR_TYPE_MUTABLE_VALVE)))
+                goto fail;
+
+            if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
+                    VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_SRV |
+                    VKD3D_BINDLESS_SET_IMAGE | VKD3D_BINDLESS_SET_MUTABLE,
+                    VK_DESCRIPTOR_TYPE_MUTABLE_VALVE)))
+                goto fail;
+        }
+        else
+        {
+            INFO("Single mutable descriptor type.\n");
+            if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
+                    VKD3D_BINDLESS_SET_CBV | VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_SRV |
+                    VKD3D_BINDLESS_SET_BUFFER | VKD3D_BINDLESS_SET_IMAGE |
+                    VKD3D_BINDLESS_SET_MUTABLE | extra_bindings,
+                    VK_DESCRIPTOR_TYPE_MUTABLE_VALVE)))
+                goto fail;
+        }
     }
     else
     {

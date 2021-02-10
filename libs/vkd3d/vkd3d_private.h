@@ -165,6 +165,7 @@ enum vkd3d_config_flags
 {
     VKD3D_CONFIG_FLAG_VULKAN_DEBUG = 0x00000001,
     VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS = 0x00000002,
+    VKD3D_CONFIG_SPLIT_MUTABLE_TYPES = 0x00000004,
 };
 
 struct vkd3d_instance
@@ -1703,6 +1704,8 @@ struct vkd3d_descriptor_binding vkd3d_bindless_state_binding_from_info_index(
         const struct vkd3d_bindless_state *bindless_state, uint32_t index);
 uint32_t vkd3d_bindless_state_find_set_info_index(const struct vkd3d_bindless_state *bindless_state,
         uint32_t flags);
+uint32_t vkd3d_bindless_build_mutable_type_list(VkDescriptorType *list, uint32_t flags,
+        uint32_t device_flags);
 
 static inline VkDescriptorType vkd3d_bindless_state_get_cbv_descriptor_type(const struct vkd3d_bindless_state *bindless_state)
 {

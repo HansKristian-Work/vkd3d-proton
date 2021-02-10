@@ -412,6 +412,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     /* Enable Vulkan debug extensions. */
     {"vk_debug", VKD3D_CONFIG_FLAG_VULKAN_DEBUG},
     {"skip_application_workarounds", VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS},
+    {"split_mutable_types", VKD3D_CONFIG_SPLIT_MUTABLE_TYPES},
 };
 
 static uint64_t vkd3d_init_config_flags(void)

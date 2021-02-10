@@ -5536,13 +5536,18 @@ struct d3d12_descriptor_heap *unsafe_impl_from_ID3D12DescriptorHeap(ID3D12Descri
 static HRESULT d3d12_descriptor_heap_create_descriptor_pool(struct d3d12_descriptor_heap *descriptor_heap,
         VkDescriptorPool *vk_descriptor_pool)
 {
+    VkDescriptorType mutable_descriptor_types[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS][VKD3D_MAX_MUTABLE_DESCRIPTOR_TYPES];
+    VkMutableDescriptorTypeListVALVE mutable_descriptor_list[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
     const struct vkd3d_vk_device_procs *vk_procs = &descriptor_heap->device->vk_procs;
     VkDescriptorPoolSize vk_pool_sizes[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
     const struct d3d12_device *device = descriptor_heap->device;
+    VkMutableDescriptorTypeCreateInfoVALVE mutable_info;
     unsigned int i, pool_count = 0, ssbo_count = 0;
     VkDescriptorPoolCreateInfo vk_pool_info;
     VkDescriptorPoolSize *ssbo_pool = NULL;
     VkResult vr;
+
+    memset(mutable_descriptor_list, 0, sizeof(mutable_descriptor_list));
 
     for (i = 0; i < device->bindless_state.set_count; i++)
     {
@@ -5550,12 +5555,27 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_pool(struct d3d12_descrip
 
         if (set_info->heap_type == descriptor_heap->desc.Type)
         {
-            VkDescriptorPoolSize *vk_pool_size = &vk_pool_sizes[pool_count++];
+            VkDescriptorPoolSize *vk_pool_size = &vk_pool_sizes[pool_count];
             vk_pool_size->type = set_info->vk_descriptor_type;
             vk_pool_size->descriptorCount = descriptor_heap->desc.NumDescriptors;
 
-            if (set_info->vk_descriptor_type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            if (set_info->vk_descriptor_type == VK_DESCRIPTOR_TYPE_MUTABLE_VALVE)
+            {
+                mutable_descriptor_list[pool_count].descriptorTypeCount =
+                        vkd3d_bindless_build_mutable_type_list(mutable_descriptor_types[pool_count], set_info->flags,
+                                device->bindless_state.flags);
+                mutable_descriptor_list[pool_count].pDescriptorTypes = mutable_descriptor_types[pool_count];
+
+                mutable_info.sType = VK_STRUCTURE_TYPE_MUTABLE_DESCRIPTOR_TYPE_CREATE_INFO_VALVE;
+                mutable_info.pNext = NULL;
+                mutable_info.pMutableDescriptorTypeLists = mutable_descriptor_list;
+                mutable_info.mutableDescriptorTypeListCount = pool_count + 1;
+                vk_pool_info.pNext = &mutable_info;
+            }
+            else if (set_info->vk_descriptor_type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
                 ssbo_pool = vk_pool_size;
+
+            pool_count++;
         }
 
         ssbo_count += vkd3d_popcount(set_info->flags & VKD3D_BINDLESS_SET_EXTRA_MASK);
