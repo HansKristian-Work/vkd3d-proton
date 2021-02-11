@@ -1,0 +1,72 @@
+name: Test Builds on Linux
+
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  build-set-linux:
+    runs-on: ubuntu-20.04
+
+    steps:
+    - name: Checkout code
+      id: checkout-code
+      uses: actions/checkout@v2
+      with:
+        submodules: recursive
+
+    - name: Build MinGW x86
+      id: build-mingw-x86
+      uses: Joshua-Ashton/arch-mingw-github-action@v5
+      with:
+        command: |
+          meson -Denable_tests=True -Denable_extras=True --cross-file=build-win32.txt --buildtype release build-mingw-x86
+          ninja -C build-mingw-x86
+
+    - name: Build MinGW x64
+      id: build-mingw-x64
+      uses: Joshua-Ashton/arch-mingw-github-action@v5
+      with:
+        command: |
+          meson -Denable_tests=True -Denable_extras=True --cross-file=build-win64.txt --buildtype release build-mingw-x64
+          ninja -C build-mingw-x64
+
+    - name: Build Native GCC x86
+      id: build-native-gcc-x86
+      uses: Joshua-Ashton/arch-mingw-github-action@v5
+      with:
+        command: |
+          export CC="gcc -m32"
+          export CXX="g++ -m32"
+          export PKG_CONFIG_PATH="/usr/lib32/pkgconfig:/usr/lib/i386-linux-gnu/pkgconfig:/usr/lib/pkgconfig"
+          meson -Denable_tests=True -Denable_extras=True --buildtype release build-native-gcc-x86
+          ninja -C build-native-gcc-x86
+
+    - name: Build Native GCC x64
+      id: build-native-gcc-x64
+      uses: Joshua-Ashton/arch-mingw-github-action@v5
+      with:
+        command: |
+          export CC="gcc"
+          export CXX="g++"
+          meson -Denable_tests=True -Denable_extras=True --buildtype release build-native-gcc-x64
+          ninja -C build-native-gcc-x64
+
+    - name: Build Native Clang x86
+      id: build-native-clang-x86
+      uses: Joshua-Ashton/arch-mingw-github-action@v5
+      with:
+        command: |
+          export CC="clang -m32"
+          export CXX="clang++ -m32"
+          export PKG_CONFIG_PATH="/usr/lib32/pkgconfig:/usr/lib/i386-linux-gnu/pkgconfig:/usr/lib/pkgconfig"
+          meson -Denable_tests=True -Denable_extras=True --buildtype release build-native-clang-x86
+          ninja -C build-native-clang-x86
+
+    - name: Build Native Clang x64
+      id: build-native-clang-x64
+      uses: Joshua-Ashton/arch-mingw-github-action@v5
+      with:
+        command: |
+          export CC="clang"
+          export CXX="clang++"
+          meson -Denable_tests=True -Denable_extras=True --buildtype release build-native-clang-x64
+          ninja -C build-native-clang-x64
