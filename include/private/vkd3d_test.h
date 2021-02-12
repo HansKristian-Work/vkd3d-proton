@@ -245,7 +245,7 @@ vkd3d_test_debug(const char *fmt, ...)
     int size;
 
     size = snprintf(buffer, sizeof(buffer), "%s: ", vkd3d_test_name);
-    if (0 < size && size < sizeof(buffer))
+    if (0 < size && size < (int)sizeof(buffer))
     {
         va_start(args, fmt);
         vsnprintf(buffer + size, sizeof(buffer) - size, fmt, args);

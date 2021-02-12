@@ -5647,7 +5647,7 @@ static void test_clear_unordered_access_view_image(void)
     HRESULT hr;
     int x, y;
 
-#define IMAGE_SIZE 16
+#define IMAGE_SIZE 16u
     static const struct
     {
         DXGI_FORMAT format;
@@ -18354,7 +18354,7 @@ static void test_copy_descriptors(void)
     result = get_readback_data(&rb, 0, 0, 0, sizeof(*result));
     ok(result[ 0] == cb0_data, "Got unexpected value %#x.\n", result[0]);
     ok(result[ 1] == cb1_data, "Got unexpected value %#x.\n", result[1]);
-    ok(result[ 2] == cb2_data, "Got unexpected value %#x.\n", result[2]);
+    ok(result[ 2] == (unsigned int)cb2_data, "Got unexpected value %#x.\n", result[2]);
     ok(result[ 3] == 0, "Got unexpected value %#x.\n", result[3]);
     ok(result[ 4] == t0_data.x, "Got unexpected value %#x.\n", result[4]);
     ok(result[ 5] == t0_data.y, "Got unexpected value %#x.\n", result[5]);
@@ -18369,7 +18369,7 @@ static void test_copy_descriptors(void)
     ok(result[14] == t0_data.z, "Got unexpected value %#x.\n", result[14]);
     ok(result[15] == t0_data.w, "Got unexpected value %#x.\n", result[15]);
     ok(result[16] == t1_data, "Got unexpected value %#x.\n", result[16]);
-    ok(result[17] == t2_data, "Got unexpected value %#x.\n", result[17]);
+    ok(result[17] == (unsigned int)t2_data, "Got unexpected value %#x.\n", result[17]);
     ok(result[18] == (unsigned int)t3_data, "Got unexpected value %#x.\n", result[18]);
     ok(result[19] == (unsigned int)t4_data, "Got unexpected value %#x.\n", result[19]);
     ok(result[20] == t5_data.x, "Got unexpected value %#x.\n", result[20]);
@@ -23661,8 +23661,8 @@ static void test_create_query_heap(void)
     D3D12_QUERY_HEAP_DESC heap_desc;
     ID3D12QueryHeap *query_heap;
     ULONG refcount;
+    unsigned int i;
     HRESULT hr;
-    int i;
 
     static const D3D12_QUERY_HEAP_TYPE types[] =
     {
@@ -37848,8 +37848,8 @@ static void test_bufinfo_instruction(bool use_dxil)
     ID3D12DescriptorHeap *heap;
     ID3D12CommandQueue *queue;
     ID3D12Device *device;
+    unsigned int i;
     HRESULT hr;
-    int i;
     static const D3D12_INPUT_ELEMENT_DESC layout_desc[] =
     {
         {"POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
