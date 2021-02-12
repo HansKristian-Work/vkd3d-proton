@@ -93,19 +93,19 @@ static bool compare_uvec4(const struct uvec4* v1, const struct uvec4 *v2)
     return v1->x == v2->x && v1->y == v2->y && v1->z == v2->z && v1->w == v2->w;
 }
 
-static bool compare_uint8(uint8_t a, uint8_t b, int max_diff)
+static bool compare_uint8(uint8_t a, uint8_t b, unsigned int max_diff)
 {
-    return abs(a - b) <= max_diff;
+    return delta_uint8(a, b) <= max_diff;
 }
 
-static bool compare_uint16(uint16_t a, uint16_t b, int max_diff)
+static bool compare_uint16(uint16_t a, uint16_t b, unsigned int max_diff)
 {
-    return abs(a - b) <= max_diff;
+    return delta_uint16(a, b) <= max_diff;
 }
 
-static bool compare_uint64(uint64_t a, uint64_t b, int max_diff)
+static bool compare_uint64(uint64_t a, uint64_t b, unsigned int max_diff)
 {
-    return llabs(a - b) <= max_diff;
+    return delta_uint64(a, b) <= max_diff;
 }
 
 static ULONG get_refcount(void *iface)
