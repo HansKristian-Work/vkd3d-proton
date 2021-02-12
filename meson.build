@@ -65,7 +65,7 @@ idl_generator = generator(idl_compiler,
 glsl_compiler  = find_program('glslangValidator')
 glsl_generator = generator(glsl_compiler,
   output    : [ '@BASENAME@.h' ],
-  arguments : [ '-V', '--vn', '@BASENAME@', '@INPUT@', '-o', '@OUTPUT@' ])
+  arguments : [ '--quiet', '-V', '--vn', '@BASENAME@', '@INPUT@', '-o', '@OUTPUT@' ])
 
 threads_dep = dependency('threads')
 lib_d3d12   = vkd3d_compiler.find_library('d3d12', required : false)
