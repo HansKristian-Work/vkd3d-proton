@@ -262,6 +262,8 @@ static void vkd3d_memory_allocation_free(const struct vkd3d_memory_allocation *a
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
+    TRACE("allocation %p, device %p, allocator %p.\n", allocation, device, allocator);
+
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     vkd3d_descriptor_debug_unregister_cookie(allocation->resource.cookie);
 #endif
@@ -290,6 +292,8 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     uint32_t type_mask;
     VkResult vr;
     HRESULT hr;
+
+    TRACE("allocation %p, device %p, allocator %p, info %p.\n", allocation, device, allocator, info);
 
     memset(allocation, 0, sizeof(*allocation));
     allocation->heap_type = info->heap_properties.Type;
@@ -402,6 +406,9 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     vkd3d_descriptor_debug_register_allocation_cookie(allocation->resource.cookie, info);
 #endif
+
+    TRACE("Created allocation %p on memory type %u (%"PRIu64" bytes).\n",
+            allocation, allocation->vk_memory_type, allocation->resource.size);
     return S_OK;
 }
 
@@ -584,6 +591,8 @@ static HRESULT vkd3d_memory_chunk_create(struct d3d12_device *device, struct vkd
     struct vkd3d_memory_chunk *object;
     HRESULT hr;
 
+    TRACE("device %p, allocator %p, info %p, chunk %p.\n", device, allocator, info, chunk);
+
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
@@ -598,11 +607,15 @@ static HRESULT vkd3d_memory_chunk_create(struct d3d12_device *device, struct vkd
     object->allocation.chunk = object;
     vkd3d_memory_chunk_insert_range(object, 0, 0, object->allocation.resource.size);
     *chunk = object;
+
+    TRACE("Created chunk %p (allocation %p).\n", object, &object->allocation);
     return S_OK;
 }
 
 static void vkd3d_memory_chunk_destroy(struct vkd3d_memory_chunk *chunk, struct d3d12_device *device, struct vkd3d_memory_allocator *allocator)
 {
+    TRACE("chunk %p, device %p, allocator %p.\n", chunk, device, allocator);
+
     vkd3d_memory_allocation_free(&chunk->allocation, device, allocator);
     vkd3d_free(chunk->free_ranges);
     vkd3d_free(chunk);
