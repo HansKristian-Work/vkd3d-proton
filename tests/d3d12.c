@@ -47803,7 +47803,10 @@ static void test_vrs(void)
         return;
     }
 
-    command_list = context.list;
+    hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList5, (void **)&command_list);
+    ok(hr == S_OK, "Couldn't get GraphicsCommandList5, hr %#x.\n", hr);
+    ID3D12GraphicsCommandList5_Release(command_list);
+
     queue = context.queue;
 
     init_pipeline_state_desc(&pso_desc, context.root_signature,
@@ -47831,12 +47834,12 @@ static void test_vrs(void)
         ID3D12GraphicsCommandList5_RSSetScissorRects(command_list, 1, &context.scissor_rect);
         ID3D12GraphicsCommandList5_RSSetShadingRate(command_list, tests[i].shading_rate, tests[i].combiners);
         ID3D12GraphicsCommandList5_DrawInstanced(command_list, 3, 1, 0, 0);
-        transition_resource_state(command_list, context.render_target,
+        transition_resource_state(context.list, context.render_target,
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        check_sub_resource_uint(context.render_target, 0, queue, command_list, tests[i].expected_color, 1);
+        check_sub_resource_uint(context.render_target, 0, queue, context.list, tests[i].expected_color, 1);
 
-        reset_command_list(command_list, context.allocator);
-        transition_resource_state(command_list, context.render_target,
+        reset_command_list(context.list, context.allocator);
+        transition_resource_state(context.list, context.render_target,
                 D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     }
     vkd3d_test_set_context(NULL);
