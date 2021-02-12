@@ -25,7 +25,7 @@
 static void wait_queue_idle_(unsigned int line, ID3D12Device *device, ID3D12CommandQueue *queue);
 static ID3D12Device *create_device(void);
 
-static void set_rect(RECT *rect, int left, int top, int right, int bottom)
+static inline void set_rect(RECT *rect, int left, int top, int right, int bottom)
 {
     rect->left = left;
     rect->right = right;
@@ -44,7 +44,7 @@ static inline void set_box(D3D12_BOX *box, unsigned int left, unsigned int top, 
     box->back = back;
 }
 
-static void set_viewport(D3D12_VIEWPORT *vp, float x, float y,
+static inline void set_viewport(D3D12_VIEWPORT *vp, float x, float y,
         float width, float height, float min_depth, float max_depth)
 {
     vp->TopLeftX = x;
@@ -55,7 +55,7 @@ static void set_viewport(D3D12_VIEWPORT *vp, float x, float y,
     vp->MaxDepth = max_depth;
 }
 
-static bool compare_color(DWORD c1, DWORD c2, BYTE max_diff)
+static inline bool compare_color(DWORD c1, DWORD c2, BYTE max_diff)
 {
     if (abs((c1 & 0xff) - (c2 & 0xff)) > max_diff)
         return false;
@@ -71,13 +71,13 @@ static bool compare_color(DWORD c1, DWORD c2, BYTE max_diff)
     return true;
 }
 
-static D3D12_SHADER_BYTECODE shader_bytecode(const DWORD *code, size_t size)
+static inline D3D12_SHADER_BYTECODE shader_bytecode(const DWORD *code, size_t size)
 {
     D3D12_SHADER_BYTECODE shader_bytecode = { code, size };
     return shader_bytecode;
 }
 
-static void exec_command_list(ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *list)
+static inline void exec_command_list(ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *list)
 {
     ID3D12CommandList *lists[] = {(ID3D12CommandList *)list};
     ID3D12CommandQueue_ExecuteCommandLists(queue, 1, lists);
@@ -141,7 +141,7 @@ static inline ID3D12Resource *create_placed_buffer_(unsigned int line, ID3D12Dev
 }
 
 #define create_buffer(a, b, c, d, e) create_buffer_(__LINE__, a, b, c, d, e)
-static ID3D12Resource *create_buffer_(unsigned int line, ID3D12Device *device,
+static inline ID3D12Resource *create_buffer_(unsigned int line, ID3D12Device *device,
         D3D12_HEAP_TYPE heap_type, size_t size, D3D12_RESOURCE_FLAGS resource_flags,
         D3D12_RESOURCE_STATES initial_resource_state)
 {
@@ -173,7 +173,7 @@ static ID3D12Resource *create_buffer_(unsigned int line, ID3D12Device *device,
 }
 
 #define create_readback_buffer(a, b) create_readback_buffer_(__LINE__, a, b)
-static ID3D12Resource *create_readback_buffer_(unsigned int line, ID3D12Device *device,
+static inline ID3D12Resource *create_readback_buffer_(unsigned int line, ID3D12Device *device,
         size_t size)
 {
     return create_buffer_(line, device, D3D12_HEAP_TYPE_READBACK, size,
@@ -246,7 +246,7 @@ static inline ID3D12DescriptorHeap *create_gpu_descriptor_heap_(unsigned int lin
     return descriptor_heap;
 }
 
-static void transition_sub_resource_state(ID3D12GraphicsCommandList *list, ID3D12Resource *resource,
+static inline void transition_sub_resource_state(ID3D12GraphicsCommandList *list, ID3D12Resource *resource,
         unsigned int sub_resource_idx, D3D12_RESOURCE_STATES state_before, D3D12_RESOURCE_STATES state_after)
 {
     D3D12_RESOURCE_BARRIER barrier;
@@ -279,14 +279,14 @@ static inline ID3D12CommandQueue *create_command_queue_(unsigned int line, ID3D1
     return queue;
 }
 
-static void transition_resource_state(ID3D12GraphicsCommandList *list, ID3D12Resource *resource,
+static inline void transition_resource_state(ID3D12GraphicsCommandList *list, ID3D12Resource *resource,
         D3D12_RESOURCE_STATES state_before, D3D12_RESOURCE_STATES state_after)
 {
     transition_sub_resource_state(list, resource, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
             state_before, state_after);
 }
 
-static unsigned int format_size(DXGI_FORMAT format)
+static inline unsigned int format_size(DXGI_FORMAT format)
 {
     switch (format)
     {
@@ -402,7 +402,7 @@ struct resource_readback
     void *data;
 };
 
-static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsigned int sub_resource,
+static inline void get_texture_readback_with_command_list(ID3D12Resource *texture, unsigned int sub_resource,
         struct resource_readback *rb, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list)
 {
     D3D12_TEXTURE_COPY_LOCATION dst_location, src_location;
@@ -491,20 +491,20 @@ static void get_texture_readback_with_command_list(ID3D12Resource *texture, unsi
     assert_that(hr == S_OK, "Failed to map readback buffer, hr %#x.\n", hr);
 }
 
-static void *get_readback_data(struct resource_readback *rb,
+static inline void *get_readback_data(struct resource_readback *rb,
         unsigned int x, unsigned int y, unsigned int z, size_t element_size)
 {
     unsigned int slice_pitch = rb->row_pitch * rb->height;
     return &((BYTE *)rb->data)[slice_pitch * z + rb->row_pitch * y + x * element_size];
 }
 
-static unsigned int get_readback_uint(struct resource_readback *rb,
+static inline unsigned int get_readback_uint(struct resource_readback *rb,
         unsigned int x, unsigned int y, unsigned int z)
 {
     return *(unsigned int *)get_readback_data(rb, x, y, z, sizeof(unsigned int));
 }
 
-static void release_resource_readback(struct resource_readback *rb)
+static inline void release_resource_readback(struct resource_readback *rb)
 {
     D3D12_RANGE range = {0, 0};
     ID3D12Resource_Unmap(rb->resource, 0, &range);
@@ -512,7 +512,7 @@ static void release_resource_readback(struct resource_readback *rb)
 }
 
 #define check_readback_data_uint(a, b, c, d) check_readback_data_uint_(__LINE__, a, b, c, d)
-static void check_readback_data_uint_(unsigned int line, struct resource_readback *rb,
+static inline void check_readback_data_uint_(unsigned int line, struct resource_readback *rb,
         const D3D12_BOX *box, unsigned int expected, unsigned int max_diff)
 {
     D3D12_BOX b = {0, 0, 0, rb->width, rb->height, rb->depth};
@@ -565,7 +565,7 @@ static inline ID3D12Resource *create_default_buffer_(unsigned int line, ID3D12De
             resource_flags, initial_resource_state);
 }
 
-static ID3D12Resource *create_default_texture_(unsigned int line, ID3D12Device *device,
+static inline ID3D12Resource *create_default_texture_(unsigned int line, ID3D12Device *device,
         D3D12_RESOURCE_DIMENSION dimension, unsigned int width, unsigned int height,
         unsigned int depth_or_array_size, unsigned int miplevel_count, DXGI_FORMAT format,
         D3D12_RESOURCE_FLAGS flags, D3D12_RESOURCE_STATES initial_state)
@@ -598,7 +598,7 @@ static ID3D12Resource *create_default_texture_(unsigned int line, ID3D12Device *
 
 #define create_default_texture(a, b, c, d, e, f) create_default_texture2d_(__LINE__, a, b, c, 1, 1, d, e, f)
 #define create_default_texture2d(a, b, c, d, e, f, g, h) create_default_texture2d_(__LINE__, a, b, c, d, e, f, g, h)
-static ID3D12Resource *create_default_texture2d_(unsigned int line, ID3D12Device *device,
+static inline ID3D12Resource *create_default_texture2d_(unsigned int line, ID3D12Device *device,
         unsigned int width, unsigned int height, unsigned int array_size, unsigned int miplevel_count,
         DXGI_FORMAT format, D3D12_RESOURCE_FLAGS flags, D3D12_RESOURCE_STATES initial_state)
 {
@@ -615,7 +615,7 @@ static inline ID3D12Resource *create_default_texture3d_(unsigned int line, ID3D1
             width, height, depth, miplevel_count, format, flags, initial_state);
 }
 
-static HRESULT create_root_signature(ID3D12Device *device, const D3D12_ROOT_SIGNATURE_DESC *desc,
+static inline HRESULT create_root_signature(ID3D12Device *device, const D3D12_ROOT_SIGNATURE_DESC *desc,
         ID3D12RootSignature **root_signature)
 {
     ID3DBlob *blob;
@@ -631,7 +631,7 @@ static HRESULT create_root_signature(ID3D12Device *device, const D3D12_ROOT_SIGN
 }
 
 #define create_empty_root_signature(device, flags) create_empty_root_signature_(__LINE__, device, flags)
-static ID3D12RootSignature *create_empty_root_signature_(unsigned int line,
+static inline ID3D12RootSignature *create_empty_root_signature_(unsigned int line,
         ID3D12Device *device, D3D12_ROOT_SIGNATURE_FLAGS flags)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
@@ -649,7 +649,7 @@ static ID3D12RootSignature *create_empty_root_signature_(unsigned int line,
     return root_signature;
 }
 
-static void init_pipeline_state_desc_shaders(D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc,
+static inline void init_pipeline_state_desc_shaders(D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc,
         ID3D12RootSignature *root_signature, DXGI_FORMAT rt_format,
         const D3D12_INPUT_LAYOUT_DESC *input_layout,
         const void *vs_code, size_t vs_size,
@@ -675,7 +675,7 @@ static void init_pipeline_state_desc_shaders(D3D12_GRAPHICS_PIPELINE_STATE_DESC 
     desc->SampleDesc.Count = 1;
 }
 
-static void init_pipeline_state_desc(D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc,
+static inline void init_pipeline_state_desc(D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc,
         ID3D12RootSignature *root_signature, DXGI_FORMAT rt_format,
         const D3D12_SHADER_BYTECODE *vs, const D3D12_SHADER_BYTECODE *ps,
         const D3D12_INPUT_LAYOUT_DESC *input_layout)
@@ -725,7 +725,7 @@ static void init_pipeline_state_desc(D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc,
             ps ? ps->pShaderBytecode : ps_code, ps ? ps->BytecodeLength : sizeof(ps_code));
 }
 
-static void init_pipeline_state_desc_dxil(D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc,
+static inline void init_pipeline_state_desc_dxil(D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc,
     ID3D12RootSignature *root_signature, DXGI_FORMAT rt_format,
     const D3D12_SHADER_BYTECODE *vs, const D3D12_SHADER_BYTECODE *ps,
     const D3D12_INPUT_LAYOUT_DESC *input_layout)
@@ -850,7 +850,7 @@ static void init_pipeline_state_desc_dxil(D3D12_GRAPHICS_PIPELINE_STATE_DESC *de
 }
 
 #define create_pipeline_state(a, b, c, d, e, f) create_pipeline_state_(__LINE__, a, b, c, d, e, f)
-static ID3D12PipelineState *create_pipeline_state_(unsigned int line, ID3D12Device *device,
+static inline ID3D12PipelineState *create_pipeline_state_(unsigned int line, ID3D12Device *device,
         ID3D12RootSignature *root_signature, DXGI_FORMAT rt_format,
         const D3D12_SHADER_BYTECODE *vs, const D3D12_SHADER_BYTECODE *ps,
         const D3D12_INPUT_LAYOUT_DESC *input_layout)
@@ -868,7 +868,7 @@ static ID3D12PipelineState *create_pipeline_state_(unsigned int line, ID3D12Devi
 }
 
 #define create_pipeline_state_dxil(a, b, c, d, e, f) create_pipeline_state_dxil_(__LINE__, a, b, c, d, e, f)
-static ID3D12PipelineState *create_pipeline_state_dxil_(unsigned int line, ID3D12Device *device,
+static inline ID3D12PipelineState *create_pipeline_state_dxil_(unsigned int line, ID3D12Device *device,
                                                         ID3D12RootSignature *root_signature, DXGI_FORMAT rt_format,
                                                         const D3D12_SHADER_BYTECODE *vs, const D3D12_SHADER_BYTECODE *ps,
                                                         const D3D12_INPUT_LAYOUT_DESC *input_layout)
@@ -920,7 +920,7 @@ struct test_context
 };
 
 #define create_render_target(context, a, b, c) create_render_target_(__LINE__, context, a, b, c)
-static void create_render_target_(unsigned int line, struct test_context *context,
+static inline void create_render_target_(unsigned int line, struct test_context *context,
         const struct test_context_desc *desc, ID3D12Resource **render_target,
         const D3D12_CPU_DESCRIPTOR_HANDLE *rtv)
 {
