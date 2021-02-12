@@ -3716,7 +3716,7 @@ static void test_create_pipeline_state(void)
     {
         union d3d12_root_signature_subobject root_signature;
         union d3d12_shader_bytecode_subobject vs;
-        D3D12_STATE_SUBOBJECT_TYPE extra_type;
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE extra_type;
     }
     pipeline_desc_9 =
     {
@@ -18650,7 +18650,7 @@ static void test_copy_rtv_descriptors(void)
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, get_cpu_rtv_handle(&context, rtv_heap, 0), white, 0, NULL);
 
     rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    rtv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+    rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
     rtv_desc.Texture2DArray.MipSlice = 0;
     rtv_desc.Texture2DArray.ArraySize = 1;
     rtv_desc.Texture2DArray.PlaneSlice = 0;
