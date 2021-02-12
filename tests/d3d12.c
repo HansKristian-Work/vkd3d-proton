@@ -3307,10 +3307,10 @@ static void test_create_pipeline_state(void)
         void *dummy_align;
     }
     root_signature_subobject =
-    {
+    {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE,
         NULL, /* fill in dynamically */
-    };
+    }};
 
     static const union d3d12_shader_bytecode_subobject
     {
@@ -3321,9 +3321,9 @@ static void test_create_pipeline_state(void)
         };
         void *dummy_align;
     }
-    vs_subobject = { D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VS, { vs_code, sizeof(vs_code) } },
-    ps_subobject = { D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, { ps_code, sizeof(ps_code) } },
-    cs_subobject = { D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_CS, { cs_code, sizeof(cs_code) } };
+    vs_subobject = {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VS, { vs_code, sizeof(vs_code) } }},
+    ps_subobject = {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, { ps_code, sizeof(ps_code) } }},
+    cs_subobject = {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_CS, { cs_code, sizeof(cs_code) } }};
 
     static const D3D12_SO_DECLARATION_ENTRY so_entries[] =
     {
@@ -3342,12 +3342,12 @@ static void test_create_pipeline_state(void)
         void *dummy_align;
     }
     stream_output_subobject =
-    {
+    {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_STREAM_OUTPUT,
         { so_entries, ARRAY_SIZE(so_entries),
             so_strides, ARRAY_SIZE(so_strides),
             D3D12_SO_NO_RASTERIZED_STREAM },
-    };
+    }};
 
     static const union d3d12_blend_subobject
     {
@@ -3359,15 +3359,15 @@ static void test_create_pipeline_state(void)
         void *dummy_align;
     }
     blend_subobject =
-    {
+    {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_BLEND,
         { FALSE, TRUE,
-            { FALSE, FALSE,
+            {{ FALSE, FALSE,
                 D3D12_BLEND_ONE, D3D12_BLEND_ZERO, D3D12_BLEND_OP_ADD,
                 D3D12_BLEND_ONE, D3D12_BLEND_ZERO, D3D12_BLEND_OP_ADD,
-                D3D12_LOGIC_OP_NOOP, 0xF },
+                D3D12_LOGIC_OP_NOOP, 0xF }},
         }
-    };
+    }};
 
     static const union d3d12_sample_mask_subobject
     {
@@ -3379,10 +3379,10 @@ static void test_create_pipeline_state(void)
         void *dummy_align;
     }
     sample_mask_subobject =
-    {
+    {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_MASK,
         0xFFFFFFFFu
-    };
+    }};
 
     static const union d3d12_rasterizer_subobject
     {
@@ -3394,12 +3394,12 @@ static void test_create_pipeline_state(void)
         void *dummy_align;
     }
     rasterizer_subobject =
-    {
+    {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER,
         { D3D12_FILL_MODE_SOLID, D3D12_CULL_MODE_BACK,
             FALSE, 0, 0.0f, 0.0f, TRUE, FALSE, FALSE, 0,
             D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF },
-    };
+    }};
 
     static const union d3d12_depth_stencil_subobject
     {
@@ -3411,12 +3411,12 @@ static void test_create_pipeline_state(void)
         void *dummy_align;
     }
     depth_stencil_subobject =
-    {
+    {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL,
         { TRUE, D3D12_DEPTH_WRITE_MASK_ALL, D3D12_COMPARISON_FUNC_LESS_EQUAL, TRUE, 0xFF, 0xFF,
             { D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_INCR, D3D12_COMPARISON_FUNC_EQUAL },
             { D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_INCR, D3D12_COMPARISON_FUNC_EQUAL } },
-    };
+    }};
 
     static const D3D12_INPUT_ELEMENT_DESC input_elements[] =
     {
@@ -3433,10 +3433,10 @@ static void test_create_pipeline_state(void)
         void *dummy_align;
     }
     input_layout_subobject =
-    {
+    {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_INPUT_LAYOUT,
         { input_elements, ARRAY_SIZE(input_elements) },
-    };
+    }};
 
     static const union d3d12_ib_strip_cut_value_subobject
     {
@@ -3448,10 +3448,10 @@ static void test_create_pipeline_state(void)
         void *dummy_align;
     }
     ib_strip_cut_value_subobject =
-    {
+    {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_IB_STRIP_CUT_VALUE,
         D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFFFFFF,
-    };
+    }};
 
     static const union d3d12_primitive_topology_subobject
     {
@@ -3463,10 +3463,10 @@ static void test_create_pipeline_state(void)
         void *dummy_align;
     }
     primitive_topology_subobject =
-    {
+    {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY,
         D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
-    };
+    }};
 
     static const union d3d12_render_target_formats_subobject
     {
@@ -3478,10 +3478,10 @@ static void test_create_pipeline_state(void)
         void *dummy_align;
     }
     render_target_formats_subobject =
-    {
+    {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS,
         { { DXGI_FORMAT_R8G8B8A8_UNORM }, 1 },
-    };
+    }};
 
     static const union d3d12_depth_stencil_format_subobject
     {
@@ -3493,10 +3493,10 @@ static void test_create_pipeline_state(void)
         void *dummy_align;
     }
     depth_stencil_format_subobject =
-    {
+    {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL_FORMAT,
         DXGI_FORMAT_D32_FLOAT_S8X24_UINT,
-    };
+    }};
 
     static const union d3d12_sample_desc_subobject
     {
@@ -3508,10 +3508,10 @@ static void test_create_pipeline_state(void)
         void *dummy_align;
     }
     sample_desc_subobject =
-    {
+    {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_DESC,
         { 1, 0 },
-    };
+    }};
 
     static const union d3d12_node_mask_subobject
     {
@@ -3523,10 +3523,10 @@ static void test_create_pipeline_state(void)
         void *dummy_align;
     }
     node_mask_subobject =
-    {
+    {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_NODE_MASK,
         0x0,
-    };
+    }};
 
     static const union d3d12_cached_pso_subobject
     {
@@ -3538,10 +3538,10 @@ static void test_create_pipeline_state(void)
         void *dummy_align;
     }
     cached_pso_subobject =
-    {
+    {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_CACHED_PSO,
         { NULL, 0 },
-    };
+    }};
 
     static const union d3d12_flags_subobject
     {
@@ -3553,10 +3553,10 @@ static void test_create_pipeline_state(void)
         void *dummy_align;
     }
     flags_subobject =
-    {
+    {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_FLAGS,
         D3D12_PIPELINE_STATE_FLAG_NONE,
-    };
+    }};
 
     static const union d3d12_depth_stencil1_subobject
     {
@@ -3568,12 +3568,12 @@ static void test_create_pipeline_state(void)
         void *dummy_align;
     }
     depth_stencil1_subobject =
-    {
+    {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL1,
         { TRUE, D3D12_DEPTH_WRITE_MASK_ALL, D3D12_COMPARISON_FUNC_LESS_EQUAL, TRUE, 0xFF, 0xFF,
             { D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_INCR, D3D12_COMPARISON_FUNC_EQUAL },
             { D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_INCR, D3D12_COMPARISON_FUNC_EQUAL } },
-    };
+    }};
 
     static const union d3d12_view_instancing_subobject
     {
@@ -3585,10 +3585,10 @@ static void test_create_pipeline_state(void)
         void *dummy_align;
     }
     view_instancing_subobject =
-    {
+    {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VIEW_INSTANCING,
         { 0, NULL, D3D12_VIEW_INSTANCING_FLAG_NONE },
-    };
+    }};
 
     struct
     {
@@ -5666,16 +5666,16 @@ static void test_clear_unordered_access_view_image(void)
     tests[] =
     {
         /* Test clearing a specific mip level. */
-        {DXGI_FORMAT_R32_FLOAT,       2, 1, 0, 0, 1, 0, {0}, {1,          0, 0, 0}, 1},
-        {DXGI_FORMAT_R32_FLOAT,       2, 1, 1, 0, 1, 0, {0}, {1,          0, 0, 0}, 1},
-        {DXGI_FORMAT_R32_FLOAT,       2, 1, 0, 0, 1, 0, {0}, {0x3f000000, 0, 0, 0}, 0x3f000000, true},
-        {DXGI_FORMAT_R32_FLOAT,       2, 1, 1, 0, 1, 0, {0}, {0x3f000000, 0, 0, 0}, 0x3f000000, true},
+        {DXGI_FORMAT_R32_FLOAT,       2, 1, 0, 0, 1, 0, {{0}}, {1,          0, 0, 0}, 1},
+        {DXGI_FORMAT_R32_FLOAT,       2, 1, 1, 0, 1, 0, {{0}}, {1,          0, 0, 0}, 1},
+        {DXGI_FORMAT_R32_FLOAT,       2, 1, 0, 0, 1, 0, {{0}}, {0x3f000000, 0, 0, 0}, 0x3f000000, true},
+        {DXGI_FORMAT_R32_FLOAT,       2, 1, 1, 0, 1, 0, {{0}}, {0x3f000000, 0, 0, 0}, 0x3f000000, true},
         /* Test clearing specific array layers. */
-        {DXGI_FORMAT_R32_FLOAT,       1, IMAGE_SIZE, 0, 0, IMAGE_SIZE, 0, {0}, {1, 0, 0, 0}, 1},
-        {DXGI_FORMAT_R32_FLOAT,       1, IMAGE_SIZE, 0, 3, 2,          0, {0}, {1, 0, 0, 0}, 1},
-        {DXGI_FORMAT_R32_FLOAT,       1, IMAGE_SIZE, 0, 0, IMAGE_SIZE, 0, {0},
+        {DXGI_FORMAT_R32_FLOAT,       1, IMAGE_SIZE, 0, 0, IMAGE_SIZE, 0, {{0}}, {1, 0, 0, 0}, 1},
+        {DXGI_FORMAT_R32_FLOAT,       1, IMAGE_SIZE, 0, 3, 2,          0, {{0}}, {1, 0, 0, 0}, 1},
+        {DXGI_FORMAT_R32_FLOAT,       1, IMAGE_SIZE, 0, 0, IMAGE_SIZE, 0, {{0}},
                 {0x3f000000, 0, 0, 0}, 0x3f000000, true},
-        {DXGI_FORMAT_R32_FLOAT,       1, IMAGE_SIZE, 0, 3, 2,          0, {0},
+        {DXGI_FORMAT_R32_FLOAT,       1, IMAGE_SIZE, 0, 3, 2,          0, {{0}},
                 {0x3f000000, 0, 0, 0}, 0x3f000000, true},
         /* Test a single clear rect. */
         {DXGI_FORMAT_R32_FLOAT,       1, 1, 0, 0, 1, 1, {{1, 2, IMAGE_SIZE - 4, IMAGE_SIZE - 2}},
@@ -5688,24 +5688,24 @@ static void test_clear_unordered_access_view_image(void)
         {DXGI_FORMAT_R32_FLOAT,       1, 1, 0, 0, 1, 2, {{1, 2, 3, 4}, {5, 6, 7, 8}},
                 {0x3f000000, 0, 0, 0}, 0x3f000000, true},
         /* Test uint clears with formats. */
-        {DXGI_FORMAT_R16G16_UINT,     1, 1, 0, 0, 1, 0, {0}, {1,       2, 3, 4}, 0x00020001},
-        {DXGI_FORMAT_R16G16_UINT,     1, 1, 0, 0, 1, 0, {0}, {0x12345, 0, 0, 0}, 0x00002345, false, true},
-        {DXGI_FORMAT_R16G16_UNORM,    1, 1, 0, 0, 1, 0, {0}, {1,       2, 3, 4}, 0x00020001},
-        {DXGI_FORMAT_R16G16_FLOAT,    1, 1, 0, 0, 1, 0, {0}, {1,       2, 3, 4}, 0x00020001},
-        {DXGI_FORMAT_R8G8B8A8_UINT,   1, 1, 0, 0, 1, 0, {0}, {1,       2, 3, 4}, 0x04030201},
-        {DXGI_FORMAT_R8G8B8A8_UINT,   1, 1, 0, 0, 1, 0, {0}, {0x123,   0, 0, 0}, 0x00000023, false, true},
-        {DXGI_FORMAT_R8G8B8A8_UNORM,  1, 1, 0, 0, 1, 0, {0}, {1,       2, 3, 4}, 0x04030201},
-        {DXGI_FORMAT_R11G11B10_FLOAT, 1, 1, 0, 0, 1, 0, {0}, {1,       2, 3, 4}, 0x00c01001},
+        {DXGI_FORMAT_R16G16_UINT,     1, 1, 0, 0, 1, 0, {{0}}, {1,       2, 3, 4}, 0x00020001},
+        {DXGI_FORMAT_R16G16_UINT,     1, 1, 0, 0, 1, 0, {{0}}, {0x12345, 0, 0, 0}, 0x00002345, false, true},
+        {DXGI_FORMAT_R16G16_UNORM,    1, 1, 0, 0, 1, 0, {{0}}, {1,       2, 3, 4}, 0x00020001},
+        {DXGI_FORMAT_R16G16_FLOAT,    1, 1, 0, 0, 1, 0, {{0}}, {1,       2, 3, 4}, 0x00020001},
+        {DXGI_FORMAT_R8G8B8A8_UINT,   1, 1, 0, 0, 1, 0, {{0}}, {1,       2, 3, 4}, 0x04030201},
+        {DXGI_FORMAT_R8G8B8A8_UINT,   1, 1, 0, 0, 1, 0, {{0}}, {0x123,   0, 0, 0}, 0x00000023, false, true},
+        {DXGI_FORMAT_R8G8B8A8_UNORM,  1, 1, 0, 0, 1, 0, {{0}}, {1,       2, 3, 4}, 0x04030201},
+        {DXGI_FORMAT_R11G11B10_FLOAT, 1, 1, 0, 0, 1, 0, {{0}}, {1,       2, 3, 4}, 0x00c01001},
         /* Test float clears with formats. */
-        {DXGI_FORMAT_R16G16_UNORM,    1, 1, 0, 0, 1, 0, {0},
+        {DXGI_FORMAT_R16G16_UNORM,    1, 1, 0, 0, 1, 0, {{0}},
                 {0x3f000080 /* 0.5f + unorm16 epsilon */, 0x3f800000 /* 1.0f */, 0, 0}, 0xffff8000, true},
-        {DXGI_FORMAT_R16G16_FLOAT,    1, 1, 0, 0, 1, 0, {0},
+        {DXGI_FORMAT_R16G16_FLOAT,    1, 1, 0, 0, 1, 0, {{0}},
                 {0x3f000080 /* 0.5f */, 0x3f800000 /* 1.0f */, 0, 0}, 0x3c003800, true},
-        {DXGI_FORMAT_R8G8B8A8_UNORM,  1, 1, 0, 0, 1, 0, {0},
+        {DXGI_FORMAT_R8G8B8A8_UNORM,  1, 1, 0, 0, 1, 0, {{0}},
                 {0x3f000080 /* 0.5f + epsilon */, 0x3f800000 /* 1.0f */, 0, 0}, 0x0000ff80, true},
-        {DXGI_FORMAT_R8G8B8A8_UNORM,  1, 1, 0, 0, 1, 0, {0},
+        {DXGI_FORMAT_R8G8B8A8_UNORM,  1, 1, 0, 0, 1, 0, {{0}},
                 {0, 0, 0x3f000080 /* 0.5f + epsilon */, 0x3f800000 /* 1.0f */}, 0xff800000, true},
-        {DXGI_FORMAT_R11G11B10_FLOAT, 1, 1, 0, 0, 1, 0, {0},
+        {DXGI_FORMAT_R11G11B10_FLOAT, 1, 1, 0, 0, 1, 0, {{0}},
                 {0x3f000000 /* 1.0f */, 0 /* 0.0f */, 0xbf800000 /* -1.0f */, 0x3f000000 /* 1.0f */},
                 0x00000380, true},
     };
