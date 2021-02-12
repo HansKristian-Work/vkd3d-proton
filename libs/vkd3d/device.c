@@ -859,134 +859,51 @@ static bool d3d12_device_determine_additional_shading_rates_supported(struct d3d
 
 static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *info, struct d3d12_device *device)
 {
-    VkPhysicalDeviceShaderSubgroupExtendedTypesFeaturesKHR *shader_subgroup_extended_types_features;
-    VkPhysicalDeviceAccelerationStructurePropertiesKHR *acceleration_structure_properties;
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
-    VkPhysicalDeviceSubgroupSizeControlPropertiesEXT *subgroup_size_control_properties;
-    VkPhysicalDeviceFragmentShadingRatePropertiesKHR *fragment_shading_rate_properties;
-    VkPhysicalDeviceAccelerationStructureFeaturesKHR *acceleration_structure_features;
-    VkPhysicalDeviceRayTracingPipelinePropertiesKHR *ray_tracing_pipeline_properties;
-    VkPhysicalDeviceInlineUniformBlockPropertiesEXT *inline_uniform_block_properties;
-    VkPhysicalDeviceExtendedDynamicStateFeaturesEXT *extended_dynamic_state_features;
-    VkPhysicalDeviceExternalMemoryHostPropertiesEXT *external_memory_host_properties;
-    VkPhysicalDeviceFragmentShadingRateFeaturesKHR *fragment_shading_rate_features;
-    VkPhysicalDeviceBufferDeviceAddressFeaturesKHR *buffer_device_address_features;
-    VkPhysicalDeviceCustomBorderColorPropertiesEXT *custom_border_color_properties;
-    VkPhysicalDeviceConditionalRenderingFeaturesEXT *conditional_rendering_features;
-    VkPhysicalDeviceDescriptorIndexingPropertiesEXT *descriptor_indexing_properties;
-    VkPhysicalDeviceSamplerFilterMinmaxProperties *sampler_filter_minmax_properties;
-    VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT *vertex_divisor_properties;
-    VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT *buffer_alignment_properties;
-    VkPhysicalDeviceTimelineSemaphorePropertiesKHR *timeline_semaphore_properties;
-    VkPhysicalDeviceRayTracingPipelineFeaturesKHR *ray_tracing_pipeline_features;
-    VkPhysicalDeviceInlineUniformBlockFeaturesEXT *inline_uniform_block_features;
-    VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing_features;
-    VkPhysicalDeviceShaderSMBuiltinsPropertiesNV *shader_sm_builtins_properties;
-    VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *vertex_divisor_features;
-    VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT *buffer_alignment_features;
-    VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT *demote_features;
-    VkPhysicalDeviceCustomBorderColorFeaturesEXT *custom_border_color_features;
-    VkPhysicalDeviceTimelineSemaphoreFeaturesKHR *timeline_semaphore_features;
-    VkPhysicalDevicePushDescriptorPropertiesKHR *push_descriptor_properties;
-    VkPhysicalDeviceFloatControlsPropertiesKHR *float_control_properties;
-    VkPhysicalDeviceMutableDescriptorTypeFeaturesVALVE *mutable_features;
-    VkPhysicalDeviceShaderFloat16Int8FeaturesKHR *float16_int8_features;
-    VkPhysicalDeviceShaderCoreProperties2AMD *shader_core_properties2;
-    VkPhysicalDevice4444FormatsFeaturesEXT *ext_4444_formats_features;
-    VkPhysicalDeviceDepthClipEnableFeaturesEXT *depth_clip_features;
-    VkPhysicalDeviceRobustness2PropertiesEXT *robustness2_properties;
-    VkPhysicalDeviceShaderCorePropertiesAMD *shader_core_properties;
-    VkPhysicalDeviceMaintenance3Properties *maintenance3_properties;
-    VkPhysicalDeviceTransformFeedbackPropertiesEXT *xfb_properties;
-    VkPhysicalDevice physical_device = device->vk_physical_device;
-    VkPhysicalDeviceRobustness2FeaturesEXT *robustness2_features;
-    VkPhysicalDeviceTransformFeedbackFeaturesEXT *xfb_features;
-    VkPhysicalDeviceSubgroupProperties *subgroup_properties;
     struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
 
     memset(info, 0, sizeof(*info));
-    buffer_device_address_features = &info->buffer_device_address_features;
-    conditional_rendering_features = &info->conditional_rendering_features;
-    depth_clip_features = &info->depth_clip_features;
-    descriptor_indexing_features = &info->descriptor_indexing_features;
-    descriptor_indexing_properties = &info->descriptor_indexing_properties;
-    inline_uniform_block_features = &info->inline_uniform_block_features;
-    inline_uniform_block_properties = &info->inline_uniform_block_properties;
-    push_descriptor_properties = &info->push_descriptor_properties;
-    maintenance3_properties = &info->maintenance3_properties;
-    demote_features = &info->demote_features;
-    buffer_alignment_features = &info->texel_buffer_alignment_features;
-    buffer_alignment_properties = &info->texel_buffer_alignment_properties;
-    vertex_divisor_features = &info->vertex_divisor_features;
-    vertex_divisor_properties = &info->vertex_divisor_properties;
-    xfb_features = &info->xfb_features;
-    xfb_properties = &info->xfb_properties;
-    subgroup_properties = &info->subgroup_properties;
-    timeline_semaphore_features = &info->timeline_semaphore_features;
-    timeline_semaphore_properties = &info->timeline_semaphore_properties;
-    custom_border_color_properties = &info->custom_border_color_properties;
-    custom_border_color_features = &info->custom_border_color_features;
-    subgroup_size_control_properties = &info->subgroup_size_control_properties;
-    shader_core_properties = &info->shader_core_properties;
-    shader_core_properties2 = &info->shader_core_properties2;
-    shader_sm_builtins_properties = &info->shader_sm_builtins_properties;
-    sampler_filter_minmax_properties = &info->sampler_filter_minmax_properties;
-    float16_int8_features = &info->float16_int8_features;
-    shader_subgroup_extended_types_features = &info->subgroup_extended_types_features;
-    robustness2_properties = &info->robustness2_properties;
-    robustness2_features = &info->robustness2_features;
-    extended_dynamic_state_features = &info->extended_dynamic_state_features;
-    external_memory_host_properties = &info->external_memory_host_properties;
-    mutable_features = &info->mutable_descriptor_features;
-    acceleration_structure_properties = &info->acceleration_structure_properties;
-    acceleration_structure_features = &info->acceleration_structure_features;
-    ray_tracing_pipeline_properties = &info->ray_tracing_pipeline_properties;
-    ray_tracing_pipeline_features = &info->ray_tracing_pipeline_features;
-    float_control_properties = &info->float_control_properties;
-    ext_4444_formats_features = &info->ext_4444_formats_features;
-    fragment_shading_rate_features = &info->fragment_shading_rate_features;
-    fragment_shading_rate_properties = &info->fragment_shading_rate_properties;
 
     info->features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     info->properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
 
-    subgroup_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
-    vk_prepend_struct(&info->properties2, subgroup_properties);
+    info->subgroup_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
+    vk_prepend_struct(&info->properties2, &info->subgroup_properties);
 
-    maintenance3_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES;
-    vk_prepend_struct(&info->properties2, maintenance3_properties);
+    info->maintenance3_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES;
+    vk_prepend_struct(&info->properties2, &info->maintenance3_properties);
 
     if (vulkan_info->KHR_buffer_device_address)
     {
-        buffer_device_address_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR;
-        vk_prepend_struct(&info->features2, buffer_device_address_features);
+        info->buffer_device_address_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->buffer_device_address_features);
     }
 
     if (vulkan_info->KHR_timeline_semaphore)
     {
-        timeline_semaphore_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES_KHR;
-        vk_prepend_struct(&info->features2, timeline_semaphore_features);
-        timeline_semaphore_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_PROPERTIES_KHR;
-        vk_prepend_struct(&info->properties2, timeline_semaphore_properties);
+        info->timeline_semaphore_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->timeline_semaphore_features);
+        info->timeline_semaphore_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_PROPERTIES_KHR;
+        vk_prepend_struct(&info->properties2, &info->timeline_semaphore_properties);
     }
 
     if (vulkan_info->KHR_push_descriptor)
     {
-        push_descriptor_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR;
-        vk_prepend_struct(&info->properties2, push_descriptor_properties);
+        info->push_descriptor_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR;
+        vk_prepend_struct(&info->properties2, &info->push_descriptor_properties);
     }
 
     if (vulkan_info->KHR_shader_float16_int8)
     {
-        float16_int8_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT16_INT8_FEATURES_KHR;
-        vk_prepend_struct(&info->features2, float16_int8_features);
+        info->float16_int8_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT16_INT8_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->float16_int8_features);
     }
 
     if (vulkan_info->KHR_shader_subgroup_extended_types)
     {
-        shader_subgroup_extended_types_features->sType =
+        info->subgroup_extended_types_features.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_EXTENDED_TYPES_FEATURES_KHR;
-        vk_prepend_struct(&info->features2, shader_subgroup_extended_types_features);
+        vk_prepend_struct(&info->features2, &info->subgroup_extended_types_features);
     }
 
     if (vulkan_info->EXT_calibrated_timestamps)
@@ -994,161 +911,161 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
 
     if (vulkan_info->EXT_conditional_rendering)
     {
-        conditional_rendering_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CONDITIONAL_RENDERING_FEATURES_EXT;
-        vk_prepend_struct(&info->features2, conditional_rendering_features);
+        info->conditional_rendering_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CONDITIONAL_RENDERING_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->conditional_rendering_features);
     }
 
     if (vulkan_info->EXT_custom_border_color)
     {
-        custom_border_color_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_FEATURES_EXT;
-        vk_prepend_struct(&info->features2, custom_border_color_features);
-        custom_border_color_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_PROPERTIES_EXT;
-        vk_prepend_struct(&info->properties2, custom_border_color_properties);
+        info->custom_border_color_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->custom_border_color_features);
+        info->custom_border_color_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_PROPERTIES_EXT;
+        vk_prepend_struct(&info->properties2, &info->custom_border_color_properties);
     }
 
     if (vulkan_info->EXT_depth_clip_enable)
     {
-        depth_clip_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_ENABLE_FEATURES_EXT;
-        vk_prepend_struct(&info->features2, depth_clip_features);
+        info->depth_clip_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_ENABLE_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->depth_clip_features);
     }
 
     if (vulkan_info->EXT_descriptor_indexing)
     {
-        descriptor_indexing_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT;
-        vk_prepend_struct(&info->features2, descriptor_indexing_features);
-        descriptor_indexing_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES_EXT;
-        vk_prepend_struct(&info->properties2, descriptor_indexing_properties);
+        info->descriptor_indexing_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->descriptor_indexing_features);
+        info->descriptor_indexing_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES_EXT;
+        vk_prepend_struct(&info->properties2, &info->descriptor_indexing_properties);
     }
 
     if (vulkan_info->EXT_inline_uniform_block)
     {
-        inline_uniform_block_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES_EXT;
-        vk_prepend_struct(&info->features2, inline_uniform_block_features);
-        inline_uniform_block_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_PROPERTIES_EXT;
-        vk_prepend_struct(&info->properties2, inline_uniform_block_properties);
+        info->inline_uniform_block_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->inline_uniform_block_features);
+        info->inline_uniform_block_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_PROPERTIES_EXT;
+        vk_prepend_struct(&info->properties2, &info->inline_uniform_block_properties);
     }
 
     if (vulkan_info->EXT_robustness2)
     {
-        robustness2_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT;
-        vk_prepend_struct(&info->features2, robustness2_features);
-        robustness2_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_PROPERTIES_EXT;
-        vk_prepend_struct(&info->properties2, robustness2_properties);
+        info->robustness2_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->robustness2_features);
+        info->robustness2_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_PROPERTIES_EXT;
+        vk_prepend_struct(&info->properties2, &info->robustness2_properties);
     }
 
     if (vulkan_info->EXT_sampler_filter_minmax)
     {
-        sampler_filter_minmax_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_FILTER_MINMAX_PROPERTIES_EXT;
-        vk_prepend_struct(&info->properties2, sampler_filter_minmax_properties);
+        info->sampler_filter_minmax_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_FILTER_MINMAX_PROPERTIES_EXT;
+        vk_prepend_struct(&info->properties2, &info->sampler_filter_minmax_properties);
     }
 
     if (vulkan_info->EXT_shader_demote_to_helper_invocation)
     {
-        demote_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DEMOTE_TO_HELPER_INVOCATION_FEATURES_EXT;
-        vk_prepend_struct(&info->features2, demote_features);
+        info->demote_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DEMOTE_TO_HELPER_INVOCATION_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->demote_features);
     }
 
     if (vulkan_info->EXT_subgroup_size_control)
     {
-        subgroup_size_control_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES_EXT;
-        vk_prepend_struct(&info->properties2, subgroup_size_control_properties);
+        info->subgroup_size_control_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES_EXT;
+        vk_prepend_struct(&info->properties2, &info->subgroup_size_control_properties);
     }
 
     if (vulkan_info->EXT_texel_buffer_alignment)
     {
-        buffer_alignment_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_FEATURES_EXT;
-        vk_prepend_struct(&info->features2, buffer_alignment_features);
-        buffer_alignment_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_PROPERTIES_EXT;
-        vk_prepend_struct(&info->properties2, buffer_alignment_properties);
+        info->texel_buffer_alignment_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->texel_buffer_alignment_features);
+        info->texel_buffer_alignment_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_PROPERTIES_EXT;
+        vk_prepend_struct(&info->properties2, &info->texel_buffer_alignment_properties);
     }
 
     if (vulkan_info->EXT_transform_feedback)
     {
-        xfb_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT;
-        vk_prepend_struct(&info->features2, xfb_features);
-        xfb_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_PROPERTIES_EXT;
-        vk_prepend_struct(&info->properties2, xfb_properties);
+        info->xfb_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->xfb_features);
+        info->xfb_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_PROPERTIES_EXT;
+        vk_prepend_struct(&info->properties2, &info->xfb_properties);
     }
 
     if (vulkan_info->EXT_vertex_attribute_divisor)
     {
-        vertex_divisor_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT;
-        vk_prepend_struct(&info->features2, vertex_divisor_features);
-        vertex_divisor_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_PROPERTIES_EXT;
-        vk_prepend_struct(&info->properties2, vertex_divisor_properties);
+        info->vertex_divisor_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->vertex_divisor_features);
+        info->vertex_divisor_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_PROPERTIES_EXT;
+        vk_prepend_struct(&info->properties2, &info->vertex_divisor_properties);
     }
 
     if (vulkan_info->EXT_extended_dynamic_state)
     {
-        extended_dynamic_state_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT;
-        vk_prepend_struct(&info->features2, extended_dynamic_state_features);
+        info->extended_dynamic_state_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->extended_dynamic_state_features);
     }
 
     if (vulkan_info->EXT_external_memory_host)
     {
-        external_memory_host_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_MEMORY_HOST_PROPERTIES_EXT;
-        vk_prepend_struct(&info->properties2, external_memory_host_properties);
+        info->external_memory_host_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_MEMORY_HOST_PROPERTIES_EXT;
+        vk_prepend_struct(&info->properties2, &info->external_memory_host_properties);
     }
 
     if (vulkan_info->EXT_4444_formats)
     {
-        ext_4444_formats_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_4444_FORMATS_FEATURES_EXT;
-        vk_prepend_struct(&info->features2, ext_4444_formats_features);
+        info->ext_4444_formats_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_4444_FORMATS_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->ext_4444_formats_features);
     }
 
     if (vulkan_info->AMD_shader_core_properties)
     {
-        shader_core_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CORE_PROPERTIES_AMD;
-        vk_prepend_struct(&info->properties2, shader_core_properties);
+        info->shader_core_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CORE_PROPERTIES_AMD;
+        vk_prepend_struct(&info->properties2, &info->shader_core_properties);
     }
 
     if (vulkan_info->AMD_shader_core_properties2)
     {
-        shader_core_properties2->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CORE_PROPERTIES_2_AMD;
-        vk_prepend_struct(&info->properties2, shader_core_properties2);
+        info->shader_core_properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CORE_PROPERTIES_2_AMD;
+        vk_prepend_struct(&info->properties2, &info->shader_core_properties2);
     }
 
     if (vulkan_info->NV_shader_sm_builtins)
     {
-        shader_sm_builtins_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SM_BUILTINS_PROPERTIES_NV;
-        vk_prepend_struct(&info->properties2, shader_sm_builtins_properties);
+        info->shader_sm_builtins_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SM_BUILTINS_PROPERTIES_NV;
+        vk_prepend_struct(&info->properties2, &info->shader_sm_builtins_properties);
     }
 
     if (vulkan_info->VALVE_mutable_descriptor_type)
     {
-        mutable_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MUTABLE_DESCRIPTOR_TYPE_FEATURES_VALVE;
-        vk_prepend_struct(&info->features2, mutable_features);
+        info->mutable_descriptor_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MUTABLE_DESCRIPTOR_TYPE_FEATURES_VALVE;
+        vk_prepend_struct(&info->features2, &info->mutable_descriptor_features);
     }
 
     if (vulkan_info->KHR_acceleration_structure && vulkan_info->KHR_ray_tracing_pipeline &&
         vulkan_info->KHR_deferred_host_operations && vulkan_info->KHR_spirv_1_4)
     {
-        acceleration_structure_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
-        acceleration_structure_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
-        ray_tracing_pipeline_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
-        ray_tracing_pipeline_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR;
-        vk_prepend_struct(&info->features2, acceleration_structure_features);
-        vk_prepend_struct(&info->features2, ray_tracing_pipeline_features);
-        vk_prepend_struct(&info->properties2, acceleration_structure_properties);
-        vk_prepend_struct(&info->properties2, ray_tracing_pipeline_properties);
+        info->acceleration_structure_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+        info->acceleration_structure_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
+        info->ray_tracing_pipeline_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+        info->ray_tracing_pipeline_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR;
+        vk_prepend_struct(&info->features2, &info->acceleration_structure_features);
+        vk_prepend_struct(&info->features2, &info->ray_tracing_pipeline_features);
+        vk_prepend_struct(&info->properties2, &info->acceleration_structure_properties);
+        vk_prepend_struct(&info->properties2, &info->ray_tracing_pipeline_properties);
     }
 
     if (vulkan_info->KHR_shader_float_controls)
     {
-        float_control_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT_CONTROLS_PROPERTIES_KHR;
-        vk_prepend_struct(&info->properties2, float_control_properties);
+        info->float_control_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT_CONTROLS_PROPERTIES_KHR;
+        vk_prepend_struct(&info->properties2, &info->float_control_properties);
     }
 
     if (vulkan_info->KHR_fragment_shading_rate)
     {
-        fragment_shading_rate_properties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_PROPERTIES_KHR;
-        fragment_shading_rate_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR;
-        vk_prepend_struct(&info->properties2, fragment_shading_rate_properties);
-        vk_prepend_struct(&info->features2, fragment_shading_rate_features);
+        info->fragment_shading_rate_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_PROPERTIES_KHR;
+        info->fragment_shading_rate_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR;
+        vk_prepend_struct(&info->properties2, &info->fragment_shading_rate_properties);
+        vk_prepend_struct(&info->features2, &info->fragment_shading_rate_features);
     }
 
-    VK_CALL(vkGetPhysicalDeviceFeatures2(physical_device, &info->features2));
-    VK_CALL(vkGetPhysicalDeviceProperties2(physical_device, &info->properties2));
+    VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
+    VK_CALL(vkGetPhysicalDeviceProperties2(device->vk_physical_device, &info->properties2));
 }
 
 static void vkd3d_trace_physical_device_properties(const VkPhysicalDeviceProperties *properties)
