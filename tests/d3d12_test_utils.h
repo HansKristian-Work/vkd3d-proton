@@ -55,18 +55,23 @@ static inline void set_viewport(D3D12_VIEWPORT *vp, float x, float y,
     vp->MaxDepth = max_depth;
 }
 
+static inline uint8_t  delta_uint8 (uint8_t a,  uint8_t  b) { return max(a, b) - min(a, b); }
+static inline uint16_t delta_uint16(uint16_t a, uint16_t b) { return max(a, b) - min(a, b); }
+static inline uint32_t delta_uint32(uint32_t a, uint32_t b) { return max(a, b) - min(a, b); }
+static inline uint64_t delta_uint64(uint64_t a, uint64_t b) { return max(a, b) - min(a, b); }
+
 static inline bool compare_color(DWORD c1, DWORD c2, BYTE max_diff)
 {
-    if (abs((c1 & 0xff) - (c2 & 0xff)) > max_diff)
+    if (delta_uint32(c1 & 0xff, c2 & 0xff) > max_diff)
         return false;
     c1 >>= 8; c2 >>= 8;
-    if (abs((c1 & 0xff) - (c2 & 0xff)) > max_diff)
+    if (delta_uint32(c1 & 0xff, c2 & 0xff) > max_diff)
         return false;
     c1 >>= 8; c2 >>= 8;
-    if (abs((c1 & 0xff) - (c2 & 0xff)) > max_diff)
+    if (delta_uint32(c1 & 0xff, c2 & 0xff) > max_diff)
         return false;
     c1 >>= 8; c2 >>= 8;
-    if (abs((c1 & 0xff) - (c2 & 0xff)) > max_diff)
+    if (delta_uint32(c1 & 0xff, c2 & 0xff) > max_diff)
         return false;
     return true;
 }
