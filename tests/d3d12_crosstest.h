@@ -411,17 +411,23 @@ static inline bool is_depth_clip_enable_supported(ID3D12Device *device)
 static PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr;
 static bool init_vulkan_loader(void)
 {
+#ifdef _WIN32
+    HMODULE hmod;
+#else
+    void *mod;
+#endif
+
     if (pfn_vkGetInstanceProcAddr)
         return true;
 
 #ifdef _WIN32
-    HMODULE mod = LoadLibraryA(SONAME_LIBVULKAN);
+    mod = LoadLibraryA(SONAME_LIBVULKAN);
     if (!mod)
         return false;
 
     pfn_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)GetProcAddress(mod, "vkGetInstanceProcAddr");
 #else
-    void *mod = dlopen(SONAME_LIBVULKAN, RTLD_LAZY);
+    mod = dlopen(SONAME_LIBVULKAN, RTLD_LAZY);
     if (!mod)
         return false;
 
