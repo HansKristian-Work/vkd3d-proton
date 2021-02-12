@@ -18587,7 +18587,6 @@ static void test_copy_rtv_descriptors(void)
     UINT dst_sizes[1], src_sizes[2];
     ID3D12DescriptorHeap *rtv_heap;
     struct test_context_desc desc;
-    struct resource_readback rb;
     struct test_context context;
     D3D12_RESOURCE_DESC rt_desc;
     ID3D12Resource *rt_texture;
@@ -19555,10 +19554,7 @@ static void test_null_rtv(void)
     struct test_context_desc desc;
     struct test_context context;
     ID3D12CommandQueue *queue;
-    ID3D12PipelineState pso;
     ID3D12Device *device;
-    unsigned int i;
-    HRESULT hr;
 
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
 
@@ -23092,7 +23088,6 @@ static void test_atomic_instructions(void)
     ID3D12CommandQueue *queue;
     ID3D12Device *device;
     unsigned int i, j;
-    bool is_todo;
     HRESULT hr;
 
     static const DWORD ps_atomics_code[] =
@@ -46826,7 +46821,7 @@ static void test_typed_buffers_many_objects(bool use_dxil)
     ID3D12Resource *output_buffer, *input_buffer;
     struct resource_readback rb;
 
-    unsigned int i, j, word_index, descriptor_size;
+    unsigned int i, j, descriptor_size;
     ID3D12GraphicsCommandList *command_list;
     D3D12_CPU_DESCRIPTOR_HANDLE host_handle;
     D3D12_CPU_DESCRIPTOR_HANDLE visible_handle;
@@ -47132,7 +47127,6 @@ static void test_typed_buffers_many_objects(bool use_dxil)
     for (i = 0; i < 1024; i++)
     {
         const UINT clear_value[4] = { i + 1, i + 2, i + 3, i + 4 };
-        D3D12_UNORDERED_ACCESS_VIEW_DESC view;
         D3D12_GPU_DESCRIPTOR_HANDLE gpu_desc;
         D3D12_CPU_DESCRIPTOR_HANDLE cpu_desc;
         D3D12_RESOURCE_BARRIER barrier;
