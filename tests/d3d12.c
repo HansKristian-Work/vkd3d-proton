@@ -18643,6 +18643,7 @@ static void test_copy_rtv_descriptors(void)
             &heap_properties, D3D12_HEAP_FLAG_NONE, &rt_desc,
             D3D12_RESOURCE_STATE_RENDER_TARGET, NULL,
             &IID_ID3D12Resource, (void **)&rt_texture);
+    ok(hr == S_OK, "Failed to create committed resource, hr %#x.\n", hr);
 
     rtv_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 9);
 
