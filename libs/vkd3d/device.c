@@ -1766,6 +1766,7 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
     unsigned int i, j;
     HRESULT hr;
 
+    device->unique_queue_mask = 0;
     device->queue_family_count = 0;
     memset(device->queues, 0, sizeof(device->queues));
     memset(device->queue_family_indices, 0, sizeof(device->queue_family_indices));
@@ -1787,6 +1788,9 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
         if (FAILED((hr = vkd3d_queue_create(device, queue_info->family_index[i],
                 &queue_info->vk_properties[i], &device->queues[i]))))
             goto out_destroy_queues;
+
+        if (i != VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE)
+            device->unique_queue_mask |= 1u << i;
 
         device->queue_family_indices[device->queue_family_count++] = queue_info->family_index[i];
     }
