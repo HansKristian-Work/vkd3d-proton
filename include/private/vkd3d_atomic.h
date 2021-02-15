@@ -255,16 +255,16 @@ static inline uint64_t vkd3d_atomic_uint64_compare_exchange(uint64_t* target, ui
 
 #if defined(__x86_64__) || defined(_WIN64)
 # define vkd3d_atomic_ptr_load_explicit(target, order)                       ((void *)vkd3d_atomic_uint64_load_explicit((uint64_t *)target, order))
-# define vkd3d_atomic_ptr_store_explicit(target, value, order)               (vkd3d_atomic_uint64_store_explicit((uint64_t *)target, value, order))
-# define vkd3d_atomic_ptr_exchange_explicit(target, value, order)            ((void *)vkd3d_atomic_uint64_exchange_explicit((uint64_t *)target, value, order))
+# define vkd3d_atomic_ptr_store_explicit(target, value, order)               (vkd3d_atomic_uint64_store_explicit((uint64_t *)target, (uint64_t)value, order))
+# define vkd3d_atomic_ptr_exchange_explicit(target, value, order)            ((void *)vkd3d_atomic_uint64_exchange_explicit((uint64_t *)target, (uint64_t)value, order))
 # define vkd3d_atomic_ptr_increment(target, order)                           ((void *)vkd3d_atomic_uint64_increment((uint64_t *)target, order))
 # define vkd3d_atomic_ptr_decrement(target, order)                           ((void *)vkd3d_atomic_uint64_decrement((uint64_t *)target, order))
 # define vkd3d_atomic_ptr_compare_exchange(target, expected, desired, success_order, fail_order) \
         ((void *)vkd3d_atomic_uint64_compare_exchange((uint64_t *)target, (uint64_t)expected, (uint64_t)desired, success_order, fail_order))
 #else
 # define vkd3d_atomic_ptr_load_explicit(target, order)                       ((void *)vkd3d_atomic_uint32_load_explicit((uint32_t *)target, order))
-# define vkd3d_atomic_ptr_store_explicit(target, value, order)               (vkd3d_atomic_uint32_store_explicit((uint32_t *)target, value, order))
-# define vkd3d_atomic_ptr_exchange_explicit(target, value, order)            ((void *)vkd3d_atomic_uint32_exchange_explicit((uint32_t *)target, value, order))
+# define vkd3d_atomic_ptr_store_explicit(target, value, order)               (vkd3d_atomic_uint32_store_explicit((uint32_t *)target, (uint32_t)value, order))
+# define vkd3d_atomic_ptr_exchange_explicit(target, value, order)            ((void *)vkd3d_atomic_uint32_exchange_explicit((uint32_t *)target, (uint32_t)value, order))
 # define vkd3d_atomic_ptr_increment(target, order)                           ((void *)vkd3d_atomic_uint32_increment((uint32_t *)target, order))
 # define vkd3d_atomic_ptr_decrement(target, order)                           ((void *)vkd3d_atomic_uint32_decrement((uint32_t *)target, order))
 # define vkd3d_atomic_ptr_compare_exchange(target, expected, desired, success_order, fail_order) \
