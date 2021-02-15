@@ -1851,11 +1851,20 @@ static HRESULT vkd3d_select_queues(const struct vkd3d_instance *vkd3d_instance,
      * Just disabling async compute works around the issue as well. */
     #define VKD3D_FORCE_SINGLE_QUEUE 1
 
-    if (info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] == VK_QUEUE_FAMILY_IGNORED || VKD3D_FORCE_SINGLE_QUEUE)
+    if (info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] == VK_QUEUE_FAMILY_IGNORED)
         info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] = info->family_index[VKD3D_QUEUE_FAMILY_GRAPHICS];
 
-    if (info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] == VK_QUEUE_FAMILY_IGNORED || VKD3D_FORCE_SINGLE_QUEUE)
+    if (info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] == VK_QUEUE_FAMILY_IGNORED)
         info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] = info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE];
+
+    /* TODO make this a low-priority compute queue that does not conflict with the actual compute queue */
+    info->family_index[VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE] = info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE];
+
+    if (VKD3D_FORCE_SINGLE_QUEUE)
+    {
+        info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] = info->family_index[VKD3D_QUEUE_FAMILY_GRAPHICS];
+        info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] = info->family_index[VKD3D_QUEUE_FAMILY_GRAPHICS];
+    }
 
     for (i = 0; i < VKD3D_QUEUE_FAMILY_COUNT; ++i)
     {
