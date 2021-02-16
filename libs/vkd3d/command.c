@@ -8733,12 +8733,21 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     VkCommandBuffer *buffers;
     LONG **outstanding;
     unsigned int i, j;
+    HRESULT hr;
 
     TRACE("iface %p, command_list_count %u, command_lists %p.\n",
             iface, command_list_count, command_lists);
 
     if (!command_list_count)
         return;
+
+    if (FAILED(hr = vkd3d_memory_allocator_flush_clears(
+            &command_queue->device->memory_allocator, command_queue->device)))
+    {
+        d3d12_device_mark_as_removed(command_queue->device, hr,
+                "Failed to execute pending memory clears.\n");
+        return;
+    }
 
     num_command_buffers = command_list_count + 1;
 

@@ -24,6 +24,9 @@
 #include "vkd3d_descriptor_debug.h"
 #endif
 
+static void vkd3d_memory_allocator_wait_allocation(struct vkd3d_memory_allocator *allocator,
+        struct d3d12_device *device, const struct vkd3d_memory_allocation *allocation);
+
 static inline bool is_cpu_accessible_heap(const D3D12_HEAP_PROPERTIES *properties)
 {
     if (properties->Type == D3D12_HEAP_TYPE_DEFAULT)
@@ -616,6 +619,9 @@ static void vkd3d_memory_chunk_destroy(struct vkd3d_memory_chunk *chunk, struct 
 {
     TRACE("chunk %p, device %p, allocator %p.\n", chunk, device, allocator);
 
+    if (chunk->allocation.clear_semaphore_value)
+        vkd3d_memory_allocator_wait_allocation(allocator, device, &chunk->allocation);
+
     vkd3d_memory_allocation_free(&chunk->allocation, device, allocator);
     vkd3d_free(chunk->free_ranges);
     vkd3d_free(chunk);
@@ -1104,6 +1110,9 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
 void vkd3d_free_memory_2(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
         const struct vkd3d_memory_allocation *allocation)
 {
+    if (allocation->clear_semaphore_value)
+        vkd3d_memory_allocator_wait_allocation(allocator, device, allocation);
+
     if (allocation->chunk)
     {
         pthread_mutex_lock(&allocator->mutex);
@@ -1153,11 +1162,21 @@ static HRESULT vkd3d_suballocate_memory(struct d3d12_device *device, struct vkd3
 static HRESULT vkd3d_allocate_memory_2(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
         const struct vkd3d_allocate_memory_info *info, struct vkd3d_memory_allocation *allocation)
 {
+    HRESULT hr;
+
     if (!info->pNext && !info->host_ptr && info->memory_requirements.size < VKD3D_VA_BLOCK_SIZE &&
             !(info->heap_flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
-        return vkd3d_suballocate_memory(device, allocator, info, allocation);
+        hr = vkd3d_suballocate_memory(device, allocator, info, allocation);
     else
-        return vkd3d_memory_allocation_init(allocation, device, allocator, info);
+        hr = vkd3d_memory_allocation_init(allocation, device, allocator, info);
+
+    if (FAILED(hr))
+        return hr;
+
+    if (!(info->heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED))
+        vkd3d_memory_allocator_clear_allocation(allocator, device, allocation);
+
+    return hr;
 }
 
 HRESULT vkd3d_allocate_heap_memory_2(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
