@@ -1153,7 +1153,8 @@ static HRESULT vkd3d_suballocate_memory(struct d3d12_device *device, struct vkd3
 static HRESULT vkd3d_allocate_memory_2(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
         const struct vkd3d_allocate_memory_info *info, struct vkd3d_memory_allocation *allocation)
 {
-    if (!info->pNext && !info->host_ptr && info->memory_requirements.size < VKD3D_VA_BLOCK_SIZE)
+    if (!info->pNext && !info->host_ptr && info->memory_requirements.size < VKD3D_VA_BLOCK_SIZE &&
+            !(info->heap_flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
         return vkd3d_suballocate_memory(device, allocator, info, allocation);
     else
         return vkd3d_memory_allocation_init(allocation, device, allocator, info);
