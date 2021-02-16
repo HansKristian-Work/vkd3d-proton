@@ -6,6 +6,7 @@ cpu_family = target_machine.cpu_family()
 
 vkd3d_compiler = meson.get_compiler('c')
 vkd3d_msvc     = vkd3d_compiler.get_id() == 'msvc'
+vkd3d_clang    = vkd3d_compiler.get_id() == 'clang'
 vkd3d_c_std    = 'c11'
 vkd3d_platform = target_machine.system()
 
@@ -101,6 +102,13 @@ if cpu_family == 'x86'
       '-Wl,--add-stdcall-alias',
       '-Wl,--enable-stdcall-fixup']),
     language : [ 'c', 'cpp' ])
+
+  # Need to link against libatomic for 64-bit atomic emulation on x86
+  # when using clang.
+  if vkd3d_clang
+    lib_atomic = vkd3d_compiler.find_library('atomic')
+    vkd3d_extra_libs += lib_atomic
+  endif
 endif
 
 vkd3d_build = vcs_tag(
