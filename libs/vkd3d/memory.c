@@ -637,14 +637,104 @@ static void vkd3d_memory_allocator_remove_chunk(struct vkd3d_memory_allocator *a
     vkd3d_memory_chunk_destroy(chunk, device, allocator);
 }
 
+static void vkd3d_memory_allocator_cleanup_clear_queue(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device)
+{
+    struct vkd3d_memory_clear_queue *clear_queue = &allocator->clear_queue;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    VK_CALL(vkDestroyCommandPool(device->vk_device, clear_queue->vk_command_pool, NULL));
+    VK_CALL(vkDestroySemaphore(device->vk_device, clear_queue->vk_semaphore, NULL));
+
+    vkd3d_free(clear_queue->allocations);
+    pthread_mutex_destroy(&clear_queue->mutex);
+}
+
+static HRESULT vkd3d_memory_allocator_init_clear_queue(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device)
+{
+    struct vkd3d_memory_clear_queue *clear_queue = &allocator->clear_queue;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkSemaphoreTypeCreateInfoKHR semaphore_type_info;
+    VkCommandBufferAllocateInfo command_buffer_info;
+    VkCommandPoolCreateInfo command_pool_info;
+    VkSemaphoreCreateInfo semaphore_info;
+    VkResult vr;
+    HRESULT hr;
+    int rc;
+
+    /* vkd3d_memory_allocator_init will memset the entire
+     * clear_queue struct to zero prior to calling this */
+    clear_queue->last_known_value = VKD3D_MEMORY_CLEAR_COMMAND_BUFFER_COUNT;
+    clear_queue->next_signal_value = VKD3D_MEMORY_CLEAR_COMMAND_BUFFER_COUNT + 1;
+
+    if ((rc = pthread_mutex_init(&allocator->mutex, NULL)))
+        return hresult_from_errno(rc);
+
+    command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    command_pool_info.pNext = NULL;
+    command_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    command_pool_info.queueFamilyIndex = device->queues[VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE]->vk_family_index;
+
+    if ((vr = VK_CALL(vkCreateCommandPool(device->vk_device, &command_pool_info,
+            NULL, &clear_queue->vk_command_pool))) < 0)
+    {
+        ERR("Failed to create command pool, vr %d.\n", vr);
+        hr = hresult_from_vk_result(vr);
+        goto fail;
+    }
+
+    command_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    command_buffer_info.pNext = NULL;
+    command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    command_buffer_info.commandPool = clear_queue->vk_command_pool;
+    command_buffer_info.commandBufferCount = VKD3D_MEMORY_CLEAR_COMMAND_BUFFER_COUNT;
+
+    if ((vr = VK_CALL(vkAllocateCommandBuffers(device->vk_device,
+            &command_buffer_info, clear_queue->vk_command_buffers))) < 0)
+    {
+        ERR("Failed to allocate command buffer, vr %d.\n", vr);
+        hr = hresult_from_vk_result(vr);
+        goto fail;
+    }
+
+    semaphore_type_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO_KHR;
+    semaphore_type_info.pNext = NULL;
+    semaphore_type_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE_KHR;
+    semaphore_type_info.initialValue = VKD3D_MEMORY_CLEAR_COMMAND_BUFFER_COUNT;
+
+    semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    semaphore_info.pNext = &semaphore_type_info;
+    semaphore_info.flags = 0;
+
+    if ((vr = VK_CALL(vkCreateSemaphore(device->vk_device,
+            &semaphore_info, NULL, &clear_queue->vk_semaphore))) < 0)
+    {
+        ERR("Failed to create semaphore, vr %d.\n", vr);
+        hr = hresult_from_vk_result(vr);
+        goto fail;
+    }
+
+    return S_OK;
+
+fail:
+    vkd3d_memory_allocator_cleanup_clear_queue(allocator, device);
+    return hr;
+}
+
 HRESULT vkd3d_memory_allocator_init(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device)
 {
+    HRESULT hr;
     int rc;
 
     memset(allocator, 0, sizeof(*allocator));
 
     if ((rc = pthread_mutex_init(&allocator->mutex, NULL)))
         return hresult_from_errno(rc);
+
+    if (FAILED(hr = vkd3d_memory_allocator_init_clear_queue(allocator, device)))
+    {
+        pthread_mutex_destroy(&allocator->mutex);
+        return hr;
+    }
 
     vkd3d_va_map_init(&allocator->va_map);
     return S_OK;
@@ -659,7 +749,286 @@ void vkd3d_memory_allocator_cleanup(struct vkd3d_memory_allocator *allocator, st
 
     vkd3d_free(allocator->chunks);
     vkd3d_va_map_cleanup(&allocator->va_map);
+    vkd3d_memory_allocator_cleanup_clear_queue(allocator, device);
     pthread_mutex_destroy(&allocator->mutex);
+}
+
+static bool vkd3d_memory_allocator_wait_clear_semaphore(struct vkd3d_memory_allocator *allocator,
+        struct d3d12_device *device, uint64_t wait_value, uint64_t timeout)
+{
+    struct vkd3d_memory_clear_queue *clear_queue = &allocator->clear_queue;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkSemaphoreWaitInfo wait_info;
+    uint64_t old_value, new_value;
+    VkResult vr;
+
+    old_value = vkd3d_atomic_uint64_load_explicit(&clear_queue->last_known_value, vkd3d_memory_order_acquire);
+
+    if (old_value >= wait_value)
+        return true;
+
+    if (timeout)
+    {
+        wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO_KHR;
+        wait_info.pNext = NULL;
+        wait_info.flags = 0;
+        wait_info.semaphoreCount = 1;
+        wait_info.pSemaphores = &clear_queue->vk_semaphore;
+        wait_info.pValues = &wait_value;
+
+        vr = VK_CALL(vkWaitSemaphoresKHR(device->vk_device, &wait_info, timeout));
+        new_value = wait_value;
+    }
+    else
+    {
+        vr = VK_CALL(vkGetSemaphoreCounterValueKHR(device->vk_device,
+                clear_queue->vk_semaphore, &new_value));
+    }
+
+    if (vr < 0)
+    {
+        ERR("Failed to wait for timeline semaphore, vr %d.\n", vr);
+        return false;
+    }
+
+    while (new_value > old_value)
+    {
+        uint64_t cur_value = vkd3d_atomic_uint64_compare_exchange(&clear_queue->last_known_value,
+                old_value, new_value, vkd3d_memory_order_release, vkd3d_memory_order_acquire);
+
+        if (cur_value == old_value)
+            break;
+
+        old_value = cur_value;
+    }
+
+    return new_value >= wait_value;
+}
+
+static HRESULT vkd3d_memory_allocator_flush_clears_locked(struct vkd3d_memory_allocator *allocator,
+        struct d3d12_device *device)
+{
+    const VkPipelineStageFlags vk_stage_mask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+    struct vkd3d_memory_clear_queue *clear_queue = &allocator->clear_queue;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkTimelineSemaphoreSubmitInfoKHR timeline_info;
+    struct vkd3d_queue *queue, *internal_queue;
+    VkCommandBufferBeginInfo begin_info;
+    uint32_t queue_mask, queue_index;
+    VkCommandBuffer vk_cmd_buffer;
+    VkSubmitInfo submit_info;
+    VkQueue vk_queue;
+    VkResult vr;
+    size_t i;
+
+    if (!clear_queue->allocations_count)
+        return S_OK;
+
+    /* Record commands late so that we can simply remove allocations from
+     * the queue if they got freed before the clear commands got dispatched,
+     * rather than rewriting the command buffer or dispatching the clear */
+    internal_queue = device->queues[VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE];
+    vk_cmd_buffer = clear_queue->vk_command_buffers[clear_queue->command_buffer_index];
+
+    vkd3d_memory_allocator_wait_clear_semaphore(allocator, device,
+            clear_queue->next_signal_value - VKD3D_MEMORY_CLEAR_COMMAND_BUFFER_COUNT, UINT64_MAX);
+
+    if ((vr = VK_CALL(vkResetCommandBuffer(vk_cmd_buffer, 0))))
+    {
+        ERR("Failed to reset command pool, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.pNext = NULL;
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    begin_info.pInheritanceInfo = NULL;
+
+    if ((vr = VK_CALL(vkBeginCommandBuffer(vk_cmd_buffer, &begin_info))) < 0)
+    {
+        ERR("Failed to begin command buffer, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    for (i = 0; i < clear_queue->allocations_count; i++)
+    {
+        const struct vkd3d_memory_allocation *allocation = clear_queue->allocations[i];
+
+        VK_CALL(vkCmdFillBuffer(vk_cmd_buffer, allocation->resource.vk_buffer,
+                allocation->offset, allocation->resource.size, 0));
+    }
+
+    if ((vr = VK_CALL(vkEndCommandBuffer(vk_cmd_buffer))) < 0)
+    {
+        ERR("Failed to end command buffer, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+
+    if (!(vk_queue = vkd3d_queue_acquire(internal_queue)))
+        return E_FAIL;
+
+    memset(&timeline_info, 0, sizeof(timeline_info));
+    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR;
+    timeline_info.signalSemaphoreValueCount = 1;
+    timeline_info.pSignalSemaphoreValues = &clear_queue->next_signal_value;
+
+    memset(&submit_info, 0, sizeof(submit_info));
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.pNext = &timeline_info;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &vk_cmd_buffer;
+    submit_info.signalSemaphoreCount = 1;
+    submit_info.pSignalSemaphores = &clear_queue->vk_semaphore;
+
+    vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
+    vkd3d_queue_release(internal_queue);
+
+    if (vr < 0)
+    {
+        ERR("Failed to submit command buffer, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    /* Stall future submissions on other queues until the clear has finished */
+    memset(&timeline_info, 0, sizeof(timeline_info));
+    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR;
+    timeline_info.waitSemaphoreValueCount = 1;
+    timeline_info.pWaitSemaphoreValues = &clear_queue->next_signal_value;
+
+    memset(&submit_info, 0, sizeof(submit_info));
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.pNext = &timeline_info;
+    submit_info.waitSemaphoreCount = 1;
+    submit_info.pWaitSemaphores = &clear_queue->vk_semaphore;
+    submit_info.pWaitDstStageMask = &vk_stage_mask;
+
+    queue_mask = device->unique_queue_mask;
+
+    while (queue_mask)
+    {
+        queue_index = vkd3d_bitmask_iter32(&queue_mask);
+        queue = device->queues[queue_index];
+
+        if (!(vk_queue = vkd3d_queue_acquire(queue)))
+            return E_FAIL;
+
+        vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
+        vkd3d_queue_release(queue);
+
+        if (vr < 0)
+        {
+            ERR("Failed to submit semaphore wait, vr %d.\n", vr);
+            return hresult_from_vk_result(vr);
+        }
+    }
+
+    /* Keep next_signal always one ahead of the last signaled value */
+    clear_queue->next_signal_value += 1;
+    clear_queue->num_bytes_pending = 0;
+    clear_queue->allocations_count = 0;
+    clear_queue->command_buffer_index += 1;
+    clear_queue->command_buffer_index %= VKD3D_MEMORY_CLEAR_COMMAND_BUFFER_COUNT;
+    return S_OK;
+}
+
+HRESULT vkd3d_memory_allocator_flush_clears(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device)
+{
+    struct vkd3d_memory_clear_queue *clear_queue = &allocator->clear_queue;
+    HRESULT hr;
+
+    pthread_mutex_lock(&clear_queue->mutex);
+    hr = vkd3d_memory_allocator_flush_clears_locked(allocator, device);
+    pthread_mutex_unlock(&clear_queue->mutex);
+    return hr;
+}
+
+#define VKD3D_MEMORY_CLEAR_QUEUE_MAX_PENDING_BYTES (256ull << 20) /* 256 MiB */
+
+static void vkd3d_memory_allocator_clear_allocation(struct vkd3d_memory_allocator *allocator,
+        struct d3d12_device *device, struct vkd3d_memory_allocation *allocation)
+{
+    struct vkd3d_memory_clear_queue *clear_queue = &allocator->clear_queue;
+
+    if (allocation->cpu_address)
+    {
+        /* Probably faster than doing this on the GPU
+         * and having to worry about synchronization */
+        memset(allocation->cpu_address, 0, allocation->resource.size);
+    }
+    else if (allocation->resource.vk_buffer)
+    {
+        pthread_mutex_lock(&clear_queue->mutex);
+
+        if (!vkd3d_array_reserve((void**)&clear_queue->allocations, &clear_queue->allocations_size,
+                clear_queue->allocations_count + 1, sizeof(*clear_queue->allocations)))
+        {
+            ERR("Failed to insert free range.\n");
+            pthread_mutex_unlock(&clear_queue->mutex);
+            return;
+        }
+
+        allocation->clear_semaphore_value = clear_queue->next_signal_value;
+
+        if (allocation->chunk)
+            allocation->chunk->allocation.clear_semaphore_value = clear_queue->next_signal_value;
+
+        clear_queue->allocations[clear_queue->allocations_count++] = allocation;
+        clear_queue->num_bytes_pending += allocation->resource.size;
+
+        if (clear_queue->num_bytes_pending >= VKD3D_MEMORY_CLEAR_QUEUE_MAX_PENDING_BYTES)
+            vkd3d_memory_allocator_flush_clears_locked(allocator, device);
+
+        pthread_mutex_unlock(&clear_queue->mutex);
+    }
+}
+
+static void vkd3d_memory_allocator_wait_allocation(struct vkd3d_memory_allocator *allocator,
+        struct d3d12_device *device, const struct vkd3d_memory_allocation *allocation)
+{
+    struct vkd3d_memory_clear_queue *clear_queue = &allocator->clear_queue;
+    uint64_t wait_value = allocation->clear_semaphore_value;
+    size_t i;
+
+    /* If the clear semaphore has been signaled to the expected value,
+     * the GPU is already done clearing the allocation, and it cannot
+     * be in the clear queue either, so there is nothing to do. */
+    if (vkd3d_memory_allocator_wait_clear_semaphore(allocator, device, wait_value, 0))
+        return;
+
+    /* If the allocation is still in the queue, the GPU has not started
+     * using it yet so we can remove it from the queue and exit. */
+    pthread_mutex_lock(&clear_queue->mutex);
+
+    for (i = 0; i < clear_queue->allocations_count; i++)
+    {
+        if (clear_queue->allocations[i] == allocation)
+        {
+            clear_queue->allocations[i] = clear_queue->allocations[--clear_queue->allocations_count];
+            clear_queue->num_bytes_pending -= allocation->resource.size;
+            pthread_mutex_unlock(&clear_queue->mutex);
+            return;
+        }
+    }
+
+    /* If this is a chunk and a suballocation from it had been immediately
+     * freed, it is possible that the suballocation got removed from the
+     * clear queue so that the chunk's wait value never gets signaled. Wait
+     * for the last signaled value in that case. */
+    if (wait_value == clear_queue->next_signal_value)
+        wait_value = clear_queue->next_signal_value - 1;
+
+    pthread_mutex_unlock(&clear_queue->mutex);
+
+    /* If this allocation was suballocated from a chunk, we will wait
+     * on the semaphore when the parent chunk itself gets destroyed. */
+    if (allocation->chunk)
+        return;
+
+    /* Otherwise, we actually have to wait for the GPU. */
+    WARN("Waiting for GPU to clear allocation %p.\n", allocation);
+
+    vkd3d_memory_allocator_wait_clear_semaphore(allocator, device, wait_value, UINT64_MAX);
 }
 
 static HRESULT vkd3d_memory_allocator_add_chunk(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device,

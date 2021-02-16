@@ -538,6 +538,8 @@ struct vkd3d_memory_allocation
     uint32_t vk_memory_type;
     uint32_t flags;
 
+    uint64_t clear_semaphore_value;
+
     struct vkd3d_memory_chunk *chunk;
 };
 
@@ -567,6 +569,27 @@ struct vkd3d_memory_chunk
     size_t free_ranges_count;
 };
 
+#define VKD3D_MEMORY_CLEAR_COMMAND_BUFFER_COUNT (16u)
+
+struct vkd3d_memory_clear_queue
+{
+    pthread_mutex_t mutex;
+
+    VkCommandBuffer vk_command_buffers[VKD3D_MEMORY_CLEAR_COMMAND_BUFFER_COUNT];
+    VkCommandPool vk_command_pool;
+    VkSemaphore vk_semaphore;
+
+    UINT64 last_known_value;
+    UINT64 next_signal_value;
+
+    VkDeviceSize num_bytes_pending;
+    uint32_t command_buffer_index;
+
+    struct vkd3d_memory_allocation **allocations;
+    size_t allocations_size;
+    size_t allocations_count;
+};
+
 struct vkd3d_memory_allocator
 {
     pthread_mutex_t mutex;
@@ -576,6 +599,8 @@ struct vkd3d_memory_allocator
     size_t chunks_count;
 
     struct vkd3d_va_map va_map;
+
+    struct vkd3d_memory_clear_queue clear_queue;
 };
 
 void vkd3d_free_memory_2(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
@@ -587,6 +612,7 @@ HRESULT vkd3d_allocate_resource_memory_2(struct d3d12_device *device, struct vkd
 
 HRESULT vkd3d_memory_allocator_init(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device);
 void vkd3d_memory_allocator_cleanup(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device);
+HRESULT vkd3d_memory_allocator_flush_clears(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device);
 
 /* ID3D12Heap */
 typedef ID3D12Heap1 d3d12_heap_iface;
