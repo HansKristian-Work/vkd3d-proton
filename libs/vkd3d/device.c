@@ -90,6 +90,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_SPIRV_1_4, KHR_spirv_1_4),
     VK_EXTENSION(KHR_SHADER_FLOAT_CONTROLS, KHR_shader_float_controls),
     VK_EXTENSION(KHR_FRAGMENT_SHADING_RATE, KHR_fragment_shading_rate),
+    VK_EXTENSION(KHR_CREATE_RENDERPASS_2, KHR_create_renderpass2),
     /* EXT extensions */
     VK_EXTENSION(EXT_CALIBRATED_TIMESTAMPS, EXT_calibrated_timestamps),
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
@@ -817,6 +818,7 @@ static bool d3d12_device_determine_additional_shading_rates_supported(struct d3d
     VkPhysicalDevice physical_device = device->vk_physical_device;
     uint32_t additional_shading_rates_supported = 0;
     uint32_t fragment_shading_rate_count;
+    uint32_t i, j;
     VkResult vr;
 
     /* Early out if we don't support at least variable shading rate TIER1 */
@@ -832,6 +834,9 @@ static bool d3d12_device_determine_additional_shading_rates_supported(struct d3d
     if (!(fragment_shading_rates = vkd3d_calloc(fragment_shading_rate_count, sizeof(*fragment_shading_rates))))
         return false;
 
+    for (i = 0; i < fragment_shading_rate_count; i++)
+        fragment_shading_rates[i].sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_KHR;
+
     if ((vr = VK_CALL(vkGetPhysicalDeviceFragmentShadingRatesKHR(physical_device, &fragment_shading_rate_count, fragment_shading_rates))) < 0)
     {
         ERR("Failed to enumerate additional shading rates, vr %d.\n", vr);
@@ -839,9 +844,9 @@ static bool d3d12_device_determine_additional_shading_rates_supported(struct d3d
         return false;
     }
 
-    for (uint32_t i = 0; i < fragment_shading_rate_count; i++)
+    for (i = 0; i < fragment_shading_rate_count; i++)
     {
-        for (uint32_t j = 0; j < ARRAY_SIZE(additional_shading_rates); j++)
+        for (j = 0; j < ARRAY_SIZE(additional_shading_rates); j++)
         {
             if (fragment_shading_rates[i].fragmentSize.width  == additional_shading_rates[j].fragment_size.width &&
                 fragment_shading_rates[i].fragmentSize.height == additional_shading_rates[j].fragment_size.height &&
