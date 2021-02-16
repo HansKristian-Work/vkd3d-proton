@@ -268,7 +268,7 @@ struct vkd3d_va_block
 
 struct vkd3d_va_tree
 {
-    struct vkd3d_va_block blocks[1u << VKD3D_VA_BLOCK_BITS];
+    struct vkd3d_va_block blocks[VKD3D_VA_BLOCK_COUNT];
     struct vkd3d_va_tree *next[VKD3D_VA_NEXT_COUNT];
 };
 
