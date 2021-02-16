@@ -421,11 +421,11 @@ static bool init_vulkan_loader(void)
         return true;
 
 #ifdef _WIN32
-    mod = LoadLibraryA(SONAME_LIBVULKAN);
-    if (!mod)
+    hmod = LoadLibraryA(SONAME_LIBVULKAN);
+    if (!hmod)
         return false;
 
-    pfn_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)GetProcAddress(mod, "vkGetInstanceProcAddr");
+    pfn_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)GetProcAddress(hmod, "vkGetInstanceProcAddr");
 #else
     mod = dlopen(SONAME_LIBVULKAN, RTLD_LAZY);
     if (!mod)
