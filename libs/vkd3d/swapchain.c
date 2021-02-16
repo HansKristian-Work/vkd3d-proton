@@ -2114,7 +2114,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_GetContainingOutput(dxgi_swapch
 static HRESULT STDMETHODCALLTYPE d3d12_swapchain_GetFrameStatistics(dxgi_swapchain_iface *iface,
         DXGI_FRAME_STATISTICS *stats)
 {
-    FIXME("iface %p, stats %p stub!\n", iface, stats);
+    FIXME_ONCE("iface %p, stats %p stub!\n", iface, stats);
 
     return E_NOTIMPL;
 }
@@ -2122,7 +2122,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_GetFrameStatistics(dxgi_swapcha
 static HRESULT STDMETHODCALLTYPE d3d12_swapchain_GetLastPresentCount(dxgi_swapchain_iface *iface,
         UINT *last_present_count)
 {
-    FIXME("iface %p, last_present_count %p stub!\n", iface, last_present_count);
+    FIXME_ONCE("iface %p, last_present_count %p stub!\n", iface, last_present_count);
 
     return E_NOTIMPL;
 }
