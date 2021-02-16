@@ -119,6 +119,7 @@ struct vkd3d_vulkan_info
     bool KHR_spirv_1_4;
     bool KHR_shader_float_controls;
     bool KHR_fragment_shading_rate;
+    bool KHR_create_renderpass2;
     /* EXT device extensions */
     bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;
