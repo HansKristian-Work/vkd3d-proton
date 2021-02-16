@@ -47850,6 +47850,227 @@ static void test_vrs(void)
     destroy_test_context(&context);
 }
 
+static void test_stress_suballocation(void)
+{
+#define SUBALLOC_TEST_NUM_BUFFERS 128
+#define SUBALLOC_TEST_NUM_ITERATIONS 64
+    ID3D12Resource *readback_buffers[SUBALLOC_TEST_NUM_BUFFERS] = { NULL };
+    ID3D12Resource *buffers[SUBALLOC_TEST_NUM_BUFFERS] = { NULL };
+    UINT reference_values[SUBALLOC_TEST_NUM_BUFFERS] = { 0 };
+    ID3D12Heap *heaps[SUBALLOC_TEST_NUM_BUFFERS] = { NULL };
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_CPU_DESCRIPTOR_HANDLE desc_handle;
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12DescriptorHeap *gpu_heap;
+    ID3D12DescriptorHeap *cpu_heap;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12Heap *dummy_heaps[2];
+    D3D12_HEAP_DESC heap_desc;
+    unsigned int iter, i;
+    UINT reference_value;
+    ID3D12Fence *fence;
+    UINT64 fence_value;
+    bool clear_buffer;
+    bool alloc_heap;
+    bool keep_alive;
+    UINT alloc_size;
+    HRESULT hr;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    desc.no_pipeline = true;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    ID3D12Device_CreateFence(context.device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence);
+    fence_value = 0;
+    reference_value = 0;
+
+    srand(42);
+
+    gpu_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, ARRAY_SIZE(buffers));
+    cpu_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, ARRAY_SIZE(buffers));
+
+    hr = wait_for_fence(fence, fence_value);
+    ok(SUCCEEDED(hr), "Failed to wait for fence.\n");
+
+    /* Stress test internal implementation details. Perform many smaller allocations and verify that the allocation works as expected. */
+    ID3D12GraphicsCommandList_Close(context.list);
+
+    for (iter = 0; iter < SUBALLOC_TEST_NUM_ITERATIONS; iter++)
+    {
+        reset_command_list(context.list, context.allocator);
+        fence_value++;
+
+        for (i = 0; i < ARRAY_SIZE(heaps); i++)
+        {
+            /* Randomly allocate heaps and place a buffer on top of it. */
+            alloc_heap = rand() % 2 == 0;
+            alloc_size = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT * (1 + rand() % 20);
+            keep_alive = rand() % 2 == 0;
+
+            if (buffers[i] && keep_alive)
+            {
+                /* To test chunk allocator, make sure we don't free *everything* every iteration.
+                   Just transition back to UAV state. */
+                transition_resource_state(context.list, buffers[i], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                /* If we reuse the buffer, always test explicit clear since we tested zero memory once already previous iteration. */
+                reference_values[i] = ++reference_value;
+            }
+            else
+            {
+                clear_buffer = rand() % 2 == 0;
+                if (clear_buffer)
+                    reference_values[i] = ++reference_value;
+                else
+                    reference_values[i] = 0; /* Test zero memory behavior. */
+
+                if (heaps[i])
+                    ID3D12Heap_Release(heaps[i]);
+                if (buffers[i])
+                    ID3D12Resource_Release(buffers[i]);
+                if (readback_buffers[i])
+                    ID3D12Resource_Release(readback_buffers[i]);
+
+                heaps[i] = NULL;
+                buffers[i] = NULL;
+                readback_buffers[i] = NULL;
+
+                memset(&heap_desc, 0, sizeof(heap_desc));
+                heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+                heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+                heap_desc.SizeInBytes = alloc_size;
+                heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+                /* If we're clearing ourselves, this should be moot. Check that it doesn't cause issues. */
+                if (clear_buffer && rand() % 2 == 0)
+                    heap_desc.Flags |= D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
+
+                if (alloc_heap)
+                {
+                    hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&heaps[i]);
+                    ok(SUCCEEDED(hr), "Failed to allocate heap.\n");
+                }
+
+                memset(&resource_desc, 0, sizeof(resource_desc));
+                resource_desc.Width = alloc_size;
+                resource_desc.DepthOrArraySize = 1;
+                resource_desc.Height = 1;
+                resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+                resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+                resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+                resource_desc.SampleDesc.Count = 1;
+                resource_desc.MipLevels = 1;
+                resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+                if (alloc_heap)
+                    hr = ID3D12Device_CreatePlacedResource(context.device, heaps[i], 0, &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL, &IID_ID3D12Resource, (void **)&buffers[i]);
+                else
+                    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_desc.Properties, D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL, &IID_ID3D12Resource, (void **)&buffers[i]);
+                ok(SUCCEEDED(hr), "Failed to create buffer.\n");
+
+                resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+                heap_desc.Properties.Type = D3D12_HEAP_TYPE_READBACK;
+                hr = ID3D12Device_CreateCommittedResource(context.device, &heap_desc.Properties, D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&readback_buffers[i]);
+                ok(SUCCEEDED(hr), "Failed to create readback buffer.\n");
+
+                uav_desc.Format = DXGI_FORMAT_R32_UINT;
+                uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+                uav_desc.Buffer.CounterOffsetInBytes = 0;
+                uav_desc.Buffer.FirstElement = 0;
+                uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
+                uav_desc.Buffer.StructureByteStride = 0;
+                uav_desc.Buffer.NumElements = alloc_size / 4;
+
+                desc_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(gpu_heap);
+                desc_handle.ptr += i * ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+                ID3D12Device_CreateUnorderedAccessView(context.device, buffers[i], NULL, &uav_desc, desc_handle);
+                desc_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_heap);
+                desc_handle.ptr += i * ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+                ID3D12Device_CreateUnorderedAccessView(context.device, buffers[i], NULL, &uav_desc, desc_handle);
+            }
+
+            if (reference_values[i] != 0)
+            {
+                const UINT values[4] = { reference_values[i], 0, 0, 0 };
+
+                gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(gpu_heap);
+                cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_heap);
+                gpu_handle.ptr += i * ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+                cpu_handle.ptr += i * ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+                ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(context.list, gpu_handle, cpu_handle, buffers[i], values, 0, NULL);
+            }
+
+            transition_resource_state(context.list, buffers[i], D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            ID3D12GraphicsCommandList_CopyResource(context.list, readback_buffers[i], buffers[i]);
+        }
+
+        /* Create a heap which needs to be zeroed.
+         * Test that we can safely free the heap after zero memory is flushed.
+         * For the first one, we free before ExecuteCommandLists, this should never attempt clearing memory.
+         * For the second one, we have flushed, so we expect a CPU stall where we wait for zeromemory to complete. */
+        alloc_size = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT * (1 + rand() % 20);
+        memset(&heap_desc, 0, sizeof(heap_desc));
+        heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+        heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+        heap_desc.SizeInBytes = alloc_size;
+        heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+        hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&dummy_heaps[0]);
+        ok(SUCCEEDED(hr), "Failed to allocate heap.\n");
+        hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&dummy_heaps[1]);
+        ok(SUCCEEDED(hr), "Failed to allocate heap.\n");
+
+        ID3D12GraphicsCommandList_Close(context.list);
+        ID3D12Heap_Release(dummy_heaps[0]);
+        ID3D12CommandQueue_ExecuteCommandLists(context.queue, 1, (ID3D12CommandList *const *)&context.list);
+        ID3D12Heap_Release(dummy_heaps[1]);
+
+        ID3D12CommandQueue_Signal(context.queue, fence, fence_value);
+        wait_for_fence(fence, fence_value);
+
+        for (i = 0; i < ARRAY_SIZE(readback_buffers); i++)
+        {
+            bool found_error = false;
+            UINT j, words, *mapped;
+            UINT last_value = 0;
+
+            words = ID3D12Resource_GetDesc(readback_buffers[i]).Width / 4;
+            last_value = 0;
+            hr = ID3D12Resource_Map(readback_buffers[i], 0, NULL, (void **)&mapped);
+            ok(SUCCEEDED(hr), "Failed to map readback buffer.\n");
+
+            if (SUCCEEDED(hr))
+            {
+                for (j = 0; j < words && !found_error; j++)
+                {
+                    last_value = mapped[j];
+                    found_error = mapped[j] != reference_values[i];
+                }
+                ok(!found_error, "Expected all words to be %u, but got %u.\n", reference_values[i], last_value);
+                ID3D12Resource_Unmap(readback_buffers[i], 0, NULL);
+            }
+        }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(heaps); i++)
+        if (heaps[i])
+            ID3D12Heap_Release(heaps[i]);
+    for (i = 0; i < ARRAY_SIZE(buffers); i++)
+        if (buffers[i])
+            ID3D12Resource_Release(buffers[i]);
+    for (i = 0; i < ARRAY_SIZE(readback_buffers); i++)
+        if (readback_buffers[i])
+            ID3D12Resource_Release(readback_buffers[i]);
+
+    ID3D12DescriptorHeap_Release(gpu_heap);
+    ID3D12DescriptorHeap_Release(cpu_heap);
+    ID3D12Fence_Release(fence);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     pfn_D3D12CreateDevice = get_d3d12_pfn(D3D12CreateDevice);
@@ -48088,4 +48309,5 @@ START_TEST(d3d12)
     run_test(test_undefined_read_typed_buffer_as_untyped_dxil);
     run_test(test_virtual_queries);
     run_test(test_vrs);
+    run_test(test_stress_suballocation);
 }
