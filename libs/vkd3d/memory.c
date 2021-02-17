@@ -485,6 +485,7 @@ static HRESULT vkd3d_memory_chunk_allocate_range(struct vkd3d_memory_chunk *chun
     vkd3d_memory_allocation_slice(allocation, &chunk->allocation,
             align(pick_range->offset, memory_requirements->alignment),
             memory_requirements->size);
+    allocation->chunk = chunk;
 
     /* Remove allocated range from the free list */
     l_length = allocation->offset - pick_range->offset;
@@ -607,7 +608,6 @@ static HRESULT vkd3d_memory_chunk_create(struct d3d12_device *device, struct vkd
         return hr;
     }
 
-    object->allocation.chunk = object;
     vkd3d_memory_chunk_insert_range(object, 0, 0, object->allocation.resource.size);
     *chunk = object;
 
