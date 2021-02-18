@@ -42286,11 +42286,12 @@ static void test_raytracing(void)
             stack_size = ID3D12StateObjectProperties_GetPipelineStackSize(props);
             ok(stack_size <= 8, "Stack size %u < 8.\n", stack_size);
 
-            /* Apparently even if we set stack size here, it will be clamped to the conservative stack size? */
+            /* Apparently even if we set stack size here, it will be clamped to the conservative stack size on AMD?
+             * Driver behavior on NV and AMD is different here, choose NV behavior as it makes more sense. */
             min_stack_size = stack_size;
-            ID3D12StateObjectProperties_SetPipelineStackSize(props, 64);
+            ID3D12StateObjectProperties_SetPipelineStackSize(props, 256);
             stack_size = ID3D12StateObjectProperties_GetPipelineStackSize(props);
-            ok(stack_size <= min_stack_size, "Stack size %u > %u.\n", stack_size, min_stack_size);
+            ok(stack_size <= min_stack_size || stack_size == 256, "Stack size %u > %u && %u != 256.\n", stack_size, min_stack_size, stack_size);
 
             ray_gen_sbt = ID3D12StateObjectProperties_GetShaderIdentifier(props, ray_gen);
             ray_hit_sbt = ID3D12StateObjectProperties_GetShaderIdentifier(props, ray_hit);
