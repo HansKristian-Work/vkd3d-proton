@@ -42222,18 +42222,18 @@ static void test_raytracing(void)
     {
         ID3D12StateObjectProperties *props;
         /* Why this is a separate interface, we will never know ... */
-        if (SUCCEEDED(ID3D12StateObject_QueryInterface(rt_pso, &IID_ID3D12StateObjectProperties, (void**)&props)))
+        if (SUCCEEDED(ID3D12StateObject_QueryInterface(rt_pso, &IID_ID3D12StateObjectProperties, (void **)&props)))
         {
             uint8_t sbt_data[4096];
-            static const uint16_t ray_closest[] = { 'R', 'a', 'y', 'H', 'i', 't', ':', ':', 'c', 'l', 'o', 's', 'e', 's', 't', 'h', 'i', 't', '\0' };
-            static const uint16_t ray_anyhit[] = { 'R', 'a', 'y', 'H', 'i', 't', ':', ':', 'a', 'n', 'y', 'h', 'i', 't', '\0' };
-            static const uint16_t ray_broken3[] = { 'R', 'a', 'y', 'H', 'i', 't', ':', ':', 'X', '\0' };
-            static const uint16_t ray_broken2[] = { 'R', 'a', 'y', 'H', 'i', 't', ':', ':', '\0' };
-            static const uint16_t ray_broken1[] = { 'R', 'a', 'y', 'H', 'i', 't', ':', '\0' };
-            static const uint16_t ray_broken0[] = { 'R', 'a', 'y', 'H', 'i', 't', '\0' };
-            static const uint16_t ray_gen[] = { 'R', 'a', 'y', 'G', 'e', 'n', '\0' };
-            static const uint16_t ray_hit[] = { 'R', 'a', 'y', 'H', 'i', 't', '\0' };
-            static const uint16_t ray_miss[] = { 'R', 'a', 'y', 'M', 'i', 's', 's', '\0' };
+            static const WCHAR ray_closest[] = u"RayHit::closesthit";
+            static const WCHAR ray_anyhit[] = u"RayHit::anyhit";
+            static const WCHAR ray_broken3[] = u"RayHit::X";
+            static const WCHAR ray_broken2[] = u"RayHit::";
+            static const WCHAR ray_broken1[] = u"RayHit:";
+            static const WCHAR ray_broken0[] = u"RayHit";
+            static const WCHAR ray_gen[] = u"RayGen";
+            static const WCHAR ray_hit[] = u"RayHit";
+            static const WCHAR ray_miss[] = u"RayMiss";
             ID3D12StateObject *tmp_rt_pso;
             unsigned int min_stack_size;
             const void* ray_gen_sbt;
