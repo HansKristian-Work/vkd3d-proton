@@ -47850,23 +47850,30 @@ static void test_vrs(void)
     destroy_test_context(&context);
 }
 
-static void test_stress_suballocation(void)
+struct suballocation_thread_data
 {
+    struct test_context *context;
+    unsigned int seed;
+};
+
+static void test_stress_suballocation_thread(void *userdata)
+{
+    struct suballocation_thread_data *thread_data = userdata;
+    struct test_context *context = thread_data->context;
+
 #define SUBALLOC_TEST_NUM_BUFFERS 128
 #define SUBALLOC_TEST_NUM_ITERATIONS 64
     ID3D12Resource *readback_buffers[SUBALLOC_TEST_NUM_BUFFERS] = { NULL };
     ID3D12Resource *buffers[SUBALLOC_TEST_NUM_BUFFERS] = { NULL };
     UINT reference_values[SUBALLOC_TEST_NUM_BUFFERS] = { 0 };
     ID3D12Heap *heaps[SUBALLOC_TEST_NUM_BUFFERS] = { NULL };
-    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
-    D3D12_CPU_DESCRIPTOR_HANDLE desc_handle;
-    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
-    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_ROOT_PARAMETER root_parameters[2];
+    ID3D12PipelineState *pipeline_state;
+    ID3D12RootSignature *root_signature;
     D3D12_RESOURCE_DESC resource_desc;
-    ID3D12DescriptorHeap *gpu_heap;
-    ID3D12DescriptorHeap *cpu_heap;
-    struct test_context_desc desc;
-    struct test_context context;
+    ID3D12CommandAllocator *allocator;
+    ID3D12GraphicsCommandList *list;
     ID3D12Heap *dummy_heaps[2];
     D3D12_HEAP_DESC heap_desc;
     unsigned int iter, i;
@@ -47874,56 +47881,101 @@ static void test_stress_suballocation(void)
     ID3D12Fence *fence;
     UINT64 fence_value;
     bool clear_buffer;
+    unsigned int seed;
     bool alloc_heap;
     bool keep_alive;
     UINT alloc_size;
     HRESULT hr;
 
-    memset(&desc, 0, sizeof(desc));
-    desc.no_render_target = true;
-    desc.no_pipeline = true;
-    desc.no_root_signature = true;
-    if (!init_test_context(&context, &desc))
-        return;
+    static const DWORD cs_code[] =
+    {
+#if 0
+        RWStructuredBuffer<uint> Buf : register(u0);
+        cbuffer CBuf : register(b0) { uint clear_value; };
 
-    ID3D12Device_CreateFence(context.device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence);
+        [numthreads(64, 1, 1)]
+        void main(uint thr : SV_DispatchThreadID)
+        {
+            Buf[thr] = clear_value;
+        }
+#endif
+        0x43425844, 0x687983cd, 0xe75a9b58, 0xa77e1917, 0x78d96804, 0x00000001, 0x000000c0, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x0000006c, 0x00050050, 0x0000001b, 0x0100086a,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0400009e, 0x0011e000, 0x00000000, 0x00000004,
+        0x0200005f, 0x00020012, 0x0400009b, 0x00000040, 0x00000001, 0x00000001, 0x090000a8, 0x0011e012,
+        0x00000000, 0x0002000a, 0x00004001, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0100003e,
+    };
+
+    seed = thread_data->seed;
+
+#ifdef _WIN32
+    /* rand_r() doesn't exist, but rand() does and is MT safe on Win32. */
+#define rand_r(x) rand()
+    srand(seed);
+#endif
+
+    root_signature_desc.NumParameters = 2;
+    root_signature_desc.Flags = 0;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.pParameters = root_parameters;
+
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[0].Descriptor.RegisterSpace = 0;
+    root_parameters[0].Descriptor.ShaderRegister = 0;
+
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[1].Constants.RegisterSpace = 0;
+    root_parameters[1].Constants.ShaderRegister = 0;
+    root_parameters[1].Constants.Num32BitValues = 1;
+
+    hr = create_root_signature(context->device, &root_signature_desc, &root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature.\n");
+
+    pipeline_state = create_compute_pipeline_state(context->device, root_signature,
+            shader_bytecode(cs_code, sizeof(cs_code)));
+
+    hr = ID3D12Device_CreateCommandAllocator(context->device, D3D12_COMMAND_LIST_TYPE_DIRECT, &IID_ID3D12CommandAllocator, (void **)&allocator);
+    ok(SUCCEEDED(hr), "Failed to create command allocator.\n");
+    hr = ID3D12Device_CreateCommandList(context->device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&list);
+    ok(SUCCEEDED(hr), "Failed to create command list.\n");
+    ID3D12GraphicsCommandList_Close(list);
+
+    ID3D12Device_CreateFence(context->device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence);
     fence_value = 0;
     reference_value = 0;
-
-    srand(42);
-
-    gpu_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, ARRAY_SIZE(buffers));
-    cpu_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, ARRAY_SIZE(buffers));
 
     hr = wait_for_fence(fence, fence_value);
     ok(SUCCEEDED(hr), "Failed to wait for fence.\n");
 
     /* Stress test internal implementation details. Perform many smaller allocations and verify that the allocation works as expected. */
-    ID3D12GraphicsCommandList_Close(context.list);
 
     for (iter = 0; iter < SUBALLOC_TEST_NUM_ITERATIONS; iter++)
     {
-        reset_command_list(context.list, context.allocator);
+        reset_command_list(list, allocator);
         fence_value++;
 
         for (i = 0; i < ARRAY_SIZE(heaps); i++)
         {
             /* Randomly allocate heaps and place a buffer on top of it. */
-            alloc_heap = rand() % 2 == 0;
-            alloc_size = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT * (1 + rand() % 20);
-            keep_alive = rand() % 2 == 0;
+            alloc_heap = rand_r(&seed) % 2 == 0;
+            alloc_size = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT * (1 + rand_r(&seed) % 20);
+            keep_alive = rand_r(&seed) % 2 == 0;
 
             if (buffers[i] && keep_alive)
             {
                 /* To test chunk allocator, make sure we don't free *everything* every iteration.
                    Just transition back to UAV state. */
-                transition_resource_state(context.list, buffers[i], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                transition_resource_state(list, buffers[i], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
                 /* If we reuse the buffer, always test explicit clear since we tested zero memory once already previous iteration. */
                 reference_values[i] = ++reference_value;
             }
             else
             {
-                clear_buffer = rand() % 2 == 0;
+                clear_buffer = rand_r(&seed) % 2 == 0;
                 if (clear_buffer)
                     reference_values[i] = ++reference_value;
                 else
@@ -47947,12 +47999,12 @@ static void test_stress_suballocation(void)
                 heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
 
                 /* If we're clearing ourselves, this should be moot. Check that it doesn't cause issues. */
-                if (clear_buffer && rand() % 2 == 0)
+                if (clear_buffer && rand_r(&seed) % 2 == 0)
                     heap_desc.Flags |= D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
 
                 if (alloc_heap)
                 {
-                    hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&heaps[i]);
+                    hr = ID3D12Device_CreateHeap(context->device, &heap_desc, &IID_ID3D12Heap, (void **)&heaps[i]);
                     ok(SUCCEEDED(hr), "Failed to allocate heap.\n");
                 }
 
@@ -47967,68 +48019,51 @@ static void test_stress_suballocation(void)
                 resource_desc.MipLevels = 1;
                 resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
                 if (alloc_heap)
-                    hr = ID3D12Device_CreatePlacedResource(context.device, heaps[i], 0, &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL, &IID_ID3D12Resource, (void **)&buffers[i]);
+                    hr = ID3D12Device_CreatePlacedResource(context->device, heaps[i], 0, &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL, &IID_ID3D12Resource, (void **)&buffers[i]);
                 else
-                    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_desc.Properties, D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL, &IID_ID3D12Resource, (void **)&buffers[i]);
+                    hr = ID3D12Device_CreateCommittedResource(context->device, &heap_desc.Properties, D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL, &IID_ID3D12Resource, (void **)&buffers[i]);
                 ok(SUCCEEDED(hr), "Failed to create buffer.\n");
 
                 resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
                 heap_desc.Properties.Type = D3D12_HEAP_TYPE_READBACK;
-                hr = ID3D12Device_CreateCommittedResource(context.device, &heap_desc.Properties, D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&readback_buffers[i]);
+                hr = ID3D12Device_CreateCommittedResource(context->device, &heap_desc.Properties, D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&readback_buffers[i]);
                 ok(SUCCEEDED(hr), "Failed to create readback buffer.\n");
-
-                uav_desc.Format = DXGI_FORMAT_R32_UINT;
-                uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-                uav_desc.Buffer.CounterOffsetInBytes = 0;
-                uav_desc.Buffer.FirstElement = 0;
-                uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
-                uav_desc.Buffer.StructureByteStride = 0;
-                uav_desc.Buffer.NumElements = alloc_size / 4;
-
-                desc_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(gpu_heap);
-                desc_handle.ptr += i * ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-                ID3D12Device_CreateUnorderedAccessView(context.device, buffers[i], NULL, &uav_desc, desc_handle);
-                desc_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_heap);
-                desc_handle.ptr += i * ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-                ID3D12Device_CreateUnorderedAccessView(context.device, buffers[i], NULL, &uav_desc, desc_handle);
             }
 
             if (reference_values[i] != 0)
             {
-                const UINT values[4] = { reference_values[i], 0, 0, 0 };
-
-                gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(gpu_heap);
-                cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_heap);
-                gpu_handle.ptr += i * ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-                cpu_handle.ptr += i * ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-                ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(context.list, gpu_handle, cpu_handle, buffers[i], values, 0, NULL);
+                ID3D12GraphicsCommandList_SetComputeRootSignature(list, root_signature);
+                ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(list, 0, ID3D12Resource_GetGPUVirtualAddress(buffers[i]));
+                ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(list, 1, 1, &reference_values[i], 0);
+                ID3D12GraphicsCommandList_SetPipelineState(list, pipeline_state);
+                ID3D12GraphicsCommandList_Dispatch(list, ID3D12Resource_GetDesc(buffers[i]).Width / (4 * 64), 1, 1);
             }
 
-            transition_resource_state(context.list, buffers[i], D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
-            ID3D12GraphicsCommandList_CopyResource(context.list, readback_buffers[i], buffers[i]);
+            transition_resource_state(list, buffers[i], D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            ID3D12GraphicsCommandList_CopyResource(list, readback_buffers[i], buffers[i]);
         }
 
         /* Create a heap which needs to be zeroed.
          * Test that we can safely free the heap after zero memory is flushed.
          * For the first one, we free before ExecuteCommandLists, this should never attempt clearing memory.
          * For the second one, we have flushed, so we expect a CPU stall where we wait for zeromemory to complete. */
-        alloc_size = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT * (1 + rand() % 20);
+        alloc_size = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT * (1 + rand_r(&seed) % 20);
         memset(&heap_desc, 0, sizeof(heap_desc));
         heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
         heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
         heap_desc.SizeInBytes = alloc_size;
         heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
-        hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&dummy_heaps[0]);
+        hr = ID3D12Device_CreateHeap(context->device, &heap_desc, &IID_ID3D12Heap, (void **)&dummy_heaps[0]);
         ok(SUCCEEDED(hr), "Failed to allocate heap.\n");
-        hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&dummy_heaps[1]);
+        hr = ID3D12Device_CreateHeap(context->device, &heap_desc, &IID_ID3D12Heap, (void **)&dummy_heaps[1]);
         ok(SUCCEEDED(hr), "Failed to allocate heap.\n");
 
-        ID3D12GraphicsCommandList_Close(context.list);
+        ID3D12GraphicsCommandList_Close(list);
         ID3D12Heap_Release(dummy_heaps[0]);
-        ID3D12CommandQueue_ExecuteCommandLists(context.queue, 1, (ID3D12CommandList *const *)&context.list);
+        ID3D12CommandQueue_ExecuteCommandLists(context->queue, 1, (ID3D12CommandList *const *)&list);
         ID3D12Heap_Release(dummy_heaps[1]);
 
-        ID3D12CommandQueue_Signal(context.queue, fence, fence_value);
+        ID3D12CommandQueue_Signal(context->queue, fence, fence_value);
         wait_for_fence(fence, fence_value);
 
         for (i = 0; i < ARRAY_SIZE(readback_buffers); i++)
@@ -48065,9 +48100,59 @@ static void test_stress_suballocation(void)
         if (readback_buffers[i])
             ID3D12Resource_Release(readback_buffers[i]);
 
-    ID3D12DescriptorHeap_Release(gpu_heap);
-    ID3D12DescriptorHeap_Release(cpu_heap);
+    ID3D12PipelineState_Release(pipeline_state);
+    ID3D12RootSignature_Release(root_signature);
+    ID3D12GraphicsCommandList_Release(list);
+    ID3D12CommandAllocator_Release(allocator);
     ID3D12Fence_Release(fence);
+#undef rand_r
+}
+
+static void test_stress_suballocation(void)
+{
+    struct suballocation_thread_data data;
+    struct test_context_desc desc;
+    struct test_context context;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    desc.no_pipeline = true;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    data.context = &context;
+    data.seed = 42;
+    test_stress_suballocation_thread(&data);
+
+    destroy_test_context(&context);
+}
+
+static void test_stress_suballocation_multithread(void)
+{
+    struct suballocation_thread_data data[8];
+    struct test_context_desc desc;
+    struct test_context context;
+    HANDLE threads[8];
+    unsigned int i;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    desc.no_pipeline = true;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    for (i = 0; i < 8; i++)
+    {
+        data[i].context = &context;
+        data[i].seed = 42 + i;
+        threads[i] = create_thread(test_stress_suballocation_thread, &data[i]);
+    }
+
+    for (i = 0; i < 8; i++)
+        ok(join_thread(threads[i]), "Failed to join thread %u.\n", i);
+
     destroy_test_context(&context);
 }
 
@@ -48310,4 +48395,5 @@ START_TEST(d3d12)
     run_test(test_virtual_queries);
     run_test(test_vrs);
     run_test(test_stress_suballocation);
+    run_test(test_stress_suballocation_multithread);
 }
