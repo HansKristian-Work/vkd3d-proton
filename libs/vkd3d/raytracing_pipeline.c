@@ -256,8 +256,8 @@ static void STDMETHODCALLTYPE d3d12_state_object_properties_SetPipelineStackSize
     struct d3d12_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
     TRACE("iface %p, stack_size_in_bytes %llu!\n", iface);
 
-    /* This behavior seems to match what I'm seeing on AMD Windows driver. */
-    object->pipeline_stack_size = min(object->conservative_pipeline_stack_size, stack_size_in_bytes);
+    /* This behavior seems to match what I'm seeing on NV Windows driver. */
+    object->pipeline_stack_size = stack_size_in_bytes;
 }
 
 static CONST_VTBL struct ID3D12StateObjectVtbl d3d12_state_object_vtbl =
