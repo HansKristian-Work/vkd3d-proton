@@ -518,6 +518,7 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     D3D12_RESOURCE_DESC validated_desc;
     VkMemoryRequirements requirements;
+    VkDeviceSize target_alignment;
     VkImage vk_image;
     HRESULT hr;
 
@@ -532,13 +533,24 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
     }
 
     /* XXX: We have to create an image to get its memory requirements. */
-    if (SUCCEEDED(hr = vkd3d_create_image(device, &heap_properties, 0, desc, NULL, &vk_image)))
-    {
-        VK_CALL(vkGetImageMemoryRequirements(device->vk_device, vk_image, &requirements));
-        VK_CALL(vkDestroyImage(device->vk_device, vk_image, NULL));
+    if (FAILED(hr = vkd3d_create_image(device, &heap_properties, 0, desc, NULL, &vk_image)))
+        return hr;
 
-        allocation_info->SizeInBytes = requirements.size;
-        allocation_info->Alignment = requirements.alignment;
+    VK_CALL(vkGetImageMemoryRequirements(device->vk_device, vk_image, &requirements));
+    VK_CALL(vkDestroyImage(device->vk_device, vk_image, NULL));
+
+    allocation_info->SizeInBytes = requirements.size;
+    allocation_info->Alignment = requirements.alignment;
+
+    /* Do not report alignments greater than DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT
+     * since that might confuse apps. Instead, pad the allocation so that we can
+     * align the image ourselves. */
+    target_alignment = desc->Alignment ? desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+
+    if (allocation_info->Alignment > target_alignment)
+    {
+        allocation_info->SizeInBytes += allocation_info->Alignment - target_alignment;
+        allocation_info->Alignment = target_alignment;
     }
 
     return hr;
@@ -2349,46 +2361,6 @@ fail:
     return hr;
 }
 
-static HRESULT d3d12_resource_bind_image_memory(struct d3d12_resource *resource, struct d3d12_device *device)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkMemoryRequirements memory_requirements;
-    VkResult vr;
-    HRESULT hr;
-
-    VK_CALL(vkGetImageMemoryRequirements(device->vk_device, resource->res.vk_image, &memory_requirements));
-
-    /* TODO implement sparse fallback instead to enforce alignment */
-    if (resource->mem.offset & (memory_requirements.alignment - 1))
-    {
-        struct vkd3d_allocate_heap_memory_info allocate_info;
-
-        FIXME("Cannot allocate image %p with alignment %#"PRIx64" at heap offset %#"PRIx64", allocating device memory.\n",
-                resource->res.vk_image, memory_requirements.alignment, resource->mem.offset);
-
-        memset(&allocate_info, 0, sizeof(allocate_info));
-        allocate_info.heap_desc.Properties = resource->heap->desc.Properties;
-        allocate_info.heap_desc.SizeInBytes = memory_requirements.size;
-        allocate_info.heap_desc.Alignment = memory_requirements.alignment;
-        allocate_info.heap_desc.Flags = resource->heap->desc.Flags | D3D12_HEAP_FLAG_DENY_BUFFERS;
-
-        if (FAILED(hr = vkd3d_allocate_heap_memory(device,
-                &device->memory_allocator, &allocate_info, &resource->mem)))
-            return hr;
-
-        resource->flags |= VKD3D_RESOURCE_ALLOCATION;
-    }
-
-    if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, resource->res.vk_image,
-            resource->mem.vk_memory, resource->mem.offset)) < 0))
-    {
-        ERR("Failed to bind image memory, vr %d.\n", vr);
-        return hresult_from_vk_result(vr);
-    }
-
-    return S_OK;
-}
-
 static HRESULT d3d12_resource_validate_heap(const D3D12_RESOURCE_DESC *resource_desc, struct d3d12_heap *heap)
 {
     D3D12_HEAP_FLAGS deny_flag;
@@ -2420,7 +2392,10 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
         struct d3d12_heap *heap, uint64_t heap_offset, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkMemoryRequirements memory_requirements;
     struct d3d12_resource *object;
+    VkResult vr;
     HRESULT hr;
 
     if (FAILED(hr = d3d12_resource_validate_heap(desc, heap)))
@@ -2431,17 +2406,28 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
         return hr;
 
     object->heap = heap;
-    /* The exact allocation size is not important here since the
-     * resource does not own the allocation, so just set it to 0. */
-    vkd3d_memory_allocation_slice(&object->mem, &heap->allocation, heap_offset, 0);
 
     if (d3d12_resource_is_texture(object))
     {
         if (FAILED(hr = d3d12_resource_create_vk_resource(object, device)))
             goto fail;
 
-        if (FAILED(hr = d3d12_resource_bind_image_memory(object, device)))
+        /* Align manually. This works because we padded the required allocation size reported to the app. */
+        VK_CALL(vkGetImageMemoryRequirements(device->vk_device, object->res.vk_image, &memory_requirements));
+        heap_offset = align(heap_offset, memory_requirements.alignment);
+    }
+
+    vkd3d_memory_allocation_slice(&object->mem, &heap->allocation, heap_offset, 0);
+
+    if (d3d12_resource_is_texture(object))
+    {
+        if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, object->res.vk_image,
+                object->mem.vk_memory, object->mem.offset)) < 0))
+        {
+            ERR("Failed to bind image memory, vr %d.\n", vr);
+            hr = hresult_from_vk_result(vr);
             goto fail;
+        }
     }
     else
     {
