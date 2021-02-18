@@ -6474,8 +6474,16 @@ static HRESULT STDMETHODCALLTYPE d3d12_query_heap_SetName(ID3D12QueryHeap *iface
 
     TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
 
-    return vkd3d_set_vk_object_name(heap->device, (uint64_t)heap->vk_query_pool,
-            VK_OBJECT_TYPE_QUERY_POOL, name);
+    if (heap->vk_query_pool)
+    {
+        return vkd3d_set_vk_object_name(heap->device, (uint64_t)heap->vk_query_pool,
+                VK_OBJECT_TYPE_QUERY_POOL, name);
+    }
+    else /*if (heap->vk_buffer)*/
+    {
+        return vkd3d_set_vk_object_name(heap->device, (uint64_t)heap->vk_buffer,
+                VK_OBJECT_TYPE_BUFFER, name);
+    }
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_query_heap_GetDevice(ID3D12QueryHeap *iface, REFIID iid, void **device)
