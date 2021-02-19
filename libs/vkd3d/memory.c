@@ -458,7 +458,7 @@ static HRESULT vkd3d_memory_chunk_allocate_range(struct vkd3d_memory_chunk *chun
     {
         struct vkd3d_memory_free_range *range = &chunk->free_ranges[i];
 
-        if (range->offset + range->length - align(range->offset, memory_requirements->alignment) < memory_requirements->size)
+        if (range->offset + range->length < align(range->offset, memory_requirements->alignment) + memory_requirements->size)
             continue;
 
         /* Exact fit leaving no gaps */
