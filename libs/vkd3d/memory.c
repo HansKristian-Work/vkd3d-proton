@@ -1067,6 +1067,7 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         struct vkd3d_memory_allocation *allocation)
 {
+    const D3D12_HEAP_FLAGS heap_flag_mask = ~(D3D12_HEAP_FLAG_CREATE_NOT_ZEROED | D3D12_HEAP_FLAG_CREATE_NOT_RESIDENT);
     struct vkd3d_memory_chunk *chunk;
     HRESULT hr;
     size_t i;
@@ -1081,7 +1082,7 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
         /* Match flags since otherwise the backing buffer
          * may not support our required usage flags */
         if (chunk->allocation.heap_type != heap_properties->Type ||
-                chunk->allocation.heap_flags != heap_flags)
+                chunk->allocation.heap_flags != (heap_flags & heap_flag_mask))
             continue;
 
         /* Filter out unsupported memory types */
@@ -1095,7 +1096,7 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
     /* Try allocating a new chunk on one of the supported memory type
      * before the caller falls back to potentially slower memory */
     if (FAILED(hr = vkd3d_memory_allocator_add_chunk(allocator, device, heap_properties,
-            heap_flags, memory_requirements->memoryTypeBits, &chunk)))
+            heap_flags & heap_flag_mask, memory_requirements->memoryTypeBits, &chunk)))
         return hr;
 
     return vkd3d_memory_chunk_allocate_range(chunk, memory_requirements, allocation);
