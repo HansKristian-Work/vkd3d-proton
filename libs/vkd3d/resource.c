@@ -2306,6 +2306,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct d3d12_resource *object;
     HRESULT hr;
 
@@ -2315,12 +2316,37 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
 
     if (d3d12_resource_is_texture(object))
     {
-        struct vkd3d_allocate_resource_memory_info allocate_info;
+        VkMemoryDedicatedRequirements dedicated_requirements;
+        struct vkd3d_allocate_memory_info allocate_info;
+        VkMemoryDedicatedAllocateInfo dedicated_info;
+        VkImageMemoryRequirementsInfo2 image_info;
+        VkMemoryRequirements2 memory_requirements;
+        bool use_dedicated_allocation;
+        VkResult vr;
 
         if (FAILED(hr = d3d12_resource_create_vk_resource(object, device)))
             goto fail;
 
+        image_info.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2;
+        image_info.pNext = NULL;
+        image_info.image = object->res.vk_image;
+
+        dedicated_requirements.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS;
+        dedicated_requirements.pNext = NULL;
+
+        memory_requirements.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
+        memory_requirements.pNext = &dedicated_requirements;
+
+        VK_CALL(vkGetImageMemoryRequirements2(device->vk_device, &image_info, &memory_requirements));
+
+        if (!(use_dedicated_allocation = dedicated_requirements.prefersDedicatedAllocation))
+        {
+            const uint32_t type_mask = memory_requirements.memoryRequirements.memoryTypeBits & device->memory_info.global_mask;
+            use_dedicated_allocation = (type_mask & device->memory_info.buffer_type_mask) != type_mask;
+        }
+
         memset(&allocate_info, 0, sizeof(allocate_info));
+        allocate_info.memory_requirements = memory_requirements.memoryRequirements;
         allocate_info.heap_properties = *heap_properties;
         allocate_info.heap_flags = heap_flags;
 
@@ -2329,11 +2355,32 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         else
             allocate_info.heap_flags |= D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
 
-        allocate_info.vk_image = object->res.vk_image;
+        if (use_dedicated_allocation)
+        {
+            dedicated_info.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
+            dedicated_info.pNext = NULL;
+            dedicated_info.image = object->res.vk_image;
+            dedicated_info.buffer = VK_NULL_HANDLE;
+            allocate_info.pNext = &dedicated_info;
+        }
+        else
+        {
+            /* We want to allow suballocations and we need the allocation to
+             * be cleared to zero, which only works if we allow buffers */
+            allocate_info.heap_flags &= ~D3D12_HEAP_FLAG_DENY_BUFFERS;
+            allocate_info.flags = VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER;
+        }
 
-        if (FAILED(hr = vkd3d_allocate_resource_memory(device,
-                &device->memory_allocator, &allocate_info, &object->mem)))
+        if (FAILED(hr = vkd3d_allocate_memory(device, &device->memory_allocator, &allocate_info, &object->mem)))
             goto fail;
+
+        if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, object->res.vk_image,
+                object->mem.vk_memory, object->mem.offset))))
+        {
+            ERR("Failed to bind image memory, vr %d.\n", vr);
+            hr = hresult_from_vk_result(vr);
+            goto fail;
+        }
     }
     else
     {
