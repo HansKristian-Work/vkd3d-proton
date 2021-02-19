@@ -680,6 +680,7 @@ struct d3d12_resource
 
     D3D12_RESOURCE_DESC desc;
     D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_HEAP_FLAGS heap_flags;
     struct vkd3d_memory_allocation mem;
     struct vkd3d_unique_resource res;
 
