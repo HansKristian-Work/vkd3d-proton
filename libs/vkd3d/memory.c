@@ -329,12 +329,6 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
         memory_requirements = info->memory_requirements;
     }
 
-    /* For dedicated buffer allocations we should assign the existing
-     * buffer for address lookup purposes, but take care not to destroy
-     * it when freeing the allocation. */
-    if (allocation->flags & VKD3D_ALLOCATION_FLAG_DEDICATED_BUFFER)
-        allocation->resource.vk_buffer = info->vk_buffer;
-
     type_mask = vkd3d_select_memory_types(device, &info->heap_properties,
             info->heap_flags) & memory_requirements.memoryTypeBits;
 
@@ -1196,55 +1190,6 @@ HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_mem
         alloc_info.flags |= VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER;
 
     return vkd3d_allocate_memory(device, allocator, &alloc_info, allocation);
-}
-
-HRESULT vkd3d_allocate_resource_memory(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
-        const struct vkd3d_allocate_resource_memory_info *info, struct vkd3d_memory_allocation *allocation)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    struct vkd3d_allocate_memory_info alloc_info;
-    VkMemoryDedicatedAllocateInfo dedicated_info;
-    VkResult vr;
-    HRESULT hr;
-
-    assert((!info->vk_image) != (!info->vk_buffer));
-
-    dedicated_info.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
-    dedicated_info.pNext = NULL;
-    dedicated_info.buffer = info->vk_buffer;
-    dedicated_info.image = info->vk_image;
-
-    memset(&alloc_info, 0, sizeof(alloc_info));
-    if (info->vk_image)
-        VK_CALL(vkGetImageMemoryRequirements(device->vk_device, info->vk_image, &alloc_info.memory_requirements));
-    else /* if (info->vk_buffer) */
-        VK_CALL(vkGetBufferMemoryRequirements(device->vk_device, info->vk_buffer, &alloc_info.memory_requirements));
-    alloc_info.heap_properties = info->heap_properties;
-    alloc_info.heap_flags = info->heap_flags;
-    alloc_info.host_ptr = info->host_ptr;
-    alloc_info.vk_buffer = info->vk_buffer;
-    alloc_info.pNext = &dedicated_info;
-
-    if (info->vk_buffer)
-        alloc_info.flags = VKD3D_ALLOCATION_FLAG_DEDICATED_BUFFER;
-
-    if (FAILED(hr = vkd3d_allocate_memory(device, allocator, &alloc_info, allocation)))
-        return hr;
-
-    /* Buffer memory binds are handled in vkd3d_allocate_memory,
-     * so we only need to handle image memory here */
-    if (info->vk_image)
-    {
-        if ((vr = VK_CALL(vkBindImageMemory(device->vk_device,
-                info->vk_image, allocation->vk_memory, allocation->offset))) < 0)
-        {
-            ERR("Failed to bind image memory, vr %d.\n", vr);
-            vkd3d_free_memory(device, allocator, allocation);
-            return hresult_from_vk_result(vr);
-        }
-    }
-
-    return S_OK;
 }
 
 HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer,
