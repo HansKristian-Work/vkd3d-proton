@@ -1746,7 +1746,6 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
 static HRESULT d3d12_swapchain_present(struct d3d12_swapchain *swapchain,
         unsigned int sync_interval, unsigned int flags)
 {
-    HANDLE frame_latency_event;
     VkQueue vk_queue;
     VkResult vr;
     HRESULT hr;
@@ -1808,19 +1807,20 @@ static HRESULT d3d12_swapchain_present(struct d3d12_swapchain *swapchain,
         return hresult_from_vk_result(vr);
     }
 
-    if ((frame_latency_event = swapchain->frame_latency_event))
+    ++swapchain->frame_number;
+
+    if (FAILED(hr = ID3D12CommandQueue_Signal(d3d12_swapchain_queue_iface(swapchain),
+            swapchain->frame_latency_fence, swapchain->frame_number)))
     {
-        ++swapchain->frame_number;
+        ERR("Failed to signal frame latency fence, hr %#x.\n", hr);
+        return hr;
+    }
 
-        if (FAILED(hr = ID3D12CommandQueue_Signal(d3d12_swapchain_queue_iface(swapchain),
-                swapchain->frame_latency_fence, swapchain->frame_number)))
-        {
-            ERR("Failed to signal frame latency fence, hr %#x.\n", hr);
-            return hr;
-        }
-
+    if (swapchain->frame_latency_event)
+    {
         if (FAILED(hr = ID3D12Fence_SetEventOnCompletion(swapchain->frame_latency_fence,
-                swapchain->frame_number - swapchain->frame_latency, frame_latency_event)))
+                swapchain->frame_number - swapchain->frame_latency,
+                swapchain->frame_latency_event)))
         {
             ERR("Failed to enqueue frame latency event, hr %#x.\n", hr);
             return hr;
@@ -2660,18 +2660,18 @@ static HRESULT d3d12_swapchain_init(struct d3d12_swapchain *swapchain, IDXGIFact
 
     swapchain->current_buffer_index = 0;
 
+    swapchain->frame_number = DXGI_MAX_SWAP_CHAIN_BUFFERS;
+    if (FAILED(hr = ID3D12Device6_CreateFence(d3d12_swapchain_device_iface(swapchain), DXGI_MAX_SWAP_CHAIN_BUFFERS,
+            0, &IID_ID3D12Fence, (void **)&swapchain->frame_latency_fence)))
+    {
+        WARN("Failed to create frame latency fence, hr %#x.\n", hr);
+        d3d12_swapchain_destroy(swapchain);
+        return hr;
+    }
+
     if (swapchain_desc->Flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT)
     {
-        swapchain->frame_number = DXGI_MAX_SWAP_CHAIN_BUFFERS;
         swapchain->frame_latency = 1;
-
-        if (FAILED(hr = ID3D12Device6_CreateFence(d3d12_swapchain_device_iface(swapchain), DXGI_MAX_SWAP_CHAIN_BUFFERS,
-                0, &IID_ID3D12Fence, (void **)&swapchain->frame_latency_fence)))
-        {
-            WARN("Failed to create frame latency fence, hr %#x.\n", hr);
-            d3d12_swapchain_destroy(swapchain);
-            return hr;
-        }
 
         if (!(swapchain->frame_latency_event = CreateEventW(NULL, FALSE, TRUE, NULL)))
         {
