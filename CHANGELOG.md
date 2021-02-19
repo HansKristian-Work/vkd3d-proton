@@ -1,5 +1,47 @@
 # Change Log
 
+## 2.2
+
+This release is mostly a maintenance release which fixes bugs and regressions.
+It also unblocks significant future feature development.
+
+### Workaround removals
+
+- Replace old `force_bindless_texel_buffer` workaround with
+  a more correct and performant implementation.
+  Death Stranding and Cyberpunk 2077 (and probably other games as well) do the right thing by default without the hack now.
+- Remove old workaround `disable_query_optimization` for occlusion queries which was enabled for AC: Valhalla,
+  and is now replaced by a correct and efficient implementation.
+
+#### Cyberpunk 2077 status
+From recent testing on our end, it is unknown at this time if `VK_VALVE_mutable_descriptor_type` is still required for
+Cyberpunk 2077. Manual testing hasn't been able to trigger a GPU hang.
+The memory allocation rewrite in 2.2 can plausibly work around some of the bugs that `VK_VALVE_mutable_descriptor_type` fixed by accident.
+The bugs in question could also have been fixed since release day, but we cannot prove this since the bug is completely random in nature.
+
+### Regression fixes
+
+- Fix regression in Horizon Zero Dawn for screen space reflections on water surfaces.
+
+### Stability fixes
+
+- Greatly improve stability on Polaris or older cards for certain titles.
+  Crashes which used to happen in Horizon Zero Dawn and Death Stranding seem to have disappeared
+  after the memory allocation rewrite.
+  GPU memory usage should decrease on these cards as well.
+- DIRT 5 can get in-game now due to DXIL fixes, but is not yet playable.
+
+### New features
+
+- Add support for Variable Rate Shading tier 1.
+
+### Future development
+
+DXR is not yet supported, but has seen a fair bit of background work.
+
+- Basic DXR pipelines can be created successfully.
+- Memory allocation rewrite in 2.2 unblocks further DXR development.
+
 ## 2.1
 
 This release fixes various bugs (mostly workarounds) and improves GPU-bound performance.
