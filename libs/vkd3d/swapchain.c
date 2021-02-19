@@ -1358,12 +1358,13 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
         return hresult_from_vk_result(vr);
     }
 
-    image_count = swapchain->desc.BufferCount;
+    /* Need to account for the front buffer, so + 1 */
+    image_count = swapchain->desc.BufferCount + 1;
     image_count = max(image_count, surface_caps.minImageCount);
     if (surface_caps.maxImageCount)
         image_count = min(image_count, surface_caps.maxImageCount);
 
-    if (image_count != swapchain->desc.BufferCount)
+    if (image_count != (swapchain->desc.BufferCount + 1))
     {
         WARN("Buffer count %u is not supported (%u-%u).\n", swapchain->desc.BufferCount,
                 surface_caps.minImageCount, surface_caps.maxImageCount);
