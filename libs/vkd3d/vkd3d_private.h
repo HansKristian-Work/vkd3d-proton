@@ -460,9 +460,8 @@ HRESULT d3d12_fence_create(struct d3d12_device *device,
 enum vkd3d_allocation_flag
 {
     VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER     = (1u << 0),
-    VKD3D_ALLOCATION_FLAG_DEDICATED_BUFFER  = (1u << 1),
-    VKD3D_ALLOCATION_FLAG_GPU_ADDRESS       = (1u << 2),
-    VKD3D_ALLOCATION_FLAG_CPU_ACCESS        = (1u << 3),
+    VKD3D_ALLOCATION_FLAG_GPU_ADDRESS       = (1u << 1),
+    VKD3D_ALLOCATION_FLAG_CPU_ACCESS        = (1u << 2),
 };
 
 #define VKD3D_MEMORY_CHUNK_SIZE (VKD3D_VA_BLOCK_SIZE * 16)
@@ -474,7 +473,6 @@ struct vkd3d_allocate_memory_info
     VkMemoryRequirements memory_requirements;
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_HEAP_FLAGS heap_flags;
-    VkBuffer vk_buffer;
     void *host_ptr;
     const void *pNext;
     uint32_t flags;
@@ -590,8 +588,6 @@ HRESULT vkd3d_allocate_memory(struct d3d12_device *device, struct vkd3d_memory_a
         const struct vkd3d_allocate_memory_info *info, struct vkd3d_memory_allocation *allocation);
 HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
         const struct vkd3d_allocate_heap_memory_info *info, struct vkd3d_memory_allocation *allocation);
-HRESULT vkd3d_allocate_resource_memory(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
-        const struct vkd3d_allocate_resource_memory_info *info, struct vkd3d_memory_allocation *allocation);
 
 HRESULT vkd3d_memory_allocator_init(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device);
 void vkd3d_memory_allocator_cleanup(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device);
