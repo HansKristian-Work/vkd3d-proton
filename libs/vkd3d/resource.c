@@ -1643,7 +1643,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_GetHeapProperties(d3d12_resource
     if (heap_properties)
         *heap_properties = resource->heap_properties;
     if (flags)
-        *flags = resource->mem.heap_flags;
+        *flags = resource->heap_flags;
 
     return S_OK;
 }
@@ -2252,8 +2252,8 @@ static HRESULT d3d12_resource_create_vk_resource(struct d3d12_resource *resource
 
 static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags,
         const D3D12_RESOURCE_DESC *desc, const D3D12_HEAP_PROPERTIES *heap_properties,
-        D3D12_RESOURCE_STATES initial_state, const D3D12_CLEAR_VALUE *optimized_clear_value,
-        struct d3d12_resource **resource)
+        D3D12_HEAP_FLAGS heap_flags, D3D12_RESOURCE_STATES initial_state,
+        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
 {
     struct d3d12_resource *object;
     HRESULT hr;
@@ -2291,6 +2291,7 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
 
     if (heap_properties)
         object->heap_properties = *heap_properties;
+    object->heap_flags = heap_flags;
 
     d3d12_device_add_ref(device);
 
@@ -2311,7 +2312,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
     HRESULT hr;
 
     if (FAILED(hr = d3d12_resource_create(device, VKD3D_RESOURCE_COMMITTED | VKD3D_RESOURCE_ALLOCATION,
-            desc, heap_properties, initial_state, optimized_clear_value, &object)))
+            desc, heap_properties, heap_flags, initial_state, optimized_clear_value, &object)))
         return hr;
 
     if (d3d12_resource_is_texture(object))
@@ -2448,8 +2449,8 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
     if (FAILED(hr = d3d12_resource_validate_heap(desc, heap)))
         return hr;
 
-    if (FAILED(hr = d3d12_resource_create(device, VKD3D_RESOURCE_PLACED,
-            desc, &heap->desc.Properties, initial_state, optimized_clear_value, &object)))
+    if (FAILED(hr = d3d12_resource_create(device, VKD3D_RESOURCE_PLACED, desc,
+            &heap->desc.Properties, heap->desc.Flags, initial_state, optimized_clear_value, &object)))
         return hr;
 
     object->heap = heap;
@@ -2497,8 +2498,8 @@ HRESULT d3d12_resource_create_reserved(struct d3d12_device *device,
     struct d3d12_resource *object;
     HRESULT hr;
 
-    if (FAILED(hr = d3d12_resource_create(device, VKD3D_RESOURCE_RESERVED,
-            desc, NULL, initial_state, optimized_clear_value, &object)))
+    if (FAILED(hr = d3d12_resource_create(device, VKD3D_RESOURCE_RESERVED, desc,
+            NULL, D3D12_HEAP_FLAG_NONE, initial_state, optimized_clear_value, &object)))
         return hr;
 
     if (FAILED(hr = d3d12_resource_create_vk_resource(object, device)))
