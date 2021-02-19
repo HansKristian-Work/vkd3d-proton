@@ -48157,6 +48157,149 @@ static void test_stress_suballocation_multithread(void)
     destroy_test_context(&context);
 }
 
+static void test_placed_image_alignment(void)
+{
+    ID3D12Resource *readback_buffers[4096] = { NULL };
+    D3D12_TEXTURE_COPY_LOCATION copy_dst, copy_src;
+    D3D12_RESOURCE_ALLOCATION_INFO alloc_info;
+    D3D12_DESCRIPTOR_HEAP_DESC desc_heap_desc;
+    ID3D12Resource *images[4096] = { NULL };
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
+    D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
+    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_RESOURCE_BARRIER barrier;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12DescriptorHeap *rtvs;
+    D3D12_HEAP_DESC heap_desc;
+    unsigned int i, j;
+    D3D12_BOX src_box;
+    ID3D12Heap *heap;
+    HRESULT hr;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    desc.no_pipeline = true;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    /* Verifies that we don't screw up when using GPUs which require > 64k alignment for RTs (Polaris and older).
+     * We verify this by ensuring we don't get any fake internal allocations.
+     * If we do, we will certainly OOM the GPU since we're placing ~64 GB worth of textures. */
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    resource_desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Width = 1024;
+    resource_desc.Height = 1024;
+    resource_desc.MipLevels = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    alloc_info = ID3D12Device_GetResourceAllocationInfo(context.device, 0, 1, &resource_desc);
+    ok(alloc_info.Alignment <= D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT, "Requirement alignment %u is > 64KiB.\n", alloc_info.Alignment);
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    heap_desc.SizeInBytes = alloc_info.SizeInBytes + D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT * ARRAY_SIZE(images);
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES;
+
+    memset(&desc_heap_desc, 0, sizeof(desc_heap_desc));
+    desc_heap_desc.NumDescriptors = ARRAY_SIZE(images);
+    desc_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    hr = ID3D12Device_CreateDescriptorHeap(context.device, &desc_heap_desc, &IID_ID3D12DescriptorHeap, (void **)&rtvs);
+    ok(SUCCEEDED(hr), "Failed to create RTV heap.\n");
+
+    hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
+    ok(SUCCEEDED(hr), "Failed to create heap.\n");
+
+    for (i = 0; i < ARRAY_SIZE(images); i++)
+    {
+        hr = ID3D12Device_CreatePlacedResource(context.device, heap, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT * i, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&images[i]);
+        ok(SUCCEEDED(hr), "Failed to create placed resource.\n");
+
+        cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtvs);
+        cpu_handle.ptr += i * ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+
+        memset(&rtv_desc, 0, sizeof(rtv_desc));
+        rtv_desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+        rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+        ID3D12Device_CreateRenderTargetView(context.device, images[i], &rtv_desc, cpu_handle);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(images); i++)
+        readback_buffers[i] = create_readback_buffer(context.device, 16);
+
+    for (i = 0; i < ARRAY_SIZE(images); i++)
+    {
+        const FLOAT color[] = { i, i + 1, i + 2, i + 3 };
+        const RECT rect = { 0, 0, 1, 1 };
+
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_ALIASING;
+        barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+        barrier.Aliasing.pResourceAfter = images[i];
+        barrier.Aliasing.pResourceBefore = NULL;
+        ID3D12GraphicsCommandList_ResourceBarrier(context.list, 1, &barrier);
+        ID3D12GraphicsCommandList_DiscardResource(context.list, images[i], NULL);
+        cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtvs);
+        cpu_handle.ptr += i * ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+        ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, cpu_handle, color, 1, &rect);
+        transition_resource_state(context.list, images[i], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        copy_dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        copy_dst.pResource = readback_buffers[i];
+        copy_dst.PlacedFootprint.Offset = 0;
+        copy_dst.PlacedFootprint.Footprint.Width = 1;
+        copy_dst.PlacedFootprint.Footprint.Height = 1;
+        copy_dst.PlacedFootprint.Footprint.Depth = 1;
+        copy_dst.PlacedFootprint.Footprint.RowPitch = 1024; /* Needs to be large on D3D12. Doesn't matter here. */
+        copy_dst.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+
+        copy_src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        copy_src.SubresourceIndex = 0;
+        copy_src.pResource = images[i];
+
+        src_box.left = 0;
+        src_box.right = 1;
+        src_box.top = 0;
+        src_box.bottom = 1;
+        src_box.front = 0;
+        src_box.back = 1;
+
+        ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &copy_dst, 0, 0, 0, &copy_src, &src_box);
+    }
+
+    ID3D12GraphicsCommandList_Close(context.list);
+    ID3D12CommandQueue_ExecuteCommandLists(context.queue, 1, (ID3D12CommandList *const *)&context.list);
+    wait_queue_idle(context.device, context.queue);
+
+    for (i = 0; i < ARRAY_SIZE(readback_buffers); i++)
+    {
+        float *mapped = NULL;
+        hr = ID3D12Resource_Map(readback_buffers[i], 0, NULL, (void **)&mapped);
+        ok(SUCCEEDED(hr), "Failed to map buffer.\n");
+        if (mapped)
+        {
+            for (j = 0; j < 4; j++)
+                ok(mapped[j] == (float)(i + j), "Readback data for component %u is unxpected (%f != %f).\n", j, mapped[j], (float)(i + j));
+            ID3D12Resource_Unmap(readback_buffers[i], 0, NULL);
+        }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(images); i++)
+    {
+        ID3D12Resource_Release(images[i]);
+        ID3D12Resource_Release(readback_buffers[i]);
+    }
+    ID3D12DescriptorHeap_Release(rtvs);
+    ID3D12Heap_Release(heap);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     pfn_D3D12CreateDevice = get_d3d12_pfn(D3D12CreateDevice);
@@ -48397,4 +48540,5 @@ START_TEST(d3d12)
     run_test(test_vrs);
     run_test(test_stress_suballocation);
     run_test(test_stress_suballocation_multithread);
+    run_test(test_placed_image_alignment);
 }
