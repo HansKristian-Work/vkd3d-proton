@@ -84,9 +84,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_TIMELINE_SEMAPHORE, KHR_timeline_semaphore),
     VK_EXTENSION(KHR_SHADER_FLOAT16_INT8, KHR_shader_float16_int8),
     VK_EXTENSION(KHR_SHADER_SUBGROUP_EXTENDED_TYPES, KHR_shader_subgroup_extended_types),
-    VK_EXTENSION(KHR_RAY_TRACING_PIPELINE, KHR_ray_tracing_pipeline),
-    VK_EXTENSION(KHR_ACCELERATION_STRUCTURE, KHR_acceleration_structure),
-    VK_EXTENSION(KHR_DEFERRED_HOST_OPERATIONS, KHR_deferred_host_operations),
     VK_EXTENSION(KHR_SPIRV_1_4, KHR_spirv_1_4),
     VK_EXTENSION(KHR_SHADER_FLOAT_CONTROLS, KHR_shader_float_controls),
     VK_EXTENSION(KHR_FRAGMENT_SHADING_RATE, KHR_fragment_shading_rate),
@@ -1042,19 +1039,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->mutable_descriptor_features);
     }
 
-    if (vulkan_info->KHR_acceleration_structure && vulkan_info->KHR_ray_tracing_pipeline &&
-        vulkan_info->KHR_deferred_host_operations && vulkan_info->KHR_spirv_1_4)
-    {
-        info->acceleration_structure_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
-        info->acceleration_structure_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
-        info->ray_tracing_pipeline_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
-        info->ray_tracing_pipeline_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR;
-        vk_prepend_struct(&info->features2, &info->acceleration_structure_features);
-        vk_prepend_struct(&info->features2, &info->ray_tracing_pipeline_features);
-        vk_prepend_struct(&info->properties2, &info->acceleration_structure_properties);
-        vk_prepend_struct(&info->properties2, &info->ray_tracing_pipeline_properties);
-    }
-
     if (vulkan_info->KHR_shader_float_controls)
     {
         info->float_control_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT_CONTROLS_PROPERTIES_KHR;
@@ -1560,7 +1544,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         struct vkd3d_physical_device_info *physical_device_info)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
-    VkPhysicalDeviceAccelerationStructureFeaturesKHR *acceleration_structure;
     VkPhysicalDeviceBufferDeviceAddressFeaturesKHR *buffer_device_address;
     VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing;
     VkPhysicalDevice physical_device = device->vk_physical_device;
@@ -1622,9 +1605,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     descriptor_indexing = &physical_device_info->descriptor_indexing_features;
     descriptor_indexing->shaderInputAttachmentArrayDynamicIndexing = VK_FALSE;
     descriptor_indexing->shaderInputAttachmentArrayNonUniformIndexing = VK_FALSE;
-
-    acceleration_structure = &physical_device_info->acceleration_structure_features;
-    acceleration_structure->accelerationStructureCaptureReplay = VK_FALSE;
 
     if (vulkan_info->EXT_descriptor_indexing && descriptor_indexing
             && (descriptor_indexing->descriptorBindingUniformBufferUpdateAfterBind
@@ -4339,29 +4319,6 @@ static D3D12_TILED_RESOURCES_TIER d3d12_device_determine_tiled_resources_tier(st
     return D3D12_TILED_RESOURCES_TIER_2;
 }
 
-static D3D12_RAYTRACING_TIER d3d12_device_determine_ray_tracing_tier(struct d3d12_device *device)
-{
-    const struct vkd3d_physical_device_info *info = &device->device_info;
-
-    /* Currently disabled until fully supported, but add checks for now. */
-    if (info->ray_tracing_pipeline_features.rayTracingPipeline &&
-        info->acceleration_structure_features.accelerationStructure &&
-        info->ray_tracing_pipeline_properties.maxRayHitAttributeSize >= D3D12_RAYTRACING_MAX_ATTRIBUTE_SIZE_IN_BYTES &&
-        /* Group handle size must match exactly or ShaderRecord layout will not match.
-         * Can potentially fixup local root signature if HandleSize < 32,
-         * but Vulkan is essentially specced to match DXR directly. */
-        info->ray_tracing_pipeline_properties.shaderGroupHandleSize == D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES &&
-        info->ray_tracing_pipeline_properties.shaderGroupBaseAlignment <= D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT &&
-        info->ray_tracing_pipeline_properties.shaderGroupHandleAlignment <= D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT &&
-        info->ray_tracing_pipeline_properties.maxRayRecursionDepth >= D3D12_RAYTRACING_MAX_DECLARABLE_TRACE_RECURSION_DEPTH)
-    {
-        INFO("DXR could potentially be supported, but not enabling by default for now.\n");
-        return D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
-    }
-    else
-        return D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
-}
-
 static D3D12_RESOURCE_HEAP_TIER d3d12_device_determine_heap_tier(struct d3d12_device *device)
 {
     const VkPhysicalDeviceLimits *limits = &device->device_info.properties2.properties.limits;
@@ -4510,7 +4467,7 @@ static void d3d12_device_caps_init_feature_options5(struct d3d12_device *device)
     options5->SRVOnlyTiledResourceTier3 = options->TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_3;
     /* Currently not supported */
     options5->RenderPassesTier = D3D12_RENDER_PASS_TIER_0;
-    options5->RaytracingTier = d3d12_device_determine_ray_tracing_tier(device);
+    options5->RaytracingTier = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
 }
 
 static void d3d12_device_caps_init_feature_options6(struct d3d12_device *device)
@@ -4612,14 +4569,6 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
          * https://github.com/microsoft/DirectXShaderCompiler/wiki/Shader-Model-6.3
          * Ray tracing (lib_6_3 multi entry point targets).
          */
-        if (device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_2 &&
-            device->device_info.ray_tracing_pipeline_features.rayTracingPipeline &&
-            device->vk_info.KHR_spirv_1_4)
-        {
-            /* SPIR-V 1.4 is required for lib_6_3 since that is required for RT. */
-            device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_3;
-            TRACE("Enabling support for SM 6.3.\n");
-        }
 
         /* SM 6.4 adds:
          * https://github.com/microsoft/DirectXShaderCompiler/wiki/Shader-Model-6.4
