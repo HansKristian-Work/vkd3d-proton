@@ -153,6 +153,17 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
                 | VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_COUNTER_BUFFER_BIT_EXT;
     }
 
+    if (d3d12_device_supports_ray_tracing_tier_1_0(device))
+    {
+        /* Allows us to place GENERIC acceleration structures on top of VkBuffers.
+         * This should only be allowed on non-host visible heaps. UPLOAD / READBACK is banned
+         * because of resource state rules, but CUSTOM might be allowed, needs to be verified. */
+        if (heap_type == D3D12_HEAP_TYPE_DEFAULT || !is_cpu_accessible_heap(heap_properties))
+            buffer_info.usage |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR;
+        /* This is always allowed. Used for vertex/index buffer inputs to RTAS build. */
+        buffer_info.usage |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+    }
+
     if (heap_type == D3D12_HEAP_TYPE_UPLOAD)
         buffer_info.usage &= ~VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     else if (heap_type == D3D12_HEAP_TYPE_READBACK)
@@ -5952,6 +5963,15 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
             VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
             VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+
+    if (device->device_info.acceleration_structure_features.accelerationStructure)
+    {
+        /* Caps are not necessarily overridden yet.
+         * Enabling RTAS should not change acceptable memory mask, but to be safe ... */
+        buffer_info.usage |=
+                VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
+                VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+    }
 
     if ((vr = VK_CALL(vkCreateBuffer(device->vk_device, &buffer_info, NULL, &buffer))) < 0)
     {
