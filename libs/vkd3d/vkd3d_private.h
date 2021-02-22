@@ -928,6 +928,7 @@ struct d3d12_descriptor_heap
     ID3D12DescriptorHeap ID3D12DescriptorHeap_iface;
     LONG refcount;
 
+    uint64_t gpu_va;
     D3D12_DESCRIPTOR_HEAP_DESC desc;
 
     VkDescriptorPool vk_descriptor_pool;
@@ -955,6 +956,11 @@ struct d3d12_descriptor_heap *unsafe_impl_from_ID3D12DescriptorHeap(ID3D12Descri
 static inline uint32_t d3d12_desc_heap_offset(const struct d3d12_desc *dst)
 {
     return dst->heap_offset;
+}
+
+static inline uint32_t d3d12_desc_heap_offset_from_gpu_handle(D3D12_GPU_DESCRIPTOR_HANDLE handle)
+{
+    return (uint32_t)handle.ptr / sizeof(struct d3d12_desc);
 }
 
 /* ID3D12QueryHeap */
@@ -1395,7 +1401,7 @@ struct vkd3d_pipeline_bindings
     VkDescriptorSet static_sampler_set;
     uint32_t dirty_flags; /* vkd3d_pipeline_dirty_flags */
 
-    D3D12_GPU_DESCRIPTOR_HANDLE descriptor_tables[D3D12_MAX_ROOT_COST];
+    uint32_t descriptor_tables[D3D12_MAX_ROOT_COST];
     uint64_t descriptor_table_active_mask;
     uint64_t descriptor_heap_dirty_mask;
 
@@ -2330,6 +2336,11 @@ struct d3d12_device
     struct vkd3d_query_pool query_pools[VKD3D_VIRTUAL_QUERY_POOL_COUNT];
     size_t query_pool_count;
 
+    uint32_t *descriptor_heap_gpu_vas;
+    size_t descriptor_heap_gpu_va_count;
+    size_t descriptor_heap_gpu_va_size;
+    uint32_t descriptor_heap_gpu_next;
+
     HRESULT removed_reason;
 
     const struct vkd3d_format *depth_stencil_formats;
@@ -2358,6 +2369,9 @@ void d3d12_device_return_scratch_buffer(struct d3d12_device *device, const struc
 
 HRESULT d3d12_device_get_query_pool(struct d3d12_device *device, D3D12_QUERY_HEAP_TYPE heap_type, struct vkd3d_query_pool *pool);
 void d3d12_device_return_query_pool(struct d3d12_device *device, const struct vkd3d_query_pool *pool);
+
+uint64_t d3d12_device_get_descriptor_heap_gpu_va(struct d3d12_device *device);
+void d3d12_device_return_descriptor_heap_gpu_va(struct d3d12_device *device, uint64_t va);
 
 static inline HRESULT d3d12_device_query_interface(struct d3d12_device *device, REFIID iid, void **object)
 {

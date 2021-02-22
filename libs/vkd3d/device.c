@@ -2138,6 +2138,33 @@ void d3d12_device_return_scratch_buffer(struct d3d12_device *device, const struc
     }
 }
 
+uint64_t d3d12_device_get_descriptor_heap_gpu_va(struct d3d12_device *device)
+{
+    uint64_t va;
+
+    /* The virtual GPU descriptor VAs are of form (unique << 32) | (desc index * sizeof(d3d12_desc)),
+     * which simplifies local root signature tables.
+     * Also simplifies SetRootDescriptorTable since we can deduce offset without memory lookups. */
+
+    pthread_mutex_lock(&device->mutex);
+    if (device->descriptor_heap_gpu_va_count)
+        va = device->descriptor_heap_gpu_vas[--device->descriptor_heap_gpu_va_count];
+    else
+        va = ++device->descriptor_heap_gpu_next;
+    pthread_mutex_unlock(&device->mutex);
+    va <<= 32;
+    return va;
+}
+
+void d3d12_device_return_descriptor_heap_gpu_va(struct d3d12_device *device, uint64_t va)
+{
+    pthread_mutex_lock(&device->mutex);
+    vkd3d_array_reserve((void **)&device->descriptor_heap_gpu_vas, &device->descriptor_heap_gpu_va_size,
+            device->descriptor_heap_gpu_va_count + 1, sizeof(*device->descriptor_heap_gpu_vas));
+    device->descriptor_heap_gpu_vas[device->descriptor_heap_gpu_va_count++] = (uint32_t)(va >> 32);
+    pthread_mutex_unlock(&device->mutex);
+}
+
 static HRESULT d3d12_device_create_query_pool(struct d3d12_device *device, D3D12_QUERY_HEAP_TYPE heap_type, struct vkd3d_query_pool *pool)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -2299,6 +2326,8 @@ static void d3d12_device_destroy(struct d3d12_device *device)
 
     for (i = 0; i < device->query_pool_count; i++)
         d3d12_device_destroy_query_pool(device, &device->query_pools[i]);
+
+    vkd3d_free(device->descriptor_heap_gpu_vas);
 
     vkd3d_private_store_destroy(&device->private_store);
 
