@@ -4148,7 +4148,6 @@ static void d3d12_command_list_update_descriptor_table_offsets(struct d3d12_comm
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct vkd3d_shader_descriptor_table *table;
-    const struct d3d12_desc *base_descriptor;
     uint32_t table_offsets[D3D12_MAX_ROOT_COST];
     unsigned int root_parameter_index;
     uint64_t descriptor_table_mask;
@@ -4159,11 +4158,8 @@ static void d3d12_command_list_update_descriptor_table_offsets(struct d3d12_comm
     while (descriptor_table_mask)
     {
         root_parameter_index = vkd3d_bitmask_iter64(&descriptor_table_mask);
-        base_descriptor = d3d12_desc_from_gpu_handle(bindings->descriptor_tables[root_parameter_index]);
-
         table = root_signature_get_descriptor_table(root_signature, root_parameter_index);
-
-        table_offsets[table->table_index] = d3d12_desc_heap_offset(base_descriptor);
+        table_offsets[table->table_index] = bindings->descriptor_tables[root_parameter_index];
     }
 
     /* Set descriptor offsets */
@@ -4314,7 +4310,6 @@ static void d3d12_command_list_fetch_inline_uniform_block_data(struct d3d12_comm
     const struct vkd3d_shader_root_constant *root_constant;
     const uint32_t *src_data = bindings->root_constants;
     const struct vkd3d_shader_descriptor_table *table;
-    const struct d3d12_desc *base_descriptor;
     unsigned int root_parameter_index;
     uint64_t descriptor_table_mask;
     uint32_t first_table_offset;
@@ -4337,11 +4332,9 @@ static void d3d12_command_list_fetch_inline_uniform_block_data(struct d3d12_comm
     while (descriptor_table_mask)
     {
         root_parameter_index = vkd3d_bitmask_iter64(&descriptor_table_mask);
-        base_descriptor = d3d12_desc_from_gpu_handle(bindings->descriptor_tables[root_parameter_index]);
-
         table = root_signature_get_descriptor_table(root_signature, root_parameter_index);
-
-        dst_data->root_constants[first_table_offset + table->table_index] = d3d12_desc_heap_offset(base_descriptor);
+        dst_data->root_constants[first_table_offset + table->table_index] =
+                bindings->descriptor_tables[root_parameter_index];
     }
 
     /* Reset dirty flags to avoid redundant updates in the future */
@@ -6283,7 +6276,7 @@ static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *l
     table = root_signature_get_descriptor_table(root_signature, index);
 
     assert(table && index < ARRAY_SIZE(bindings->descriptor_tables));
-    bindings->descriptor_tables[index] = base_descriptor;
+    bindings->descriptor_tables[index] = d3d12_desc_heap_offset_from_gpu_handle(base_descriptor);
     bindings->descriptor_table_active_mask |= (uint64_t)1 << index;
 
     if (root_signature->descriptor_table_count)

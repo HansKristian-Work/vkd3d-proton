@@ -4709,7 +4709,7 @@ static D3D12_GPU_DESCRIPTOR_HANDLE * STDMETHODCALLTYPE d3d12_descriptor_heap_Get
 
     TRACE("iface %p, descriptor %p.\n", iface, descriptor);
 
-    descriptor->ptr = (uint64_t)(intptr_t)heap->descriptors;
+    descriptor->ptr = heap->gpu_va;
 
     return descriptor;
 }
@@ -5078,6 +5078,9 @@ static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descript
     descriptor_heap->device = device;
     descriptor_heap->desc = *desc;
 
+    if (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
+        descriptor_heap->gpu_va = d3d12_device_get_descriptor_heap_gpu_va(device);
+
     if (FAILED(hr = d3d12_descriptor_heap_create_descriptor_pool(descriptor_heap,
             &descriptor_heap->vk_descriptor_pool)))
         goto fail;
@@ -5165,7 +5168,7 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
         return E_INVALIDARG;
     }
 
-    max_descriptor_count = (~(size_t)0 - sizeof(*object)) / descriptor_size;
+    max_descriptor_count = (UINT32_MAX - sizeof(*object)) / descriptor_size;
     if (desc->NumDescriptors > max_descriptor_count)
     {
         WARN("Invalid descriptor count %u (max %zu).\n", desc->NumDescriptors, max_descriptor_count);
@@ -5198,10 +5201,13 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
 void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &descriptor_heap->device->vk_procs;
-    const struct d3d12_device *device = descriptor_heap->device;
+    struct d3d12_device *device = descriptor_heap->device;
 
     if (!descriptor_heap->vk_memory)
         vkd3d_free(descriptor_heap->host_memory);
+
+    if (descriptor_heap->gpu_va != 0)
+        d3d12_device_return_descriptor_heap_gpu_va(device, descriptor_heap->gpu_va);
 
     VK_CALL(vkDestroyBuffer(device->vk_device, descriptor_heap->vk_buffer, NULL));
     VK_CALL(vkFreeMemory(device->vk_device, descriptor_heap->vk_memory, NULL));
