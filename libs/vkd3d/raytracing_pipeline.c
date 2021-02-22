@@ -576,6 +576,8 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     else
         memset(&shader_interface_local_info, 0, sizeof(shader_interface_local_info));
 
+    shader_interface_local_info.descriptor_size = sizeof(struct d3d12_desc);
+
     for (i = 0; i < data->entry_points_count; i++)
     {
         entry = &data->entry_points[i];
