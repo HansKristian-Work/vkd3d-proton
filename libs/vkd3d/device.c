@@ -4757,8 +4757,6 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     HRESULT hr;
     int rc;
 
-    memset(device, 0, sizeof(*device));
-
 #ifdef VKD3D_ENABLE_PROFILING
     if (vkd3d_uses_profiling())
         device->ID3D12Device_iface.lpVtbl = &d3d12_device_vtbl_profiled;
@@ -4874,7 +4872,7 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
         return S_OK;
     }
 
-    if (!(object = vkd3d_malloc(sizeof(*object))))
+    if (!(object = vkd3d_calloc(1, sizeof(*object))))
     {
         pthread_mutex_unlock(&d3d12_device_map_mutex);
         return E_OUTOFMEMORY;
