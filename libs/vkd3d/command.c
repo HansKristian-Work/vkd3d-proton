@@ -645,11 +645,30 @@ static void d3d12_fence_unlock(struct d3d12_fence *fence)
     pthread_mutex_unlock(&fence->mutex);
 }
 
-static bool d3d12_fence_can_elide_wait_semaphore_locked(struct d3d12_fence *fence, uint64_t value)
+static bool d3d12_fence_can_elide_wait_semaphore_locked(struct d3d12_fence *fence, uint64_t value,
+        const struct vkd3d_queue *waiting_queue)
 {
+    unsigned int i;
+
     /* Relevant if the semaphore has been signalled already on host.
      * We should not wait on the timeline semaphore directly, we can simply submit in-place. */
-    return fence->virtual_value >= value;
+    if (fence->virtual_value >= value)
+        return true;
+
+    /* We can elide a wait if we can use the submission order guarantee.
+     * If there is a pending signal on this queue which will satisfy the wait,
+     * submission barrier will implicitly complete the wait,
+     * and we don't have to eat the overhead of submitting an extra wait on top.
+     * This will essentially always trigger on single-queue.
+     */
+    for (i = 0; i < fence->pending_updates_count; i++)
+    {
+        if (fence->pending_updates[i].signalling_queue == waiting_queue &&
+                fence->pending_updates[i].virtual_value >= value)
+            return true;
+    }
+
+    return false;
 }
 
 static HRESULT d3d12_fence_signal_cpu_timeline_semaphore(struct d3d12_fence *fence, uint64_t value)
@@ -674,7 +693,8 @@ static HRESULT d3d12_fence_signal_cpu_timeline_semaphore(struct d3d12_fence *fen
     return S_OK;
 }
 
-static uint64_t d3d12_fence_add_pending_signal_locked(struct d3d12_fence *fence, uint64_t virtual_value)
+static uint64_t d3d12_fence_add_pending_signal_locked(struct d3d12_fence *fence, uint64_t virtual_value,
+        const struct vkd3d_queue *signalling_queue)
 {
     struct d3d12_fence_value *update;
     vkd3d_array_reserve((void**)&fence->pending_updates, &fence->pending_updates_size,
@@ -683,6 +703,7 @@ static uint64_t d3d12_fence_add_pending_signal_locked(struct d3d12_fence *fence,
     update = &fence->pending_updates[fence->pending_updates_count++];
     update->virtual_value = virtual_value;
     update->physical_value = ++fence->counter;
+    update->signalling_queue = signalling_queue;
     return fence->counter;
 }
 
@@ -9018,6 +9039,9 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
     VkQueue vk_queue;
     VkResult vr;
 
+    vk_procs = &command_queue->device->vk_procs;
+    queue = command_queue->vkd3d_queue;
+
     d3d12_fence_lock(fence);
 
     /* This is the critical part required to support out-of-order signal.
@@ -9029,16 +9053,13 @@ static void d3d12_command_queue_wait(struct d3d12_command_queue *command_queue,
 
     /* If a host signal unblocked us, or we know that the fence has reached a specific value, there is no need
      * to queue up a wait. */
-    if (d3d12_fence_can_elide_wait_semaphore_locked(fence, value))
+    if (d3d12_fence_can_elide_wait_semaphore_locked(fence, value, queue))
     {
         d3d12_fence_unlock(fence);
         return;
     }
 
     TRACE("queue %p, fence %p, value %#"PRIx64".\n", command_queue, fence, value);
-
-    vk_procs = &command_queue->device->vk_procs;
-    queue = command_queue->vkd3d_queue;
 
     wait_count = d3d12_fence_get_physical_wait_value_locked(fence, value);
 
@@ -9104,7 +9125,7 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
 
     TRACE("queue %p, fence %p, value %#"PRIx64".\n", command_queue, fence, value);
 
-    physical_value = d3d12_fence_add_pending_signal_locked(fence, value);
+    physical_value = d3d12_fence_add_pending_signal_locked(fence, value, vkd3d_queue);
 
     signal_value = physical_value;
 
