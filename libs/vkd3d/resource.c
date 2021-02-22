@@ -4625,7 +4625,7 @@ static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_Release(ID3D12DescriptorHea
 
         d3d12_descriptor_heap_cleanup(heap);
         vkd3d_private_store_destroy(&heap->private_store);
-        vkd3d_free(heap);
+        vkd3d_free_aligned(heap);
 
         d3d12_device_release(device);
     }
@@ -5172,8 +5172,8 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
         return E_OUTOFMEMORY;
     }
 
-    if (!(object = vkd3d_malloc(offsetof(struct d3d12_descriptor_heap,
-            descriptors[descriptor_size * desc->NumDescriptors]))))
+    if (!(object = vkd3d_malloc_aligned(offsetof(struct d3d12_descriptor_heap,
+            descriptors[descriptor_size * desc->NumDescriptors]), D3D12_DESC_ALIGNMENT)))
         return E_OUTOFMEMORY;
 
     if (FAILED(hr = d3d12_descriptor_heap_init(object, device, desc)))

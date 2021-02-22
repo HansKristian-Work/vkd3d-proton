@@ -837,9 +837,16 @@ struct vkd3d_descriptor_data
     uint32_t flags;
 };
 
+#define D3D12_DESC_ALIGNMENT 64
 struct d3d12_desc
 {
-    struct vkd3d_descriptor_data metadata;
+    /* Align d3d12_desc to 64 bytes for two reasons.
+     * - We need a POT size when reporting GPU addresses.
+     *   In DXR, we will need to handle app-placed VAs in a local root signature,
+     *   and the fastest approach we can use is uint(VA) >> 6 to derive an index.
+     * - Can avoid false sharing on cache lines if multiple threads
+     *   modify adjacent descriptors somehow. */
+    DECLSPEC_ALIGN(D3D12_DESC_ALIGNMENT) struct vkd3d_descriptor_data metadata;
     struct d3d12_descriptor_heap *heap;
     uint32_t heap_offset;
     union
@@ -848,6 +855,7 @@ struct d3d12_desc
         struct vkd3d_view *view;
     } info;
 };
+STATIC_ASSERT(sizeof(struct d3d12_desc) == 64);
 
 static inline struct d3d12_desc *d3d12_desc_from_cpu_handle(D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle)
 {
@@ -937,7 +945,7 @@ struct d3d12_descriptor_heap
 
     struct vkd3d_private_store private_store;
 
-    BYTE descriptors[];
+    DECLSPEC_ALIGN(D3D12_DESC_ALIGNMENT) BYTE descriptors[];
 };
 
 HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
