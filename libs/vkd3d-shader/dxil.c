@@ -985,6 +985,19 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     }
 
     {
+        const struct dxil_spv_option_sbt_descriptor_size_log2 helper =
+                { { DXIL_SPV_OPTION_SBT_DESCRIPTOR_SIZE_LOG2 },
+                    vkd3d_bitmask_tzcnt32(shader_interface_local_info->descriptor_size),
+                    vkd3d_bitmask_tzcnt32(shader_interface_local_info->descriptor_size) };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support SBT_DESCRIPTOR_SIZE_LOG2.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
+    {
         const struct dxil_spv_option_bindless_offset_buffer_layout helper =
                 { { DXIL_SPV_OPTION_BINDLESS_OFFSET_BUFFER_LAYOUT },
                   0, 1, 2 };

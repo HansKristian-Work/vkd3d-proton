@@ -251,6 +251,7 @@ struct vkd3d_shader_interface_local_info
     unsigned int shader_record_buffer_count;
     const struct vkd3d_shader_resource_binding *bindings;
     unsigned int binding_count;
+    uint32_t descriptor_size;
 };
 
 struct vkd3d_shader_transform_feedback_element
