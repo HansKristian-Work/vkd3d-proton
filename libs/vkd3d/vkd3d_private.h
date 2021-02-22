@@ -297,14 +297,17 @@ struct vkd3d_va_map
 
     pthread_mutex_t mutex;
 
-    const struct vkd3d_unique_resource **small_entries;
+    struct vkd3d_unique_resource **small_entries;
     size_t small_entries_size;
     size_t small_entries_count;
 };
 
-void vkd3d_va_map_insert(struct vkd3d_va_map *va_map, const struct vkd3d_unique_resource *resource);
+void vkd3d_va_map_insert(struct vkd3d_va_map *va_map, struct vkd3d_unique_resource *resource);
 void vkd3d_va_map_remove(struct vkd3d_va_map *va_map, const struct vkd3d_unique_resource *resource);
 const struct vkd3d_unique_resource *vkd3d_va_map_deref(struct vkd3d_va_map *va_map, VkDeviceAddress va);
+VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3d_va_map *va_map,
+        struct d3d12_device *device,
+        VkDeviceAddress va);
 VkDeviceAddress vkd3d_va_map_alloc_fake_va(struct vkd3d_va_map *va_map, VkDeviceSize size);
 void vkd3d_va_map_free_fake_va(struct vkd3d_va_map *va_map, VkDeviceAddress va, VkDeviceSize size);
 void vkd3d_va_map_init(struct vkd3d_va_map *va_map);
@@ -494,6 +497,8 @@ struct vkd3d_allocate_resource_memory_info
     void *host_ptr;
 };
 
+struct vkd3d_view_map;
+
 struct vkd3d_unique_resource
 {
     union
@@ -504,6 +509,10 @@ struct vkd3d_unique_resource
     uint64_t cookie;
     VkDeviceAddress va;
     VkDeviceSize size;
+
+    /* This is used to handle views when we cannot bind it to a
+     * specific ID3D12Resource, i.e. RTAS. Only allocated as needed. */
+    struct vkd3d_view_map *view_map;
 };
 
 struct vkd3d_memory_allocation
@@ -759,6 +768,7 @@ enum vkd3d_view_type
     VKD3D_VIEW_TYPE_BUFFER,
     VKD3D_VIEW_TYPE_IMAGE,
     VKD3D_VIEW_TYPE_SAMPLER,
+    VKD3D_VIEW_TYPE_ACCELERATION_STRUCTURE
 };
 
 struct vkd3d_view
@@ -772,6 +782,7 @@ struct vkd3d_view
         VkBufferView vk_buffer_view;
         VkImageView vk_image_view;
         VkSampler vk_sampler;
+        VkAccelerationStructureKHR vk_acceleration_structure;
     };
     const struct vkd3d_format *format;
     union
@@ -818,6 +829,8 @@ struct vkd3d_texture_view_desc
 };
 
 bool vkd3d_create_buffer_view(struct d3d12_device *device,
+        const struct vkd3d_buffer_view_desc *desc, struct vkd3d_view **view);
+bool vkd3d_create_acceleration_structure_view(struct d3d12_device *device,
         const struct vkd3d_buffer_view_desc *desc, struct vkd3d_view **view);
 bool vkd3d_create_texture_view(struct d3d12_device *device,
         const struct vkd3d_texture_view_desc *desc, struct vkd3d_view **view);
@@ -2603,6 +2616,8 @@ static inline unsigned int d3d12_resource_desc_get_sub_resource_count(const D3D1
 }
 
 VkDeviceAddress vkd3d_get_buffer_device_address(struct d3d12_device *device, VkBuffer vk_buffer);
+VkDeviceAddress vkd3d_get_acceleration_structure_device_address(struct d3d12_device *device,
+        VkAccelerationStructureKHR vk_acceleration_structure);
 
 static inline VkDeviceAddress d3d12_resource_get_va(const struct d3d12_resource *resource, VkDeviceSize offset)
 {
