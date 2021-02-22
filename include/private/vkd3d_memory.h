@@ -57,4 +57,22 @@ static inline void vkd3d_free(void *ptr)
 bool vkd3d_array_reserve(void **elements, size_t *capacity,
         size_t element_count, size_t element_size);
 
+static inline void *vkd3d_malloc_aligned(size_t size, size_t align)
+{
+#ifdef _WIN32
+    return _aligned_malloc(size, align);
+#else
+    return aligned_alloc(align, size);
+#endif
+}
+
+static inline void vkd3d_free_aligned(void *ptr)
+{
+#ifdef _WIN32
+    _aligned_free(ptr);
+#else
+    free(ptr);
+#endif
+}
+
 #endif  /* __VKD3D_MEMORY_H */
