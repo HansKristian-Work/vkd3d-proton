@@ -92,16 +92,16 @@ static void vkd3d_va_map_cleanup_tree(struct vkd3d_va_tree *tree)
     }
 }
 
-static const struct vkd3d_unique_resource *vkd3d_va_map_find_small_entry(struct vkd3d_va_map *va_map,
+static struct vkd3d_unique_resource *vkd3d_va_map_find_small_entry(struct vkd3d_va_map *va_map,
         VkDeviceAddress va, size_t *index)
 {
-    const struct vkd3d_unique_resource *resource = NULL;
+    struct vkd3d_unique_resource *resource = NULL;
     size_t hi = va_map->small_entries_count;
     size_t lo = 0;
 
     while (lo < hi)
     {
-        const struct vkd3d_unique_resource *r;
+        struct vkd3d_unique_resource *r;
         size_t i = lo + (hi - lo) / 2;
 
         r = va_map->small_entries[i];
@@ -123,7 +123,7 @@ static const struct vkd3d_unique_resource *vkd3d_va_map_find_small_entry(struct 
     return resource;
 }
 
-void vkd3d_va_map_insert(struct vkd3d_va_map *va_map, const struct vkd3d_unique_resource *resource)
+void vkd3d_va_map_insert(struct vkd3d_va_map *va_map, struct vkd3d_unique_resource *resource)
 {
     VkDeviceAddress block_va, min_va, max_va;
     struct vkd3d_va_block *block;
@@ -219,10 +219,10 @@ void vkd3d_va_map_remove(struct vkd3d_va_map *va_map, const struct vkd3d_unique_
     }
 }
 
-const struct vkd3d_unique_resource *vkd3d_va_map_deref(struct vkd3d_va_map *va_map, VkDeviceAddress va)
+static struct vkd3d_unique_resource *vkd3d_va_map_deref_mutable(struct vkd3d_va_map *va_map, VkDeviceAddress va)
 {
     const struct vkd3d_va_block *block = vkd3d_va_map_find_block(va_map, va);
-    const struct vkd3d_unique_resource *resource = NULL;
+    struct vkd3d_unique_resource *resource = NULL;
 
     if (block)
     {
@@ -240,6 +240,64 @@ const struct vkd3d_unique_resource *vkd3d_va_map_deref(struct vkd3d_va_map *va_m
     }
 
     return resource;
+}
+
+const struct vkd3d_unique_resource *vkd3d_va_map_deref(struct vkd3d_va_map *va_map, VkDeviceAddress va)
+{
+    return vkd3d_va_map_deref_mutable(va_map, va);
+}
+
+VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3d_va_map *va_map,
+        struct d3d12_device *device,
+        VkDeviceAddress va)
+{
+    struct vkd3d_unique_resource *resource;
+    struct vkd3d_view_map *old_view_map;
+    struct vkd3d_view_map *view_map;
+    const struct vkd3d_view *view;
+    struct vkd3d_view_key key;
+
+    resource = vkd3d_va_map_deref_mutable(va_map, va);
+    if (!resource || !resource->va)
+        return VK_NULL_HANDLE;
+
+    view_map = vkd3d_atomic_ptr_load_explicit(&resource->view_map, vkd3d_memory_order_acquire);
+    if (!view_map)
+    {
+        /* This is the first time we attempt to place an AS on top of this allocation, so
+         * CAS in a pointer. */
+        view_map = vkd3d_malloc(sizeof(*view_map));
+        if (!view_map)
+            return VK_NULL_HANDLE;
+
+        if (FAILED(vkd3d_view_map_init(view_map)))
+        {
+            vkd3d_free(view_map);
+            return VK_NULL_HANDLE;
+        }
+
+        /* Need to release in case other RTASes are placed at the same time, so they observe
+         * the initialized view map, and need to acquire if some other thread placed it. */
+        old_view_map = vkd3d_atomic_ptr_compare_exchange(&resource->view_map, NULL, view_map,
+                vkd3d_memory_order_release, vkd3d_memory_order_acquire);
+        if (old_view_map)
+        {
+            vkd3d_view_map_destroy(view_map, device);
+            vkd3d_free(view_map);
+            view_map = old_view_map;
+        }
+    }
+
+    key.view_type = VKD3D_VIEW_TYPE_ACCELERATION_STRUCTURE;
+    key.u.buffer.buffer = resource->vk_buffer;
+    key.u.buffer.offset = va - resource->va;
+    key.u.buffer.size = resource->size - key.u.buffer.offset;
+    key.u.buffer.format = NULL;
+
+    view = vkd3d_view_map_create_view(view_map, device, &key);
+    if (!view)
+        return VK_NULL_HANDLE;
+    return view->vk_acceleration_structure;
 }
 
 #define VKD3D_FAKE_VA_ALIGNMENT (65536)

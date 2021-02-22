@@ -279,6 +279,12 @@ static void vkd3d_memory_allocation_free(const struct vkd3d_memory_allocation *a
             vkd3d_va_map_free_fake_va(&allocator->va_map, allocation->resource.va, allocation->resource.size);
     }
 
+    if (allocation->resource.view_map)
+    {
+        vkd3d_view_map_destroy(allocation->resource.view_map, device);
+        vkd3d_free(allocation->resource.view_map);
+    }
+
     if (allocation->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER)
         VK_CALL(vkDestroyBuffer(device->vk_device, allocation->resource.vk_buffer, NULL));
 
