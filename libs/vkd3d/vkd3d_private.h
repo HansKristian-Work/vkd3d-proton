@@ -2672,6 +2672,29 @@ struct vkd3d_view_key
 struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
         struct d3d12_device *device, const struct vkd3d_view_key *key);
 
+/* Acceleration structure helpers. */
+struct vkd3d_acceleration_structure_build_info
+{
+    /* This is not a hard limit, just an arbitrary value which lets us avoid allocation for
+     * the common case. */
+#define VKD3D_BUILD_INFO_STACK_COUNT 16
+    const struct VkAccelerationStructureBuildRangeInfoKHR *build_range_ptr_stack[VKD3D_BUILD_INFO_STACK_COUNT];
+    VkAccelerationStructureBuildRangeInfoKHR build_range_stack[VKD3D_BUILD_INFO_STACK_COUNT];
+    VkAccelerationStructureGeometryKHR geometries_stack[VKD3D_BUILD_INFO_STACK_COUNT];
+    const VkAccelerationStructureBuildRangeInfoKHR **build_range_ptrs;
+    uint32_t primitive_counts_stack[VKD3D_BUILD_INFO_STACK_COUNT];
+    VkAccelerationStructureBuildRangeInfoKHR *build_ranges;
+    VkAccelerationStructureBuildGeometryInfoKHR build_info;
+    VkAccelerationStructureGeometryKHR *geometries;
+    uint32_t *primitive_counts;
+};
+
+void vkd3d_acceleration_structure_build_info_cleanup(
+        struct vkd3d_acceleration_structure_build_info *info);
+bool vkd3d_acceleration_structure_convert_inputs(
+        struct vkd3d_acceleration_structure_build_info *info,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc);
+
 #define VKD3D_VENDOR_ID_NVIDIA 0x10DE
 #define VKD3D_VENDOR_ID_AMD 0x1002
 #define VKD3D_VENDOR_ID_INTEL 0x8086

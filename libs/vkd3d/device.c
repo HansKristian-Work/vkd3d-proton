@@ -4230,7 +4230,43 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info)
 {
-    FIXME("iface %p, desc %p, info %p stub!\n", iface, desc, info);
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_acceleration_structure_build_info build_info;
+    VkAccelerationStructureBuildSizesInfoKHR size_info;
+
+    TRACE("iface %p, desc %p, info %p!\n", iface, desc, info);
+
+    if (!d3d12_device_supports_ray_tracing_tier_1_0(device))
+    {
+        ERR("Acceleration structure is not supported. Calling this is invalid.\n");
+        memset(info, 0, sizeof(*info));
+        return;
+    }
+
+    if (!vkd3d_acceleration_structure_convert_inputs(&build_info, desc))
+    {
+        ERR("Failed to convert inputs.\n");
+        memset(info, 0, sizeof(*info));
+        return;
+    }
+
+    if (build_info.build_info.mode == VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR)
+        FIXME("MODE_UPDATE_KHR in PrebuildInfo?\n");
+
+    memset(&size_info, 0, sizeof(size_info));
+    size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+
+    VK_CALL(vkGetAccelerationStructureBuildSizesKHR(device->vk_device,
+            VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build_info.build_info,
+            build_info.primitive_counts, &size_info));
+
+    vkd3d_acceleration_structure_build_info_cleanup(&build_info);
+
+    info->ResultDataMaxSizeInBytes = size_info.accelerationStructureSize;
+    info->ScratchDataSizeInBytes = size_info.buildScratchSize;
+    info->UpdateScratchDataSizeInBytes = size_info.updateScratchSize;
 }
 
 static D3D12_DRIVER_MATCHING_IDENTIFIER_STATUS STDMETHODCALLTYPE d3d12_device_CheckDriverMatchingIdentifier(d3d12_device_iface *iface,
