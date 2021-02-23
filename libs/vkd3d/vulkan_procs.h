@@ -210,6 +210,7 @@ VK_DEVICE_EXT_PFN(vkGetAccelerationStructureBuildSizesKHR)
 VK_DEVICE_EXT_PFN(vkCreateAccelerationStructureKHR)
 VK_DEVICE_EXT_PFN(vkDestroyAccelerationStructureKHR)
 VK_DEVICE_EXT_PFN(vkGetAccelerationStructureDeviceAddressKHR)
+VK_DEVICE_EXT_PFN(vkCmdBuildAccelerationStructuresKHR)
 
 /* VK_KHR_fragment_shading_rate */
 VK_INSTANCE_PFN(vkGetPhysicalDeviceFragmentShadingRatesKHR)
