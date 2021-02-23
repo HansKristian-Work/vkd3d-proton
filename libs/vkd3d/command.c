@@ -3270,6 +3270,27 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
             case D3D12_RESOURCE_STATE_UNORDERED_ACCESS:
                 *stages |= queue_shader_stages;
                 *access |= VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+                if ((vk_queue_flags & VK_QUEUE_COMPUTE_BIT) &&
+                        d3d12_device_supports_ray_tracing_tier_1_0(device))
+                {
+                    /* UNORDERED_ACCESS state is also used for scratch buffers.
+                     * Acceleration structures cannot transition their state,
+                     * and must use UAV barriers. This is still relevant for scratch buffers however. */
+                    *stages |= VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+                    *access |= VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR |
+                            VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+                }
+                break;
+
+            case D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE:
+                if ((vk_queue_flags & VK_QUEUE_COMPUTE_BIT) &&
+                        d3d12_device_supports_ray_tracing_tier_1_0(device))
+                {
+                    *stages |= VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR |
+                            VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR;
+                    *access |= VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR |
+                            VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+                }
                 break;
 
             case D3D12_RESOURCE_STATE_DEPTH_WRITE:
@@ -3280,6 +3301,13 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
             case D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE:
                 *stages |= queue_shader_stages & ~VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
                 *access |= VK_ACCESS_SHADER_READ_BIT;
+                if ((vk_queue_flags & VK_QUEUE_COMPUTE_BIT) &&
+                        d3d12_device_supports_ray_tracing_tier_1_0(device))
+                {
+                    /* Vertex / index / transform buffer inputs are NON_PIXEL_SHADER_RESOURCES in DXR.
+                     * They access SHADER_READ_BIT in Vulkan, so just need to add the stage. */
+                    *stages |= VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+                }
                 break;
 
             case D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE:
@@ -6071,13 +6099,27 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
             case D3D12_RESOURCE_BARRIER_TYPE_UAV:
             {
                 const D3D12_RESOURCE_UAV_BARRIER *uav = &current->UAV;
+                uint32_t state_mask;
+
                 preserve_resource = unsafe_impl_from_ID3D12Resource(uav->pResource);
 
+                /* The only way to synchronize an RTAS is UAV barriers,
+                 * as their resource state must be frozen.
+                 * If we don't know the resource, we must assume a global UAV transition
+                 * which also includes RTAS. */
+                state_mask = 0;
+                if (!preserve_resource || d3d12_resource_is_acceleration_structure(preserve_resource))
+                    state_mask |= D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
+                if (!preserve_resource || !d3d12_resource_is_acceleration_structure(preserve_resource))
+                    state_mask |= D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+
+                assert(state_mask);
+
                 vk_access_and_stage_flags_from_d3d12_resource_state(list->device, preserve_resource,
-                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS, list->vk_queue_flags, &src_stage_mask,
+                        state_mask, list->vk_queue_flags, &src_stage_mask,
                         &vk_memory_barrier.srcAccessMask);
                 vk_access_and_stage_flags_from_d3d12_resource_state(list->device, preserve_resource,
-                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS, list->vk_queue_flags, &dst_stage_mask,
+                        state_mask, list->vk_queue_flags, &dst_stage_mask,
                         &vk_memory_barrier.dstAccessMask);
 
                 TRACE("UAV barrier (resource %p).\n", preserve_resource);
