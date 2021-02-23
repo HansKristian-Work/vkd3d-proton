@@ -615,12 +615,13 @@ struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface);
 
 enum vkd3d_resource_flag
 {
-    VKD3D_RESOURCE_COMMITTED      = (1u << 0),
-    VKD3D_RESOURCE_PLACED         = (1u << 1),
-    VKD3D_RESOURCE_RESERVED       = (1u << 2),
-    VKD3D_RESOURCE_ALLOCATION     = (1u << 3),
-    VKD3D_RESOURCE_LINEAR_TILING  = (1u << 4),
-    VKD3D_RESOURCE_EXTERNAL       = (1u << 5),
+    VKD3D_RESOURCE_COMMITTED              = (1u << 0),
+    VKD3D_RESOURCE_PLACED                 = (1u << 1),
+    VKD3D_RESOURCE_RESERVED               = (1u << 2),
+    VKD3D_RESOURCE_ALLOCATION             = (1u << 3),
+    VKD3D_RESOURCE_LINEAR_TILING          = (1u << 4),
+    VKD3D_RESOURCE_EXTERNAL               = (1u << 5),
+    VKD3D_RESOURCE_ACCELERATION_STRUCTURE = (1u << 6),
 };
 
 struct d3d12_sparse_image_region
@@ -706,6 +707,11 @@ struct d3d12_resource
 static inline bool d3d12_resource_is_buffer(const struct d3d12_resource *resource)
 {
     return resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER;
+}
+
+static inline bool d3d12_resource_is_acceleration_structure(const struct d3d12_resource *resource)
+{
+    return !!(resource->flags & VKD3D_RESOURCE_ACCELERATION_STRUCTURE);
 }
 
 static inline bool d3d12_resource_is_texture(const struct d3d12_resource *resource)
