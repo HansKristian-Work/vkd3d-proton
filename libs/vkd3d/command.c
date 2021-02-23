@@ -8142,8 +8142,57 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT num_postbuild_info_descs,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs)
 {
-    FIXME("iface %p, desc %p, num_postbuild_info_descs %u, postbuild_info_descs %p stub!\n",
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+
+    struct vkd3d_acceleration_structure_build_info build_info;
+
+    TRACE("iface %p, desc %p, num_postbuild_info_descs %u, postbuild_info_descs %p\n",
             iface, desc, num_postbuild_info_descs, postbuild_info_descs);
+
+    if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
+    {
+        ERR("Acceleration structure is not supported. Calling this is invalid.\n");
+        return;
+    }
+
+    if (!vkd3d_acceleration_structure_convert_inputs(&build_info, &desc->Inputs))
+    {
+        ERR("Failed to convert inputs.\n");
+        return;
+    }
+
+    if (desc->DestAccelerationStructureData)
+    {
+        build_info.build_info.dstAccelerationStructure =
+                vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map,
+                        list->device, desc->DestAccelerationStructureData);
+        if (build_info.build_info.dstAccelerationStructure == VK_NULL_HANDLE)
+        {
+            ERR("Failed to place destAccelerationStructure. Dropping call.\n");
+            return;
+        }
+    }
+
+    if (desc->SourceAccelerationStructureData)
+    {
+        build_info.build_info.srcAccelerationStructure =
+                vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map,
+                        list->device, desc->SourceAccelerationStructureData);
+        if (build_info.build_info.srcAccelerationStructure == VK_NULL_HANDLE)
+        {
+            ERR("Failed to place destAccelerationStructure. Dropping call.\n");
+            return;
+        }
+    }
+
+    build_info.build_info.scratchData.deviceAddress = desc->ScratchAccelerationStructureData;
+
+    d3d12_command_list_end_current_render_pass(list, true);
+    VK_CALL(vkCmdBuildAccelerationStructuresKHR(list->vk_command_buffer, 1,
+            &build_info.build_info, build_info.build_range_ptrs));
+
+    vkd3d_acceleration_structure_build_info_cleanup(&build_info);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStructurePostbuildInfo(d3d12_command_list_iface *iface,
