@@ -2300,6 +2300,10 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
     object->format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0);
     object->res.cookie = vkd3d_allocate_cookie();
 
+    /* RTAS are "special" buffers. They can never transition out of this state. */
+    if (initial_state == D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE)
+        object->flags |= VKD3D_RESOURCE_ACCELERATION_STRUCTURE;
+
     if (heap_properties)
         object->heap_properties = *heap_properties;
     object->heap_flags = heap_flags;
