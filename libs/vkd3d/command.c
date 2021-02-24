@@ -1905,44 +1905,37 @@ static bool d3d12_command_allocator_allocate_scratch_memory(struct d3d12_command
     return true;
 }
 
-static struct vkd3d_query_pool *d3d12_command_allocator_find_active_query_pool(struct d3d12_command_allocator *allocator,
-        D3D12_QUERY_HEAP_TYPE heap_type)
+static struct vkd3d_query_pool *d3d12_command_allocator_get_active_query_pool_from_type_index(
+        struct d3d12_command_allocator *allocator, uint32_t type_index)
 {
-    uint32_t i;
-
-    static const struct
-    {
-        D3D12_QUERY_HEAP_TYPE heap_type;
-        uint32_t index;
-    }
-    map[] =
-    {
-        { D3D12_QUERY_HEAP_TYPE_OCCLUSION,            VKD3D_QUERY_TYPE_INDEX_OCCLUSION            },
-        { D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS,  VKD3D_QUERY_TYPE_INDEX_PIPELINE_STATISTICS  },
-        { D3D12_QUERY_HEAP_TYPE_SO_STATISTICS,        VKD3D_QUERY_TYPE_INDEX_TRANSFORM_FEEDBACK   },
-    };
-
-    for (i = 0; i < ARRAY_SIZE(map); i++)
-    {
-        if (map[i].heap_type == heap_type)
-            return &allocator->active_query_pools[map[i].index];
-    }
-
-    ERR("Unhandled query heap type %u.\n", heap_type);
-    return NULL;
+    return &allocator->active_query_pools[type_index];
 }
 
-static bool d3d12_command_allocator_allocate_query(struct d3d12_command_allocator *allocator,
-        D3D12_QUERY_HEAP_TYPE heap_type, VkQueryPool *query_pool, uint32_t *query_index)
+static uint32_t d3d12_query_heap_type_to_type_index(D3D12_QUERY_HEAP_TYPE heap_type)
 {
-    struct vkd3d_query_pool *pool = d3d12_command_allocator_find_active_query_pool(allocator, heap_type);
+    switch (heap_type)
+    {
+        case D3D12_QUERY_HEAP_TYPE_OCCLUSION:
+            return VKD3D_QUERY_TYPE_INDEX_OCCLUSION;
+        case D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS:
+            return VKD3D_QUERY_TYPE_INDEX_PIPELINE_STATISTICS;
+        case D3D12_QUERY_HEAP_TYPE_SO_STATISTICS:
+            return VKD3D_QUERY_TYPE_INDEX_TRANSFORM_FEEDBACK;
+        default:
+            return UINT32_MAX;
+    }
+}
 
-    if (!pool)
-        return false;
+static bool d3d12_command_allocator_allocate_query_from_type_index(
+        struct d3d12_command_allocator *allocator,
+        uint32_t type_index, VkQueryPool *query_pool, uint32_t *query_index)
+{
+    struct vkd3d_query_pool *pool = d3d12_command_allocator_get_active_query_pool_from_type_index(allocator, type_index);
+    assert(pool);
 
     if (pool->next_index >= pool->query_count)
     {
-        if (FAILED(d3d12_device_get_query_pool(allocator->device, heap_type, pool)))
+        if (FAILED(d3d12_device_get_query_pool(allocator->device, type_index, pool)))
             return false;
 
         if (vkd3d_array_reserve((void**)&allocator->query_pools, &allocator->query_pools_size,
@@ -1955,6 +1948,13 @@ static bool d3d12_command_allocator_allocate_query(struct d3d12_command_allocato
     *query_pool = pool->vk_query_pool;
     *query_index = pool->next_index++;
     return true;
+}
+
+static bool d3d12_command_allocator_allocate_query_from_heap_type(struct d3d12_command_allocator *allocator,
+        D3D12_QUERY_HEAP_TYPE heap_type, VkQueryPool *query_pool, uint32_t *query_index)
+{
+    uint32_t type_index = d3d12_query_heap_type_to_type_index(heap_type);
+    return d3d12_command_allocator_allocate_query_from_type_index(allocator, type_index, query_pool, query_index);
 }
 
 /* ID3D12CommandList */
@@ -2646,7 +2646,7 @@ static void d3d12_command_list_reset_active_query(struct d3d12_command_list *lis
     if (!d3d12_command_list_add_pending_query(list, query))
         return;
 
-    if (!d3d12_command_allocator_allocate_query(list->allocator,
+    if (!d3d12_command_allocator_allocate_query_from_heap_type(list->allocator,
             query->heap->desc.Type, &query->vk_pool, &query->vk_index))
         return;
 
@@ -2675,7 +2675,7 @@ static bool d3d12_command_list_enable_query(struct d3d12_command_list *list,
     query->state = VKD3D_ACTIVE_QUERY_RESET;
     query->resolve_index = 0;
 
-    if (!d3d12_command_allocator_allocate_query(list->allocator,
+    if (!d3d12_command_allocator_allocate_query_from_heap_type(list->allocator,
             heap->desc.Type, &query->vk_pool, &query->vk_index))
         return false;
 

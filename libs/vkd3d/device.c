@@ -2172,29 +2172,29 @@ void d3d12_device_return_descriptor_heap_gpu_va(struct d3d12_device *device, uin
     pthread_mutex_unlock(&device->mutex);
 }
 
-static HRESULT d3d12_device_create_query_pool(struct d3d12_device *device, D3D12_QUERY_HEAP_TYPE heap_type, struct vkd3d_query_pool *pool)
+static HRESULT d3d12_device_create_query_pool(struct d3d12_device *device, uint32_t type_index, struct vkd3d_query_pool *pool)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkQueryPoolCreateInfo pool_info;
     VkResult vr;
 
-    TRACE("device %p, heap_type %u, pool %p.\n", device, heap_type, pool);
+    TRACE("device %p, type_index %u, pool %p.\n", device, type_index, pool);
 
     pool_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
     pool_info.pNext = NULL;
     pool_info.flags = 0;
     pool_info.pipelineStatistics = 0;
 
-    switch (heap_type)
+    switch (type_index)
     {
-        case D3D12_QUERY_HEAP_TYPE_OCCLUSION:
+        case VKD3D_QUERY_TYPE_INDEX_OCCLUSION:
             /* Expect a large number of occlusion queries
              * to be used within a single command list */
             pool_info.queryType = VK_QUERY_TYPE_OCCLUSION;
             pool_info.queryCount = 4096;
             break;
 
-        case D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS:
+        case VKD3D_QUERY_TYPE_INDEX_PIPELINE_STATISTICS:
             pool_info.queryType = VK_QUERY_TYPE_PIPELINE_STATISTICS;
             pool_info.queryCount = 128;
             pool_info.pipelineStatistics =
@@ -2211,13 +2211,23 @@ static HRESULT d3d12_device_create_query_pool(struct d3d12_device *device, D3D12
                     VK_QUERY_PIPELINE_STATISTIC_COMPUTE_SHADER_INVOCATIONS_BIT;
             break;
 
-        case D3D12_QUERY_HEAP_TYPE_SO_STATISTICS:
+        case VKD3D_QUERY_TYPE_INDEX_TRANSFORM_FEEDBACK:
             pool_info.queryType = VK_QUERY_TYPE_TRANSFORM_FEEDBACK_STREAM_EXT;
             pool_info.queryCount = 128;
             break;
 
+        case VKD3D_QUERY_TYPE_INDEX_RT_COMPACTED_SIZE:
+            pool_info.queryType = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR;
+            pool_info.queryCount = 128;
+            break;
+
+        case VKD3D_QUERY_TYPE_INDEX_RT_SERIALIZE_SIZE:
+            pool_info.queryType = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR;
+            pool_info.queryCount = 128;
+            break;
+
         default:
-            ERR("Unhandled query type %u.\n", heap_type);
+            ERR("Unhandled query type %u.\n", type_index);
             return E_INVALIDARG;
     }
 
@@ -2227,7 +2237,7 @@ static HRESULT d3d12_device_create_query_pool(struct d3d12_device *device, D3D12
         return hresult_from_vk_result(vr);
     }
 
-    pool->heap_type = heap_type;
+    pool->type_index = type_index;
     pool->query_count = pool_info.queryCount;
     pool->next_index = 0;
     return S_OK;
@@ -2242,7 +2252,7 @@ static void d3d12_device_destroy_query_pool(struct d3d12_device *device, const s
     VK_CALL(vkDestroyQueryPool(device->vk_device, pool->vk_query_pool, NULL));
 }
 
-HRESULT d3d12_device_get_query_pool(struct d3d12_device *device, D3D12_QUERY_HEAP_TYPE heap_type, struct vkd3d_query_pool *pool)
+HRESULT d3d12_device_get_query_pool(struct d3d12_device *device, uint32_t type_index, struct vkd3d_query_pool *pool)
 {
     size_t i;
 
@@ -2250,7 +2260,7 @@ HRESULT d3d12_device_get_query_pool(struct d3d12_device *device, D3D12_QUERY_HEA
 
     for (i = 0; i < device->query_pool_count; i++)
     {
-        if (device->query_pools[i].heap_type == heap_type)
+        if (device->query_pools[i].type_index == type_index)
         {
             *pool = device->query_pools[i];
             pool->next_index = 0;
@@ -2262,7 +2272,7 @@ HRESULT d3d12_device_get_query_pool(struct d3d12_device *device, D3D12_QUERY_HEA
     }
 
     pthread_mutex_unlock(&device->mutex);
-    return d3d12_device_create_query_pool(device, heap_type, pool);
+    return d3d12_device_create_query_pool(device, type_index, pool);
 }
 
 void d3d12_device_return_query_pool(struct d3d12_device *device, const struct vkd3d_query_pool *pool)
