@@ -1328,13 +1328,15 @@ struct vkd3d_scratch_buffer
 #define VKD3D_QUERY_TYPE_INDEX_OCCLUSION (0u)
 #define VKD3D_QUERY_TYPE_INDEX_PIPELINE_STATISTICS (1u)
 #define VKD3D_QUERY_TYPE_INDEX_TRANSFORM_FEEDBACK (2u)
-#define VKD3D_VIRTUAL_QUERY_TYPE_COUNT (3u)
+#define VKD3D_QUERY_TYPE_INDEX_RT_COMPACTED_SIZE (3u)
+#define VKD3D_QUERY_TYPE_INDEX_RT_SERIALIZE_SIZE (4u)
+#define VKD3D_VIRTUAL_QUERY_TYPE_COUNT (5u)
 #define VKD3D_VIRTUAL_QUERY_POOL_COUNT (128u)
 
 struct vkd3d_query_pool
 {
-    D3D12_QUERY_HEAP_TYPE heap_type;
     VkQueryPool vk_query_pool;
+    uint32_t type_index;
     uint32_t query_count;
     uint32_t next_index;
 };
