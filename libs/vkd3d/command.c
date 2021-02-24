@@ -1926,7 +1926,7 @@ static uint32_t d3d12_query_heap_type_to_type_index(D3D12_QUERY_HEAP_TYPE heap_t
     }
 }
 
-static bool d3d12_command_allocator_allocate_query_from_type_index(
+bool d3d12_command_allocator_allocate_query_from_type_index(
         struct d3d12_command_allocator *allocator,
         uint32_t type_index, VkQueryPool *query_pool, uint32_t *query_index)
 {
@@ -2574,9 +2574,6 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
         stage_mask, stage_mask, 0, 0, NULL, 0, NULL,
         j, vk_image_barriers));
 }
-
-static bool d3d12_command_list_reset_query(struct d3d12_command_list *list,
-        VkQueryPool vk_pool, uint32_t index);
 
 static inline bool d3d12_query_type_is_indexed(D3D12_QUERY_TYPE type)
 {
@@ -3809,7 +3806,7 @@ static void d3d12_command_list_read_query_range(struct d3d12_command_list *list,
     }
 }
 
-static bool d3d12_command_list_reset_query(struct d3d12_command_list *list,
+bool d3d12_command_list_reset_query(struct d3d12_command_list *list,
         VkQueryPool vk_pool, uint32_t index)
 {
     size_t pos;
@@ -8144,7 +8141,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-
     struct vkd3d_acceleration_structure_build_info build_info;
 
     TRACE("iface %p, desc %p, num_postbuild_info_descs %u, postbuild_info_descs %p\n",
@@ -8193,14 +8189,32 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
             &build_info.build_info, build_info.build_range_ptrs));
 
     vkd3d_acceleration_structure_build_info_cleanup(&build_info);
+
+    if (num_postbuild_info_descs)
+    {
+        vkd3d_acceleration_structure_emit_immediate_postbuild_info(list,
+                num_postbuild_info_descs, postbuild_info_descs,
+                build_info.build_info.dstAccelerationStructure);
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStructurePostbuildInfo(d3d12_command_list_iface *iface,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc, UINT num_acceleration_structures,
         const D3D12_GPU_VIRTUAL_ADDRESS *src_data)
 {
-    FIXME("iface %p, desc %p, num_acceleration_structures %u, src_data %p stub!\n",
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    TRACE("iface %p, desc %p, num_acceleration_structures %u, src_data %p\n",
             iface, desc, num_acceleration_structures, src_data);
+
+    if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
+    {
+        ERR("Acceleration structure is not supported. Calling this is invalid.\n");
+        return;
+    }
+
+    d3d12_command_list_end_current_render_pass(list, true);
+    vkd3d_acceleration_structure_emit_postbuild_info(list,
+            desc, num_acceleration_structures, src_data);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStructure(d3d12_command_list_iface *iface,
