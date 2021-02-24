@@ -177,3 +177,167 @@ bool vkd3d_acceleration_structure_convert_inputs(
     build_info->pGeometries = info->geometries;
     return true;
 }
+
+static void vkd3d_acceleration_structure_end_barrier(struct d3d12_command_list *list)
+{
+    /* We resolve the query in TRANSFER, but DXR expects UNORDERED_ACCESS. */
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkMemoryBarrier barrier;
+
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    barrier.pNext = NULL;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = 0;
+
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,
+            1, &barrier, 0, NULL, 0, NULL));
+}
+
+static void vkd3d_acceleration_structure_write_postbuild_info(
+        struct d3d12_command_list *list,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
+        VkDeviceSize desc_offset,
+        VkAccelerationStructureKHR vk_acceleration_structure)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const struct vkd3d_unique_resource *resource;
+    VkQueryPool vk_query_pool;
+    VkQueryType vk_query_type;
+    uint32_t vk_query_index;
+    VkDeviceSize stride;
+    uint32_t type_index;
+    VkBuffer vk_buffer;
+    uint32_t offset;
+
+    resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, desc->DestBuffer);
+    if (!resource)
+    {
+        ERR("Invalid resource.\n");
+        return;
+    }
+
+    vk_buffer = resource->vk_buffer;
+    offset = desc->DestBuffer - resource->va;
+    offset += desc_offset;
+
+    if (desc->InfoType == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE)
+    {
+        vk_query_type = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR;
+        type_index = VKD3D_QUERY_TYPE_INDEX_RT_COMPACTED_SIZE;
+        stride = sizeof(uint64_t);
+    }
+    else if (desc->InfoType == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION)
+    {
+        vk_query_type = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR;
+        type_index = VKD3D_QUERY_TYPE_INDEX_RT_SERIALIZE_SIZE;
+        stride = sizeof(uint64_t);
+        FIXME("NumBottomLevelPointers will always return 0.\n");
+    }
+    else
+    {
+        FIXME("Unsupported InfoType %u.\n", desc->InfoType);
+        /* TODO: CURRENT_SIZE is something we cannot query in Vulkan, so
+         * we'll need to keep around a buffer to handle this.
+         * For now, just clear to 0. */
+        VK_CALL(vkCmdFillBuffer(list->vk_command_buffer, vk_buffer, offset,
+                sizeof(uint64_t), 0));
+        return;
+    }
+
+    if (!d3d12_command_allocator_allocate_query_from_type_index(list->allocator,
+            type_index, &vk_query_pool, &vk_query_index))
+    {
+        ERR("Failed to allocate query.\n");
+        return;
+    }
+
+    d3d12_command_list_reset_query(list, vk_query_pool, vk_query_index);
+
+    VK_CALL(vkCmdWriteAccelerationStructuresPropertiesKHR(list->vk_command_buffer,
+            1, &vk_acceleration_structure, vk_query_type, vk_query_pool, vk_query_index));
+    VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer,
+            vk_query_pool, vk_query_index, 1,
+            vk_buffer, offset, stride,
+            VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
+
+    if (desc->InfoType == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION)
+    {
+        /* TODO: We'll need some way to store these values for later use and copy them here instead. */
+        VK_CALL(vkCmdFillBuffer(list->vk_command_buffer, vk_buffer, offset + sizeof(uint64_t),
+                sizeof(uint64_t), 0));
+    }
+}
+
+void vkd3d_acceleration_structure_emit_postbuild_info(
+        struct d3d12_command_list *list,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
+        uint32_t count,
+        const D3D12_GPU_VIRTUAL_ADDRESS *addresses)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkAccelerationStructureKHR vk_acceleration_structure;
+    VkMemoryBarrier barrier;
+    VkDeviceSize stride;
+    uint32_t i;
+
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    barrier.pNext = NULL;
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+    /* We resolve the query in TRANSFER, but DXR expects UNORDERED_ACCESS. */
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+            1, &barrier, 0, NULL, 0, NULL));
+
+    stride = desc->InfoType == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION ?
+            2 * sizeof(uint64_t) : sizeof(uint64_t);
+
+    for (i = 0; i < count; i++)
+    {
+        vk_acceleration_structure = vkd3d_va_map_place_acceleration_structure(
+                &list->device->memory_allocator.va_map, list->device, addresses[i]);
+        if (vk_acceleration_structure)
+            vkd3d_acceleration_structure_write_postbuild_info(list, desc, i * stride, vk_acceleration_structure);
+        else
+            ERR("Failed to query acceleration structure for VA 0x%"PRIx64".\n", addresses[i]);
+    }
+
+    vkd3d_acceleration_structure_end_barrier(list);
+}
+
+void vkd3d_acceleration_structure_emit_immediate_postbuild_info(
+        struct d3d12_command_list *list, uint32_t count,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
+        VkAccelerationStructureKHR vk_acceleration_structure)
+{
+    /* In D3D12 we are supposed to be able to emit without an explicit barrier,
+     * but we need to emit them for Vulkan. */
+
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkMemoryBarrier barrier;
+    uint32_t i;
+
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    barrier.pNext = NULL;
+    barrier.srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+    /* The query accesses STRUCTURE_READ_BIT in BUILD_BIT stage. */
+    barrier.dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_TRANSFER_WRITE_BIT;
+
+    /* Writing to the result buffer is supposed to happen in UNORDERED_ACCESS on DXR for
+     * some bizarre reason, so we have to satisfy a transfer barrier.
+     * Have to basically do a full stall to make this work ... */
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+            VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR | VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+            1, &barrier, 0, NULL, 0, NULL));
+
+    /* Could optimize a bit by batching more aggressively, but no idea if it's going to help in practice. */
+    for (i = 0; i < count; i++)
+        vkd3d_acceleration_structure_write_postbuild_info(list, &desc[i], 0, vk_acceleration_structure);
+
+    vkd3d_acceleration_structure_end_barrier(list);
+}

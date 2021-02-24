@@ -1394,6 +1394,9 @@ struct d3d12_command_allocator
 
 HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
         D3D12_COMMAND_LIST_TYPE type, struct d3d12_command_allocator **allocator);
+bool d3d12_command_allocator_allocate_query_from_type_index(
+        struct d3d12_command_allocator *allocator,
+        uint32_t type_index, VkQueryPool *query_pool, uint32_t *query_index);
 struct d3d12_command_allocator *unsafe_impl_from_ID3D12CommandAllocator(ID3D12CommandAllocator *iface);
 
 enum vkd3d_pipeline_dirty_flag
@@ -1620,6 +1623,8 @@ struct d3d12_command_list
 HRESULT d3d12_command_list_create(struct d3d12_device *device,
         UINT node_mask, D3D12_COMMAND_LIST_TYPE type, ID3D12CommandAllocator *allocator_iface,
         ID3D12PipelineState *initial_pipeline_state, struct d3d12_command_list **list);
+bool d3d12_command_list_reset_query(struct d3d12_command_list *list,
+        VkQueryPool vk_pool, uint32_t index);
 
 struct vkd3d_queue
 {
@@ -2717,6 +2722,14 @@ void vkd3d_acceleration_structure_build_info_cleanup(
 bool vkd3d_acceleration_structure_convert_inputs(
         struct vkd3d_acceleration_structure_build_info *info,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc);
+void vkd3d_acceleration_structure_emit_postbuild_info(
+        struct d3d12_command_list *list,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
+        uint32_t count, const D3D12_GPU_VIRTUAL_ADDRESS *addresses);
+void vkd3d_acceleration_structure_emit_immediate_postbuild_info(
+        struct d3d12_command_list *list, uint32_t count,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
+        VkAccelerationStructureKHR vk_acceleration_structure);
 
 #define VKD3D_VENDOR_ID_NVIDIA 0x10DE
 #define VKD3D_VENDOR_ID_AMD 0x1002
