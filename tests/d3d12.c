@@ -41668,6 +41668,7 @@ static void test_stencil_export_dxil(void)
 
 static void test_raytracing(void)
 {
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC postbuild_desc[3];
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuild_info;
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC build_info;
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs;
@@ -41685,6 +41686,8 @@ static void test_raytracing(void)
     ID3D12DescriptorHeap *descriptor_heap;
     ID3D12Resource *scratch_buffer_bottom;
     ID3D12Resource *scratch_buffer_top;
+    ID3D12Resource *postbuild_readback;
+    ID3D12Resource *postbuild_buffer;
     ID3D12Resource *transform_buffer;
     ID3D12Resource *instance_buffer;
     unsigned int i, descriptor_size;
@@ -41943,6 +41946,9 @@ static void test_raytracing(void)
         }
     }
 
+    postbuild_readback = create_readback_buffer(context.device, 4096);
+    postbuild_buffer = create_default_buffer(context.device, 4096, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
     /* Create VBO. Simple quad. */
     {
         float initial_vbo_data[32];
@@ -41977,7 +41983,8 @@ static void test_raytracing(void)
         inputs.NumDescs = 2;
         inputs.pGeometryDescs = geom_desc;
         inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
-        inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+        inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION;
 
         geom_desc[0].Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
         geom_desc[0].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(vbo);
@@ -42008,7 +42015,15 @@ static void test_raytracing(void)
             build_info.DestAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structure);
             build_info.Inputs = inputs;
             build_info.ScratchAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(scratch_buffer_bottom);
-            ID3D12GraphicsCommandList4_BuildRaytracingAccelerationStructure(command_list4, &build_info, 0, NULL);
+
+            postbuild_desc[0].InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE;
+            postbuild_desc[0].DestBuffer = ID3D12Resource_GetGPUVirtualAddress(postbuild_buffer);
+            postbuild_desc[1].InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE;
+            postbuild_desc[1].DestBuffer = postbuild_desc[0].DestBuffer + sizeof(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE_DESC);
+            postbuild_desc[2].InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION;
+            postbuild_desc[2].DestBuffer = postbuild_desc[1].DestBuffer + sizeof(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE_DESC);
+
+            ID3D12GraphicsCommandList4_BuildRaytracingAccelerationStructure(command_list4, &build_info, ARRAY_SIZE(postbuild_desc), postbuild_desc);
 
             /* An UAV barrier serves as a raytracing barrier as well ... */
             resource_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
@@ -42062,7 +42077,8 @@ static void test_raytracing(void)
         inputs.NumDescs = 3;
         inputs.InstanceDescs = ID3D12Resource_GetGPUVirtualAddress(instance_buffer);
         inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
-        inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+        inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION;
 
         ID3D12Device5_GetRaytracingAccelerationStructurePrebuildInfo(device5, &inputs, &prebuild_info);
 
@@ -42077,7 +42093,15 @@ static void test_raytracing(void)
             build_info.DestAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structure);
             build_info.Inputs = inputs;
             build_info.ScratchAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(scratch_buffer_top);
-            ID3D12GraphicsCommandList4_BuildRaytracingAccelerationStructure(command_list4, &build_info, 0, NULL);
+
+            postbuild_desc[0].InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE;
+            postbuild_desc[0].DestBuffer = ID3D12Resource_GetGPUVirtualAddress(postbuild_buffer) + 4 * sizeof(uint64_t);
+            postbuild_desc[1].InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE;
+            postbuild_desc[1].DestBuffer = postbuild_desc[0].DestBuffer + sizeof(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE_DESC);
+            postbuild_desc[2].InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION;
+            postbuild_desc[2].DestBuffer = postbuild_desc[1].DestBuffer + sizeof(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE_DESC);
+
+            ID3D12GraphicsCommandList4_BuildRaytracingAccelerationStructure(command_list4, &build_info, ARRAY_SIZE(postbuild_desc), postbuild_desc);
 
             resource_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
             resource_barrier.Flags = 0;
@@ -42339,6 +42363,8 @@ static void test_raytracing(void)
     if (top_acceleration_structure)
     {
         D3D12_SHADER_RESOURCE_VIEW_DESC as_desc;
+        D3D12_GPU_VIRTUAL_ADDRESS rtases[2];
+
         memset(&as_desc, 0, sizeof(as_desc));
         as_desc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
         as_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -42346,6 +42372,23 @@ static void test_raytracing(void)
         as_desc.RaytracingAccelerationStructure.Location = ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structure);
         ID3D12Device_CreateShaderResourceView(context.device, NULL, &as_desc, cpu_handle);
         cpu_handle.ptr += descriptor_size;
+
+        rtases[0] = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structure);
+        rtases[1] = ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structure);
+        /* Emitting this is not COPY_DEST, but UNORDERED_ACCESS for some bizarre reason. */
+
+        postbuild_desc[0].InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE;
+        postbuild_desc[0].DestBuffer = ID3D12Resource_GetGPUVirtualAddress(postbuild_buffer) + 8 * sizeof(uint64_t);
+        postbuild_desc[1].InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE;
+        postbuild_desc[1].DestBuffer = postbuild_desc[0].DestBuffer + 2 * sizeof(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE_DESC);
+        postbuild_desc[2].InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION;
+        postbuild_desc[2].DestBuffer = postbuild_desc[1].DestBuffer + 2 * sizeof(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE_DESC);
+        ID3D12GraphicsCommandList4_EmitRaytracingAccelerationStructurePostbuildInfo(command_list4, &postbuild_desc[0], 2, rtases);
+        ID3D12GraphicsCommandList4_EmitRaytracingAccelerationStructurePostbuildInfo(command_list4, &postbuild_desc[1], 2, rtases);
+        ID3D12GraphicsCommandList4_EmitRaytracingAccelerationStructurePostbuildInfo(command_list4, &postbuild_desc[2], 2, rtases);
+
+        transition_resource_state(command_list, postbuild_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        ID3D12GraphicsCommandList_CopyResource(command_list, postbuild_readback, postbuild_buffer);
     }
 
     {
@@ -42407,6 +42450,55 @@ static void test_raytracing(void)
     }
     release_resource_readback(&rb);
 
+    {
+        struct post_info
+        {
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE_DESC compacted;
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE_DESC current;
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION_DESC serialize;
+        } top[2], bottom[2];
+
+        uint64_t *mapped;
+        hr = ID3D12Resource_Map(postbuild_readback, 0, NULL, (void **)&mapped);
+        ok(SUCCEEDED(hr), "Failed to map postbuild readback.\n");
+        if (SUCCEEDED(hr))
+        {
+            memcpy(&bottom[0], mapped + 0, sizeof(struct post_info));
+            memcpy(&top[0], mapped + 4, sizeof(struct post_info));
+
+            memcpy(&bottom[1].compacted, mapped + 8, sizeof(bottom[1].compacted));
+            memcpy(&top[1].compacted, mapped + 9, sizeof(top[1].compacted));
+            memcpy(&bottom[1].current, mapped + 10, sizeof(bottom[1].current));
+            memcpy(&top[1].current, mapped + 11, sizeof(top[1].current));
+            memcpy(&bottom[1].serialize, mapped + 12, sizeof(bottom[1].serialize));
+            memcpy(&top[1].serialize, mapped + 14, sizeof(top[1].serialize));
+
+            ok(memcmp(&top[0], &top[1], sizeof(top[0])) == 0, "Size mismatch.\n");
+            ok(memcmp(&bottom[0], &bottom[1], sizeof(bottom[0])) == 0, "Size mismatch.\n");
+
+            /* First sanity check that output from BuildRTAS and EmitPostbuildInfo() match up. */
+            ok(bottom[0].compacted.CompactedSizeInBytes > 0, "Compacted size for bottom acceleration structure is %u.\n", (unsigned int)bottom[0].compacted.CompactedSizeInBytes);
+            ok(top[0].compacted.CompactedSizeInBytes > 0, "Compacted size for top acceleration structure is %u.\n", (unsigned int)top[0].compacted.CompactedSizeInBytes);
+            /* CURRENT_SIZE cannot be queried in Vulkan directly. It should be possible to emulate it with a side buffer which we update on RTAS build,
+             * but ignore it for the time being, since it's only really relevant for tools. */
+            todo ok(bottom[0].current.CurrentSizeInBytes > 0, "Current size for bottom acceleration structure is %u.\n", (unsigned int)bottom[0].current.CurrentSizeInBytes);
+            todo ok(top[0].current.CurrentSizeInBytes > 0, "Current size for top acceleration structure is %u.\n", (unsigned int)top[0].current.CurrentSizeInBytes);
+
+            /* Compacted size must be less-or-equal to current size. Cannot pass since we don't have current size. */
+            todo ok(bottom[0].compacted.CompactedSizeInBytes <= bottom[0].current.CurrentSizeInBytes,
+                    "Compacted size %u > Current size %u\n", (unsigned int)bottom[0].compacted.CompactedSizeInBytes, (unsigned int)bottom[0].current.CurrentSizeInBytes);
+            todo ok(top[0].compacted.CompactedSizeInBytes <= top[0].current.CurrentSizeInBytes,
+                    "Compacted size %u > Current size %u\n", (unsigned int)top[0].compacted.CompactedSizeInBytes, (unsigned int)top[0].current.CurrentSizeInBytes);
+
+            ok(bottom[0].serialize.SerializedSizeInBytes > 0, "Serialized size for bottom acceleration structure is %u.\n", (unsigned int)bottom[0].serialize.SerializedSizeInBytes);
+            ok(bottom[0].serialize.NumBottomLevelAccelerationStructurePointers == 0, "NumBottomLevel pointers is %u.\n", (unsigned int)bottom[0].serialize.NumBottomLevelAccelerationStructurePointers);
+            ok(top[0].serialize.SerializedSizeInBytes > 0, "Serialized size for top acceleration structure is %u.\n", (unsigned int)top[0].serialize.SerializedSizeInBytes);
+            todo ok(top[0].serialize.NumBottomLevelAccelerationStructurePointers == 3, "NumBottomLevel pointers is %u.\n", (unsigned int)top[0].serialize.NumBottomLevelAccelerationStructurePointers);
+
+            ID3D12Resource_Unmap(postbuild_readback, 0, NULL);
+        }
+    }
+
     ID3D12Device5_Release(device5);
     ID3D12GraphicsCommandList4_Release(command_list4);
     ID3D12Resource_Release(vbo);
@@ -42428,6 +42520,8 @@ static void test_raytracing(void)
     ID3D12Resource_Release(ray_positions);
     ID3D12DescriptorHeap_Release(descriptor_heap);
     ID3D12Resource_Release(sbt);
+    ID3D12Resource_Release(postbuild_readback);
+    ID3D12Resource_Release(postbuild_buffer);
 
     destroy_test_context(&context);
 }
