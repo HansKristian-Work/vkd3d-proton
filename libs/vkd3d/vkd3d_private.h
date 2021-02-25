@@ -36,7 +36,7 @@
 #include "vkd3d_threads.h"
 #include "vkd3d_platform.h"
 #include "vkd3d_swapchain_factory.h"
-
+#include "vkd3d_string.h"
 #include <assert.h>
 #include <inttypes.h>
 #include <limits.h>
@@ -406,12 +406,117 @@ static inline void vkd3d_private_store_destroy(struct vkd3d_private_store *store
     pthread_mutex_destroy(&store->mutex);
 }
 
+static inline HRESULT vkd3d_private_data_lock(struct vkd3d_private_store *store)
+{
+    int rc;
+    if ((rc = pthread_mutex_lock(&store->mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        return hresult_from_errno(rc);
+    }
+
+    return S_OK;
+}
+
+static inline void vkd3d_private_data_unlock(struct vkd3d_private_store *store)
+{
+    pthread_mutex_unlock(&store->mutex);
+}
+
 HRESULT vkd3d_get_private_data(struct vkd3d_private_store *store,
         const GUID *tag, unsigned int *out_size, void *out);
-HRESULT vkd3d_set_private_data(struct vkd3d_private_store *store,
-        const GUID *tag, unsigned int data_size, const void *data);
-HRESULT vkd3d_set_private_data_interface(struct vkd3d_private_store *store,
-        const GUID *tag, const IUnknown *object);
+
+HRESULT vkd3d_private_store_set_private_data(struct vkd3d_private_store *store,
+        const GUID *tag, const void *data, unsigned int data_size, bool is_object);
+
+typedef void(*vkd3d_set_name_callback)(void *, const char *);
+
+static inline bool vkd3d_private_data_object_name_ptr(REFGUID guid,
+    UINT data_size, const void *data, const char **out_name)
+{
+    if (out_name)
+        *out_name = NULL;
+
+    if (IsEqualGUID(guid, &WKPDID_D3DDebugObjectName))
+    {
+        const char *name = (const char *)data;
+
+        if (!data || !data_size)
+            return true;
+
+        if (out_name)
+            *out_name = name[data_size - 1] != '\0'
+                ? vkd3d_strdup_n(name, data_size)
+                : name;
+
+        return true;
+    }
+    else if (IsEqualGUID(guid, &WKPDID_D3DDebugObjectNameW))
+    {
+        const WCHAR *name = (const WCHAR *)data;
+
+        if (!data || data_size < sizeof(WCHAR))
+            return true;
+
+        if (out_name)
+            *out_name = vkd3d_strdup_w_utf8(name, data_size / sizeof(WCHAR));
+        return true;
+    }
+
+    return false;
+}
+
+static inline HRESULT vkd3d_set_private_data(struct vkd3d_private_store *store,
+        const GUID *tag, unsigned int data_size, const void *data,
+        vkd3d_set_name_callback set_name_callback, void *calling_object)
+{
+    const char *name;
+    HRESULT hr;
+
+    if (FAILED(hr = vkd3d_private_data_lock(store)))
+        return hr;
+
+    if (FAILED(hr = vkd3d_private_store_set_private_data(store, tag, data, data_size, false)))
+    {
+        vkd3d_private_data_unlock(store);
+        return hr;
+    }
+
+    if (set_name_callback && vkd3d_private_data_object_name_ptr(tag, data_size, data, &name))
+    {
+        set_name_callback(calling_object, name);
+        if (name && name != data)
+            vkd3d_free((void *)name);
+    }
+
+    vkd3d_private_data_unlock(store);
+    return hr;
+}
+
+static inline HRESULT vkd3d_set_private_data_interface(struct vkd3d_private_store *store,
+        const GUID *tag, const IUnknown *object,
+        vkd3d_set_name_callback set_name_callback, void *calling_object)
+{
+    const void *data = object ? object : (void *)&object;
+    HRESULT hr;
+
+    if (FAILED(hr = vkd3d_private_data_lock(store)))
+        return hr;
+
+    if (FAILED(hr = vkd3d_private_store_set_private_data(store, tag, data, sizeof(object), !!object)))
+    {
+        vkd3d_private_data_unlock(store);
+        return hr;
+    }
+
+    if (set_name_callback && vkd3d_private_data_object_name_ptr(tag, 0, NULL, NULL))
+        set_name_callback(calling_object, NULL);
+
+    vkd3d_private_data_unlock(store);
+    return hr;
+}
+
+HRESULT STDMETHODCALLTYPE d3d12_object_SetName(ID3D12Object *iface, const WCHAR *name);
 
 /* ID3D12Fence */
 typedef ID3D12Fence1 d3d12_fence_iface;
@@ -2669,10 +2774,8 @@ HRESULT vkd3d_load_vk_instance_procs(struct vkd3d_vk_instance_procs *procs,
 HRESULT vkd3d_load_vk_device_procs(struct vkd3d_vk_device_procs *procs,
         const struct vkd3d_vk_instance_procs *parent_procs, VkDevice device);
 
-VkResult vkd3d_set_vk_object_name_utf8(struct d3d12_device *device, uint64_t vk_object,
-        VkObjectType vk_object_type, const char *name);
 HRESULT vkd3d_set_vk_object_name(struct d3d12_device *device, uint64_t vk_object,
-        VkObjectType vk_object_type, const WCHAR *name);
+        VkObjectType vk_object_type, const char *name);
 
 enum VkPrimitiveTopology vk_topology_from_d3d12_topology(D3D12_PRIMITIVE_TOPOLOGY topology);
 

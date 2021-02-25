@@ -2368,6 +2368,12 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     vkd3d_instance_decref(device->vkd3d_instance);
 }
 
+static void d3d12_device_set_name(struct d3d12_device *device, const char *name)
+{
+    vkd3d_set_vk_object_name(device, (uint64_t)(uintptr_t)device->vk_device,
+            VK_OBJECT_TYPE_DEVICE, name);
+}
+
 static ULONG STDMETHODCALLTYPE d3d12_device_Release(d3d12_device_iface *iface)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
@@ -2427,7 +2433,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_SetPrivateData(d3d12_device_iface 
     TRACE("iface %p, guid %s, data_size %u, data %p.\n",
             iface, debugstr_guid(guid), data_size, data);
 
-    return vkd3d_set_private_data(&device->private_store, guid, data_size, data);
+    return vkd3d_set_private_data(&device->private_store, guid, data_size, data,
+            (vkd3d_set_name_callback) d3d12_device_set_name, device);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_SetPrivateDataInterface(d3d12_device_iface *iface,
@@ -2437,17 +2444,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_SetPrivateDataInterface(d3d12_devi
 
     TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
 
-    return vkd3d_set_private_data_interface(&device->private_store, guid, data);
-}
-
-static HRESULT STDMETHODCALLTYPE d3d12_device_SetName(d3d12_device_iface *iface, const WCHAR *name)
-{
-    struct d3d12_device *device = impl_from_ID3D12Device(iface);
-
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
-
-    return vkd3d_set_vk_object_name(device, (uint64_t)(uintptr_t)device->vk_device,
-            VK_OBJECT_TYPE_DEVICE, name);
+    return vkd3d_set_private_data_interface(&device->private_store, guid, data,
+            (vkd3d_set_name_callback) d3d12_device_set_name, device);
 }
 
 static UINT STDMETHODCALLTYPE d3d12_device_GetNodeCount(d3d12_device_iface *iface)
@@ -4313,7 +4311,7 @@ static CONST_VTBL struct ID3D12Device6Vtbl d3d12_device_vtbl =
     d3d12_device_GetPrivateData,
     d3d12_device_SetPrivateData,
     d3d12_device_SetPrivateDataInterface,
-    d3d12_device_SetName,
+    (void *)d3d12_object_SetName,
     /* ID3D12Device methods */
     d3d12_device_GetNodeCount,
     d3d12_device_CreateCommandQueue,

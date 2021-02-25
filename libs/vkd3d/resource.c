@@ -1205,6 +1205,18 @@ static void d3d12_resource_get_level_box(const struct d3d12_resource *resource,
     box->back = d3d12_resource_desc_get_depth(&resource->desc, level);
 }
 
+static void d3d12_resource_set_name(struct d3d12_resource *resource, const char *name)
+{
+    /* Multiple committed and placed buffers may refer to the same VkBuffer,
+     * which may cause race conditions if the app calls this concurrently */
+    if (d3d12_resource_is_buffer(resource) && (resource->flags & VKD3D_RESOURCE_RESERVED))
+        vkd3d_set_vk_object_name(resource->device, (uint64_t)resource->res.vk_buffer,
+                VK_OBJECT_TYPE_BUFFER, name);
+    else if (d3d12_resource_is_texture(resource))
+        vkd3d_set_vk_object_name(resource->device, (uint64_t)resource->res.vk_image,
+                VK_OBJECT_TYPE_IMAGE, name);
+}
+
 /* ID3D12Resource */
 static inline struct d3d12_resource *impl_from_ID3D12Resource(d3d12_resource_iface *iface)
 {
@@ -1282,7 +1294,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_SetPrivateData(d3d12_resource_if
 
     TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
 
-    return vkd3d_set_private_data(&resource->private_store, guid, data_size, data);
+    return vkd3d_set_private_data(&resource->private_store, guid, data_size, data,
+            (vkd3d_set_name_callback) d3d12_resource_set_name, resource);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_resource_SetPrivateDataInterface(d3d12_resource_iface *iface,
@@ -1292,25 +1305,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_SetPrivateDataInterface(d3d12_re
 
     TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
 
-    return vkd3d_set_private_data_interface(&resource->private_store, guid, data);
-}
-
-static HRESULT STDMETHODCALLTYPE d3d12_resource_SetName(d3d12_resource_iface *iface, const WCHAR *name)
-{
-    struct d3d12_resource *resource = impl_from_ID3D12Resource(iface);
-
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
-
-    /* Multiple committed and placed buffers may refer to the same VkBuffer,
-     * which may cause race conditions if the app calls this concurrently */
-    if (d3d12_resource_is_buffer(resource) && (resource->flags & VKD3D_RESOURCE_RESERVED))
-        return vkd3d_set_vk_object_name(resource->device, (uint64_t)resource->res.vk_buffer,
-                VK_OBJECT_TYPE_BUFFER, name);
-    else if (d3d12_resource_is_texture(resource))
-        return vkd3d_set_vk_object_name(resource->device, (uint64_t)resource->res.vk_image,
-                VK_OBJECT_TYPE_IMAGE, name);
-    else
-        return S_OK;
+    return vkd3d_set_private_data_interface(&resource->private_store, guid, data,
+            (vkd3d_set_name_callback) d3d12_resource_set_name, resource);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_resource_GetDevice(d3d12_resource_iface *iface, REFIID iid, void **device)
@@ -1683,7 +1679,7 @@ static CONST_VTBL struct ID3D12Resource1Vtbl d3d12_resource_vtbl =
     d3d12_resource_GetPrivateData,
     d3d12_resource_SetPrivateData,
     d3d12_resource_SetPrivateDataInterface,
-    d3d12_resource_SetName,
+    (void *)d3d12_object_SetName,
     /* ID3D12DeviceChild methods */
     d3d12_resource_GetDevice,
     /* ID3D12Resource methods */
@@ -4738,7 +4734,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_SetPrivateData(ID3D12Desc
 
     TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
 
-    return vkd3d_set_private_data(&heap->private_store, guid, data_size, data);
+    return vkd3d_set_private_data(&heap->private_store, guid, data_size, data,
+            NULL, NULL);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_SetPrivateDataInterface(ID3D12DescriptorHeap *iface,
@@ -4748,14 +4745,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_SetPrivateDataInterface(I
 
     TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
 
-    return vkd3d_set_private_data_interface(&heap->private_store, guid, data);
-}
-
-static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_SetName(ID3D12DescriptorHeap *iface, const WCHAR *name)
-{
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
-
-    return name ? S_OK : E_INVALIDARG;
+    return vkd3d_set_private_data_interface(&heap->private_store, guid, data,
+            NULL, NULL);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_GetDevice(ID3D12DescriptorHeap *iface, REFIID iid, void **device)
@@ -4812,7 +4803,7 @@ static CONST_VTBL struct ID3D12DescriptorHeapVtbl d3d12_descriptor_heap_vtbl =
     d3d12_descriptor_heap_GetPrivateData,
     d3d12_descriptor_heap_SetPrivateData,
     d3d12_descriptor_heap_SetPrivateDataInterface,
-    d3d12_descriptor_heap_SetName,
+    (void *)d3d12_object_SetName,
     /* ID3D12DeviceChild methods */
     d3d12_descriptor_heap_GetDevice,
     /* ID3D12DescriptorHeap methods */
@@ -5307,6 +5298,20 @@ void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap
 #endif
 }
 
+static void d3d12_query_heap_set_name(struct d3d12_query_heap *heap, const char *name)
+{
+    if (heap->vk_query_pool)
+    {
+        vkd3d_set_vk_object_name(heap->device, (uint64_t)heap->vk_query_pool,
+                VK_OBJECT_TYPE_QUERY_POOL, name);
+    }
+    else /*if (heap->vk_buffer)*/
+    {
+        vkd3d_set_vk_object_name(heap->device, (uint64_t)heap->vk_buffer,
+                VK_OBJECT_TYPE_BUFFER, name);
+    }
+}
+
 /* ID3D12QueryHeap */
 static inline struct d3d12_query_heap *impl_from_ID3D12QueryHeap(ID3D12QueryHeap *iface)
 {
@@ -5388,7 +5393,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_query_heap_SetPrivateData(ID3D12QueryHeap
 
     TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
 
-    return vkd3d_set_private_data(&heap->private_store, guid, data_size, data);
+    return vkd3d_set_private_data(&heap->private_store, guid, data_size, data,
+            (vkd3d_set_name_callback) d3d12_query_heap_set_name, heap);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_query_heap_SetPrivateDataInterface(ID3D12QueryHeap *iface,
@@ -5398,25 +5404,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_query_heap_SetPrivateDataInterface(ID3D12
 
     TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
 
-    return vkd3d_set_private_data_interface(&heap->private_store, guid, data);
-}
-
-static HRESULT STDMETHODCALLTYPE d3d12_query_heap_SetName(ID3D12QueryHeap *iface, const WCHAR *name)
-{
-    struct d3d12_query_heap *heap = impl_from_ID3D12QueryHeap(iface);
-
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
-
-    if (heap->vk_query_pool)
-    {
-        return vkd3d_set_vk_object_name(heap->device, (uint64_t)heap->vk_query_pool,
-                VK_OBJECT_TYPE_QUERY_POOL, name);
-    }
-    else /*if (heap->vk_buffer)*/
-    {
-        return vkd3d_set_vk_object_name(heap->device, (uint64_t)heap->vk_buffer,
-                VK_OBJECT_TYPE_BUFFER, name);
-    }
+    return vkd3d_set_private_data_interface(&heap->private_store, guid, data,
+            (vkd3d_set_name_callback) d3d12_query_heap_set_name, heap);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_query_heap_GetDevice(ID3D12QueryHeap *iface, REFIID iid, void **device)
@@ -5438,7 +5427,7 @@ static CONST_VTBL struct ID3D12QueryHeapVtbl d3d12_query_heap_vtbl =
     d3d12_query_heap_GetPrivateData,
     d3d12_query_heap_SetPrivateData,
     d3d12_query_heap_SetPrivateDataInterface,
-    d3d12_query_heap_SetName,
+    (void *)d3d12_object_SetName,
     /* ID3D12DeviceChild methods */
     d3d12_query_heap_GetDevice,
 };
@@ -5863,27 +5852,27 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
         goto fail;
 
     /* set Vulkan object names */
-    vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_buffer,
+    vkd3d_set_vk_object_name(device, (uint64_t)null_resources->vk_buffer,
             VK_OBJECT_TYPE_BUFFER, "NULL buffer");
-    vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_buffer_view,
+    vkd3d_set_vk_object_name(device, (uint64_t)null_resources->vk_buffer_view,
             VK_OBJECT_TYPE_BUFFER_VIEW, "NULL buffer view");
-    vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_buffer_memory,
+    vkd3d_set_vk_object_name(device, (uint64_t)null_resources->vk_buffer_memory,
             VK_OBJECT_TYPE_DEVICE_MEMORY, "NULL memory");
-    vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_storage_buffer,
+    vkd3d_set_vk_object_name(device, (uint64_t)null_resources->vk_storage_buffer,
             VK_OBJECT_TYPE_BUFFER, "NULL UAV buffer");
-    vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_storage_buffer_view,
+    vkd3d_set_vk_object_name(device, (uint64_t)null_resources->vk_storage_buffer_view,
             VK_OBJECT_TYPE_BUFFER_VIEW, "NULL UAV buffer view");
-    vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_image,
+    vkd3d_set_vk_object_name(device, (uint64_t)null_resources->vk_2d_image,
             VK_OBJECT_TYPE_IMAGE, "NULL 2D SRV image");
-    vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_image_memory,
+    vkd3d_set_vk_object_name(device, (uint64_t)null_resources->vk_2d_image_memory,
             VK_OBJECT_TYPE_DEVICE_MEMORY, "NULL 2D SRV memory");
-    vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_storage_image,
+    vkd3d_set_vk_object_name(device, (uint64_t)null_resources->vk_2d_storage_image,
             VK_OBJECT_TYPE_IMAGE, "NULL 2D UAV image");
     if (!use_sparse_resources)
     {
-        vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_storage_buffer_memory,
+        vkd3d_set_vk_object_name(device, (uint64_t)null_resources->vk_storage_buffer_memory,
                 VK_OBJECT_TYPE_DEVICE_MEMORY, "NULL UAV buffer memory");
-        vkd3d_set_vk_object_name_utf8(device, (uint64_t)null_resources->vk_2d_storage_image_memory,
+        vkd3d_set_vk_object_name(device, (uint64_t)null_resources->vk_2d_storage_image_memory,
                 VK_OBJECT_TYPE_DEVICE_MEMORY, "NULL 2D UAV memory");
     }
 

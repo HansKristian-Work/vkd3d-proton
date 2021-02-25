@@ -851,7 +851,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_SetPrivateData(d3d12_fence_iface *i
     TRACE("iface %p, guid %s, data_size %u, data %p.\n",
             iface, debugstr_guid(guid), data_size, data);
 
-    return vkd3d_set_private_data(&fence->private_store, guid, data_size, data);
+    return vkd3d_set_private_data(&fence->private_store, guid, data_size, data,
+            NULL, NULL);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_fence_SetPrivateDataInterface(d3d12_fence_iface *iface,
@@ -861,14 +862,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_SetPrivateDataInterface(d3d12_fence
 
     TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
 
-    return vkd3d_set_private_data_interface(&fence->private_store, guid, data);
-}
-
-static HRESULT STDMETHODCALLTYPE d3d12_fence_SetName(d3d12_fence_iface *iface, const WCHAR *name)
-{
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
-
-    return name ? S_OK : E_INVALIDARG;
+    return vkd3d_set_private_data_interface(&fence->private_store, guid, data,
+            NULL, NULL);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_fence_GetDevice(d3d12_fence_iface *iface, REFIID iid, void **device)
@@ -976,7 +971,7 @@ static CONST_VTBL struct ID3D12Fence1Vtbl d3d12_fence_vtbl =
     d3d12_fence_GetPrivateData,
     d3d12_fence_SetPrivateData,
     d3d12_fence_SetPrivateDataInterface,
-    d3d12_fence_SetName,
+    (void *)d3d12_object_SetName,
     /* ID3D12DeviceChild methods */
     d3d12_fence_GetDevice,
     /* ID3D12Fence methods */
@@ -1494,6 +1489,12 @@ static void d3d12_command_allocator_free_resources(struct d3d12_command_allocato
     allocator->pass_count = 0;
 }
 
+static void d3d12_command_allocator_set_name(struct d3d12_command_allocator *allocator, const char *name)
+{
+    vkd3d_set_vk_object_name(allocator->device, (uint64_t)allocator->vk_command_pool,
+            VK_OBJECT_TYPE_COMMAND_POOL, name);
+}
+
 /* ID3D12CommandAllocator */
 static inline struct d3d12_command_allocator *impl_from_ID3D12CommandAllocator(ID3D12CommandAllocator *iface)
 {
@@ -1598,7 +1599,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_SetPrivateData(ID3D12Co
 
     TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
 
-    return vkd3d_set_private_data(&allocator->private_store, guid, data_size, data);
+    return vkd3d_set_private_data(&allocator->private_store, guid, data_size, data,
+            (vkd3d_set_name_callback) d3d12_command_allocator_set_name, allocator);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_SetPrivateDataInterface(ID3D12CommandAllocator *iface,
@@ -1608,17 +1610,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_SetPrivateDataInterface
 
     TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
 
-    return vkd3d_set_private_data_interface(&allocator->private_store, guid, data);
-}
-
-static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_SetName(ID3D12CommandAllocator *iface, const WCHAR *name)
-{
-    struct d3d12_command_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
-
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
-
-    return vkd3d_set_vk_object_name(allocator->device, (uint64_t)allocator->vk_command_pool,
-            VK_OBJECT_TYPE_COMMAND_POOL, name);
+    return vkd3d_set_private_data_interface(&allocator->private_store, guid, data,
+            (vkd3d_set_name_callback) d3d12_command_allocator_set_name, allocator);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_GetDevice(ID3D12CommandAllocator *iface, REFIID iid, void **device)
@@ -1713,7 +1706,7 @@ static CONST_VTBL struct ID3D12CommandAllocatorVtbl d3d12_command_allocator_vtbl
     d3d12_command_allocator_GetPrivateData,
     d3d12_command_allocator_SetPrivateData,
     d3d12_command_allocator_SetPrivateDataInterface,
-    d3d12_command_allocator_SetName,
+    (void *)d3d12_object_SetName,
     /* ID3D12DeviceChild methods */
     d3d12_command_allocator_GetDevice,
     /* ID3D12CommandAllocator methods */
@@ -3531,7 +3524,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_SetPrivateData(d3d12_command
 
     TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
 
-    return vkd3d_set_private_data(&list->private_store, guid, data_size, data);
+    return vkd3d_set_private_data(&list->private_store, guid, data_size, data,
+            NULL, NULL);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_SetPrivateDataInterface(d3d12_command_list_iface *iface,
@@ -3541,14 +3535,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_SetPrivateDataInterface(d3d1
 
     TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
 
-    return vkd3d_set_private_data_interface(&list->private_store, guid, data);
-}
-
-static HRESULT STDMETHODCALLTYPE d3d12_command_list_SetName(d3d12_command_list_iface *iface, const WCHAR *name)
-{
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
-
-    return name ? S_OK : E_INVALIDARG;
+    return vkd3d_set_private_data_interface(&list->private_store, guid, data,
+            NULL, NULL);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_GetDevice(d3d12_command_list_iface *iface, REFIID iid, void **device)
@@ -8309,7 +8297,7 @@ static CONST_VTBL struct ID3D12GraphicsCommandList5Vtbl d3d12_command_list_vtbl 
     d3d12_command_list_GetPrivateData,
     d3d12_command_list_SetPrivateData,
     d3d12_command_list_SetPrivateDataInterface,
-    d3d12_command_list_SetName,
+    (void *)d3d12_object_SetName,
     /* ID3D12DeviceChild methods */
     d3d12_command_list_GetDevice,
     /* ID3D12CommandList methods */
@@ -8569,7 +8557,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_SetPrivateData(ID3D12Comman
 
     TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
 
-    return vkd3d_set_private_data(&command_queue->private_store, guid, data_size, data);
+    return vkd3d_set_private_data(&command_queue->private_store, guid, data_size, data,
+            NULL, NULL);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_queue_SetPrivateDataInterface(ID3D12CommandQueue *iface,
@@ -8579,27 +8568,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_SetPrivateDataInterface(ID3
 
     TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
 
-    return vkd3d_set_private_data_interface(&command_queue->private_store, guid, data);
-}
-
-static HRESULT STDMETHODCALLTYPE d3d12_command_queue_SetName(ID3D12CommandQueue *iface, const WCHAR *name)
-{
-    struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
-    VkQueue vk_queue;
-    HRESULT hr;
-
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
-
-    if (!(vk_queue = vkd3d_queue_acquire(command_queue->vkd3d_queue)))
-    {
-        ERR("Failed to acquire queue %p.\n", command_queue->vkd3d_queue);
-        return E_FAIL;
-    }
-
-    hr = vkd3d_set_vk_object_name(command_queue->device, (uint64_t)(uintptr_t)vk_queue,
-            VK_OBJECT_TYPE_QUEUE, name);
-    vkd3d_queue_release(command_queue->vkd3d_queue);
-    return hr;
+    return vkd3d_set_private_data_interface(&command_queue->private_store, guid, data,
+            NULL, NULL);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_queue_GetDevice(ID3D12CommandQueue *iface, REFIID iid, void **device)
@@ -9108,7 +9078,7 @@ static CONST_VTBL struct ID3D12CommandQueueVtbl d3d12_command_queue_vtbl =
     d3d12_command_queue_GetPrivateData,
     d3d12_command_queue_SetPrivateData,
     d3d12_command_queue_SetPrivateDataInterface,
-    d3d12_command_queue_SetName,
+    (void *)d3d12_object_SetName,
     /* ID3D12DeviceChild methods */
     d3d12_command_queue_GetDevice,
     /* ID3D12CommandQueue methods */
@@ -10183,7 +10153,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_signature_SetPrivateData(ID3D12Co
 
     TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
 
-    return vkd3d_set_private_data(&signature->private_store, guid, data_size, data);
+    return vkd3d_set_private_data(&signature->private_store, guid, data_size, data,
+            NULL, NULL);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_signature_SetPrivateDataInterface(ID3D12CommandSignature *iface,
@@ -10193,14 +10164,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_signature_SetPrivateDataInterface
 
     TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
 
-    return vkd3d_set_private_data_interface(&signature->private_store, guid, data);
-}
-
-static HRESULT STDMETHODCALLTYPE d3d12_command_signature_SetName(ID3D12CommandSignature *iface, const WCHAR *name)
-{
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
-
-    return name ? S_OK : E_INVALIDARG;
+    return vkd3d_set_private_data_interface(&signature->private_store, guid, data,
+            NULL, NULL);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_signature_GetDevice(ID3D12CommandSignature *iface, REFIID iid, void **device)
@@ -10222,7 +10187,7 @@ static CONST_VTBL struct ID3D12CommandSignatureVtbl d3d12_command_signature_vtbl
     d3d12_command_signature_GetPrivateData,
     d3d12_command_signature_SetPrivateData,
     d3d12_command_signature_SetPrivateDataInterface,
-    d3d12_command_signature_SetName,
+    (void *)d3d12_object_SetName,
     /* ID3D12DeviceChild methods */
     d3d12_command_signature_GetDevice,
 };

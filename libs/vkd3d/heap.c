@@ -70,6 +70,13 @@ static void d3d12_heap_destroy(struct d3d12_heap *heap)
     vkd3d_free(heap);
 }
 
+static void d3d12_heap_set_name(struct d3d12_heap *heap, const char *name)
+{
+    if (!heap->allocation.chunk)
+        vkd3d_set_vk_object_name(heap->device, (uint64_t)heap->allocation.vk_memory,
+                VK_OBJECT_TYPE_DEVICE_MEMORY, name);
+}
+
 static ULONG STDMETHODCALLTYPE d3d12_heap_Release(d3d12_heap_iface *iface)
 {
     struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
@@ -100,7 +107,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_SetPrivateData(d3d12_heap_iface *ifa
 
     TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
 
-    return vkd3d_set_private_data(&heap->private_store, guid, data_size, data);
+    return vkd3d_set_private_data(&heap->private_store, guid, data_size, data,
+            (vkd3d_set_name_callback) d3d12_heap_set_name, heap);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_heap_SetPrivateDataInterface(d3d12_heap_iface *iface,
@@ -110,20 +118,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_SetPrivateDataInterface(d3d12_heap_i
 
     TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
 
-    return vkd3d_set_private_data_interface(&heap->private_store, guid, data);
-}
-
-static HRESULT STDMETHODCALLTYPE d3d12_heap_SetName(d3d12_heap_iface *iface, const WCHAR *name)
-{
-    struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
-
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
-
-    if (!heap->allocation.chunk)
-        return vkd3d_set_vk_object_name(heap->device, (uint64_t)heap->allocation.vk_memory,
-                VK_OBJECT_TYPE_DEVICE_MEMORY, name);
-    else
-        return S_OK;
+    return vkd3d_set_private_data_interface(&heap->private_store, guid, data,
+            (vkd3d_set_name_callback) d3d12_heap_set_name, heap);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_heap_GetDevice(d3d12_heap_iface *iface, REFIID iid, void **device)
@@ -164,7 +160,7 @@ static CONST_VTBL struct ID3D12Heap1Vtbl d3d12_heap_vtbl =
     d3d12_heap_GetPrivateData,
     d3d12_heap_SetPrivateData,
     d3d12_heap_SetPrivateDataInterface,
-    d3d12_heap_SetName,
+    (void *)d3d12_object_SetName,
     /* ID3D12DeviceChild methods */
     d3d12_heap_GetDevice,
     /* ID3D12Heap methods */
