@@ -32,6 +32,7 @@ bool vkd3d_export_strequal(const WCHAR *a, const WCHAR *b);
 bool vkd3d_export_strequal_substr(const WCHAR *a, size_t n, const WCHAR *b);
 
 char *vkd3d_strdup(const char *str);
+char *vkd3d_strdup_n(const char *str, size_t n);
 WCHAR *vkd3d_wstrdup(const WCHAR *str);
 WCHAR *vkd3d_wstrdup_n(const WCHAR *str, size_t n);
 
