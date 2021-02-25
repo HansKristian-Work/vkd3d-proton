@@ -67,7 +67,9 @@ static void d3d12_root_signature_cleanup(struct d3d12_root_signature *root_signa
     vkd3d_sampler_state_free_descriptor_set(&device->sampler_state, device,
             root_signature->vk_sampler_set, root_signature->vk_sampler_pool);
 
-    VK_CALL(vkDestroyPipelineLayout(device->vk_device, root_signature->vk_pipeline_layout, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, root_signature->graphics.vk_pipeline_layout, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, root_signature->compute.vk_pipeline_layout, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, root_signature->raygen.vk_pipeline_layout, NULL));
     VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_sampler_descriptor_layout, NULL));
     VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_root_descriptor_layout, NULL));
 
@@ -315,6 +317,24 @@ static HRESULT vkd3d_create_pipeline_layout(struct d3d12_device *device,
     return S_OK;
 }
 
+static HRESULT vkd3d_create_pipeline_layout_for_stage_mask(struct d3d12_device *device,
+        unsigned int set_layout_count, const VkDescriptorSetLayout *set_layouts,
+        const VkPushConstantRange *push_constants,
+        VkShaderStageFlags stages,
+        struct d3d12_bind_point_layout *bind_point_layout)
+{
+    VkPushConstantRange range;
+    /* Can just mask directly since STAGE_ALL and ALL_GRAPHICS are OR masks. */
+    range.stageFlags = push_constants->stageFlags & stages;
+    range.offset = push_constants->offset;
+    range.size = push_constants->size;
+
+    bind_point_layout->vk_push_stages = range.stageFlags;
+    return vkd3d_create_pipeline_layout(device, set_layout_count, set_layouts,
+            range.stageFlags ? 1 : 0, &range,
+            &bind_point_layout->vk_pipeline_layout);
+}
+
 struct d3d12_root_signature_info
 {
     uint32_t binding_count;
@@ -475,6 +495,7 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
 {
     unsigned int i, j;
 
+    /* Stages set later. */
     push_constant_range->stageFlags = 0;
     push_constant_range->offset = 0;
     push_constant_range->size = 0;
@@ -972,8 +993,8 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
     const struct vkd3d_bindless_state *bindless_state = &device->bindless_state;
     VkDescriptorSetLayout set_layouts[VKD3D_MAX_DESCRIPTOR_SETS];
     struct vkd3d_descriptor_set_context context;
-    unsigned int i, push_constant_range_count;
     struct d3d12_root_signature_info info;
+    unsigned int i;
     HRESULT hr;
 
     memset(&context, 0, sizeof(context));
@@ -1070,16 +1091,39 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
     if (FAILED(hr = d3d12_root_signature_init_root_descriptor_tables(root_signature, desc, &info, &context)))
         return hr;
 
-    push_constant_range_count = 0;
+    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK)
+        root_signature->push_constant_range.stageFlags = 0;
 
-    if (root_signature->push_constant_range.size &&
-            !(root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK))
-        push_constant_range_count = 1;
+    /* If we need to use restricted stages in vkCmdPushConstants,
+     * we are unfortunately required to do it like this
+     * since stageFlags in vkCmdPushConstants must cover at least all stages in the layout.
+     *
+     * We can pick the appropriate layout to use in PSO creation.
+     * In set_root_signature we can bind the appropriate layout as well.
+     *
+     * For graphics we can generally rely on visibility mask, but not so for compute and raygen,
+     * since they use ALL visibility. */
 
-    if (FAILED(hr = vkd3d_create_pipeline_layout(device, context.vk_set, set_layouts,
-            push_constant_range_count, &root_signature->push_constant_range,
-            &root_signature->vk_pipeline_layout)))
+    if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
+            device, context.vk_set, set_layouts,
+            &root_signature->push_constant_range,
+            VK_SHADER_STAGE_ALL_GRAPHICS, &root_signature->graphics)))
         return hr;
+
+    if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
+            device, context.vk_set, set_layouts,
+            &root_signature->push_constant_range,
+            VK_SHADER_STAGE_COMPUTE_BIT, &root_signature->compute)))
+        return hr;
+
+    if (d3d12_device_supports_ray_tracing_tier_1_0(device))
+    {
+        if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
+                device, context.vk_set, set_layouts,
+                &root_signature->push_constant_range,
+                VK_SHADER_STAGE_RAYGEN_BIT_KHR, &root_signature->raygen)))
+            return hr;
+    }
 
     return S_OK;
 }
@@ -1939,7 +1983,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     }
 
     hr = vkd3d_create_compute_pipeline(device, &desc->cs, &shader_interface,
-            root_signature->vk_pipeline_layout, state->vk_pso_cache, &state->compute.vk_pipeline,
+            root_signature->compute.vk_pipeline_layout, state->vk_pso_cache, &state->compute.vk_pipeline,
             &state->compute.meta);
 
     if (FAILED(hr))
@@ -3049,7 +3093,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             (desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH || graphics->patch_vertex_count != 0) &&
             desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
 
-    graphics->pipeline_layout = root_signature->vk_pipeline_layout;
+    graphics->pipeline_layout = root_signature->graphics.vk_pipeline_layout;
     graphics->pipeline = VK_NULL_HANDLE;
     state->device = device;
 

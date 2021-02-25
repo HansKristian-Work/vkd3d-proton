@@ -1126,12 +1126,18 @@ enum vkd3d_root_signature_flag
 };
 
 /* ID3D12RootSignature */
+struct d3d12_bind_point_layout
+{
+    VkPipelineLayout vk_pipeline_layout;
+    VkShaderStageFlags vk_push_stages;
+};
+
 struct d3d12_root_signature
 {
     ID3D12RootSignature ID3D12RootSignature_iface;
     LONG refcount;
 
-    VkPipelineLayout vk_pipeline_layout;
+    struct d3d12_bind_point_layout graphics, compute, raygen;
     VkDescriptorSetLayout vk_sampler_descriptor_layout;
     VkDescriptorSetLayout vk_root_descriptor_layout;
 
@@ -1527,6 +1533,7 @@ struct vkd3d_root_descriptor_info
 struct vkd3d_pipeline_bindings
 {
     const struct d3d12_root_signature *root_signature;
+    struct d3d12_bind_point_layout layout;
 
     VkDescriptorSet static_sampler_set;
     uint32_t dirty_flags; /* vkd3d_pipeline_dirty_flags */
@@ -1689,6 +1696,7 @@ struct d3d12_command_list
     VkRenderPass current_render_pass;
     struct vkd3d_dynamic_state dynamic_state;
     struct vkd3d_pipeline_bindings pipeline_bindings[VKD3D_PIPELINE_BIND_POINT_COUNT];
+    VkPipelineBindPoint active_bind_point;
 
     VkDescriptorSet descriptor_heaps[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
 
