@@ -225,7 +225,7 @@ static CONST_VTBL struct ID3D12Device6Vtbl d3d12_device_vtbl_profiled =
     d3d12_device_GetPrivateData,
     d3d12_device_SetPrivateData,
     d3d12_device_SetPrivateDataInterface,
-    d3d12_device_SetName,
+    (void *)d3d12_object_SetName,
     /* ID3D12Device methods */
     d3d12_device_GetNodeCount,
     d3d12_device_CreateCommandQueue,

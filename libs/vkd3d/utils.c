@@ -1022,7 +1022,7 @@ static struct vkd3d_private_data *vkd3d_private_store_get_private_data(
     return NULL;
 }
 
-static HRESULT vkd3d_private_store_set_private_data(struct vkd3d_private_store *store,
+HRESULT vkd3d_private_store_set_private_data(struct vkd3d_private_store *store,
         const GUID *tag, const void *data, unsigned int data_size, bool is_object)
 {
     struct vkd3d_private_data *d, *old_data;
@@ -1067,18 +1067,14 @@ HRESULT vkd3d_get_private_data(struct vkd3d_private_store *store,
         const GUID *tag, unsigned int *out_size, void *out)
 {
     const struct vkd3d_private_data *data;
-    HRESULT hr = S_OK;
     unsigned int size;
-    int rc;
+    HRESULT hr;
 
     if (!out_size)
         return E_INVALIDARG;
 
-    if ((rc = pthread_mutex_lock(&store->mutex)))
-    {
-        ERR("Failed to lock mutex, error %d.\n", rc);
-        return hresult_from_errno(rc);
-    }
+    if (FAILED(hr = vkd3d_private_data_lock(store)))
+        return hr;
 
     if (!(data = vkd3d_private_store_get_private_data(store, tag)))
     {
@@ -1103,52 +1099,28 @@ HRESULT vkd3d_get_private_data(struct vkd3d_private_store *store,
     memcpy(out, data->data, data->size);
 
 done:
-    pthread_mutex_unlock(&store->mutex);
+    vkd3d_private_data_unlock(store);
     return hr;
 }
 
-HRESULT vkd3d_set_private_data(struct vkd3d_private_store *store,
-        const GUID *tag, unsigned int data_size, const void *data)
+HRESULT STDMETHODCALLTYPE d3d12_object_SetName(ID3D12Object *iface, const WCHAR *name)
 {
-    HRESULT hr;
-    int rc;
+    size_t size = 0;
 
-    if ((rc = pthread_mutex_lock(&store->mutex)))
-    {
-        ERR("Failed to lock mutex, error %d.\n", rc);
-        return hresult_from_errno(rc);
-    }
+    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
 
-    hr = vkd3d_private_store_set_private_data(store, tag, data, data_size, false);
+    if (name)
+        size = sizeof(WCHAR) * (vkd3d_wcslen(name) + 1);
 
-    pthread_mutex_unlock(&store->mutex);
-    return hr;
+    return ID3D12Object_SetPrivateData(iface, &WKPDID_D3DDebugObjectNameW, size, name);
 }
 
-HRESULT vkd3d_set_private_data_interface(struct vkd3d_private_store *store,
-        const GUID *tag, const IUnknown *object)
-{
-    const void *data = object ? object : (void *)&object;
-    HRESULT hr;
-    int rc;
-
-    if ((rc = pthread_mutex_lock(&store->mutex)))
-    {
-        ERR("Failed to lock mutex, error %d.\n", rc);
-        return hresult_from_errno(rc);
-    }
-
-    hr = vkd3d_private_store_set_private_data(store, tag, data, sizeof(object), !!object);
-
-    pthread_mutex_unlock(&store->mutex);
-    return hr;
-}
-
-VkResult vkd3d_set_vk_object_name_utf8(struct d3d12_device *device, uint64_t vk_object,
+HRESULT vkd3d_set_vk_object_name(struct d3d12_device *device, uint64_t vk_object,
         VkObjectType vk_object_type, const char *name)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkDebugUtilsObjectNameInfoEXT info;
+    VkResult vr;
 
     if (!device->vk_info.EXT_debug_utils)
         return VK_SUCCESS;
@@ -1158,28 +1130,8 @@ VkResult vkd3d_set_vk_object_name_utf8(struct d3d12_device *device, uint64_t vk_
     info.objectType = vk_object_type;
     info.objectHandle = vk_object;
     info.pObjectName = name;
-    return VK_CALL(vkSetDebugUtilsObjectNameEXT(device->vk_device, &info));
-}
 
-HRESULT vkd3d_set_vk_object_name(struct d3d12_device *device, uint64_t vk_object,
-        VkObjectType vk_object_type, const WCHAR *name)
-{
-    char *name_utf8;
-    VkResult vr;
-
-    if (!name)
-        return E_INVALIDARG;
-
-    if (!device->vk_info.EXT_debug_utils)
-        return S_OK;
-
-    if (!(name_utf8 = vkd3d_strdup_w_utf8(name, 0)))
-        return E_OUTOFMEMORY;
-
-    vr = vkd3d_set_vk_object_name_utf8(device, vk_object, vk_object_type, name_utf8);
-
-    vkd3d_free(name_utf8);
-
+    vr = VK_CALL(vkSetDebugUtilsObjectNameEXT(device->vk_device, &info));
     return hresult_from_vk_result(vr);
 }
 

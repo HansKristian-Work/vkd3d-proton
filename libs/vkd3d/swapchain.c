@@ -1595,7 +1595,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_SetPrivateData(dxgi_swapchain_i
 
     TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
 
-    return vkd3d_set_private_data(&swapchain->private_store, guid, data_size, data);
+    return vkd3d_set_private_data(&swapchain->private_store, guid, data_size, data,
+            NULL, NULL);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_swapchain_SetPrivateDataInterface(dxgi_swapchain_iface *iface,
@@ -1605,7 +1606,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_SetPrivateDataInterface(dxgi_sw
 
     TRACE("iface %p, guid %s, object %p.\n", iface, debugstr_guid(guid), object);
 
-    return vkd3d_set_private_data_interface(&swapchain->private_store, guid, object);
+    return vkd3d_set_private_data_interface(&swapchain->private_store, guid, object,
+            NULL, NULL);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_swapchain_GetPrivateData(dxgi_swapchain_iface *iface,

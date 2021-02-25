@@ -149,7 +149,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_state_object_SetPrivateData(ID3D12StateOb
 
     TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
 
-    return vkd3d_set_private_data(&state_object->private_store, guid, data_size, data);
+    return vkd3d_set_private_data(&state_object->private_store, guid, data_size, data,
+            NULL, NULL);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_state_object_SetPrivateDataInterface(ID3D12StateObject *iface,
@@ -159,14 +160,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_state_object_SetPrivateDataInterface(ID3D
 
     TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
 
-    return vkd3d_set_private_data_interface(&state_object->private_store, guid, data);
-}
-
-static HRESULT STDMETHODCALLTYPE d3d12_state_object_SetName(ID3D12StateObject *iface, const WCHAR *name)
-{
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
-
-    return name ? S_OK : E_INVALIDARG;
+    return vkd3d_set_private_data_interface(&state_object->private_store, guid, data,
+            NULL, NULL);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_state_object_GetDevice(ID3D12StateObject *iface,
@@ -270,7 +265,7 @@ static CONST_VTBL struct ID3D12StateObjectVtbl d3d12_state_object_vtbl =
     d3d12_state_object_GetPrivateData,
     d3d12_state_object_SetPrivateData,
     d3d12_state_object_SetPrivateDataInterface,
-    d3d12_state_object_SetName,
+    (void *)d3d12_object_SetName,
     /* ID3D12DeviceChild methods */
     d3d12_state_object_GetDevice,
 };

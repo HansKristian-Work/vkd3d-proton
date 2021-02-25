@@ -305,7 +305,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_SetPrivateData(d3d12_pip
 
     TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
 
-    return vkd3d_set_private_data(&pipeline_library->private_store, guid, data_size, data);
+    return vkd3d_set_private_data(&pipeline_library->private_store, guid, data_size, data,
+            NULL, NULL);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_SetPrivateDataInterface(d3d12_pipeline_library_iface *iface,
@@ -315,14 +316,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_SetPrivateDataInterface(
 
     TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
 
-    return vkd3d_set_private_data_interface(&pipeline_library->private_store, guid, data);
-}
-
-static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_SetName(d3d12_pipeline_library_iface *iface, const WCHAR *name)
-{
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
-
-    return name ? S_OK : E_INVALIDARG;
+    return vkd3d_set_private_data_interface(&pipeline_library->private_store, guid, data,
+            NULL, NULL);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_GetDevice(d3d12_pipeline_library_iface *iface,
@@ -604,7 +599,7 @@ static CONST_VTBL struct ID3D12PipelineLibrary1Vtbl d3d12_pipeline_library_vtbl 
     d3d12_pipeline_library_GetPrivateData,
     d3d12_pipeline_library_SetPrivateData,
     d3d12_pipeline_library_SetPrivateDataInterface,
-    d3d12_pipeline_library_SetName,
+    (void *)d3d12_object_SetName,
     /* ID3D12DeviceChild methods */
     d3d12_pipeline_library_GetDevice,
     /* ID3D12PipelineLibrary methods */

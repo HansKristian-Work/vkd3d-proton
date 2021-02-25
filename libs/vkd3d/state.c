@@ -113,7 +113,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_root_signature_SetPrivateData(ID3D12RootS
 
     TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
 
-    return vkd3d_set_private_data(&root_signature->private_store, guid, data_size, data);
+    return vkd3d_set_private_data(&root_signature->private_store, guid, data_size, data,
+            NULL, NULL);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_root_signature_SetPrivateDataInterface(ID3D12RootSignature *iface,
@@ -123,14 +124,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_root_signature_SetPrivateDataInterface(ID
 
     TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
 
-    return vkd3d_set_private_data_interface(&root_signature->private_store, guid, data);
-}
-
-static HRESULT STDMETHODCALLTYPE d3d12_root_signature_SetName(ID3D12RootSignature *iface, const WCHAR *name)
-{
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
-
-    return name ? S_OK : E_INVALIDARG;
+    return vkd3d_set_private_data_interface(&root_signature->private_store, guid, data,
+            NULL, NULL);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_root_signature_GetDevice(ID3D12RootSignature *iface,
@@ -153,7 +148,7 @@ static CONST_VTBL struct ID3D12RootSignatureVtbl d3d12_root_signature_vtbl =
     d3d12_root_signature_GetPrivateData,
     d3d12_root_signature_SetPrivateData,
     d3d12_root_signature_SetPrivateDataInterface,
-    d3d12_root_signature_SetName,
+    (void *)d3d12_object_SetName,
     /* ID3D12DeviceChild methods */
     d3d12_root_signature_GetDevice,
 };
@@ -1671,6 +1666,15 @@ static void d3d12_pipeline_state_destroy_graphics(struct d3d12_pipeline_state *s
     VK_CALL(vkDestroyPipeline(device->vk_device, graphics->pipeline, NULL));
 }
 
+static void d3d12_pipeline_state_set_name(struct d3d12_pipeline_state *state, const char *name)
+{
+    if (d3d12_pipeline_state_is_compute(state))
+    {
+        vkd3d_set_vk_object_name(state->device, (uint64_t)state->compute.vk_pipeline,
+                VK_OBJECT_TYPE_PIPELINE, name);
+    }
+}
+
 static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_Release(ID3D12PipelineState *iface)
 {
     struct d3d12_pipeline_state *state = impl_from_ID3D12PipelineState(iface);
@@ -1720,7 +1724,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_SetPrivateData(ID3D12Pipel
 
     TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
 
-    return vkd3d_set_private_data(&state->private_store, guid, data_size, data);
+    return vkd3d_set_private_data(&state->private_store, guid, data_size, data,
+            (vkd3d_set_name_callback) d3d12_pipeline_state_set_name, state);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_SetPrivateDataInterface(ID3D12PipelineState *iface,
@@ -1730,22 +1735,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_SetPrivateDataInterface(ID
 
     TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
 
-    return vkd3d_set_private_data_interface(&state->private_store, guid, data);
-}
-
-static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_SetName(ID3D12PipelineState *iface, const WCHAR *name)
-{
-    struct d3d12_pipeline_state *state = impl_from_ID3D12PipelineState(iface);
-
-    TRACE("iface %p, name %s.\n", iface, debugstr_w(name));
-
-    if (d3d12_pipeline_state_is_compute(state))
-    {
-        return vkd3d_set_vk_object_name(state->device, (uint64_t)state->compute.vk_pipeline,
-                VK_OBJECT_TYPE_PIPELINE, name);
-    }
-
-    return name ? S_OK : E_INVALIDARG;
+    return vkd3d_set_private_data_interface(&state->private_store, guid, data,
+            (vkd3d_set_name_callback) d3d12_pipeline_state_set_name, state);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_GetDevice(ID3D12PipelineState *iface,
@@ -1803,7 +1794,7 @@ static CONST_VTBL struct ID3D12PipelineStateVtbl d3d12_pipeline_state_vtbl =
     d3d12_pipeline_state_GetPrivateData,
     d3d12_pipeline_state_SetPrivateData,
     d3d12_pipeline_state_SetPrivateDataInterface,
-    d3d12_pipeline_state_SetName,
+    (void *)d3d12_object_SetName,
     /* ID3D12DeviceChild methods */
     d3d12_pipeline_state_GetDevice,
     /* ID3D12PipelineState methods */
@@ -1861,7 +1852,7 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
 
     /* Helpful for tooling like RenderDoc. */
     sprintf(hash_str, "%016"PRIx64, spirv.meta.hash);
-    vkd3d_set_vk_object_name_utf8(device, (uint64_t)stage_desc->module, VK_OBJECT_TYPE_SHADER_MODULE, hash_str);
+    vkd3d_set_vk_object_name(device, (uint64_t)stage_desc->module, VK_OBJECT_TYPE_SHADER_MODULE, hash_str);
 
     return S_OK;
 }

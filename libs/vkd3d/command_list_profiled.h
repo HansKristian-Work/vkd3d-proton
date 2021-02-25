@@ -469,7 +469,7 @@ static CONST_VTBL struct ID3D12GraphicsCommandList5Vtbl d3d12_command_list_vtbl_
     d3d12_command_list_GetPrivateData,
     d3d12_command_list_SetPrivateData,
     d3d12_command_list_SetPrivateDataInterface,
-    d3d12_command_list_SetName,
+    (void *)d3d12_object_SetName,
     /* ID3D12DeviceChild methods */
     d3d12_command_list_GetDevice,
     /* ID3D12CommandList methods */
