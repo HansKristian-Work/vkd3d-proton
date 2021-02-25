@@ -1633,16 +1633,18 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     acceleration_structure = &physical_device_info->acceleration_structure_features;
     acceleration_structure->accelerationStructureCaptureReplay = VK_FALSE;
 
-    if (vulkan_info->EXT_descriptor_indexing && descriptor_indexing
-            && (descriptor_indexing->descriptorBindingUniformBufferUpdateAfterBind
-            || descriptor_indexing->descriptorBindingStorageBufferUpdateAfterBind
-            || descriptor_indexing->descriptorBindingUniformTexelBufferUpdateAfterBind
-            || descriptor_indexing->descriptorBindingStorageTexelBufferUpdateAfterBind)
-            && !physical_device_info->descriptor_indexing_properties.robustBufferAccessUpdateAfterBind)
+    if (!physical_device_info->descriptor_indexing_properties.robustBufferAccessUpdateAfterBind)
     {
-        WARN("Disabling robust buffer access for the update after bind feature.\n");
-        features->robustBufferAccess = VK_FALSE;
-        physical_device_info->robustness2_features.robustBufferAccess2 = VK_FALSE;
+        /* Generally, we cannot enable robustness if this is not supported,
+         * but this means we cannot support D3D12 at all, so just disabling robustBufferAccess is not a viable option.
+         * This can be observed on RADV, where this feature for some reason is not supported at all,
+         * but this apparently was just a missed feature bit.
+         * https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/9281.
+         *
+         * Another reason to not disable it, is that we will end up with two
+         * split application infos in Fossilize, which is annoying for pragmatic reasons.
+         * Validation does not appear to complain, so we just go ahead and enable robustness anyways. */
+        WARN("Device does not expose robust buffer access for the update after bind feature, enabling it anyways.\n");
     }
 
     if (!vulkan_info->KHR_timeline_semaphore)
