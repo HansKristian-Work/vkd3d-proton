@@ -374,6 +374,25 @@ static VkBool32 VKAPI_PTR vkd3d_debug_messenger_callback(
         const VkDebugUtilsMessengerCallbackDataEXT *callback_data,
         void *userdata)
 {
+    /* Avoid some useless validation warnings which don't contribute much.
+     * - Map memory, likely validation layer bug due to memory alloc flags.
+     * - Pipeline layout limits on NV which are not relevant here.
+     * - SPV_EXT_buffer_device_address shenanigans (need to fix glslang).
+     */
+    unsigned int i;
+    static const uint32_t ignored_ids[] = {
+        0xc05b3a9du,
+        0x2864340eu,
+        0xbfcfaec2u,
+        0x96f03c1cu,
+        0x8189c842u,
+        0x3d492883u,
+    };
+
+    for (i = 0; i < ARRAY_SIZE(ignored_ids); i++)
+        if ((uint32_t)callback_data->messageIdNumber == ignored_ids[i])
+            return VK_FALSE;
+
     if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
         ERR("%s\n", debugstr_a(callback_data->pMessage));
     else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
