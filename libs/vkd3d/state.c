@@ -480,7 +480,7 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
 {
     unsigned int i, j;
 
-    push_constant_range->stageFlags = VK_SHADER_STAGE_ALL;
+    push_constant_range->stageFlags = 0;
     push_constant_range->offset = 0;
     push_constant_range->size = 0;
 
@@ -488,8 +488,12 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
     for (i = 0; i < desc->NumParameters; ++i)
     {
         const D3D12_ROOT_PARAMETER *p = &desc->pParameters[i];
+
         if (d3d12_root_signature_parameter_is_raw_va(root_signature, p->ParameterType))
+        {
+            push_constant_range->stageFlags |= stage_flags_from_visibility(p->ShaderVisibility);
             push_constant_range->size += sizeof(VkDeviceSize);
+        }
     }
 
     /* Append actual root constants */
@@ -500,7 +504,6 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
         if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS)
             continue;
 
-        assert(p->ShaderVisibility <= D3D12_SHADER_VISIBILITY_PIXEL);
         root_signature->root_constant_mask |= 1ull << i;
 
         root_signature->parameters[i].parameter_type = p->ParameterType;
@@ -513,6 +516,7 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
         root_signature->root_constants[j].offset = push_constant_range->size;
         root_signature->root_constants[j].size = p->Constants.Num32BitValues * sizeof(uint32_t);
 
+        push_constant_range->stageFlags |= stage_flags_from_visibility(p->ShaderVisibility);
         push_constant_range->size += p->Constants.Num32BitValues * sizeof(uint32_t);
 
         ++j;
@@ -531,6 +535,8 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
                 continue;
 
             root_signature->descriptor_table_count += 1;
+
+            push_constant_range->stageFlags |= stage_flags_from_visibility(p->ShaderVisibility);
             push_constant_range->size += sizeof(uint32_t);
         }
     }
