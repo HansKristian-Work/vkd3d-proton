@@ -37,6 +37,23 @@ char *vkd3d_strdup(const char *str)
     return duped;
 }
 
+char *vkd3d_strdup_n(const char *str, size_t n)
+{
+    char *duped;
+    size_t len;
+
+    len = strnlen(str, n);
+
+    duped = vkd3d_malloc(len + 1);
+    if (duped)
+    {
+        memcpy(duped, str, len);
+        duped[len] = '\0';
+    }
+
+    return duped;
+}
+
 WCHAR *vkd3d_wstrdup(const WCHAR *str)
 {
     WCHAR *duped;
