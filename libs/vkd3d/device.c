@@ -784,6 +784,13 @@ bool d3d12_device_supports_variable_shading_rate_tier_1(struct d3d12_device *dev
             (device->vk_info.device_limits.framebufferColorSampleCounts & VK_SAMPLE_COUNT_2_BIT);
 }
 
+bool d3d12_device_supports_ray_tracing_tier_1_0(const struct d3d12_device *device)
+{
+    return device->device_info.acceleration_structure_features.accelerationStructure &&
+            device->device_info.ray_tracing_pipeline_features.rayTracingPipeline &&
+            device->d3d12_caps.options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_0;
+}
+
 static D3D12_VARIABLE_SHADING_RATE_TIER d3d12_device_determine_variable_shading_rate_tier(struct d3d12_device *device)
 {
     if (!d3d12_device_supports_variable_shading_rate_tier_1(device))

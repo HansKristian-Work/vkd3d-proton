@@ -2414,6 +2414,7 @@ static inline bool d3d12_device_use_ssbo_root_descriptors(struct d3d12_device *d
 }
 
 bool d3d12_device_supports_variable_shading_rate_tier_1(struct d3d12_device *device);
+bool d3d12_device_supports_ray_tracing_tier_1_0(const struct d3d12_device *device);
 
 /* ID3DBlob */
 struct d3d_blob
