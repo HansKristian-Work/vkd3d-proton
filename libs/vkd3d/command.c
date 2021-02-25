@@ -4189,7 +4189,8 @@ static void d3d12_command_list_update_descriptor_table_offsets(struct d3d12_comm
 
     /* Set descriptor offsets */
     VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
-        root_signature->vk_pipeline_layout, VK_SHADER_STAGE_ALL,
+        root_signature->vk_pipeline_layout,
+        root_signature->push_constant_range.stageFlags,
         root_signature->descriptor_table_offset,
         root_signature->descriptor_table_count * sizeof(uint32_t),
         table_offsets));
@@ -4293,7 +4294,8 @@ static void d3d12_command_list_update_root_constants(struct d3d12_command_list *
         root_constant = root_signature_get_32bit_constants(root_signature, root_parameter_index);
 
         VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
-                root_signature->vk_pipeline_layout, VK_SHADER_STAGE_ALL,
+                root_signature->vk_pipeline_layout,
+                root_signature->push_constant_range.stageFlags,
                 root_constant->constant_index * sizeof(uint32_t),
                 root_constant->constant_count * sizeof(uint32_t),
                 &bindings->root_constants[root_constant->constant_index]));
@@ -4434,7 +4436,8 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
     else if (va_count)
     {
         VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
-                root_signature->vk_pipeline_layout, VK_SHADER_STAGE_ALL,
+                root_signature->vk_pipeline_layout,
+                root_signature->push_constant_range.stageFlags,
                 0, va_count * sizeof(*root_parameter_data.root_descriptor_vas),
                 root_parameter_data.root_descriptor_vas));
     }
