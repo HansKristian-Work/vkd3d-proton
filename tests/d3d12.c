@@ -10802,7 +10802,6 @@ static void test_shader_instructions(void)
 
         transition_resource_state(command_list, context.render_target,
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        bug_if(tests[i].is_mesa_bug && is_mesa_device(context.device))
         check_sub_resource_vec4(context.render_target, 0, queue, command_list, &tests[i].output.f, 2);
 
         reset_command_list(command_list, context.allocator);
@@ -15633,8 +15632,6 @@ static void test_multisample_array_texture(void)
         transition_resource_state(command_list, context.render_target,
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
-        /* Unsure why these tests are failing. Sample position differences perhaps? */
-        todo_if(is_radv_device(context.device) && (i == 1 || i == 2 || i == 3 || i == 5 || i == 6 || i == 7))
         check_sub_resource_uint(context.render_target, 0, queue, command_list, tests[i].expected_color, 1);
 
         reset_command_list(command_list, context.allocator);
@@ -41277,13 +41274,6 @@ static void test_bindless_bufinfo(bool use_dxil)
 
     if (!init_compute_test_context(&context))
         return;
-
-    if (is_radv_device(context.device))
-    {
-        skip("Bindless bufinfo is known to fail on RADV for time being and may lock up the system. Skipping.\n");
-        destroy_test_context(&context);
-        return;
-    }
 
     if (use_dxil && !context_supports_dxil(&context))
     {
