@@ -677,7 +677,7 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     /* FIXME: What if we have no global root signature? */
     if (!global_signature)
         return E_INVALIDARG;
-    pipeline_create_info.layout = global_signature->vk_pipeline_layout;
+    pipeline_create_info.layout = global_signature->raygen.vk_pipeline_layout;
     pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_create_info.basePipelineIndex = -1;
     pipeline_create_info.pGroups = data->groups;

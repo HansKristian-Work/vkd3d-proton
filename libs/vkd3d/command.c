@@ -3101,6 +3101,17 @@ static void d3d12_command_list_invalidate_current_render_pass(struct d3d12_comma
     d3d12_command_list_end_current_render_pass(list, false);
 }
 
+static void d3d12_command_list_invalidate_push_constants(struct vkd3d_pipeline_bindings *bindings)
+{
+    if (bindings->root_signature->descriptor_table_count)
+        bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS;
+
+    bindings->root_descriptor_dirty_mask =
+            bindings->root_signature->root_descriptor_raw_va_mask |
+            bindings->root_signature->root_descriptor_push_mask;
+    bindings->root_constant_dirty_mask = bindings->root_signature->root_constant_mask;
+}
+
 static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *list,
         VkPipelineBindPoint bind_point, bool invalidate_descriptor_heaps)
 {
@@ -3116,13 +3127,7 @@ static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_l
     if (bindings->static_sampler_set)
         bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_STATIC_SAMPLER_SET;
 
-    if (bindings->root_signature->descriptor_table_count)
-        bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS;
-
-    bindings->root_descriptor_dirty_mask =
-            bindings->root_signature->root_descriptor_raw_va_mask |
-            bindings->root_signature->root_descriptor_push_mask;
-    bindings->root_constant_dirty_mask = bindings->root_signature->root_constant_mask;
+    d3d12_command_list_invalidate_push_constants(bindings);
 
     if (invalidate_descriptor_heaps)
     {
@@ -3860,6 +3865,7 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
 
     memset(list->pipeline_bindings, 0, sizeof(list->pipeline_bindings));
     memset(list->descriptor_heaps, 0, sizeof(list->descriptor_heaps));
+    list->active_bind_point = VK_PIPELINE_BIND_POINT_MAX_ENUM;
 
     list->state = NULL;
 
@@ -4176,12 +4182,15 @@ static void d3d12_command_list_update_descriptor_table_offsets(struct d3d12_comm
     }
 
     /* Set descriptor offsets */
-    VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
-        root_signature->vk_pipeline_layout,
-        root_signature->push_constant_range.stageFlags,
-        root_signature->descriptor_table_offset,
-        root_signature->descriptor_table_count * sizeof(uint32_t),
-        table_offsets));
+    if (bindings->layout.vk_push_stages)
+    {
+        VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+                bindings->layout.vk_pipeline_layout,
+                bindings->layout.vk_push_stages,
+                root_signature->descriptor_table_offset,
+                root_signature->descriptor_table_count * sizeof(uint32_t),
+                table_offsets));
+    }
 
     bindings->dirty_flags &= ~VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS;
 }
@@ -4236,7 +4245,6 @@ static void d3d12_command_list_update_descriptor_heaps(struct d3d12_command_list
         VkPipelineBindPoint bind_point)
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
-    const struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
 
     while (bindings->descriptor_heap_dirty_mask)
@@ -4246,7 +4254,7 @@ static void d3d12_command_list_update_descriptor_heaps(struct d3d12_command_list
         if (list->descriptor_heaps[heap_index])
         {
             VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
-                root_signature->vk_pipeline_layout, heap_index, 1,
+                bindings->layout.vk_pipeline_layout, heap_index, 1,
                 &list->descriptor_heaps[heap_index], 0, NULL));
         }
     }
@@ -4260,7 +4268,7 @@ static void d3d12_command_list_update_static_samplers(struct d3d12_command_list 
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
 
     VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
-            root_signature->vk_pipeline_layout,
+            bindings->layout.vk_pipeline_layout,
             root_signature->sampler_descriptor_set,
             1, &bindings->static_sampler_set, 0, NULL));
 
@@ -4276,14 +4284,20 @@ static void d3d12_command_list_update_root_constants(struct d3d12_command_list *
     const struct vkd3d_shader_root_constant *root_constant;
     unsigned int root_parameter_index;
 
+    if (!bindings->layout.vk_push_stages)
+    {
+        bindings->root_constant_dirty_mask = 0;
+        return;
+    }
+
     while (bindings->root_constant_dirty_mask)
     {
         root_parameter_index = vkd3d_bitmask_iter64(&bindings->root_constant_dirty_mask);
         root_constant = root_signature_get_32bit_constants(root_signature, root_parameter_index);
 
         VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
-                root_signature->vk_pipeline_layout,
-                root_signature->push_constant_range.stageFlags,
+                bindings->layout.vk_pipeline_layout,
+                bindings->layout.vk_push_stages,
                 root_constant->constant_index * sizeof(uint32_t),
                 root_constant->constant_count * sizeof(uint32_t),
                 &bindings->root_constants[root_constant->constant_index]));
@@ -4421,11 +4435,11 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
 
         descriptor_write_count += 1;
     }
-    else if (va_count)
+    else if (va_count && bindings->layout.vk_push_stages)
     {
         VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
-                root_signature->vk_pipeline_layout,
-                root_signature->push_constant_range.stageFlags,
+                bindings->layout.vk_pipeline_layout,
+                bindings->layout.vk_push_stages,
                 0, va_count * sizeof(*root_parameter_data.root_descriptor_vas),
                 root_parameter_data.root_descriptor_vas));
     }
@@ -4438,13 +4452,13 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
         VK_CALL(vkUpdateDescriptorSets(list->device->vk_device,
                 descriptor_write_count, descriptor_writes, 0, NULL));
         VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
-                root_signature->vk_pipeline_layout, root_signature->root_descriptor_set,
+                bindings->layout.vk_pipeline_layout, root_signature->root_descriptor_set,
                 1, &descriptor_set, 0, NULL));
     }
     else
     {
         VK_CALL(vkCmdPushDescriptorSetKHR(list->vk_command_buffer, bind_point,
-                root_signature->vk_pipeline_layout, root_signature->root_descriptor_set,
+                bindings->layout.vk_pipeline_layout, root_signature->root_descriptor_set,
                 descriptor_write_count, descriptor_writes));
     }
 }
@@ -4473,6 +4487,13 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
     }
     else
     {
+        if (list->active_bind_point != bind_point)
+        {
+            /* We might have clobbered push constants,
+             * invalidate all state which can affect push constants. */
+            d3d12_command_list_invalidate_push_constants(bindings);
+        }
+
         if (bindings->root_descriptor_dirty_mask)
             d3d12_command_list_update_root_descriptors(list, bind_point);
 
@@ -4482,6 +4503,8 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
         if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS)
             d3d12_command_list_update_descriptor_table_offsets(list, bind_point);
     }
+
+    list->active_bind_point = bind_point;
 }
 
 static bool d3d12_command_list_update_compute_state(struct d3d12_command_list *list)
@@ -6267,6 +6290,22 @@ static void d3d12_command_list_set_root_signature(struct d3d12_command_list *lis
 
     bindings->root_signature = root_signature;
     bindings->static_sampler_set = VK_NULL_HANDLE;
+
+    switch (bind_point)
+    {
+        case VK_PIPELINE_BIND_POINT_GRAPHICS:
+            bindings->layout = root_signature->graphics;
+            break;
+
+        case VK_PIPELINE_BIND_POINT_COMPUTE:
+            bindings->layout = root_signature->compute;
+            break;
+
+        default:
+            /* TODO, RT will be relevant here later somehow.
+             * It will get awkward since RayGen happens in compute on DXR. */
+            break;
+    }
 
     if (root_signature && root_signature->vk_sampler_set)
         bindings->static_sampler_set = root_signature->vk_sampler_set;
