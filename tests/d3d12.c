@@ -3866,6 +3866,10 @@ static void test_object_interface(void)
     static const GUID test_guid2
             = {0x2e5afac2, 0x87b5, 0x4c10, {0x9b, 0x4b, 0x89, 0xd7, 0xd1, 0x12, 0xe7, 0x2b}};
     static const DWORD data[] = {1, 2, 3, 4};
+    static const char terminated_name_a[] = { 'T', 'e', 's', 't', 'A', '\0' };
+    static const char non_terminated_name_a[] = { 'T', 'e', 's', 't' };
+    static const WCHAR non_terminated_name_w[] = { L'T', L'e', L's', L't', L'w' };
+    WCHAR temp_name_buffer[1024];
     static const GUID *tests[] =
     {
         &IID_ID3D12CommandAllocator,
@@ -4096,6 +4100,39 @@ static void test_object_interface(void)
         ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
         hr = ID3D12Object_SetName(object, u"deadbeef");
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+        size = 1;
+        hr = ID3D12Object_GetPrivateData(object, &WKPDID_D3DDebugObjectNameW, &size, NULL);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(size == 18, "Got unexpected size %u.\n", size);
+        hr = ID3D12Object_GetPrivateData(object, &WKPDID_D3DDebugObjectNameW, &size, temp_name_buffer);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        ok(size == 18, "Got unexpected size %u.\n", size);
+        ok(temp_name_buffer[1] == L'e', "Got unexpected name");
+        size = 1;
+        hr = ID3D12Object_GetPrivateData(object, &WKPDID_D3DDebugObjectName, &size, NULL);
+        ok(hr == DXGI_ERROR_NOT_FOUND, "Got unexpected hr %#x.\n", hr);
+
+        hr = ID3D12Object_SetName(object, NULL);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+        hr = ID3D12Object_GetPrivateData(object, &WKPDID_D3DDebugObjectNameW, &size, NULL);
+        ok(hr == DXGI_ERROR_NOT_FOUND, "Got unexpected hr %#x.\n", hr);
+
+        hr = ID3D12Object_SetPrivateData(object, &WKPDID_D3DDebugObjectName, sizeof(terminated_name_a), terminated_name_a);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+        hr = ID3D12Object_SetPrivateData(object, &WKPDID_D3DDebugObjectName, sizeof(non_terminated_name_a), non_terminated_name_a);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+        hr = ID3D12Object_SetPrivateData(object, &WKPDID_D3DDebugObjectNameW, sizeof(non_terminated_name_w), non_terminated_name_w);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+        hr = ID3D12Object_SetPrivateData(object, &WKPDID_D3DDebugObjectNameW, 0, NULL);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+        hr = ID3D12Object_SetPrivateData(object, &WKPDID_D3DDebugObjectName, 0, NULL);
         ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
         ID3D12Object_Release(object);
