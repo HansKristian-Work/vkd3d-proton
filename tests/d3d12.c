@@ -48421,6 +48421,132 @@ static void test_placed_image_alignment(void)
     destroy_test_context(&context);
 }
 
+static void test_root_parameter_preservation(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12RootSignature *root_signature;
+    D3D12_ROOT_PARAMETER root_parameter;
+    ID3D12PipelineState *graphics_pso;
+    ID3D12PipelineState *compute_pso;
+    struct test_context_desc desc;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *buffer;
+    uint32_t value;
+    HRESULT hr;
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        RWStructuredBuffer<uint> RWBuf : register(u1);
+        float4 main() : SV_Target
+        {
+                uint v;
+                InterlockedAdd(RWBuf[0], 100, v);
+                return 1.0.xxxx;
+        }
+#endif
+        0x43425844, 0x752ce8e8, 0x84d20946, 0xf5cbf13c, 0x37b624ad, 0x00000001, 0x000000ec, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000074, 0x00000050, 0x0000001d,
+        0x0100086a, 0x0400009e, 0x0011e000, 0x00000001, 0x00000004, 0x03000065, 0x001020f2, 0x00000000,
+        0x0a0000ad, 0x0011e000, 0x00000001, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+        0x00004001, 0x00000064, 0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0x3f800000, 0x3f800000,
+        0x3f800000, 0x3f800000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+
+    static const DWORD cs_code[] =
+    {
+#if 0
+        RWStructuredBuffer<uint> RWBuf : register(u1);
+        [numthreads(1, 1, 1)]
+        void main()
+        {
+                uint v;
+                InterlockedAdd(RWBuf[0], 1, v);
+        }
+#endif
+        0x43425844, 0x010d2839, 0x4ca90409, 0x945bf22a, 0x52d288e5, 0x00000001, 0x000000ac, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000058, 0x00050050, 0x00000016, 0x0100086a,
+        0x0400009e, 0x0011e000, 0x00000001, 0x00000004, 0x0400009b, 0x00000001, 0x00000001, 0x00000001,
+        0x0a0000ad, 0x0011e000, 0x00000001, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+        0x00004001, 0x00000001, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE cs = {cs_code, sizeof(cs_code)};
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_width = 1;
+    desc.rt_height = 1;
+    desc.rt_format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.rt_descriptor_count = 1;
+    desc.sample_desc.Count = 1;
+    desc.rt_array_size = 1;
+    desc.no_pipeline = true;
+    desc.no_root_signature = true;
+
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&root_signature_desc, 0, sizeof(root_signature_desc));
+    memset(&root_parameter, 0, sizeof(root_parameter));
+
+    root_signature_desc.NumParameters = 1;
+    root_signature_desc.pParameters = &root_parameter;
+    root_parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameter.Descriptor.ShaderRegister = 1;
+
+    hr = create_root_signature(context.device, &root_signature_desc, &root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr = #%x.\n", hr);
+
+    init_pipeline_state_desc(&pso_desc, root_signature, desc.rt_format, NULL, &ps, NULL);
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&graphics_pso);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr = #%x.\n", hr);
+    compute_pso = create_compute_pipeline_state(context.device, root_signature, cs);
+
+    buffer = create_default_buffer(context.device, 4096, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, root_signature);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, root_signature);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(buffer));
+    ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(buffer) + 4);
+
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, compute_pso);
+    ID3D12GraphicsCommandList_Dispatch(context.list, 4, 1, 1);
+    uav_barrier(context.list, buffer);
+
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, graphics_pso);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+    uav_barrier(context.list, buffer);
+
+    /* We never touched root signature or root parameters, but verify that we correctly update push constants here. */
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, compute_pso);
+    ID3D12GraphicsCommandList_Dispatch(context.list, 4, 1, 1);
+
+    transition_resource_state(context.list, buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    value = get_readback_uint(&rb, 0, 0, 0);
+    ok(value == 8, "Value %u != 8.\n", value);
+    value = get_readback_uint(&rb, 1, 0, 0);
+    ok(value == 100, "Value %u != 100.\n", value);
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(buffer);
+    ID3D12RootSignature_Release(root_signature);
+    ID3D12PipelineState_Release(graphics_pso);
+    ID3D12PipelineState_Release(compute_pso);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     pfn_D3D12CreateDevice = get_d3d12_pfn(D3D12CreateDevice);
@@ -48662,4 +48788,5 @@ START_TEST(d3d12)
     run_test(test_stress_suballocation);
     run_test(test_stress_suballocation_multithread);
     run_test(test_placed_image_alignment);
+    run_test(test_root_parameter_preservation);
 }
