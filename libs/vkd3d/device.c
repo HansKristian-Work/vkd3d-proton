@@ -63,10 +63,14 @@ struct vkd3d_optional_extension_info
 {
     const char *extension_name;
     ptrdiff_t vulkan_info_offset;
+    uint64_t required_config_flags;
 };
 
 #define VK_EXTENSION(name, member) \
-        {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member)}
+        {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member), 0}
+
+#define VK_EXTENSION_COND(name, member, required_flags) \
+        {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member), required_flags}
 
 static const struct vkd3d_optional_extension_info optional_instance_extensions[] =
 {
@@ -182,8 +186,13 @@ static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensio
     for (i = 0; i < optional_extension_count; ++i)
     {
         const char *extension_name = optional_extensions[i].extension_name;
+        uint64_t required_flags = optional_extensions[i].required_config_flags;
+        bool has_required_flags = (vkd3d_config_flags & required_flags) == required_flags;
         ptrdiff_t offset = optional_extensions[i].vulkan_info_offset;
         bool *supported = (void *)((uintptr_t)vulkan_info + offset);
+
+        if (!has_required_flags)
+            continue;
 
         if ((*supported = has_extension(extensions, count, extension_name)))
         {
