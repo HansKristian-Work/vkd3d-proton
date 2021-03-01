@@ -10,17 +10,27 @@ vkd3d_clang    = vkd3d_compiler.get_id() == 'clang'
 vkd3d_c_std    = 'c11'
 vkd3d_platform = target_machine.system()
 
+vkd3d_buildtype = get_option('buildtype')
+vkd3d_debug     = vkd3d_buildtype == 'debug' or vkd3d_buildtype == 'debugoptimized'
+
 enable_tests             = get_option('enable_tests')
 enable_extras            = get_option('enable_extras')
 enable_d3d12             = get_option('enable_d3d12')
 enable_profiling         = get_option('enable_profiling')
 enable_renderdoc         = get_option('enable_renderdoc')
 enable_descriptor_qa     = get_option('enable_descriptor_qa')
+enable_trace             = get_option('enable_trace')
 
 if enable_d3d12 == 'auto'
   enable_d3d12 = vkd3d_platform == 'windows'
 else
   enable_d3d12 = enable_d3d12 == 'true'
+endif
+
+if enable_trace == 'auto'
+  enable_trace = vkd3d_debug
+else
+  enable_trace = enable_trace == 'true'
 endif
 
 if vkd3d_platform != 'windows' and enable_d3d12
@@ -48,6 +58,10 @@ endif
 
 if enable_descriptor_qa
   add_project_arguments('-DVKD3D_ENABLE_DESCRIPTOR_QA', language : 'c')
+endif
+
+if not enable_trace
+  add_project_arguments('-DVKD3D_NO_TRACE_MESSAGES', language : 'c')
 endif
 
 vkd3d_external_includes = [ './subprojects/Vulkan-Headers/include', './subprojects/SPIRV-Headers/include' ]
