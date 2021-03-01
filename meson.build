@@ -18,9 +18,9 @@ enable_renderdoc         = get_option('enable_renderdoc')
 enable_descriptor_qa     = get_option('enable_descriptor_qa')
 
 if enable_d3d12 == 'auto'
-    enable_d3d12 = (vkd3d_platform == 'windows')
+  enable_d3d12 = vkd3d_platform == 'windows'
 else
-    enable_d3d12 = (enable_d3d12 == 'true')
+  enable_d3d12 = enable_d3d12 == 'true'
 endif
 
 if vkd3d_platform != 'windows' and enable_d3d12
