@@ -428,26 +428,7 @@ static void vkd3d_init_debug_messenger_callback(struct vkd3d_instance *instance)
     instance->vk_debug_callback = callback;
 }
 
-static const struct vkd3d_debug_option vkd3d_config_options[] =
-{
-    /* Enable Vulkan debug extensions. */
-    {"vk_debug", VKD3D_CONFIG_FLAG_VULKAN_DEBUG},
-    {"skip_application_workarounds", VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS},
-};
-
-static uint64_t vkd3d_init_config_flags(void)
-{
-    uint64_t config_flags;
-    const char *config;
-
-    config = getenv("VKD3D_CONFIG");
-    config_flags = vkd3d_parse_debug_options(config, vkd3d_config_options, ARRAY_SIZE(vkd3d_config_options));
-
-    if (config_flags)
-        TRACE("VKD3D_CONFIG='%s'.\n", config);
-
-    return config_flags;
-}
+uint64_t vkd3d_config_flags = 0;
 
 struct vkd3d_instance_application_meta
 {
@@ -460,23 +441,52 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { NULL, 0, 0 }
 };
 
-static void vkd3d_instance_apply_application_workarounds(const char *app, uint64_t *flags)
+static void vkd3d_instance_apply_application_workarounds(void)
 {
+    char app[VKD3D_PATH_MAX];
     size_t i;
-    if (!app)
+    if (!vkd3d_get_program_name(app))
         return;
 
     for (i = 0; i < ARRAY_SIZE(application_override); i++)
     {
         if (application_override[i].name && !strcmp(app, application_override[i].name))
         {
-            *flags |= application_override[i].global_flags_add;
-            *flags &= ~application_override[i].global_flags_remove;
+            vkd3d_config_flags |= application_override[i].global_flags_add;
+            vkd3d_config_flags &= ~application_override[i].global_flags_remove;
             INFO("Detected game %s, adding config 0x%"PRIx64", removing masks 0x%"PRIx64".\n",
                  app, application_override[i].global_flags_add, application_override[i].global_flags_remove);
             break;
         }
     }
+}
+
+static const struct vkd3d_debug_option vkd3d_config_options[] =
+{
+    /* Enable Vulkan debug extensions. */
+    {"vk_debug", VKD3D_CONFIG_FLAG_VULKAN_DEBUG},
+    {"skip_application_workarounds", VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS},
+};
+
+static void vkd3d_config_flags_init_once(void)
+{
+    const char *config;
+
+    config = getenv("VKD3D_CONFIG");
+    vkd3d_config_flags = vkd3d_parse_debug_options(config, vkd3d_config_options, ARRAY_SIZE(vkd3d_config_options));
+
+    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS))
+        vkd3d_instance_apply_application_workarounds();
+
+    if (vkd3d_config_flags)
+        TRACE("VKD3D_CONFIG='%s'.\n", config);
+}
+
+static pthread_once_t vkd3d_config_flags_once = PTHREAD_ONCE_INIT;
+
+static void vkd3d_config_flags_init(void)
+{
+    pthread_once(&vkd3d_config_flags_once, vkd3d_config_flags_init_once);
 }
 
 static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
@@ -517,7 +527,7 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     instance->create_thread = create_info->pfn_create_thread;
     instance->join_thread = create_info->pfn_join_thread;
 
-    instance->config_flags = vkd3d_init_config_flags();
+    vkd3d_config_flags_init();
 
     if (FAILED(hr = vkd3d_init_vk_global_procs(instance, create_info->pfn_vkGetInstanceProcAddr)))
     {
@@ -559,12 +569,7 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     INFO("vkd3d-proton - build: %"PRIx64".\n", vkd3d_build);
 
     if (vkd3d_get_program_name(application_name))
-    {
         application_info.pApplicationName = application_name;
-    }
-
-    if (!(instance->config_flags & VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS))
-        vkd3d_instance_apply_application_workarounds(application_info.pApplicationName, &instance->config_flags);
 
     TRACE("Application: %s.\n", debugstr_a(application_info.pApplicationName));
 
@@ -593,7 +598,7 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     instance_info.ppEnabledExtensionNames = extensions;
     vkd3d_free(user_extension_supported);
 
-    if (instance->config_flags & VKD3D_CONFIG_FLAG_VULKAN_DEBUG)
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_VULKAN_DEBUG)
     {
         layers = NULL;
 
@@ -648,7 +653,7 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     instance->refcount = 1;
 
     instance->vk_debug_callback = VK_NULL_HANDLE;
-    if (instance->vk_info.EXT_debug_utils && (instance->config_flags & VKD3D_CONFIG_FLAG_VULKAN_DEBUG))
+    if (instance->vk_info.EXT_debug_utils && (vkd3d_config_flags & VKD3D_CONFIG_FLAG_VULKAN_DEBUG))
         vkd3d_init_debug_messenger_callback(instance);
 
 
