@@ -485,7 +485,6 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     const struct vkd3d_vk_global_procs *vk_global_procs = &instance->vk_global_procs;
     const struct vkd3d_optional_instance_extensions_info *optional_extensions;
     const char *debug_layer_name = "VK_LAYER_KHRONOS_validation";
-    const struct vkd3d_application_info *vkd3d_application_info;
     bool *user_extension_supported = NULL;
     VkApplicationInfo application_info;
     VkInstanceCreateInfo instance_info;
@@ -559,17 +558,7 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
 
     INFO("vkd3d-proton - build: %"PRIx64".\n", vkd3d_build);
 
-    if ((vkd3d_application_info = vkd3d_find_struct(create_info->next, APPLICATION_INFO)))
-    {
-        application_info.pApplicationName = vkd3d_application_info->application_name;
-        application_info.applicationVersion = vkd3d_application_info->application_version;
-        if (vkd3d_application_info->engine_name)
-        {
-            application_info.pEngineName = vkd3d_application_info->engine_name;
-            application_info.engineVersion = vkd3d_application_info->engine_version;
-        }
-    }
-    else if (vkd3d_get_program_name(application_name))
+    if (vkd3d_get_program_name(application_name))
     {
         application_info.pApplicationName = application_name;
     }
