@@ -167,6 +167,7 @@ enum vkd3d_config_flags
 {
     VKD3D_CONFIG_FLAG_VULKAN_DEBUG = 0x00000001,
     VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS = 0x00000002,
+    VKD3D_CONFIG_FLAG_DEBUG_UTILS = 0x00000004,
 };
 
 struct vkd3d_instance
@@ -436,6 +437,13 @@ static inline bool vkd3d_private_data_object_name_ptr(REFGUID guid,
 {
     if (out_name)
         *out_name = NULL;
+
+    /* This is also handled in the object_name implementation
+     * but this avoids an additional, needless allocation
+     * and some games may spam SetName.
+     */
+    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS))
+        return false;
 
     if (IsEqualGUID(guid, &WKPDID_D3DDebugObjectName))
     {

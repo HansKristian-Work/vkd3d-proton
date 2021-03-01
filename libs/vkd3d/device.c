@@ -75,7 +75,7 @@ struct vkd3d_optional_extension_info
 static const struct vkd3d_optional_extension_info optional_instance_extensions[] =
 {
     /* EXT extensions */
-    VK_EXTENSION(EXT_DEBUG_UTILS, EXT_debug_utils),
+    VK_EXTENSION_COND(EXT_DEBUG_UTILS, EXT_debug_utils, VKD3D_CONFIG_FLAG_DEBUG_UTILS),
 };
 
 static const struct vkd3d_optional_extension_info optional_device_extensions[] =
@@ -475,6 +475,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     /* Enable Vulkan debug extensions. */
     {"vk_debug", VKD3D_CONFIG_FLAG_VULKAN_DEBUG},
     {"skip_application_workarounds", VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS},
+    {"debug_utils", VKD3D_CONFIG_FLAG_DEBUG_UTILS},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -486,6 +487,12 @@ static void vkd3d_config_flags_init_once(void)
 
     if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS))
         vkd3d_instance_apply_application_workarounds();
+
+#ifdef VKD3D_ENABLE_RENDERDOC
+    /* Enable debug utils by default for Renderdoc builds */
+    TRACE("Renderdoc build implies VKD3D_CONFIG_FLAG_DEBUG_UTILS.\n");
+    vkd3d_config_flags |= VKD3D_CONFIG_FLAG_DEBUG_UTILS;
+#endif
 
     if (vkd3d_config_flags)
         TRACE("VKD3D_CONFIG='%s'.\n", config);
