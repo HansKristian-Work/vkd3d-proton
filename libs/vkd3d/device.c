@@ -1101,16 +1101,20 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
 
 static void vkd3d_trace_physical_device_properties(const VkPhysicalDeviceProperties *properties)
 {
-    const uint32_t driver_version = properties->driverVersion;
-    const uint32_t api_version = properties->apiVersion;
-
     TRACE("Device name: %s.\n", properties->deviceName);
     TRACE("Vendor ID: %#x, Device ID: %#x.\n", properties->vendorID, properties->deviceID);
-    TRACE("Driver version: %#x (%u.%u.%u, %u.%u.%u.%u).\n", driver_version,
-            VK_VERSION_MAJOR(driver_version), VK_VERSION_MINOR(driver_version), VK_VERSION_PATCH(driver_version),
-            driver_version >> 22, (driver_version >> 14) & 0xff, (driver_version >> 6) & 0xff, driver_version & 0x3f);
+    TRACE("Driver version: %#x (%u.%u.%u, %u.%u.%u.%u).\n", properties->driverVersion,
+            VK_VERSION_MAJOR(properties->driverVersion),
+            VK_VERSION_MINOR(properties->driverVersion),
+            VK_VERSION_PATCH(properties->driverVersion),
+            (properties->driverVersion >> 22),
+            (properties->driverVersion >> 14) & 0xff,
+            (properties->driverVersion >> 6)  & 0xff,
+            (properties->driverVersion >> 0)  & 0x3f);
     TRACE("API version: %u.%u.%u.\n",
-            VK_VERSION_MAJOR(api_version), VK_VERSION_MINOR(api_version), VK_VERSION_PATCH(api_version));
+            VK_VERSION_MAJOR(properties->apiVersion),
+            VK_VERSION_MINOR(properties->apiVersion),
+            VK_VERSION_PATCH(properties->apiVersion));
 }
 
 static void vkd3d_trace_physical_device(VkPhysicalDevice device,
@@ -1143,7 +1147,7 @@ static void vkd3d_trace_physical_device(VkPhysicalDevice device,
     VK_CALL(vkGetPhysicalDeviceMemoryProperties(device, &memory_properties));
     for (i = 0; i < memory_properties.memoryHeapCount; ++i)
     {
-        const VkMemoryHeap *heap = &memory_properties.memoryHeaps[i];
+        VKD3D_UNUSED const VkMemoryHeap *heap = &memory_properties.memoryHeaps[i];
         TRACE("Memory heap [%u]: size %#"PRIx64" (%"PRIu64" MiB), flags %s, memory types:\n",
                 i, heap->size, heap->size / 1024 / 1024, debug_vk_memory_heap_flags(heap->flags));
         for (j = 0; j < memory_properties.memoryTypeCount; ++j)
@@ -1158,366 +1162,333 @@ static void vkd3d_trace_physical_device(VkPhysicalDevice device,
 
 static void vkd3d_trace_physical_device_limits(const struct vkd3d_physical_device_info *info)
 {
-    const VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT *divisor_properties;
-    const VkPhysicalDeviceLimits *limits = &info->properties2.properties.limits;
-    const VkPhysicalDeviceDescriptorIndexingPropertiesEXT *descriptor_indexing;
-    const VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT *buffer_alignment;
-    const VkPhysicalDeviceMaintenance3Properties *maintenance3;
-    const VkPhysicalDeviceTransformFeedbackPropertiesEXT *xfb;
-
     TRACE("Device limits:\n");
-    TRACE("  maxImageDimension1D: %u.\n", limits->maxImageDimension1D);
-    TRACE("  maxImageDimension2D: %u.\n", limits->maxImageDimension2D);
-    TRACE("  maxImageDimension3D: %u.\n", limits->maxImageDimension3D);
-    TRACE("  maxImageDimensionCube: %u.\n", limits->maxImageDimensionCube);
-    TRACE("  maxImageArrayLayers: %u.\n", limits->maxImageArrayLayers);
-    TRACE("  maxTexelBufferElements: %u.\n", limits->maxTexelBufferElements);
-    TRACE("  maxUniformBufferRange: %u.\n", limits->maxUniformBufferRange);
-    TRACE("  maxStorageBufferRange: %u.\n", limits->maxStorageBufferRange);
-    TRACE("  maxPushConstantsSize: %u.\n", limits->maxPushConstantsSize);
-    TRACE("  maxMemoryAllocationCount: %u.\n", limits->maxMemoryAllocationCount);
-    TRACE("  maxSamplerAllocationCount: %u.\n", limits->maxSamplerAllocationCount);
-    TRACE("  bufferImageGranularity: %#"PRIx64".\n", limits->bufferImageGranularity);
-    TRACE("  sparseAddressSpaceSize: %#"PRIx64".\n", limits->sparseAddressSpaceSize);
-    TRACE("  maxBoundDescriptorSets: %u.\n", limits->maxBoundDescriptorSets);
-    TRACE("  maxPerStageDescriptorSamplers: %u.\n", limits->maxPerStageDescriptorSamplers);
-    TRACE("  maxPerStageDescriptorUniformBuffers: %u.\n", limits->maxPerStageDescriptorUniformBuffers);
-    TRACE("  maxPerStageDescriptorStorageBuffers: %u.\n", limits->maxPerStageDescriptorStorageBuffers);
-    TRACE("  maxPerStageDescriptorSampledImages: %u.\n", limits->maxPerStageDescriptorSampledImages);
-    TRACE("  maxPerStageDescriptorStorageImages: %u.\n", limits->maxPerStageDescriptorStorageImages);
-    TRACE("  maxPerStageDescriptorInputAttachments: %u.\n", limits->maxPerStageDescriptorInputAttachments);
-    TRACE("  maxPerStageResources: %u.\n", limits->maxPerStageResources);
-    TRACE("  maxDescriptorSetSamplers: %u.\n", limits->maxDescriptorSetSamplers);
-    TRACE("  maxDescriptorSetUniformBuffers: %u.\n", limits->maxDescriptorSetUniformBuffers);
-    TRACE("  maxDescriptorSetUniformBuffersDynamic: %u.\n", limits->maxDescriptorSetUniformBuffersDynamic);
-    TRACE("  maxDescriptorSetStorageBuffers: %u.\n", limits->maxDescriptorSetStorageBuffers);
-    TRACE("  maxDescriptorSetStorageBuffersDynamic: %u.\n", limits->maxDescriptorSetStorageBuffersDynamic);
-    TRACE("  maxDescriptorSetSampledImages: %u.\n", limits->maxDescriptorSetSampledImages);
-    TRACE("  maxDescriptorSetStorageImages: %u.\n", limits->maxDescriptorSetStorageImages);
-    TRACE("  maxDescriptorSetInputAttachments: %u.\n", limits->maxDescriptorSetInputAttachments);
-    TRACE("  maxVertexInputAttributes: %u.\n", limits->maxVertexInputAttributes);
-    TRACE("  maxVertexInputBindings: %u.\n", limits->maxVertexInputBindings);
-    TRACE("  maxVertexInputAttributeOffset: %u.\n", limits->maxVertexInputAttributeOffset);
-    TRACE("  maxVertexInputBindingStride: %u.\n", limits->maxVertexInputBindingStride);
-    TRACE("  maxVertexOutputComponents: %u.\n", limits->maxVertexOutputComponents);
-    TRACE("  maxTessellationGenerationLevel: %u.\n", limits->maxTessellationGenerationLevel);
-    TRACE("  maxTessellationPatchSize: %u.\n", limits->maxTessellationPatchSize);
+    TRACE("  maxImageDimension1D: %u.\n", info->properties2.properties.limits.maxImageDimension1D);
+    TRACE("  maxImageDimension2D: %u.\n", info->properties2.properties.limits.maxImageDimension2D);
+    TRACE("  maxImageDimension3D: %u.\n", info->properties2.properties.limits.maxImageDimension3D);
+    TRACE("  maxImageDimensionCube: %u.\n", info->properties2.properties.limits.maxImageDimensionCube);
+    TRACE("  maxImageArrayLayers: %u.\n", info->properties2.properties.limits.maxImageArrayLayers);
+    TRACE("  maxTexelBufferElements: %u.\n", info->properties2.properties.limits.maxTexelBufferElements);
+    TRACE("  maxUniformBufferRange: %u.\n", info->properties2.properties.limits.maxUniformBufferRange);
+    TRACE("  maxStorageBufferRange: %u.\n", info->properties2.properties.limits.maxStorageBufferRange);
+    TRACE("  maxPushConstantsSize: %u.\n", info->properties2.properties.limits.maxPushConstantsSize);
+    TRACE("  maxMemoryAllocationCount: %u.\n", info->properties2.properties.limits.maxMemoryAllocationCount);
+    TRACE("  maxSamplerAllocationCount: %u.\n", info->properties2.properties.limits.maxSamplerAllocationCount);
+    TRACE("  bufferImageGranularity: %#"PRIx64".\n", info->properties2.properties.limits.bufferImageGranularity);
+    TRACE("  sparseAddressSpaceSize: %#"PRIx64".\n", info->properties2.properties.limits.sparseAddressSpaceSize);
+    TRACE("  maxBoundDescriptorSets: %u.\n", info->properties2.properties.limits.maxBoundDescriptorSets);
+    TRACE("  maxPerStageDescriptorSamplers: %u.\n", info->properties2.properties.limits.maxPerStageDescriptorSamplers);
+    TRACE("  maxPerStageDescriptorUniformBuffers: %u.\n", info->properties2.properties.limits.maxPerStageDescriptorUniformBuffers);
+    TRACE("  maxPerStageDescriptorStorageBuffers: %u.\n", info->properties2.properties.limits.maxPerStageDescriptorStorageBuffers);
+    TRACE("  maxPerStageDescriptorSampledImages: %u.\n", info->properties2.properties.limits.maxPerStageDescriptorSampledImages);
+    TRACE("  maxPerStageDescriptorStorageImages: %u.\n", info->properties2.properties.limits.maxPerStageDescriptorStorageImages);
+    TRACE("  maxPerStageDescriptorInputAttachments: %u.\n", info->properties2.properties.limits.maxPerStageDescriptorInputAttachments);
+    TRACE("  maxPerStageResources: %u.\n", info->properties2.properties.limits.maxPerStageResources);
+    TRACE("  maxDescriptorSetSamplers: %u.\n", info->properties2.properties.limits.maxDescriptorSetSamplers);
+    TRACE("  maxDescriptorSetUniformBuffers: %u.\n", info->properties2.properties.limits.maxDescriptorSetUniformBuffers);
+    TRACE("  maxDescriptorSetUniformBuffersDynamic: %u.\n", info->properties2.properties.limits.maxDescriptorSetUniformBuffersDynamic);
+    TRACE("  maxDescriptorSetStorageBuffers: %u.\n", info->properties2.properties.limits.maxDescriptorSetStorageBuffers);
+    TRACE("  maxDescriptorSetStorageBuffersDynamic: %u.\n", info->properties2.properties.limits.maxDescriptorSetStorageBuffersDynamic);
+    TRACE("  maxDescriptorSetSampledImages: %u.\n", info->properties2.properties.limits.maxDescriptorSetSampledImages);
+    TRACE("  maxDescriptorSetStorageImages: %u.\n", info->properties2.properties.limits.maxDescriptorSetStorageImages);
+    TRACE("  maxDescriptorSetInputAttachments: %u.\n", info->properties2.properties.limits.maxDescriptorSetInputAttachments);
+    TRACE("  maxVertexInputAttributes: %u.\n", info->properties2.properties.limits.maxVertexInputAttributes);
+    TRACE("  maxVertexInputBindings: %u.\n", info->properties2.properties.limits.maxVertexInputBindings);
+    TRACE("  maxVertexInputAttributeOffset: %u.\n", info->properties2.properties.limits.maxVertexInputAttributeOffset);
+    TRACE("  maxVertexInputBindingStride: %u.\n", info->properties2.properties.limits.maxVertexInputBindingStride);
+    TRACE("  maxVertexOutputComponents: %u.\n", info->properties2.properties.limits.maxVertexOutputComponents);
+    TRACE("  maxTessellationGenerationLevel: %u.\n", info->properties2.properties.limits.maxTessellationGenerationLevel);
+    TRACE("  maxTessellationPatchSize: %u.\n", info->properties2.properties.limits.maxTessellationPatchSize);
     TRACE("  maxTessellationControlPerVertexInputComponents: %u.\n",
-            limits->maxTessellationControlPerVertexInputComponents);
+            info->properties2.properties.limits.maxTessellationControlPerVertexInputComponents);
     TRACE("  maxTessellationControlPerVertexOutputComponents: %u.\n",
-            limits->maxTessellationControlPerVertexOutputComponents);
+            info->properties2.properties.limits.maxTessellationControlPerVertexOutputComponents);
     TRACE("  maxTessellationControlPerPatchOutputComponents: %u.\n",
-            limits->maxTessellationControlPerPatchOutputComponents);
+            info->properties2.properties.limits.maxTessellationControlPerPatchOutputComponents);
     TRACE("  maxTessellationControlTotalOutputComponents: %u.\n",
-            limits->maxTessellationControlTotalOutputComponents);
+            info->properties2.properties.limits.maxTessellationControlTotalOutputComponents);
     TRACE("  maxTessellationEvaluationInputComponents: %u.\n",
-            limits->maxTessellationEvaluationInputComponents);
+            info->properties2.properties.limits.maxTessellationEvaluationInputComponents);
     TRACE("  maxTessellationEvaluationOutputComponents: %u.\n",
-            limits->maxTessellationEvaluationOutputComponents);
-    TRACE("  maxGeometryShaderInvocations: %u.\n", limits->maxGeometryShaderInvocations);
-    TRACE("  maxGeometryInputComponents: %u.\n", limits->maxGeometryInputComponents);
-    TRACE("  maxGeometryOutputComponents: %u.\n", limits->maxGeometryOutputComponents);
-    TRACE("  maxGeometryOutputVertices: %u.\n", limits->maxGeometryOutputVertices);
-    TRACE("  maxGeometryTotalOutputComponents: %u.\n", limits->maxGeometryTotalOutputComponents);
-    TRACE("  maxFragmentInputComponents: %u.\n", limits->maxFragmentInputComponents);
-    TRACE("  maxFragmentOutputAttachments: %u.\n", limits->maxFragmentOutputAttachments);
-    TRACE("  maxFragmentDualSrcAttachments: %u.\n", limits->maxFragmentDualSrcAttachments);
-    TRACE("  maxFragmentCombinedOutputResources: %u.\n", limits->maxFragmentCombinedOutputResources);
-    TRACE("  maxComputeSharedMemorySize: %u.\n", limits->maxComputeSharedMemorySize);
-    TRACE("  maxComputeWorkGroupCount: %u, %u, %u.\n", limits->maxComputeWorkGroupCount[0],
-            limits->maxComputeWorkGroupCount[1], limits->maxComputeWorkGroupCount[2]);
-    TRACE("  maxComputeWorkGroupInvocations: %u.\n", limits->maxComputeWorkGroupInvocations);
-    TRACE("  maxComputeWorkGroupSize: %u, %u, %u.\n", limits->maxComputeWorkGroupSize[0],
-            limits->maxComputeWorkGroupSize[1], limits->maxComputeWorkGroupSize[2]);
-    TRACE("  subPixelPrecisionBits: %u.\n", limits->subPixelPrecisionBits);
-    TRACE("  subTexelPrecisionBits: %u.\n", limits->subTexelPrecisionBits);
-    TRACE("  mipmapPrecisionBits: %u.\n", limits->mipmapPrecisionBits);
-    TRACE("  maxDrawIndexedIndexValue: %u.\n", limits->maxDrawIndexedIndexValue);
-    TRACE("  maxDrawIndirectCount: %u.\n", limits->maxDrawIndirectCount);
-    TRACE("  maxSamplerLodBias: %f.\n", limits->maxSamplerLodBias);
-    TRACE("  maxSamplerAnisotropy: %f.\n", limits->maxSamplerAnisotropy);
-    TRACE("  maxViewports: %u.\n", limits->maxViewports);
-    TRACE("  maxViewportDimensions: %u, %u.\n", limits->maxViewportDimensions[0],
-            limits->maxViewportDimensions[1]);
-    TRACE("  viewportBoundsRange: %f, %f.\n", limits->viewportBoundsRange[0], limits->viewportBoundsRange[1]);
-    TRACE("  viewportSubPixelBits: %u.\n", limits->viewportSubPixelBits);
-    TRACE("  minMemoryMapAlignment: %u.\n", (unsigned int)limits->minMemoryMapAlignment);
-    TRACE("  minTexelBufferOffsetAlignment: %#"PRIx64".\n", limits->minTexelBufferOffsetAlignment);
-    TRACE("  minUniformBufferOffsetAlignment: %#"PRIx64".\n", limits->minUniformBufferOffsetAlignment);
-    TRACE("  minStorageBufferOffsetAlignment: %#"PRIx64".\n", limits->minStorageBufferOffsetAlignment);
-    TRACE("  minTexelOffset: %d.\n", limits->minTexelOffset);
-    TRACE("  maxTexelOffset: %u.\n", limits->maxTexelOffset);
-    TRACE("  minTexelGatherOffset: %d.\n", limits->minTexelGatherOffset);
-    TRACE("  maxTexelGatherOffset: %u.\n", limits->maxTexelGatherOffset);
-    TRACE("  minInterpolationOffset: %f.\n", limits->minInterpolationOffset);
-    TRACE("  maxInterpolationOffset: %f.\n", limits->maxInterpolationOffset);
-    TRACE("  subPixelInterpolationOffsetBits: %u.\n", limits->subPixelInterpolationOffsetBits);
-    TRACE("  maxFramebufferWidth: %u.\n", limits->maxFramebufferWidth);
-    TRACE("  maxFramebufferHeight: %u.\n", limits->maxFramebufferHeight);
-    TRACE("  maxFramebufferLayers: %u.\n", limits->maxFramebufferLayers);
-    TRACE("  framebufferColorSampleCounts: %#x.\n", limits->framebufferColorSampleCounts);
-    TRACE("  framebufferDepthSampleCounts: %#x.\n", limits->framebufferDepthSampleCounts);
-    TRACE("  framebufferStencilSampleCounts: %#x.\n", limits->framebufferStencilSampleCounts);
-    TRACE("  framebufferNoAttachmentsSampleCounts: %#x.\n", limits->framebufferNoAttachmentsSampleCounts);
-    TRACE("  maxColorAttachments: %u.\n", limits->maxColorAttachments);
-    TRACE("  sampledImageColorSampleCounts: %#x.\n", limits->sampledImageColorSampleCounts);
-    TRACE("  sampledImageIntegerSampleCounts: %#x.\n", limits->sampledImageIntegerSampleCounts);
-    TRACE("  sampledImageDepthSampleCounts: %#x.\n", limits->sampledImageDepthSampleCounts);
-    TRACE("  sampledImageStencilSampleCounts: %#x.\n", limits->sampledImageStencilSampleCounts);
-    TRACE("  storageImageSampleCounts: %#x.\n", limits->storageImageSampleCounts);
-    TRACE("  maxSampleMaskWords: %u.\n", limits->maxSampleMaskWords);
-    TRACE("  timestampComputeAndGraphics: %#x.\n", limits->timestampComputeAndGraphics);
-    TRACE("  timestampPeriod: %f.\n", limits->timestampPeriod);
-    TRACE("  maxClipDistances: %u.\n", limits->maxClipDistances);
-    TRACE("  maxCullDistances: %u.\n", limits->maxCullDistances);
-    TRACE("  maxCombinedClipAndCullDistances: %u.\n", limits->maxCombinedClipAndCullDistances);
-    TRACE("  discreteQueuePriorities: %u.\n", limits->discreteQueuePriorities);
-    TRACE("  pointSizeRange: %f, %f.\n", limits->pointSizeRange[0], limits->pointSizeRange[1]);
-    TRACE("  lineWidthRange: %f, %f,\n", limits->lineWidthRange[0], limits->lineWidthRange[1]);
-    TRACE("  pointSizeGranularity: %f.\n", limits->pointSizeGranularity);
-    TRACE("  lineWidthGranularity: %f.\n", limits->lineWidthGranularity);
-    TRACE("  strictLines: %#x.\n", limits->strictLines);
-    TRACE("  standardSampleLocations: %#x.\n", limits->standardSampleLocations);
-    TRACE("  optimalBufferCopyOffsetAlignment: %#"PRIx64".\n", limits->optimalBufferCopyOffsetAlignment);
-    TRACE("  optimalBufferCopyRowPitchAlignment: %#"PRIx64".\n", limits->optimalBufferCopyRowPitchAlignment);
-    TRACE("  nonCoherentAtomSize: %#"PRIx64".\n", limits->nonCoherentAtomSize);
+            info->properties2.properties.limits.maxTessellationEvaluationOutputComponents);
+    TRACE("  maxGeometryShaderInvocations: %u.\n", info->properties2.properties.limits.maxGeometryShaderInvocations);
+    TRACE("  maxGeometryInputComponents: %u.\n", info->properties2.properties.limits.maxGeometryInputComponents);
+    TRACE("  maxGeometryOutputComponents: %u.\n", info->properties2.properties.limits.maxGeometryOutputComponents);
+    TRACE("  maxGeometryOutputVertices: %u.\n", info->properties2.properties.limits.maxGeometryOutputVertices);
+    TRACE("  maxGeometryTotalOutputComponents: %u.\n", info->properties2.properties.limits.maxGeometryTotalOutputComponents);
+    TRACE("  maxFragmentInputComponents: %u.\n", info->properties2.properties.limits.maxFragmentInputComponents);
+    TRACE("  maxFragmentOutputAttachments: %u.\n", info->properties2.properties.limits.maxFragmentOutputAttachments);
+    TRACE("  maxFragmentDualSrcAttachments: %u.\n", info->properties2.properties.limits.maxFragmentDualSrcAttachments);
+    TRACE("  maxFragmentCombinedOutputResources: %u.\n", info->properties2.properties.limits.maxFragmentCombinedOutputResources);
+    TRACE("  maxComputeSharedMemorySize: %u.\n", info->properties2.properties.limits.maxComputeSharedMemorySize);
+    TRACE("  maxComputeWorkGroupCount: %u, %u, %u.\n", info->properties2.properties.limits.maxComputeWorkGroupCount[0],
+            info->properties2.properties.limits.maxComputeWorkGroupCount[1], info->properties2.properties.limits.maxComputeWorkGroupCount[2]);
+    TRACE("  maxComputeWorkGroupInvocations: %u.\n", info->properties2.properties.limits.maxComputeWorkGroupInvocations);
+    TRACE("  maxComputeWorkGroupSize: %u, %u, %u.\n", info->properties2.properties.limits.maxComputeWorkGroupSize[0],
+            info->properties2.properties.limits.maxComputeWorkGroupSize[1], info->properties2.properties.limits.maxComputeWorkGroupSize[2]);
+    TRACE("  subPixelPrecisionBits: %u.\n", info->properties2.properties.limits.subPixelPrecisionBits);
+    TRACE("  subTexelPrecisionBits: %u.\n", info->properties2.properties.limits.subTexelPrecisionBits);
+    TRACE("  mipmapPrecisionBits: %u.\n", info->properties2.properties.limits.mipmapPrecisionBits);
+    TRACE("  maxDrawIndexedIndexValue: %u.\n", info->properties2.properties.limits.maxDrawIndexedIndexValue);
+    TRACE("  maxDrawIndirectCount: %u.\n", info->properties2.properties.limits.maxDrawIndirectCount);
+    TRACE("  maxSamplerLodBias: %f.\n", info->properties2.properties.limits.maxSamplerLodBias);
+    TRACE("  maxSamplerAnisotropy: %f.\n", info->properties2.properties.limits.maxSamplerAnisotropy);
+    TRACE("  maxViewports: %u.\n", info->properties2.properties.limits.maxViewports);
+    TRACE("  maxViewportDimensions: %u, %u.\n", info->properties2.properties.limits.maxViewportDimensions[0],
+            info->properties2.properties.limits.maxViewportDimensions[1]);
+    TRACE("  viewportBoundsRange: %f, %f.\n", info->properties2.properties.limits.viewportBoundsRange[0], info->properties2.properties.limits.viewportBoundsRange[1]);
+    TRACE("  viewportSubPixelBits: %u.\n", info->properties2.properties.limits.viewportSubPixelBits);
+    TRACE("  minMemoryMapAlignment: %u.\n", (unsigned int)info->properties2.properties.limits.minMemoryMapAlignment);
+    TRACE("  minTexelBufferOffsetAlignment: %#"PRIx64".\n", info->properties2.properties.limits.minTexelBufferOffsetAlignment);
+    TRACE("  minUniformBufferOffsetAlignment: %#"PRIx64".\n", info->properties2.properties.limits.minUniformBufferOffsetAlignment);
+    TRACE("  minStorageBufferOffsetAlignment: %#"PRIx64".\n", info->properties2.properties.limits.minStorageBufferOffsetAlignment);
+    TRACE("  minTexelOffset: %d.\n", info->properties2.properties.limits.minTexelOffset);
+    TRACE("  maxTexelOffset: %u.\n", info->properties2.properties.limits.maxTexelOffset);
+    TRACE("  minTexelGatherOffset: %d.\n", info->properties2.properties.limits.minTexelGatherOffset);
+    TRACE("  maxTexelGatherOffset: %u.\n", info->properties2.properties.limits.maxTexelGatherOffset);
+    TRACE("  minInterpolationOffset: %f.\n", info->properties2.properties.limits.minInterpolationOffset);
+    TRACE("  maxInterpolationOffset: %f.\n", info->properties2.properties.limits.maxInterpolationOffset);
+    TRACE("  subPixelInterpolationOffsetBits: %u.\n", info->properties2.properties.limits.subPixelInterpolationOffsetBits);
+    TRACE("  maxFramebufferWidth: %u.\n", info->properties2.properties.limits.maxFramebufferWidth);
+    TRACE("  maxFramebufferHeight: %u.\n", info->properties2.properties.limits.maxFramebufferHeight);
+    TRACE("  maxFramebufferLayers: %u.\n", info->properties2.properties.limits.maxFramebufferLayers);
+    TRACE("  framebufferColorSampleCounts: %#x.\n", info->properties2.properties.limits.framebufferColorSampleCounts);
+    TRACE("  framebufferDepthSampleCounts: %#x.\n", info->properties2.properties.limits.framebufferDepthSampleCounts);
+    TRACE("  framebufferStencilSampleCounts: %#x.\n", info->properties2.properties.limits.framebufferStencilSampleCounts);
+    TRACE("  framebufferNoAttachmentsSampleCounts: %#x.\n", info->properties2.properties.limits.framebufferNoAttachmentsSampleCounts);
+    TRACE("  maxColorAttachments: %u.\n", info->properties2.properties.limits.maxColorAttachments);
+    TRACE("  sampledImageColorSampleCounts: %#x.\n", info->properties2.properties.limits.sampledImageColorSampleCounts);
+    TRACE("  sampledImageIntegerSampleCounts: %#x.\n", info->properties2.properties.limits.sampledImageIntegerSampleCounts);
+    TRACE("  sampledImageDepthSampleCounts: %#x.\n", info->properties2.properties.limits.sampledImageDepthSampleCounts);
+    TRACE("  sampledImageStencilSampleCounts: %#x.\n", info->properties2.properties.limits.sampledImageStencilSampleCounts);
+    TRACE("  storageImageSampleCounts: %#x.\n", info->properties2.properties.limits.storageImageSampleCounts);
+    TRACE("  maxSampleMaskWords: %u.\n", info->properties2.properties.limits.maxSampleMaskWords);
+    TRACE("  timestampComputeAndGraphics: %#x.\n", info->properties2.properties.limits.timestampComputeAndGraphics);
+    TRACE("  timestampPeriod: %f.\n", info->properties2.properties.limits.timestampPeriod);
+    TRACE("  maxClipDistances: %u.\n", info->properties2.properties.limits.maxClipDistances);
+    TRACE("  maxCullDistances: %u.\n", info->properties2.properties.limits.maxCullDistances);
+    TRACE("  maxCombinedClipAndCullDistances: %u.\n", info->properties2.properties.limits.maxCombinedClipAndCullDistances);
+    TRACE("  discreteQueuePriorities: %u.\n", info->properties2.properties.limits.discreteQueuePriorities);
+    TRACE("  pointSizeRange: %f, %f.\n", info->properties2.properties.limits.pointSizeRange[0], info->properties2.properties.limits.pointSizeRange[1]);
+    TRACE("  lineWidthRange: %f, %f,\n", info->properties2.properties.limits.lineWidthRange[0], info->properties2.properties.limits.lineWidthRange[1]);
+    TRACE("  pointSizeGranularity: %f.\n", info->properties2.properties.limits.pointSizeGranularity);
+    TRACE("  lineWidthGranularity: %f.\n", info->properties2.properties.limits.lineWidthGranularity);
+    TRACE("  strictLines: %#x.\n", info->properties2.properties.limits.strictLines);
+    TRACE("  standardSampleLocations: %#x.\n", info->properties2.properties.limits.standardSampleLocations);
+    TRACE("  optimalBufferCopyOffsetAlignment: %#"PRIx64".\n", info->properties2.properties.limits.optimalBufferCopyOffsetAlignment);
+    TRACE("  optimalBufferCopyRowPitchAlignment: %#"PRIx64".\n", info->properties2.properties.limits.optimalBufferCopyRowPitchAlignment);
+    TRACE("  nonCoherentAtomSize: %#"PRIx64".\n", info->properties2.properties.limits.nonCoherentAtomSize);
 
-    descriptor_indexing = &info->descriptor_indexing_properties;
     TRACE("  VkPhysicalDeviceDescriptorIndexingPropertiesEXT:\n");
-
     TRACE("    maxUpdateAfterBindDescriptorsInAllPools: %u.\n",
-            descriptor_indexing->maxUpdateAfterBindDescriptorsInAllPools);
+            info->descriptor_indexing_properties.maxUpdateAfterBindDescriptorsInAllPools);
 
     TRACE("    shaderUniformBufferArrayNonUniformIndexingNative: %#x.\n",
-            descriptor_indexing->shaderUniformBufferArrayNonUniformIndexingNative);
+            info->descriptor_indexing_properties.shaderUniformBufferArrayNonUniformIndexingNative);
     TRACE("    shaderSampledImageArrayNonUniformIndexingNative: %#x.\n",
-            descriptor_indexing->shaderSampledImageArrayNonUniformIndexingNative);
+            info->descriptor_indexing_properties.shaderSampledImageArrayNonUniformIndexingNative);
     TRACE("    shaderStorageBufferArrayNonUniformIndexingNative: %#x.\n",
-            descriptor_indexing->shaderStorageBufferArrayNonUniformIndexingNative);
+            info->descriptor_indexing_properties.shaderStorageBufferArrayNonUniformIndexingNative);
     TRACE("    shaderStorageImageArrayNonUniformIndexingNative: %#x.\n",
-            descriptor_indexing->shaderStorageImageArrayNonUniformIndexingNative);
+            info->descriptor_indexing_properties.shaderStorageImageArrayNonUniformIndexingNative);
     TRACE("    shaderInputAttachmentArrayNonUniformIndexingNative: %#x.\n",
-            descriptor_indexing->shaderInputAttachmentArrayNonUniformIndexingNative);
+            info->descriptor_indexing_properties.shaderInputAttachmentArrayNonUniformIndexingNative);
 
     TRACE("    robustBufferAccessUpdateAfterBind: %#x.\n",
-            descriptor_indexing->robustBufferAccessUpdateAfterBind);
+            info->descriptor_indexing_properties.robustBufferAccessUpdateAfterBind);
     TRACE("    quadDivergentImplicitLod: %#x.\n",
-            descriptor_indexing->quadDivergentImplicitLod);
+            info->descriptor_indexing_properties.quadDivergentImplicitLod);
 
     TRACE("    maxPerStageDescriptorUpdateAfterBindSamplers: %u.\n",
-            descriptor_indexing->maxPerStageDescriptorUpdateAfterBindSamplers);
+            info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindSamplers);
     TRACE("    maxPerStageDescriptorUpdateAfterBindUniformBuffers: %u.\n",
-            descriptor_indexing->maxPerStageDescriptorUpdateAfterBindUniformBuffers);
+            info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindUniformBuffers);
     TRACE("    maxPerStageDescriptorUpdateAfterBindStorageBuffers: %u.\n",
-            descriptor_indexing->maxPerStageDescriptorUpdateAfterBindStorageBuffers);
+            info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindStorageBuffers);
     TRACE("    maxPerStageDescriptorUpdateAfterBindSampledImages: %u.\n",
-            descriptor_indexing->maxPerStageDescriptorUpdateAfterBindSampledImages);
+            info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindSampledImages);
     TRACE("    maxPerStageDescriptorUpdateAfterBindStorageImages: %u.\n",
-            descriptor_indexing->maxPerStageDescriptorUpdateAfterBindStorageImages);
+            info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindStorageImages);
     TRACE("    maxPerStageDescriptorUpdateAfterBindInputAttachments: %u.\n",
-            descriptor_indexing->maxPerStageDescriptorUpdateAfterBindInputAttachments);
+            info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindInputAttachments);
     TRACE("    maxPerStageUpdateAfterBindResources: %u.\n",
-            descriptor_indexing->maxPerStageUpdateAfterBindResources);
+            info->descriptor_indexing_properties.maxPerStageUpdateAfterBindResources);
 
     TRACE("    maxDescriptorSetUpdateAfterBindSamplers: %u.\n",
-            descriptor_indexing->maxDescriptorSetUpdateAfterBindSamplers);
+            info->descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindSamplers);
     TRACE("    maxDescriptorSetUpdateAfterBindUniformBuffers: %u.\n",
-            descriptor_indexing->maxDescriptorSetUpdateAfterBindUniformBuffers);
+            info->descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindUniformBuffers);
     TRACE("    maxDescriptorSetUpdateAfterBindUniformBuffersDynamic: %u.\n",
-            descriptor_indexing->maxDescriptorSetUpdateAfterBindUniformBuffersDynamic);
+            info->descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindUniformBuffersDynamic);
     TRACE("    maxDescriptorSetUpdateAfterBindStorageBuffers: %u.\n",
-            descriptor_indexing->maxDescriptorSetUpdateAfterBindStorageBuffers);
+            info->descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindStorageBuffers);
     TRACE("    maxDescriptorSetUpdateAfterBindStorageBuffersDynamic: %u.\n",
-            descriptor_indexing->maxDescriptorSetUpdateAfterBindStorageBuffersDynamic);
+            info->descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindStorageBuffersDynamic);
     TRACE("    maxDescriptorSetUpdateAfterBindSampledImages: %u.\n",
-            descriptor_indexing->maxDescriptorSetUpdateAfterBindSampledImages);
+            info->descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindSampledImages);
     TRACE("    maxDescriptorSetUpdateAfterBindStorageImages: %u.\n",
-            descriptor_indexing->maxDescriptorSetUpdateAfterBindStorageImages);
+            info->descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindStorageImages);
     TRACE("    maxDescriptorSetUpdateAfterBindInputAttachments: %u.\n",
-            descriptor_indexing->maxDescriptorSetUpdateAfterBindInputAttachments);
+            info->descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindInputAttachments);
 
-    maintenance3 = &info->maintenance3_properties;
-    TRACE("  VkPhysicalDeviceMaintenance3Properties:\n");
-    TRACE("    maxPerSetDescriptors: %u.\n", maintenance3->maxPerSetDescriptors);
-    TRACE("    maxMemoryAllocationSize: %#"PRIx64".\n", maintenance3->maxMemoryAllocationSize);
+    TRACE("    maxPerSetDescriptors: %u.\n", info->maintenance3_properties.maxPerSetDescriptors);
+    TRACE("    maxMemoryAllocationSize: %#"PRIx64".\n", info->maintenance3_properties.maxMemoryAllocationSize);
 
-    buffer_alignment = &info->texel_buffer_alignment_properties;
     TRACE("  VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT:\n");
     TRACE("    storageTexelBufferOffsetAlignmentBytes: %#"PRIx64".\n",
-            buffer_alignment->storageTexelBufferOffsetAlignmentBytes);
+            info->texel_buffer_alignment_properties.storageTexelBufferOffsetAlignmentBytes);
     TRACE("    storageTexelBufferOffsetSingleTexelAlignment: %#x.\n",
-            buffer_alignment->storageTexelBufferOffsetSingleTexelAlignment);
+            info->texel_buffer_alignment_properties.storageTexelBufferOffsetSingleTexelAlignment);
     TRACE("    uniformTexelBufferOffsetAlignmentBytes: %#"PRIx64".\n",
-            buffer_alignment->uniformTexelBufferOffsetAlignmentBytes);
+            info->texel_buffer_alignment_properties.uniformTexelBufferOffsetAlignmentBytes);
     TRACE("    uniformTexelBufferOffsetSingleTexelAlignment: %#x.\n",
-            buffer_alignment->uniformTexelBufferOffsetSingleTexelAlignment);
+            info->texel_buffer_alignment_properties.uniformTexelBufferOffsetSingleTexelAlignment);
 
-    xfb = &info->xfb_properties;
     TRACE("  VkPhysicalDeviceTransformFeedbackPropertiesEXT:\n");
-    TRACE("    maxTransformFeedbackStreams: %u.\n", xfb->maxTransformFeedbackStreams);
-    TRACE("    maxTransformFeedbackBuffers: %u.\n", xfb->maxTransformFeedbackBuffers);
-    TRACE("    maxTransformFeedbackBufferSize: %#"PRIx64".\n", xfb->maxTransformFeedbackBufferSize);
-    TRACE("    maxTransformFeedbackStreamDataSize: %u.\n", xfb->maxTransformFeedbackStreamDataSize);
-    TRACE("    maxTransformFeedbackBufferDataSize: %u.\n", xfb->maxTransformFeedbackBufferDataSize);
-    TRACE("    maxTransformFeedbackBufferDataStride: %u.\n", xfb->maxTransformFeedbackBufferDataStride);
-    TRACE("    transformFeedbackQueries: %#x.\n", xfb->transformFeedbackQueries);
-    TRACE("    transformFeedbackStreamsLinesTriangles: %#x.\n", xfb->transformFeedbackStreamsLinesTriangles);
-    TRACE("    transformFeedbackRasterizationStreamSelect: %#x.\n", xfb->transformFeedbackRasterizationStreamSelect);
-    TRACE("    transformFeedbackDraw: %x.\n", xfb->transformFeedbackDraw);
+    TRACE("    maxTransformFeedbackStreams: %u.\n", info->xfb_properties.maxTransformFeedbackStreams);
+    TRACE("    maxTransformFeedbackBuffers: %u.\n", info->xfb_properties.maxTransformFeedbackBuffers);
+    TRACE("    maxTransformFeedbackBufferSize: %#"PRIx64".\n", info->xfb_properties.maxTransformFeedbackBufferSize);
+    TRACE("    maxTransformFeedbackStreamDataSize: %u.\n", info->xfb_properties.maxTransformFeedbackStreamDataSize);
+    TRACE("    maxTransformFeedbackBufferDataSize: %u.\n", info->xfb_properties.maxTransformFeedbackBufferDataSize);
+    TRACE("    maxTransformFeedbackBufferDataStride: %u.\n", info->xfb_properties.maxTransformFeedbackBufferDataStride);
+    TRACE("    transformFeedbackQueries: %#x.\n", info->xfb_properties.transformFeedbackQueries);
+    TRACE("    transformFeedbackStreamsLinesTriangles: %#x.\n", info->xfb_properties.transformFeedbackStreamsLinesTriangles);
+    TRACE("    transformFeedbackRasterizationStreamSelect: %#x.\n", info->xfb_properties.transformFeedbackRasterizationStreamSelect);
+    TRACE("    transformFeedbackDraw: %x.\n", info->xfb_properties.transformFeedbackDraw);
 
-    divisor_properties = &info->vertex_divisor_properties;
     TRACE("  VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT:\n");
-    TRACE("    maxVertexAttribDivisor: %u.\n", divisor_properties->maxVertexAttribDivisor);
+    TRACE("    maxVertexAttribDivisor: %u.\n", info->vertex_divisor_properties.maxVertexAttribDivisor);
 }
 
 static void vkd3d_trace_physical_device_features(const struct vkd3d_physical_device_info *info)
 {
-    const VkPhysicalDeviceConditionalRenderingFeaturesEXT *conditional_rendering_features;
-    const VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT *demote_features;
-    const VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT *buffer_alignment_features;
-    const VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *divisor_features;
-    const VkPhysicalDeviceCustomBorderColorFeaturesEXT *border_color_features;
-    const VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing;
-    const VkPhysicalDeviceDepthClipEnableFeaturesEXT *depth_clip_features;
-    const VkPhysicalDeviceFeatures *features = &info->features2.features;
-    const VkPhysicalDeviceTransformFeedbackFeaturesEXT *xfb;
-
     TRACE("Device features:\n");
-    TRACE("  robustBufferAccess: %#x.\n", features->robustBufferAccess);
-    TRACE("  fullDrawIndexUint32: %#x.\n", features->fullDrawIndexUint32);
-    TRACE("  imageCubeArray: %#x.\n", features->imageCubeArray);
-    TRACE("  independentBlend: %#x.\n", features->independentBlend);
-    TRACE("  geometryShader: %#x.\n", features->geometryShader);
-    TRACE("  tessellationShader: %#x.\n", features->tessellationShader);
-    TRACE("  sampleRateShading: %#x.\n", features->sampleRateShading);
-    TRACE("  dualSrcBlend: %#x.\n", features->dualSrcBlend);
-    TRACE("  logicOp: %#x.\n", features->logicOp);
-    TRACE("  multiDrawIndirect: %#x.\n", features->multiDrawIndirect);
-    TRACE("  drawIndirectFirstInstance: %#x.\n", features->drawIndirectFirstInstance);
-    TRACE("  depthClamp: %#x.\n", features->depthClamp);
-    TRACE("  depthBiasClamp: %#x.\n", features->depthBiasClamp);
-    TRACE("  fillModeNonSolid: %#x.\n", features->fillModeNonSolid);
-    TRACE("  depthBounds: %#x.\n", features->depthBounds);
-    TRACE("  wideLines: %#x.\n", features->wideLines);
-    TRACE("  largePoints: %#x.\n", features->largePoints);
-    TRACE("  alphaToOne: %#x.\n", features->alphaToOne);
-    TRACE("  multiViewport: %#x.\n", features->multiViewport);
-    TRACE("  samplerAnisotropy: %#x.\n", features->samplerAnisotropy);
-    TRACE("  textureCompressionETC2: %#x.\n", features->textureCompressionETC2);
-    TRACE("  textureCompressionASTC_LDR: %#x.\n", features->textureCompressionASTC_LDR);
-    TRACE("  textureCompressionBC: %#x.\n", features->textureCompressionBC);
-    TRACE("  occlusionQueryPrecise: %#x.\n", features->occlusionQueryPrecise);
-    TRACE("  pipelineStatisticsQuery: %#x.\n", features->pipelineStatisticsQuery);
-    TRACE("  vertexOipelineStoresAndAtomics: %#x.\n", features->vertexPipelineStoresAndAtomics);
-    TRACE("  fragmentStoresAndAtomics: %#x.\n", features->fragmentStoresAndAtomics);
-    TRACE("  shaderTessellationAndGeometryPointSize: %#x.\n", features->shaderTessellationAndGeometryPointSize);
-    TRACE("  shaderImageGatherExtended: %#x.\n", features->shaderImageGatherExtended);
-    TRACE("  shaderStorageImageExtendedFormats: %#x.\n", features->shaderStorageImageExtendedFormats);
-    TRACE("  shaderStorageImageMultisample: %#x.\n", features->shaderStorageImageMultisample);
-    TRACE("  shaderStorageImageReadWithoutFormat: %#x.\n", features->shaderStorageImageReadWithoutFormat);
-    TRACE("  shaderStorageImageWriteWithoutFormat: %#x.\n", features->shaderStorageImageWriteWithoutFormat);
-    TRACE("  shaderUniformBufferArrayDynamicIndexing: %#x.\n", features->shaderUniformBufferArrayDynamicIndexing);
-    TRACE("  shaderSampledImageArrayDynamicIndexing: %#x.\n", features->shaderSampledImageArrayDynamicIndexing);
-    TRACE("  shaderStorageBufferArrayDynamicIndexing: %#x.\n", features->shaderStorageBufferArrayDynamicIndexing);
-    TRACE("  shaderStorageImageArrayDynamicIndexing: %#x.\n", features->shaderStorageImageArrayDynamicIndexing);
-    TRACE("  shaderClipDistance: %#x.\n", features->shaderClipDistance);
-    TRACE("  shaderCullDistance: %#x.\n", features->shaderCullDistance);
-    TRACE("  shaderFloat64: %#x.\n", features->shaderFloat64);
-    TRACE("  shaderInt64: %#x.\n", features->shaderInt64);
-    TRACE("  shaderInt16: %#x.\n", features->shaderInt16);
-    TRACE("  shaderResourceResidency: %#x.\n", features->shaderResourceResidency);
-    TRACE("  shaderResourceMinLod: %#x.\n", features->shaderResourceMinLod);
-    TRACE("  sparseBinding: %#x.\n", features->sparseBinding);
-    TRACE("  sparseResidencyBuffer: %#x.\n", features->sparseResidencyBuffer);
-    TRACE("  sparseResidencyImage2D: %#x.\n", features->sparseResidencyImage2D);
-    TRACE("  sparseResidencyImage3D: %#x.\n", features->sparseResidencyImage3D);
-    TRACE("  sparseResidency2Samples: %#x.\n", features->sparseResidency2Samples);
-    TRACE("  sparseResidency4Samples: %#x.\n", features->sparseResidency4Samples);
-    TRACE("  sparseResidency8Samples: %#x.\n", features->sparseResidency8Samples);
-    TRACE("  sparseResidency16Samples: %#x.\n", features->sparseResidency16Samples);
-    TRACE("  sparseResidencyAliased: %#x.\n", features->sparseResidencyAliased);
-    TRACE("  variableMultisampleRate: %#x.\n", features->variableMultisampleRate);
-    TRACE("  inheritedQueries: %#x.\n", features->inheritedQueries);
+    TRACE("  robustBufferAccess: %#x.\n", info->features2.features.robustBufferAccess);
+    TRACE("  fullDrawIndexUint32: %#x.\n", info->features2.features.fullDrawIndexUint32);
+    TRACE("  imageCubeArray: %#x.\n", info->features2.features.imageCubeArray);
+    TRACE("  independentBlend: %#x.\n", info->features2.features.independentBlend);
+    TRACE("  geometryShader: %#x.\n", info->features2.features.geometryShader);
+    TRACE("  tessellationShader: %#x.\n", info->features2.features.tessellationShader);
+    TRACE("  sampleRateShading: %#x.\n", info->features2.features.sampleRateShading);
+    TRACE("  dualSrcBlend: %#x.\n", info->features2.features.dualSrcBlend);
+    TRACE("  logicOp: %#x.\n", info->features2.features.logicOp);
+    TRACE("  multiDrawIndirect: %#x.\n", info->features2.features.multiDrawIndirect);
+    TRACE("  drawIndirectFirstInstance: %#x.\n", info->features2.features.drawIndirectFirstInstance);
+    TRACE("  depthClamp: %#x.\n", info->features2.features.depthClamp);
+    TRACE("  depthBiasClamp: %#x.\n", info->features2.features.depthBiasClamp);
+    TRACE("  fillModeNonSolid: %#x.\n", info->features2.features.fillModeNonSolid);
+    TRACE("  depthBounds: %#x.\n", info->features2.features.depthBounds);
+    TRACE("  wideLines: %#x.\n", info->features2.features.wideLines);
+    TRACE("  largePoints: %#x.\n", info->features2.features.largePoints);
+    TRACE("  alphaToOne: %#x.\n", info->features2.features.alphaToOne);
+    TRACE("  multiViewport: %#x.\n", info->features2.features.multiViewport);
+    TRACE("  samplerAnisotropy: %#x.\n", info->features2.features.samplerAnisotropy);
+    TRACE("  textureCompressionETC2: %#x.\n", info->features2.features.textureCompressionETC2);
+    TRACE("  textureCompressionASTC_LDR: %#x.\n", info->features2.features.textureCompressionASTC_LDR);
+    TRACE("  textureCompressionBC: %#x.\n", info->features2.features.textureCompressionBC);
+    TRACE("  occlusionQueryPrecise: %#x.\n", info->features2.features.occlusionQueryPrecise);
+    TRACE("  pipelineStatisticsQuery: %#x.\n", info->features2.features.pipelineStatisticsQuery);
+    TRACE("  vertexOipelineStoresAndAtomics: %#x.\n", info->features2.features.vertexPipelineStoresAndAtomics);
+    TRACE("  fragmentStoresAndAtomics: %#x.\n", info->features2.features.fragmentStoresAndAtomics);
+    TRACE("  shaderTessellationAndGeometryPointSize: %#x.\n", info->features2.features.shaderTessellationAndGeometryPointSize);
+    TRACE("  shaderImageGatherExtended: %#x.\n", info->features2.features.shaderImageGatherExtended);
+    TRACE("  shaderStorageImageExtendedFormats: %#x.\n", info->features2.features.shaderStorageImageExtendedFormats);
+    TRACE("  shaderStorageImageMultisample: %#x.\n", info->features2.features.shaderStorageImageMultisample);
+    TRACE("  shaderStorageImageReadWithoutFormat: %#x.\n", info->features2.features.shaderStorageImageReadWithoutFormat);
+    TRACE("  shaderStorageImageWriteWithoutFormat: %#x.\n", info->features2.features.shaderStorageImageWriteWithoutFormat);
+    TRACE("  shaderUniformBufferArrayDynamicIndexing: %#x.\n", info->features2.features.shaderUniformBufferArrayDynamicIndexing);
+    TRACE("  shaderSampledImageArrayDynamicIndexing: %#x.\n", info->features2.features.shaderSampledImageArrayDynamicIndexing);
+    TRACE("  shaderStorageBufferArrayDynamicIndexing: %#x.\n", info->features2.features.shaderStorageBufferArrayDynamicIndexing);
+    TRACE("  shaderStorageImageArrayDynamicIndexing: %#x.\n", info->features2.features.shaderStorageImageArrayDynamicIndexing);
+    TRACE("  shaderClipDistance: %#x.\n", info->features2.features.shaderClipDistance);
+    TRACE("  shaderCullDistance: %#x.\n", info->features2.features.shaderCullDistance);
+    TRACE("  shaderFloat64: %#x.\n", info->features2.features.shaderFloat64);
+    TRACE("  shaderInt64: %#x.\n", info->features2.features.shaderInt64);
+    TRACE("  shaderInt16: %#x.\n", info->features2.features.shaderInt16);
+    TRACE("  shaderResourceResidency: %#x.\n", info->features2.features.shaderResourceResidency);
+    TRACE("  shaderResourceMinLod: %#x.\n", info->features2.features.shaderResourceMinLod);
+    TRACE("  sparseBinding: %#x.\n", info->features2.features.sparseBinding);
+    TRACE("  sparseResidencyBuffer: %#x.\n", info->features2.features.sparseResidencyBuffer);
+    TRACE("  sparseResidencyImage2D: %#x.\n", info->features2.features.sparseResidencyImage2D);
+    TRACE("  sparseResidencyImage3D: %#x.\n", info->features2.features.sparseResidencyImage3D);
+    TRACE("  sparseResidency2Samples: %#x.\n", info->features2.features.sparseResidency2Samples);
+    TRACE("  sparseResidency4Samples: %#x.\n", info->features2.features.sparseResidency4Samples);
+    TRACE("  sparseResidency8Samples: %#x.\n", info->features2.features.sparseResidency8Samples);
+    TRACE("  sparseResidency16Samples: %#x.\n", info->features2.features.sparseResidency16Samples);
+    TRACE("  sparseResidencyAliased: %#x.\n", info->features2.features.sparseResidencyAliased);
+    TRACE("  variableMultisampleRate: %#x.\n", info->features2.features.variableMultisampleRate);
+    TRACE("  inheritedQueries: %#x.\n", info->features2.features.inheritedQueries);
 
-    descriptor_indexing = &info->descriptor_indexing_features;
     TRACE("  VkPhysicalDeviceDescriptorIndexingFeaturesEXT:\n");
-
     TRACE("    shaderInputAttachmentArrayDynamicIndexing: %#x.\n",
-            descriptor_indexing->shaderInputAttachmentArrayDynamicIndexing);
+            info->descriptor_indexing_features.shaderInputAttachmentArrayDynamicIndexing);
     TRACE("    shaderUniformTexelBufferArrayDynamicIndexing: %#x.\n",
-            descriptor_indexing->shaderUniformTexelBufferArrayDynamicIndexing);
+            info->descriptor_indexing_features.shaderUniformTexelBufferArrayDynamicIndexing);
     TRACE("    shaderStorageTexelBufferArrayDynamicIndexing: %#x.\n",
-            descriptor_indexing->shaderStorageTexelBufferArrayDynamicIndexing);
+            info->descriptor_indexing_features.shaderStorageTexelBufferArrayDynamicIndexing);
 
     TRACE("    shaderUniformBufferArrayNonUniformIndexing: %#x.\n",
-            descriptor_indexing->shaderUniformBufferArrayNonUniformIndexing);
+            info->descriptor_indexing_features.shaderUniformBufferArrayNonUniformIndexing);
     TRACE("    shaderSampledImageArrayNonUniformIndexing: %#x.\n",
-            descriptor_indexing->shaderSampledImageArrayNonUniformIndexing);
+            info->descriptor_indexing_features.shaderSampledImageArrayNonUniformIndexing);
     TRACE("    shaderStorageBufferArrayNonUniformIndexing: %#x.\n",
-            descriptor_indexing->shaderStorageBufferArrayNonUniformIndexing);
+            info->descriptor_indexing_features.shaderStorageBufferArrayNonUniformIndexing);
     TRACE("    shaderStorageImageArrayNonUniformIndexing: %#x.\n",
-            descriptor_indexing->shaderStorageImageArrayNonUniformIndexing);
+            info->descriptor_indexing_features.shaderStorageImageArrayNonUniformIndexing);
     TRACE("    shaderInputAttachmentArrayNonUniformIndexing: %#x.\n",
-            descriptor_indexing->shaderInputAttachmentArrayNonUniformIndexing);
+            info->descriptor_indexing_features.shaderInputAttachmentArrayNonUniformIndexing);
     TRACE("    shaderUniformTexelBufferArrayNonUniformIndexing: %#x.\n",
-            descriptor_indexing->shaderUniformTexelBufferArrayNonUniformIndexing);
+            info->descriptor_indexing_features.shaderUniformTexelBufferArrayNonUniformIndexing);
     TRACE("    shaderStorageTexelBufferArrayNonUniformIndexing: %#x.\n",
-            descriptor_indexing->shaderStorageTexelBufferArrayNonUniformIndexing);
+            info->descriptor_indexing_features.shaderStorageTexelBufferArrayNonUniformIndexing);
 
     TRACE("    descriptorBindingUniformBufferUpdateAfterBind: %#x.\n",
-            descriptor_indexing->descriptorBindingUniformBufferUpdateAfterBind);
+            info->descriptor_indexing_features.descriptorBindingUniformBufferUpdateAfterBind);
     TRACE("    descriptorBindingSampledImageUpdateAfterBind: %#x.\n",
-            descriptor_indexing->descriptorBindingSampledImageUpdateAfterBind);
+            info->descriptor_indexing_features.descriptorBindingSampledImageUpdateAfterBind);
     TRACE("    descriptorBindingStorageImageUpdateAfterBind: %#x.\n",
-            descriptor_indexing->descriptorBindingStorageImageUpdateAfterBind);
+            info->descriptor_indexing_features.descriptorBindingStorageImageUpdateAfterBind);
     TRACE("    descriptorBindingStorageBufferUpdateAfterBind: %#x.\n",
-            descriptor_indexing->descriptorBindingStorageBufferUpdateAfterBind);
+            info->descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind);
     TRACE("    descriptorBindingUniformTexelBufferUpdateAfterBind: %#x.\n",
-            descriptor_indexing->descriptorBindingUniformTexelBufferUpdateAfterBind);
+            info->descriptor_indexing_features.descriptorBindingUniformTexelBufferUpdateAfterBind);
     TRACE("    descriptorBindingStorageTexelBufferUpdateAfterBind: %#x.\n",
-            descriptor_indexing->descriptorBindingStorageTexelBufferUpdateAfterBind);
+            info->descriptor_indexing_features.descriptorBindingStorageTexelBufferUpdateAfterBind);
 
     TRACE("    descriptorBindingUpdateUnusedWhilePending: %#x.\n",
-            descriptor_indexing->descriptorBindingUpdateUnusedWhilePending);
+            info->descriptor_indexing_features.descriptorBindingUpdateUnusedWhilePending);
     TRACE("    descriptorBindingPartiallyBound: %#x.\n",
-            descriptor_indexing->descriptorBindingPartiallyBound);
+            info->descriptor_indexing_features.descriptorBindingPartiallyBound);
     TRACE("    descriptorBindingVariableDescriptorCount: %#x.\n",
-            descriptor_indexing->descriptorBindingVariableDescriptorCount);
+            info->descriptor_indexing_features.descriptorBindingVariableDescriptorCount);
     TRACE("    runtimeDescriptorArray: %#x.\n",
-            descriptor_indexing->runtimeDescriptorArray);
+            info->descriptor_indexing_features.runtimeDescriptorArray);
 
-    conditional_rendering_features = &info->conditional_rendering_features;
     TRACE("  VkPhysicalDeviceConditionalRenderingFeaturesEXT:\n");
-    TRACE("    conditionalRendering: %#x.\n", conditional_rendering_features->conditionalRendering);
+    TRACE("    conditionalRendering: %#x.\n", info->conditional_rendering_features.conditionalRendering);
 
-    depth_clip_features = &info->depth_clip_features;
     TRACE("  VkPhysicalDeviceDepthClipEnableFeaturesEXT:\n");
-    TRACE("    depthClipEnable: %#x.\n", depth_clip_features->depthClipEnable);
+    TRACE("    depthClipEnable: %#x.\n", info->depth_clip_features.depthClipEnable);
 
-    demote_features = &info->demote_features;
     TRACE("  VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT:\n");
-    TRACE("    shaderDemoteToHelperInvocation: %#x.\n", demote_features->shaderDemoteToHelperInvocation);
+    TRACE("    shaderDemoteToHelperInvocation: %#x.\n", info->demote_features.shaderDemoteToHelperInvocation);
 
-    buffer_alignment_features = &info->texel_buffer_alignment_features;
     TRACE("  VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT:\n");
-    TRACE("    texelBufferAlignment: %#x.\n", buffer_alignment_features->texelBufferAlignment);
+    TRACE("    texelBufferAlignment: %#x.\n", info->texel_buffer_alignment_features.texelBufferAlignment);
 
-    xfb = &info->xfb_features;
     TRACE("  VkPhysicalDeviceTransformFeedbackFeaturesEXT:\n");
-    TRACE("    transformFeedback: %#x.\n", xfb->transformFeedback);
-    TRACE("    geometryStreams: %#x.\n", xfb->geometryStreams);
+    TRACE("    transformFeedback: %#x.\n", info->xfb_features.transformFeedback);
+    TRACE("    geometryStreams: %#x.\n", info->xfb_features.geometryStreams);
 
-    divisor_features = &info->vertex_divisor_features;
     TRACE("  VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT:\n");
     TRACE("    vertexAttributeInstanceRateDivisor: %#x.\n",
-            divisor_features->vertexAttributeInstanceRateDivisor);
+            info->vertex_divisor_features.vertexAttributeInstanceRateDivisor);
     TRACE("    vertexAttributeInstanceRateZeroDivisor: %#x.\n",
-            divisor_features->vertexAttributeInstanceRateZeroDivisor);
+            info->vertex_divisor_features.vertexAttributeInstanceRateZeroDivisor);
 
-    border_color_features = &info->custom_border_color_features;
     TRACE("  VkPhysicalDeviceCustomBorderColorFeaturesEXT:\n");
-    TRACE("    customBorderColors: %#x\n", border_color_features->customBorderColors);
-    TRACE("    customBorderColorWithoutFormat: %#x\n", border_color_features->customBorderColorWithoutFormat);
+    TRACE("    customBorderColors: %#x\n", info->custom_border_color_features.customBorderColors);
+    TRACE("    customBorderColorWithoutFormat: %#x\n", info->custom_border_color_features.customBorderColorWithoutFormat);
 }
 
 static HRESULT vkd3d_init_device_extensions(struct d3d12_device *device,
