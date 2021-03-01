@@ -183,12 +183,12 @@ struct vkd3d_instance
     struct vkd3d_vk_global_procs vk_global_procs;
     void *libvulkan;
 
-    uint64_t config_flags;
-
     VkDebugUtilsMessengerEXT vk_debug_callback;
 
     LONG refcount;
 };
+
+extern uint64_t vkd3d_config_flags;
 
 union vkd3d_thread_handle
 {
