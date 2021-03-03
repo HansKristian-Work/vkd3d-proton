@@ -3502,6 +3502,25 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
         return;
     }
 
+    if (desc->ViewDimension == D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE)
+    {
+        if (d3d12_device_supports_ray_tracing_tier_1_0(device))
+        {
+            /* We implement this as a raw VA in the aux buffer. */
+            VkDeviceAddress *raw_addresses = descriptor->heap->raw_va_aux_buffer.host_ptr;
+            uint32_t descriptor_index = d3d12_desc_heap_offset(descriptor);
+            raw_addresses[descriptor_index] = desc->RaytracingAccelerationStructure.Location;
+            descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_RAW_VA_AUX_BUFFER;
+            descriptor->metadata.set_info_mask = 0;
+            /* There is no resource tied to this descriptor, just a naked pointer. */
+            descriptor->metadata.cookie = 0;
+        }
+        else
+            WARN("Using CreateSRV for RTAS without RT support?\n");
+
+        return;
+    }
+
     if (desc->ViewDimension != D3D12_SRV_DIMENSION_BUFFER)
     {
         WARN("Unexpected view dimension %#x.\n", desc->ViewDimension);
@@ -3776,7 +3795,8 @@ void d3d12_desc_create_srv(struct d3d12_desc *descriptor,
     }
     else if (desc)
     {
-        is_buffer = desc->ViewDimension == D3D12_SRV_DIMENSION_BUFFER;
+        is_buffer = desc->ViewDimension == D3D12_SRV_DIMENSION_BUFFER ||
+                desc->ViewDimension == D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
     }
     else
     {
