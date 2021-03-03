@@ -5,8 +5,8 @@ project('vkd3d-proton', ['c'], version : '2.2', meson_version : '>= 0.49', defau
 cpu_family = target_machine.cpu_family()
 
 vkd3d_compiler = meson.get_compiler('c')
-vkd3d_msvc     = vkd3d_compiler.get_id() == 'msvc'
-vkd3d_clang    = vkd3d_compiler.get_id() == 'clang'
+vkd3d_is_msvc  = vkd3d_compiler.get_id() == 'msvc'
+vkd3d_is_clang = vkd3d_compiler.get_id() == 'clang'
 vkd3d_c_std    = 'c11'
 vkd3d_platform = target_machine.system()
 
@@ -119,7 +119,7 @@ if cpu_family == 'x86'
 
   # Need to link against libatomic for 64-bit atomic emulation on x86
   # when using clang.
-  if vkd3d_clang
+  if vkd3d_is_clang
     lib_atomic = vkd3d_compiler.find_library('atomic')
     vkd3d_extra_libs += lib_atomic
   endif

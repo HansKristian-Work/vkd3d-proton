@@ -7,7 +7,7 @@ d3d12_lib = shared_library('d3d12', d3d12_src,
   dependencies        : [ vkd3d_dep, lib_dxgi ],
   include_directories : vkd3d_private_includes,
   install             : true,
-  objects             : not vkd3d_msvc ? 'd3d12.def' : [],
+  objects             : not vkd3d_is_msvc ? 'd3d12.def' : [],
   vs_module_defs      : 'd3d12.def',
   override_options    : [ 'c_std='+vkd3d_c_std ])
 
