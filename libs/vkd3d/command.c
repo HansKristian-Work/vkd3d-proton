@@ -4072,6 +4072,7 @@ static bool d3d12_command_list_update_compute_pipeline(struct d3d12_command_list
 static bool d3d12_command_list_update_raygen_pipeline(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    bool stack_size_dirty = false;
 
     if (list->current_pipeline != VK_NULL_HANDLE)
         return true;
@@ -4088,12 +4089,20 @@ static bool d3d12_command_list_update_raygen_pipeline(struct d3d12_command_list 
                 VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
                 list->rt_state->pipeline));
         list->command_buffer_pipeline = list->rt_state->pipeline;
+        stack_size_dirty = true;
+    }
+    else
+    {
+        stack_size_dirty = list->dynamic_state.pipeline_stack_size != list->rt_state->pipeline_stack_size;
     }
 
-    /* Pipeline stack size is part of the PSO, not any command buffer state
-     * for some reason ... */
-    VK_CALL(vkCmdSetRayTracingPipelineStackSizeKHR(list->vk_command_buffer,
-            list->rt_state->pipeline_stack_size));
+    if (stack_size_dirty)
+    {
+        /* Pipeline stack size is part of the PSO, not any command buffer state for some reason ... */
+        VK_CALL(vkCmdSetRayTracingPipelineStackSizeKHR(list->vk_command_buffer,
+                list->rt_state->pipeline_stack_size));
+        list->dynamic_state.pipeline_stack_size = list->rt_state->pipeline_stack_size;
+    }
 
     return true;
 }
