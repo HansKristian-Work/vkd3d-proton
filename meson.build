@@ -125,6 +125,14 @@ if cpu_family == 'x86'
   endif
 endif
 
+if not vkd3d_is_msvc
+  # We need to set the section alignment for debug symbols to
+  # work properly as well as avoiding a memcpy from the Wine loader.
+  if vkd3d_compiler.has_link_argument('-Wl,--file-alignment=4096')
+    add_global_link_arguments('-Wl,--file-alignment=4096', language : [ 'c', 'cpp' ])
+  endif
+endif
+
 vkd3d_build = vcs_tag(
   command : ['git', 'describe', '--always', '--exclude=*', '--abbrev=15', '--dirty=0'],
   input   : 'vkd3d_build.h.in',
