@@ -6319,11 +6319,10 @@ static void d3d12_command_list_set_root_signature(struct d3d12_command_list *lis
 
         case VK_PIPELINE_BIND_POINT_COMPUTE:
             bindings->layout = root_signature->compute;
+            bindings->rt_layout = root_signature->raygen;
             break;
 
         default:
-            /* TODO, RT will be relevant here later somehow.
-             * It will get awkward since RayGen happens in compute on DXR. */
             break;
     }
 
