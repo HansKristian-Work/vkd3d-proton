@@ -1658,6 +1658,8 @@ struct vkd3d_query_range
     uint32_t flags;
 };
 
+struct d3d12_state_object;
+
 struct d3d12_command_list
 {
     d3d12_command_list_iface ID3D12GraphicsCommandList_iface;
@@ -1709,6 +1711,7 @@ struct d3d12_command_list
     VkDescriptorSet descriptor_heaps[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
 
     struct d3d12_pipeline_state *state;
+    struct d3d12_state_object *rt_state;
 
     struct d3d12_command_allocator *allocator;
     struct d3d12_device *device;
@@ -2614,6 +2617,7 @@ struct d3d12_state_object
 
 HRESULT d3d12_state_object_create(struct d3d12_device *device, const D3D12_STATE_OBJECT_DESC *desc,
         struct d3d12_state_object **object);
+struct d3d12_state_object *impl_from_ID3D12StateObject(ID3D12StateObject *iface);
 
 /* utils */
 enum vkd3d_format_type
