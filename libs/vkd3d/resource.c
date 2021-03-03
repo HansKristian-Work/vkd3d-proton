@@ -2699,7 +2699,7 @@ static void d3d12_desc_copy_single(struct d3d12_desc *dst, struct d3d12_desc *sr
          * If flags differ, we also need to update. E.g. happens if UAV counter flag is turned off.
          * We have no cookie for the UAV counter itself.
          * Lastly, if we have plain VkBuffers, offset/range might differ. */
-        if ((metadata.flags & VKD3D_DESCRIPTOR_FLAG_UAV_COUNTER) != 0 ||
+        if ((metadata.flags & VKD3D_DESCRIPTOR_FLAG_RAW_VA_AUX_BUFFER) != 0 ||
             (metadata.flags != dst->metadata.flags))
         {
             needs_update = true;
@@ -2737,7 +2737,7 @@ static void d3d12_desc_copy_single(struct d3d12_desc *dst, struct d3d12_desc *sr
             vk_copy->descriptorCount = 1;
         }
 
-        if (metadata.flags & VKD3D_DESCRIPTOR_FLAG_UAV_COUNTER)
+        if (metadata.flags & VKD3D_DESCRIPTOR_FLAG_RAW_VA_AUX_BUFFER)
         {
             if (dst->heap->raw_va_aux_buffer.host_ptr)
             {
@@ -3857,7 +3857,7 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
     flags = vkd3d_view_flags_from_d3d12_buffer_uav_flags(desc->Buffer.Flags);
 
     descriptor->metadata.set_info_mask = 0;
-    descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_UAV_COUNTER;
+    descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_RAW_VA_AUX_BUFFER;
 
     if (d3d12_device_use_ssbo_raw_buffer(device))
     {
