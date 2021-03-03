@@ -4162,9 +4162,8 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
 }
 
 static void d3d12_command_list_update_descriptor_table_offsets(struct d3d12_command_list *list,
-        VkPipelineBindPoint bind_point)
+        struct vkd3d_pipeline_bindings *bindings, VkPipelineLayout layout, VkShaderStageFlags push_stages)
 {
-    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct vkd3d_shader_descriptor_table *table;
@@ -4183,11 +4182,10 @@ static void d3d12_command_list_update_descriptor_table_offsets(struct d3d12_comm
     }
 
     /* Set descriptor offsets */
-    if (bindings->layout.vk_push_stages)
+    if (push_stages)
     {
         VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
-                bindings->layout.vk_pipeline_layout,
-                bindings->layout.vk_push_stages,
+                layout, push_stages,
                 root_signature->descriptor_table_offset,
                 root_signature->descriptor_table_count * sizeof(uint32_t),
                 table_offsets));
@@ -4243,9 +4241,9 @@ static bool vk_write_descriptor_set_and_inline_uniform_block(VkWriteDescriptorSe
 }
 
 static void d3d12_command_list_update_descriptor_heaps(struct d3d12_command_list *list,
-        VkPipelineBindPoint bind_point)
+        struct vkd3d_pipeline_bindings *bindings, VkPipelineBindPoint vk_bind_point,
+        VkPipelineLayout layout)
 {
-    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
 
     while (bindings->descriptor_heap_dirty_mask)
@@ -4254,22 +4252,22 @@ static void d3d12_command_list_update_descriptor_heaps(struct d3d12_command_list
 
         if (list->descriptor_heaps[heap_index])
         {
-            VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
-                bindings->layout.vk_pipeline_layout, heap_index, 1,
+            VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, vk_bind_point,
+                layout, heap_index, 1,
                 &list->descriptor_heaps[heap_index], 0, NULL));
         }
     }
 }
 
 static void d3d12_command_list_update_static_samplers(struct d3d12_command_list *list,
-        VkPipelineBindPoint bind_point)
+        struct vkd3d_pipeline_bindings *bindings, VkPipelineBindPoint vk_bind_point,
+        VkPipelineLayout layout)
 {
-    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
 
-    VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
-            bindings->layout.vk_pipeline_layout,
+    VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, vk_bind_point,
+            layout,
             root_signature->sampler_descriptor_set,
             1, &bindings->static_sampler_set, 0, NULL));
 
@@ -4277,15 +4275,15 @@ static void d3d12_command_list_update_static_samplers(struct d3d12_command_list 
 }
 
 static void d3d12_command_list_update_root_constants(struct d3d12_command_list *list,
-        VkPipelineBindPoint bind_point)
+        struct vkd3d_pipeline_bindings *bindings,
+        VkPipelineLayout layout, VkShaderStageFlags push_stages)
 {
-    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct vkd3d_shader_root_constant *root_constant;
     unsigned int root_parameter_index;
 
-    if (!bindings->layout.vk_push_stages)
+    if (!push_stages)
     {
         bindings->root_constant_dirty_mask = 0;
         return;
@@ -4297,8 +4295,7 @@ static void d3d12_command_list_update_root_constants(struct d3d12_command_list *
         root_constant = root_signature_get_32bit_constants(root_signature, root_parameter_index);
 
         VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
-                bindings->layout.vk_pipeline_layout,
-                bindings->layout.vk_push_stages,
+                layout, push_stages,
                 root_constant->constant_index * sizeof(uint32_t),
                 root_constant->constant_count * sizeof(uint32_t),
                 &bindings->root_constants[root_constant->constant_index]));
@@ -4312,9 +4309,8 @@ union root_parameter_data
 };
 
 static unsigned int d3d12_command_list_fetch_root_descriptor_vas(struct d3d12_command_list *list,
-        VkPipelineBindPoint bind_point, union root_parameter_data *dst_data)
+        struct vkd3d_pipeline_bindings *bindings, union root_parameter_data *dst_data)
 {
-    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     uint64_t root_descriptor_mask = root_signature->root_descriptor_raw_va_mask;
     unsigned int va_idx = 0;
@@ -4332,9 +4328,8 @@ static unsigned int d3d12_command_list_fetch_root_descriptor_vas(struct d3d12_co
 }
 
 static void d3d12_command_list_fetch_inline_uniform_block_data(struct d3d12_command_list *list,
-        VkPipelineBindPoint bind_point, union root_parameter_data *dst_data)
+        struct vkd3d_pipeline_bindings *bindings, union root_parameter_data *dst_data)
 {
-    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     uint64_t root_constant_mask = root_signature->root_constant_mask;
     const struct vkd3d_shader_root_constant *root_constant;
@@ -4373,9 +4368,9 @@ static void d3d12_command_list_fetch_inline_uniform_block_data(struct d3d12_comm
 }
 
 static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list *list,
-        VkPipelineBindPoint bind_point)
+        struct vkd3d_pipeline_bindings *bindings, VkPipelineBindPoint vk_bind_point,
+        VkPipelineLayout layout, VkShaderStageFlags push_stages)
 {
-    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkWriteDescriptorSetInlineUniformBlockEXT inline_uniform_block_write;
@@ -4403,7 +4398,7 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
     {
         /* If any raw VA descriptor is dirty, we need to update all of them. */
         if (root_signature->root_descriptor_raw_va_mask & bindings->root_descriptor_dirty_mask)
-            va_count = d3d12_command_list_fetch_root_descriptor_vas(list, bind_point, &root_parameter_data);
+            va_count = d3d12_command_list_fetch_root_descriptor_vas(list, bindings, &root_parameter_data);
 
         /* TODO bind null descriptors for inactive root descriptors. */
         dirty_push_mask =
@@ -4429,7 +4424,7 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
 
     if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK)
     {
-        d3d12_command_list_fetch_inline_uniform_block_data(list, bind_point, &root_parameter_data);
+        d3d12_command_list_fetch_inline_uniform_block_data(list, bindings, &root_parameter_data);
 
         vk_write_descriptor_set_and_inline_uniform_block(&descriptor_writes[descriptor_write_count],
                 &inline_uniform_block_write, descriptor_set, root_signature, &root_parameter_data);
@@ -4439,8 +4434,7 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
     else if (va_count && bindings->layout.vk_push_stages)
     {
         VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
-                bindings->layout.vk_pipeline_layout,
-                bindings->layout.vk_push_stages,
+                layout, push_stages,
                 0, va_count * sizeof(*root_parameter_data.root_descriptor_vas),
                 root_parameter_data.root_descriptor_vas));
     }
@@ -4452,14 +4446,14 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
     {
         VK_CALL(vkUpdateDescriptorSets(list->device->vk_device,
                 descriptor_write_count, descriptor_writes, 0, NULL));
-        VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, bind_point,
-                bindings->layout.vk_pipeline_layout, root_signature->root_descriptor_set,
+        VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, vk_bind_point,
+                layout, root_signature->root_descriptor_set,
                 1, &descriptor_set, 0, NULL));
     }
     else
     {
-        VK_CALL(vkCmdPushDescriptorSetKHR(list->vk_command_buffer, bind_point,
-                bindings->layout.vk_pipeline_layout, root_signature->root_descriptor_set,
+        VK_CALL(vkCmdPushDescriptorSetKHR(list->vk_command_buffer, vk_bind_point,
+                layout, root_signature->root_descriptor_set,
                 descriptor_write_count, descriptor_writes));
     }
 }
@@ -4469,33 +4463,51 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct d3d12_root_signature *rs = bindings->root_signature;
+    VkPipelineBindPoint vk_bind_point;
+    VkShaderStageFlags push_stages;
+    VkPipelineLayout layout;
 
     if (!rs)
         return;
 
+    if (list->active_bind_point == VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR)
+    {
+        /* We might have to emit to RT bind point,
+         * but we pretend we're in compute bind point. */
+        layout = bindings->rt_layout.vk_pipeline_layout;
+        push_stages = bindings->rt_layout.vk_push_stages;
+    }
+    else
+    {
+        layout = bindings->layout.vk_pipeline_layout;
+        push_stages = bindings->layout.vk_push_stages;
+    }
+
+    vk_bind_point = list->active_bind_point;
+
     if (bindings->descriptor_heap_dirty_mask)
-        d3d12_command_list_update_descriptor_heaps(list, bind_point);
+        d3d12_command_list_update_descriptor_heaps(list, bindings, vk_bind_point, layout);
 
     if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_STATIC_SAMPLER_SET)
-        d3d12_command_list_update_static_samplers(list, bind_point);
+        d3d12_command_list_update_static_samplers(list, bindings, vk_bind_point, layout);
 
     if (rs->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK)
     {
         /* Root constants and descriptor table offsets are part of the root descriptor set */
         if (bindings->root_descriptor_dirty_mask || bindings->root_constant_dirty_mask
                 || (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS))
-            d3d12_command_list_update_root_descriptors(list, bind_point);
+            d3d12_command_list_update_root_descriptors(list, bindings, vk_bind_point, layout, push_stages);
     }
     else
     {
         if (bindings->root_descriptor_dirty_mask)
-            d3d12_command_list_update_root_descriptors(list, bind_point);
+            d3d12_command_list_update_root_descriptors(list, bindings, vk_bind_point, layout, push_stages);
 
         if (bindings->root_constant_dirty_mask)
-            d3d12_command_list_update_root_constants(list, bind_point);
+            d3d12_command_list_update_root_constants(list, bindings, layout, push_stages);
 
         if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS)
-            d3d12_command_list_update_descriptor_table_offsets(list, bind_point);
+            d3d12_command_list_update_descriptor_table_offsets(list, bindings, layout, push_stages);
     }
 }
 
