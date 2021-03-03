@@ -3865,9 +3865,10 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
 
     memset(list->pipeline_bindings, 0, sizeof(list->pipeline_bindings));
     memset(list->descriptor_heaps, 0, sizeof(list->descriptor_heaps));
-    list->active_bind_point = VK_PIPELINE_BIND_POINT_MAX_ENUM;
 
     list->state = NULL;
+    list->rt_state = NULL;
+    list->active_bind_point = VK_PIPELINE_BIND_POINT_MAX_ENUM;
 
     list->descriptor_updates_count = 0;
 
@@ -4487,13 +4488,6 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
     }
     else
     {
-        if (list->active_bind_point != bind_point)
-        {
-            /* We might have clobbered push constants,
-             * invalidate all state which can affect push constants. */
-            d3d12_command_list_invalidate_push_constants(bindings);
-        }
-
         if (bindings->root_descriptor_dirty_mask)
             d3d12_command_list_update_root_descriptors(list, bind_point);
 
@@ -4503,8 +4497,6 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
         if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS)
             d3d12_command_list_update_descriptor_table_offsets(list, bind_point);
     }
-
-    list->active_bind_point = bind_point;
 }
 
 static bool d3d12_command_list_update_compute_state(struct d3d12_command_list *list)
@@ -5964,6 +5956,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
 {
     struct d3d12_pipeline_state *state = unsafe_impl_from_ID3D12PipelineState(pipeline_state);
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct vkd3d_pipeline_bindings *bindings;
     unsigned int i;
 
     TRACE("iface %p, pipeline_state %p.\n", iface, pipeline_state);
@@ -5999,7 +5992,34 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
         return;
 
     d3d12_command_list_invalidate_current_pipeline(list, false);
+    /* SetPSO and SetPSO1 alias the same internal active pipeline state even if they are completely different types. */
     list->state = state;
+    list->rt_state = NULL;
+
+    if (!state || list->active_bind_point != state->vk_bind_point)
+    {
+        if (list->active_bind_point == VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR)
+        {
+            /* DXR uses compute bind points for descriptors. When binding an RTPSO, invalidate all compute state
+             * to make sure we broadcast state correctly to COMPUTE or RT bind points in Vulkan. */
+            d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_COMPUTE, true);
+        }
+
+        if (state)
+        {
+            bindings = &list->pipeline_bindings[state->vk_bind_point];
+            if (bindings->root_signature)
+            {
+                /* We might have clobbered push constants in the new bind point,
+                 * invalidate all state which can affect push constants. */
+                d3d12_command_list_invalidate_push_constants(bindings);
+            }
+
+            list->active_bind_point = state->vk_bind_point;
+        }
+        else
+            list->active_bind_point = VK_PIPELINE_BIND_POINT_MAX_ENUM;
+    }
 }
 
 static void vk_image_memory_barrier_for_after_aliasing_barrier(struct d3d12_device *device,
@@ -8258,7 +8278,25 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
 static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState1(d3d12_command_list_iface *iface,
         ID3D12StateObject *state_object)
 {
-    FIXME("iface %p, state_object %p stub!\n", iface, state_object);
+    struct d3d12_state_object *state = impl_from_ID3D12StateObject(state_object);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    TRACE("iface %p, state_object %p\n", iface, state_object);
+
+    if (list->rt_state == state)
+        return;
+
+    d3d12_command_list_invalidate_current_pipeline(list, false);
+    /* SetPSO and SetPSO1 alias the same internal active pipeline state even if they are completely different types. */
+    list->state = NULL;
+    list->rt_state = state;
+
+    /* DXR uses compute bind points for descriptors. When binding an RTPSO, invalidate all state
+     * to make sure we broadcast state correctly to COMPUTE or RT bind points in Vulkan. */
+    if (list->active_bind_point != VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR)
+    {
+        list->active_bind_point = VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR;
+        d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_COMPUTE, true);
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_DispatchRays(d3d12_command_list_iface *iface,
