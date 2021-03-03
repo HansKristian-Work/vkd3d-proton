@@ -8252,7 +8252,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
 
     if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
     {
-        ERR("Acceleration structure is not supported. Calling this is invalid.\n");
+        WARN("Acceleration structure is not supported. Calling this is invalid.\n");
         return;
     }
 
@@ -8312,7 +8312,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStruc
 
     if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
     {
-        ERR("Acceleration structure is not supported. Calling this is invalid.\n");
+        WARN("Acceleration structure is not supported. Calling this is invalid.\n");
         return;
     }
 
