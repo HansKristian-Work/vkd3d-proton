@@ -505,6 +505,62 @@ static VkDeviceSize get_shader_stack_size(struct d3d12_state_object *object,
             object->pipeline, index, shader));
 }
 
+static VkDeviceSize d3d12_state_object_pipeline_data_compute_default_stack_size(
+        const struct d3d12_state_object_pipeline_data *data, uint32_t recursion_depth)
+{
+    const struct VkPipelineShaderStageCreateInfo *stage;
+    const struct d3d12_state_object_identifier *export;
+    VkDeviceSize pipeline_stack_size = 0;
+    uint32_t max_intersect_stack = 0;
+    uint32_t max_callable_stack = 0;
+    uint32_t max_closest_stack = 0;
+    uint32_t max_anyhit_stack = 0;
+    uint32_t max_raygen_stack = 0;
+    uint32_t max_miss_stack = 0;
+    size_t i;
+
+    for (i = 0; i < data->exports_count; i++)
+    {
+        export = &data->exports[i];
+        if (export->stack_size_general != UINT32_MAX)
+        {
+            stage = &data->stages[data->groups[i].generalShader];
+            switch (stage->stage)
+            {
+                case VK_SHADER_STAGE_RAYGEN_BIT_KHR:
+                    max_raygen_stack = max(max_raygen_stack, export->stack_size_general);
+                    break;
+
+                case VK_SHADER_STAGE_CALLABLE_BIT_KHR:
+                    max_callable_stack = max(max_callable_stack, export->stack_size_general);
+                    break;
+
+                case VK_SHADER_STAGE_MISS_BIT_KHR:
+                    max_miss_stack = max(max_miss_stack, export->stack_size_general);
+                    break;
+
+                default:
+                    ERR("Unexpected stage #%x.\n", stage->stage);
+                    return 0;
+            }
+        }
+
+        if (export->stack_size_closest != UINT32_MAX)
+            max_closest_stack = max(max_closest_stack, export->stack_size_closest);
+        if (export->stack_size_intersection != UINT32_MAX)
+            max_intersect_stack = max(max_intersect_stack, export->stack_size_intersection);
+        if (export->stack_size_any != UINT32_MAX)
+            max_anyhit_stack = max(max_anyhit_stack, export->stack_size_intersection);
+    }
+
+    /* Vulkan and DXR specs outline this same formula. We will use this as the default pipeline stack size. */
+    pipeline_stack_size += max_raygen_stack;
+    pipeline_stack_size += 2 * max_callable_stack;
+    pipeline_stack_size += (max(1, recursion_depth) - 1) * max(max_closest_stack, max_miss_stack);
+    pipeline_stack_size += recursion_depth * max(max(max_closest_stack, max_miss_stack), max_intersect_stack + max_anyhit_stack);
+    return pipeline_stack_size;
+}
+
 static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *object,
         struct d3d12_state_object_pipeline_data *data)
 {
@@ -707,10 +763,10 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
         if (vr)
             return hresult_from_vk_result(vr);
 
-        data->exports[i].stack_size_general = ~0u;
-        data->exports[i].stack_size_any = ~0u;
-        data->exports[i].stack_size_closest = ~0u;
-        data->exports[i].stack_size_intersection = ~0u;
+        data->exports[i].stack_size_general = UINT32_MAX;
+        data->exports[i].stack_size_any = UINT32_MAX;
+        data->exports[i].stack_size_closest = UINT32_MAX;
+        data->exports[i].stack_size_intersection = UINT32_MAX;
 
         if (data->groups[i].type == VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR)
         {
@@ -726,6 +782,9 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
                 data->exports[i].stack_size_intersection = get_shader_stack_size(object, i, VK_SHADER_GROUP_SHADER_INTERSECTION_KHR);
         }
     }
+
+    object->pipeline_stack_size = d3d12_state_object_pipeline_data_compute_default_stack_size(data,
+            pipeline_create_info.maxPipelineRayRecursionDepth);
 
     /* Pilfer the export table. */
     object->exports = data->exports;
