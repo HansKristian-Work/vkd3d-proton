@@ -1590,6 +1590,8 @@ struct vkd3d_dynamic_state
         VkExtent2D fragment_size;
         VkFragmentShadingRateCombinerOpKHR combiner_ops[D3D12_RS_SET_SHADING_RATE_COMBINER_COUNT];
     } fragment_shading_rate;
+
+    uint32_t pipeline_stack_size;
 };
 
 /* ID3D12CommandList */
