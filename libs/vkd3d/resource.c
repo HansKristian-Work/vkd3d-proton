@@ -3667,9 +3667,9 @@ static void vkd3d_create_texture_srv(struct d3d12_desc *descriptor,
                     key.u.texture.miplevel_count = desc->Texture2D.MipLevels;
                     key.u.texture.layer_count = 1;
                     if (desc->Texture2D.PlaneSlice)
-                        FIXME("Ignoring plane slice %u.\n", desc->Texture2D.PlaneSlice);
+                        FIXME_ONCE("Ignoring plane slice %u.\n", desc->Texture2D.PlaneSlice);
                     if (desc->Texture2D.ResourceMinLODClamp)
-                        FIXME("Unhandled min LOD clamp %.8e.\n", desc->Texture2D.ResourceMinLODClamp);
+                        FIXME_ONCE("Unhandled min LOD clamp %.8e.\n", desc->Texture2D.ResourceMinLODClamp);
                     break;
                 case D3D12_SRV_DIMENSION_TEXTURE2DARRAY:
                     key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
@@ -3678,9 +3678,9 @@ static void vkd3d_create_texture_srv(struct d3d12_desc *descriptor,
                     key.u.texture.layer_idx = desc->Texture2DArray.FirstArraySlice;
                     key.u.texture.layer_count = desc->Texture2DArray.ArraySize;
                     if (desc->Texture2DArray.PlaneSlice)
-                        FIXME("Ignoring plane slice %u.\n", desc->Texture2DArray.PlaneSlice);
+                        FIXME_ONCE("Ignoring plane slice %u.\n", desc->Texture2DArray.PlaneSlice);
                     if (desc->Texture2DArray.ResourceMinLODClamp)
-                        FIXME("Unhandled min LOD clamp %.8e.\n", desc->Texture2DArray.ResourceMinLODClamp);
+                        FIXME_ONCE("Unhandled min LOD clamp %.8e.\n", desc->Texture2DArray.ResourceMinLODClamp);
                     break;
                 case D3D12_SRV_DIMENSION_TEXTURE2DMS:
                     key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D;
@@ -3696,7 +3696,7 @@ static void vkd3d_create_texture_srv(struct d3d12_desc *descriptor,
                     key.u.texture.miplevel_idx = desc->Texture3D.MostDetailedMip;
                     key.u.texture.miplevel_count = desc->Texture3D.MipLevels;
                     if (desc->Texture3D.ResourceMinLODClamp)
-                        FIXME("Unhandled min LOD clamp %.8e.\n", desc->Texture2D.ResourceMinLODClamp);
+                        FIXME_ONCE("Unhandled min LOD clamp %.8e.\n", desc->Texture2D.ResourceMinLODClamp);
                     break;
                 case D3D12_SRV_DIMENSION_TEXTURECUBE:
                     key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_CUBE;
@@ -3704,7 +3704,7 @@ static void vkd3d_create_texture_srv(struct d3d12_desc *descriptor,
                     key.u.texture.miplevel_count = desc->TextureCube.MipLevels;
                     key.u.texture.layer_count = 6;
                     if (desc->TextureCube.ResourceMinLODClamp)
-                        FIXME("Unhandled min LOD clamp %.8e.\n", desc->TextureCube.ResourceMinLODClamp);
+                        FIXME_ONCE("Unhandled min LOD clamp %.8e.\n", desc->TextureCube.ResourceMinLODClamp);
                     break;
                 case D3D12_SRV_DIMENSION_TEXTURECUBEARRAY:
                     key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
@@ -3715,7 +3715,7 @@ static void vkd3d_create_texture_srv(struct d3d12_desc *descriptor,
                     if (key.u.texture.layer_count != VK_REMAINING_ARRAY_LAYERS)
                         key.u.texture.layer_count *= 6;
                     if (desc->TextureCubeArray.ResourceMinLODClamp)
-                        FIXME("Unhandled min LOD clamp %.8e.\n", desc->TextureCubeArray.ResourceMinLODClamp);
+                        FIXME_ONCE("Unhandled min LOD clamp %.8e.\n", desc->TextureCubeArray.ResourceMinLODClamp);
                     break;
                 default:
                     FIXME("Unhandled view dimension %#x.\n", desc->ViewDimension);
