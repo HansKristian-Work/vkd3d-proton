@@ -51,6 +51,29 @@ static VkBuildAccelerationStructureFlagsKHR d3d12_build_flags_to_vk(
     return vk_flags;
 }
 
+static VkFormat convert_rt_vertex_format(DXGI_FORMAT format)
+{
+    /* DXR specifies RGBA16 or RGBA8 here, but it also completely ignores A,
+     * so it's *actually* DXGI_FORMAT_RGB{8,16}_{FLOAT,SNORM},
+     * but those formats don't exist in D3D,
+     * and they couldn't be bothered to add those apparently <_<. */
+    switch (format)
+    {
+        case DXGI_FORMAT_R16G16B16A16_FLOAT:
+            return VK_FORMAT_R16G16B16_SFLOAT;
+        case DXGI_FORMAT_R16G16B16A16_SNORM:
+            return VK_FORMAT_R16G16B16_SNORM;
+        case DXGI_FORMAT_R16G16B16A16_UNORM:
+            return VK_FORMAT_R16G16B16_UNORM;
+        case DXGI_FORMAT_R8G8B8A8_SNORM:
+            return VK_FORMAT_R8G8B8_SNORM;
+        case DXGI_FORMAT_R8G8B8A8_UNORM:
+            return VK_FORMAT_R8G8B8_UNORM;
+        default:
+            return vkd3d_get_vk_format(format);
+    }
+}
+
 bool vkd3d_acceleration_structure_convert_inputs(
         struct vkd3d_acceleration_structure_build_info *info,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc)
@@ -144,7 +167,7 @@ bool vkd3d_acceleration_structure_convert_inputs(
 
                     triangles->maxVertex = max(1, geom_desc->Triangles.VertexCount) - 1;
                     triangles->vertexStride = geom_desc->Triangles.VertexBuffer.StrideInBytes;
-                    triangles->vertexFormat = vkd3d_get_vk_format(geom_desc->Triangles.VertexFormat);
+                    triangles->vertexFormat = convert_rt_vertex_format(geom_desc->Triangles.VertexFormat);
                     triangles->vertexData.deviceAddress = geom_desc->Triangles.VertexBuffer.StartAddress;
                     triangles->transformData.deviceAddress = geom_desc->Triangles.Transform3x4;
                     break;
