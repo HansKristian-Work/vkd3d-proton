@@ -7957,6 +7957,7 @@ static int vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_c
             cf_info->loop.continue_block_id = continue_block_id;
             cf_info->loop.merge_block_id = merge_block_id;
             cf_info->current_block = VKD3D_BLOCK_LOOP;
+            cf_info->inside_block = true;
 
             vkd3d_spirv_build_op_name(builder, loop_header_block_id, "loop%u_header", compiler->loop_id);
             vkd3d_spirv_build_op_name(builder, loop_body_block_id, "loop%u_body", compiler->loop_id);
@@ -7969,7 +7970,8 @@ static int vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_c
             assert(compiler->control_flow_depth);
             assert(cf_info->current_block == VKD3D_BLOCK_LOOP);
 
-            vkd3d_spirv_build_op_branch(builder, cf_info->loop.continue_block_id);
+            if (cf_info->inside_block)
+                vkd3d_spirv_build_op_branch(builder, cf_info->loop.continue_block_id);
 
             vkd3d_spirv_build_op_label(builder, cf_info->loop.continue_block_id);
             vkd3d_spirv_build_op_branch(builder, cf_info->loop.header_block_id);
