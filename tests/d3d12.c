@@ -41699,11 +41699,11 @@ static void test_raytracing(void)
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuild_info;
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC build_info;
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs;
+    ID3D12Resource *bottom_acceleration_structures[3];
+    ID3D12Resource *top_acceleration_structures[3];
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
-    ID3D12Resource *bottom_acceleration_structure;
     D3D12_DESCRIPTOR_RANGE descriptor_ranges[2];
     D3D12_RAYTRACING_GEOMETRY_DESC geom_desc[2];
-    ID3D12Resource *top_acceleration_structure;
     ID3D12GraphicsCommandList4 *command_list4;
     D3D12_RESOURCE_BARRIER resource_barrier;
     D3D12_ROOT_PARAMETER root_parameters[2];
@@ -42033,13 +42033,17 @@ static void test_raytracing(void)
         /* An AS in D3D12 is just a plain UAV-enabled buffer. */
         scratch_buffer_bottom = create_default_buffer(context.device, prebuild_info.ScratchDataSizeInBytes,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        bottom_acceleration_structure = create_default_buffer(context.device, prebuild_info.ResultDataMaxSizeInBytes,
-            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
 
-        if (scratch_buffer_bottom && bottom_acceleration_structure)
+        for (i = 0; i < ARRAY_SIZE(bottom_acceleration_structures); i++)
+        {
+            bottom_acceleration_structures[i] = create_default_buffer(context.device, prebuild_info.ResultDataMaxSizeInBytes,
+                D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
+        }
+
+        if (scratch_buffer_bottom && bottom_acceleration_structures[0])
         {
             memset(&build_info, 0, sizeof(build_info));
-            build_info.DestAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structure);
+            build_info.DestAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structures[0]);
             build_info.Inputs = inputs;
             build_info.ScratchAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(scratch_buffer_bottom);
 
@@ -42055,13 +42059,32 @@ static void test_raytracing(void)
             /* An UAV barrier serves as a raytracing barrier as well ... */
             resource_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
             resource_barrier.Flags = 0;
-            resource_barrier.UAV.pResource = bottom_acceleration_structure;
+
+            /* Tests CLONE and COMPACTING copies. COMPACTING can never increase size, so it's safe to allocate up front.
+             * We test the compacted size later. */
+            resource_barrier.UAV.pResource = bottom_acceleration_structures[0];
+            ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &resource_barrier);
+
+            ID3D12GraphicsCommandList4_CopyRaytracingAccelerationStructure(command_list4,
+                ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structures[1]),
+                ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structures[0]),
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT);
+
+            resource_barrier.UAV.pResource = bottom_acceleration_structures[1];
+            ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &resource_barrier);
+
+            ID3D12GraphicsCommandList4_CopyRaytracingAccelerationStructure(command_list4,
+                ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structures[2]),
+                ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structures[1]),
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE);
+
+            resource_barrier.UAV.pResource = bottom_acceleration_structures[2];
             ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &resource_barrier);
         }
     }
 
     /* Create instance buffer. One for every top-level entry into the AS. */
-    if (bottom_acceleration_structure)
+    if (bottom_acceleration_structures[2])
     {
         D3D12_RAYTRACING_INSTANCE_DESC instance_desc[3];
         memset(instance_desc, 0, sizeof(instance_desc));
@@ -42071,7 +42094,7 @@ static void test_raytracing(void)
         instance_desc[0].Transform[2][2] = 0.5f;
         instance_desc[0].InstanceMask = 0xff;
         instance_desc[0].InstanceContributionToHitGroupIndex = 0;
-        instance_desc[0].AccelerationStructure = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structure);
+        instance_desc[0].AccelerationStructure = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structures[0]);
 
         instance_desc[1].Transform[0][0] = 0.5f;
         instance_desc[1].Transform[1][1] = 0.5f;
@@ -42079,7 +42102,7 @@ static void test_raytracing(void)
         instance_desc[1].Transform[1][3] = 3.0f;
         instance_desc[1].InstanceMask = 0xff;
         instance_desc[1].InstanceContributionToHitGroupIndex = 2;
-        instance_desc[1].AccelerationStructure = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structure);
+        instance_desc[1].AccelerationStructure = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structures[1]);
 
         instance_desc[2].Transform[0][0] = 0.5f;
         instance_desc[2].Transform[1][1] = 0.5f;
@@ -42087,7 +42110,7 @@ static void test_raytracing(void)
         instance_desc[2].Transform[1][3] = -3.0f;
         instance_desc[2].InstanceMask = 0xfe; /* This instance will be masked out since shader uses mask of 0x01. */
         instance_desc[2].InstanceContributionToHitGroupIndex = 0;
-        instance_desc[2].AccelerationStructure = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structure);
+        instance_desc[2].AccelerationStructure = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structures[2]);
 
         instance_buffer = create_upload_buffer(context.device, sizeof(instance_desc), instance_desc);
     }
@@ -42095,7 +42118,7 @@ static void test_raytracing(void)
         instance_buffer = NULL;
 
     /* Create top AS */
-    if (bottom_acceleration_structure)
+    if (bottom_acceleration_structures[0])
     {
         memset(&inputs, 0, sizeof(inputs));
         memset(geom_desc, 0, sizeof(geom_desc));
@@ -42111,13 +42134,17 @@ static void test_raytracing(void)
 
         scratch_buffer_top = create_default_buffer(context.device, prebuild_info.ScratchDataSizeInBytes,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        top_acceleration_structure = create_default_buffer(context.device, prebuild_info.ResultDataMaxSizeInBytes,
-            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
 
-        if (scratch_buffer_top && top_acceleration_structure)
+        for (i = 0; i < ARRAY_SIZE(top_acceleration_structures); i++)
+        {
+            top_acceleration_structures[i] = create_default_buffer(context.device, prebuild_info.ResultDataMaxSizeInBytes,
+                    D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
+        }
+
+        if (scratch_buffer_top && top_acceleration_structures[0])
         {
             memset(&build_info, 0, sizeof(build_info));
-            build_info.DestAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structure);
+            build_info.DestAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structures[0]);
             build_info.Inputs = inputs;
             build_info.ScratchAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(scratch_buffer_top);
 
@@ -42132,14 +42159,33 @@ static void test_raytracing(void)
 
             resource_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
             resource_barrier.Flags = 0;
-            resource_barrier.UAV.pResource = top_acceleration_structure;
+
+            resource_barrier.UAV.pResource = top_acceleration_structures[0];
+            ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &resource_barrier);
+
+            /* Tests CLONE and COMPACTING copies. COMPACTING can never increase size, so it's safe to allocate up front.
+             * We test the compacted size later. */
+            ID3D12GraphicsCommandList4_CopyRaytracingAccelerationStructure(command_list4,
+                    ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structures[1]),
+                    ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structures[0]),
+                    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT);
+
+            resource_barrier.UAV.pResource = top_acceleration_structures[1];
+            ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &resource_barrier);
+
+            ID3D12GraphicsCommandList4_CopyRaytracingAccelerationStructure(command_list4,
+                ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structures[2]),
+                ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structures[1]),
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE);
+
+            resource_barrier.UAV.pResource = top_acceleration_structures[2];
             ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &resource_barrier);
         }
     }
     else
     {
         scratch_buffer_top = NULL;
-        top_acceleration_structure = NULL;
+        memset(top_acceleration_structures, 0, sizeof(top_acceleration_structures));
     }
 
     /* Create global root signature. All RT shaders can access these parameters. */
@@ -42387,7 +42433,7 @@ static void test_raytracing(void)
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
     gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
 
-    if (top_acceleration_structure)
+    if (top_acceleration_structures[2])
     {
         D3D12_SHADER_RESOURCE_VIEW_DESC as_desc;
         D3D12_GPU_VIRTUAL_ADDRESS rtases[2];
@@ -42396,12 +42442,12 @@ static void test_raytracing(void)
         as_desc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
         as_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         as_desc.Format = DXGI_FORMAT_UNKNOWN;
-        as_desc.RaytracingAccelerationStructure.Location = ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structure);
+        as_desc.RaytracingAccelerationStructure.Location = ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structures[2]);
         ID3D12Device_CreateShaderResourceView(context.device, NULL, &as_desc, cpu_handle);
         cpu_handle.ptr += descriptor_size;
 
-        rtases[0] = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structure);
-        rtases[1] = ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structure);
+        rtases[0] = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structures[0]);
+        rtases[1] = ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structures[0]);
         /* Emitting this is not COPY_DEST, but UNORDERED_ACCESS for some bizarre reason. */
 
         postbuild_desc[0].InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE;
@@ -42534,10 +42580,12 @@ static void test_raytracing(void)
     ID3D12Resource_Release(transform_buffer);
     ID3D12RootSignature_Release(global_rs);
     ID3D12RootSignature_Release(local_rs);
-    if (top_acceleration_structure)
-        ID3D12Resource_Release(top_acceleration_structure);
-    if (bottom_acceleration_structure)
-        ID3D12Resource_Release(bottom_acceleration_structure);
+    for (i = 0; i < ARRAY_SIZE(top_acceleration_structures); i++)
+        if (top_acceleration_structures[i])
+            ID3D12Resource_Release(top_acceleration_structures[i]);
+    for (i = 0; i < ARRAY_SIZE(bottom_acceleration_structures); i++)
+        if (bottom_acceleration_structures[i])
+            ID3D12Resource_Release(bottom_acceleration_structures[i]);
     if (scratch_buffer_top)
         ID3D12Resource_Release(scratch_buffer_top);
     if (scratch_buffer_bottom)
