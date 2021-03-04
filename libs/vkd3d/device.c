@@ -4423,7 +4423,30 @@ static D3D12_TILED_RESOURCES_TIER d3d12_device_determine_tiled_resources_tier(st
 
 static D3D12_RAYTRACING_TIER d3d12_device_determine_ray_tracing_tier(struct d3d12_device *device)
 {
+    const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     const struct vkd3d_physical_device_info *info = &device->device_info;
+    D3D12_RAYTRACING_TIER tier = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
+    VkFormatProperties properties;
+    bool supports_vbo_formats;
+    unsigned int i;
+
+    /* Tier 1.0 formats. 1.1 adds:
+     * - RGB8_{U,S}NORM
+     * - RG16_UNORM
+     * - RGB16_UNORM
+     */
+    static const VkFormat required_vbo_formats[] = {
+        VK_FORMAT_R32G32_SFLOAT,
+        VK_FORMAT_R32G32B32_SFLOAT,
+        VK_FORMAT_R16G16_SFLOAT,
+        VK_FORMAT_R16G16_SNORM,
+        /* DXR specifies RGBA16 here, but it also completely ignores A,
+         * so it's *actually* DXGI_FORMAT_R16G16B16_FLOAT/SNORM,
+         * but those formats don't exist in D3D,
+         * and they couldn't be bothered to add those apparently <_<. */
+        VK_FORMAT_R16G16B16_SFLOAT,
+        VK_FORMAT_R16G16B16_SNORM,
+    };
 
     /* Currently disabled until fully supported, but add checks for now. */
     if (info->ray_tracing_pipeline_features.rayTracingPipeline &&
@@ -4437,11 +4460,28 @@ static D3D12_RAYTRACING_TIER d3d12_device_determine_ray_tracing_tier(struct d3d1
         info->ray_tracing_pipeline_properties.shaderGroupHandleAlignment <= D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT &&
         info->ray_tracing_pipeline_properties.maxRayRecursionDepth >= D3D12_RAYTRACING_MAX_DECLARABLE_TRACE_RECURSION_DEPTH)
     {
-        INFO("DXR could potentially be supported, but not enabling by default for now.\n");
-        return D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
+        supports_vbo_formats = true;
+        for (i = 0; i < ARRAY_SIZE(required_vbo_formats); i++)
+        {
+            VK_CALL(vkGetPhysicalDeviceFormatProperties(device->vk_physical_device,
+                    required_vbo_formats[i],
+                    &properties));
+
+            if (!(properties.bufferFeatures & VK_FORMAT_FEATURE_ACCELERATION_STRUCTURE_VERTEX_BUFFER_BIT_KHR))
+            {
+                supports_vbo_formats = false;
+                INFO("Vulkan format #%x is not supported for RTAS VBO, cannot support DXR tier 1.0.\n", required_vbo_formats[i]);
+            }
+        }
+
+        if (supports_vbo_formats)
+        {
+            INFO("DXR could potentially be supported, but not enabling by default for now.\n");
+            tier = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
+        }
     }
-    else
-        return D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
+
+    return tier;
 }
 
 static D3D12_RESOURCE_HEAP_TIER d3d12_device_determine_heap_tier(struct d3d12_device *device)
