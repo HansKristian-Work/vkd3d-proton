@@ -97,6 +97,9 @@ endif
 
 add_project_arguments(vkd3d_compiler.get_supported_arguments([
     '-fvisibility=hidden',
+    # For some reason, the use of VLAs isn't in all+extra+pedantic
+    # We don't want to use these accidentally from consts...
+    '-Wvla',
     '-Wno-format',
     '-Wno-missing-field-initializers',
     '-Wno-unused-parameter',
