@@ -8334,8 +8334,19 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
         D3D12_GPU_VIRTUAL_ADDRESS dst_data, D3D12_GPU_VIRTUAL_ADDRESS src_data,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode)
 {
-    FIXME("iface %p, dst_data %#"PRIx64", src_data %#"PRIx64", mode %u stub!\n",
-            iface, dst_data, src_data, mode);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+
+    TRACE("iface %p, dst_data %#"PRIx64", src_data %#"PRIx64", mode %u\n",
+          iface, dst_data, src_data, mode);
+
+    if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
+    {
+        WARN("Acceleration structure is not supported. Calling this is invalid.\n");
+        return;
+    }
+
+    d3d12_command_list_end_current_render_pass(list, true);
+    vkd3d_acceleration_structure_copy(list, dst_data, src_data, mode);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState1(d3d12_command_list_iface *iface,

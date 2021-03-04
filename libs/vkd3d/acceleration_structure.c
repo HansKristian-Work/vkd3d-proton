@@ -341,3 +341,52 @@ void vkd3d_acceleration_structure_emit_immediate_postbuild_info(
 
     vkd3d_acceleration_structure_end_barrier(list);
 }
+
+static bool convert_copy_mode(
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode,
+        VkCopyAccelerationStructureModeKHR *vk_mode)
+{
+    switch (mode)
+    {
+        case D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE:
+            *vk_mode = VK_COPY_ACCELERATION_STRUCTURE_MODE_CLONE_KHR;
+            return true;
+        case D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT:
+            *vk_mode = VK_COPY_ACCELERATION_STRUCTURE_MODE_COMPACT_KHR;
+            return true;
+        default:
+            FIXME("Unsupported RTAS copy mode #%x.\n", mode);
+            return false;
+    }
+}
+
+void vkd3d_acceleration_structure_copy(
+        struct d3d12_command_list *list,
+        D3D12_GPU_VIRTUAL_ADDRESS dst, D3D12_GPU_VIRTUAL_ADDRESS src,
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkAccelerationStructureKHR dst_as, src_as;
+    VkCopyAccelerationStructureInfoKHR info;
+
+    dst_as = vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map, list->device, dst);
+    if (dst_as == VK_NULL_HANDLE)
+    {
+        ERR("Invalid dst address #%"PRIx64" for RTAS copy.\n", dst);
+        return;
+    }
+
+    src_as = vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map, list->device, src);
+    if (src_as == VK_NULL_HANDLE)
+    {
+        ERR("Invalid src address #%"PRIx64" for RTAS copy.\n", src);
+        return;
+    }
+
+    info.sType = VK_STRUCTURE_TYPE_COPY_ACCELERATION_STRUCTURE_INFO_KHR;
+    info.pNext = NULL;
+    info.dst = dst_as;
+    info.src = src_as;
+    if (convert_copy_mode(mode, &info.mode))
+        VK_CALL(vkCmdCopyAccelerationStructureKHR(list->vk_command_buffer, &info));
+}
