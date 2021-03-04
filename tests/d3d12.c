@@ -41695,15 +41695,22 @@ static void test_stencil_export_dxil(void)
 
 static void test_raytracing(void)
 {
+#define NUM_GEOM_DESC 6
+#define NUM_UNMASKED_INSTANCES 4
+#define INSTANCE_OFFSET_Y (100.0f)
+#define GEOM_OFFSET_X (10.0f)
+#define INSTANCE_GEOM_SCALE (0.5f)
+
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC postbuild_desc[3];
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuild_info;
+    float sbt_colors[NUM_GEOM_DESC * NUM_UNMASKED_INSTANCES + 1][2];
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC build_info;
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs;
+    D3D12_RAYTRACING_GEOMETRY_DESC geom_desc[NUM_GEOM_DESC];
     ID3D12Resource *bottom_acceleration_structures[3];
     ID3D12Resource *top_acceleration_structures[3];
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_DESCRIPTOR_RANGE descriptor_ranges[2];
-    D3D12_RAYTRACING_GEOMETRY_DESC geom_desc[2];
     ID3D12GraphicsCommandList4 *command_list4;
     D3D12_RESOURCE_BARRIER resource_barrier;
     D3D12_ROOT_PARAMETER root_parameters[2];
@@ -41729,16 +41736,21 @@ static void test_raytracing(void)
     ID3D12Device5 *device5;
     unsigned int ref_count;
     ID3D12Resource *vbo;
+    ID3D12Resource *ibo;
     ID3D12Resource *sbt;
     HRESULT hr;
 
-    static const float sbt_colors[6][2] = {
-        { 1.0f, 2.0f },
-        { 3.0f, 4.0f },
-        { 5.0f, 6.0f },
-        { 7.0f, 8.0f },
-        { 9.0f, 10.0f },
-        { -1.0f, -2.0f },
+    struct initial_vbo
+    {
+        float f32[3 * 3 * 2];
+        int16_t i16[3 * 3 * 2];
+        uint16_t f16[3 * 3 * 2];
+    };
+
+    struct initial_ibo
+    {
+        uint32_t u32[6];
+        uint16_t u16[6];
     };
 
     /* Compile with -Tlib_6_3 in DXC. */
@@ -41976,28 +41988,45 @@ static void test_raytracing(void)
     postbuild_readback = create_readback_buffer(context.device, 4096);
     postbuild_buffer = create_default_buffer(context.device, 4096, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
-    /* Create VBO. Simple quad. */
+    /* Emit quads with the different Tier 1.0 formats. */
     {
-        float initial_vbo_data[32];
-        float* pv = initial_vbo_data;
+        struct initial_vbo initial_vbo_data;
+        float *pv = initial_vbo_data.f32;
         *pv++ = -1.0f; *pv++ = +1.0f; *pv++ = 0.0f;
         *pv++ = -1.0f; *pv++ = -1.0f; *pv++ = 0.0f;
-        *pv++ = +1.0f; *pv++ = +1.0f; *pv++ = 0.0f;
-
         *pv++ = +1.0f; *pv++ = -1.0f; *pv++ = 0.0f;
-        *pv++ = +1.0f; *pv++ = +1.0f; *pv++ = 0.0f;
-        *pv++ = -1.0f; *pv++ = -1.0f; *pv++ = 0.0f;
 
-        vbo = create_upload_buffer(context.device, sizeof(initial_vbo_data), initial_vbo_data);
+        *pv++ = +1.0f; *pv++ = +1.0f; *pv++ = 0.0f;
+        *pv++ = -1.0f; *pv++ = +1.0f; *pv++ = 0.0f;
+        *pv++ = +1.0f; *pv++ = -1.0f; *pv++ = 0.0f;
+
+        for (i = 0; i < 3 * 3 * 2; i++)
+        {
+            initial_vbo_data.i16[i] = (int16_t)(0x7fff * initial_vbo_data.f32[i]);
+            initial_vbo_data.f16[i] = 0x3c00 | (initial_vbo_data.f32[i] < 0.0f ? 0x8000 : 0);
+        }
+
+        vbo = create_upload_buffer(context.device, sizeof(initial_vbo_data), &initial_vbo_data);
+    }
+
+    {
+        static const struct initial_ibo initial_ibo_data = {
+            { 0, 1, 2, 3, 2, 1 },
+            { 0, 1, 2, 3, 2, 1 },
+        };
+        ibo = create_upload_buffer(context.device, sizeof(initial_ibo_data), &initial_ibo_data);
     }
 
     /* Create a transform buffer which is used when building bottom AS. Row-major affine transform. */
     {
-        float transform[3][4] = {{0.0f}};
-        transform[0][0] = 1.0f;
-        transform[1][1] = 1.0f;
-        transform[2][2] = 1.0f;
-        transform[0][3] = 3.0f;
+        float transform[3 * NUM_GEOM_DESC][4] = {{0.0f}};
+        for (i = 0; i < NUM_GEOM_DESC; i++)
+        {
+            transform[3 * i + 0][0] = 1.0f;
+            transform[3 * i + 1][1] = 1.0f;
+            transform[3 * i + 2][2] = 1.0f;
+            transform[3 * i + 0][3] = GEOM_OFFSET_X * (float)i;
+        }
         transform_buffer = create_upload_buffer(context.device, sizeof(transform), transform);
     }
 
@@ -42007,23 +42036,47 @@ static void test_raytracing(void)
         memset(geom_desc, 0, sizeof(geom_desc));
 
         inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
-        inputs.NumDescs = 2;
+        inputs.NumDescs = ARRAY_SIZE(geom_desc);
         inputs.pGeometryDescs = geom_desc;
         inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
         inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
                 D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION;
 
+        /* Tests the configuration space of the 6 supported vertex formats, and the 3 index types. */
         geom_desc[0].Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
-        geom_desc[0].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(vbo);
-        geom_desc[0].Triangles.VertexBuffer.StrideInBytes = 12;
+        geom_desc[0].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(vbo) + offsetof(struct initial_vbo, f32);
+        geom_desc[0].Triangles.VertexBuffer.StrideInBytes = 3 * sizeof(float);
         geom_desc[0].Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
         geom_desc[0].Triangles.VertexCount = 6;
-        geom_desc[1].Triangles.Transform3x4 = ID3D12Resource_GetGPUVirtualAddress(transform_buffer);
-        geom_desc[1].Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
-        geom_desc[1].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(vbo);
-        geom_desc[1].Triangles.VertexBuffer.StrideInBytes = 12;
-        geom_desc[1].Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
-        geom_desc[1].Triangles.VertexCount = 6;
+
+        geom_desc[1] = geom_desc[0];
+        geom_desc[1].Triangles.VertexFormat = DXGI_FORMAT_R32G32_FLOAT;
+
+        geom_desc[2].Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+        geom_desc[2].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(vbo) + offsetof(struct initial_vbo, i16);
+        geom_desc[2].Triangles.VertexBuffer.StrideInBytes = 3 * sizeof(int16_t);
+        geom_desc[2].Triangles.VertexFormat = DXGI_FORMAT_R16G16B16A16_SNORM;
+        geom_desc[2].Triangles.VertexCount = 4;
+        geom_desc[2].Triangles.IndexBuffer = ID3D12Resource_GetGPUVirtualAddress(ibo) + offsetof(struct initial_ibo, u16);
+        geom_desc[2].Triangles.IndexFormat = DXGI_FORMAT_R16_UINT;
+        geom_desc[2].Triangles.IndexCount = 6;
+
+        geom_desc[3] = geom_desc[2];
+        geom_desc[3].Triangles.VertexFormat = DXGI_FORMAT_R16G16_SNORM;
+        geom_desc[3].Triangles.IndexBuffer = ID3D12Resource_GetGPUVirtualAddress(ibo) + offsetof(struct initial_ibo, u32);
+        geom_desc[3].Triangles.IndexFormat = DXGI_FORMAT_R32_UINT;
+
+        geom_desc[4] = geom_desc[2];
+        geom_desc[4].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(vbo) + offsetof(struct initial_vbo, f16);
+        geom_desc[4].Triangles.VertexFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
+
+        geom_desc[5] = geom_desc[3];
+        geom_desc[5].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(vbo) + offsetof(struct initial_vbo, f16);
+        geom_desc[5].Triangles.VertexFormat = DXGI_FORMAT_R16G16_FLOAT;
+
+        /* Identity transform for index 0, checks that we handle NULL here. */
+        for (i = 1; i < ARRAY_SIZE(geom_desc); i++)
+            geom_desc[i].Triangles.Transform3x4 = ID3D12Resource_GetGPUVirtualAddress(transform_buffer) + i * 4 * 3 * sizeof(float);
 
         /* Guard against stubbed variant. */
         prebuild_info.ScratchDataSizeInBytes = 16;
@@ -42086,31 +42139,27 @@ static void test_raytracing(void)
     /* Create instance buffer. One for every top-level entry into the AS. */
     if (bottom_acceleration_structures[2])
     {
-        D3D12_RAYTRACING_INSTANCE_DESC instance_desc[3];
+        D3D12_RAYTRACING_INSTANCE_DESC instance_desc[NUM_UNMASKED_INSTANCES + 1];
         memset(instance_desc, 0, sizeof(instance_desc));
 
-        instance_desc[0].Transform[0][0] = 0.5f;
-        instance_desc[0].Transform[1][1] = 0.5f;
-        instance_desc[0].Transform[2][2] = 0.5f;
-        instance_desc[0].InstanceMask = 0xff;
-        instance_desc[0].InstanceContributionToHitGroupIndex = 0;
-        instance_desc[0].AccelerationStructure = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structures[0]);
+        for (i = 0; i < NUM_UNMASKED_INSTANCES; i++)
+        {
+            instance_desc[i].Transform[0][0] = INSTANCE_GEOM_SCALE;
+            instance_desc[i].Transform[1][1] = INSTANCE_GEOM_SCALE;
+            instance_desc[i].Transform[2][2] = INSTANCE_GEOM_SCALE;
+            instance_desc[i].Transform[1][3] = INSTANCE_OFFSET_Y * (float)i;
+            instance_desc[i].InstanceMask = 0xff;
+            instance_desc[i].InstanceContributionToHitGroupIndex = NUM_GEOM_DESC * i;
+            instance_desc[i].AccelerationStructure = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structures[i & 1]);
+        }
 
-        instance_desc[1].Transform[0][0] = 0.5f;
-        instance_desc[1].Transform[1][1] = 0.5f;
-        instance_desc[1].Transform[2][2] = 0.5f;
-        instance_desc[1].Transform[1][3] = 3.0f;
-        instance_desc[1].InstanceMask = 0xff;
-        instance_desc[1].InstanceContributionToHitGroupIndex = 2;
-        instance_desc[1].AccelerationStructure = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structures[1]);
-
-        instance_desc[2].Transform[0][0] = 0.5f;
-        instance_desc[2].Transform[1][1] = 0.5f;
-        instance_desc[2].Transform[2][2] = 0.5f;
-        instance_desc[2].Transform[1][3] = -3.0f;
-        instance_desc[2].InstanceMask = 0xfe; /* This instance will be masked out since shader uses mask of 0x01. */
-        instance_desc[2].InstanceContributionToHitGroupIndex = 0;
-        instance_desc[2].AccelerationStructure = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structures[2]);
+        instance_desc[NUM_UNMASKED_INSTANCES].Transform[0][0] = INSTANCE_GEOM_SCALE;
+        instance_desc[NUM_UNMASKED_INSTANCES].Transform[1][1] = INSTANCE_GEOM_SCALE;
+        instance_desc[NUM_UNMASKED_INSTANCES].Transform[2][2] = INSTANCE_GEOM_SCALE;
+        instance_desc[NUM_UNMASKED_INSTANCES].Transform[1][3] = -INSTANCE_OFFSET_Y;
+        instance_desc[NUM_UNMASKED_INSTANCES].InstanceMask = 0xfe; /* This instance will be masked out since shader uses mask of 0x01. */
+        instance_desc[NUM_UNMASKED_INSTANCES].InstanceContributionToHitGroupIndex = 0;
+        instance_desc[NUM_UNMASKED_INSTANCES].AccelerationStructure = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structures[2]);
 
         instance_buffer = create_upload_buffer(context.device, sizeof(instance_desc), instance_desc);
     }
@@ -42124,7 +42173,7 @@ static void test_raytracing(void)
         memset(geom_desc, 0, sizeof(geom_desc));
 
         inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
-        inputs.NumDescs = 3;
+        inputs.NumDescs = NUM_UNMASKED_INSTANCES + 1;
         inputs.InstanceDescs = ID3D12Resource_GetGPUVirtualAddress(instance_buffer);
         inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
         inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
@@ -42318,6 +42367,13 @@ static void test_raytracing(void)
     /* Build SBT (Shader Binding Table) */
     {
         ID3D12StateObjectProperties *props;
+
+        for (i = 0; i < ARRAY_SIZE(sbt_colors); i++)
+        {
+            sbt_colors[i][0] = 2 * i + 1;
+            sbt_colors[i][1] = 2 * i + 2;
+        }
+
         /* Why this is a separate interface, we will never know ... */
         if (SUCCEEDED(ID3D12StateObject_QueryInterface(rt_pso, &IID_ID3D12StateObjectProperties, (void **)&props)))
         {
@@ -42397,13 +42453,13 @@ static void test_raytracing(void)
             ok(!!ray_hit_sbt, "Failed to get SBT.\n");
             ok(!!ray_miss_sbt, "Failed to get SBT.\n");
 
-            memcpy(sbt_data + 0 * 64, ray_gen_sbt, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
-            for (i = 0; i < 4; i++)
+            memcpy(sbt_data, ray_miss_sbt, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+            for (i = 0; i < NUM_GEOM_DESC * NUM_UNMASKED_INSTANCES; i++)
                 memcpy(sbt_data + (i + 1) * 64, ray_hit_sbt, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
-            memcpy(sbt_data + 5 * 64, ray_miss_sbt, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+            memcpy(sbt_data + (NUM_GEOM_DESC * NUM_UNMASKED_INSTANCES + 1) * 64, ray_gen_sbt, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
 
             /* Local root signature data is placed after the shader identifier at offset 32 bytes. */
-            for (i = 0; i < 6; i++)
+            for (i = 0; i < ARRAY_SIZE(sbt_colors); i++)
                 memcpy(sbt_data + D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES + 64 * i, sbt_colors[i], sizeof(sbt_colors[i]));
 
             sbt = create_upload_buffer(context.device, sizeof(sbt_data), sbt_data);
@@ -42417,14 +42473,24 @@ static void test_raytracing(void)
     }
 
     {
-        static float ray_pos[5][2] = {
-            { 0.0f, 0.0f }, // Hits instance 0, geom 0 -> Hit index 0
-            { 1.5f, 0.0f }, // Hits instance 0, geom 1 -> Hit index 1
-            { 0.0f, 3.0f }, // Hits instance 1, geom 0 -> Hit index 2
-            { 1.5f, 3.0f }, // Hits instance 1, geom 1 -> Hit index 3
-            { 0.0f, -3.0f }, // Miss, instance is masked by TraceRay
-        };
-        ray_colors = create_default_buffer(context.device, 4096, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        /* For test, we want to hit miss shader, then hit group indices in order. */
+        float ray_pos[NUM_GEOM_DESC * NUM_UNMASKED_INSTANCES + 1][2];
+        unsigned int x, y;
+
+        /* Should hit instance 2, but gets masked out. */
+        ray_pos[0][0] = 0.0f;
+        ray_pos[0][1] = -INSTANCE_OFFSET_Y;
+
+        for (y = 0; y < NUM_UNMASKED_INSTANCES; y++)
+        {
+            for (x = 0; x < NUM_GEOM_DESC; x++)
+            {
+                ray_pos[y * NUM_GEOM_DESC + x + 1][0] = INSTANCE_GEOM_SCALE * GEOM_OFFSET_X * (float)x; /* Instance transform will scale X offset from 10 * index to 5 * index. */
+                ray_pos[y * NUM_GEOM_DESC + x + 1][1] = INSTANCE_OFFSET_Y * (float)y;
+            }
+        }
+
+        ray_colors = create_default_buffer(context.device, sizeof(sbt_colors), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         ray_positions = create_upload_buffer(context.device, sizeof(ray_pos), ray_pos);
     }
 
@@ -42471,7 +42537,7 @@ static void test_raytracing(void)
         ray_pos_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         ray_pos_desc.Format = DXGI_FORMAT_UNKNOWN;
         ray_pos_desc.Buffer.FirstElement = 0;
-        ray_pos_desc.Buffer.NumElements = 5;
+        ray_pos_desc.Buffer.NumElements = NUM_GEOM_DESC * NUM_UNMASKED_INSTANCES + 1;
         ray_pos_desc.Buffer.StructureByteStride = 8;
         ID3D12Device_CreateShaderResourceView(context.device, ray_positions, &ray_pos_desc, cpu_handle);
         cpu_handle.ptr += descriptor_size;
@@ -42483,7 +42549,7 @@ static void test_raytracing(void)
         ray_col_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
         ray_col_desc.Format = DXGI_FORMAT_UNKNOWN;
         ray_col_desc.Buffer.FirstElement = 0;
-        ray_col_desc.Buffer.NumElements = 5;
+        ray_col_desc.Buffer.NumElements = NUM_GEOM_DESC * NUM_UNMASKED_INSTANCES + 1;
         ray_col_desc.Buffer.StructureByteStride = 8;
         ID3D12Device_CreateUnorderedAccessView(context.device, ray_colors, NULL, &ray_col_desc, cpu_handle);
         cpu_handle.ptr += descriptor_size;
@@ -42497,29 +42563,33 @@ static void test_raytracing(void)
     {
         D3D12_DISPATCH_RAYS_DESC desc;
         memset(&desc, 0, sizeof(desc));
-        desc.Width = 5;
+        desc.Width = NUM_GEOM_DESC * NUM_UNMASKED_INSTANCES + 1;
         desc.Height = 1;
         desc.Depth = 1;
-        desc.RayGenerationShaderRecord.SizeInBytes = 64;
-        desc.RayGenerationShaderRecord.StartAddress = ID3D12Resource_GetGPUVirtualAddress(sbt);
-        desc.HitGroupTable.SizeInBytes = 64 * 4;
-        desc.HitGroupTable.StartAddress = ID3D12Resource_GetGPUVirtualAddress(sbt) + 64;
-        desc.HitGroupTable.StrideInBytes = 64;
+
+        desc.MissShaderTable.StartAddress = ID3D12Resource_GetGPUVirtualAddress(sbt);
         desc.MissShaderTable.SizeInBytes = 64;
-        desc.MissShaderTable.StartAddress = ID3D12Resource_GetGPUVirtualAddress(sbt) + 64 * 5;
         desc.MissShaderTable.StrideInBytes = 64;
+
+        desc.HitGroupTable.StartAddress = desc.MissShaderTable.StartAddress + desc.MissShaderTable.SizeInBytes;
+        desc.HitGroupTable.StrideInBytes = 64;
+        desc.HitGroupTable.SizeInBytes = 64 * NUM_GEOM_DESC * NUM_UNMASKED_INSTANCES;
+
+        desc.RayGenerationShaderRecord.SizeInBytes = 64;
+        desc.RayGenerationShaderRecord.StartAddress = desc.HitGroupTable.StartAddress + desc.HitGroupTable.SizeInBytes;
+
         ID3D12GraphicsCommandList4_DispatchRays(command_list4, &desc);
     }
 
     transition_resource_state(command_list, ray_colors, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_buffer_readback_with_command_list(ray_colors, DXGI_FORMAT_UNKNOWN, &rb, queue, command_list);
-    for (i = 0; i < 5; i++)
+    for (i = 0; i < NUM_GEOM_DESC * NUM_UNMASKED_INSTANCES + 1; i++)
     {
         float x, y;
         x = get_readback_float(&rb, 2 * i, 0);
         y = get_readback_float(&rb, 2 * i + 1, 0);
-        ok(x == sbt_colors[i + 1][0], "Ray color [%u].x mismatch (%f != %f).\n", i, sbt_colors[i + 1][0], x);
-        ok(y == sbt_colors[i + 1][1], "Ray color [%u].y mismatch (%f != %f).\n", i, sbt_colors[i + 1][1], x);
+        ok(x == sbt_colors[i][0], "Ray color [%u].x mismatch (%f != %f).\n", i, sbt_colors[i][0], x);
+        ok(y == sbt_colors[i][1], "Ray color [%u].y mismatch (%f != %f).\n", i, sbt_colors[i][1], y);
     }
     release_resource_readback(&rb);
 
@@ -42575,6 +42645,7 @@ static void test_raytracing(void)
     ID3D12Device5_Release(device5);
     ID3D12GraphicsCommandList4_Release(command_list4);
     ID3D12Resource_Release(vbo);
+    ID3D12Resource_Release(ibo);
     if (instance_buffer)
         ID3D12Resource_Release(instance_buffer);
     ID3D12Resource_Release(transform_buffer);
