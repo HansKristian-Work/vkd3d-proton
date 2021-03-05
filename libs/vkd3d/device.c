@@ -495,7 +495,7 @@ static void vkd3d_config_flags_init_once(void)
 #endif
 
     if (vkd3d_config_flags)
-        TRACE("VKD3D_CONFIG='%s'.\n", config);
+        INFO("VKD3D_CONFIG='%s'.\n", config ? config : "");
 }
 
 static pthread_once_t vkd3d_config_flags_once = PTHREAD_ONCE_INIT;
