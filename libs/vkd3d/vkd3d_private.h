@@ -1722,10 +1722,6 @@ struct d3d12_command_list
     VkBuffer so_counter_buffers[D3D12_SO_BUFFER_SLOT_COUNT];
     VkDeviceSize so_counter_buffer_offsets[D3D12_SO_BUFFER_SLOT_COUNT];
 
-    struct d3d12_deferred_descriptor_set_update *descriptor_updates;
-    size_t descriptor_updates_size;
-    size_t descriptor_updates_count;
-
     struct vkd3d_initial_transition *init_transitions;
     size_t init_transitions_size;
     size_t init_transitions_count;

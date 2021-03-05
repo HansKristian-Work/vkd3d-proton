@@ -3870,8 +3870,6 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     list->rt_state = NULL;
     list->active_bind_point = VK_PIPELINE_BIND_POINT_MAX_ENUM;
 
-    list->descriptor_updates_count = 0;
-
     memset(list->so_counter_buffers, 0, sizeof(list->so_counter_buffers));
     memset(list->so_counter_buffer_offsets, 0, sizeof(list->so_counter_buffer_offsets));
 
