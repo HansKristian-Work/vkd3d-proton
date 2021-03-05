@@ -2898,6 +2898,30 @@ static VkDeviceSize vkd3d_get_required_texel_buffer_alignment(const struct d3d12
     return vk_info->device_limits.minTexelBufferOffsetAlignment;
 }
 
+bool vkd3d_create_raw_r32ui_vk_buffer_view(struct d3d12_device *device,
+        VkBuffer vk_buffer, VkDeviceSize offset, VkDeviceSize range, VkBufferView *vk_view)
+{
+    /* Called when we know the Vulkan format implicitly and we don't need to search through
+     * format descriptions. */
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct VkBufferViewCreateInfo view_desc;
+    VkResult vr;
+
+    if (offset % 4)
+        FIXME("Offset %#"PRIx64" violates the required alignment 4.\n", offset);
+
+    view_desc.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
+    view_desc.pNext = NULL;
+    view_desc.flags = 0;
+    view_desc.buffer = vk_buffer;
+    view_desc.format = VK_FORMAT_R32_UINT;
+    view_desc.offset = offset;
+    view_desc.range = range;
+    if ((vr = VK_CALL(vkCreateBufferView(device->vk_device, &view_desc, NULL, vk_view))) < 0)
+        WARN("Failed to create Vulkan buffer view, vr %d.\n", vr);
+    return vr == VK_SUCCESS;
+}
+
 static bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
         VkBuffer vk_buffer, const struct vkd3d_format *format,
         VkDeviceSize offset, VkDeviceSize range, VkBufferView *vk_view)
@@ -4175,18 +4199,16 @@ bool vkd3d_create_raw_buffer_view(struct d3d12_device *device,
         D3D12_GPU_VIRTUAL_ADDRESS gpu_address, VkBufferView *vk_buffer_view)
 {
     const struct vkd3d_unique_resource *resource;
-    const struct vkd3d_format *format;
     uint64_t range;
     uint64_t offset;
 
-    format = vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
     resource = vkd3d_va_map_deref(&device->memory_allocator.va_map, gpu_address);
     assert(resource && resource->va && resource->size);
 
     offset = gpu_address - resource->va;
     range = min(resource->size - offset, device->vk_info.device_limits.maxStorageBufferRange);
 
-    return vkd3d_create_vk_buffer_view(device, resource->vk_buffer, format,
+    return vkd3d_create_raw_r32ui_vk_buffer_view(device, resource->vk_buffer,
             offset, range, vk_buffer_view);
 }
 
@@ -5811,8 +5833,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
     if (FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_buffer,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &null_resources->vk_buffer_memory)))
         goto fail;
-    if (!vkd3d_create_vk_buffer_view(device, null_resources->vk_buffer,
-            vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false),
+    if (!vkd3d_create_raw_r32ui_vk_buffer_view(device, null_resources->vk_buffer,
             0, VK_WHOLE_SIZE, &null_resources->vk_buffer_view))
         goto fail;
 
@@ -5825,8 +5846,7 @@ HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
     if (!use_sparse_resources && FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_storage_buffer,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &null_resources->vk_storage_buffer_memory)))
         goto fail;
-    if (!vkd3d_create_vk_buffer_view(device, null_resources->vk_storage_buffer,
-            vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false),
+    if (!vkd3d_create_raw_r32ui_vk_buffer_view(device, null_resources->vk_storage_buffer,
             0, VK_WHOLE_SIZE, &null_resources->vk_storage_buffer_view))
         goto fail;
 
