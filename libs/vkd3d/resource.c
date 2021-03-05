@@ -2901,8 +2901,6 @@ static VkDeviceSize vkd3d_get_required_texel_buffer_alignment(const struct d3d12
 bool vkd3d_create_raw_r32ui_vk_buffer_view(struct d3d12_device *device,
         VkBuffer vk_buffer, VkDeviceSize offset, VkDeviceSize range, VkBufferView *vk_view)
 {
-    /* Called when we know the Vulkan format implicitly and we don't need to search through
-     * format descriptions. */
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct VkBufferViewCreateInfo view_desc;
     VkResult vr;

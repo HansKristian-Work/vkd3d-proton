@@ -339,9 +339,11 @@ struct d3d12_root_signature_info
 {
     uint32_t binding_count;
     uint32_t descriptor_count;
+    uint32_t parameter_count;
 
     uint32_t push_descriptor_count;
     uint32_t root_constant_count;
+    uint32_t hoist_descriptor_count;
     bool has_raw_va_aux_buffer;
     bool has_ssbo_offset_buffer;
     bool has_typed_offset_buffer;
@@ -349,8 +351,30 @@ struct d3d12_root_signature_info
     uint32_t cost;
 };
 
-static HRESULT d3d12_root_signature_info_count_descriptors(struct d3d12_root_signature_info *info,
+static bool d3d12_descriptor_range_can_hoist_cbv_descriptor(
         struct d3d12_device *device, const D3D12_DESCRIPTOR_RANGE1 *range)
+{
+    /* Cannot/should not hoist arrays.
+     * We only care about CBVs. SRVs and UAVs are too fiddly
+     * since they don't necessary map to buffers at all. */
+    if (!(device->bindless_state.flags & VKD3D_HOIST_STATIC_TABLE_CBV) ||
+            range->RangeType != D3D12_DESCRIPTOR_RANGE_TYPE_CBV ||
+            range->NumDescriptors != 1)
+    {
+        return false;
+    }
+
+    /* If descriptors are not marked volatile, we are guaranteed that the descriptors are
+     * set before updating the root table parameter in the command list.
+     * We can latch the descriptor at draw time.
+     * As a speed hack, we can pretend that all CBVs have this flag set.
+     * Basically no applications set this flag, even though they really could. */
+    return !(range->Flags & D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE) ||
+            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_STATIC_CBV);
+}
+
+static HRESULT d3d12_root_signature_info_count_descriptors(struct d3d12_root_signature_info *info,
+        struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC1 *desc, const D3D12_DESCRIPTOR_RANGE1 *range)
 {
     switch (range->RangeType)
     {
@@ -370,6 +394,13 @@ static HRESULT d3d12_root_signature_info_count_descriptors(struct d3d12_root_sig
                 info->has_typed_offset_buffer = true;
             break;
         case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
+            if (!(desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE) &&
+                    d3d12_descriptor_range_can_hoist_cbv_descriptor(device, range))
+            {
+                info->hoist_descriptor_count += 1;
+            }
+            info->binding_count += 1;
+            break;
         case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
             info->binding_count += 1;
             break;
@@ -401,7 +432,7 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
             case D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
                 for (j = 0; j < p->DescriptorTable.NumDescriptorRanges; ++j)
                     if (FAILED(hr = d3d12_root_signature_info_count_descriptors(info,
-                            device, &p->DescriptorTable.pDescriptorRanges[j])))
+                            device, desc, &p->DescriptorTable.pDescriptorRanges[j])))
                         return hr;
 
                 /* Local root signature directly affects memory layout. */
@@ -445,7 +476,13 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
         }
     }
 
+    info->hoist_descriptor_count = min(info->hoist_descriptor_count, VKD3D_MAX_HOISTED_DESCRIPTORS);
+    info->hoist_descriptor_count = min(info->hoist_descriptor_count, D3D12_MAX_ROOT_COST - desc->NumParameters);
+
+    info->push_descriptor_count += info->hoist_descriptor_count;
+    info->binding_count += info->hoist_descriptor_count;
     info->binding_count += desc->NumStaticSamplers;
+    info->parameter_count = desc->NumParameters + info->hoist_descriptor_count;
     return S_OK;
 }
 
@@ -763,15 +800,18 @@ static HRESULT d3d12_root_signature_init_shader_record_descriptors(
 }
 
 static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_signature *root_signature,
-        const D3D12_ROOT_SIGNATURE_DESC1 *desc, const struct d3d12_root_signature_info *info,
+        const D3D12_ROOT_SIGNATURE_DESC1 *desc, struct d3d12_root_signature_info *info,
         const VkPushConstantRange *push_constant_range, struct vkd3d_descriptor_set_context *context,
         VkDescriptorSetLayout *vk_set_layout)
 {
     VkDescriptorSetLayoutBinding *vk_binding, *vk_binding_info = NULL;
+    struct vkd3d_descriptor_hoist_desc *hoist_desc;
     struct vkd3d_shader_resource_binding *binding;
     VkDescriptorSetLayoutCreateFlags vk_flags;
     struct vkd3d_shader_root_parameter *param;
-    unsigned int i, j;
+    unsigned int hoisted_parameter_index;
+    const D3D12_DESCRIPTOR_RANGE1 *range;
+    unsigned int i, j, k;
     HRESULT hr = S_OK;
 
     if (info->push_descriptor_count || (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK))
@@ -785,10 +825,65 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
         return S_OK;
     }
 
+    hoisted_parameter_index = desc->NumParameters;
+
     for (i = 0, j = 0; i < desc->NumParameters; ++i)
     {
         const D3D12_ROOT_PARAMETER1 *p = &desc->pParameters[i];
         bool raw_va;
+
+        if (!(desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE) &&
+                p->ParameterType == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+        {
+            unsigned int range_descriptor_offset = 0;
+            for (k = 0; k < p->DescriptorTable.NumDescriptorRanges && info->hoist_descriptor_count; k++)
+            {
+                range = &p->DescriptorTable.pDescriptorRanges[k];
+                if (range->OffsetInDescriptorsFromTableStart != D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND)
+                    range_descriptor_offset = range->OffsetInDescriptorsFromTableStart;
+
+                if (d3d12_descriptor_range_can_hoist_cbv_descriptor(root_signature->device, range))
+                {
+                    vk_binding = &vk_binding_info[j++];
+                    vk_binding->binding = context->vk_binding;
+
+                    vk_binding->descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                    vk_binding->descriptorCount = 1;
+                    vk_binding->stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
+                    vk_binding->pImmutableSamplers = NULL;
+
+                    root_signature->root_descriptor_push_mask |= 1ull << hoisted_parameter_index;
+                    hoist_desc = &root_signature->hoist_info.desc[root_signature->hoist_info.num_desc];
+                    hoist_desc->table_index = i;
+                    hoist_desc->parameter_index = hoisted_parameter_index;
+                    hoist_desc->table_offset = range_descriptor_offset;
+                    root_signature->hoist_info.num_desc++;
+
+                    binding = &root_signature->bindings[context->binding_index];
+                    binding->type = vkd3d_descriptor_type_from_d3d12_range_type(range->RangeType);
+                    binding->register_space = range->RegisterSpace;
+                    binding->register_index = range->BaseShaderRegister;
+                    binding->register_count = 1;
+                    binding->descriptor_table = 0;  /* ignored */
+                    binding->descriptor_offset = 0; /* ignored */
+                    binding->shader_visibility = vkd3d_shader_visibility_from_d3d12(p->ShaderVisibility);
+                    binding->flags = VKD3D_SHADER_BINDING_FLAG_BUFFER;
+                    binding->binding.binding = context->vk_binding;
+                    binding->binding.set = context->vk_set;
+
+                    param = &root_signature->parameters[hoisted_parameter_index];
+                    param->parameter_type = D3D12_ROOT_PARAMETER_TYPE_CBV;
+                    param->descriptor.binding = binding;
+
+                    context->binding_index += 1;
+                    context->vk_binding += 1;
+                    hoisted_parameter_index += 1;
+                    info->hoist_descriptor_count -= 1;
+                }
+
+                range_descriptor_offset += range->NumDescriptors;
+            }
+        }
 
         if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_CBV
                 && p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_SRV
@@ -1016,7 +1111,7 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
     root_signature->static_sampler_count = desc->NumStaticSamplers;
 
     hr = E_OUTOFMEMORY;
-    root_signature->parameter_count = desc->NumParameters;
+    root_signature->parameter_count = info.parameter_count;
     if (!(root_signature->parameters = vkd3d_calloc(root_signature->parameter_count,
             sizeof(*root_signature->parameters))))
         return hr;
@@ -3944,6 +4039,15 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
          * which is great. */
         if (device_info->properties2.properties.vendorID != VKD3D_VENDOR_ID_NVIDIA)
             flags |= VKD3D_RAW_VA_ROOT_DESCRIPTOR_CBV;
+    }
+
+    if (device_info->properties2.properties.vendorID == VKD3D_VENDOR_ID_NVIDIA &&
+            !(flags & VKD3D_RAW_VA_ROOT_DESCRIPTOR_CBV))
+    {
+        /* On NVIDIA, it's preferable to hoist CBVs to push descriptors if we can.
+         * Hoisting is only safe with push descriptors since we need to consider
+         * robustness as well for STATIC_KEEPING_BUFFER_BOUNDS_CHECKS. */
+        flags |= VKD3D_HOIST_STATIC_TABLE_CBV;
     }
 
     if (vkd3d_bindless_supports_mutable_type(device, flags))

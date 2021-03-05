@@ -476,6 +476,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"vk_debug", VKD3D_CONFIG_FLAG_VULKAN_DEBUG},
     {"skip_application_workarounds", VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS},
     {"debug_utils", VKD3D_CONFIG_FLAG_DEBUG_UTILS},
+    {"force_static_cbv", VKD3D_CONFIG_FLAG_FORCE_STATIC_CBV},
 };
 
 static void vkd3d_config_flags_init_once(void)
