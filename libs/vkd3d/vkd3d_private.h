@@ -168,6 +168,7 @@ enum vkd3d_config_flags
     VKD3D_CONFIG_FLAG_VULKAN_DEBUG = 0x00000001,
     VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS = 0x00000002,
     VKD3D_CONFIG_FLAG_DEBUG_UTILS = 0x00000004,
+    VKD3D_CONFIG_FLAG_FORCE_STATIC_CBV = 0x00000008,
 };
 
 struct vkd3d_instance
@@ -1142,6 +1143,20 @@ struct d3d12_bind_point_layout
     VkShaderStageFlags vk_push_stages;
 };
 
+#define VKD3D_MAX_HOISTED_DESCRIPTORS 16
+struct vkd3d_descriptor_hoist_desc
+{
+    uint32_t table_index;
+    uint32_t table_offset;
+    uint32_t parameter_index;
+};
+
+struct vkd3d_descriptor_hoist_info
+{
+    struct vkd3d_descriptor_hoist_desc desc[VKD3D_MAX_HOISTED_DESCRIPTORS];
+    unsigned int num_desc;
+};
+
 struct d3d12_root_signature
 {
     ID3D12RootSignature ID3D12RootSignature_iface;
@@ -1185,6 +1200,8 @@ struct d3d12_root_signature
 
     unsigned int static_sampler_count;
     VkSampler *static_samplers;
+
+    struct vkd3d_descriptor_hoist_info hoist_info;
 
     struct d3d12_device *device;
 
@@ -1526,6 +1543,7 @@ enum vkd3d_pipeline_dirty_flag
 {
     VKD3D_PIPELINE_DIRTY_STATIC_SAMPLER_SET       = 0x00000001u,
     VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS = 0x00000002u,
+    VKD3D_PIPELINE_DIRTY_HOISTED_DESCRIPTORS      = 0x00000004u,
 };
 
 union vkd3d_descriptor_info
@@ -1743,6 +1761,8 @@ struct d3d12_command_list
     size_t pending_queries_count;
 
     LONG *outstanding_submissions_count;
+
+    const struct d3d12_desc *cbv_srv_uav_descriptors;
 
     struct vkd3d_private_store private_store;
 };
@@ -2003,6 +2023,7 @@ enum vkd3d_bindless_flags
     VKD3D_RAW_VA_ROOT_DESCRIPTOR_CBV     = (1u << 9),
     VKD3D_RAW_VA_ROOT_DESCRIPTOR_SRV_UAV = (1u << 10),
     VKD3D_BINDLESS_MUTABLE_TYPE          = (1u << 11),
+    VKD3D_HOIST_STATIC_TABLE_CBV         = (1u << 12),
 };
 
 #define VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS 8
