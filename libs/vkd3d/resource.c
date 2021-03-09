@@ -2151,6 +2151,7 @@ static HRESULT d3d12_resource_init_sparse_info(struct d3d12_resource *resource,
             region->subresource.aspectMask = vk_memory_requirements.formatProperties.aspectMask;
             region->subresource.mipLevel = subresource % resource->desc.MipLevels;
             region->subresource.arrayLayer = subresource / resource->desc.MipLevels;
+            region->subresource_index = subresource;
 
             region->offset.x = tile_offset.x * block_extent.width;
             region->offset.y = tile_offset.y * block_extent.height;
