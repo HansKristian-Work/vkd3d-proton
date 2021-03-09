@@ -636,6 +636,7 @@ enum vkd3d_resource_flag
 struct d3d12_sparse_image_region
 {
     VkImageSubresource subresource;
+    uint32_t subresource_index;
     VkOffset3D offset;
     VkExtent3D extent;
 };
