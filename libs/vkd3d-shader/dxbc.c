@@ -2426,7 +2426,8 @@ static void shader_validate_descriptor_range1(const struct vkd3d_descriptor_rang
             | VKD3D_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE
             | VKD3D_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE
             | VKD3D_DESCRIPTOR_RANGE_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE
-            | VKD3D_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
+            | VKD3D_DESCRIPTOR_RANGE_FLAG_DATA_STATIC
+            | VKD3D_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_STATIC_KEEPING_BUFFER_BOUNDS_CHECKS);
 
     if (unknown_flags)
         FIXME("Unknown descriptor range flags %#x.\n", unknown_flags);
