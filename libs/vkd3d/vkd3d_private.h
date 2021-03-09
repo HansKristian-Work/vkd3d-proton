@@ -1198,6 +1198,8 @@ unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_
 
 int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *desc);
+int vkd3d_parse_root_signature_v_1_1(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_versioned_root_signature_desc *desc);
 
 #define VKD3D_MAX_DYNAMIC_STATE_COUNT (7)
 

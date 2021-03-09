@@ -168,8 +168,9 @@ static CONST_VTBL struct ID3D12RootSignatureDeserializerVtbl d3d12_root_signatur
     d3d12_root_signature_deserializer_GetRootSignatureDesc,
 };
 
-int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_versioned_root_signature_desc *out_desc)
+static int vkd3d_parse_root_signature_for_version(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_versioned_root_signature_desc *out_desc,
+        enum vkd3d_root_signature_version target_version)
 {
     struct vkd3d_versioned_root_signature_desc desc, converted_desc;
     int ret;
@@ -180,19 +181,17 @@ int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
         return ret;
     }
 
-    if (desc.version == VKD3D_ROOT_SIGNATURE_VERSION_1_0)
+    if (desc.version == target_version)
     {
         *out_desc = desc;
     }
     else
     {
-        enum vkd3d_root_signature_version version = desc.version;
-
-        ret = vkd3d_shader_convert_root_signature(&converted_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_0, &desc);
+        ret = vkd3d_shader_convert_root_signature(&converted_desc, target_version, &desc);
         vkd3d_shader_free_root_signature(&desc);
         if (ret < 0)
         {
-            WARN("Failed to convert from version %#x, vkd3d result %d.\n", version, ret);
+            WARN("Failed to convert from version %#x, vkd3d result %d.\n", desc.version, ret);
             return ret;
         }
 
@@ -200,6 +199,18 @@ int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
     }
 
     return ret;
+}
+
+int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_versioned_root_signature_desc *out_desc)
+{
+    return vkd3d_parse_root_signature_for_version(dxbc, out_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_0);
+}
+
+int vkd3d_parse_root_signature_v_1_1(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_versioned_root_signature_desc *out_desc)
+{
+    return vkd3d_parse_root_signature_for_version(dxbc, out_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_1);
 }
 
 static HRESULT d3d12_root_signature_deserializer_init(struct d3d12_root_signature_deserializer *deserializer,
