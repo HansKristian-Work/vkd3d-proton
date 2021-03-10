@@ -1821,6 +1821,14 @@ struct vkd3d_sparse_memory_bind
     VkDeviceSize vk_offset;
 };
 
+struct vkd3d_sparse_memory_bind_range
+{
+    uint32_t tile_index;
+    uint32_t tile_count;
+    VkDeviceMemory vk_memory;
+    VkDeviceSize vk_offset;
+};
+
 struct d3d12_command_queue_submission_wait
 {
     struct d3d12_fence *fence;
