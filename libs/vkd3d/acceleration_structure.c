@@ -27,7 +27,7 @@ void vkd3d_acceleration_structure_build_info_cleanup(
     if (info->geometries != info->geometries_stack)
         vkd3d_free(info->geometries);
     if (info->build_range_ptrs != info->build_range_ptr_stack)
-        vkd3d_free(info->build_range_ptrs);
+        vkd3d_free((void *)info->build_range_ptrs);
     if (info->build_ranges != info->build_range_stack)
         vkd3d_free(info->build_ranges);
 }
