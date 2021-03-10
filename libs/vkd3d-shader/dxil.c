@@ -1143,14 +1143,22 @@ int vkd3d_shader_dxil_append_library_entry_points(
 {
     struct vkd3d_shader_library_entry_point new_entry;
     dxil_spv_parsed_blob blob = NULL;
+    struct vkd3d_shader_code code;
     dxil_spv_shader_stage stage;
     const char *mangled_entry;
     char *ascii_entry = NULL;
+    vkd3d_shader_hash_t hash;
     unsigned int count, i;
     int ret = VKD3D_OK;
 
     memset(&new_entry, 0, sizeof(new_entry));
     dxil_spv_begin_thread_allocator_context();
+
+    memset(&code, 0, sizeof(code));
+    code.code = library_desc->DXILLibrary.pShaderBytecode;
+    code.size = library_desc->DXILLibrary.BytecodeLength;
+    hash = vkd3d_shader_hash(&code);
+    vkd3d_shader_dump_shader(hash, &code, "lib.dxil");
 
     if (dxil_spv_parse_dxil_blob(
             library_desc->DXILLibrary.pShaderBytecode,
