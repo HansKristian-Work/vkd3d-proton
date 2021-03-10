@@ -41720,8 +41720,11 @@ static void test_raytracing(void)
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
     ID3D12DescriptorHeap *descriptor_heap;
     ID3D12Resource *scratch_buffer_bottom;
+    ID3D12RootSignature *local_rs_table;
     ID3D12Resource *scratch_buffer_top;
+    D3D12_DESCRIPTOR_RANGE table_range;
     ID3D12Resource *postbuild_readback;
+    ID3D12Resource *sbt_colors_buffer;
     ID3D12Resource *postbuild_buffer;
     ID3D12Resource *transform_buffer;
     ID3D12Resource *instance_buffer;
@@ -42309,17 +42312,40 @@ static void test_raytracing(void)
 
         hr = create_root_signature(context.device, &root_signature_desc, &local_rs);
         ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", hr);
+
+        root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        root_parameters[0].DescriptorTable.pDescriptorRanges = &table_range;
+        root_parameters[0].DescriptorTable.NumDescriptorRanges = 1;
+        table_range.OffsetInDescriptorsFromTableStart = 0;
+        table_range.RegisterSpace = 1;
+        table_range.BaseShaderRegister = 0;
+        table_range.NumDescriptors = 1;
+        table_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+
+        root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        root_parameters[1].Descriptor.RegisterSpace = 1;
+        root_parameters[1].Descriptor.ShaderRegister = 1;
+
+        hr = create_root_signature(context.device, &root_signature_desc, &local_rs_table);
+        ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", hr);
     }
 
     /* Create RT PSO. */
     {
-        D3D12_STATE_SUBOBJECT objs[7];
-        D3D12_STATE_OBJECT_CONFIG state_object_config;
-        D3D12_GLOBAL_ROOT_SIGNATURE global_rs_desc;
-        D3D12_LOCAL_ROOT_SIGNATURE local_rs_desc;
+        D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION exports_associations[2];
         D3D12_RAYTRACING_PIPELINE_CONFIG pipeline_config;
+        const WCHAR *table_export[] = { u"XRayMiss" };
+        D3D12_STATE_OBJECT_CONFIG state_object_config;
         D3D12_RAYTRACING_SHADER_CONFIG shader_config;
+        D3D12_LOCAL_ROOT_SIGNATURE local_rs_desc[2];
+        D3D12_GLOBAL_ROOT_SIGNATURE global_rs_desc;
         D3D12_DXIL_LIBRARY_DESC dxil_library_desc;
+        D3D12_EXPORT_DESC dxil_exports[3] = {
+            { u"XRayClosest", u"RayClosest", 0 },
+            { u"XRayMiss", u"RayMiss", 0 },
+            { u"XRayGen", u"RayGen", 0 },
+        };
+        D3D12_STATE_SUBOBJECT objs[10];
         D3D12_HIT_GROUP_DESC hit_group;
         D3D12_STATE_OBJECT_DESC desc;
 
@@ -42330,47 +42356,65 @@ static void test_raytracing(void)
         memset(&state_object_config, 0, sizeof(state_object_config));
         state_object_config.Flags = D3D12_STATE_OBJECT_FLAG_NONE;
 
-        /* These root signatures appear to apply by default to all shaders unless they are overriden. */
         objs[1].Type = D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE;
         objs[1].pDesc = &global_rs_desc;
         memset(&global_rs_desc, 0, sizeof(global_rs_desc));
         global_rs_desc.pGlobalRootSignature = global_rs;
 
-        objs[2].Type = D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE;
-        objs[2].pDesc = &local_rs_desc;
-        memset(&local_rs_desc, 0, sizeof(local_rs_desc));
-        local_rs_desc.pLocalRootSignature = local_rs;
-
-        objs[3].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG;
-        objs[3].pDesc = &pipeline_config;
+        objs[2].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG;
+        objs[2].pDesc = &pipeline_config;
         memset(&pipeline_config, 0, sizeof(pipeline_config));
         pipeline_config.MaxTraceRecursionDepth = 1;
 
-        objs[4].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG;
-        objs[4].pDesc = &shader_config;
+        objs[3].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG;
+        objs[3].pDesc = &shader_config;
         memset(&shader_config, 0, sizeof(shader_config));
         shader_config.MaxAttributeSizeInBytes = 8;
         shader_config.MaxPayloadSizeInBytes = 8;
 
-        objs[5].Type = D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY;
-        objs[5].pDesc = &dxil_library_desc;
+        objs[4].Type = D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY;
+        objs[4].pDesc = &dxil_library_desc;
 
         memset(&dxil_library_desc, 0, sizeof(dxil_library_desc));
         dxil_library_desc.DXILLibrary.pShaderBytecode = rt_lib_dxil;
         dxil_library_desc.DXILLibrary.BytecodeLength = sizeof(rt_lib_dxil);
-        /* All entry points are exported by default. */
+        dxil_library_desc.NumExports = ARRAY_SIZE(dxil_exports);
+        dxil_library_desc.pExports = dxil_exports;
+        /* All entry points are exported by default. Test with custom exports, because why not. */
 
-        objs[6].Type = D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP;
-        objs[6].pDesc = &hit_group;
+        objs[5].Type = D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION;
+        objs[5].pDesc = &exports_associations[0];
+        exports_associations[0].NumExports = ARRAY_SIZE(table_export);
+        exports_associations[0].pExports = table_export;
+        /* Apparently, we have to point to a subobject in the array, otherwise, it just silently fails. */
+        exports_associations[0].pSubobjectToAssociate = &objs[8];
+
+        objs[6].Type = D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION;
+        objs[6].pDesc = &exports_associations[1];
+        exports_associations[1].NumExports = 0;
+        exports_associations[1].pExports = NULL;
+        /* Apparently, we have to point to a subobject in the array, otherwise, it just silently fails. */
+        exports_associations[1].pSubobjectToAssociate = &objs[9];
+
+        objs[7].Type = D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP;
+        objs[7].pDesc = &hit_group;
 
         memset(&hit_group, 0, sizeof(hit_group));
         hit_group.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
-        hit_group.ClosestHitShaderImport = u"RayClosest";
-        hit_group.HitGroupExport = u"RayHit";
+        hit_group.ClosestHitShaderImport = u"XRayClosest";
+        hit_group.HitGroupExport = u"XRayHit";
+
+        objs[8].Type = D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE;
+        objs[8].pDesc = &local_rs_desc[0];
+        local_rs_desc[0].pLocalRootSignature = local_rs_table;
+
+        objs[9].Type = D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE;
+        objs[9].pDesc = &local_rs_desc[1];
+        local_rs_desc[1].pLocalRootSignature = local_rs;
 
         memset(&desc, 0, sizeof(desc));
         desc.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
-        desc.NumSubobjects = 7;
+        desc.NumSubobjects = ARRAY_SIZE(objs);
         desc.pSubobjects = objs;
 
         hr = ID3D12Device5_CreateStateObject(device5, &desc, &IID_ID3D12StateObject, (void**)&rt_pso);
@@ -42385,6 +42429,11 @@ static void test_raytracing(void)
     ref_count = ID3D12RootSignature_Release(local_rs);
     ok(ref_count == 1, "Ref count %u != 1.\n", ref_count);
 
+    descriptor_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 4);
+    descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
+    gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
+
     /* Build SBT (Shader Binding Table) */
     {
         ID3D12StateObjectProperties *props;
@@ -42395,25 +42444,32 @@ static void test_raytracing(void)
             sbt_colors[i][1] = 2 * i + 2;
         }
 
+        {
+            uint8_t padded[2048];
+            memcpy(padded + 0, &sbt_colors[0][0], sizeof(float));
+            memcpy(padded + 1024, &sbt_colors[0][1], sizeof(float));
+            sbt_colors_buffer = create_upload_buffer(context.device, sizeof(padded), padded);
+        }
+
         /* Why this is a separate interface, we will never know ... */
         if (SUCCEEDED(ID3D12StateObject_QueryInterface(rt_pso, &IID_ID3D12StateObjectProperties, (void **)&props)))
         {
-            uint8_t sbt_data[4096];
-            static const WCHAR ray_closest[] = u"RayHit::closesthit";
-            static const WCHAR ray_anyhit[] = u"RayHit::anyhit";
-            static const WCHAR ray_broken3[] = u"RayHit::X";
-            static const WCHAR ray_broken2[] = u"RayHit::";
-            static const WCHAR ray_broken1[] = u"RayHit:";
-            static const WCHAR ray_broken0[] = u"RayHit";
-            static const WCHAR ray_gen[] = u"RayGen";
-            static const WCHAR ray_hit[] = u"RayHit";
-            static const WCHAR ray_miss[] = u"RayMiss";
+            static const WCHAR ray_closest[] = u"XRayHit::closesthit";
+            static const WCHAR ray_anyhit[] = u"XRayHit::anyhit";
+            static const WCHAR ray_broken3[] = u"XRayHit::X";
+            static const WCHAR ray_broken2[] = u"XRayHit::";
+            static const WCHAR ray_broken1[] = u"XRayHit:";
+            static const WCHAR ray_broken0[] = u"XRayHit";
+            static const WCHAR ray_miss[] = u"XRayMiss";
+            static const WCHAR ray_gen[] = u"XRayGen";
+            static const WCHAR ray_hit[] = u"XRayHit";
             ID3D12StateObject *tmp_rt_pso;
             unsigned int min_stack_size;
-            const void* ray_gen_sbt;
-            const void* ray_hit_sbt;
-            const void* ray_miss_sbt;
+            const void *ray_miss_sbt;
+            const void *ray_gen_sbt;
+            const void *ray_hit_sbt;
             unsigned int stack_size;
+            uint8_t sbt_data[4096];
 
             hr = ID3D12StateObjectProperties_QueryInterface(props, &IID_ID3D12StateObject, (void **)&tmp_rt_pso);
             ok(SUCCEEDED(hr), "Failed to query state object interface from properties.\n");
@@ -42480,7 +42536,17 @@ static void test_raytracing(void)
             memcpy(sbt_data + (NUM_GEOM_DESC * NUM_UNMASKED_INSTANCES + 1) * 64, ray_gen_sbt, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
 
             /* Local root signature data is placed after the shader identifier at offset 32 bytes. */
-            for (i = 0; i < ARRAY_SIZE(sbt_colors); i++)
+
+            /* For miss shader, we use a different local root signature.
+             * Tests that we handle local tables + local root descriptor. */
+            {
+                UINT64 miss_sbt[2];
+                miss_sbt[0] = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap).ptr + 3 * descriptor_size;
+                miss_sbt[1] = ID3D12Resource_GetGPUVirtualAddress(sbt_colors_buffer) + 1024;
+                memcpy(sbt_data + D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES, miss_sbt, sizeof(miss_sbt));
+            }
+
+            for (i = 1; i < ARRAY_SIZE(sbt_colors); i++)
                 memcpy(sbt_data + D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES + 64 * i, sbt_colors[i], sizeof(sbt_colors[i]));
 
             sbt = create_upload_buffer(context.device, sizeof(sbt_data), sbt_data);
@@ -42514,11 +42580,6 @@ static void test_raytracing(void)
         ray_colors = create_default_buffer(context.device, sizeof(sbt_colors), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         ray_positions = create_upload_buffer(context.device, sizeof(ray_pos), ray_pos);
     }
-
-    descriptor_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 3);
-    descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
-    gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
 
     if (top_acceleration_structures[2])
     {
@@ -42573,6 +42634,15 @@ static void test_raytracing(void)
         ray_col_desc.Buffer.NumElements = NUM_GEOM_DESC * NUM_UNMASKED_INSTANCES + 1;
         ray_col_desc.Buffer.StructureByteStride = 8;
         ID3D12Device_CreateUnorderedAccessView(context.device, ray_colors, NULL, &ray_col_desc, cpu_handle);
+        cpu_handle.ptr += descriptor_size;
+    }
+
+    {
+        D3D12_CONSTANT_BUFFER_VIEW_DESC miss_view_desc;
+        memset(&miss_view_desc, 0, sizeof(miss_view_desc));
+        miss_view_desc.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(sbt_colors_buffer);
+        miss_view_desc.SizeInBytes = ID3D12Resource_GetDesc(sbt_colors_buffer).Width;
+        ID3D12Device_CreateConstantBufferView(context.device, &miss_view_desc, cpu_handle);
         cpu_handle.ptr += descriptor_size;
     }
 
@@ -42668,11 +42738,13 @@ static void test_raytracing(void)
     ID3D12Resource_Release(dummy_vbo);
     ID3D12Resource_Release(vbo);
     ID3D12Resource_Release(ibo);
+    ID3D12Resource_Release(sbt_colors_buffer);
     if (instance_buffer)
         ID3D12Resource_Release(instance_buffer);
     ID3D12Resource_Release(transform_buffer);
     ID3D12RootSignature_Release(global_rs);
     ID3D12RootSignature_Release(local_rs);
+    ID3D12RootSignature_Release(local_rs_table);
     for (i = 0; i < ARRAY_SIZE(top_acceleration_structures); i++)
         if (top_acceleration_structures[i])
             ID3D12Resource_Release(top_acceleration_structures[i]);
