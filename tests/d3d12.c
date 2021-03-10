@@ -41710,6 +41710,7 @@ static void test_raytracing(void)
     ID3D12Resource *bottom_acceleration_structures[3];
     ID3D12Resource *top_acceleration_structures[3];
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    ID3D12Resource *scratch_buffer_update_bottom;
     D3D12_DESCRIPTOR_RANGE descriptor_ranges[2];
     ID3D12GraphicsCommandList4 *command_list4;
     D3D12_RESOURCE_BARRIER resource_barrier;
@@ -41733,6 +41734,7 @@ static void test_raytracing(void)
     ID3D12Resource *ray_colors;
     ID3D12CommandQueue *queue;
     ID3D12StateObject *rt_pso;
+    ID3D12Resource *dummy_vbo;
     ID3D12Device5 *device5;
     unsigned int ref_count;
     ID3D12Resource *vbo;
@@ -42007,6 +42009,7 @@ static void test_raytracing(void)
         }
 
         vbo = create_upload_buffer(context.device, sizeof(initial_vbo_data), &initial_vbo_data);
+        dummy_vbo = create_default_buffer(context.device, sizeof(initial_vbo_data), D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     }
 
     {
@@ -42040,16 +42043,20 @@ static void test_raytracing(void)
         inputs.pGeometryDescs = geom_desc;
         inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
         inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
-                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION;
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION |
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE;
 
         /* Tests the configuration space of the 6 supported vertex formats, and the 3 index types. */
         geom_desc[0].Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+
         geom_desc[0].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(vbo) + offsetof(struct initial_vbo, f32);
         geom_desc[0].Triangles.VertexBuffer.StrideInBytes = 3 * sizeof(float);
         geom_desc[0].Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
         geom_desc[0].Triangles.VertexCount = 6;
 
         geom_desc[1] = geom_desc[0];
+        /* First, render something wrong, update the RTAS later and verify that it works. */
+        geom_desc[1].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(dummy_vbo) + offsetof(struct initial_vbo, f32);
         geom_desc[1].Triangles.VertexFormat = DXGI_FORMAT_R32G32_FLOAT;
 
         geom_desc[2].Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
@@ -42081,10 +42088,13 @@ static void test_raytracing(void)
         /* Guard against stubbed variant. */
         prebuild_info.ScratchDataSizeInBytes = 16;
         prebuild_info.ResultDataMaxSizeInBytes = 16;
+        prebuild_info.UpdateScratchDataSizeInBytes = 16;
         ID3D12Device5_GetRaytracingAccelerationStructurePrebuildInfo(device5, &inputs, &prebuild_info);
 
         /* An AS in D3D12 is just a plain UAV-enabled buffer. */
         scratch_buffer_bottom = create_default_buffer(context.device, prebuild_info.ScratchDataSizeInBytes,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        scratch_buffer_update_bottom = create_default_buffer(context.device, prebuild_info.UpdateScratchDataSizeInBytes,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
         for (i = 0; i < ARRAY_SIZE(bottom_acceleration_structures); i++)
@@ -42112,6 +42122,17 @@ static void test_raytracing(void)
             /* An UAV barrier serves as a raytracing barrier as well ... */
             resource_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
             resource_barrier.Flags = 0;
+
+            resource_barrier.UAV.pResource = bottom_acceleration_structures[0];
+            ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &resource_barrier);
+
+            /* Update, and now use correct VBO. */
+            geom_desc[1].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(vbo) + offsetof(struct initial_vbo, f32);
+            build_info.Inputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
+            /* In-place update is supported. */
+            build_info.SourceAccelerationStructureData = build_info.DestAccelerationStructureData;
+            build_info.ScratchAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(scratch_buffer_update_bottom);
+            ID3D12GraphicsCommandList4_BuildRaytracingAccelerationStructure(command_list4, &build_info, ARRAY_SIZE(postbuild_desc), postbuild_desc);
 
             /* Tests CLONE and COMPACTING copies. COMPACTING can never increase size, so it's safe to allocate up front.
              * We test the compacted size later. */
@@ -42636,7 +42657,7 @@ static void test_raytracing(void)
             ok(bottom[0].serialize.SerializedSizeInBytes > 0, "Serialized size for bottom acceleration structure is %u.\n", (unsigned int)bottom[0].serialize.SerializedSizeInBytes);
             ok(bottom[0].serialize.NumBottomLevelAccelerationStructurePointers == 0, "NumBottomLevel pointers is %u.\n", (unsigned int)bottom[0].serialize.NumBottomLevelAccelerationStructurePointers);
             ok(top[0].serialize.SerializedSizeInBytes > 0, "Serialized size for top acceleration structure is %u.\n", (unsigned int)top[0].serialize.SerializedSizeInBytes);
-            todo ok(top[0].serialize.NumBottomLevelAccelerationStructurePointers == 3, "NumBottomLevel pointers is %u.\n", (unsigned int)top[0].serialize.NumBottomLevelAccelerationStructurePointers);
+            todo ok(top[0].serialize.NumBottomLevelAccelerationStructurePointers == 5, "NumBottomLevel pointers is %u.\n", (unsigned int)top[0].serialize.NumBottomLevelAccelerationStructurePointers);
 
             ID3D12Resource_Unmap(postbuild_readback, 0, NULL);
         }
@@ -42644,6 +42665,7 @@ static void test_raytracing(void)
 
     ID3D12Device5_Release(device5);
     ID3D12GraphicsCommandList4_Release(command_list4);
+    ID3D12Resource_Release(dummy_vbo);
     ID3D12Resource_Release(vbo);
     ID3D12Resource_Release(ibo);
     if (instance_buffer)
@@ -42661,6 +42683,8 @@ static void test_raytracing(void)
         ID3D12Resource_Release(scratch_buffer_top);
     if (scratch_buffer_bottom)
         ID3D12Resource_Release(scratch_buffer_bottom);
+    if (scratch_buffer_update_bottom)
+        ID3D12Resource_Release(scratch_buffer_update_bottom);
     ID3D12StateObject_Release(rt_pso);
     ID3D12Resource_Release(ray_colors);
     ID3D12Resource_Release(ray_positions);
