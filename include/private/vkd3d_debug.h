@@ -26,13 +26,13 @@
 #include <stdint.h>
 
 #ifdef VKD3D_NO_TRACE_MESSAGES
-#define TRACE(args...) do { } while (0)
+#define TRACE(...) do { } while (0)
 #define TRACE_ON() (false)
 #endif
 
 #ifdef VKD3D_NO_DEBUG_MESSAGES
-#define WARN(args...) do { } while (0)
-#define FIXME(args...) do { } while (0)
+#define WARN(...) do { } while (0)
+#define FIXME(...) do { } while (0)
 #endif
 
 enum vkd3d_dbg_level
