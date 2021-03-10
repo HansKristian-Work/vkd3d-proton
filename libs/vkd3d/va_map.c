@@ -30,10 +30,10 @@ static inline VkDeviceAddress vkd3d_va_map_get_block_address(VkDeviceAddress va)
     return (va >> VKD3D_VA_BLOCK_SIZE_BITS) & VKD3D_VA_BLOCK_MASK;
 }
 
-static const struct vkd3d_va_block *vkd3d_va_map_find_block(const struct vkd3d_va_map *va_map, VkDeviceAddress va)
+static struct vkd3d_va_block *vkd3d_va_map_find_block(struct vkd3d_va_map *va_map, VkDeviceAddress va)
 {
     VkDeviceAddress next_address = vkd3d_va_map_get_next_address(va);
-    const struct vkd3d_va_tree *tree = &va_map->va_tree;
+    struct vkd3d_va_tree *tree = &va_map->va_tree;
 
     while (next_address && tree)
     {
@@ -221,7 +221,7 @@ void vkd3d_va_map_remove(struct vkd3d_va_map *va_map, const struct vkd3d_unique_
 
 static struct vkd3d_unique_resource *vkd3d_va_map_deref_mutable(struct vkd3d_va_map *va_map, VkDeviceAddress va)
 {
-    const struct vkd3d_va_block *block = vkd3d_va_map_find_block(va_map, va);
+    struct vkd3d_va_block *block = vkd3d_va_map_find_block(va_map, va);
     struct vkd3d_unique_resource *resource = NULL;
 
     if (block)
