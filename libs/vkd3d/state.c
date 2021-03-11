@@ -794,6 +794,8 @@ static HRESULT d3d12_root_signature_init_shader_record_descriptors(
         param = &root_signature->parameters[i];
         param->parameter_type = p->ParameterType;
         param->descriptor.binding = binding;
+
+        context->binding_index++;
     }
 
     return S_OK;
@@ -1050,6 +1052,9 @@ static HRESULT d3d12_root_signature_init_local(struct d3d12_root_signature *root
         goto fail;
     }
 
+    root_signature->binding_count = info.binding_count;
+    root_signature->parameter_count = info.parameter_count;
+
     hr = E_OUTOFMEMORY;
     root_signature->parameter_count = desc->NumParameters;
     if (!(root_signature->parameters = vkd3d_calloc(root_signature->parameter_count,
@@ -1108,10 +1113,10 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
     }
 
     root_signature->binding_count = info.binding_count;
+    root_signature->parameter_count = info.parameter_count;
     root_signature->static_sampler_count = desc->NumStaticSamplers;
 
     hr = E_OUTOFMEMORY;
-    root_signature->parameter_count = info.parameter_count;
     if (!(root_signature->parameters = vkd3d_calloc(root_signature->parameter_count,
             sizeof(*root_signature->parameters))))
         return hr;
