@@ -1115,6 +1115,8 @@ static VkShaderStageFlagBits convert_stage(dxil_spv_shader_stage stage)
             return VK_SHADER_STAGE_CALLABLE_BIT_KHR;
         case DXIL_SPV_STAGE_INTERSECTION:
             return VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
+        case DXIL_SPV_STAGE_ANY_HIT:
+            return VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
         default:
             return VK_SHADER_STAGE_ALL;
     }
