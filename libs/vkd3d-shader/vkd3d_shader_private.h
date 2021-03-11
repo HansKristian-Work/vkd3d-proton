@@ -797,6 +797,8 @@ void vkd3d_dxbc_compiler_destroy(struct vkd3d_dxbc_compiler *compiler);
 void vkd3d_compute_dxbc_checksum(const void *dxbc, size_t size, uint32_t checksum[4]);
 
 void vkd3d_shader_dump_spirv_shader(vkd3d_shader_hash_t hash, const struct vkd3d_shader_code *shader);
+void vkd3d_shader_dump_spirv_shader_export(vkd3d_shader_hash_t hash, const struct vkd3d_shader_code *shader,
+        const char *export);
 void vkd3d_shader_dump_shader(vkd3d_shader_hash_t hash, const struct vkd3d_shader_code *shader, const char *ext);
 bool vkd3d_shader_replace(vkd3d_shader_hash_t hash, const void **data, size_t *size);
 

@@ -126,7 +126,7 @@ static bool is_valid_identifier_character(char v)
     return (v >= 'a' && v <= 'z') || (v >= 'A' && v <= 'Z') || v == '_';
 }
 
-WCHAR *vkd3d_dup_demangled_entry_point(const char *entry)
+static const char *vkd3d_manged_entry_point_scan(const char *entry, const char **out_end_entry)
 {
     const char *end_entry;
 
@@ -140,5 +140,22 @@ WCHAR *vkd3d_dup_demangled_entry_point(const char *entry)
     if (entry == end_entry)
         return NULL;
 
+    *out_end_entry = end_entry;
+    return entry;
+}
+
+WCHAR *vkd3d_dup_demangled_entry_point(const char *entry)
+{
+    const char *end_entry;
+    if (!(entry = vkd3d_manged_entry_point_scan(entry, &end_entry)))
+        return NULL;
     return vkd3d_dup_entry_point_n(entry, end_entry - entry);
+}
+
+char *vkd3d_dup_demangled_entry_point_ascii(const char *entry)
+{
+    const char *end_entry;
+    if (!(entry = vkd3d_manged_entry_point_scan(entry, &end_entry)))
+        return NULL;
+    return vkd3d_strdup_n(entry, end_entry - entry);
 }
