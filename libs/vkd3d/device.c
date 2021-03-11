@@ -4477,8 +4477,8 @@ static D3D12_RAYTRACING_TIER d3d12_device_determine_ray_tracing_tier(struct d3d1
 
         if (supports_vbo_formats)
         {
-            INFO("DXR could potentially be supported, but not enabling by default for now.\n");
-            tier = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
+            INFO("DXR support enabled.\n");
+            tier = D3D12_RAYTRACING_TIER_1_0;
         }
     }
 
