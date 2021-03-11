@@ -9858,8 +9858,8 @@ static unsigned int vkd3d_compact_sparse_bind_ranges(const struct d3d12_resource
             vk_offset = src_tile->vk_offset;
         }
 
-        if (range && bind->dst_tile == range->tile_index + range->tile_count &&
-                vk_memory == range->vk_memory && vk_offset == range->vk_offset + range->tile_count * VKD3D_TILE_SIZE)
+        if (range && bind->dst_tile == range->tile_index + range->tile_count && vk_memory == range->vk_memory &&
+                (vk_offset == range->vk_offset + range->tile_count * VKD3D_TILE_SIZE || !vk_memory))
         {
             range->tile_count++;
         }
