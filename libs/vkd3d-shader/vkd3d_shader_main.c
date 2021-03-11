@@ -123,6 +123,26 @@ void vkd3d_shader_dump_spirv_shader(vkd3d_shader_hash_t hash, const struct vkd3d
     vkd3d_shader_dump_blob(path, hash, shader->code, shader->size, "spv");
 }
 
+void vkd3d_shader_dump_spirv_shader_export(vkd3d_shader_hash_t hash, const struct vkd3d_shader_code *shader,
+        const char *export)
+{
+    static bool enabled = true;
+    const char *path;
+    char tag[1024];
+
+    if (!enabled)
+        return;
+
+    if (!(path = getenv("VKD3D_SHADER_DUMP_PATH")))
+    {
+        enabled = false;
+        return;
+    }
+
+    snprintf(tag, sizeof(tag), "lib.%s.spv", export);
+    vkd3d_shader_dump_blob(path, hash, shader->code, shader->size, tag);
+}
+
 struct vkd3d_shader_parser
 {
     struct vkd3d_shader_desc shader_desc;

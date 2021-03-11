@@ -760,6 +760,7 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     dxil_spv_compiled_spirv compiled;
     unsigned int i, j, max_size;
     vkd3d_shader_hash_t hash;
+    char *demangled_export;
     int ret = VKD3D_OK;
     void *code;
 
@@ -1072,7 +1073,12 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     spirv->code = code;
     spirv->size = compiled.size;
 
-    vkd3d_shader_dump_spirv_shader(hash, spirv);
+    demangled_export = vkd3d_dup_demangled_entry_point_ascii(export);
+    if (demangled_export)
+    {
+        vkd3d_shader_dump_spirv_shader_export(hash, spirv, demangled_export);
+        vkd3d_free(demangled_export);
+    }
 
 end:
     dxil_spv_converter_free(converter);
