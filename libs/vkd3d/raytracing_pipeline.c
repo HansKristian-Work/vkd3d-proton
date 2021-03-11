@@ -283,12 +283,19 @@ static CONST_VTBL struct ID3D12StateObjectPropertiesVtbl d3d12_state_object_prop
     d3d12_state_object_properties_SetPipelineStackSize,
 };
 
+struct d3d12_state_object_root_signature_association
+{
+    struct d3d12_root_signature *root_signature;
+    const WCHAR *export;
+};
+
 struct d3d12_state_object_pipeline_data
 {
     const D3D12_RAYTRACING_PIPELINE_CONFIG *pipeline_config;
     const D3D12_RAYTRACING_SHADER_CONFIG *shader_config;
     ID3D12RootSignature *global_root_signature;
-    ID3D12RootSignature *local_root_signature;
+    ID3D12RootSignature *high_priority_local_root_signature;
+    ID3D12RootSignature *low_priority_local_root_signature;
 
     /* Map 1:1 with VkShaderModule. */
     struct vkd3d_shader_library_entry_point *entry_points;
@@ -314,6 +321,10 @@ struct d3d12_state_object_pipeline_data
     VkRayTracingShaderGroupCreateInfoKHR *groups;
     size_t groups_size;
     size_t groups_count;
+
+    struct d3d12_state_object_root_signature_association *associations;
+    size_t associations_size;
+    size_t associations_count;
 
     VkPipelineShaderStageCreateInfo *stages;
     size_t stages_size;
@@ -341,12 +352,14 @@ static void d3d12_state_object_pipeline_data_cleanup(struct d3d12_state_object_p
     for (i = 0; i < data->stages_count; i++)
         VK_CALL(vkDestroyShaderModule(device->vk_device, data->stages[i].module, NULL));
     vkd3d_free(data->stages);
+
+    vkd3d_free(data->associations);
 }
 
 static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *object,
         const D3D12_STATE_OBJECT_DESC *desc, struct d3d12_state_object_pipeline_data *data)
 {
-    unsigned int i;
+    unsigned int i, j;
 
     for (i = 0; i < desc->NumSubobjects; i++)
     {
@@ -380,13 +393,11 @@ static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *ob
             case D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE:
             {
                 const D3D12_LOCAL_ROOT_SIGNATURE *rs = obj->pDesc;
-                if (data->local_root_signature)
-                {
-                    /* Simplicity for now. */
-                    FIXME("More than one local root signature is used.\n");
-                    return E_INVALIDARG;
-                }
-                data->local_root_signature = rs->pLocalRootSignature;
+                /* This is only chosen as default if there is nothing else.
+                 * Conflicting definitions seem to cause runtime to choose something
+                 * arbitrary. Just override the low priority default.
+                 * A high priority default association takes precedence if it exists. */
+                data->low_priority_local_root_signature = rs->pLocalRootSignature;
                 break;
             }
 
@@ -434,6 +445,39 @@ static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *ob
                     return E_INVALIDARG;
                 }
                 data->pipeline_config = obj->pDesc;
+                break;
+            }
+
+            case D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION:
+            {
+                const D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION *association = obj->pDesc;
+                const D3D12_LOCAL_ROOT_SIGNATURE *local_rs;
+
+                if (association->pSubobjectToAssociate->Type != D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE)
+                {
+                    FIXME("Can only associate local root signatures to exports.\n");
+                    return E_INVALIDARG;
+                }
+
+                local_rs = association->pSubobjectToAssociate->pDesc;
+                if (association->NumExports)
+                {
+                    vkd3d_array_reserve((void **)&data->associations, &data->associations_size,
+                            data->associations_count + association->NumExports,
+                            sizeof(*data->associations));
+                    for (j = 0; j < association->NumExports; j++)
+                    {
+                        data->associations[data->associations_count].export = association->pExports[j];
+                        data->associations[data->associations_count].root_signature =
+                                unsafe_impl_from_ID3D12RootSignature(local_rs->pLocalRootSignature);
+                        data->associations_count++;
+                    }
+                }
+                else
+                {
+                    /* Local root signatures being exported to NULL takes priority as the default local RS. */
+                    data->high_priority_local_root_signature = local_rs->pLocalRootSignature;
+                }
                 break;
             }
 
@@ -561,6 +605,29 @@ static VkDeviceSize d3d12_state_object_pipeline_data_compute_default_stack_size(
     return pipeline_stack_size;
 }
 
+static struct d3d12_root_signature *d3d12_state_object_pipeline_data_get_local_root_signature(
+        struct d3d12_state_object_pipeline_data *data,
+        const struct vkd3d_shader_library_entry_point *entry)
+{
+    size_t i;
+
+    for (i = 0; i < data->associations_count; i++)
+    {
+        if (vkd3d_export_strequal(data->associations[i].export, entry->mangled_entry_point) ||
+                vkd3d_export_strequal(data->associations[i].export, entry->plain_entry_point))
+        {
+            return data->associations[i].root_signature;
+        }
+    }
+
+    if (data->high_priority_local_root_signature)
+        return unsafe_impl_from_ID3D12RootSignature(data->high_priority_local_root_signature);
+    else if (data->low_priority_local_root_signature)
+        return unsafe_impl_from_ID3D12RootSignature(data->low_priority_local_root_signature);
+    else
+        return NULL;
+}
+
 static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *object,
         struct d3d12_state_object_pipeline_data *data)
 {
@@ -595,7 +662,6 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     shader_interface_info.min_ssbo_alignment = d3d12_device_get_ssbo_alignment(object->device);
 
     global_signature = unsafe_impl_from_ID3D12RootSignature(data->global_root_signature);
-    local_signature = unsafe_impl_from_ID3D12RootSignature(data->local_root_signature);
 
     if (global_signature)
     {
@@ -610,28 +676,30 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
         shader_interface_info.offset_buffer_binding = &global_signature->offset_buffer_binding;
     }
 
-    if (local_signature)
-    {
-        shader_interface_local_info.local_root_parameters = local_signature->parameters;
-        shader_interface_local_info.local_root_parameter_count = local_signature->parameter_count;
-        shader_interface_local_info.shader_record_constant_buffers = local_signature->root_constants;
-        shader_interface_local_info.shader_record_buffer_count = local_signature->root_constant_count;
-        shader_interface_local_info.bindings = local_signature->bindings;
-        shader_interface_local_info.binding_count = local_signature->binding_count;
-
-        /* Promote state which might only be active in local root signature. */
-        shader_interface_info.flags |= local_signature->flags;
-        if (local_signature->flags & (VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER | VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER))
-            shader_interface_info.offset_buffer_binding = &local_signature->offset_buffer_binding;
-    }
-    else
-        memset(&shader_interface_local_info, 0, sizeof(shader_interface_local_info));
-
     shader_interface_local_info.descriptor_size = sizeof(struct d3d12_desc);
 
     for (i = 0; i < data->entry_points_count; i++)
     {
         entry = &data->entry_points[i];
+
+        local_signature = d3d12_state_object_pipeline_data_get_local_root_signature(data, entry);
+        if (local_signature)
+        {
+            shader_interface_local_info.local_root_parameters = local_signature->parameters;
+            shader_interface_local_info.local_root_parameter_count = local_signature->parameter_count;
+            shader_interface_local_info.shader_record_constant_buffers = local_signature->root_constants;
+            shader_interface_local_info.shader_record_buffer_count = local_signature->root_constant_count;
+            shader_interface_local_info.bindings = local_signature->bindings;
+            shader_interface_local_info.binding_count = local_signature->binding_count;
+
+            /* Promote state which might only be active in local root signature. */
+            shader_interface_info.flags |= local_signature->flags;
+            if (local_signature->flags & (VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER | VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER))
+                shader_interface_info.offset_buffer_binding = &local_signature->offset_buffer_binding;
+        }
+        else
+            memset(&shader_interface_local_info, 0, sizeof(shader_interface_local_info));
+
         if (vkd3d_stage_is_global_group(entry->stage))
         {
             /* Directly export this as a group. */
@@ -851,7 +919,6 @@ HRESULT d3d12_state_object_create(struct d3d12_device *device, const D3D12_STATE
         return hr;
     }
 
-    FIXME("Created stub state_object %p.\n", object);
     *state_object = object;
     return S_OK;
 }
