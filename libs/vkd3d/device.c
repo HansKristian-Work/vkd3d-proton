@@ -88,9 +88,9 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_TIMELINE_SEMAPHORE, KHR_timeline_semaphore),
     VK_EXTENSION(KHR_SHADER_FLOAT16_INT8, KHR_shader_float16_int8),
     VK_EXTENSION(KHR_SHADER_SUBGROUP_EXTENDED_TYPES, KHR_shader_subgroup_extended_types),
-    VK_EXTENSION(KHR_RAY_TRACING_PIPELINE, KHR_ray_tracing_pipeline),
-    VK_EXTENSION(KHR_ACCELERATION_STRUCTURE, KHR_acceleration_structure),
-    VK_EXTENSION(KHR_DEFERRED_HOST_OPERATIONS, KHR_deferred_host_operations),
+    VK_EXTENSION_COND(KHR_RAY_TRACING_PIPELINE, KHR_ray_tracing_pipeline, VKD3D_CONFIG_FLAG_DXR),
+    VK_EXTENSION_COND(KHR_ACCELERATION_STRUCTURE, KHR_acceleration_structure, VKD3D_CONFIG_FLAG_DXR),
+    VK_EXTENSION_COND(KHR_DEFERRED_HOST_OPERATIONS, KHR_deferred_host_operations, VKD3D_CONFIG_FLAG_DXR),
     VK_EXTENSION(KHR_SPIRV_1_4, KHR_spirv_1_4),
     VK_EXTENSION(KHR_SHADER_FLOAT_CONTROLS, KHR_shader_float_controls),
     VK_EXTENSION(KHR_FRAGMENT_SHADING_RATE, KHR_fragment_shading_rate),
@@ -477,6 +477,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"skip_application_workarounds", VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS},
     {"debug_utils", VKD3D_CONFIG_FLAG_DEBUG_UTILS},
     {"force_static_cbv", VKD3D_CONFIG_FLAG_FORCE_STATIC_CBV},
+    {"dxr", VKD3D_CONFIG_FLAG_DXR},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -4474,8 +4475,13 @@ static D3D12_RAYTRACING_TIER d3d12_device_determine_ray_tracing_tier(struct d3d1
 
         if (supports_vbo_formats)
         {
-            INFO("DXR support enabled.\n");
-            tier = D3D12_RAYTRACING_TIER_1_0;
+            if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DXR)
+            {
+                INFO("DXR support enabled.\n");
+                tier = D3D12_RAYTRACING_TIER_1_0;
+            }
+            else
+                INFO("Could enable DXR, but VKD3D_CONFIG=dxr is not used.\n");
         }
     }
 
