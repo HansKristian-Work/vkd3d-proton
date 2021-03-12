@@ -4446,7 +4446,6 @@ static D3D12_RAYTRACING_TIER d3d12_device_determine_ray_tracing_tier(struct d3d1
         VK_FORMAT_R16G16B16A16_SNORM,
     };
 
-    /* Currently disabled until fully supported, but add checks for now. */
     if (info->ray_tracing_pipeline_features.rayTracingPipeline &&
         info->acceleration_structure_features.accelerationStructure &&
         info->ray_tracing_pipeline_properties.maxRayHitAttributeSize >= D3D12_RAYTRACING_MAX_ATTRIBUTE_SIZE_IN_BYTES &&
