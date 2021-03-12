@@ -4432,21 +4432,17 @@ static D3D12_RAYTRACING_TIER d3d12_device_determine_ray_tracing_tier(struct d3d1
     unsigned int i;
 
     /* Tier 1.0 formats. 1.1 adds:
-     * - RGB8_{U,S}NORM
+     * - RGBA8_{U,S}NORM
      * - RG16_UNORM
-     * - RGB16_UNORM
+     * - RGBA16_UNORM
      */
     static const VkFormat required_vbo_formats[] = {
         VK_FORMAT_R32G32_SFLOAT,
         VK_FORMAT_R32G32B32_SFLOAT,
         VK_FORMAT_R16G16_SFLOAT,
         VK_FORMAT_R16G16_SNORM,
-        /* DXR specifies RGBA16 here, but it also completely ignores A,
-         * so it's *actually* DXGI_FORMAT_R16G16B16_FLOAT/SNORM,
-         * but those formats don't exist in D3D,
-         * and they couldn't be bothered to add those apparently <_<. */
-        VK_FORMAT_R16G16B16_SFLOAT,
-        VK_FORMAT_R16G16B16_SNORM,
+        VK_FORMAT_R16G16B16A16_SFLOAT,
+        VK_FORMAT_R16G16B16A16_SNORM,
     };
 
     /* Currently disabled until fully supported, but add checks for now. */
@@ -4471,7 +4467,7 @@ static D3D12_RAYTRACING_TIER d3d12_device_determine_ray_tracing_tier(struct d3d1
             if (!(properties.bufferFeatures & VK_FORMAT_FEATURE_ACCELERATION_STRUCTURE_VERTEX_BUFFER_BIT_KHR))
             {
                 supports_vbo_formats = false;
-                INFO("Vulkan format #%x is not supported for RTAS VBO, cannot support DXR tier 1.0.\n", required_vbo_formats[i]);
+                INFO("Vulkan format %u is not supported for RTAS VBO, cannot support DXR tier 1.0.\n", required_vbo_formats[i]);
             }
         }
 
