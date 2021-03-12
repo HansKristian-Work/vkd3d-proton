@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # default directories
 vkd3d_lib32=${vkd3d_lib32:-"x86"}
