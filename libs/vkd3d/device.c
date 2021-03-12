@@ -1760,6 +1760,23 @@ static void d3d12_device_destroy_vkd3d_queues(struct d3d12_device *device)
 
     for (i = 0; i < VKD3D_QUEUE_FAMILY_COUNT; i++)
     {
+        struct vkd3d_queue_family_info *queue_family = device->queue_families[i];
+
+        if (!queue_family)
+            continue;
+
+        /* Don't destroy the same queue family twice */
+        for (j = i; j < VKD3D_QUEUE_FAMILY_COUNT; j++)
+        {
+            if (device->queue_families[j] == queue_family)
+                device->queue_families[j] = NULL;
+        }
+
+        vkd3d_free(queue_family);
+    }
+
+    for (i = 0; i < VKD3D_QUEUE_FAMILY_COUNT; i++)
+    {
         struct vkd3d_queue *queue = device->queues[i];
 
         if (!queue)
@@ -1785,6 +1802,7 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
     device->unique_queue_mask = 0;
     device->queue_family_count = 0;
     memset(device->queues, 0, sizeof(device->queues));
+    memset(device->queue_families, 0, sizeof(device->queue_families));
     memset(device->queue_family_indices, 0, sizeof(device->queue_family_indices));
 
     for (i = 0; i < VKD3D_QUEUE_FAMILY_COUNT; i++)
@@ -1807,8 +1825,34 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
 
         if (i != VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE)
             device->unique_queue_mask |= 1u << i;
+    }
 
-        device->queue_family_indices[device->queue_family_count++] = queue_info->family_index[i];
+    for (i = 0; i < VKD3D_QUEUE_FAMILY_COUNT; i++)
+    {
+        struct vkd3d_queue_family_info *info;
+
+        for (j = 0; j < i; j++)
+        {
+            if (queue_info->family_index[i] == queue_info->family_index[j])
+                device->queue_families[i] = device->queue_families[j];
+        }
+
+        if (device->queue_families[i])
+            continue;
+
+        if (!(info = vkd3d_malloc(sizeof(*info))))
+        {
+            hr = E_OUTOFMEMORY;
+            goto out_destroy_queues;
+        }
+
+        info->queues = &device->queues[i];
+        info->queue_count = 1;
+        info->vk_family_index = queue_info->family_index[i];
+        info->vk_queue_flags = queue_info->vk_properties[i].queueFlags;
+
+        device->queue_families[i] = info;
+        device->queue_family_indices[device->queue_family_count++] = info->vk_family_index;
     }
 
     return S_OK;
