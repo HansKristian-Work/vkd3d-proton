@@ -2476,6 +2476,14 @@ enum vkd3d_queue_family
     VKD3D_QUEUE_FAMILY_COUNT
 };
 
+struct vkd3d_queue_family_info
+{
+    struct vkd3d_queue **queues;
+    uint32_t queue_count;
+    uint32_t vk_family_index;
+    VkQueueFlags vk_queue_flags;
+};
+
 /* ID3D12Device */
 typedef ID3D12Device6 d3d12_device_iface;
 
@@ -2501,6 +2509,7 @@ struct d3d12_device
     struct vkd3d_physical_device_info device_info;
 
     struct vkd3d_queue *queues[VKD3D_QUEUE_FAMILY_COUNT];
+    struct vkd3d_queue_family_info *queue_families[VKD3D_QUEUE_FAMILY_COUNT];
     uint32_t queue_family_indices[VKD3D_QUEUE_FAMILY_COUNT];
     unsigned int queue_family_count;
     uint32_t unique_queue_mask;

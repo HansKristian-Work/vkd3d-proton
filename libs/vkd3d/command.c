@@ -1765,7 +1765,7 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
      * Memory is owned by the pool and CommandBuffers become lightweight handles,
      * assuming a half-decent driver implementation. */
     command_pool_info.flags = 0;
-    command_pool_info.queueFamilyIndex = queue->vk_family_index;
+    command_pool_info.queueFamilyIndex = queue_family->vk_family_index;
 
     if ((vr = VK_CALL(vkCreateCommandPool(device->vk_device, &command_pool_info, NULL,
             &allocator->vk_command_pool))) < 0)
