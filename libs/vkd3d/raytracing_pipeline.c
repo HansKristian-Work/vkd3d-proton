@@ -813,6 +813,17 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     pipeline_create_info.pDynamicState = &dynamic_state;
     pipeline_create_info.maxPipelineRayRecursionDepth = data->pipeline_config->MaxTraceRecursionDepth;
 
+    if (data->pipeline_config->MaxTraceRecursionDepth >
+            object->device->device_info.ray_tracing_pipeline_properties.maxRayRecursionDepth)
+    {
+        /* We cannot do anything about this, since we let sub-minspec devices through,
+         * and this content actually tries to use recursion. */
+        ERR("MaxTraceRecursionDepth %u exceeds device limit of %u.\n",
+                data->pipeline_config->MaxTraceRecursionDepth,
+                object->device->device_info.ray_tracing_pipeline_properties.maxRayRecursionDepth);
+        return E_INVALIDARG;
+    }
+
     dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     dynamic_state.pNext = NULL;
     dynamic_state.flags = 0;

@@ -4454,9 +4454,10 @@ static D3D12_RAYTRACING_TIER d3d12_device_determine_ray_tracing_tier(struct d3d1
          * but Vulkan is essentially specced to match DXR directly. */
         info->ray_tracing_pipeline_properties.shaderGroupHandleSize == D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES &&
         info->ray_tracing_pipeline_properties.shaderGroupBaseAlignment <= D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT &&
-        info->ray_tracing_pipeline_properties.shaderGroupHandleAlignment <= D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT &&
-        info->ray_tracing_pipeline_properties.maxRayRecursionDepth >= D3D12_RAYTRACING_MAX_DECLARABLE_TRACE_RECURSION_DEPTH)
+        info->ray_tracing_pipeline_properties.shaderGroupHandleAlignment <= D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT)
     {
+        /* DXR has 31 ray depth min-spec, but no content uses that. We will instead pass through implementations
+         * which only expose 1 level of recursion and fail PSO compiles if they actually exceed device limits. */
         supports_vbo_formats = true;
         for (i = 0; i < ARRAY_SIZE(required_vbo_formats); i++)
         {
