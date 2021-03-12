@@ -1721,6 +1721,23 @@ struct d3d12_command_allocator *unsafe_impl_from_ID3D12CommandAllocator(ID3D12Co
     return impl_from_ID3D12CommandAllocator(iface);
 }
 
+struct vkd3d_queue_family_info *d3d12_device_get_vkd3d_queue_family(struct d3d12_device *device,
+        D3D12_COMMAND_LIST_TYPE type)
+{
+    switch (type)
+    {
+        case D3D12_COMMAND_LIST_TYPE_DIRECT:
+            return device->queue_families[VKD3D_QUEUE_FAMILY_GRAPHICS];
+        case D3D12_COMMAND_LIST_TYPE_COMPUTE:
+            return device->queue_families[VKD3D_QUEUE_FAMILY_COMPUTE];
+        case D3D12_COMMAND_LIST_TYPE_COPY:
+            return device->queue_families[VKD3D_QUEUE_FAMILY_TRANSFER];
+        default:
+            FIXME("Unhandled command list type %#x.\n", type);
+            return device->queue_families[VKD3D_QUEUE_FAMILY_GRAPHICS];
+    }
+}
+
 struct vkd3d_queue *d3d12_device_get_vkd3d_queue(struct d3d12_device *device,
         D3D12_COMMAND_LIST_TYPE type)
 {
@@ -1742,22 +1759,20 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
         struct d3d12_device *device, D3D12_COMMAND_LIST_TYPE type)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_queue_family_info *queue_family;
     VkCommandPoolCreateInfo command_pool_info;
-    struct vkd3d_queue *queue;
     VkResult vr;
     HRESULT hr;
 
     if (FAILED(hr = vkd3d_private_store_init(&allocator->private_store)))
         return hr;
 
-    if (!(queue = d3d12_device_get_vkd3d_queue(device, type)))
-        queue = device->queues[VKD3D_QUEUE_FAMILY_GRAPHICS];
-
+    queue_family = d3d12_device_get_vkd3d_queue_family(device, type);
     allocator->ID3D12CommandAllocator_iface.lpVtbl = &d3d12_command_allocator_vtbl;
     allocator->refcount = 1;
     allocator->outstanding_submissions_count = 0;
     allocator->type = type;
-    allocator->vk_queue_flags = queue->vk_queue_flags;
+    allocator->vk_queue_flags = queue_family->vk_queue_flags;
 
     command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     command_pool_info.pNext = NULL;
