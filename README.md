@@ -148,6 +148,8 @@ commas or semicolons.
     - `vk_debug` - enables Vulkan debug extensions and loads validation layer.
     - `skip_application_workarounds` - Skips all application workarounds.
       For debugging purposes.
+    - `dxr` - Enables DXR support if supported by device.
+    - `force_static_cbv` - Unsafe speed hack on NVIDIA. May or may not give a significant performance uplift.
  - `VKD3D_DEBUG` - controls the debug level for log messages produced by
    vkd3d-proton. Accepts the following values: none, err, info, fixme, warn, trace.
  - `VKD3D_SHADER_DEBUG` - controls the debug level for log messages produced by
