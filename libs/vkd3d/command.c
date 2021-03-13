@@ -3770,7 +3770,7 @@ bool d3d12_command_list_reset_query(struct d3d12_command_list *list,
     return true;
 }
 
-static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
+static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
         ID3D12PipelineState *initial_pipeline_state)
 {
     d3d12_command_list_iface *iface = &list->ID3D12GraphicsCommandList_iface;
@@ -3786,17 +3786,10 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     list->fb_layer_count = 0;
 
     list->xfb_enabled = false;
-    list->render_pass_suspended = false;
 
     list->predicate_enabled = false;
     list->predicate_va = 0;
 
-#ifdef VKD3D_ENABLE_RENDERDOC
-    list->debug_capture = vkd3d_renderdoc_active() && vkd3d_renderdoc_should_capture_shader_hash(0);
-#else
-    list->debug_capture = false;
-#endif
-    list->has_replaced_shaders = false;
     list->has_valid_index_buffer = false;
 
     list->current_framebuffer = VK_NULL_HANDLE;
@@ -3831,14 +3824,33 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     memset(list->so_counter_buffers, 0, sizeof(list->so_counter_buffers));
     memset(list->so_counter_buffer_offsets, 0, sizeof(list->so_counter_buffer_offsets));
 
+    list->cbv_srv_uav_descriptors = NULL;
+
+    ID3D12GraphicsCommandList_SetPipelineState(iface, initial_pipeline_state);
+}
+
+static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *list)
+{
+#ifdef VKD3D_ENABLE_RENDERDOC
+    list->debug_capture = vkd3d_renderdoc_active() && vkd3d_renderdoc_should_capture_shader_hash(0);
+#else
+    list->debug_capture = false;
+#endif
+    list->has_replaced_shaders = false;
+
     list->init_transitions_count = 0;
     list->query_ranges_count = 0;
     list->active_queries_count = 0;
     list->pending_queries_count = 0;
 
-    list->cbv_srv_uav_descriptors = NULL;
+    list->render_pass_suspended = false;
+}
 
-    ID3D12GraphicsCommandList_SetPipelineState(iface, initial_pipeline_state);
+static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
+        ID3D12PipelineState *initial_pipeline_state)
+{
+    d3d12_command_list_reset_api_state(list, initial_pipeline_state);
+    d3d12_command_list_reset_internal_state(list);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_Reset(d3d12_command_list_iface *iface,
@@ -3872,12 +3884,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Reset(d3d12_command_list_ifa
     return hr;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_command_list_ClearState(d3d12_command_list_iface *iface,
+static void STDMETHODCALLTYPE d3d12_command_list_ClearState(d3d12_command_list_iface *iface,
         ID3D12PipelineState *pipeline_state)
 {
-    FIXME("iface %p, pipline_state %p stub!\n", iface, pipeline_state);
-
-    return E_NOTIMPL;
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    TRACE("iface %p, pipline_state %p!\n", iface, pipeline_state);
+    d3d12_command_list_end_current_render_pass(list, false);
+    d3d12_command_list_reset_api_state(list, pipeline_state);
 }
 
 static bool d3d12_command_list_has_depth_stencil_view(struct d3d12_command_list *list)
