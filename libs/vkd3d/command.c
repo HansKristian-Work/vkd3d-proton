@@ -68,6 +68,7 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device,
     object->vk_family_index = family_index;
     object->vk_queue_flags = properties->queueFlags;
     object->timestamp_bits = properties->timestampValidBits;
+    object->virtual_queue_count = 0;
 
     VK_CALL(vkGetDeviceQueue(device->vk_device, family_index, 0, &object->vk_queue));
 
@@ -1738,22 +1739,38 @@ struct vkd3d_queue_family_info *d3d12_device_get_vkd3d_queue_family(struct d3d12
     }
 }
 
-struct vkd3d_queue *d3d12_device_get_vkd3d_queue(struct d3d12_device *device,
-        D3D12_COMMAND_LIST_TYPE type)
+struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct d3d12_device *device,
+        struct vkd3d_queue_family_info *queue_family)
 {
-    switch (type)
+    struct vkd3d_queue *queue;
+    unsigned int i;
+
+    pthread_mutex_lock(&device->mutex);
+
+    /* Select the queue that has the lowest number of virtual queues mapped
+     * to it, in order to avoid situations where we map multiple queues to
+     * the same vkd3d queue while others are unused */
+    queue = queue_family->queues[0];
+
+    for (i = 1; i < queue_family->queue_count; i++)
     {
-        case D3D12_COMMAND_LIST_TYPE_DIRECT:
-            return device->queues[VKD3D_QUEUE_FAMILY_GRAPHICS];
-        case D3D12_COMMAND_LIST_TYPE_COMPUTE:
-            return device->queues[VKD3D_QUEUE_FAMILY_COMPUTE];
-        case D3D12_COMMAND_LIST_TYPE_COPY:
-            return device->queues[VKD3D_QUEUE_FAMILY_TRANSFER];
-        default:
-            FIXME("Unhandled command list type %#x.\n", type);
-            return NULL;
+        if (queue_family->queues[i]->virtual_queue_count < queue->virtual_queue_count)
+            queue = queue_family->queues[i];
     }
+
+    queue->virtual_queue_count++;
+    pthread_mutex_unlock(&device->mutex);
+    return queue;
 }
+
+void d3d12_device_unmap_vkd3d_queue(struct d3d12_device *device,
+        struct vkd3d_queue *queue)
+{
+    pthread_mutex_lock(&device->mutex);
+    queue->virtual_queue_count--;
+    pthread_mutex_unlock(&device->mutex);
+}
+
 
 static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allocator,
         struct d3d12_device *device, D3D12_COMMAND_LIST_TYPE type)
@@ -8799,6 +8816,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_queue_Release(ID3D12CommandQueue *i
         vkd3d_private_store_destroy(&command_queue->private_store);
 
         d3d12_command_queue_submit_stop(command_queue);
+        d3d12_device_unmap_vkd3d_queue(device, command_queue->vkd3d_queue);
         pthread_join(command_queue->submission_thread, NULL);
         pthread_mutex_destroy(&command_queue->queue_lock);
         pthread_cond_destroy(&command_queue->queue_cond);
@@ -10298,12 +10316,8 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
     if (!queue->desc.NodeMask)
         queue->desc.NodeMask = 0x1;
 
-    if (!(queue->vkd3d_queue = d3d12_device_get_vkd3d_queue(device, desc->Type)))
-    {
-        hr = E_NOTIMPL;
-        goto fail;
-    }
-
+    queue->vkd3d_queue = d3d12_device_allocate_vkd3d_queue(device,
+            d3d12_device_get_vkd3d_queue_family(device, desc->Type));
     queue->submissions = NULL;
     queue->submissions_count = 0;
     queue->submissions_size = 0;
@@ -10358,6 +10372,7 @@ fail_private_store:
 fail_pthread_cond:
     pthread_mutex_destroy(&queue->queue_lock);
 fail:
+    d3d12_device_unmap_vkd3d_queue(device, queue->vkd3d_queue);
     return hr;
 }
 
