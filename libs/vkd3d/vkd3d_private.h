@@ -704,6 +704,7 @@ struct vkd3d_memory_allocator
 
     struct vkd3d_va_map va_map;
 
+    struct vkd3d_queue *vkd3d_queue;
     struct vkd3d_memory_clear_queue clear_queue;
 };
 
@@ -1793,9 +1794,8 @@ struct vkd3d_queue
 };
 
 VkQueue vkd3d_queue_acquire(struct vkd3d_queue *queue);
-HRESULT vkd3d_queue_create(struct d3d12_device *device,
-        uint32_t family_index, const VkQueueFamilyProperties *properties,
-        struct vkd3d_queue **queue);
+HRESULT vkd3d_queue_create(struct d3d12_device *device, uint32_t family_index, uint32_t queue_index,
+        const VkQueueFamilyProperties *properties, struct vkd3d_queue **queue);
 void vkd3d_queue_destroy(struct vkd3d_queue *queue, struct d3d12_device *device);
 void vkd3d_queue_release(struct vkd3d_queue *queue);
 
@@ -2482,6 +2482,7 @@ struct vkd3d_queue_family_info
     struct vkd3d_queue **queues;
     uint32_t queue_count;
     uint32_t vk_family_index;
+    uint32_t timestamp_bits;
     VkQueueFlags vk_queue_flags;
 };
 
@@ -2509,10 +2510,9 @@ struct d3d12_device
     struct vkd3d_vulkan_info vk_info;
     struct vkd3d_physical_device_info device_info;
 
-    struct vkd3d_queue *queues[VKD3D_QUEUE_FAMILY_COUNT];
     struct vkd3d_queue_family_info *queue_families[VKD3D_QUEUE_FAMILY_COUNT];
     uint32_t queue_family_indices[VKD3D_QUEUE_FAMILY_COUNT];
-    unsigned int queue_family_count;
+    uint32_t queue_family_count;
     uint32_t unique_queue_mask;
 
     struct vkd3d_instance *vkd3d_instance;

@@ -42,8 +42,8 @@ static HRESULT vkd3d_create_binary_semaphore(struct d3d12_device *device, VkSema
     return hresult_from_vk_result(vr);
 }
 
-HRESULT vkd3d_queue_create(struct d3d12_device *device,
-        uint32_t family_index, const VkQueueFamilyProperties *properties, struct vkd3d_queue **queue)
+HRESULT vkd3d_queue_create(struct d3d12_device *device, uint32_t family_index, uint32_t queue_index,
+        const VkQueueFamilyProperties *properties, struct vkd3d_queue **queue)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkCommandBufferAllocateInfo allocate_info;
@@ -70,7 +70,7 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device,
     object->timestamp_bits = properties->timestampValidBits;
     object->virtual_queue_count = 0;
 
-    VK_CALL(vkGetDeviceQueue(device->vk_device, family_index, 0, &object->vk_queue));
+    VK_CALL(vkGetDeviceQueue(device->vk_device, family_index, queue_index, &object->vk_queue));
 
     TRACE("Created queue %p for queue family index %u.\n", object, family_index);
 
@@ -10099,7 +10099,7 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
     queue = command_queue->vkd3d_queue;
 
     if (!(queue->vk_queue_flags & VK_QUEUE_SPARSE_BINDING_BIT))
-        queue_sparse = command_queue->device->queues[VKD3D_QUEUE_FAMILY_SPARSE_BINDING];
+        queue_sparse = command_queue->device->queue_families[VKD3D_QUEUE_FAMILY_SPARSE_BINDING]->queues[0];
     else
         queue_sparse = queue;
 
