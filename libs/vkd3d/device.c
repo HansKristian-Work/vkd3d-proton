@@ -1862,7 +1862,8 @@ out_destroy_queues:
     return hr;
 }
 
-static float queue_priorities[] = {1.0f};
+#define VKD3D_MAX_QUEUE_COUNT_PER_FAMILY (4u)
+static float queue_priorities[] = {1.0f, 1.0f, 1.0f, 1.0f};
 
 static uint32_t vkd3d_find_queue(unsigned int count, const VkQueueFamilyProperties *properties,
         VkQueueFlags mask, VkQueueFlags flags)
@@ -1921,7 +1922,6 @@ static HRESULT vkd3d_select_queues(const struct vkd3d_instance *vkd3d_instance,
     if (info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] == VK_QUEUE_FAMILY_IGNORED)
         info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] = info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE];
 
-    /* TODO make this a low-priority compute queue that does not conflict with the actual compute queue */
     info->family_index[VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE] = info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE];
 
     if (VKD3D_FORCE_SINGLE_QUEUE)
@@ -1951,8 +1951,11 @@ static HRESULT vkd3d_select_queues(const struct vkd3d_instance *vkd3d_instance,
         queue_info->pNext = NULL;
         queue_info->flags = 0;
         queue_info->queueFamilyIndex = info->family_index[i];
-        queue_info->queueCount = 1;
+        queue_info->queueCount = min(info->vk_properties[i].queueCount, VKD3D_MAX_QUEUE_COUNT_PER_FAMILY);
         queue_info->pQueuePriorities = queue_priorities;
+
+        if (VKD3D_FORCE_SINGLE_QUEUE)
+            queue_info->queueCount = 1;
     }
 
     vkd3d_free(queue_properties);
