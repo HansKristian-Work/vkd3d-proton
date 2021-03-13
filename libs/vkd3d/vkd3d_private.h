@@ -1789,6 +1789,7 @@ struct vkd3d_queue
     uint32_t vk_family_index;
     VkQueueFlags vk_queue_flags;
     uint32_t timestamp_bits;
+    uint32_t virtual_queue_count;
 };
 
 VkQueue vkd3d_queue_acquire(struct vkd3d_queue *queue);
@@ -2551,8 +2552,12 @@ struct d3d12_device
 
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,
         const struct vkd3d_device_create_info *create_info, struct d3d12_device **device);
-struct vkd3d_queue *d3d12_device_get_vkd3d_queue(struct d3d12_device *device,
+struct vkd3d_queue_family_info *d3d12_device_get_vkd3d_queue_family(struct d3d12_device *device,
         D3D12_COMMAND_LIST_TYPE type);
+struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct d3d12_device *device,
+        struct vkd3d_queue_family_info *queue_family);
+void d3d12_device_unmap_vkd3d_queue(struct d3d12_device *device,
+        struct vkd3d_queue *queue);
 bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent);
 void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
         const char *message, ...) VKD3D_PRINTF_FUNC(3, 4);

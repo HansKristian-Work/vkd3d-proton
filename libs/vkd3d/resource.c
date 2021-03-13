@@ -5633,7 +5633,7 @@ static HRESULT vkd3d_init_null_resources_data(struct vkd3d_null_resources *null_
     VkQueue vk_queue;
     VkResult vr;
 
-    queue = d3d12_device_get_vkd3d_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT);
+    queue = d3d12_device_get_vkd3d_queue_family(device, D3D12_COMMAND_LIST_TYPE_DIRECT)->queues[0];
 
     command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     command_pool_info.pNext = NULL;
