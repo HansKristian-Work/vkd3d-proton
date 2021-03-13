@@ -443,9 +443,10 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
                 : VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     }
 
-    if ((desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS) && device->queue_family_count > 1)
+    if (device->unique_queue_mask & (device->unique_queue_mask - 1))
     {
-        TRACE("Creating image with VK_SHARING_MODE_CONCURRENT.\n");
+        /* For multi-queue, we have to use CONCURRENT since D3D does
+         * not give us enough information to do ownership transfers. */
         image_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
         image_info.queueFamilyIndexCount = device->queue_family_count;
         image_info.pQueueFamilyIndices = device->queue_family_indices;
