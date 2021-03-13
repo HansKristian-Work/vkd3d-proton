@@ -678,7 +678,7 @@ static HRESULT vkd3d_memory_allocator_init_clear_queue(struct vkd3d_memory_alloc
     command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     command_pool_info.pNext = NULL;
     command_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    command_pool_info.queueFamilyIndex = device->queues[VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE]->vk_family_index;
+    command_pool_info.queueFamilyIndex = device->queue_families[VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE]->vk_family_index;
 
     if ((vr = VK_CALL(vkCreateCommandPool(device->vk_device, &command_pool_info,
             NULL, &clear_queue->vk_command_pool))) < 0)
@@ -743,6 +743,9 @@ HRESULT vkd3d_memory_allocator_init(struct vkd3d_memory_allocator *allocator, st
     }
 
     vkd3d_va_map_init(&allocator->va_map);
+
+    allocator->vkd3d_queue = d3d12_device_allocate_vkd3d_queue(device,
+            device->queue_families[VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE]);
     return S_OK;
 }
 
@@ -818,7 +821,7 @@ static HRESULT vkd3d_memory_allocator_flush_clears_locked(struct vkd3d_memory_al
     struct vkd3d_memory_clear_queue *clear_queue = &allocator->clear_queue;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkTimelineSemaphoreSubmitInfoKHR timeline_info;
-    struct vkd3d_queue *queue, *internal_queue;
+    struct vkd3d_queue_family_info *queue_family;
     VkCommandBufferBeginInfo begin_info;
     uint32_t queue_mask, queue_index;
     VkCommandBuffer vk_cmd_buffer;
@@ -833,7 +836,6 @@ static HRESULT vkd3d_memory_allocator_flush_clears_locked(struct vkd3d_memory_al
     /* Record commands late so that we can simply remove allocations from
      * the queue if they got freed before the clear commands got dispatched,
      * rather than rewriting the command buffer or dispatching the clear */
-    internal_queue = device->queues[VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE];
     vk_cmd_buffer = clear_queue->vk_command_buffers[clear_queue->command_buffer_index];
 
     vkd3d_memory_allocator_wait_clear_semaphore(allocator, device,
@@ -871,7 +873,7 @@ static HRESULT vkd3d_memory_allocator_flush_clears_locked(struct vkd3d_memory_al
     }
 
 
-    if (!(vk_queue = vkd3d_queue_acquire(internal_queue)))
+    if (!(vk_queue = vkd3d_queue_acquire(allocator->vkd3d_queue)))
         return E_FAIL;
 
     memset(&timeline_info, 0, sizeof(timeline_info));
@@ -888,7 +890,7 @@ static HRESULT vkd3d_memory_allocator_flush_clears_locked(struct vkd3d_memory_al
     submit_info.pSignalSemaphores = &clear_queue->vk_semaphore;
 
     vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
-    vkd3d_queue_release(internal_queue);
+    vkd3d_queue_release(allocator->vkd3d_queue);
 
     if (vr < 0)
     {
@@ -914,18 +916,21 @@ static HRESULT vkd3d_memory_allocator_flush_clears_locked(struct vkd3d_memory_al
     while (queue_mask)
     {
         queue_index = vkd3d_bitmask_iter32(&queue_mask);
-        queue = device->queues[queue_index];
+        queue_family = device->queue_families[queue_index];
 
-        if (!(vk_queue = vkd3d_queue_acquire(queue)))
-            return E_FAIL;
-
-        vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
-        vkd3d_queue_release(queue);
-
-        if (vr < 0)
+        for (i = 0; i < queue_family->queue_count; i++)
         {
-            ERR("Failed to submit semaphore wait, vr %d.\n", vr);
-            return hresult_from_vk_result(vr);
+            if (!(vk_queue = vkd3d_queue_acquire(queue_family->queues[i])))
+                return E_FAIL;
+
+            vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
+            vkd3d_queue_release(queue_family->queues[i]);
+
+            if (vr < 0)
+            {
+                ERR("Failed to submit semaphore wait, vr %d.\n", vr);
+                return hresult_from_vk_result(vr);
+            }
         }
     }
 

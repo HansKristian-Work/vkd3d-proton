@@ -1772,62 +1772,29 @@ static void d3d12_device_destroy_vkd3d_queues(struct d3d12_device *device)
                 device->queue_families[j] = NULL;
         }
 
-        vkd3d_free(queue_family);
-    }
-
-    for (i = 0; i < VKD3D_QUEUE_FAMILY_COUNT; i++)
-    {
-        struct vkd3d_queue *queue = device->queues[i];
-
-        if (!queue)
-            continue;
-
-        /* Don't destroy the same queue twice */
-        for (j = i; j < VKD3D_QUEUE_FAMILY_COUNT; j++)
+        for (i = 0; i < queue_family->queue_count; i++)
         {
-            if (device->queues[j] == queue)
-                device->queues[j] = NULL;
+            if (queue_family->queues[i])
+                vkd3d_queue_destroy(queue_family->queues[i], device);
         }
 
-        vkd3d_queue_destroy(queue, device);
+        vkd3d_free(queue_family->queues);
+        vkd3d_free(queue_family);
     }
 }
 
 static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
         const struct vkd3d_device_queue_info *queue_info)
 {
-    unsigned int i, j;
+    unsigned int i, j, k;
     HRESULT hr;
 
     device->unique_queue_mask = 0;
     device->queue_family_count = 0;
-    memset(device->queues, 0, sizeof(device->queues));
     memset(device->queue_families, 0, sizeof(device->queue_families));
     memset(device->queue_family_indices, 0, sizeof(device->queue_family_indices));
 
-    for (i = 0; i < VKD3D_QUEUE_FAMILY_COUNT; i++)
-    {
-        if (queue_info->family_index[i] == VK_QUEUE_FAMILY_IGNORED)
-            continue;
-
-        for (j = 0; j < i; j++)
-        {
-            if (queue_info->family_index[i] == queue_info->family_index[j])
-                device->queues[i] = device->queues[j];
-        }
-
-        if (device->queues[i])
-            continue;
-
-        if (FAILED((hr = vkd3d_queue_create(device, queue_info->family_index[i],
-                &queue_info->vk_properties[i], &device->queues[i]))))
-            goto out_destroy_queues;
-
-        if (i != VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE)
-            device->unique_queue_mask |= 1u << i;
-    }
-
-    for (i = 0; i < VKD3D_QUEUE_FAMILY_COUNT; i++)
+    for (i = 0, k = 0; i < VKD3D_QUEUE_FAMILY_COUNT; i++)
     {
         struct vkd3d_queue_family_info *info;
 
@@ -1840,19 +1807,39 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
         if (device->queue_families[i])
             continue;
 
-        if (!(info = vkd3d_malloc(sizeof(*info))))
+        if (!(info = vkd3d_calloc(1, sizeof(*info))))
         {
             hr = E_OUTOFMEMORY;
             goto out_destroy_queues;
         }
 
-        info->queues = &device->queues[i];
-        info->queue_count = 1;
+        if (queue_info->family_index[i] != VK_QUEUE_FAMILY_IGNORED)
+        {
+            info->queue_count = queue_info->vk_queue_create_info[k++].queueCount;
+
+            if (!(info->queues = vkd3d_calloc(info->queue_count, sizeof(*info->queues))))
+            {
+                hr = E_OUTOFMEMORY;
+                goto out_destroy_queues;
+            }
+
+            for (j = 0; j < info->queue_count; j++)
+            {
+                if (FAILED((hr = vkd3d_queue_create(device, queue_info->family_index[i],
+                        j, &queue_info->vk_properties[i], &info->queues[j]))))
+                    goto out_destroy_queues;
+            }
+        }
+
         info->vk_family_index = queue_info->family_index[i];
         info->vk_queue_flags = queue_info->vk_properties[i].queueFlags;
+        info->timestamp_bits = queue_info->vk_properties[i].timestampValidBits;
 
         device->queue_families[i] = info;
         device->queue_family_indices[device->queue_family_count++] = info->vk_family_index;
+
+        if (info->queue_count && i != VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE)
+            device->unique_queue_mask |= 1u << i;
     }
 
     return S_OK;
@@ -4458,7 +4445,7 @@ static D3D12_TILED_RESOURCES_TIER d3d12_device_determine_tiled_resources_tier(st
     if (!features->sparseBinding || !features->sparseResidencyAliased ||
             !features->sparseResidencyBuffer || !features->sparseResidencyImage2D ||
             !sparse_properties->residencyStandard2DBlockShape ||
-            !device->queues[VKD3D_QUEUE_FAMILY_SPARSE_BINDING])
+            !device->queue_families[VKD3D_QUEUE_FAMILY_SPARSE_BINDING]->queue_count)
         return D3D12_TILED_RESOURCES_TIER_NOT_SUPPORTED;
 
     if (!features->shaderResourceResidency || !features->shaderResourceMinLod ||
@@ -4654,7 +4641,7 @@ static void d3d12_device_caps_init_feature_options3(struct d3d12_device *device)
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS3 *options3 = &device->d3d12_caps.options3;
 
-    options3->CopyQueueTimestampQueriesSupported = !!device->queues[VKD3D_QUEUE_FAMILY_TRANSFER]->timestamp_bits;
+    options3->CopyQueueTimestampQueriesSupported = !!device->queue_families[VKD3D_QUEUE_FAMILY_TRANSFER]->timestamp_bits;
     options3->CastingFullyTypedFormatSupported = TRUE;
     options3->WriteBufferImmediateSupportFlags = D3D12_COMMAND_LIST_SUPPORT_FLAG_DIRECT |
             D3D12_COMMAND_LIST_SUPPORT_FLAG_COMPUTE | D3D12_COMMAND_LIST_SUPPORT_FLAG_COPY;
