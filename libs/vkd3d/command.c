@@ -139,6 +139,7 @@ void vkd3d_queue_destroy(struct vkd3d_queue *queue, struct d3d12_device *device)
     if (!rc)
         pthread_mutex_unlock(&queue->mutex);
 
+    VK_CALL(vkQueueWaitIdle(queue->vk_queue));
     VK_CALL(vkDestroyCommandPool(device->vk_device, queue->barrier_pool, NULL));
     VK_CALL(vkDestroySemaphore(device->vk_device, queue->serializing_binary_semaphore, NULL));
 
