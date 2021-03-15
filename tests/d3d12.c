@@ -42498,6 +42498,7 @@ static void test_raytracing(void)
         desc.NumSubobjects = ARRAY_SIZE(objs);
         desc.pSubobjects = objs;
 
+        rt_pso = NULL;
         hr = ID3D12Device5_CreateStateObject(device5, &desc, &IID_ID3D12StateObject, (void **)&rt_pso);
         ok(SUCCEEDED(hr), "Failed to create RT PSO, hr %#x.\n", hr);
 

@@ -91,6 +91,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION_COND(KHR_RAY_TRACING_PIPELINE, KHR_ray_tracing_pipeline, VKD3D_CONFIG_FLAG_DXR),
     VK_EXTENSION_COND(KHR_ACCELERATION_STRUCTURE, KHR_acceleration_structure, VKD3D_CONFIG_FLAG_DXR),
     VK_EXTENSION_COND(KHR_DEFERRED_HOST_OPERATIONS, KHR_deferred_host_operations, VKD3D_CONFIG_FLAG_DXR),
+    VK_EXTENSION_COND(KHR_PIPELINE_LIBRARY, KHR_pipeline_library, VKD3D_CONFIG_FLAG_DXR),
     VK_EXTENSION(KHR_SPIRV_1_4, KHR_spirv_1_4),
     VK_EXTENSION(KHR_SHADER_FLOAT_CONTROLS, KHR_shader_float_controls),
     VK_EXTENSION(KHR_FRAGMENT_SHADING_RATE, KHR_fragment_shading_rate),
