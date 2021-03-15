@@ -542,6 +542,7 @@ struct d3d12_fence_value
 struct d3d12_fence
 {
     d3d12_fence_iface ID3D12Fence_iface;
+    LONG refcount_internal;
     LONG refcount;
 
     D3D12_FENCE_FLAGS d3d12_flags;
