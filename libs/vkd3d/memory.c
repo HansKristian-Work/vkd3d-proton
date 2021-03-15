@@ -920,17 +920,9 @@ static HRESULT vkd3d_memory_allocator_flush_clears_locked(struct vkd3d_memory_al
 
         for (i = 0; i < queue_family->queue_count; i++)
         {
-            if (!(vk_queue = vkd3d_queue_acquire(queue_family->queues[i])))
-                return E_FAIL;
-
-            vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
-            vkd3d_queue_release(queue_family->queues[i]);
-
-            if (vr < 0)
-            {
-                ERR("Failed to submit semaphore wait, vr %d.\n", vr);
-                return hresult_from_vk_result(vr);
-            }
+            vkd3d_queue_add_wait(queue_family->queues[i],
+                    clear_queue->vk_semaphore,
+                    clear_queue->next_signal_value);
         }
     }
 
