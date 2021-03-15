@@ -41724,6 +41724,7 @@ static void test_raytracing(void)
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
     ID3D12DescriptorHeap *descriptor_heap;
     ID3D12Resource *scratch_buffer_bottom;
+    ID3D12StateObject *rt_object_library;
     ID3D12RootSignature *local_rs_table;
     ID3D12Resource *scratch_buffer_top;
     D3D12_DESCRIPTOR_RANGE table_range;
@@ -42334,9 +42335,80 @@ static void test_raytracing(void)
         ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", hr);
     }
 
+    /* Create RT collection. */
+    {
+        D3D12_RAYTRACING_PIPELINE_CONFIG pipeline_config;
+        D3D12_STATE_OBJECT_CONFIG state_object_config;
+        D3D12_RAYTRACING_SHADER_CONFIG shader_config;
+        D3D12_GLOBAL_ROOT_SIGNATURE global_rs_desc;
+        D3D12_DXIL_LIBRARY_DESC dxil_library_desc;
+        D3D12_LOCAL_ROOT_SIGNATURE local_rs_desc;
+        D3D12_EXPORT_DESC dxil_exports[1] = {
+            { u"XRayClosest", u"RayClosest", 0 },
+        };
+        D3D12_HIT_GROUP_DESC hit_group;
+        D3D12_STATE_SUBOBJECT objs[7];
+        D3D12_STATE_OBJECT_DESC desc;
+
+        memset(objs, 0, sizeof(objs));
+
+        objs[0].Type = D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG;
+        objs[0].pDesc = &state_object_config;
+        memset(&state_object_config, 0, sizeof(state_object_config));
+        state_object_config.Flags = D3D12_STATE_OBJECT_FLAG_NONE;
+
+        objs[1].Type = D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE;
+        objs[1].pDesc = &global_rs_desc;
+        memset(&global_rs_desc, 0, sizeof(global_rs_desc));
+        global_rs_desc.pGlobalRootSignature = global_rs;
+
+        objs[2].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG;
+        objs[2].pDesc = &pipeline_config;
+        memset(&pipeline_config, 0, sizeof(pipeline_config));
+        pipeline_config.MaxTraceRecursionDepth = 1;
+
+        objs[3].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG;
+        objs[3].pDesc = &shader_config;
+        memset(&shader_config, 0, sizeof(shader_config));
+        shader_config.MaxAttributeSizeInBytes = 8;
+        shader_config.MaxPayloadSizeInBytes = 8;
+
+        objs[4].Type = D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY;
+        objs[4].pDesc = &dxil_library_desc;
+
+        memset(&dxil_library_desc, 0, sizeof(dxil_library_desc));
+        dxil_library_desc.DXILLibrary.pShaderBytecode = rt_lib_dxil;
+        dxil_library_desc.DXILLibrary.BytecodeLength = sizeof(rt_lib_dxil);
+        dxil_library_desc.NumExports = ARRAY_SIZE(dxil_exports);
+        dxil_library_desc.pExports = dxil_exports;
+
+        objs[5].Type = D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE;
+        objs[5].pDesc = &local_rs_desc;
+        local_rs_desc.pLocalRootSignature = local_rs;
+
+        objs[6].Type = D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP;
+        objs[6].pDesc = &hit_group;
+
+        memset(&hit_group, 0, sizeof(hit_group));
+        hit_group.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
+        hit_group.ClosestHitShaderImport = u"XRayClosest";
+        hit_group.HitGroupExport = u"XRayHit";
+
+        memset(&desc, 0, sizeof(desc));
+        desc.Type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
+        desc.NumSubobjects = ARRAY_SIZE(objs);
+        desc.pSubobjects = objs;
+
+        rt_object_library = NULL;
+        hr = ID3D12Device5_CreateStateObject(device5, &desc, &IID_ID3D12StateObject, (void **)&rt_object_library);
+        ok(SUCCEEDED(hr), "Failed to create RT collection, hr %#x.\n", hr);
+    }
+
     /* Create RT PSO. */
+    if (rt_object_library)
     {
         D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION exports_associations[2];
+        D3D12_EXISTING_COLLECTION_DESC existing_collection;
         D3D12_RAYTRACING_PIPELINE_CONFIG pipeline_config;
         const WCHAR *table_export[] = { u"XRayMiss" };
         D3D12_STATE_OBJECT_CONFIG state_object_config;
@@ -42344,13 +42416,11 @@ static void test_raytracing(void)
         D3D12_LOCAL_ROOT_SIGNATURE local_rs_desc[2];
         D3D12_GLOBAL_ROOT_SIGNATURE global_rs_desc;
         D3D12_DXIL_LIBRARY_DESC dxil_library_desc;
-        D3D12_EXPORT_DESC dxil_exports[3] = {
-            { u"XRayClosest", u"RayClosest", 0 },
+        D3D12_EXPORT_DESC dxil_exports[2] = {
             { u"XRayMiss", u"RayMiss", 0 },
             { u"XRayGen", u"RayGen", 0 },
         };
         D3D12_STATE_SUBOBJECT objs[10];
-        D3D12_HIT_GROUP_DESC hit_group;
         D3D12_STATE_OBJECT_DESC desc;
 
         memset(objs, 0, sizeof(objs));
@@ -42391,39 +42461,44 @@ static void test_raytracing(void)
         exports_associations[0].NumExports = ARRAY_SIZE(table_export);
         exports_associations[0].pExports = table_export;
         /* Apparently, we have to point to a subobject in the array, otherwise, it just silently fails. */
-        exports_associations[0].pSubobjectToAssociate = &objs[8];
+        exports_associations[0].pSubobjectToAssociate = &objs[7];
 
         objs[6].Type = D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION;
         objs[6].pDesc = &exports_associations[1];
         exports_associations[1].NumExports = 0;
         exports_associations[1].pExports = NULL;
         /* Apparently, we have to point to a subobject in the array, otherwise, it just silently fails. */
-        exports_associations[1].pSubobjectToAssociate = &objs[9];
+        exports_associations[1].pSubobjectToAssociate = &objs[8];
 
-        objs[7].Type = D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP;
-        objs[7].pDesc = &hit_group;
-
-        memset(&hit_group, 0, sizeof(hit_group));
-        hit_group.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
-        hit_group.ClosestHitShaderImport = u"XRayClosest";
-        hit_group.HitGroupExport = u"XRayHit";
-
-        objs[8].Type = D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE;
-        objs[8].pDesc = &local_rs_desc[0];
+        objs[7].Type = D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE;
+        objs[7].pDesc = &local_rs_desc[0];
         local_rs_desc[0].pLocalRootSignature = local_rs_table;
 
-        objs[9].Type = D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE;
-        objs[9].pDesc = &local_rs_desc[1];
+        objs[8].Type = D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE;
+        objs[8].pDesc = &local_rs_desc[1];
         local_rs_desc[1].pLocalRootSignature = local_rs;
+
+        objs[9].Type = D3D12_STATE_SUBOBJECT_TYPE_EXISTING_COLLECTION;
+        objs[9].pDesc = &existing_collection;
+        existing_collection.pExistingCollection = rt_object_library;
+        existing_collection.NumExports = 0;
+        existing_collection.pExports = NULL;
 
         memset(&desc, 0, sizeof(desc));
         desc.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
         desc.NumSubobjects = ARRAY_SIZE(objs);
         desc.pSubobjects = objs;
 
-        hr = ID3D12Device5_CreateStateObject(device5, &desc, &IID_ID3D12StateObject, (void**)&rt_pso);
+        hr = ID3D12Device5_CreateStateObject(device5, &desc, &IID_ID3D12StateObject, (void **)&rt_pso);
         ok(SUCCEEDED(hr), "Failed to create RT PSO, hr %#x.\n", hr);
+
+        /* Docs say there should be ref-count of the collection, but apparently, that refcount is private. */
+        ref_count = ID3D12StateObject_AddRef(rt_object_library);
+        ok(ref_count == 2, "Collection ref count is %u.\n", ref_count);
+        ID3D12StateObject_Release(rt_object_library);
     }
+    else
+        rt_pso = NULL;
 
     /* Docs say that refcount should be held by RTPSO, but apparently it doesn't on native drivers. */
     ID3D12RootSignature_AddRef(global_rs);
@@ -42439,6 +42514,10 @@ static void test_raytracing(void)
     gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
 
     /* Build SBT (Shader Binding Table) */
+    sbt_colors_buffer = NULL;
+    sbt = NULL;
+
+    if (rt_pso)
     {
         ID3D12StateObjectProperties *props;
 
@@ -42641,6 +42720,7 @@ static void test_raytracing(void)
         cpu_handle.ptr += descriptor_size;
     }
 
+    if (sbt_colors_buffer)
     {
         D3D12_CONSTANT_BUFFER_VIEW_DESC miss_view_desc;
         memset(&miss_view_desc, 0, sizeof(miss_view_desc));
@@ -42655,6 +42735,7 @@ static void test_raytracing(void)
     ID3D12GraphicsCommandList4_SetDescriptorHeaps(command_list4, 1, &descriptor_heap);
     ID3D12GraphicsCommandList4_SetComputeRootDescriptorTable(command_list4, 0, gpu_handle);
 
+    if (sbt)
     {
         D3D12_DISPATCH_RAYS_DESC desc;
         memset(&desc, 0, sizeof(desc));
@@ -42742,7 +42823,8 @@ static void test_raytracing(void)
     ID3D12Resource_Release(dummy_vbo);
     ID3D12Resource_Release(vbo);
     ID3D12Resource_Release(ibo);
-    ID3D12Resource_Release(sbt_colors_buffer);
+    if (sbt_colors_buffer)
+        ID3D12Resource_Release(sbt_colors_buffer);
     if (instance_buffer)
         ID3D12Resource_Release(instance_buffer);
     ID3D12Resource_Release(transform_buffer);
@@ -42761,11 +42843,15 @@ static void test_raytracing(void)
         ID3D12Resource_Release(scratch_buffer_bottom);
     if (scratch_buffer_update_bottom)
         ID3D12Resource_Release(scratch_buffer_update_bottom);
-    ID3D12StateObject_Release(rt_pso);
+    if (rt_pso)
+        ID3D12StateObject_Release(rt_pso);
+    if (rt_object_library)
+        ID3D12StateObject_Release(rt_object_library);
     ID3D12Resource_Release(ray_colors);
     ID3D12Resource_Release(ray_positions);
     ID3D12DescriptorHeap_Release(descriptor_heap);
-    ID3D12Resource_Release(sbt);
+    if (sbt)
+        ID3D12Resource_Release(sbt);
     ID3D12Resource_Release(postbuild_readback);
     ID3D12Resource_Release(postbuild_buffer);
 
