@@ -51,6 +51,18 @@ static VkBuildAccelerationStructureFlagsKHR d3d12_build_flags_to_vk(
     return vk_flags;
 }
 
+static VkGeometryFlagsKHR d3d12_geometry_flags_to_vk(D3D12_RAYTRACING_GEOMETRY_FLAGS flags)
+{
+    VkGeometryFlagsKHR vk_flags = 0;
+
+    if (flags & D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE)
+        vk_flags |= VK_GEOMETRY_OPAQUE_BIT_KHR;
+    if (flags & D3D12_RAYTRACING_GEOMETRY_FLAG_NO_DUPLICATE_ANYHIT_INVOCATION)
+        vk_flags |= VK_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION_BIT_KHR;
+
+    return vk_flags;
+}
+
 bool vkd3d_acceleration_structure_convert_inputs(
         struct vkd3d_acceleration_structure_build_info *info,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc)
@@ -121,6 +133,8 @@ bool vkd3d_acceleration_structure_convert_inputs(
                 geom_desc = desc->ppGeometryDescs[i];
             else
                 geom_desc = &desc->pGeometryDescs[i];
+
+            info->geometries[i].flags = d3d12_geometry_flags_to_vk(geom_desc->Flags);
 
             switch (geom_desc->Type)
             {
