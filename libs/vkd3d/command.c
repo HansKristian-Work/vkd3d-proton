@@ -6897,6 +6897,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(d3d12_comman
         return;
     }
 
+    /* Native drivers appear to ignore this call. Buffer bindings are kept as-is. */
+    if (!views)
+        return;
+
     for (i = 0; i < view_count; ++i)
     {
         bool invalid_va = false;
