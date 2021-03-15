@@ -6400,7 +6400,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                     else
                     {
                         if (!after)
-                            FIXME("NULL resource for pResourceAfter. Won't be able to transition images away from UNDEFINED.\n");
+                            FIXME_ONCE("NULL resource for pResourceAfter. Won't be able to transition images away from UNDEFINED.\n");
                         alias_dst_access = vk_access_flags_all_possible_for_buffer(list->device,
                                 list->vk_queue_flags, true);
 
