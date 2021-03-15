@@ -58,6 +58,8 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device, uint32_t family_index, u
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
+    memset(object, 0, sizeof(*object));
+
     if ((rc = pthread_mutex_init(&object->mutex, NULL)))
     {
         ERR("Failed to initialize mutex, error %d.\n", rc);
@@ -68,7 +70,6 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device, uint32_t family_index, u
     object->vk_family_index = family_index;
     object->vk_queue_flags = properties->queueFlags;
     object->timestamp_bits = properties->timestampValidBits;
-    object->virtual_queue_count = 0;
 
     VK_CALL(vkGetDeviceQueue(device->vk_device, family_index, queue_index, &object->vk_queue));
 
@@ -144,6 +145,9 @@ void vkd3d_queue_destroy(struct vkd3d_queue *queue, struct d3d12_device *device)
     VK_CALL(vkDestroySemaphore(device->vk_device, queue->serializing_binary_semaphore, NULL));
 
     pthread_mutex_destroy(&queue->mutex);
+    vkd3d_free(queue->wait_semaphores);
+    vkd3d_free(queue->wait_values);
+    vkd3d_free(queue->wait_stages);
     vkd3d_free(queue);
 }
 
@@ -167,6 +171,42 @@ void vkd3d_queue_release(struct vkd3d_queue *queue)
 {
     TRACE("queue %p.\n", queue);
 
+    pthread_mutex_unlock(&queue->mutex);
+}
+
+void vkd3d_queue_add_wait(struct vkd3d_queue *queue, VkSemaphore semaphore, uint64_t value)
+{
+    uint32_t i;
+
+    pthread_mutex_lock(&queue->mutex);
+
+    for (i = 0; i < queue->wait_count; i++)
+    {
+        if (queue->wait_semaphores[i] == semaphore)
+        {
+            if (queue->wait_values[i] < value)
+                queue->wait_values[i] = value;
+            pthread_mutex_unlock(&queue->mutex);
+            return;
+        }
+    }
+
+    if (!vkd3d_array_reserve((void**)&queue->wait_semaphores, &queue->wait_semaphores_size,
+            queue->wait_count + 1, sizeof(*queue->wait_semaphores)) ||
+        !vkd3d_array_reserve((void**)&queue->wait_values, &queue->wait_values_size,
+            queue->wait_count + 1, sizeof(*queue->wait_values)) ||
+        !vkd3d_array_reserve((void**)&queue->wait_stages, &queue->wait_stages_size,
+            queue->wait_count + 1, sizeof(*queue->wait_stages)))
+    {
+        ERR("Failed to add semaphore wait to queue.\n");
+        pthread_mutex_unlock(&queue->mutex);
+        return;
+    }
+
+    queue->wait_semaphores[queue->wait_count] = semaphore;
+    queue->wait_values[queue->wait_count] = value;
+    queue->wait_stages[queue->wait_count] = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    queue->wait_count += 1;
     pthread_mutex_unlock(&queue->mutex);
 }
 
@@ -9780,6 +9820,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
 {
     static const VkPipelineStageFlags wait_stage_mask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
     const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
+    struct vkd3d_queue *vkd3d_queue = command_queue->vkd3d_queue;
     VkTimelineSemaphoreSubmitInfoKHR timeline_submit_info[2];
     VkSubmitInfo submit_desc[2];
     uint32_t num_submits;
@@ -9824,6 +9865,19 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         num_submits = 1;
     }
 
+    if (!(vk_queue = vkd3d_queue_acquire(vkd3d_queue)))
+    {
+        ERR("Failed to acquire queue %p.\n", vkd3d_queue);
+        return;
+    }
+
+    submit_desc[0].waitSemaphoreCount = vkd3d_queue->wait_count;
+    submit_desc[0].pWaitSemaphores = vkd3d_queue->wait_semaphores;
+    submit_desc[0].pWaitDstStageMask = vkd3d_queue->wait_stages;
+
+    timeline_submit_info[0].waitSemaphoreValueCount = vkd3d_queue->wait_count;
+    timeline_submit_info[0].pWaitSemaphoreValues = vkd3d_queue->wait_values;
+
     submit_desc[num_submits - 1].commandBufferCount = count;
     submit_desc[num_submits - 1].pCommandBuffers = cmd;
 
@@ -9836,12 +9890,6 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
             timeline_submit_info[i].sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR;
             submit_desc[i].pNext = &timeline_submit_info[i];
         }
-    }
-
-    if (!(vk_queue = vkd3d_queue_acquire(command_queue->vkd3d_queue)))
-    {
-        ERR("Failed to acquire queue %p.\n", command_queue->vkd3d_queue);
-        return;
     }
 
 #ifdef VKD3D_ENABLE_RENDERDOC
@@ -9864,7 +9912,8 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         vkd3d_renderdoc_command_queue_end_capture(command_queue);
 #endif
 
-    vkd3d_queue_release(command_queue->vkd3d_queue);
+    vkd3d_queue->wait_count = 0;
+    vkd3d_queue_release(vkd3d_queue);
 }
 
 static unsigned int vkd3d_compact_sparse_bind_ranges(const struct d3d12_resource *src_resource,
