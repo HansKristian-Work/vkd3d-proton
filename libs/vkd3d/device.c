@@ -2388,7 +2388,6 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     vkd3d_bindless_state_cleanup(&device->bindless_state, device);
     vkd3d_destroy_null_resources(&device->null_resources, device);
     vkd3d_render_pass_cache_cleanup(&device->render_pass_cache, device);
-    vkd3d_fence_worker_stop(&device->fence_worker, device);
     d3d12_device_destroy_vkd3d_queues(device);
     vkd3d_memory_allocator_cleanup(&device->memory_allocator, device);
     VK_CALL(vkDestroyDevice(device->vk_device, NULL));
@@ -4946,11 +4945,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if (FAILED(hr = vkd3d_memory_allocator_init(&device->memory_allocator, device)))
         goto out_free_private_store;
 
-    if (FAILED(hr = vkd3d_fence_worker_start(&device->fence_worker, device)))
-        goto out_free_memory_allocator;
-
     if (FAILED(hr = vkd3d_init_format_info(device)))
-        goto out_stop_fence_worker;
+        goto out_free_memory_allocator;
 
     if (FAILED(hr = vkd3d_memory_info_init(&device->memory_info, device)))
         goto out_cleanup_format_info;
@@ -4993,8 +4989,6 @@ out_destroy_null_resources:
     vkd3d_destroy_null_resources(&device->null_resources, device);
 out_cleanup_format_info:
     vkd3d_cleanup_format_info(device);
-out_stop_fence_worker:
-    vkd3d_fence_worker_stop(&device->fence_worker, device);
 out_free_memory_allocator:
     vkd3d_memory_allocator_cleanup(&device->memory_allocator, device);
 out_free_private_store:

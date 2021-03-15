@@ -8844,6 +8844,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_queue_Release(ID3D12CommandQueue *i
         vkd3d_private_store_destroy(&command_queue->private_store);
 
         d3d12_command_queue_submit_stop(command_queue);
+        vkd3d_fence_worker_stop(&command_queue->fence_worker, device);
         d3d12_device_unmap_vkd3d_queue(device, command_queue->vkd3d_queue);
         pthread_join(command_queue->submission_thread, NULL);
         pthread_mutex_destroy(&command_queue->queue_lock);
@@ -9557,7 +9558,7 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
         return;
     }
 
-    if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&device->fence_worker, fence, physical_value, vkd3d_queue)))
+    if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, fence, physical_value, vkd3d_queue)))
     {
         /* In case of an unexpected failure, try to safely destroy Vulkan objects. */
         vkd3d_queue_wait_idle(vkd3d_queue, vk_procs);
@@ -10394,6 +10395,9 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
 
     d3d12_device_add_ref(queue->device = device);
 
+    if (FAILED(hr = vkd3d_fence_worker_start(&queue->fence_worker, device)))
+        goto fail_fence_worker_start;
+
     if ((rc = pthread_create(&queue->submission_thread, NULL, d3d12_command_queue_submission_worker_main, queue)) < 0)
     {
         d3d12_device_release(queue->device);
@@ -10403,7 +10407,9 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
 
     return S_OK;
 
-fail_pthread_create:;
+fail_pthread_create:
+    vkd3d_fence_worker_stop(&queue->fence_worker, device);
+fail_fence_worker_start:;
 #ifdef VKD3D_BUILD_STANDALONE_D3D12
 fail_swapchain_factory:
     vkd3d_private_store_destroy(&queue->private_store);

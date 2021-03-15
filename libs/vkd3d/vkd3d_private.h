@@ -1925,6 +1925,7 @@ struct d3d12_command_queue
     uint64_t drain_count;
     uint64_t queue_drain_count;
 
+    struct vkd3d_fence_worker fence_worker;
     struct vkd3d_private_store private_store;
 
 #ifdef VKD3D_BUILD_STANDALONE_D3D12
@@ -2510,8 +2511,6 @@ struct d3d12_device
     VkPhysicalDevice vk_physical_device;
     struct vkd3d_vk_device_procs vk_procs;
     PFN_vkd3d_signal_event signal_event;
-
-    struct vkd3d_fence_worker fence_worker;
 
     pthread_mutex_t mutex;
     struct vkd3d_render_pass_cache render_pass_cache;
