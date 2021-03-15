@@ -1194,9 +1194,9 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
     if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK)
         root_signature->push_constant_range.stageFlags = 0;
 
-    /* If we need to use restricted stages in vkCmdPushConstants,
+    /* If we need to use restricted entry_points in vkCmdPushConstants,
      * we are unfortunately required to do it like this
-     * since stageFlags in vkCmdPushConstants must cover at least all stages in the layout.
+     * since stageFlags in vkCmdPushConstants must cover at least all entry_points in the layout.
      *
      * We can pick the appropriate layout to use in PSO creation.
      * In set_root_signature we can bind the appropriate layout as well.

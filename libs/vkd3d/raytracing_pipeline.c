@@ -98,6 +98,7 @@ static void d3d12_state_object_cleanup(struct d3d12_state_object *object)
         vkd3d_free(object->exports[i].plain_export);
     }
     vkd3d_free(object->exports);
+    vkd3d_free(object->entry_points);
 
     VK_CALL(vkDestroyPipeline(object->device->vk_device, object->pipeline, NULL));
 }
@@ -174,35 +175,11 @@ static HRESULT STDMETHODCALLTYPE d3d12_state_object_GetDevice(ID3D12StateObject 
     return d3d12_device_query_interface(state_object->device, iid, device);
 }
 
-static void * STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderIdentifier(ID3D12StateObjectProperties *iface,
-        LPCWSTR export_name)
+static uint32_t d3d12_state_object_get_export_index(struct d3d12_state_object *object,
+        const WCHAR *export_name, const WCHAR **out_subtype)
 {
-    struct d3d12_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
-    size_t i;
-
-    TRACE("iface %p, export_name %p.\n", iface, export_name);
-
-    for (i = 0; i < object->exports_count; i++)
-    {
-        if (vkd3d_export_strequal(export_name, object->exports[i].mangled_export) ||
-            vkd3d_export_strequal(export_name, object->exports[i].plain_export))
-        {
-            return object->exports[i].identifier;
-        }
-    }
-
-    ERR("Could not find entry point.\n");
-    return NULL;
-}
-
-static UINT64 STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderStackSize(ID3D12StateObjectProperties *iface,
-        LPCWSTR export_name)
-{
-    struct d3d12_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
     const WCHAR *subtype = NULL;
     size_t i, n;
-
-    TRACE("iface %p, export_name %p!\n", iface, export_name);
 
     /* Need to check for hitgroup::{closesthit,anyhit,intersection}. */
     n = 0;
@@ -215,27 +192,67 @@ static UINT64 STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderStackSize
     for (i = 0; i < object->exports_count; i++)
     {
         if (vkd3d_export_strequal_substr(export_name, n, object->exports[i].mangled_export) ||
-            vkd3d_export_strequal_substr(export_name, n, object->exports[i].plain_export))
+                vkd3d_export_strequal_substr(export_name, n, object->exports[i].plain_export))
         {
-            if (subtype)
-            {
-                if (vkd3d_export_strequal(subtype, u"::intersection"))
-                    return object->exports[i].stack_size_intersection;
-                else if (vkd3d_export_strequal(subtype, u"::anyhit"))
-                    return object->exports[i].stack_size_any;
-                else if (vkd3d_export_strequal(subtype, u"::closesthit"))
-                    return object->exports[i].stack_size_closest;
-                else
-                    return 0xffffffff;
-            }
-            else
-            {
-                return object->exports[i].stack_size_general;
-            }
+            *out_subtype = subtype;
+            return i;
         }
     }
 
-    return 0xffffffffu;
+    return UINT32_MAX;
+}
+
+static void * STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderIdentifier(ID3D12StateObjectProperties *iface,
+        LPCWSTR export_name)
+{
+    struct d3d12_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
+    const WCHAR *subtype = NULL;
+    uint32_t index;
+
+    TRACE("iface %p, export_name %p.\n", iface, export_name);
+
+    index = d3d12_state_object_get_export_index(object, export_name, &subtype);
+
+    /* Cannot query shader identifier for non-group names. */
+    if (!subtype && index != UINT32_MAX)
+    {
+        return object->exports[index].identifier;
+    }
+    else
+    {
+        ERR("Could not find entry point.\n");
+        return NULL;
+    }
+}
+
+static UINT64 STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderStackSize(ID3D12StateObjectProperties *iface,
+        LPCWSTR export_name)
+{
+    struct d3d12_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
+    const WCHAR *subtype = NULL;
+    uint32_t index;
+
+    TRACE("iface %p, export_name %p!\n", iface, export_name);
+
+    index = d3d12_state_object_get_export_index(object, export_name, &subtype);
+    if (index == UINT32_MAX)
+        return UINT32_MAX;
+
+    if (subtype)
+    {
+        if (vkd3d_export_strequal(subtype, u"::intersection"))
+            return object->exports[index].stack_size_intersection;
+        else if (vkd3d_export_strequal(subtype, u"::anyhit"))
+            return object->exports[index].stack_size_any;
+        else if (vkd3d_export_strequal(subtype, u"::closesthit"))
+            return object->exports[index].stack_size_closest;
+        else
+            return UINT32_MAX;
+    }
+    else
+    {
+        return object->exports[index].stack_size_general;
+    }
 }
 
 static UINT64 STDMETHODCALLTYPE d3d12_state_object_properties_GetPipelineStackSize(ID3D12StateObjectProperties *iface)
@@ -289,6 +306,13 @@ struct d3d12_state_object_root_signature_association
     const WCHAR *export;
 };
 
+struct d3d12_state_object_collection
+{
+    struct d3d12_state_object *object;
+    unsigned int num_exports;
+    const D3D12_EXPORT_DESC *exports;
+};
+
 struct d3d12_state_object_pipeline_data
 {
     const D3D12_RAYTRACING_PIPELINE_CONFIG *pipeline_config;
@@ -329,6 +353,14 @@ struct d3d12_state_object_pipeline_data
     VkPipelineShaderStageCreateInfo *stages;
     size_t stages_size;
     size_t stages_count;
+
+    struct d3d12_state_object_collection *collections;
+    size_t collections_size;
+    size_t collections_count;
+
+    VkPipeline *vk_libraries;
+    size_t vk_libraries_size;
+    size_t vk_libraries_count;
 };
 
 static void d3d12_state_object_pipeline_data_cleanup(struct d3d12_state_object_pipeline_data *data,
@@ -354,6 +386,8 @@ static void d3d12_state_object_pipeline_data_cleanup(struct d3d12_state_object_p
     vkd3d_free(data->stages);
 
     vkd3d_free(data->associations);
+    vkd3d_free(data->collections);
+    vkd3d_free(data->vk_libraries);
 }
 
 static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *object,
@@ -369,9 +403,10 @@ static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *ob
             case D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG:
             {
                 const D3D12_STATE_OBJECT_CONFIG *object_config = obj->pDesc;
-                if (object_config->Flags != D3D12_STATE_OBJECT_FLAG_NONE)
+                object->flags = object_config->Flags;
+                if (object->flags & ~D3D12_STATE_OBJECT_FLAG_ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL_DEFINITIONS)
                 {
-                    FIXME("Object config flag #%x is not supported.\n", object_config->Flags);
+                    FIXME("Object config flag #%x is not supported.\n", object->flags);
                     return E_INVALIDARG;
                 }
                 break;
@@ -412,7 +447,7 @@ static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *ob
                     return E_OUTOFMEMORY;
                 }
                 vkd3d_array_reserve((void**)&data->dxil_libraries, &data->dxil_libraries_size,
-                           data->dxil_libraries_count + 1, sizeof(*data->dxil_libraries));
+                        data->dxil_libraries_count + 1, sizeof(*data->dxil_libraries));
                 data->dxil_libraries[data->dxil_libraries_count++] = lib;
                 break;
             }
@@ -421,7 +456,7 @@ static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *ob
             {
                 const D3D12_HIT_GROUP_DESC *group = obj->pDesc;
                 vkd3d_array_reserve((void**)&data->hit_groups, &data->hit_groups_size,
-                         data->hit_groups_count + 1, sizeof(*data->hit_groups));
+                        data->hit_groups_count + 1, sizeof(*data->hit_groups));
                 data->hit_groups[data->hit_groups_count++] = group;
                 break;
             }
@@ -481,31 +516,99 @@ static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *ob
                 break;
             }
 
+            case D3D12_STATE_SUBOBJECT_TYPE_EXISTING_COLLECTION:
+            {
+                const D3D12_EXISTING_COLLECTION_DESC *collection = obj->pDesc;
+                vkd3d_array_reserve((void **)&data->collections, &data->collections_size,
+                        data->collections_count + 1, sizeof(*data->collections));
+
+                /* TODO: Private reference. */
+                data->collections[data->collections_count].object = impl_from_ID3D12StateObject(collection->pExistingCollection);
+                data->collections[data->collections_count].num_exports = collection->NumExports;
+                data->collections[data->collections_count].exports = collection->pExports;
+
+                vkd3d_array_reserve((void **)&data->vk_libraries, &data->vk_libraries_size,
+                        data->vk_libraries_count + 1, sizeof(*data->vk_libraries));
+                data->vk_libraries[data->vk_libraries_count] = data->collections[data->collections_count].object->pipeline;
+
+                data->collections_count += 1;
+                data->vk_libraries_count += 1;
+                break;
+            }
+
             default:
                 FIXME("Unrecognized subobject type: %u.\n", obj->Type);
                 return E_INVALIDARG;
         }
     }
 
+    if (!data->pipeline_config)
+    {
+        ERR("Must have pipeline config.\n");
+        return E_INVALIDARG;
+    }
+
+    if (!data->shader_config)
+    {
+        ERR("Must have shader config.\n");
+        return E_INVALIDARG;
+    }
+
     return S_OK;
+}
+
+static uint32_t d3d12_state_object_pipeline_data_find_entry_inner(
+        const struct vkd3d_shader_library_entry_point *entry_points,
+        size_t count, const WCHAR *import)
+{
+    uint32_t i;
+
+    if (!import)
+        return VK_SHADER_UNUSED_KHR;
+
+    for (i = 0; i < count; i++)
+    {
+        if (vkd3d_export_strequal(import, entry_points[i].mangled_entry_point) ||
+                vkd3d_export_strequal(import, entry_points[i].plain_entry_point))
+            return i;
+    }
+
+    return VK_SHADER_UNUSED_KHR;
 }
 
 static uint32_t d3d12_state_object_pipeline_data_find_entry(
         const struct d3d12_state_object_pipeline_data *data,
         const WCHAR *import)
 {
-    uint32_t i;
+    uint32_t offset = 0;
+    uint32_t index;
+    char *duped;
+    size_t i;
+
     if (!import)
         return VK_SHADER_UNUSED_KHR;
 
-    for (i = 0; i < data->entry_points_count; i++)
+    index = d3d12_state_object_pipeline_data_find_entry_inner(data->entry_points, data->entry_points_count, import);
+    if (index != VK_SHADER_UNUSED_KHR)
+        return index;
+
+    offset += data->stages_count;
+
+    /* Try to look in collections. */
+    for (i = 0; i < data->collections_count; i++)
     {
-        if (vkd3d_export_strequal(import, data->entry_points[i].mangled_entry_point) ||
-            vkd3d_export_strequal(import, data->entry_points[i].plain_entry_point))
-            return i;
+        index = d3d12_state_object_pipeline_data_find_entry_inner(data->collections[i].object->entry_points,
+                data->collections[i].object->entry_points_count,
+                import);
+        if (index != VK_SHADER_UNUSED_KHR)
+            return offset + index;
+
+        offset += data->collections[i].object->stages_count;
     }
 
-    ERR("Failed to find entry point.\n");
+    duped = vkd3d_strdup_w_utf8(import, 0);
+    ERR("Failed to find DXR entry point: %s.\n", duped);
+    vkd3d_free(duped);
     return VK_SHADER_UNUSED_KHR;
 }
 
@@ -550,58 +653,68 @@ static VkDeviceSize get_shader_stack_size(struct d3d12_state_object *object,
 }
 
 static VkDeviceSize d3d12_state_object_pipeline_data_compute_default_stack_size(
-        const struct d3d12_state_object_pipeline_data *data, uint32_t recursion_depth)
+        const struct d3d12_state_object_pipeline_data *data,
+        struct d3d12_state_object_stack_info *stack_info, uint32_t recursion_depth)
 {
-    const struct VkPipelineShaderStageCreateInfo *stage;
     const struct d3d12_state_object_identifier *export;
+    struct d3d12_state_object_stack_info stack;
     VkDeviceSize pipeline_stack_size = 0;
-    uint32_t max_intersect_stack = 0;
-    uint32_t max_callable_stack = 0;
-    uint32_t max_closest_stack = 0;
-    uint32_t max_anyhit_stack = 0;
-    uint32_t max_raygen_stack = 0;
-    uint32_t max_miss_stack = 0;
     size_t i;
+
+    memset(&stack, 0, sizeof(stack));
 
     for (i = 0; i < data->exports_count; i++)
     {
         export = &data->exports[i];
-        if (export->stack_size_general != UINT32_MAX)
+        if (export->general_stage_index != UINT32_MAX)
         {
-            stage = &data->stages[data->groups[i].generalShader];
-            switch (stage->stage)
+            switch (export->general_stage)
             {
                 case VK_SHADER_STAGE_RAYGEN_BIT_KHR:
-                    max_raygen_stack = max(max_raygen_stack, export->stack_size_general);
+                    stack.max_raygen = max(stack.max_raygen, export->stack_size_general);
                     break;
 
                 case VK_SHADER_STAGE_CALLABLE_BIT_KHR:
-                    max_callable_stack = max(max_callable_stack, export->stack_size_general);
+                    stack.max_callable = max(stack.max_callable, export->stack_size_general);
                     break;
 
                 case VK_SHADER_STAGE_MISS_BIT_KHR:
-                    max_miss_stack = max(max_miss_stack, export->stack_size_general);
+                    stack.max_miss = max(stack.max_miss, export->stack_size_general);
                     break;
 
                 default:
-                    ERR("Unexpected stage #%x.\n", stage->stage);
+                    ERR("Unexpected stage #%x.\n", export->general_stage_index);
                     return 0;
             }
         }
 
         if (export->stack_size_closest != UINT32_MAX)
-            max_closest_stack = max(max_closest_stack, export->stack_size_closest);
+            stack.max_closest = max(stack.max_closest, export->stack_size_closest);
         if (export->stack_size_intersection != UINT32_MAX)
-            max_intersect_stack = max(max_intersect_stack, export->stack_size_intersection);
+            stack.max_intersect = max(stack.max_intersect, export->stack_size_intersection);
         if (export->stack_size_any != UINT32_MAX)
-            max_anyhit_stack = max(max_anyhit_stack, export->stack_size_intersection);
+            stack.max_anyhit = max(stack.max_anyhit, export->stack_size_intersection);
     }
 
+    for (i = 0; i < data->collections_count; i++)
+    {
+        const struct d3d12_state_object_stack_info *info = &data->collections[i].object->stack;
+        stack.max_closest = max(stack.max_closest, info->max_closest);
+        stack.max_callable = max(stack.max_callable, info->max_callable);
+        stack.max_miss = max(stack.max_miss, info->max_miss);
+        stack.max_anyhit = max(stack.max_anyhit, info->max_anyhit);
+        stack.max_intersect = max(stack.max_intersect, info->max_intersect);
+        stack.max_raygen = max(stack.max_raygen, info->max_raygen);
+    }
+
+    *stack_info = stack;
+
     /* Vulkan and DXR specs outline this same formula. We will use this as the default pipeline stack size. */
-    pipeline_stack_size += max_raygen_stack;
-    pipeline_stack_size += 2 * max_callable_stack;
-    pipeline_stack_size += (max(1, recursion_depth) - 1) * max(max_closest_stack, max_miss_stack);
-    pipeline_stack_size += recursion_depth * max(max(max_closest_stack, max_miss_stack), max_intersect_stack + max_anyhit_stack);
+    pipeline_stack_size += stack.max_raygen;
+    pipeline_stack_size += 2 * stack.max_callable;
+    pipeline_stack_size += (max(1, recursion_depth) - 1) * max(stack.max_closest, stack.max_miss);
+    pipeline_stack_size += recursion_depth * max(max(stack.max_closest, stack.max_miss),
+            stack.max_intersect + stack.max_anyhit);
     return pipeline_stack_size;
 }
 
@@ -628,25 +741,93 @@ static struct d3d12_root_signature *d3d12_state_object_pipeline_data_get_local_r
         return NULL;
 }
 
+static HRESULT d3d12_state_object_get_group_handles(struct d3d12_state_object *object,
+        const struct d3d12_state_object_pipeline_data *data)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &object->device->vk_procs;
+    uint32_t group_index;
+    VkResult vr;
+    size_t i;
+
+    for (i = 0; i < data->exports_count; i++)
+    {
+        group_index = data->exports[i].group_index;
+
+        vr = VK_CALL(vkGetRayTracingShaderGroupHandlesKHR(object->device->vk_device,
+                object->pipeline, group_index, 1,
+                sizeof(data->exports[i].identifier),
+                data->exports[i].identifier));
+        if (vr)
+            return hresult_from_vk_result(vr);
+
+        data->exports[i].stack_size_general = UINT32_MAX;
+        data->exports[i].stack_size_any = UINT32_MAX;
+        data->exports[i].stack_size_closest = UINT32_MAX;
+        data->exports[i].stack_size_intersection = UINT32_MAX;
+
+        if (data->exports[i].general_stage_index != VK_SHADER_UNUSED_KHR)
+        {
+            data->exports[i].stack_size_general = get_shader_stack_size(object, group_index,
+                    VK_SHADER_GROUP_SHADER_GENERAL_KHR);
+        }
+        else
+        {
+            if (data->exports[i].anyhit_stage_index != VK_SHADER_UNUSED_KHR)
+                data->exports[i].stack_size_any = get_shader_stack_size(object, group_index,
+                        VK_SHADER_GROUP_SHADER_ANY_HIT_KHR);
+            if (data->exports[i].closest_stage_index != VK_SHADER_UNUSED_KHR)
+                data->exports[i].stack_size_closest = get_shader_stack_size(object, group_index,
+                        VK_SHADER_GROUP_SHADER_CLOSEST_HIT_KHR);
+            if (data->exports[i].intersection_stage_index != VK_SHADER_UNUSED_KHR)
+                data->exports[i].stack_size_intersection = get_shader_stack_size(object, group_index,
+                        VK_SHADER_GROUP_SHADER_INTERSECTION_KHR);
+        }
+    }
+
+    return S_OK;
+}
+
+static void d3d12_state_object_build_group_create_info(
+        VkRayTracingShaderGroupCreateInfoKHR *group_create,
+        VkRayTracingShaderGroupTypeKHR group_type,
+        const struct d3d12_state_object_identifier *export)
+{
+    group_create->sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
+    group_create->pNext = NULL;
+    group_create->type = group_type;
+    /* Index into pStages. */
+    group_create->generalShader = export->general_stage_index;
+    group_create->closestHitShader = export->closest_stage_index;
+    group_create->intersectionShader = export->intersection_stage_index;
+    group_create->anyHitShader = export->anyhit_stage_index;
+    group_create->pShaderGroupCaptureReplayHandle = NULL;
+}
+
 static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *object,
         struct d3d12_state_object_pipeline_data *data)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &object->device->vk_procs;
     struct vkd3d_shader_interface_local_info shader_interface_local_info;
+    VkRayTracingPipelineInterfaceCreateInfoKHR interface_create_info;
     struct vkd3d_shader_interface_info shader_interface_info;
     VkRayTracingPipelineCreateInfoKHR pipeline_create_info;
-    VkRayTracingShaderGroupCreateInfoKHR *group_create;
     struct vkd3d_shader_compile_arguments compile_args;
+    struct d3d12_state_object_collection *collection;
     VkPipelineDynamicStateCreateInfo dynamic_state;
     struct vkd3d_shader_library_entry_point *entry;
     struct d3d12_root_signature *global_signature;
     struct d3d12_root_signature *local_signature;
     const struct D3D12_HIT_GROUP_DESC *hit_group;
+    struct d3d12_state_object_identifier *export;
+    VkPipelineLibraryCreateInfoKHR library_info;
     VkPipelineShaderStageCreateInfo *stage;
+    uint32_t pgroup_offset, pstage_offset;
+    unsigned int num_groups_to_export;
     struct vkd3d_shader_code spirv;
     struct vkd3d_shader_code dxil;
+    size_t i, j;
     VkResult vr;
-    size_t i;
+    HRESULT hr;
 
     static const VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_RAY_TRACING_PIPELINE_STACK_SIZE_KHR };
 
@@ -705,24 +886,25 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
             /* Directly export this as a group. */
             vkd3d_array_reserve((void **) &data->exports, &data->exports_size,
                     data->exports_count + 1, sizeof(*data->exports));
-            data->exports[data->exports_count].mangled_export = entry->mangled_entry_point;
-            data->exports[data->exports_count].plain_export = entry->plain_entry_point;
+
+            export = &data->exports[data->exports_count];
+            export->mangled_export = entry->mangled_entry_point;
+            export->plain_export = entry->plain_entry_point;
+            export->group_index = data->groups_count;
+            export->general_stage_index = data->stages_count;
+            export->closest_stage_index = VK_SHADER_UNUSED_KHR;
+            export->anyhit_stage_index = VK_SHADER_UNUSED_KHR;
+            export->intersection_stage_index = VK_SHADER_UNUSED_KHR;
+            export->general_stage = entry->stage;
             entry->mangled_entry_point = NULL;
             entry->plain_entry_point = NULL;
 
             vkd3d_array_reserve((void **) &data->groups, &data->groups_size,
                     data->groups_count + 1, sizeof(*data->groups));
 
-            group_create = &data->groups[data->groups_count];
-            group_create->sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
-            group_create->pNext = NULL;
-            group_create->type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
-            /* Index into pStages. */
-            group_create->generalShader = data->stages_count;
-            group_create->closestHitShader = VK_SHADER_UNUSED_KHR;
-            group_create->intersectionShader = VK_SHADER_UNUSED_KHR;
-            group_create->anyHitShader = VK_SHADER_UNUSED_KHR;
-            group_create->pShaderGroupCaptureReplayHandle = NULL;
+            d3d12_state_object_build_group_create_info(&data->groups[data->groups_count],
+                    VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR,
+                    export);
 
             data->exports_count++;
             data->groups_count++;
@@ -769,35 +951,123 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
         /* Directly export this as a group. */
         vkd3d_array_reserve((void **) &data->exports, &data->exports_size,
                 data->exports_count + 1, sizeof(*data->exports));
-        data->exports[data->exports_count].mangled_export = NULL;
-        data->exports[data->exports_count].plain_export = vkd3d_wstrdup(hit_group->HitGroupExport);
+
+        export = &data->exports[data->exports_count];
+        export->mangled_export = NULL;
+        export->plain_export = vkd3d_wstrdup(hit_group->HitGroupExport);
+        export->group_index = data->groups_count;
+        export->general_stage = VK_SHADER_STAGE_ALL; /* ignored */
+
+        export->general_stage_index = VK_SHADER_UNUSED_KHR;
+        export->closest_stage_index =
+                d3d12_state_object_pipeline_data_find_entry(data, hit_group->ClosestHitShaderImport);
+        export->intersection_stage_index =
+                d3d12_state_object_pipeline_data_find_entry(data, hit_group->IntersectionShaderImport);
+        export->anyhit_stage_index =
+                d3d12_state_object_pipeline_data_find_entry(data, hit_group->AnyHitShaderImport);
+
+        if (hit_group->ClosestHitShaderImport && export->closest_stage_index == UINT32_MAX)
+            return E_INVALIDARG;
+        if (hit_group->IntersectionShaderImport && export->intersection_stage_index == UINT32_MAX)
+            return E_INVALIDARG;
+        if (hit_group->AnyHitShaderImport && export->anyhit_stage_index == UINT32_MAX)
+            return E_INVALIDARG;
 
         vkd3d_array_reserve((void **) &data->groups, &data->groups_size,
                 data->groups_count + 1, sizeof(*data->groups));
 
-        group_create = &data->groups[data->groups_count];
-        group_create->sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
-        group_create->pNext = NULL;
-        group_create->type = hit_group->Type == D3D12_HIT_GROUP_TYPE_TRIANGLES ?
-                VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR :
-                VK_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP_KHR;
+        d3d12_state_object_build_group_create_info(&data->groups[data->groups_count],
+                hit_group->Type == D3D12_HIT_GROUP_TYPE_TRIANGLES ?
+                        VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR :
+                        VK_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP_KHR,
+                export);
 
-        group_create->generalShader = VK_SHADER_UNUSED_KHR;
-        group_create->closestHitShader =
-                d3d12_state_object_pipeline_data_find_entry(data, hit_group->ClosestHitShaderImport);
-        group_create->intersectionShader =
-                d3d12_state_object_pipeline_data_find_entry(data, hit_group->IntersectionShaderImport);
-        group_create->anyHitShader =
-                d3d12_state_object_pipeline_data_find_entry(data, hit_group->AnyHitShaderImport);
-        group_create->pShaderGroupCaptureReplayHandle = NULL;
+        data->exports_count += 1;
+        data->groups_count += 1;
+    }
 
-        data->exports_count++;
-        data->groups_count++;
+    /* Adding libraries will implicitly consume indices.
+     * Need to keep track of this so we can assign the correct export.
+     * This is relevant when querying shader group handles. */
+    pstage_offset = data->stages_count;
+    pgroup_offset = data->groups_count;
+
+    for (i = 0; i < data->collections_count; i++)
+    {
+        collection = &data->collections[i];
+
+        if (collection->num_exports)
+            num_groups_to_export = collection->num_exports;
+        else
+            num_groups_to_export = collection->object->exports_count;
+
+        vkd3d_array_reserve((void **)&data->exports, &data->exports_size,
+                data->exports_count + num_groups_to_export, sizeof(*data->exports));
+        memset(data->exports + data->exports_count, 0, num_groups_to_export * sizeof(*data->exports));
+
+        for (j = 0; j < num_groups_to_export; j++)
+        {
+            const struct d3d12_state_object_identifier *input_export;
+            if (collection->num_exports == 0)
+            {
+                export = &data->exports[data->exports_count];
+                input_export = &collection->object->exports[j];
+                if (input_export->plain_export)
+                    export->plain_export = vkd3d_wstrdup(input_export->plain_export);
+                if (input_export->mangled_export)
+                    export->mangled_export = vkd3d_wstrdup(input_export->mangled_export);
+            }
+            else
+            {
+                const WCHAR *original_export;
+                const WCHAR *subtype = NULL;
+                uint32_t index;
+
+                export = &data->exports[data->exports_count];
+
+                if (collection->exports[j].ExportToRename)
+                    original_export = collection->exports[j].ExportToRename;
+                else
+                    original_export = collection->exports[j].Name;
+
+                index = d3d12_state_object_get_export_index(collection->object, original_export, &subtype);
+                if (subtype || index == UINT32_MAX)
+                {
+                    ERR("Could not find subobject.\n");
+                    return E_INVALIDARG;
+                }
+
+                export->plain_export = vkd3d_wstrdup(collection->exports[j].Name);
+                export->mangled_export = NULL;
+                input_export = &collection->object->exports[index];
+            }
+
+            export->group_index = pgroup_offset + input_export->group_index;
+
+            export->general_stage_index = input_export->general_stage_index;
+            export->closest_stage_index = input_export->closest_stage_index;
+            export->anyhit_stage_index = input_export->anyhit_stage_index;
+            export->intersection_stage_index = input_export->intersection_stage_index;
+            if (export->general_stage_index != VK_SHADER_UNUSED_KHR)
+                export->general_stage_index += pstage_offset;
+            if (export->closest_stage_index != VK_SHADER_UNUSED_KHR)
+                export->closest_stage_index += pstage_offset;
+            if (export->anyhit_stage_index != VK_SHADER_UNUSED_KHR)
+                export->anyhit_stage_index += pstage_offset;
+            if (export->intersection_stage_index != VK_SHADER_UNUSED_KHR)
+                export->intersection_stage_index += pstage_offset;
+
+            data->exports_count += 1;
+        }
+
+        pgroup_offset += collection->object->exports_count;
+        pstage_offset += collection->object->stages_count;
     }
 
     pipeline_create_info.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR;
     pipeline_create_info.pNext = NULL;
-    pipeline_create_info.flags = 0;
+    pipeline_create_info.flags = object->type == D3D12_STATE_OBJECT_TYPE_COLLECTION ?
+            VK_PIPELINE_CREATE_LIBRARY_BIT_KHR : 0;
     /* FIXME: What if we have no global root signature? */
     if (!global_signature)
         return E_INVALIDARG;
@@ -808,10 +1078,20 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     pipeline_create_info.groupCount = data->groups_count;
     pipeline_create_info.pStages = data->stages;
     pipeline_create_info.stageCount = data->stages_count;
-    pipeline_create_info.pLibraryInfo = NULL;
-    pipeline_create_info.pLibraryInterface = NULL;
+    pipeline_create_info.pLibraryInfo = &library_info;
+    pipeline_create_info.pLibraryInterface = &interface_create_info;
     pipeline_create_info.pDynamicState = &dynamic_state;
     pipeline_create_info.maxPipelineRayRecursionDepth = data->pipeline_config->MaxTraceRecursionDepth;
+
+    library_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LIBRARY_CREATE_INFO_KHR;
+    library_info.pNext = NULL;
+    library_info.libraryCount = data->vk_libraries_count;
+    library_info.pLibraries = data->vk_libraries;
+
+    interface_create_info.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_INTERFACE_CREATE_INFO_KHR;
+    interface_create_info.pNext = NULL;
+    interface_create_info.maxPipelineRayPayloadSize = data->shader_config->MaxPayloadSizeInBytes;
+    interface_create_info.maxPipelineRayHitAttributeSize = data->shader_config->MaxAttributeSizeInBytes;
 
     if (data->pipeline_config->MaxTraceRecursionDepth >
             object->device->device_info.ray_tracing_pipeline_properties.maxRayRecursionDepth)
@@ -835,35 +1115,17 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     if (vr)
         return hresult_from_vk_result(vr);
 
-    for (i = 0; i < data->groups_count; i++)
+    if (object->type == D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE)
     {
-        vr = VK_CALL(vkGetRayTracingShaderGroupHandlesKHR(object->device->vk_device,
-                object->pipeline, i, 1, sizeof(data->exports[i].identifier), data->exports[i].identifier));
-        if (vr)
-            return hresult_from_vk_result(vr);
+        if (FAILED(hr = d3d12_state_object_get_group_handles(object, data)))
+            return hr;
 
-        data->exports[i].stack_size_general = UINT32_MAX;
-        data->exports[i].stack_size_any = UINT32_MAX;
-        data->exports[i].stack_size_closest = UINT32_MAX;
-        data->exports[i].stack_size_intersection = UINT32_MAX;
-
-        if (data->groups[i].type == VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR)
-        {
-            data->exports[i].stack_size_general = get_shader_stack_size(object, i, VK_SHADER_GROUP_SHADER_GENERAL_KHR);
-        }
-        else
-        {
-            if (data->groups[i].anyHitShader != VK_SHADER_UNUSED_KHR)
-                data->exports[i].stack_size_any = get_shader_stack_size(object, i, VK_SHADER_GROUP_SHADER_ANY_HIT_KHR);
-            if (data->groups[i].closestHitShader != VK_SHADER_UNUSED_KHR)
-                data->exports[i].stack_size_closest = get_shader_stack_size(object, i, VK_SHADER_GROUP_SHADER_CLOSEST_HIT_KHR);
-            if (data->groups[i].intersectionShader != VK_SHADER_UNUSED_KHR)
-                data->exports[i].stack_size_intersection = get_shader_stack_size(object, i, VK_SHADER_GROUP_SHADER_INTERSECTION_KHR);
-        }
+        object->pipeline_stack_size = d3d12_state_object_pipeline_data_compute_default_stack_size(data,
+                &object->stack,
+                pipeline_create_info.maxPipelineRayRecursionDepth);
     }
-
-    object->pipeline_stack_size = d3d12_state_object_pipeline_data_compute_default_stack_size(data,
-            pipeline_create_info.maxPipelineRayRecursionDepth);
+    else
+        object->pipeline_stack_size = 0;
 
     /* Pilfer the export table. */
     object->exports = data->exports;
@@ -872,6 +1134,18 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     data->exports = NULL;
     data->exports_size = 0;
     data->exports_count = 0;
+
+    /* Always set this, since parent needs to be able to offset pStages[]. */
+    object->stages_count = data->stages_count;
+
+    /* If parent object can depend on individual shaders, keep the entry point list around. */
+    if (object->flags & D3D12_STATE_OBJECT_FLAG_ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL_DEFINITIONS)
+    {
+        object->entry_points = data->entry_points;
+        object->entry_points_count = data->entry_points_count;
+        data->entry_points = NULL;
+        data->entry_points_count = 0;
+    }
 
     return S_OK;
 }
@@ -886,14 +1160,8 @@ static HRESULT d3d12_state_object_init(struct d3d12_state_object *object,
     object->ID3D12StateObjectProperties_iface.lpVtbl = &d3d12_state_object_properties_vtbl;
     object->refcount = 1;
     object->device = device;
+    object->type = desc->Type;
     memset(&data, 0, sizeof(data));
-
-    if (desc->Type != D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE)
-    {
-        FIXME("Unsupported state object type: %u.\n", desc->Type);
-        hr = E_INVALIDARG;
-        goto fail;
-    }
 
     if (FAILED(hr = d3d12_state_object_parse_subobjects(object, desc, &data)))
         goto fail;

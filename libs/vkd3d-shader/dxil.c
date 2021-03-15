@@ -1102,7 +1102,7 @@ void vkd3d_shader_dxil_free_library_entry_points(struct vkd3d_shader_library_ent
 
 static VkShaderStageFlagBits convert_stage(dxil_spv_shader_stage stage)
 {
-    /* Only interested in RT stages. There is no way yet to use lib_6_3+ for non-RT. */
+    /* Only interested in RT entry_points. There is no way yet to use lib_6_3+ for non-RT. */
     switch (stage)
     {
         case DXIL_SPV_STAGE_RAY_GENERATION:

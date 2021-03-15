@@ -113,6 +113,7 @@ struct vkd3d_vulkan_info
     bool KHR_ray_tracing_pipeline;
     bool KHR_acceleration_structure;
     bool KHR_deferred_host_operations;
+    bool KHR_pipeline_library;
     bool KHR_spirv_1_4;
     bool KHR_shader_float_controls;
     bool KHR_fragment_shading_rate;
@@ -2628,10 +2629,30 @@ struct d3d12_state_object_identifier
     /* Must be a persistent pointer as long as the StateObject object is live. */
     uint8_t identifier[D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES];
 
+    /* The index into pStages[]. */
+    uint32_t general_stage_index;
+    uint32_t closest_stage_index;
+    uint32_t anyhit_stage_index;
+    uint32_t intersection_stage_index;
+    VkShaderStageFlagBits general_stage;
+
     VkDeviceSize stack_size_general;
     VkDeviceSize stack_size_closest;
     VkDeviceSize stack_size_any;
     VkDeviceSize stack_size_intersection;
+
+    /* The index into vkGetShaderStackSize and friends for pGroups[]. */
+    uint32_t group_index;
+};
+
+struct d3d12_state_object_stack_info
+{
+    uint32_t max_callable;
+    uint32_t max_anyhit;
+    uint32_t max_miss;
+    uint32_t max_raygen;
+    uint32_t max_intersect;
+    uint32_t max_closest;
 };
 
 struct d3d12_state_object
@@ -2639,6 +2660,8 @@ struct d3d12_state_object
     d3d12_state_object_iface ID3D12StateObject_iface;
     d3d12_state_object_properties_iface ID3D12StateObjectProperties_iface;
     LONG refcount;
+    D3D12_STATE_OBJECT_TYPE type;
+    D3D12_STATE_OBJECT_FLAGS flags;
     struct d3d12_device *device;
 
     /* Could potentially be a hashmap. */
@@ -2646,10 +2669,16 @@ struct d3d12_state_object
     size_t exports_size;
     size_t exports_count;
 
+    struct vkd3d_shader_library_entry_point *entry_points;
+    size_t entry_points_count;
+    size_t stages_count;
+    /* Normally stages_count == entry_points_count, but entry_points is the entry points we
+     * export externally, and stages_count matches pStages[] size for purposes of index fixups. */
+
     VkPipeline pipeline;
 
-    UINT64 conservative_pipeline_stack_size;
     UINT64 pipeline_stack_size;
+    struct d3d12_state_object_stack_info stack;
 
     struct vkd3d_private_store private_store;
 };
