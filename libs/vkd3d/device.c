@@ -478,6 +478,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"debug_utils", VKD3D_CONFIG_FLAG_DEBUG_UTILS},
     {"force_static_cbv", VKD3D_CONFIG_FLAG_FORCE_STATIC_CBV},
     {"dxr", VKD3D_CONFIG_FLAG_DXR},
+    {"multi_queue", VKD3D_CONFIG_FLAG_MULTI_QUEUE},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -1872,11 +1873,12 @@ static HRESULT vkd3d_select_queues(const struct vkd3d_instance *vkd3d_instance,
     const struct vkd3d_vk_instance_procs *vk_procs = &vkd3d_instance->vk_procs;
     VkQueueFamilyProperties *queue_properties = NULL;
     VkDeviceQueueCreateInfo *queue_info = NULL;
+    bool duplicate, single_queue;
     unsigned int i, j;
     uint32_t count;
-    bool duplicate;
 
     memset(info, 0, sizeof(*info));
+    single_queue = !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_MULTI_QUEUE);
 
     VK_CALL(vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &count, NULL));
     if (!(queue_properties = vkd3d_calloc(count, sizeof(*queue_properties))))
@@ -1895,14 +1897,6 @@ static HRESULT vkd3d_select_queues(const struct vkd3d_instance *vkd3d_instance,
     info->family_index[VKD3D_QUEUE_FAMILY_SPARSE_BINDING] = vkd3d_find_queue(count, queue_properties,
             VK_QUEUE_SPARSE_BINDING_BIT, VK_QUEUE_SPARSE_BINDING_BIT);
 
-    /* Works around https://gitlab.freedesktop.org/mesa/mesa/issues/2529.
-     * The other viable workaround was to disable VK_EXT_descriptor_indexing for the time being,
-     * but that did not work out as we relied on global_bo_list to deal with games like RE2 which appear
-     * to potentially access descriptors which reference freed memory. This is fine in D3D12, but we need
-     * PARTIALLY_BOUND_BIT semantics to make that work well.
-     * Just disabling async compute works around the issue as well. */
-    #define VKD3D_FORCE_SINGLE_QUEUE 1
-
     if (info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] == VK_QUEUE_FAMILY_IGNORED)
         info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] = info->family_index[VKD3D_QUEUE_FAMILY_GRAPHICS];
 
@@ -1911,7 +1905,7 @@ static HRESULT vkd3d_select_queues(const struct vkd3d_instance *vkd3d_instance,
 
     info->family_index[VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE] = info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE];
 
-    if (VKD3D_FORCE_SINGLE_QUEUE)
+    if (single_queue)
     {
         info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] = info->family_index[VKD3D_QUEUE_FAMILY_GRAPHICS];
         info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] = info->family_index[VKD3D_QUEUE_FAMILY_GRAPHICS];
@@ -1941,7 +1935,7 @@ static HRESULT vkd3d_select_queues(const struct vkd3d_instance *vkd3d_instance,
         queue_info->queueCount = min(info->vk_properties[i].queueCount, VKD3D_MAX_QUEUE_COUNT_PER_FAMILY);
         queue_info->pQueuePriorities = queue_priorities;
 
-        if (VKD3D_FORCE_SINGLE_QUEUE)
+        if (single_queue)
             queue_info->queueCount = 1;
     }
 
