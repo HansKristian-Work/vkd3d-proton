@@ -1792,6 +1792,14 @@ struct vkd3d_queue
     VkQueueFlags vk_queue_flags;
     uint32_t timestamp_bits;
     uint32_t virtual_queue_count;
+
+    VkSemaphore *wait_semaphores;
+    size_t wait_semaphores_size;
+    uint64_t *wait_values;
+    size_t wait_values_size;
+    VkPipelineStageFlags *wait_stages;
+    size_t wait_stages_size;
+    uint32_t wait_count;
 };
 
 VkQueue vkd3d_queue_acquire(struct vkd3d_queue *queue);
@@ -1799,6 +1807,7 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device, uint32_t family_index, u
         const VkQueueFamilyProperties *properties, struct vkd3d_queue **queue);
 void vkd3d_queue_destroy(struct vkd3d_queue *queue, struct d3d12_device *device);
 void vkd3d_queue_release(struct vkd3d_queue *queue);
+void vkd3d_queue_add_wait(struct vkd3d_queue *queue, VkSemaphore semaphore, uint64_t value);
 
 enum vkd3d_submission_type
 {
