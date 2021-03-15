@@ -19739,6 +19739,10 @@ static void test_null_vbv(void)
     vbv[1].SizeInBytes = 0;
     ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, ARRAY_SIZE(vbv), vbv);
 
+    /* Call should be ignored. */
+    ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, NULL);
+    ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 1, 1, NULL);
+
     ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 4, 0, 0);
 
     transition_resource_state(command_list, context.render_target,
