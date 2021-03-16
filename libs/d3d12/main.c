@@ -214,20 +214,23 @@ static VkPhysicalDevice d3d12_get_vk_physical_device(struct vkd3d_instance *inst
         }
     }
 
-    TRACE("Matching adapters by PCI IDs.\n");
-
-    for (i = 0; i < count; ++i)
+    if (!vk_physical_device)
     {
-        properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-        properties2.pNext = NULL;
+        TRACE("Matching adapters by PCI IDs.\n");
 
-        pfn_vkGetPhysicalDeviceProperties2(vk_physical_devices[i], &properties2);
-
-        if (properties2.properties.deviceID == adapter_desc->DeviceId &&
-            properties2.properties.vendorID == adapter_desc->VendorId)
+        for (i = 0; i < count; ++i)
         {
-            vk_physical_device = vk_physical_devices[i];
-            break;
+            properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+            properties2.pNext = NULL;
+
+            pfn_vkGetPhysicalDeviceProperties2(vk_physical_devices[i], &properties2);
+
+            if (properties2.properties.deviceID == adapter_desc->DeviceId &&
+                properties2.properties.vendorID == adapter_desc->VendorId)
+            {
+                vk_physical_device = vk_physical_devices[i];
+                break;
+            }
         }
     }
 
