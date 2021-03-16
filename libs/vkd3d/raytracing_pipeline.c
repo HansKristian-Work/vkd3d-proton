@@ -87,6 +87,29 @@ static ULONG STDMETHODCALLTYPE d3d12_state_object_properties_AddRef(ID3D12StateO
     return refcount;
 }
 
+static void d3d12_state_object_cleanup(struct d3d12_state_object *object);
+
+static void d3d12_state_object_inc_ref(struct d3d12_state_object *state_object)
+{
+    InterlockedIncrement(&state_object->internal_refcount);
+}
+
+static void d3d12_state_object_dec_ref(struct d3d12_state_object *state_object)
+{
+    ULONG refcount = InterlockedDecrement(&state_object->internal_refcount);
+
+    TRACE("%p decreasing internal refcount to %u.\n", state_object, refcount);
+
+    if (!refcount)
+    {
+        struct d3d12_device *device = state_object->device;
+        vkd3d_private_store_destroy(&state_object->private_store);
+        d3d12_state_object_cleanup(state_object);
+        vkd3d_free(state_object);
+        d3d12_device_release(device);
+    }
+}
+
 static void d3d12_state_object_cleanup(struct d3d12_state_object *object)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &object->device->vk_procs;
@@ -100,6 +123,10 @@ static void d3d12_state_object_cleanup(struct d3d12_state_object *object)
     vkd3d_free(object->exports);
     vkd3d_free(object->entry_points);
 
+    for (i = 0; i < object->collections_count; i++)
+        d3d12_state_object_dec_ref(object->collections[i]);
+    vkd3d_free(object->collections);
+
     VK_CALL(vkDestroyPipeline(object->device->vk_device, object->pipeline, NULL));
 }
 
@@ -110,14 +137,7 @@ static ULONG d3d12_state_object_release(struct d3d12_state_object *state_object)
     TRACE("%p decreasing refcount to %u.\n", state_object, refcount);
 
     if (!refcount)
-    {
-        struct d3d12_device *device = state_object->device;
-        vkd3d_private_store_destroy(&state_object->private_store);
-        d3d12_state_object_cleanup(state_object);
-        vkd3d_free(state_object);
-        d3d12_device_release(device);
-    }
-
+        d3d12_state_object_dec_ref(state_object);
     return refcount;
 }
 
@@ -522,7 +542,6 @@ static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *ob
                 vkd3d_array_reserve((void **)&data->collections, &data->collections_size,
                         data->collections_count + 1, sizeof(*data->collections));
 
-                /* TODO: Private reference. */
                 data->collections[data->collections_count].object = impl_from_ID3D12StateObject(collection->pExistingCollection);
                 data->collections[data->collections_count].num_exports = collection->NumExports;
                 data->collections[data->collections_count].exports = collection->pExports;
@@ -1135,6 +1154,19 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     data->exports_size = 0;
     data->exports_count = 0;
 
+    /* Spec says we need to hold a reference to the collection object, but it doesn't show up in API,
+     * so we must assume private reference. */
+    if (data->collections_count)
+    {
+        object->collections = vkd3d_malloc(data->collections_count * sizeof(*object->collections));
+        object->collections_count = data->collections_count;
+        for (i = 0; i < data->collections_count; i++)
+        {
+            object->collections[i] = data->collections[i].object;
+            d3d12_state_object_inc_ref(object->collections[i]);
+        }
+    }
+
     /* Always set this, since parent needs to be able to offset pStages[]. */
     object->stages_count = data->stages_count;
 
@@ -1159,6 +1191,7 @@ static HRESULT d3d12_state_object_init(struct d3d12_state_object *object,
     object->ID3D12StateObject_iface.lpVtbl = &d3d12_state_object_vtbl;
     object->ID3D12StateObjectProperties_iface.lpVtbl = &d3d12_state_object_properties_vtbl;
     object->refcount = 1;
+    object->internal_refcount = 1;
     object->device = device;
     object->type = desc->Type;
     memset(&data, 0, sizeof(data));
