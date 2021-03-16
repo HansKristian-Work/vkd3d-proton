@@ -1009,7 +1009,7 @@ HRESULT d3d12_create_static_sampler(struct d3d12_device *device,
 
 struct d3d12_rtv_desc
 {
-    VkSampleCountFlagBits sample_count;
+    DECLSPEC_ALIGN(D3D12_DESC_ALIGNMENT) VkSampleCountFlagBits sample_count;
     const struct vkd3d_format *format;
     unsigned int width;
     unsigned int height;
@@ -1017,6 +1017,7 @@ struct d3d12_rtv_desc
     struct vkd3d_view *view;
     struct d3d12_resource *resource;
 };
+STATIC_ASSERT(sizeof(struct d3d12_rtv_desc) == 64);
 
 void d3d12_rtv_desc_copy(struct d3d12_rtv_desc *dst, struct d3d12_rtv_desc *src, unsigned int count);
 
