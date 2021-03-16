@@ -208,13 +208,6 @@ struct vkd3d_waiting_fence
 {
     struct d3d12_fence *fence;
     uint64_t value;
-    struct vkd3d_queue *queue;
-};
-
-struct vkd3d_enqueued_fence
-{
-    VkSemaphore vk_semaphore;
-    struct vkd3d_waiting_fence waiting_fence;
 };
 
 struct vkd3d_fence_worker
@@ -225,7 +218,7 @@ struct vkd3d_fence_worker
     bool should_exit;
 
     uint32_t enqueued_fence_count;
-    struct vkd3d_enqueued_fence *enqueued_fences;
+    struct vkd3d_waiting_fence *enqueued_fences;
     size_t enqueued_fences_size;
 
     struct d3d12_device *device;

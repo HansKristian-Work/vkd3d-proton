@@ -281,11 +281,9 @@ static HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worke
 
     d3d12_fence_inc_ref(fence);
 
-    worker->enqueued_fences[worker->enqueued_fence_count].vk_semaphore = fence->timeline_semaphore;
-    waiting_fence = &worker->enqueued_fences[worker->enqueued_fence_count].waiting_fence;
+    waiting_fence = &worker->enqueued_fences[worker->enqueued_fence_count];
     waiting_fence->fence = fence;
     waiting_fence->value = value;
-    waiting_fence->queue = queue;
     ++worker->enqueued_fence_count;
 
     pthread_cond_signal(&worker->cond);
@@ -293,7 +291,7 @@ static HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worke
     return S_OK;
 }
 
-static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *worker, const struct vkd3d_enqueued_fence *fence)
+static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *worker, const struct vkd3d_waiting_fence *fence)
 {
     struct d3d12_device *device = worker->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -305,8 +303,8 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
     wait_info.pNext = NULL;
     wait_info.flags = 0;
     wait_info.semaphoreCount = 1;
-    wait_info.pSemaphores = &fence->vk_semaphore;
-    wait_info.pValues = &fence->waiting_fence.value;
+    wait_info.pSemaphores = &fence->fence->timeline_semaphore;
+    wait_info.pValues = &fence->value;
 
     if ((vr = VK_CALL(vkWaitSemaphoresKHR(device->vk_device, &wait_info, ~(uint64_t)0))))
     {
@@ -318,16 +316,16 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
     if (device->debug_ring.active)
         pthread_cond_signal(&device->debug_ring.ring_cond);
 
-    TRACE("Signaling fence %p value %#"PRIx64".\n", fence->waiting_fence.fence, fence->waiting_fence.value);
-    if (FAILED(hr = d3d12_fence_signal(fence->waiting_fence.fence, fence->waiting_fence.value)))
+    TRACE("Signaling fence %p value %#"PRIx64".\n", fence->fence, fence->value);
+    if (FAILED(hr = d3d12_fence_signal(fence->fence, fence->value)))
         ERR("Failed to signal D3D12 fence, hr %#x.\n", hr);
 
-    d3d12_fence_dec_ref(fence->waiting_fence.fence);
+    d3d12_fence_dec_ref(fence->fence);
 }
 
 static void *vkd3d_fence_worker_main(void *arg)
 {
-    struct vkd3d_enqueued_fence *cur_fences, *old_fences;
+    struct vkd3d_waiting_fence *cur_fences, *old_fences;
     struct vkd3d_fence_worker *worker = arg;
     size_t cur_fences_size, old_fences_size;
     uint32_t cur_fence_count;
@@ -654,6 +652,7 @@ static uint64_t d3d12_fence_add_pending_signal_locked(struct d3d12_fence *fence,
 
 static uint64_t d3d12_fence_get_physical_wait_value_locked(struct d3d12_fence *fence, uint64_t virtual_value)
 {
+    uint64_t target_physical_value = UINT64_MAX;
     size_t i;
 
     /* This shouldn't happen, we will have elided the wait completely in can_elide_wait_semaphore_locked. */
@@ -662,16 +661,22 @@ static uint64_t d3d12_fence_get_physical_wait_value_locked(struct d3d12_fence *f
     /* Find the smallest physical value which is at least the virtual value. */
     for (i = 0; i < fence->pending_updates_count; i++)
         if (virtual_value <= fence->pending_updates[i].virtual_value)
-            return fence->pending_updates[i].physical_value;
+            target_physical_value = min(target_physical_value, fence->pending_updates[i].physical_value);
 
-    FIXME("Cannot find a pending physical wait value. Emitting a noop wait.\n");
-    return 0;
+    if (target_physical_value == UINT64_MAX)
+    {
+        FIXME("Cannot find a pending physical wait value. Emitting a noop wait.\n");
+        return 0;
+    }
+    else
+        return target_physical_value;
 }
 
 static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, uint64_t physical_value)
 {
     uint64_t new_max_pending_virtual_timeline_value;
-    size_t i, j;
+    bool did_signal;
+    size_t i;
     int rc;
 
     if ((rc = pthread_mutex_lock(&fence->mutex)))
@@ -681,39 +686,38 @@ static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, uint64_t physical_v
     }
 
     /* With multiple fence workers, it is possible that signal calls are
-     * out of order. The physical value is monotonic, so we can use it to
-     * check if that's the case and ignore calls with a lower value. */
-    if (fence->physical_value > physical_value)
-        return S_OK;
+     * out of order. The physical value itself is monotonic, but we need to
+     * make sure that all signals happen in correct order if there are fence rewinds.
+     * We don't expect the loop to run more than once,
+     * but there might be extreme edge cases where we signal 2 or more. */
+    while (fence->physical_value < physical_value)
+    {
+        fence->physical_value++;
+        did_signal = false;
+
+        for (i = 0; i < fence->pending_updates_count; i++)
+        {
+            if (fence->physical_value == fence->pending_updates[i].physical_value)
+            {
+                fence->virtual_value = fence->pending_updates[i].virtual_value;
+                d3d12_fence_signal_external_events_locked(fence);
+                fence->pending_updates[i] = fence->pending_updates[--fence->pending_updates_count];
+                did_signal = true;
+                break;
+            }
+        }
+
+        if (!did_signal)
+            FIXME("Did not signal a virtual value?\n");
+    }
 
     /* In case we have a rewind signalled from GPU, we need to recompute the max pending timeline value. */
     new_max_pending_virtual_timeline_value = 0;
-
-    for (i = 0, j = 0; i < fence->pending_updates_count; i++)
-    {
-        if (physical_value >= fence->pending_updates[i].physical_value)
-        {
-            fence->virtual_value = fence->pending_updates[i].virtual_value;
-        }
-        else
-        {
-            if (fence->pending_updates[i].virtual_value > new_max_pending_virtual_timeline_value)
-                new_max_pending_virtual_timeline_value = fence->pending_updates[i].virtual_value;
-
-            if (i != j)
-                memcpy(fence->pending_updates + j, fence->pending_updates + i, sizeof(*fence->pending_updates));
-            j++;
-        }
-    }
-
-    fence->pending_updates_count = j;
-    fence->physical_value = physical_value;
-
-    if (fence->virtual_value > new_max_pending_virtual_timeline_value)
-        new_max_pending_virtual_timeline_value = fence->virtual_value;
-
-    d3d12_fence_signal_external_events_locked(fence);
+    for (i = 0; i < fence->pending_updates_count; i++)
+        new_max_pending_virtual_timeline_value = max(fence->pending_updates[i].virtual_value, new_max_pending_virtual_timeline_value);
+    new_max_pending_virtual_timeline_value = max(fence->virtual_value, new_max_pending_virtual_timeline_value);
     d3d12_fence_update_pending_value_locked(fence, new_max_pending_virtual_timeline_value);
+
     pthread_mutex_unlock(&fence->mutex);
     return S_OK;
 }
