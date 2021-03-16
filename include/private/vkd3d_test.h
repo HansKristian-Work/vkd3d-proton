@@ -272,7 +272,7 @@ int main(int argc, char **argv)
     const char *bug = getenv("VKD3D_TEST_BUG");
 
     memset(&vkd3d_test_state, 0, sizeof(vkd3d_test_state));
-    vkd3d_test_state.debug_level = debug_level ? atoi(debug_level) : 0;
+    vkd3d_test_state.debug_level = debug_level ? atoi(debug_level) : 1;
     vkd3d_test_state.bug_enabled = bug ? atoi(bug) : true;
     vkd3d_test_state.test_name_filter = test_filter;
 
