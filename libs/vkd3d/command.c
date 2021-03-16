@@ -349,7 +349,7 @@ static void *vkd3d_fence_worker_main(void *arg)
             break;
         }
 
-        if (!worker->enqueued_fence_count)
+        if (!worker->enqueued_fence_count && !worker->should_exit)
         {
             if ((rc = pthread_cond_wait(&worker->cond, &worker->mutex)))
             {
