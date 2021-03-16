@@ -2660,6 +2660,7 @@ struct d3d12_state_object
     d3d12_state_object_iface ID3D12StateObject_iface;
     d3d12_state_object_properties_iface ID3D12StateObjectProperties_iface;
     LONG refcount;
+    LONG internal_refcount;
     D3D12_STATE_OBJECT_TYPE type;
     D3D12_STATE_OBJECT_FLAGS flags;
     struct d3d12_device *device;
@@ -2679,6 +2680,9 @@ struct d3d12_state_object
 
     UINT64 pipeline_stack_size;
     struct d3d12_state_object_stack_info stack;
+
+    struct d3d12_state_object **collections;
+    size_t collections_count;
 
     struct vkd3d_private_store private_store;
 };
