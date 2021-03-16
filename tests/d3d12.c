@@ -42355,7 +42355,7 @@ static void test_raytracing(void)
         objs[0].Type = D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG;
         objs[0].pDesc = &state_object_config;
         memset(&state_object_config, 0, sizeof(state_object_config));
-        state_object_config.Flags = D3D12_STATE_OBJECT_FLAG_NONE;
+        state_object_config.Flags = D3D12_STATE_OBJECT_FLAG_ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL_DEFINITIONS;
 
         objs[1].Type = D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE;
         objs[1].pDesc = &global_rs_desc;
@@ -42420,7 +42420,8 @@ static void test_raytracing(void)
             { u"XRayMiss", u"RayMiss", 0 },
             { u"XRayGen", u"RayGen", 0 },
         };
-        D3D12_STATE_SUBOBJECT objs[10];
+        D3D12_STATE_SUBOBJECT objs[11];
+        D3D12_HIT_GROUP_DESC hit_group;
         D3D12_STATE_OBJECT_DESC desc;
 
         memset(objs, 0, sizeof(objs));
@@ -42484,6 +42485,14 @@ static void test_raytracing(void)
         existing_collection.NumExports = 0;
         existing_collection.pExports = NULL;
 
+        objs[10].Type = D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP;
+        objs[10].pDesc = &hit_group;
+
+        memset(&hit_group, 0, sizeof(hit_group));
+        hit_group.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
+        hit_group.ClosestHitShaderImport = u"XRayClosest";
+        hit_group.HitGroupExport = u"XRayHit2";
+
         memset(&desc, 0, sizeof(desc));
         desc.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
         desc.NumSubobjects = ARRAY_SIZE(objs);
@@ -42544,6 +42553,7 @@ static void test_raytracing(void)
             static const WCHAR ray_broken1[] = u"XRayHit:";
             static const WCHAR ray_broken0[] = u"XRayHit";
             static const WCHAR ray_miss[] = u"XRayMiss";
+            static const WCHAR ray_hit2[] = u"XRayHit2";
             static const WCHAR ray_gen[] = u"XRayGen";
             static const WCHAR ray_hit[] = u"XRayHit";
             ID3D12StateObject *tmp_rt_pso;
@@ -42551,6 +42561,7 @@ static void test_raytracing(void)
             const void *ray_miss_sbt;
             const void *ray_gen_sbt;
             const void *ray_hit_sbt;
+            const void *ray_hit_sbt2;
             unsigned int stack_size;
             uint8_t sbt_data[4096];
 
@@ -42608,14 +42619,16 @@ static void test_raytracing(void)
 
             ray_gen_sbt = ID3D12StateObjectProperties_GetShaderIdentifier(props, ray_gen);
             ray_hit_sbt = ID3D12StateObjectProperties_GetShaderIdentifier(props, ray_hit);
+            ray_hit_sbt2 = ID3D12StateObjectProperties_GetShaderIdentifier(props, ray_hit2);
             ray_miss_sbt = ID3D12StateObjectProperties_GetShaderIdentifier(props, ray_miss);
             ok(!!ray_gen_sbt, "Failed to get SBT.\n");
             ok(!!ray_hit_sbt, "Failed to get SBT.\n");
+            ok(!!ray_hit_sbt2, "Failed to get SBT.\n");
             ok(!!ray_miss_sbt, "Failed to get SBT.\n");
 
             memcpy(sbt_data, ray_miss_sbt, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
             for (i = 0; i < NUM_GEOM_DESC * NUM_UNMASKED_INSTANCES; i++)
-                memcpy(sbt_data + (i + 1) * 64, ray_hit_sbt, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+                memcpy(sbt_data + (i + 1) * 64, (i & 1 ? ray_hit_sbt : ray_hit_sbt2), D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
             memcpy(sbt_data + (NUM_GEOM_DESC * NUM_UNMASKED_INSTANCES + 1) * 64, ray_gen_sbt, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
 
             /* Local root signature data is placed after the shader identifier at offset 32 bytes. */
