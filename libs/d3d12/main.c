@@ -253,8 +253,11 @@ HRESULT WINAPI DLLEXPORT D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL 
     PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr;
     struct vkd3d_device_create_info device_create_info;
     struct DXGI_ADAPTER_DESC adapter_desc;
+    VkPhysicalDevice vk_physical_device = VK_NULL_HANDLE;
+    IDXGIVkInteropAdapter *dxvk_adapter;
     struct vkd3d_instance *instance;
     IDXGIAdapter *dxgi_adapter;
+    VkInstance vk_instance = VK_NULL_HANDLE;
     HRESULT hr;
 
     static const char * const instance_extensions[] =
@@ -285,6 +288,13 @@ HRESULT WINAPI DLLEXPORT D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL 
         goto done;
     }
 
+    if (SUCCEEDED(hr = IDXGIAdapter_QueryInterface(dxgi_adapter, &IID_IDXGIVkInteropAdapter, (void**)&dxvk_adapter)))
+    {
+        /* Get the instance and physical device from from the DXVK adapter */
+        IDXGIVkInteropAdapter_GetVulkanHandles(dxvk_adapter, &vk_instance, &vk_physical_device);
+        IDXGIVkInteropAdapter_Release(dxvk_adapter);
+    }
+
     instance_create_info.type = VKD3D_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     instance_create_info.next = NULL;
     instance_create_info.pfn_signal_event = d3d12_signal_event;
@@ -293,6 +303,7 @@ HRESULT WINAPI DLLEXPORT D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL 
     instance_create_info.pfn_vkGetInstanceProcAddr = pfn_vkGetInstanceProcAddr;
     instance_create_info.instance_extensions = instance_extensions;
     instance_create_info.instance_extension_count = ARRAYSIZE(instance_extensions);
+    instance_create_info.vk_instance = vk_instance;
 
     if (FAILED(hr = vkd3d_create_instance(&instance_create_info, &instance)))
     {
@@ -300,12 +311,15 @@ HRESULT WINAPI DLLEXPORT D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL 
         goto done;
     }
 
+    if (!vk_physical_device)
+        vk_physical_device = d3d12_find_physical_device(instance, pfn_vkGetInstanceProcAddr, &adapter_desc);
+
     device_create_info.type = VKD3D_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     device_create_info.next = NULL;
     device_create_info.minimum_feature_level = minimum_feature_level;
     device_create_info.instance = instance;
     device_create_info.instance_create_info = NULL;
-    device_create_info.vk_physical_device = d3d12_find_physical_device(instance, pfn_vkGetInstanceProcAddr, &adapter_desc);
+    device_create_info.vk_physical_device = vk_physical_device;
     device_create_info.device_extensions = device_extensions;
     device_create_info.device_extension_count = ARRAYSIZE(device_extensions);
     device_create_info.parent = (IUnknown *)dxgi_adapter;

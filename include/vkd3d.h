@@ -94,6 +94,9 @@ struct vkd3d_instance_create_info
 
     const char * const *instance_extensions;
     uint32_t instance_extension_count;
+
+    /* If set to NULL, libvkd3d will create an instance */
+    VkInstance vk_instance;
 };
 
 /* Extends vkd3d_instance_create_info. Available since 1.1. */

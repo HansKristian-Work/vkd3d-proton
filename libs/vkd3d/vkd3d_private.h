@@ -189,6 +189,7 @@ struct vkd3d_instance
 
     VkDebugUtilsMessengerEXT vk_debug_callback;
 
+    bool external_vk_instance;
     LONG refcount;
 };
 

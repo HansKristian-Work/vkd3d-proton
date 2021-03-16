@@ -59,6 +59,7 @@
 #include <vkd3d_swapchain_factory.h>
 #include <vkd3d_d3d12.h>
 #include <vkd3d_d3d12sdklayers.h>
+#include <vkd3d_dxvk_interop.h>
 
 /* End of MinGW hack. All Windows headers have been included */
 #ifdef __MINGW32__

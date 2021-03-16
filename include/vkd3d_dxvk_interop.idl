@@ -1,0 +1,44 @@
+/*
+ * Copyright 2020 Joshua Ashton for Valve Software
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+ */
+
+import "vkd3d_windows.h";
+#include "vkd3d_unknown.idl"
+
+cpp_quote("#ifndef VKD3D_NO_VULKAN_H")
+cpp_quote("# ifdef _WIN32")
+cpp_quote("#  define VK_USE_PLATFORM_WIN32_KHR")
+cpp_quote("# endif")
+cpp_quote("# include <vulkan/vulkan.h>")
+cpp_quote("#endif /* VKD3D_NO_VULKAN_H */")
+
+/* For IDL only. */
+cpp_quote("#if 0")
+typedef struct VkInstance_T* VkInstance;
+typedef struct VkPhysicalDevice_T* VkPhysicalDevice;
+cpp_quote("#endif")
+
+[
+    local,
+    object,
+    uuid(3a6d8f2c-b0e8-4ab4-b4dc-4fd24891bfa5),
+    pointer_default(unique)
+]
+interface IDXGIVkInteropAdapter : IUnknown
+{
+    void GetVulkanHandles(VkInstance *instance, VkPhysicalDevice *physical_device);
+}

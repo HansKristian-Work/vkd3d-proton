@@ -10,6 +10,7 @@ vkd3d_idl = [
   'vkd3d_dxgiformat.idl',
   'vkd3d_dxgitype.idl',
   'vkd3d_swapchain_factory.idl',
+  'vkd3d_dxvk_interop.idl',
 ]
 
 vkd3d_header_files = idl_generator.process(vkd3d_idl)

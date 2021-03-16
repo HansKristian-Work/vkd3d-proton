@@ -577,85 +577,115 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     if (loader_version > VKD3D_MAX_API_VERSION)
         loader_version = VKD3D_MAX_API_VERSION;
 
-    application_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    application_info.pNext = NULL;
-    application_info.pApplicationName = NULL;
-    application_info.applicationVersion = 0;
-    application_info.pEngineName = "vkd3d";
-    application_info.engineVersion = vkd3d_get_vk_version();
-    application_info.apiVersion = loader_version;
+    instance->external_vk_instance = create_info->vk_instance != VK_NULL_HANDLE;
 
-    INFO("vkd3d-proton - build: %"PRIx64".\n", vkd3d_build);
-
-    if (vkd3d_get_program_name(application_name))
-        application_info.pApplicationName = application_name;
-
-    TRACE("Application: %s.\n", debugstr_a(application_info.pApplicationName));
-
-    if (!(extensions = vkd3d_calloc(extension_count, sizeof(*extensions))))
+    if (instance->external_vk_instance)
     {
-        if (instance->libvulkan)
-            vkd3d_dlclose(instance->libvulkan);
-        vkd3d_free(user_extension_supported);
-        return E_OUTOFMEMORY;
-    }
+        vk_instance = create_info->vk_instance;
 
-    optional_extensions = vkd3d_find_struct(create_info->next, OPTIONAL_INSTANCE_EXTENSIONS_INFO);
+        INFO("Using Vulkan Instance from DXVK Adapter.\n");
 
-    instance_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    instance_info.pNext = NULL;
-    instance_info.flags = 0;
-    instance_info.pApplicationInfo = &application_info;
-    instance_info.enabledLayerCount = 0;
-    instance_info.ppEnabledLayerNames = NULL;
-    instance_info.enabledExtensionCount = vkd3d_enable_extensions(extensions, NULL, 0,
-            optional_instance_extensions, ARRAY_SIZE(optional_instance_extensions),
-            create_info->instance_extensions, create_info->instance_extension_count,
-            optional_extensions ? optional_extensions->extensions : NULL,
-            optional_extensions ? optional_extensions->extension_count : 0,
-            user_extension_supported, &instance->vk_info);
-    instance_info.ppEnabledExtensionNames = extensions;
-    vkd3d_free(user_extension_supported);
-
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_VULKAN_DEBUG)
-    {
-        layers = NULL;
-
-        if (vk_global_procs->vkEnumerateInstanceLayerProperties(&layer_count, NULL) == VK_SUCCESS &&
-            layer_count &&
-            (layers = vkd3d_malloc(layer_count * sizeof(*layers))) &&
-            vk_global_procs->vkEnumerateInstanceLayerProperties(&layer_count, layers) == VK_SUCCESS)
+        if (!(extensions = vkd3d_calloc(extension_count, sizeof(*extensions))))
         {
-            for (i = 0; i < layer_count; i++)
-            {
-                if (strcmp(layers[i].layerName, debug_layer_name) == 0)
-                {
-                    instance_info.enabledLayerCount = 1;
-                    instance_info.ppEnabledLayerNames = &debug_layer_name;
-                    break;
-                }
-            }
+            if (instance->libvulkan)
+                vkd3d_dlclose(instance->libvulkan);
+            vkd3d_free(user_extension_supported);
+            return E_OUTOFMEMORY;
         }
 
-        if (instance_info.enabledLayerCount == 0)
-            ERR("Failed to enumerate instance layers, will not use VK_LAYER_KHRONOS_validation!\n");
-        vkd3d_free(layers);
+        vkd3d_enable_extensions(extensions, NULL, 0,
+                optional_instance_extensions, ARRAY_SIZE(optional_instance_extensions),
+                create_info->instance_extensions, create_info->instance_extension_count,
+                NULL, 0,
+                user_extension_supported, &instance->vk_info);
+        vkd3d_free(user_extension_supported);
     }
-
-    vr = vk_global_procs->vkCreateInstance(&instance_info, NULL, &vk_instance);
-    vkd3d_free((void *)extensions);
-    if (vr < 0)
+    else
     {
-        ERR("Failed to create Vulkan instance, vr %d.\n", vr);
-        if (instance->libvulkan)
-            vkd3d_dlclose(instance->libvulkan);
-        return hresult_from_vk_result(vr);
+        application_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+        application_info.pNext = NULL;
+        application_info.pApplicationName = NULL;
+        application_info.applicationVersion = 0;
+        application_info.pEngineName = "vkd3d";
+        application_info.engineVersion = vkd3d_get_vk_version();
+        application_info.apiVersion = loader_version;
+
+        INFO("vkd3d-proton - build: %"PRIx64".\n", vkd3d_build);
+
+        if (vkd3d_get_program_name(application_name))
+            application_info.pApplicationName = application_name;
+
+        TRACE("Application: %s.\n", debugstr_a(application_info.pApplicationName));
+
+        if (!(extensions = vkd3d_calloc(extension_count, sizeof(*extensions))))
+        {
+            if (instance->libvulkan)
+                vkd3d_dlclose(instance->libvulkan);
+            vkd3d_free(user_extension_supported);
+            return E_OUTOFMEMORY;
+        }
+
+        optional_extensions = vkd3d_find_struct(create_info->next, OPTIONAL_INSTANCE_EXTENSIONS_INFO);
+
+        instance_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+        instance_info.pNext = NULL;
+        instance_info.flags = 0;
+        instance_info.pApplicationInfo = &application_info;
+        instance_info.enabledLayerCount = 0;
+        instance_info.ppEnabledLayerNames = NULL;
+        instance_info.enabledExtensionCount = vkd3d_enable_extensions(extensions, NULL, 0,
+                optional_instance_extensions, ARRAY_SIZE(optional_instance_extensions),
+                create_info->instance_extensions, create_info->instance_extension_count,
+                optional_extensions ? optional_extensions->extensions : NULL,
+                optional_extensions ? optional_extensions->extension_count : 0,
+                user_extension_supported, &instance->vk_info);
+        instance_info.ppEnabledExtensionNames = extensions;
+        vkd3d_free(user_extension_supported);
+
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_VULKAN_DEBUG)
+        {
+            layers = NULL;
+
+            if (vk_global_procs->vkEnumerateInstanceLayerProperties(&layer_count, NULL) == VK_SUCCESS &&
+                layer_count &&
+                (layers = vkd3d_malloc(layer_count * sizeof(*layers))) &&
+                vk_global_procs->vkEnumerateInstanceLayerProperties(&layer_count, layers) == VK_SUCCESS)
+            {
+                for (i = 0; i < layer_count; i++)
+                {
+                    if (strcmp(layers[i].layerName, debug_layer_name) == 0)
+                    {
+                        instance_info.enabledLayerCount = 1;
+                        instance_info.ppEnabledLayerNames = &debug_layer_name;
+                        break;
+                    }
+                }
+            }
+
+            if (instance_info.enabledLayerCount == 0)
+                ERR("Failed to enumerate instance layers, will not use VK_LAYER_KHRONOS_validation!\n");
+            vkd3d_free(layers);
+        }
+
+        vr = vk_global_procs->vkCreateInstance(&instance_info, NULL, &vk_instance);
+        vkd3d_free((void *)extensions);
+        if (vr < 0)
+        {
+            ERR("Failed to create Vulkan instance, vr %d.\n", vr);
+            if (instance->libvulkan)
+                vkd3d_dlclose(instance->libvulkan);
+            return hresult_from_vk_result(vr);
+        }
+
+        TRACE("Created Vulkan instance %p, version %u.%u.\n", vk_instance,
+                VK_VERSION_MAJOR(loader_version),
+                VK_VERSION_MINOR(loader_version));
     }
 
     if (FAILED(hr = vkd3d_load_vk_instance_procs(&instance->vk_procs, vk_global_procs, vk_instance)))
     {
         ERR("Failed to load instance procs, hr %#x.\n", hr);
-        if (instance->vk_procs.vkDestroyInstance)
+        if (instance->vk_procs.vkDestroyInstance && !instance->external_vk_instance)
             instance->vk_procs.vkDestroyInstance(vk_instance, NULL);
         if (instance->libvulkan)
             vkd3d_dlclose(instance->libvulkan);
@@ -665,16 +695,11 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     instance->vk_instance = vk_instance;
     instance->instance_version = loader_version;
 
-    TRACE("Created Vulkan instance %p, version %u.%u.\n", vk_instance,
-            VK_VERSION_MAJOR(loader_version),
-            VK_VERSION_MINOR(loader_version));
-
     instance->refcount = 1;
 
     instance->vk_debug_callback = VK_NULL_HANDLE;
     if (instance->vk_info.EXT_debug_utils && (vkd3d_config_flags & VKD3D_CONFIG_FLAG_VULKAN_DEBUG))
         vkd3d_init_debug_messenger_callback(instance);
-
 
 #ifdef VKD3D_ENABLE_RENDERDOC
     /* Need to init this sometime after creating the instance so that the layer has loaded. */
@@ -730,7 +755,8 @@ static void vkd3d_destroy_instance(struct vkd3d_instance *instance)
     if (instance->vk_debug_callback)
         VK_CALL(vkDestroyDebugUtilsMessengerEXT(vk_instance, instance->vk_debug_callback, NULL));
 
-    VK_CALL(vkDestroyInstance(vk_instance, NULL));
+    if (!instance->external_vk_instance)
+        VK_CALL(vkDestroyInstance(vk_instance, NULL));
 
     if (instance->libvulkan)
         vkd3d_dlclose(instance->libvulkan);
