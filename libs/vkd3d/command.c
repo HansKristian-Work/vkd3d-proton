@@ -619,14 +619,9 @@ static HRESULT d3d12_fence_signal_cpu_timeline_semaphore(struct d3d12_fence *fen
         return hresult_from_errno(rc);
     }
 
-    /* If we signal a fence on the CPU, we implicitly discard any pending semaphore updates coming from GPU.
-     * If we use the principle of "infinitely fast GPU invariance", immediately upon submitting to the GPU,
-     * we must expect that the fence could be signaled. In this case, pending values should resolve immediately,
-     * and thus we can safely discard them by overwriting the value with the new value. */
-    fence->pending_updates_count = 0;
     fence->virtual_value = value;
-    d3d12_fence_update_pending_value_locked(fence);
     d3d12_fence_signal_external_events_locked(fence);
+    d3d12_fence_update_pending_value_locked(fence);
     pthread_mutex_unlock(&fence->mutex);
     return S_OK;
 }
