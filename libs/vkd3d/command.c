@@ -8888,9 +8888,9 @@ static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12Comma
         region_size.Depth = 0;
     }
 
-    range_flag = range_flags ? range_flags[0] : D3D12_TILE_RANGE_FLAG_NONE;
-    range_size = range_tile_counts ? range_tile_counts[0] : ~0u;
-    range_offset = heap_range_offsets ? heap_range_offsets[0] : 0;
+    range_flag = D3D12_TILE_RANGE_FLAG_NONE;
+    range_size = ~0u;
+    range_offset = 0;
 
     if (!(bound_tiles = vkd3d_calloc(sparse->tile_count, sizeof(*bound_tiles))))
     {
@@ -8900,6 +8900,27 @@ static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12Comma
 
     while (region_idx < region_count && range_idx < range_count)
     {
+        if (range_tile == 0)
+        {
+            if (range_flags)
+                range_flag = range_flags[range_idx];
+
+            if (range_tile_counts)
+                range_size = range_tile_counts[range_idx];
+
+            if (heap_range_offsets)
+                range_offset = heap_range_offsets[range_idx];
+        }
+
+        if (region_tile == 0)
+        {
+            if (region_coords)
+                region_coord = region_coords[region_idx];
+
+            if (region_sizes)
+                region_size = region_sizes[region_idx];
+        }
+
         if (range_flag != D3D12_TILE_RANGE_FLAG_SKIP)
         {
             unsigned int tile_index = vkd3d_get_tile_index_from_region(sparse, &region_coord, &region_size, region_tile);
@@ -8939,24 +8960,12 @@ static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12Comma
         {
             range_idx += 1;
             range_tile = 0;
-
-            if (range_flags)
-                range_flag = range_flags[range_idx];
-
-            range_size = range_tile_counts[range_idx];
-            range_offset = heap_range_offsets[range_idx];
         }
 
         if (++region_tile == region_size.NumTiles)
         {
             region_idx += 1;
             region_tile = 0;
-
-            if (region_coords)
-                region_coord = region_coords[region_idx];
-
-            if (region_sizes)
-                region_size = region_sizes[region_idx];
         }
     }
 
