@@ -559,23 +559,18 @@ static void d3d12_fence_block_until_pending_value_reaches_locked(struct d3d12_fe
     }
 }
 
-static void d3d12_fence_update_pending_value_locked(struct d3d12_fence *fence, uint64_t pending_value)
+static void d3d12_fence_update_pending_value_locked(struct d3d12_fence *fence)
 {
-    /* If we're signalling the fence, wake up any submission threads which can now safely kick work. */
-    fence->max_pending_virtual_timeline_value = pending_value;
-    pthread_cond_broadcast(&fence->cond);
-}
-
-static void d3d12_fence_update_max_pending_value_locked(struct d3d12_fence *fence)
-{
-    uint64_t max_value = fence->virtual_value;
+    uint64_t new_max_pending_virtual_timeline_value = 0;
     size_t i;
 
     for (i = 0; i < fence->pending_updates_count; i++)
-        if (fence->pending_updates[i].virtual_value > max_value)
-            max_value = fence->pending_updates[i].virtual_value;
+        new_max_pending_virtual_timeline_value = max(fence->pending_updates[i].virtual_value, new_max_pending_virtual_timeline_value);
+    new_max_pending_virtual_timeline_value = max(fence->virtual_value, new_max_pending_virtual_timeline_value);
 
-    d3d12_fence_update_pending_value_locked(fence, max_value);
+    /* If we're signalling the fence, wake up any submission threads which can now safely kick work. */
+    fence->max_pending_virtual_timeline_value = new_max_pending_virtual_timeline_value;
+    pthread_cond_broadcast(&fence->cond);
 }
 
 static void d3d12_fence_lock(struct d3d12_fence *fence)
@@ -630,7 +625,7 @@ static HRESULT d3d12_fence_signal_cpu_timeline_semaphore(struct d3d12_fence *fen
      * and thus we can safely discard them by overwriting the value with the new value. */
     fence->pending_updates_count = 0;
     fence->virtual_value = value;
-    d3d12_fence_update_pending_value_locked(fence, value);
+    d3d12_fence_update_pending_value_locked(fence);
     d3d12_fence_signal_external_events_locked(fence);
     pthread_mutex_unlock(&fence->mutex);
     return S_OK;
@@ -674,7 +669,6 @@ static uint64_t d3d12_fence_get_physical_wait_value_locked(struct d3d12_fence *f
 
 static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, uint64_t physical_value)
 {
-    uint64_t new_max_pending_virtual_timeline_value;
     bool did_signal;
     size_t i;
     int rc;
@@ -712,11 +706,7 @@ static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, uint64_t physical_v
     }
 
     /* In case we have a rewind signalled from GPU, we need to recompute the max pending timeline value. */
-    new_max_pending_virtual_timeline_value = 0;
-    for (i = 0; i < fence->pending_updates_count; i++)
-        new_max_pending_virtual_timeline_value = max(fence->pending_updates[i].virtual_value, new_max_pending_virtual_timeline_value);
-    new_max_pending_virtual_timeline_value = max(fence->virtual_value, new_max_pending_virtual_timeline_value);
-    d3d12_fence_update_pending_value_locked(fence, new_max_pending_virtual_timeline_value);
+    d3d12_fence_update_pending_value_locked(fence);
 
     pthread_mutex_unlock(&fence->mutex);
     return S_OK;
@@ -9462,7 +9452,7 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
     vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
 
     if (vr == VK_SUCCESS)
-        d3d12_fence_update_max_pending_value_locked(fence);
+        d3d12_fence_update_pending_value_locked(fence);
     d3d12_fence_unlock(fence);
 
     vkd3d_queue_release(vkd3d_queue);
