@@ -159,45 +159,10 @@ done:
     return hr;
 }
 
-static BOOL check_vk_instance_extension(VkInstance vk_instance,
-        PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr, const char *name)
-{
-    PFN_vkEnumerateInstanceExtensionProperties pfn_vkEnumerateInstanceExtensionProperties;
-    VkExtensionProperties *properties;
-    BOOL ret = FALSE;
-    unsigned int i;
-    uint32_t count;
-
-    pfn_vkEnumerateInstanceExtensionProperties
-            = (void *)pfn_vkGetInstanceProcAddr(vk_instance, "vkEnumerateInstanceExtensionProperties");
-
-    if (pfn_vkEnumerateInstanceExtensionProperties(NULL, &count, NULL) < 0)
-        return FALSE;
-
-    if (!(properties = calloc(count, sizeof(*properties))))
-        return FALSE;
-
-    if (pfn_vkEnumerateInstanceExtensionProperties(NULL, &count, properties) >= 0)
-    {
-        for (i = 0; i < count; ++i)
-        {
-            if (!strcmp(properties[i].extensionName, name))
-            {
-                ret = TRUE;
-                break;
-            }
-        }
-    }
-
-    free(properties);
-    return ret;
-}
-
 static VkPhysicalDevice d3d12_get_vk_physical_device(struct vkd3d_instance *instance,
         PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr, struct DXGI_ADAPTER_DESC *adapter_desc)
 {
-    PFN_vkGetPhysicalDeviceProperties2 pfn_vkGetPhysicalDeviceProperties2 = NULL;
-    PFN_vkGetPhysicalDeviceProperties pfn_vkGetPhysicalDeviceProperties;
+    PFN_vkGetPhysicalDeviceProperties2 pfn_vkGetPhysicalDeviceProperties2;
     PFN_vkEnumeratePhysicalDevices pfn_vkEnumeratePhysicalDevices;
     VkPhysicalDevice vk_physical_device = VK_NULL_HANDLE;
     VkPhysicalDeviceIDProperties id_properties;
@@ -211,10 +176,7 @@ static VkPhysicalDevice d3d12_get_vk_physical_device(struct vkd3d_instance *inst
     vk_instance = vkd3d_instance_get_vk_instance(instance);
 
     pfn_vkEnumeratePhysicalDevices = (void *)pfn_vkGetInstanceProcAddr(vk_instance, "vkEnumeratePhysicalDevices");
-
-    pfn_vkGetPhysicalDeviceProperties = (void *)pfn_vkGetInstanceProcAddr(vk_instance, "vkGetPhysicalDeviceProperties");
-    if (check_vk_instance_extension(vk_instance, pfn_vkGetInstanceProcAddr, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME))
-        pfn_vkGetPhysicalDeviceProperties2 = (void *)pfn_vkGetInstanceProcAddr(vk_instance, "vkGetPhysicalDeviceProperties2KHR");
+    pfn_vkGetPhysicalDeviceProperties2 = (void *)pfn_vkGetInstanceProcAddr(vk_instance, "vkGetPhysicalDeviceProperties2");
 
     if ((vr = pfn_vkEnumeratePhysicalDevices(vk_instance, &count, NULL)) < 0)
     {
@@ -233,25 +195,22 @@ static VkPhysicalDevice d3d12_get_vk_physical_device(struct vkd3d_instance *inst
     if ((vr = pfn_vkEnumeratePhysicalDevices(vk_instance, &count, vk_physical_devices)) < 0)
         goto done;
 
-    if (pfn_vkGetPhysicalDeviceProperties2)
+    TRACE("Matching adapters by LUIDs.\n");
+
+    for (i = 0; i < count; ++i)
     {
-        TRACE("Matching adapters by LUIDs.\n");
+        memset(&id_properties, 0, sizeof(id_properties));
+        id_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
 
-        for (i = 0; i < count; ++i)
+        properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+        properties2.pNext = &id_properties;
+
+        pfn_vkGetPhysicalDeviceProperties2(vk_physical_devices[i], &properties2);
+
+        if (!memcmp(id_properties.deviceLUID, &adapter_desc->AdapterLuid, VK_LUID_SIZE))
         {
-            memset(&id_properties, 0, sizeof(id_properties));
-            id_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
-
-            properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-            properties2.pNext = &id_properties;
-
-            pfn_vkGetPhysicalDeviceProperties2(vk_physical_devices[i], &properties2);
-
-            if (!memcmp(id_properties.deviceLUID, &adapter_desc->AdapterLuid, VK_LUID_SIZE))
-            {
-                vk_physical_device = vk_physical_devices[i];
-                break;
-            }
+            vk_physical_device = vk_physical_devices[i];
+            break;
         }
     }
 
@@ -259,7 +218,10 @@ static VkPhysicalDevice d3d12_get_vk_physical_device(struct vkd3d_instance *inst
 
     for (i = 0; i < count; ++i)
     {
-        pfn_vkGetPhysicalDeviceProperties(vk_physical_devices[i], &properties2.properties);
+        properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+        properties2.pNext = NULL;
+
+        pfn_vkGetPhysicalDeviceProperties2(vk_physical_devices[i], &properties2);
 
         if (properties2.properties.deviceID == adapter_desc->DeviceId &&
             properties2.properties.vendorID == adapter_desc->VendorId)
@@ -284,7 +246,6 @@ done:
 HRESULT WINAPI DLLEXPORT D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL minimum_feature_level,
         REFIID iid, void **device)
 {
-    struct vkd3d_optional_instance_extensions_info optional_extensions_info;
     struct vkd3d_instance_create_info instance_create_info;
     PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr;
     struct vkd3d_device_create_info device_create_info;
@@ -297,10 +258,6 @@ HRESULT WINAPI DLLEXPORT D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL 
     {
         VK_KHR_SURFACE_EXTENSION_NAME,
         VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
-    };
-    static const char * const optional_instance_extensions[] =
-    {
-        VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
     };
     static const char * const device_extensions[] =
     {
@@ -325,13 +282,8 @@ HRESULT WINAPI DLLEXPORT D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL 
         goto done;
     }
 
-    optional_extensions_info.type = VKD3D_STRUCTURE_TYPE_OPTIONAL_INSTANCE_EXTENSIONS_INFO;
-    optional_extensions_info.next = NULL;
-    optional_extensions_info.extensions = optional_instance_extensions;
-    optional_extensions_info.extension_count = ARRAYSIZE(optional_instance_extensions);
-
     instance_create_info.type = VKD3D_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    instance_create_info.next = &optional_extensions_info;
+    instance_create_info.next = NULL;
     instance_create_info.pfn_signal_event = d3d12_signal_event;
     instance_create_info.pfn_create_thread = d3d12_create_thread;
     instance_create_info.pfn_join_thread = d3d12_join_thread;
