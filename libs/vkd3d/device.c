@@ -1891,18 +1891,14 @@ static HRESULT vkd3d_select_queues(const struct vkd3d_instance *vkd3d_instance,
     info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] = vkd3d_find_queue(count, queue_properties,
             VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT, VK_QUEUE_COMPUTE_BIT);
 
-    info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] = vkd3d_find_queue(count, queue_properties,
-            VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT, VK_QUEUE_TRANSFER_BIT);
-
     info->family_index[VKD3D_QUEUE_FAMILY_SPARSE_BINDING] = vkd3d_find_queue(count, queue_properties,
             VK_QUEUE_SPARSE_BINDING_BIT, VK_QUEUE_SPARSE_BINDING_BIT);
 
     if (info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] == VK_QUEUE_FAMILY_IGNORED)
         info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] = info->family_index[VKD3D_QUEUE_FAMILY_GRAPHICS];
 
-    if (info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] == VK_QUEUE_FAMILY_IGNORED)
-        info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] = info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE];
-
+    /* Prefer compute queues for transfer. When using concurrent sharing, DMA queue tends to force compression off. */
+    info->family_index[VKD3D_QUEUE_FAMILY_TRANSFER] = info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE];
     info->family_index[VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE] = info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE];
 
     if (single_queue)
