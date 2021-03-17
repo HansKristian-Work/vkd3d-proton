@@ -261,6 +261,73 @@ static HRESULT vkd3d_allocation_assign_gpu_address(struct vkd3d_memory_allocatio
     return S_OK;
 }
 
+static void *vkd3d_allocate_write_watch_pointer(const D3D12_HEAP_PROPERTIES *properties, VkDeviceSize size)
+{
+#ifdef _WIN32
+    DWORD protect;
+    void *ptr;
+
+    switch (properties->Type)
+    {
+    case D3D12_HEAP_TYPE_DEFAULT:
+        return NULL;
+    case D3D12_HEAP_TYPE_UPLOAD:
+        protect = PAGE_READWRITE | PAGE_WRITECOMBINE;
+        break;
+    case D3D12_HEAP_TYPE_READBACK:
+        /* WRITE_WATCH fails for this type in native D3D12,
+         * otherwise it would be PAGE_READWRITE. */
+        return NULL;
+    case D3D12_HEAP_TYPE_CUSTOM:
+        switch (properties->CPUPageProperty)
+        {
+        case D3D12_CPU_PAGE_PROPERTY_UNKNOWN:
+            return NULL;
+        case D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE:
+            return NULL;
+        case D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE:
+            protect = PAGE_READWRITE | PAGE_WRITECOMBINE;
+            break;
+        case D3D12_CPU_PAGE_PROPERTY_WRITE_BACK:
+            protect = PAGE_READWRITE;
+            break;
+        default:
+            ERR("Invalid CPU page property %#x.\n", properties->CPUPageProperty);
+            return NULL;
+        }
+        break;
+    default:
+        ERR("Invalid heap type %#x.\n", properties->Type);
+        return NULL;
+    }
+
+    if (!(ptr = VirtualAlloc(NULL, (SIZE_T)size, MEM_COMMIT | MEM_RESERVE | MEM_WRITE_WATCH, protect)))
+    {
+        ERR("Failed to allocate write watch pointer %#x.\n", GetLastError());
+        return NULL;
+    }
+
+    return ptr;
+#else
+    (void)properties;
+    (void)size;
+
+    ERR("WRITE_WATCH not supported on this platform.\n");
+    return NULL;
+#endif
+}
+
+static void vkd3d_free_write_watch_pointer(void *pointer)
+{
+#ifdef _WIN32
+    if (!VirtualFree(pointer, 0, MEM_RELEASE))
+        ERR("Failed to free write watch pointer %#x.\n", GetLastError());
+#else
+    /* Not supported on other platforms. */
+    (void)pointer;
+#endif
+}
+
 static void vkd3d_memory_allocation_free(const struct vkd3d_memory_allocation *allocation, struct d3d12_device *device, struct vkd3d_memory_allocator *allocator)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -270,6 +337,9 @@ static void vkd3d_memory_allocation_free(const struct vkd3d_memory_allocation *a
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     vkd3d_descriptor_debug_unregister_cookie(allocation->resource.cookie);
 #endif
+
+    if (allocation->flags & VKD3D_ALLOCATION_FLAG_ALLOW_WRITE_WATCH)
+        vkd3d_free_write_watch_pointer(allocation->cpu_address);
 
     if ((allocation->flags & VKD3D_ALLOCATION_FLAG_GPU_ADDRESS) && allocation->resource.va)
     {
@@ -298,6 +368,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     VkMemoryRequirements memory_requirements;
     VkMemoryAllocateFlagsInfo flags_info;
     VkMemoryPropertyFlags type_flags;
+    void *host_ptr = info->host_ptr;
     uint32_t type_mask;
     VkResult vr;
     HRESULT hr;
@@ -353,9 +424,18 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
 
     allocation->resource.size = memory_requirements.size;
 
-    if (info->host_ptr)
+    if (info->heap_flags & D3D12_HEAP_FLAG_ALLOW_WRITE_WATCH)
     {
-        hr = vkd3d_import_host_memory(device, info->host_ptr, memory_requirements.size,
+        assert(!host_ptr);
+
+        allocation->flags |= VKD3D_ALLOCATION_FLAG_ALLOW_WRITE_WATCH;
+        if (!(host_ptr = vkd3d_allocate_write_watch_pointer(&info->heap_properties, memory_requirements.size)))
+            return E_FAIL;
+    }
+
+    if (host_ptr)
+    {
+        hr = vkd3d_import_host_memory(device, host_ptr, memory_requirements.size,
                 type_flags, type_mask, &flags_info, &allocation->vk_memory, &allocation->vk_memory_type);
     }
     else
@@ -370,7 +450,14 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     /* Map memory if the allocation was requested to be host-visible,
      * but do not map if the allocation was meant to be device-local
      * since that may negatively impact performance. */
-    if (type_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+    if (host_ptr)
+    {
+        allocation->flags |= VKD3D_ALLOCATION_FLAG_CPU_ACCESS;
+
+        /* No need to call map here, we already know the pointer. */
+        allocation->cpu_address = host_ptr;
+    }
+    else if (type_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
     {
         allocation->flags |= VKD3D_ALLOCATION_FLAG_CPU_ACCESS;
 
@@ -1163,7 +1250,7 @@ HRESULT vkd3d_allocate_memory(struct d3d12_device *device, struct vkd3d_memory_a
     HRESULT hr;
 
     if (!info->pNext && !info->host_ptr && info->memory_requirements.size < VKD3D_VA_BLOCK_SIZE &&
-            !(info->heap_flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
+            !(info->heap_flags & (D3D12_HEAP_FLAG_DENY_BUFFERS | D3D12_HEAP_FLAG_ALLOW_WRITE_WATCH)))
         hr = vkd3d_suballocate_memory(device, allocator, info, allocation);
     else
         hr = vkd3d_memory_allocation_init(allocation, device, allocator, info);
