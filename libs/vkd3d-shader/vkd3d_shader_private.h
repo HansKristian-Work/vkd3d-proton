@@ -801,6 +801,7 @@ void vkd3d_shader_dump_spirv_shader_export(vkd3d_shader_hash_t hash, const struc
         const char *export);
 void vkd3d_shader_dump_shader(vkd3d_shader_hash_t hash, const struct vkd3d_shader_code *shader, const char *ext);
 bool vkd3d_shader_replace(vkd3d_shader_hash_t hash, const void **data, size_t *size);
+bool vkd3d_shader_replace_export(vkd3d_shader_hash_t hash, const void **data, size_t *size, const char *export);
 
 static inline enum vkd3d_component_type vkd3d_component_type_from_data_type(
         enum vkd3d_data_type data_type)
