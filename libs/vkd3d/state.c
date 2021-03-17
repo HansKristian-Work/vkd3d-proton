@@ -1221,7 +1221,12 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
         if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
                 device, context.vk_set, set_layouts,
                 &root_signature->push_constant_range,
-                VK_SHADER_STAGE_RAYGEN_BIT_KHR, &root_signature->raygen)))
+                VK_SHADER_STAGE_RAYGEN_BIT_KHR |
+                VK_SHADER_STAGE_MISS_BIT_KHR |
+                VK_SHADER_STAGE_INTERSECTION_BIT_KHR |
+                VK_SHADER_STAGE_CALLABLE_BIT_KHR |
+                VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
+                VK_SHADER_STAGE_ANY_HIT_BIT_KHR, &root_signature->raygen)))
             return hr;
     }
 
