@@ -773,8 +773,16 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     hash = vkd3d_shader_hash(dxil);
     spirv->meta.replaced = false;
     spirv->meta.hash = hash;
-
-    /* TODO: Probably need to add per-export shader replacement. */
+    demangled_export = vkd3d_dup_demangled_entry_point_ascii(export);
+    if (demangled_export)
+    {
+        if (vkd3d_shader_replace_export(hash, &spirv->code, &spirv->size, demangled_export))
+        {
+            spirv->meta.replaced = true;
+            vkd3d_free(demangled_export);
+            return ret;
+        }
+    }
 
     dxil_spv_begin_thread_allocator_context();
 
@@ -1077,17 +1085,14 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     spirv->code = code;
     spirv->size = compiled.size;
 
-    demangled_export = vkd3d_dup_demangled_entry_point_ascii(export);
     if (demangled_export)
-    {
         vkd3d_shader_dump_spirv_shader_export(hash, spirv, demangled_export);
-        vkd3d_free(demangled_export);
-    }
 
 end:
     dxil_spv_converter_free(converter);
     dxil_spv_parsed_blob_free(blob);
     dxil_spv_end_thread_allocator_context();
+    vkd3d_free(demangled_export);
     return ret;
 }
 

@@ -40,25 +40,12 @@ static void vkd3d_shader_dump_blob(const char *path, vkd3d_shader_hash_t hash, c
     }
 }
 
-bool vkd3d_shader_replace(vkd3d_shader_hash_t hash, const void **data, size_t *size)
+static bool vkd3d_shader_replace_path(const char *filename, vkd3d_shader_hash_t hash, const void **data, size_t *size)
 {
-    static bool enabled = true;
-    char filename[1024];
     void *buffer = NULL;
-    const char *path;
     FILE *f = NULL;
     size_t len;
 
-    if (!enabled)
-        return false;
-
-    if (!(path = getenv("VKD3D_SHADER_OVERRIDE")))
-    {
-        enabled = false;
-        return false;
-    }
-
-    snprintf(filename, ARRAY_SIZE(filename), "%s/%016"PRIx64".spv", path, hash);
     if ((f = fopen(filename, "rb")))
     {
         if (fseek(f, 0, SEEK_END) < 0)
@@ -78,7 +65,7 @@ bool vkd3d_shader_replace(vkd3d_shader_hash_t hash, const void **data, size_t *s
 
     *data = buffer;
     *size = len;
-    WARN("Overriding shader hash %016"PRIx64" with alternative SPIR-V module!\n", hash);
+    INFO("Overriding shader hash %016"PRIx64" with alternative SPIR-V module from %s!\n", hash, filename);
     fclose(f);
     return true;
 
@@ -87,6 +74,44 @@ err:
         fclose(f);
     vkd3d_free(buffer);
     return false;
+}
+
+bool vkd3d_shader_replace(vkd3d_shader_hash_t hash, const void **data, size_t *size)
+{
+    static bool enabled = true;
+    char filename[1024];
+    const char *path;
+
+    if (!enabled)
+        return false;
+
+    if (!(path = getenv("VKD3D_SHADER_OVERRIDE")))
+    {
+        enabled = false;
+        return false;
+    }
+
+    snprintf(filename, ARRAY_SIZE(filename), "%s/%016"PRIx64".spv", path, hash);
+    return vkd3d_shader_replace_path(filename, hash, data, size);
+}
+
+bool vkd3d_shader_replace_export(vkd3d_shader_hash_t hash, const void **data, size_t *size, const char *export)
+{
+    static bool enabled = true;
+    char filename[1024];
+    const char *path;
+
+    if (!enabled)
+        return false;
+
+    if (!(path = getenv("VKD3D_SHADER_OVERRIDE")))
+    {
+        enabled = false;
+        return false;
+    }
+
+    snprintf(filename, ARRAY_SIZE(filename), "%s/%016"PRIx64".lib.%s.spv", path, hash, export);
+    return vkd3d_shader_replace_path(filename, hash, data, size);
 }
 
 void vkd3d_shader_dump_shader(vkd3d_shader_hash_t hash, const struct vkd3d_shader_code *shader, const char *ext)
