@@ -65,8 +65,12 @@ static unsigned dxil_resource_flags_from_kind(dxil_spv_resource_kind kind, bool 
             return VKD3D_SHADER_BINDING_FLAG_BUFFER;
 
         case DXIL_SPV_RESOURCE_KIND_RT_ACCELERATION_STRUCTURE:
-            /* Acceleration structures use aux buffer to store raw AS pointers. */
-            return VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER;
+            /* Acceleration structures use aux buffer to store raw AS pointers.
+             * As root descriptors, we should check for buffer flag instead. */
+            if (ssbo)
+                return VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER;
+            else
+                return VKD3D_SHADER_BINDING_FLAG_BUFFER;
 
         default:
             return VKD3D_SHADER_BINDING_FLAG_IMAGE;
