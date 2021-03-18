@@ -430,7 +430,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
 
         allocation->flags |= VKD3D_ALLOCATION_FLAG_ALLOW_WRITE_WATCH;
         if (!(host_ptr = vkd3d_allocate_write_watch_pointer(&info->heap_properties, memory_requirements.size)))
-            return E_FAIL;
+            return E_INVALIDARG;
     }
 
     if (host_ptr)
