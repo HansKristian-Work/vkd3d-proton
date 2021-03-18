@@ -49054,6 +49054,12 @@ static void test_write_watch(void)
             NULL, &IID_ID3D12Resource, (void **)&buffer);
     ok(hr == S_OK, "Got hr %#x, expected %#x.\n", hr, S_OK);
 
+    if (FAILED(hr))
+    {
+        skip("Failed to create write watch buffer.\n");
+        goto done;
+    }
+
     /* Do some basic write watch testing... */
     hr = ID3D12Resource_Map(buffer, 0, NULL, (void**) &map_ptr);
     ok(hr == S_OK, "Got hr %#x, expected %#x.\n", hr, S_OK);
