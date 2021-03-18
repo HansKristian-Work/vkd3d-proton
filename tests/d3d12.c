@@ -48996,6 +48996,120 @@ static void test_cbv_hoisting_dxil(void)
     test_cbv_hoisting(true);
 }
 
+static void test_write_watch(void)
+{
+#ifndef _WIN32
+    skip("WRITE_WATCH tests cannot pass on native Linux. Skipping.\n");
+#else
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC resource_desc;
+    struct test_context_desc desc;
+    void **dirty_addresses = NULL;
+    struct test_context context;
+    ULONG_PTR address_count;
+    ID3D12Resource *buffer;
+    size_t mapping_size;
+    DWORD page_size;
+    char *map_ptr;
+    UINT result;
+    HRESULT hr;
+
+    mapping_size = 64 * 1024;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    desc.no_pipeline = true;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = mapping_size;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+    buffer = NULL;
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
+            D3D12_HEAP_FLAG_ALLOW_WRITE_WATCH, &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            NULL, &IID_ID3D12Resource, (void **)&buffer);
+    ok(hr == E_INVALIDARG, "Got hr %#x, expected %#x.\n", hr, E_INVALIDARG);
+    if (buffer)
+        ID3D12Resource_Release(buffer);
+
+    buffer = NULL;
+    heap_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
+            D3D12_HEAP_FLAG_ALLOW_WRITE_WATCH, &resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ,
+            NULL, &IID_ID3D12Resource, (void **)&buffer);
+    ok(hr == S_OK, "Got hr %#x, expected %#x.\n", hr, S_OK);
+
+    /* Do some basic write watch testing... */
+    hr = ID3D12Resource_Map(buffer, 0, NULL, (void**) &map_ptr);
+    ok(hr == S_OK, "Got hr %#x, expected %#x.\n", hr, S_OK);
+    if (FAILED(hr))
+    {
+        skip("Failed to map write watch resource.\n");
+        goto done;
+    }
+
+    result = ResetWriteWatch((void*) map_ptr, mapping_size);
+    ok(!result, "Failed to ResetWriteWatch %#x.\n", GetLastError());
+    if (result)
+    {
+        skip("Failed to ResetWriteWatch, skipping the rest of the WRITE_WATCH tests.\n");
+        goto done;
+    }
+
+    page_size = 0x1000;
+    address_count = mapping_size / (DWORD_PTR)page_size;
+    dirty_addresses = malloc(sizeof(void*) * address_count);
+
+    /* Dirty it a bit, in some pages... */
+    map_ptr[0 * page_size] = 'a';
+    map_ptr[1 * page_size] = 'b';
+    map_ptr[5 * page_size] = 'c';
+    map_ptr[9 * page_size] = 'd';
+
+    result = GetWriteWatch(WRITE_WATCH_FLAG_RESET, (void*) map_ptr, mapping_size, dirty_addresses, &address_count, &page_size);
+    ok(!result, "Failed to GetWriteWatch %#x.\n", GetLastError());
+    if (result)
+    {
+        skip("Failed to GetWriteWatch, skipping the rest of the WRITE_WATCH tests.\n");
+        goto done;
+    }
+
+    ok(address_count == 4, "Expected address_count of %p, got %p\n", 4, address_count);
+    ok(page_size == 0x1000, "Expected page_size of %u, got %u\n", 0x1000, page_size);
+    ok(dirty_addresses[0] == (void*)&map_ptr[0 * page_size], "Expected dirty address 0 to be %p, got %p\n",
+            (void*)&map_ptr[0 * page_size], dirty_addresses[0]);
+    ok(dirty_addresses[1] == (void*)&map_ptr[1 * page_size], "Expected dirty address 1 to be %p, got %p\n",
+            (void*)&map_ptr[1 * page_size], dirty_addresses[1]);
+    ok(dirty_addresses[2] == (void*)&map_ptr[5 * page_size], "Expected dirty address 2 to be %p, got %p\n",
+            (void*)&map_ptr[5 * page_size], dirty_addresses[2]);
+    ok(dirty_addresses[3] == (void*)&map_ptr[9 * page_size], "Expected dirty address 3 to be %p, got %p\n",
+            (void*)&map_ptr[9 * page_size], dirty_addresses[3]);
+
+done:
+    free(dirty_addresses);
+
+    if (buffer)
+        ID3D12Resource_Release(buffer);
+
+    destroy_test_context(&context);
+#endif
+}
+
 START_TEST(d3d12)
 {
     pfn_D3D12CreateDevice = get_d3d12_pfn(D3D12CreateDevice);
@@ -49240,4 +49354,5 @@ START_TEST(d3d12)
     run_test(test_root_parameter_preservation);
     run_test(test_cbv_hoisting_sm51);
     run_test(test_cbv_hoisting_dxil);
+    run_test(test_write_watch);
 }
