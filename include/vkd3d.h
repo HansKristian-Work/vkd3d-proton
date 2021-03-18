@@ -33,6 +33,9 @@
 # include <vulkan/vulkan.h>
 #endif  /* VKD3D_NO_VULKAN_H */
 
+#define VKD3D_MIN_API_VERSION VK_API_VERSION_1_1
+#define VKD3D_MAX_API_VERSION VK_API_VERSION_1_1
+
 #if defined(__GNUC__)
 # define DECLSPEC_VISIBLE __attribute__((visibility("default")))
 #else
