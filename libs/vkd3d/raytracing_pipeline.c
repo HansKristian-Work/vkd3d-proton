@@ -508,30 +508,43 @@ static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *ob
                 const D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION *association = obj->pDesc;
                 const D3D12_LOCAL_ROOT_SIGNATURE *local_rs;
 
-                if (association->pSubobjectToAssociate->Type != D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE)
+                switch (association->pSubobjectToAssociate->Type)
                 {
-                    FIXME("Can only associate local root signatures to exports.\n");
-                    return E_INVALIDARG;
-                }
+                    /* These are irrelevant. There can only be one unique config,
+                     * and what can happen here is that app redundantly assigns the same config.
+                     * The associated object must be part of the PSO anyways, so it should be safe to ignore
+                     * here. */
+                    case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG:
+                    case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG:
+                        break;
 
-                local_rs = association->pSubobjectToAssociate->pDesc;
-                if (association->NumExports)
-                {
-                    vkd3d_array_reserve((void **)&data->associations, &data->associations_size,
-                            data->associations_count + association->NumExports,
-                            sizeof(*data->associations));
-                    for (j = 0; j < association->NumExports; j++)
+                    case D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE:
                     {
-                        data->associations[data->associations_count].export = association->pExports[j];
-                        data->associations[data->associations_count].root_signature =
-                                unsafe_impl_from_ID3D12RootSignature(local_rs->pLocalRootSignature);
-                        data->associations_count++;
+                        local_rs = association->pSubobjectToAssociate->pDesc;
+                        if (association->NumExports)
+                        {
+                            vkd3d_array_reserve((void **) &data->associations, &data->associations_size,
+                                    data->associations_count + association->NumExports,
+                                    sizeof(*data->associations));
+                            for (j = 0; j < association->NumExports; j++)
+                            {
+                                data->associations[data->associations_count].export = association->pExports[j];
+                                data->associations[data->associations_count].root_signature =
+                                        unsafe_impl_from_ID3D12RootSignature(local_rs->pLocalRootSignature);
+                                data->associations_count++;
+                            }
+                        }
+                        else
+                        {
+                            /* Local root signatures being exported to NULL takes priority as the default local RS. */
+                            data->high_priority_local_root_signature = local_rs->pLocalRootSignature;
+                        }
+                        break;
                     }
-                }
-                else
-                {
-                    /* Local root signatures being exported to NULL takes priority as the default local RS. */
-                    data->high_priority_local_root_signature = local_rs->pLocalRootSignature;
+
+                    default:
+                        FIXME("Got unsupported subobject association type %u.\n", association->pSubobjectToAssociate->Type);
+                        return E_INVALIDARG;
                 }
                 break;
             }
@@ -702,7 +715,7 @@ static VkDeviceSize d3d12_state_object_pipeline_data_compute_default_stack_size(
                     break;
 
                 default:
-                    ERR("Unexpected stage #%x.\n", export->general_stage_index);
+                    ERR("Unexpected stage #%x.\n", export->general_stage);
                     return 0;
             }
         }
@@ -1020,16 +1033,17 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
         else
             num_groups_to_export = collection->object->exports_count;
 
-        vkd3d_array_reserve((void **)&data->exports, &data->exports_size,
-                data->exports_count + num_groups_to_export, sizeof(*data->exports));
-        memset(data->exports + data->exports_count, 0, num_groups_to_export * sizeof(*data->exports));
-
         for (j = 0; j < num_groups_to_export; j++)
         {
             const struct d3d12_state_object_identifier *input_export;
             if (collection->num_exports == 0)
             {
+                vkd3d_array_reserve((void **)&data->exports, &data->exports_size,
+                        data->exports_count + 1, sizeof(*data->exports));
+
                 export = &data->exports[data->exports_count];
+                memset(export, 0, sizeof(*export));
+
                 input_export = &collection->object->exports[j];
                 if (input_export->plain_export)
                     export->plain_export = vkd3d_wstrdup(input_export->plain_export);
@@ -1042,8 +1056,6 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
                 const WCHAR *subtype = NULL;
                 uint32_t index;
 
-                export = &data->exports[data->exports_count];
-
                 if (collection->exports[j].ExportToRename)
                     original_export = collection->exports[j].ExportToRename;
                 else
@@ -1052,9 +1064,15 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
                 index = d3d12_state_object_get_export_index(collection->object, original_export, &subtype);
                 if (subtype || index == UINT32_MAX)
                 {
-                    ERR("Could not find subobject.\n");
-                    return E_INVALIDARG;
+                    /* If we import things, but don't use them, this can happen. Just ignore it. */
+                    continue;
                 }
+
+                vkd3d_array_reserve((void **)&data->exports, &data->exports_size,
+                        data->exports_count + 1, sizeof(*data->exports));
+
+                export = &data->exports[data->exports_count];
+                memset(export, 0, sizeof(*export));
 
                 export->plain_export = vkd3d_wstrdup(collection->exports[j].Name);
                 export->mangled_export = NULL;
@@ -1067,6 +1085,8 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
             export->closest_stage_index = input_export->closest_stage_index;
             export->anyhit_stage_index = input_export->anyhit_stage_index;
             export->intersection_stage_index = input_export->intersection_stage_index;
+            export->general_stage = input_export->general_stage;
+
             if (export->general_stage_index != VK_SHADER_UNUSED_KHR)
                 export->general_stage_index += pstage_offset;
             if (export->closest_stage_index != VK_SHADER_UNUSED_KHR)
