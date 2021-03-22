@@ -944,6 +944,10 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->float16_int8_features);
     }
 
+    /* Core in Vulkan 1.1. */
+    info->storage_16bit_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES;
+    vk_prepend_struct(&info->features2, &info->storage_16bit_features);
+
     if (vulkan_info->KHR_shader_subgroup_extended_types)
     {
         info->subgroup_extended_types_features.sType =
@@ -4750,9 +4754,12 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
          * FP16, Denorm modes (float controls extension)
          */
         if (device->device_info.float16_int8_features.shaderFloat16 &&
-            device->device_info.subgroup_extended_types_features.shaderSubgroupExtendedTypes)
+                device->device_info.storage_16bit_features.storageBuffer16BitAccess &&
+                device->device_info.subgroup_extended_types_features.shaderSubgroupExtendedTypes)
         {
             /* These features are required by FidelityFX SSSR demo. */
+            /* Technically we need storageInputOutput16 as well, but
+             * we can probably work around it on devices which don't support it. */
             device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_2;
             TRACE("Enabling support for SM 6.2.\n");
         }
