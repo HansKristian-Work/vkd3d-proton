@@ -2428,6 +2428,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDevice4444FormatsFeaturesEXT ext_4444_formats_features;
     VkPhysicalDeviceTimelineSemaphoreFeaturesKHR timeline_semaphore_features;
     VkPhysicalDeviceFloat16Int8FeaturesKHR float16_int8_features;
+    VkPhysicalDevice16BitStorageFeatures storage_16bit_features;
     VkPhysicalDeviceShaderSubgroupExtendedTypesFeaturesKHR subgroup_extended_types_features;
     VkPhysicalDeviceRobustness2FeaturesEXT robustness2_features;
     VkPhysicalDeviceExtendedDynamicStateFeaturesEXT extended_dynamic_state_features;
