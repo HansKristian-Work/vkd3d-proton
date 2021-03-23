@@ -22,6 +22,7 @@ There are some hard requirements on drivers to be able to implement D3D12 in a r
 - `VK_EXT_descriptor_indexing` with at least 1000000 UpdateAfterBind descriptors for all types except UniformBuffer.
   Essentially all features in `VkPhysicalDeviceDescriptorIndexingFeatures` must be supported.
 - `VK_KHR_timeline_semaphore`
+- `VK_KHR_create_renderpass2`
 
 Some notable extensions that **should** be supported for optimal or correct behavior.
 These extensions will likely become mandatory later.
