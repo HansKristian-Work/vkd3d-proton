@@ -218,6 +218,12 @@ VK_DEVICE_EXT_PFN(vkCmdCopyAccelerationStructureKHR)
 VK_INSTANCE_PFN(vkGetPhysicalDeviceFragmentShadingRatesKHR)
 VK_DEVICE_EXT_PFN(vkCmdSetFragmentShadingRateKHR)
 
+/* VK_KHR_create_renderpass2 */
+VK_DEVICE_EXT_PFN(vkCmdBeginRenderPass2KHR)
+VK_DEVICE_EXT_PFN(vkCmdEndRenderPass2KHR)
+VK_DEVICE_EXT_PFN(vkCmdNextSubpass2KHR)
+VK_DEVICE_EXT_PFN(vkCreateRenderPass2KHR)
+
 /* VK_EXT_calibrated_timestamps */
 VK_DEVICE_EXT_PFN(vkGetCalibratedTimestampsEXT)
 VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceCalibrateableTimeDomainsEXT)

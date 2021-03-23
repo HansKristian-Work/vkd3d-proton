@@ -975,6 +975,8 @@ static VkResult d3d12_swapchain_record_swapchain_blit(struct d3d12_swapchain *sw
         VkCommandBuffer vk_cmd_buffer, unsigned int dst_index, unsigned int src_index)
 {
     const struct vkd3d_vk_device_procs *vk_procs = d3d12_swapchain_procs(swapchain);
+    VkSubpassBeginInfoKHR subpass_begin_info;
+    VkSubpassEndInfoKHR subpass_end_info;
     VkCommandBufferBeginInfo begin_info;
     VkRenderPassBeginInfo rp_info;
     VkClearValue clear_value;
@@ -1004,6 +1006,13 @@ static VkResult d3d12_swapchain_record_swapchain_blit(struct d3d12_swapchain *sw
     rp_info.renderArea.extent.width = swapchain->vk_swapchain_width;
     rp_info.renderArea.extent.height = swapchain->vk_swapchain_height;
 
+    subpass_begin_info.sType = VK_STRUCTURE_TYPE_SUBPASS_BEGIN_INFO_KHR;
+    subpass_begin_info.pNext = NULL;
+    subpass_begin_info.contents = VK_SUBPASS_CONTENTS_INLINE;
+
+    subpass_end_info.sType = VK_STRUCTURE_TYPE_SUBPASS_END_INFO_KHR;
+    subpass_end_info.pNext = NULL;
+
     if (swapchain->desc.Scaling == DXGI_SCALING_NONE)
     {
         rp_info.clearValueCount = 1;
@@ -1019,7 +1028,7 @@ static VkResult d3d12_swapchain_record_swapchain_blit(struct d3d12_swapchain *sw
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 
-    VK_CALL(vkCmdBeginRenderPass(vk_cmd_buffer, &rp_info, VK_SUBPASS_CONTENTS_INLINE));
+    VK_CALL(vkCmdBeginRenderPass2KHR(vk_cmd_buffer, &rp_info, &subpass_begin_info));
     if (swapchain->desc.Scaling == DXGI_SCALING_NONE)
     {
         viewport.width = (float)swapchain->desc.Width;
@@ -1039,7 +1048,7 @@ static VkResult d3d12_swapchain_record_swapchain_blit(struct d3d12_swapchain *sw
             swapchain->pipeline.vk_pipeline_layout, 0, 1, &swapchain->descriptors.sets[src_index],
             0, NULL));
     VK_CALL(vkCmdDraw(vk_cmd_buffer, 3, 1, 0, 0));
-    VK_CALL(vkCmdEndRenderPass(vk_cmd_buffer));
+    VK_CALL(vkCmdEndRenderPass2KHR(vk_cmd_buffer, &subpass_end_info));
 
     if ((vr = vk_procs->vkEndCommandBuffer(vk_cmd_buffer)) < 0)
         WARN("Failed to end command buffer, vr %d.\n", vr);

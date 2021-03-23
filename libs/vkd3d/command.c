@@ -2074,12 +2074,14 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
         const D3D12_RECT *rects)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkAttachmentDescription attachment_desc;
-    VkAttachmentReference attachment_ref;
-    VkSubpassDependency dependencies[2];
-    VkSubpassDescription subpass_desc;
+    VkAttachmentDescription2KHR attachment_desc;
+    VkAttachmentReference2KHR attachment_ref;
+    VkSubpassBeginInfoKHR subpass_begin_info;
+    VkSubpassDependency2KHR dependencies[2];
+    VkSubpassDescription2KHR subpass_desc;
+    VkSubpassEndInfoKHR subpass_end_info;
+    VkRenderPassCreateInfo2KHR pass_info;
     VkRenderPassBeginInfo begin_info;
-    VkRenderPassCreateInfo pass_info;
     VkFramebuffer vk_framebuffer;
     VkRenderPass vk_render_pass;
     VkPipelineStageFlags stages;
@@ -2088,6 +2090,8 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     bool clear_op;
     VkResult vr;
 
+    attachment_desc.sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2_KHR;
+    attachment_desc.pNext = NULL;
     attachment_desc.flags = 0;
     attachment_desc.format = view->format->vk_format;
     attachment_desc.samples = vk_samples_from_dxgi_sample_desc(&resource->desc.SampleDesc);
@@ -2098,11 +2102,17 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     attachment_desc.initialLayout = resource->common_layout;
     attachment_desc.finalLayout = resource->common_layout;
 
+    attachment_ref.sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2_KHR;
+    attachment_ref.pNext = NULL;
     attachment_ref.attachment = 0;
     attachment_ref.layout = view->info.texture.vk_layout;
+    attachment_ref.aspectMask = 0; /* input attachment aspect mask */
 
+    subpass_desc.sType = VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2_KHR;
+    subpass_desc.pNext = NULL;
     subpass_desc.flags = 0;
     subpass_desc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass_desc.viewMask = 0;
     subpass_desc.inputAttachmentCount = 0;
     subpass_desc.pInputAttachments = NULL;
     subpass_desc.colorAttachmentCount = 0;
@@ -2149,6 +2159,8 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
         subpass_desc.pColorAttachments = &attachment_ref;
     }
 
+    dependencies[0].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2_KHR;
+    dependencies[0].pNext = NULL;
     dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
     dependencies[0].dstSubpass = 0;
     dependencies[0].srcStageMask = stages;
@@ -2156,7 +2168,10 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     dependencies[0].srcAccessMask = 0;
     dependencies[0].dstAccessMask = access;
     dependencies[0].dependencyFlags = 0;
+    dependencies[0].viewOffset = 0;
 
+    dependencies[1].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2_KHR;
+    dependencies[1].pNext = NULL;
     dependencies[1].srcSubpass = 0;
     dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
     dependencies[1].srcStageMask = stages;
@@ -2164,8 +2179,9 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     dependencies[1].srcAccessMask = access;
     dependencies[1].dstAccessMask = 0;
     dependencies[1].dependencyFlags = 0;
+    dependencies[1].viewOffset = 0;
 
-    pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2_KHR;
     pass_info.pNext = NULL;
     pass_info.flags = 0;
     pass_info.attachmentCount = 1;
@@ -2174,8 +2190,10 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     pass_info.pSubpasses = &subpass_desc;
     pass_info.dependencyCount = ARRAY_SIZE(dependencies);
     pass_info.pDependencies = dependencies;
+    pass_info.correlatedViewMaskCount = 0;
+    pass_info.pCorrelatedViewMasks = NULL;
 
-    if ((vr = VK_CALL(vkCreateRenderPass(list->device->vk_device, &pass_info, NULL, &vk_render_pass))) < 0)
+    if ((vr = VK_CALL(vkCreateRenderPass2KHR(list->device->vk_device, &pass_info, NULL, &vk_render_pass))) < 0)
     {
         WARN("Failed to create Vulkan render pass, vr %d.\n", vr);
         return;
@@ -2198,6 +2216,10 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
         return;
     }
 
+    subpass_begin_info.sType = VK_STRUCTURE_TYPE_SUBPASS_BEGIN_INFO_KHR;
+    subpass_begin_info.pNext = NULL;
+    subpass_begin_info.contents = VK_SUBPASS_CONTENTS_INLINE;
+
     begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     begin_info.pNext = NULL;
     begin_info.renderPass = vk_render_pass;
@@ -2209,8 +2231,8 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     begin_info.clearValueCount = clear_op ? 1 : 0;
     begin_info.pClearValues = clear_op ? clear_value : NULL;
 
-    VK_CALL(vkCmdBeginRenderPass(list->vk_command_buffer,
-            &begin_info, VK_SUBPASS_CONTENTS_INLINE));
+    VK_CALL(vkCmdBeginRenderPass2KHR(list->vk_command_buffer,
+            &begin_info, &subpass_begin_info));
 
     if (!clear_op)
     {
@@ -2218,7 +2240,10 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
                 clear_aspects, clear_value, rect_count, rects);
     }
 
-    VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
+    subpass_end_info.sType = VK_STRUCTURE_TYPE_SUBPASS_END_INFO_KHR;
+    subpass_end_info.pNext = NULL;
+
+    VK_CALL(vkCmdEndRenderPass2KHR(list->vk_command_buffer, &subpass_end_info));
 }
 
 static void d3d12_command_list_clear_attachment_deferred(struct d3d12_command_list *list, unsigned int attachment_idx,
@@ -3022,7 +3047,13 @@ static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list
     }
 
     if (list->current_render_pass)
-        VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
+    {
+        VkSubpassEndInfoKHR subpass_end_info;
+        subpass_end_info.sType = VK_STRUCTURE_TYPE_SUBPASS_END_INFO_KHR;
+        subpass_end_info.pNext = NULL;
+
+        VK_CALL(vkCmdEndRenderPass2KHR(list->vk_command_buffer, &subpass_end_info));
+    }
 
     /* Don't emit barriers for temporary suspendion of the render pass */
     if (!suspend && (list->current_render_pass || list->render_pass_suspended))
@@ -4773,7 +4804,8 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct d3d12_graphics_pipeline_state *graphics;
-    struct VkRenderPassBeginInfo begin_desc;
+    VkSubpassBeginInfoKHR subpass_begin_info;
+    VkRenderPassBeginInfo begin_desc;
     VkRenderPass vk_render_pass;
 
     if (!d3d12_command_list_update_graphics_pipeline(list))
@@ -4813,7 +4845,12 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
             &begin_desc.renderArea.extent.width, &begin_desc.renderArea.extent.height, NULL);
     begin_desc.clearValueCount = 0;
     begin_desc.pClearValues = NULL;
-    VK_CALL(vkCmdBeginRenderPass(list->vk_command_buffer, &begin_desc, VK_SUBPASS_CONTENTS_INLINE));
+
+    subpass_begin_info.sType = VK_STRUCTURE_TYPE_SUBPASS_BEGIN_INFO_KHR;
+    subpass_begin_info.pNext = NULL;
+    subpass_begin_info.contents = VK_SUBPASS_CONTENTS_INLINE;
+
+    VK_CALL(vkCmdBeginRenderPass2KHR(list->vk_command_buffer, &begin_desc, &subpass_begin_info));
 
     list->current_render_pass = vk_render_pass;
 
@@ -5191,9 +5228,11 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
     VkPipelineStageFlags src_stages, dst_stages;
     struct vkd3d_copy_image_info pipeline_info;
     VkImageMemoryBarrier vk_image_barriers[2];
+    VkSubpassBeginInfoKHR subpass_begin_info;
     VkWriteDescriptorSet vk_descriptor_write;
     struct vkd3d_copy_image_args push_args;
     struct vkd3d_view *dst_view, *src_view;
+    VkSubpassEndInfoKHR subpass_end_info;
     VkAccessFlags src_access, dst_access;
     VkImageLayout src_layout, dst_layout;
     bool dst_is_depth_stencil, use_copy;
@@ -5357,6 +5396,13 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         begin_info.renderArea.extent.width = extent.width;
         begin_info.renderArea.extent.height = extent.height;
 
+        subpass_begin_info.sType = VK_STRUCTURE_TYPE_SUBPASS_BEGIN_INFO_KHR;
+        subpass_begin_info.pNext = NULL;
+        subpass_begin_info.contents = VK_SUBPASS_CONTENTS_INLINE;
+
+        subpass_end_info.sType = VK_STRUCTURE_TYPE_SUBPASS_END_INFO_KHR;
+        subpass_end_info.pNext = NULL;
+
         viewport.x = (float)region->dstOffset.x;
         viewport.y = (float)region->dstOffset.y;
         viewport.width = (float)region->extent.width;
@@ -5399,7 +5445,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
 
         VK_CALL(vkUpdateDescriptorSets(list->device->vk_device, 1, &vk_descriptor_write, 0, NULL));
 
-        VK_CALL(vkCmdBeginRenderPass(list->vk_command_buffer, &begin_info, VK_SUBPASS_CONTENTS_INLINE));
+        VK_CALL(vkCmdBeginRenderPass2KHR(list->vk_command_buffer, &begin_info, &subpass_begin_info));
         VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_info.vk_pipeline));
         VK_CALL(vkCmdSetViewport(list->vk_command_buffer, 0, 1, &viewport));
         VK_CALL(vkCmdSetScissor(list->vk_command_buffer, 0, 1, &scissor));
@@ -5408,7 +5454,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         VK_CALL(vkCmdPushConstants(list->vk_command_buffer, pipeline_info.vk_pipeline_layout,
                 VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_args), &push_args));
         VK_CALL(vkCmdDraw(list->vk_command_buffer, 3, region->dstSubresource.layerCount, 0, 0));
-        VK_CALL(vkCmdEndRenderPass(list->vk_command_buffer));
+        VK_CALL(vkCmdEndRenderPass2KHR(list->vk_command_buffer, &subpass_end_info));
 
 cleanup:
         if (dst_view)
