@@ -1336,14 +1336,14 @@ STATIC_ASSERT(sizeof(struct vkd3d_render_pass_key) == 48);
 
 static VkImageLayout vkd3d_render_pass_get_depth_stencil_layout(const struct vkd3d_render_pass_key *key)
 {
-    if (!key->depth_enable && !key->stencil_enable)
+    if (!(key->flags & VKD3D_RENDER_PASS_KEY_DEPTH_STENCIL_ENABLE))
         return VK_IMAGE_LAYOUT_UNDEFINED;
 
-    if (key->depth_write && key->stencil_write)
+    if ((key->flags & VKD3D_RENDER_PASS_KEY_DEPTH_STENCIL_WRITE) == VKD3D_RENDER_PASS_KEY_DEPTH_STENCIL_WRITE)
         return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    else if (key->depth_write)
+    else if (key->flags & VKD3D_RENDER_PASS_KEY_DEPTH_WRITE)
         return VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL;
-    else if (key->stencil_write)
+    else if (key->flags & VKD3D_RENDER_PASS_KEY_STENCIL_WRITE)
         return VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL;
     else
         return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
@@ -1376,7 +1376,7 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
 
     entry->key = *key;
 
-    have_depth_stencil = key->depth_enable || key->stencil_enable;
+    have_depth_stencil = !!(key->flags & VKD3D_RENDER_PASS_KEY_DEPTH_STENCIL_ENABLE);
     rt_count = have_depth_stencil ? key->attachment_count - 1 : key->attachment_count;
     assert(rt_count <= D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT);
 
@@ -2549,6 +2549,7 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
 
     memcpy(key.vk_formats, graphics->rtv_formats, sizeof(graphics->rtv_formats));
     key.attachment_count = graphics->rt_count;
+    key.flags = 0;
 
     if (!(dsv_format = graphics->dsv_format) && (graphics->null_attachment_mask & dsv_attachment_mask(graphics)))
         dsv_format = dynamic_dsv_format;
@@ -2556,18 +2557,19 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
     if (dsv_format)
     {
         assert(graphics->ds_desc.front.writeMask == graphics->ds_desc.back.writeMask);
-        key.depth_enable = graphics->ds_desc.depthTestEnable;
-        key.stencil_enable = graphics->ds_desc.stencilTestEnable;
-        key.depth_write = key.depth_enable && graphics->ds_desc.depthWriteEnable;
-        key.stencil_write = key.stencil_enable && graphics->ds_desc.front.writeMask != 0;
+        if (graphics->ds_desc.depthTestEnable)
+        {
+            key.flags |= VKD3D_RENDER_PASS_KEY_DEPTH_ENABLE;
+            if (graphics->ds_desc.depthWriteEnable)
+                key.flags |= VKD3D_RENDER_PASS_KEY_DEPTH_WRITE;
+        }
+        if (graphics->ds_desc.stencilTestEnable)
+        {
+            key.flags |= VKD3D_RENDER_PASS_KEY_STENCIL_ENABLE;
+            if (graphics->ds_desc.front.writeMask != 0)
+                key.flags |= VKD3D_RENDER_PASS_KEY_STENCIL_WRITE;
+        }
         key.vk_formats[key.attachment_count++] = dsv_format;
-    }
-    else
-    {
-        key.depth_enable = false;
-        key.stencil_enable = false;
-        key.depth_write = false;
-        key.stencil_write = false;
     }
 
     if (key.attachment_count != ARRAY_SIZE(key.vk_formats))
