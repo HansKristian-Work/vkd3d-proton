@@ -312,14 +312,22 @@ struct vkd3d_gpu_va_slab
     void *ptr;
 };
 
+enum vkd3d_render_pass_key_flag
+{
+    VKD3D_RENDER_PASS_KEY_DEPTH_ENABLE   = (1u << 0),
+    VKD3D_RENDER_PASS_KEY_STENCIL_ENABLE = (1u << 1),
+    VKD3D_RENDER_PASS_KEY_DEPTH_WRITE    = (1u << 2),
+    VKD3D_RENDER_PASS_KEY_STENCIL_WRITE  = (1u << 3),
+
+    VKD3D_RENDER_PASS_KEY_DEPTH_STENCIL_ENABLE = (VKD3D_RENDER_PASS_KEY_DEPTH_ENABLE | VKD3D_RENDER_PASS_KEY_STENCIL_ENABLE),
+    VKD3D_RENDER_PASS_KEY_DEPTH_STENCIL_WRITE  = (VKD3D_RENDER_PASS_KEY_DEPTH_WRITE  | VKD3D_RENDER_PASS_KEY_STENCIL_WRITE),
+};
+
 struct vkd3d_render_pass_key
 {
-    unsigned int attachment_count;
-    bool depth_enable;
-    bool stencil_enable;
-    bool depth_write;
-    bool stencil_write;
-    unsigned int sample_count;
+    uint32_t attachment_count;
+    uint32_t flags; /* vkd3d_render_pass_key_flag */
+    uint32_t sample_count;
     VkFormat vk_formats[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
 };
 
