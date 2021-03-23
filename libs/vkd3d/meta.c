@@ -141,10 +141,10 @@ static VkResult vkd3d_meta_create_render_pass(struct d3d12_device *device, VkSam
         const struct vkd3d_format *format, VkRenderPass *vk_render_pass)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkAttachmentDescription attachment_info;
-    VkAttachmentReference attachment_ref;
-    VkSubpassDescription subpass_info;
-    VkRenderPassCreateInfo pass_info;
+    VkAttachmentDescription2KHR attachment_desc;
+    VkAttachmentReference2KHR attachment_ref;
+    VkSubpassDescription2KHR subpass_desc;
+    VkRenderPassCreateInfo2KHR pass_info;
     bool has_depth_target;
     VkImageLayout layout;
     VkResult vr;
@@ -157,41 +157,51 @@ static VkResult vkd3d_meta_create_render_pass(struct d3d12_device *device, VkSam
             ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
             : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-    attachment_info.flags = 0;
-    attachment_info.format = format->vk_format;
-    attachment_info.samples = samples;
-    attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    attachment_info.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    attachment_info.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
-    attachment_info.initialLayout = layout;
-    attachment_info.finalLayout = layout;
+    attachment_desc.sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2_KHR;
+    attachment_desc.pNext = NULL;
+    attachment_desc.flags = 0;
+    attachment_desc.format = format->vk_format;
+    attachment_desc.samples = samples;
+    attachment_desc.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    attachment_desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    attachment_desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachment_desc.initialLayout = layout;
+    attachment_desc.finalLayout = layout;
 
+    attachment_ref.sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2_KHR;
+    attachment_ref.pNext = NULL;
     attachment_ref.attachment = 0;
     attachment_ref.layout = layout;
+    attachment_ref.aspectMask = 0; /* input attachment aspect mask */
 
-    subpass_info.flags = 0;
-    subpass_info.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass_info.inputAttachmentCount = 0;
-    subpass_info.pInputAttachments = NULL;
-    subpass_info.colorAttachmentCount = has_depth_target ? 0 : 1;
-    subpass_info.pColorAttachments = has_depth_target ? NULL : &attachment_ref;
-    subpass_info.pResolveAttachments = NULL;
-    subpass_info.pDepthStencilAttachment = has_depth_target ? &attachment_ref : NULL;
-    subpass_info.preserveAttachmentCount = 0;
-    subpass_info.pPreserveAttachments = NULL;
+    subpass_desc.sType = VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2_KHR;
+    subpass_desc.pNext = NULL;
+    subpass_desc.flags = 0;
+    subpass_desc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass_desc.viewMask = 0;
+    subpass_desc.inputAttachmentCount = 0;
+    subpass_desc.pInputAttachments = NULL;
+    subpass_desc.colorAttachmentCount = has_depth_target ? 0 : 1;
+    subpass_desc.pColorAttachments = has_depth_target ? NULL : &attachment_ref;
+    subpass_desc.pResolveAttachments = NULL;
+    subpass_desc.pDepthStencilAttachment = has_depth_target ? &attachment_ref : NULL;
+    subpass_desc.preserveAttachmentCount = 0;
+    subpass_desc.pPreserveAttachments = NULL;
 
-    pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2_KHR;
     pass_info.pNext = NULL;
     pass_info.flags = 0;
     pass_info.attachmentCount = 1;
-    pass_info.pAttachments = &attachment_info;
+    pass_info.pAttachments = &attachment_desc;
     pass_info.subpassCount = 1;
-    pass_info.pSubpasses = &subpass_info;
+    pass_info.pSubpasses = &subpass_desc;
     pass_info.dependencyCount = 0;
     pass_info.pDependencies = NULL;
+    pass_info.correlatedViewMaskCount = 0;
+    pass_info.pCorrelatedViewMasks = NULL;
 
-    if ((vr = VK_CALL(vkCreateRenderPass(device->vk_device, &pass_info, NULL, vk_render_pass))) < 0)
+    if ((vr = VK_CALL(vkCreateRenderPass2KHR(device->vk_device, &pass_info, NULL, vk_render_pass))) < 0)
         ERR("Failed to create render pass, vr %d.\n", vr);
 
     return vr;
@@ -627,22 +637,14 @@ static VkResult vkd3d_meta_create_swapchain_render_pass(struct d3d12_device *dev
         const struct vkd3d_swapchain_pipeline_key *key, VkRenderPass *render_pass)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkRenderPassCreateInfo render_pass_info;
-    VkAttachmentDescription attachment_desc;
-    VkAttachmentReference attachment_ref;
-    VkSubpassDescription subpass_desc;
-    VkSubpassDependency subpass_dep;
+    VkRenderPassCreateInfo2KHR render_pass_info;
+    VkAttachmentDescription2KHR attachment_desc;
+    VkAttachmentReference2KHR attachment_ref;
+    VkSubpassDescription2KHR subpass_desc;
+    VkSubpassDependency2KHR subpass_dep;
 
-    render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    render_pass_info.pNext = NULL;
-    render_pass_info.flags = 0;
-    render_pass_info.attachmentCount = 1;
-    render_pass_info.pAttachments = &attachment_desc;
-    render_pass_info.subpassCount = 1;
-    render_pass_info.pSubpasses = &subpass_desc;
-    render_pass_info.dependencyCount = 1;
-    render_pass_info.pDependencies = &subpass_dep;
-
+    attachment_desc.sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2_KHR;
+    attachment_desc.pNext = NULL;
     attachment_desc.loadOp = key->load_op;
     attachment_desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -653,14 +655,28 @@ static VkResult vkd3d_meta_create_swapchain_render_pass(struct d3d12_device *dev
     attachment_desc.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
     attachment_desc.flags = 0;
 
+    attachment_ref.sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2_KHR;
+    attachment_ref.pNext = NULL;
     attachment_ref.attachment = 0;
     attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    attachment_ref.aspectMask = 0; /* input attachment aspect mask */
 
-    memset(&subpass_desc, 0, sizeof(subpass_desc));
+    subpass_desc.sType = VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2_KHR;
+    subpass_desc.pNext = NULL;
+    subpass_desc.flags = 0;
+    subpass_desc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass_desc.viewMask = 0;
+    subpass_desc.inputAttachmentCount = 0;
+    subpass_desc.pInputAttachments = NULL;
     subpass_desc.colorAttachmentCount = 1;
     subpass_desc.pColorAttachments = &attachment_ref;
-    subpass_desc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass_desc.pResolveAttachments = NULL;
+    subpass_desc.pDepthStencilAttachment = NULL;
+    subpass_desc.preserveAttachmentCount = 0;
+    subpass_desc.pPreserveAttachments = NULL;
 
+    subpass_dep.sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2_KHR;
+    subpass_dep.pNext = NULL;
     subpass_dep.srcSubpass = VK_SUBPASS_EXTERNAL;
     subpass_dep.dstSubpass = 0;
     subpass_dep.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -668,8 +684,21 @@ static VkResult vkd3d_meta_create_swapchain_render_pass(struct d3d12_device *dev
     subpass_dep.srcAccessMask = 0;
     subpass_dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
     subpass_dep.dependencyFlags = 0;
+    subpass_dep.viewOffset = 0;
 
-    return VK_CALL(vkCreateRenderPass(device->vk_device, &render_pass_info, NULL, render_pass));
+    render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2_KHR;
+    render_pass_info.pNext = NULL;
+    render_pass_info.flags = 0;
+    render_pass_info.attachmentCount = 1;
+    render_pass_info.pAttachments = &attachment_desc;
+    render_pass_info.subpassCount = 1;
+    render_pass_info.pSubpasses = &subpass_desc;
+    render_pass_info.dependencyCount = 1;
+    render_pass_info.pDependencies = &subpass_dep;
+    render_pass_info.correlatedViewMaskCount = 0;
+    render_pass_info.pCorrelatedViewMasks = NULL;
+
+    return VK_CALL(vkCreateRenderPass2KHR(device->vk_device, &render_pass_info, NULL, render_pass));
 }
 
 static HRESULT vkd3d_meta_create_swapchain_pipeline(struct vkd3d_meta_ops *meta_ops,

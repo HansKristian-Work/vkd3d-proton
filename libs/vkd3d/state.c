@@ -1352,14 +1352,14 @@ static VkImageLayout vkd3d_render_pass_get_depth_stencil_layout(const struct vkd
 static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pass_cache *cache,
         struct d3d12_device *device, const struct vkd3d_render_pass_key *key, VkRenderPass *vk_render_pass)
 {
-    VkAttachmentReference attachment_references[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
-    VkAttachmentDescription attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
+    VkAttachmentReference2KHR attachment_references[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
+    VkAttachmentDescription2KHR attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_render_pass_entry *entry;
     unsigned int index, attachment_index;
-    VkSubpassDependency dependencies[2];
-    VkSubpassDescription sub_pass_desc;
-    VkRenderPassCreateInfo pass_info;
+    VkSubpassDependency2KHR dependencies[2];
+    VkSubpassDescription2KHR sub_pass_desc;
+    VkRenderPassCreateInfo2KHR pass_info;
     VkPipelineStageFlags stages;
     bool have_depth_stencil;
     unsigned int rt_count;
@@ -1386,11 +1386,16 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
     {
         if (!key->vk_formats[index])
         {
+            attachment_references[index].sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2_KHR;
+            attachment_references[index].pNext = NULL;
             attachment_references[index].attachment = VK_ATTACHMENT_UNUSED;
             attachment_references[index].layout = VK_IMAGE_LAYOUT_UNDEFINED;
+            attachment_references[index].aspectMask = 0;
             continue;
         }
 
+        attachments[attachment_index].sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2_KHR;
+        attachments[attachment_index].pNext = NULL;
         attachments[attachment_index].flags = 0;
         attachments[attachment_index].format = key->vk_formats[index];
         attachments[attachment_index].samples = key->sample_count;
@@ -1401,8 +1406,11 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
         attachments[attachment_index].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         attachments[attachment_index].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
+        attachment_references[index].sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2_KHR;
+        attachment_references[index].pNext = NULL;
         attachment_references[index].attachment = attachment_index;
         attachment_references[index].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        attachment_references[index].aspectMask = 0;
 
         stages |= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
         ++attachment_index;
@@ -1412,6 +1420,8 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
     {
         VkImageLayout depth_layout = vkd3d_render_pass_get_depth_stencil_layout(key);
 
+        attachments[attachment_index].sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2_KHR;
+        attachments[attachment_index].pNext = NULL;
         attachments[attachment_index].flags = 0;
         attachments[attachment_index].format = key->vk_formats[index];
         attachments[attachment_index].samples = key->sample_count;
@@ -1422,14 +1432,19 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
         attachments[attachment_index].initialLayout = depth_layout;
         attachments[attachment_index].finalLayout = depth_layout;
 
+        attachment_references[index].sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2_KHR;
+        attachment_references[index].pNext = NULL;
         attachment_references[index].attachment = attachment_index;
         attachment_references[index].layout = depth_layout;
+        attachment_references[index].aspectMask = 0;
 
         stages |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
         attachment_index++;
     }
 
     /* HACK: Stage masks should technically not be 0 */
+    dependencies[0].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2_KHR;
+    dependencies[0].pNext = NULL;
     dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
     dependencies[0].dstSubpass = 0;
     dependencies[0].srcStageMask = stages;
@@ -1437,7 +1452,10 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
     dependencies[0].srcAccessMask = 0;
     dependencies[0].dstAccessMask = 0;
     dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    dependencies[0].viewOffset = 0;
 
+    dependencies[1].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2_KHR;
+    dependencies[1].pNext = NULL;
     dependencies[1].srcSubpass = 0;
     dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
     dependencies[1].srcStageMask = stages;
@@ -1445,29 +1463,31 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
     dependencies[1].srcAccessMask = 0;
     dependencies[1].dstAccessMask = 0;
     dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    dependencies[1].viewOffset = 0;
 
+    sub_pass_desc.sType = VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2_KHR;
+    sub_pass_desc.pNext = NULL;
     sub_pass_desc.flags = 0;
     sub_pass_desc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    sub_pass_desc.viewMask = 0;
     sub_pass_desc.inputAttachmentCount = 0;
     sub_pass_desc.pInputAttachments = NULL;
     sub_pass_desc.colorAttachmentCount = rt_count;
     sub_pass_desc.pColorAttachments = attachment_references;
     sub_pass_desc.pResolveAttachments = NULL;
-    if (have_depth_stencil)
-        sub_pass_desc.pDepthStencilAttachment = &attachment_references[rt_count];
-    else
-        sub_pass_desc.pDepthStencilAttachment = NULL;
+    sub_pass_desc.pDepthStencilAttachment = have_depth_stencil
+            ? &attachment_references[rt_count]
+            : NULL;
     sub_pass_desc.preserveAttachmentCount = 0;
     sub_pass_desc.pPreserveAttachments = NULL;
 
-    pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2_KHR;
     pass_info.pNext = NULL;
     pass_info.flags = 0;
     pass_info.attachmentCount = attachment_index;
     pass_info.pAttachments = attachments;
     pass_info.subpassCount = 1;
     pass_info.pSubpasses = &sub_pass_desc;
-
     if (stages)
     {
         pass_info.dependencyCount = ARRAY_SIZE(dependencies);
@@ -1478,8 +1498,10 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
         pass_info.dependencyCount = 0;
         pass_info.pDependencies = NULL;
     }
+    pass_info.correlatedViewMaskCount = 0;
+    pass_info.pCorrelatedViewMasks = NULL;
 
-    if ((vr = VK_CALL(vkCreateRenderPass(device->vk_device, &pass_info, NULL, vk_render_pass))) >= 0)
+    if ((vr = VK_CALL(vkCreateRenderPass2KHR(device->vk_device, &pass_info, NULL, vk_render_pass))) >= 0)
     {
         entry->vk_render_pass = *vk_render_pass;
         ++cache->render_pass_count;
