@@ -121,6 +121,7 @@ struct vkd3d_vulkan_info
     /* EXT device extensions */
     bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;
+    bool EXT_conservative_rasterization;
     bool EXT_custom_border_color;
     bool EXT_depth_clip_enable;
     bool EXT_descriptor_indexing;
@@ -2419,6 +2420,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration_structure_properties;
     VkPhysicalDeviceFloatControlsPropertiesKHR float_control_properties;
     VkPhysicalDeviceFragmentShadingRatePropertiesKHR fragment_shading_rate_properties;
+    VkPhysicalDeviceConservativeRasterizationPropertiesEXT conservative_rasterization_properties;
 
     VkPhysicalDeviceProperties2KHR properties2;
 
