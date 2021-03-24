@@ -1281,6 +1281,7 @@ struct d3d12_graphics_pipeline_state
     VkPipelineColorBlendStateCreateInfo blend_desc;
 
     VkSampleMask sample_mask[2];
+    VkPipelineRasterizationConservativeStateCreateInfoEXT rs_conservative_info;
     VkPipelineRasterizationDepthClipStateCreateInfoEXT rs_depth_clip_info;
     VkPipelineRasterizationStateStreamCreateInfoEXT rs_stream_info;
 

@@ -2184,8 +2184,21 @@ static void rs_desc_from_d3d12(VkPipelineRasterizationStateCreateInfo *vk_desc,
         FIXME_ONCE("Ignoring AntialiasedLineEnable %#x.\n", d3d12_desc->AntialiasedLineEnable);
     if (d3d12_desc->ForcedSampleCount)
         FIXME("Ignoring ForcedSampleCount %#x.\n", d3d12_desc->ForcedSampleCount);
-    if (d3d12_desc->ConservativeRaster)
-        FIXME("Ignoring ConservativeRaster %#x.\n", d3d12_desc->ConservativeRaster);
+}
+
+static void rs_conservative_info_from_d3d12(VkPipelineRasterizationConservativeStateCreateInfoEXT *conservative_info,
+        VkPipelineRasterizationStateCreateInfo *vk_rs_desc, const D3D12_RASTERIZER_DESC *d3d12_desc)
+{
+    if (d3d12_desc->ConservativeRaster == D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF)
+        return;
+
+    conservative_info->sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_CONSERVATIVE_STATE_CREATE_INFO_EXT;
+    conservative_info->pNext = NULL;
+    conservative_info->flags = 0;
+    conservative_info->conservativeRasterizationMode = VK_CONSERVATIVE_RASTERIZATION_MODE_OVERESTIMATE_EXT;
+    conservative_info->extraPrimitiveOverestimationSize = 0.0f;
+
+    vk_prepend_struct(vk_rs_desc, conservative_info);
 }
 
 static void rs_depth_clip_info_from_d3d12(VkPipelineRasterizationDepthClipStateCreateInfoEXT *depth_clip_info,
@@ -3191,6 +3204,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         graphics->rs_desc.rasterizerDiscardEnable = VK_TRUE;
 
     rs_stream_info_from_d3d12(&graphics->rs_stream_info, &graphics->rs_desc, so_desc, vk_info);
+    if (vk_info->EXT_conservative_rasterization)
+        rs_conservative_info_from_d3d12(&graphics->rs_conservative_info, &graphics->rs_desc, &desc->rasterizer_state);
     if (vk_info->EXT_depth_clip_enable)
         rs_depth_clip_info_from_d3d12(&graphics->rs_depth_clip_info, &graphics->rs_desc, &desc->rasterizer_state);
 
