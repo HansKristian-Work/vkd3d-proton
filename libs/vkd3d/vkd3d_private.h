@@ -1247,6 +1247,13 @@ struct vkd3d_shader_debug_ring_spec_info
     VkSpecializationInfo spec_info;
 };
 
+enum vkd3d_graphics_pipeline_static_variant_flag
+{
+    VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_LAST_BIT           = (1u << 0),
+};
+
+#define VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_COUNT ((uint32_t)VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_LAST_BIT)
+
 struct d3d12_graphics_pipeline_state
 {
     struct vkd3d_shader_debug_ring_spec_info spec_info[VKD3D_MAX_SHADER_STAGES];
@@ -1273,7 +1280,7 @@ struct d3d12_graphics_pipeline_state
     VkFormat dsv_format;
     VkFormat rtv_formats[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     VkImageLayout dsv_layout;
-    VkRenderPass render_pass;
+    VkRenderPass render_pass[VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_COUNT];
 
     D3D12_INDEX_BUFFER_STRIP_CUT_VALUE index_buffer_strip_cut_value;
     VkPipelineRasterizationStateCreateInfo rs_desc;
@@ -1289,7 +1296,7 @@ struct d3d12_graphics_pipeline_state
     uint32_t dynamic_state_flags; /* vkd3d_dynamic_state_flag */
 
     VkPipelineLayout pipeline_layout;
-    VkPipeline pipeline;
+    VkPipeline pipeline[VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_COUNT];
     struct list compiled_fallback_pipelines;
 
     bool xfb_enabled;
@@ -1398,13 +1405,13 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
         const struct d3d12_pipeline_state_desc *desc, struct d3d12_pipeline_state **state);
 VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
         const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format,
-        VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags);
+        VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags, uint32_t variant_flags);
 VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
         const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format,
-        VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags);
+        VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags, uint32_t variant_flags);
 VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_state *state,
         const struct vkd3d_pipeline_key *key, VkFormat dsv_format, VkPipelineCache vk_cache,
-        VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags);
+        VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags, uint32_t variant_flags);
 struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12PipelineState *iface);
 
 /* ID3D12PipelineLibrary */
