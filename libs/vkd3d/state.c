@@ -1834,7 +1834,8 @@ static void d3d12_pipeline_state_destroy_graphics(struct d3d12_pipeline_state *s
         vkd3d_free(current);
     }
 
-    VK_CALL(vkDestroyPipeline(device->vk_device, graphics->pipeline, NULL));
+    for (i = 0; i < VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_COUNT; i++)
+        VK_CALL(vkDestroyPipeline(device->vk_device, graphics->pipeline[i], NULL));
 }
 
 static void d3d12_pipeline_state_set_name(struct d3d12_pipeline_state *state, const char *name)
@@ -2554,7 +2555,8 @@ STATIC_ASSERT(sizeof(struct vkd3d_shader_transform_feedback_element) == sizeof(D
 
 static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
         struct d3d12_graphics_pipeline_state *graphics, struct d3d12_device *device,
-        VkFormat dynamic_dsv_format, VkRenderPass *vk_render_pass, VkImageLayout *dsv_layout)
+        VkFormat dynamic_dsv_format, VkRenderPass *vk_render_pass, VkImageLayout *dsv_layout,
+        uint32_t variant_flags)
 {
     struct vkd3d_render_pass_key key;
     VkFormat dsv_format;
@@ -2701,6 +2703,11 @@ static uint32_t d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_pi
     dynamic_desc->pDynamicStates = dynamic_state_buffer;
 
     return dynamic_state_flags;
+}
+
+static bool d3d12_is_valid_pipeline_variant(struct d3d12_device *device, uint32_t variant_flags)
+{
+    return true;
 }
 
 static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *state,
@@ -3238,7 +3245,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
 
     graphics->pipeline_layout = root_signature->graphics.vk_pipeline_layout;
-    graphics->pipeline = VK_NULL_HANDLE;
+    for (i = 0; i < VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_COUNT; i++)
+        graphics->pipeline[i] = VK_NULL_HANDLE;
     state->device = device;
 
     if (supports_extended_dynamic_state)
@@ -3251,15 +3259,28 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             goto fail;
         }
 
-        graphics->pipeline = d3d12_pipeline_state_create_pipeline_variant(state, NULL, graphics->dsv_format,
-                state->vk_pso_cache, &graphics->render_pass, &graphics->dynamic_state_flags);
+        for (i = 0; i < VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_COUNT; i++)
+        {
+            if (!d3d12_is_valid_pipeline_variant(device, i))
+            continue;
 
-        if (!graphics->pipeline)
-            goto fail;
+            if (!(graphics->pipeline[i] = d3d12_pipeline_state_create_pipeline_variant(state, NULL, graphics->dsv_format,
+                    state->vk_pso_cache, &graphics->render_pass[i], &graphics->dynamic_state_flags, i)))
+                goto fail;
+        }
     }
-    else if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics,
-            device, 0, &graphics->render_pass, &graphics->dsv_layout)))
-        goto fail;
+    else
+    {
+        for (i = 0; i < VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_COUNT; i++)
+        {
+            if (!d3d12_is_valid_pipeline_variant(device, i))
+                continue;
+
+            if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics,
+                device, 0, &graphics->render_pass[i], &graphics->dsv_layout, i)))
+                goto fail;
+        }
+    }
 
     list_init(&graphics->compiled_fallback_pipelines);
 
@@ -3534,7 +3555,7 @@ static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_sta
 
 VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_state *state,
         const struct vkd3d_pipeline_key *key, VkFormat dsv_format, VkPipelineCache vk_cache,
-        VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags)
+        VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags, uint32_t variant_flags)
 {
     VkVertexInputBindingDescription bindings[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     const struct vkd3d_vk_device_procs *vk_procs = &state->device->vk_procs;
@@ -3626,15 +3647,13 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     pipeline_desc.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_desc.basePipelineIndex = -1;
 
-    pipeline_desc.renderPass = graphics->render_pass;
-
     /* A workaround for SottR, which creates pipelines with DSV_UNKNOWN, but still insists on using a depth buffer.
      * If we notice that the base pipeline's DSV format does not match the dynamic DSV format, we fall-back to create a new render pass. */
     if (graphics->dsv_format != dsv_format && (graphics->null_attachment_mask & dsv_attachment_mask(graphics)))
         TRACE("Compiling %p with fallback DSV format %#x.\n", state, dsv_format);
 
     if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics, device, dsv_format,
-            &pipeline_desc.renderPass, &graphics->dsv_layout)))
+            &pipeline_desc.renderPass, &graphics->dsv_layout, variant_flags)))
         return VK_NULL_HANDLE;
 
     *vk_render_pass = pipeline_desc.renderPass;
@@ -3676,11 +3695,11 @@ static bool d3d12_pipeline_state_can_use_dynamic_stride(struct d3d12_pipeline_st
 
 VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
         const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format,
-        VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags)
+        VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags, uint32_t variant_flags)
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
 
-    if (!graphics->pipeline)
+    if (!graphics->pipeline[variant_flags])
         return VK_NULL_HANDLE;
 
     /* Unknown DSV format workaround. */
@@ -3712,14 +3731,14 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
         return VK_NULL_HANDLE;
     }
 
-    *vk_render_pass = state->graphics.render_pass;
+    *vk_render_pass = state->graphics.render_pass[variant_flags];
     *dynamic_state_flags = state->graphics.dynamic_state_flags;
-    return state->graphics.pipeline;
+    return state->graphics.pipeline[variant_flags];
 }
 
 VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
         const struct vkd3d_dynamic_state *dyn_state, VkFormat dsv_format, VkRenderPass *vk_render_pass,
-        uint32_t *dynamic_state_flags)
+        uint32_t *dynamic_state_flags, uint32_t variant_flags)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &state->device->vk_procs;
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
@@ -3781,7 +3800,8 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
         FIXME("Extended dynamic state is supported, but compiling a fallback pipeline late!\n");
 
     vk_pipeline = d3d12_pipeline_state_create_pipeline_variant(state,
-            &pipeline_key, dsv_format, VK_NULL_HANDLE, vk_render_pass, dynamic_state_flags);
+            &pipeline_key, dsv_format, VK_NULL_HANDLE, vk_render_pass, dynamic_state_flags,
+            variant_flags);
 
     if (!vk_pipeline)
     {
