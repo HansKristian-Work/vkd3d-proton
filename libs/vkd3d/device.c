@@ -4464,6 +4464,22 @@ static D3D12_TILED_RESOURCES_TIER d3d12_device_determine_tiled_resources_tier(st
     return D3D12_TILED_RESOURCES_TIER_2;
 }
 
+static D3D12_CONSERVATIVE_RASTERIZATION_TIER d3d12_device_determine_conservative_rasterization_tier(struct d3d12_device *device)
+{
+    const VkPhysicalDeviceConservativeRasterizationPropertiesEXT *conservative_properties = &device->device_info.conservative_rasterization_properties;
+
+    if (!device->vk_info.EXT_conservative_rasterization)
+        return D3D12_CONSERVATIVE_RASTERIZATION_TIER_NOT_SUPPORTED;
+
+    if (!conservative_properties->degenerateTrianglesRasterized)
+        return D3D12_CONSERVATIVE_RASTERIZATION_TIER_1;
+
+    if (!conservative_properties->fullyCoveredFragmentShaderInputVariable)
+        return D3D12_CONSERVATIVE_RASTERIZATION_TIER_2;
+
+    return D3D12_CONSERVATIVE_RASTERIZATION_TIER_3;
+}
+
 static D3D12_RAYTRACING_TIER d3d12_device_determine_ray_tracing_tier(struct d3d12_device *device)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
@@ -4569,8 +4585,7 @@ static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
             features->shaderStorageImageReadWithoutFormat;
     /* Requires VK_EXT_fragment_shader_interlock */
     options->ROVsSupported = FALSE;
-    /* Requires VK_EXT_conservative_rasterization */
-    options->ConservativeRasterizationTier = D3D12_CONSERVATIVE_RASTERIZATION_TIER_NOT_SUPPORTED;
+    options->ConservativeRasterizationTier = d3d12_device_determine_conservative_rasterization_tier(device);
     options->MaxGPUVirtualAddressBitsPerResource = 40; /* XXX */
     options->StandardSwizzle64KBSupported = FALSE;
     options->CrossNodeSharingTier = D3D12_CROSS_NODE_SHARING_TIER_NOT_SUPPORTED;
