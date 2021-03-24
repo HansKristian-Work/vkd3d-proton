@@ -4718,6 +4718,19 @@ static void d3d12_device_caps_init_feature_level(struct d3d12_device *device)
             caps->options.ConservativeRasterizationTier >= D3D12_CONSERVATIVE_RASTERIZATION_TIER_1)
         caps->max_feature_level = D3D_FEATURE_LEVEL_12_1;
 
+    if (caps->max_feature_level >= D3D_FEATURE_LEVEL_12_1 && caps->max_shader_model >= D3D_SHADER_MODEL_6_5 &&
+            caps->options.VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation &&
+            caps->options1.WaveOps && caps->options1.Int64ShaderOps && caps->options2.DepthBoundsTestSupported &&
+            caps->options3.CopyQueueTimestampQueriesSupported && caps->options3.CastingFullyTypedFormatSupported &&
+            caps->options.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_3 &&
+            caps->options.ConservativeRasterizationTier >= D3D12_CONSERVATIVE_RASTERIZATION_TIER_3 &&
+            caps->options.TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_3 &&
+            caps->options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_1 &&
+            caps->options6.VariableShadingRateTier >= D3D12_VARIABLE_SHADING_RATE_TIER_2 &&
+            caps->options7.MeshShaderTier >= D3D12_MESH_SHADER_TIER_1 &&
+            caps->options7.SamplerFeedbackTier >= D3D12_SAMPLER_FEEDBACK_TIER_0_9)
+        caps->max_feature_level = D3D_FEATURE_LEVEL_12_2;
+
     TRACE("Max feature level: %#x.\n", caps->max_feature_level);
 }
 
