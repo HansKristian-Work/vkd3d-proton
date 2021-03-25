@@ -4059,3 +4059,13 @@ typedef HRESULT (__stdcall *PFN_D3D12_CREATE_DEVICE)(IUnknown *adapter,
 typedef HRESULT (__stdcall *PFN_D3D12_GET_DEBUG_INTERFACE)(REFIID iid, void **debug);
 
 [local] HRESULT __stdcall D3D12GetDebugInterface(REFIID iid, void **debug);
+
+cpp_quote("DEFINE_GUID(D3D12ExperimentalShaderModels, 0x76f5573e, 0xf13a, 0x40f5, 0xb2, 0x97, 0x81, 0xce, 0x9e, 0x18, 0x93, 0x3f );")
+cpp_quote("DEFINE_GUID(D3D12TiledResourceTier4,       0xc9c4725f, 0xa81a, 0x4f56, 0x8c, 0x5b, 0xc5, 0x10, 0x39, 0xd6, 0x94, 0xfb );")
+cpp_quote("DEFINE_GUID(D3D12MetaCommand,              0xc734c97e, 0x8077, 0x48c8, 0x9f, 0xdc, 0xd9, 0xd1, 0xdd, 0x31, 0xdd, 0x77 );")
+
+typedef HRESULT (__stdcall *PFN_D3D12_ENABLE_EXPERIMENTAL_FEATURES)(UINT num_features,
+        const IID *iids, void *config_structs, UINT *config_struct_sizes);
+
+[local] HRESULT __stdcall D3D12EnableExperimentalFeatures(UINT num_features,
+        const IID *iids, void *config_structs, UINT *config_struct_sizes);
