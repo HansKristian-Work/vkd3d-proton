@@ -820,6 +820,8 @@ struct d3d12_resource
 
     const struct vkd3d_format *format;
 
+    VkImageView vrs_view;
+
     struct vkd3d_private_store private_store;
 };
 
