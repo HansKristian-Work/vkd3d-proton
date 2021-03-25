@@ -3339,6 +3339,11 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
                 *stages |= VK_PIPELINE_STAGE_TRANSFER_BIT;
                 break;
 
+            case D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE:
+                *stages |= VK_PIPELINE_STAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
+                *access |= VK_ACCESS_FRAGMENT_SHADING_RATE_ATTACHMENT_READ_BIT_KHR;
+                break;
+
             default:
                 unhandled_state |= state;
         }
