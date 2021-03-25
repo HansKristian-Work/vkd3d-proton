@@ -51,6 +51,7 @@
 #include "d3d12_test_utils.h"
 
 extern PFN_D3D12_CREATE_DEVICE pfn_D3D12CreateDevice;
+extern PFN_D3D12_ENABLE_EXPERIMENTAL_FEATURES pfn_D3D12EnableExperimentalFeatures;
 extern PFN_D3D12_GET_DEBUG_INTERFACE pfn_D3D12GetDebugInterface;
 
 #if defined(_WIN32) && !defined(VKD3D_FORCE_UTILS_WRAPPER)
@@ -295,6 +296,10 @@ static ID3D12Device *create_device(void)
         trace("Failed to create adapter.\n");
         return NULL;
     }
+
+    /* Enable support for 6_3+, we need this for some tests. */
+    if (pfn_D3D12EnableExperimentalFeatures)
+        pfn_D3D12EnableExperimentalFeatures(1, &D3D12ExperimentalShaderModels, NULL, NULL);
 
     hr = pfn_D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device);
     if (adapter)
