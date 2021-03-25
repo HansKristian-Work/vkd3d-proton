@@ -48292,7 +48292,7 @@ static void test_vrs(void)
         ID3D12GraphicsCommandList5_DrawInstanced(command_list, 3, 1, 0, 0);
         transition_resource_state(context.list, context.render_target,
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        check_sub_resource_uint(context.render_target, 0, queue, context.list, tests[i].expected_color, 1);
+        check_sub_resource_uint(context.render_target, 0, queue, context.list, tests[i].expected_color, 0);
 
         reset_command_list(context.list, context.allocator);
         transition_resource_state(context.list, context.render_target,
