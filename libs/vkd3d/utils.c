@@ -822,10 +822,8 @@ const char *debug_vk_extent_3d(VkExtent3D extent)
             (unsigned int)extent.depth);
 }
 
-const char *debug_vk_queue_flags(VkQueueFlags flags)
+const char *debug_vk_queue_flags(VkQueueFlags flags, char buffer[VKD3D_DEBUG_FLAGS_BUFFER_SIZE])
 {
-    char buffer[120];
-
     buffer[0] = '\0';
 #define FLAG_TO_STR(f) if (flags & f) { strcat(buffer, " | "#f); flags &= ~f; }
     FLAG_TO_STR(VK_QUEUE_GRAPHICS_BIT)
@@ -842,10 +840,8 @@ const char *debug_vk_queue_flags(VkQueueFlags flags)
     return vkd3d_dbg_sprintf("%s", &buffer[3]);
 }
 
-const char *debug_vk_memory_heap_flags(VkMemoryHeapFlags flags)
+const char *debug_vk_memory_heap_flags(VkMemoryHeapFlags flags, char buffer[VKD3D_DEBUG_FLAGS_BUFFER_SIZE])
 {
-    char buffer[50];
-
     buffer[0] = '\0';
 #define FLAG_TO_STR(f) if (flags & f) { strcat(buffer, " | "#f); flags &= ~f; }
     FLAG_TO_STR(VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
@@ -859,10 +855,8 @@ const char *debug_vk_memory_heap_flags(VkMemoryHeapFlags flags)
     return vkd3d_dbg_sprintf("%s", &buffer[3]);
 }
 
-const char *debug_vk_memory_property_flags(VkMemoryPropertyFlags flags)
+const char *debug_vk_memory_property_flags(VkMemoryPropertyFlags flags, char buffer[VKD3D_DEBUG_FLAGS_BUFFER_SIZE])
 {
-    char buffer[200];
-
     buffer[0] = '\0';
 #define FLAG_TO_STR(f) if (flags & f) { strcat(buffer, " | "#f); flags &= ~f; }
     FLAG_TO_STR(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
