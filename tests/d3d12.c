@@ -28,6 +28,7 @@
 static PFN_D3D12_CREATE_VERSIONED_ROOT_SIGNATURE_DESERIALIZER pfn_D3D12CreateVersionedRootSignatureDeserializer;
 static PFN_D3D12_SERIALIZE_VERSIONED_ROOT_SIGNATURE pfn_D3D12SerializeVersionedRootSignature;
 PFN_D3D12_CREATE_DEVICE pfn_D3D12CreateDevice;
+PFN_D3D12_ENABLE_EXPERIMENTAL_FEATURES pfn_D3D12EnableExperimentalFeatures;
 PFN_D3D12_GET_DEBUG_INTERFACE pfn_D3D12GetDebugInterface;
 
 struct vec2
@@ -49715,6 +49716,7 @@ static void test_root_signature_priority(void)
 START_TEST(d3d12)
 {
     pfn_D3D12CreateDevice = get_d3d12_pfn(D3D12CreateDevice);
+    pfn_D3D12EnableExperimentalFeatures = get_d3d12_pfn(D3D12EnableExperimentalFeatures);
     pfn_D3D12GetDebugInterface = get_d3d12_pfn(D3D12GetDebugInterface);
 
     parse_args(argc, argv);
