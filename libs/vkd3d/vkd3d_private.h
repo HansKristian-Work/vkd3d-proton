@@ -2858,9 +2858,11 @@ const char *debug_dxgi_format(DXGI_FORMAT format);
 const char *debug_d3d12_box(const D3D12_BOX *box);
 const char *debug_d3d12_shader_component_mapping(unsigned int mapping);
 const char *debug_vk_extent_3d(VkExtent3D extent);
-const char *debug_vk_memory_heap_flags(VkMemoryHeapFlags flags);
-const char *debug_vk_memory_property_flags(VkMemoryPropertyFlags flags);
-const char *debug_vk_queue_flags(VkQueueFlags flags);
+
+#define VKD3D_DEBUG_FLAGS_BUFFER_SIZE 1024
+const char *debug_vk_memory_heap_flags(VkMemoryHeapFlags flags, char buffer[VKD3D_DEBUG_FLAGS_BUFFER_SIZE]);
+const char *debug_vk_memory_property_flags(VkMemoryPropertyFlags flags, char buffer[VKD3D_DEBUG_FLAGS_BUFFER_SIZE]);
+const char *debug_vk_queue_flags(VkQueueFlags flags, char buffer[VKD3D_DEBUG_FLAGS_BUFFER_SIZE]);
 
 static inline void debug_ignored_node_mask(unsigned int mask)
 {

@@ -1139,6 +1139,7 @@ static void vkd3d_trace_physical_device(VkPhysicalDevice device,
         const struct vkd3d_physical_device_info *info,
         const struct vkd3d_vk_instance_procs *vk_procs)
 {
+    VKD3D_UNUSED char debug_buffer[VKD3D_DEBUG_FLAGS_BUFFER_SIZE];
     VkPhysicalDeviceMemoryProperties memory_properties;
     VkQueueFamilyProperties *queue_properties;
     unsigned int i, j;
@@ -1156,7 +1157,7 @@ static void vkd3d_trace_physical_device(VkPhysicalDevice device,
     for (i = 0; i < count; ++i)
     {
         TRACE(" Queue family [%u]: flags %s, count %u, timestamp bits %u, image transfer granularity %s.\n",
-                i, debug_vk_queue_flags(queue_properties[i].queueFlags),
+                i, debug_vk_queue_flags(queue_properties[i].queueFlags, debug_buffer),
                 queue_properties[i].queueCount, queue_properties[i].timestampValidBits,
                 debug_vk_extent_3d(queue_properties[i].minImageTransferGranularity));
     }
@@ -1167,13 +1168,13 @@ static void vkd3d_trace_physical_device(VkPhysicalDevice device,
     {
         VKD3D_UNUSED const VkMemoryHeap *heap = &memory_properties.memoryHeaps[i];
         TRACE("Memory heap [%u]: size %#"PRIx64" (%"PRIu64" MiB), flags %s, memory types:\n",
-                i, heap->size, heap->size / 1024 / 1024, debug_vk_memory_heap_flags(heap->flags));
+                i, heap->size, heap->size / 1024 / 1024, debug_vk_memory_heap_flags(heap->flags, debug_buffer));
         for (j = 0; j < memory_properties.memoryTypeCount; ++j)
         {
             const VkMemoryType *type = &memory_properties.memoryTypes[j];
             if (type->heapIndex != i)
                 continue;
-            TRACE("  Memory type [%u]: flags %s.\n", j, debug_vk_memory_property_flags(type->propertyFlags));
+            TRACE("  Memory type [%u]: flags %s.\n", j, debug_vk_memory_property_flags(type->propertyFlags, debug_buffer));
         }
     }
 }
