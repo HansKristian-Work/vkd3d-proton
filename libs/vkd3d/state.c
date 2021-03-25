@@ -1352,9 +1352,10 @@ static VkImageLayout vkd3d_render_pass_get_depth_stencil_layout(const struct vkd
 static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pass_cache *cache,
         struct d3d12_device *device, const struct vkd3d_render_pass_key *key, VkRenderPass *vk_render_pass)
 {
-    VkAttachmentReference2KHR attachment_references[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
-    VkAttachmentDescription2KHR attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
+    VkAttachmentReference2KHR attachment_references[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 2];
+    VkAttachmentDescription2KHR attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 2];
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkFragmentShadingRateAttachmentInfoKHR vrs_attachment_info;
     struct vkd3d_render_pass_entry *entry;
     unsigned int index, attachment_index;
     VkSubpassDependency2KHR dependencies[2];
@@ -1440,6 +1441,40 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
 
         stages |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
         attachment_index++;
+        index++;
+    }
+
+    if (key->flags & VKD3D_RENDER_PASS_KEY_VRS_ATTACHMENT)
+    {
+        attachments[attachment_index].sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2_KHR;
+        attachments[attachment_index].pNext = NULL;
+        attachments[attachment_index].flags = 0;
+        attachments[attachment_index].format = VK_FORMAT_R8_UINT;
+        attachments[attachment_index].samples = 1;
+        attachments[attachment_index].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        attachments[attachment_index].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        attachments[attachment_index].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        attachments[attachment_index].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        attachments[attachment_index].initialLayout = VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR;
+        attachments[attachment_index].finalLayout = VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR;
+
+        attachment_references[index].sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2_KHR;
+        attachment_references[index].pNext = NULL;
+        attachment_references[index].attachment = attachment_index;
+        attachment_references[index].layout = VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR;
+        attachment_references[index].aspectMask = 0;
+
+        vrs_attachment_info.sType = VK_STRUCTURE_TYPE_FRAGMENT_SHADING_RATE_ATTACHMENT_INFO_KHR;
+        vrs_attachment_info.pNext = NULL;
+        vrs_attachment_info.pFragmentShadingRateAttachment = &attachment_references[index];
+        vrs_attachment_info.shadingRateAttachmentTexelSize = (VkExtent2D) {
+            device->d3d12_caps.options6.ShadingRateImageTileSize,
+            device->d3d12_caps.options6.ShadingRateImageTileSize
+        };
+
+        stages |= VK_PIPELINE_STAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
+        attachment_index++;
+        index++;
     }
 
     /* HACK: Stage masks should technically not be 0 */
@@ -1480,6 +1515,10 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
             : NULL;
     sub_pass_desc.preserveAttachmentCount = 0;
     sub_pass_desc.pPreserveAttachments = NULL;
+
+    /* Prepend the additional attachment details here. */
+    if (key->flags & VKD3D_RENDER_PASS_KEY_VRS_ATTACHMENT)
+        vk_prepend_struct(&sub_pass_desc, &vrs_attachment_info);
 
     pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2_KHR;
     pass_info.pNext = NULL;
@@ -2587,6 +2626,9 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
         key.vk_formats[key.attachment_count++] = dsv_format;
     }
 
+    if (variant_flags & VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_VRS_ATTACHMENT)
+        key.flags |= VKD3D_RENDER_PASS_KEY_VRS_ATTACHMENT;
+
     if (key.attachment_count != ARRAY_SIZE(key.vk_formats))
         key.vk_formats[ARRAY_SIZE(key.vk_formats) - 1] = VK_FORMAT_UNDEFINED;
     for (i = key.attachment_count; i < ARRAY_SIZE(key.vk_formats); ++i)
@@ -2707,6 +2749,10 @@ static uint32_t d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_pi
 
 static bool d3d12_is_valid_pipeline_variant(struct d3d12_device *device, uint32_t variant_flags)
 {
+    if ((variant_flags & VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_VRS_ATTACHMENT) &&
+            !device->device_info.fragment_shading_rate_features.attachmentFragmentShadingRate)
+        return false;
+
     return true;
 }
 

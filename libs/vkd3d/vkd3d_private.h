@@ -320,6 +320,7 @@ enum vkd3d_render_pass_key_flag
     VKD3D_RENDER_PASS_KEY_STENCIL_ENABLE = (1u << 1),
     VKD3D_RENDER_PASS_KEY_DEPTH_WRITE    = (1u << 2),
     VKD3D_RENDER_PASS_KEY_STENCIL_WRITE  = (1u << 3),
+    VKD3D_RENDER_PASS_KEY_VRS_ATTACHMENT = (1u << 4),
 
     VKD3D_RENDER_PASS_KEY_DEPTH_STENCIL_ENABLE = (VKD3D_RENDER_PASS_KEY_DEPTH_ENABLE | VKD3D_RENDER_PASS_KEY_STENCIL_ENABLE),
     VKD3D_RENDER_PASS_KEY_DEPTH_STENCIL_WRITE  = (VKD3D_RENDER_PASS_KEY_DEPTH_WRITE  | VKD3D_RENDER_PASS_KEY_STENCIL_WRITE),
@@ -1251,7 +1252,8 @@ struct vkd3d_shader_debug_ring_spec_info
 
 enum vkd3d_graphics_pipeline_static_variant_flag
 {
-    VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_LAST_BIT           = (1u << 0),
+    VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_VRS_ATTACHMENT = (1u << 0),
+    VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_LAST_BIT       = (1u << 1),
 };
 
 #define VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_COUNT ((uint32_t)VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_LAST_BIT)
@@ -1770,6 +1772,8 @@ struct d3d12_command_list
     LONG *outstanding_submissions_count;
 
     const struct d3d12_desc *cbv_srv_uav_descriptors;
+
+    struct d3d12_resource *vrs_image;
 
     struct vkd3d_private_store private_store;
 };

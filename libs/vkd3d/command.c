@@ -2506,11 +2506,47 @@ static VkPipelineStageFlags vk_render_pass_barrier_from_view(const struct vkd3d_
     return stages;
 }
 
+static VkPipelineStageFlags vk_render_pass_barrier_vrs(const struct d3d12_resource *resource,
+        enum vkd3d_render_pass_transition_mode mode, VkImageMemoryBarrier *vk_barrier)
+{
+    const VkPipelineStageFlags stages = VK_PIPELINE_STAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
+    const VkImageLayout layout = VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR;
+    const VkAccessFlags access = VK_ACCESS_FRAGMENT_SHADING_RATE_ATTACHMENT_READ_BIT_KHR;
+
+    vk_barrier->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    vk_barrier->pNext = NULL;
+
+    if (mode == VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN)
+    {
+        vk_barrier->srcAccessMask = 0;
+        vk_barrier->dstAccessMask = access;
+        vk_barrier->oldLayout = resource->common_layout;
+        vk_barrier->newLayout = layout;
+    }
+    else /* if (mode == VKD3D_RENDER_PASS_TRANSITION_MODE_END) */
+    {
+        vk_barrier->srcAccessMask = 0;
+        vk_barrier->dstAccessMask = 0;
+        vk_barrier->oldLayout = layout;
+        vk_barrier->newLayout = resource->common_layout;
+    }
+
+    vk_barrier->srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    vk_barrier->dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    vk_barrier->image = resource->res.vk_image;
+    vk_barrier->subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    vk_barrier->subresourceRange.baseMipLevel = 0;
+    vk_barrier->subresourceRange.levelCount = 1;
+    vk_barrier->subresourceRange.baseArrayLayer = 0;
+    vk_barrier->subresourceRange.layerCount = 1;
+    return stages;
+}
+
 static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_list *list,
         enum vkd3d_render_pass_transition_mode mode)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkImageMemoryBarrier vk_image_barriers[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
+    VkImageMemoryBarrier vk_image_barriers[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 2];
     VkPipelineStageFlags stage_mask = 0;
     struct d3d12_rtv_desc *dsv;
     bool do_clear = false;
@@ -2539,6 +2575,12 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
 
         stage_mask |= vk_render_pass_barrier_from_view(dsv->view, dsv->resource,
                 mode, list->dsv_layout, do_clear, &vk_image_barriers[j++]);
+    }
+
+    if (list->vrs_image)
+    {
+        stage_mask |= vk_render_pass_barrier_vrs(list->vrs_image,
+                mode, &vk_image_barriers[j++]);
     }
 
     if (!j)
@@ -3861,6 +3903,7 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
     memset(list->so_counter_buffer_offsets, 0, sizeof(list->so_counter_buffer_offsets));
 
     list->cbv_srv_uav_descriptors = NULL;
+    list->vrs_image = NULL;
 
     ID3D12GraphicsCommandList_SetPipelineState(iface, initial_pipeline_state);
 }
@@ -3997,7 +4040,7 @@ static bool d3d12_command_list_create_framebuffer(struct d3d12_command_list *lis
 
 static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_list *list)
 {
-    VkImageView views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
+    VkImageView views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 2];
     struct d3d12_graphics_pipeline_state *graphics;
     VkFramebuffer vk_framebuffer;
     unsigned int view_count;
@@ -4037,6 +4080,9 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
 
         views[view_count++] = list->dsv.view->vk_image_view;
     }
+
+    if (list->vrs_image)
+        views[view_count++] = list->vrs_image->vrs_view;
 
     d3d12_command_list_get_fb_extent(list, &extent.width, &extent.height, &extent.depth);
 
@@ -4135,7 +4181,12 @@ static void d3d12_command_list_check_vbo_alignment(struct d3d12_command_list *li
 
 static uint32_t d3d12_command_list_variant_flags(struct d3d12_command_list *list)
 {
-    return 0u;
+    uint32_t flags = 0;
+
+    if (list->vrs_image)
+        flags |= VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_VRS_ATTACHMENT;
+
+    return flags;
 }
 
 static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_list *list)
@@ -8574,7 +8625,37 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRate(d3d12_command_
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRateImage(d3d12_command_list_iface *iface,
         ID3D12Resource *image)
 {
-    FIXME("iface %p, image %p stub!\n", iface, image);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_resource *vrs_image = unsafe_impl_from_ID3D12Resource(image);
+
+    TRACE("iface %p, image %p.\n", iface, image);
+
+    /* Handle invalid images being set here. */
+    if (vrs_image && !vrs_image->vrs_view)
+    {
+        WARN("RSSetShadingRateImage called with invalid resource for VRS.\n");
+        vrs_image = NULL;
+    }
+
+    if (vrs_image == list->vrs_image)
+        return;
+
+    d3d12_command_list_invalidate_current_framebuffer(list);
+
+    /* Need to end the renderpass if we have one to make
+     * way for the new VRS attachment */
+    if (list->current_render_pass || list->render_pass_suspended)
+        d3d12_command_list_invalidate_current_render_pass(list);
+
+    /* We've moved from not having a VRS image to having one
+     * or vice versa, find the right pipeline variant. */
+    if (!list->vrs_image != !vrs_image)
+        d3d12_command_list_invalidate_current_pipeline(list, false);
+
+    if (vrs_image)
+        d3d12_command_list_track_resource_usage(list, vrs_image, true);
+
+    list->vrs_image = vrs_image;
 }
 
 static CONST_VTBL struct ID3D12GraphicsCommandList5Vtbl d3d12_command_list_vtbl =
