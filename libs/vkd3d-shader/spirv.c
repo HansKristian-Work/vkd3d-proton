@@ -1775,6 +1775,7 @@ enum vkd3d_spirv_extension
     VKD3D_SPV_KHR_PHYSICAL_STORAGE_BUFFER       = 0x00000008,
     VKD3D_SPV_EXT_SHADER_VIEWPORT_INDEX_LAYER   = 0x00000010,
     VKD3D_SPV_EXT_SHADER_STENCIL_EXPORT         = 0x00000020,
+    VKD3D_SPV_EXT_FRAGMENT_FULLY_COVERED        = 0x00000040,
 };
 
 struct vkd3d_spirv_extension_info
@@ -1790,6 +1791,7 @@ static const struct vkd3d_spirv_extension_info vkd3d_spirv_extensions[] =
     {VKD3D_SPV_EXT_DESCRIPTOR_INDEXING,         "SPV_EXT_descriptor_indexing"},
     {VKD3D_SPV_EXT_SHADER_VIEWPORT_INDEX_LAYER, "SPV_EXT_shader_viewport_index_layer"},
     {VKD3D_SPV_EXT_SHADER_STENCIL_EXPORT,       "SPV_EXT_shader_stencil_export"},
+    {VKD3D_SPV_EXT_FRAGMENT_FULLY_COVERED,      "SPV_EXT_fragment_fully_covered"},
 };
 
 struct vkd3d_spirv_capability_extension_mapping
@@ -1806,6 +1808,7 @@ static const struct vkd3d_spirv_capability_extension_mapping vkd3d_spirv_capabil
     {SpvCapabilityShaderNonUniformEXT,                    VKD3D_SPV_EXT_DESCRIPTOR_INDEXING},
     {SpvCapabilityShaderViewportIndexLayerEXT,            VKD3D_SPV_EXT_SHADER_VIEWPORT_INDEX_LAYER},
     {SpvCapabilityStencilExportEXT,                       VKD3D_SPV_EXT_SHADER_STENCIL_EXPORT},
+    {SpvCapabilityFragmentFullyCoveredEXT,                VKD3D_SPV_EXT_FRAGMENT_FULLY_COVERED},
 };
 
 static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
@@ -2776,6 +2779,9 @@ static bool vkd3d_dxbc_compiler_get_register_name(char *buffer, unsigned int buf
             return false;
         case VKD3DSPR_STENCILREFOUT:
             snprintf(buffer, buffer_size, "oStencilRef");
+            break;
+        case VKD3DSPR_INNERCOVERAGE:
+            snprintf(buffer, buffer_size, "vInnerCoverage");
             break;
         default:
             FIXME("Unhandled register %#x.\n", reg->type);
@@ -3828,6 +3834,9 @@ static void vkd3d_dxbc_compiler_decorate_builtin(struct vkd3d_dxbc_compiler *com
         case SpvBuiltInSampleId:
             vkd3d_spirv_enable_capability(builder, SpvCapabilitySampleRateShading);
             break;
+        case SpvBuiltInFullyCoveredEXT:
+            vkd3d_spirv_enable_capability(builder, SpvCapabilityFragmentFullyCoveredEXT);
+            break;
         default:
             break;
     }
@@ -4036,6 +4045,7 @@ vkd3d_register_builtins[] =
     {VKD3DSPR_DEPTHOUTLE,       {VKD3D_TYPE_FLOAT, 1, SpvBuiltInFragDepth}},
 
     {VKD3DSPR_STENCILREFOUT,    {VKD3D_TYPE_UINT, 1, SpvBuiltInFragStencilRefEXT}},
+    {VKD3DSPR_INNERCOVERAGE,    {VKD3D_TYPE_BOOL, 1, SpvBuiltInFullyCoveredEXT}},
 };
 
 static void vkd3d_dxbc_compiler_emit_register_execution_mode(struct vkd3d_dxbc_compiler *compiler,
@@ -4594,9 +4604,11 @@ static void vkd3d_dxbc_compiler_emit_input_register(struct vkd3d_dxbc_compiler *
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_register *reg = &dst->reg;
     const struct vkd3d_spirv_builtin *builtin;
+    enum vkd3d_component_type component_type;
     struct vkd3d_symbol reg_symbol;
+    SpvStorageClass storage_class;
+    uint32_t input_id, var_id;
     struct rb_entry *entry;
-    uint32_t input_id;
 
     assert(!reg->idx[0].rel_addr);
     assert(!reg->idx[1].rel_addr);
@@ -4608,18 +4620,40 @@ static void vkd3d_dxbc_compiler_emit_input_register(struct vkd3d_dxbc_compiler *
         return;
     }
 
+    storage_class = SpvStorageClassInput;
+    component_type = builtin->component_type;
+
     /* vPrim may be declared in multiple hull shader phases. */
     vkd3d_symbol_make_register(&reg_symbol, reg);
     if ((entry = rb_get(&compiler->symbol_table, &reg_symbol)))
         return;
 
     input_id = vkd3d_dxbc_compiler_emit_builtin_variable(compiler, builtin, SpvStorageClassInput, 0);
+    var_id = input_id;
 
-    vkd3d_symbol_set_register_info(&reg_symbol, input_id, SpvStorageClassInput,
-            builtin->component_type, vkd3d_write_mask_from_component_count(builtin->component_count));
+    if (reg->type == VKD3DSPR_INNERCOVERAGE)
+    {
+        uint32_t value_id, uint_type_id, bool_type_id;
+        /* InnerCoverage is a bool in SPIR-V, but has to be UINT in DXBC.
+         * False must be 0, and bit 1 must be set to represent true. */
+        storage_class = SpvStorageClassPrivate;
+        component_type = VKD3D_TYPE_UINT;
+        var_id = vkd3d_dxbc_compiler_emit_variable(compiler, &builder->global_stream,
+                storage_class, component_type, 1);
+        uint_type_id = vkd3d_spirv_get_type_id(builder, component_type, 1);
+        bool_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_BOOL, 1);
+        value_id = vkd3d_spirv_build_op_select(builder, uint_type_id,
+                vkd3d_spirv_build_op_load(builder, bool_type_id, input_id, SpvMemoryAccessMaskNone),
+            vkd3d_dxbc_compiler_get_constant_uint(compiler, 1),
+            vkd3d_dxbc_compiler_get_constant_uint(compiler, 0));
+        vkd3d_spirv_build_op_store(builder, var_id, value_id, SpvMemoryAccessMaskNone);
+    }
+
+    vkd3d_symbol_set_register_info(&reg_symbol, var_id, storage_class,
+            component_type, vkd3d_write_mask_from_component_count(builtin->component_count));
     reg_symbol.info.reg.is_aggregate = builtin->spirv_array_size;
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
-    vkd3d_dxbc_compiler_emit_register_debug_name(builder, input_id, reg);
+    vkd3d_dxbc_compiler_emit_register_debug_name(builder, var_id, reg);
 }
 
 static void vkd3d_dxbc_compiler_emit_shader_phase_input(struct vkd3d_dxbc_compiler *compiler,
