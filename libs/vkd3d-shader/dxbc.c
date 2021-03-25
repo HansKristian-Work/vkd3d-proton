@@ -1346,6 +1346,7 @@ static const enum vkd3d_shader_register_type register_type_table[] =
     /* VKD3D_SM5_RT_DEPTHOUT_LESS_EQUAL */     VKD3DSPR_DEPTHOUTLE,
     /* UNKNOWN */                              ~0u,
     /* VKD3D_SM5_RT_STENCILREFOUT */           VKD3DSPR_STENCILREFOUT,
+    /* VKD3D_SM5_RT_INNERCOVERAGE */           VKD3DSPR_INNERCOVERAGE,
 };
 
 static const struct vkd3d_sm4_opcode_info *get_opcode_info(enum vkd3d_sm4_opcode opcode)
