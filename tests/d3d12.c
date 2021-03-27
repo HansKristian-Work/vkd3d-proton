@@ -48942,6 +48942,139 @@ static void test_vrs_dxil(void)
     destroy_test_context(&context);
 }
 
+static void test_vrs_image(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12PipelineState *pipeline_state = NULL;
+    ID3D12GraphicsCommandList5 *command_list;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    unsigned int i;
+    HRESULT hr;
+#if 0
+    void main(in float4 vPos : SV_POSITION, out float4 o0 : SV_Target0)
+    {
+        o0 = float4(ddx(vPos.x) / 255.0, ddy(vPos.y) / 255.0, 0.0, 0.0);
+    }
+#endif
+    static const DWORD ps_code_dxbc[] =
+    {
+        0x43425844, 0x1cf58366, 0x02883b19, 0xd5e18634, 0xeea3d29b, 0x00000001, 0x00000150, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x5449534f, 0x004e4f49,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x000000b4, 0x00000050,
+        0x0000002d, 0x0100086a, 0x04002064, 0x00101032, 0x00000000, 0x00000001, 0x03000065, 0x001020f2,
+        0x00000000, 0x02000068, 0x00000001, 0x0500007a, 0x00100012, 0x00000000, 0x0010100a, 0x00000000,
+        0x07000038, 0x00102012, 0x00000000, 0x0010000a, 0x00000000, 0x00004001, 0x3b808081, 0x0500007c,
+        0x00100012, 0x00000000, 0x0010101a, 0x00000000, 0x07000038, 0x00102022, 0x00000000, 0x0010000a,
+        0x00000000, 0x00004001, 0x3b808081, 0x08000036, 0x001020c2, 0x00000000, 0x00004002, 0x00000000,
+        0x00000000, 0x00000000, 0x00000000, 0x0100003e,
+    };
+
+    const D3D12_SHADER_BYTECODE ps = {
+        (const void*)ps_code_dxbc,
+        sizeof(ps_code_dxbc)
+    };
+    static const struct
+    {
+        D3D12_SHADING_RATE base_shading_rate;
+        D3D12_SHADING_RATE tex_shading_rate;
+        D3D12_SHADING_RATE_COMBINER combiners[2];
+        unsigned int expected_color;
+    }
+    tests[] =
+    {
+        {D3D12_SHADING_RATE_1X1, D3D12_SHADING_RATE_1X2, {D3D12_SHADING_RATE_COMBINER_PASSTHROUGH, D3D12_SHADING_RATE_COMBINER_OVERRIDE}, 0x00000201},
+        {D3D12_SHADING_RATE_1X2, D3D12_SHADING_RATE_2X1, {D3D12_SHADING_RATE_COMBINER_PASSTHROUGH, D3D12_SHADING_RATE_COMBINER_OVERRIDE}, 0x00000102},
+        {D3D12_SHADING_RATE_2X1, D3D12_SHADING_RATE_2X2, {D3D12_SHADING_RATE_COMBINER_PASSTHROUGH, D3D12_SHADING_RATE_COMBINER_OVERRIDE}, 0x00000202},
+        {D3D12_SHADING_RATE_2X2, D3D12_SHADING_RATE_1X1, {D3D12_SHADING_RATE_COMBINER_PASSTHROUGH, D3D12_SHADING_RATE_COMBINER_OVERRIDE}, 0x00000101},
+        {D3D12_SHADING_RATE_1X1, D3D12_SHADING_RATE_1X2, {D3D12_SHADING_RATE_COMBINER_PASSTHROUGH, D3D12_SHADING_RATE_COMBINER_PASSTHROUGH}, 0x00000101},
+        {D3D12_SHADING_RATE_1X2, D3D12_SHADING_RATE_2X1, {D3D12_SHADING_RATE_COMBINER_PASSTHROUGH, D3D12_SHADING_RATE_COMBINER_PASSTHROUGH}, 0x00000201},
+        {D3D12_SHADING_RATE_2X1, D3D12_SHADING_RATE_2X2, {D3D12_SHADING_RATE_COMBINER_PASSTHROUGH, D3D12_SHADING_RATE_COMBINER_PASSTHROUGH}, 0x00000102},
+        {D3D12_SHADING_RATE_2X2, D3D12_SHADING_RATE_1X1, {D3D12_SHADING_RATE_COMBINER_PASSTHROUGH, D3D12_SHADING_RATE_COMBINER_PASSTHROUGH}, 0x00000202},
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    if (!init_test_context(&context, &desc))
+        return;
+
+    if (!is_vrs_tier2_supported(context.device))
+    {
+        skip("VariableRateShading TIER_2 not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList5, (void **)&command_list);
+    ok(hr == S_OK, "Couldn't get GraphicsCommandList5, hr %#x.\n", hr);
+    ID3D12GraphicsCommandList5_Release(command_list);
+
+    queue = context.queue;
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature,
+            context.render_target_desc.Format, NULL, &ps, NULL);
+
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&pipeline_state);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        #define TEX_WIDTH (4u)
+        #define TEX_HEIGHT (4u)
+
+        ID3D12Resource *texture;
+        uint8_t shading_rate_data[TEX_WIDTH * TEX_HEIGHT] =
+        {
+            tests[i].tex_shading_rate, tests[i].tex_shading_rate, tests[i].tex_shading_rate, tests[i].tex_shading_rate,
+            tests[i].tex_shading_rate, tests[i].tex_shading_rate, tests[i].tex_shading_rate, tests[i].tex_shading_rate,
+            tests[i].tex_shading_rate, tests[i].tex_shading_rate, tests[i].tex_shading_rate, tests[i].tex_shading_rate,
+            tests[i].tex_shading_rate, tests[i].tex_shading_rate, tests[i].tex_shading_rate, tests[i].tex_shading_rate,
+        };
+        D3D12_SUBRESOURCE_DATA tex_data = { shading_rate_data, TEX_WIDTH, TEX_WIDTH * TEX_HEIGHT };
+
+        vkd3d_test_set_context("Test %u", i);
+
+        texture = create_default_texture2d(context.device, 4, 4, 1, 1, DXGI_FORMAT_R8_UINT,
+                0, D3D12_RESOURCE_STATE_COPY_DEST);
+        upload_texture_data(texture, &tex_data, 1, queue, context.list);
+        reset_command_list(context.list, context.allocator);
+        transition_resource_state(context.list, texture,
+                D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE);
+
+        ID3D12GraphicsCommandList5_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
+        ID3D12GraphicsCommandList5_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList5_SetPipelineState(command_list, pipeline_state);
+        ID3D12GraphicsCommandList5_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList5_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList5_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList5_RSSetShadingRate(command_list, tests[i].base_shading_rate, tests[i].combiners);
+        ID3D12GraphicsCommandList5_RSSetShadingRateImage(command_list, NULL);
+        ID3D12GraphicsCommandList5_RSSetShadingRateImage(command_list, texture);
+        ID3D12GraphicsCommandList5_DrawInstanced(command_list, 3, 1, 0, 0);
+        transition_resource_state(context.list, context.render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_uint(context.render_target, 0, queue, context.list, tests[i].expected_color, 0);
+
+        reset_command_list(context.list, context.allocator);
+        transition_resource_state(context.list, context.render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+        ID3D12Resource_Release(texture);
+
+        #undef TEX_WIDTH
+        #undef TEX_HEIGHT
+    }
+    vkd3d_test_set_context(NULL);
+
+    if (pipeline_state)
+        ID3D12PipelineState_Release(pipeline_state);
+
+    destroy_test_context(&context);
+}
+
 struct suballocation_thread_data
 {
     struct test_context *context;
@@ -50603,6 +50736,7 @@ START_TEST(d3d12)
     run_test(test_virtual_queries);
     run_test(test_vrs);
     run_test(test_vrs_dxil);
+    run_test(test_vrs_image);
     run_test(test_stress_suballocation);
     run_test(test_stress_suballocation_multithread);
     run_test(test_placed_image_alignment);
