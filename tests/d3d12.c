@@ -49609,6 +49609,109 @@ static void test_conservative_rasterization_dxil(void)
     test_conservative_rasterization(true);
 }
 
+static void test_root_signature_priority(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    ID3D12RootSignature *shader_root_signature;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_ROOT_PARAMETER root_parameters[2];
+    ID3D12RootSignature *api_root_signature;
+    ID3D12PipelineState *pipeline;
+    D3D12_GPU_VIRTUAL_ADDRESS va;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Resource *resource;
+    ID3D12Device *device;
+    unsigned int i;
+    HRESULT hr;
+
+#if 0
+    RWByteAddressBuffer uav0 : register(u0);
+    RWByteAddressBuffer uav1 : register(u1);
+
+    [rootsignature("UAV(u1), UAV(u0)")]
+    [numthreads(1,1,1)]
+    void main() {
+            uav0.Store(0u, 1u);
+            uav1.Store(0u, 2u);
+    }
+#endif
+    static const DWORD cs_code[] =
+    {
+        0x43425844, 0x42fd18b2, 0x996f5350, 0x1ce9d69a, 0x96324a34, 0x00000001, 0x00000138, 0x00000004,
+        0x00000030, 0x00000040, 0x00000050, 0x000000e8, 0x4e475349, 0x00000008, 0x00000000, 0x00000008,
+        0x4e47534f, 0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000090, 0x00050051, 0x00000024,
+        0x0100086a, 0x0600009d, 0x0031ee46, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0600009d,
+        0x0031ee46, 0x00000001, 0x00000001, 0x00000001, 0x00000000, 0x0400009b, 0x00000001, 0x00000001,
+        0x00000001, 0x080000a6, 0x0021e012, 0x00000000, 0x00000000, 0x00004001, 0x00000000, 0x00004001,
+        0x00000001, 0x080000a6, 0x0021e012, 0x00000001, 0x00000001, 0x00004001, 0x00000000, 0x00004001,
+        0x00000002, 0x0100003e, 0x30535452, 0x00000048, 0x00000002, 0x00000002, 0x00000018, 0x00000000,
+        0x00000048, 0x00000000, 0x00000004, 0x00000000, 0x00000030, 0x00000004, 0x00000000, 0x0000003c,
+        0x00000001, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+    };
+    static const D3D12_SHADER_BYTECODE cs = { cs_code, sizeof(cs_code) };
+    static const uint32_t expected[] = { 1u, 2u, 1u, 2u };
+
+    if (!init_compute_test_context(&context))
+        return;
+    device = context.device;
+    command_list = context.list;
+
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_parameters[0].Descriptor.ShaderRegister = 0;
+    root_parameters[0].Descriptor.RegisterSpace = 0;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_parameters[1].Descriptor.ShaderRegister = 1;
+    root_parameters[1].Descriptor.RegisterSpace = 0;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    root_signature_desc.NumParameters = ARRAY_SIZE(root_parameters);
+    root_signature_desc.pParameters = root_parameters;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+
+    hr = create_root_signature(device, &root_signature_desc, &api_root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    hr = ID3D12Device_CreateRootSignature(context.device, 0, cs_code, sizeof(cs_code), &IID_ID3D12RootSignature, (void**)&shader_root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    pipeline = create_compute_pipeline_state(device, api_root_signature, cs);
+    resource = create_buffer(device, D3D12_HEAP_TYPE_DEFAULT, sizeof(expected),
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    va = ID3D12Resource_GetGPUVirtualAddress(resource);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, api_root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(command_list, 0, va);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(command_list, 1, va + sizeof(uint32_t));
+    ID3D12GraphicsCommandList_Dispatch(command_list, 1, 1, 1);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, shader_root_signature);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(command_list, 0, va + 2 * sizeof(uint32_t));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(command_list, 1, va + 3 * sizeof(uint32_t));
+    ID3D12GraphicsCommandList_Dispatch(command_list, 1, 1, 1);
+    transition_resource_state(command_list, resource,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_buffer_readback_with_command_list(resource, DXGI_FORMAT_R32_UINT, &rb, context.queue, command_list);
+
+    for (i = 0; i < ARRAY_SIZE(expected); i++)
+    {
+        uint32_t value = get_readback_uint(&rb, i, 0, 0);
+        ok(value == expected[i], "Got unexpected value %u at %u, expected %u.\n", value, i, expected[i]);
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(resource);
+    ID3D12PipelineState_Release(pipeline);
+    ID3D12RootSignature_Release(api_root_signature);
+    ID3D12RootSignature_Release(shader_root_signature);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     pfn_D3D12CreateDevice = get_d3d12_pfn(D3D12CreateDevice);
@@ -49856,4 +49959,5 @@ START_TEST(d3d12)
     run_test(test_write_watch);
     run_test(test_conservative_rasterization_dxbc);
     run_test(test_conservative_rasterization_dxil);
+    run_test(test_root_signature_priority);
 }
