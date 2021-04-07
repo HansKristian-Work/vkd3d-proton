@@ -2613,13 +2613,15 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateComputePipelineState(d3d12_d
             &IID_ID3D12PipelineState, riid, pipeline_state);
 }
 
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandList1(d3d12_device_iface *iface,
+        UINT node_mask, D3D12_COMMAND_LIST_TYPE type, D3D12_COMMAND_LIST_FLAGS flags,
+        REFIID riid, void **command_list);
+
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandList(d3d12_device_iface *iface,
         UINT node_mask, D3D12_COMMAND_LIST_TYPE type, ID3D12CommandAllocator *command_allocator,
         ID3D12PipelineState *initial_pipeline_state, REFIID riid, void **command_list)
 {
-    struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    struct d3d12_command_allocator *allocator;
-    struct d3d12_command_list *object;
+    ID3D12GraphicsCommandList *object;
     HRESULT hr;
 
     TRACE("iface %p, node_mask 0x%08x, type %#x, command_allocator %p, "
@@ -2627,25 +2629,17 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandList(d3d12_device_ifa
             iface, node_mask, type, command_allocator,
             initial_pipeline_state, debugstr_guid(riid), command_list);
 
-    if (!(allocator = unsafe_impl_from_ID3D12CommandAllocator(command_allocator)))
-    {
-        WARN("Command allocator is NULL.\n");
-        return E_INVALIDARG;
-    }
-
-    if (allocator->type != type)
-    {
-        WARN("Command list types do not match (allocator %#x, list %#x).\n",
-                allocator->type, type);
-        return E_INVALIDARG;
-    }
-
-    if (FAILED(hr = d3d12_command_list_create(device, node_mask, type, command_allocator,
-            initial_pipeline_state, &object)))
+    if (FAILED(hr = d3d12_device_CreateCommandList1(iface, node_mask, type,
+            D3D12_COMMAND_LIST_FLAG_NONE, &IID_ID3D12GraphicsCommandList, (void **)&object)))
         return hr;
 
-    return return_interface(&object->ID3D12GraphicsCommandList_iface,
-            &IID_ID3D12GraphicsCommandList, riid, command_list);
+    if (FAILED(hr = ID3D12GraphicsCommandList_Reset(object, command_allocator, initial_pipeline_state)))
+    {
+        ID3D12GraphicsCommandList_Release(object);
+        return hr;
+    }
+
+    return return_interface(object, &IID_ID3D12GraphicsCommandList, riid, command_list);
 }
 
 /* Direct3D feature levels restrict which formats can be optionally supported. */
@@ -4094,7 +4088,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandList1(d3d12_device_if
     TRACE("iface %p, node_mask 0x%08x, type %#x, flags %#x, riid %s, command_list %p.\n",
             iface, node_mask, type, flags, debugstr_guid(riid), command_list);
 
-    if (FAILED(hr = d3d12_command_list_create(device, node_mask, type, NULL, NULL, &object)))
+    if (FAILED(hr = d3d12_command_list_create(device, node_mask, type, &object)))
         return hr;
 
     return return_interface(&object->ID3D12GraphicsCommandList_iface,
