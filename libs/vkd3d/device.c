@@ -2556,17 +2556,28 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandAllocator(d3d12_devic
         D3D12_COMMAND_LIST_TYPE type, REFIID riid, void **command_allocator)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    struct d3d12_command_allocator *object;
+    ID3D12CommandAllocator *allocator_iface;
     HRESULT hr;
 
     TRACE("iface %p, type %#x, riid %s, command_allocator %p.\n",
             iface, type, debugstr_guid(riid), command_allocator);
 
-    if (FAILED(hr = d3d12_command_allocator_create(device, type, &object)))
-        return hr;
+    if (type == D3D12_COMMAND_LIST_TYPE_BUNDLE)
+    {
+        struct d3d12_bundle_allocator *object;
+        if (FAILED(hr = d3d12_bundle_allocator_create(device, &object)))
+            return hr;
+        allocator_iface = &object->ID3D12CommandAllocator_iface;
+    }
+    else
+    {
+        struct d3d12_command_allocator *object;
+        if (FAILED(hr = d3d12_command_allocator_create(device, type, &object)))
+            return hr;
+        allocator_iface = &object->ID3D12CommandAllocator_iface;
+    }
 
-    return return_interface(&object->ID3D12CommandAllocator_iface, &IID_ID3D12CommandAllocator,
-            riid, command_allocator);
+    return return_interface(allocator_iface, &IID_ID3D12CommandAllocator, riid, command_allocator);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateGraphicsPipelineState(d3d12_device_iface *iface,
@@ -4082,17 +4093,28 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandList1(d3d12_device_if
         REFIID riid, void **command_list)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    struct d3d12_command_list *object;
+    d3d12_command_list_iface *command_list_iface;
     HRESULT hr;
 
     TRACE("iface %p, node_mask 0x%08x, type %#x, flags %#x, riid %s, command_list %p.\n",
             iface, node_mask, type, flags, debugstr_guid(riid), command_list);
 
-    if (FAILED(hr = d3d12_command_list_create(device, node_mask, type, &object)))
-        return hr;
+    if (type == D3D12_COMMAND_LIST_TYPE_BUNDLE)
+    {
+        struct d3d12_bundle *object;
+        if (FAILED(hr = d3d12_bundle_create(device, node_mask, type, &object)))
+            return hr;
+        command_list_iface = &object->ID3D12GraphicsCommandList_iface;
+    }
+    else
+    {
+        struct d3d12_command_list *object;
+        if (FAILED(hr = d3d12_command_list_create(device, node_mask, type, &object)))
+            return hr;
+        command_list_iface = &object->ID3D12GraphicsCommandList_iface;
+    }
 
-    return return_interface(&object->ID3D12GraphicsCommandList_iface,
-            &IID_ID3D12GraphicsCommandList, riid, command_list);
+    return return_interface(command_list_iface, &IID_ID3D12GraphicsCommandList, riid, command_list);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateProtectedResourceSession(d3d12_device_iface *iface,
