@@ -4253,7 +4253,8 @@ static VkSamplerAddressMode vk_address_mode_from_d3d12(D3D12_TEXTURE_ADDRESS_MOD
             return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         case D3D12_TEXTURE_ADDRESS_MODE_BORDER:
             return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-            /* D3D12_TEXTURE_ADDRESS_MODE_MIRROR_ONCE requires VK_KHR_mirror_clamp_to_edge. */
+        case D3D12_TEXTURE_ADDRESS_MODE_MIRROR_ONCE:
+            return VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE;
         default:
             FIXME("Unhandled address mode %#x.\n", mode);
             return VK_SAMPLER_ADDRESS_MODE_REPEAT;
