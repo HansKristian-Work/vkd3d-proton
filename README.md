@@ -23,6 +23,7 @@ There are some hard requirements on drivers to be able to implement D3D12 in a r
   Essentially all features in `VkPhysicalDeviceDescriptorIndexingFeatures` must be supported.
 - `VK_KHR_timeline_semaphore`
 - `VK_KHR_create_renderpass2`
+- `VK_KHR_sampler_mirror_clamp_to_edge`
 
 Some notable extensions that **should** be supported for optimal or correct behavior.
 These extensions will likely become mandatory later.
