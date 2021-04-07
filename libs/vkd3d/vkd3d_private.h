@@ -1774,6 +1774,56 @@ HRESULT d3d12_command_list_create(struct d3d12_device *device,
 bool d3d12_command_list_reset_query(struct d3d12_command_list *list,
         VkQueryPool vk_pool, uint32_t index);
 
+#define VKD3D_BUNDLE_CHUNK_SIZE (256 << 10)
+#define VKD3D_BUNDLE_COMMAND_ALIGNMENT (sizeof(UINT64))
+
+struct d3d12_bundle_allocator
+{
+    ID3D12CommandAllocator ID3D12CommandAllocator_iface;
+    LONG refcount;
+
+    void **chunks;
+    size_t chunks_size;
+    size_t chunks_count;
+    size_t chunk_offset;
+
+    struct d3d12_bundle *current_bundle;
+    struct d3d12_device *device;
+
+    struct vkd3d_private_store private_store;
+};
+
+HRESULT d3d12_bundle_allocator_create(struct d3d12_device *device,
+        struct d3d12_bundle_allocator **allocator);
+
+typedef void (*pfn_d3d12_bundle_command)(d3d12_command_list_iface *command_list, const void *args);
+
+struct d3d12_bundle_command
+{
+    pfn_d3d12_bundle_command proc;
+    struct d3d12_bundle_command *next;
+};
+
+struct d3d12_bundle
+{
+    d3d12_command_list_iface ID3D12GraphicsCommandList_iface;
+    LONG refcount;
+
+    bool is_recording;
+
+    struct d3d12_device *device;
+    struct d3d12_bundle_allocator *allocator;
+    struct d3d12_bundle_command *head;
+    struct d3d12_bundle_command *tail;
+
+    struct vkd3d_private_store private_store;
+};
+
+HRESULT d3d12_bundle_create(struct d3d12_device *device,
+        UINT node_mask, D3D12_COMMAND_LIST_TYPE type, struct d3d12_bundle **bundle);
+void d3d12_bundle_execute(struct d3d12_bundle *bundle, d3d12_command_list_iface *list);
+struct d3d12_bundle *d3d12_bundle_from_iface(ID3D12GraphicsCommandList *iface);
+
 struct vkd3d_queue
 {
     /* Access to VkQueue must be externally synchronized. */
