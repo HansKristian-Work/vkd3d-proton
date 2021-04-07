@@ -8827,6 +8827,23 @@ HRESULT d3d12_command_list_create(struct d3d12_device *device,
     return S_OK;
 }
 
+static struct d3d12_command_list *d3d12_command_list_from_iface(ID3D12CommandList *iface)
+{
+    bool is_valid = false;
+    if (!iface)
+        return NULL;
+
+#ifdef VKD3D_ENABLE_PROFILING
+    is_valid |= iface->lpVtbl == (struct ID3D12CommandListVtbl *)&d3d12_command_list_vtbl_profiled;
+#endif
+    is_valid |= iface->lpVtbl == (struct ID3D12CommandListVtbl *)&d3d12_command_list_vtbl;
+
+    if (!is_valid)
+        return NULL;
+
+    return CONTAINING_RECORD(iface, struct d3d12_command_list, ID3D12GraphicsCommandList_iface);
+}
+
 /* ID3D12CommandQueue */
 static inline struct d3d12_command_queue *impl_from_ID3D12CommandQueue(ID3D12CommandQueue *iface)
 {
@@ -9196,7 +9213,13 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
     for (i = 0; i < command_list_count; ++i)
     {
-        cmd_list = unsafe_impl_from_ID3D12CommandList(command_lists[i]);
+        cmd_list = d3d12_command_list_from_iface(command_lists[i]);
+
+        if (!cmd_list)
+        {
+            WARN("Unsupported command list type %p.\n", cmd_list);
+            return;
+        }
 
         if (cmd_list->vk_init_commands)
             num_command_buffers++;
