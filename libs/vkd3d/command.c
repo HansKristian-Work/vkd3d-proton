@@ -6469,7 +6469,17 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
 static void STDMETHODCALLTYPE d3d12_command_list_ExecuteBundle(d3d12_command_list_iface *iface,
         ID3D12GraphicsCommandList *command_list)
 {
-    FIXME("iface %p, command_list %p stub!\n", iface, command_list);
+    struct d3d12_bundle *bundle;
+
+    TRACE("iface %p, command_list %p.\n", iface, command_list);
+
+    if (!(bundle = d3d12_bundle_from_iface(command_list)))
+    {
+        WARN("Command list %p not a bundle.\n", command_list);
+        return;
+    }
+
+    d3d12_bundle_execute(bundle, iface);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetDescriptorHeaps(d3d12_command_list_iface *iface,
