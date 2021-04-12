@@ -482,6 +482,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"force_static_cbv", VKD3D_CONFIG_FLAG_FORCE_STATIC_CBV},
     {"dxr", VKD3D_CONFIG_FLAG_DXR},
     {"multi_queue", VKD3D_CONFIG_FLAG_MULTI_QUEUE},
+    {"force_tgsm_barriers", VKD3D_CONFIG_FLAG_FORCE_TGSM_BARRIERS},
 };
 
 static void vkd3d_config_flags_init_once(void)

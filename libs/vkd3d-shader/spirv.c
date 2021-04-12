@@ -9207,6 +9207,18 @@ static void vkd3d_dxbc_compiler_emit_store_uav_raw_structured(struct vkd3d_dxbc_
     }
 }
 
+static void vkd3d_dxbc_compiler_emit_tgsm_barrier(struct vkd3d_dxbc_compiler *compiler)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t memory_id, semantics_id;
+
+    memory_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, SpvScopeWorkgroup);
+    semantics_id = vkd3d_dxbc_compiler_get_constant_uint(compiler,
+            SpvMemorySemanticsWorkgroupMemoryMask | SpvMemorySemanticsAcquireReleaseMask);
+
+    vkd3d_spirv_build_op_memory_barrier(builder, memory_id, semantics_id);
+}
+
 static void vkd3d_dxbc_compiler_emit_store_tgsm(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -9246,6 +9258,9 @@ static void vkd3d_dxbc_compiler_emit_store_tgsm(struct vkd3d_dxbc_compiler *comp
         ptr_id = vkd3d_spirv_build_op_access_chain1(builder, ptr_type_id, reg_info.id, coordinate_id);
         vkd3d_spirv_build_op_store(builder, ptr_id, data_id, SpvMemoryAccessMaskNone);
     }
+
+    if (compiler->compile_args->config_flags & VKD3D_CONFIG_FLAG_FORCE_TGSM_BARRIERS)
+        vkd3d_dxbc_compiler_emit_tgsm_barrier(compiler);
 }
 
 static void vkd3d_dxbc_compiler_emit_store_raw_structured(struct vkd3d_dxbc_compiler *compiler,
