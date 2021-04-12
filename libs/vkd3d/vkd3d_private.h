@@ -163,16 +163,6 @@ struct vkd3d_vulkan_info
     enum vkd3d_shader_target_extension shader_extensions[VKD3D_MAX_SHADER_EXTENSIONS];
 };
 
-enum vkd3d_config_flags
-{
-    VKD3D_CONFIG_FLAG_VULKAN_DEBUG = 0x00000001,
-    VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS = 0x00000002,
-    VKD3D_CONFIG_FLAG_DEBUG_UTILS = 0x00000004,
-    VKD3D_CONFIG_FLAG_FORCE_STATIC_CBV = 0x00000008,
-    VKD3D_CONFIG_FLAG_DXR = 0x00000010,
-    VKD3D_CONFIG_FLAG_MULTI_QUEUE = 0x00000020,
-};
-
 struct vkd3d_instance
 {
     VkInstance vk_instance;
