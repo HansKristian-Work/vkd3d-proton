@@ -449,6 +449,8 @@ struct vkd3d_instance_application_meta
     uint64_t global_flags_remove;
 };
 static const struct vkd3d_instance_application_meta application_override[] = {
+    /* F1 2020 (1080110) */
+    { "F1_2020_dx12.exe", VKD3D_CONFIG_FLAG_FORCE_TGSM_BARRIERS, 0 },
     /* MSVC fails to compile empty array. */
     { NULL, 0, 0 }
 };
