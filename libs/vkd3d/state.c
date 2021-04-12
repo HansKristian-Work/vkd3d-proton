@@ -2570,7 +2570,7 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
     if (dsv_format)
     {
         assert(graphics->ds_desc.front.writeMask == graphics->ds_desc.back.writeMask);
-        if (graphics->ds_desc.depthTestEnable)
+        if (graphics->ds_desc.depthTestEnable || graphics->ds_desc.depthBoundsTestEnable)
         {
             key.flags |= VKD3D_RENDER_PASS_KEY_DEPTH_ENABLE;
             if (graphics->ds_desc.depthWriteEnable)
@@ -2855,7 +2855,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     }
 
     graphics->dsv_format = VK_FORMAT_UNDEFINED;
-    if (graphics->ds_desc.depthTestEnable || graphics->ds_desc.stencilTestEnable)
+    if (graphics->ds_desc.depthTestEnable || graphics->ds_desc.stencilTestEnable || graphics->ds_desc.depthBoundsTestEnable)
     {
         if (desc->dsv_format == DXGI_FORMAT_UNKNOWN)
         {
@@ -3685,7 +3685,8 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
 
     /* Unknown DSV format workaround. */
     if ((dsv_format != graphics->dsv_format) && (graphics->dsv_format != VK_FORMAT_UNDEFINED ||
-            state->graphics.ds_desc.depthTestEnable || state->graphics.ds_desc.stencilTestEnable))
+            state->graphics.ds_desc.depthTestEnable || state->graphics.ds_desc.stencilTestEnable ||
+            state->graphics.ds_desc.depthBoundsTestEnable))
     {
         TRACE("DSV format mismatch, expected %u, got %u, buggy application!\n",
               graphics->dsv_format, dsv_format);
