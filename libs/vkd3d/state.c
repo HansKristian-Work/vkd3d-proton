@@ -2085,6 +2085,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
     compile_args.target_extensions = device->vk_info.shader_extensions;
     compile_args.target_extension_count = device->vk_info.shader_extension_count;
     compile_args.target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
+    compile_args.config_flags = vkd3d_config_flags;
 
     pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     pipeline_info.pNext = NULL;
@@ -2941,6 +2942,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     compile_args.target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
     compile_args.target_extension_count = vk_info->shader_extension_count;
     compile_args.target_extensions = vk_info->shader_extensions;
+    compile_args.config_flags = vkd3d_config_flags;
 
     /* Options which are exclusive to PS. Especially output swizzles must only be used in PS. */
     ps_compile_args = compile_args;

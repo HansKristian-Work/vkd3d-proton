@@ -308,6 +308,8 @@ struct vkd3d_shader_compile_arguments
     bool dual_source_blending;
     const unsigned int *output_swizzles;
     unsigned int output_swizzle_count;
+
+    uint64_t config_flags;
 };
 
 enum vkd3d_tessellator_output_primitive
