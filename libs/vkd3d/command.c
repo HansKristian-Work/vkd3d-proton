@@ -1638,14 +1638,6 @@ static CONST_VTBL struct ID3D12CommandAllocatorVtbl d3d12_command_allocator_vtbl
     d3d12_command_allocator_Reset,
 };
 
-struct d3d12_command_allocator *unsafe_impl_from_ID3D12CommandAllocator(ID3D12CommandAllocator *iface)
-{
-    if (!iface)
-        return NULL;
-    assert(iface->lpVtbl == &d3d12_command_allocator_vtbl);
-    return impl_from_ID3D12CommandAllocator(iface);
-}
-
 struct vkd3d_queue_family_info *d3d12_device_get_vkd3d_queue_family(struct d3d12_device *device,
         D3D12_COMMAND_LIST_TYPE type)
 {

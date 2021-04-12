@@ -1536,7 +1536,6 @@ HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
 bool d3d12_command_allocator_allocate_query_from_type_index(
         struct d3d12_command_allocator *allocator,
         uint32_t type_index, VkQueryPool *query_pool, uint32_t *query_index);
-struct d3d12_command_allocator *unsafe_impl_from_ID3D12CommandAllocator(ID3D12CommandAllocator *iface);
 
 enum vkd3d_pipeline_dirty_flag
 {
