@@ -167,6 +167,8 @@ commas or semicolons.
  - `VKD3D_TEST_FILTER` - a filter string. Only the tests whose names matches the
    filter string will be run, e.g. `VKD3D_TEST_FILTER=clear_render_target`.
    Useful for debugging or developing new tests.
+ - `VKD3D_TEST_EXCLUDE` - excludes tests of which the name is included in the string,
+   e.g. `VKD3D_TEST_EXCLUDE=test_root_signature_priority,test_conservative_rasterization_dxil`.
  - `VKD3D_TEST_PLATFORM` - can be set to "wine", "windows" or "other". The test
    platform controls the behavior of todo(), todo_if(), bug_if() and broken()
    conditions in tests.

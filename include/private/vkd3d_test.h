@@ -20,6 +20,7 @@
 #define __VKD3D_TEST_H
 
 #include "vkd3d_common.h"
+#include "vkd3d_debug.h"
 #include <assert.h>
 #include <inttypes.h>
 #include <stdarg.h>
@@ -119,6 +120,7 @@ static struct
     bool bug_enabled;
 
     const char *test_name_filter;
+    const char *test_exclude_list;
     char context[1024];
 } vkd3d_test_state;
 
@@ -266,6 +268,7 @@ vkd3d_test_debug(const char *fmt, ...)
 
 int main(int argc, char **argv)
 {
+    const char *exclude_list = getenv("VKD3D_TEST_EXCLUDE");
     const char *test_filter = getenv("VKD3D_TEST_FILTER");
     const char *debug_level = getenv("VKD3D_TEST_DEBUG");
     char *test_platform = getenv("VKD3D_TEST_PLATFORM");
@@ -275,6 +278,7 @@ int main(int argc, char **argv)
     vkd3d_test_state.debug_level = debug_level ? atoi(debug_level) : 1;
     vkd3d_test_state.bug_enabled = bug ? atoi(bug) : true;
     vkd3d_test_state.test_name_filter = test_filter;
+    vkd3d_test_state.test_exclude_list = exclude_list;
 
     if (test_platform)
     {
@@ -357,6 +361,10 @@ typedef void (*vkd3d_test_pfn)(void);
 static inline void vkd3d_run_test(const char *name, vkd3d_test_pfn test_pfn)
 {
     if (vkd3d_test_state.test_name_filter && !strstr(name, vkd3d_test_state.test_name_filter))
+        return;
+
+    if (vkd3d_test_state.test_exclude_list
+            && vkd3d_debug_list_has_member(vkd3d_test_state.test_exclude_list, name))
         return;
 
     vkd3d_test_debug("%s", name);
