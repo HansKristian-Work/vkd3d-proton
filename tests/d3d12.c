@@ -50585,6 +50585,101 @@ static void test_missing_bindings_root_signature(void)
     destroy_test_context(&context);
 }
 
+static void test_mismatching_pso_stages(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    struct test_context_desc context_desc;
+    ID3D12RootSignature *root_signature;
+    ID3D12PipelineState *pipeline;
+    struct test_context context;
+    HRESULT hr;
+
+    static const DWORD vs_code[] =
+    {
+#if 0
+        float4 main(float4 pos : POS) : SV_POSITION {
+                return pos;
+        }
+#endif
+        0x43425844, 0xd0f999d3, 0x5250b8b9, 0x32f55488, 0x0498c795, 0x00000001, 0x000000d4, 0x00000003,
+        0x0000002c, 0x00000058, 0x0000008c, 0x4e475349, 0x00000024, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x00000f0f, 0x00534f50, 0x4e47534f, 0x0000002c,
+        0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f,
+        0x505f5653, 0x5449534f, 0x004e4f49, 0x58454853, 0x00000040, 0x00010050, 0x00000010, 0x0100086a,
+        0x0300005f, 0x001010f2, 0x00000000, 0x04000067, 0x001020f2, 0x00000000, 0x00000001, 0x05000036,
+        0x001020f2, 0x00000000, 0x00101e46, 0x00000000, 0x0100003e,
+    };
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        float4 main() : SV_TARGET {
+                return float4(1.0f, 1.0f, 1.0f, 1.0f);
+        }
+#endif
+        0x43425844, 0x29b14cf3, 0xb991cf90, 0x9e455ffc, 0x4675b046, 0x00000001, 0x000000b4, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x45475241, 0xabab0054, 0x58454853, 0x0000003c, 0x00000050, 0x0000000f,
+        0x0100086a, 0x03000065, 0x001020f2, 0x00000000, 0x08000036, 0x001020f2, 0x00000000, 0x00004002,
+        0x3f800000, 0x3f800000, 0x3f800000, 0x3f800000, 0x0100003e,
+    };
+
+    static const D3D12_INPUT_ELEMENT_DESC input_elements[] =
+    {
+        { "POS", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+    };
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    root_signature_desc.NumParameters = 0;
+    root_signature_desc.pParameters = NULL;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+    create_root_signature(context.device, &root_signature_desc, &root_signature);
+
+    memset(&pso_desc, 0, sizeof(pso_desc));
+    pso_desc.VS.pShaderBytecode = vs_code;
+    pso_desc.VS.BytecodeLength = sizeof(vs_code);
+    pso_desc.PS.pShaderBytecode = ps_code;
+    pso_desc.PS.BytecodeLength = sizeof(ps_code);
+    pso_desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    pso_desc.pRootSignature = root_signature;
+    pso_desc.NumRenderTargets = 1;
+    pso_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    pso_desc.InputLayout.NumElements = ARRAY_SIZE(input_elements);
+    pso_desc.InputLayout.pInputElementDescs = input_elements;
+    pso_desc.SampleDesc.Count = 1;
+    pso_desc.SampleDesc.Quality = 0;
+    pso_desc.SampleMask = ~0u;
+
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pipeline);
+    ok(SUCCEEDED(hr), "Unexpected hr #%x.\n", hr);
+    if (SUCCEEDED(hr))
+        ID3D12PipelineState_Release(pipeline);
+
+    pso_desc.PS.pShaderBytecode = vs_code;
+    pso_desc.PS.BytecodeLength = sizeof(vs_code);
+
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pipeline);
+    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", hr);
+    if (SUCCEEDED(hr))
+        ID3D12PipelineState_Release(pipeline);
+
+    ID3D12RootSignature_Release(root_signature);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     pfn_D3D12CreateDevice = get_d3d12_pfn(D3D12CreateDevice);
@@ -50837,4 +50932,5 @@ START_TEST(d3d12)
     run_test(test_conservative_rasterization_dxil);
     run_test(test_root_signature_priority);
     run_test(test_missing_bindings_root_signature);
+    run_test(test_mismatching_pso_stages);
 }
