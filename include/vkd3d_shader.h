@@ -212,6 +212,8 @@ struct vkd3d_shader_interface_info
     const struct vkd3d_shader_descriptor_binding *push_constant_ubo_binding;
     /* Ignored unless VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER or TYPED_OFFSET_BUFFER is set */
     const struct vkd3d_shader_descriptor_binding *offset_buffer_binding;
+
+    VkShaderStageFlagBits stage;
 };
 
 struct vkd3d_shader_descriptor_table

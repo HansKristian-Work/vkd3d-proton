@@ -449,6 +449,30 @@ static void vkd3d_dxil_log_callback(void *userdata, dxil_spv_log_level level, co
     }
 }
 
+static bool dxil_match_shader_stage(dxil_spv_shader_stage blob_stage, VkShaderStageFlagBits expected)
+{
+    VkShaderStageFlagBits stage;
+
+    switch (blob_stage)
+    {
+        case DXIL_SPV_STAGE_VERTEX: stage = VK_SHADER_STAGE_VERTEX_BIT; break;
+        case DXIL_SPV_STAGE_HULL: stage = VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT; break;
+        case DXIL_SPV_STAGE_DOMAIN: stage = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT; break;
+        case DXIL_SPV_STAGE_GEOMETRY: stage = VK_SHADER_STAGE_GEOMETRY_BIT; break;
+        case DXIL_SPV_STAGE_PIXEL: stage = VK_SHADER_STAGE_FRAGMENT_BIT; break;
+        case DXIL_SPV_STAGE_COMPUTE: stage = VK_SHADER_STAGE_COMPUTE_BIT; break;
+        default: return false;
+    }
+
+    if (stage != expected)
+    {
+        ERR("Expected VkShaderStage #%x, but got VkShaderStage #%x.\n", expected, stage);
+        return false;
+    }
+
+    return true;
+}
+
 int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv,
         const struct vkd3d_shader_interface_info *shader_interface_info,
@@ -463,6 +487,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     dxil_spv_converter converter = NULL;
     dxil_spv_parsed_blob blob = NULL;
     dxil_spv_compiled_spirv compiled;
+    dxil_spv_shader_stage stage;
     unsigned int i, max_size;
     vkd3d_shader_hash_t hash;
     int ret = VKD3D_OK;
@@ -486,6 +511,13 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     if (dxil_spv_parse_dxil_blob(dxbc->code, dxbc->size, &blob) != DXIL_SPV_SUCCESS)
     {
         ret = VKD3D_ERROR_INVALID_SHADER;
+        goto end;
+    }
+
+    stage = dxil_spv_parsed_blob_get_shader_stage(blob);
+    if (!dxil_match_shader_stage(stage, shader_interface_info->stage))
+    {
+        ret = VKD3D_ERROR_INVALID_ARGUMENT;
         goto end;
     }
 
