@@ -2297,6 +2297,8 @@ struct vkd3d_dxbc_compiler
     struct vkd3d_root_descriptor_info *root_descriptor_info;
 
     uint32_t offset_buffer_var_id;
+
+    int compiler_error;
 };
 
 static bool shader_is_sm_5_1(const struct vkd3d_dxbc_compiler *compiler)
@@ -2525,8 +2527,11 @@ static const struct vkd3d_shader_resource_binding *vkd3d_dxbc_compiler_get_resou
 
     /* Not finding a binding for RAW_SSBO is expected, so don't warn about it. */
     if (shader_interface->binding_count && !(binding_flags & VKD3D_SHADER_BINDING_FLAG_RAW_SSBO))
+    {
         FIXME("Could not find binding for type %#x, register %u, space %u, shader type %#x, flag %#x.\n",
                 descriptor_type, reg_idx, reg_space, compiler->shader_type, binding_flags);
+        compiler->compiler_error = VKD3D_ERROR_INVALID_ARGUMENT;
+    }
 
     return NULL;
 }
@@ -10478,7 +10483,9 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
             FIXME("Unhandled instruction %#x.\n", instruction->handler_idx);
     }
 
-    return ret;
+    if (ret < 0)
+        compiler->compiler_error = ret;
+    return compiler->compiler_error;
 }
 
 int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
@@ -10519,6 +10526,9 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
         vkd3d_spirv_stream_clear(&builder->debug_stream);
         vkd3d_spirv_stream_clear(&builder->string_stream);
     }
+
+    if (compiler->compiler_error)
+        return compiler->compiler_error;
 
     if (!vkd3d_spirv_compile_module(builder, spirv))
         return VKD3D_ERROR;
