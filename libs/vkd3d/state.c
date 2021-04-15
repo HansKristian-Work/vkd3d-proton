@@ -2044,11 +2044,13 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     shader_desc.pNext = NULL;
     shader_desc.flags = 0;
 
+    TRACE("Calling vkd3d_shader_compile_dxbc.\n");
     if ((ret = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0, shader_interface, compile_args)) < 0)
     {
         WARN("Failed to compile shader, vkd3d result %d.\n", ret);
         return hresult_from_vkd3d_result(ret);
     }
+    TRACE("Called vkd3d_shader_compile_dxbc.\n");
     shader_desc.codeSize = spirv.size;
     shader_desc.pCode = spirv.code;
     *meta = spirv.meta;
@@ -2103,8 +2105,10 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
         pipeline_info.stage.pSpecializationInfo = &spec_info.spec_info;
     }
 
+    TRACE("Calling vkCreateComputePipelines.\n");
     vr = VK_CALL(vkCreateComputePipelines(device->vk_device,
             vk_cache, 1, &pipeline_info, NULL, vk_pipeline));
+    TRACE("Called vkCreateComputePipelines.\n");
     VK_CALL(vkDestroyShaderModule(device->vk_device, pipeline_info.stage.module, NULL));
     if (vr < 0)
     {
@@ -3709,12 +3713,14 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
 
     *vk_render_pass = pipeline_desc.renderPass;
 
+    TRACE("Calling vkCreateGraphicsPipelines.\n");
     if ((vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device,
             vk_cache, 1, &pipeline_desc, NULL, &vk_pipeline))) < 0)
     {
         WARN("Failed to create Vulkan graphics pipeline, vr %d.\n", vr);
         return VK_NULL_HANDLE;
     }
+    TRACE("Completed vkCreateGraphicsPipelines.\n");
 
     return vk_pipeline;
 }
