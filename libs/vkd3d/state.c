@@ -3382,6 +3382,7 @@ static HRESULT d3d12_pipeline_create_private_root_signature(struct d3d12_device 
 HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindPoint bind_point,
         const struct d3d12_pipeline_state_desc *desc, struct d3d12_pipeline_state **state)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct d3d12_pipeline_state *object;
     HRESULT hr;
 
@@ -3420,6 +3421,7 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
     {
         if (object->private_root_signature)
             ID3D12RootSignature_Release(object->private_root_signature);
+        VK_CALL(vkDestroyPipelineCache(device->vk_device, object->vk_pso_cache, NULL));
 
         vkd3d_free(object);
         return hr;
