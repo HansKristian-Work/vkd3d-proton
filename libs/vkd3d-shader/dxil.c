@@ -523,7 +523,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
 
     if (dxil_spv_create_converter(blob, &converter) != DXIL_SPV_SUCCESS)
     {
-        ret = VKD3D_ERROR_INVALID_SHADER;
+        ret = VKD3D_ERROR_INVALID_ARGUMENT;
         goto end;
     }
 
@@ -747,13 +747,13 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
 
     if (dxil_spv_converter_run(converter) != DXIL_SPV_SUCCESS)
     {
-        ret = VKD3D_ERROR_INVALID_SHADER;
+        ret = VKD3D_ERROR_INVALID_ARGUMENT;
         goto end;
     }
 
     if (dxil_spv_converter_get_compiled_spirv(converter, &compiled) != DXIL_SPV_SUCCESS)
     {
-        ret = VKD3D_ERROR_INVALID_SHADER;
+        ret = VKD3D_ERROR_INVALID_ARGUMENT;
         goto end;
     }
 
@@ -828,7 +828,7 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
 
     if (dxil_spv_create_converter(blob, &converter) != DXIL_SPV_SUCCESS)
     {
-        ret = VKD3D_ERROR_INVALID_SHADER;
+        ret = VKD3D_ERROR_INVALID_ARGUMENT;
         goto end;
     }
 
@@ -1097,13 +1097,13 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
 
     if (dxil_spv_converter_run(converter) != DXIL_SPV_SUCCESS)
     {
-        ret = VKD3D_ERROR_INVALID_SHADER;
+        ret = VKD3D_ERROR_INVALID_ARGUMENT;
         goto end;
     }
 
     if (dxil_spv_converter_get_compiled_spirv(converter, &compiled) != DXIL_SPV_SUCCESS)
     {
-        ret = VKD3D_ERROR_INVALID_SHADER;
+        ret = VKD3D_ERROR_INVALID_ARGUMENT;
         goto end;
     }
 
@@ -1214,7 +1214,7 @@ int vkd3d_shader_dxil_append_library_entry_points(
             library_desc->DXILLibrary.BytecodeLength,
             &blob) != DXIL_SPV_SUCCESS)
     {
-        ret = VKD3D_ERROR_INVALID_SHADER;
+        ret = VKD3D_ERROR_INVALID_ARGUMENT;
         goto end;
     }
 
@@ -1230,7 +1230,7 @@ int vkd3d_shader_dxil_append_library_entry_points(
             stage = dxil_spv_parsed_blob_get_shader_stage_for_entry(blob, ascii_entry);
             if (stage == DXIL_SPV_STAGE_UNKNOWN)
             {
-                ret = VKD3D_ERROR_INVALID_SHADER;
+                ret = VKD3D_ERROR_INVALID_ARGUMENT;
                 goto end;
             }
 
@@ -1251,7 +1251,7 @@ int vkd3d_shader_dxil_append_library_entry_points(
     {
         if (dxil_spv_parsed_blob_get_num_entry_points(blob, &count) != DXIL_SPV_SUCCESS)
         {
-            ret = VKD3D_ERROR_INVALID_SHADER;
+            ret = VKD3D_ERROR_INVALID_ARGUMENT;
             goto end;
         }
 
@@ -1262,13 +1262,13 @@ int vkd3d_shader_dxil_append_library_entry_points(
             if (stage == DXIL_SPV_STAGE_UNKNOWN)
             {
                 ERR("Invalid shader stage for %s.\n", mangled_entry);
-                ret = VKD3D_ERROR_INVALID_SHADER;
+                ret = VKD3D_ERROR_INVALID_ARGUMENT;
                 goto end;
             }
 
             if (!vkd3d_dxil_build_entry(&new_entry, identifier, mangled_entry, stage))
             {
-                ret = VKD3D_ERROR_INVALID_SHADER;
+                ret = VKD3D_ERROR_INVALID_ARGUMENT;
                 goto end;
             }
 
