@@ -4773,8 +4773,8 @@ static uint32_t calculate_sysval_array_mask(struct vkd3d_dxbc_compiler *compiler
     return mask;
 }
 
-/* Emits arrayed SPIR-V built-in variables. */
-static void vkd3d_dxbc_compiler_emit_shader_signature_outputs(struct vkd3d_dxbc_compiler *compiler)
+/* Emits arrayed SPIR-V built-in clip/cull distance variables. */
+static void vkd3d_dxbc_compiler_emit_clip_cull_outputs(struct vkd3d_dxbc_compiler *compiler)
 {
     const struct vkd3d_shader_signature *output_signature = compiler->output_signature;
     uint32_t clip_distance_mask = 0, clip_distance_id = 0;
@@ -5621,7 +5621,7 @@ static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_comp
     if (compiler->shader_type != VKD3D_SHADER_TYPE_HULL)
         vkd3d_spirv_builder_begin_main_function(builder);
 
-    vkd3d_dxbc_compiler_emit_shader_signature_outputs(compiler);
+    vkd3d_dxbc_compiler_emit_clip_cull_outputs(compiler);
 }
 
 static size_t vkd3d_dxbc_compiler_get_current_function_location(struct vkd3d_dxbc_compiler *compiler)
