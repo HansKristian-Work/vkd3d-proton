@@ -875,6 +875,9 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     shader_interface_info.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO;
     shader_interface_info.min_ssbo_alignment = d3d12_device_get_ssbo_alignment(object->device);
 
+    /* Effectively ignored. */
+    shader_interface_info.stage = VK_SHADER_STAGE_ALL;
+
     global_signature = unsafe_impl_from_ID3D12RootSignature(data->global_root_signature);
 
     if (global_signature)

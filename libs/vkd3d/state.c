@@ -2021,7 +2021,7 @@ struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12Pipeline
 }
 
 static HRESULT create_shader_stage(struct d3d12_device *device,
-        struct VkPipelineShaderStageCreateInfo *stage_desc, enum VkShaderStageFlagBits stage,
+        struct VkPipelineShaderStageCreateInfo *stage_desc, VkShaderStageFlagBits stage,
         const D3D12_SHADER_BYTECODE *code, const struct vkd3d_shader_interface_info *shader_interface,
         const struct vkd3d_shader_compile_arguments *compile_args, struct vkd3d_shader_meta *meta)
 {
@@ -2143,6 +2143,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
     shader_interface.push_constant_ubo_binding = &root_signature->push_constant_ubo_binding;
     shader_interface.offset_buffer_binding = &root_signature->offset_buffer_binding;
+    shader_interface.stage = VK_SHADER_STAGE_COMPUTE_BIT;
 
     if ((hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, &desc->cached_pso, &state->vk_pso_cache)) < 0)
     {
@@ -3073,7 +3074,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         }
 
         shader_interface.next = shader_stages[i].stage == xfb_stage ? &xfb_info : NULL;
-
+        shader_interface.stage = shader_stages[i].stage;
         if (FAILED(hr = create_shader_stage(device, &graphics->stages[graphics->stage_count],
                 shader_stages[i].stage, b, &shader_interface,
                 shader_stages[i].stage == VK_SHADER_STAGE_FRAGMENT_BIT ? &ps_compile_args : &compile_args,

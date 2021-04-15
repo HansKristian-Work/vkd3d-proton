@@ -300,6 +300,29 @@ static void vkd3d_shader_scan_destroy(struct vkd3d_shader_scan_info *scan_info)
     hash_map_clear(&scan_info->register_map);
 }
 
+static int vkd3d_shader_validate_shader_type(enum vkd3d_shader_type type, VkShaderStageFlagBits stages)
+{
+    static const VkShaderStageFlagBits table[VKD3D_SHADER_TYPE_COUNT] = {
+        VK_SHADER_STAGE_FRAGMENT_BIT,
+        VK_SHADER_STAGE_VERTEX_BIT,
+        VK_SHADER_STAGE_GEOMETRY_BIT,
+        VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
+        VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT,
+        VK_SHADER_STAGE_COMPUTE_BIT,
+    };
+
+    if (type >= VKD3D_SHADER_TYPE_COUNT)
+        return VKD3D_ERROR_INVALID_ARGUMENT;
+
+    if (table[type] != stages)
+    {
+        ERR("Expected VkShaderStage #%x, but got VkShaderStage #%x.\n", stages, table[type]);
+        return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
+
+    return 0;
+}
+
 int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv, unsigned int compiler_options,
         const struct vkd3d_shader_interface_info *shader_interface_info,
@@ -348,6 +371,12 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     }
 
     if ((ret = vkd3d_shader_parser_init(&parser, dxbc)) < 0)
+    {
+        vkd3d_shader_scan_destroy(&scan_info);
+        return ret;
+    }
+
+    if ((ret = vkd3d_shader_validate_shader_type(parser.shader_version.type, shader_interface_info->stage)) < 0)
     {
         vkd3d_shader_scan_destroy(&scan_info);
         return ret;
