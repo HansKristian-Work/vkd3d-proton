@@ -7798,12 +7798,26 @@ static void vkd3d_dxbc_compiler_emit_shader_epilogue_invocation(struct vkd3d_dxb
             if (compiler->private_output_variable[i])
             {
                 unsigned int argument_idx = count++;
-                arguments[argument_idx] = compiler->private_output_variable[i];
+                uint32_t output_variable_id = compiler->private_output_variable[i];
 
                 if (compiler->private_output_variable_array_idx[i])
                 {
-                    arguments[argument_idx] = vkd3d_spirv_build_op_access_chain1(builder, ptr_type_id,
-                            arguments[argument_idx], compiler->private_output_variable_array_idx[i]);
+                    uint32_t ptr_id, value_id;
+
+                    arguments[argument_idx] = vkd3d_spirv_build_op_variable(builder,
+                            &builder->global_stream, ptr_type_id, SpvStorageClassPrivate, 0);
+
+                    ptr_id = vkd3d_spirv_build_op_access_chain1(builder, ptr_type_id,
+                            output_variable_id, compiler->private_output_variable_array_idx[i]);
+
+                    value_id = vkd3d_spirv_build_op_load(builder,
+                            type_id, ptr_id, SpvMemoryAccessMaskNone);
+
+                    vkd3d_spirv_build_op_store(builder, arguments[argument_idx], value_id, SpvMemoryAccessMaskNone);
+                }
+                else
+                {
+                    arguments[argument_idx] = output_variable_id;
                 }
             }
         }
