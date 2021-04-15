@@ -30,6 +30,8 @@ static void vkd3d_shader_dump_blob(const char *path, vkd3d_shader_hash_t hash, c
 
     snprintf(filename, ARRAY_SIZE(filename), "%s/%016"PRIx64".%s", path, hash, ext);
 
+    INFO("Dumping blob to %s.\n", filename);
+
     /* Exclusive open to avoid multiple threads spamming out the same shader module, and avoids race condition. */
     if ((f = fopen(filename, "wbx")))
     {
