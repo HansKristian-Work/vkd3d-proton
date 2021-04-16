@@ -30,9 +30,7 @@ static inline void rw_spinlock_acquire_read(spinlock_t *spinlock)
     uint32_t count = vkd3d_atomic_uint32_add(spinlock, VKD3D_RW_SPINLOCK_READ, vkd3d_memory_order_acquire);
     while (count & VKD3D_RW_SPINLOCK_WRITE)
     {
-#ifdef __SSE2__
-        _mm_pause();
-#endif
+        vkd3d_pause();
         count = vkd3d_atomic_uint32_load_explicit(spinlock, vkd3d_memory_order_acquire);
     }
 }
@@ -49,9 +47,7 @@ static inline void rw_spinlock_acquire_write(spinlock_t *spinlock)
                     VKD3D_RW_SPINLOCK_IDLE, VKD3D_RW_SPINLOCK_WRITE,
                     vkd3d_memory_order_acquire, vkd3d_memory_order_relaxed) != VKD3D_RW_SPINLOCK_IDLE)
     {
-#ifdef __SSE2__
-        _mm_pause();
-#endif
+        vkd3d_pause();
     }
 }
 
