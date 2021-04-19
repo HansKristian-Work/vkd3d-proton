@@ -539,12 +539,6 @@ static HRESULT create_vkd3d_device(struct vkd3d_instance *instance,
     {
         VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME,
     };
-    static const struct vkd3d_optional_device_extensions_info optional_extensions =
-    {
-        .type = VKD3D_STRUCTURE_TYPE_OPTIONAL_DEVICE_EXTENSIONS_INFO,
-        .extensions = device_extensions,
-        .extension_count = ARRAY_SIZE(device_extensions),
-    };
 
     struct vkd3d_device_create_info device_create_info;
     VkPhysicalDevice vk_physical_device;
@@ -554,10 +548,12 @@ static HRESULT create_vkd3d_device(struct vkd3d_instance *instance,
 
     memset(&device_create_info, 0, sizeof(device_create_info));
     device_create_info.type = VKD3D_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    device_create_info.next = &optional_extensions;
+    device_create_info.next = NULL;
     device_create_info.minimum_feature_level = minimum_feature_level;
     device_create_info.instance = instance;
     device_create_info.vk_physical_device = vk_physical_device;
+    device_create_info.optional_device_extensions = device_extensions;
+    device_create_info.optional_device_extension_count = ARRAY_SIZE(device_extensions);
 
     return vkd3d_create_device(&device_create_info, iid, device);
 }

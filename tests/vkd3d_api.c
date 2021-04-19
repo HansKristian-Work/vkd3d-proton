@@ -463,7 +463,6 @@ static void test_optional_device_extensions(void)
         VK_KHR_BIND_MEMORY_2_EXTENSION_NAME,
     };
 
-    struct vkd3d_optional_device_extensions_info optional_extensions;
     struct vkd3d_instance_create_info instance_create_info;
     struct vkd3d_device_create_info device_create_info;
     struct vkd3d_instance *instance;
@@ -483,14 +482,10 @@ static void test_optional_device_extensions(void)
     hr = vkd3d_create_device(&device_create_info, &IID_ID3D12Device, (void **)&device);
     ok(hr == E_FAIL, "Got unexpected hr %#x.\n", hr);
 
-    optional_extensions.type = VKD3D_STRUCTURE_TYPE_OPTIONAL_DEVICE_EXTENSIONS_INFO;
-    optional_extensions.next = NULL;
-    optional_extensions.extensions = extensions;
-    optional_extensions.extension_count = ARRAY_SIZE(extensions);
-
-    device_create_info.next = &optional_extensions;
     device_create_info.device_extensions = NULL;
     device_create_info.device_extension_count = 0;
+    device_create_info.optional_device_extensions = extensions;
+    device_create_info.optional_device_extensions = ARRAY_SIZE(extensions);
     hr = vkd3d_create_device(&device_create_info, &IID_ID3D12Device, (void **)&device);
     ok(hr == S_OK, "Failed to create device, hr %#x.\n", hr);
 
