@@ -2083,7 +2083,6 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
     HRESULT hr;
 
     memset(&compile_args, 0, sizeof(compile_args));
-    compile_args.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_ARGUMENTS;
     compile_args.target_extensions = device->vk_info.shader_extensions;
     compile_args.target_extension_count = device->vk_info.shader_extension_count;
     compile_args.target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
@@ -2135,8 +2134,6 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     else
         root_signature = unsafe_impl_from_ID3D12RootSignature(state->private_root_signature);
 
-    shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO;
-    shader_interface.next = NULL;
     shader_interface.flags = d3d12_root_signature_get_shader_interface_flags(root_signature);
     shader_interface.min_ssbo_alignment = d3d12_device_get_ssbo_alignment(device);
     shader_interface.descriptor_tables.offset = root_signature->descriptor_table_offset;
@@ -2944,7 +2941,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     ps_shader_parameters[0].immediate_constant.u32 = sample_count;
 
     memset(&compile_args, 0, sizeof(compile_args));
-    compile_args.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_ARGUMENTS;
     compile_args.target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
     compile_args.target_extension_count = vk_info->shader_extension_count;
     compile_args.target_extensions = vk_info->shader_extensions;
@@ -3017,8 +3013,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             xfb_stage = VK_SHADER_STAGE_VERTEX_BIT;
     }
 
-    shader_interface.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO;
-    shader_interface.next = NULL;
     shader_interface.flags = d3d12_root_signature_get_shader_interface_flags(root_signature);
     shader_interface.min_ssbo_alignment = d3d12_device_get_ssbo_alignment(device);
     shader_interface.descriptor_tables.offset = root_signature->descriptor_table_offset;

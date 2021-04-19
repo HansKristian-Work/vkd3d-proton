@@ -213,12 +213,6 @@ static int vkd3d_shader_validate_compile_args(const struct vkd3d_shader_compile_
     if (!compile_args)
         return VKD3D_OK;
 
-    if (compile_args->type != VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_ARGUMENTS)
-    {
-        WARN("Invalid structure type %#x.\n", compile_args->type);
-        return VKD3D_ERROR_INVALID_ARGUMENT;
-    }
-
     switch (compile_args->target)
     {
         case VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0:
@@ -339,12 +333,6 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
 
     TRACE("dxbc {%p, %zu}, spirv %p, compiler_options %#x, shader_interface_info %p, compile_args %p.\n",
             dxbc->code, dxbc->size, spirv, compiler_options, shader_interface_info, compile_args);
-
-    if (shader_interface_info && shader_interface_info->type != VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO)
-    {
-        WARN("Invalid structure type %#x.\n", shader_interface_info->type);
-        return VKD3D_ERROR_INVALID_ARGUMENT;
-    }
 
     if ((ret = vkd3d_shader_validate_compile_args(compile_args)) < 0)
         return ret;
