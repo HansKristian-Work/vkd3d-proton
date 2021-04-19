@@ -10514,8 +10514,6 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
 int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
         struct vkd3d_shader_code *spirv)
 {
-    const struct vkd3d_shader_compile_arguments *compile_args = compiler->compile_args;
-    const struct vkd3d_shader_domain_shader_compile_arguments *ds_args;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_phase *phase;
 
@@ -10526,15 +10524,6 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
 
     if (compiler->shader_type == VKD3D_SHADER_TYPE_HULL)
         vkd3d_dxbc_compiler_emit_hull_shader_main(compiler);
-
-    if (compiler->shader_type == VKD3D_SHADER_TYPE_DOMAIN)
-    {
-        if (compile_args && (ds_args = vkd3d_find_struct(compile_args->next, DOMAIN_SHADER_COMPILE_ARGUMENTS)))
-        {
-            vkd3d_dxbc_compiler_emit_tessellator_output_primitive(compiler, ds_args->output_primitive);
-            vkd3d_dxbc_compiler_emit_tessellator_partitioning(compiler, ds_args->partitioning);
-        }
-    }
 
     if (compiler->epilogue_function_id)
     {
