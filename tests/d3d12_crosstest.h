@@ -572,7 +572,7 @@ static ID3D12Device *create_device(void)
 
 static bool get_driver_properties(ID3D12Device *device, VkPhysicalDeviceDriverPropertiesKHR *driver_properties)
 {
-    PFN_vkGetPhysicalDeviceProperties2KHR pfn_vkGetPhysicalDeviceProperties2KHR;
+    PFN_vkGetPhysicalDeviceProperties2 pfn_vkGetPhysicalDeviceProperties2;
     VkPhysicalDeviceProperties2 device_properties2;
     VkPhysicalDevice vk_physical_device;
     VkInstance vk_instance;
@@ -591,14 +591,14 @@ static bool get_driver_properties(ID3D12Device *device, VkPhysicalDeviceDriverPr
         struct vkd3d_instance *instance = vkd3d_instance_from_device(device);
         VkInstance vk_instance = vkd3d_instance_get_vk_instance(instance);
 
-        pfn_vkGetPhysicalDeviceProperties2KHR
-                = (void *)pfn_vkGetInstanceProcAddr(vk_instance, "vkGetPhysicalDeviceProperties2KHR");
-        ok(pfn_vkGetPhysicalDeviceProperties2KHR, "vkGetPhysicalDeviceProperties2KHR is NULL.\n");
+        pfn_vkGetPhysicalDeviceProperties2
+                = (void *)pfn_vkGetInstanceProcAddr(vk_instance, "vkGetPhysicalDeviceProperties2");
+        ok(pfn_vkGetPhysicalDeviceProperties2, "vkGetPhysicalDeviceProperties2 is NULL.\n");
 
         memset(&device_properties2, 0, sizeof(device_properties2));
         device_properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
         device_properties2.pNext = driver_properties;
-        pfn_vkGetPhysicalDeviceProperties2KHR(vk_physical_device, &device_properties2);
+        pfn_vkGetPhysicalDeviceProperties2(vk_physical_device, &device_properties2);
         return true;
     }
 
