@@ -31,17 +31,6 @@
 extern "C" {
 #endif  /* __cplusplus */
 
-enum vkd3d_shader_structure_type
-{
-    /* 1.2 */
-    VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO,
-    VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_ARGUMENTS,
-    VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO,
-    VKD3D_SHADER_STRUCTURE_TYPE_DOMAIN_SHADER_COMPILE_ARGUMENTS,
-
-    VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_STRUCTURE_TYPE),
-};
-
 enum vkd3d_shader_compiler_option
 {
     VKD3D_SHADER_STRIP_DEBUG = 0x00000001,
@@ -195,8 +184,6 @@ enum vkd3d_shader_interface_flag
 
 struct vkd3d_shader_interface_info
 {
-    enum vkd3d_shader_structure_type type;
-    const void *next;
     unsigned int flags; /* vkd3d_shader_interface_flags */
     unsigned int min_ssbo_alignment;
 
@@ -293,9 +280,6 @@ enum vkd3d_shader_target_extension
 
 struct vkd3d_shader_compile_arguments
 {
-    enum vkd3d_shader_structure_type type;
-    const void *next;
-
     enum vkd3d_shader_target target;
 
     unsigned int target_extension_count;

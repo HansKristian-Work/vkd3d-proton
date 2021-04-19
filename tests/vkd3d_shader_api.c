@@ -123,7 +123,6 @@ static void test_vkd3d_shader_pfns(void)
     pfn_vkd3d_shader_free_shader_code(&spirv);
 
     memset(&scan_info, 0, sizeof(scan_info));
-    scan_info.type = VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO;
     rc = pfn_vkd3d_shader_scan_dxbc(&vs, &scan_info);
     ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
 }

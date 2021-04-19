@@ -864,7 +864,6 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     static const VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_RAY_TRACING_PIPELINE_STACK_SIZE_KHR };
 
     memset(&compile_args, 0, sizeof(compile_args));
-    compile_args.type = VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_ARGUMENTS;
     compile_args.target_extensions = object->device->vk_info.shader_extensions;
     compile_args.target_extension_count = object->device->vk_info.shader_extension_count;
     compile_args.target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
@@ -872,7 +871,6 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
 
     /* TODO: Allow different root signatures per module. */
     memset(&shader_interface_info, 0, sizeof(shader_interface_info));
-    shader_interface_info.type = VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO;
     shader_interface_info.min_ssbo_alignment = d3d12_device_get_ssbo_alignment(object->device);
 
     /* Effectively ignored. */
