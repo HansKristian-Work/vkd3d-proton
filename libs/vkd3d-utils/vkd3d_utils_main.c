@@ -55,8 +55,6 @@ VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
         FIXME("Ignoring adapter %p.\n", adapter);
 
     memset(&instance_create_info, 0, sizeof(instance_create_info));
-    instance_create_info.type = VKD3D_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    instance_create_info.next = NULL;
     instance_create_info.pfn_signal_event = vkd3d_signal_event;
     instance_create_info.instance_extensions = instance_extensions;
     instance_create_info.instance_extension_count = ARRAY_SIZE(instance_extensions);
@@ -64,8 +62,6 @@ VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
     instance_create_info.optional_instance_extension_count = ARRAY_SIZE(optional_instance_extensions);
 
     memset(&device_create_info, 0, sizeof(device_create_info));
-    device_create_info.type = VKD3D_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    device_create_info.next = NULL;
     device_create_info.minimum_feature_level = minimum_feature_level;
     device_create_info.instance_create_info = &instance_create_info;
     device_create_info.device_extensions = device_extensions;

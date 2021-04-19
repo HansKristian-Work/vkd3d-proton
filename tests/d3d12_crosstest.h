@@ -490,7 +490,6 @@ static bool check_device_extension(VkInstance instance, VkPhysicalDevice vk_phys
 static HRESULT create_vkd3d_instance(struct vkd3d_instance **instance)
 {
     struct vkd3d_instance_create_info instance_create_info = {
-        .type = VKD3D_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
         .pfn_signal_event = vkd3d_signal_event,
     };
 
@@ -547,8 +546,6 @@ static HRESULT create_vkd3d_device(struct vkd3d_instance *instance,
         return E_INVALIDARG;
 
     memset(&device_create_info, 0, sizeof(device_create_info));
-    device_create_info.type = VKD3D_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    device_create_info.next = NULL;
     device_create_info.minimum_feature_level = minimum_feature_level;
     device_create_info.instance = instance;
     device_create_info.vk_physical_device = vk_physical_device;
