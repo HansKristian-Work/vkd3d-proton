@@ -327,16 +327,6 @@ enum vkd3d_tessellator_partitioning
     VKD3D_TESSELLATOR_PARTITIONING_FRACTIONAL_EVEN = 4,
 };
 
-/* Extends vkd3d_shader_compile_arguments. */
-struct vkd3d_shader_domain_shader_compile_arguments
-{
-    enum vkd3d_shader_structure_type type;
-    const void *next;
-
-    enum vkd3d_tessellator_output_primitive output_primitive;
-    enum vkd3d_tessellator_partitioning partitioning;
-};
-
 /* root signature 1.0 */
 enum vkd3d_filter
 {
