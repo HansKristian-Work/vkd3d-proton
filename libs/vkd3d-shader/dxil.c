@@ -478,7 +478,6 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_compile_arguments *compiler_args)
 {
-    const struct vkd3d_shader_transform_feedback_info *xfb_info;
     struct vkd3d_dxil_remap_userdata remap_userdata;
     unsigned int non_raw_va_binding_count = 0;
     unsigned int raw_va_binding_count = 0;
@@ -741,9 +740,8 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
 
     dxil_spv_converter_set_vertex_input_remapper(converter, dxil_input_remap, (void *)shader_interface_info);
 
-    xfb_info = vkd3d_find_struct(shader_interface_info->next, TRANSFORM_FEEDBACK_INFO);
-    if (xfb_info)
-        dxil_spv_converter_set_stream_output_remapper(converter, dxil_output_remap, (void *)xfb_info);
+    if (shader_interface_info->xfb_info)
+        dxil_spv_converter_set_stream_output_remapper(converter, dxil_output_remap, (void *)shader_interface_info->xfb_info);
 
     if (dxil_spv_converter_run(converter) != DXIL_SPV_SUCCESS)
     {

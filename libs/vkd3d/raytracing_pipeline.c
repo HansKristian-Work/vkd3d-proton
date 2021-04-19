@@ -877,6 +877,7 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
 
     /* Effectively ignored. */
     shader_interface_info.stage = VK_SHADER_STAGE_ALL;
+    shader_interface_info.xfb_info = NULL;
 
     global_signature = unsafe_impl_from_ID3D12RootSignature(data->global_root_signature);
 

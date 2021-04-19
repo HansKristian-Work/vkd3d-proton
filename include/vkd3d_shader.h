@@ -37,7 +37,6 @@ enum vkd3d_shader_structure_type
     VKD3D_SHADER_STRUCTURE_TYPE_SHADER_INTERFACE_INFO,
     VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_ARGUMENTS,
     VKD3D_SHADER_STRUCTURE_TYPE_SCAN_INFO,
-    VKD3D_SHADER_STRUCTURE_TYPE_TRANSFORM_FEEDBACK_INFO,
     VKD3D_SHADER_STRUCTURE_TYPE_DOMAIN_SHADER_COMPILE_ARGUMENTS,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SHADER_STRUCTURE_TYPE),
@@ -214,6 +213,8 @@ struct vkd3d_shader_interface_info
     const struct vkd3d_shader_descriptor_binding *offset_buffer_binding;
 
     VkShaderStageFlagBits stage;
+
+    const struct vkd3d_shader_transform_feedback_info *xfb_info;
 };
 
 struct vkd3d_shader_descriptor_table
@@ -266,12 +267,8 @@ struct vkd3d_shader_transform_feedback_element
     uint8_t output_slot;
 };
 
-/* Extends vkd3d_shader_interface_info. */
 struct vkd3d_shader_transform_feedback_info
 {
-    enum vkd3d_shader_structure_type type;
-    const void *next;
-
     const struct vkd3d_shader_transform_feedback_element *elements;
     unsigned int element_count;
     const unsigned int *buffer_strides;

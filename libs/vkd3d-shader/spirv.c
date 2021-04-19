@@ -2254,7 +2254,6 @@ struct vkd3d_dxbc_compiler
     const struct vkd3d_shader_signature *input_signature;
     const struct vkd3d_shader_signature *output_signature;
     const struct vkd3d_shader_signature *patch_constant_signature;
-    const struct vkd3d_shader_transform_feedback_info *xfb_info;
     struct vkd3d_shader_output_info
     {
         uint32_t id;
@@ -2353,8 +2352,6 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
 
     if (shader_interface)
     {
-        compiler->xfb_info = vkd3d_find_struct(shader_interface->next, TRANSFORM_FEEDBACK_INFO);
-
         compiler->shader_interface = *shader_interface;
         if (shader_interface->push_constant_buffer_count)
         {
@@ -4260,7 +4257,7 @@ static const struct vkd3d_shader_phase *vkd3d_dxbc_compiler_get_current_shader_p
 static void vkd3d_dxbc_compiler_decorate_xfb_output(struct vkd3d_dxbc_compiler *compiler,
         uint32_t id, unsigned int component_count, const struct vkd3d_shader_signature_element *signature_element)
 {
-    const struct vkd3d_shader_transform_feedback_info *xfb_info = compiler->xfb_info;
+    const struct vkd3d_shader_transform_feedback_info *xfb_info = compiler->shader_interface.xfb_info;
     const struct vkd3d_shader_transform_feedback_element *xfb_element;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     unsigned int buffer_offsets[D3D12_SO_BUFFER_SLOT_COUNT];
@@ -5586,7 +5583,7 @@ static const struct vkd3d_shader_buffer_reference_type *vkd3d_dxbc_compiler_get_
 
 static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_compiler *compiler)
 {
-    const struct vkd3d_shader_transform_feedback_info *xfb_info = compiler->xfb_info;
+    const struct vkd3d_shader_transform_feedback_info *xfb_info = compiler->shader_interface.xfb_info;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
 
     switch (compiler->shader_type)
