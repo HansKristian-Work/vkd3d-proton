@@ -483,7 +483,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"debug_utils", VKD3D_CONFIG_FLAG_DEBUG_UTILS},
     {"force_static_cbv", VKD3D_CONFIG_FLAG_FORCE_STATIC_CBV},
     {"dxr", VKD3D_CONFIG_FLAG_DXR},
-    {"multi_queue", VKD3D_CONFIG_FLAG_MULTI_QUEUE},
+    {"single_queue", VKD3D_CONFIG_FLAG_SINGLE_QUEUE},
     {"force_tgsm_barriers", VKD3D_CONFIG_FLAG_FORCE_TGSM_BARRIERS},
 };
 
@@ -1933,7 +1933,7 @@ static HRESULT vkd3d_select_queues(const struct vkd3d_instance *vkd3d_instance,
     uint32_t count;
 
     memset(info, 0, sizeof(*info));
-    single_queue = !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_MULTI_QUEUE);
+    single_queue = !!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SINGLE_QUEUE);
 
     VK_CALL(vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &count, NULL));
     if (!(queue_properties = vkd3d_calloc(count, sizeof(*queue_properties))))

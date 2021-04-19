@@ -152,6 +152,7 @@ commas or semicolons.
       For debugging purposes.
     - `dxr` - Enables DXR support if supported by device.
     - `force_static_cbv` - Unsafe speed hack on NVIDIA. May or may not give a significant performance uplift.
+    - `single_queue` - Do not use asynchronous compute or transfer queues.
  - `VKD3D_DEBUG` - controls the debug level for log messages produced by
    vkd3d-proton. Accepts the following values: none, err, info, fixme, warn, trace.
  - `VKD3D_SHADER_DEBUG` - controls the debug level for log messages produced by
