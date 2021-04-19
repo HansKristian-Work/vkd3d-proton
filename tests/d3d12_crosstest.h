@@ -489,23 +489,10 @@ static bool check_device_extension(VkInstance instance, VkPhysicalDevice vk_phys
 
 static HRESULT create_vkd3d_instance(struct vkd3d_instance **instance)
 {
-    struct vkd3d_optional_instance_extensions_info optional_extensions_info;
-    struct vkd3d_instance_create_info instance_create_info;
-
-    static const char * const optional_instance_extensions[] =
-    {
-        VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+    struct vkd3d_instance_create_info instance_create_info = {
+        .type = VKD3D_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+        .pfn_signal_event = vkd3d_signal_event,
     };
-
-    memset(&optional_extensions_info, 0, sizeof(optional_extensions_info));
-    optional_extensions_info.type = VKD3D_STRUCTURE_TYPE_OPTIONAL_INSTANCE_EXTENSIONS_INFO;
-    optional_extensions_info.extensions = optional_instance_extensions;
-    optional_extensions_info.extension_count = ARRAY_SIZE(optional_instance_extensions);
-
-    memset(&instance_create_info, 0, sizeof(instance_create_info));
-    instance_create_info.type = VKD3D_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    instance_create_info.next = &optional_extensions_info;
-    instance_create_info.pfn_signal_event = vkd3d_signal_event;
 
     return vkd3d_create_instance(&instance_create_info, instance);
 }

@@ -301,6 +301,8 @@ HRESULT WINAPI DLLEXPORT D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL 
     instance_create_info.pfn_vkGetInstanceProcAddr = pfn_vkGetInstanceProcAddr;
     instance_create_info.instance_extensions = instance_extensions;
     instance_create_info.instance_extension_count = ARRAYSIZE(instance_extensions);
+    instance_create_info.optional_instance_extensions = NULL;
+    instance_create_info.optional_instance_extension_count = 0;
 
     if (FAILED(hr = vkd3d_create_instance(&instance_create_info, &instance)))
     {
