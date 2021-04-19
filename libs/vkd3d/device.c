@@ -29,27 +29,6 @@
 #include "vkd3d_descriptor_debug.h"
 #endif
 
-struct vkd3d_struct
-{
-    enum vkd3d_structure_type type;
-    const void *next;
-};
-
-#define vkd3d_find_struct(c, t) vkd3d_find_struct_(c, VKD3D_STRUCTURE_TYPE_##t)
-static const void *vkd3d_find_struct_(const struct vkd3d_struct *chain,
-        enum vkd3d_structure_type type)
-{
-    while (chain)
-    {
-        if (chain->type == type)
-            return chain;
-
-        chain = chain->next;
-    }
-
-    return NULL;
-}
-
 static uint32_t vkd3d_get_vk_version(void)
 {
     int major, minor, patch;
@@ -700,11 +679,6 @@ VKD3D_EXPORT HRESULT vkd3d_create_instance(const struct vkd3d_instance_create_in
 
     if (!create_info || !instance)
         return E_INVALIDARG;
-    if (create_info->type != VKD3D_STRUCTURE_TYPE_INSTANCE_CREATE_INFO)
-    {
-        WARN("Invalid structure type %#x.\n", create_info->type);
-        return E_INVALIDARG;
-    }
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
