@@ -2148,6 +2148,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     shader_interface.push_constant_ubo_binding = &root_signature->push_constant_ubo_binding;
     shader_interface.offset_buffer_binding = &root_signature->offset_buffer_binding;
     shader_interface.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    shader_interface.xfb_info = NULL;
 
     if ((hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, &desc->cached_pso, &state->vk_pso_cache)) < 0)
     {
@@ -3003,9 +3004,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
         graphics->xfb_enabled = true;
 
-        xfb_info.type = VKD3D_SHADER_STRUCTURE_TYPE_TRANSFORM_FEEDBACK_INFO;
-        xfb_info.next = NULL;
-
         xfb_info.elements = (const struct vkd3d_shader_transform_feedback_element *)so_desc->pSODeclaration;
         xfb_info.element_count = so_desc->NumEntries;
         xfb_info.buffer_strides = so_desc->pBufferStrides;
@@ -3077,7 +3075,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
                 goto fail;
         }
 
-        shader_interface.next = shader_stages[i].stage == xfb_stage ? &xfb_info : NULL;
+        shader_interface.xfb_info = shader_stages[i].stage == xfb_stage ? &xfb_info : NULL;
         shader_interface.stage = shader_stages[i].stage;
         if (FAILED(hr = create_shader_stage(device, &graphics->stages[graphics->stage_count],
                 shader_stages[i].stage, b, &shader_interface,
