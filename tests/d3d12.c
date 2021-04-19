@@ -29125,8 +29125,6 @@ static void test_nop_tessellation_shaders(void)
         0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE hs_index_range = {hs_index_range_code, sizeof(hs_index_range_code)};
-    static const DWORD hs_clip_distance_code[] =
-    {
 #if 0
         float4 tess_factor;
 
@@ -29167,7 +29165,21 @@ static void test_nop_tessellation_shaders(void)
             output.clip     = 1024.0;
             return output;
         }
+
+        [domain("tri")]
+        void ds_main(patch_constant_data input,
+            float3 tess_coord : SV_DomainLocation,
+            const OutputPatch<hs_output, 3> patch,
+            out hs_output output)
+        {
+            output.position = tess_coord.x * patch[0].position * patch[0].clip
+                    + tess_coord.y * patch[1].position * patch[1].clip
+                    + tess_coord.z * patch[2].position * patch[2].clip;
+            output.clip = 1.0;
+        }
 #endif
+    static const DWORD hs_clip_distance_code[] =
+    {
         0x43425844, 0x5f7dacae, 0xb950946c, 0x46ce2f56, 0x08cd9f72, 0x00000001, 0x00000300, 0x00000004,
         0x00000030, 0x00000064, 0x000000c0, 0x00000154, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008,
         0x00000020, 0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x00000f0f, 0x505f5653, 0x7469736f,
@@ -29193,8 +29205,36 @@ static void test_nop_tessellation_shaders(void)
         0x00004001, 0x3f800000, 0x0100003e, 0x01000073, 0x04000067, 0x00102012, 0x00000003, 0x00000014,
         0x07000036, 0x00102012, 0x00000003, 0x0030801a, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
     };
+    static const DWORD ds_clip_distance_code[] =
+    {
+        0x43425844, 0xe2161d6b, 0x7cc8473f, 0xbc603fc3, 0x2fd75c33, 0x00000001, 0x000002c4, 0x00000004,
+        0x00000030, 0x0000008c, 0x00000120, 0x0000017c, 0x4e475349, 0x00000054, 0x00000002, 0x00000008,
+        0x00000038, 0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x00000f0f, 0x00000044, 0x00000000,
+        0x00000002, 0x00000003, 0x00000001, 0x00000101, 0x505f5653, 0x7469736f, 0x006e6f69, 0x435f5653,
+        0x4470696c, 0x61747369, 0x0065636e, 0x47534350, 0x0000008c, 0x00000004, 0x00000008, 0x00000068,
+        0x00000000, 0x0000000d, 0x00000003, 0x00000000, 0x00000001, 0x00000068, 0x00000001, 0x0000000d,
+        0x00000003, 0x00000001, 0x00000001, 0x00000068, 0x00000002, 0x0000000d, 0x00000003, 0x00000002,
+        0x00000001, 0x00000076, 0x00000000, 0x0000000e, 0x00000003, 0x00000003, 0x00000001, 0x545f5653,
+        0x46737365, 0x6f746361, 0x56530072, 0x736e495f, 0x54656469, 0x46737365, 0x6f746361, 0xabab0072,
+        0x4e47534f, 0x00000054, 0x00000002, 0x00000008, 0x00000038, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x00000044, 0x00000000, 0x00000002, 0x00000003, 0x00000001, 0x00000e01,
+        0x505f5653, 0x7469736f, 0x006e6f69, 0x435f5653, 0x4470696c, 0x61747369, 0x0065636e, 0x58454853,
+        0x00000140, 0x00040050, 0x00000050, 0x01001893, 0x01001095, 0x0100086a, 0x0200005f, 0x0001c072,
+        0x0400005f, 0x002190f2, 0x00000003, 0x00000000, 0x0400005f, 0x00219012, 0x00000003, 0x00000001,
+        0x04000067, 0x001020f2, 0x00000000, 0x00000001, 0x04000067, 0x00102012, 0x00000001, 0x00000002,
+        0x02000068, 0x00000002, 0x07000038, 0x001000f2, 0x00000000, 0x0001c556, 0x00219e46, 0x00000001,
+        0x00000000, 0x08000038, 0x001000f2, 0x00000000, 0x00100e46, 0x00000000, 0x00219006, 0x00000001,
+        0x00000001, 0x07000038, 0x001000f2, 0x00000001, 0x0001c006, 0x00219e46, 0x00000000, 0x00000000,
+        0x0a000032, 0x001000f2, 0x00000000, 0x00100e46, 0x00000001, 0x00219006, 0x00000000, 0x00000001,
+        0x00100e46, 0x00000000, 0x07000038, 0x001000f2, 0x00000001, 0x0001caa6, 0x00219e46, 0x00000002,
+        0x00000000, 0x0a000032, 0x001020f2, 0x00000000, 0x00100e46, 0x00000001, 0x00219006, 0x00000002,
+        0x00000001, 0x00100e46, 0x00000000, 0x05000036, 0x00102012, 0x00000001, 0x00004001, 0x3f800000,
+        0x0100003e,
+    };
     static const D3D12_SHADER_BYTECODE hs_clip_distance = {hs_clip_distance_code, sizeof(hs_clip_distance_code)};
+    static const D3D12_SHADER_BYTECODE ds_clip_distance = {ds_clip_distance_code, sizeof(ds_clip_distance_code)};
     static const D3D12_SHADER_BYTECODE *hull_shaders[] = {&hs_cb, &hs, &hs_index_range, &hs_clip_distance};
+    static const D3D12_SHADER_BYTECODE *domain_shaders[] = {&ds, &ds, &ds, &ds_clip_distance};
 
     memset(&desc, 0, sizeof(desc));
     desc.no_root_signature = true;
@@ -29224,6 +29264,7 @@ static void test_nop_tessellation_shaders(void)
         vkd3d_test_set_context("Test %u", i);
 
         pso_desc.HS = *hull_shaders[i];
+        pso_desc.DS = *domain_shaders[i];
         hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
                 &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
         ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
