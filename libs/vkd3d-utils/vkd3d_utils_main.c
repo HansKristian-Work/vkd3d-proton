@@ -31,7 +31,6 @@ VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12GetDebugInterface(REFIID iid, void **debu
 VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
         D3D_FEATURE_LEVEL minimum_feature_level, REFIID iid, void **device)
 {
-    struct vkd3d_optional_instance_extensions_info optional_extensions_info;
     struct vkd3d_instance_create_info instance_create_info;
     struct vkd3d_device_create_info device_create_info;
 
@@ -55,17 +54,14 @@ VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
     if (adapter)
         FIXME("Ignoring adapter %p.\n", adapter);
 
-    memset(&optional_extensions_info, 0, sizeof(optional_extensions_info));
-    optional_extensions_info.type = VKD3D_STRUCTURE_TYPE_OPTIONAL_INSTANCE_EXTENSIONS_INFO;
-    optional_extensions_info.extensions = optional_instance_extensions;
-    optional_extensions_info.extension_count = ARRAY_SIZE(optional_instance_extensions);
-
     memset(&instance_create_info, 0, sizeof(instance_create_info));
     instance_create_info.type = VKD3D_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    instance_create_info.next = &optional_extensions_info;
+    instance_create_info.next = NULL;
     instance_create_info.pfn_signal_event = vkd3d_signal_event;
     instance_create_info.instance_extensions = instance_extensions;
     instance_create_info.instance_extension_count = ARRAY_SIZE(instance_extensions);
+    instance_create_info.optional_instance_extensions = optional_instance_extensions;
+    instance_create_info.optional_instance_extension_count = ARRAY_SIZE(optional_instance_extensions);
 
     memset(&device_create_info, 0, sizeof(device_create_info));
     device_create_info.type = VKD3D_STRUCTURE_TYPE_DEVICE_CREATE_INFO;

@@ -76,9 +76,6 @@ enum vkd3d_structure_type
     VKD3D_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
     VKD3D_STRUCTURE_TYPE_IMAGE_RESOURCE_CREATE_INFO,
 
-    /* 1.1 */
-    VKD3D_STRUCTURE_TYPE_OPTIONAL_INSTANCE_EXTENSIONS_INFO,
-
     /* 1.2 */
     VKD3D_STRUCTURE_TYPE_OPTIONAL_DEVICE_EXTENSIONS_INFO,
 
@@ -108,16 +105,9 @@ struct vkd3d_instance_create_info
 
     const char * const *instance_extensions;
     uint32_t instance_extension_count;
-};
 
-/* Extends vkd3d_instance_create_info. Available since 1.1. */
-struct vkd3d_optional_instance_extensions_info
-{
-    enum vkd3d_structure_type type;
-    const void *next;
-
-    const char * const *extensions;
-    uint32_t extension_count;
+    const char * const *optional_instance_extensions;
+    uint32_t optional_instance_extension_count;
 };
 
 struct vkd3d_device_create_info

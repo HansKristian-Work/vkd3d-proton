@@ -287,10 +287,9 @@ static unsigned int vkd3d_enable_extensions(const char *extensions[],
 
 static HRESULT vkd3d_init_instance_caps(struct vkd3d_instance *instance,
         const struct vkd3d_instance_create_info *create_info,
-        uint32_t *instance_extension_count, bool **user_extension_supported)
+        uint32_t *instance_extension_count, bool *user_extension_supported)
 {
     const struct vkd3d_vk_global_procs *vk_procs = &instance->vk_global_procs;
-    const struct vkd3d_optional_instance_extensions_info *optional_extensions;
     struct vkd3d_vulkan_info *vulkan_info = &instance->vk_info;
     VkExtensionProperties *vk_extensions;
     uint32_t count;
@@ -318,26 +317,13 @@ static HRESULT vkd3d_init_instance_caps(struct vkd3d_instance *instance,
         return hresult_from_vk_result(vr);
     }
 
-    optional_extensions = vkd3d_find_struct(create_info->next, OPTIONAL_INSTANCE_EXTENSIONS_INFO);
-    if (optional_extensions && optional_extensions->extension_count)
-    {
-        if (!(*user_extension_supported = vkd3d_calloc(optional_extensions->extension_count, sizeof(bool))))
-        {
-            vkd3d_free(vk_extensions);
-            return E_OUTOFMEMORY;
-        }
-    }
-    else
-    {
-        *user_extension_supported = NULL;
-    }
-
     *instance_extension_count = vkd3d_check_extensions(vk_extensions, count, NULL, 0,
             optional_instance_extensions, ARRAY_SIZE(optional_instance_extensions),
-            create_info->instance_extensions, create_info->instance_extension_count,
-            optional_extensions ? optional_extensions->extensions : NULL,
-            optional_extensions ? optional_extensions->extension_count : 0,
-            *user_extension_supported, vulkan_info, "instance");
+            create_info->instance_extensions,
+            create_info->instance_extension_count,
+            create_info->optional_instance_extensions,
+            create_info->optional_instance_extension_count,
+            user_extension_supported, vulkan_info, "instance");
 
     vkd3d_free(vk_extensions);
     return S_OK;
@@ -518,7 +504,6 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
         const struct vkd3d_instance_create_info *create_info)
 {
     const struct vkd3d_vk_global_procs *vk_global_procs = &instance->vk_global_procs;
-    const struct vkd3d_optional_instance_extensions_info *optional_extensions;
     const char *debug_layer_name = "VK_LAYER_KHRONOS_validation";
     bool *user_extension_supported = NULL;
     VkApplicationInfo application_info;
@@ -560,11 +545,18 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
         return hr;
     }
 
+    if (create_info->optional_instance_extension_count)
+    {
+        if (!(user_extension_supported = vkd3d_calloc(create_info->optional_instance_extension_count, sizeof(bool))))
+            return E_OUTOFMEMORY;
+    }
+
     if (FAILED(hr = vkd3d_init_instance_caps(instance, create_info,
-            &extension_count, &user_extension_supported)))
+            &extension_count, user_extension_supported)))
     {
         if (instance->libvulkan)
             vkd3d_dlclose(instance->libvulkan);
+        vkd3d_free(user_extension_supported);
         return hr;
     }
 
@@ -576,6 +568,9 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
         ERR("Vulkan %u.%u not supported by loader.\n",
                 VK_VERSION_MAJOR(VKD3D_MIN_API_VERSION),
                 VK_VERSION_MINOR(VKD3D_MIN_API_VERSION));
+        if (instance->libvulkan)
+            vkd3d_dlclose(instance->libvulkan);
+        vkd3d_free(user_extension_supported);
         return E_INVALIDARG;
     }
 
@@ -606,8 +601,6 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
         return E_OUTOFMEMORY;
     }
 
-    optional_extensions = vkd3d_find_struct(create_info->next, OPTIONAL_INSTANCE_EXTENSIONS_INFO);
-
     instance_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     instance_info.pNext = NULL;
     instance_info.flags = 0;
@@ -616,9 +609,10 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     instance_info.ppEnabledLayerNames = NULL;
     instance_info.enabledExtensionCount = vkd3d_enable_extensions(extensions, NULL, 0,
             optional_instance_extensions, ARRAY_SIZE(optional_instance_extensions),
-            create_info->instance_extensions, create_info->instance_extension_count,
-            optional_extensions ? optional_extensions->extensions : NULL,
-            optional_extensions ? optional_extensions->extension_count : 0,
+            create_info->instance_extensions,
+            create_info->instance_extension_count,
+            create_info->optional_instance_extensions,
+            create_info->optional_instance_extension_count,
             user_extension_supported, &instance->vk_info);
     instance_info.ppEnabledExtensionNames = extensions;
     vkd3d_free(user_extension_supported);
