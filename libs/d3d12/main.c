@@ -314,6 +314,8 @@ HRESULT WINAPI DLLEXPORT D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL 
     device_create_info.vk_physical_device = d3d12_find_physical_device(instance, pfn_vkGetInstanceProcAddr, &adapter_desc);
     device_create_info.device_extensions = device_extensions;
     device_create_info.device_extension_count = ARRAYSIZE(device_extensions);
+    device_create_info.optional_device_extensions = NULL;
+    device_create_info.optional_device_extension_count = 0;
     device_create_info.parent = (IUnknown *)dxgi_adapter;
     memcpy(&device_create_info.adapter_luid, &adapter_desc.AdapterLuid, VK_LUID_SIZE);
 
