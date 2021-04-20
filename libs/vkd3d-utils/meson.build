@@ -10,7 +10,7 @@ vkd3d_utils_lib = shared_library('vkd3d-proton-utils', vkd3d_utils_src,
                         ? 'vkd3d-proton-utils.def'
                         : [],
   vs_module_defs      : 'vkd3d-proton-utils.def',
-  version             : '2.0.0',
+  version             : '3.0.0',
   c_args              : '-DVKD3D_UTILS_EXPORTS',
   override_options    : [ 'c_std='+vkd3d_c_std ])
 
