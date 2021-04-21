@@ -1,5 +1,60 @@
 # Change Log
 
+## 2.3
+
+This release adds support for more D3D12 features and greatly improves GPU bound performance
+in many scenarios.
+
+### Features
+
+#### Early DXR 1.0 support
+
+`VK_KHR_raytracing` is used to enable cross-vendor ray-tracing support.
+The implementation is WIP, but it is good enough to run some real content.
+
+As of writing, only the NVIDIA driver works correctly.
+It is expected AMD RDNA2 GPUs will work when working drivers are available
+(amdgpu-pro 21.10 is known to not work).
+
+Games which are expected to work include:
+- Control (appears to be fully working)
+- Ghostrunner (seems to work, not exhaustively tested)
+
+To enable DXR support, `VKD3D_CONFIG=dxr %command%` should be used when launching game.
+Certain games may be unstable if DXR is enabled by default.
+
+#### Conservative rasterization
+
+Full support (tier 3) for conservative rasterization was added.
+
+#### Variable rate shading
+
+Full support (tier 2) for variable rate shading was added.
+
+#### Command list bundles
+
+Allows Kingdom Hearts remaster to get past the errors, unsure if game fully works yet.
+
+### Performance
+
+- Improve GPU bound performance in RE2 by up to 20% on NVIDIA.
+- Enable async compute queues. Greatly improves GPU performance and frame pacing in many titles.
+  Horizon Zero Dawn and Death Stranding see exceptional gains with this fix,
+  due to how the engines work. GPU utilization should now reach ~100%.
+  For best results, AMD Navi+ GPUs are recommended, but Polaris and earlier still
+  see great results. It is possible to disable this path, if for whatever reason
+  multiple queues are causing issues. See README.
+- Optimize bindless constant buffer GPU-bound performance on NVIDIA if certain API code paths are used.
+- Optimize sparse binding CPU overhead.
+
+### Fixes and workarounds
+
+- Fix various DXIL bugs.
+- Be more robust against broken pipeline creation API calls.
+  Avoids driver crashes in Forza Horizon 4.
+- Workaround some buggy shaders in F1 2020.
+- Fix bugs if depth bounds test is used in certain ways.
+
 ## 2.2
 
 This release is mostly a maintenance release which fixes bugs and regressions.
