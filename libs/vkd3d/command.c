@@ -9987,7 +9987,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
 
 static unsigned int vkd3d_compact_sparse_bind_ranges(const struct d3d12_resource *src_resource,
         struct vkd3d_sparse_memory_bind_range *bind_ranges, struct vkd3d_sparse_memory_bind *bind_infos,
-        unsigned int count, enum vkd3d_sparse_memory_bind_mode mode)
+        unsigned int count, enum vkd3d_sparse_memory_bind_mode mode, bool can_compact)
 {
     struct vkd3d_sparse_memory_bind_range *range = NULL;
     VkDeviceMemory vk_memory;
@@ -10010,7 +10010,7 @@ static unsigned int vkd3d_compact_sparse_bind_ranges(const struct d3d12_resource
             vk_offset = src_tile->vk_offset;
         }
 
-        if (range && bind->dst_tile == range->tile_index + range->tile_count && vk_memory == range->vk_memory &&
+        if (can_compact && range && bind->dst_tile == range->tile_index + range->tile_count && vk_memory == range->vk_memory &&
                 (vk_offset == range->vk_offset + range->tile_count * VKD3D_TILE_SIZE || !vk_memory))
         {
             range->tile_count++;
@@ -10049,6 +10049,7 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
     VkQueue vk_queue_sparse;
     unsigned int i, j, k;
     VkQueue vk_queue;
+    bool can_compact;
     VkResult vr;
 
     TRACE("queue %p, dst_resource %p, src_resource %p, count %u, bind_infos %p.\n",
@@ -10071,7 +10072,10 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
         goto cleanup;
     }
 
-    count = vkd3d_compact_sparse_bind_ranges(src_resource, bind_ranges, bind_infos, count, mode);
+    /* NV driver is buggy and test_update_tile_mappings fails (bug 3274618). */
+    can_compact = command_queue->device->device_info.properties2.properties.vendorID != VKD3D_VENDOR_ID_NVIDIA;
+    count = vkd3d_compact_sparse_bind_ranges(src_resource, bind_ranges, bind_infos, count, mode, can_compact);
+
     first_packed_tile = dst_resource->sparse.tile_count;
 
     if (d3d12_resource_is_buffer(dst_resource))
