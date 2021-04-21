@@ -35,6 +35,11 @@ Full support (tier 2) for variable rate shading was added.
 
 Allows Kingdom Hearts remaster to get past the errors, unsure if game fully works yet.
 
+#### Write Watch and APITrace
+
+Support for `D3D12_HEAP_FLAG_ALLOW_WRITE_WATCH` has been added.
+This means [APITraces](https://github.com/Joshua-Ashton/apitrace/releases) of titles can now be captured.
+
 ### Performance
 
 - Improve GPU bound performance in RE2 by up to 20% on NVIDIA.
@@ -46,6 +51,7 @@ Allows Kingdom Hearts remaster to get past the errors, unsure if game fully work
   multiple queues are causing issues. See README.
 - Optimize bindless constant buffer GPU-bound performance on NVIDIA if certain API code paths are used.
 - Optimize sparse binding CPU overhead.
+- `TRACE` logging calls are disabled by default on release builds.
 
 ### Fixes and workarounds
 
@@ -54,6 +60,8 @@ Allows Kingdom Hearts remaster to get past the errors, unsure if game fully work
   Avoids driver crashes in Forza Horizon 4.
 - Workaround some buggy shaders in F1 2020.
 - Fix bugs if depth bounds test is used in certain ways.
+- Fix a read out-of-bounds in `UpdateTileMappings`.
+- Fix `SV_ClipDistance` and `SV_CullDistance` in Hull Shaders.
 
 ## 2.2
 
