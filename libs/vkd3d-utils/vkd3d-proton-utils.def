@@ -1,4 +1,4 @@
-LIBRARY vkd3d-proton-utils-2.dll
+LIBRARY vkd3d-proton-utils-3.dll
 
 EXPORTS
     D3D12CreateDevice @101
