@@ -44,6 +44,7 @@ fi
 
 # find wine executable
 export WINEDEBUG=-all
+export WINEDLLOVERRIDES="mscoree,mshtml="
 
 wine="wine"
 wine64="wine64"
@@ -69,7 +70,8 @@ fi
 
 # ensure wine placeholder dlls are recreated
 # if they are missing
-$wineboot -u
+$wineboot -u && $wine wineserver --wait
+winver=$($wine winecfg -v)
 
 win64_sys_path=$($wine64 winepath -u 'C:\windows\system32' 2> /dev/null)
 win64_sys_path="${win64_sys_path/$'\r'/}"
@@ -119,7 +121,12 @@ installFile() {
       fi
       $file_cmd "${srcfile}" "${dstfile}"
     else
-      echo "${dstfile}: File not found in wine prefix" >&2
+      if [ $winver = "win10" ]; then
+        $file_cmd "${srcfile}" "${dstfile}"
+        return 0
+      else
+        echo "${dstfile}: File not found in wine prefix" >&2
+      fi
       return 1
     fi
   fi
@@ -144,6 +151,9 @@ uninstallFile() {
   if [ -f "${dstfile}.old" ]; then
     rm -v "${dstfile}"
     mv -v "${dstfile}.old" "${dstfile}"
+    return 0
+  elif [ $winver = "win10" ]; then
+    rm -v "${dstfile}"
     return 0
   else
     return 1
