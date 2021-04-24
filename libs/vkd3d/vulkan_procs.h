@@ -215,7 +215,7 @@ VK_DEVICE_EXT_PFN(vkCmdWriteAccelerationStructuresPropertiesKHR)
 VK_DEVICE_EXT_PFN(vkCmdCopyAccelerationStructureKHR)
 
 /* VK_KHR_fragment_shading_rate */
-VK_INSTANCE_PFN(vkGetPhysicalDeviceFragmentShadingRatesKHR)
+VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceFragmentShadingRatesKHR)
 VK_DEVICE_EXT_PFN(vkCmdSetFragmentShadingRateKHR)
 
 /* VK_KHR_create_renderpass2 */
