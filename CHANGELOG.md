@@ -1,5 +1,16 @@
 # Change Log
 
+## 2.3.1
+
+This is a minor bugfix release to address some issues solved shortly after the last release.
+
+### Fixes
+
+- Improved support for older Wine and Vulkan Loader versions.
+- Fix blocky shadows in Horizon Zero Dawn.
+- Fix the install script failing on Wine installs not built with upstream vkd3d.
+- Fix minor dxil translation issues.
+
 ## 2.3
 
 This release adds support for more D3D12 features and greatly improves GPU bound performance
