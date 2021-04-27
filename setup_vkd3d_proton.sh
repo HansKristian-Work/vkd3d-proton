@@ -70,8 +70,8 @@ fi
 
 # ensure wine placeholder dlls are recreated
 # if they are missing
-$wineboot -u && $wine wineserver --wait
-winver=$($wine winecfg -v)
+$wineboot -u && wineserver --wait
+winver=$($wine winecfg -v 2> /dev/null)
 
 win64_sys_path=$($wine64 winepath -u 'C:\windows\system32' 2> /dev/null)
 win64_sys_path="${win64_sys_path/$'\r'/}"
