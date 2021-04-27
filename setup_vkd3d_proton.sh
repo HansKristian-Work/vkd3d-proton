@@ -120,11 +120,10 @@ installFile() {
       else
         rm -v "${dstfile}"
       fi
-      $file_cmd "${srcfile}" "${dstfile}"
     else
-      echo "${dstfile}: File not found in wine prefix" >&2
-      return 1
+      touch "${dstfile}.old_none"
     fi
+    $file_cmd "${srcfile}" "${dstfile}"
   fi
   return 0
 }
@@ -147,6 +146,10 @@ uninstallFile() {
   if [ -f "${dstfile}.old" ]; then
     rm -v "${dstfile}"
     mv -v "${dstfile}.old" "${dstfile}"
+    return 0
+  elif [ -f "${dstfile}.old_none" ]; then
+    rm -v "${dstfile}.old_none"
+    rm -v "${dstfile}"
     return 0
   else
     return 1
