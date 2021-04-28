@@ -1118,6 +1118,10 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->fragment_shading_rate_features);
     }
 
+    /* Core in Vulkan 1.1. */
+    info->shader_draw_parameters_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES;
+    vk_prepend_struct(&info->features2, &info->shader_draw_parameters_features);
+
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
     VK_CALL(vkGetPhysicalDeviceProperties2(device->vk_physical_device, &info->properties2));
 }
@@ -1667,6 +1671,12 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
 
     if (vulkan_info->KHR_fragment_shading_rate)
         physical_device_info->additional_shading_rates_supported = d3d12_device_determine_additional_shading_rates_supported(device);
+
+    if (!physical_device_info->shader_draw_parameters_features.shaderDrawParameters)
+    {
+        ERR("shaderDrawParameters is not supported by this implementation. This is required for correct operation.\n");
+        return E_INVALIDARG;
+    }
 
     return S_OK;
 }
