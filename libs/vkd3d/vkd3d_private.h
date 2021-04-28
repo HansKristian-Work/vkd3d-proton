@@ -2499,6 +2499,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceRayTracingPipelineFeaturesKHR ray_tracing_pipeline_features;
     VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features;
     VkPhysicalDeviceFragmentShadingRateFeaturesKHR fragment_shading_rate_features;
+    VkPhysicalDeviceShaderDrawParametersFeatures shader_draw_parameters_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
