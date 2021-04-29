@@ -4497,7 +4497,11 @@ static D3D12_TILED_RESOURCES_TIER d3d12_device_determine_tiled_resources_tier(st
             !minmax_properties->filterMinmaxSingleComponentFormats)
         return D3D12_TILED_RESOURCES_TIER_1;
 
-    return D3D12_TILED_RESOURCES_TIER_2;
+    if (!features->sparseResidencyImage3D ||
+            !sparse_properties->residencyStandard3DBlockShape)
+        return D3D12_TILED_RESOURCES_TIER_2;
+
+    return D3D12_TILED_RESOURCES_TIER_3;
 }
 
 static D3D12_CONSERVATIVE_RASTERIZATION_TIER d3d12_device_determine_conservative_rasterization_tier(struct d3d12_device *device)
