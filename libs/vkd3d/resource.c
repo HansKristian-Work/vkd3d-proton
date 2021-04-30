@@ -2265,7 +2265,7 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
     vkd3d_view_map_destroy(&resource->view_map, resource->device);
 
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-    vkd3d_descriptor_debug_unregister_cookie(resource->cookie);
+    vkd3d_descriptor_debug_unregister_cookie(resource->res.cookie);
 #endif
 
     if (resource->flags & VKD3D_RESOURCE_EXTERNAL)
@@ -2382,7 +2382,7 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
     d3d12_device_add_ref(device);
 
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-    vkd3d_descriptor_debug_register_resource_cookie(object->cookie, desc);
+    vkd3d_descriptor_debug_register_resource_cookie(object->res.cookie, desc);
 #endif
 
     *resource = object;
@@ -4652,7 +4652,7 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
         return;
 
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-    vkd3d_descriptor_debug_register_view_cookie(view->cookie, resource->cookie);
+    vkd3d_descriptor_debug_register_view_cookie(view->cookie, resource->res.cookie);
 #endif
 
     rtv_desc->sample_count = vk_samples_from_dxgi_sample_desc(&resource->desc.SampleDesc);
@@ -4766,7 +4766,7 @@ void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_dev
         return;
 
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-    vkd3d_descriptor_debug_register_view_cookie(view->cookie, resource->cookie);
+    vkd3d_descriptor_debug_register_view_cookie(view->cookie, resource->res.cookie);
 #endif
 
     dsv_desc->sample_count = vk_samples_from_dxgi_sample_desc(&resource->desc.SampleDesc);
