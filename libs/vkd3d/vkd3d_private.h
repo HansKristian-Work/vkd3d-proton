@@ -2253,7 +2253,8 @@ struct vkd3d_copy_image_ops
 {
     VkDescriptorSetLayout vk_set_layout;
     VkPipelineLayout vk_pipeline_layout;
-    VkShaderModule vk_fs_module;
+    VkShaderModule vk_fs_float_module;
+    VkShaderModule vk_fs_uint_module;
 
     pthread_mutex_t mutex;
 

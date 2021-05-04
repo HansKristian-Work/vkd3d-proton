@@ -597,7 +597,15 @@ HRESULT vkd3d_copy_image_ops_init(struct vkd3d_copy_image_ops *meta_copy_image_o
         goto fail;
     }
 
-    if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_copy_image_float), &meta_copy_image_ops->vk_fs_module)) < 0)
+    if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_copy_image_float),
+            &meta_copy_image_ops->vk_fs_float_module)) < 0)
+    {
+        ERR("Failed to create shader modules, vr %d.\n", vr);
+        goto fail;
+    }
+
+    if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_copy_image_uint),
+            &meta_copy_image_ops->vk_fs_uint_module)) < 0)
     {
         ERR("Failed to create shader modules, vr %d.\n", vr);
         goto fail;
@@ -626,7 +634,8 @@ void vkd3d_copy_image_ops_cleanup(struct vkd3d_copy_image_ops *meta_copy_image_o
 
     VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_copy_image_ops->vk_set_layout, NULL));
     VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_copy_image_ops->vk_pipeline_layout, NULL));
-    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_copy_image_ops->vk_fs_module, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_copy_image_ops->vk_fs_float_module, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_copy_image_ops->vk_fs_uint_module, NULL));
 
     pthread_mutex_destroy(&meta_copy_image_ops->mutex);
 
@@ -750,6 +759,7 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
     VkPipelineDepthStencilStateCreateInfo ds_state;
     VkPipelineColorBlendStateCreateInfo cb_state;
     VkSpecializationInfo spec_info;
+    VkShaderModule vk_module;
     bool has_depth_target;
     VkResult vr;
 
@@ -817,9 +827,15 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
             key->sample_count, key->format, &pipeline->vk_render_pass)) < 0)
         return hresult_from_vk_result(vr);
 
+    /* Special path when copying stencil -> color. */
+    if (key->format->vk_format == VK_FORMAT_R8_UINT)
+        vk_module = meta_copy_image_ops->vk_fs_uint_module;
+    else
+        vk_module = meta_copy_image_ops->vk_fs_float_module;
+
     if ((vr = vkd3d_meta_create_graphics_pipeline(meta_ops,
             meta_copy_image_ops->vk_pipeline_layout, pipeline->vk_render_pass,
-            VK_NULL_HANDLE, meta_copy_image_ops->vk_fs_module, key->sample_count,
+            VK_NULL_HANDLE, vk_module, key->sample_count,
             has_depth_target ? &ds_state : NULL, has_depth_target ? NULL : &cb_state,
             &spec_info, &pipeline->vk_pipeline)) < 0)
     {
