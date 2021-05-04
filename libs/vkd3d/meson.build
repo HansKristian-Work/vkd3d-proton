@@ -18,6 +18,7 @@ vkd3d_shaders =[
   'shaders/cs_resolve_query.comp',
 
   'shaders/fs_copy_image_float.frag',
+  'shaders/fs_copy_image_uint.frag',
 
   'shaders/gs_fullscreen.geom',
   'shaders/vs_fullscreen.vert',
