@@ -484,7 +484,9 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     /* Additional usage flags for shader-based copies */
     typeless_format = vkd3d_get_typeless_format(device, format->dxgi_format);
 
-    if (typeless_format == DXGI_FORMAT_R32_TYPELESS || typeless_format == DXGI_FORMAT_R16_TYPELESS)
+    if (typeless_format == DXGI_FORMAT_R32_TYPELESS ||
+            typeless_format == DXGI_FORMAT_R16_TYPELESS ||
+            typeless_format == DXGI_FORMAT_R8_TYPELESS)
     {
         image_info.usage |= (format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
                 ? VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
