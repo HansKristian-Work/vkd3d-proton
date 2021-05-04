@@ -25938,7 +25938,25 @@ static void test_copy_texture(void)
         0x00107e46, 0x00000000, 0x05000036, 0x00102012, 0x00000000, 0x0010000a, 0x00000000, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
-    static const float depth_values[] = {0.0f, 0.5f, 0.7f, 1.0f};
+
+    struct depth_copy_test
+    {
+        float depth_value;
+        UINT stencil_value;
+        DXGI_FORMAT ds_format;
+        DXGI_FORMAT ds_view_format;
+        DXGI_FORMAT color_format;
+        bool stencil;
+    };
+    static const struct depth_copy_test depth_copy_tests[] = {
+        { 0.0f, 0, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_FLOAT, false },
+        { 0.5f, 10, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R32_FLOAT, false },
+        { 0.2f, 11, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R8_UINT, true },
+        { 0.7f, 0, DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_FLOAT, false },
+        { 0.4f, 20, DXGI_FORMAT_R32G8X24_TYPELESS, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R32_FLOAT, false },
+        { 1.0f, 21, DXGI_FORMAT_R32G8X24_TYPELESS, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R8_UINT, true },
+    };
+
     static const D3D12_RESOURCE_STATES resource_states[] =
     {
         D3D12_RESOURCE_STATE_COPY_SOURCE,
@@ -26012,24 +26030,33 @@ static void test_copy_texture(void)
 
     heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
 
-    for (i = 0; i < ARRAY_SIZE(depth_values); ++i)
+    for (i = 0; i < ARRAY_SIZE(depth_copy_tests); ++i)
     {
         init_depth_stencil(&ds, device, context.render_target_desc.Width,
-                context.render_target_desc.Height, 1, 1, DXGI_FORMAT_D32_FLOAT,
-                DXGI_FORMAT_D32_FLOAT, NULL);
-        ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
-                D3D12_CLEAR_FLAG_DEPTH, depth_values[i], 0, 0, NULL);
-        transition_sub_resource_state(command_list, ds.texture, 0,
+                context.render_target_desc.Height, 1, 1, depth_copy_tests[i].ds_format,
+                depth_copy_tests[i].ds_view_format, NULL);
+
+        if (depth_copy_tests[i].stencil)
+        {
+            ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
+                D3D12_CLEAR_FLAG_STENCIL, 0.0f, depth_copy_tests[i].stencil_value, 0, NULL);
+        }
+        else
+        {
+            ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
+                    D3D12_CLEAR_FLAG_DEPTH, depth_copy_tests[i].depth_value, 0, 0, NULL);
+        }
+        transition_sub_resource_state(command_list, ds.texture, depth_copy_tests[i].stencil ? 1 : 0,
                 D3D12_RESOURCE_STATE_DEPTH_WRITE, resource_states[i % ARRAY_SIZE(resource_states)]);
 
-        dst_texture = create_default_texture(device, 32, 32, DXGI_FORMAT_R32_FLOAT,
+        dst_texture = create_default_texture(device, 32, 32, depth_copy_tests[i].color_format,
                 0, D3D12_RESOURCE_STATE_COPY_DEST);
         ID3D12Device_CreateShaderResourceView(device, dst_texture, NULL,
                 ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap));
 
         src_location.pResource = ds.texture;
         src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        src_location.SubresourceIndex = 0;
+        src_location.SubresourceIndex = depth_copy_tests[i].stencil ? 1 : 0;
         dst_location.pResource = dst_texture;
         dst_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
         dst_location.SubresourceIndex = 0;
@@ -26054,7 +26081,15 @@ static void test_copy_texture(void)
 
         transition_sub_resource_state(command_list, context.render_target, 0,
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        check_sub_resource_float(context.render_target, 0, queue, command_list, depth_values[i], 2);
+
+        if (depth_copy_tests[i].stencil)
+        {
+            check_sub_resource_uint(context.render_target, 0, queue, command_list, depth_copy_tests[i].stencil_value, 0);
+        }
+        else
+        {
+            check_sub_resource_float(context.render_target, 0, queue, command_list, depth_copy_tests[i].depth_value, 2);
+        }
 
         destroy_depth_stencil(&ds);
         ID3D12Resource_Release(dst_texture);
