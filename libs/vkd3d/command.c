@@ -5647,7 +5647,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
 
         if ((dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
                 && (dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
-            FIXME("Depth-stencil format %#x not fully supported yet.\n", dst_format->dxgi_format);
+            FIXME("Destination depth-stencil format %#x not fully supported yet.\n", dst_format->dxgi_format);
 
         vk_image_buffer_copy_from_d3d12(&buffer_image_copy, &dst->PlacedFootprint,
                 src->SubresourceIndex, &src_resource->desc, dst_format, src_box, dst_x, dst_y, dst_z);
@@ -5687,10 +5687,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
             return;
         }
 
-        if ((src_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
-                && (src_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
-            FIXME("Depth-stencil format %#x not fully supported yet.\n", src_format->dxgi_format);
-
         vk_buffer_image_copy_from_d3d12(&buffer_image_copy, &src->PlacedFootprint,
                 dst->SubresourceIndex, &dst_resource->desc, src_format, src_box, dst_x, dst_y, dst_z);
         buffer_image_copy.bufferOffset += src_resource->mem.offset;
@@ -5728,10 +5724,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
 
         if ((dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
                 && (dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
-            FIXME("Depth-stencil format %#x not fully supported yet.\n", dst_format->dxgi_format);
-        if ((src_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
-                && (src_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
-            FIXME("Depth-stencil format %#x not fully supported yet.\n", src_format->dxgi_format);
+            FIXME("Destination depth-stencil format %#x not fully supported yet.\n", dst_format->dxgi_format);
 
         vk_image_copy_from_d3d12(&image_copy, src->SubresourceIndex, dst->SubresourceIndex,
                  &src_resource->desc, &dst_resource->desc, src_format, dst_format,
