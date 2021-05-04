@@ -1759,21 +1759,23 @@ struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface)
     return unsafe_impl_from_ID3D12Resource1((ID3D12Resource1 *)iface);
 }
 
-VkImageSubresource d3d12_resource_get_vk_subresource(const struct d3d12_resource *resource, uint32_t subresource_idx, bool all_aspects)
+VkImageSubresource vk_image_subresource_from_d3d12(
+        const struct vkd3d_format *format, uint32_t subresource_idx,
+        unsigned int miplevel_count, unsigned int layer_count,
+        bool all_aspects)
 {
-    uint32_t layer_count = d3d12_resource_desc_get_layer_count(&resource->desc);
     VkImageSubresource subresource;
 
-    subresource.aspectMask = resource->format->vk_aspect_mask;
-    subresource.mipLevel = subresource_idx % resource->desc.MipLevels;
-    subresource.arrayLayer = (subresource_idx / resource->desc.MipLevels) % layer_count;
+    subresource.aspectMask = format->vk_aspect_mask;
+    subresource.mipLevel = subresource_idx % miplevel_count;
+    subresource.arrayLayer = (subresource_idx / miplevel_count) % layer_count;
 
     if (!all_aspects)
     {
         /* For all formats we currently handle, the n-th aspect bit in Vulkan
          * corresponds to the n-th plane in D3D12, so isolate the respective
          * bit in the aspect mask. */
-        uint32_t i, plane_idx = subresource_idx / d3d12_resource_desc_get_sub_resource_count(&resource->desc);
+        uint32_t i, plane_idx = subresource_idx / (miplevel_count * layer_count);
 
         for (i = 0; i < plane_idx; i++)
             subresource.aspectMask &= (subresource.aspectMask - 1);
@@ -1782,6 +1784,15 @@ VkImageSubresource d3d12_resource_get_vk_subresource(const struct d3d12_resource
     }
 
     return subresource;
+}
+
+VkImageSubresource d3d12_resource_get_vk_subresource(const struct d3d12_resource *resource,
+        uint32_t subresource_idx, bool all_aspects)
+{
+    return vk_image_subresource_from_d3d12(
+            resource->format, subresource_idx,
+            resource->desc.MipLevels, d3d12_resource_desc_get_layer_count(&resource->desc),
+            all_aspects);
 }
 
 static void d3d12_validate_resource_flags(D3D12_RESOURCE_FLAGS flags)
@@ -3281,6 +3292,7 @@ static bool init_default_texture_view_desc(struct vkd3d_texture_view_desc *desc,
         return false;
     }
 
+    desc->aspect_mask = desc->format->vk_aspect_mask;
     desc->image = resource->res.vk_image;
     desc->layout = resource->common_layout;
     desc->miplevel_idx = 0;
@@ -3336,7 +3348,7 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_t
     vkd3d_set_view_swizzle_for_format(&view_desc.components, format, desc->allowed_swizzle);
     if (desc->allowed_swizzle)
         vk_component_mapping_compose(&view_desc.components, &desc->components);
-    view_desc.subresourceRange.aspectMask = format->vk_aspect_mask;
+    view_desc.subresourceRange.aspectMask = desc->aspect_mask;
     view_desc.subresourceRange.baseMipLevel = desc->miplevel_idx;
     view_desc.subresourceRange.levelCount = desc->miplevel_count;
     view_desc.subresourceRange.baseArrayLayer = desc->layer_idx;
@@ -3840,6 +3852,7 @@ static void vkd3d_create_texture_srv(struct d3d12_desc *descriptor,
         key.u.texture.components.b = VK_COMPONENT_SWIZZLE_ZERO;
         key.u.texture.components.a = VK_COMPONENT_SWIZZLE_ZERO;
         key.u.texture.allowed_swizzle = true;
+        key.u.texture.aspect_mask = key.u.texture.format->vk_aspect_mask;
 
         if (!(view = vkd3d_view_map_create_view(&device->null_resources.view_map, device, &key)))
             return;
@@ -4199,6 +4212,7 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
         key.u.texture.components.b = VK_COMPONENT_SWIZZLE_B;
         key.u.texture.components.a = VK_COMPONENT_SWIZZLE_A;
         key.u.texture.allowed_swizzle = false;
+        key.u.texture.aspect_mask = key.u.texture.format->vk_aspect_mask;
 
         if (!(view = vkd3d_view_map_create_view(&device->null_resources.view_map, device, &key)))
             return;

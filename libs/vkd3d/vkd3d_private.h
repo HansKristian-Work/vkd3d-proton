@@ -840,7 +840,12 @@ LONG64 vkd3d_allocate_cookie();
 
 bool d3d12_resource_is_cpu_accessible(const struct d3d12_resource *resource);
 HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc, struct d3d12_device *device);
-VkImageSubresource d3d12_resource_get_vk_subresource(const struct d3d12_resource *resource, uint32_t subresource_idx, bool all_aspects);
+VkImageSubresource d3d12_resource_get_vk_subresource(const struct d3d12_resource *resource,
+        uint32_t subresource_idx, bool all_aspects);
+VkImageSubresource vk_image_subresource_from_d3d12(
+        const struct vkd3d_format *format, uint32_t subresource_idx,
+        unsigned int miplevel_count, unsigned int layer_count,
+        bool all_aspects);
 
 HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12_RESOURCE_DESC *desc,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, D3D12_RESOURCE_STATES initial_state,
@@ -922,6 +927,7 @@ struct vkd3d_texture_view_desc
     VkImage image;
     VkImageViewType view_type;
     VkImageLayout layout;
+    VkImageAspectFlags aspect_mask;
     const struct vkd3d_format *format;
     unsigned int miplevel_idx;
     unsigned int miplevel_count;
@@ -2433,7 +2439,8 @@ HRESULT vkd3d_meta_get_copy_image_pipeline(struct vkd3d_meta_ops *meta_ops,
         const struct vkd3d_copy_image_pipeline_key *key, struct vkd3d_copy_image_info *info);
 VkImageViewType vkd3d_meta_get_copy_image_view_type(D3D12_RESOURCE_DIMENSION dim);
 const struct vkd3d_format *vkd3d_meta_get_copy_image_attachment_format(struct vkd3d_meta_ops *meta_ops,
-        const struct vkd3d_format *dst_format, const struct vkd3d_format *src_format);
+        const struct vkd3d_format *dst_format, const struct vkd3d_format *src_format,
+        VkImageAspectFlags dst_aspect, VkImageAspectFlags src_aspect);
 HRESULT vkd3d_meta_get_swapchain_pipeline(struct vkd3d_meta_ops *meta_ops,
         const struct vkd3d_swapchain_pipeline_key *key, struct vkd3d_swapchain_info *info);
 

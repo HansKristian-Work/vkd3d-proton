@@ -899,22 +899,31 @@ VkImageViewType vkd3d_meta_get_copy_image_view_type(D3D12_RESOURCE_DIMENSION dim
 }
 
 const struct vkd3d_format *vkd3d_meta_get_copy_image_attachment_format(struct vkd3d_meta_ops *meta_ops,
-        const struct vkd3d_format *dst_format, const struct vkd3d_format *src_format)
+        const struct vkd3d_format *dst_format, const struct vkd3d_format *src_format,
+        VkImageAspectFlags dst_aspect, VkImageAspectFlags src_aspect)
 {
     DXGI_FORMAT dxgi_format = DXGI_FORMAT_UNKNOWN;
 
-    if (dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
+    if (dst_aspect & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
         return dst_format;
 
-    assert(src_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT);
+    assert(src_aspect & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT));
 
     switch (src_format->vk_format)
     {
         case VK_FORMAT_D16_UNORM:
             dxgi_format = DXGI_FORMAT_R16_UNORM;
             break;
+        case VK_FORMAT_D16_UNORM_S8_UINT:
+            dxgi_format = (src_aspect & VK_IMAGE_ASPECT_DEPTH_BIT) ?
+                    DXGI_FORMAT_R16_UNORM : DXGI_FORMAT_R8_UINT;
+            break;
         case VK_FORMAT_D32_SFLOAT:
             dxgi_format = DXGI_FORMAT_R32_FLOAT;
+            break;
+        case VK_FORMAT_D32_SFLOAT_S8_UINT:
+            dxgi_format = (src_aspect & VK_IMAGE_ASPECT_DEPTH_BIT) ?
+                    DXGI_FORMAT_R32_FLOAT : DXGI_FORMAT_R8_UINT;
             break;
         default:
             ERR("Unhandled format %u.\n", src_format->vk_format);

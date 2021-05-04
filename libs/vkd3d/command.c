@@ -5166,11 +5166,15 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_
 }
 
 static void vk_image_subresource_layers_from_d3d12(VkImageSubresourceLayers *subresource,
-        const struct vkd3d_format *format, unsigned int sub_resource_idx, unsigned int miplevel_count)
+        const struct vkd3d_format *format, unsigned int sub_resource_idx,
+        unsigned int miplevel_count, unsigned int layer_count, bool all_aspects)
 {
-    subresource->aspectMask = format->vk_aspect_mask;
-    subresource->mipLevel = sub_resource_idx % miplevel_count;
-    subresource->baseArrayLayer = sub_resource_idx / miplevel_count;
+    VkImageSubresource sub = vk_image_subresource_from_d3d12(
+            format, sub_resource_idx, miplevel_count, layer_count, all_aspects);
+
+    subresource->aspectMask = sub.aspectMask;
+    subresource->mipLevel = sub.mipLevel;
+    subresource->baseArrayLayer = sub.arrayLayer;
     subresource->layerCount = 1;
 }
 
@@ -5198,7 +5202,8 @@ static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy *copy,
             (format->byte_count * format->block_byte_count) * format->block_width;
     copy->bufferImageHeight = footprint->Footprint.Height;
     vk_image_subresource_layers_from_d3d12(&copy->imageSubresource,
-            format, sub_resource_idx, image_desc->MipLevels);
+            format, sub_resource_idx, image_desc->MipLevels,
+            d3d12_resource_desc_get_layer_count(image_desc), true);
     copy->imageOffset.x = dst_x;
     copy->imageOffset.y = dst_y;
     copy->imageOffset.z = dst_z;
@@ -5236,7 +5241,8 @@ static void vk_image_buffer_copy_from_d3d12(VkBufferImageCopy *copy,
             (format->byte_count * format->block_byte_count) * format->block_width;
     copy->bufferImageHeight = footprint->Footprint.Height;
     vk_image_subresource_layers_from_d3d12(&copy->imageSubresource,
-            format, sub_resource_idx, image_desc->MipLevels);
+            format, sub_resource_idx, image_desc->MipLevels,
+            d3d12_resource_desc_get_layer_count(image_desc), false);
     copy->imageOffset.x = src_box ? src_box->left : 0;
     copy->imageOffset.y = src_box ? src_box->top : 0;
     copy->imageOffset.z = src_box ? src_box->front : 0;
@@ -5260,12 +5266,14 @@ static void vk_image_copy_from_d3d12(VkImageCopy *image_copy,
         const D3D12_BOX *src_box, unsigned int dst_x, unsigned int dst_y, unsigned int dst_z)
 {
     vk_image_subresource_layers_from_d3d12(&image_copy->srcSubresource,
-            src_format, src_sub_resource_idx, src_desc->MipLevels);
+            src_format, src_sub_resource_idx, src_desc->MipLevels,
+            d3d12_resource_desc_get_sub_resource_count(src_desc), false);
     image_copy->srcOffset.x = src_box ? src_box->left : 0;
     image_copy->srcOffset.y = src_box ? src_box->top : 0;
     image_copy->srcOffset.z = src_box ? src_box->front : 0;
     vk_image_subresource_layers_from_d3d12(&image_copy->dstSubresource,
-            dst_format, dst_sub_resource_idx, dst_desc->MipLevels);
+            dst_format, dst_sub_resource_idx, dst_desc->MipLevels,
+            d3d12_resource_desc_get_layer_count(dst_desc), true);
     image_copy->dstOffset.x = dst_x;
     image_copy->dstOffset.y = dst_y;
     image_copy->dstOffset.z = dst_z;
@@ -5368,6 +5376,13 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
     vk_image_barriers[1].image = src_resource->res.vk_image;
     vk_image_barriers[1].subresourceRange = vk_subresource_range_from_layers(&region->srcSubresource);
 
+    /* If we're copying from a depth or stencil image we can only sample from one aspect,
+     * but barriers needs to cover the entire resource.
+     * We can avoid this requirement with VK_KHR_separate_depth_stencil_layouts,
+     * but there is no compelling reason to require that just for this case. */
+    vk_image_barriers[0].subresourceRange.aspectMask = dst_resource->format->vk_aspect_mask;
+    vk_image_barriers[1].subresourceRange.aspectMask = src_resource->format->vk_aspect_mask;
+
     VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
             VK_PIPELINE_STAGE_TRANSFER_BIT, src_stages | dst_stages,
             0, 0, NULL, 0, NULL, ARRAY_SIZE(vk_image_barriers),
@@ -5384,7 +5399,9 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
     {
         dst_view = src_view = NULL;
 
-        if (!(dst_format = vkd3d_meta_get_copy_image_attachment_format(&list->device->meta_ops, dst_format, src_format)))
+        if (!(dst_format = vkd3d_meta_get_copy_image_attachment_format(&list->device->meta_ops, dst_format, src_format,
+                region->dstSubresource.aspectMask,
+                region->srcSubresource.aspectMask)))
         {
             ERR("No attachment format found for source format %u.\n", src_format->vk_format);
             goto cleanup;
@@ -5413,6 +5430,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         dst_view_desc.miplevel_count = 1;
         dst_view_desc.layer_idx = region->dstSubresource.baseArrayLayer;
         dst_view_desc.layer_count = region->dstSubresource.layerCount;
+        dst_view_desc.aspect_mask = region->dstSubresource.aspectMask;
         dst_view_desc.allowed_swizzle = false;
 
         memset(&src_view_desc, 0, sizeof(src_view_desc));
@@ -5424,6 +5442,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         src_view_desc.miplevel_count = 1;
         src_view_desc.layer_idx = region->srcSubresource.baseArrayLayer;
         src_view_desc.layer_count = region->srcSubresource.layerCount;
+        src_view_desc.aspect_mask = region->srcSubresource.aspectMask;
         src_view_desc.allowed_swizzle = false;
 
         if (!vkd3d_create_texture_view(list->device, &dst_view_desc, &dst_view) ||
@@ -5969,10 +5988,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
     }
 
     vk_image_subresource_layers_from_d3d12(&vk_image_resolve.srcSubresource,
-            src_resource->format, src_sub_resource_idx, src_resource->desc.MipLevels);
+            src_resource->format, src_sub_resource_idx,
+            src_resource->desc.MipLevels,
+            d3d12_resource_desc_get_layer_count(&src_resource->desc), false);
     memset(&vk_image_resolve.srcOffset, 0, sizeof(vk_image_resolve.srcOffset));
     vk_image_subresource_layers_from_d3d12(&vk_image_resolve.dstSubresource,
-            dst_resource->format, dst_sub_resource_idx, dst_resource->desc.MipLevels);
+            dst_resource->format, dst_sub_resource_idx,
+            dst_resource->desc.MipLevels,
+            d3d12_resource_desc_get_layer_count(&dst_resource->desc), false);
     memset(&vk_image_resolve.dstOffset, 0, sizeof(vk_image_resolve.dstOffset));
     vk_extent_3d_from_d3d12_miplevel(&vk_image_resolve.extent,
             &dst_resource->desc, vk_image_resolve.dstSubresource.mipLevel);
@@ -7489,6 +7512,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
             view_desc.miplevel_count = 1;
             view_desc.layer_idx = base_view->info.texture.layer_idx;
             view_desc.layer_count = base_view->info.texture.layer_count;
+            view_desc.aspect_mask = view_desc.format->vk_aspect_mask;
             view_desc.allowed_swizzle = false;
 
             if (!vkd3d_create_texture_view(list->device, &view_desc, &args.u.view))
