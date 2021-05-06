@@ -632,6 +632,7 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
     unsigned int i, j, t, range_count;
     uint32_t range_descriptor_offset;
     bool local_root_signature;
+    bool has_aux_buffer;
 
     local_root_signature = !!(desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
 
@@ -694,15 +695,24 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
                 case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
                     binding.flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER;
 
+                    has_aux_buffer = false;
                     if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_RAW_VA_AUX_BUFFER)
                     {
                         binding.flags |= VKD3D_SHADER_BINDING_FLAG_RAW_VA;
                         binding.binding = root_signature->raw_va_aux_buffer_binding;
+                        has_aux_buffer = true;
                     }
-                    else if (!vkd3d_bindless_state_find_binding(bindless_state, range_flag | VKD3D_BINDLESS_SET_AUX_BUFFER, &binding.binding))
-                        ERR("Failed to find aux buffer binding.\n");
+                    else if (range->RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_UAV)
+                    {
+                        /* There is no fallback heap for RTAS (SRV), this is only relevant for UAV counters. */
+                        if (vkd3d_bindless_state_find_binding(bindless_state, range_flag | VKD3D_BINDLESS_SET_AUX_BUFFER, &binding.binding))
+                            has_aux_buffer = true;
+                        else
+                            ERR("Failed to find aux buffer binding.\n");
+                    }
 
-                    table->first_binding[table->binding_count++] = binding;
+                    if (has_aux_buffer)
+                        table->first_binding[table->binding_count++] = binding;
 
                     if (vkd3d_bindless_state_find_binding(bindless_state, range_flag | VKD3D_BINDLESS_SET_BUFFER, &binding.binding))
                     {
