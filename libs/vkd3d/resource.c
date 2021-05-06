@@ -5380,7 +5380,7 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
 
     if (FAILED(hr = d3d12_descriptor_heap_init(object, device, desc)))
     {
-        vkd3d_free(object);
+        vkd3d_free_aligned(object);
         return hr;
     }
 
