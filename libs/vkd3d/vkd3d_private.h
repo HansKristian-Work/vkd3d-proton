@@ -1193,6 +1193,7 @@ struct d3d12_root_signature
 
     uint32_t descriptor_table_offset;
     uint32_t descriptor_table_count;
+    VkPushConstantBindlessIndexJUICE* descriptor_table_offsets;
 
     unsigned int static_sampler_count;
     VkSampler *static_samplers;

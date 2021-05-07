@@ -77,6 +77,7 @@ static void d3d12_root_signature_cleanup(struct d3d12_root_signature *root_signa
     vkd3d_free(root_signature->bindings);
     vkd3d_free(root_signature->root_constants);
     vkd3d_free(root_signature->static_samplers);
+    vkd3d_free(root_signature->descriptor_table_offsets);
 }
 
 static ULONG STDMETHODCALLTYPE d3d12_root_signature_Release(ID3D12RootSignature *iface)
@@ -287,9 +288,11 @@ static HRESULT vkd3d_create_descriptor_set_layout(struct d3d12_device *device,
 static HRESULT vkd3d_create_pipeline_layout(struct d3d12_device *device,
         unsigned int set_layout_count, const VkDescriptorSetLayout *set_layouts,
         unsigned int push_constant_count, const VkPushConstantRange *push_constants,
+        unsigned int descriptor_table_count, const VkPushConstantBindlessIndexJUICE *descriptor_table_offsets,
         VkPipelineLayout *pipeline_layout)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct VkPipelineLayoutBindlessCreateInfoJUICE bindless_info;
     struct VkPipelineLayoutCreateInfo pipeline_layout_info;
     VkResult vr;
 
@@ -307,6 +310,17 @@ static HRESULT vkd3d_create_pipeline_layout(struct d3d12_device *device,
     pipeline_layout_info.pSetLayouts = set_layouts;
     pipeline_layout_info.pushConstantRangeCount = push_constant_count;
     pipeline_layout_info.pPushConstantRanges = push_constants;
+
+    if (descriptor_table_count > 0)
+    {
+        bindless_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_BINDLESS_CREATE_INFO_JUICE;
+        bindless_info.pNext = NULL;
+        bindless_info.bindlessIndexCount = descriptor_table_count;
+        bindless_info.pBindlessIndices = descriptor_table_offsets;
+
+        pipeline_layout_info.pNext = &bindless_info;
+    }
+
     if ((vr = VK_CALL(vkCreatePipelineLayout(device->vk_device,
             &pipeline_layout_info, NULL, pipeline_layout))) < 0)
     {
@@ -320,6 +334,7 @@ static HRESULT vkd3d_create_pipeline_layout(struct d3d12_device *device,
 static HRESULT vkd3d_create_pipeline_layout_for_stage_mask(struct d3d12_device *device,
         unsigned int set_layout_count, const VkDescriptorSetLayout *set_layouts,
         const VkPushConstantRange *push_constants,
+        unsigned int descriptor_table_count, const VkPushConstantBindlessIndexJUICE *descriptor_table_offsets,
         VkShaderStageFlags stages,
         struct d3d12_bind_point_layout *bind_point_layout)
 {
@@ -331,7 +346,8 @@ static HRESULT vkd3d_create_pipeline_layout_for_stage_mask(struct d3d12_device *
 
     bind_point_layout->vk_push_stages = range.stageFlags;
     return vkd3d_create_pipeline_layout(device, set_layout_count, set_layouts,
-            range.stageFlags ? 1 : 0, &range,
+            range.stageFlags ? 1 : 0, &range, 
+            descriptor_table_count, descriptor_table_offsets,
             &bind_point_layout->vk_pipeline_layout);
 }
 
@@ -341,6 +357,7 @@ struct d3d12_root_signature_info
     uint32_t descriptor_count;
     uint32_t parameter_count;
 
+    uint32_t descriptor_table_count;
     uint32_t push_descriptor_count;
     uint32_t root_constant_count;
     uint32_t hoist_descriptor_count;
@@ -439,6 +456,7 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
                 if (local_root_signature)
                     info->cost = (info->cost + 1u) & ~1u;
                 info->cost += local_root_signature ? 2 : 1;
+                info->descriptor_table_count += 1;
                 break;
 
             case D3D12_ROOT_PARAMETER_TYPE_CBV:
@@ -578,6 +596,8 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
     /* Append one 32-bit push constant for each descriptor table offset */
     if (root_signature->device->bindless_state.flags)
     {
+        uint32_t bindless_index = 0;
+
         root_signature->descriptor_table_offset = push_constant_range->size;
 
         for (i = 0; i < desc->NumParameters; ++i)
@@ -587,7 +607,9 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
             if (p->ParameterType != D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
                 continue;
 
-            root_signature->descriptor_table_count += 1;
+            root_signature->descriptor_table_offsets[bindless_index].offset = push_constant_range->size;
+            root_signature->descriptor_table_offsets[bindless_index].size = sizeof(uint32_t);
+            bindless_index += 1;
 
             push_constant_range->stageFlags |= stage_flags_from_visibility(p->ShaderVisibility);
             push_constant_range->size += sizeof(uint32_t);
@@ -1112,6 +1134,7 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
         return E_INVALIDARG;
     }
 
+    root_signature->descriptor_table_count = info.descriptor_table_count;
     root_signature->binding_count = info.binding_count;
     root_signature->parameter_count = info.parameter_count;
     root_signature->static_sampler_count = desc->NumStaticSamplers;
@@ -1129,6 +1152,9 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
         return hr;
     if (!(root_signature->static_samplers = vkd3d_calloc(root_signature->static_sampler_count,
             sizeof(*root_signature->static_samplers))))
+        return hr;
+    if (!(root_signature->descriptor_table_offsets = vkd3d_calloc(root_signature->descriptor_table_count,
+            sizeof(*root_signature->descriptor_table_offsets))))
         return hr;
 
     for (i = 0; i < bindless_state->set_count; i++)
@@ -1207,12 +1233,14 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
     if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
             device, context.vk_set, set_layouts,
             &root_signature->push_constant_range,
+            root_signature->descriptor_table_count, root_signature->descriptor_table_offsets,
             VK_SHADER_STAGE_ALL_GRAPHICS, &root_signature->graphics)))
         return hr;
 
     if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
             device, context.vk_set, set_layouts,
             &root_signature->push_constant_range,
+            root_signature->descriptor_table_count, root_signature->descriptor_table_offsets,
             VK_SHADER_STAGE_COMPUTE_BIT, &root_signature->compute)))
         return hr;
 
@@ -1221,6 +1249,7 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
         if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
                 device, context.vk_set, set_layouts,
                 &root_signature->push_constant_range,
+                root_signature->descriptor_table_count, root_signature->descriptor_table_offsets,
                 VK_SHADER_STAGE_RAYGEN_BIT_KHR |
                 VK_SHADER_STAGE_MISS_BIT_KHR |
                 VK_SHADER_STAGE_INTERSECTION_BIT_KHR |
