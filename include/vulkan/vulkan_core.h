@@ -821,6 +821,7 @@ typedef enum VkStructureType {
     VK_STRUCTURE_TYPE_SCREEN_SURFACE_CREATE_INFO_QNX = 1000378000,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COLOR_WRITE_ENABLE_FEATURES_EXT = 1000381000,
     VK_STRUCTURE_TYPE_PIPELINE_COLOR_WRITE_CREATE_INFO_EXT = 1000381001,
+    VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_BINDLESS_CREATE_INFO_JUICE = 1000399000,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VARIABLE_POINTER_FEATURES = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VARIABLE_POINTERS_FEATURES,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETER_FEATURES = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES,
     VK_STRUCTURE_TYPE_DEBUG_REPORT_CREATE_INFO_EXT = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT,
@@ -12207,6 +12208,18 @@ VKAPI_ATTR void                                    VKAPI_CALL vkCmdSetColorWrite
 #define VK_JUICE_d3d12_portability 1
 #define VK_JUICE_D3D12_PORTABILITY_SPEC_VERSION 0
 #define VK_JUICE_D3D12_PORTABILITY_EXTENSION_NAME "VK_JUICE_d3d12_portability"
+typedef struct VkPushConstantBindlessIndexJUICE {
+    uint32_t    offset;
+    uint32_t    size;
+} VkPushConstantBindlessIndexJUICE;
+
+typedef struct VkPipelineLayoutBindlessCreateInfoJUICE {
+    VkStructureType                            sType;
+    const void*                                pNext;
+    uint32_t                                   bindlessIndexCount;
+    const VkPushConstantBindlessIndexJUICE*    pBindlessIndices;
+} VkPipelineLayoutBindlessCreateInfoJUICE;
+
 
 
 #define VK_KHR_acceleration_structure 1
