@@ -129,6 +129,13 @@ FORCEINLINE uint32_t vkd3d_atomic_uint32_and(uint32_t *target, uint32_t value, v
     return result;
 }
 
+FORCEINLINE uint32_t vkd3d_atomic_uint32_or(uint32_t *target, uint32_t value, vkd3d_memory_order order)
+{
+    uint32_t result;
+    vkd3d_atomic_choose_intrinsic(order, result, InterlockedOr, /* no suffix */,(LONG*)target, value);
+    return result;
+}
+
 FORCEINLINE uint32_t vkd3d_atomic_uint32_compare_exchange(uint32_t* target, uint32_t expected, uint32_t desired,
         vkd3d_memory_order success_order, vkd3d_memory_order fail_order)
 {
@@ -207,6 +214,7 @@ typedef enum
 # define vkd3d_atomic_generic_add(target, value, order)               __atomic_add_fetch(target, value, order)
 # define vkd3d_atomic_generic_sub(target, value, order)               __atomic_sub_fetch(target, value, order)
 # define vkd3d_atomic_generic_and(target, value, order)               __atomic_and_fetch(target, value, order)
+# define vkd3d_atomic_generic_or(target, value, order)                __atomic_or_fetch(target, value, order)
 
 # define vkd3d_atomic_uint32_load_explicit(target, order)            vkd3d_atomic_generic_load_explicit(target, order)
 # define vkd3d_atomic_uint32_store_explicit(target, value, order)    vkd3d_atomic_generic_store_explicit(target, value, order)
@@ -216,6 +224,7 @@ typedef enum
 # define vkd3d_atomic_uint32_add(target, value, order)               vkd3d_atomic_generic_add(target, value, order)
 # define vkd3d_atomic_uint32_sub(target, value, order)               vkd3d_atomic_generic_sub(target, value, order)
 # define vkd3d_atomic_uint32_and(target, value, order)               vkd3d_atomic_generic_and(target, value, order)
+# define vkd3d_atomic_uint32_or(target, value, order)                vkd3d_atomic_generic_or(target, value, order)
 static inline uint32_t vkd3d_atomic_uint32_compare_exchange(uint32_t* target, uint32_t expected, uint32_t desired,
         vkd3d_memory_order success_order, vkd3d_memory_order fail_order)
 {
