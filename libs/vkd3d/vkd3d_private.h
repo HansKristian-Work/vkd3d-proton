@@ -1153,6 +1153,12 @@ struct vkd3d_descriptor_hoist_info
     unsigned int num_desc;
 };
 
+struct vkd3d_range
+{
+    uint32_t offset;
+    uint32_t size;
+};
+
 struct d3d12_root_signature
 {
     ID3D12RootSignature ID3D12RootSignature_iface;
@@ -1193,7 +1199,7 @@ struct d3d12_root_signature
 
     uint32_t descriptor_table_offset;
     uint32_t descriptor_table_count;
-    VkPushConstantBindlessIndexJUICE* descriptor_table_offsets;
+    struct vkd3d_range* descriptor_table_ranges;
 
     unsigned int static_sampler_count;
     VkSampler *static_samplers;
@@ -2138,6 +2144,7 @@ struct vkd3d_bindless_state
     struct vkd3d_bindless_set_info set_info[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
     unsigned int set_count;
     unsigned int cbv_srv_uav_count;
+    unsigned int num_bindless;
 };
 
 HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
