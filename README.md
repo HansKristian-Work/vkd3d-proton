@@ -248,6 +248,75 @@ All descriptor updates and copies are logged so that it's possible to correlate 
 GPU crash dumps. `enable_descriptor_qa` is not enabled by default,
 since it adds some flat overhead in an extremely hot code path.
 
+### GPU-assisted debugging
+
+If `VKD3D_CONFIG=descriptor_qa_checks` is set with a build which enables `-Denable_descriptor_qa=true`,
+all shaders (currently limited to DXIL)
+will be instrumented to check for invalid access. In the log, you will see this to
+make sure the feature is enabled.
+
+```
+932:info:vkd3d_descriptor_debug_init_once: Enabling descriptor QA checks!
+```
+
+The main motivation is the tight integration and high performance.
+GPU-assisted debugging can be run at well over playable speeds.
+
+#### Descriptor heap index out of bounds
+
+```
+============
+Fault type: HEAP_OUT_OF_RANGE
+Fault type: MISMATCH_DESCRIPTOR_TYPE
+CBV_SRV_UAV heap cookie: 1800
+Shader hash and instruction: edbaf1b5ed344467 (1)
+Accessed resource/view cookie: 0
+Shader desired descriptor type: 8 (STORAGE_BUFFER)
+Found descriptor type in heap: 0 (NONE)
+Failed heap index: 1024000
+==========
+```
+
+The instruction `(1)`, is reported as well,
+and a disassembly of the shader in question can be used to pinpoint exactly where
+things are going wrong.
+Dump all shaders with `VKD3D_SHADER_DUMP_PATH=/my/folder`,
+and run `spirv-cross -V /my/folder/edbaf1b5ed344467.spv`.
+(NOTE: clear out the folder before dumping, existing files are not overwritten).
+The faulting instruction can be identified by looking at last argument, e.g.:
+
+```
+uint fixup_index = descriptor_qa_check(heap_index, descriptor_type, 1u /* instruction ID */);
+```
+
+#### Mismatch descriptor type
+
+```
+============
+Fault type: MISMATCH_DESCRIPTOR_TYPE
+CBV_SRV_UAV heap cookie: 1800 // Refer to VKD3D_DESCRIPTOR_QA_LOG
+Shader hash and instruction: edbaf1b5ed344467 (1)
+Accessed resource/view cookie: 1802 // Refer to VKD3D_DESCRIPTOR_QA_LOG
+Shader desired descriptor type: 8 (STORAGE_BUFFER)
+Found descriptor type in heap: 1 (SAMPLED_IMAGE)
+Failed heap index: 1025
+==========
+```
+
+#### Accessing destroyed resource
+
+```
+============
+Fault type: DESTROYED_RESOURCE
+CBV_SRV_UAV heap cookie: 1800
+Shader hash and instruction: edbaf1b5ed344467 (2)
+Accessed resource/view cookie: 1806
+Shader desired descriptor type: 1 (SAMPLED_IMAGE)
+Found descriptor type in heap: 1 (SAMPLED_IMAGE)
+Failed heap index: 1029
+==========
+```
+
 ### Debugging descriptor crashes with RADV/ACO dumps (hardcore ultra nightmare mode)
 
 For when you're absolutely desperate, there is a way to debug GPU hangs.
