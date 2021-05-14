@@ -450,6 +450,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"dxr", VKD3D_CONFIG_FLAG_DXR},
     {"single_queue", VKD3D_CONFIG_FLAG_SINGLE_QUEUE},
     {"force_tgsm_barriers", VKD3D_CONFIG_FLAG_FORCE_TGSM_BARRIERS},
+    {"descriptor_qa_checks", VKD3D_CONFIG_FLAG_DESCRIPTOR_QA_CHECKS},
 };
 
 static void vkd3d_config_flags_init_once(void)
