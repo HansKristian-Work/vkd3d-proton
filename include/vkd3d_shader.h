@@ -180,6 +180,7 @@ enum vkd3d_shader_interface_flag
     VKD3D_SHADER_INTERFACE_BINDLESS_CBV_AS_STORAGE_BUFFER   = 0x00000002u,
     VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER               = 0x00000004u,
     VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER              = 0x00000008u,
+    VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER             = 0x00000010u
 };
 
 struct vkd3d_shader_interface_info
@@ -198,6 +199,11 @@ struct vkd3d_shader_interface_info
     const struct vkd3d_shader_descriptor_binding *push_constant_ubo_binding;
     /* Ignored unless VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER or TYPED_OFFSET_BUFFER is set */
     const struct vkd3d_shader_descriptor_binding *offset_buffer_binding;
+
+    /* Ignored unless VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER is set. */
+    const struct vkd3d_shader_descriptor_binding *descriptor_qa_global_binding;
+    /* Ignored unless VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER is set. */
+    const struct vkd3d_shader_descriptor_binding *descriptor_qa_heap_binding;
 
     VkShaderStageFlagBits stage;
 
