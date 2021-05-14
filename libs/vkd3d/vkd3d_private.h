@@ -1072,6 +1072,10 @@ struct d3d12_descriptor_heap
 
     struct vkd3d_host_visible_buffer_range raw_va_aux_buffer;
     struct vkd3d_host_visible_buffer_range buffer_ranges;
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    struct vkd3d_host_visible_buffer_range descriptor_heap_info;
+    uint64_t cookie;
+#endif
 
     struct d3d12_device *device;
 
@@ -1190,6 +1194,10 @@ struct d3d12_root_signature
     struct vkd3d_shader_descriptor_binding push_constant_ubo_binding;
     struct vkd3d_shader_descriptor_binding raw_va_aux_buffer_binding;
     struct vkd3d_shader_descriptor_binding offset_buffer_binding;
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    struct vkd3d_shader_descriptor_binding descriptor_qa_heap_binding;
+    struct vkd3d_shader_descriptor_binding descriptor_qa_global_info;
+#endif
 
     uint32_t descriptor_table_offset;
     uint32_t descriptor_table_count;
@@ -2113,8 +2121,10 @@ enum vkd3d_bindless_set_flag
     VKD3D_BINDLESS_SET_RAW_SSBO   = (1u << 7),
     VKD3D_BINDLESS_SET_MUTABLE    = (1u << 8),
 
-    VKD3D_BINDLESS_SET_EXTRA_RAW_VA_AUX_BUFFER  = (1u << 24),
-    VKD3D_BINDLESS_SET_EXTRA_OFFSET_BUFFER      = (1u << 25),
+    VKD3D_BINDLESS_SET_EXTRA_RAW_VA_AUX_BUFFER           = (1u << 24),
+    VKD3D_BINDLESS_SET_EXTRA_OFFSET_BUFFER               = (1u << 25),
+    VKD3D_BINDLESS_SET_EXTRA_GLOBAL_HEAP_INFO_BUFFER     = (1u << 26),
+    VKD3D_BINDLESS_SET_EXTRA_DESCRIPTOR_HEAP_INFO_BUFFER = (1u << 27),
     VKD3D_BINDLESS_SET_EXTRA_MASK = 0xff000000u
 };
 
@@ -2556,6 +2566,9 @@ struct vkd3d_queue_family_info
 /* ID3D12Device */
 typedef ID3D12Device6 d3d12_device_iface;
 
+struct vkd3d_descriptor_qa_global_info;
+struct vkd3d_descriptor_qa_heap_buffer_data;
+
 struct d3d12_device
 {
     d3d12_device_iface ID3D12Device_iface;
@@ -2613,6 +2626,7 @@ struct d3d12_device
     struct vkd3d_view_map sampler_map;
     struct vkd3d_sampler_state sampler_state;
     struct vkd3d_shader_debug_ring debug_ring;
+    struct vkd3d_descriptor_qa_global_info *descriptor_qa_global_info;
 };
 
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,

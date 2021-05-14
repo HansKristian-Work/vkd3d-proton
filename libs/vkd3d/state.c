@@ -20,6 +20,7 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 
 #include "vkd3d_private.h"
+#include "vkd3d_descriptor_debug.h"
 #include <stdio.h>
 
 /* ID3D12RootSignature */
@@ -768,6 +769,18 @@ static void d3d12_root_signature_init_extra_bindings(struct d3d12_root_signature
                 VKD3D_BINDLESS_SET_EXTRA_OFFSET_BUFFER,
                 &root_signature->offset_buffer_binding);
     }
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    if (vkd3d_descriptor_debug_active_qa_checks())
+    {
+        vkd3d_bindless_state_find_binding(&root_signature->device->bindless_state,
+                VKD3D_BINDLESS_SET_EXTRA_DESCRIPTOR_HEAP_INFO_BUFFER,
+                &root_signature->descriptor_qa_heap_binding);
+        vkd3d_bindless_state_find_binding(&root_signature->device->bindless_state,
+                VKD3D_BINDLESS_SET_EXTRA_GLOBAL_HEAP_INFO_BUFFER,
+                &root_signature->descriptor_qa_global_info);
+    }
+#endif
 }
 
 static HRESULT d3d12_root_signature_init_shader_record_descriptors(
@@ -1331,6 +1344,9 @@ unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_
 
     if (root_signature->device->bindless_state.flags & VKD3D_BINDLESS_CBV_AS_SSBO)
         flags |= VKD3D_SHADER_INTERFACE_BINDLESS_CBV_AS_STORAGE_BUFFER;
+
+    if (vkd3d_descriptor_debug_active_qa_checks())
+        flags |= VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER;
 
     return flags;
 }
@@ -2156,6 +2172,10 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     shader_interface.offset_buffer_binding = &root_signature->offset_buffer_binding;
     shader_interface.stage = VK_SHADER_STAGE_COMPUTE_BIT;
     shader_interface.xfb_info = NULL;
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    shader_interface.descriptor_qa_global_binding = &root_signature->descriptor_qa_global_info;
+    shader_interface.descriptor_qa_heap_binding = &root_signature->descriptor_qa_heap_binding;
+#endif
 
     if ((hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, &desc->cached_pso, &state->vk_pso_cache)) < 0)
     {
@@ -3033,6 +3053,10 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
     shader_interface.push_constant_ubo_binding = &root_signature->push_constant_ubo_binding;
     shader_interface.offset_buffer_binding = &root_signature->offset_buffer_binding;
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    shader_interface.descriptor_qa_global_binding = &root_signature->descriptor_qa_global_info;
+    shader_interface.descriptor_qa_heap_binding = &root_signature->descriptor_qa_heap_binding;
+#endif
 
     graphics->patch_vertex_count = 0;
 
@@ -3883,6 +3907,8 @@ static uint32_t d3d12_max_descriptor_count_from_heap_type(D3D12_DESCRIPTOR_HEAP_
     switch (heap_type)
     {
         case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
+            if (vkd3d_descriptor_debug_active_qa_checks())
+                return 1000000 + VKD3D_DESCRIPTOR_DEBUG_NUM_PAD_DESCRIPTORS;
             return 1000000;
 
         case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
@@ -4212,6 +4238,12 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
 
     if (bindless_state->flags & (VKD3D_SSBO_OFFSET_BUFFER | VKD3D_TYPED_OFFSET_BUFFER))
         extra_bindings |= VKD3D_BINDLESS_SET_EXTRA_OFFSET_BUFFER;
+
+    if (vkd3d_descriptor_debug_active_qa_checks())
+    {
+        extra_bindings |= VKD3D_BINDLESS_SET_EXTRA_GLOBAL_HEAP_INFO_BUFFER |
+                VKD3D_BINDLESS_SET_EXTRA_DESCRIPTOR_HEAP_INFO_BUFFER;
+    }
 
     if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
             VKD3D_BINDLESS_SET_SAMPLER, VK_DESCRIPTOR_TYPE_SAMPLER)))
