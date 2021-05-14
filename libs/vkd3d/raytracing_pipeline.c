@@ -890,6 +890,10 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
         shader_interface_info.push_constant_buffer_count = global_signature->root_constant_count;
         shader_interface_info.push_constant_ubo_binding = &global_signature->push_constant_ubo_binding;
         shader_interface_info.offset_buffer_binding = &global_signature->offset_buffer_binding;
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+        shader_interface_info.descriptor_qa_global_binding = &global_signature->descriptor_qa_global_info;
+        shader_interface_info.descriptor_qa_heap_binding = &global_signature->descriptor_qa_heap_binding;
+#endif
     }
 
     shader_interface_local_info.descriptor_size = sizeof(struct d3d12_desc);

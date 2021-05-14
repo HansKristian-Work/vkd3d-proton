@@ -19,10 +19,7 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 
 #include "vkd3d_private.h"
-
-#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
 #include "vkd3d_descriptor_debug.h"
-#endif
 
 static void vkd3d_memory_allocator_wait_allocation(struct vkd3d_memory_allocator *allocator,
         struct d3d12_device *device, const struct vkd3d_memory_allocation *allocation);
@@ -334,9 +331,7 @@ static void vkd3d_memory_allocation_free(const struct vkd3d_memory_allocation *a
 
     TRACE("allocation %p, device %p, allocator %p.\n", allocation, device, allocator);
 
-#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-    vkd3d_descriptor_debug_unregister_cookie(allocation->resource.cookie);
-#endif
+    vkd3d_descriptor_debug_unregister_cookie(device->descriptor_qa_global_info, allocation->resource.cookie);
 
     if (allocation->flags & VKD3D_ALLOCATION_FLAG_ALLOW_WRITE_WATCH)
         vkd3d_free_write_watch_pointer(allocation->cpu_address);
@@ -493,9 +488,8 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     }
 
     allocation->resource.cookie = vkd3d_allocate_cookie();
-#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-    vkd3d_descriptor_debug_register_allocation_cookie(allocation->resource.cookie, info);
-#endif
+    vkd3d_descriptor_debug_register_allocation_cookie(device->descriptor_qa_global_info,
+            allocation->resource.cookie, info);
 
     TRACE("Created allocation %p on memory type %u (%"PRIu64" bytes).\n",
             allocation, allocation->vk_memory_type, allocation->resource.size);
