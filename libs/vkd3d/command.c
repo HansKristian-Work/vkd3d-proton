@@ -21,6 +21,7 @@
 
 #include "vkd3d_private.h"
 #include "vkd3d_swapchain_factory.h"
+#include "vkd3d_descriptor_debug.h"
 #ifdef VKD3D_ENABLE_RENDERDOC
 #include "vkd3d_renderdoc.h"
 #endif
@@ -312,9 +313,10 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
         return;
     }
 
-    /* This is a good time to kick the debug ring thread into action. */
+    /* This is a good time to kick the debug threads into action. */
     if (device->debug_ring.active)
         pthread_cond_signal(&device->debug_ring.ring_cond);
+    vkd3d_descriptor_debug_kick_qa_check(device->descriptor_qa_global_info);
 
     TRACE("Signaling fence %p value %#"PRIx64".\n", fence->fence, fence->value);
     if (FAILED(hr = d3d12_fence_signal(fence->fence, fence->value)))

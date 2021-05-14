@@ -20,13 +20,10 @@
 
 #include "vkd3d_private.h"
 #include "vkd3d_sonames.h"
+#include "vkd3d_descriptor_debug.h"
 
 #ifdef VKD3D_ENABLE_RENDERDOC
 #include "vkd3d_renderdoc.h"
-#endif
-
-#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-#include "vkd3d_descriptor_debug.h"
 #endif
 
 static uint32_t vkd3d_get_vk_version(void)
@@ -2416,6 +2413,8 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     vkd3d_render_pass_cache_cleanup(&device->render_pass_cache, device);
     d3d12_device_destroy_vkd3d_queues(device);
     vkd3d_memory_allocator_cleanup(&device->memory_allocator, device);
+    /* Tear down descriptor global info late, so we catch last minute faults after we drain the queues. */
+    vkd3d_descriptor_debug_free_global_info(device->descriptor_qa_global_info, device);
     VK_CALL(vkDestroyDevice(device->vk_device, NULL));
     pthread_mutex_destroy(&device->mutex);
     if (device->parent)
@@ -5050,6 +5049,13 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if (FAILED(hr = vkd3d_shader_debug_ring_init(&device->debug_ring, device)))
         goto out_cleanup_meta_ops;
 
+    if (vkd3d_descriptor_debug_active_qa_checks())
+    {
+        if (FAILED(hr = vkd3d_descriptor_debug_alloc_global_info(&device->descriptor_qa_global_info,
+                VKD3D_DESCRIPTOR_DEBUG_DEFAULT_NUM_COOKIES, device)))
+            goto out_cleanup_debug_ring;
+    }
+
     vkd3d_render_pass_cache_init(&device->render_pass_cache);
 
     if ((device->parent = create_info->parent))
@@ -5058,6 +5064,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     d3d12_device_caps_init(device);
     return S_OK;
 
+out_cleanup_debug_ring:
+    vkd3d_shader_debug_ring_cleanup(&device->debug_ring, device);
 out_cleanup_meta_ops:
     vkd3d_meta_ops_cleanup(&device->meta_ops, device);
 out_cleanup_sampler_state:
