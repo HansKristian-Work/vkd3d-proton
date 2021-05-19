@@ -5626,6 +5626,14 @@ static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_comp
         case VKD3D_SHADER_TYPE_PIXEL:
             vkd3d_spirv_set_execution_model(builder, SpvExecutionModelFragment);
             vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeOriginUpperLeft, NULL, 0);
+            /* We introduce side effects into fragment shaders when we enable descriptor QA,
+             * so try to force EarlyFragmentTests if it's safe to do so. */
+            if ((compiler->shader_interface.flags & VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER) &&
+                    !compiler->scan_info->early_fragment_tests && !compiler->scan_info->has_side_effects &&
+                    !compiler->scan_info->discards && !compiler->scan_info->needs_late_zs)
+            {
+                vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeEarlyFragmentTests, NULL, 0);
+            }
             break;
         case VKD3D_SHADER_TYPE_COMPUTE:
             vkd3d_spirv_set_execution_model(builder, SpvExecutionModelGLCompute);

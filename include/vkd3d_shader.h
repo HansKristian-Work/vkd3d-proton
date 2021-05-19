@@ -587,6 +587,11 @@ struct vkd3d_shader_scan_info
 {
     struct hash_map register_map;
     bool use_vocp;
+
+    bool early_fragment_tests;
+    bool has_side_effects;
+    bool needs_late_zs;
+    bool discards;
 };
 
 enum vkd3d_component_type
