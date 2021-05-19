@@ -25,6 +25,7 @@ opt_nopackage=0
 opt_devbuild=0
 opt_native=0
 opt_buildtype="release"
+opt_strip=--strip
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -35,6 +36,7 @@ while [ $# -gt 0 ]; do
     opt_nopackage=1
     ;;
   "--dev-build")
+    opt_strip=
     opt_nopackage=1
     opt_devbuild=1
     ;;
@@ -57,7 +59,7 @@ function build_arch {
   meson "$@"                           \
         --buildtype "${opt_buildtype}" \
         --prefix "$VKD3D_BUILD_DIR"    \
-        --strip                        \
+        $opt_strip                     \
         --bindir "x${arch}"            \
         --libdir "x${arch}"            \
         "$VKD3D_BUILD_DIR/build.${arch}"
