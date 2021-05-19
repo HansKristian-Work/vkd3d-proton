@@ -251,8 +251,7 @@ since it adds some flat overhead in an extremely hot code path.
 ### GPU-assisted debugging
 
 If `VKD3D_CONFIG=descriptor_qa_checks` is set with a build which enables `-Denable_descriptor_qa=true`,
-all shaders (currently limited to DXIL)
-will be instrumented to check for invalid access. In the log, you will see this to
+all shaders will be instrumented to check for invalid access. In the log, you will see this to
 make sure the feature is enabled.
 
 ```
