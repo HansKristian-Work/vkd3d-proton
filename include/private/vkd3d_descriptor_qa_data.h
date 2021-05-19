@@ -74,4 +74,46 @@ struct vkd3d_descriptor_qa_heap_buffer_data
     struct vkd3d_descriptor_qa_cookie_descriptor desc[];
 };
 
+enum vkd3d_descriptor_qa_heap_buffer_data_member
+{
+    VKD3D_DESCRIPTOR_QA_HEAP_MEMBER_NUM_DESCRIPTORS = 0,
+    VKD3D_DESCRIPTOR_QA_HEAP_MEMBER_HEAP_INDEX,
+    VKD3D_DESCRIPTOR_QA_HEAP_MEMBER_DESC,
+    VKD3D_DESCRIPTOR_QA_HEAP_MEMBER_COUNT
+};
+
+VKD3D_UNUSED static const char *vkd3d_descriptor_qa_heap_data_names[VKD3D_DESCRIPTOR_QA_HEAP_MEMBER_COUNT] = {
+    "num_descriptors",
+    "heap_index",
+    "desc",
+};
+
+enum vkd3d_descriptor_qa_global_buffer_data_member
+{
+    VKD3D_DESCRIPTOR_QA_GLOBAL_BUFFER_DATA_MEMBER_FAILED_HASH = 0,
+    VKD3D_DESCRIPTOR_QA_GLOBAL_BUFFER_DATA_MEMBER_FAILED_OFFSET,
+    VKD3D_DESCRIPTOR_QA_GLOBAL_BUFFER_DATA_MEMBER_FAILED_HEAP,
+    VKD3D_DESCRIPTOR_QA_GLOBAL_BUFFER_DATA_MEMBER_FAILED_COOKIE,
+    VKD3D_DESCRIPTOR_QA_GLOBAL_BUFFER_DATA_MEMBER_FAULT_ATOMIC,
+    VKD3D_DESCRIPTOR_QA_GLOBAL_BUFFER_DATA_MEMBER_FAILED_INSTRUCTION,
+    VKD3D_DESCRIPTOR_QA_GLOBAL_BUFFER_DATA_MEMBER_FAILED_DESCRIPTOR_TYPE_MASK,
+    VKD3D_DESCRIPTOR_QA_GLOBAL_BUFFER_DATA_MEMBER_ACTUAL_DESCRIPTOR_TYPE_MASK,
+    VKD3D_DESCRIPTOR_QA_GLOBAL_BUFFER_DATA_MEMBER_FAULT_TYPE,
+    VKD3D_DESCRIPTOR_QA_GLOBAL_BUFFER_DATA_MEMBER_LIVE_STATUS_TABLE,
+    VKD3D_DESCRIPTOR_QA_GLOBAL_BUFFER_DATA_MEMBER_COUNT
+};
+
+VKD3D_UNUSED static const char *vkd3d_descriptor_qa_global_buffer_data_names[VKD3D_DESCRIPTOR_QA_GLOBAL_BUFFER_DATA_MEMBER_COUNT] = {
+    "failed_hash",
+    "failed_offset",
+    "failed_heap",
+    "failed_cookie",
+    "fault_atomic",
+    "failed_instruction",
+    "failed_descriptor_type_mask",
+    "actual_descriptor_type_mask",
+    "fault_type",
+    "live_status_table",
+};
+
 #endif
