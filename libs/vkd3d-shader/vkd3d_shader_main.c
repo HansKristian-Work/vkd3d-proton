@@ -378,7 +378,8 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         vkd3d_shader_trace(parser.data);
 
     if (!(spirv_compiler = vkd3d_dxbc_compiler_create(&parser.shader_version,
-            &parser.shader_desc, compiler_options, shader_interface_info, compile_args, &scan_info)))
+            &parser.shader_desc, compiler_options, shader_interface_info, compile_args, &scan_info,
+            spirv->meta.hash)))
     {
         ERR("Failed to create DXBC compiler.\n");
         vkd3d_shader_scan_destroy(&scan_info);
