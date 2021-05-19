@@ -426,6 +426,16 @@ static bool vkd3d_shader_instruction_is_uav_read(const struct vkd3d_shader_instr
             || ((handler_idx == VKD3DSIH_LD_STRUCTURED || handler_idx == VKD3DSIH_LD_STRUCTURED_FEEDBACK) && instruction->src[2].reg.type == VKD3DSPR_UAV);
 }
 
+static bool vkd3d_shader_instruction_is_uav_write(const struct vkd3d_shader_instruction *instruction)
+{
+    enum VKD3D_SHADER_INSTRUCTION_HANDLER handler_idx = instruction->handler_idx;
+    return (VKD3DSIH_ATOMIC_AND <= handler_idx && handler_idx <= VKD3DSIH_ATOMIC_XOR)
+            || (VKD3DSIH_IMM_ATOMIC_ALLOC <= handler_idx && handler_idx <= VKD3DSIH_IMM_ATOMIC_XOR)
+            || handler_idx == VKD3DSIH_STORE_UAV_TYPED
+            || handler_idx == VKD3DSIH_STORE_RAW
+            || handler_idx == VKD3DSIH_STORE_STRUCTURED;
+}
+
 static bool vkd3d_shader_instruction_is_uav_atomic(const struct vkd3d_shader_instruction *instruction)
 {
     enum VKD3D_SHADER_INSTRUCTION_HANDLER handler_idx = instruction->handler_idx;
@@ -458,6 +468,7 @@ static bool vkd3d_shader_instruction_is_uav_counter(const struct vkd3d_shader_in
 static void vkd3d_shader_scan_record_uav_counter(struct vkd3d_shader_scan_info *scan_info,
         const struct vkd3d_shader_register *reg)
 {
+    scan_info->has_side_effects = true;
     vkd3d_shader_scan_set_register_flags(scan_info, VKD3DSPR_UAV,
             reg->idx[0].offset, VKD3D_SHADER_UAV_FLAG_ATOMIC_COUNTER);
 }
@@ -471,6 +482,24 @@ static void vkd3d_shader_scan_input_declaration(struct vkd3d_shader_scan_info *s
         scan_info->use_vocp = true;
 }
 
+static void vkd3d_shader_scan_output_declaration(struct vkd3d_shader_scan_info *scan_info,
+        const struct vkd3d_shader_instruction *instruction)
+{
+    switch (instruction->declaration.dst.reg.type)
+    {
+        case VKD3DSPR_DEPTHOUT:
+        case VKD3DSPR_DEPTHOUTLE:
+        case VKD3DSPR_DEPTHOUTGE:
+        case VKD3DSPR_STENCILREFOUT:
+        case VKD3DSPR_SAMPLEMASK:
+            scan_info->needs_late_zs = true;
+            break;
+
+        default:
+            break;
+    }
+}
+
 static void vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_info *scan_info,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -481,6 +510,16 @@ static void vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_info *scan_in
     {
         case VKD3DSIH_DCL_INPUT:
             vkd3d_shader_scan_input_declaration(scan_info, instruction);
+            break;
+        case VKD3DSIH_DCL_OUTPUT:
+            vkd3d_shader_scan_output_declaration(scan_info, instruction);
+            break;
+        case VKD3DSIH_DISCARD:
+            scan_info->discards = true;
+            break;
+        case VKD3DSIH_DCL_GLOBAL_FLAGS:
+            if (instruction->flags & VKD3DSGF_FORCE_EARLY_DEPTH_STENCIL)
+                scan_info->early_fragment_tests = true;
             break;
         default:
             break;
@@ -509,6 +548,9 @@ static void vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_info *scan_in
             }
         }
     }
+
+    if (vkd3d_shader_instruction_is_uav_write(instruction))
+        scan_info->has_side_effects = true;
 
     if (vkd3d_shader_instruction_is_uav_counter(instruction))
         vkd3d_shader_scan_record_uav_counter(scan_info, &instruction->src[0].reg);
