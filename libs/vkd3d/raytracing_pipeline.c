@@ -286,7 +286,7 @@ static void STDMETHODCALLTYPE d3d12_state_object_properties_SetPipelineStackSize
         UINT64 stack_size_in_bytes)
 {
     struct d3d12_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
-    TRACE("iface %p, stack_size_in_bytes %llu!\n", iface);
+    TRACE("iface %p, stack_size_in_bytes %llu!\n", iface, stack_size_in_bytes);
 
     /* This behavior seems to match what I'm seeing on NV Windows driver. */
     object->pipeline_stack_size = stack_size_in_bytes;
