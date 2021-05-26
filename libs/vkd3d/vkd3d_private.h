@@ -2064,31 +2064,6 @@ void vkd3d_shader_debug_ring_init_spec_constant(struct d3d12_device *device,
         struct vkd3d_shader_debug_ring_spec_info *info, vkd3d_shader_hash_t hash);
 void vkd3d_shader_debug_ring_end_command_buffer(struct d3d12_command_list *list);
 
-/* NULL resources */
-struct vkd3d_null_resources
-{
-    VkBuffer vk_buffer;
-    VkBufferView vk_buffer_view;
-    VkDeviceMemory vk_buffer_memory;
-
-    VkBuffer vk_storage_buffer;
-    VkBufferView vk_storage_buffer_view;
-    VkDeviceMemory vk_storage_buffer_memory;
-
-    VkImage vk_2d_image;
-    VkDeviceMemory vk_2d_image_memory;
-
-    VkImage vk_2d_storage_image;
-    VkDeviceMemory vk_2d_storage_image_memory;
-
-    struct vkd3d_view_map view_map;
-};
-
-HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
-        struct d3d12_device *device);
-void vkd3d_destroy_null_resources(struct vkd3d_null_resources *null_resources,
-        struct d3d12_device *device);
-
 /* Bindless */
 enum vkd3d_bindless_flags
 {
@@ -2619,7 +2594,6 @@ struct d3d12_device
     const struct vkd3d_format *depth_stencil_formats;
     unsigned int format_compatibility_list_count;
     const struct vkd3d_format_compatibility_list *format_compatibility_lists;
-    struct vkd3d_null_resources null_resources;
     struct vkd3d_bindless_state bindless_state;
     struct vkd3d_memory_info memory_info;
     struct vkd3d_meta_ops meta_ops;
