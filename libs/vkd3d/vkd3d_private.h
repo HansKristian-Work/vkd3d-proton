@@ -1054,7 +1054,25 @@ struct vkd3d_host_visible_buffer_range
     void *host_ptr;
 };
 
+union vkd3d_descriptor_info
+{
+    VkBufferView buffer_view;
+    VkDescriptorBufferInfo buffer;
+    VkDescriptorImageInfo image;
+    VkDeviceAddress va;
+};
+
 /* ID3D12DescriptorHeap */
+struct d3d12_null_descriptor_template
+{
+    struct VkWriteDescriptorSet writes[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+    VkDescriptorBufferInfo buffer;
+    VkDescriptorImageInfo image;
+    VkBufferView buffer_view;
+    unsigned int num_writes;
+    unsigned int set_info_mask;
+};
+
 struct d3d12_descriptor_heap
 {
     ID3D12DescriptorHeap ID3D12DescriptorHeap_iface;
@@ -1076,6 +1094,8 @@ struct d3d12_descriptor_heap
     struct vkd3d_host_visible_buffer_range descriptor_heap_info;
     uint64_t cookie;
 #endif
+
+    struct d3d12_null_descriptor_template null_descriptor_template;
 
     struct d3d12_device *device;
 
@@ -1556,14 +1576,6 @@ enum vkd3d_pipeline_dirty_flag
     VKD3D_PIPELINE_DIRTY_STATIC_SAMPLER_SET       = 0x00000001u,
     VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS = 0x00000002u,
     VKD3D_PIPELINE_DIRTY_HOISTED_DESCRIPTORS      = 0x00000004u,
-};
-
-union vkd3d_descriptor_info
-{
-    VkBufferView buffer_view;
-    VkDescriptorBufferInfo buffer;
-    VkDescriptorImageInfo image;
-    VkDeviceAddress va;
 };
 
 struct vkd3d_root_descriptor_info
