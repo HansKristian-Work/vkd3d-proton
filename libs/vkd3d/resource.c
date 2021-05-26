@@ -3417,17 +3417,11 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
         descriptor_info.buffer.offset = desc->BufferLocation - resource->va;
         descriptor_info.buffer.range = min(desc->SizeInBytes, resource->size - descriptor_info.buffer.offset);
     }
-    else if (device->device_info.robustness2_features.nullDescriptor)
+    else
     {
         descriptor_info.buffer.buffer = VK_NULL_HANDLE;
         descriptor_info.buffer.offset = 0;
         descriptor_info.buffer.range = VK_WHOLE_SIZE;
-    }
-    else
-    {
-        descriptor_info.buffer.buffer = device->null_resources.vk_buffer;
-        descriptor_info.buffer.offset = 0;
-        descriptor_info.buffer.range = VKD3D_NULL_BUFFER_SIZE;
     }
 
     vk_descriptor_type = vkd3d_bindless_state_get_cbv_descriptor_type(&device->bindless_state);
@@ -3579,7 +3573,6 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
 {
-    struct vkd3d_null_resources *null_resources = &device->null_resources;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VKD3D_UNUSED vkd3d_descriptor_qa_flags descriptor_qa_flags = 0;
     struct vkd3d_bound_buffer_range bound_range = { 0, 0, 0, 0 };
@@ -3588,7 +3581,6 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
     VkWriteDescriptorSet vk_write[2];
     struct vkd3d_view *view = NULL;
     uint32_t vk_write_count = 0;
-    struct vkd3d_view_key key;
     uint32_t info_index;
 
     if (!desc)
@@ -3667,17 +3659,6 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
                 &bound_range, &view))
             return;
     }
-    else if (!device->device_info.robustness2_features.nullDescriptor)
-    {
-        key.view_type = VKD3D_VIEW_TYPE_BUFFER;
-        key.u.buffer.buffer = null_resources->vk_buffer;
-        key.u.buffer.format = vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
-        key.u.buffer.offset = 0;
-        key.u.buffer.size = VKD3D_NULL_BUFFER_SIZE;
-
-        if (!(view = vkd3d_view_map_create_view(&device->null_resources.view_map, device, &key)))
-            return;
-    }
 
     descriptor_info[vk_write_count].buffer_view = view ? view->vk_buffer_view : VK_NULL_HANDLE;
 
@@ -3720,7 +3701,6 @@ static void vkd3d_create_texture_srv(struct d3d12_desc *descriptor,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_SHADER_RESOURCE_VIEW_DESC *desc)
 {
-    struct vkd3d_null_resources *null_resources = &device->null_resources;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     union vkd3d_descriptor_info descriptor_info;
     struct vkd3d_view *view = NULL;
@@ -3826,41 +3806,6 @@ static void vkd3d_create_texture_srv(struct d3d12_desc *descriptor,
         if (!(view = vkd3d_view_map_create_view(&resource->view_map, device, &key)))
             return;
     }
-    else if (!device->device_info.robustness2_features.nullDescriptor)
-    {
-        switch (desc->ViewDimension)
-        {
-            case D3D12_SRV_DIMENSION_TEXTURE2D:
-                key.u.texture.image = null_resources->vk_2d_image;
-                key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D;
-                break;
-            case D3D12_SRV_DIMENSION_TEXTURE2DARRAY:
-                key.u.texture.image = null_resources->vk_2d_image;
-                key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-                break;
-
-            default:
-                FIXME("Unhandled view dimension %#x.\n", desc->ViewDimension);
-                return;
-        }
-
-        key.view_type = VKD3D_VIEW_TYPE_IMAGE;
-        key.u.texture.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        key.u.texture.format = vkd3d_get_format(device, VKD3D_NULL_SRV_FORMAT, false);
-        key.u.texture.miplevel_idx = 0;
-        key.u.texture.miplevel_count = 1;
-        key.u.texture.layer_idx = 0;
-        key.u.texture.layer_count = 1;
-        key.u.texture.components.r = VK_COMPONENT_SWIZZLE_ZERO;
-        key.u.texture.components.g = VK_COMPONENT_SWIZZLE_ZERO;
-        key.u.texture.components.b = VK_COMPONENT_SWIZZLE_ZERO;
-        key.u.texture.components.a = VK_COMPONENT_SWIZZLE_ZERO;
-        key.u.texture.allowed_swizzle = true;
-        key.u.texture.aspect_mask = key.u.texture.format->vk_aspect_mask;
-
-        if (!(view = vkd3d_view_map_create_view(&device->null_resources.view_map, device, &key)))
-            return;
-    }
 
     descriptor_info.image.sampler = VK_NULL_HANDLE;
     descriptor_info.image.imageView = view ? view->vk_image_view : VK_NULL_HANDLE;
@@ -3950,7 +3895,6 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
         struct d3d12_resource *resource, struct d3d12_resource *counter_resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
 {
-    struct vkd3d_null_resources *null_resources = &device->null_resources;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VKD3D_UNUSED vkd3d_descriptor_qa_flags descriptor_qa_flags = 0;
     struct vkd3d_bound_buffer_range bound_range = { 0, 0, 0, 0 };
@@ -3961,7 +3905,6 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
     VkWriteDescriptorSet vk_write[3];
     struct vkd3d_view *view = NULL;
     VkBufferView uav_counter_view;
-    struct vkd3d_view_key key;
     uint32_t info_index;
 
     if (!desc)
@@ -4019,17 +3962,6 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
         if (!vkd3d_buffer_view_get_aligned_view(descriptor, device, resource, desc->Format, flags,
                 desc->Buffer.FirstElement, desc->Buffer.NumElements,
                 desc->Buffer.StructureByteStride, &bound_range, &view))
-            return;
-    }
-    else if (!device->device_info.robustness2_features.nullDescriptor)
-    {
-        key.view_type = VKD3D_VIEW_TYPE_BUFFER;
-        key.u.buffer.buffer = null_resources->vk_storage_buffer;
-        key.u.buffer.format = vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
-        key.u.buffer.offset = 0;
-        key.u.buffer.size = VKD3D_NULL_BUFFER_SIZE;
-
-        if (!(view = vkd3d_view_map_create_view(&device->null_resources.view_map, device, &key)))
             return;
     }
 
@@ -4091,8 +4023,6 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
         /* This is used to denote that a counter descriptor is present, irrespective of underlying descriptor type. */
         descriptor_qa_flags |= VKD3D_DESCRIPTOR_QA_TYPE_RAW_VA_BIT;
     }
-    else if (!device->device_info.robustness2_features.nullDescriptor)
-        uav_counter_view = device->null_resources.vk_storage_buffer_view;
 
     if (device->bindless_state.flags & VKD3D_RAW_VA_AUX_BUFFER)
     {
@@ -4123,7 +4053,6 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
         struct d3d12_device *device, struct d3d12_resource *resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc)
 {
-    struct vkd3d_null_resources *null_resources = &device->null_resources;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     union vkd3d_descriptor_info descriptor_info;
     struct vkd3d_view *view = NULL;
@@ -4191,40 +4120,6 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
         }
 
         if (!(view = vkd3d_view_map_create_view(&resource->view_map, device, &key)))
-            return;
-    }
-    else if (!device->device_info.robustness2_features.nullDescriptor)
-    {
-        switch (desc->ViewDimension)
-        {
-            case D3D12_UAV_DIMENSION_TEXTURE2D:
-                key.u.texture.image = null_resources->vk_2d_storage_image;
-                key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D;
-                break;
-            case D3D12_UAV_DIMENSION_TEXTURE2DARRAY:
-                key.u.texture.image = null_resources->vk_2d_storage_image;
-                key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-                break;
-
-            default:
-                FIXME("Unhandled view dimension %#x.\n", desc->ViewDimension);
-                return;
-        }
-
-        key.u.texture.layout = VK_IMAGE_LAYOUT_GENERAL;
-        key.u.texture.format = vkd3d_get_format(device, VKD3D_NULL_UAV_FORMAT, false);
-        key.u.texture.miplevel_idx = 0;
-        key.u.texture.miplevel_count = 1;
-        key.u.texture.layer_idx = 0;
-        key.u.texture.layer_count = 1;
-        key.u.texture.components.r = VK_COMPONENT_SWIZZLE_R;
-        key.u.texture.components.g = VK_COMPONENT_SWIZZLE_G;
-        key.u.texture.components.b = VK_COMPONENT_SWIZZLE_B;
-        key.u.texture.components.a = VK_COMPONENT_SWIZZLE_A;
-        key.u.texture.allowed_swizzle = false;
-        key.u.texture.aspect_mask = key.u.texture.format->vk_aspect_mask;
-
-        if (!(view = vkd3d_view_map_create_view(&device->null_resources.view_map, device, &key)))
             return;
     }
 
@@ -5107,8 +5002,7 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_set(struct d3d12_descript
         return hresult_from_vk_result(vr);
     }
 
-    if (device->device_info.robustness2_features.nullDescriptor &&
-        binding->vk_descriptor_type != VK_DESCRIPTOR_TYPE_SAMPLER)
+    if (binding->vk_descriptor_type != VK_DESCRIPTOR_TYPE_SAMPLER)
     {
         d3d12_descriptor_heap_zero_initialize(descriptor_heap,
                 binding->vk_descriptor_type, *vk_descriptor_set,
@@ -5724,344 +5618,6 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
 
     *heap = object;
     return S_OK;
-}
-
-static HRESULT vkd3d_init_null_resources_data(struct vkd3d_null_resources *null_resource,
-        struct d3d12_device *device)
-{
-    const bool use_sparse_resources = device->vk_info.sparse_properties.residencyNonResidentStrict;
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    static const VkClearColorValue clear_color = {{0}};
-    VkCommandBufferAllocateInfo command_buffer_info;
-    VkCommandPool vk_command_pool = VK_NULL_HANDLE;
-    VkCommandPoolCreateInfo command_pool_info;
-    VkDevice vk_device = device->vk_device;
-    VkCommandBufferBeginInfo begin_info;
-    VkCommandBuffer vk_command_buffer;
-    VkFence vk_fence = VK_NULL_HANDLE;
-    VkImageSubresourceRange range;
-    VkImageMemoryBarrier barrier;
-    VkFenceCreateInfo fence_info;
-    struct vkd3d_queue *queue;
-    VkSubmitInfo submit_info;
-    VkQueue vk_queue;
-    VkResult vr;
-
-    queue = d3d12_device_get_vkd3d_queue_family(device, D3D12_COMMAND_LIST_TYPE_DIRECT)->queues[0];
-
-    command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    command_pool_info.pNext = NULL;
-    command_pool_info.flags = 0;
-    command_pool_info.queueFamilyIndex = queue->vk_family_index;
-
-    if ((vr = VK_CALL(vkCreateCommandPool(vk_device, &command_pool_info, NULL, &vk_command_pool))) < 0)
-    {
-        WARN("Failed to create Vulkan command pool, vr %d.\n", vr);
-        goto done;
-    }
-
-    command_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    command_buffer_info.pNext = NULL;
-    command_buffer_info.commandPool = vk_command_pool;
-    command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    command_buffer_info.commandBufferCount = 1;
-
-    if ((vr = VK_CALL(vkAllocateCommandBuffers(vk_device, &command_buffer_info, &vk_command_buffer))) < 0)
-    {
-        WARN("Failed to allocate Vulkan command buffer, vr %d.\n", vr);
-        goto done;
-    }
-
-    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin_info.pNext = NULL;
-    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    begin_info.pInheritanceInfo = NULL;
-
-    if ((vr = VK_CALL(vkBeginCommandBuffer(vk_command_buffer, &begin_info))) < 0)
-    {
-        WARN("Failed to begin command buffer, vr %d.\n", vr);
-        goto done;
-    }
-
-    /* fill buffer */
-    VK_CALL(vkCmdFillBuffer(vk_command_buffer, null_resource->vk_buffer, 0, VK_WHOLE_SIZE, 0x00000000));
-
-    if (use_sparse_resources)
-    {
-        /* transition 2D UAV image */
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.pNext = NULL;
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = 0;
-        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = null_resource->vk_2d_storage_image;
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
-
-        VK_CALL(vkCmdPipelineBarrier(vk_command_buffer,
-                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0,
-                0, NULL, 0, NULL, 1, &barrier));
-    }
-    else
-    {
-        /* fill UAV buffer */
-        VK_CALL(vkCmdFillBuffer(vk_command_buffer,
-                null_resource->vk_storage_buffer, 0, VK_WHOLE_SIZE, 0x00000000));
-
-        /* clear 2D UAV image */
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.pNext = NULL;
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = null_resource->vk_2d_storage_image;
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
-
-        VK_CALL(vkCmdPipelineBarrier(vk_command_buffer,
-                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
-                0, NULL, 0, NULL, 1, &barrier));
-
-        range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        range.baseMipLevel = 0;
-        range.levelCount = 1;
-        range.baseArrayLayer = 0;
-        range.layerCount = 1;
-
-        VK_CALL(vkCmdClearColorImage(vk_command_buffer,
-                null_resource->vk_2d_storage_image, VK_IMAGE_LAYOUT_GENERAL, &clear_color, 1, &range));
-    }
-
-    /* transition 2D SRV image */
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.pNext = NULL;
-    barrier.srcAccessMask = 0;
-    barrier.dstAccessMask = 0;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = null_resource->vk_2d_image;
-    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    barrier.subresourceRange.baseMipLevel = 0;
-    barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
-    barrier.subresourceRange.baseArrayLayer = 0;
-    barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
-
-    VK_CALL(vkCmdPipelineBarrier(vk_command_buffer,
-            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0,
-            0, NULL, 0, NULL, 1, &barrier));
-
-    if ((vr = VK_CALL(vkEndCommandBuffer(vk_command_buffer))) < 0)
-    {
-        WARN("Failed to end command buffer, vr %d.\n", vr);
-        goto done;
-    }
-
-    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    fence_info.pNext = NULL;
-    fence_info.flags = 0;
-
-    if ((vr = VK_CALL(vkCreateFence(device->vk_device, &fence_info, NULL, &vk_fence))) < 0)
-    {
-        WARN("Failed to create Vulkan fence, vr %d.\n", vr);
-        goto done;
-    }
-
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.pNext = NULL;
-    submit_info.waitSemaphoreCount = 0;
-    submit_info.pWaitSemaphores = NULL;
-    submit_info.pWaitDstStageMask = NULL;
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &vk_command_buffer;
-    submit_info.signalSemaphoreCount = 0;
-    submit_info.pSignalSemaphores = NULL;
-
-    if (!(vk_queue = vkd3d_queue_acquire(queue)))
-    {
-        WARN("Failed to acquire queue %p.\n", queue);
-        goto done;
-    }
-
-    if ((vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, vk_fence))) < 0)
-        ERR("Failed to submit, vr %d.\n", vr);
-
-    vkd3d_queue_release(queue);
-
-    vr = VK_CALL(vkWaitForFences(device->vk_device, 1, &vk_fence, VK_FALSE, ~(uint64_t)0));
-    if (vr != VK_SUCCESS)
-        WARN("Failed to wait fo fence, vr %d.\n", vr);
-
-done:
-    VK_CALL(vkDestroyCommandPool(vk_device, vk_command_pool, NULL));
-    VK_CALL(vkDestroyFence(vk_device, vk_fence, NULL));
-
-    return hresult_from_vk_result(vr);
-}
-
-HRESULT vkd3d_init_null_resources(struct vkd3d_null_resources *null_resources,
-        struct d3d12_device *device)
-{
-    const bool use_sparse_resources = device->vk_info.sparse_properties.residencyNonResidentStrict;
-    D3D12_HEAP_PROPERTIES heap_properties;
-    D3D12_RESOURCE_DESC resource_desc;
-    HRESULT hr;
-
-    TRACE("Creating resources for NULL views.\n");
-
-    memset(null_resources, 0, sizeof(*null_resources));
-
-    memset(&heap_properties, 0, sizeof(heap_properties));
-    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
-
-    /* buffer */
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    resource_desc.Alignment = 0;
-    resource_desc.Width = VKD3D_NULL_BUFFER_SIZE;
-    resource_desc.Height = 1;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
-    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
-
-    if (FAILED(hr = vkd3d_create_buffer(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
-            &resource_desc, &null_resources->vk_buffer)))
-        goto fail;
-    if (FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_buffer,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &null_resources->vk_buffer_memory)))
-        goto fail;
-    if (!vkd3d_create_raw_r32ui_vk_buffer_view(device, null_resources->vk_buffer,
-            0, VK_WHOLE_SIZE, &null_resources->vk_buffer_view))
-        goto fail;
-
-    /* buffer UAV */
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-
-    if (FAILED(hr = vkd3d_create_buffer(device, use_sparse_resources ? NULL : &heap_properties, D3D12_HEAP_FLAG_NONE,
-            &resource_desc, &null_resources->vk_storage_buffer)))
-        goto fail;
-    if (!use_sparse_resources && FAILED(hr = vkd3d_allocate_buffer_memory(device, null_resources->vk_storage_buffer,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &null_resources->vk_storage_buffer_memory)))
-        goto fail;
-    if (!vkd3d_create_raw_r32ui_vk_buffer_view(device, null_resources->vk_storage_buffer,
-            0, VK_WHOLE_SIZE, &null_resources->vk_storage_buffer_view))
-        goto fail;
-
-    /* 2D SRV */
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-    resource_desc.Alignment = 0;
-    resource_desc.Width = 1;
-    resource_desc.Height = 1;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
-    resource_desc.Format = VKD3D_NULL_SRV_FORMAT;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
-
-    if (FAILED(hr = vkd3d_create_image(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
-            &resource_desc, NULL, &null_resources->vk_2d_image)))
-        goto fail;
-    if (FAILED(hr = vkd3d_allocate_image_memory(device, null_resources->vk_2d_image,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &null_resources->vk_2d_image_memory)))
-        goto fail;
-
-    /* 2D UAV */
-    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-    resource_desc.Alignment = 0;
-    resource_desc.Width = 1;
-    resource_desc.Height = 1;
-    resource_desc.DepthOrArraySize = 1;
-    resource_desc.MipLevels = 1;
-    resource_desc.Format = VKD3D_NULL_UAV_FORMAT;
-    resource_desc.SampleDesc.Count = 1;
-    resource_desc.SampleDesc.Quality = 0;
-    resource_desc.Layout = use_sparse_resources
-            ? D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE : D3D12_TEXTURE_LAYOUT_UNKNOWN;
-    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-
-    if (FAILED(hr = vkd3d_create_image(device, use_sparse_resources ? NULL : &heap_properties, D3D12_HEAP_FLAG_NONE,
-            &resource_desc, NULL, &null_resources->vk_2d_storage_image)))
-        goto fail;
-    if (!use_sparse_resources && FAILED(hr = vkd3d_allocate_image_memory(device, null_resources->vk_2d_storage_image,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &null_resources->vk_2d_storage_image_memory)))
-        goto fail;
-
-    /* set Vulkan object names */
-    vkd3d_set_vk_object_name(device, (uint64_t)null_resources->vk_buffer,
-            VK_OBJECT_TYPE_BUFFER, "NULL buffer");
-    vkd3d_set_vk_object_name(device, (uint64_t)null_resources->vk_buffer_view,
-            VK_OBJECT_TYPE_BUFFER_VIEW, "NULL buffer view");
-    vkd3d_set_vk_object_name(device, (uint64_t)null_resources->vk_buffer_memory,
-            VK_OBJECT_TYPE_DEVICE_MEMORY, "NULL memory");
-    vkd3d_set_vk_object_name(device, (uint64_t)null_resources->vk_storage_buffer,
-            VK_OBJECT_TYPE_BUFFER, "NULL UAV buffer");
-    vkd3d_set_vk_object_name(device, (uint64_t)null_resources->vk_storage_buffer_view,
-            VK_OBJECT_TYPE_BUFFER_VIEW, "NULL UAV buffer view");
-    vkd3d_set_vk_object_name(device, (uint64_t)null_resources->vk_2d_image,
-            VK_OBJECT_TYPE_IMAGE, "NULL 2D SRV image");
-    vkd3d_set_vk_object_name(device, (uint64_t)null_resources->vk_2d_image_memory,
-            VK_OBJECT_TYPE_DEVICE_MEMORY, "NULL 2D SRV memory");
-    vkd3d_set_vk_object_name(device, (uint64_t)null_resources->vk_2d_storage_image,
-            VK_OBJECT_TYPE_IMAGE, "NULL 2D UAV image");
-    if (!use_sparse_resources)
-    {
-        vkd3d_set_vk_object_name(device, (uint64_t)null_resources->vk_storage_buffer_memory,
-                VK_OBJECT_TYPE_DEVICE_MEMORY, "NULL UAV buffer memory");
-        vkd3d_set_vk_object_name(device, (uint64_t)null_resources->vk_2d_storage_image_memory,
-                VK_OBJECT_TYPE_DEVICE_MEMORY, "NULL 2D UAV memory");
-    }
-
-    if (FAILED(hr = vkd3d_view_map_init(&null_resources->view_map)))
-        return hr;
-
-    return vkd3d_init_null_resources_data(null_resources, device);
-
-fail:
-    ERR("Failed to initialize NULL resources, hr %#x.\n", hr);
-    vkd3d_destroy_null_resources(null_resources, device);
-    return hr;
-}
-
-void vkd3d_destroy_null_resources(struct vkd3d_null_resources *null_resources,
-        struct d3d12_device *device)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-
-    vkd3d_view_map_destroy(&null_resources->view_map, device);
-
-    VK_CALL(vkDestroyBufferView(device->vk_device, null_resources->vk_buffer_view, NULL));
-    VK_CALL(vkDestroyBuffer(device->vk_device, null_resources->vk_buffer, NULL));
-    VK_CALL(vkFreeMemory(device->vk_device, null_resources->vk_buffer_memory, NULL));
-
-    VK_CALL(vkDestroyBufferView(device->vk_device, null_resources->vk_storage_buffer_view, NULL));
-    VK_CALL(vkDestroyBuffer(device->vk_device, null_resources->vk_storage_buffer, NULL));
-    VK_CALL(vkFreeMemory(device->vk_device, null_resources->vk_storage_buffer_memory, NULL));
-
-    VK_CALL(vkDestroyImage(device->vk_device, null_resources->vk_2d_image, NULL));
-    VK_CALL(vkFreeMemory(device->vk_device, null_resources->vk_2d_image_memory, NULL));
-
-    VK_CALL(vkDestroyImage(device->vk_device, null_resources->vk_2d_storage_image, NULL));
-    VK_CALL(vkFreeMemory(device->vk_device, null_resources->vk_2d_storage_image_memory, NULL));
-
-    memset(null_resources, 0, sizeof(*null_resources));
 }
 
 static uint32_t vkd3d_memory_info_find_global_mask(struct d3d12_device *device)

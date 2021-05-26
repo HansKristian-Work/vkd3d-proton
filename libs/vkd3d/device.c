@@ -2415,7 +2415,6 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     vkd3d_view_map_destroy(&device->sampler_map, device);
     vkd3d_meta_ops_cleanup(&device->meta_ops, device);
     vkd3d_bindless_state_cleanup(&device->bindless_state, device);
-    vkd3d_destroy_null_resources(&device->null_resources, device);
     vkd3d_render_pass_cache_cleanup(&device->render_pass_cache, device);
     d3d12_device_destroy_vkd3d_queues(device);
     vkd3d_memory_allocator_cleanup(&device->memory_allocator, device);
@@ -5037,11 +5036,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if (FAILED(hr = vkd3d_memory_info_init(&device->memory_info, device)))
         goto out_cleanup_format_info;
 
-    if (FAILED(hr = vkd3d_init_null_resources(&device->null_resources, device)))
-        goto out_cleanup_format_info;
-
     if (FAILED(hr = vkd3d_bindless_state_init(&device->bindless_state, device)))
-        goto out_destroy_null_resources;
+        goto out_cleanup_format_info;
 
     if (FAILED(hr = vkd3d_view_map_init(&device->sampler_map)))
         goto out_cleanup_bindless_state;
@@ -5080,8 +5076,6 @@ out_cleanup_view_map:
     vkd3d_view_map_destroy(&device->sampler_map, device);
 out_cleanup_bindless_state:
     vkd3d_bindless_state_cleanup(&device->bindless_state, device);
-out_destroy_null_resources:
-    vkd3d_destroy_null_resources(&device->null_resources, device);
 out_cleanup_format_info:
     vkd3d_cleanup_format_info(device);
 out_free_memory_allocator:
