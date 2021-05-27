@@ -6186,15 +6186,15 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
 
         if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_COMPUTE)
         {
-            TRACE("Binding compute module with hash: %016"PRIx64".\n", state->compute.meta.hash);
+            TRACE("Binding compute module with hash: %016"PRIx64".\n", state->compute.spirv.meta.hash);
         }
         else if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS)
         {
             for (i = 0; i < state->graphics.stage_count; i++)
             {
                 TRACE("Binding graphics module with hash: %016"PRIx64" (replaced: %s).\n",
-                      state->graphics.stage_meta[i].hash,
-                      state->graphics.stage_meta[i].replaced ? "yes" : "no");
+                      state->graphics.stage_spirv[i].meta.hash,
+                      state->graphics.stage_spirv[i].meta.replaced ? "yes" : "no");
             }
         }
     }

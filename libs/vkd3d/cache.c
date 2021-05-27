@@ -35,29 +35,32 @@ static VkResult vkd3d_create_pipeline_cache(struct d3d12_device *device,
     return VK_CALL(vkCreatePipelineCache(device->vk_device, &info, NULL, cache));
 }
 
-#define VKD3D_CACHE_BLOB_VERSION MAKE_MAGIC('V','K','B',1)
+#define VKD3D_CACHE_BLOB_VERSION MAKE_MAGIC('V','K','B',2)
 
-struct vkd3d_pipeline_blob
+#pragma pack(push, 1)
+
+struct d3d12_pipeline_cache_serializer_info
 {
     uint32_t version;
     uint32_t vendor_id;
     uint32_t device_id;
     uint64_t vkd3d_build;
     uint8_t cache_uuid[VK_UUID_SIZE];
-    uint8_t vk_blob[];
 };
 
-HRESULT vkd3d_create_pipeline_cache_from_d3d12_desc(struct d3d12_device *device,
-        const D3D12_CACHED_PIPELINE_STATE *state, VkPipelineCache *cache)
-{
-    const VkPhysicalDeviceProperties *device_properties = &device->device_info.properties2.properties;
-    const struct vkd3d_pipeline_blob *blob = state->pCachedBlob;
-    VkResult vr;
+#pragma pack(pop)
 
+HRESULT d3d12_create_serializer_from_cached_pipeline_state(struct d3d12_device* device,
+    const D3D12_CACHED_PIPELINE_STATE* state, 
+    struct d3d12_pipeline_cache_serializer* serializer)
+{
+    const VkPhysicalDeviceProperties* device_properties = &device->device_info.properties2.properties;
+    const struct d3d12_pipeline_cache_serializer_info* blob = (const struct d3d12_pipeline_cache_serializer_info*)state->pCachedBlob;
+
+    // No cached blob, no problem
     if (!state->CachedBlobSizeInBytes)
     {
-        vr = vkd3d_create_pipeline_cache(device, 0, NULL, cache);
-        return hresult_from_vk_result(vr);
+        return S_OK;
     }
 
     /* Avoid E_INVALIDARG with an invalid header size, since that may confuse some games */
@@ -71,19 +74,55 @@ HRESULT vkd3d_create_pipeline_cache_from_d3d12_desc(struct d3d12_device *device,
     /* Check the vkd3d build since the shader compiler itself may change,
      * and the driver since that will affect the generated pipeline cache */
     if (blob->vkd3d_build != vkd3d_build ||
-            memcmp(blob->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE))
+        memcmp(blob->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE))
         return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
 
-    vr = vkd3d_create_pipeline_cache(device, state->CachedBlobSizeInBytes - sizeof(*blob), blob->vk_blob, cache);
+    /* Made it through the checks, set up the deserializer */
+    serializer->pBegin = (const uint8_t*)state->pCachedBlob;
+    serializer->pEnd = serializer->pBegin + state->CachedBlobSizeInBytes;
+    serializer->pCurrent = serializer->pBegin + sizeof(*blob);
+    return S_OK;
+}
+
+#pragma pack(push, 1)
+
+struct vkd3d_pipeline_cache_info
+{
+    uint32_t bytes;
+    uint8_t blob[];
+};
+
+#pragma pack(pop)
+
+HRESULT vkd3d_create_pipeline_cache_from_d3d12_serializer(struct d3d12_device* device,
+    struct d3d12_pipeline_cache_serializer* serializer, VkPipelineCache* cache)
+{
+    const VkPhysicalDeviceProperties* device_properties = &device->device_info.properties2.properties;
+    const struct vkd3d_pipeline_cache_info* blob = NULL;
+    VkResult vr;
+
+    if (!serializer->pCurrent)
+    {
+        vr = vkd3d_create_pipeline_cache(device, 0, NULL, cache);
+        return hresult_from_vk_result(vr);
+    }
+
+    /* Make sure we have the appropriate amount of data */
+    blob = (const struct vkd3d_pipeline_cache_info*)serializer->pCurrent;
+    if ((serializer->pCurrent + sizeof(*blob) + blob->bytes) > serializer->pEnd)
+        return E_FAIL;
+    serializer->pCurrent += sizeof(*blob) + blob->bytes;
+
+    /* Try to create the vulkan pipeline cache */
+    vr = vkd3d_create_pipeline_cache(device, blob->bytes, blob->blob, cache);
     return hresult_from_vk_result(vr);
 }
 
-VkResult vkd3d_serialize_pipeline_state(const struct d3d12_pipeline_state *state, size_t *size, void *data)
+static HRESULT vkd3d_serialize_vk_pipeline_cache(const struct d3d12_pipeline_state* state, size_t* size, void* data)
 {
-    const VkPhysicalDeviceProperties *device_properties = &state->device->device_info.properties2.properties;
-    const struct vkd3d_vk_device_procs *vk_procs = &state->device->vk_procs;
-    struct vkd3d_pipeline_blob *blob = data;
-    size_t total_size = sizeof(*blob);
+    const VkPhysicalDeviceProperties* device_properties = &state->device->device_info.properties2.properties;
+    const struct vkd3d_vk_device_procs* vk_procs = &state->device->vk_procs;
+    size_t total_size = sizeof(struct vkd3d_pipeline_cache_info);
     size_t vk_blob_size = 0;
     VkResult vr;
 
@@ -92,32 +131,133 @@ VkResult vkd3d_serialize_pipeline_state(const struct d3d12_pipeline_state *state
         if ((vr = VK_CALL(vkGetPipelineCacheData(state->device->vk_device, state->vk_pso_cache, &vk_blob_size, NULL))))
         {
             ERR("Failed to retrieve pipeline cache size, vr %d.\n", vr);
-            return vr;
+            return hresult_from_vk_result(vr);
         }
     }
 
     total_size += vk_blob_size;
 
-    if (blob && *size < total_size)
-        return VK_INCOMPLETE;
-
-    if (blob)
+    if (data)
     {
+        struct vkd3d_pipeline_cache_info* blob = data;
+        blob->bytes = vk_blob_size;
+
+        //if (blob && *size < total_size)
+        //    return E_FAIL;
+
+        if (state->vk_pso_cache)
+        {
+            if ((vr = VK_CALL(vkGetPipelineCacheData(state->device->vk_device, state->vk_pso_cache, &vk_blob_size, blob->blob))))
+                return hresult_from_vk_result(vr);
+        }
+    }
+
+    *size = total_size;
+    return S_OK;
+}
+
+static HRESULT vkd3d_serialize_compute_pipeline_state(const struct d3d12_pipeline_state* state, size_t* size, void* data)
+{
+    uint8_t* data_ptr = (uint8_t*)data;
+    size_t partial_size = 0;
+    size_t total_size = 0;
+    HRESULT hr;
+
+    // Compute state is simple
+    // VkPipelineCache data
+    if ((hr = vkd3d_serialize_vk_pipeline_cache(state, &partial_size, data_ptr)) < 0)
+    {
+        return hr;
+    }
+
+    total_size += partial_size;
+    if(data_ptr)
+        data_ptr += partial_size;
+
+    // Compute shader spirv
+    if ((hr = serialize_shader_stage(&state->compute.spirv, &partial_size, data_ptr)) < 0)
+    {
+        return hr;
+    }
+
+    total_size += partial_size;
+    *size = total_size;
+    return hr;
+}
+
+static HRESULT vkd3d_serialize_graphics_pipeline_state(const struct d3d12_pipeline_state* state, size_t* size, void* data)
+{
+    uint8_t* data_ptr = (uint8_t*)data;
+    size_t partial_size = 0;
+    size_t total_size = 0;
+    size_t i;
+    HRESULT hr;
+
+    // Graphics is a bit more complex
+    // Each shader stage spirv
+    for (i = 0; i < state->graphics.stage_count; ++i)
+    {
+        if ((hr = serialize_shader_stage(&state->graphics.stage_spirv[i], &partial_size, data_ptr)) < 0)
+        {
+            return hr;
+        }
+
+        total_size += partial_size;
+        if (data_ptr)
+            data_ptr += partial_size;
+    }
+
+    // VkPipelineCache data
+    if ((hr = vkd3d_serialize_vk_pipeline_cache(state, &partial_size, data_ptr)) < 0)
+    {
+        return hr;
+    }
+
+    total_size += partial_size;
+    *size = total_size;
+    return hr;
+}
+
+HRESULT vkd3d_serialize_pipeline_state(const struct d3d12_pipeline_state *state, size_t *size, void *data)
+{
+    const VkPhysicalDeviceProperties* device_properties = &state->device->device_info.properties2.properties;
+    uint8_t* data_ptr = (uint8_t*)data;
+    size_t partial_size = sizeof(struct d3d12_pipeline_cache_serializer_info);
+    size_t total_size = 0;
+    HRESULT hr;
+
+    total_size += partial_size;
+
+    if (data_ptr)
+    {
+        struct d3d12_pipeline_cache_serializer_info* blob = (struct d3d12_pipeline_cache_serializer_info*)data_ptr;
         blob->version = VKD3D_CACHE_BLOB_VERSION;
         blob->vendor_id = device_properties->vendorID;
         blob->device_id = device_properties->deviceID;
         blob->vkd3d_build = vkd3d_build;
         memcpy(blob->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE);
 
-        if (state->vk_pso_cache)
-        {
-            if ((vr = VK_CALL(vkGetPipelineCacheData(state->device->vk_device, state->vk_pso_cache, &vk_blob_size, blob->vk_blob))))
-                return vr;
-        }
+        data_ptr += partial_size;
     }
 
+    switch (state->vk_bind_point)
+    {
+    case VK_PIPELINE_BIND_POINT_COMPUTE:
+        hr = vkd3d_serialize_compute_pipeline_state(state, &partial_size, data_ptr);
+        break;
+
+    case VK_PIPELINE_BIND_POINT_GRAPHICS:
+        hr = vkd3d_serialize_graphics_pipeline_state(state, &partial_size, data_ptr);
+        break;
+
+    default:
+        ERR("Invalid pipeline type %u.", state->vk_bind_point);
+        hr = E_INVALIDARG;
+    }
+
+    total_size += partial_size;
     *size = total_size;
-    return VK_SUCCESS;
+    return hr;
 }
 
 struct vkd3d_cached_pipeline_key
@@ -338,6 +478,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_StorePipeline(d3d12_pipe
     struct vkd3d_cached_pipeline_entry entry;
     void *new_name, *new_blob;
     VkResult vr;
+    HRESULT hr;
     int rc;
 
     TRACE("iface %p, name %s, pipeline %p.\n", iface, debugstr_w(name), pipeline);
@@ -368,11 +509,11 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_StorePipeline(d3d12_pipe
     memcpy(new_name, name, entry.key.name_length);
     entry.key.name = new_name;
 
-    if (FAILED(vr = vkd3d_serialize_pipeline_state(pipeline_state, &entry.data.blob_length, NULL)))
+    if (FAILED(hr = vkd3d_serialize_pipeline_state(pipeline_state, &entry.data.blob_length, NULL)))
     {
         vkd3d_free(new_name);
         pthread_mutex_unlock(&pipeline_library->mutex);
-        return hresult_from_vk_result(vr);
+        return hr;
     }
 
     if (!(new_blob = malloc(entry.data.blob_length)))
@@ -382,12 +523,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_StorePipeline(d3d12_pipe
         return E_OUTOFMEMORY;
     }
 
-    if (FAILED(vr = vkd3d_serialize_pipeline_state(pipeline_state, &entry.data.blob_length, new_blob)))
+    if (FAILED(hr = vkd3d_serialize_pipeline_state(pipeline_state, &entry.data.blob_length, new_blob)))
     {
         vkd3d_free(new_name);
         vkd3d_free(new_blob);
         pthread_mutex_unlock(&pipeline_library->mutex);
-        return hresult_from_vk_result(vr);
+        return hr;
     }
 
     entry.data.blob = new_blob;
