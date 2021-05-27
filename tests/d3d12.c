@@ -5602,6 +5602,13 @@ static void test_clear_unordered_access_view_buffer(void)
         {DXGI_FORMAT_R11G11B10_FLOAT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
                 {0x3f000000 /* 1.0f */, 0 /* 0.0f */, 0xbf800000 /* -1.0f */, 0x3f000000 /* 1.0f */},
                 0x00000380, true},
+        {DXGI_FORMAT_R10G10B10A2_UINT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0x1010, 0x1020, 0x1030, 0x41}, (0x30 << 20) | (0x20 << 10) | (0x10 << 0) | (0x1 << 30)},
+        {DXGI_FORMAT_R10G10B10A2_UNORM, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0x1010, 0x1020, 0x1030, 0x41}, (0x30u << 20) | (0x20u << 10) | (0x10u << 0) | (0x1u << 30)},
+        {DXGI_FORMAT_R10G10B10A2_UNORM, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
+                {0x3f000080 /* 0.5000762951f */, 0x3f800000 /* 1.0f */, 0, 0x3f800000 /* 1.0f */},
+                (0x3ffu << 10) | (0x200u << 0) | (0x3u << 30), true},
     };
 
     memset(&desc, 0, sizeof(desc));
