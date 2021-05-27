@@ -1258,7 +1258,7 @@ struct d3d12_graphics_pipeline_state
 {
     struct vkd3d_shader_debug_ring_spec_info spec_info[VKD3D_MAX_SHADER_STAGES];
     VkPipelineShaderStageCreateInfo stages[VKD3D_MAX_SHADER_STAGES];
-    struct vkd3d_shader_meta stage_meta[VKD3D_MAX_SHADER_STAGES];
+    struct vkd3d_shader_code stage_spirv[VKD3D_MAX_SHADER_STAGES];
     size_t stage_count;
 
     VkVertexInputAttributeDescription attributes[D3D12_VS_INPUT_REGISTER_COUNT];
@@ -1310,7 +1310,7 @@ static inline unsigned int dsv_attachment_mask(const struct d3d12_graphics_pipel
 struct d3d12_compute_pipeline_state
 {
     VkPipeline vk_pipeline;
-    struct vkd3d_shader_meta meta;
+    struct vkd3d_shader_code spirv;
 };
 
 /* ID3D12PipelineState */
@@ -1433,9 +1433,21 @@ struct d3d12_pipeline_library
 HRESULT d3d12_pipeline_library_create(struct d3d12_device *device, const void *blob,
         size_t blob_length, struct d3d12_pipeline_library **pipeline_library);
 
-HRESULT vkd3d_create_pipeline_cache_from_d3d12_desc(struct d3d12_device *device,
-        const D3D12_CACHED_PIPELINE_STATE *state, VkPipelineCache *cache);
-VkResult vkd3d_serialize_pipeline_state(const struct d3d12_pipeline_state *state, size_t *size, void *data);
+struct d3d12_pipeline_cache_serializer
+{
+    const uint8_t* pBegin;
+    const uint8_t* pEnd;
+    const uint8_t* pCurrent;
+};
+
+HRESULT d3d12_create_serializer_from_cached_pipeline_state(struct d3d12_device* device,
+    const D3D12_CACHED_PIPELINE_STATE* state,
+    struct d3d12_pipeline_cache_serializer* serializer);
+HRESULT vkd3d_create_pipeline_cache_from_d3d12_serializer(struct d3d12_device * device,
+    struct d3d12_pipeline_cache_serializer* serializer, VkPipelineCache* cache);
+HRESULT vkd3d_serialize_pipeline_state(const struct d3d12_pipeline_state* state, size_t* size, void* data);
+
+HRESULT serialize_shader_stage(struct vkd3d_shader_code* spirv, size_t* size, void* data);
 
 struct vkd3d_buffer
 {

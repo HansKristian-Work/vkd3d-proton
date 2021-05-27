@@ -1877,6 +1877,17 @@ static void d3d12_pipeline_state_destroy_graphics(struct d3d12_pipeline_state *s
         VK_CALL(vkDestroyPipeline(device->vk_device, graphics->pipeline[i], NULL));
 }
 
+static void d3d12_pipeline_state_destroy_compute(struct d3d12_pipeline_state* state,
+    struct d3d12_device* device)
+{
+    struct d3d12_compute_pipeline_state* compute = &state->compute;
+    const struct vkd3d_vk_device_procs* vk_procs = &device->vk_procs;
+
+    VK_CALL(vkDestroyPipeline(device->vk_device, compute->vk_pipeline, NULL));
+
+    vkd3d_shader_free_shader_code(&compute->spirv);
+}
+
 static void d3d12_pipeline_state_set_name(struct d3d12_pipeline_state *state, const char *name)
 {
     if (d3d12_pipeline_state_is_compute(state))
@@ -1903,7 +1914,7 @@ static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_Release(ID3D12PipelineState 
         if (d3d12_pipeline_state_is_graphics(state))
             d3d12_pipeline_state_destroy_graphics(state, device);
         else if (d3d12_pipeline_state_is_compute(state))
-            VK_CALL(vkDestroyPipeline(device->vk_device, state->compute.vk_pipeline, NULL));
+            d3d12_pipeline_state_destroy_compute(state, device);
 
         VK_CALL(vkDestroyPipelineCache(device->vk_device, state->vk_pso_cache, NULL));
 
@@ -1972,16 +1983,16 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_GetCachedBlob(ID3D12Pipeli
 
     TRACE("iface %p, blob %p.\n", iface, blob);
 
-    if ((vr = vkd3d_serialize_pipeline_state(state, &cache_size, NULL)))
-        return hresult_from_vk_result(vr);
+    if ((hr = vkd3d_serialize_pipeline_state(state, &cache_size, NULL)))
+        return hr;
 
     if (!(cache_data = malloc(cache_size)))
         return E_OUTOFMEMORY;
 
-    if ((vr = vkd3d_serialize_pipeline_state(state, &cache_size, cache_data)))
+    if ((hr = vkd3d_serialize_pipeline_state(state, &cache_size, cache_data)))
     {
         vkd3d_free(cache_data);
-        return hresult_from_vk_result(vr);
+        return hr;
     }
 
     if (FAILED(hr = d3d_blob_create(cache_data, cache_size, &blob_object)))
@@ -2020,15 +2031,49 @@ struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12Pipeline
     return impl_from_ID3D12PipelineState(iface);
 }
 
-static HRESULT create_shader_stage(struct d3d12_device *device,
+#pragma pack(push, 1)
+
+struct vkd3d_shader_stage_cache_info
+{
+    struct vkd3d_shader_meta spirv_meta;
+    uint32_t spirv_size;
+    uint8_t spirv[];
+};
+
+#pragma pack(pop)
+
+HRESULT serialize_shader_stage(struct vkd3d_shader_code* spirv, size_t* size, void* data)
+{
+    struct vkd3d_shader_stage_cache_info* data_ptr = (struct vkd3d_shader_stage_cache_info*)data;
+    size_t partial_size = sizeof(*data_ptr);
+    size_t total_size = 0;
+    size_t i;
+
+    partial_size += spirv->size;
+    total_size += partial_size;
+
+    if (data_ptr)
+    {
+        //if (*size < total_size)
+        //    return E_FAIL;
+
+        data_ptr->spirv_meta = spirv->meta;
+        data_ptr->spirv_size = spirv->size;
+        memcpy(&data_ptr->spirv[0], spirv->code, spirv->size);
+    }
+
+    *size = total_size;
+    return S_OK;
+}
+
+static HRESULT create_shader_stage(struct d3d12_device * device, struct d3d12_pipeline_cache_serializer* serializer,
         struct VkPipelineShaderStageCreateInfo *stage_desc, VkShaderStageFlagBits stage,
         const D3D12_SHADER_BYTECODE *code, const struct vkd3d_shader_interface_info *shader_interface,
-        const struct vkd3d_shader_compile_arguments *compile_args, struct vkd3d_shader_meta *meta)
+        const struct vkd3d_shader_compile_arguments *compile_args, struct vkd3d_shader_code* spirv)
 {
     struct vkd3d_shader_code dxbc = {code->pShaderBytecode, code->BytecodeLength};
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct VkShaderModuleCreateInfo shader_desc;
-    struct vkd3d_shader_code spirv = {0};
     char hash_str[16 + 1];
     VkResult vr;
     int ret;
@@ -2044,19 +2089,42 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     shader_desc.pNext = NULL;
     shader_desc.flags = 0;
 
-    TRACE("Calling vkd3d_shader_compile_dxbc.\n");
-    if ((ret = vkd3d_shader_compile_dxbc(&dxbc, &spirv, 0, shader_interface, compile_args)) < 0)
+    /* Are we deserializing? */
+    if (serializer->pCurrent)
     {
-        WARN("Failed to compile shader, vkd3d result %d.\n", ret);
-        return hresult_from_vkd3d_result(ret);
+        struct vkd3d_shader_stage_cache_info* cache_info;
+        vkd3d_shader_hash_t dxbc_hash;
+
+        /* Make sure we have enough data in the cache */
+        cache_info = (struct vkd3d_shader_stage_cache_info*)serializer->pCurrent;
+        if ((serializer->pCurrent + sizeof(*cache_info) + cache_info->spirv_size) > serializer->pEnd)
+            return E_FAIL;
+        serializer->pCurrent += sizeof(*cache_info) + cache_info->spirv_size;
+
+        /* Calculate the hash of the dxbc */
+        dxbc_hash = vkd3d_shader_hash(&dxbc);
+        if (dxbc_hash != cache_info->spirv_meta.hash)
+            return E_FAIL;
+
+        spirv->size = cache_info->spirv_size;
+        spirv->code = cache_info->spirv;
+        spirv->meta = cache_info->spirv_meta;
     }
-    TRACE("Called vkd3d_shader_compile_dxbc.\n");
-    shader_desc.codeSize = spirv.size;
-    shader_desc.pCode = spirv.code;
-    *meta = spirv.meta;
+    else
+    {
+        TRACE("Calling vkd3d_shader_compile_dxbc.\n");
+        if ((ret = vkd3d_shader_compile_dxbc(&dxbc, spirv, 0, shader_interface, compile_args)) < 0)
+        {
+            WARN("Failed to compile shader, vkd3d result %d.\n", ret);
+            return hresult_from_vkd3d_result(ret);
+        }
+        TRACE("Called vkd3d_shader_compile_dxbc.\n");
+    }
+
+    shader_desc.codeSize = spirv->size;
+    shader_desc.pCode = spirv->code;
 
     vr = VK_CALL(vkCreateShaderModule(device->vk_device, &shader_desc, NULL, &stage_desc->module));
-    vkd3d_shader_free_shader_code(&spirv);
     if (vr < 0)
     {
         WARN("Failed to create Vulkan shader module, vr %d.\n", vr);
@@ -2064,16 +2132,16 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     }
 
     /* Helpful for tooling like RenderDoc. */
-    sprintf(hash_str, "%016"PRIx64, spirv.meta.hash);
+    sprintf(hash_str, "%016"PRIx64, spirv->meta.hash);
     vkd3d_set_vk_object_name(device, (uint64_t)stage_desc->module, VK_OBJECT_TYPE_SHADER_MODULE, hash_str);
 
     return S_OK;
 }
 
-static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
+static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device, struct d3d12_pipeline_cache_serializer* serializer,
         const D3D12_SHADER_BYTECODE *code, const struct vkd3d_shader_interface_info *shader_interface,
         VkPipelineLayout vk_pipeline_layout, VkPipelineCache vk_cache, VkPipeline *vk_pipeline,
-        struct vkd3d_shader_meta *meta)
+        struct vkd3d_shader_code *spirv)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_shader_debug_ring_spec_info spec_info;
@@ -2091,16 +2159,16 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
     pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     pipeline_info.pNext = NULL;
     pipeline_info.flags = 0;
-    if (FAILED(hr = create_shader_stage(device, &pipeline_info.stage,
-            VK_SHADER_STAGE_COMPUTE_BIT, code, shader_interface, &compile_args, meta)))
+    if (FAILED(hr = create_shader_stage(device, serializer, &pipeline_info.stage,
+            VK_SHADER_STAGE_COMPUTE_BIT, code, shader_interface, &compile_args, spirv)))
         return hr;
     pipeline_info.layout = vk_pipeline_layout;
     pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_info.basePipelineIndex = -1;
 
-    if (meta->replaced && device->debug_ring.active)
+    if (spirv->meta.replaced && device->debug_ring.active)
     {
-        vkd3d_shader_debug_ring_init_spec_constant(device, &spec_info, meta->hash);
+        vkd3d_shader_debug_ring_init_spec_constant(device, &spec_info, spirv->meta.hash);
         pipeline_info.stage.pSpecializationInfo = &spec_info.spec_info;
     }
 
@@ -2119,7 +2187,8 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
 }
 
 static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *state,
-        struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc)
+        struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc,
+        struct d3d12_pipeline_cache_serializer* serializer)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_shader_interface_info shader_interface;
@@ -2147,15 +2216,15 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     shader_interface.stage = VK_SHADER_STAGE_COMPUTE_BIT;
     shader_interface.xfb_info = NULL;
 
-    if ((hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, &desc->cached_pso, &state->vk_pso_cache)) < 0)
+    if ((hr = vkd3d_create_pipeline_cache_from_d3d12_serializer(device, serializer, &state->vk_pso_cache)) < 0)
     {
         ERR("Failed to create pipeline cache, hr %d.\n", hr);
         return hr;
     }
 
-    hr = vkd3d_create_compute_pipeline(device, &desc->cs, &shader_interface,
+    hr = vkd3d_create_compute_pipeline(device, serializer, &desc->cs, &shader_interface,
             root_signature->compute.vk_pipeline_layout, state->vk_pso_cache, &state->compute.vk_pipeline,
-            &state->compute.meta);
+            &state->compute.spirv);
 
     if (FAILED(hr))
     {
@@ -2761,7 +2830,8 @@ static bool d3d12_is_valid_pipeline_variant(struct d3d12_device *device, uint32_
 }
 
 static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *state,
-        struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc)
+        struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc,
+        struct d3d12_pipeline_cache_serializer* serializer)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
     bool have_attachment, is_dsv_format_unknown, supports_extended_dynamic_state;
@@ -3071,17 +3141,17 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
         shader_interface.xfb_info = shader_stages[i].stage == xfb_stage ? &xfb_info : NULL;
         shader_interface.stage = shader_stages[i].stage;
-        if (FAILED(hr = create_shader_stage(device, &graphics->stages[graphics->stage_count],
+        if (FAILED(hr = create_shader_stage(device, serializer, &graphics->stages[graphics->stage_count],
                 shader_stages[i].stage, b, &shader_interface,
                 shader_stages[i].stage == VK_SHADER_STAGE_FRAGMENT_BIT ? &ps_compile_args : &compile_args,
-                &graphics->stage_meta[graphics->stage_count])))
+                &graphics->stage_spirv[graphics->stage_count])))
             goto fail;
 
-        if (graphics->stage_meta[graphics->stage_count].replaced && device->debug_ring.active)
+        if (graphics->stage_spirv[graphics->stage_count].meta.replaced && device->debug_ring.active)
         {
             vkd3d_shader_debug_ring_init_spec_constant(device,
                     &graphics->spec_info[graphics->stage_count],
-                    graphics->stage_meta[graphics->stage_count].hash);
+                    graphics->stage_spirv[graphics->stage_count].meta.hash);
             graphics->stages[graphics->stage_count].pSpecializationInfo = &graphics->spec_info[graphics->stage_count].spec_info;
         }
 
@@ -3298,10 +3368,10 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     {
         /* If we have EXT_extended_dynamic_state, we can compile a pipeline right here.
          * There are still some edge cases where we need to fall back to special pipelines, but that should be very rare. */
-        if ((hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, &desc->cached_pso, &state->vk_pso_cache)) < 0)
+        if ((hr = vkd3d_create_pipeline_cache_from_d3d12_serializer(device, serializer, &state->vk_pso_cache)) < 0)
         {
             ERR("Failed to create pipeline cache, hr %d.\n", hr);
-            goto fail;
+            return hr;
         }
 
         for (i = 0; i < VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_COUNT; i++)
@@ -3351,11 +3421,11 @@ bool d3d12_pipeline_state_has_replaced_shaders(struct d3d12_pipeline_state *stat
 {
     unsigned int i;
     if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_COMPUTE)
-        return state->compute.meta.replaced;
+        return state->compute.spirv.meta.replaced;
     else if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS)
     {
         for (i = 0; i < state->graphics.stage_count; i++)
-            if (state->graphics.stage_meta[i].replaced)
+            if (state->graphics.stage_spirv[i].meta.replaced)
                 return true;
         return false;
     }
@@ -3381,6 +3451,7 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct d3d12_pipeline_state *object;
+    struct d3d12_pipeline_cache_serializer serializer = { 0 };
     HRESULT hr;
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
@@ -3399,14 +3470,23 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
         }
     }
 
+    if ((hr = d3d12_create_serializer_from_cached_pipeline_state(device, &desc->cached_pso, &serializer)) < 0)
+    {
+        ERR("Failed to create pipeline cache serializer, hr %d.\n", hr);
+        if (object->private_root_signature)
+            ID3D12RootSignature_Release(object->private_root_signature);
+        vkd3d_free(object);
+        return hr;
+    }
+
     switch (bind_point)
     {
         case VK_PIPELINE_BIND_POINT_COMPUTE:
-            hr = d3d12_pipeline_state_init_compute(object, device, desc);
+            hr = d3d12_pipeline_state_init_compute(object, device, desc, &serializer);
             break;
 
         case VK_PIPELINE_BIND_POINT_GRAPHICS:
-            hr = d3d12_pipeline_state_init_graphics(object, device, desc);
+            hr = d3d12_pipeline_state_init_graphics(object, device, desc, &serializer);
             break;
 
         default:
