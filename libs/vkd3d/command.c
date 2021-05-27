@@ -7429,6 +7429,38 @@ static void vkd3d_clear_uav_info_from_desc(struct vkd3d_clear_uav_info *args, co
     }
 }
 
+static void vkd3d_mask_uint_clear_color(uint32_t color[4], VkFormat vk_format)
+{
+    unsigned int i;
+
+    /* Need to mask the clear value, since apparently driver can saturate the clear value instead. */
+    switch (vk_format)
+    {
+        case VK_FORMAT_R8_UINT:
+        case VK_FORMAT_R8G8_UINT:
+        case VK_FORMAT_R8G8B8A8_UINT:
+            for (i = 0; i < 4; i++)
+                color[i] &= 0xffu;
+            break;
+
+        case VK_FORMAT_R16_UINT:
+        case VK_FORMAT_R16G16_UINT:
+        case VK_FORMAT_R16G16B16A16_UINT:
+            for (i = 0; i < 4; i++)
+                color[i] &= 0xffffu;
+            break;
+
+        case VK_FORMAT_A2B10G10R10_UINT_PACK32:
+            for (i = 0; i < 3; i++)
+                color[i] &= 0x3ff;
+            color[3] &= 0x3;
+            break;
+
+        default:
+            break;
+    }
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3d12_command_list_iface *iface,
         D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle, D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, ID3D12Resource *resource,
         const UINT values[4], UINT rect_count, const D3D12_RECT *rects)
@@ -7460,6 +7492,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
             ERR("Unhandled format %d.\n", base_view->format->dxgi_format);
             return;
         }
+
+        vkd3d_mask_uint_clear_color(color.uint32, uint_format->vk_format);
 
         if (d3d12_resource_is_texture(resource_impl))
         {
@@ -7497,6 +7531,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
                 return;
             }
         }
+    }
+    else if (args.has_view)
+    {
+        vkd3d_mask_uint_clear_color(color.uint32, desc->info.view->format->vk_format);
     }
 
     d3d12_command_list_clear_uav(list, desc, resource_impl, &args, &color, rect_count, rects);
