@@ -8796,6 +8796,17 @@ static uint32_t vkd3d_dxbc_compiler_get_resource_index(struct vkd3d_dxbc_compile
     return index_id;
 }
 
+static bool vkd3d_dxbc_compiler_resource_is_bindless(struct vkd3d_dxbc_compiler *compiler,
+        const struct vkd3d_shader_register *reg)
+{
+    const struct vkd3d_shader_resource_binding *binding;
+    const struct vkd3d_symbol *symbol;
+
+    symbol = vkd3d_dxbc_compiler_find_resource(compiler, reg);
+    binding = symbol->info.resource.resource_binding;
+    return binding && !!(binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS);
+}
+
 static uint32_t vkd3d_dxbc_compiler_get_resource_pointer(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg)
 {
@@ -9330,6 +9341,8 @@ static uint32_t vkd3d_dxbc_compiler_adjust_ssbo_offset(struct vkd3d_dxbc_compile
 
     if (!(compiler->shader_interface.flags & VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER))
         return coordinate_id;
+    if (!vkd3d_dxbc_compiler_resource_is_bindless(compiler, reg))
+        return coordinate_id;
 
     symbol = vkd3d_dxbc_compiler_find_resource(compiler, reg);
 
@@ -9378,6 +9391,8 @@ static uint32_t vkd3d_dxbc_compiler_adjust_typed_buffer_offset(struct vkd3d_dxbc
     const struct vkd3d_symbol *symbol;
 
     if (!(compiler->shader_interface.flags & VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER))
+        return coordinate_id;
+    if (!vkd3d_dxbc_compiler_resource_is_bindless(compiler, reg))
         return coordinate_id;
 
     symbol = vkd3d_dxbc_compiler_find_resource(compiler, reg);
