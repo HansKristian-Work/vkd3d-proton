@@ -5523,7 +5523,6 @@ static void test_clear_unordered_access_view_buffer(void)
         unsigned int values[4];
         unsigned int expected;
         bool is_float;
-        bool is_todo;
     }
     tests[] =
     {
@@ -5571,7 +5570,7 @@ static void test_clear_unordered_access_view_buffer(void)
         {DXGI_FORMAT_R16G16_UINT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
                 {0x1234, 0xabcd, 0, 0}, 0xabcd1234},
         {DXGI_FORMAT_R16G16_UINT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
-                {0x10000, 0, 0, 0}, 0, false, true},
+                {0x10000, 0, 0, 0}, 0},
 
         {DXGI_FORMAT_R16G16_UNORM, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
                 {0x1234, 0xabcd, 0, 0}, 0xabcd1234},
@@ -5590,7 +5589,7 @@ static void test_clear_unordered_access_view_buffer(void)
         {DXGI_FORMAT_R8G8B8A8_UINT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
                 {0x11, 0x22, 0x33, 0x44}, 0x44332211},
         {DXGI_FORMAT_R8G8B8A8_UINT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
-                {0x100, 0, 0, 0}, 0, false, true},
+                {0x100, 0, 0, 0}, 0},
 
         {DXGI_FORMAT_R11G11B10_FLOAT, { 0, BUFFER_SIZE / sizeof(uint32_t), 0, 0, D3D12_BUFFER_UAV_FLAG_NONE},
                 {0, 0, 0, 0}, 0},
@@ -5678,7 +5677,6 @@ static void test_clear_unordered_access_view_buffer(void)
         check_readback_data_uint(&rb, &box, clear_value[0], 0);
         box.left = uav_desc.Buffer.FirstElement;
         box.right = uav_desc.Buffer.FirstElement + uav_desc.Buffer.NumElements;
-        todo_if(tests[i].is_todo)
         check_readback_data_uint(&rb, &box, tests[i].expected, tests[i].is_float ? 1 : 0);
         box.left = uav_desc.Buffer.FirstElement + uav_desc.Buffer.NumElements;
         box.right = BUFFER_SIZE / format_size(uav_desc.Format);
@@ -5732,7 +5730,6 @@ static void test_clear_unordered_access_view_image(void)
         unsigned int values[4];
         unsigned int expected;
         bool is_float;
-        bool is_todo;
     }
     tests[] =
     {
@@ -5760,11 +5757,11 @@ static void test_clear_unordered_access_view_image(void)
                 {0x3f000000, 0, 0, 0}, 0x3f000000, true},
         /* Test uint clears with formats. */
         {DXGI_FORMAT_R16G16_UINT,     1, 1, 0, 0, 1, 0, {{0}}, {1,       2, 3, 4}, 0x00020001},
-        {DXGI_FORMAT_R16G16_UINT,     1, 1, 0, 0, 1, 0, {{0}}, {0x12345, 0, 0, 0}, 0x00002345, false, true},
+        {DXGI_FORMAT_R16G16_UINT,     1, 1, 0, 0, 1, 0, {{0}}, {0x12345, 0, 0, 0}, 0x00002345},
         {DXGI_FORMAT_R16G16_UNORM,    1, 1, 0, 0, 1, 0, {{0}}, {1,       2, 3, 4}, 0x00020001},
         {DXGI_FORMAT_R16G16_FLOAT,    1, 1, 0, 0, 1, 0, {{0}}, {1,       2, 3, 4}, 0x00020001},
         {DXGI_FORMAT_R8G8B8A8_UINT,   1, 1, 0, 0, 1, 0, {{0}}, {1,       2, 3, 4}, 0x04030201},
-        {DXGI_FORMAT_R8G8B8A8_UINT,   1, 1, 0, 0, 1, 0, {{0}}, {0x123,   0, 0, 0}, 0x00000023, false, true},
+        {DXGI_FORMAT_R8G8B8A8_UINT,   1, 1, 0, 0, 1, 0, {{0}}, {0x123,   0, 0, 0}, 0x00000023},
         {DXGI_FORMAT_R8G8B8A8_UNORM,  1, 1, 0, 0, 1, 0, {{0}}, {1,       2, 3, 4}, 0x04030201},
         {DXGI_FORMAT_R11G11B10_FLOAT, 1, 1, 0, 0, 1, 0, {{0}}, {1,       2, 3, 4}, 0x00c01001},
         /* Test float clears with formats. */
@@ -5953,7 +5950,6 @@ static void test_clear_unordered_access_view_image(void)
                     actual_colour = get_readback_uint(&rb, x, y, z);
                     success = compare_color(actual_colour, expected_colour, tests[i].is_float ? 1 : 0);
 
-                    todo_if(tests[i].is_todo && expected_colour)
                     ok(success, "At layer %u, (%u,%u,%u), expected %#x, got %#x.\n",
                             layer, x, y, z, expected_colour, actual_colour);
 
