@@ -50856,6 +50856,313 @@ static void test_mismatching_pso_stages(void)
     destroy_test_context(&context);
 }
 
+static void test_null_descriptor_mismatch_type(void)
+{
+    /* A very cursed test. This is invalid in D3D12, but some games rely on this (or at least a subset) working ._. */
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_DESCRIPTOR_RANGE descriptor_ranges[9];
+    ID3D12DescriptorHeap *gpu_heap, *cpu_heap;
+    D3D12_ROOT_PARAMETER root_parameters[2];
+
+    ID3D12Resource *texture;
+    ID3D12Resource *buffer;
+
+    ID3D12Resource *output_buffer;
+    struct resource_readback rb;
+
+    ID3D12GraphicsCommandList *command_list;
+    unsigned int i, descriptor_size;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    HRESULT hr;
+
+#if 0
+    struct C { uint v; };
+    ConstantBuffer<C> CBuf[]: register(b0, space0);
+
+    Texture2D<uint> ROTex2D[] : register(t0, space0);
+    Buffer<uint> ROTyped[] : register(t0, space1);
+    StructuredBuffer<uint> RORaw[] : register(t0, space2);
+
+    RWTexture2D<uint> RWTex2D[] : register(u0, space0);
+    RWBuffer<uint> RWTyped[] : register(u0, space1);
+    RWStructuredBuffer<uint> RWRaw[] : register(u0, space2);
+
+    RWStructuredBuffer<uint> RWOut : register(u0, space3);
+
+    [numthreads(1, 1, 1)]
+    void main(uint thr : SV_DispatchThreadID)
+    {
+        uint res = thr;
+        res += RORaw[thr][0] != 0 ? 1000 : 0;
+        res += RWRaw[thr][0] != 0 ? 10000 : 0;
+        res += ROTyped[thr][0] != 0 ? 100000 : 0;
+        res += RWTyped[thr][0] != 0 ? 1000000 : 0;
+        res += ROTex2D[thr].Load(int3(thr, 0, 0)) != 0 ? 10000000 : 0;
+        res += RWTex2D[thr].Load(int2(thr, 0)) != 0 ? 100000000 : 0;
+        res += CBuf[thr].v != 0 ? 1000000000 : 0;
+        RWOut[thr] = res;
+    }
+#endif
+    static const DWORD cs_code[] =
+    {
+        0x43425844, 0xb4b5af4f, 0xf2d1b7d9, 0xbd7f2ac5, 0x1ea4ad33, 0x00000001, 0x00000490, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x0000043c, 0x00050051, 0x0000010f, 0x0100086a,
+        0x07000859, 0x00308e46, 0x00000000, 0x00000000, 0xffffffff, 0x00000001, 0x00000000, 0x07001858,
+        0x00307e46, 0x00000000, 0x00000000, 0xffffffff, 0x00004444, 0x00000000, 0x07000858, 0x00307e46,
+        0x00000001, 0x00000000, 0xffffffff, 0x00004444, 0x00000001, 0x070000a2, 0x00307e46, 0x00000002,
+        0x00000000, 0xffffffff, 0x00000004, 0x00000002, 0x0700189c, 0x0031ee46, 0x00000000, 0x00000000,
+        0xffffffff, 0x00004444, 0x00000000, 0x0700089c, 0x0031ee46, 0x00000001, 0x00000000, 0xffffffff,
+        0x00004444, 0x00000001, 0x0700009e, 0x0031ee46, 0x00000002, 0x00000000, 0xffffffff, 0x00000004,
+        0x00000002, 0x0700009e, 0x0031ee46, 0x00000003, 0x00000000, 0x00000000, 0x00000004, 0x00000003,
+        0x0200005f, 0x00020012, 0x02000068, 0x00000002, 0x0400009b, 0x00000001, 0x00000001, 0x00000001,
+        0x04000036, 0x00100012, 0x00000000, 0x0002000a, 0x0b0000a7, 0x00100022, 0x00000000, 0x00004001,
+        0x00000000, 0x00004001, 0x00000000, 0x04207006, 0x00000002, 0x0010000a, 0x00000000, 0x09000037,
+        0x00100022, 0x00000000, 0x0010001a, 0x00000000, 0x00004001, 0x000003e8, 0x00004001, 0x00000000,
+        0x0600001e, 0x00100022, 0x00000000, 0x0010001a, 0x00000000, 0x0002000a, 0x0b0000a7, 0x00100042,
+        0x00000000, 0x00004001, 0x00000000, 0x00004001, 0x00000000, 0x0421e006, 0x00000002, 0x0010000a,
+        0x00000000, 0x09000037, 0x00100042, 0x00000000, 0x0010002a, 0x00000000, 0x00004001, 0x00002710,
+        0x00004001, 0x00000000, 0x0700001e, 0x00100022, 0x00000000, 0x0010002a, 0x00000000, 0x0010001a,
+        0x00000000, 0x0c00002d, 0x00100042, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000,
+        0x00000000, 0x04207c96, 0x00000001, 0x0010000a, 0x00000000, 0x09000037, 0x00100042, 0x00000000,
+        0x0010002a, 0x00000000, 0x00004001, 0x000186a0, 0x00004001, 0x00000000, 0x0700001e, 0x00100022,
+        0x00000000, 0x0010002a, 0x00000000, 0x0010001a, 0x00000000, 0x0c0000a3, 0x00100042, 0x00000000,
+        0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0421ec96, 0x00000001, 0x0010000a,
+        0x00000000, 0x09000037, 0x00100042, 0x00000000, 0x0010002a, 0x00000000, 0x00004001, 0x000f4240,
+        0x00004001, 0x00000000, 0x0700001e, 0x00100022, 0x00000000, 0x0010002a, 0x00000000, 0x0010001a,
+        0x00000000, 0x04000036, 0x00100012, 0x00000001, 0x0002000a, 0x08000036, 0x001000e2, 0x00000001,
+        0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0900002d, 0x00100042, 0x00000000,
+        0x00100fc6, 0x00000001, 0x04207c96, 0x00000000, 0x0010000a, 0x00000000, 0x09000037, 0x00100042,
+        0x00000000, 0x0010002a, 0x00000000, 0x00004001, 0x00989680, 0x00004001, 0x00000000, 0x0700001e,
+        0x00100022, 0x00000000, 0x0010002a, 0x00000000, 0x0010001a, 0x00000000, 0x090000a3, 0x00100042,
+        0x00000000, 0x00100e46, 0x00000001, 0x0421ec96, 0x00000000, 0x0010000a, 0x00000000, 0x09000037,
+        0x00100042, 0x00000000, 0x0010002a, 0x00000000, 0x00004001, 0x05f5e100, 0x00004001, 0x00000000,
+        0x0700001e, 0x00100022, 0x00000000, 0x0010002a, 0x00000000, 0x0010001a, 0x00000000, 0x0c000037,
+        0x00100012, 0x00000000, 0x0430800a, 0x00000000, 0x0010000a, 0x00000000, 0x00000000, 0x00004001,
+        0x3b9aca00, 0x00004001, 0x00000000, 0x0700001e, 0x00100012, 0x00000000, 0x0010000a, 0x00000000,
+        0x0010001a, 0x00000000, 0x090000a8, 0x0021e012, 0x00000003, 0x00000000, 0x0002000a, 0x00004001,
+        0x00000000, 0x0010000a, 0x00000000, 0x0100003e,
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    command_list = context.list;
+    queue = context.queue;
+
+    root_signature_desc.NumParameters = ARRAY_SIZE(root_parameters);
+    root_signature_desc.Flags = 0;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.pParameters = root_parameters;
+
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[0].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(descriptor_ranges);
+    root_parameters[0].DescriptorTable.pDescriptorRanges = &descriptor_ranges[0];
+
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[1].Descriptor.RegisterSpace = 3;
+    root_parameters[1].Descriptor.ShaderRegister = 0;
+
+    /* Need two idential ranges so we can alias two different resource dimensions over same table. */
+    for (i = 0; i < ARRAY_SIZE(descriptor_ranges); i++)
+    {
+        descriptor_ranges[i].RegisterSpace = i % 3;
+        descriptor_ranges[i].BaseShaderRegister = 0;
+        descriptor_ranges[i].OffsetInDescriptorsFromTableStart = 512 * (i / 3);
+        descriptor_ranges[i].NumDescriptors = 512;
+    }
+
+    for (i = 0; i < 3; i++)
+    {
+        descriptor_ranges[i + 0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        descriptor_ranges[i + 3].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        descriptor_ranges[i + 6].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+    }
+
+    hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    {
+        const UINT buffer_data[] = { 1, 1, 1, 1 };
+        buffer = create_default_buffer(context.device, 256, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+        upload_buffer_data(buffer, 0, sizeof(buffer_data), buffer_data, queue, command_list);
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, buffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    }
+
+    {
+        const UINT tex_data = 1;
+        D3D12_SUBRESOURCE_DATA sub;
+        sub.pData = &tex_data;
+        sub.RowPitch = 1;
+        sub.SlicePitch = 1;
+        texture = create_default_texture2d(context.device, 1, 1, 1, 1, DXGI_FORMAT_R32_UINT, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+        upload_texture_data(texture, &sub, 1, queue, command_list);
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, texture, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    }
+    output_buffer = create_default_buffer(context.device, 4 * 512, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, shader_bytecode(cs_code, sizeof(cs_code)));
+
+    gpu_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 512 * 3);
+    cpu_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 7);
+    descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    /* Stamp out valid descriptors across the heap. */
+    for (i = 0; i < 512; i++)
+    {
+        D3D12_SHADER_RESOURCE_VIEW_DESC view;
+        D3D12_CPU_DESCRIPTOR_HANDLE h;
+
+        h = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(gpu_heap);
+        h.ptr += (0 + i) * descriptor_size;
+        view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        view.Format = DXGI_FORMAT_R32_UINT;
+        view.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        view.Texture2D.MipLevels = 1;
+        view.Texture2D.MostDetailedMip = 0;
+        view.Texture2D.PlaneSlice = 0;
+        view.Texture2D.ResourceMinLODClamp = 0;
+        ID3D12Device_CreateShaderResourceView(context.device, texture, &view, h);
+    }
+
+    for (i = 0; i < 512; i++)
+    {
+        D3D12_UNORDERED_ACCESS_VIEW_DESC view;
+        D3D12_CPU_DESCRIPTOR_HANDLE h;
+
+        h = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(gpu_heap);
+        h.ptr += (512 + i) * descriptor_size;
+        view.Format = DXGI_FORMAT_R32_UINT;
+        view.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        view.Texture2D.PlaneSlice = 0;
+        view.Texture2D.MipSlice = 0;
+        ID3D12Device_CreateUnorderedAccessView(context.device, texture, NULL, &view, h);
+    }
+
+    for (i = 0; i < 512; i++)
+    {
+        D3D12_CONSTANT_BUFFER_VIEW_DESC view;
+        D3D12_CPU_DESCRIPTOR_HANDLE h;
+
+        h = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(gpu_heap);
+        h.ptr += (1024 + i) * descriptor_size;
+        view.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(buffer);
+        view.SizeInBytes = 256;
+        ID3D12Device_CreateConstantBufferView(context.device, &view, h);
+    }
+
+    /* Create 7 template NULL descriptors which cover every possible descriptor type.
+     * Allows us to test splat NULL descriptor copy. */
+    {
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav_tex, uav_typed, uav_raw;
+        D3D12_SHADER_RESOURCE_VIEW_DESC srv_tex, srv_typed, srv_raw;
+        D3D12_CPU_DESCRIPTOR_HANDLE gpu_h, cpu_h;
+        D3D12_CONSTANT_BUFFER_VIEW_DESC cbv;
+
+        cpu_h = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_heap);
+        gpu_h = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(gpu_heap);
+
+        cbv.BufferLocation = 0;
+        cbv.SizeInBytes = 0;
+        ID3D12Device_CreateConstantBufferView(context.device, &cbv, cpu_h);
+        ID3D12Device_CreateConstantBufferView(context.device, &cbv, gpu_h);
+        cpu_h.ptr += descriptor_size;
+        gpu_h.ptr += descriptor_size;
+
+        memset(&srv_tex, 0, sizeof(srv_tex));
+        srv_tex.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv_tex.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srv_tex.Format = DXGI_FORMAT_R32_UINT;
+        srv_typed = srv_tex;
+        srv_typed.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        srv_raw = srv_typed;
+        srv_raw.Format = DXGI_FORMAT_R32_TYPELESS;
+        srv_raw.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+
+        /* SRV tex null descriptor is misinterpreted on AMD Windows native when read as a buffer. */
+        ID3D12Device_CreateShaderResourceView(context.device, NULL, &srv_typed /*&srv_tex*/, cpu_h);
+        ID3D12Device_CreateShaderResourceView(context.device, NULL, &srv_typed /*&srv_tex*/, gpu_h);
+        cpu_h.ptr += descriptor_size;
+        gpu_h.ptr += descriptor_size;
+        ID3D12Device_CreateShaderResourceView(context.device, NULL, &srv_typed, cpu_h);
+        ID3D12Device_CreateShaderResourceView(context.device, NULL, &srv_typed, gpu_h);
+        cpu_h.ptr += descriptor_size;
+        gpu_h.ptr += descriptor_size;
+        ID3D12Device_CreateShaderResourceView(context.device, NULL, &srv_raw, cpu_h);
+        ID3D12Device_CreateShaderResourceView(context.device, NULL, &srv_raw, gpu_h);
+        cpu_h.ptr += descriptor_size;
+        gpu_h.ptr += descriptor_size;
+
+        memset(&uav_tex, 0, sizeof(uav_tex));
+        uav_tex.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        uav_tex.Format = DXGI_FORMAT_R32_UINT;
+        uav_typed = uav_tex;
+        uav_typed.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uav_raw = uav_typed;
+        uav_raw.Format = DXGI_FORMAT_R32_TYPELESS;
+        uav_raw.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+
+        /* UAV tex null descriptor is misinterpreted on AMD Windows native when read as a buffer. */
+        ID3D12Device_CreateUnorderedAccessView(context.device, NULL, NULL, &uav_typed /*&uav_tex*/, cpu_h);
+        ID3D12Device_CreateUnorderedAccessView(context.device, NULL, NULL, &uav_typed /*&uav_tex*/, gpu_h);
+        cpu_h.ptr += descriptor_size;
+        gpu_h.ptr += descriptor_size;
+        ID3D12Device_CreateUnorderedAccessView(context.device, NULL, NULL, &uav_typed, cpu_h);
+        ID3D12Device_CreateUnorderedAccessView(context.device, NULL, NULL, &uav_typed, gpu_h);
+        cpu_h.ptr += descriptor_size;
+        gpu_h.ptr += descriptor_size;
+        ID3D12Device_CreateUnorderedAccessView(context.device, NULL, NULL, &uav_raw, cpu_h);
+        ID3D12Device_CreateUnorderedAccessView(context.device, NULL, NULL, &uav_raw, gpu_h);
+        cpu_h.ptr += descriptor_size;
+        gpu_h.ptr += descriptor_size;
+    }
+
+    /* Copy random NULL descriptors. The types won't match, but this "happens to work" on native drivers :(.
+     * The first batch of NULL descriptors were written directly, which lets us test that path as well. */
+    for (i = 7; i < 512 * 3; i++)
+    {
+        D3D12_CPU_DESCRIPTOR_HANDLE dst, src;
+        dst = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(gpu_heap);
+        src = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_heap);
+        dst.ptr += descriptor_size * i;
+        src.ptr += descriptor_size * (i % 7);
+        ID3D12Device_CopyDescriptorsSimple(context.device, 1, dst, src, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    }
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &gpu_heap);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0, ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(gpu_heap));
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(command_list, 1, ID3D12Resource_GetGPUVirtualAddress(output_buffer));
+    ID3D12GraphicsCommandList_Dispatch(command_list, 512, 1, 1);
+
+    transition_resource_state(command_list, output_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output_buffer, DXGI_FORMAT_UNKNOWN, &rb, queue, command_list);
+
+    for (i = 0; i < 512; i++)
+    {
+        UINT value = get_readback_uint(&rb, i, 0, 0);
+        UINT reference = i;
+        ok(value == reference, "Readback value [%u] is: %u\n", i, value);
+    }
+
+    release_resource_readback(&rb);
+    reset_command_list(command_list, context.allocator);
+
+    ID3D12Resource_Release(buffer);
+    ID3D12Resource_Release(texture);
+    ID3D12Resource_Release(output_buffer);
+    ID3D12DescriptorHeap_Release(gpu_heap);
+    ID3D12DescriptorHeap_Release(cpu_heap);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     pfn_D3D12CreateDevice = get_d3d12_pfn(D3D12CreateDevice);
@@ -51109,4 +51416,5 @@ START_TEST(d3d12)
     run_test(test_root_signature_priority);
     run_test(test_missing_bindings_root_signature);
     run_test(test_mismatching_pso_stages);
+    run_test(test_null_descriptor_mismatch_type);
 }
