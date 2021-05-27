@@ -7414,18 +7414,25 @@ static const struct vkd3d_format *vkd3d_fixup_clear_uav_uint_color(struct d3d12_
     }
 }
 
-static void vkd3d_clear_uav_info_from_desc(struct vkd3d_clear_uav_info *args, const struct d3d12_desc *desc)
+static bool vkd3d_clear_uav_info_from_desc(struct vkd3d_clear_uav_info *args, const struct d3d12_desc *desc)
 {
     if (desc->metadata.flags & VKD3D_DESCRIPTOR_FLAG_VIEW)
     {
         args->has_view = true;
         args->u.view = desc->info.view;
+        return true;
     }
-    else
+    else if (desc->metadata.flags & VKD3D_DESCRIPTOR_FLAG_OFFSET_RANGE)
     {
         args->has_view = false;
         args->u.buffer.offset = desc->info.buffer.offset;
         args->u.buffer.range = desc->info.buffer.range;
+        return true;
+    }
+    else
+    {
+        /* Hit if we try to clear a NULL descriptor, just noop it. */
+        return false;
     }
 }
 
@@ -7479,7 +7486,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
 
     resource_impl = unsafe_impl_from_ID3D12Resource(resource);
 
-    vkd3d_clear_uav_info_from_desc(&args, desc);
+    if (!vkd3d_clear_uav_info_from_desc(&args, desc))
+        return;
 
     if (args.has_view && desc->info.view->format->type != VKD3D_FORMAT_TYPE_UINT)
     {
@@ -7557,7 +7565,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d
 
     resource_impl = unsafe_impl_from_ID3D12Resource(resource);
 
-    vkd3d_clear_uav_info_from_desc(&args, desc);
+    if (!vkd3d_clear_uav_info_from_desc(&args, desc))
+        return;
     d3d12_command_list_clear_uav(list, desc, resource_impl, &args, &color, rect_count, rects);
 }
 
