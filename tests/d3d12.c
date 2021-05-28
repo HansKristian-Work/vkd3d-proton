@@ -41321,6 +41321,8 @@ static void test_bindless_uav_counter(bool use_dxil)
         ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(command_list, gpu_h, cpu_h, output_buffers[i], init_data, 0, NULL);
     }
 
+    uav_barrier(context.list, NULL);
+
     ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
