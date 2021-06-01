@@ -36,6 +36,8 @@
 #include "vkd3d_threads.h"
 #include "vkd3d_platform.h"
 #include "vkd3d_swapchain_factory.h"
+#include "vkd3d_command_list_vkd3d_ext.h"
+#include "vkd3d_device_vkd3d_ext.h"
 #include "vkd3d_string.h"
 #include <assert.h>
 #include <inttypes.h>
@@ -1695,11 +1697,15 @@ struct vkd3d_query_range
     uint32_t flags;
 };
 
+/* ID3D12CommandListExt */
+typedef ID3D12GraphicsCommandListExt d3d12_command_list_vkd3d_ext_iface;
+
 struct d3d12_state_object;
 
 struct d3d12_command_list
 {
     d3d12_command_list_iface ID3D12GraphicsCommandList_iface;
+    d3d12_command_list_vkd3d_ext_iface ID3D12GraphicsCommandListExt_iface;
     LONG refcount;
 
     D3D12_COMMAND_LIST_TYPE type;
@@ -2544,9 +2550,13 @@ typedef ID3D12Device6 d3d12_device_iface;
 struct vkd3d_descriptor_qa_global_info;
 struct vkd3d_descriptor_qa_heap_buffer_data;
 
+/* ID3D12DeviceExt */
+typedef ID3D12DeviceExt d3d12_device_vkd3d_ext_iface;
+
 struct d3d12_device
 {
     d3d12_device_iface ID3D12Device_iface;
+    d3d12_device_vkd3d_ext_iface ID3D12DeviceExt_iface;
     LONG refcount;
 
     VkDevice vk_device;

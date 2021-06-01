@@ -57,6 +57,8 @@
 #define __vkd3d_dxgi1_4_h__
 
 #include <vkd3d_swapchain_factory.h>
+#include <vkd3d_command_list_vkd3d_ext.h>
+#include <vkd3d_device_vkd3d_ext.h>
 #include <vkd3d_d3d12.h>
 #include <vkd3d_d3d12sdklayers.h>
 

@@ -3484,6 +3484,8 @@ static void d3d12_command_list_track_query_heap(struct d3d12_command_list *list,
     }
 }
 
+static ULONG STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_AddRef(ID3D12GraphicsCommandListExt *iface);
+
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_iface *iface,
         REFIID iid, void **object)
 {
@@ -3502,6 +3504,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command
     {
         ID3D12GraphicsCommandList_AddRef(iface);
         *object = iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(iid, &IID_ID3D12GraphicsCommandListExt))
+    {
+        struct d3d12_command_list *command_list = impl_from_ID3D12GraphicsCommandList(iface);
+        d3d12_command_list_vkd3d_ext_AddRef(&command_list->ID3D12GraphicsCommandListExt_iface);
+        *object = &command_list->ID3D12GraphicsCommandListExt_iface;
         return S_OK;
     }
 
@@ -8802,6 +8812,53 @@ static struct d3d12_command_list *unsafe_impl_from_ID3D12CommandList(ID3D12Comma
     return CONTAINING_RECORD(iface, struct d3d12_command_list, ID3D12GraphicsCommandList_iface);
 }
 
+static inline struct d3d12_command_list *d3d12_command_list_from_ID3D12GraphicsCommandListExt(ID3D12GraphicsCommandListExt *iface)
+{
+    return CONTAINING_RECORD(iface, struct d3d12_command_list, ID3D12GraphicsCommandListExt_iface);
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_AddRef(ID3D12GraphicsCommandListExt *iface)
+{
+    struct d3d12_command_list *command_list = d3d12_command_list_from_ID3D12GraphicsCommandListExt(iface);
+    return d3d12_command_list_AddRef(&command_list->ID3D12GraphicsCommandList_iface);
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_Release(ID3D12GraphicsCommandListExt *iface)
+{
+    struct d3d12_command_list *command_list = d3d12_command_list_from_ID3D12GraphicsCommandListExt(iface);
+    return d3d12_command_list_Release(&command_list->ID3D12GraphicsCommandList_iface);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_QueryInterface(ID3D12GraphicsCommandListExt *iface,
+        REFIID iid, void **out)
+{
+    struct d3d12_command_list *command_list = d3d12_command_list_from_ID3D12GraphicsCommandListExt(iface);
+    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
+    return d3d12_command_list_QueryInterface(&command_list->ID3D12GraphicsCommandList_iface, iid, out);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_GetVulkanHandle(ID3D12GraphicsCommandListExt *iface,
+        VkCommandBuffer *pVkCommandBuffer)
+{
+    struct d3d12_command_list *command_list = d3d12_command_list_from_ID3D12GraphicsCommandListExt(iface);
+    if (!pVkCommandBuffer)
+        return E_INVALIDARG;
+
+    *pVkCommandBuffer = command_list->vk_command_buffer;
+    return S_OK;
+}
+
+static CONST_VTBL struct ID3D12GraphicsCommandListExtVtbl d3d12_command_list_vkd3d_ext_vtbl =
+{
+    /* IUnknown methods */
+    d3d12_command_list_vkd3d_ext_QueryInterface,
+    d3d12_command_list_vkd3d_ext_AddRef,
+    d3d12_command_list_vkd3d_ext_Release,
+
+    /* ID3D12GraphicsCommandListExt methods */
+    d3d12_command_list_vkd3d_ext_GetVulkanHandle
+};
+
 static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d3d12_device *device,
         D3D12_COMMAND_LIST_TYPE type)
 {
@@ -8821,6 +8878,8 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     list->refcount = 1;
 
     list->type = type;
+
+    list->ID3D12GraphicsCommandListExt_iface.lpVtbl = &d3d12_command_list_vkd3d_ext_vtbl;
 
     if (FAILED(hr = vkd3d_private_store_init(&list->private_store)))
         return hr;

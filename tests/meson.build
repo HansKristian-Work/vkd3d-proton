@@ -24,3 +24,11 @@ executable('descriptor-performance', 'descriptor_performance.c',
   install             : false,
   c_args              : vkd3d_test_flags,
   override_options    : [ 'c_std='+vkd3d_c_std ])
+
+executable('vkd3d_ext', 'd3d12_ext_test.c',
+  dependencies        : vkd3d_test_deps,
+  include_directories : vkd3d_private_includes,
+  install             : false,
+  c_args              : vkd3d_test_flags,
+  override_options    : [ 'c_std='+vkd3d_c_std ])
+  
