@@ -1426,6 +1426,16 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
         return DXGI_ERROR_UNSUPPORTED;
     }
 
+    /* Having a pending acquired image while using oldSwapchain seems to cause strange deadlocks
+     * on Wine + NV Linux.
+     * Using oldSwapchain does not buy us anything and can only lead to weirdness, so just destroy
+     * the swapchain up front. */
+    if (swapchain->vk_swapchain)
+    {
+        vk_procs->vkDestroySwapchainKHR(swapchain->command_queue->device->vk_device, swapchain->vk_swapchain, NULL);
+        swapchain->vk_swapchain = VK_NULL_HANDLE;
+    }
+
     if (width && height)
     {
         vk_swapchain_desc.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -1455,9 +1465,6 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
     }
     else
         vk_swapchain = VK_NULL_HANDLE;
-
-    if (swapchain->vk_swapchain)
-        vk_procs->vkDestroySwapchainKHR(swapchain->command_queue->device->vk_device, swapchain->vk_swapchain, NULL);
 
     swapchain->vk_swapchain = vk_swapchain;
     swapchain->vk_swapchain_width = width;
