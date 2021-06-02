@@ -190,6 +190,7 @@ struct d3d12_swapchain
     unsigned int vk_swapchain_width;
     unsigned int vk_swapchain_height;
     VkPresentModeKHR present_mode;
+    bool is_suboptimal;
 
     struct
     {
@@ -1499,6 +1500,7 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
     swapchain->vk_swapchain_height = height;
 
     swapchain->vk_image_index = INVALID_VK_IMAGE_INDEX;
+    swapchain->is_suboptimal = false;
 
     if (swapchain->vk_swapchain != VK_NULL_HANDLE)
     {
@@ -1745,7 +1747,13 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
                 VK_NULL_HANDLE, &swapchain->vk_image_index);
 
         if (vr >= 0)
+        {
             swapchain->vk_acquire_semaphores_signaled[swapchain->frame_id] = true;
+            /* If we have observed suboptimal once, guarantees that we keep observing it
+             * until we have recreated the swapchain. */
+            if (swapchain->is_suboptimal)
+                vr = VK_SUBOPTIMAL_KHR;
+        }
 
         if (vr == VK_SUBOPTIMAL_KHR)
         {
@@ -1810,6 +1818,14 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
         swapchain->frame_id = (swapchain->frame_id + 1) % swapchain->buffer_count;
         swapchain->vk_image_index = INVALID_VK_IMAGE_INDEX;
 
+        if (vr == VK_SUBOPTIMAL_KHR)
+            swapchain->is_suboptimal = true;
+
+        /* If we have observed suboptimal once, guarantees that we keep observing it
+         * until we have recreated the swapchain. */
+        if (swapchain->is_suboptimal)
+            vr = VK_SUBOPTIMAL_KHR;
+
         /* Could get SUBOPTIMAL here. Defer acquiring if we hit that path.
          * On next present, we can recreate the swapchain. */
         if (vr == VK_SUCCESS)
@@ -1823,6 +1839,12 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
             if (vr >= 0)
             {
                 swapchain->vk_acquire_semaphores_signaled[swapchain->frame_id] = true;
+                /* If we observe suboptimal here, we cannot set INVALID_VK_IMAGE_INDEX yet,
+                 * since the next present will acquire again, before we have had a chance to present.
+                 * This can potentially deadlock, or cause other weirdness that we're not ready to handle.
+                 * Mark the swapchain is suboptimal, so that we're guaranteed to recreate the swapchain in due time. */
+                if (vr == VK_SUBOPTIMAL_KHR)
+                    swapchain->is_suboptimal = true;
             }
             else
             {
