@@ -3440,7 +3440,10 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
     vkd3d_descriptor_debug_write_descriptor(descriptor->heap->descriptor_heap_info.host_ptr,
             descriptor->heap->cookie,
             descriptor->heap_offset,
-            VKD3D_DESCRIPTOR_QA_TYPE_UNIFORM_BUFFER_BIT, descriptor->metadata.cookie);
+            vk_descriptor_type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ?
+                    VKD3D_DESCRIPTOR_QA_TYPE_UNIFORM_BUFFER_BIT :
+                    VKD3D_DESCRIPTOR_QA_TYPE_STORAGE_BUFFER_BIT,
+            descriptor->metadata.cookie);
 
     VK_CALL(vkUpdateDescriptorSets(device->vk_device, 1, &vk_write, 0, NULL));
 }
