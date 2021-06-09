@@ -7624,7 +7624,7 @@ static void test_draw_uav_only(void)
         0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00004001, 0x00000001, 0x0100003e,
     };
     static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
-    static const float zero[4] = {0};
+    static const UINT zero[4] = {0};
 
     memset(&desc, 0, sizeof(desc));
     desc.no_render_target = true;
@@ -7663,7 +7663,7 @@ static void test_draw_uav_only(void)
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_descriptor_heap);
     ID3D12Device_CreateUnorderedAccessView(context.device, resource, NULL, NULL, cpu_handle);
 
-    ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(command_list,
+    ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(command_list,
             gpu_handle, cpu_handle, resource, zero, 0, NULL);
 
     barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
