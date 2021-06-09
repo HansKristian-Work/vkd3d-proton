@@ -38873,6 +38873,8 @@ static void test_bufinfo_instruction(bool use_dxil)
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
         check_sub_resource_uvec4(context.render_target, 0, queue, command_list, &test->expected_result);
         reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
         ID3D12Resource_Release(buffer);
     }
