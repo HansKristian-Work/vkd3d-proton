@@ -806,6 +806,7 @@ struct d3d12_resource
 
     /* To keep track of initial layout. */
     VkImageLayout common_layout;
+    D3D12_RESOURCE_STATES initial_state;
     uint32_t initial_layout_transition;
 
     struct d3d12_sparse_info sparse;

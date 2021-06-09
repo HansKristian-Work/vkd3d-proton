@@ -257,7 +257,10 @@ static bool vkd3d_is_linear_tiling_supported(const struct d3d12_device *device, 
 
 static VkImageLayout vk_common_image_layout_from_d3d12_desc(const D3D12_RESOURCE_DESC *desc)
 {
-    if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
+    /* We need aggressive decay and promotion into anything. */
+    if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS)
+        return VK_IMAGE_LAYOUT_GENERAL;
+    if (desc->Layout == D3D12_TEXTURE_LAYOUT_ROW_MAJOR)
         return VK_IMAGE_LAYOUT_GENERAL;
 
     /* DENY_SHADER_RESOURCE only allowed with ALLOW_DEPTH_STENCIL */
@@ -1810,7 +1813,7 @@ VkImageSubresource d3d12_resource_get_vk_subresource(const struct d3d12_resource
             all_aspects);
 }
 
-static void d3d12_validate_resource_flags(D3D12_RESOURCE_FLAGS flags)
+static HRESULT d3d12_validate_resource_flags(D3D12_RESOURCE_FLAGS flags)
 {
     unsigned int unknown_flags = flags & ~(D3D12_RESOURCE_FLAG_NONE
             | D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET
@@ -1822,6 +1825,20 @@ static void d3d12_validate_resource_flags(D3D12_RESOURCE_FLAGS flags)
 
     if (unknown_flags)
         FIXME("Unknown resource flags %#x.\n", unknown_flags);
+
+    if ((flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS) && (flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
+    {
+        ERR("ALLOW_SIMULTANEOUS_ACCESS and ALLOW_DEPTH_STENCIL is not allowed.\n");
+        return E_INVALIDARG;
+    }
+
+    if ((flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) && (flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
+    {
+        ERR("ALLOW_UNORDERED_ACCESS and ALLOW_DEPTH_STENCIL is not allowed.\n");
+        return E_INVALIDARG;
+    }
+
+    return S_OK;
 }
 
 static bool d3d12_resource_validate_texture_format(const D3D12_RESOURCE_DESC *desc,
@@ -1936,9 +1953,7 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc, struct d3d
             return E_INVALIDARG;
     }
 
-    d3d12_validate_resource_flags(desc->Flags);
-
-    return S_OK;
+    return d3d12_validate_resource_flags(desc->Flags);
 }
 
 static HRESULT d3d12_resource_validate_heap_properties(const D3D12_RESOURCE_DESC *desc,
@@ -2388,6 +2403,7 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
     /* RTAS are "special" buffers. They can never transition out of this state. */
     if (initial_state == D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE)
         object->flags |= VKD3D_RESOURCE_ACCELERATION_STRUCTURE;
+    object->initial_state = initial_state;
 
     if (heap_properties)
         object->heap_properties = *heap_properties;
@@ -4184,6 +4200,9 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
         WARN("UAVs cannot be created for compressed formats.\n");
         return;
     }
+
+    /* UNORDERED_ACCESS is not the common layout, override it here. */
+    key.u.texture.layout = VK_IMAGE_LAYOUT_GENERAL;
 
     if (desc)
     {
