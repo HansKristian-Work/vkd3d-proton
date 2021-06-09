@@ -7475,6 +7475,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const struct d3d12_desc *desc = d3d12_desc_from_cpu_handle(cpu_handle);
     const struct vkd3d_format *uint_format;
+    struct vkd3d_view *inline_view = NULL;
     struct d3d12_resource *resource_impl;
     struct vkd3d_clear_uav_info args;
     VkClearColorValue color;
@@ -7524,6 +7525,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
                 ERR("Failed to create image view.\n");
                 return;
             }
+
+            inline_view = args.u.view;
         }
         else
         {
@@ -7538,6 +7541,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
                 ERR("Failed to create buffer view.\n");
                 return;
             }
+
+            inline_view = args.u.view;
         }
     }
     else if (args.has_view)
@@ -7546,6 +7551,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
     }
 
     d3d12_command_list_clear_uav(list, desc, resource_impl, &args, &color, rect_count, rects);
+
+    if (inline_view)
+    {
+        d3d12_command_allocator_add_view(list->allocator, inline_view);
+        vkd3d_view_decref(inline_view, list->device);
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d3d12_command_list_iface *iface,
