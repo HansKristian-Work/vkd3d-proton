@@ -46574,6 +46574,7 @@ static void test_discard_resource(void)
     ID3D12GraphicsCommandList_DiscardResource(context.list, rt, &region);
 
     /* Ensure that the clear gets executed properly for subresource 0 */
+    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     check_sub_resource_uint(rt, 0, context.queue, context.list, 0x000000ffu, 0);
 
     ID3D12Resource_Release(rt);
@@ -48010,6 +48011,8 @@ static void test_create_pipeline_with_null_root_signature(void)
         ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
     }
 
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
 
     if (root_signature)
