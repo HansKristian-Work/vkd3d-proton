@@ -354,6 +354,7 @@ static VkBool32 VKAPI_PTR vkd3d_debug_messenger_callback(
      * - Map memory, likely validation layer bug due to memory alloc flags.
      * - Pipeline layout limits on NV which are not relevant here.
      * - SPV_EXT_buffer_device_address shenanigans (need to fix glslang).
+     * - Sample count mismatch in fallback copy shaders.
      */
     unsigned int i;
     static const uint32_t ignored_ids[] = {
@@ -363,6 +364,7 @@ static VkBool32 VKAPI_PTR vkd3d_debug_messenger_callback(
         0x96f03c1cu,
         0x8189c842u,
         0x3d492883u,
+        0x1608dec0u,
     };
 
     for (i = 0; i < ARRAY_SIZE(ignored_ids); i++)
