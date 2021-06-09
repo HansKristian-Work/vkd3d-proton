@@ -24,7 +24,6 @@
 #endif
 
 #include "d3d12_crosstest.h"
-#include "d3d12_test_helper.h"
 
 static PFN_D3D12_CREATE_VERSIONED_ROOT_SIGNATURE_DESERIALIZER pfn_D3D12CreateVersionedRootSignatureDeserializer;
 static PFN_D3D12_SERIALIZE_VERSIONED_ROOT_SIGNATURE pfn_D3D12SerializeVersionedRootSignature;
@@ -108,6 +107,27 @@ static bool compare_uint16(uint16_t a, uint16_t b, unsigned int max_diff)
 static bool compare_uint64(uint64_t a, uint64_t b, unsigned int max_diff)
 {
     return delta_uint64(a, b) <= max_diff;
+}
+
+static ULONG get_refcount(void *iface)
+{
+    IUnknown *unk = iface;
+    IUnknown_AddRef(unk);
+    return IUnknown_Release(unk);
+}
+
+#define check_interface(a, b, c) check_interface_(__LINE__, (IUnknown *)a, b, c)
+static void check_interface_(unsigned int line, IUnknown *iface, REFIID riid, bool supported)
+{
+    HRESULT hr, expected_hr;
+    IUnknown *unk;
+
+    expected_hr = supported ? S_OK : E_NOINTERFACE;
+
+    hr = IUnknown_QueryInterface(iface, riid, (void **)&unk);
+    ok_(line)(hr == expected_hr, "Got hr %#x, expected %#x.\n", hr, expected_hr);
+    if (SUCCEEDED(hr))
+        IUnknown_Release(unk);
 }
 
 #define check_heap_properties(a, b) check_heap_properties_(__LINE__, a, b)
