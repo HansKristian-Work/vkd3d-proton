@@ -417,7 +417,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
             flags_info.flags |= VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR;
     }
 
-    allocation->resource.size = memory_requirements.size;
+    allocation->resource.size = info->memory_requirements.size;
 
     if (info->heap_flags & D3D12_HEAP_FLAG_ALLOW_WRITE_WATCH)
     {
