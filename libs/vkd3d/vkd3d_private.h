@@ -145,6 +145,8 @@ struct vkd3d_vulkan_info
     bool AMD_shader_core_properties2;
     /* NV device extensions */
     bool NV_shader_sm_builtins;
+    bool NVX_binary_import;
+    bool NVX_image_view_handle;
     /* VALVE extensions */
     bool VALVE_mutable_descriptor_type;
 

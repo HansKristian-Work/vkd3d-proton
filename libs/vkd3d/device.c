@@ -99,6 +99,8 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(AMD_SHADER_CORE_PROPERTIES_2, AMD_shader_core_properties2),
     /* NV extensions */
     VK_EXTENSION(NV_SHADER_SM_BUILTINS, NV_shader_sm_builtins),
+    VK_EXTENSION(NVX_BINARY_IMPORT, NVX_binary_import),
+    VK_EXTENSION(NVX_IMAGE_VIEW_HANDLE, NVX_image_view_handle),
     /* VALVE extensions */
     VK_EXTENSION(VALVE_MUTABLE_DESCRIPTOR_TYPE, VALVE_mutable_descriptor_type),
 };
