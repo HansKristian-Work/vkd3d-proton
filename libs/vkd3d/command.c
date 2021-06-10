@@ -4204,7 +4204,6 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
     uint32_t new_active_flags;
     VkPipeline vk_pipeline;
     uint32_t variant_flags;
-    VkFormat dsv_format;
 
     if (list->current_pipeline != VK_NULL_HANDLE)
         return true;
@@ -4215,17 +4214,15 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
         return false;
     }
 
-    dsv_format = list->dsv.format ? list->dsv.format->vk_format : VK_FORMAT_UNDEFINED;
-
     variant_flags = d3d12_command_list_variant_flags(list);
 
     /* Try to grab the pipeline we compiled ahead of time. If we cannot do so, fall back. */
     if (!(vk_pipeline = d3d12_pipeline_state_get_pipeline(list->state,
-            &list->dynamic_state, dsv_format, &vk_render_pass, &new_active_flags,
+            &list->dynamic_state, list->dsv.format, &vk_render_pass, &new_active_flags,
             variant_flags)))
     {
         if (!(vk_pipeline = d3d12_pipeline_state_get_or_create_pipeline(list->state,
-                &list->dynamic_state, dsv_format,
+                &list->dynamic_state, list->dsv.format,
                 &vk_render_pass, &new_active_flags, variant_flags)))
             return false;
     }
