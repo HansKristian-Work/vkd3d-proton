@@ -2656,7 +2656,7 @@ static uint32_t vkd3d_dxbc_compiler_get_constant(struct vkd3d_dxbc_compiler *com
     {
         scalar_type_id = vkd3d_spirv_get_type_id(builder, component_type, 1);
         for (i = 0; i < component_count; ++i)
-            component_ids[i] = vkd3d_spirv_get_op_constant(builder, scalar_type_id, &values[i], dword_count);
+            component_ids[i] = vkd3d_spirv_get_op_constant(builder, scalar_type_id, &values[i * dword_count], dword_count);
         return vkd3d_spirv_get_op_constant_composite(builder, type_id, component_ids, component_count);
     }
 }
