@@ -42,8 +42,19 @@
 #define WIDL_C_INLINE_WRAPPERS
 #include <vkd3d_windows.h>
 
+/* Vulkan headers include static const declarations. Enable static keyword for
+ * them.
+ */
+#ifdef __MINGW32__
+# undef static
+#endif
+
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <vulkan/vulkan.h>
+
+#ifdef __MINGW32__
+# define static
+#endif
 
 #include <dxgi1_6.h>
 
