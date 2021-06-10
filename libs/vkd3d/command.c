@@ -2469,6 +2469,18 @@ enum vkd3d_render_pass_transition_mode
     VKD3D_RENDER_PASS_TRANSITION_MODE_END,
 };
 
+static bool d3d12_resource_requires_shader_visibility_after_transition(
+        const struct d3d12_resource *resource,
+        VkImageLayout old_layout, VkImageLayout new_layout)
+{
+    return !(resource->desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) &&
+            old_layout != VK_IMAGE_LAYOUT_UNDEFINED &&
+            old_layout != new_layout &&
+            (new_layout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL ||
+                    new_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL ||
+                    new_layout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL);
+}
+
 static VkPipelineStageFlags vk_render_pass_barrier_from_view(const struct vkd3d_view *view, const struct d3d12_resource *resource,
         enum vkd3d_render_pass_transition_mode mode, VkImageLayout layout, bool clear, VkImageMemoryBarrier *vk_barrier)
 {
@@ -2511,13 +2523,48 @@ static VkPipelineStageFlags vk_render_pass_barrier_from_view(const struct vkd3d_
          * discard the entire image, not just the layers to clear. */
         if (clear && resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D)
             vk_barrier->oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        /* If we're transitioning into depth state and we could potentially read
+         * (we cannot know this here),
+         * shader might want to read from it as well, so we have to make that visible here
+         * if we're performing a layout transition, which nukes any existing visibility. */
+        if (d3d12_resource_requires_shader_visibility_after_transition(resource,
+                vk_barrier->oldLayout, vk_barrier->newLayout))
+        {
+            vk_barrier->dstAccessMask |= VK_ACCESS_SHADER_READ_BIT;
+            stages = VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT;
+        }
     }
     else /* if (mode == VKD3D_RENDER_PASS_TRANSITION_MODE_END) */
     {
         vk_barrier->srcAccessMask = access;
-        vk_barrier->dstAccessMask = 0;
         vk_barrier->oldLayout = layout;
         vk_barrier->newLayout = outside_render_pass_layout;
+
+        /* Dst access mask is generally 0 here since we are transitioning into an image layout
+         * which only serves as a stepping stone for other layout transitions. When we use the image,
+         * we are supposed to transition into another layout, and thus it is meaningless to make memory visible here.
+         * The exception is depth attachments, which can be used right away without an internal transition barrier.
+         * A case here is if the resource state is DEPTH_READ | RESOURCE. When we enter the enter pass,
+         * we transition it into the appropriate DS state. When we leave, we would use DS_READ_ONLY_OPTIMAL,
+         * which can be sampled from and used as a read-only depth attachment without any extra barrier.
+         * Thus, we have to complete that barrier here. */
+        vk_barrier->dstAccessMask = 0;
+        if (vk_barrier->oldLayout != vk_barrier->newLayout)
+        {
+            if (vk_barrier->newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL)
+            {
+                vk_barrier->dstAccessMask =
+                        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_SHADER_READ_BIT;
+                /* We don't know if we have DEPTH_READ | NON_PIXEL_RESOURCE or DEPTH_READ | PIXEL_RESOURCE. */
+                stages = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+            }
+            else if (vk_barrier->newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+            {
+                vk_barrier->dstAccessMask =
+                        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            }
+        }
     }
 
     /* The common case for color attachments is that this is a no-op.
