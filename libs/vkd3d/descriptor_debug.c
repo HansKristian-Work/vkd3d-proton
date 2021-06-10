@@ -157,7 +157,8 @@ static void *vkd3d_descriptor_debug_qa_check_entry(void *userdata)
     {
         /* Don't spin endlessly, this thread is kicked after a successful fence wait. */
         pthread_mutex_lock(&global_info->ring_lock);
-        pthread_cond_wait(&global_info->ring_cond, &global_info->ring_lock);
+        if (global_info->active)
+            pthread_cond_wait(&global_info->ring_cond, &global_info->ring_lock);
         active = global_info->active;
         pthread_mutex_unlock(&global_info->ring_lock);
 
