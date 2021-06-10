@@ -76,7 +76,8 @@ void *vkd3d_shader_debug_ring_thread_main(void *arg)
     while (is_active)
     {
         pthread_mutex_lock(&ring->ring_lock);
-        pthread_cond_wait(&ring->ring_cond, &ring->ring_lock);
+        if (ring->active)
+            pthread_cond_wait(&ring->ring_cond, &ring->ring_lock);
         is_active = ring->active;
         pthread_mutex_unlock(&ring->ring_lock);
 
