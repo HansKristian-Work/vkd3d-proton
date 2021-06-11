@@ -334,6 +334,7 @@ struct vkd3d_render_pass_cache
     struct vkd3d_render_pass_entry *render_passes;
     size_t render_pass_count;
     size_t render_passes_size;
+    spinlock_t lock;
 };
 
 void vkd3d_render_pass_cache_cleanup(struct vkd3d_render_pass_cache *cache,
