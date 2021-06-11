@@ -1800,10 +1800,10 @@ static void d3d12_device_destroy_vkd3d_queues(struct d3d12_device *device)
                 device->queue_families[j] = NULL;
         }
 
-        for (i = 0; i < queue_family->queue_count; i++)
+        for (j = 0; j < queue_family->queue_count; j++)
         {
-            if (queue_family->queues[i])
-                vkd3d_queue_destroy(queue_family->queues[i], device);
+            if (queue_family->queues[j])
+                vkd3d_queue_destroy(queue_family->queues[j], device);
         }
 
         vkd3d_free(queue_family->queues);
