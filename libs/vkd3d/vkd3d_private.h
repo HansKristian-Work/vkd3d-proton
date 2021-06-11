@@ -1360,6 +1360,7 @@ struct d3d12_pipeline_state
     };
     VkPipelineBindPoint vk_bind_point;
     VkPipelineCache vk_pso_cache;
+    spinlock_t lock;
 
     ID3D12RootSignature *private_root_signature;
     struct d3d12_device *device;

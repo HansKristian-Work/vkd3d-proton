@@ -3573,35 +3573,27 @@ enum VkPrimitiveTopology vk_topology_from_d3d12_topology(D3D12_PRIMITIVE_TOPOLOG
     }
 }
 
-static VkPipeline d3d12_pipeline_state_find_compiled_pipeline(const struct d3d12_pipeline_state *state,
+static VkPipeline d3d12_pipeline_state_find_compiled_pipeline(struct d3d12_pipeline_state *state,
         const struct vkd3d_pipeline_key *key, VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags)
 {
     const struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
-    struct d3d12_device *device = state->device;
     VkPipeline vk_pipeline = VK_NULL_HANDLE;
     struct vkd3d_compiled_pipeline *current;
-    int rc;
 
     *vk_render_pass = VK_NULL_HANDLE;
 
-    if (!(rc = pthread_mutex_lock(&device->mutex)))
+    rw_spinlock_acquire_read(&state->lock);
+    LIST_FOR_EACH_ENTRY(current, &graphics->compiled_fallback_pipelines, struct vkd3d_compiled_pipeline, entry)
     {
-        LIST_FOR_EACH_ENTRY(current, &graphics->compiled_fallback_pipelines, struct vkd3d_compiled_pipeline, entry)
+        if (!memcmp(&current->key, key, sizeof(*key)))
         {
-            if (!memcmp(&current->key, key, sizeof(*key)))
-            {
-                vk_pipeline = current->vk_pipeline;
-                *vk_render_pass = current->vk_render_pass;
-                *dynamic_state_flags = current->dynamic_state_flags;
-                break;
-            }
+            vk_pipeline = current->vk_pipeline;
+            *vk_render_pass = current->vk_render_pass;
+            *dynamic_state_flags = current->dynamic_state_flags;
+            break;
         }
-        pthread_mutex_unlock(&device->mutex);
     }
-    else
-    {
-        ERR("Failed to lock mutex, error %d.\n", rc);
-    }
+    rw_spinlock_release_read(&state->lock);
 
     return vk_pipeline;
 }
@@ -3612,8 +3604,6 @@ static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_sta
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     struct vkd3d_compiled_pipeline *compiled_pipeline, *current;
-    struct d3d12_device *device = state->device;
-    int rc;
 
     if (!(compiled_pipeline = vkd3d_malloc(sizeof(*compiled_pipeline))))
         return false;
@@ -3623,12 +3613,7 @@ static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_sta
     compiled_pipeline->vk_render_pass = vk_render_pass;
     compiled_pipeline->dynamic_state_flags = dynamic_state_flags;
 
-    if ((rc = pthread_mutex_lock(&device->mutex)))
-    {
-        ERR("Failed to lock mutex, error %d.\n", rc);
-        vkd3d_free(compiled_pipeline);
-        return false;
-    }
+    rw_spinlock_acquire_write(&state->lock);
 
     LIST_FOR_EACH_ENTRY(current, &graphics->compiled_fallback_pipelines, struct vkd3d_compiled_pipeline, entry)
     {
@@ -3643,7 +3628,7 @@ static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_sta
     if (compiled_pipeline)
         list_add_tail(&graphics->compiled_fallback_pipelines, &compiled_pipeline->entry);
 
-    pthread_mutex_unlock(&device->mutex);
+    rw_spinlock_release_write(&state->lock);
     return compiled_pipeline;
 }
 
