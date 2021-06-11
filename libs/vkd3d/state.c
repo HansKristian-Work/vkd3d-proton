@@ -21,6 +21,7 @@
 
 #include "vkd3d_private.h"
 #include "vkd3d_descriptor_debug.h"
+#include "vkd3d_rw_spinlock.h"
 #include <stdio.h>
 
 /* ID3D12RootSignature */
@@ -1583,18 +1584,12 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
 HRESULT vkd3d_render_pass_cache_find(struct vkd3d_render_pass_cache *cache,
         struct d3d12_device *device, const struct vkd3d_render_pass_key *key, VkRenderPass *vk_render_pass)
 {
+    size_t searched_count;
     bool found = false;
     HRESULT hr = S_OK;
-    unsigned int i;
-    int rc;
+    size_t i;
 
-    if ((rc = pthread_mutex_lock(&device->mutex)))
-    {
-        ERR("Failed to lock mutex, error %d.\n", rc);
-        *vk_render_pass = VK_NULL_HANDLE;
-        return hresult_from_errno(rc);
-    }
-
+    rw_spinlock_acquire_read(&cache->lock);
     for (i = 0; i < cache->render_pass_count; ++i)
     {
         struct vkd3d_render_pass_entry *current = &cache->render_passes[i];
@@ -1606,11 +1601,28 @@ HRESULT vkd3d_render_pass_cache_find(struct vkd3d_render_pass_cache *cache,
             break;
         }
     }
+    searched_count = cache->render_pass_count;
+    rw_spinlock_release_read(&cache->lock);
 
     if (!found)
-        hr = vkd3d_render_pass_cache_create_pass_locked(cache, device, key, vk_render_pass);
+    {
+        rw_spinlock_acquire_write(&cache->lock);
+        /* If another thread came in and wrote the render pass we want in between the read unlock and write lock,
+         * find it now. */
+        for (i = searched_count; i < cache->render_pass_count; ++i)
+        {
+            struct vkd3d_render_pass_entry *current = &cache->render_passes[i];
 
-    pthread_mutex_unlock(&device->mutex);
+            if (!memcmp(&current->key, key, sizeof(*key)))
+            {
+                *vk_render_pass = current->vk_render_pass;
+                rw_spinlock_release_write(&cache->lock);
+                return S_OK;
+            }
+        }
+        hr = vkd3d_render_pass_cache_create_pass_locked(cache, device, key, vk_render_pass);
+        rw_spinlock_release_write(&cache->lock);
+    }
 
     return hr;
 }
@@ -1620,6 +1632,7 @@ void vkd3d_render_pass_cache_init(struct vkd3d_render_pass_cache *cache)
     cache->render_passes = NULL;
     cache->render_pass_count = 0;
     cache->render_passes_size = 0;
+    cache->lock = 0;
 }
 
 void vkd3d_render_pass_cache_cleanup(struct vkd3d_render_pass_cache *cache,
