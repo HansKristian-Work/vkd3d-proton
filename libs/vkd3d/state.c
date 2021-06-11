@@ -3391,7 +3391,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         for (i = 0; i < VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_COUNT; i++)
         {
             if (!d3d12_is_valid_pipeline_variant(device, i))
-            continue;
+                continue;
 
             if (!(graphics->pipeline[i] = d3d12_pipeline_state_create_pipeline_variant(state, NULL, graphics->dsv_format,
                     state->vk_pso_cache, &graphics->render_pass[i], &graphics->dynamic_state_flags, i)))
