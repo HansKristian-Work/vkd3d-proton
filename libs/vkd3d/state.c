@@ -2479,7 +2479,7 @@ static enum VkBlendOp vk_blend_op_from_d3d12(D3D12_BLEND_OP op)
 static void blend_attachment_from_d3d12(struct VkPipelineColorBlendAttachmentState *vk_desc,
         const D3D12_RENDER_TARGET_BLEND_DESC *d3d12_desc)
 {
-    if (d3d12_desc->BlendEnable)
+    if (d3d12_desc->BlendEnable && d3d12_desc->RenderTargetWriteMask)
     {
         vk_desc->blendEnable = VK_TRUE;
         vk_desc->srcColorBlendFactor = vk_blend_factor_from_d3d12(d3d12_desc->SrcBlend, false);
@@ -2568,7 +2568,7 @@ static bool is_dual_source_blending_blend(D3D12_BLEND b)
 
 static bool is_dual_source_blending(const D3D12_RENDER_TARGET_BLEND_DESC *desc)
 {
-    return desc->BlendEnable
+    return desc->BlendEnable && desc->RenderTargetWriteMask
             && (is_dual_source_blending_blend(desc->SrcBlend)
             || is_dual_source_blending_blend(desc->DestBlend)
             || is_dual_source_blending_blend(desc->SrcBlendAlpha)
