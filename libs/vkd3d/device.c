@@ -406,7 +406,8 @@ static void vkd3d_init_debug_messenger_callback(struct vkd3d_instance *instance)
     instance->vk_debug_callback = callback;
 }
 
-uint64_t vkd3d_config_flags = 0;
+uint64_t vkd3d_config_flags;
+const struct vkd3d_shader_quirk_info *vkd3d_shader_quirk_info;
 
 struct vkd3d_instance_application_meta
 {
@@ -419,6 +420,25 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { "F1_2020_dx12.exe", VKD3D_CONFIG_FLAG_FORCE_TGSM_BARRIERS, 0 },
     /* MSVC fails to compile empty array. */
     { NULL, 0, 0 }
+};
+
+struct vkd3d_shader_quirk_meta
+{
+    const char *name;
+    const struct vkd3d_shader_quirk_info *info;
+};
+
+static const struct vkd3d_shader_quirk_hash necromunda_hashes[] = {
+    { 0x75dcbd76ee898815ull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
+};
+
+static const struct vkd3d_shader_quirk_info necromunda_quirks = {
+    necromunda_hashes, ARRAY_SIZE(necromunda_hashes), 0,
+};
+
+static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
+    /* Necromunda: Hired Gun (1222370) */
+    { "Necromunda-Win64-Shipping.exe", &necromunda_quirks },
 };
 
 static void vkd3d_instance_apply_application_workarounds(void)
@@ -436,6 +456,16 @@ static void vkd3d_instance_apply_application_workarounds(void)
             vkd3d_config_flags &= ~application_override[i].global_flags_remove;
             INFO("Detected game %s, adding config 0x%"PRIx64", removing masks 0x%"PRIx64".\n",
                  app, application_override[i].global_flags_add, application_override[i].global_flags_remove);
+            break;
+        }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(application_shader_quirks); i++)
+    {
+        if (application_shader_quirks[i].name && !strcmp(app, application_shader_quirks[i].name))
+        {
+            vkd3d_shader_quirk_info = application_shader_quirks[i].info;
+            INFO("Detected game %s, adding shader quirks for specific shaders.\n", app);
             break;
         }
     }
