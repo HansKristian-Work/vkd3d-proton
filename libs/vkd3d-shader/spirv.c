@@ -2256,6 +2256,7 @@ struct vkd3d_dxbc_compiler
     unsigned int loop_id;
     unsigned int switch_id;
     unsigned int control_flow_depth;
+    bool control_flow_has_early_return;
     struct vkd3d_control_flow_info *control_flow_info;
     size_t control_flow_info_size;
 
@@ -8581,6 +8582,7 @@ static int vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_c
 
         case VKD3DSIH_RET:
             vkd3d_dxbc_compiler_emit_return(compiler, instruction);
+            compiler->control_flow_has_early_return = true;
 
             if (cf_info)
                 cf_info->inside_block = false;
@@ -8588,6 +8590,7 @@ static int vkd3d_dxbc_compiler_emit_control_flow_instruction(struct vkd3d_dxbc_c
 
         case VKD3DSIH_RETP:
             vkd3d_dxbc_compiler_emit_retc(compiler, instruction);
+            compiler->control_flow_has_early_return = true;
             break;
 
         case VKD3DSIH_DISCARD:
