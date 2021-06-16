@@ -2241,6 +2241,7 @@ struct vkd3d_dxbc_compiler
     struct vkd3d_spirv_builder spirv_builder;
 
     uint32_t options;
+    uint32_t quirks;
 
     struct rb_tree symbol_table;
     uint32_t temp_id;
@@ -2349,6 +2350,21 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
 
     compiler->shader_version = *shader_version;
     compiler->descriptor_qa_shader_hash = shader_hash;
+
+    if (compile_args && compile_args->quirks)
+    {
+        for (i = 0; i < compile_args->quirks->num_hashes; i++)
+        {
+            if (compile_args->quirks->hashes[i].shader_hash == shader_hash)
+            {
+                compiler->quirks = compile_args->quirks->hashes[i].quirks;
+                break;
+            }
+        }
+
+        if (i == compile_args->quirks->num_hashes)
+            compiler->quirks = compile_args->quirks->default_quirks;
+    }
 
     max_element_count = max(output_signature->element_count, patch_constant_signature->element_count);
     if (!(compiler->output_info = vkd3d_calloc(max_element_count, sizeof(*compiler->output_info))))
@@ -9021,6 +9037,12 @@ static void vkd3d_dxbc_compiler_emit_lod(struct vkd3d_dxbc_compiler *compiler,
 
     vkd3d_dxbc_compiler_emit_store_dst_swizzled(compiler,
             dst, val_id, image.sampled_type, resource->swizzle);
+}
+
+static bool vkd3d_dxbc_compiler_has_quirk(struct vkd3d_dxbc_compiler *compiler,
+        enum vkd3d_shader_quirk quirk)
+{
+    return !!(compiler->quirks & quirk);
 }
 
 static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler,

@@ -284,6 +284,32 @@ enum vkd3d_shader_target_extension
     VKD3D_SHADER_TARGET_EXTENSION_READ_STORAGE_IMAGE_WITHOUT_FORMAT
 };
 
+enum vkd3d_shader_quirk
+{
+    /* If sample or sample_b is used in control flow, force LOD 0.0 (which game should expect anyway).
+     * Works around specific, questionable shaders which rely on this to give sensible results,
+     * since LOD can become garbage on certain implementations, and even on native drivers
+     * the result is implementation defined.
+     * Outside of making this edge case well-defined in Vulkan or hacking driver compilers,
+     * this is the pragmatic solution.
+     * Hoisting gradients is not possible in all cases,
+     * and would not be worth it until it's a widespread problem. */
+    VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW = (1 << 0)
+};
+
+struct vkd3d_shader_quirk_hash
+{
+    vkd3d_shader_hash_t shader_hash;
+    uint32_t quirks;
+};
+
+struct vkd3d_shader_quirk_info
+{
+    const struct vkd3d_shader_quirk_hash *hashes;
+    unsigned int num_hashes;
+    uint32_t default_quirks;
+};
+
 struct vkd3d_shader_compile_arguments
 {
     enum vkd3d_shader_target target;
@@ -299,6 +325,7 @@ struct vkd3d_shader_compile_arguments
     unsigned int output_swizzle_count;
 
     uint64_t config_flags;
+    const struct vkd3d_shader_quirk_info *quirks;
 };
 
 enum vkd3d_tessellator_output_primitive
