@@ -868,6 +868,7 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     compile_args.target_extension_count = object->device->vk_info.shader_extension_count;
     compile_args.target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
     compile_args.config_flags = vkd3d_config_flags;
+    compile_args.quirks = vkd3d_shader_quirk_info;
 
     /* TODO: Allow different root signatures per module. */
     memset(&shader_interface_info, 0, sizeof(shader_interface_info));
