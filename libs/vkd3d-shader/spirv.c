@@ -9058,6 +9058,7 @@ static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler
     struct vkd3d_shader_image image;
     unsigned int num_coordinates;
     uint32_t image_operands[4];
+    bool force_explicit_lod;
     DWORD coordinate_mask;
     bool is_sparse_op;
     SpvOp op;
@@ -9074,18 +9075,44 @@ static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler
     if ((is_sparse_op = (instruction->dst_count > 1 && dst[1].reg.type != VKD3DSPR_NULL)))
         vkd3d_spirv_enable_capability(builder, SpvCapabilitySparseResidency);
 
+    /* Workaround */
     switch (instruction->handler_idx)
     {
         case VKD3DSIH_SAMPLE:
         case VKD3DSIH_SAMPLE_FEEDBACK:
-            op = is_sparse_op ? SpvOpImageSparseSampleImplicitLod : SpvOpImageSampleImplicitLod;
+        case VKD3DSIH_SAMPLE_B:
+        case VKD3DSIH_SAMPLE_B_FEEDBACK:
+            force_explicit_lod = (compiler->control_flow_depth || compiler->control_flow_has_early_return) &&
+                    vkd3d_dxbc_compiler_has_quirk(compiler, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW);
+            break;
+
+        default:
+            force_explicit_lod = false;
+            break;
+    }
+
+    switch (instruction->handler_idx)
+    {
+        case VKD3DSIH_SAMPLE:
+        case VKD3DSIH_SAMPLE_FEEDBACK:
+            if (force_explicit_lod)
+                op = is_sparse_op ? SpvOpImageSparseSampleExplicitLod : SpvOpImageSampleExplicitLod;
+            else
+                op = is_sparse_op ? SpvOpImageSparseSampleImplicitLod : SpvOpImageSampleImplicitLod;
             break;
         case VKD3DSIH_SAMPLE_B:
         case VKD3DSIH_SAMPLE_B_FEEDBACK:
-            op = is_sparse_op ? SpvOpImageSparseSampleImplicitLod : SpvOpImageSampleImplicitLod;
-            operands_mask |= SpvImageOperandsBiasMask;
-            image_operands[image_operand_count++] = vkd3d_dxbc_compiler_emit_load_src(compiler,
-                    &src[3], VKD3DSP_WRITEMASK_0);
+            if (force_explicit_lod)
+            {
+                op = is_sparse_op ? SpvOpImageSparseSampleExplicitLod : SpvOpImageSampleExplicitLod;
+            }
+            else
+            {
+                op = is_sparse_op ? SpvOpImageSparseSampleImplicitLod : SpvOpImageSampleImplicitLod;
+                operands_mask |= SpvImageOperandsBiasMask;
+                image_operands[image_operand_count++] = vkd3d_dxbc_compiler_emit_load_src(compiler,
+                        &src[3], VKD3DSP_WRITEMASK_0);
+            }
             break;
         case VKD3DSIH_SAMPLE_GRAD:
         case VKD3DSIH_SAMPLE_GRAD_FEEDBACK:
@@ -9107,6 +9134,12 @@ static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler
         default:
             ERR("Unexpected instruction %#x.\n", instruction->handler_idx);
             return;
+    }
+
+    if (force_explicit_lod)
+    {
+        operands_mask |= SpvImageOperandsLodMask;
+        image_operands[image_operand_count++] = vkd3d_dxbc_compiler_get_constant_float(compiler, 0.0f);
     }
 
     if (vkd3d_shader_instruction_has_texel_offset(instruction))
