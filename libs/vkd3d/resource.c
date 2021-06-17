@@ -2552,6 +2552,24 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
         /* Align manually. This works because we padded the required allocation size reported to the app. */
         VK_CALL(vkGetImageMemoryRequirements(device->vk_device, object->res.vk_image, &memory_requirements));
         heap_offset = align(heap_offset, memory_requirements.alignment);
+
+        if (heap_offset + memory_requirements.size > heap->allocation.resource.size)
+        {
+            ERR("Heap too small for the texture (heap=%"PRIu64", res=%"PRIu64".\n",
+                heap->allocation.resource.size, heap_offset + memory_requirements.size);
+            hr = E_INVALIDARG;
+            goto fail;
+        }
+    }
+    else
+    {
+        if (heap_offset + desc->Width > heap->allocation.resource.size)
+        {
+            ERR("Heap too small for the buffer (heap=%"PRIu64", res=%"PRIu64".\n",
+                heap->allocation.resource.size, heap_offset + desc->Width);
+            hr = E_INVALIDARG;
+            goto fail;
+        }
     }
 
     vkd3d_memory_allocation_slice(&object->mem, &heap->allocation, heap_offset, 0);
