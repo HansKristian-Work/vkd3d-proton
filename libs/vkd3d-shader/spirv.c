@@ -7633,6 +7633,9 @@ static void vkd3d_dxbc_compiler_emit_ext_glsl_instruction(struct vkd3d_dxbc_comp
                 vkd3d_dxbc_compiler_get_constant_uint(compiler, 31), val_id);
     }
 
+    if (glsl_inst == GLSLstd450Fma && (instruction->flags & VKD3DSI_PRECISE_XYZW))
+        vkd3d_spirv_build_op_decorate(builder, val_id, SpvDecorationNoContraction, NULL, 0);
+
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
