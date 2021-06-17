@@ -2770,6 +2770,9 @@ static size_t get_query_heap_stride(D3D12_QUERY_HEAP_TYPE heap_type)
     return sizeof(uint64_t);
 }
 
+static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *list,
+        VkPipelineBindPoint bind_point, bool invalidate_descriptor_heaps);
+
 static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list *list)
 {
     /* TODO allocate arrays from command allocator in case
@@ -3069,6 +3072,9 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
 
     list->pending_queries_count = 0;
     result = true;
+
+    d3d12_command_list_invalidate_current_pipeline(list, true);
+    d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_COMPUTE, true);
 
 cleanup:
     vkd3d_free(resolves);
