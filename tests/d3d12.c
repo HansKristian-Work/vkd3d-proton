@@ -2321,6 +2321,72 @@ done:
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+static void test_create_placed_resource_size(void)
+{
+    D3D12_RESOURCE_ALLOCATION_INFO info;
+    unsigned int mip_sizes[11], i;
+    D3D12_HEAP_DESC heap_desc;
+    D3D12_RESOURCE_DESC desc;
+    ID3D12Resource *resource;
+    ID3D12Device *device;
+    ID3D12Heap *heap;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    memset(&desc, 0, sizeof(desc));
+    desc.Format = DXGI_FORMAT_R11G11B10_FLOAT;
+    desc.DepthOrArraySize = 1;
+    desc.Width = 540;
+    desc.Height = 540;
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    desc.SampleDesc.Count = 1;
+    desc.SampleDesc.Quality = 0;
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS | D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+    for (i = 1; i < ARRAY_SIZE(mip_sizes); i++)
+    {
+        desc.MipLevels = i;
+        info = ID3D12Device_GetResourceAllocationInfo(device, 0, 1, &desc);
+        mip_sizes[i] = info.SizeInBytes;
+#if 0
+        /* RADV fails this check, but native driver does not.
+         * It is probably legal for a driver to have non-monotonic resource sizes here. */
+        if (i > 1)
+            ok(mip_sizes[i] >= mip_sizes[i - 1], "Resource size is not monotonically increasing (%u < %u).\n", mip_sizes[i], mip_sizes[i - 1]);
+#endif
+    }
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.Alignment = 0;
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap_desc.SizeInBytes = mip_sizes[ARRAY_SIZE(mip_sizes) - 1];
+    hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
+    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n", hr);
+
+    hr = ID3D12Device_CreatePlacedResource(device, heap, 0, &desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&resource);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+
+    ID3D12Resource_Release(resource);
+    ID3D12Heap_Release(heap);
+
+    heap_desc.SizeInBytes = 64 * 1024;
+    hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
+    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n", hr);
+
+    /* Runtime validates range, this must fail. */
+    hr = ID3D12Device_CreatePlacedResource(device, heap, 0, &desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == E_INVALIDARG, "Unexpected result, hr #%x.\n", hr);
+
+    ID3D12Heap_Release(heap);
+    ID3D12Device_Release(device);
+}
+
 static void test_create_placed_resource(void)
 {
     D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
@@ -51447,6 +51513,7 @@ START_TEST(d3d12)
     run_test(test_create_committed_resource);
     run_test(test_create_heap);
     run_test(test_create_placed_resource);
+    run_test(test_create_placed_resource_size);
     run_test(test_create_reserved_resource);
     run_test(test_create_descriptor_heap);
     run_test(test_create_sampler);
