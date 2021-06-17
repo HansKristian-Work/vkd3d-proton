@@ -294,7 +294,11 @@ enum vkd3d_shader_quirk
      * this is the pragmatic solution.
      * Hoisting gradients is not possible in all cases,
      * and would not be worth it until it's a widespread problem. */
-    VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW = (1 << 0)
+    VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW = (1 << 0),
+
+    /* After every write to group shared memory, force a memory barrier.
+     * This works around buggy games which forget to use barrier(). */
+    VKD3D_SHADER_QUIRK_FORCE_TGSM_BARRIERS = (1 << 1),
 };
 
 struct vkd3d_shader_quirk_hash
@@ -324,7 +328,6 @@ struct vkd3d_shader_compile_arguments
     const unsigned int *output_swizzles;
     unsigned int output_swizzle_count;
 
-    uint64_t config_flags;
     const struct vkd3d_shader_quirk_info *quirks;
 };
 

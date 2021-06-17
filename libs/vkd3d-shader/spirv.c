@@ -9767,7 +9767,7 @@ static void vkd3d_dxbc_compiler_emit_store_tgsm(struct vkd3d_dxbc_compiler *comp
         vkd3d_spirv_build_op_store(builder, ptr_id, data_id, SpvMemoryAccessMaskNone);
     }
 
-    if (compiler->compile_args->config_flags & VKD3D_CONFIG_FLAG_FORCE_TGSM_BARRIERS)
+    if (vkd3d_dxbc_compiler_has_quirk(compiler, VKD3D_SHADER_QUIRK_FORCE_TGSM_BARRIERS))
         vkd3d_dxbc_compiler_emit_tgsm_barrier(compiler);
 }
 
