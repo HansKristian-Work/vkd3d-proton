@@ -416,8 +416,6 @@ struct vkd3d_instance_application_meta
     uint64_t global_flags_remove;
 };
 static const struct vkd3d_instance_application_meta application_override[] = {
-    /* F1 2020 (1080110) */
-    { "F1_2020_dx12.exe", VKD3D_CONFIG_FLAG_FORCE_TGSM_BARRIERS, 0 },
     /* MSVC fails to compile empty array. */
     { NULL, 0, 0 }
 };
@@ -436,9 +434,15 @@ static const struct vkd3d_shader_quirk_info necromunda_quirks = {
     necromunda_hashes, ARRAY_SIZE(necromunda_hashes), 0,
 };
 
+static const struct vkd3d_shader_quirk_info f1_2020_quirks = {
+    NULL, 0, VKD3D_SHADER_QUIRK_FORCE_TGSM_BARRIERS,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* Necromunda: Hired Gun (1222370) */
     { "Necromunda-Win64-Shipping.exe", &necromunda_quirks },
+    /* F1 2020 (1080110) */
+    { "F1_2020_dx12.exe", &f1_2020_quirks },
 };
 
 static void vkd3d_instance_apply_application_workarounds(void)
@@ -480,7 +484,6 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"force_static_cbv", VKD3D_CONFIG_FLAG_FORCE_STATIC_CBV},
     {"dxr", VKD3D_CONFIG_FLAG_DXR},
     {"single_queue", VKD3D_CONFIG_FLAG_SINGLE_QUEUE},
-    {"force_tgsm_barriers", VKD3D_CONFIG_FLAG_FORCE_TGSM_BARRIERS},
     {"descriptor_qa_checks", VKD3D_CONFIG_FLAG_DESCRIPTOR_QA_CHECKS},
 };
 
