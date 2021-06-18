@@ -34,7 +34,7 @@ These extensions will likely become mandatory later.
 
 `VK_VALVE_mutable_descriptor_type` is also highly recommended, but not mandatory.
 
-### AMD (RADV / ACO)
+### AMD (RADV)
 
 For AMD, RADV is the recommended driver and the one that sees most testing on AMD GPUs.
 The recommendation here is to use a driver built from Git.
@@ -316,7 +316,7 @@ Failed heap index: 1029
 ==========
 ```
 
-### Debugging descriptor crashes with RADV/ACO dumps (hardcore ultra nightmare mode)
+### Debugging descriptor crashes with RADV dumps (hardcore ultra nightmare mode)
 
 For when you're absolutely desperate, there is a way to debug GPU hangs.
 First, install [umr](https://gitlab.freedesktop.org/tomstdenis/umr) and make the binary setsuid.
