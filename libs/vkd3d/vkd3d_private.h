@@ -845,6 +845,8 @@ bool d3d12_resource_is_cpu_accessible(const struct d3d12_resource *resource);
 HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc, struct d3d12_device *device);
 VkImageSubresource d3d12_resource_get_vk_subresource(const struct d3d12_resource *resource,
         uint32_t subresource_idx, bool all_aspects);
+VkImageAspectFlags vk_image_aspect_flags_from_d3d12(
+        const struct vkd3d_format *format, uint32_t plane_idx);
 VkImageSubresource vk_image_subresource_from_d3d12(
         const struct vkd3d_format *format, uint32_t subresource_idx,
         unsigned int miplevel_count, unsigned int layer_count,
