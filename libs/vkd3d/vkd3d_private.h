@@ -734,6 +734,7 @@ enum vkd3d_resource_flag
     VKD3D_RESOURCE_LINEAR_TILING          = (1u << 4),
     VKD3D_RESOURCE_EXTERNAL               = (1u << 5),
     VKD3D_RESOURCE_ACCELERATION_STRUCTURE = (1u << 6),
+    VKD3D_RESOURCE_SIMULTANEOUS_ACCESS    = (1u << 7),
 };
 
 struct d3d12_sparse_image_region
@@ -836,7 +837,8 @@ static inline bool d3d12_resource_is_texture(const struct d3d12_resource *resour
 
 static inline VkImageLayout d3d12_resource_pick_layout(const struct d3d12_resource *resource, VkImageLayout layout)
 {
-    return resource->flags & VKD3D_RESOURCE_LINEAR_TILING ? VK_IMAGE_LAYOUT_GENERAL : layout;
+    return resource->flags & (VKD3D_RESOURCE_LINEAR_TILING | VKD3D_RESOURCE_SIMULTANEOUS_ACCESS) ?
+            resource->common_layout : layout;
 }
 
 LONG64 vkd3d_allocate_cookie();

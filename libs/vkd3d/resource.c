@@ -565,6 +565,9 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
         }
         else
             resource->common_layout = vk_common_image_layout_from_d3d12_desc(desc);
+
+        if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS)
+            resource->flags |= VKD3D_RESOURCE_SIMULTANEOUS_ACCESS;
     }
 
     if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, vk_image))) < 0)
