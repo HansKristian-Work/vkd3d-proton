@@ -1757,6 +1757,27 @@ struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface)
     return unsafe_impl_from_ID3D12Resource1((ID3D12Resource1 *)iface);
 }
 
+VkImageAspectFlags vk_image_aspect_flags_from_d3d12(
+        const struct vkd3d_format *format, uint32_t plane_idx)
+{
+    VkImageAspectFlags aspect_mask = format->vk_aspect_mask;
+    uint32_t i;
+
+    /* For all formats we currently handle, the n-th aspect bit in Vulkan
+     * corresponds to the n-th plane in D3D12, so isolate the respective
+     * bit in the aspect mask. */
+    for (i = 0; i < plane_idx; i++)
+        aspect_mask &= aspect_mask - 1;
+
+    if (!aspect_mask)
+    {
+        WARN("Invalid plane index %u for format %u.\n", plane_idx, format->vk_format);
+        aspect_mask = format->vk_aspect_mask;
+    }
+
+    return aspect_mask & -aspect_mask;
+}
+
 VkImageSubresource vk_image_subresource_from_d3d12(
         const struct vkd3d_format *format, uint32_t subresource_idx,
         unsigned int miplevel_count, unsigned int layer_count,
@@ -1770,15 +1791,8 @@ VkImageSubresource vk_image_subresource_from_d3d12(
 
     if (!all_aspects)
     {
-        /* For all formats we currently handle, the n-th aspect bit in Vulkan
-         * corresponds to the n-th plane in D3D12, so isolate the respective
-         * bit in the aspect mask. */
-        uint32_t i, plane_idx = subresource_idx / (miplevel_count * layer_count);
-
-        for (i = 0; i < plane_idx; i++)
-            subresource.aspectMask &= (subresource.aspectMask - 1);
-
-        subresource.aspectMask &= -subresource.aspectMask;
+        subresource.aspectMask = vk_image_aspect_flags_from_d3d12(
+                format, subresource_idx / (miplevel_count * layer_count));
     }
 
     return subresource;
@@ -3834,8 +3848,7 @@ static void vkd3d_create_texture_srv(struct d3d12_desc *descriptor,
                 key.u.texture.miplevel_idx = desc->Texture2D.MostDetailedMip;
                 key.u.texture.miplevel_count = desc->Texture2D.MipLevels;
                 key.u.texture.layer_count = 1;
-                if (desc->Texture2D.PlaneSlice)
-                    FIXME_ONCE("Ignoring plane slice %u.\n", desc->Texture2D.PlaneSlice);
+                key.u.texture.aspect_mask = vk_image_aspect_flags_from_d3d12(resource->format, desc->Texture2D.PlaneSlice);
                 if (desc->Texture2D.ResourceMinLODClamp)
                     FIXME_ONCE("Unhandled min LOD clamp %.8e.\n", desc->Texture2D.ResourceMinLODClamp);
                 break;
@@ -3845,8 +3858,7 @@ static void vkd3d_create_texture_srv(struct d3d12_desc *descriptor,
                 key.u.texture.miplevel_count = desc->Texture2DArray.MipLevels;
                 key.u.texture.layer_idx = desc->Texture2DArray.FirstArraySlice;
                 key.u.texture.layer_count = desc->Texture2DArray.ArraySize;
-                if (desc->Texture2DArray.PlaneSlice)
-                    FIXME_ONCE("Ignoring plane slice %u.\n", desc->Texture2DArray.PlaneSlice);
+                key.u.texture.aspect_mask = vk_image_aspect_flags_from_d3d12(resource->format, desc->Texture2DArray.PlaneSlice);
                 if (desc->Texture2DArray.ResourceMinLODClamp)
                     FIXME_ONCE("Unhandled min LOD clamp %.8e.\n", desc->Texture2DArray.ResourceMinLODClamp);
                 break;
@@ -4189,16 +4201,14 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
                 key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D;
                 key.u.texture.miplevel_idx = desc->Texture2D.MipSlice;
                 key.u.texture.layer_count = 1;
-                if (desc->Texture2D.PlaneSlice)
-                    FIXME("Ignoring plane slice %u.\n", desc->Texture2D.PlaneSlice);
+                key.u.texture.aspect_mask = vk_image_aspect_flags_from_d3d12(resource->format, desc->Texture2D.PlaneSlice);
                 break;
             case D3D12_UAV_DIMENSION_TEXTURE2DARRAY:
                 key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
                 key.u.texture.miplevel_idx = desc->Texture2DArray.MipSlice;
                 key.u.texture.layer_idx = desc->Texture2DArray.FirstArraySlice;
                 key.u.texture.layer_count = desc->Texture2DArray.ArraySize;
-                if (desc->Texture2DArray.PlaneSlice)
-                    FIXME("Ignoring plane slice %u.\n", desc->Texture2DArray.PlaneSlice);
+                key.u.texture.aspect_mask = vk_image_aspect_flags_from_d3d12(resource->format, desc->Texture2DArray.PlaneSlice);
                 break;
             case D3D12_UAV_DIMENSION_TEXTURE3D:
                 key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_3D;
@@ -4603,16 +4613,14 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
                 key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D;
                 key.u.texture.miplevel_idx = desc->Texture2D.MipSlice;
                 key.u.texture.layer_count = 1;
-                if (desc->Texture2D.PlaneSlice)
-                    FIXME("Ignoring plane slice %u.\n", desc->Texture2D.PlaneSlice);
+                key.u.texture.aspect_mask = vk_image_aspect_flags_from_d3d12(resource->format, desc->Texture2D.PlaneSlice);
                 break;
             case D3D12_RTV_DIMENSION_TEXTURE2DARRAY:
                 key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
                 key.u.texture.miplevel_idx = desc->Texture2DArray.MipSlice;
                 key.u.texture.layer_idx = desc->Texture2DArray.FirstArraySlice;
                 key.u.texture.layer_count = desc->Texture2DArray.ArraySize;
-                if (desc->Texture2DArray.PlaneSlice)
-                    FIXME("Ignoring plane slice %u.\n", desc->Texture2DArray.PlaneSlice);
+                key.u.texture.aspect_mask = vk_image_aspect_flags_from_d3d12(resource->format, desc->Texture2DArray.PlaneSlice);
                 break;
             case D3D12_RTV_DIMENSION_TEXTURE2DMS:
                 key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D;
