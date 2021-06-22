@@ -4367,7 +4367,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
         return;
     }
 
-    if (!vkd3d_acceleration_structure_convert_inputs(&build_info, desc))
+    if (!vkd3d_acceleration_structure_convert_inputs(device, &build_info, desc))
     {
         ERR("Failed to convert inputs.\n");
         memset(info, 0, sizeof(*info));

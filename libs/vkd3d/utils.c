@@ -483,6 +483,16 @@ const struct vkd3d_format *vkd3d_get_format(const struct d3d12_device *device,
     return format->dxgi_format ? format : NULL;
 }
 
+VkFormat vkd3d_internal_get_vk_format(const struct d3d12_device *device, DXGI_FORMAT dxgi_format)
+{
+    const struct vkd3d_format *format;
+
+    if ((format = vkd3d_get_format(device, dxgi_format, false)))
+        return format->vk_format;
+
+    return VK_FORMAT_UNDEFINED;
+}
+
 DXGI_FORMAT vkd3d_get_typeless_format(const struct d3d12_device *device, DXGI_FORMAT dxgi_format)
 {
     const struct vkd3d_format *format = vkd3d_get_format(device, dxgi_format, true);
