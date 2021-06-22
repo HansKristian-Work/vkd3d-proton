@@ -688,7 +688,8 @@ static VkFormat get_swapchain_fallback_format(VkFormat vk_format)
     }
 }
 
-static HRESULT select_vk_format(const struct vkd3d_vk_device_procs *vk_procs,
+static HRESULT select_vk_format(const struct d3d12_device *device,
+        const struct vkd3d_vk_device_procs *vk_procs,
         VkPhysicalDevice vk_physical_device, VkSurfaceKHR vk_surface,
         const DXGI_SWAP_CHAIN_DESC1 *swapchain_desc, VkFormat *vk_format)
 {
@@ -700,7 +701,7 @@ static HRESULT select_vk_format(const struct vkd3d_vk_device_procs *vk_procs,
 
     *vk_format = VK_FORMAT_UNDEFINED;
 
-    format = vkd3d_get_vk_format(swapchain_desc->Format);
+    format = vkd3d_internal_get_vk_format(device, swapchain_desc->Format);
 
     vr = vk_procs->vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, vk_surface, &format_count, NULL);
     if (vr < 0 || !format_count)
@@ -1369,8 +1370,9 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
 {
     VkPhysicalDevice vk_physical_device = d3d12_swapchain_device(swapchain)->vk_physical_device;
     const struct vkd3d_vk_device_procs *vk_procs = d3d12_swapchain_procs(swapchain);
-    VkSwapchainCreateInfoKHR vk_swapchain_desc;
+    const struct d3d12_device *device = d3d12_swapchain_device(swapchain);
     VkDevice vk_device = d3d12_swapchain_device(swapchain)->vk_device;
+    VkSwapchainCreateInfoKHR vk_swapchain_desc;
     VkFormat vk_format, vk_swapchain_format;
     unsigned int width, height, image_count;
     VkSurfaceCapabilitiesKHR surface_caps;
@@ -1379,13 +1381,13 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
     VkResult vr;
     HRESULT hr;
 
-    if (!(vk_format = vkd3d_get_vk_format(swapchain->desc.Format)))
+    if (!(vk_format = vkd3d_internal_get_vk_format(device, swapchain->desc.Format)))
     {
         WARN("Invalid format %#x.\n", swapchain->desc.Format);
         return DXGI_ERROR_INVALID_CALL;
     }
 
-    if (FAILED(hr = select_vk_format(vk_procs, vk_physical_device,
+    if (FAILED(hr = select_vk_format(device, vk_procs, vk_physical_device,
             swapchain->vk_surface, &swapchain->desc, &vk_swapchain_format)))
         return hr;
 

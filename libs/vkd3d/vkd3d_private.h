@@ -2821,6 +2821,7 @@ const struct vkd3d_format *vkd3d_get_format(const struct d3d12_device *device,
 DXGI_FORMAT vkd3d_get_typeless_format(const struct d3d12_device *device, DXGI_FORMAT dxgi_format);
 const struct vkd3d_format *vkd3d_find_uint_format(const struct d3d12_device *device,
         DXGI_FORMAT dxgi_format);
+VkFormat vkd3d_internal_get_vk_format(const struct d3d12_device *device, DXGI_FORMAT dxgi_format);
 
 HRESULT vkd3d_init_format_info(struct d3d12_device *device);
 void vkd3d_cleanup_format_info(struct d3d12_device *device);
@@ -3000,7 +3001,7 @@ struct vkd3d_acceleration_structure_build_info
 
 void vkd3d_acceleration_structure_build_info_cleanup(
         struct vkd3d_acceleration_structure_build_info *info);
-bool vkd3d_acceleration_structure_convert_inputs(
+bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *device,
         struct vkd3d_acceleration_structure_build_info *info,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc);
 void vkd3d_acceleration_structure_emit_postbuild_info(

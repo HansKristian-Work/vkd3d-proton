@@ -63,7 +63,7 @@ static VkGeometryFlagsKHR d3d12_geometry_flags_to_vk(D3D12_RAYTRACING_GEOMETRY_F
     return vk_flags;
 }
 
-bool vkd3d_acceleration_structure_convert_inputs(
+bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *device,
         struct vkd3d_acceleration_structure_build_info *info,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc)
 {
@@ -158,7 +158,7 @@ bool vkd3d_acceleration_structure_convert_inputs(
 
                     triangles->maxVertex = max(1, geom_desc->Triangles.VertexCount) - 1;
                     triangles->vertexStride = geom_desc->Triangles.VertexBuffer.StrideInBytes;
-                    triangles->vertexFormat = vkd3d_get_vk_format(geom_desc->Triangles.VertexFormat);
+                    triangles->vertexFormat = vkd3d_internal_get_vk_format(device, geom_desc->Triangles.VertexFormat);
                     triangles->vertexData.deviceAddress = geom_desc->Triangles.VertexBuffer.StartAddress;
                     triangles->transformData.deviceAddress = geom_desc->Triangles.Transform3x4;
                     break;
