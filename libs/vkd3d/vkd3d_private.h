@@ -2608,6 +2608,7 @@ struct d3d12_device
 
     HRESULT removed_reason;
 
+    const struct vkd3d_format *formats;
     const struct vkd3d_format *depth_stencil_formats;
     unsigned int format_compatibility_list_count;
     const struct vkd3d_format_compatibility_list *format_compatibility_lists;
