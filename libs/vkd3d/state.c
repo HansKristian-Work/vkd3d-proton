@@ -1851,7 +1851,7 @@ struct vkd3d_compiled_pipeline
     struct list entry;
     struct vkd3d_pipeline_key key;
     VkPipeline vk_pipeline;
-    VkRenderPass vk_render_pass;
+    struct vkd3d_render_pass_compatibility render_pass_compat;
     uint32_t dynamic_state_flags;
 };
 
@@ -2673,10 +2673,12 @@ static unsigned int vkd3d_get_rt_format_swizzle(const struct vkd3d_format *forma
 
 STATIC_ASSERT(sizeof(struct vkd3d_shader_transform_feedback_element) == sizeof(D3D12_SO_DECLARATION_ENTRY));
 
-static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
+static HRESULT d3d12_graphics_pipeline_state_create_render_pass_for_plane_mask(
         struct d3d12_graphics_pipeline_state *graphics, struct d3d12_device *device,
         const struct vkd3d_format *dynamic_dsv_format,
-        VkRenderPass *vk_render_pass, VkImageLayout *dsv_layout,
+        uint32_t plane_optimal_mask,
+        VkRenderPass *vk_render_pass,
+        uint32_t *out_plane_optimal_mask,
         uint32_t variant_flags)
 {
     VkFormat dsv_format = VK_FORMAT_UNDEFINED;
@@ -2705,21 +2707,35 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
 
         if (aspects & VK_IMAGE_ASPECT_DEPTH_BIT)
         {
-            if (graphics->ds_desc.depthTestEnable || graphics->ds_desc.depthBoundsTestEnable)
+            if (plane_optimal_mask & VKD3D_DEPTH_PLANE_OPTIMAL)
+            {
+                key.flags |= VKD3D_RENDER_PASS_KEY_DEPTH_ENABLE | VKD3D_RENDER_PASS_KEY_DEPTH_WRITE;
+            }
+            else if (graphics->ds_desc.depthTestEnable || graphics->ds_desc.depthBoundsTestEnable)
             {
                 key.flags |= VKD3D_RENDER_PASS_KEY_DEPTH_ENABLE;
                 if (graphics->ds_desc.depthWriteEnable)
+                {
                     key.flags |= VKD3D_RENDER_PASS_KEY_DEPTH_WRITE;
+                    plane_optimal_mask |= VKD3D_DEPTH_PLANE_OPTIMAL;
+                }
             }
         }
 
         if (aspects & VK_IMAGE_ASPECT_STENCIL_BIT)
         {
-            if (graphics->ds_desc.stencilTestEnable)
+            if (plane_optimal_mask & VKD3D_STENCIL_PLANE_OPTIMAL)
+            {
+                key.flags |= VKD3D_RENDER_PASS_KEY_STENCIL_ENABLE | VKD3D_RENDER_PASS_KEY_STENCIL_WRITE;
+            }
+            else if (graphics->ds_desc.stencilTestEnable)
             {
                 key.flags |= VKD3D_RENDER_PASS_KEY_STENCIL_ENABLE;
                 if (graphics->ds_desc.front.writeMask != 0)
+                {
                     key.flags |= VKD3D_RENDER_PASS_KEY_STENCIL_WRITE;
+                    plane_optimal_mask |= VKD3D_STENCIL_PLANE_OPTIMAL;
+                }
             }
         }
 
@@ -2732,6 +2748,7 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
                     VKD3D_RENDER_PASS_KEY_DEPTH_ENABLE : 0;
             key.flags |= (key.flags & VKD3D_RENDER_PASS_KEY_STENCIL_WRITE) ?
                     VKD3D_RENDER_PASS_KEY_DEPTH_WRITE : 0;
+            plane_optimal_mask |= (plane_optimal_mask & VKD3D_STENCIL_PLANE_OPTIMAL) ? VKD3D_DEPTH_PLANE_OPTIMAL : 0;
         }
 
         if (!(aspects & VK_IMAGE_ASPECT_STENCIL_BIT))
@@ -2740,6 +2757,7 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
                     VKD3D_RENDER_PASS_KEY_STENCIL_ENABLE : 0;
             key.flags |= (key.flags & VKD3D_RENDER_PASS_KEY_DEPTH_WRITE) ?
                     VKD3D_RENDER_PASS_KEY_STENCIL_WRITE : 0;
+            plane_optimal_mask |= (plane_optimal_mask & VKD3D_DEPTH_PLANE_OPTIMAL) ? VKD3D_STENCIL_PLANE_OPTIMAL : 0;
         }
 
         key.vk_formats[key.attachment_count++] = dsv_format;
@@ -2755,10 +2773,39 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
 
     key.sample_count = graphics->ms_desc.rasterizationSamples;
 
-    if (dsv_layout)
-        *dsv_layout = vkd3d_render_pass_get_depth_stencil_layout(&key);
+    if (out_plane_optimal_mask)
+    {
+        /* Represents the aspects which the PSO will write to, i.e. DEPTH_WRITE state is required to
+         * draw using this PSO. */
+        *out_plane_optimal_mask = plane_optimal_mask;
+    }
 
     return vkd3d_render_pass_cache_find(&device->render_pass_cache, device, &key, vk_render_pass);
+}
+
+static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
+        struct d3d12_graphics_pipeline_state *graphics, struct d3d12_device *device,
+        const struct vkd3d_format *dynamic_dsv_format,
+        struct vkd3d_render_pass_compatibility *render_pass_compat,
+        uint32_t *out_plane_optimal_mask,
+        uint32_t variant_flags)
+{
+    uint32_t plane_optimal_mask;
+    HRESULT hr;
+
+    for (plane_optimal_mask = 0; plane_optimal_mask < ARRAY_SIZE(render_pass_compat->dsv_layouts);
+         plane_optimal_mask++)
+    {
+        if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass_for_plane_mask(
+                graphics, device, dynamic_dsv_format,
+                plane_optimal_mask, &render_pass_compat->dsv_layouts[plane_optimal_mask],
+                plane_optimal_mask == 0 ? out_plane_optimal_mask : NULL, variant_flags)))
+        {
+            return hr;
+        }
+    }
+
+    return S_OK;
 }
 
 static bool vk_blend_factor_needs_blend_constants(VkBlendFactor blend_factor)
@@ -3440,7 +3487,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
                 continue;
 
             if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics,
-                device, NULL, &graphics->render_pass[i], &graphics->dsv_layout, i)))
+                device, NULL, &graphics->render_pass[i], &graphics->dsv_plane_optimal_mask, i)))
                 goto fail;
         }
     }
@@ -3645,13 +3692,15 @@ enum VkPrimitiveTopology vk_topology_from_d3d12_topology(D3D12_PRIMITIVE_TOPOLOG
 }
 
 static VkPipeline d3d12_pipeline_state_find_compiled_pipeline(struct d3d12_pipeline_state *state,
-        const struct vkd3d_pipeline_key *key, VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags)
+        const struct vkd3d_pipeline_key *key,
+        const struct vkd3d_render_pass_compatibility **render_pass_compat,
+        uint32_t *dynamic_state_flags)
 {
     const struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     VkPipeline vk_pipeline = VK_NULL_HANDLE;
     struct vkd3d_compiled_pipeline *current;
 
-    *vk_render_pass = VK_NULL_HANDLE;
+    *render_pass_compat = NULL;
 
     rw_spinlock_acquire_read(&state->lock);
     LIST_FOR_EACH_ENTRY(current, &graphics->compiled_fallback_pipelines, struct vkd3d_compiled_pipeline, entry)
@@ -3659,7 +3708,7 @@ static VkPipeline d3d12_pipeline_state_find_compiled_pipeline(struct d3d12_pipel
         if (!memcmp(&current->key, key, sizeof(*key)))
         {
             vk_pipeline = current->vk_pipeline;
-            *vk_render_pass = current->vk_render_pass;
+            *render_pass_compat = &current->render_pass_compat;
             *dynamic_state_flags = current->dynamic_state_flags;
             break;
         }
@@ -3670,7 +3719,9 @@ static VkPipeline d3d12_pipeline_state_find_compiled_pipeline(struct d3d12_pipel
 }
 
 static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_state *state,
-        const struct vkd3d_pipeline_key *key, VkPipeline vk_pipeline, VkRenderPass vk_render_pass,
+        const struct vkd3d_pipeline_key *key, VkPipeline vk_pipeline,
+        const struct vkd3d_render_pass_compatibility *render_pass_compat,
+        const struct vkd3d_render_pass_compatibility **out_render_pass_compat,
         uint32_t dynamic_state_flags)
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
@@ -3681,8 +3732,9 @@ static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_sta
 
     compiled_pipeline->key = *key;
     compiled_pipeline->vk_pipeline = vk_pipeline;
-    compiled_pipeline->vk_render_pass = vk_render_pass;
+    compiled_pipeline->render_pass_compat = *render_pass_compat;
     compiled_pipeline->dynamic_state_flags = dynamic_state_flags;
+    *out_render_pass_compat = &compiled_pipeline->render_pass_compat;
 
     rw_spinlock_acquire_write(&state->lock);
 
@@ -3705,7 +3757,8 @@ static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_sta
 
 VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_state *state,
         const struct vkd3d_pipeline_key *key, const struct vkd3d_format *dsv_format, VkPipelineCache vk_cache,
-        VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags, uint32_t variant_flags)
+        struct vkd3d_render_pass_compatibility *render_pass_compat,
+        uint32_t *dynamic_state_flags, uint32_t variant_flags)
 {
     VkVertexInputBindingDescription bindings[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     const struct vkd3d_vk_device_procs *vk_procs = &state->device->vk_procs;
@@ -3806,10 +3859,11 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     }
 
     if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics, device, dsv_format,
-            &pipeline_desc.renderPass, &graphics->dsv_layout, variant_flags)))
+            render_pass_compat, &graphics->dsv_plane_optimal_mask, variant_flags)))
         return VK_NULL_HANDLE;
 
-    *vk_render_pass = pipeline_desc.renderPass;
+    /* Any of these is fine from a compatibility PoV. */
+    pipeline_desc.renderPass = render_pass_compat->dsv_layouts[0];
 
     TRACE("Calling vkCreateGraphicsPipelines.\n");
     if ((vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device,
@@ -3860,7 +3914,8 @@ static bool d3d12_pipeline_state_can_use_dynamic_stride(struct d3d12_pipeline_st
 
 VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
         const struct vkd3d_dynamic_state *dyn_state, const struct vkd3d_format *dsv_format,
-        VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags, uint32_t variant_flags)
+        const struct vkd3d_render_pass_compatibility **render_pass_compat,
+        uint32_t *dynamic_state_flags, uint32_t variant_flags)
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
 
@@ -3898,18 +3953,19 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
         return VK_NULL_HANDLE;
     }
 
-    *vk_render_pass = state->graphics.render_pass[variant_flags];
+    *render_pass_compat = &state->graphics.render_pass[variant_flags];
     *dynamic_state_flags = state->graphics.dynamic_state_flags;
     return state->graphics.pipeline[variant_flags];
 }
 
 VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
         const struct vkd3d_dynamic_state *dyn_state, const struct vkd3d_format *dsv_format,
-        VkRenderPass *vk_render_pass,
+        const struct vkd3d_render_pass_compatibility **render_pass_compat,
         uint32_t *dynamic_state_flags, uint32_t variant_flags)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &state->device->vk_procs;
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
+    struct vkd3d_render_pass_compatibility new_render_pass_compat;
     struct d3d12_device *device = state->device;
     struct vkd3d_pipeline_key pipeline_key;
     uint32_t stride, stride_align_mask;
@@ -3958,7 +4014,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
 
     pipeline_key.dsv_format = dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
 
-    if ((vk_pipeline = d3d12_pipeline_state_find_compiled_pipeline(state, &pipeline_key, vk_render_pass,
+    if ((vk_pipeline = d3d12_pipeline_state_find_compiled_pipeline(state, &pipeline_key, render_pass_compat,
             dynamic_state_flags)))
     {
         return vk_pipeline;
@@ -3968,7 +4024,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
         FIXME("Extended dynamic state is supported, but compiling a fallback pipeline late!\n");
 
     vk_pipeline = d3d12_pipeline_state_create_pipeline_variant(state,
-            &pipeline_key, dsv_format, VK_NULL_HANDLE, vk_render_pass, dynamic_state_flags,
+            &pipeline_key, dsv_format, VK_NULL_HANDLE, &new_render_pass_compat, dynamic_state_flags,
             variant_flags);
 
     if (!vk_pipeline)
@@ -3977,11 +4033,15 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
         return VK_NULL_HANDLE;
     }
 
-    if (d3d12_pipeline_state_put_pipeline_to_cache(state, &pipeline_key, vk_pipeline, *vk_render_pass, *dynamic_state_flags))
+    if (d3d12_pipeline_state_put_pipeline_to_cache(state, &pipeline_key, vk_pipeline, &new_render_pass_compat,
+            render_pass_compat, *dynamic_state_flags))
+    {
         return vk_pipeline;
+    }
+
     /* Other thread compiled the pipeline before us. */
     VK_CALL(vkDestroyPipeline(device->vk_device, vk_pipeline, NULL));
-    vk_pipeline = d3d12_pipeline_state_find_compiled_pipeline(state, &pipeline_key, vk_render_pass, dynamic_state_flags);
+    vk_pipeline = d3d12_pipeline_state_find_compiled_pipeline(state, &pipeline_key, render_pass_compat, dynamic_state_flags);
     if (!vk_pipeline)
         ERR("Could not get the pipeline compiled by other thread from the cache.\n");
     return vk_pipeline;

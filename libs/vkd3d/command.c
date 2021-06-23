@@ -56,6 +56,10 @@ static void d3d12_command_list_notify_decay_dsv_resource(struct d3d12_command_li
 static uint32_t d3d12_command_list_notify_dsv_writes(struct d3d12_command_list *list,
         struct d3d12_resource *resource, const struct vkd3d_view *view,
         uint32_t plane_write_mask);
+static void d3d12_command_list_notify_dsv_discard(struct d3d12_command_list *list,
+        struct d3d12_resource *resource,
+        uint32_t first_subresource, uint32_t subresource_count,
+        uint32_t resource_subresource_count);
 static uint32_t d3d12_command_list_get_depth_stencil_resource_layout(const struct d3d12_command_list *list,
         const struct d3d12_resource *resource, uint32_t *plane_optimal_mask);
 static void d3d12_command_list_decay_optimal_dsv_resource(struct d3d12_command_list *list,
@@ -2246,6 +2250,36 @@ static uint32_t d3d12_command_list_notify_dsv_writes(struct d3d12_command_list *
     }
 }
 
+static void d3d12_command_list_notify_dsv_discard(struct d3d12_command_list *list,
+        struct d3d12_resource *resource,
+        uint32_t first_subresource, uint32_t subresource_count,
+        uint32_t resource_subresource_count)
+{
+    if (subresource_count == resource_subresource_count)
+    {
+        d3d12_command_list_promote_dsv_resource(list, resource,
+                VKD3D_DEPTH_PLANE_OPTIMAL | VKD3D_STENCIL_PLANE_OPTIMAL);
+    }
+    else if (resource->format->vk_aspect_mask == (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+    {
+        /* Can we at least discard a plane fully? */
+
+        if (first_subresource == 0 && subresource_count >= resource_subresource_count / 2)
+        {
+            if (resource->format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
+                d3d12_command_list_promote_dsv_resource(list, resource, VKD3D_DEPTH_PLANE_OPTIMAL);
+            else if (resource->format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT)
+                d3d12_command_list_promote_dsv_resource(list, resource, VKD3D_STENCIL_PLANE_OPTIMAL);
+        }
+        else if (first_subresource <= resource_subresource_count / 2 &&
+                first_subresource + subresource_count == resource_subresource_count)
+        {
+            if (resource->format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT)
+                d3d12_command_list_promote_dsv_resource(list, resource, VKD3D_STENCIL_PLANE_OPTIMAL);
+        }
+    }
+}
+
 static void d3d12_command_list_notify_dsv_state(struct d3d12_command_list *list,
         struct d3d12_resource *resource, D3D12_RESOURCE_STATES state, UINT subresource)
 {
@@ -2363,6 +2397,7 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     VkFramebuffer vk_framebuffer;
     VkRenderPass vk_render_pass;
     VkPipelineStageFlags stages;
+    uint32_t plane_write_mask;
     bool separate_ds_layouts;
     VkAccessFlags access;
     VkExtent3D extent;
@@ -2388,7 +2423,7 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
         if (is_bound)
             attachment_desc.initialLayout = list->dsv_layout;
         else
-            attachment_desc.initialLayout = resource->common_layout;
+            attachment_desc.initialLayout = d3d12_command_list_get_depth_stencil_resource_layout(list, resource, NULL);
 
         if (separate_ds_layouts)
         {
@@ -2399,19 +2434,34 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
             attachment_desc.pNext = &stencil_attachment_desc;
         }
 
-        attachment_desc.finalLayout = attachment_desc.initialLayout;
-        stencil_attachment_desc.stencilFinalLayout = stencil_attachment_desc.stencilInitialLayout;
+        /* We have proven a write, try to promote the image layout to something OPTIMAL. */
+        plane_write_mask = 0;
+        if (clear_aspects & VK_IMAGE_ASPECT_DEPTH_BIT)
+            plane_write_mask |= VKD3D_DEPTH_PLANE_OPTIMAL;
+        if (clear_aspects & VK_IMAGE_ASPECT_STENCIL_BIT)
+            plane_write_mask |= VKD3D_STENCIL_PLANE_OPTIMAL;
+
+        attachment_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        attachment_desc.finalLayout = dsv_plane_optimal_mask_to_layout(
+                d3d12_command_list_notify_dsv_writes(list, resource, view, plane_write_mask),
+                resource->format->vk_aspect_mask);
+
+        if (separate_ds_layouts)
+        {
+            stencil_attachment_desc.stencilFinalLayout = vk_separate_stencil_layout(attachment_desc.finalLayout);
+            attachment_desc.finalLayout = vk_separate_depth_layout(attachment_desc.finalLayout);
+        }
     }
     else
     {
         attachment_desc.initialLayout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         attachment_desc.finalLayout = attachment_desc.initialLayout;
     }
 
     attachment_ref.sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2_KHR;
     attachment_ref.pNext = NULL;
     attachment_ref.attachment = 0;
-    attachment_ref.layout = view->info.texture.vk_layout;
     attachment_ref.aspectMask = 0; /* input attachment aspect mask */
 
     if (separate_ds_layouts)
@@ -2618,7 +2668,9 @@ static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_l
     {
         stages = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
         access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        layout = is_bound && list->dsv_layout ? list->dsv_layout : resource->common_layout;
+        layout = is_bound && list->dsv_layout ?
+                list->dsv_layout :
+                d3d12_command_list_get_depth_stencil_resource_layout(list, resource, NULL);
     }
     else
     {
@@ -2799,15 +2851,13 @@ static bool d3d12_resource_requires_shader_visibility_after_transition(
                     new_layout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL);
 }
 
-static VkPipelineStageFlags vk_render_pass_barrier_from_view(const struct vkd3d_view *view, const struct d3d12_resource *resource,
+static VkPipelineStageFlags vk_render_pass_barrier_from_view(struct d3d12_command_list *list,
+        const struct vkd3d_view *view, const struct d3d12_resource *resource,
         enum vkd3d_render_pass_transition_mode mode, VkImageLayout layout, bool clear, VkImageMemoryBarrier *vk_barrier)
 {
     VkImageLayout outside_render_pass_layout;
     VkPipelineStageFlags stages;
     VkAccessFlags access;
-
-    if (!layout)
-        layout = view->info.texture.vk_layout;
 
     if (view->format->vk_aspect_mask & VK_IMAGE_ASPECT_COLOR_BIT)
     {
@@ -2819,12 +2869,7 @@ static VkPipelineStageFlags vk_render_pass_barrier_from_view(const struct vkd3d_
     {
         stages = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
         access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
-        /* SIMULTANEOUS + DEPTH is not allowed.
-         * We cannot know if a resource is in DEPTH_READ or DEPTH_WRITE state up front, so
-         * we map DEPTH_READ and DEPTH_WRITE to read-only, and transition in and out of depth write state
-         * as required.
-         * Common layout for depth images will be either read-only depth or read-write depth. */
-        outside_render_pass_layout = resource->common_layout;
+        outside_render_pass_layout = d3d12_command_list_get_depth_stencil_resource_layout(list, resource, NULL);
     }
 
     vk_barrier->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -2920,8 +2965,8 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
         if (mode == VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN)
             do_clear = d3d12_command_list_has_render_pass_rtv_clear(list, i);
 
-        if ((new_stages = vk_render_pass_barrier_from_view(rtv->view, rtv->resource,
-                mode, VK_IMAGE_LAYOUT_UNDEFINED, do_clear, &vk_image_barriers[j])))
+        if ((new_stages = vk_render_pass_barrier_from_view(list, rtv->view, rtv->resource,
+                mode, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, do_clear, &vk_image_barriers[j])))
         {
             stage_mask |= new_stages;
             j++;
@@ -2930,18 +2975,28 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
 
     dsv = &list->dsv;
 
+    /* The dsv_layout is updated in d3d12_command_list_begin_render_pass(). */
+
     if (dsv->view && list->dsv_layout)
     {
         if (mode == VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN)
             do_clear = d3d12_command_list_has_render_pass_dsv_clear(list);
 
-        if ((new_stages = vk_render_pass_barrier_from_view(dsv->view, dsv->resource,
+        if ((new_stages = vk_render_pass_barrier_from_view(list, dsv->view, dsv->resource,
                 mode, list->dsv_layout, do_clear, &vk_image_barriers[j])))
         {
             stage_mask |= new_stages;
             j++;
         }
+
+        /* We know for sure we will write something to these attachments now, so try to promote. */
+        if (mode == VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN)
+            d3d12_command_list_notify_dsv_writes(list, dsv->resource, dsv->view, list->dsv_plane_optimal_mask);
     }
+
+    /* Need to deduce DSV layouts again before we start a new render pass. */
+    if (mode == VKD3D_RENDER_PASS_TRANSITION_MODE_END)
+        list->dsv_layout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     /* Ignore VRS targets. They have to be in the appropriate resource state here. */
 
@@ -3606,11 +3661,12 @@ static VkAccessFlags vk_access_flags_all_possible_for_image(const struct d3d12_d
     return access;
 }
 
-static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d12_device *device,
+static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d12_command_list *list,
         const struct d3d12_resource *resource, uint32_t state_mask, VkQueueFlags vk_queue_flags,
         VkPipelineStageFlags *stages, VkAccessFlags *access)
 {
     VkPipelineStageFlags queue_shader_stages = 0;
+    struct d3d12_device *device = list->device;
     uint32_t unhandled_state = 0;
 
     if (vk_queue_flags & VK_QUEUE_GRAPHICS_BIT)
@@ -3698,10 +3754,13 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
                 break;
 
             case D3D12_RESOURCE_STATE_DEPTH_WRITE:
-                /* If our default DS layout is attachment optimal, we will not perform implicit
+                /* If our DS layout is attachment optimal in any way, we might not perform implicit
                  * memory barriers as part of a render pass. */
-                if (resource->common_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+                if (d3d12_command_list_get_depth_stencil_resource_layout(list, resource, NULL) !=
+                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL)
+                {
                     *access |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+                }
                 /* fallthrough */
             case D3D12_RESOURCE_STATE_DEPTH_READ:
                 *stages |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
@@ -4248,6 +4307,7 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
     memset(&list->dsv, 0, sizeof(list->dsv));
     memset(&list->clear_state, 0, sizeof(list->clear_state));
     list->dsv_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    list->dsv_plane_optimal_mask = 0;
     list->fb_width = 0;
     list->fb_height = 0;
     list->fb_layer_count = 0;
@@ -4582,10 +4642,12 @@ static uint32_t d3d12_command_list_variant_flags(struct d3d12_command_list *list
 static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const struct vkd3d_render_pass_compatibility *render_pass_compat;
     VkRenderPass vk_render_pass;
     uint32_t new_active_flags;
     VkPipeline vk_pipeline;
     uint32_t variant_flags;
+    uint32_t i;
 
     if (list->current_pipeline != VK_NULL_HANDLE)
         return true;
@@ -4600,27 +4662,50 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
 
     /* Try to grab the pipeline we compiled ahead of time. If we cannot do so, fall back. */
     if (!(vk_pipeline = d3d12_pipeline_state_get_pipeline(list->state,
-            &list->dynamic_state, list->dsv.format, &vk_render_pass, &new_active_flags,
+            &list->dynamic_state, list->dsv.format, &render_pass_compat, &new_active_flags,
             variant_flags)))
     {
         if (!(vk_pipeline = d3d12_pipeline_state_get_or_create_pipeline(list->state,
                 &list->dynamic_state, list->dsv.format,
-                &vk_render_pass, &new_active_flags, variant_flags)))
+                &render_pass_compat, &new_active_flags, variant_flags)))
             return false;
     }
 
+    /* Try to match render passes so we can stay compatible. */
+    for (i = 1, vk_render_pass = render_pass_compat->dsv_layouts[0];
+         vk_render_pass != list->pso_render_pass && i < ARRAY_SIZE(render_pass_compat->dsv_layouts);
+         i++)
+    {
+        vk_render_pass = render_pass_compat->dsv_layouts[i];
+    }
+
     /* The render pass cache ensures that we use the same Vulkan render pass
-     * object for compatible render passes. */
+     * object for compatible render passes.
+     * If vk_render_pass == list->pso_render_pass, we know for certain
+     * that the PSO does not add any write masks we didn't already account for. */
     if (list->pso_render_pass != vk_render_pass)
     {
-        list->pso_render_pass = vk_render_pass;
         d3d12_command_list_invalidate_current_framebuffer(list);
         /* Don't end render pass if none is active, or otherwise
          * deferred clears are not going to work as intended. */
         if (list->current_render_pass || list->render_pass_suspended)
             d3d12_command_list_invalidate_current_render_pass(list);
-        /* Only override this after ending the render pass. */
-        list->dsv_layout = list->state->graphics.dsv_layout;
+
+        if (d3d12_command_list_has_depth_stencil_view(list))
+        {
+            /* Select new dsv_layout. Any new PSO write we didn't observe yet must be updated here. */
+            list->dsv_plane_optimal_mask |= list->state->graphics.dsv_plane_optimal_mask;
+            list->dsv_layout = dsv_plane_optimal_mask_to_layout(list->dsv_plane_optimal_mask,
+                    list->dsv.format->vk_aspect_mask);
+            /* Pick render pass based on new plane optimal mask. */
+            list->pso_render_pass = render_pass_compat->dsv_layouts[list->dsv_plane_optimal_mask];
+        }
+        else
+        {
+            list->pso_render_pass = render_pass_compat->dsv_layouts[0];
+            list->dsv_plane_optimal_mask = 0;
+            list->dsv_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+        }
     }
 
     if (list->command_buffer_pipeline != vk_pipeline)
@@ -5258,6 +5343,22 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
     dyn_state->dirty_flags = 0;
 }
 
+static void d3d12_command_list_promote_dsv_layout(struct d3d12_command_list *list)
+{
+    /* If we know at this point that the image is DSV optimal in some way, promote the layout
+     * so that we can select the appropriate render pass right away and ignore any
+     * read-state shenanigans. If we cannot promote yet, the pipeline will override dsv_layout as required
+     * by write enable bits. */
+    if (list->dsv_layout == VK_IMAGE_LAYOUT_UNDEFINED &&
+            list->state &&
+            d3d12_command_list_has_depth_stencil_view(list) &&
+            list->dsv.resource)
+    {
+        list->dsv_layout = d3d12_command_list_get_depth_stencil_resource_layout(list, list->dsv.resource,
+                &list->dsv_plane_optimal_mask);
+    }
+}
+
 static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -5266,6 +5367,7 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     VkRenderPassBeginInfo begin_desc;
     VkRenderPass vk_render_pass;
 
+    d3d12_command_list_promote_dsv_layout(list);
     if (!d3d12_command_list_update_graphics_pipeline(list))
         return false;
     if (!d3d12_command_list_update_current_framebuffer(list))
@@ -5826,7 +5928,6 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         memset(&dst_view_desc, 0, sizeof(dst_view_desc));
         dst_view_desc.image = dst_resource->res.vk_image;
         dst_view_desc.view_type = pipeline_key.view_type;
-        dst_view_desc.layout = dst_layout;
         dst_view_desc.format = dst_format;
         dst_view_desc.miplevel_idx = region->dstSubresource.mipLevel;
         dst_view_desc.miplevel_count = 1;
@@ -5839,7 +5940,6 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         memset(&src_view_desc, 0, sizeof(src_view_desc));
         src_view_desc.image = src_resource->res.vk_image;
         src_view_desc.view_type = pipeline_key.view_type;
-        src_view_desc.layout = src_layout;
         src_view_desc.format = src_format;
         src_view_desc.miplevel_idx = region->srcSubresource.mipLevel;
         src_view_desc.miplevel_count = 1;
@@ -5917,7 +6017,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
 
         vk_image_info.sampler = VK_NULL_HANDLE;
         vk_image_info.imageView = src_view->vk_image_view;
-        vk_image_info.imageLayout = src_view_desc.layout;
+        vk_image_info.imageLayout = src_layout;
 
         vk_descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         vk_descriptor_write.pNext = NULL;
@@ -6684,7 +6784,7 @@ static bool d3d12_resource_may_alias_other_resources(struct d3d12_resource *reso
 }
 
 static VkImageLayout vk_image_layout_from_d3d12_resource_state(
-        const struct d3d12_resource *resource, D3D12_RESOURCE_STATES state)
+        struct d3d12_command_list *list, const struct d3d12_resource *resource, D3D12_RESOURCE_STATES state)
 {
     /* Simultaneous access is always general, until we're forced to treat it differently in
      * a transfer, render pass, or similar. */
@@ -6710,10 +6810,17 @@ static VkImageLayout vk_image_layout_from_d3d12_resource_state(
              * VRS images also cannot be simultaneous access. */
             return VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR;
 
+        case D3D12_RESOURCE_STATE_DEPTH_WRITE:
+        case D3D12_RESOURCE_STATE_DEPTH_READ:
+            /* DEPTH_READ only is not a shader read state, and we treat WRITE and READ more or less the same. */
+            if (list)
+                return d3d12_command_list_get_depth_stencil_resource_layout(list, resource, NULL);
+            else
+                return resource->common_layout;
+
         default:
-            /* DEPTH write and read are treated the same until we know the layout for use in a render pass.
-             * The common layout is one of the depth states otherwise.
-             * For TRANSFER or RESOLVE states, we transition in and out of common state way. */
+            /* For TRANSFER or RESOLVE states, we transition in and out of common state since we have to
+             * handle implicit sync anyways and TRANSFER can decay/promote. */
             return resource->common_layout;
     }
 }
@@ -6892,18 +6999,24 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                     continue;
                 }
 
-                vk_access_and_stage_flags_from_d3d12_resource_state(list->device, preserve_resource,
+                vk_access_and_stage_flags_from_d3d12_resource_state(list, preserve_resource,
                         transition->StateBefore, list->vk_queue_flags, &transition_src_stage_mask,
                         &transition_src_access);
-                vk_access_and_stage_flags_from_d3d12_resource_state(list->device, preserve_resource,
+                if (d3d12_resource_is_texture(preserve_resource))
+                    old_layout = vk_image_layout_from_d3d12_resource_state(list, preserve_resource, transition->StateBefore);
+
+                if (preserve_resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
+                {
+                    /* If we enter DEPTH_WRITE or DEPTH_READ we can promote to optimal. */
+                    d3d12_command_list_notify_dsv_state(list, preserve_resource,
+                            transition->StateAfter, transition->Subresource);
+                }
+
+                vk_access_and_stage_flags_from_d3d12_resource_state(list, preserve_resource,
                         transition->StateAfter, list->vk_queue_flags, &transition_dst_stage_mask,
                         &transition_dst_access);
-
                 if (d3d12_resource_is_texture(preserve_resource))
-                {
-                    old_layout = vk_image_layout_from_d3d12_resource_state(preserve_resource, transition->StateBefore);
-                    new_layout = vk_image_layout_from_d3d12_resource_state(preserve_resource, transition->StateAfter);
-                }
+                    new_layout = vk_image_layout_from_d3d12_resource_state(list, preserve_resource, transition->StateAfter);
 
                 if (old_layout != new_layout)
                 {
@@ -6949,10 +7062,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
 
                 assert(state_mask);
 
-                vk_access_and_stage_flags_from_d3d12_resource_state(list->device, preserve_resource,
+                vk_access_and_stage_flags_from_d3d12_resource_state(list, preserve_resource,
                         state_mask, list->vk_queue_flags, &batch.src_stage_mask,
                         &batch.vk_memory_barrier.srcAccessMask);
-                vk_access_and_stage_flags_from_d3d12_resource_state(list->device, preserve_resource,
+                vk_access_and_stage_flags_from_d3d12_resource_state(list, preserve_resource,
                         state_mask, list->vk_queue_flags, &batch.dst_stage_mask,
                         &batch.vk_memory_barrier.dstAccessMask);
 
@@ -6997,6 +7110,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                     if (after && d3d12_resource_is_texture(after))
                     {
                         VkImageMemoryBarrier vk_alias_barrier;
+
+                        /* An aliasing barrier discards to common layout.
+                         * We'll see a DiscardResource later anyways which should make the resource optimal. */
+                        if (after->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
+                            d3d12_command_list_notify_decay_dsv_resource(list, after);
+
                         vk_image_memory_barrier_for_after_aliasing_barrier(list->device, list->vk_queue_flags,
                                 after, &vk_alias_barrier);
                         d3d12_command_list_barrier_batch_add_layout_transition(list, &batch, &vk_alias_barrier);
@@ -7642,6 +7761,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
 
     memset(list->rtvs, 0, sizeof(list->rtvs));
     memset(&list->dsv, 0, sizeof(list->dsv));
+    /* Need to deduce DSV layouts again. */
+    list->dsv_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    list->dsv_plane_optimal_mask = 0;
 
     for (i = 0; i < render_target_descriptor_count; ++i)
     {
@@ -7868,7 +7990,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list, const 
         assert(args->has_view);
         image_info.sampler = VK_NULL_HANDLE;
         image_info.imageView = args->u.view->vk_image_view;
-        image_info.imageLayout = args->u.view->info.texture.vk_layout;
+        image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
         write_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         write_set.pImageInfo = &image_info;
@@ -8109,7 +8231,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
 
             view_desc.image = resource_impl->res.vk_image;
             view_desc.view_type = base_view->info.texture.vk_view_type;
-            view_desc.layout = base_view->info.texture.vk_layout;
             view_desc.format = uint_format;
             view_desc.miplevel_idx = base_view->info.texture.miplevel_idx;
             view_desc.miplevel_count = 1;
@@ -8186,6 +8307,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
     struct d3d12_resource *texture = unsafe_impl_from_ID3D12Resource(resource);
     unsigned int i, first_subresource, subresource_count;
     VkImageSubresourceLayers vk_subresource_layers;
+    unsigned int resource_subresource_count;
     VkImageSubresource vk_subresource;
     D3D12_RECT full_rect;
     int attachment_idx;
@@ -8216,6 +8338,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
 
     /* Assume that pRegion == NULL means that we should discard
      * the entire resource. This does not seem to be documented. */
+    resource_subresource_count = d3d12_resource_get_sub_resource_count(texture);
     if (region)
     {
         first_subresource = region->FirstSubresource;
@@ -8224,7 +8347,15 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
     else
     {
         first_subresource = 0;
-        subresource_count = d3d12_resource_get_sub_resource_count(texture);
+        subresource_count = resource_subresource_count;
+    }
+
+    /* If we write to all subresources, we can promote the depth image to OPTIMAL since we know the resource
+     * must be in OPTIMAL state. */
+    if (texture->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
+    {
+        d3d12_command_list_notify_dsv_discard(list, texture,
+                first_subresource, subresource_count, resource_subresource_count);
     }
 
     /* We can't meaningfully discard sub-regions of an image. If rects
@@ -10385,7 +10516,7 @@ static void d3d12_command_queue_transition_pool_add_barrier(struct d3d12_command
     barrier->dstAccessMask = 0;
     barrier->oldLayout = d3d12_resource_is_cpu_accessible(resource)
                         ? VK_IMAGE_LAYOUT_PREINITIALIZED : VK_IMAGE_LAYOUT_UNDEFINED;
-    barrier->newLayout = vk_image_layout_from_d3d12_resource_state(resource, resource->initial_state);
+    barrier->newLayout = vk_image_layout_from_d3d12_resource_state(NULL, resource, resource->initial_state);
     barrier->srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier->dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier->image = resource->res.vk_image;
