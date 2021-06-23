@@ -913,7 +913,6 @@ struct vkd3d_view
         struct
         {
             VkImageViewType vk_view_type;
-            VkImageLayout vk_layout;
             unsigned int miplevel_idx;
             unsigned int layer_idx;
             unsigned int layer_count;
@@ -936,7 +935,6 @@ struct vkd3d_texture_view_desc
 {
     VkImage image;
     VkImageViewType view_type;
-    VkImageLayout layout;
     VkImageAspectFlags aspect_mask;
     const struct vkd3d_format *format;
     unsigned int miplevel_idx;
@@ -1291,6 +1289,13 @@ enum vkd3d_graphics_pipeline_static_variant_flag
     VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_LAST_BIT       = (1u << 1),
 };
 
+/* One render pass for each plane optimal mask. */
+#define VKD3D_RENDER_PASS_COMPATIBILITY_VARIANT_COUNT 4
+struct vkd3d_render_pass_compatibility
+{
+    VkRenderPass dsv_layouts[VKD3D_RENDER_PASS_COMPATIBILITY_VARIANT_COUNT];
+};
+
 enum vkd3d_plane_optimal_flag
 {
     VKD3D_DEPTH_PLANE_OPTIMAL = (1 << 0),
@@ -1324,8 +1329,8 @@ struct d3d12_graphics_pipeline_state
     unsigned int patch_vertex_count;
     const struct vkd3d_format *dsv_format;
     VkFormat rtv_formats[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
-    VkImageLayout dsv_layout;
-    VkRenderPass render_pass[VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_COUNT];
+    uint32_t dsv_plane_optimal_mask;
+    struct vkd3d_render_pass_compatibility render_pass[VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_COUNT];
 
     D3D12_INDEX_BUFFER_STRIP_CUT_VALUE index_buffer_strip_cut_value;
     VkPipelineRasterizationStateCreateInfo rs_desc;
@@ -1451,13 +1456,16 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
         const struct d3d12_pipeline_state_desc *desc, struct d3d12_pipeline_state **state);
 VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
         const struct vkd3d_dynamic_state *dyn_state, const struct vkd3d_format *dsv_format,
-        VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags, uint32_t variant_flags);
+        const struct vkd3d_render_pass_compatibility **render_pass_compat,
+        uint32_t *dynamic_state_flags, uint32_t variant_flags);
 VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
         const struct vkd3d_dynamic_state *dyn_state, const struct vkd3d_format *dsv_format,
-        VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags, uint32_t variant_flags);
+        const struct vkd3d_render_pass_compatibility **render_pass_compat,
+        uint32_t *dynamic_state_flags, uint32_t variant_flags);
 VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_state *state,
         const struct vkd3d_pipeline_key *key, const struct vkd3d_format *dsv_format, VkPipelineCache vk_cache,
-        VkRenderPass *vk_render_pass, uint32_t *dynamic_state_flags, uint32_t variant_flags);
+        struct vkd3d_render_pass_compatibility *render_pass_compat,
+        uint32_t *dynamic_state_flags, uint32_t variant_flags);
 struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12PipelineState *iface);
 
 /* ID3D12PipelineLibrary */
@@ -1754,6 +1762,7 @@ struct d3d12_command_list
     struct d3d12_rtv_desc rtvs[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct d3d12_rtv_desc dsv;
     struct vkd3d_clear_state clear_state;
+    uint32_t dsv_plane_optimal_mask;
     VkImageLayout dsv_layout;
     unsigned int fb_width;
     unsigned int fb_height;

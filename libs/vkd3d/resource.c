@@ -667,7 +667,6 @@ static uint32_t vkd3d_view_entry_hash(const void *key)
         case VKD3D_VIEW_TYPE_IMAGE:
             hash = hash_uint64((uint64_t)k->u.texture.image);
             hash = hash_combine(hash, k->u.texture.view_type);
-            hash = hash_combine(hash, k->u.texture.layout);
             hash = hash_combine(hash, (uintptr_t)k->u.texture.format);
             hash = hash_combine(hash, k->u.texture.miplevel_idx);
             hash = hash_combine(hash, k->u.texture.miplevel_count);
@@ -728,7 +727,6 @@ static bool vkd3d_view_entry_compare(const void *key, const struct hash_map_entr
         case VKD3D_VIEW_TYPE_IMAGE:
             return k->u.texture.image == e->key.u.texture.image &&
                     k->u.texture.view_type == e->key.u.texture.view_type &&
-                    k->u.texture.layout == e->key.u.texture.layout &&
                     k->u.texture.format == e->key.u.texture.format &&
                     k->u.texture.miplevel_idx == e->key.u.texture.miplevel_idx &&
                     k->u.texture.miplevel_count == e->key.u.texture.miplevel_count &&
@@ -3358,7 +3356,6 @@ static bool init_default_texture_view_desc(struct vkd3d_texture_view_desc *desc,
 
     desc->aspect_mask = desc->format->vk_aspect_mask;
     desc->image = resource->res.vk_image;
-    desc->layout = resource->common_layout;
     desc->miplevel_idx = 0;
     desc->miplevel_count = 1;
     desc->miplevel_clamp = 0.0f;
@@ -3459,7 +3456,6 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_t
     object->vk_image_view = vk_view;
     object->format = format;
     object->info.texture.vk_view_type = desc->view_type;
-    object->info.texture.vk_layout = desc->layout;
     object->info.texture.miplevel_idx = desc->miplevel_idx;
     object->info.texture.layer_idx = desc->layer_idx;
     object->info.texture.layer_count = desc->layer_count;
@@ -3970,7 +3966,7 @@ static void vkd3d_create_texture_srv(struct d3d12_desc *descriptor,
 
     descriptor_info.image.sampler = VK_NULL_HANDLE;
     descriptor_info.image.imageView = view ? view->vk_image_view : VK_NULL_HANDLE;
-    descriptor_info.image.imageLayout = view ? view->info.texture.vk_layout : VK_IMAGE_LAYOUT_UNDEFINED;
+    descriptor_info.image.imageLayout = view ? resource->common_layout : VK_IMAGE_LAYOUT_UNDEFINED;
 
     info_index = vkd3d_bindless_state_find_set_info_index(&device->bindless_state,
             VKD3D_BINDLESS_SET_SRV | VKD3D_BINDLESS_SET_IMAGE);
@@ -4245,9 +4241,6 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
         return;
     }
 
-    /* UNORDERED_ACCESS is not the common layout, override it here. */
-    key.u.texture.layout = VK_IMAGE_LAYOUT_GENERAL;
-
     if (desc)
     {
         switch (desc->ViewDimension)
@@ -4297,7 +4290,7 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
 
     descriptor_info.image.sampler = VK_NULL_HANDLE;
     descriptor_info.image.imageView = view ? view->vk_image_view : VK_NULL_HANDLE;
-    descriptor_info.image.imageLayout = view ? view->info.texture.vk_layout : VK_IMAGE_LAYOUT_UNDEFINED;
+    descriptor_info.image.imageLayout = view ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_UNDEFINED;
 
     info_index = vkd3d_bindless_state_find_set_info_index(&device->bindless_state,
             VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_IMAGE);
@@ -4658,7 +4651,6 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
     }
 
     key.view_type = VKD3D_VIEW_TYPE_IMAGE;
-    key.u.texture.layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
     if (desc)
     {
@@ -4733,24 +4725,6 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
     rtv_desc->resource = resource;
 }
 
-/* DSVs */
-static VkImageLayout d3d12_dsv_layout_from_flags(UINT flags)
-{
-    const D3D12_DSV_FLAGS mask = D3D12_DSV_FLAG_READ_ONLY_DEPTH | D3D12_DSV_FLAG_READ_ONLY_STENCIL;
-
-    switch (flags & mask)
-    {
-        default: /* case 0: */
-            return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        case D3D12_DSV_FLAG_READ_ONLY_DEPTH:
-            return VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL;
-        case D3D12_DSV_FLAG_READ_ONLY_STENCIL:
-            return VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL;
-        case D3D12_DSV_FLAG_READ_ONLY_DEPTH | D3D12_DSV_FLAG_READ_ONLY_STENCIL:
-            return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-    }
-}
-
 void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_device *device,
         struct d3d12_resource *resource, const D3D12_DEPTH_STENCIL_VIEW_DESC *desc)
 {
@@ -4785,9 +4759,6 @@ void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_dev
 
     if (desc)
     {
-        key.u.texture.layout = d3d12_resource_pick_layout(resource,
-                d3d12_dsv_layout_from_flags(desc->Flags));
-
         switch (desc->ViewDimension)
         {
             case D3D12_DSV_DIMENSION_TEXTURE1D:
@@ -4826,8 +4797,6 @@ void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_dev
         /* Avoid passing down UINT32_MAX here since that makes framebuffer logic later rather awkward. */
         key.u.texture.layer_count = min(key.u.texture.layer_count, resource->desc.DepthOrArraySize - key.u.texture.layer_idx);
     }
-    else
-        key.u.texture.layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
     assert(d3d12_resource_is_texture(resource));
 
