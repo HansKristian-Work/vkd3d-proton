@@ -1291,6 +1291,12 @@ enum vkd3d_graphics_pipeline_static_variant_flag
     VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_LAST_BIT       = (1u << 1),
 };
 
+enum vkd3d_plane_optimal_flag
+{
+    VKD3D_DEPTH_PLANE_OPTIMAL = (1 << 0),
+    VKD3D_STENCIL_PLANE_OPTIMAL = (1 << 1),
+};
+
 #define VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_COUNT ((uint32_t)VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_LAST_BIT)
 
 struct d3d12_graphics_pipeline_state
@@ -1721,6 +1727,12 @@ struct vkd3d_query_range
 
 struct d3d12_state_object;
 
+struct d3d12_resource_tracking
+{
+    const struct d3d12_resource *resource;
+    uint32_t plane_optimal_mask;
+};
+
 struct d3d12_command_list
 {
     d3d12_command_list_iface ID3D12GraphicsCommandList_iface;
@@ -1801,6 +1813,10 @@ struct d3d12_command_list
     const struct d3d12_desc *cbv_srv_uav_descriptors;
 
     struct d3d12_resource *vrs_image;
+
+    struct d3d12_resource_tracking *dsv_resource_tracking;
+    size_t dsv_resource_tracking_count;
+    size_t dsv_resource_tracking_size;
 
     struct vkd3d_private_store private_store;
 };
