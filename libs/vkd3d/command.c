@@ -32,6 +32,36 @@ static void d3d12_command_queue_add_submission(struct d3d12_command_queue *queue
 static void d3d12_fence_inc_ref(struct d3d12_fence *fence);
 static void d3d12_fence_dec_ref(struct d3d12_fence *fence);
 
+#define MAX_BATCHED_IMAGE_BARRIERS 16
+struct d3d12_command_list_barrier_batch
+{
+    VkImageMemoryBarrier vk_image_barriers[MAX_BATCHED_IMAGE_BARRIERS];
+    VkMemoryBarrier vk_memory_barrier;
+    uint32_t image_barrier_count;
+    VkPipelineStageFlags dst_stage_mask, src_stage_mask;
+};
+
+static void d3d12_command_list_barrier_batch_init(struct d3d12_command_list_barrier_batch *batch);
+static void d3d12_command_list_barrier_batch_end(struct d3d12_command_list *list,
+        struct d3d12_command_list_barrier_batch *batch);
+static void d3d12_command_list_barrier_batch_add_layout_transition(
+        struct d3d12_command_list *list,
+        struct d3d12_command_list_barrier_batch *batch,
+        const VkImageMemoryBarrier *image_barrier);
+
+static uint32_t d3d12_command_list_promote_dsv_resource(struct d3d12_command_list *list,
+        struct d3d12_resource *resource, uint32_t plane_optimal_mask);
+static void d3d12_command_list_notify_decay_dsv_resource(struct d3d12_command_list *list,
+        struct d3d12_resource *resource);
+static uint32_t d3d12_command_list_notify_dsv_writes(struct d3d12_command_list *list,
+        struct d3d12_resource *resource, const struct vkd3d_view *view,
+        uint32_t plane_write_mask);
+static uint32_t d3d12_command_list_get_depth_stencil_resource_layout(const struct d3d12_command_list *list,
+        const struct d3d12_resource *resource, uint32_t *plane_optimal_mask);
+static void d3d12_command_list_decay_optimal_dsv_resource(struct d3d12_command_list *list,
+        const struct d3d12_resource *resource, uint32_t plane_optimal_mask,
+        struct d3d12_command_list_barrier_batch *batch);
+
 static HRESULT vkd3d_create_binary_semaphore(struct d3d12_device *device, VkSemaphore *vk_semaphore)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -2079,6 +2109,228 @@ static void d3d12_command_list_clear_attachment_inline(struct d3d12_command_list
     }
 }
 
+static VkImageLayout dsv_plane_optimal_mask_to_layout(uint32_t plane_optimal_mask, VkImageAspectFlags image_aspects)
+{
+    static const VkImageLayout layouts[] = {
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+        VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL,
+        VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+    };
+
+    if (image_aspects != (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+    {
+        /* If aspects is only DEPTH or only STENCIL, we should use the OPTIMAL or READ_ONLY layout.
+         * We should not use the separate layouts, or we might end up with more barriers than we need. */
+        return plane_optimal_mask ?
+                VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL :
+                VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    }
+    else
+        return layouts[plane_optimal_mask];
+}
+
+static void d3d12_command_list_decay_optimal_dsv_resource(struct d3d12_command_list *list,
+        const struct d3d12_resource *resource, uint32_t plane_optimal_mask,
+        struct d3d12_command_list_barrier_batch *batch)
+{
+    bool current_layout_is_shader_visible;
+    VkImageMemoryBarrier barrier;
+    VkImageLayout layout;
+
+    assert(!(plane_optimal_mask & ~(VKD3D_DEPTH_PLANE_OPTIMAL | VKD3D_STENCIL_PLANE_OPTIMAL)));
+    layout = dsv_plane_optimal_mask_to_layout(plane_optimal_mask, resource->format->vk_aspect_mask);
+    if (layout == resource->common_layout)
+        return;
+
+    current_layout_is_shader_visible = layout != VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.pNext = NULL;
+    barrier.oldLayout = layout;
+    barrier.newLayout = resource->common_layout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+            (current_layout_is_shader_visible ? VK_ACCESS_SHADER_READ_BIT : 0);
+    barrier.subresourceRange.aspectMask = resource->format->vk_aspect_mask;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+    barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+    barrier.image = resource->res.vk_image;
+    /* We want to wait for storeOp to complete here, and that is defined to happen in LATE_FRAGMENT_TESTS. */
+    batch->src_stage_mask |= VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+
+    /* If one aspect was readable, we have to make it visible to shaders since the resource state might have been
+     * DEPTH_READ | RESOURCE | NON_PIXEL_RESOURCE.
+     * If we transitioned from OPTIMAL,
+     * there cannot possibly be shader reads until we observe a ResourceBarrier() later. */
+    if (current_layout_is_shader_visible)
+        batch->dst_stage_mask |= VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+    else
+        batch->dst_stage_mask |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    d3d12_command_list_barrier_batch_add_layout_transition(list, batch, &barrier);
+}
+
+static void d3d12_command_list_notify_decay_dsv_resource(struct d3d12_command_list *list,
+        struct d3d12_resource *resource)
+{
+    size_t i, n;
+
+    /* No point in adding these since they are always deduced to be optimal. */
+    if (resource->desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE)
+        return;
+
+    for (i = 0, n = list->dsv_resource_tracking_count; i < n; i++)
+    {
+        if (list->dsv_resource_tracking[i].resource == resource)
+        {
+            list->dsv_resource_tracking[i] = list->dsv_resource_tracking[--list->dsv_resource_tracking_count];
+            return;
+        }
+    }
+}
+
+static uint32_t d3d12_command_list_promote_dsv_resource(struct d3d12_command_list *list,
+        struct d3d12_resource *resource, uint32_t plane_optimal_mask)
+{
+    size_t i, n;
+    assert(!(plane_optimal_mask & ~(VKD3D_DEPTH_PLANE_OPTIMAL | VKD3D_STENCIL_PLANE_OPTIMAL)));
+
+    /* No point in adding these since they are always deduced to be optimal. */
+    if (resource->desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE)
+        return VKD3D_DEPTH_PLANE_OPTIMAL | VKD3D_STENCIL_PLANE_OPTIMAL;
+
+    /* For single aspect images, mirror the optimal mask in the unused aspect. This avoids some
+     * extra checks elsewhere (particularly graphics pipeline setup and compat render passes)
+     * to handle single aspect DSVs. */
+    if (!(resource->format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
+        plane_optimal_mask |= (plane_optimal_mask & VKD3D_DEPTH_PLANE_OPTIMAL) ? VKD3D_STENCIL_PLANE_OPTIMAL : 0;
+    if (!(resource->format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT))
+        plane_optimal_mask |= (plane_optimal_mask & VKD3D_STENCIL_PLANE_OPTIMAL) ? VKD3D_DEPTH_PLANE_OPTIMAL : 0;
+
+    for (i = 0, n = list->dsv_resource_tracking_count; i < n; i++)
+    {
+        if (list->dsv_resource_tracking[i].resource == resource)
+        {
+            list->dsv_resource_tracking[i].plane_optimal_mask |= plane_optimal_mask;
+            return list->dsv_resource_tracking[i].plane_optimal_mask;
+        }
+    }
+
+    vkd3d_array_reserve((void **)&list->dsv_resource_tracking, &list->dsv_resource_tracking_size,
+            list->dsv_resource_tracking_count + 1, sizeof(*list->dsv_resource_tracking));
+    list->dsv_resource_tracking[list->dsv_resource_tracking_count].resource = resource;
+    list->dsv_resource_tracking[list->dsv_resource_tracking_count].plane_optimal_mask = plane_optimal_mask;
+    list->dsv_resource_tracking_count++;
+    return plane_optimal_mask;
+}
+
+static uint32_t d3d12_command_list_notify_dsv_writes(struct d3d12_command_list *list,
+        struct d3d12_resource *resource, const struct vkd3d_view *view, uint32_t plane_write_mask)
+{
+    assert(!(plane_write_mask & ~(VKD3D_DEPTH_PLANE_OPTIMAL | VKD3D_STENCIL_PLANE_OPTIMAL)));
+
+    /* If we cover the entire resource, we can promote it to our target layout. */
+    if (view->info.texture.layer_count == resource->desc.DepthOrArraySize &&
+            resource->desc.MipLevels == 1)
+    {
+        return d3d12_command_list_promote_dsv_resource(list, resource, plane_write_mask);
+    }
+    else
+    {
+        d3d12_command_list_get_depth_stencil_resource_layout(list, resource, &plane_write_mask);
+        return plane_write_mask;
+    }
+}
+
+static void d3d12_command_list_notify_dsv_state(struct d3d12_command_list *list,
+        struct d3d12_resource *resource, D3D12_RESOURCE_STATES state, UINT subresource)
+{
+    /* Need to decide if we should promote or decay or promote DSV optimal state.
+     * We can promote if we know for sure that all subresources are optimal.
+     * If we observe any barrier which leaves this state, we must decay.
+     *
+     * Note: DEPTH_READ in isolation does not allow shaders to read a resource,
+     * so we should keep it in OPTIMAL layouts. There is a certain risk of applications
+     * screwing this up, but a workaround for that is to consider DEPTH_READ to be DEPTH_READ | RESOURCE
+     * if applications prove to be buggy. */
+    bool dsv_optimal = state == D3D12_RESOURCE_STATE_DEPTH_READ ||
+            state == D3D12_RESOURCE_STATE_DEPTH_WRITE;
+
+    if (!dsv_optimal)
+    {
+        d3d12_command_list_notify_decay_dsv_resource(list, resource);
+    }
+    else if (subresource == D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES)
+    {
+        d3d12_command_list_promote_dsv_resource(list, resource,
+                VKD3D_DEPTH_PLANE_OPTIMAL | VKD3D_STENCIL_PLANE_OPTIMAL);
+    }
+    else if (resource->desc.MipLevels == 1 && resource->desc.DepthOrArraySize == 1)
+    {
+        /* For single mip/layer images (common case for depth-stencil),
+         * a specific subresource can be handled correctly. */
+        if (subresource == 0)
+        {
+            if (resource->format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
+                d3d12_command_list_promote_dsv_resource(list, resource, VKD3D_DEPTH_PLANE_OPTIMAL);
+            else if (resource->format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT)
+                d3d12_command_list_promote_dsv_resource(list, resource, VKD3D_STENCIL_PLANE_OPTIMAL);
+        }
+        else if (subresource == 1)
+        {
+            if (resource->format->vk_aspect_mask == (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+                d3d12_command_list_promote_dsv_resource(list, resource, VKD3D_STENCIL_PLANE_OPTIMAL);
+        }
+    }
+}
+
+static void d3d12_command_list_decay_optimal_dsv_resources(struct d3d12_command_list *list)
+{
+    struct d3d12_command_list_barrier_batch batch;
+    size_t i, n;
+
+    d3d12_command_list_barrier_batch_init(&batch);
+    for (i = 0, n = list->dsv_resource_tracking_count; i < n; i++)
+    {
+        const struct d3d12_resource_tracking *track = &list->dsv_resource_tracking[i];
+        d3d12_command_list_decay_optimal_dsv_resource(list, track->resource, track->plane_optimal_mask, &batch);
+    }
+    d3d12_command_list_barrier_batch_end(list, &batch);
+    list->dsv_resource_tracking_count = 0;
+}
+
+static VkImageLayout d3d12_command_list_get_depth_stencil_resource_layout(const struct d3d12_command_list *list,
+        const struct d3d12_resource *resource, uint32_t *plane_optimal_mask)
+{
+    size_t i, n;
+
+    if (resource->desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE)
+    {
+        if (plane_optimal_mask)
+            *plane_optimal_mask = VKD3D_DEPTH_PLANE_OPTIMAL | VKD3D_STENCIL_PLANE_OPTIMAL;
+        return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    }
+
+    for (i = 0, n = list->dsv_resource_tracking_count; i < n; i++)
+    {
+        if (resource == list->dsv_resource_tracking[i].resource)
+        {
+            if (plane_optimal_mask)
+                *plane_optimal_mask = list->dsv_resource_tracking[i].plane_optimal_mask;
+            return dsv_plane_optimal_mask_to_layout(list->dsv_resource_tracking[i].plane_optimal_mask,
+                    resource->format->vk_aspect_mask);
+        }
+    }
+
+    if (plane_optimal_mask)
+        *plane_optimal_mask = 0;
+    return resource->common_layout;
+}
+
 static VkImageLayout vk_separate_depth_layout(VkImageLayout combined_layout)
 {
     return (combined_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
@@ -3672,6 +3924,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_ifa
         vkd3d_free(list->query_ranges);
         vkd3d_free(list->active_queries);
         vkd3d_free(list->pending_queries);
+        vkd3d_free(list->dsv_resource_tracking);
         vkd3d_free(list);
 
         d3d12_device_release(device);
@@ -3796,6 +4049,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
 
     if (!d3d12_command_list_gather_pending_queries(list))
         d3d12_command_list_mark_as_invalid(list, "Failed to gather virtual queries.\n");
+
+    /* If we have kept some DSV resources in optimal layout throughout the command buffer,
+     * now is the time to decay them. */
+    d3d12_command_list_decay_optimal_dsv_resources(list);
 
     vkd3d_shader_debug_ring_end_command_buffer(list);
 
@@ -4053,6 +4310,7 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     list->query_ranges_count = 0;
     list->active_queries_count = 0;
     list->pending_queries_count = 0;
+    list->dsv_resource_tracking_count = 0;
 
     list->render_pass_suspended = false;
 }
@@ -6495,16 +6753,6 @@ static void vk_image_memory_barrier_for_transition(
         image_barrier->subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
     }
 }
-
-#define MAX_BATCHED_IMAGE_BARRIERS 16
-struct d3d12_command_list_barrier_batch
-{
-    VkImageMemoryBarrier vk_image_barriers[MAX_BATCHED_IMAGE_BARRIERS];
-    VkMemoryBarrier vk_memory_barrier;
-    uint32_t image_barrier_count;
-    VkPipelineStageFlags dst_stage_mask, src_stage_mask;
-};
-
 static void d3d12_command_list_barrier_batch_init(struct d3d12_command_list_barrier_batch *batch)
 {
     batch->image_barrier_count = 0;
