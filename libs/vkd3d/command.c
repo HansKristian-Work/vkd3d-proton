@@ -1956,18 +1956,25 @@ static bool d3d12_image_copy_writes_full_subresource(struct d3d12_resource *reso
     return width == extent->width && height == extent->height && depth == extent->depth;
 }
 
-static bool vk_rect_from_d3d12(const D3D12_RECT *rect, VkRect2D *vk_rect)
+static bool vk_rect_from_d3d12(const D3D12_RECT *rect, VkRect2D *vk_rect, const D3D12_RECT *clamp_rect)
 {
-    if (rect->top >= rect->bottom || rect->left >= rect->right)
+    D3D12_RECT clamped;
+
+    clamped.left = max(rect->left, clamp_rect->left);
+    clamped.right = min(rect->right, clamp_rect->right);
+    clamped.top = max(rect->top, clamp_rect->top);
+    clamped.bottom = min(rect->bottom, clamp_rect->bottom);
+
+    if (clamped.top >= clamped.bottom || clamped.left >= clamped.right)
     {
         WARN("Empty clear rect.\n");
         return false;
     }
 
-    vk_rect->offset.x = rect->left;
-    vk_rect->offset.y = rect->top;
-    vk_rect->extent.width = rect->right - rect->left;
-    vk_rect->extent.height = rect->bottom - rect->top;
+    vk_rect->offset.x = clamped.left;
+    vk_rect->offset.y = clamped.top;
+    vk_rect->extent.width = clamped.right - clamped.left;
+    vk_rect->extent.height = clamped.bottom - clamped.top;
     return true;
 }
 
@@ -2044,9 +2051,10 @@ static void d3d12_command_list_clear_attachment_inline(struct d3d12_command_list
     D3D12_RECT full_rect;
     unsigned int i;
 
+    full_rect = d3d12_get_image_rect(resource, view->info.texture.miplevel_idx);
+
     if (!rect_count)
     {
-        full_rect = d3d12_get_image_rect(resource, view->info.texture.miplevel_idx);
         rect_count = 1;
         rects = &full_rect;
     }
@@ -2063,7 +2071,7 @@ static void d3d12_command_list_clear_attachment_inline(struct d3d12_command_list
 
     for (i = 0; i < rect_count; i++)
     {
-        if (vk_rect_from_d3d12(&rects[i], &vk_clear_rect.rect))
+        if (vk_rect_from_d3d12(&rects[i], &vk_clear_rect.rect, &full_rect))
         {
             VK_CALL(vkCmdClearAttachments(list->vk_command_buffer,
                     1, &vk_clear_attachment, 1, &vk_clear_rect));
@@ -7344,6 +7352,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
         d3d12_command_list_invalidate_current_pipeline(list, false);
 }
 
+static bool d3d12_rect_fully_covers_region(const D3D12_RECT *a, const D3D12_RECT *b)
+{
+    return a->top <= b->top && a->bottom >= b->bottom &&
+            a->left <= b->left && a->right >= b->right;
+}
+
 static void d3d12_command_list_clear_attachment(struct d3d12_command_list *list, struct d3d12_resource *resource,
         struct vkd3d_view *view, VkImageAspectFlags clear_aspects, const VkClearValue *clear_value, UINT rect_count,
         const D3D12_RECT *rects)
@@ -7359,7 +7373,7 @@ static void d3d12_command_list_clear_attachment(struct d3d12_command_list *list,
     full_clear = !rect_count;
 
     for (i = 0; i < rect_count && !full_clear; i++)
-        full_clear |= !memcmp(&rects[i], &full_rect, sizeof(full_rect));
+        full_clear = d3d12_rect_fully_covers_region(&rects[i], &full_rect);
 
     if (full_clear)
         rect_count = 0;
@@ -7882,7 +7896,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
         full_rect = d3d12_get_image_rect(texture, vk_subresource.mipLevel);
 
         for (i = 0; i < region->NumRects && !full_discard; i++)
-            full_discard = !memcmp(&region->pRects[i], &full_rect, sizeof(full_rect));
+            full_discard = d3d12_rect_fully_covers_region(&region->pRects[i], &full_rect);
     }
 
     if (!full_discard)
