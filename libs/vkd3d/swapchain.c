@@ -456,7 +456,7 @@ static LONG fullscreen_exstyle(LONG exstyle)
 void d3d12_swapchain_state_restore_from_fullscreen(struct d3d12_swapchain *swapchain,
         HWND window, const RECT *window_rect)
 {
-    unsigned int window_pos_flags = SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOACTIVATE;
+    unsigned int window_pos_flags = SWP_FRAMECHANGED | SWP_NOACTIVATE;
     LONG style, exstyle;
     RECT rect = {0};
 
@@ -488,8 +488,9 @@ void d3d12_swapchain_state_restore_from_fullscreen(struct d3d12_swapchain *swapc
             rect.right - rect.left, rect.bottom - rect.top,
             rect.left, rect.top);
 
-    SetWindowPos(window, 0, rect.left, rect.top,
-            rect.right - rect.left, rect.bottom - rect.top, window_pos_flags);
+    SetWindowPos(window, (swapchain->state.exstyle & WS_EX_TOPMOST) ? HWND_TOPMOST : HWND_NOTOPMOST,
+        rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
+        window_pos_flags);
 
     /* Delete the old values. */
     swapchain->state.style = 0;
