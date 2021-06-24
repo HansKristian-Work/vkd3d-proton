@@ -2069,6 +2069,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_SetFullscreenState(dxgi_swapcha
     }
 
     original_state = swapchain->fullscreen_desc.Windowed;
+    if (original_state)
+        GetWindowRect(swapchain->window, &swapchain->state.original_window_rect);
+
     swapchain->fullscreen_desc.Windowed = !fullscreen;
     hr = d3d12_swapchain_set_fullscreen(swapchain, target, original_state);
 
