@@ -435,57 +435,30 @@ static HRESULT d3d12_swapchain_set_display_mode(struct d3d12_swapchain *swapchai
     return S_OK;
 }
 
-static LONG fullscreen_style(LONG style)
-{
-    /* Make sure the window is managed, otherwise we won't get keyboard input. */
-    style |= WS_POPUP | WS_SYSMENU;
-    style &= ~(WS_CAPTION | WS_THICKFRAME);
-
-    return style;
-}
-
-static LONG fullscreen_exstyle(LONG exstyle)
-{
-    /* Filter out window decorations. */
-    exstyle &= ~(WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE);
-
-    return exstyle;
-}
-
 void d3d12_swapchain_state_restore_from_fullscreen(struct d3d12_swapchain *swapchain,
         HWND window, const RECT *window_rect)
 {
-    unsigned int window_pos_flags = SWP_FRAMECHANGED | SWP_NOACTIVATE;
     LONG style, exstyle;
-    RECT rect = {0};
 
     if (!swapchain->state.style && !swapchain->state.exstyle)
         return;
 
-    style = GetWindowLongW(window, GWL_STYLE);
-    exstyle = GetWindowLongW(window, GWL_EXSTYLE);
-
-    swapchain->state.style ^= (swapchain->state.style ^ style) & WS_VISIBLE;
-    swapchain->state.exstyle ^= (swapchain->state.exstyle ^ exstyle) & WS_EX_TOPMOST;
+    style = GetWindowLongW(window, GWL_STYLE) & ~WS_VISIBLE;
+    exstyle = GetWindowLongW(window, GWL_EXSTYLE) & ~WS_EX_TOPMOST;
 
     TRACE("Restoring window style of window %p to %08x, %08x.\n",
             window, swapchain->state.style, swapchain->state.exstyle);
 
-    if (style == fullscreen_style(swapchain->state.style) &&
-        exstyle == fullscreen_exstyle(swapchain->state.exstyle))
+    if (style == (swapchain->state.style & ~(WS_VISIBLE | WS_OVERLAPPEDWINDOW)) &&
+        exstyle == (swapchain->state.exstyle & ~(WS_EX_TOPMOST | WS_EX_OVERLAPPEDWINDOW)))
     {
         SetWindowLongW(window, GWL_STYLE, swapchain->state.style);
         SetWindowLongW(window, GWL_EXSTYLE, swapchain->state.exstyle);
     }
 
-    if (window_rect)
-        rect = *window_rect;
-    else
-        window_pos_flags |= (SWP_NOMOVE | SWP_NOSIZE);
-
     SetWindowPos(window, (swapchain->state.exstyle & WS_EX_TOPMOST) ? HWND_TOPMOST : HWND_NOTOPMOST,
-        rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
-        window_pos_flags);
+        window_rect->left, window_rect->top, window_rect->right - window_rect->left, window_rect->bottom - window_rect->top,
+        SWP_FRAMECHANGED | SWP_NOACTIVATE);
 
     /* Delete the old values. */
     swapchain->state.style = 0;
@@ -514,8 +487,8 @@ HRESULT d3d12_swapchain_state_setup_fullscreen(struct d3d12_swapchain* swapchain
     swapchain->state.style = GetWindowLongW(window, GWL_STYLE);
     swapchain->state.exstyle = GetWindowLongW(window, GWL_EXSTYLE);
 
-    style = fullscreen_style(swapchain->state.style);
-    exstyle = fullscreen_exstyle(swapchain->state.exstyle);
+    style = swapchain->state.style &= ~WS_OVERLAPPEDWINDOW;
+    exstyle = swapchain->state.exstyle &= ~WS_EX_OVERLAPPEDWINDOW;
 
     TRACE("Old style was %08x, %08x, setting to %08x, %08x.\n",
         swapchain->state.style, swapchain->state.exstyle, style, exstyle);
