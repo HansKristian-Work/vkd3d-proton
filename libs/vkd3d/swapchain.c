@@ -704,7 +704,7 @@ static HRESULT select_vk_format(const struct d3d12_device *device,
 
     format = vkd3d_internal_get_vk_format(device, swapchain_desc->Format);
 
-    vr = vk_procs->vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, vk_surface, &format_count, NULL);
+    vr = VK_CALL(vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, vk_surface, &format_count, NULL));
     if (vr < 0 || !format_count)
     {
         WARN("Failed to get supported surface formats, vr %d.\n", vr);
@@ -714,8 +714,8 @@ static HRESULT select_vk_format(const struct d3d12_device *device,
     if (!(formats = vkd3d_calloc(format_count, sizeof(*formats))))
         return E_OUTOFMEMORY;
 
-    if ((vr = vk_procs->vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device,
-            vk_surface, &format_count, formats)) < 0)
+    if ((vr = VK_CALL(vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device,
+            vk_surface, &format_count, formats))) < 0)
     {
         WARN("Failed to enumerate supported surface formats, vr %d.\n", vr);
         vkd3d_free(formats);
@@ -767,8 +767,8 @@ static BOOL d3d12_swapchain_is_present_mode_supported(struct d3d12_swapchain *sw
     if (present_mode == VK_PRESENT_MODE_FIFO_KHR)
         return TRUE;
 
-    if ((vr = vk_procs->vkGetPhysicalDeviceSurfacePresentModesKHR(vk_physical_device,
-            swapchain->vk_surface, &count, NULL)) < 0)
+    if ((vr = VK_CALL(vkGetPhysicalDeviceSurfacePresentModesKHR(vk_physical_device,
+            swapchain->vk_surface, &count, NULL))) < 0)
     {
         WARN("Failed to get count of available present modes, vr %d.\n", vr);
         return FALSE;
@@ -778,8 +778,8 @@ static BOOL d3d12_swapchain_is_present_mode_supported(struct d3d12_swapchain *sw
 
     if (!(modes = vkd3d_calloc(count, sizeof(*modes))))
         return FALSE;
-    if ((vr = vk_procs->vkGetPhysicalDeviceSurfacePresentModesKHR(vk_physical_device,
-            swapchain->vk_surface, &count, modes)) >= 0)
+    if ((vr = VK_CALL(vkGetPhysicalDeviceSurfacePresentModesKHR(vk_physical_device,
+            swapchain->vk_surface, &count, modes))) >= 0)
     {
         for (i = 0; i < count; ++i)
         {
@@ -995,7 +995,7 @@ static VkResult d3d12_swapchain_record_swapchain_blit(struct d3d12_swapchain *sw
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     begin_info.pInheritanceInfo = NULL;
 
-    if ((vr = vk_procs->vkBeginCommandBuffer(vk_cmd_buffer, &begin_info)) < 0)
+    if ((vr = VK_CALL(vkBeginCommandBuffer(vk_cmd_buffer, &begin_info))) < 0)
     {
         WARN("Failed to begin command buffer, vr %d.\n", vr);
         return vr;
@@ -1055,7 +1055,7 @@ static VkResult d3d12_swapchain_record_swapchain_blit(struct d3d12_swapchain *sw
     VK_CALL(vkCmdDraw(vk_cmd_buffer, 3, 1, 0, 0));
     VK_CALL(vkCmdEndRenderPass2KHR(vk_cmd_buffer, &subpass_end_info));
 
-    if ((vr = vk_procs->vkEndCommandBuffer(vk_cmd_buffer)) < 0)
+    if ((vr = VK_CALL(vkEndCommandBuffer(vk_cmd_buffer))) < 0)
         WARN("Failed to end command buffer, vr %d.\n", vr);
 
     return vr;
@@ -1140,8 +1140,8 @@ static HRESULT d3d12_swapchain_prepare_command_buffers(struct d3d12_swapchain *s
     pool_info.queueFamilyIndex = queue_family_index;
 
     assert(swapchain->vk_cmd_pool == VK_NULL_HANDLE);
-    if ((vr = vk_procs->vkCreateCommandPool(vk_device, &pool_info,
-            NULL, &swapchain->vk_cmd_pool)) < 0)
+    if ((vr = VK_CALL(vkCreateCommandPool(vk_device, &pool_info,
+            NULL, &swapchain->vk_cmd_pool))) < 0)
     {
         WARN("Failed to create command pool, vr %d.\n", vr);
         swapchain->vk_cmd_pool = VK_NULL_HANDLE;
@@ -1154,8 +1154,8 @@ static HRESULT d3d12_swapchain_prepare_command_buffers(struct d3d12_swapchain *s
     allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     allocate_info.commandBufferCount = swapchain->buffer_count;
 
-    if ((vr = vk_procs->vkAllocateCommandBuffers(vk_device, &allocate_info,
-            swapchain->vk_cmd_buffers)) < 0)
+    if ((vr = VK_CALL(vkAllocateCommandBuffers(vk_device, &allocate_info,
+            swapchain->vk_cmd_buffers))) < 0)
     {
         WARN("Failed to allocate command buffers, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
@@ -1176,8 +1176,8 @@ static HRESULT d3d12_swapchain_prepare_command_buffers(struct d3d12_swapchain *s
         fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
         assert(swapchain->vk_acquire_semaphores[i] == VK_NULL_HANDLE);
-        if ((vr = vk_procs->vkCreateSemaphore(vk_device, &semaphore_info,
-                NULL, &swapchain->vk_acquire_semaphores[i])) < 0)
+        if ((vr = VK_CALL(vkCreateSemaphore(vk_device, &semaphore_info,
+                NULL, &swapchain->vk_acquire_semaphores[i]))) < 0)
         {
             WARN("Failed to create semaphore, vr %d.\n", vr);
             swapchain->vk_acquire_semaphores[i] = VK_NULL_HANDLE;
@@ -1185,8 +1185,8 @@ static HRESULT d3d12_swapchain_prepare_command_buffers(struct d3d12_swapchain *s
         }
 
         assert(swapchain->vk_present_semaphores[i] == VK_NULL_HANDLE);
-        if ((vr = vk_procs->vkCreateSemaphore(vk_device, &semaphore_info,
-                NULL, &swapchain->vk_present_semaphores[i])) < 0)
+        if ((vr = VK_CALL(vkCreateSemaphore(vk_device, &semaphore_info,
+                NULL, &swapchain->vk_present_semaphores[i]))) < 0)
         {
             WARN("Failed to create semaphore, vr %d.\n", vr);
             swapchain->vk_present_semaphores[i] = VK_NULL_HANDLE;
@@ -1194,8 +1194,8 @@ static HRESULT d3d12_swapchain_prepare_command_buffers(struct d3d12_swapchain *s
         }
 
         assert(swapchain->vk_blit_fences[i] == VK_NULL_HANDLE);
-        if ((vr = vk_procs->vkCreateFence(vk_device, &fence_info,
-                NULL, &swapchain->vk_blit_fences[i])) < 0)
+        if ((vr = VK_CALL(vkCreateFence(vk_device, &fence_info,
+                NULL, &swapchain->vk_blit_fences[i]))) < 0)
         {
             WARN("Failed to create fence, vr %d.\n", vr);
             swapchain->vk_blit_fences[i] = VK_NULL_HANDLE;
@@ -1220,7 +1220,7 @@ static HRESULT d3d12_swapchain_create_buffers(struct d3d12_swapchain *swapchain,
 
     d3d12_swapchain_destroy_framebuffers(swapchain);
 
-    if ((vr = vk_procs->vkGetSwapchainImagesKHR(vk_device, vk_swapchain, &image_count, NULL)) < 0)
+    if ((vr = VK_CALL(vkGetSwapchainImagesKHR(vk_device, vk_swapchain, &image_count, NULL))) < 0)
     {
         WARN("Failed to get Vulkan swapchain images, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
@@ -1231,8 +1231,8 @@ static HRESULT d3d12_swapchain_create_buffers(struct d3d12_swapchain *swapchain,
         return E_FAIL;
     }
     swapchain->buffer_count = image_count;
-    if ((vr = vk_procs->vkGetSwapchainImagesKHR(vk_device, vk_swapchain,
-            &image_count, swapchain->vk_swapchain_images)) < 0)
+    if ((vr = VK_CALL(vkGetSwapchainImagesKHR(vk_device, vk_swapchain,
+            &image_count, swapchain->vk_swapchain_images))) < 0)
     {
         WARN("Failed to get Vulkan swapchain images, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
@@ -1325,7 +1325,7 @@ static void d3d12_swapchain_destroy_buffers(struct d3d12_swapchain *swapchain, B
                 if (swapchain->vk_acquire_semaphores_signaled[i])
                     d3d12_swapchain_unsignal_acquire_semaphore(swapchain, vk_queue, i, false);
 
-            vk_procs->vkQueueWaitIdle(vk_queue);
+            VK_CALL(vkQueueWaitIdle(vk_queue));
 
             vkd3d_release_vk_queue(d3d12_swapchain_queue_iface(swapchain));
         }
@@ -1352,17 +1352,17 @@ static void d3d12_swapchain_destroy_buffers(struct d3d12_swapchain *swapchain, B
     {
         for (i = 0; i < swapchain->buffer_count; ++i)
         {
-            vk_procs->vkDestroySemaphore(swapchain->command_queue->device->vk_device, swapchain->vk_acquire_semaphores[i], NULL);
+            VK_CALL(vkDestroySemaphore(swapchain->command_queue->device->vk_device, swapchain->vk_acquire_semaphores[i], NULL));
             swapchain->vk_acquire_semaphores[i] = VK_NULL_HANDLE;
             swapchain->vk_acquire_semaphores_signaled[i] = false;
 
-            vk_procs->vkDestroySemaphore(swapchain->command_queue->device->vk_device, swapchain->vk_present_semaphores[i], NULL);
+            VK_CALL(vkDestroySemaphore(swapchain->command_queue->device->vk_device, swapchain->vk_present_semaphores[i], NULL));
             swapchain->vk_present_semaphores[i] = VK_NULL_HANDLE;
 
-            vk_procs->vkDestroyFence(swapchain->command_queue->device->vk_device, swapchain->vk_blit_fences[i], NULL);
+            VK_CALL(vkDestroyFence(swapchain->command_queue->device->vk_device, swapchain->vk_blit_fences[i], NULL));
             swapchain->vk_blit_fences[i] = VK_NULL_HANDLE;
         }
-        vk_procs->vkDestroyCommandPool(swapchain->command_queue->device->vk_device, swapchain->vk_cmd_pool, NULL);
+        VK_CALL(vkDestroyCommandPool(swapchain->command_queue->device->vk_device, swapchain->vk_cmd_pool, NULL));
         swapchain->vk_cmd_pool = VK_NULL_HANDLE;
     }
 }
@@ -1374,8 +1374,8 @@ static bool d3d12_swapchain_has_nonzero_surface_size(struct d3d12_swapchain *swa
     VkSurfaceCapabilitiesKHR surface_caps;
     VkResult vr;
 
-    if ((vr = vk_procs->vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device,
-            swapchain->vk_surface, &surface_caps)) < 0)
+    if ((vr = VK_CALL(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device,
+            swapchain->vk_surface, &surface_caps))) < 0)
     {
         WARN("Failed to get surface capabilities, vr %d.\n", vr);
         return false;
@@ -1409,8 +1409,8 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
             swapchain->vk_surface, &swapchain->desc, &vk_swapchain_format)))
         return hr;
 
-    if ((vr = vk_procs->vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device,
-            swapchain->vk_surface, &surface_caps)) < 0)
+    if ((vr = VK_CALL(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device,
+            swapchain->vk_surface, &surface_caps))) < 0)
     {
         WARN("Failed to get surface capabilities, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
@@ -1481,7 +1481,7 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
      * the swapchain up front. */
     if (swapchain->vk_swapchain)
     {
-        vk_procs->vkDestroySwapchainKHR(swapchain->command_queue->device->vk_device, swapchain->vk_swapchain, NULL);
+        VK_CALL(vkDestroySwapchainKHR(swapchain->command_queue->device->vk_device, swapchain->vk_swapchain, NULL));
         swapchain->vk_swapchain = VK_NULL_HANDLE;
     }
 
@@ -1506,7 +1506,7 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
         vk_swapchain_desc.presentMode = swapchain->present_mode;
         vk_swapchain_desc.clipped = VK_TRUE;
         vk_swapchain_desc.oldSwapchain = swapchain->vk_swapchain;
-        if ((vr = vk_procs->vkCreateSwapchainKHR(vk_device, &vk_swapchain_desc, NULL, &vk_swapchain)) < 0)
+        if ((vr = VK_CALL(vkCreateSwapchainKHR(vk_device, &vk_swapchain_desc, NULL, &vk_swapchain))) < 0)
         {
             WARN("Failed to create Vulkan swapchain, vr %d.\n", vr);
             return hresult_from_vk_result(vr);
@@ -1613,9 +1613,9 @@ static void d3d12_swapchain_destroy(struct d3d12_swapchain *swapchain)
     vkd3d_private_store_destroy(&swapchain->private_store);
 
     if (swapchain->command_queue->device->vk_device)
-        vk_procs->vkDestroySwapchainKHR(swapchain->command_queue->device->vk_device, swapchain->vk_swapchain, NULL);
+        VK_CALL(vkDestroySwapchainKHR(swapchain->command_queue->device->vk_device, swapchain->vk_swapchain, NULL));
 
-    vk_procs->vkDestroySurfaceKHR(d3d12_swapchain_device(swapchain)->vkd3d_instance->vk_instance, swapchain->vk_surface, NULL);
+    VK_CALL(vkDestroySurfaceKHR(d3d12_swapchain_device(swapchain)->vkd3d_instance->vk_instance, swapchain->vk_surface, NULL));
 
     if (swapchain->target)
     {
@@ -1762,9 +1762,9 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
             if ((vr = d3d12_swapchain_unsignal_acquire_semaphore(swapchain, vk_queue, swapchain->frame_id, true)))
                 return vr;
 
-        vr = vk_procs->vkAcquireNextImageKHR(vk_device, swapchain->vk_swapchain, UINT64_MAX,
+        vr = VK_CALL(vkAcquireNextImageKHR(vk_device, swapchain->vk_swapchain, UINT64_MAX,
                 swapchain->vk_acquire_semaphores[swapchain->frame_id],
-                VK_NULL_HANDLE, &swapchain->vk_image_index);
+                VK_NULL_HANDLE, &swapchain->vk_image_index));
 
         if (vr >= 0)
         {
@@ -1808,7 +1808,7 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
         return vr;
     }
 
-    if ((vr = vk_procs->vkResetCommandBuffer(vk_cmd_buffer, 0)) < 0)
+    if ((vr = VK_CALL(vkResetCommandBuffer(vk_cmd_buffer, 0))) < 0)
     {
         ERR("Failed to reset command buffer, vr %d.\n", vr);
         return vr;
@@ -1830,7 +1830,7 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
     submit_info.pSignalSemaphores = &swapchain->vk_present_semaphores[swapchain->vk_image_index];
 
     VK_CALL(vkResetFences(vk_device, 1, &swapchain->vk_blit_fences[swapchain->vk_image_index]));
-    if ((vr = vk_procs->vkQueueSubmit(vk_queue, 1, &submit_info, swapchain->vk_blit_fences[swapchain->vk_image_index])) < 0)
+    if ((vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, swapchain->vk_blit_fences[swapchain->vk_image_index]))) < 0)
     {
         ERR("Failed to blit swapchain buffer, vr %d.\n", vr);
         return vr;
@@ -1841,7 +1841,7 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
     present_info.waitSemaphoreCount = 1;
     present_info.pWaitSemaphores = &swapchain->vk_present_semaphores[swapchain->vk_image_index];
 
-    if ((vr = vk_procs->vkQueuePresentKHR(vk_queue, &present_info)) >= 0)
+    if ((vr = VK_CALL(vkQueuePresentKHR(vk_queue, &present_info))) >= 0)
     {
         swapchain->frame_id = (swapchain->frame_id + 1) % swapchain->buffer_count;
         swapchain->vk_image_index = INVALID_VK_IMAGE_INDEX;
@@ -1860,9 +1860,9 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
         {
             /* Try to acquire our next image to avoid blocking next frame. */
             assert(!swapchain->vk_acquire_semaphores_signaled[swapchain->frame_id]);
-            vr = vk_procs->vkAcquireNextImageKHR(vk_device, swapchain->vk_swapchain, UINT64_MAX,
+            vr = VK_CALL(vkAcquireNextImageKHR(vk_device, swapchain->vk_swapchain, UINT64_MAX,
                     swapchain->vk_acquire_semaphores[swapchain->frame_id], VK_NULL_HANDLE,
-                    &swapchain->vk_image_index);
+                    &swapchain->vk_image_index));
 
             if (vr >= 0)
             {
@@ -2783,7 +2783,7 @@ static HRESULT d3d12_swapchain_init(struct d3d12_swapchain *swapchain, IDXGIFact
     surface_desc.flags = 0;
     surface_desc.hinstance = GetModuleHandleA("d3d12.dll");
     surface_desc.hwnd = window;
-    if ((vr = vk_procs->vkCreateWin32SurfaceKHR(vk_instance, &surface_desc, NULL, &vk_surface)) < 0)
+    if ((vr = VK_CALL(vkCreateWin32SurfaceKHR(vk_instance, &surface_desc, NULL, &vk_surface))) < 0)
     {
         WARN("Failed to create Vulkan surface, vr %d.\n", vr);
         d3d12_swapchain_destroy(swapchain);
@@ -2792,8 +2792,8 @@ static HRESULT d3d12_swapchain_init(struct d3d12_swapchain *swapchain, IDXGIFact
     swapchain->vk_surface = vk_surface;
 
     queue_family_index = queue->vkd3d_queue->vk_family_index;
-    if ((vr = vk_procs->vkGetPhysicalDeviceSurfaceSupportKHR(vk_physical_device,
-            queue_family_index, vk_surface, &supported)) < 0 || !supported)
+    if ((vr = VK_CALL(vkGetPhysicalDeviceSurfaceSupportKHR(vk_physical_device,
+            queue_family_index, vk_surface, &supported))) < 0 || !supported)
     {
         FIXME("Queue family does not support presentation, vr %d.\n", vr);
         d3d12_swapchain_destroy(swapchain);
