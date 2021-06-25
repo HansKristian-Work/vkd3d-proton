@@ -58,6 +58,7 @@ struct vkd3d_shader_meta
 {
     vkd3d_shader_hash_t hash;
     bool replaced;
+    bool uses_subgroup_size;
 };
 
 struct vkd3d_shader_code
