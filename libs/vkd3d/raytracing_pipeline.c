@@ -976,6 +976,13 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
         }
 
         stage->module = create_shader_module(object->device, spirv.code, spirv.size);
+
+        if (spirv.meta.uses_subgroup_size &&
+                object->device->device_info.subgroup_size_control_features.subgroupSizeControl)
+        {
+            stage->flags |= VK_PIPELINE_SHADER_STAGE_CREATE_ALLOW_VARYING_SUBGROUP_SIZE_BIT_EXT;
+        }
+
         vkd3d_shader_free_shader_code(&spirv);
         if (!stage->module)
             return E_OUTOFMEMORY;

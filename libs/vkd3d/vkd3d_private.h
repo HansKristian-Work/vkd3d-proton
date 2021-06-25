@@ -2515,6 +2515,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features;
     VkPhysicalDeviceFragmentShadingRateFeaturesKHR fragment_shading_rate_features;
     VkPhysicalDeviceShaderDrawParametersFeatures shader_draw_parameters_features;
+    VkPhysicalDeviceSubgroupSizeControlFeaturesEXT subgroup_size_control_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
