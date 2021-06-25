@@ -185,6 +185,7 @@ struct d3d12_swapchain
     bool vk_acquire_semaphores_signaled[DXGI_MAX_SWAP_CHAIN_BUFFERS];
     VkSemaphore vk_acquire_semaphores[DXGI_MAX_SWAP_CHAIN_BUFFERS];
     VkSemaphore vk_present_semaphores[DXGI_MAX_SWAP_CHAIN_BUFFERS];
+    VkFence vk_blit_fences[DXGI_MAX_SWAP_CHAIN_BUFFERS];
     ID3D12Resource *buffers[DXGI_MAX_SWAP_CHAIN_BUFFERS];
     unsigned int buffer_count;
     unsigned int vk_swapchain_width;
@@ -1129,6 +1130,7 @@ static HRESULT d3d12_swapchain_prepare_command_buffers(struct d3d12_swapchain *s
     VkCommandBufferAllocateInfo allocate_info;
     VkSemaphoreCreateInfo semaphore_info;
     VkCommandPoolCreateInfo pool_info;
+    VkFenceCreateInfo fence_info;
     unsigned int i;
     VkResult vr;
 
@@ -1169,6 +1171,10 @@ static HRESULT d3d12_swapchain_prepare_command_buffers(struct d3d12_swapchain *s
         semaphore_info.pNext = NULL;
         semaphore_info.flags = 0;
 
+        fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fence_info.pNext = NULL;
+        fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
         assert(swapchain->vk_acquire_semaphores[i] == VK_NULL_HANDLE);
         if ((vr = vk_procs->vkCreateSemaphore(vk_device, &semaphore_info,
                 NULL, &swapchain->vk_acquire_semaphores[i])) < 0)
@@ -1184,6 +1190,15 @@ static HRESULT d3d12_swapchain_prepare_command_buffers(struct d3d12_swapchain *s
         {
             WARN("Failed to create semaphore, vr %d.\n", vr);
             swapchain->vk_present_semaphores[i] = VK_NULL_HANDLE;
+            return hresult_from_vk_result(vr);
+        }
+
+        assert(swapchain->vk_blit_fences[i] == VK_NULL_HANDLE);
+        if ((vr = vk_procs->vkCreateFence(vk_device, &fence_info,
+                NULL, &swapchain->vk_blit_fences[i])) < 0)
+        {
+            WARN("Failed to create fence, vr %d.\n", vr);
+            swapchain->vk_blit_fences[i] = VK_NULL_HANDLE;
             return hresult_from_vk_result(vr);
         }
     }
@@ -1343,6 +1358,9 @@ static void d3d12_swapchain_destroy_buffers(struct d3d12_swapchain *swapchain, B
 
             vk_procs->vkDestroySemaphore(swapchain->command_queue->device->vk_device, swapchain->vk_present_semaphores[i], NULL);
             swapchain->vk_present_semaphores[i] = VK_NULL_HANDLE;
+
+            vk_procs->vkDestroyFence(swapchain->command_queue->device->vk_device, swapchain->vk_blit_fences[i], NULL);
+            swapchain->vk_blit_fences[i] = VK_NULL_HANDLE;
         }
         vk_procs->vkDestroyCommandPool(swapchain->command_queue->device->vk_device, swapchain->vk_cmd_pool, NULL);
         swapchain->vk_cmd_pool = VK_NULL_HANDLE;
@@ -1783,6 +1801,13 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
 
     vk_cmd_buffer = swapchain->vk_cmd_buffers[swapchain->vk_image_index];
 
+    if ((vr = VK_CALL(vkWaitForFences(vk_device, 1, &swapchain->vk_blit_fences[swapchain->vk_image_index],
+            VK_TRUE, UINT64_MAX))))
+    {
+        ERR("Failed to wait for fence.\n");
+        return vr;
+    }
+
     if ((vr = vk_procs->vkResetCommandBuffer(vk_cmd_buffer, 0)) < 0)
     {
         ERR("Failed to reset command buffer, vr %d.\n", vr);
@@ -1804,7 +1829,8 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
     submit_info.signalSemaphoreCount = 1;
     submit_info.pSignalSemaphores = &swapchain->vk_present_semaphores[swapchain->vk_image_index];
 
-    if ((vr = vk_procs->vkQueueSubmit(vk_queue, 1, &submit_info, VK_NULL_HANDLE)) < 0)
+    VK_CALL(vkResetFences(vk_device, 1, &swapchain->vk_blit_fences[swapchain->vk_image_index]));
+    if ((vr = vk_procs->vkQueueSubmit(vk_queue, 1, &submit_info, swapchain->vk_blit_fences[swapchain->vk_image_index])) < 0)
     {
         ERR("Failed to blit swapchain buffer, vr %d.\n", vr);
         return vr;
