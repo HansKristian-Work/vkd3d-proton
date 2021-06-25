@@ -1057,7 +1057,9 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     if (vulkan_info->EXT_subgroup_size_control)
     {
         info->subgroup_size_control_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES_EXT;
+        info->subgroup_size_control_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES_EXT;
         vk_prepend_struct(&info->properties2, &info->subgroup_size_control_properties);
+        vk_prepend_struct(&info->features2, &info->subgroup_size_control_features);
     }
 
     if (vulkan_info->EXT_texel_buffer_alignment)
