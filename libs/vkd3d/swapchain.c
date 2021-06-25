@@ -482,6 +482,11 @@ void d3d12_swapchain_state_restore_from_fullscreen(struct d3d12_swapchain *swapc
         rect = *window_rect;
     else
         window_pos_flags |= (SWP_NOMOVE | SWP_NOSIZE);
+
+    TRACE("Restoring from fullscreen, new rect: %d x %d + (%d, %d)\n",
+            rect.right - rect.left, rect.bottom - rect.top,
+            rect.left, rect.top);
+
     SetWindowPos(window, 0, rect.left, rect.top,
             rect.right - rect.left, rect.bottom - rect.top, window_pos_flags);
 
@@ -2070,7 +2075,16 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_SetFullscreenState(dxgi_swapcha
 
     original_state = swapchain->fullscreen_desc.Windowed;
     if (original_state)
+    {
         GetWindowRect(swapchain->window, &swapchain->state.original_window_rect);
+        TRACE("Entering fullscreen, old rect: %d x %d + (%d, %d).\n",
+                swapchain->state.original_window_rect.right -
+                swapchain->state.original_window_rect.left,
+                swapchain->state.original_window_rect.bottom -
+                swapchain->state.original_window_rect.top,
+                swapchain->state.original_window_rect.left,
+                swapchain->state.original_window_rect.top);
+    }
 
     swapchain->fullscreen_desc.Windowed = !fullscreen;
     hr = d3d12_swapchain_set_fullscreen(swapchain, target, original_state);
