@@ -3805,7 +3805,17 @@ static bool d3d12_pipeline_state_can_use_dynamic_stride(struct d3d12_pipeline_st
         /* The vertex buffer stride must be larger than any attribute offset + format size which accesses a buffer binding.
          * This is somewhat awkward, since D3D12 does not have this restriction, although the validation layers do warn about this.
          * There might also be similar fallback paths on certain native drivers, who knows ... */
-        if (dyn_state->vertex_strides[slot] < graphics->minimum_vertex_buffer_dynamic_stride[slot])
+
+        /* HACK: Not technically in spec, but allow stride == 0 to pass through.
+         * The stride >= offset + sizeof(format) rule is for AMD and OOB checks, since
+         * we need compiler to adjust vtx index and offset in this scenario since checks are against vtx index
+         * not byte address, but this path is irrelevant for stride == 0.
+         * This is fairly common to see in games. Scarlet Nexus hits it pretty hard, and
+         * we really should try to avoid late pipeline compiles here.
+         * Ideally, we should aim to clarify the Vulkan spec here to allow this case,
+         * since it's the canonical way to feed a constant attribute. */
+        if (dyn_state->vertex_strides[slot] &&
+                dyn_state->vertex_strides[slot] < graphics->minimum_vertex_buffer_dynamic_stride[slot])
         {
             TRACE("Stride for slot %u is %u bytes, but need at least %u.\n", slot,
                   (unsigned int)dyn_state->vertex_strides[slot],
