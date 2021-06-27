@@ -356,6 +356,7 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     const struct vkd3d_format *format;
     VkImageCreateInfo image_info;
     DXGI_FORMAT typeless_format;
+    bool use_concurrent;
     unsigned int i;
     VkResult vr;
 
@@ -496,7 +497,21 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     if (vkd3d_resource_can_be_vrs(device, heap_properties, desc))
         image_info.usage |= VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
 
-    if (device->unique_queue_mask & (device->unique_queue_mask - 1))
+    use_concurrent = !!(device->unique_queue_mask & (device->unique_queue_mask - 1));
+
+    if (!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS))
+    {
+        /* Ignore config flags for actual simultaneous access cases. */
+        if (((desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) &&
+                (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_RTV_EXCLUSIVE_QUEUE)) ||
+                ((desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) &&
+                 (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_DSV_EXCLUSIVE_QUEUE)))
+        {
+            use_concurrent = false;
+        }
+    }
+
+    if (use_concurrent)
     {
         /* For multi-queue, we have to use CONCURRENT since D3D does
          * not give us enough information to do ownership transfers. */
