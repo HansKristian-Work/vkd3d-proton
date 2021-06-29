@@ -4764,26 +4764,46 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
     /* Make sure we only update states that are dynamic in the pipeline */
     dyn_state->dirty_flags &= list->dynamic_state.active_flags;
 
-    if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT_COUNT)
+    if (dyn_state->viewport_count)
     {
-        VK_CALL(vkCmdSetViewportWithCountEXT(list->vk_command_buffer,
-                dyn_state->viewport_count, dyn_state->viewports));
-    }
-    else if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT)
-    {
-        VK_CALL(vkCmdSetViewport(list->vk_command_buffer,
-                0, dyn_state->viewport_count, dyn_state->viewports));
-    }
+        if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT_COUNT)
+        {
+            VK_CALL(vkCmdSetViewportWithCountEXT(list->vk_command_buffer,
+                    dyn_state->viewport_count, dyn_state->viewports));
+        }
+        else if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT)
+        {
+            VK_CALL(vkCmdSetViewport(list->vk_command_buffer,
+                    0, dyn_state->viewport_count, dyn_state->viewports));
+        }
 
-    if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR_COUNT)
-    {
-        VK_CALL(vkCmdSetScissorWithCountEXT(list->vk_command_buffer,
-                dyn_state->viewport_count, dyn_state->scissors));
+        if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR_COUNT)
+        {
+            VK_CALL(vkCmdSetScissorWithCountEXT(list->vk_command_buffer,
+                    dyn_state->viewport_count, dyn_state->scissors));
+        }
+        else if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR)
+        {
+            VK_CALL(vkCmdSetScissor(list->vk_command_buffer,
+                    0, dyn_state->viewport_count, dyn_state->scissors));
+        }
     }
-    else if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR)
+    else
     {
-        VK_CALL(vkCmdSetScissor(list->vk_command_buffer,
-                0, dyn_state->viewport_count, dyn_state->scissors));
+        /* Zero viewports disables rasterization. Emit dummy viewport / scissor rects.
+         * For non-dynamic fallbacks, we force viewportCount to be at least 1. */
+        static const VkViewport dummy_vp = { 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f };
+        static const VkRect2D dummy_rect = { { 0, 0 }, { 0, 0 } };
+
+        if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT_COUNT)
+            VK_CALL(vkCmdSetViewportWithCountEXT(list->vk_command_buffer, 1, &dummy_vp));
+        else if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT)
+            VK_CALL(vkCmdSetViewport(list->vk_command_buffer, 0, 1, &dummy_vp));
+
+        if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR_COUNT)
+            VK_CALL(vkCmdSetScissorWithCountEXT(list->vk_command_buffer, 1, &dummy_rect));
+        else if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR)
+            VK_CALL(vkCmdSetScissor(list->vk_command_buffer, 0, 1, &dummy_rect));
     }
 
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS)
