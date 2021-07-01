@@ -2933,7 +2933,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             if (image_features & VK_FORMAT_FEATURE_BLIT_SRC_BIT)
                 data->Support1 |= D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RESOLVE;
             if (image_features & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT)
+            {
                 data->Support1 |= D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW;
+                if (device->device_info.features2.features.shaderStorageImageReadWithoutFormat)
+                    data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD;
+                if (device->device_info.features2.features.shaderStorageImageWriteWithoutFormat)
+                    data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE;
+            }
 
             if (image_features & VK_FORMAT_FEATURE_STORAGE_IMAGE_ATOMIC_BIT)
                 data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_ADD
