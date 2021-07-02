@@ -417,6 +417,7 @@ struct vkd3d_instance_application_meta
 };
 static const struct vkd3d_instance_application_meta application_override[] = {
     /* MSVC fails to compile empty array. */
+    { "GravityMark.exe", VKD3D_CONFIG_FLAG_FORCE_MINIMUM_SUBGROUP_SIZE, 0 },
     { NULL, 0, 0 }
 };
 
