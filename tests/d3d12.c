@@ -46993,13 +46993,17 @@ static void test_aliasing_barrier(void)
 
 static void test_discard_resource(void)
 {
-    ID3D12DescriptorHeap *rtv_heap;
     ID3D12GraphicsCommandList *command_list;
     D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv, dsv;
     D3D12_RESOURCE_DESC resource_desc;
-    D3D12_CPU_DESCRIPTOR_HANDLE rtv;
+    ID3D12DescriptorHeap *rtv_heap;
+    ID3D12DescriptorHeap *dsv_heap;
+    D3D12_DISCARD_REGION ds_region;
     D3D12_DISCARD_REGION region;
     struct test_context context;
+    ID3D12Resource *tmp_depth;
+    ID3D12Resource *depth_rt;
     ID3D12Device *device;
     ID3D12Resource *rt;
     HRESULT hr;
@@ -47029,20 +47033,41 @@ static void test_discard_resource(void)
             &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&rt);
     ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
 
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+    resource_desc.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+        &resource_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE, NULL, &IID_ID3D12Resource, (void **)&depth_rt);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+    resource_desc.Format = DXGI_FORMAT_R32_FLOAT;
+    resource_desc.DepthOrArraySize = 1;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+        &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&tmp_depth);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+
     region.NumRects = 0;
     region.pRects = NULL;
     region.FirstSubresource = 0;
     region.NumSubresources = 2;
 
+    ds_region = region;
+    ds_region.NumSubresources = 4;
+
     ID3D12GraphicsCommandList_DiscardResource(context.list, rt, &region);
+    ID3D12GraphicsCommandList_DiscardResource(context.list, depth_rt, &ds_region);
 
     rtv_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+    dsv_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
     rtv = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv_heap);
+    dsv = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(dsv_heap);
 
     ID3D12Device_CreateRenderTargetView(device, rt, NULL, rtv);
+    ID3D12Device_CreateDepthStencilView(device, depth_rt, NULL, dsv);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv, false, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv, false, &dsv);
     ID3D12GraphicsCommandList_DiscardResource(context.list, rt, &region);
+    ID3D12GraphicsCommandList_DiscardResource(context.list, depth_rt, &ds_region);
 
     /* Just make sure we don't have validation errors */
     hr = ID3D12GraphicsCommandList_Close(context.list);
@@ -47050,20 +47075,57 @@ static void test_discard_resource(void)
     hr = ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
     ok(hr == S_OK, "Failed to reset command list, hr %#x.\n", hr);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv, false, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv, false, &dsv);
     ID3D12GraphicsCommandList_DiscardResource(context.list, rt, &region);
+    ID3D12GraphicsCommandList_DiscardResource(context.list, depth_rt, &ds_region);
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv, clear_color, 0, NULL);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, dsv, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 128, 0, NULL);
 
     region.FirstSubresource = 1;
     region.NumSubresources = 1;
     ID3D12GraphicsCommandList_DiscardResource(context.list, rt, &region);
 
+    /* Discard stencil aspect and mip 1 of depth aspect. */
+    ds_region.FirstSubresource = 1;
+    ds_region.NumSubresources = 3;
+    ID3D12GraphicsCommandList_DiscardResource(context.list, depth_rt, &ds_region);
+
     /* Ensure that the clear gets executed properly for subresource 0 */
     transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(context.list, depth_rt, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
     check_sub_resource_uint(rt, 0, context.queue, context.list, 0x000000ffu, 0);
 
+    /* Ensure that the clear gets executed properly for subresource 0 */
+    hr = ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+    {
+        D3D12_TEXTURE_COPY_LOCATION dst_location, src_location;
+        D3D12_BOX src_box;
+
+        dst_location.SubresourceIndex = 0;
+        dst_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        dst_location.pResource = tmp_depth;
+
+        src_location.SubresourceIndex = 0;
+        src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        src_location.pResource = depth_rt;
+
+        src_box.left = 0;
+        src_box.right = 16;
+        src_box.top = 0;
+        src_box.bottom = 16;
+        src_box.front = 0;
+        src_box.back = 1;
+
+        ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst_location, 0, 0, 0, &src_location, &src_box);
+        transition_resource_state(context.list, tmp_depth, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    }
+    check_sub_resource_float(tmp_depth, 0, context.queue, context.list, 1.0f, 0);
+
     ID3D12Resource_Release(rt);
+    ID3D12Resource_Release(depth_rt);
+    ID3D12Resource_Release(tmp_depth);
     ID3D12DescriptorHeap_Release(rtv_heap);
+    ID3D12DescriptorHeap_Release(dsv_heap);
     destroy_test_context(&context);
 }
 
