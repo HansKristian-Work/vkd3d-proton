@@ -119,6 +119,7 @@ struct vkd3d_vulkan_info
     bool KHR_fragment_shading_rate;
     bool KHR_create_renderpass2;
     bool KHR_sampler_mirror_clamp_to_edge;
+    bool KHR_separate_depth_stencil_layouts;
     /* EXT device extensions */
     bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;
@@ -2516,6 +2517,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceFragmentShadingRateFeaturesKHR fragment_shading_rate_features;
     VkPhysicalDeviceShaderDrawParametersFeatures shader_draw_parameters_features;
     VkPhysicalDeviceSubgroupSizeControlFeaturesEXT subgroup_size_control_features;
+    VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR separate_depth_stencil_layout_features;
 
     VkPhysicalDeviceFeatures2 features2;
 

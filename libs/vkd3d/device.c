@@ -73,6 +73,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_FRAGMENT_SHADING_RATE, KHR_fragment_shading_rate),
     VK_EXTENSION(KHR_CREATE_RENDERPASS_2, KHR_create_renderpass2),
     VK_EXTENSION(KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE, KHR_sampler_mirror_clamp_to_edge),
+    VK_EXTENSION(KHR_SEPARATE_DEPTH_STENCIL_LAYOUTS, KHR_separate_depth_stencil_layouts),
     /* EXT extensions */
     VK_EXTENSION(EXT_CALIBRATED_TIMESTAMPS, EXT_calibrated_timestamps),
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
@@ -1159,6 +1160,13 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->fragment_shading_rate_features);
     }
 
+    if (vulkan_info->KHR_separate_depth_stencil_layouts)
+    {
+        info->separate_depth_stencil_layout_features.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SEPARATE_DEPTH_STENCIL_LAYOUTS_FEATURES;
+        vk_prepend_struct(&info->features2, &info->separate_depth_stencil_layout_features);
+    }
+
     /* Core in Vulkan 1.1. */
     info->shader_draw_parameters_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES;
     vk_prepend_struct(&info->features2, &info->shader_draw_parameters_features);
@@ -1701,6 +1709,12 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     if (!vulkan_info->KHR_create_renderpass2)
     {
         ERR("KHR_create_renderpass2 is not supported by this implementation. This is required for correct operation.\n");
+        return E_INVALIDARG;
+    }
+
+    if (!physical_device_info->separate_depth_stencil_layout_features.separateDepthStencilLayouts)
+    {
+        ERR("separateDepthStencilLayouts is not supported by this implementation. This is required for correct operation.\n");
         return E_INVALIDARG;
     }
 
