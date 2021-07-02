@@ -2316,9 +2316,7 @@ static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_l
         return;
     }
 
-    /* TODO: Separate depth-stencil layouts? Otherwise, we cannot discard single planes. */
-    if (resource->format->vk_aspect_mask != subresource->aspectMask)
-        return;
+    /* With separate depth stencil layouts, we can only discard the aspect we care about. */
 
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     barrier.pNext = NULL;
