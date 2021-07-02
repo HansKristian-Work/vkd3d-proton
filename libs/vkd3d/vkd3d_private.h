@@ -2900,9 +2900,15 @@ static inline unsigned int d3d12_resource_desc_get_layer_count(const D3D12_RESOU
     return desc->Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D ? desc->DepthOrArraySize : 1;
 }
 
-static inline unsigned int d3d12_resource_desc_get_sub_resource_count(const D3D12_RESOURCE_DESC *desc)
+static inline unsigned int d3d12_resource_desc_get_sub_resource_count_per_plane(const D3D12_RESOURCE_DESC *desc)
 {
     return d3d12_resource_desc_get_layer_count(desc) * desc->MipLevels;
+}
+
+static inline unsigned int d3d12_resource_get_sub_resource_count(const struct d3d12_resource *resource)
+{
+    return d3d12_resource_desc_get_sub_resource_count_per_plane(&resource->desc) *
+            (resource->format ? vkd3d_popcount(resource->format->vk_aspect_mask) : 1);
 }
 
 VkDeviceAddress vkd3d_get_buffer_device_address(struct d3d12_device *device, VkBuffer vk_buffer);
