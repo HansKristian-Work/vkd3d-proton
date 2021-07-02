@@ -347,6 +347,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     spirv->meta.replaced = false;
     spirv->meta.uses_subgroup_size = false;
     spirv->meta.hash = hash;
+    memset(spirv->meta.cs_workgroup_size, 0, sizeof(spirv->meta.cs_workgroup_size));
     if (vkd3d_shader_replace(hash, &spirv->code, &spirv->size))
     {
         spirv->meta.replaced = true;
