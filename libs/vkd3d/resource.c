@@ -1165,7 +1165,7 @@ static void d3d12_resource_get_tiling(struct d3d12_device *device, struct d3d12_
         block_extent = vk_info->formatProperties.imageGranularity;
         tile_count = 0;
 
-        for (i = 0; i < d3d12_resource_desc_get_sub_resource_count(desc); i++)
+        for (i = 0; i < d3d12_resource_desc_get_sub_resource_count_per_plane(desc); i++)
         {
             unsigned int mip_level = i % desc->MipLevels;
             unsigned int tile_count_w = align(d3d12_resource_desc_get_width(desc, mip_level), block_extent.width) / block_extent.width;
@@ -1469,7 +1469,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(d3d12_resource_iface *iface,
         return E_INVALIDARG;
     }
 
-    sub_resource_count = d3d12_resource_desc_get_sub_resource_count(&resource->desc);
+    sub_resource_count = d3d12_resource_get_sub_resource_count(resource);
     if (sub_resource >= sub_resource_count)
     {
         WARN("Sub-resource index %u is out of range (%u sub-resources).\n", sub_resource, sub_resource_count);
@@ -1508,7 +1508,7 @@ static void STDMETHODCALLTYPE d3d12_resource_Unmap(d3d12_resource_iface *iface, 
     TRACE("iface %p, sub_resource %u, written_range %p.\n",
             iface, sub_resource, written_range);
 
-    sub_resource_count = d3d12_resource_desc_get_sub_resource_count(&resource->desc);
+    sub_resource_count = d3d12_resource_get_sub_resource_count(resource);
     if (sub_resource >= sub_resource_count)
     {
         WARN("Sub-resource index %u is out of range (%u sub-resources).\n", sub_resource, sub_resource_count);
@@ -2210,7 +2210,7 @@ static HRESULT d3d12_resource_init_sparse_info(struct d3d12_resource *resource,
     if (!(resource->flags & VKD3D_RESOURCE_RESERVED))
         return S_OK;
 
-    sparse->tiling_count = d3d12_resource_desc_get_sub_resource_count(&resource->desc);
+    sparse->tiling_count = d3d12_resource_desc_get_sub_resource_count_per_plane(&resource->desc);
     sparse->tile_count = 0;
 
     if (!(sparse->tilings = vkd3d_malloc(sparse->tiling_count * sizeof(*sparse->tilings))))

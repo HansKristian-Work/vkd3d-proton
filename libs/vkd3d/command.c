@@ -2315,6 +2315,8 @@ static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_l
         ERR("Unsupported resource flags %#x.\n", resource->desc.Flags);
         return;
     }
+
+    /* TODO: Separate depth-stencil layouts? Otherwise, we cannot discard single planes. */
     if (resource->format->vk_aspect_mask != subresource->aspectMask)
         return;
 
@@ -5324,7 +5326,7 @@ static void vk_image_copy_from_d3d12(VkImageCopy *image_copy,
 {
     vk_image_subresource_layers_from_d3d12(&image_copy->srcSubresource,
             src_format, src_sub_resource_idx, src_desc->MipLevels,
-            d3d12_resource_desc_get_sub_resource_count(src_desc), false);
+            d3d12_resource_desc_get_layer_count(src_desc), false);
     image_copy->srcOffset.x = src_box ? src_box->left : 0;
     image_copy->srcOffset.y = src_box ? src_box->top : 0;
     image_copy->srcOffset.z = src_box ? src_box->front : 0;
@@ -7884,7 +7886,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
     else
     {
         first_subresource = 0;
-        subresource_count = d3d12_resource_desc_get_sub_resource_count(&texture->desc);
+        subresource_count = d3d12_resource_get_sub_resource_count(texture);
     }
 
     /* We can't meaningfully discard sub-regions of an image. If rects
