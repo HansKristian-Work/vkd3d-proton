@@ -2079,11 +2079,27 @@ static void d3d12_command_list_clear_attachment_inline(struct d3d12_command_list
     }
 }
 
+static VkImageLayout vk_separate_depth_layout(VkImageLayout combined_layout)
+{
+    return (combined_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
+            combined_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL) ?
+            VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
+}
+
+static VkImageLayout vk_separate_stencil_layout(VkImageLayout combined_layout)
+{
+    return (combined_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
+            combined_layout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL) ?
+            VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL;
+}
+
 static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *list, struct d3d12_resource *resource,
         struct vkd3d_view *view, VkImageAspectFlags clear_aspects, const VkClearValue *clear_value, UINT rect_count,
         const D3D12_RECT *rects, bool is_bound)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkAttachmentDescriptionStencilLayout stencil_attachment_desc;
+    VkAttachmentReferenceStencilLayout stencil_attachment_ref;
     VkAttachmentDescription2KHR attachment_desc;
     VkAttachmentReference2KHR attachment_ref;
     VkSubpassBeginInfoKHR subpass_begin_info;
@@ -2095,6 +2111,7 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     VkFramebuffer vk_framebuffer;
     VkRenderPass vk_render_pass;
     VkPipelineStageFlags stages;
+    bool separate_ds_layouts;
     VkAccessFlags access;
     VkExtent3D extent;
     bool clear_op;
@@ -2109,24 +2126,56 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     attachment_desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
     attachment_desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+    /* If we need to discard a single aspect, use separate layouts, since we have to use UNDEFINED barrier when we can. */
+    separate_ds_layouts = view->format->vk_aspect_mask == (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT) &&
+            clear_aspects != view->format->vk_aspect_mask;
+
     if (clear_aspects & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
     {
         if (is_bound)
             attachment_desc.initialLayout = list->dsv_layout;
         else
             attachment_desc.initialLayout = resource->common_layout;
+
+        if (separate_ds_layouts)
+        {
+            stencil_attachment_desc.sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_STENCIL_LAYOUT;
+            stencil_attachment_desc.pNext = NULL;
+            stencil_attachment_desc.stencilInitialLayout = vk_separate_stencil_layout(attachment_desc.initialLayout);
+            attachment_desc.initialLayout = vk_separate_depth_layout(attachment_desc.initialLayout);
+            attachment_desc.pNext = &stencil_attachment_desc;
+        }
+
+        attachment_desc.finalLayout = attachment_desc.initialLayout;
+        stencil_attachment_desc.stencilFinalLayout = stencil_attachment_desc.stencilInitialLayout;
     }
     else
     {
         attachment_desc.initialLayout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        attachment_desc.finalLayout = attachment_desc.initialLayout;
     }
-    attachment_desc.finalLayout = attachment_desc.initialLayout;
 
     attachment_ref.sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2_KHR;
     attachment_ref.pNext = NULL;
     attachment_ref.attachment = 0;
     attachment_ref.layout = view->info.texture.vk_layout;
     attachment_ref.aspectMask = 0; /* input attachment aspect mask */
+
+    if (separate_ds_layouts)
+    {
+        stencil_attachment_ref.sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_STENCIL_LAYOUT;
+        stencil_attachment_ref.pNext = NULL;
+        stencil_attachment_ref.stencilLayout = vk_separate_stencil_layout(attachment_ref.layout);
+        attachment_ref.layout = vk_separate_depth_layout(attachment_ref.layout);
+        attachment_ref.pNext = &stencil_attachment_ref;
+
+        /* Don't trigger any layout change for aspects we don't intend to touch. */
+        if (!(clear_aspects & VK_IMAGE_ASPECT_DEPTH_BIT))
+            attachment_ref.layout = attachment_desc.initialLayout;
+        if (!(clear_aspects & VK_IMAGE_ASPECT_STENCIL_BIT))
+            stencil_attachment_ref.stencilLayout = stencil_attachment_desc.stencilInitialLayout;
+    }
 
     subpass_desc.sType = VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2_KHR;
     subpass_desc.pNext = NULL;
@@ -2152,9 +2201,18 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
 
         /* Ignore 3D images as re-initializing those may cause us to
          * discard the entire image, not just the layers to clear. */
-        if (clear_aspects == view->format->vk_aspect_mask &&
-                resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D)
-            attachment_desc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        if (resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+        {
+            if (separate_ds_layouts)
+            {
+                if (clear_aspects & VK_IMAGE_ASPECT_DEPTH_BIT)
+                    attachment_desc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                if (clear_aspects & VK_IMAGE_ASPECT_STENCIL_BIT)
+                    stencil_attachment_desc.stencilInitialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            }
+            else
+                attachment_desc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        }
     }
 
     if (clear_aspects & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
