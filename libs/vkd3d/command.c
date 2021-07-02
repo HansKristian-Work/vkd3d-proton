@@ -2495,7 +2495,7 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     dependencies[0].dstSubpass = 0;
     dependencies[0].srcStageMask = stages;
     dependencies[0].dstStageMask = stages;
-    dependencies[0].srcAccessMask = 0;
+    dependencies[0].srcAccessMask = clear_op ? access : 0;
     dependencies[0].dstAccessMask = access;
     dependencies[0].dependencyFlags = 0;
     dependencies[0].viewOffset = 0;
