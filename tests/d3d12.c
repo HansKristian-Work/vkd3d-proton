@@ -5219,6 +5219,7 @@ static void test_clear_depth_stencil_view(void)
     static const float expected_values[] = {0.5f, 0.1f, 0.1f, 0.6, 1.0f, 0.5f};
     ID3D12GraphicsCommandList *command_list;
     D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc;
+    ID3D12Resource *tmp_float, *tmp_uint;
     struct depth_stencil_resource ds;
     unsigned int dsv_increment_size;
     D3D12_CLEAR_VALUE clear_value;
@@ -5241,19 +5242,60 @@ static void test_clear_depth_stencil_view(void)
     trace("DSV descriptor handle increment size: %u.\n", dsv_increment_size);
     ok(dsv_increment_size, "Got unexpected increment size %#x.\n", dsv_increment_size);
 
-    clear_value.Format = DXGI_FORMAT_D32_FLOAT;
+    clear_value.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
     clear_value.DepthStencil.Depth = 0.5f;
     clear_value.DepthStencil.Stencil = 0x3;
-    init_depth_stencil(&ds, device, 32, 32, 1, 1, DXGI_FORMAT_D32_FLOAT, 0, &clear_value);
+    init_depth_stencil(&ds, device, 32, 32, 1, 1, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, 0, &clear_value);
 
+    /* Tests that separate layout clear works correctly. */
     ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
-            D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.75f, 0x7, 0, NULL);
+            D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.5f, 0x3, 0, NULL);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
+            D3D12_CLEAR_FLAG_DEPTH, 0.75f, 0x7, 0, NULL);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
+            D3D12_CLEAR_FLAG_STENCIL, 0.75f, 0x7, 0, NULL);
     transition_resource_state(command_list, ds.texture,
             D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    check_sub_resource_float(ds.texture, 0, queue, command_list, 0.75f, 1);
+    tmp_float = create_default_texture2d(context.device, 32, 32, 1, 1, DXGI_FORMAT_R32_FLOAT,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+    tmp_uint = create_default_texture2d(context.device, 32, 32, 1, 1, DXGI_FORMAT_R8_UINT,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+    {
+        D3D12_TEXTURE_COPY_LOCATION dst_location, src_location;
+        D3D12_BOX src_box;
+
+        dst_location.SubresourceIndex = 0;
+        dst_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+
+        src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        src_location.pResource = ds.texture;
+
+        src_box.left = 0;
+        src_box.right = 32;
+        src_box.top = 0;
+        src_box.bottom = 32;
+        src_box.front = 0;
+        src_box.back = 1;
+        dst_location.pResource = tmp_float;
+        src_location.SubresourceIndex = 0;
+        ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst_location, 0, 0, 0, &src_location, &src_box);
+        dst_location.pResource = tmp_uint;
+        src_location.SubresourceIndex = 1;
+        ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst_location, 0, 0, 0, &src_location, &src_box);
+    }
+    transition_resource_state(command_list, tmp_float,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(command_list, tmp_uint,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_float(tmp_float, 0, queue, command_list, 0.75f, 1);
+    reset_command_list(command_list, context.allocator);
+    check_sub_resource_uint8(tmp_uint, 0, queue, command_list, 0x7, 0);
+    ID3D12Resource_Release(tmp_float);
+    ID3D12Resource_Release(tmp_uint);
 
     destroy_depth_stencil(&ds);
     reset_command_list(command_list, context.allocator);
+    clear_value.Format = DXGI_FORMAT_D32_FLOAT;
     init_depth_stencil(&ds, device, 32, 32, 6, 1, DXGI_FORMAT_D32_FLOAT, 0, &clear_value);
 
     ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle,
