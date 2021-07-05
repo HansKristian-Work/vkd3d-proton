@@ -242,6 +242,11 @@ static inline struct ID3D12CommandQueue* d3d12_swapchain_queue_iface(struct d3d1
     return &swapchain->command_queue->ID3D12CommandQueue_iface;
 }
 
+static bool d3d12_swapchain_needs_blit(struct d3d12_swapchain* swapchain)
+{
+    return swapchain->desc.SwapEffect == DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+}
+
 DXGI_FORMAT format_for_depth(DWORD depth)
 {
     switch (depth)
@@ -1245,24 +1250,64 @@ static HRESULT d3d12_swapchain_create_buffers(struct d3d12_swapchain *swapchain,
     }
 
     queue_desc = ID3D12CommandQueue_GetDesc(queue);
-    if (queue_desc.Type != D3D12_COMMAND_LIST_TYPE_DIRECT)
-    {
-        FIXME("Swapchain blit not implemented for command queue type %#x.\n", queue_desc.Type);
-        return E_NOTIMPL;
-    }
     queue_family_index = vkd3d_get_vk_queue_family_index(queue);
 
-    if (queue_desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT)
+    if (d3d12_swapchain_needs_blit(swapchain))
     {
-        if (FAILED(hr = d3d12_swapchain_create_framebuffers(swapchain, vk_swapchain_format)))
+        if (queue_desc.Type != D3D12_COMMAND_LIST_TYPE_DIRECT)
+        {
+            FIXME("Swapchain blit not implemented for command queue type %#x.\n", queue_desc.Type);
+            return E_NOTIMPL;
+        }
+
+        if (queue_desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT)
+        {
+            if (FAILED(hr = d3d12_swapchain_create_framebuffers(swapchain, vk_swapchain_format)))
+                return hr;
+        }
+
+        if (FAILED(hr = d3d12_swapchain_create_user_buffers(swapchain, vk_format)))
+            return hr;
+
+        if (FAILED(hr = d3d12_swapchain_prepare_command_buffers(swapchain, queue_family_index)))
             return hr;
     }
+    else
+    {
+        struct vkd3d_image_resource_create_info resource_info =
+        {
+            .desc = (D3D12_RESOURCE_DESC)
+            {
+                .Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+                .Alignment = 0,
+                .Width = swapchain->desc.Width,
+                .Height = swapchain->desc.Height,
+                .DepthOrArraySize = 1,
+                .MipLevels = 1,
+                .Format = dxgi_format_from_vk_format(vk_format),
+                .SampleDesc.Count = 1,
+                .SampleDesc.Quality = 0,
+                .Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN,
+                .Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+            }
+            .flags = VKD3D_RESOURCE_EXTERNAL,
+            .present_state = D3D12_RESOURCE_STATE_PRESENT,
+        };
 
-    if (FAILED(hr = d3d12_swapchain_create_user_buffers(swapchain, vk_format)))
-        return hr;
+        for (i = 0; i < swapchain->desc.BufferCount; ++i)
+        {
+            resource_info.vk_image = swapchain->vk_swapchain_images[i];
 
-    if (FAILED(hr = d3d12_swapchain_prepare_command_buffers(swapchain, queue_family_index)))
-        return hr;
+            if (FAILED(hr = vkd3d_create_image_resource((ID3D12Device *)device, &resource_info, &swapchain->buffers[i])))
+            {
+                WARN("Failed to create vkd3d resource for Vulkan image %u, hr %#x.\n", i, hr);
+                return hr;
+            }
+
+            vkd3d_resource_incref(swapchain->buffers[i]);
+            ID3D12Resource_Release(swapchain->buffers[i]);
+        }
+    }
 
     return S_OK;
 }
@@ -1541,6 +1586,11 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
     else
     {
         /* Fallback path for when surface size is 0. We'll try to create a proper swapchain in a future Present call. */
+        if (!d3d12_swapchain_needs_blit(swapchain))
+        {
+            /* What the fuck do we do here? */
+        }
+
         if (FAILED(hr = d3d12_swapchain_create_user_buffers(swapchain, vk_format)))
             return hr;
 
