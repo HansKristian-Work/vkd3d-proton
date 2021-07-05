@@ -5408,7 +5408,7 @@ static void vk_image_copy_from_d3d12(VkImageCopy *image_copy,
     image_copy->srcOffset.z = src_box ? src_box->front : 0;
     vk_image_subresource_layers_from_d3d12(&image_copy->dstSubresource,
             dst_format, dst_sub_resource_idx, dst_desc->MipLevels,
-            d3d12_resource_desc_get_layer_count(dst_desc), true);
+            d3d12_resource_desc_get_layer_count(dst_desc), false);
     image_copy->dstOffset.x = dst_x;
     image_copy->dstOffset.y = dst_y;
     image_copy->dstOffset.z = dst_z;
@@ -5474,7 +5474,22 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
 
         if (dst_is_depth_stencil)
         {
-            dst_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            /* We will only promote one aspect out of common layout. */
+            if (region->dstSubresource.aspectMask == VK_IMAGE_ASPECT_DEPTH_BIT)
+            {
+                dst_layout = dst_resource->common_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ?
+                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+                        : VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL;
+            }
+            else if (region->dstSubresource.aspectMask == VK_IMAGE_ASPECT_STENCIL_BIT)
+            {
+                dst_layout = dst_resource->common_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ?
+                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+                        : VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL;
+            }
+            else
+                dst_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+
             dst_stages = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
             dst_access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
         }
@@ -5511,13 +5526,6 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
     vk_image_barriers[1].image = src_resource->res.vk_image;
     vk_image_barriers[1].subresourceRange = vk_subresource_range_from_layers(&region->srcSubresource);
 
-    /* If we're copying from a depth or stencil image we can only sample from one aspect,
-     * but barriers needs to cover the entire resource.
-     * We can avoid this requirement with VK_KHR_separate_depth_stencil_layouts,
-     * but there is no compelling reason to require that just for this case. */
-    vk_image_barriers[0].subresourceRange.aspectMask = dst_resource->format->vk_aspect_mask;
-    vk_image_barriers[1].subresourceRange.aspectMask = src_resource->format->vk_aspect_mask;
-
     VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
             VK_PIPELINE_STAGE_TRANSFER_BIT, src_stages | dst_stages,
             0, 0, NULL, 0, NULL, ARRAY_SIZE(vk_image_barriers),
@@ -5545,6 +5553,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         pipeline_key.format = dst_format;
         pipeline_key.view_type = vkd3d_meta_get_copy_image_view_type(dst_resource->desc.Dimension);
         pipeline_key.sample_count = vk_samples_from_dxgi_sample_desc(&dst_resource->desc.SampleDesc);
+        pipeline_key.layout = dst_layout;
 
         if (FAILED(hr = vkd3d_meta_get_copy_image_pipeline(&list->device->meta_ops, &pipeline_key, &pipeline_info)))
         {
@@ -5565,7 +5574,8 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         dst_view_desc.miplevel_count = 1;
         dst_view_desc.layer_idx = region->dstSubresource.baseArrayLayer;
         dst_view_desc.layer_count = region->dstSubresource.layerCount;
-        dst_view_desc.aspect_mask = region->dstSubresource.aspectMask;
+        /* A render pass must cover all depth-stencil aspects. */
+        dst_view_desc.aspect_mask = dst_resource->format->vk_aspect_mask;
         dst_view_desc.allowed_swizzle = false;
 
         memset(&src_view_desc, 0, sizeof(src_view_desc));
@@ -5857,13 +5867,17 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
         dst_format = dst_resource->format;
         src_format = src_resource->format;
 
-        if ((dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
-                && (dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
-            FIXME("Destination depth-stencil format %#x not fully supported yet.\n", dst_format->dxgi_format);
-
         vk_image_copy_from_d3d12(&image_copy, src->SubresourceIndex, dst->SubresourceIndex,
                  &src_resource->desc, &dst_resource->desc, src_format, dst_format,
                  src_box, dst_x, dst_y, dst_z);
+
+        if ((dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
+                && (dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT)
+                && (image_copy.dstSubresource.aspectMask & VK_IMAGE_ASPECT_STENCIL_BIT))
+        {
+            FIXME("Destination depth-stencil format %#x is not supported for STENCIL dst copy.\n",
+                    dst_format->dxgi_format);
+        }
 
         writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
                 &image_copy.extent, &image_copy.dstSubresource);
