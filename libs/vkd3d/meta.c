@@ -138,7 +138,7 @@ static VkResult vkd3d_meta_create_compute_pipeline(struct d3d12_device *device,
 }
 
 static VkResult vkd3d_meta_create_render_pass(struct d3d12_device *device, VkSampleCountFlagBits samples,
-        const struct vkd3d_format *format, VkRenderPass *vk_render_pass)
+        const struct vkd3d_format *format, VkImageLayout layout, VkRenderPass *vk_render_pass)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkAttachmentDescription2KHR attachment_desc;
@@ -146,16 +146,11 @@ static VkResult vkd3d_meta_create_render_pass(struct d3d12_device *device, VkSam
     VkSubpassDescription2KHR subpass_desc;
     VkRenderPassCreateInfo2KHR pass_info;
     bool has_depth_target;
-    VkImageLayout layout;
     VkResult vr;
 
     assert(format);
 
     has_depth_target = (format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) != 0;
-
-    layout = has_depth_target
-            ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-            : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
     attachment_desc.sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2_KHR;
     attachment_desc.pNext = NULL;
@@ -824,7 +819,7 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
     memset(&cb_state.blendConstants, 0, sizeof(cb_state.blendConstants));
 
     if ((vr = vkd3d_meta_create_render_pass(meta_ops->device,
-            key->sample_count, key->format, &pipeline->vk_render_pass)) < 0)
+            key->sample_count, key->format, key->layout, &pipeline->vk_render_pass)) < 0)
         return hresult_from_vk_result(vr);
 
     /* Special path when copying stencil -> color. */

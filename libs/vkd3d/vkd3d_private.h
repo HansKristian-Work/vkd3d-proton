@@ -2248,6 +2248,7 @@ struct vkd3d_copy_image_pipeline_key
     const struct vkd3d_format *format;
     VkImageViewType view_type;
     VkSampleCountFlagBits sample_count;
+    VkImageLayout layout;
 };
 
 struct vkd3d_copy_image_pipeline
