@@ -26230,14 +26230,19 @@ static void test_copy_texture(void)
         DXGI_FORMAT ds_view_format;
         DXGI_FORMAT color_format;
         bool stencil;
+        bool roundtrip;
     };
     static const struct depth_copy_test depth_copy_tests[] = {
-        { 0.0f, 0, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_FLOAT, false },
-        { 0.5f, 10, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R32_FLOAT, false },
-        { 0.2f, 11, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R8_UINT, true },
-        { 0.7f, 0, DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_FLOAT, false },
-        { 0.4f, 20, DXGI_FORMAT_R32G8X24_TYPELESS, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R32_FLOAT, false },
-        { 1.0f, 21, DXGI_FORMAT_R32G8X24_TYPELESS, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R8_UINT, true },
+        { 0.0f, 0, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_FLOAT, false, false },
+        { 0.0f, 0, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_FLOAT, false, true },
+        { 0.5f, 10, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R32_FLOAT, false, false },
+        { 0.5f, 10, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R32_FLOAT, false, true },
+        { 0.2f, 11, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R8_UINT, true, false },
+        { 0.7f, 0, DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_FLOAT, false, false },
+        { 0.7f, 0, DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_FLOAT, false, true },
+        { 0.4f, 20, DXGI_FORMAT_R32G8X24_TYPELESS, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R32_FLOAT, false, false },
+        { 0.4f, 20, DXGI_FORMAT_R32G8X24_TYPELESS, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R32_FLOAT, false, true },
+        { 1.0f, 21, DXGI_FORMAT_R32G8X24_TYPELESS, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R8_UINT, true, false },
     };
 
     static const D3D12_RESOURCE_STATES resource_states[] =
@@ -26345,6 +26350,26 @@ static void test_copy_texture(void)
         dst_location.SubresourceIndex = 0;
         ID3D12GraphicsCommandList_CopyTextureRegion(command_list, &dst_location, 0, 0, 0,
                 &src_location, NULL);
+
+        if (depth_copy_tests[i].roundtrip)
+        {
+            /* Test color to depth copy. */
+            D3D12_TEXTURE_COPY_LOCATION tmp_src_location = dst_location;
+            D3D12_TEXTURE_COPY_LOCATION tmp_dst_location = src_location;
+            transition_sub_resource_state(command_list, dst_texture, 0,
+                    D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            transition_sub_resource_state(command_list, ds.texture, 0,
+                    resource_states[i % ARRAY_SIZE(resource_states)], D3D12_RESOURCE_STATE_COPY_DEST);
+            ID3D12GraphicsCommandList_CopyTextureRegion(command_list, &tmp_dst_location, 0, 0, 0,
+                    &tmp_src_location, NULL);
+            transition_sub_resource_state(command_list, dst_texture, 0,
+                    D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+            transition_sub_resource_state(command_list, ds.texture, 0,
+                    D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            ID3D12GraphicsCommandList_CopyTextureRegion(command_list, &dst_location, 0, 0, 0,
+                    &src_location, NULL);
+        }
+
         transition_sub_resource_state(command_list, dst_texture, 0,
                 D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
