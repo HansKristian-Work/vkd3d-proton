@@ -51863,6 +51863,221 @@ static void test_null_descriptor_mismatch_type(void)
     destroy_test_context(&context);
 }
 
+static void test_view_min_lod(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_SHADER_RESOURCE_VIEW_DESC view_desc;
+    ID3D12GraphicsCommandList *command_list;
+    const D3D12_SHADER_BYTECODE *ps = NULL;
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
+    ID3D12PipelineState *pso = NULL;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *texture;
+    unsigned int offset;
+    unsigned int i;
+    HRESULT hr;
+
+    static const DWORD ps_view_min_lod_load_code[] =
+    {
+#if 0
+        Texture2D tex;
+        float testLod;
+
+        float4 main() : SV_Target
+        {
+            return tex.Load(int3(0, 0, int(testLod)));
+        }
+#endif
+        0x43425844, 0xe23be9df, 0xf78327b8, 0xb2d9d572, 0xefa569ae, 0x00000001, 0x00000118, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x000000a0, 0x00000050, 0x00000028,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x04001858, 0x00107000, 0x00000000,
+        0x00005555, 0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x0600001b, 0x001000c2,
+        0x00000000, 0x00208006, 0x00000000, 0x00000000, 0x08000036, 0x00100032, 0x00000000, 0x00004002,
+        0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x8900002d, 0x800000c2, 0x00155543, 0x001020f2,
+        0x00000000, 0x00100e46, 0x00000000, 0x00107e46, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_view_min_lod_load = {ps_view_min_lod_load_code, sizeof(ps_view_min_lod_load_code)};
+    static const DWORD ps_view_min_lod_sample_code[] =
+    {
+#if 0
+        Texture2D tex;
+        SamplerState s;
+        float testLod;
+
+        float4 main() : SV_Target
+        {
+            return tex.SampleLevel(s, float2(0, 0), testLod);
+        }
+#endif
+        0x43425844, 0x6447f634, 0xc09020fb, 0xdffd3b83, 0xabf31dab, 0x00000001, 0x00000104, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x0000008c, 0x00000050, 0x00000023,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0300005a, 0x00106000, 0x00000000,
+        0x04001858, 0x00107000, 0x00000000, 0x00005555, 0x03000065, 0x001020f2, 0x00000000, 0x91000048,
+        0x800000c2, 0x00155543, 0x001020f2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000,
+        0x00000000, 0x00107e46, 0x00000000, 0x00106000, 0x00000000, 0x0020800a, 0x00000000, 0x00000000,
+        0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_view_min_lod_sample = {ps_view_min_lod_sample_code, sizeof(ps_view_min_lod_sample_code)};
+    static const float red[] = {1.0f, 0.0f, 0.0f, 1.0f};
+    unsigned int texture_data[8 * 8 + 4 * 4 + 2 * 2 + 1 * 1];
+    D3D12_SUBRESOURCE_DATA resource_data[4];
+    static const struct
+    {
+        const D3D12_SHADER_BYTECODE *ps;
+        int most_detailed_mip;
+        float test_lod;
+        float min_lod;
+        unsigned int expected_color;
+    }
+    tests[] =
+    {
+        {&ps_view_min_lod_load, 0, -1.0f, 0.0f, 0x00000000},
+        {&ps_view_min_lod_load, 0,  0.0f, 0.0f, 0x0f0f0f0f},
+        {&ps_view_min_lod_load, 0,  1.0f, 0.0f, 0xffffffff},
+        {&ps_view_min_lod_load, 0,  2.0f, 0.0f, 0x0f0f0f0f},
+        {&ps_view_min_lod_load, 0,  3.0f, 0.0f, 0xffffffff},
+
+        {&ps_view_min_lod_load, 0, -1.0f, 1.0f, 0x00000000},
+        {&ps_view_min_lod_load, 0,  0.0f, 1.0f, 0x00000000},
+        {&ps_view_min_lod_load, 0,  1.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_load, 0,  2.0f, 1.0f, 0x0f0f0f0f},
+        {&ps_view_min_lod_load, 0,  3.0f, 1.0f, 0xffffffff},
+
+        {&ps_view_min_lod_load, 1, -1.0f, 1.0f, 0x00000000},
+        {&ps_view_min_lod_load, 1,  0.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_load, 1,  1.0f, 1.0f, 0x0f0f0f0f},
+        {&ps_view_min_lod_load, 1,  2.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_load, 1,  3.0f, 1.0f, 0x00000000},
+
+        {&ps_view_min_lod_load, 1, -1.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_load, 1,  0.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_load, 1,  1.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_load, 1,  2.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_load, 1,  3.0f, 9.0f, 0x00000000},
+
+        {&ps_view_min_lod_sample, 0, -1.0f, 0.0f, 0x0f0f0f0f},
+        {&ps_view_min_lod_sample, 0,  0.0f, 0.0f, 0x0f0f0f0f},
+        {&ps_view_min_lod_sample, 0,  1.0f, 0.0f, 0xffffffff},
+        {&ps_view_min_lod_sample, 0,  2.0f, 0.0f, 0x0f0f0f0f},
+        {&ps_view_min_lod_sample, 0,  3.0f, 0.0f, 0xffffffff},
+
+        {&ps_view_min_lod_sample, 0, -1.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_sample, 0,  0.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_sample, 0,  1.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_sample, 0,  2.0f, 1.0f, 0x0f0f0f0f},
+        {&ps_view_min_lod_sample, 0,  3.0f, 1.0f, 0xffffffff},
+
+        {&ps_view_min_lod_sample, 1, -1.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_sample, 1,  0.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_sample, 1,  1.0f, 1.0f, 0x0f0f0f0f},
+        {&ps_view_min_lod_sample, 1,  2.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_sample, 1,  3.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_sample, 1,  4.0f, 1.0f, 0xffffffff},
+
+        {&ps_view_min_lod_sample, 1, -1.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_sample, 1,  0.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_sample, 1,  1.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_sample, 1,  2.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_sample, 1,  3.0f, 9.0f, 0x00000000},
+    };
+
+    /* Alternate mip colors */
+    offset = 0;
+    for (i = 0; i < 4; i++)
+    {
+        const unsigned int size = 8u >> i;
+
+        resource_data[i] = (D3D12_SUBRESOURCE_DATA) {&texture_data[offset], sizeof(unsigned int) * size};
+        memset(&texture_data[offset], (i % 2 == 0) ? 0x0F : 0xFF, sizeof(unsigned int) * size * size);
+        offset += size * size;
+    }
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    context.root_signature = create_texture_root_signature(context.device,
+            D3D12_SHADER_VISIBILITY_PIXEL, 4, 0);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature,
+            context.render_target_desc.Format, NULL, NULL, NULL);
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap);
+
+    texture = create_default_texture2d(context.device,
+            8, 8, 1, 4, DXGI_FORMAT_R8G8B8A8_UNORM, 0, D3D12_RESOURCE_STATE_COPY_DEST);
+    upload_texture_data(texture, resource_data, 4, queue, command_list);
+    reset_command_list(command_list, context.allocator);
+    transition_resource_state(command_list, texture,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        vkd3d_test_set_context("Test %u", i);
+        
+        if (ps != tests[i].ps)
+        {
+            if (pso)
+                ID3D12PipelineState_Release(pso);
+
+            ps = tests[i].ps;
+            pso_desc.PS = *tests[i].ps;
+            hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+                    &IID_ID3D12PipelineState, (void **)&pso);
+            ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
+        }
+
+        view_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        view_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        view_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        view_desc.Texture2D.MostDetailedMip = tests[i].most_detailed_mip;
+        view_desc.Texture2D.MipLevels = -1;
+        view_desc.Texture2D.PlaneSlice = 0;
+        view_desc.Texture2D.ResourceMinLODClamp = tests[i].min_lod;
+
+        ID3D12Device_CreateShaderResourceView(context.device, texture, &view_desc,
+                ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap));
+
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, red, 0, NULL);
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, pso);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
+        ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(command_list, 0, gpu_handle);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 1, 1, &tests[i].test_lod, 0);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_uint(context.render_target, 0, queue, command_list, tests[i].expected_color, 0);
+
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, context.render_target,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    }
+    vkd3d_test_set_context(NULL);
+
+    ID3D12PipelineState_Release(pso);
+    ID3D12Resource_Release(texture);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
 START_TEST(d3d12)
 {
     pfn_D3D12CreateDevice = get_d3d12_pfn(D3D12CreateDevice);
@@ -52120,4 +52335,5 @@ START_TEST(d3d12)
     run_test(test_mismatching_pso_stages);
     run_test(test_null_descriptor_mismatch_type);
     run_test(test_vbv_stride_edge_cases);
+    run_test(test_view_min_lod);
 }
