@@ -6436,33 +6436,20 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
     }
 }
 
-static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_command_list_iface *iface,
-        ID3D12Resource *dst, UINT dst_sub_resource_idx,
-        ID3D12Resource *src, UINT src_sub_resource_idx, DXGI_FORMAT format)
+static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *list,
+        struct d3d12_resource *dst_resource, struct d3d12_resource *src_resource,
+        const VkImageResolve *resolve, DXGI_FORMAT format)
 {
-    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct vkd3d_format *vk_format;
-    struct d3d12_resource *dst_resource, *src_resource;
     const struct vkd3d_vk_device_procs *vk_procs;
     VkImageMemoryBarrier vk_image_barriers[2];
+    const struct vkd3d_format *vk_format;
     VkImageLayout dst_layout, src_layout;
     const struct d3d12_device *device;
-    VkImageResolve vk_image_resolve;
     bool writes_full_subresource;
     unsigned int i;
 
-    TRACE("iface %p, dst_resource %p, dst_sub_resource_idx %u, src_resource %p, src_sub_resource_idx %u, "
-            "format %#x.\n", iface, dst, dst_sub_resource_idx, src, src_sub_resource_idx, format);
-
     device = list->device;
     vk_procs = &device->vk_procs;
-
-    dst_resource = unsafe_impl_from_ID3D12Resource(dst);
-    src_resource = unsafe_impl_from_ID3D12Resource(src);
-
-    assert(d3d12_resource_is_texture(dst_resource));
-    assert(d3d12_resource_is_texture(src_resource));
-
     d3d12_command_list_end_current_render_pass(list, false);
 
     if (dst_resource->format->type == VKD3D_FORMAT_TYPE_TYPELESS || src_resource->format->type == VKD3D_FORMAT_TYPE_TYPELESS)
@@ -6487,19 +6474,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
         return;
     }
 
-    vk_image_subresource_layers_from_d3d12(&vk_image_resolve.srcSubresource,
-            src_resource->format, src_sub_resource_idx,
-            src_resource->desc.MipLevels,
-            d3d12_resource_desc_get_layer_count(&src_resource->desc));
-    memset(&vk_image_resolve.srcOffset, 0, sizeof(vk_image_resolve.srcOffset));
-    vk_image_subresource_layers_from_d3d12(&vk_image_resolve.dstSubresource,
-            dst_resource->format, dst_sub_resource_idx,
-            dst_resource->desc.MipLevels,
-            d3d12_resource_desc_get_layer_count(&dst_resource->desc));
-    memset(&vk_image_resolve.dstOffset, 0, sizeof(vk_image_resolve.dstOffset));
-    vk_extent_3d_from_d3d12_miplevel(&vk_image_resolve.extent,
-            &dst_resource->desc, vk_image_resolve.dstSubresource.mipLevel);
-
     dst_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     src_layout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
@@ -6512,7 +6486,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
     }
 
     writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
-            &vk_image_resolve.extent, &vk_image_resolve.dstSubresource);
+            &resolve->extent, &resolve->dstSubresource);
 
     d3d12_command_list_track_resource_usage(list, dst_resource, !writes_full_subresource);
     d3d12_command_list_track_resource_usage(list, src_resource, true);
@@ -6522,14 +6496,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
     vk_image_barriers[0].oldLayout = writes_full_subresource ? VK_IMAGE_LAYOUT_UNDEFINED : dst_resource->common_layout;
     vk_image_barriers[0].newLayout = dst_layout;
     vk_image_barriers[0].image = dst_resource->res.vk_image;
-    vk_image_barriers[0].subresourceRange = vk_subresource_range_from_layers(&vk_image_resolve.dstSubresource);
+    vk_image_barriers[0].subresourceRange = vk_subresource_range_from_layers(&resolve->dstSubresource);
 
     vk_image_barriers[1].srcAccessMask = 0;
     vk_image_barriers[1].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
     vk_image_barriers[1].oldLayout = src_resource->common_layout;
     vk_image_barriers[1].newLayout = src_layout;
     vk_image_barriers[1].image = src_resource->res.vk_image;
-    vk_image_barriers[1].subresourceRange = vk_subresource_range_from_layers(&vk_image_resolve.srcSubresource);
+    vk_image_barriers[1].subresourceRange = vk_subresource_range_from_layers(&resolve->srcSubresource);
 
     VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
             VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -6537,7 +6511,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
 
     VK_CALL(vkCmdResolveImage(list->vk_command_buffer, src_resource->res.vk_image,
             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_resource->res.vk_image,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &vk_image_resolve));
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, resolve));
 
     vk_image_barriers[0].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     vk_image_barriers[0].dstAccessMask = 0;
@@ -6552,6 +6526,39 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
     VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
             VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
             0, 0, NULL, 0, NULL, ARRAY_SIZE(vk_image_barriers), vk_image_barriers));
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_command_list_iface *iface,
+        ID3D12Resource *dst, UINT dst_sub_resource_idx,
+        ID3D12Resource *src, UINT src_sub_resource_idx, DXGI_FORMAT format)
+{
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_resource *dst_resource, *src_resource;
+    VkImageResolve vk_image_resolve;
+
+    TRACE("iface %p, dst_resource %p, dst_sub_resource_idx %u, src_resource %p, src_sub_resource_idx %u, "
+            "format %#x.\n", iface, dst, dst_sub_resource_idx, src, src_sub_resource_idx, format);
+
+    dst_resource = unsafe_impl_from_ID3D12Resource(dst);
+    src_resource = unsafe_impl_from_ID3D12Resource(src);
+
+    assert(d3d12_resource_is_texture(dst_resource));
+    assert(d3d12_resource_is_texture(src_resource));
+
+    vk_image_subresource_layers_from_d3d12(&vk_image_resolve.srcSubresource,
+            src_resource->format, src_sub_resource_idx,
+            src_resource->desc.MipLevels,
+            d3d12_resource_desc_get_layer_count(&src_resource->desc));
+    memset(&vk_image_resolve.srcOffset, 0, sizeof(vk_image_resolve.srcOffset));
+    vk_image_subresource_layers_from_d3d12(&vk_image_resolve.dstSubresource,
+            dst_resource->format, dst_sub_resource_idx,
+            dst_resource->desc.MipLevels,
+            d3d12_resource_desc_get_layer_count(&dst_resource->desc));
+    memset(&vk_image_resolve.dstOffset, 0, sizeof(vk_image_resolve.dstOffset));
+    vk_extent_3d_from_d3d12_miplevel(&vk_image_resolve.extent,
+            &dst_resource->desc, vk_image_resolve.dstSubresource.mipLevel);
+
+    d3d12_command_list_resolve_subresource(list, dst_resource, src_resource, &vk_image_resolve, format);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_IASetPrimitiveTopology(d3d12_command_list_iface *iface,
