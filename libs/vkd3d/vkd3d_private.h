@@ -128,6 +128,7 @@ struct vkd3d_vulkan_info
     bool EXT_depth_clip_enable;
     bool EXT_descriptor_indexing;
     bool EXT_inline_uniform_block;
+    bool EXT_image_view_min_lod;
     bool EXT_robustness2;
     bool EXT_sampler_filter_minmax;
     bool EXT_shader_demote_to_helper_invocation;
@@ -2519,6 +2520,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceShaderDrawParametersFeatures shader_draw_parameters_features;
     VkPhysicalDeviceSubgroupSizeControlFeaturesEXT subgroup_size_control_features;
     VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR separate_depth_stencil_layout_features;
+    VkPhysicalDeviceImageViewMinLodFeaturesEXT image_view_min_lod_features;
 
     VkPhysicalDeviceFeatures2 features2;
 

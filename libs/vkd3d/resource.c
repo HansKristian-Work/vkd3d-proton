@@ -3399,6 +3399,7 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_t
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     const struct vkd3d_format *format = desc->format;
+    struct VkImageViewMinLodCreateInfoEXT min_lod_desc;
     struct VkImageViewCreateInfo view_desc;
     struct vkd3d_view *object;
     VkImageView vk_view;
@@ -3419,29 +3420,40 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_t
     view_desc.subresourceRange.baseArrayLayer = desc->layer_idx;
     view_desc.subresourceRange.layerCount = desc->layer_count;
 
-    if (desc->miplevel_clamp != 0.0f)
-        FIXME_ONCE("Cannot handle MinResourceLOD clamp of %f correctly.\n", desc->miplevel_clamp);
-
-    /* This is not correct, but it's the best we can do with existing API.
-     * It should at least avoid a scenario where implicit LOD fetches from invalid levels.
-     * TODO: We will need an extension with vkCreateImageView pNext specifying minLODClamp.
-     * It will be trivial to add in RADV at least ... */
-    if (desc->miplevel_clamp >= 1.0f)
+    if (!device->device_info.image_view_min_lod_features.minLod)
     {
-        uint32_t new_base_level;
-        uint32_t level_offset;
-        uint32_t end_level;
+        if (desc->miplevel_clamp != 0.0f)
+            FIXME_ONCE("Cannot handle MinResourceLOD clamp of %f correctly.\n", desc->miplevel_clamp);
 
-        level_offset = (uint32_t)desc->miplevel_clamp;
-        if (view_desc.subresourceRange.levelCount != VK_REMAINING_MIP_LEVELS)
+        /* This is not correct, but it's the best we can do with existing API.
+        * It should at least avoid a scenario where implicit LOD fetches from invalid levels.
+        * TODO: We will need an extension with vkCreateImageView pNext specifying minLODClamp.
+        * It will be trivial to add in RADV at least ... */
+        if (desc->miplevel_clamp >= 1.0f)
         {
-            end_level = view_desc.subresourceRange.baseMipLevel + view_desc.subresourceRange.levelCount;
-            new_base_level = min(end_level - 1, desc->miplevel_idx + level_offset);
-            view_desc.subresourceRange.levelCount = end_level - new_base_level;
-            view_desc.subresourceRange.baseMipLevel = new_base_level;
+            uint32_t new_base_level;
+            uint32_t level_offset;
+            uint32_t end_level;
+
+            level_offset = (uint32_t)desc->miplevel_clamp;
+            if (view_desc.subresourceRange.levelCount != VK_REMAINING_MIP_LEVELS)
+            {
+                end_level = view_desc.subresourceRange.baseMipLevel + view_desc.subresourceRange.levelCount;
+                new_base_level = min(end_level - 1, desc->miplevel_idx + level_offset);
+                view_desc.subresourceRange.levelCount = end_level - new_base_level;
+                view_desc.subresourceRange.baseMipLevel = new_base_level;
+            }
+            else
+                view_desc.subresourceRange.baseMipLevel += level_offset;
         }
-        else
-            view_desc.subresourceRange.baseMipLevel += level_offset;
+    }
+    else
+    {
+        min_lod_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_MIN_LOD_CREATE_INFO_EXT;
+        min_lod_desc.pNext = NULL;
+        min_lod_desc.minLod = desc->miplevel_clamp;
+
+        view_desc.pNext = &min_lod_desc;
     }
 
     if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, &vk_view))) < 0)

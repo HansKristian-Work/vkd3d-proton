@@ -26,6 +26,7 @@ There are some hard requirements on drivers to be able to implement D3D12 in a r
 - `VK_KHR_sampler_mirror_clamp_to_edge`
 - `VK_EXT_robustness2`
 - `VK_KHR_separate_depth_stencil_layouts`
+- `VK_EXT_image_view_min_lod`
 
 Some notable extensions that **should** be supported for optimal or correct behavior.
 These extensions will likely become mandatory later.
