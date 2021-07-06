@@ -4137,7 +4137,7 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
 
         if (!list->rtvs[i].view)
         {
-            FIXME("Invalid RTV for attachment %u.\n", i);
+            FIXME_ONCE("Invalid RTV for attachment %u.\n", i);
             return false;
         }
 
