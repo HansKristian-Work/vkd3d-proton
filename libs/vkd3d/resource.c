@@ -671,6 +671,7 @@ static uint32_t vkd3d_view_entry_hash(const void *key)
             hash = hash_combine(hash, (uintptr_t)k->u.texture.format);
             hash = hash_combine(hash, k->u.texture.miplevel_idx);
             hash = hash_combine(hash, k->u.texture.miplevel_count);
+            hash = hash_combine(hash, float_bits_to_uint32(k->u.texture.miplevel_clamp));
             hash = hash_combine(hash, k->u.texture.layer_idx);
             hash = hash_combine(hash, k->u.texture.layer_count);
             hash = hash_combine(hash, k->u.texture.components.r);
@@ -731,6 +732,7 @@ static bool vkd3d_view_entry_compare(const void *key, const struct hash_map_entr
                     k->u.texture.format == e->key.u.texture.format &&
                     k->u.texture.miplevel_idx == e->key.u.texture.miplevel_idx &&
                     k->u.texture.miplevel_count == e->key.u.texture.miplevel_count &&
+                    k->u.texture.miplevel_clamp == e->key.u.texture.miplevel_clamp &&
                     k->u.texture.layer_idx == e->key.u.texture.layer_idx &&
                     k->u.texture.layer_count == e->key.u.texture.layer_count &&
                     k->u.texture.components.r == e->key.u.texture.components.r &&
@@ -3359,6 +3361,7 @@ static bool init_default_texture_view_desc(struct vkd3d_texture_view_desc *desc,
     desc->layout = resource->common_layout;
     desc->miplevel_idx = 0;
     desc->miplevel_count = 1;
+    desc->miplevel_clamp = 0.0f;
     desc->layer_idx = 0;
     desc->layer_count = d3d12_resource_desc_get_layer_count(&resource->desc);
 
@@ -3415,6 +3418,32 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_t
     view_desc.subresourceRange.levelCount = desc->miplevel_count;
     view_desc.subresourceRange.baseArrayLayer = desc->layer_idx;
     view_desc.subresourceRange.layerCount = desc->layer_count;
+
+    if (desc->miplevel_clamp != 0.0f)
+        FIXME_ONCE("Cannot handle MinResourceLOD clamp of %f correctly.\n", desc->miplevel_clamp);
+
+    /* This is not correct, but it's the best we can do with existing API.
+     * It should at least avoid a scenario where implicit LOD fetches from invalid levels.
+     * TODO: We will need an extension with vkCreateImageView pNext specifying minLODClamp.
+     * It will be trivial to add in RADV at least ... */
+    if (desc->miplevel_clamp >= 1.0f)
+    {
+        uint32_t new_base_level;
+        uint32_t level_offset;
+        uint32_t end_level;
+
+        level_offset = (uint32_t)desc->miplevel_clamp;
+        if (view_desc.subresourceRange.levelCount != VK_REMAINING_MIP_LEVELS)
+        {
+            end_level = view_desc.subresourceRange.baseMipLevel + view_desc.subresourceRange.levelCount;
+            new_base_level = min(end_level - 1, desc->miplevel_idx + level_offset);
+            view_desc.subresourceRange.levelCount = end_level - new_base_level;
+            view_desc.subresourceRange.baseMipLevel = new_base_level;
+        }
+        else
+            view_desc.subresourceRange.baseMipLevel += level_offset;
+    }
+
     if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, &vk_view))) < 0)
     {
         WARN("Failed to create Vulkan image view, vr %d.\n", vr);
@@ -3868,12 +3897,14 @@ static void vkd3d_create_texture_srv(struct d3d12_desc *descriptor,
                 key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_1D;
                 key.u.texture.miplevel_idx = desc->Texture1D.MostDetailedMip;
                 key.u.texture.miplevel_count = desc->Texture1D.MipLevels;
+                key.u.texture.miplevel_clamp = desc->Texture1D.ResourceMinLODClamp;
                 key.u.texture.layer_count = 1;
                 break;
             case D3D12_SRV_DIMENSION_TEXTURE1DARRAY:
                 key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_1D_ARRAY;
                 key.u.texture.miplevel_idx = desc->Texture1DArray.MostDetailedMip;
                 key.u.texture.miplevel_count = desc->Texture1DArray.MipLevels;
+                key.u.texture.miplevel_clamp = desc->Texture1DArray.ResourceMinLODClamp;
                 key.u.texture.layer_idx = desc->Texture1DArray.FirstArraySlice;
                 key.u.texture.layer_count = desc->Texture1DArray.ArraySize;
                 break;
@@ -3881,20 +3912,18 @@ static void vkd3d_create_texture_srv(struct d3d12_desc *descriptor,
                 key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D;
                 key.u.texture.miplevel_idx = desc->Texture2D.MostDetailedMip;
                 key.u.texture.miplevel_count = desc->Texture2D.MipLevels;
+                key.u.texture.miplevel_clamp = desc->Texture2D.ResourceMinLODClamp;
                 key.u.texture.layer_count = 1;
                 key.u.texture.aspect_mask = vk_image_aspect_flags_from_d3d12(resource->format, desc->Texture2D.PlaneSlice);
-                if (desc->Texture2D.ResourceMinLODClamp)
-                    FIXME_ONCE("Unhandled min LOD clamp %.8e.\n", desc->Texture2D.ResourceMinLODClamp);
                 break;
             case D3D12_SRV_DIMENSION_TEXTURE2DARRAY:
                 key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
                 key.u.texture.miplevel_idx = desc->Texture2DArray.MostDetailedMip;
                 key.u.texture.miplevel_count = desc->Texture2DArray.MipLevels;
+                key.u.texture.miplevel_clamp = desc->Texture2DArray.ResourceMinLODClamp;
                 key.u.texture.layer_idx = desc->Texture2DArray.FirstArraySlice;
                 key.u.texture.layer_count = desc->Texture2DArray.ArraySize;
                 key.u.texture.aspect_mask = vk_image_aspect_flags_from_d3d12(resource->format, desc->Texture2DArray.PlaneSlice);
-                if (desc->Texture2DArray.ResourceMinLODClamp)
-                    FIXME_ONCE("Unhandled min LOD clamp %.8e.\n", desc->Texture2DArray.ResourceMinLODClamp);
                 break;
             case D3D12_SRV_DIMENSION_TEXTURE2DMS:
                 key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_2D;
@@ -3909,27 +3938,24 @@ static void vkd3d_create_texture_srv(struct d3d12_desc *descriptor,
                 key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_3D;
                 key.u.texture.miplevel_idx = desc->Texture3D.MostDetailedMip;
                 key.u.texture.miplevel_count = desc->Texture3D.MipLevels;
-                if (desc->Texture3D.ResourceMinLODClamp)
-                    FIXME_ONCE("Unhandled min LOD clamp %.8e.\n", desc->Texture2D.ResourceMinLODClamp);
+                key.u.texture.miplevel_clamp = desc->Texture3D.ResourceMinLODClamp;
                 break;
             case D3D12_SRV_DIMENSION_TEXTURECUBE:
                 key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_CUBE;
                 key.u.texture.miplevel_idx = desc->TextureCube.MostDetailedMip;
                 key.u.texture.miplevel_count = desc->TextureCube.MipLevels;
+                key.u.texture.miplevel_clamp = desc->TextureCube.ResourceMinLODClamp;
                 key.u.texture.layer_count = 6;
-                if (desc->TextureCube.ResourceMinLODClamp)
-                    FIXME_ONCE("Unhandled min LOD clamp %.8e.\n", desc->TextureCube.ResourceMinLODClamp);
                 break;
             case D3D12_SRV_DIMENSION_TEXTURECUBEARRAY:
                 key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
                 key.u.texture.miplevel_idx = desc->TextureCubeArray.MostDetailedMip;
                 key.u.texture.miplevel_count = desc->TextureCubeArray.MipLevels;
+                key.u.texture.miplevel_clamp = desc->TextureCubeArray.ResourceMinLODClamp;
                 key.u.texture.layer_idx = desc->TextureCubeArray.First2DArrayFace;
                 key.u.texture.layer_count = desc->TextureCubeArray.NumCubes;
                 if (key.u.texture.layer_count != VK_REMAINING_ARRAY_LAYERS)
                     key.u.texture.layer_count *= 6;
-                if (desc->TextureCubeArray.ResourceMinLODClamp)
-                    FIXME_ONCE("Unhandled min LOD clamp %.8e.\n", desc->TextureCubeArray.ResourceMinLODClamp);
                 break;
             default:
                 FIXME("Unhandled view dimension %#x.\n", desc->ViewDimension);
