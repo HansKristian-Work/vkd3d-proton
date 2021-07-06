@@ -5788,7 +5788,7 @@ static void vk_image_copy_from_d3d12(VkImageCopy *image_copy,
 static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         struct d3d12_resource *dst_resource, const struct vkd3d_format *dst_format,
         struct d3d12_resource *src_resource, const struct vkd3d_format *src_format,
-        const VkImageCopy *region, bool writes_full_subresource)
+        const VkImageCopy *region, bool writes_full_subresource, bool overlapping_subresource)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_texture_view_desc dst_view_desc, src_view_desc;
@@ -5819,8 +5819,17 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
 
     if (use_copy)
     {
-        src_layout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-        dst_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        if (overlapping_subresource)
+        {
+            src_layout = VK_IMAGE_LAYOUT_GENERAL;
+            dst_layout = VK_IMAGE_LAYOUT_GENERAL;
+        }
+        else
+        {
+            src_layout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+            dst_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        }
+
         src_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
         dst_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
         src_access = VK_ACCESS_TRANSFER_READ_BIT;
@@ -5879,6 +5888,9 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
     vk_image_barriers[0].image = dst_resource->res.vk_image;
     vk_image_barriers[0].subresourceRange = vk_subresource_range_from_layers(&region->dstSubresource);
 
+    if (overlapping_subresource)
+        vk_image_barriers[0].dstAccessMask |= src_access;
+
     vk_image_barriers[1].srcAccessMask = 0;
     vk_image_barriers[1].dstAccessMask = src_access;
     vk_image_barriers[1].oldLayout = src_resource->common_layout;
@@ -5888,7 +5900,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
 
     VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
             VK_PIPELINE_STAGE_TRANSFER_BIT, src_stages | dst_stages,
-            0, 0, NULL, 0, NULL, ARRAY_SIZE(vk_image_barriers),
+            0, 0, NULL, 0, NULL, overlapping_subresource ? 1 : ARRAY_SIZE(vk_image_barriers),
             vk_image_barriers));
 
     if (use_copy)
@@ -6062,7 +6074,7 @@ cleanup:
 
     VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
             src_stages | dst_stages, VK_PIPELINE_STAGE_TRANSFER_BIT,
-            0, 0, NULL, 0, NULL, ARRAY_SIZE(vk_image_barriers),
+            0, 0, NULL, 0, NULL, overlapping_subresource ? 1 : ARRAY_SIZE(vk_image_barriers),
             vk_image_barriers));
 }
 
@@ -6243,7 +6255,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
         d3d12_command_list_track_resource_usage(list, dst_resource, !writes_full_subresource);
 
         d3d12_command_list_copy_image(list, dst_resource, dst_format,
-                src_resource, src_format, &image_copy, writes_full_subresource);
+                src_resource, src_format, &image_copy, writes_full_subresource, false);
     }
     else
     {
@@ -6303,7 +6315,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
 
             /* CopyResource() always copies all subresources, so we can safely discard the dst_resource contents. */
             d3d12_command_list_copy_image(list, dst_resource, dst_resource->format,
-                    src_resource, src_resource->format, &vk_image_copy, true);
+                    src_resource, src_resource->format, &vk_image_copy, true, false);
         }
     }
 }
@@ -6451,6 +6463,12 @@ static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *li
     if (mode != D3D12_RESOLVE_MODE_AVERAGE)
     {
         FIXME("Resolve mode %u is not yet supported.\n", mode);
+        return;
+    }
+
+    if (mode == D3D12_RESOLVE_MODE_AVERAGE && (dst_resource->format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT))
+    {
+        FIXME("AVERAGE resolve on DEPTH aspect is not supported yet.\n");
         return;
     }
 
@@ -9070,15 +9088,107 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetSamplePositions(d3d12_comman
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(d3d12_command_list_iface *iface,
-        ID3D12Resource *dst_resource, UINT dst_sub_resource_idx, UINT dst_x, UINT dst_y,
-        ID3D12Resource *src_resource, UINT src_sub_resource_idx,
+        ID3D12Resource *dst, UINT dst_sub_resource_idx, UINT dst_x, UINT dst_y,
+        ID3D12Resource *src, UINT src_sub_resource_idx,
         D3D12_RECT *src_rect, DXGI_FORMAT format, D3D12_RESOLVE_MODE mode)
 {
-    FIXME("iface %p, dst_resource %p, dst_sub_resource_idx %u, "
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_resource *dst_resource, *src_resource;
+    VkImageSubresourceLayers src_subresource;
+    VkImageSubresourceLayers dst_subresource;
+    VkOffset3D src_offset;
+    VkOffset3D dst_offset;
+    VkExtent3D extent;
+
+    TRACE("iface %p, dst_resource %p, dst_sub_resource_idx %u, "
             "dst_x %u, dst_y %u, src_resource %p, src_sub_resource_idx %u, "
-            "src_rect %p, format %#x, mode %#x stub!\n",
-            iface, dst_resource, dst_sub_resource_idx, dst_x, dst_y,
-            src_resource, src_sub_resource_idx, src_rect, format, mode);
+            "src_rect %p, format %#x, mode %#x!\n",
+            iface, dst, dst_sub_resource_idx, dst_x, dst_y,
+            src, src_sub_resource_idx, src_rect, format, mode);
+
+    dst_resource = unsafe_impl_from_ID3D12Resource(dst);
+    src_resource = unsafe_impl_from_ID3D12Resource(src);
+
+    assert(d3d12_resource_is_texture(dst_resource));
+    assert(d3d12_resource_is_texture(src_resource));
+
+    vk_image_subresource_layers_from_d3d12(&src_subresource,
+            src_resource->format, src_sub_resource_idx,
+            src_resource->desc.MipLevels,
+            d3d12_resource_desc_get_layer_count(&src_resource->desc));
+    vk_image_subresource_layers_from_d3d12(&dst_subresource,
+            dst_resource->format, dst_sub_resource_idx,
+            dst_resource->desc.MipLevels,
+            d3d12_resource_desc_get_layer_count(&dst_resource->desc));
+
+    if (src_rect)
+    {
+        src_offset.x = src_rect->left;
+        src_offset.y = src_rect->top;
+        src_offset.z = 0;
+        extent.width = src_rect->right - src_rect->left;
+        extent.height = src_rect->bottom - src_rect->top;
+        extent.depth = 1;
+    }
+    else
+    {
+        memset(&src_offset, 0, sizeof(src_offset));
+        vk_extent_3d_from_d3d12_miplevel(&extent, &src_resource->desc, src_subresource.mipLevel);
+    }
+
+    dst_offset.x = (int32_t)dst_x;
+    dst_offset.y = (int32_t)dst_y;
+    dst_offset.z = 0;
+
+    if (mode == D3D12_RESOLVE_MODE_AVERAGE || mode == D3D12_RESOLVE_MODE_MIN || mode == D3D12_RESOLVE_MODE_MAX)
+    {
+        VkImageResolve vk_image_resolve;
+        vk_image_resolve.srcSubresource = src_subresource;
+        vk_image_resolve.dstSubresource = dst_subresource;
+        vk_image_resolve.extent = extent;
+        vk_image_resolve.srcOffset = src_offset;
+        vk_image_resolve.dstOffset = dst_offset;
+        d3d12_command_list_resolve_subresource(list, dst_resource, src_resource, &vk_image_resolve, format, mode);
+    }
+    else if (mode == D3D12_RESOLVE_MODE_DECOMPRESS)
+    {
+        /* This is a glorified copy path. The region can overlap fully, in which case we have an in-place decompress.
+         * Do nothing here. We can copy within a subresource, in which case we enter GENERAL layout.
+         * Otherwise, this can always map to vkCmdCopyImage, except for DEPTH -> COLOR copy.
+         * In this case, just use the fallback paths as is. */
+        bool writes_full_subresource;
+        bool overlapping_subresource;
+        VkImageCopy image_copy;
+
+        overlapping_subresource = dst_resource == src_resource && dst_sub_resource_idx == src_sub_resource_idx;
+
+        /* In place DECOMPRESS. No-op. */
+        if (overlapping_subresource && memcmp(&src_offset, &dst_offset, sizeof(VkOffset3D)) == 0)
+            return;
+
+        /* Cannot discard if we're copying in-place. */
+        writes_full_subresource = !overlapping_subresource &&
+                d3d12_image_copy_writes_full_subresource(dst_resource,
+                        &extent, &dst_subresource);
+
+        d3d12_command_list_track_resource_usage(list, src_resource, true);
+        d3d12_command_list_track_resource_usage(list, dst_resource, !writes_full_subresource);
+
+        image_copy.srcSubresource = src_subresource;
+        image_copy.dstSubresource = dst_subresource;
+        image_copy.srcOffset = src_offset;
+        image_copy.dstOffset = dst_offset;
+        image_copy.extent = extent;
+
+        d3d12_command_list_copy_image(list, dst_resource, dst_resource->format,
+                src_resource, src_resource->format, &image_copy,
+                writes_full_subresource, overlapping_subresource);
+    }
+    else
+    {
+        /* The "weird" resolve modes like sampler feedback encode/decode, etc. */
+        FIXME("Unsupported resolve mode: %u.\n", mode);
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetViewInstanceMask(d3d12_command_list_iface *iface, UINT mask)
