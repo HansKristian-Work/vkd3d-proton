@@ -51935,6 +51935,7 @@ static void test_view_min_lod(void)
         float test_lod;
         float min_lod;
         unsigned int expected_color;
+        bool is_todo;
     }
     tests[] =
     {
@@ -51945,10 +51946,10 @@ static void test_view_min_lod(void)
         {&ps_view_min_lod_load, 0,  3.0f, 0.0f, 0xffffffff},
 
         {&ps_view_min_lod_load, 0, -1.0f, 1.0f, 0x00000000},
-        {&ps_view_min_lod_load, 0,  0.0f, 1.0f, 0x00000000},
-        {&ps_view_min_lod_load, 0,  1.0f, 1.0f, 0xffffffff},
-        {&ps_view_min_lod_load, 0,  2.0f, 1.0f, 0x0f0f0f0f},
-        {&ps_view_min_lod_load, 0,  3.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_load, 0,  0.0f, 1.0f, 0x00000000, true},
+        {&ps_view_min_lod_load, 0,  1.0f, 1.0f, 0xffffffff, true},
+        {&ps_view_min_lod_load, 0,  2.0f, 1.0f, 0x0f0f0f0f, true},
+        {&ps_view_min_lod_load, 0,  3.0f, 1.0f, 0xffffffff, true},
 
         {&ps_view_min_lod_load, 1, -1.0f, 1.0f, 0x00000000},
         {&ps_view_min_lod_load, 1,  0.0f, 1.0f, 0xffffffff},
@@ -51957,7 +51958,7 @@ static void test_view_min_lod(void)
         {&ps_view_min_lod_load, 1,  3.0f, 1.0f, 0x00000000},
 
         {&ps_view_min_lod_load, 1, -1.0f, 9.0f, 0x00000000},
-        {&ps_view_min_lod_load, 1,  0.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_load, 1,  0.0f, 9.0f, 0x00000000, true},
         {&ps_view_min_lod_load, 1,  1.0f, 9.0f, 0x00000000},
         {&ps_view_min_lod_load, 1,  2.0f, 9.0f, 0x00000000},
         {&ps_view_min_lod_load, 1,  3.0f, 9.0f, 0x00000000},
@@ -51970,8 +51971,8 @@ static void test_view_min_lod(void)
 
         {&ps_view_min_lod_sample, 0, -1.0f, 1.0f, 0xffffffff},
         {&ps_view_min_lod_sample, 0,  0.0f, 1.0f, 0xffffffff},
-        {&ps_view_min_lod_sample, 0,  1.0f, 1.0f, 0xffffffff},
-        {&ps_view_min_lod_sample, 0,  2.0f, 1.0f, 0x0f0f0f0f},
+        {&ps_view_min_lod_sample, 0,  1.0f, 1.0f, 0xffffffff, true},
+        {&ps_view_min_lod_sample, 0,  2.0f, 1.0f, 0x0f0f0f0f, true},
         {&ps_view_min_lod_sample, 0,  3.0f, 1.0f, 0xffffffff},
 
         {&ps_view_min_lod_sample, 1, -1.0f, 1.0f, 0xffffffff},
@@ -51981,11 +51982,11 @@ static void test_view_min_lod(void)
         {&ps_view_min_lod_sample, 1,  3.0f, 1.0f, 0xffffffff},
         {&ps_view_min_lod_sample, 1,  4.0f, 1.0f, 0xffffffff},
 
-        {&ps_view_min_lod_sample, 1, -1.0f, 9.0f, 0x00000000},
-        {&ps_view_min_lod_sample, 1,  0.0f, 9.0f, 0x00000000},
-        {&ps_view_min_lod_sample, 1,  1.0f, 9.0f, 0x00000000},
-        {&ps_view_min_lod_sample, 1,  2.0f, 9.0f, 0x00000000},
-        {&ps_view_min_lod_sample, 1,  3.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_sample, 1, -1.0f, 9.0f, 0x00000000, true},
+        {&ps_view_min_lod_sample, 1,  0.0f, 9.0f, 0x00000000, true},
+        {&ps_view_min_lod_sample, 1,  1.0f, 9.0f, 0x00000000, true},
+        {&ps_view_min_lod_sample, 1,  2.0f, 9.0f, 0x00000000, true},
+        {&ps_view_min_lod_sample, 1,  3.0f, 9.0f, 0x00000000, true},
     };
 
     /* Alternate mip colors */
@@ -52064,7 +52065,7 @@ static void test_view_min_lod(void)
 
         transition_resource_state(command_list, context.render_target,
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        check_sub_resource_uint(context.render_target, 0, queue, command_list, tests[i].expected_color, 0);
+        todo_if(tests[i].is_todo) check_sub_resource_uint(context.render_target, 0, queue, command_list, tests[i].expected_color, 0);
 
         reset_command_list(command_list, context.allocator);
         transition_resource_state(command_list, context.render_target,
