@@ -57,7 +57,7 @@ typedef uint64_t vkd3d_shader_hash_t;
 struct vkd3d_shader_meta
 {
     vkd3d_shader_hash_t hash;
-    uint32_t cs_workgroup_size[3]; /* Only contains valid data if uses_subgroup_size is true. */
+    unsigned int cs_workgroup_size[3]; /* Only contains valid data if uses_subgroup_size is true. */
     bool replaced;
     bool uses_subgroup_size;
 };
