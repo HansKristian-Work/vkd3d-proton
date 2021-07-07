@@ -343,11 +343,10 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         return vkd3d_shader_compile_dxil(dxbc, spirv, shader_interface_info, compile_args);
     }
 
+    memset(&spirv->meta, 0, sizeof(spirv->meta));
+
     hash = vkd3d_shader_hash(dxbc);
-    spirv->meta.replaced = false;
-    spirv->meta.uses_subgroup_size = false;
     spirv->meta.hash = hash;
-    memset(spirv->meta.cs_workgroup_size, 0, sizeof(spirv->meta.cs_workgroup_size));
     if (vkd3d_shader_replace(hash, &spirv->code, &spirv->size))
     {
         spirv->meta.replaced = true;
@@ -361,6 +360,8 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         vkd3d_shader_scan_destroy(&scan_info);
         return ret;
     }
+
+    spirv->meta.patch_vertex_count = scan_info.patch_vertex_count;
 
     if ((ret = vkd3d_shader_parser_init(&parser, dxbc)) < 0)
     {
@@ -523,6 +524,9 @@ static void vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_info *scan_in
             if (instruction->flags & VKD3DSGF_FORCE_EARLY_DEPTH_STENCIL)
                 scan_info->early_fragment_tests = true;
             break;
+        case VKD3DSIH_DCL_INPUT_CONTROL_POINT_COUNT:
+            scan_info->patch_vertex_count = instruction->declaration.count;
+            break;
         default:
             break;
     }
@@ -556,49 +560,6 @@ static void vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_info *scan_in
 
     if (vkd3d_shader_instruction_is_uav_counter(instruction))
         vkd3d_shader_scan_record_uav_counter(scan_info, &instruction->src[0].reg);
-}
-
-int vkd3d_shader_scan_patch_vertex_count(const struct vkd3d_shader_code *dxbc,
-        unsigned int *patch_vertex_count)
-{
-    struct vkd3d_shader_instruction instruction;
-    struct vkd3d_shader_parser parser;
-    int ret;
-
-    if (shader_is_dxil(dxbc->code, dxbc->size))
-    {
-        /* TODO */
-        *patch_vertex_count = 0;
-        return VKD3D_OK;
-    }
-    else
-    {
-        if ((ret = vkd3d_shader_parser_init(&parser, dxbc)) < 0)
-            return ret;
-
-        *patch_vertex_count = 0;
-
-        while (!shader_sm4_is_end(parser.data, &parser.ptr))
-        {
-            shader_sm4_read_instruction(parser.data, &parser.ptr, &instruction);
-
-            if (instruction.handler_idx == VKD3DSIH_INVALID)
-            {
-                WARN("Encountered unrecognized or invalid instruction.\n");
-                vkd3d_shader_parser_destroy(&parser);
-                return VKD3D_ERROR_INVALID_ARGUMENT;
-            }
-
-            if (instruction.handler_idx == VKD3DSIH_DCL_INPUT_CONTROL_POINT_COUNT)
-            {
-                *patch_vertex_count = instruction.declaration.count;
-                break;
-            }
-        }
-
-        vkd3d_shader_parser_destroy(&parser);
-        return VKD3D_OK;
-    }
 }
 
 int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,

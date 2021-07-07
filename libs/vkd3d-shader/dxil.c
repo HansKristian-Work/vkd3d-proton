@@ -494,11 +494,9 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
 
     dxil_spv_set_thread_log_callback(vkd3d_dxil_log_callback, NULL);
 
+    memset(&spirv->meta, 0, sizeof(spirv->meta));
     hash = vkd3d_shader_hash(dxbc);
-    spirv->meta.replaced = false;
     spirv->meta.hash = hash;
-    spirv->meta.uses_subgroup_size = false;
-    memset(spirv->meta.cs_workgroup_size, 0, sizeof(spirv->meta.cs_workgroup_size));
     if (vkd3d_shader_replace(hash, &spirv->code, &spirv->size))
     {
         spirv->meta.replaced = true;
@@ -827,11 +825,9 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
 
     dxil_spv_set_thread_log_callback(vkd3d_dxil_log_callback, NULL);
 
+    memset(&spirv->meta, 0, sizeof(spirv->meta));
     hash = vkd3d_shader_hash(dxil);
-    spirv->meta.replaced = false;
-    spirv->meta.uses_subgroup_size = false;
     spirv->meta.hash = hash;
-    memset(spirv->meta.cs_workgroup_size, 0, sizeof(spirv->meta.cs_workgroup_size));
     demangled_export = vkd3d_dup_demangled_entry_point_ascii(export);
     if (demangled_export)
     {
