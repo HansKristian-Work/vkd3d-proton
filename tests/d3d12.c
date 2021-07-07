@@ -35284,6 +35284,144 @@ static void test_dual_source_blending_dxil(void)
     test_dual_source_blending(true);
 }
 
+static void test_multisample_resolve(void)
+{
+    D3D12_HEAP_PROPERTIES heap_properties;
+    ID3D12Resource *ms_render_target_copy;
+    D3D12_CPU_DESCRIPTOR_HANDLE ms_rtv;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12GraphicsCommandList1 *list1;
+    ID3D12Resource *ms_render_target;
+    ID3D12Resource *render_target;
+    struct test_context_desc desc;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12DescriptorHeap *heap;
+    D3D12_RECT src_rect;
+    unsigned int x, y;
+    HRESULT hr;
+
+    static const uint32_t reference_color[4 * 4] = {
+        0x01010101, 0x02020202, 0x03030303, 0x04040404,
+        0x05050505, 0x06060606, 0x07070707, 0x08080808,
+        0x09090909, 0x0a0a0a0a, 0x0b0b0b0b, 0x0c0c0c0c,
+        0x0d0d0d0d, 0x0e0e0e0e, 0x0f0f0f0f, 0x10101010,
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_root_signature = true;
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList1, (void **)&list1);
+    if (FAILED(hr))
+    {
+        destroy_test_context(&context);
+        skip("Failed to query ID3D12GraphicsCommandList1. Skipping tests.\n");
+        return;
+    }
+
+    heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Width = 4 * 2;
+    resource_desc.Height = 4;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_desc.SampleDesc.Count = 4;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+        &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void **)&ms_render_target);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+    resource_desc.Width = 4;
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+        &resource_desc, D3D12_RESOURCE_STATE_RESOLVE_DEST, NULL, &IID_ID3D12Resource, (void **)&ms_render_target_copy);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.Height = 8;
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+        &resource_desc, D3D12_RESOURCE_STATE_RESOLVE_DEST, NULL, &IID_ID3D12Resource, (void **)&render_target);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+
+    ms_rtv = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+    ID3D12Device_CreateRenderTargetView(context.device, ms_render_target, NULL, ms_rtv);
+
+    for (y = 0; y < 4; y++)
+    {
+        for (x = 0; x < 4; x++)
+        {
+            const FLOAT float_color[4] = {
+                (float)((reference_color[y * 4 + x] >> 0) & 0xff) / 255.0f,
+                (float)((reference_color[y * 4 + x] >> 8) & 0xff) / 255.0f,
+                (float)((reference_color[y * 4 + x] >> 16) & 0xff) / 255.0f,
+                (float)((reference_color[y * 4 + x] >> 24) & 0xff) / 255.0f,
+            };
+
+            src_rect.left = x;
+            src_rect.right = x + 1;
+            src_rect.top = y;
+            src_rect.bottom = y + 1;
+            ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, ms_rtv, float_color, 1, &src_rect);
+        }
+    }
+
+    transition_resource_state(context.list, ms_render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+
+    /* First, try decompress directly on the MSAA texture. Apparently, we have to be in RESOURCE_SOURCE here even if dst is used.
+     * For us, this should be a no-op. */
+    ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, ms_render_target, 0, 0, 0, ms_render_target, 0, NULL, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOLVE_MODE_DECOMPRESS);
+
+    /* Now, DECOMPRESS as in-place copy by decompressing to second half of the subresource. Here we'll have to use GENERAL layout. */
+    src_rect.left = 0;
+    src_rect.right = 4;
+    src_rect.top = 0;
+    src_rect.bottom = 4;
+    ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, ms_render_target, 0, 4, 0, ms_render_target, 0, &src_rect, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOLVE_MODE_DECOMPRESS);
+
+    /* DECOMPRESS to other resource MSAA <-> MSAA. vkCmdCopyImage path. */
+    ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, ms_render_target_copy, 0, 0, 0, ms_render_target, 0, &src_rect, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOLVE_MODE_DECOMPRESS);
+    transition_resource_state(context.list, ms_render_target_copy, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+
+    for (y = 0; y < 4; y++)
+    {
+        for (x = 0; x < 4; x++)
+        {
+            src_rect.left = x;
+            src_rect.right = x + 1;
+            src_rect.top = y;
+            src_rect.bottom = y + 1;
+            /* Test partial resolve with offset. */
+            ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, render_target, 0, x, y + 4, ms_render_target_copy, 0, &src_rect, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOLVE_MODE_AVERAGE);
+        }
+    }
+    transition_resource_state(context.list, render_target, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(render_target, 0, &rb, context.queue, context.list);
+    for (y = 0; y < 4; y++)
+    {
+        for (x = 0; x < 4; x++)
+        {
+            uint32_t v, reference;
+            v = get_readback_uint(&rb, x, y + 4, 0);
+            reference = reference_color[y * 4 + x];
+            ok(v == reference, "Pixel %u, %u failed, %x != %x.\n", x, y + 4, v, reference);
+        }
+    }
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(ms_render_target_copy);
+    ID3D12Resource_Release(ms_render_target);
+    ID3D12Resource_Release(render_target);
+    ID3D12DescriptorHeap_Release(heap);
+    ID3D12GraphicsCommandList1_Release(list1);
+    destroy_test_context(&context);
+}
+
 static void test_multisample_rendering(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -52322,6 +52460,7 @@ START_TEST(d3d12)
     run_test(test_dual_source_blending_dxbc);
     run_test(test_dual_source_blending_dxil);
     run_test(test_multisample_rendering);
+    run_test(test_multisample_resolve);
     run_test(test_sample_mask_dxbc);
     run_test(test_sample_mask_dxil);
     run_test(test_coverage_dxbc);
