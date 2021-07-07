@@ -3428,20 +3428,20 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_t
      * It will be trivial to add in RADV at least ... */
     if (desc->miplevel_clamp >= 1.0f)
     {
+        uint32_t clamp_base_level;
         uint32_t new_base_level;
-        uint32_t level_offset;
         uint32_t end_level;
 
-        level_offset = (uint32_t)desc->miplevel_clamp;
+        clamp_base_level = max((uint32_t)desc->miplevel_clamp, view_desc.subresourceRange.baseMipLevel);
         if (view_desc.subresourceRange.levelCount != VK_REMAINING_MIP_LEVELS)
         {
             end_level = view_desc.subresourceRange.baseMipLevel + view_desc.subresourceRange.levelCount;
-            new_base_level = min(end_level - 1, desc->miplevel_idx + level_offset);
+            new_base_level = min(end_level - 1, clamp_base_level);
             view_desc.subresourceRange.levelCount = end_level - new_base_level;
             view_desc.subresourceRange.baseMipLevel = new_base_level;
         }
         else
-            view_desc.subresourceRange.baseMipLevel += level_offset;
+            view_desc.subresourceRange.baseMipLevel = clamp_base_level;
     }
 
     if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, &vk_view))) < 0)
@@ -3961,6 +3961,9 @@ static void vkd3d_create_texture_srv(struct d3d12_desc *descriptor,
                 FIXME("Unhandled view dimension %#x.\n", desc->ViewDimension);
         }
     }
+
+    /* Only applicable to workaround path. */
+    key.u.texture.miplevel_clamp = min(key.u.texture.miplevel_clamp, (float)resource->desc.MipLevels - 1.0f);
 
     if (!(view = vkd3d_view_map_create_view(&resource->view_map, device, &key)))
         return;
