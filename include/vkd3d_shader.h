@@ -58,6 +58,7 @@ struct vkd3d_shader_meta
 {
     vkd3d_shader_hash_t hash;
     unsigned int cs_workgroup_size[3]; /* Only contains valid data if uses_subgroup_size is true. */
+    unsigned int patch_vertex_count; /* Relevant for HS. May be 0, in which case the patch vertex count is not known. */
     bool replaced;
     bool uses_subgroup_size;
 };
@@ -624,6 +625,7 @@ struct vkd3d_shader_scan_info
     bool has_side_effects;
     bool needs_late_zs;
     bool discards;
+    unsigned int patch_vertex_count;
 };
 
 enum vkd3d_component_type
@@ -729,10 +731,6 @@ int vkd3d_shader_convert_root_signature(struct vkd3d_versioned_root_signature_de
 int vkd3d_shader_scan_dxbc(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_scan_info *scan_info);
 
-/* If value cannot be determined, *patch_vertex_count returns 0. */
-int vkd3d_shader_scan_patch_vertex_count(const struct vkd3d_shader_code *dxbc,
-        unsigned int *patch_vertex_count);
-
 int vkd3d_shader_parse_input_signature(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_signature *signature);
 struct vkd3d_shader_signature_element *vkd3d_shader_find_signature_element(
@@ -788,8 +786,6 @@ typedef int (*PFN_vkd3d_shader_convert_root_signature)(struct vkd3d_versioned_ro
 
 typedef int (*PFN_vkd3d_shader_scan_dxbc)(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_scan_info *scan_info);
-typedef int (*PFN_vkd3d_shader_scan_patch_vertex_count)(const struct vkd3d_shader_code *dxbc,
-        unsigned int *patch_vertex_count);
 
 typedef int (*PFN_vkd3d_shader_parse_input_signature)(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_signature *signature);

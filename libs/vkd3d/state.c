@@ -3210,12 +3210,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
                 break;
 
             case VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT:
-                if ((ret = vkd3d_shader_scan_patch_vertex_count(&dxbc, &graphics->patch_vertex_count)) < 0)
-                {
-                    hr = hresult_from_vkd3d_result(ret);
-                    goto fail;
-                }
-                /* fallthrough */
             case VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT:
                 if (desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH)
                 {
@@ -3241,6 +3235,9 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
                 shader_stages[i].stage == VK_SHADER_STAGE_FRAGMENT_BIT ? &ps_compile_args : &compile_args,
                 &graphics->stage_meta[graphics->stage_count])))
             goto fail;
+
+        if (shader_stages[i].stage == VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT)
+            graphics->patch_vertex_count = graphics->stage_meta[graphics->stage_count].patch_vertex_count;
 
         if (graphics->stage_meta[graphics->stage_count].replaced && device->debug_ring.active)
         {
