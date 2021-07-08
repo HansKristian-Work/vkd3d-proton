@@ -913,7 +913,7 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
             shader_interface_local_info.binding_count = local_signature->binding_count;
 
             /* Promote state which might only be active in local root signature. */
-            shader_interface_info.flags |= local_signature->flags;
+            shader_interface_info.flags |= d3d12_root_signature_get_shader_interface_flags(local_signature);
             if (local_signature->flags & (VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER | VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER))
                 shader_interface_info.offset_buffer_binding = &local_signature->offset_buffer_binding;
         }
