@@ -28,7 +28,9 @@
 
 #include "spirv/unified1/spirv.h"
 #include "spirv/unified1/GLSL.std.450.h"
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
 #include "vkd3d_descriptor_qa_data.h"
+#endif
 
 static enum vkd3d_shader_input_sysval_semantic vkd3d_siv_from_sysval_indexed(enum vkd3d_sysval_semantic sysval,
         unsigned int index)
@@ -1275,7 +1277,7 @@ static void vkd3d_spirv_build_op_return(struct vkd3d_spirv_builder *builder)
     vkd3d_spirv_build_op(&builder->function_stream, SpvOpReturn);
 }
 
-static void vkd3d_spirv_build_op_return_value(struct vkd3d_spirv_builder *builder, uint32_t value)
+VKD3D_UNUSED static void vkd3d_spirv_build_op_return_value(struct vkd3d_spirv_builder *builder, uint32_t value)
 {
     vkd3d_spirv_build_op1(&builder->function_stream, SpvOpReturnValue, value);
 }
@@ -1420,7 +1422,7 @@ static uint32_t vkd3d_spirv_build_op_iequal(struct vkd3d_spirv_builder *builder,
             SpvOpIEqual, result_type, operand0, operand1);
 }
 
-static uint32_t vkd3d_spirv_build_op_inotequal(struct vkd3d_spirv_builder *builder,
+VKD3D_UNUSED static uint32_t vkd3d_spirv_build_op_inotequal(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t operand0, uint32_t operand1)
 {
     return vkd3d_spirv_build_op_tr2(builder, &builder->function_stream,
@@ -2311,9 +2313,12 @@ struct vkd3d_dxbc_compiler
     struct vkd3d_root_descriptor_info *root_descriptor_info;
 
     uint32_t offset_buffer_var_id;
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     uint32_t descriptor_qa_check_func_id;
     uint32_t descriptor_qa_instruction_count;
     vkd3d_shader_hash_t descriptor_qa_shader_hash;
+#endif
 
     int compiler_error;
 };
@@ -2349,7 +2354,9 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
     memset(compiler, 0, sizeof(*compiler));
 
     compiler->shader_version = *shader_version;
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     compiler->descriptor_qa_shader_hash = shader_hash;
+#endif
 
     if (compile_args && compile_args->quirks)
     {
@@ -5616,7 +5623,9 @@ static const struct vkd3d_shader_buffer_reference_type *vkd3d_dxbc_compiler_get_
     return type;
 }
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
 static void vkd3d_dxbc_compiler_emit_descriptor_qa_checks(struct vkd3d_dxbc_compiler *compiler);
+#endif
 
 static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_compiler *compiler)
 {
@@ -5643,6 +5652,7 @@ static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_comp
         case VKD3D_SHADER_TYPE_PIXEL:
             vkd3d_spirv_set_execution_model(builder, SpvExecutionModelFragment);
             vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeOriginUpperLeft, NULL, 0);
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
             /* We introduce side effects into fragment shaders when we enable descriptor QA,
              * so try to force EarlyFragmentTests if it's safe to do so. */
             if ((compiler->shader_interface.flags & VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER) &&
@@ -5651,6 +5661,7 @@ static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_comp
             {
                 vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeEarlyFragmentTests, NULL, 0);
             }
+#endif
             break;
         case VKD3D_SHADER_TYPE_COMPUTE:
             vkd3d_spirv_set_execution_model(builder, SpvExecutionModelGLCompute);
@@ -5665,7 +5676,9 @@ static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_comp
         vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeXfb, NULL, 0);
     }
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     vkd3d_dxbc_compiler_emit_descriptor_qa_checks(compiler);
+#endif
 
     if (compiler->shader_type != VKD3D_SHADER_TYPE_HULL)
     {
@@ -5774,6 +5787,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_indexable_temp(struct vkd3d_dxbc_compil
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
 static uint32_t vkd3d_dxbc_compiler_emit_descriptor_qa_heap(struct vkd3d_dxbc_compiler *compiler)
 {
     const struct vkd3d_shader_interface_info *shader_interface = &compiler->shader_interface;
@@ -5861,6 +5875,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_descriptor_qa_global_data(struct vkd3d_
 
     return var_id;
 }
+#endif
 
 static uint32_t vkd3d_spirv_build_ssbo_member_load(struct vkd3d_spirv_builder *builder,
         uint32_t type_id, uint32_t ssbo_id,
@@ -5872,7 +5887,7 @@ static uint32_t vkd3d_spirv_build_ssbo_member_load(struct vkd3d_spirv_builder *b
     return vkd3d_spirv_build_op_load(builder, type_id, chain_id, SpvMemoryAccessMaskNone);
 }
 
-static uint32_t vkd3d_spirv_build_ssbo_member_load1(struct vkd3d_dxbc_compiler *compiler,
+VKD3D_UNUSED static uint32_t vkd3d_spirv_build_ssbo_member_load1(struct vkd3d_dxbc_compiler *compiler,
         uint32_t type_id, uint32_t ssbo_id, uint32_t member_index)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
@@ -5880,7 +5895,7 @@ static uint32_t vkd3d_spirv_build_ssbo_member_load1(struct vkd3d_dxbc_compiler *
     return vkd3d_spirv_build_ssbo_member_load(builder, type_id, ssbo_id, &member_index, 1);
 }
 
-static uint32_t vkd3d_spirv_build_ssbo_member_load2(struct vkd3d_dxbc_compiler *compiler,
+VKD3D_UNUSED static uint32_t vkd3d_spirv_build_ssbo_member_load2(struct vkd3d_dxbc_compiler *compiler,
         uint32_t type_id, uint32_t ssbo_id, uint32_t member_index, uint32_t array_index)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
@@ -5891,7 +5906,7 @@ static uint32_t vkd3d_spirv_build_ssbo_member_load2(struct vkd3d_dxbc_compiler *
     return vkd3d_spirv_build_ssbo_member_load(builder, type_id, ssbo_id, args, ARRAY_SIZE(args));
 }
 
-static void vkd3d_spirv_build_ssbo_member_store(struct vkd3d_dxbc_compiler *compiler,
+VKD3D_UNUSED static void vkd3d_spirv_build_ssbo_member_store(struct vkd3d_dxbc_compiler *compiler,
         uint32_t ptr_type_id, uint32_t ssbo_id, uint32_t member_index, uint32_t value_id)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
@@ -5902,6 +5917,7 @@ static void vkd3d_spirv_build_ssbo_member_store(struct vkd3d_dxbc_compiler *comp
     vkd3d_spirv_build_op_store(builder, chain_id, value_id, SpvMemoryAccessMaskNone);
 }
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
 static void vkd3d_dxbc_compiler_emit_descriptor_qa_checks(struct vkd3d_dxbc_compiler *compiler)
 {
     uint32_t report_merge_label_id, has_fault_label_id, report_label_id, exit_label_id, label_id;
@@ -6100,6 +6116,7 @@ static void vkd3d_dxbc_compiler_emit_descriptor_qa_checks(struct vkd3d_dxbc_comp
     vkd3d_spirv_build_op_return_value(builder, parameter_ids[0]);
     vkd3d_spirv_build_op_function_end(builder);
 }
+#endif
 
 static void vkd3d_dxbc_compiler_emit_offset_buffer(struct vkd3d_dxbc_compiler *compiler)
 {
@@ -8741,8 +8758,10 @@ static uint32_t vkd3d_dxbc_compiler_get_resource_index(struct vkd3d_dxbc_compile
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     unsigned int descriptor_table, descriptor_index;
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     vkd3d_descriptor_qa_flags type_flags;
     uint32_t descriptor_qa_args[3];
+#endif
     uint32_t index_id;
 
     descriptor_table = binding->descriptor_table;
@@ -8765,6 +8784,7 @@ static uint32_t vkd3d_dxbc_compiler_get_resource_index(struct vkd3d_dxbc_compile
             vkd3d_dxbc_compiler_load_descriptor_table_offset(compiler, descriptor_table),
             index_id);
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     /* Inject a check for descriptor type here. */
     if (compiler->descriptor_qa_check_func_id && binding->type != VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER)
     {
@@ -8810,6 +8830,7 @@ static uint32_t vkd3d_dxbc_compiler_get_resource_index(struct vkd3d_dxbc_compile
                 compiler->descriptor_qa_check_func_id,
                 descriptor_qa_args, ARRAY_SIZE(descriptor_qa_args));
     }
+#endif
 
     /* AMD drivers rely on the index being marked as nonuniform */
     if (reg->modifier == VKD3DSPRM_NONUNIFORM)

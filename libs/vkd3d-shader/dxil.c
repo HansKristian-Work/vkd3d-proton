@@ -635,6 +635,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         }
     }
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER)
     {
         struct dxil_spv_option_descriptor_qa helper;
@@ -654,6 +655,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
             goto end;
         }
     }
+#endif
 
     {
         const struct dxil_spv_option_bindless_offset_buffer_layout helper =
@@ -1053,6 +1055,7 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         }
     }
 
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER)
     {
         struct dxil_spv_option_descriptor_qa helper;
@@ -1072,6 +1075,7 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
             goto end;
         }
     }
+#endif
 
     {
         const struct dxil_spv_option_sbt_descriptor_size_log2 helper =
