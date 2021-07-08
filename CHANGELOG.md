@@ -1,5 +1,52 @@
 # Change Log
 
+## 2.4
+
+This is a release which focuses on performance and bug-fixes.
+
+### Performance
+
+- Improve swapchain latency and frame pacing by up to one frame.
+- Optimize lookup of format info.
+- Avoid potential pipeline compilation stutter in certain scenarios.
+- Rewrite how we handle image layouts for color and depth-stencil targets.
+  Allows us to remove a lot of dumb
+  barriers giving significant GPU-bound performance improvements.
+  ~15%-20% GPU bound uplift in Horizon Zero Dawn,
+  ~10% in Death Stranding,
+  and 5%-10% improvements in many other titles.
+
+### Features
+
+- Enable support for sparse 3D textures (tiled resources tier 3).
+
+### Bug fixes and workarounds
+
+- Various bug fixes in DXIL.
+- Fix weird bug where sun would pop through walls in RE: Village.
+- Workaround game bug in Cyberpunk 2077 where certain locales would render a black screen.
+- Fix various bugs (in benchmark and in vkd3d-proton) allowing GravityMark to run.
+- Improve robustness against certain app bugs related to NULL descriptors.
+- Fix bug with constant FP64 vector handling in DXBC.
+- Fix bug where Cyberpunk 2077 inventory screen could spuriously hang GPU on RADV.
+- Add workaround for Necromunda: Hired Gun where character models would render random garbage on RADV.
+- Fix bug in Necromunda: Hired Gun causing random screen flicker.
+- Fix windowed mode tracking when leaving fullscreen. Fix Alt-Tab handling in Horizon Zero Dawn.
+- Temporary workaround for SRV ResourceMinLODClamp. Fix black ground rendering in DIRT 5.
+  The overbright HDR rendering in DIRT 5 sadly persists however :(
+- Implement fallback maximum swapchain latency correctly.
+
+### Development features
+
+Various features which are useful for developers were added to aid debugging.
+
+- Descriptor QA can instrument shaders in runtime for GPU-assisted validation.
+  Performance is good enough (> 40 FPS) that games are actually playable in this mode.
+  See README for details.
+- Allow forcing off CONCURRENT queue, and using EXCLUSIVE queue.
+  Not valid, but can be useful as a speed hack on Polaris when `single_queue` is not an option
+  and for testing driver behavior differences.
+
 ## 2.3.1
 
 This is a minor bugfix release to address some issues solved shortly after the last release.
