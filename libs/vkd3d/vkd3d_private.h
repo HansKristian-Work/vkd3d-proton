@@ -2653,7 +2653,9 @@ struct d3d12_device
     struct vkd3d_view_map sampler_map;
     struct vkd3d_sampler_state sampler_state;
     struct vkd3d_shader_debug_ring debug_ring;
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     struct vkd3d_descriptor_qa_global_info *descriptor_qa_global_info;
+#endif
 };
 
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,
