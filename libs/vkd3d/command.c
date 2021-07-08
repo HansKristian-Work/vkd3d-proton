@@ -6438,7 +6438,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
 
 static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *list,
         struct d3d12_resource *dst_resource, struct d3d12_resource *src_resource,
-        const VkImageResolve *resolve, DXGI_FORMAT format)
+        const VkImageResolve *resolve, DXGI_FORMAT format, D3D12_RESOLVE_MODE mode)
 {
     const struct vkd3d_vk_device_procs *vk_procs;
     VkImageMemoryBarrier vk_image_barriers[2];
@@ -6447,6 +6447,12 @@ static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *li
     const struct d3d12_device *device;
     bool writes_full_subresource;
     unsigned int i;
+
+    if (mode != D3D12_RESOLVE_MODE_AVERAGE)
+    {
+        FIXME("Resolve mode %u is not yet supported.\n", mode);
+        return;
+    }
 
     device = list->device;
     vk_procs = &device->vk_procs;
@@ -6558,7 +6564,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
     vk_extent_3d_from_d3d12_miplevel(&vk_image_resolve.extent,
             &dst_resource->desc, vk_image_resolve.dstSubresource.mipLevel);
 
-    d3d12_command_list_resolve_subresource(list, dst_resource, src_resource, &vk_image_resolve, format);
+    d3d12_command_list_resolve_subresource(list, dst_resource, src_resource, &vk_image_resolve, format,
+            D3D12_RESOLVE_MODE_AVERAGE);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_IASetPrimitiveTopology(d3d12_command_list_iface *iface,
