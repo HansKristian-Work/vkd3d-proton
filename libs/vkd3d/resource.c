@@ -5822,6 +5822,9 @@ static uint32_t vkd3d_memory_info_find_global_mask(struct d3d12_device *device)
     uint32_t heap_index;
     uint32_t i, mask;
 
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_UPLOAD_HVV)
+        return UINT32_MAX;
+
     for (i = 0; i < device->memory_properties.memoryHeapCount; i++)
     {
         heap_size = device->memory_properties.memoryHeaps[i].size;
