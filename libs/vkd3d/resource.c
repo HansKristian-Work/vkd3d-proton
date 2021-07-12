@@ -5180,6 +5180,7 @@ static HRESULT d3d12_descriptor_heap_init_data_buffer(struct d3d12_descriptor_he
             device->device_info.properties2.properties.limits.nonCoherentAtomSize);
     VkDeviceSize raw_va_buffer_size = 0, offset_buffer_size = 0;
     VKD3D_UNUSED VkDeviceSize descriptor_heap_info_size = 0;
+    VkMemoryPropertyFlags property_flags;
     VkDeviceSize buffer_size, offset;
     D3D12_HEAP_PROPERTIES heap_info;
     D3D12_RESOURCE_DESC buffer_desc;
@@ -5231,9 +5232,12 @@ static HRESULT d3d12_descriptor_heap_init_data_buffer(struct d3d12_descriptor_he
         if (FAILED(hr = vkd3d_create_buffer(device, &heap_info, heap_flags, &buffer_desc, &descriptor_heap->vk_buffer)))
             return hr;
 
+        property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_UPLOAD_HVV)
+            property_flags |= VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+
         if (FAILED(hr = vkd3d_allocate_buffer_memory(device, descriptor_heap->vk_buffer,
-                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                &descriptor_heap->vk_memory)))
+                property_flags, &descriptor_heap->vk_memory)))
             return hr;
 
         if ((vr = VK_CALL(vkMapMemory(device->vk_device, descriptor_heap->vk_memory,
