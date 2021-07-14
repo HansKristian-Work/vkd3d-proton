@@ -151,10 +151,10 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
         VkDeviceSize size, VkMemoryPropertyFlags type_flags, uint32_t type_mask,
         void *pNext, VkDeviceMemory *vk_memory, uint32_t *vk_memory_type)
 {
+    const VkMemoryPropertyFlags optional_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     const VkPhysicalDeviceMemoryProperties *memory_info = &device->memory_properties;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkMemoryAllocateInfo allocate_info;
-    VkResult vr;
 
     /* buffer_mask / sampled_mask etc will generally take care of this,
      * but for certain fallback scenarios where we select other memory
@@ -174,13 +174,20 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
 
         allocate_info.memoryTypeIndex = type_index;
 
-        if ((vr = VK_CALL(vkAllocateMemory(device->vk_device,
-                &allocate_info, NULL, vk_memory))) == VK_SUCCESS)
+        if (VK_CALL(vkAllocateMemory(device->vk_device, &allocate_info, NULL, vk_memory)) == VK_SUCCESS)
         {
             if (vk_memory_type)
                 *vk_memory_type = type_index;
-
             return S_OK;
+        }
+        else if (type_flags & optional_flags)
+        {
+            /* If we fail to allocate DEVICE_LOCAL memory, immediately fail the call.
+             * This way we avoid any attempt to fall back to PCI-e BAR memory types
+             * which are also DEVICE_LOCAL.
+             * After failure, the calling code removes the DEVICE_LOCAL_BIT flag and tries again,
+             * where we will fall back to system memory instead. */
+            return E_OUTOFMEMORY;
         }
     }
 
