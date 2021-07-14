@@ -5971,6 +5971,12 @@ static uint32_t vkd3d_memory_info_find_global_mask(struct d3d12_device *device)
     return ~mask;
 }
 
+void vkd3d_memory_info_cleanup(struct vkd3d_memory_info *info,
+        struct d3d12_device *device)
+{
+    pthread_mutex_destroy(&info->budget_lock);
+}
+
 HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
         struct d3d12_device *device)
 {
@@ -5990,6 +5996,9 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     uint32_t i;
 
     info->global_mask = vkd3d_memory_info_find_global_mask(device);
+
+    if (pthread_mutex_init(&info->budget_lock, NULL) != 0)
+        return E_OUTOFMEMORY;
 
     memset(&buffer_info, 0, sizeof(buffer_info));
     buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;

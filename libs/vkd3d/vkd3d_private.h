@@ -2226,6 +2226,11 @@ struct vkd3d_memory_info_domain
     uint32_t buffer_type_mask;
     uint32_t sampled_type_mask;
     uint32_t rt_ds_type_mask;
+
+    uint32_t budget_sensitive_mask;
+    VkDeviceSize type_budget[VK_MAX_MEMORY_TYPES];
+    VkDeviceSize type_current[VK_MAX_MEMORY_TYPES];
+    pthread_mutex_t budget_lock;
 };
 
 struct vkd3d_memory_info
@@ -2244,6 +2249,8 @@ struct vkd3d_memory_info
 };
 
 HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
+        struct d3d12_device *device);
+void vkd3d_memory_info_cleanup(struct vkd3d_memory_info *info,
         struct d3d12_device *device);
 
 /* meta operations */
