@@ -35,7 +35,7 @@ struct vkd3d_descriptor_qa_global_info
     struct vkd3d_descriptor_qa_global_buffer_data *data;
     VkDescriptorBufferInfo descriptor;
     VkBuffer vk_buffer;
-    VkDeviceMemory vk_memory;
+    struct vkd3d_device_memory_allocation device_allocation;
     unsigned int num_cookies;
 
     pthread_t ring_thread;
@@ -232,13 +232,13 @@ HRESULT vkd3d_descriptor_debug_alloc_global_info(
 
     if (FAILED(hr = vkd3d_allocate_buffer_memory(device, global_info->vk_buffer,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            &global_info->vk_memory)))
+            &global_info->device_allocation)))
     {
         vkd3d_descriptor_debug_free_global_info(global_info, device);
         return hr;
     }
 
-    if ((vr = VK_CALL(vkMapMemory(device->vk_device, global_info->vk_memory,
+    if ((vr = VK_CALL(vkMapMemory(device->vk_device, global_info->device_allocation.vk_memory,
             0, VK_WHOLE_SIZE, 0, (void**)&global_info->data))))
     {
         ERR("Failed to map buffer, vr %d.\n", vr);
@@ -289,7 +289,7 @@ void vkd3d_descriptor_debug_free_global_info(
         pthread_cond_destroy(&global_info->ring_cond);
     }
 
-    VK_CALL(vkFreeMemory(device->vk_device, global_info->vk_memory, NULL));
+    vkd3d_free_device_memory(device, &global_info->device_allocation);
     VK_CALL(vkDestroyBuffer(device->vk_device, global_info->vk_buffer, NULL));
     vkd3d_free(global_info);
 }

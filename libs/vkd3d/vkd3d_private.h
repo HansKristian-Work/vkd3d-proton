@@ -634,16 +634,22 @@ struct vkd3d_unique_resource
     struct vkd3d_view_map *view_map;
 };
 
+struct vkd3d_device_memory_allocation
+{
+    VkDeviceMemory vk_memory;
+    uint32_t vk_memory_type;
+    VkDeviceSize size;
+};
+
 struct vkd3d_memory_allocation
 {
     struct vkd3d_unique_resource resource;
-    VkDeviceMemory vk_memory;
+    struct vkd3d_device_memory_allocation device_allocation;
     VkDeviceSize offset;
     void *cpu_address;
 
     D3D12_HEAP_TYPE heap_type;
     D3D12_HEAP_FLAGS heap_flags;
-    uint32_t vk_memory_type;
     uint32_t flags;
 
     uint64_t clear_semaphore_value;
@@ -787,7 +793,7 @@ struct d3d12_sparse_info
     D3D12_TILE_SHAPE tile_shape;
     D3D12_PACKED_MIP_INFO packed_mips;
     D3D12_SUBRESOURCE_TILING *tilings;
-    VkDeviceMemory vk_metadata_memory;
+    struct vkd3d_device_memory_allocation vk_metadata_memory;
 };
 
 struct vkd3d_view_map
@@ -885,11 +891,15 @@ struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface);
 
 HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
         VkDeviceSize size, VkMemoryPropertyFlags type_flags, uint32_t type_mask,
-        void *pNext, VkDeviceMemory *vk_memory, uint32_t *vk_memory_type);
+        void *pNext, struct vkd3d_device_memory_allocation *allocation);
+void vkd3d_free_device_memory(struct d3d12_device *device,
+        const struct vkd3d_device_memory_allocation *allocation);
 HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer,
-        VkMemoryPropertyFlags type_flags, VkDeviceMemory *vk_memory);
+        VkMemoryPropertyFlags type_flags,
+        struct vkd3d_device_memory_allocation *allocation);
 HRESULT vkd3d_allocate_image_memory(struct d3d12_device *device, VkImage vk_image,
-        VkMemoryPropertyFlags type_flags, VkDeviceMemory *vk_memory);
+        VkMemoryPropertyFlags type_flags,
+        struct vkd3d_device_memory_allocation *allocation);
 HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, VkBuffer *vk_buffer);
@@ -1108,7 +1118,7 @@ struct d3d12_descriptor_heap
     VkDescriptorPool vk_descriptor_pool;
     VkDescriptorSet vk_descriptor_sets[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
 
-    VkDeviceMemory vk_memory;
+    struct vkd3d_device_memory_allocation device_allocation;
     VkBuffer vk_buffer;
     void *host_memory;
 
@@ -1151,7 +1161,7 @@ struct d3d12_query_heap
 
     D3D12_QUERY_HEAP_DESC desc;
     VkQueryPool vk_query_pool;
-    VkDeviceMemory vk_memory;
+    struct vkd3d_device_memory_allocation device_allocation;
     VkBuffer vk_buffer;
     uint32_t initialized;
 
@@ -2096,8 +2106,8 @@ struct vkd3d_shader_debug_ring
     VkBuffer host_buffer;
     VkBuffer device_atomic_buffer;
 
-    VkDeviceMemory host_buffer_memory;
-    VkDeviceMemory device_atomic_buffer_memory;
+    struct vkd3d_device_memory_allocation host_buffer_memory;
+    struct vkd3d_device_memory_allocation device_atomic_buffer_memory;
 
     void *mapped;
     VkDeviceAddress ring_device_address;

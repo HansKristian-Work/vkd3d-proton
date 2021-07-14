@@ -149,9 +149,15 @@ static HRESULT vkd3d_create_global_buffer(struct d3d12_device *device, VkDeviceS
     return vkd3d_create_buffer(device, heap_properties, heap_flags, &resource_desc, vk_buffer);
 }
 
+void vkd3d_free_device_memory(struct d3d12_device *device, const struct vkd3d_device_memory_allocation *allocation)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VK_CALL(vkFreeMemory(device->vk_device, allocation->vk_memory, NULL));
+}
+
 static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
         VkDeviceSize size, VkMemoryPropertyFlags type_flags, uint32_t type_mask,
-        void *pNext, VkDeviceMemory *vk_memory, uint32_t *vk_memory_type)
+        void *pNext, struct vkd3d_device_memory_allocation *allocation)
 {
     const VkMemoryPropertyFlags optional_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     const VkPhysicalDeviceMemoryProperties *memory_info = &device->memory_properties;
@@ -176,10 +182,10 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
 
         allocate_info.memoryTypeIndex = type_index;
 
-        if (VK_CALL(vkAllocateMemory(device->vk_device, &allocate_info, NULL, vk_memory)) == VK_SUCCESS)
+        if (VK_CALL(vkAllocateMemory(device->vk_device, &allocate_info, NULL, &allocation->vk_memory)) == VK_SUCCESS)
         {
-            if (vk_memory_type)
-                *vk_memory_type = type_index;
+            allocation->vk_memory_type = type_index;
+            allocation->size = size;
             return S_OK;
         }
         else if (type_flags & optional_flags)
@@ -198,20 +204,19 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
 
 HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
         VkDeviceSize size, VkMemoryPropertyFlags type_flags, uint32_t type_mask,
-        void *pNext, VkDeviceMemory *vk_memory, uint32_t *vk_memory_type)
+        void *pNext, struct vkd3d_device_memory_allocation *allocation)
 {
     const VkMemoryPropertyFlags optional_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     HRESULT hr;
 
     hr = vkd3d_try_allocate_device_memory(device, size, type_flags,
-            type_mask, pNext, vk_memory, vk_memory_type);
+            type_mask, pNext, allocation);
 
     if (FAILED(hr) && (type_flags & optional_flags))
     {
         WARN("Memory allocation failed, falling back to system memory.\n");
         hr = vkd3d_try_allocate_device_memory(device, size,
-                type_flags & ~optional_flags, type_mask, pNext,
-                vk_memory, vk_memory_type);
+                type_flags & ~optional_flags, type_mask, pNext, allocation);
     }
 
     if (FAILED(hr))
@@ -225,7 +230,7 @@ HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
 
 static HRESULT vkd3d_import_host_memory(struct d3d12_device *device, void *host_address,
         VkDeviceSize size, VkMemoryPropertyFlags type_flags, uint32_t type_mask,
-        void *pNext, VkDeviceMemory *vk_memory, uint32_t *vk_memory_type)
+        void *pNext, struct vkd3d_device_memory_allocation *allocation)
 {
     VkImportMemoryHostPointerInfoEXT import_info;
     HRESULT hr;
@@ -236,7 +241,7 @@ static HRESULT vkd3d_import_host_memory(struct d3d12_device *device, void *host_
     import_info.pHostPointer = host_address;
 
     if (FAILED(hr = vkd3d_try_allocate_device_memory(device, size,
-            type_flags, type_mask, &import_info, vk_memory, vk_memory_type)))
+            type_flags, type_mask, &import_info, allocation)))
     {
         WARN("Failed to import host memory, hr %#x.\n", hr);
         /* If we failed, fall back to a host-visible allocation. Generally
@@ -244,7 +249,7 @@ static HRESULT vkd3d_import_host_memory(struct d3d12_device *device, void *host_
          * so it's fine. */
         hr = vkd3d_try_allocate_device_memory(device, size,
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                type_mask, &import_info, vk_memory, vk_memory_type);
+                type_mask, &import_info, allocation);
     }
 
     return hr;
@@ -362,7 +367,7 @@ static void vkd3d_memory_allocation_free(const struct vkd3d_memory_allocation *a
     if (allocation->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER)
         VK_CALL(vkDestroyBuffer(device->vk_device, allocation->resource.vk_buffer, NULL));
 
-    VK_CALL(vkFreeMemory(device->vk_device, allocation->vk_memory, NULL));
+    vkd3d_free_device_memory(device, &allocation->device_allocation);
 }
 
 static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allocation, struct d3d12_device *device,
@@ -440,12 +445,12 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     if (host_ptr)
     {
         hr = vkd3d_import_host_memory(device, host_ptr, memory_requirements.size,
-                type_flags, type_mask, &flags_info, &allocation->vk_memory, &allocation->vk_memory_type);
+                type_flags, type_mask, &flags_info, &allocation->device_allocation);
     }
     else
     {
         hr = vkd3d_allocate_device_memory(device, memory_requirements.size, type_flags,
-                type_mask, &flags_info, &allocation->vk_memory, &allocation->vk_memory_type);
+                type_mask, &flags_info, &allocation->device_allocation);
     }
 
     if (FAILED(hr))
@@ -465,7 +470,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     {
         allocation->flags |= VKD3D_ALLOCATION_FLAG_CPU_ACCESS;
 
-        if ((vr = VK_CALL(vkMapMemory(device->vk_device, allocation->vk_memory,
+        if ((vr = VK_CALL(vkMapMemory(device->vk_device, allocation->device_allocation.vk_memory,
                 0, VK_WHOLE_SIZE, 0, &allocation->cpu_address))))
         {
             ERR("Failed to map memory, vr %d.\n", vr);
@@ -478,7 +483,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     if (allocation->resource.vk_buffer)
     {
         if ((vr = VK_CALL(vkBindBufferMemory(device->vk_device,
-                allocation->resource.vk_buffer, allocation->vk_memory, 0))) < 0)
+                allocation->resource.vk_buffer, allocation->device_allocation.vk_memory, 0))) < 0)
         {
             ERR("Failed to bind buffer memory, vr %d.\n", vr);
             vkd3d_memory_allocation_free(allocation, device, allocator);
@@ -501,7 +506,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
             allocation->resource.cookie, info);
 
     TRACE("Created allocation %p on memory type %u (%"PRIu64" bytes).\n",
-            allocation, allocation->vk_memory_type, allocation->resource.size);
+            allocation, allocation->device_allocation.vk_memory_type, allocation->resource.size);
     return S_OK;
 }
 
@@ -1179,7 +1184,7 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
             continue;
 
         /* Filter out unsupported memory types */
-        if (!(type_mask & (1u << chunk->allocation.vk_memory_type)))
+        if (!(type_mask & (1u << chunk->allocation.device_allocation.vk_memory_type)))
             continue;
 
         if (SUCCEEDED(hr = vkd3d_memory_chunk_allocate_range(chunk, memory_requirements, allocation)))
@@ -1287,7 +1292,8 @@ HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_mem
 }
 
 HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer,
-        VkMemoryPropertyFlags type_flags, VkDeviceMemory *vk_memory)
+        VkMemoryPropertyFlags type_flags,
+        struct vkd3d_device_memory_allocation *allocation)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkMemoryRequirements memory_requirements;
@@ -1305,17 +1311,18 @@ HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_bu
     VK_CALL(vkGetBufferMemoryRequirements(device->vk_device, vk_buffer, &memory_requirements));
 
     if (FAILED(hr = vkd3d_allocate_device_memory(device, memory_requirements.size,
-            type_flags, memory_requirements.memoryTypeBits, &flags_info, vk_memory, NULL)))
+            type_flags, memory_requirements.memoryTypeBits, &flags_info, allocation)))
         return hr;
 
-    if (FAILED(vr = VK_CALL(vkBindBufferMemory(device->vk_device, vk_buffer, *vk_memory, 0))))
+    if (FAILED(vr = VK_CALL(vkBindBufferMemory(device->vk_device, vk_buffer, allocation->vk_memory, 0))))
         return hresult_from_vk_result(vr);
 
     return hr;
 }
 
 HRESULT vkd3d_allocate_image_memory(struct d3d12_device *device, VkImage vk_image,
-        VkMemoryPropertyFlags type_flags, VkDeviceMemory *vk_memory)
+        VkMemoryPropertyFlags type_flags,
+        struct vkd3d_device_memory_allocation *allocation)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkMemoryRequirements memory_requirements;
@@ -1325,10 +1332,10 @@ HRESULT vkd3d_allocate_image_memory(struct d3d12_device *device, VkImage vk_imag
     VK_CALL(vkGetImageMemoryRequirements(device->vk_device, vk_image, &memory_requirements));
 
     if (FAILED(hr = vkd3d_allocate_device_memory(device, memory_requirements.size,
-            type_flags, memory_requirements.memoryTypeBits, NULL, vk_memory, NULL)))
+            type_flags, memory_requirements.memoryTypeBits, NULL, allocation)))
         return hr;
 
-    if (FAILED(vr = VK_CALL(vkBindImageMemory(device->vk_device, vk_image, *vk_memory, 0))))
+    if (FAILED(vr = VK_CALL(vkBindImageMemory(device->vk_device, vk_image, allocation->vk_memory, 0))))
         return hresult_from_vk_result(vr);
 
     return hr;

@@ -10105,7 +10105,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12Comma
             }
             else
             {
-                bind->vk_memory = memory_heap->allocation.vk_memory;
+                bind->vk_memory = memory_heap->allocation.device_allocation.vk_memory;
                 bind->vk_offset = memory_heap->allocation.offset + VKD3D_TILE_SIZE * range_offset;
 
                 if (range_flag != D3D12_TILE_RANGE_FLAG_REUSE_SINGLE_TILE)

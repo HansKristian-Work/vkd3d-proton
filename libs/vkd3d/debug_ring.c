@@ -234,7 +234,7 @@ HRESULT vkd3d_shader_debug_ring_init(struct vkd3d_shader_debug_ring *ring,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &ring->device_atomic_buffer_memory)))
         goto err_free_buffers;
 
-    if (VK_CALL(vkMapMemory(device->vk_device, ring->host_buffer_memory, 0, VK_WHOLE_SIZE, 0, &ring->mapped)) != VK_SUCCESS)
+    if (VK_CALL(vkMapMemory(device->vk_device, ring->host_buffer_memory.vk_memory, 0, VK_WHOLE_SIZE, 0, &ring->mapped)) != VK_SUCCESS)
         goto err_free_buffers;
 
     ring->atomic_device_address = vkd3d_get_buffer_device_address(device, ring->device_atomic_buffer);
@@ -259,8 +259,8 @@ err_destroy_cond:
 err_free_buffers:
     VK_CALL(vkDestroyBuffer(device->vk_device, ring->host_buffer, NULL));
     VK_CALL(vkDestroyBuffer(device->vk_device, ring->device_atomic_buffer, NULL));
-    VK_CALL(vkFreeMemory(device->vk_device, ring->host_buffer_memory, NULL));
-    VK_CALL(vkFreeMemory(device->vk_device, ring->device_atomic_buffer_memory, NULL));
+    vkd3d_free_device_memory(device, &ring->host_buffer_memory);
+    vkd3d_free_device_memory(device, &ring->device_atomic_buffer_memory);
     memset(ring, 0, sizeof(*ring));
     return E_OUTOFMEMORY;
 }
@@ -282,8 +282,8 @@ void vkd3d_shader_debug_ring_cleanup(struct vkd3d_shader_debug_ring *ring,
 
     VK_CALL(vkDestroyBuffer(device->vk_device, ring->host_buffer, NULL));
     VK_CALL(vkDestroyBuffer(device->vk_device, ring->device_atomic_buffer, NULL));
-    VK_CALL(vkFreeMemory(device->vk_device, ring->host_buffer_memory, NULL));
-    VK_CALL(vkFreeMemory(device->vk_device, ring->device_atomic_buffer_memory, NULL));
+    vkd3d_free_device_memory(device, &ring->host_buffer_memory);
+    vkd3d_free_device_memory(device, &ring->device_atomic_buffer_memory);
 }
 
 void vkd3d_shader_debug_ring_end_command_buffer(struct d3d12_command_list *list)
