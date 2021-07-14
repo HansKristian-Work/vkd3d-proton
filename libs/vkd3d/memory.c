@@ -152,17 +152,34 @@ static HRESULT vkd3d_create_global_buffer(struct d3d12_device *device, VkDeviceS
 void vkd3d_free_device_memory(struct d3d12_device *device, const struct vkd3d_device_memory_allocation *allocation)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkDeviceSize *type_current;
+    bool budget_sensitive;
+
     VK_CALL(vkFreeMemory(device->vk_device, allocation->vk_memory, NULL));
+    budget_sensitive = !!(device->memory_info.budget_sensitive_mask & (1u << allocation->vk_memory_type));
+    if (budget_sensitive)
+    {
+        type_current = &device->memory_info.type_current[allocation->vk_memory_type];
+        pthread_mutex_lock(&device->memory_info.budget_lock);
+        assert(*type_current >= allocation->size);
+        *type_current -= allocation->size;
+        pthread_mutex_unlock(&device->memory_info.budget_lock);
+    }
 }
 
 static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
         VkDeviceSize size, VkMemoryPropertyFlags type_flags, uint32_t type_mask,
         void *pNext, struct vkd3d_device_memory_allocation *allocation)
 {
+    const VkPhysicalDeviceMemoryProperties *memory_props = &device->memory_properties;
     const VkMemoryPropertyFlags optional_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-    const VkPhysicalDeviceMemoryProperties *memory_info = &device->memory_properties;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_memory_info *memory_info = &device->memory_info;
     VkMemoryAllocateInfo allocate_info;
+    VkDeviceSize *type_current;
+    VkDeviceSize *type_budget;
+    bool budget_sensitive;
+    VkResult vr;
 
     /* buffer_mask / sampled_mask etc will generally take care of this,
      * but for certain fallback scenarios where we select other memory
@@ -177,12 +194,36 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
     {
         uint32_t type_index = vkd3d_bitmask_iter32(&type_mask);
 
-        if ((memory_info->memoryTypes[type_index].propertyFlags & type_flags) != type_flags)
+        if ((memory_props->memoryTypes[type_index].propertyFlags & type_flags) != type_flags)
             continue;
 
         allocate_info.memoryTypeIndex = type_index;
 
-        if (VK_CALL(vkAllocateMemory(device->vk_device, &allocate_info, NULL, &allocation->vk_memory)) == VK_SUCCESS)
+        budget_sensitive = !!(device->memory_info.budget_sensitive_mask & (1u << type_index));
+        if (budget_sensitive)
+        {
+            type_budget = &memory_info->type_budget[type_index];
+            type_current = &memory_info->type_current[type_index];
+            pthread_mutex_lock(&memory_info->budget_lock);
+            if (*type_current + size > *type_budget)
+            {
+                WARN("Attempting to allocate from memory type %u, but exceeding fixed budget: %"PRIu64" + %"PRIu64" > %"PRIu64".\n",
+                        type_index, *type_current, size, *type_budget);
+                pthread_mutex_unlock(&memory_info->budget_lock);
+                continue;
+            }
+        }
+
+        vr = VK_CALL(vkAllocateMemory(device->vk_device, &allocate_info, NULL, &allocation->vk_memory));
+
+        if (budget_sensitive)
+        {
+            if (vr == VK_SUCCESS)
+                *type_current += size;
+            pthread_mutex_unlock(&memory_info->budget_lock);
+        }
+
+        if (vr == VK_SUCCESS)
         {
             allocation->vk_memory_type = type_index;
             allocation->size = size;

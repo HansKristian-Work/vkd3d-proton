@@ -2478,6 +2478,7 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     vkd3d_private_store_destroy(&device->private_store);
 
     vkd3d_cleanup_format_info(device);
+    vkd3d_memory_info_cleanup(&device->memory_info, device);
     vkd3d_shader_debug_ring_cleanup(&device->debug_ring, device);
     vkd3d_sampler_state_cleanup(&device->sampler_state, device);
     vkd3d_view_map_destroy(&device->sampler_map, device);
@@ -5168,7 +5169,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
         goto out_cleanup_format_info;
 
     if (FAILED(hr = vkd3d_bindless_state_init(&device->bindless_state, device)))
-        goto out_cleanup_format_info;
+        goto out_cleanup_memory_info;
 
     if (FAILED(hr = vkd3d_view_map_init(&device->sampler_map)))
         goto out_cleanup_bindless_state;
@@ -5207,6 +5208,8 @@ out_cleanup_view_map:
     vkd3d_view_map_destroy(&device->sampler_map, device);
 out_cleanup_bindless_state:
     vkd3d_bindless_state_cleanup(&device->bindless_state, device);
+out_cleanup_memory_info:
+    vkd3d_memory_info_cleanup(&device->memory_info, device);
 out_cleanup_format_info:
     vkd3d_cleanup_format_info(device);
 out_free_memory_allocator:
