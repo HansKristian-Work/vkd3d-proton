@@ -1401,12 +1401,12 @@ static bool d3d12_resource_get_mapped_memory_range(struct d3d12_resource *resour
     if (range && range->End <= range->Begin)
         return false;
 
-    if (device->memory_properties.memoryTypes[resource->mem.vk_memory_type].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+    if (device->memory_properties.memoryTypes[resource->mem.device_allocation.vk_memory_type].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
         return false;
 
     vk_mapped_range->sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
     vk_mapped_range->pNext = NULL;
-    vk_mapped_range->memory = resource->mem.vk_memory;
+    vk_mapped_range->memory = resource->mem.device_allocation.vk_memory;
 
     if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
     {
@@ -2151,7 +2151,7 @@ static HRESULT d3d12_resource_bind_sparse_metadata(struct d3d12_resource *resour
     VK_CALL(vkGetImageMemoryRequirements(device->vk_device, resource->res.vk_image, &memory_requirements));
 
     if ((vr = vkd3d_allocate_device_memory(device, metadata_size, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            memory_requirements.memoryTypeBits, NULL, &sparse->vk_metadata_memory, NULL)))
+            memory_requirements.memoryTypeBits, NULL, &sparse->vk_metadata_memory)))
     {
         ERR("Failed to allocate device memory for sparse metadata, vr %d.\n", vr);
         hr = hresult_from_vk_result(vr);
@@ -2184,7 +2184,7 @@ static HRESULT d3d12_resource_bind_sparse_metadata(struct d3d12_resource *resour
                 VkSparseMemoryBind *bind = &memory_binds[j++];
                 bind->resourceOffset = req->imageMipTailOffset + req->imageMipTailStride * k;
                 bind->size = req->imageMipTailSize;
-                bind->memory = sparse->vk_metadata_memory;
+                bind->memory = sparse->vk_metadata_memory.vk_memory;
                 bind->memoryOffset = metadata_size;
                 bind->flags = VK_SPARSE_MEMORY_BIND_METADATA_BIT;
 
@@ -2361,8 +2361,7 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
 
     if (resource->flags & VKD3D_RESOURCE_RESERVED)
     {
-        VK_CALL(vkFreeMemory(device->vk_device, resource->sparse.vk_metadata_memory, NULL));
-
+        vkd3d_free_device_memory(device, &resource->sparse.vk_metadata_memory);
         vkd3d_free(resource->sparse.tiles);
         vkd3d_free(resource->sparse.tilings);
 
@@ -2380,7 +2379,7 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
     else if (resource->flags & VKD3D_RESOURCE_RESERVED)
         VK_CALL(vkDestroyBuffer(device->vk_device, resource->res.vk_buffer, NULL));
 
-    if ((resource->flags & VKD3D_RESOURCE_ALLOCATION) && resource->mem.vk_memory)
+    if ((resource->flags & VKD3D_RESOURCE_ALLOCATION) && resource->mem.device_allocation.vk_memory)
         vkd3d_free_memory(device, &device->memory_allocator, &resource->mem);
 
     if (resource->vrs_view)
@@ -2554,7 +2553,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
             goto fail;
 
         if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, object->res.vk_image,
-                object->mem.vk_memory, object->mem.offset))))
+                object->mem.device_allocation.vk_memory, object->mem.offset))))
         {
             ERR("Failed to bind image memory, vr %d.\n", vr);
             hr = hresult_from_vk_result(vr);
@@ -2673,7 +2672,7 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
     if (d3d12_resource_is_texture(object))
     {
         if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, object->res.vk_image,
-                object->mem.vk_memory, object->mem.offset)) < 0))
+                object->mem.device_allocation.vk_memory, object->mem.offset)) < 0))
         {
             ERR("Failed to bind image memory, vr %d.\n", vr);
             hr = hresult_from_vk_result(vr);
@@ -5300,10 +5299,10 @@ static HRESULT d3d12_descriptor_heap_init_data_buffer(struct d3d12_descriptor_he
             property_flags |= VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
         if (FAILED(hr = vkd3d_allocate_buffer_memory(device, descriptor_heap->vk_buffer,
-                property_flags, &descriptor_heap->vk_memory)))
+                property_flags, &descriptor_heap->device_allocation)))
             return hr;
 
-        if ((vr = VK_CALL(vkMapMemory(device->vk_device, descriptor_heap->vk_memory,
+        if ((vr = VK_CALL(vkMapMemory(device->vk_device, descriptor_heap->device_allocation.vk_memory,
                 0, VK_WHOLE_SIZE, 0, &descriptor_heap->host_memory))))
         {
             ERR("Failed to map buffer, vr %d.\n", vr);
@@ -5312,7 +5311,7 @@ static HRESULT d3d12_descriptor_heap_init_data_buffer(struct d3d12_descriptor_he
     }
     else
     {
-        descriptor_heap->vk_memory = VK_NULL_HANDLE;
+        memset(&descriptor_heap->device_allocation, 0, sizeof(descriptor_heap->device_allocation));
         descriptor_heap->vk_buffer = VK_NULL_HANDLE;
         descriptor_heap->host_memory = vkd3d_calloc(1, buffer_size);
     }
@@ -5589,14 +5588,14 @@ void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap
     const struct vkd3d_vk_device_procs *vk_procs = &descriptor_heap->device->vk_procs;
     struct d3d12_device *device = descriptor_heap->device;
 
-    if (!descriptor_heap->vk_memory)
+    if (!descriptor_heap->device_allocation.vk_memory)
         vkd3d_free(descriptor_heap->host_memory);
 
     if (descriptor_heap->gpu_va != 0)
         d3d12_device_return_descriptor_heap_gpu_va(device, descriptor_heap->gpu_va);
 
     VK_CALL(vkDestroyBuffer(device->vk_device, descriptor_heap->vk_buffer, NULL));
-    VK_CALL(vkFreeMemory(device->vk_device, descriptor_heap->vk_memory, NULL));
+    vkd3d_free_device_memory(device, &descriptor_heap->device_allocation);
 
     VK_CALL(vkDestroyDescriptorPool(device->vk_device, descriptor_heap->vk_descriptor_pool, NULL));
 
@@ -5671,7 +5670,7 @@ static ULONG STDMETHODCALLTYPE d3d12_query_heap_Release(ID3D12QueryHeap *iface)
 
         VK_CALL(vkDestroyQueryPool(device->vk_device, heap->vk_query_pool, NULL));
         VK_CALL(vkDestroyBuffer(device->vk_device, heap->vk_buffer, NULL));
-        VK_CALL(vkFreeMemory(device->vk_device, heap->vk_memory, NULL));
+        vkd3d_free_device_memory(device, &heap->device_allocation);
 
         vkd3d_free(heap);
 
@@ -5850,7 +5849,7 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
         }
 
         if (FAILED(hr = vkd3d_allocate_buffer_memory(device, object->vk_buffer,
-                VK_MEMORY_HEAP_DEVICE_LOCAL_BIT, &object->vk_memory)))
+                VK_MEMORY_HEAP_DEVICE_LOCAL_BIT, &object->device_allocation)))
         {
             VK_CALL(vkDestroyBuffer(device->vk_device, object->vk_buffer, NULL));
             vkd3d_free(object);

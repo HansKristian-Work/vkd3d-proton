@@ -73,7 +73,7 @@ static void d3d12_heap_destroy(struct d3d12_heap *heap)
 static void d3d12_heap_set_name(struct d3d12_heap *heap, const char *name)
 {
     if (!heap->allocation.chunk)
-        vkd3d_set_vk_object_name(heap->device, (uint64_t)heap->allocation.vk_memory,
+        vkd3d_set_vk_object_name(heap->device, (uint64_t)heap->allocation.device_allocation.vk_memory,
                 VK_OBJECT_TYPE_DEVICE_MEMORY, name);
 }
 
