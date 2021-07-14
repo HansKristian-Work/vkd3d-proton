@@ -210,7 +210,12 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
                 WARN("Attempting to allocate from memory type %u, but exceeding fixed budget: %"PRIu64" + %"PRIu64" > %"PRIu64".\n",
                         type_index, *type_current, size, *type_budget);
                 pthread_mutex_unlock(&memory_info->budget_lock);
-                continue;
+
+                /* If we're out of DEVICE budget, don't try other types. */
+                if (type_flags & optional_flags)
+                    return E_OUTOFMEMORY;
+                else
+                    continue;
             }
         }
 
