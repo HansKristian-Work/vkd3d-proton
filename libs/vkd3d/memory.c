@@ -163,6 +163,11 @@ void vkd3d_free_device_memory(struct d3d12_device *device, const struct vkd3d_de
         pthread_mutex_lock(&device->memory_info.budget_lock);
         assert(*type_current >= allocation->size);
         *type_current -= allocation->size;
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
+        {
+            INFO("Freeing memory of type %u, new total allocated size %"PRIu64" MiB.\n",
+                    allocation->vk_memory_type, *type_current / (1024 * 1024));
+        }
         pthread_mutex_unlock(&device->memory_info.budget_lock);
     }
 }
@@ -207,8 +212,11 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
             pthread_mutex_lock(&memory_info->budget_lock);
             if (*type_current + size > *type_budget)
             {
-                WARN("Attempting to allocate from memory type %u, but exceeding fixed budget: %"PRIu64" + %"PRIu64" > %"PRIu64".\n",
-                        type_index, *type_current, size, *type_budget);
+                if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
+                {
+                    INFO("Attempting to allocate from memory type %u, but exceeding fixed budget: %"PRIu64" + %"PRIu64" > %"PRIu64".\n",
+                            type_index, *type_current, size, *type_budget);
+                }
                 pthread_mutex_unlock(&memory_info->budget_lock);
 
                 /* If we're out of DEVICE budget, don't try other types. */
@@ -224,7 +232,14 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
         if (budget_sensitive)
         {
             if (vr == VK_SUCCESS)
+            {
                 *type_current += size;
+                if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
+                {
+                    INFO("Allocated memory of type %u, new total allocated size %"PRIu64" MiB.\n",
+                            type_index, *type_current / (1024 * 1024));
+                }
+            }
             pthread_mutex_unlock(&memory_info->budget_lock);
         }
 
