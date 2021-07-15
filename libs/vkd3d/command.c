@@ -566,6 +566,7 @@ static void d3d12_fence_dec_ref(struct d3d12_fence *fence)
 static void d3d12_fence_signal_external_events_locked(struct d3d12_fence *fence)
 {
     unsigned int i, j;
+    HRESULT hr;
 
     for (i = 0, j = 0; i < fence->event_count; ++i)
     {
@@ -573,7 +574,8 @@ static void d3d12_fence_signal_external_events_locked(struct d3d12_fence *fence)
 
         if (current->value <= fence->virtual_value)
         {
-            fence->device->signal_event(current->event);
+            if (FAILED(hr = fence->device->signal_event(current->event)))
+                ERR("Failed to signal event, hr #%x.\n", hr);
         }
         else
         {
@@ -859,6 +861,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_SetEventOnCompletion(d3d12_fence_if
 {
     struct d3d12_fence *fence = impl_from_ID3D12Fence(iface);
     unsigned int i;
+    HRESULT hr;
     int rc;
 
     TRACE("iface %p, value %#"PRIx64", event %p.\n", iface, value, event);
@@ -871,7 +874,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_SetEventOnCompletion(d3d12_fence_if
 
     if (value <= fence->virtual_value)
     {
-        fence->device->signal_event(event);
+        if (FAILED(hr = fence->device->signal_event(event)))
+        {
+            ERR("Failed to signal event, hr #%x.\n", hr);
+            pthread_mutex_unlock(&fence->mutex);
+            return hr;
+        }
+
         pthread_mutex_unlock(&fence->mutex);
         return S_OK;
     }
