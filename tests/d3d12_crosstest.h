@@ -230,6 +230,15 @@ static HRESULT wait_for_fence(ID3D12Fence *fence, uint64_t value)
     return ret == WAIT_OBJECT_0 ? S_OK : E_FAIL;
 }
 
+static HRESULT wait_for_fence_no_event(ID3D12Fence *fence, uint64_t value)
+{
+    if (ID3D12Fence_GetCompletedValue(fence) >= value)
+        return S_OK;
+
+    /* This is defined to block on the value with infinite timeout. */
+    return ID3D12Fence_SetEventOnCompletion(fence, value, NULL);
+}
+
 static void wait_queue_idle_(unsigned int line, ID3D12Device *device, ID3D12CommandQueue *queue)
 {
     ID3D12Fence *fence;
@@ -242,6 +251,23 @@ static void wait_queue_idle_(unsigned int line, ID3D12Device *device, ID3D12Comm
     hr = ID3D12CommandQueue_Signal(queue, fence, 1);
     assert_that_(line)(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
     hr = wait_for_fence(fence, 1);
+    assert_that_(line)(hr == S_OK, "Failed to wait for fence, hr %#x.\n", hr);
+
+    ID3D12Fence_Release(fence);
+}
+
+static inline void wait_queue_idle_no_event_(unsigned int line, ID3D12Device *device, ID3D12CommandQueue *queue)
+{
+    ID3D12Fence *fence;
+    HRESULT hr;
+
+    hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE,
+        &IID_ID3D12Fence, (void **)&fence);
+    assert_that_(line)(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
+
+    hr = ID3D12CommandQueue_Signal(queue, fence, 1);
+    assert_that_(line)(hr == S_OK, "Failed to signal fence, hr %#x.\n", hr);
+    hr = wait_for_fence_no_event(fence, 1);
     assert_that_(line)(hr == S_OK, "Failed to wait for fence, hr %#x.\n", hr);
 
     ID3D12Fence_Release(fence);

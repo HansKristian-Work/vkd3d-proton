@@ -23,6 +23,8 @@
 
 #define wait_queue_idle(a, b) wait_queue_idle_(__LINE__, a, b)
 static void wait_queue_idle_(unsigned int line, ID3D12Device *device, ID3D12CommandQueue *queue);
+#define wait_queue_idle_no_event(a, b) wait_queue_idle_no_event_(__LINE__, a, b)
+static inline void wait_queue_idle_no_event_(unsigned int line, ID3D12Device *device, ID3D12CommandQueue *queue);
 static ID3D12Device *create_device(void);
 
 static inline void set_rect(RECT *rect, int left, int top, int right, int bottom)
