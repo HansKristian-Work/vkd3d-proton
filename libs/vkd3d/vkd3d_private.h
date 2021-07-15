@@ -547,11 +547,13 @@ struct d3d12_fence
 
     pthread_mutex_t mutex;
     pthread_cond_t cond;
+    pthread_cond_t null_event_cond;
 
     struct vkd3d_waiting_event
     {
         uint64_t value;
         HANDLE event;
+        bool *latch;
     } *events;
     size_t events_size;
     size_t event_count;

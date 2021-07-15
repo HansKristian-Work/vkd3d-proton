@@ -5165,7 +5165,8 @@ static void test_fence_values(void)
     {
         ++next_value;
         queue_signal(queue, fence, next_value);
-        wait_queue_idle(device, queue);
+        /* Sprinke in some tests for no event path. */
+        wait_queue_idle_no_event(device, queue);
         value = ID3D12Fence_GetCompletedValue(fence);
         ok(value == next_value, "Got value %#"PRIx64", expected %#"PRIx64".\n", value, next_value);
     }
@@ -5199,7 +5200,7 @@ static void test_fence_values(void)
     ok(hr == S_OK, "Failed to create fence, hr %#x.\n", hr);
     next_value = (uint64_t)1 << 60;
     queue_signal(queue, fence, next_value);
-    wait_queue_idle(device, queue);
+    wait_queue_idle_no_event(device, queue);
     value = ID3D12Fence_GetCompletedValue(fence);
     ok(value == next_value, "Got value %#"PRIx64", expected %#"PRIx64".\n", value, next_value);
     next_value = 0;
