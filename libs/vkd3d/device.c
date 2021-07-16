@@ -103,6 +103,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(NV_SHADER_SM_BUILTINS, NV_shader_sm_builtins),
     VK_EXTENSION(NVX_BINARY_IMPORT, NVX_binary_import),
     VK_EXTENSION(NVX_IMAGE_VIEW_HANDLE, NVX_image_view_handle),
+    VK_EXTENSION(NV_FRAGMENT_SHADER_BARYCENTRIC, NV_fragment_shader_barycentric),
     /* VALVE extensions */
     VK_EXTENSION(VALVE_MUTABLE_DESCRIPTOR_TYPE, VALVE_mutable_descriptor_type),
 };
@@ -1185,6 +1186,13 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_PROPERTIES_KHR;
         vk_prepend_struct(&info->features2, &info->shader_integer_dot_product_features);
         vk_prepend_struct(&info->properties2, &info->shader_integer_dot_product_properties);
+    }
+
+    if (vulkan_info->NV_fragment_shader_barycentric)
+    {
+        info->barycentric_features_nv.sType =
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_NV;
+        vk_prepend_struct(&info->features2, &info->barycentric_features_nv);
     }
 
     /* Core in Vulkan 1.1. */
@@ -4891,8 +4899,7 @@ static void d3d12_device_caps_init_feature_options3(struct d3d12_device *device)
             D3D12_COMMAND_LIST_SUPPORT_FLAG_COMPUTE | D3D12_COMMAND_LIST_SUPPORT_FLAG_COPY;
     /* Currently not supported */
     options3->ViewInstancingTier = D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED;
-    /* Currently not supported */
-    options3->BarycentricsSupported = FALSE;
+    options3->BarycentricsSupported = device->device_info.barycentric_features_nv.fragmentShaderBarycentric;
 }
 
 static void d3d12_device_caps_init_feature_options4(struct d3d12_device *device)

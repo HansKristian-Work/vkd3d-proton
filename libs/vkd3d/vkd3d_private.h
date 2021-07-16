@@ -151,6 +151,7 @@ struct vkd3d_vulkan_info
     bool NV_shader_sm_builtins;
     bool NVX_binary_import;
     bool NVX_image_view_handle;
+    bool NV_fragment_shader_barycentric;
     /* VALVE extensions */
     bool VALVE_mutable_descriptor_type;
 
@@ -2712,6 +2713,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceSubgroupSizeControlFeaturesEXT subgroup_size_control_features;
     VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR separate_depth_stencil_layout_features;
     VkPhysicalDeviceShaderIntegerDotProductFeaturesKHR shader_integer_dot_product_features;
+    VkPhysicalDeviceFragmentShaderBarycentricFeaturesNV barycentric_features_nv;
 
     VkPhysicalDeviceFeatures2 features2;
 
