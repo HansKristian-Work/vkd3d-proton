@@ -4887,12 +4887,14 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
         (physical_device_info->subgroup_properties.supportedOperations & required) == required &&
         (physical_device_info->subgroup_properties.supportedStages & required_stages) == required_stages)
     {
+        /* From testing on native Polaris drivers, AMD expose SM 6.5, even if lots of features are not supported.
+         * This is a good hint that shader model versions are not tied to features which have caps bits.
+         * Only consider required features here. */
+
         /* SM 6.0 adds:
          * https://github.com/microsoft/DirectXShaderCompiler/wiki/Shader-Model-6.0
          * WaveOps, int64 (optional)
          */
-        device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_0;
-        TRACE("Enabling support for SM 6.0.\n");
 
         /* SM 6.1 adds:
          * https://github.com/microsoft/DirectXShaderCompiler/wiki/Shader-Model-6.1
@@ -4903,24 +4905,14 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
          * https://github.com/microsoft/DirectXShaderCompiler/wiki/Shader-Model-6.2
          * FP16, Denorm modes (float controls extension)
          */
-        if (device->device_info.float16_int8_features.shaderFloat16 &&
-                device->device_info.storage_16bit_features.storageBuffer16BitAccess &&
-                device->device_info.subgroup_extended_types_features.shaderSubgroupExtendedTypes)
-        {
-            /* These features are required by FidelityFX SSSR demo. */
-            /* Technically we need storageInputOutput16 as well, but
-             * we can probably work around it on devices which don't support it. */
-            device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_2;
-            TRACE("Enabling support for SM 6.2.\n");
-        }
+        device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_2;
+        TRACE("Enabling support for SM 6.2.\n");
 
         /* SM 6.3 adds:
          * https://github.com/microsoft/DirectXShaderCompiler/wiki/Shader-Model-6.3
          * Ray tracing (lib_6_3 multi entry point targets).
          */
-        if (device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_2 &&
-            device->device_info.ray_tracing_pipeline_features.rayTracingPipeline &&
-            device->vk_info.KHR_spirv_1_4)
+        if (device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_2 && device->vk_info.KHR_spirv_1_4)
         {
             /* SPIR-V 1.4 is required for lib_6_3 since that is required for RT. */
             device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_3;
