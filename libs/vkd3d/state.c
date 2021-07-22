@@ -2095,6 +2095,9 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     shader_desc.pCode = spirv.code;
     *meta = spirv.meta;
 
+    if (!d3d12_device_validate_shader_meta(device, &spirv.meta))
+        return E_INVALIDARG;
+
     if (spirv.meta.uses_subgroup_size && device->device_info.subgroup_size_control_features.subgroupSizeControl)
     {
         /* GravityMark checks minSubgroupSize and based on that uses a shader variant.

@@ -975,6 +975,9 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
             return E_OUTOFMEMORY;
         }
 
+        if (!d3d12_device_validate_shader_meta(object->device, &spirv.meta))
+            return E_INVALIDARG;
+
         stage->module = create_shader_module(object->device, spirv.code, spirv.size);
 
         if (spirv.meta.uses_subgroup_size &&

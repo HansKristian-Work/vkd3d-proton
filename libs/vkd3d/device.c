@@ -5161,6 +5161,18 @@ out_free_mutex:
     return hr;
 }
 
+bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct vkd3d_shader_meta *meta)
+{
+    /* TODO: Add more as required. */
+    if (meta->uses_native_16bit_operations && !device->d3d12_caps.options4.Native16BitShaderOpsSupported)
+    {
+        WARN("Attempting to use 16-bit operations in shader %016"PRIx64", but this is not supported.", meta->hash);
+        return false;
+    }
+
+    return true;
+}
+
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,
         const struct vkd3d_device_create_info *create_info, struct d3d12_device **device)
 {
