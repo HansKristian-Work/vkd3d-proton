@@ -4868,6 +4868,7 @@ static void d3d12_device_caps_init_feature_level(struct d3d12_device *device)
 static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
 {
     const struct vkd3d_physical_device_info *physical_device_info = &device->device_info;
+    bool denorm_behavior;
 
     /* SHUFFLE is required to implement WaveReadLaneAt with dynamically uniform index before SPIR-V 1.5 / Vulkan 1.2. */
     static const VkSubgroupFeatureFlags required =
@@ -4887,6 +4888,10 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
         (physical_device_info->subgroup_properties.supportedOperations & required) == required &&
         (physical_device_info->subgroup_properties.supportedStages & required_stages) == required_stages)
     {
+        /* From testing on native Polaris drivers, AMD expose SM 6.5, even if lots of features are not supported.
+         * This is a good hint that shader model versions are not tied to features which have caps bits.
+         * Only consider required features here. */
+
         /* SM 6.0 adds:
          * https://github.com/microsoft/DirectXShaderCompiler/wiki/Shader-Model-6.0
          * WaveOps, int64 (optional)
@@ -4903,13 +4908,17 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
          * https://github.com/microsoft/DirectXShaderCompiler/wiki/Shader-Model-6.2
          * FP16, Denorm modes (float controls extension)
          */
-        if (device->device_info.float16_int8_features.shaderFloat16 &&
-                device->device_info.storage_16bit_features.storageBuffer16BitAccess &&
-                device->device_info.subgroup_extended_types_features.shaderSubgroupExtendedTypes)
+
+        /* DXIL allows control over denorm behavior for FP32 only. */
+        denorm_behavior = ((device->device_info.float_control_properties.denormBehaviorIndependence ==
+                VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY) ||
+                (device->device_info.float_control_properties.denormBehaviorIndependence ==
+                        VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_ALL)) &&
+                device->device_info.float_control_properties.shaderDenormFlushToZeroFloat32 &&
+                device->device_info.float_control_properties.shaderDenormPreserveFloat32;
+
+        if (denorm_behavior)
         {
-            /* These features are required by FidelityFX SSSR demo. */
-            /* Technically we need storageInputOutput16 as well, but
-             * we can probably work around it on devices which don't support it. */
             device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_2;
             TRACE("Enabling support for SM 6.2.\n");
         }
@@ -4918,9 +4927,7 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
          * https://github.com/microsoft/DirectXShaderCompiler/wiki/Shader-Model-6.3
          * Ray tracing (lib_6_3 multi entry point targets).
          */
-        if (device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_2 &&
-            device->device_info.ray_tracing_pipeline_features.rayTracingPipeline &&
-            device->vk_info.KHR_spirv_1_4)
+        if (device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_2 && device->vk_info.KHR_spirv_1_4)
         {
             /* SPIR-V 1.4 is required for lib_6_3 since that is required for RT. */
             device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_3;
@@ -4934,6 +4941,13 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
          * Variable rate shading
          * Library subobjects
          */
+        if (device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_3)
+        {
+            /* Nothing in SM 6.4 requires special support (except for VRS which is optional).
+             * The rest is just shader arithmetic intrinsics and reflection. */
+            device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_4;
+            TRACE("Enabling support for SM 6.4.\n");
+        }
 
         /* SM 6.5 adds:
          * https://github.com/microsoft/DirectXShaderCompiler/wiki/Shader-Model-6.5
