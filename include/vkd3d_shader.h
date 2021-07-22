@@ -61,6 +61,7 @@ struct vkd3d_shader_meta
     unsigned int patch_vertex_count; /* Relevant for HS. May be 0, in which case the patch vertex count is not known. */
     bool replaced;
     bool uses_subgroup_size;
+    bool uses_native_16bit_operations;
 };
 
 struct vkd3d_shader_code
