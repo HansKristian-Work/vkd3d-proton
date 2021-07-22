@@ -4779,7 +4779,9 @@ static void d3d12_device_caps_init_feature_options4(struct d3d12_device *device)
     options4->MSAA64KBAlignedTextureSupported = FALSE;
     /* Shared resources not supported */
     options4->SharedResourceCompatibilityTier = D3D12_SHARED_RESOURCE_COMPATIBILITY_TIER_0;
-    options4->Native16BitShaderOpsSupported = device->device_info.float16_int8_features.shaderFloat16;
+    options4->Native16BitShaderOpsSupported = device->device_info.float16_int8_features.shaderFloat16 &&
+            device->device_info.features2.features.shaderInt16 &&
+            device->device_info.subgroup_extended_types_features.shaderSubgroupExtendedTypes;
 }
 
 static void d3d12_device_caps_init_feature_options5(struct d3d12_device *device)
