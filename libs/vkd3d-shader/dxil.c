@@ -792,6 +792,8 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
             &spirv->meta.cs_workgroup_size[1],
             &spirv->meta.cs_workgroup_size[2]);
     dxil_spv_converter_get_patch_vertex_count(converter, &spirv->meta.patch_vertex_count);
+    spirv->meta.uses_native_16bit_operations = dxil_spv_converter_uses_shader_feature(converter,
+            DXIL_SPV_SHADER_FEATURE_NATIVE_16BIT_OPERATIONS) == DXIL_SPV_TRUE;
 
     vkd3d_shader_dump_spirv_shader(hash, spirv);
 
@@ -1165,6 +1167,8 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     spirv->code = code;
     spirv->size = compiled.size;
     spirv->meta.uses_subgroup_size = dxil_spv_converter_uses_subgroup_size(converter) == DXIL_SPV_TRUE;
+    spirv->meta.uses_native_16bit_operations = dxil_spv_converter_uses_shader_feature(converter,
+            DXIL_SPV_SHADER_FEATURE_NATIVE_16BIT_OPERATIONS) == DXIL_SPV_TRUE;
 
     if (demangled_export)
         vkd3d_shader_dump_spirv_shader_export(hash, spirv, demangled_export);
