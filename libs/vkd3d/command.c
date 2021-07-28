@@ -5829,8 +5829,12 @@ static void vk_image_copy_from_d3d12(VkImageCopy *image_copy,
     }
     else
     {
-        unsigned int miplevel = image_copy->srcSubresource.mipLevel;
-        vk_extent_3d_from_d3d12_miplevel(&image_copy->extent, src_desc, miplevel);
+        VkExtent3D srcExtent, dstExtent;
+        vk_extent_3d_from_d3d12_miplevel(&srcExtent, src_desc, image_copy->srcSubresource.mipLevel);
+        vk_extent_3d_from_d3d12_miplevel(&dstExtent, dst_desc, image_copy->dstSubresource.mipLevel);
+        image_copy->extent.width = min(dst_x + srcExtent.width, dstExtent.width) - dst_x;
+        image_copy->extent.height = min(dst_y + srcExtent.height, dstExtent.height) - dst_y;
+        image_copy->extent.depth = min(dst_z + srcExtent.depth, dstExtent.depth) - dst_z;
     }
 }
 
