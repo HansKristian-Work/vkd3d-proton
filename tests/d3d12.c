@@ -26346,7 +26346,7 @@ static void test_copy_texture(void)
     static const unsigned int bitmap_data[] =
     {
         0xff00ff00, 0xff00ff01, 0xff00ff02, 0xff00ff03,
-        0xff00ff10, 0xff00ff12, 0xff00ff12, 0xff00ff13,
+        0xff00ff10, 0xff00ff11, 0xff00ff12, 0xff00ff13,
         0xff00ff20, 0xff00ff21, 0xff00ff22, 0xff00ff23,
         0xff00ff30, 0xff00ff31, 0xff00ff32, 0xff00ff33,
     };
@@ -26354,7 +26354,7 @@ static void test_copy_texture(void)
     {
         0x00000000, 0x00000000, 0x00000000, 0x00000000,
         0x00000000, 0xff00ff00, 0xff00ff01, 0x00000000,
-        0x00000000, 0xff00ff10, 0xff00ff12, 0x00000000,
+        0x00000000, 0xff00ff10, 0xff00ff11, 0x00000000,
         0x00000000, 0x00000000, 0x00000000, 0x00000000,
     };
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -26432,7 +26432,7 @@ static void test_copy_texture(void)
         dst_texture = create_default_texture(device, 4, 4, DXGI_FORMAT_R8G8B8A8_UNORM,
                 0, D3D12_RESOURCE_STATE_COPY_DEST);
         texture_data.pData = clear_data;
-        texture_data.RowPitch = 4 * sizeof(*bitmap_data);
+        texture_data.RowPitch = 4 * sizeof(*clear_data);
         texture_data.SlicePitch = texture_data.RowPitch * 4;
         upload_texture_data(dst_texture, &texture_data, 1, queue, command_list);
         reset_command_list(command_list, context.allocator);
@@ -26458,6 +26458,56 @@ static void test_copy_texture(void)
             {
                 unsigned int color = get_readback_uint(&rb, x, y, 0);
                 unsigned int expected = result_data[y * 4 + x];
+
+                ok(color == expected,
+                        "Got unexpected color 0x%08x at (%u, %u), expected 0x%08x.\n",
+                        color, x, y, expected);
+            }
+        }
+        release_resource_readback(&rb);
+        ID3D12Resource_Release(src_texture);
+        ID3D12Resource_Release(dst_texture);
+        reset_command_list(command_list, context.allocator);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(resource_states); ++i)
+    {
+        src_texture = create_default_texture(device, 16, 16, DXGI_FORMAT_R8G8B8A8_UNORM,
+                0, D3D12_RESOURCE_STATE_COPY_DEST);
+        texture_data.pData = bitmap_data;
+        texture_data.RowPitch = 4 * sizeof(*bitmap_data);
+        texture_data.SlicePitch = texture_data.RowPitch * 4;
+        upload_texture_data(src_texture, &texture_data, 1, queue, command_list);
+        reset_command_list(command_list, context.allocator);
+
+        dst_texture = create_default_texture(device, 4, 4, DXGI_FORMAT_R8G8B8A8_UNORM,
+                0, D3D12_RESOURCE_STATE_COPY_DEST);
+        texture_data.pData = clear_data;
+        texture_data.RowPitch = 4 * sizeof(*clear_data);
+        texture_data.SlicePitch = texture_data.RowPitch * 4;
+        upload_texture_data(dst_texture, &texture_data, 1, queue, command_list);
+        reset_command_list(command_list, context.allocator);
+        transition_resource_state(command_list, src_texture,
+                D3D12_RESOURCE_STATE_COPY_DEST, resource_states[i]);
+
+        src_location.pResource = src_texture;
+        src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        src_location.SubresourceIndex = 0;
+        dst_location.pResource = dst_texture;
+        dst_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        dst_location.SubresourceIndex = 0;
+        ID3D12GraphicsCommandList_CopyTextureRegion(command_list,
+                &dst_location, 0, 0, 0, &src_location, 0);
+
+        transition_resource_state(command_list, dst_texture,
+                D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_texture_readback_with_command_list(dst_texture, 0, &rb, queue, command_list);
+        for (y = 0; y < 4; ++y)
+        {
+            for (x = 0; x < 4; ++x)
+            {
+                unsigned int color = get_readback_uint(&rb, x, y, 0);
+                unsigned int expected = bitmap_data[y * 4 + x];
 
                 ok(color == expected,
                         "Got unexpected color 0x%08x at (%u, %u), expected 0x%08x.\n",
