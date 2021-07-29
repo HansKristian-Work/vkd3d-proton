@@ -4941,18 +4941,20 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
          * Variable rate shading
          * Library subobjects
          */
-        if (device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_3)
-        {
-            /* Nothing in SM 6.4 requires special support (except for VRS which is optional).
-             * The rest is just shader arithmetic intrinsics and reflection. */
-            device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_4;
-            TRACE("Enabling support for SM 6.4.\n");
-        }
 
         /* SM 6.5 adds:
          * https://github.com/microsoft/DirectXShaderCompiler/wiki/Shader-Model-6.5
          * DXR 1.1, Sampler feedback, Mesh shaders, Amplification shaders, more wave ops.
          */
+        if (device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_3)
+        {
+            /* Nothing in SM 6.4 requires special support (except for VRS which is optional).
+             * The rest is just shader arithmetic intrinsics and reflection. */
+            /* The only required features in SM 6.5 are WaveMulti and WaveMultiPrefix wave ops
+             * which map directly to normal wave operations. */
+            device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_5;
+            TRACE("Enabling support for SM 6.5.\n");
+        }
     }
     else
     {
