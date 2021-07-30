@@ -4909,13 +4909,16 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
          * FP16, Denorm modes (float controls extension)
          */
 
-        /* DXIL allows control over denorm behavior for FP32 only. */
+        /* DXIL allows control over denorm behavior for FP32 only.
+         * shaderDenorm handling appears to work just fine on NV, despite the properties struct saying otherwise.
+         * Assume that this is just a driver oversight, since otherwise we cannot expose SM 6.2 there ... */
         denorm_behavior = ((device->device_info.float_control_properties.denormBehaviorIndependence ==
                 VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY) ||
                 (device->device_info.float_control_properties.denormBehaviorIndependence ==
                         VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_ALL)) &&
-                device->device_info.float_control_properties.shaderDenormFlushToZeroFloat32 &&
-                device->device_info.float_control_properties.shaderDenormPreserveFloat32;
+                (device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_NVIDIA ||
+                        (device->device_info.float_control_properties.shaderDenormFlushToZeroFloat32 &&
+                                device->device_info.float_control_properties.shaderDenormPreserveFloat32));
 
         if (denorm_behavior)
         {
