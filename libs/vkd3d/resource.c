@@ -3494,6 +3494,18 @@ static void d3d12_descriptor_heap_write_null_descriptor_template(struct d3d12_de
     VkDeviceAddress *va;
 
     heap = desc->heap;
+
+    /* When mutable descriptors are not supported, set a dummy type.
+       This will make those drivers not care about the null type being different between
+       null writes. */
+    if (!heap->null_descriptor_template.has_mutable_descriptors)
+        vk_mutable_descriptor_type = 0;
+
+    /* Skip writes with the same null type that are already null. */
+    if (!(desc->metadata.flags & VKD3D_DESCRIPTOR_FLAG_NON_NULL)
+            && desc->current_null_type == vk_mutable_descriptor_type)
+        return;
+
     num_writes = heap->null_descriptor_template.num_writes;
     vk_procs = &heap->device->vk_procs;
     offset = desc->heap_offset;
@@ -3511,6 +3523,7 @@ static void d3d12_descriptor_heap_write_null_descriptor_template(struct d3d12_de
     desc->metadata.cookie = 0;
     desc->metadata.flags = 0;
     desc->metadata.set_info_mask = heap->null_descriptor_template.set_info_mask;
+    desc->current_null_type = vk_mutable_descriptor_type;
     memset(&desc->info, 0, sizeof(desc->info));
 
     va = heap->raw_va_aux_buffer.host_ptr;
@@ -3569,7 +3582,7 @@ void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
 
     descriptor->metadata.cookie = resource ? resource->cookie : 0;
     descriptor->metadata.set_info_mask = 1u << info_index;
-    descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_OFFSET_RANGE;
+    descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_OFFSET_RANGE | VKD3D_DESCRIPTOR_FLAG_NON_NULL;
     descriptor->info.buffer = descriptor_info.buffer;
 
     vkd3d_init_write_descriptor_set(&vk_write, descriptor,
@@ -3749,7 +3762,8 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
             VkDeviceAddress *raw_addresses = descriptor->heap->raw_va_aux_buffer.host_ptr;
             uint32_t descriptor_index = d3d12_desc_heap_offset(descriptor);
             raw_addresses[descriptor_index] = desc->RaytracingAccelerationStructure.Location;
-            descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_RAW_VA_AUX_BUFFER;
+            descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_RAW_VA_AUX_BUFFER |
+                                         VKD3D_DESCRIPTOR_FLAG_NON_NULL;
             descriptor->metadata.set_info_mask = 0;
             /* There is no resource tied to this descriptor, just a naked pointer. */
             descriptor->metadata.cookie = 0;
@@ -3798,7 +3812,8 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
         descriptor->metadata.cookie = resource ? resource->res.cookie : 0;
         descriptor->metadata.set_info_mask |= 1u << info_index;
 
-        descriptor->metadata.flags |= VKD3D_DESCRIPTOR_FLAG_OFFSET_RANGE;
+        descriptor->metadata.flags |= VKD3D_DESCRIPTOR_FLAG_OFFSET_RANGE |
+                                      VKD3D_DESCRIPTOR_FLAG_NON_NULL;
         if (device->bindless_state.flags & VKD3D_SSBO_OFFSET_BUFFER)
             descriptor->metadata.flags |= VKD3D_DESCRIPTOR_FLAG_BUFFER_OFFSET;
 
@@ -3828,7 +3843,7 @@ static void vkd3d_create_buffer_srv(struct d3d12_desc *descriptor,
     descriptor->metadata.cookie = view ? view->cookie : 0;
     descriptor->metadata.set_info_mask |= 1u << info_index;
 
-    descriptor->metadata.flags |= VKD3D_DESCRIPTOR_FLAG_VIEW;
+    descriptor->metadata.flags |= VKD3D_DESCRIPTOR_FLAG_VIEW | VKD3D_DESCRIPTOR_FLAG_NON_NULL;
     if (device->bindless_state.flags & VKD3D_TYPED_OFFSET_BUFFER)
         descriptor->metadata.flags |= VKD3D_DESCRIPTOR_FLAG_BUFFER_OFFSET;
 
@@ -3974,7 +3989,7 @@ static void vkd3d_create_texture_srv(struct d3d12_desc *descriptor,
     descriptor->info.view = view;
     descriptor->metadata.cookie = view ? view->cookie : 0;
     descriptor->metadata.set_info_mask = 1u << info_index;
-    descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_VIEW;
+    descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_VIEW | VKD3D_DESCRIPTOR_FLAG_NON_NULL;
 
     vkd3d_init_write_descriptor_set(&vk_write, descriptor,
             vkd3d_bindless_state_binding_from_info_index(&device->bindless_state, info_index),
@@ -4087,7 +4102,8 @@ static void vkd3d_create_buffer_uav(struct d3d12_desc *descriptor, struct d3d12_
     flags = vkd3d_view_flags_from_d3d12_buffer_uav_flags(desc->Buffer.Flags);
 
     descriptor->metadata.set_info_mask = 0;
-    descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_RAW_VA_AUX_BUFFER;
+    descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_RAW_VA_AUX_BUFFER |
+                                 VKD3D_DESCRIPTOR_FLAG_NON_NULL;
 
     if (d3d12_device_use_ssbo_raw_buffer(device))
     {
@@ -4298,7 +4314,7 @@ static void vkd3d_create_texture_uav(struct d3d12_desc *descriptor,
     descriptor->info.view = view;
     descriptor->metadata.cookie = view ? view->cookie : 0;
     descriptor->metadata.set_info_mask = 1u << info_index;
-    descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_VIEW;
+    descriptor->metadata.flags = VKD3D_DESCRIPTOR_FLAG_VIEW | VKD3D_DESCRIPTOR_FLAG_NON_NULL;
 
     vkd3d_init_write_descriptor_set(&vk_write, descriptor,
             vkd3d_bindless_state_binding_from_info_index(&device->bindless_state, info_index),
@@ -4603,7 +4619,7 @@ void d3d12_desc_create_sampler(struct d3d12_desc *sampler,
     sampler->info.view = view;
     sampler->metadata.cookie = view->cookie;
     sampler->metadata.set_info_mask = 1u << info_index;
-    sampler->metadata.flags = VKD3D_DESCRIPTOR_FLAG_VIEW;
+    sampler->metadata.flags = VKD3D_DESCRIPTOR_FLAG_VIEW | VKD3D_DESCRIPTOR_FLAG_NON_NULL;
 
     descriptor_info.image.sampler = view->vk_sampler;
     descriptor_info.image.imageView = VK_NULL_HANDLE;
@@ -5370,6 +5386,8 @@ static void d3d12_descriptor_heap_add_null_descriptor_template(
         descriptor_heap->null_descriptor_template.image.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         descriptor_heap->null_descriptor_template.image.imageView = VK_NULL_HANDLE;
         descriptor_heap->null_descriptor_template.buffer_view = VK_NULL_HANDLE;
+        descriptor_heap->null_descriptor_template.has_mutable_descriptors =
+                descriptor_heap->device->vk_info.VALVE_mutable_descriptor_type;
     }
 
     descriptor_heap->null_descriptor_template.num_writes++;
