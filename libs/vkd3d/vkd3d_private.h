@@ -976,6 +976,7 @@ enum vkd3d_descriptor_flag
     VKD3D_DESCRIPTOR_FLAG_RAW_VA_AUX_BUFFER = (1 << 1),
     VKD3D_DESCRIPTOR_FLAG_BUFFER_OFFSET     = (1 << 2),
     VKD3D_DESCRIPTOR_FLAG_OFFSET_RANGE      = (1 << 3),
+    VKD3D_DESCRIPTOR_FLAG_NON_NULL          = (1 << 4),
 };
 
 struct vkd3d_descriptor_binding
@@ -1003,6 +1004,7 @@ struct d3d12_desc
     DECLSPEC_ALIGN(D3D12_DESC_ALIGNMENT) struct vkd3d_descriptor_data metadata;
     struct d3d12_descriptor_heap *heap;
     uint32_t heap_offset;
+    VkDescriptorType current_null_type;
     union
     {
         VkDescriptorBufferInfo buffer;
@@ -1095,6 +1097,7 @@ struct d3d12_null_descriptor_template
     VkBufferView buffer_view;
     unsigned int num_writes;
     unsigned int set_info_mask;
+    bool has_mutable_descriptors;
 };
 
 struct d3d12_descriptor_heap
