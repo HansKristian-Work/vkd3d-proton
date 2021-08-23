@@ -5233,7 +5233,7 @@ static HRESULT d3d12_descriptor_heap_init_data_buffer(struct d3d12_descriptor_he
             return hr;
 
         property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_UPLOAD_HVV)
+        if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV))
             property_flags |= VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
         if (FAILED(hr = vkd3d_allocate_buffer_memory(device, descriptor_heap->vk_buffer,
@@ -5882,7 +5882,7 @@ static uint32_t vkd3d_memory_info_find_global_mask(const struct vkd3d_memory_top
     uint32_t heap_index;
     uint32_t i, mask;
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_UPLOAD_HVV)
+    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV))
         return UINT32_MAX;
 
     /* If we only have one device local heap, or no host-only heaps, there is nothing to do. */

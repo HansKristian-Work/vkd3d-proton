@@ -83,7 +83,7 @@ static HRESULT vkd3d_select_memory_flags(struct d3d12_device *device, const D3D1
 
         case D3D12_HEAP_TYPE_UPLOAD:
             *type_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-            if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_UPLOAD_HVV)
+            if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV))
                 *type_flags |= VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
             break;
 
