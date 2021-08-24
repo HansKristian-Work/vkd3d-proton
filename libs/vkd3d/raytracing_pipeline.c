@@ -840,14 +840,63 @@ static void d3d12_state_object_build_group_create_info(
     group_create->pShaderGroupCaptureReplayHandle = NULL;
 }
 
+static void d3d12_state_object_append_local_static_samplers(
+        struct d3d12_state_object *object,
+        VkDescriptorSetLayoutBinding **out_vk_bindings, size_t *out_vk_bindings_size, size_t *out_vk_bindings_count,
+        struct vkd3d_shader_resource_binding *local_bindings,
+        const D3D12_STATIC_SAMPLER_DESC *sampler_desc, const VkSampler *vk_samplers,
+        unsigned int sampler_count)
+{
+    VkDescriptorSetLayoutBinding *vk_bindings = *out_vk_bindings;
+    size_t vk_bindings_count = *out_vk_bindings_count;
+    size_t vk_bindings_size = *out_vk_bindings_size;
+    unsigned int i, j;
+
+    for (i = 0; i < sampler_count; i++)
+    {
+        for (j = 0; j < vk_bindings_count; j++)
+            if (*vk_bindings[j].pImmutableSamplers == vk_samplers[i])
+                break;
+
+        /* Allocate a new sampler if unique so far. */
+        if (j == vk_bindings_count)
+        {
+            vk_bindings_count++;
+            vkd3d_array_reserve((void**)&vk_bindings, &vk_bindings_size, vk_bindings_count, sizeof(*vk_bindings));
+            vk_bindings[j].stageFlags = vkd3d_vk_stage_flags_from_visibility(sampler_desc[i].ShaderVisibility);
+            vk_bindings[j].pImmutableSamplers = &vk_samplers[i];
+            vk_bindings[j].binding = j;
+            vk_bindings[j].descriptorCount = 1;
+            vk_bindings[j].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+        }
+
+        local_bindings[i].type = VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER;
+        local_bindings[i].register_space = sampler_desc[i].RegisterSpace;
+        local_bindings[i].register_index = sampler_desc[i].ShaderRegister;
+        local_bindings[i].register_count = 1;
+        local_bindings[i].descriptor_table = 0; /* ignored */
+        local_bindings[i].descriptor_offset = 0; /* ignored */
+        local_bindings[i].shader_visibility = vkd3d_shader_visibility_from_d3d12(sampler_desc[i].ShaderVisibility);
+        local_bindings[i].flags = VKD3D_SHADER_BINDING_FLAG_IMAGE;
+        local_bindings[i].binding.binding = j;
+        local_bindings[i].binding.set = object->local_static_sampler.set_index;
+    }
+
+    *out_vk_bindings = vk_bindings;
+    *out_vk_bindings_size = vk_bindings_size;
+    *out_vk_bindings_count = vk_bindings_count;
+}
+
 static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *object,
         struct d3d12_state_object_pipeline_data *data)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &object->device->vk_procs;
     struct vkd3d_shader_interface_local_info shader_interface_local_info;
     VkRayTracingPipelineInterfaceCreateInfoKHR interface_create_info;
+    VkDescriptorSetLayoutBinding *local_static_sampler_bindings;
     struct vkd3d_shader_interface_info shader_interface_info;
     VkRayTracingPipelineCreateInfoKHR pipeline_create_info;
+    struct vkd3d_shader_resource_binding *local_bindings;
     struct vkd3d_shader_compile_arguments compile_args;
     struct d3d12_state_object_collection *collection;
     VkPipelineDynamicStateCreateInfo dynamic_state;
@@ -857,6 +906,8 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     const struct D3D12_HIT_GROUP_DESC *hit_group;
     struct d3d12_state_object_identifier *export;
     VkPipelineLibraryCreateInfoKHR library_info;
+    size_t local_static_sampler_bindings_count;
+    size_t local_static_sampler_bindings_size;
     VkPipelineShaderStageCreateInfo *stage;
     uint32_t pgroup_offset, pstage_offset;
     unsigned int num_groups_to_export;
@@ -903,19 +954,47 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
 
     shader_interface_local_info.descriptor_size = sizeof(struct d3d12_desc);
 
+    local_static_sampler_bindings = NULL;
+    local_static_sampler_bindings_count = 0;
+    local_static_sampler_bindings_size = 0;
+    object->local_static_sampler.set_index = global_signature ? global_signature->num_set_layouts : 0;
+
     for (i = 0; i < data->entry_points_count; i++)
     {
         entry = &data->entry_points[i];
 
         local_signature = d3d12_state_object_pipeline_data_get_local_root_signature(data, entry);
+        local_bindings = NULL;
+
         if (local_signature)
         {
             shader_interface_local_info.local_root_parameters = local_signature->parameters;
             shader_interface_local_info.local_root_parameter_count = local_signature->parameter_count;
             shader_interface_local_info.shader_record_constant_buffers = local_signature->root_constants;
             shader_interface_local_info.shader_record_buffer_count = local_signature->root_constant_count;
-            shader_interface_local_info.bindings = local_signature->bindings;
-            shader_interface_local_info.binding_count = local_signature->binding_count;
+
+            if (local_signature->static_sampler_count)
+            {
+                /* If we have static samplers, we need to add additional bindings. */
+                shader_interface_local_info.binding_count = local_signature->binding_count + local_signature->static_sampler_count;
+                local_bindings = vkd3d_malloc(sizeof(*local_bindings) * shader_interface_local_info.binding_count);
+                shader_interface_local_info.bindings = local_bindings;
+
+                d3d12_state_object_append_local_static_samplers(object,
+                        &local_static_sampler_bindings,
+                        &local_static_sampler_bindings_size, &local_static_sampler_bindings_count,
+                        local_bindings,
+                        local_signature->static_samplers_desc, local_signature->static_samplers,
+                        local_signature->static_sampler_count);
+
+                memcpy(local_bindings + local_signature->static_sampler_count, local_signature->bindings,
+                        sizeof(*local_bindings) * local_signature->binding_count);
+            }
+            else
+            {
+                shader_interface_local_info.bindings = local_signature->bindings;
+                shader_interface_local_info.binding_count = local_signature->binding_count;
+            }
 
             /* Promote state which might only be active in local root signature. */
             shader_interface_info.flags |= d3d12_root_signature_get_shader_interface_flags(local_signature);
@@ -977,9 +1056,11 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
                 &shader_interface_info, &shader_interface_local_info, &compile_args) != VKD3D_OK)
         {
             ERR("Failed to convert DXIL export: %s\n", entry->real_entry_point);
+            vkd3d_free(local_bindings);
             return E_OUTOFMEMORY;
         }
 
+        vkd3d_free(local_bindings);
         if (!d3d12_device_validate_shader_meta(object->device, &spirv.meta))
             return E_INVALIDARG;
 
@@ -1125,14 +1206,54 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
         pstage_offset += collection->object->stages_count;
     }
 
+    if (local_static_sampler_bindings_count)
+    {
+        if (FAILED(hr = vkd3d_create_descriptor_set_layout(object->device, 0, local_static_sampler_bindings_count,
+                local_static_sampler_bindings, &object->local_static_sampler.set_layout)))
+        {
+            vkd3d_free(local_static_sampler_bindings);
+            return hr;
+        }
+
+        vkd3d_free(local_static_sampler_bindings);
+
+        if (global_signature)
+        {
+            if (FAILED(hr = d3d12_root_signature_create_local_static_samplers_layout(global_signature,
+                    object->local_static_sampler.set_layout, &object->local_static_sampler.pipeline_layout)))
+                return hr;
+        }
+        else
+        {
+            if (FAILED(hr = vkd3d_create_pipeline_layout(object->device, 1, &object->local_static_sampler.set_layout,
+                    0, NULL, &object->local_static_sampler.pipeline_layout)))
+                return hr;
+        }
+
+        if (FAILED(hr = vkd3d_sampler_state_allocate_descriptor_set(&object->device->sampler_state,
+                object->device, object->local_static_sampler.set_layout,
+                &object->local_static_sampler.desc_set, &object->local_static_sampler.desc_pool)))
+            return hr;
+    }
+
     pipeline_create_info.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR;
     pipeline_create_info.pNext = NULL;
     pipeline_create_info.flags = object->type == D3D12_STATE_OBJECT_TYPE_COLLECTION ?
             VK_PIPELINE_CREATE_LIBRARY_BIT_KHR : 0;
+
     /* FIXME: What if we have no global root signature? */
     if (!global_signature)
+    {
+        FIXME("No global root signature was found. Is this allowed?\n");
         return E_INVALIDARG;
-    pipeline_create_info.layout = global_signature->raygen.vk_pipeline_layout;
+    }
+
+    /* TODO: What happens here if we have local static samplers with COLLECTIONS? :| */
+    if (object->local_static_sampler.pipeline_layout)
+        pipeline_create_info.layout = object->local_static_sampler.pipeline_layout;
+    else
+        pipeline_create_info.layout = global_signature->raygen.vk_pipeline_layout;
+
     pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_create_info.basePipelineIndex = -1;
     pipeline_create_info.pGroups = data->groups;
