@@ -1067,7 +1067,6 @@ static HRESULT d3d12_root_signature_init_local(struct d3d12_root_signature *root
     root_signature->parameter_count = info.parameter_count;
 
     hr = E_OUTOFMEMORY;
-    root_signature->parameter_count = desc->NumParameters;
     if (!(root_signature->parameters = vkd3d_calloc(root_signature->parameter_count,
             sizeof(*root_signature->parameters))))
         return hr;
