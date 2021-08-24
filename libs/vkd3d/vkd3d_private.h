@@ -1362,11 +1362,21 @@ static inline struct d3d12_root_signature *impl_from_ID3D12RootSignature(ID3D12R
 unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_root_signature *root_signature);
 HRESULT d3d12_root_signature_create_local_static_samplers_layout(struct d3d12_root_signature *root_signature,
         VkDescriptorSetLayout vk_set_layout, VkPipelineLayout *vk_pipeline_layout);
+HRESULT vkd3d_create_pipeline_layout(struct d3d12_device *device,
+        unsigned int set_layout_count, const VkDescriptorSetLayout *set_layouts,
+        unsigned int push_constant_count, const VkPushConstantRange *push_constants,
+        VkPipelineLayout *pipeline_layout);
 
 int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *desc);
 int vkd3d_parse_root_signature_v_1_1(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *desc);
+
+VkShaderStageFlags vkd3d_vk_stage_flags_from_visibility(D3D12_SHADER_VISIBILITY visibility);
+enum vkd3d_shader_visibility vkd3d_shader_visibility_from_d3d12(D3D12_SHADER_VISIBILITY visibility);
+HRESULT vkd3d_create_descriptor_set_layout(struct d3d12_device *device,
+        VkDescriptorSetLayoutCreateFlags flags, unsigned int binding_count,
+        const VkDescriptorSetLayoutBinding *bindings, VkDescriptorSetLayout *set_layout);
 
 #define VKD3D_MAX_DYNAMIC_STATE_COUNT (7)
 
