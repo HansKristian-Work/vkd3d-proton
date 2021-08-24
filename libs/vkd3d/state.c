@@ -1245,6 +1245,38 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
     return S_OK;
 }
 
+HRESULT d3d12_root_signature_create_local_static_samplers_layout(struct d3d12_root_signature *root_signature,
+        VkDescriptorSetLayout vk_set_layout, VkPipelineLayout *vk_pipeline_layout)
+{
+    /* For RTPSOs we might have to bind a secondary static sampler set. To stay compatible with the base global RS,
+     * just add the descriptor set layout after the other ones.
+     * With this scheme, it's valid to bind resources with global RS layout,
+     * and then add a final vkCmdBindDescriptorSets with vk_pipeline_layout which is tied to the RTPSO. */
+    VkDescriptorSetLayout set_layouts[VKD3D_MAX_DESCRIPTOR_SETS];
+    struct d3d12_bind_point_layout bind_point_layout;
+    HRESULT hr;
+
+    if (!d3d12_device_supports_ray_tracing_tier_1_0(root_signature->device))
+        return E_INVALIDARG;
+
+    memcpy(set_layouts, root_signature->set_layouts, root_signature->num_set_layouts * sizeof(VkDescriptorSetLayout));
+    set_layouts[root_signature->num_set_layouts] = vk_set_layout;
+
+    if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
+            root_signature->device, root_signature->num_set_layouts + 1, set_layouts,
+            &root_signature->push_constant_range,
+            VK_SHADER_STAGE_RAYGEN_BIT_KHR |
+            VK_SHADER_STAGE_MISS_BIT_KHR |
+            VK_SHADER_STAGE_INTERSECTION_BIT_KHR |
+            VK_SHADER_STAGE_CALLABLE_BIT_KHR |
+            VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
+            VK_SHADER_STAGE_ANY_HIT_BIT_KHR, &bind_point_layout)))
+        return hr;
+
+    *vk_pipeline_layout = bind_point_layout.vk_pipeline_layout;
+    return S_OK;
+}
+
 static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signature,
         struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC1 *desc)
 {
