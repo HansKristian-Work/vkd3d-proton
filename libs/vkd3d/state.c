@@ -153,7 +153,7 @@ CONST_VTBL struct ID3D12RootSignatureVtbl d3d12_root_signature_vtbl =
     d3d12_root_signature_GetDevice,
 };
 
-static VkShaderStageFlags stage_flags_from_visibility(D3D12_SHADER_VISIBILITY visibility)
+VkShaderStageFlags vkd3d_vk_stage_flags_from_visibility(D3D12_SHADER_VISIBILITY visibility)
 {
     switch (visibility)
     {
@@ -174,7 +174,7 @@ static VkShaderStageFlags stage_flags_from_visibility(D3D12_SHADER_VISIBILITY vi
     }
 }
 
-static enum vkd3d_shader_visibility vkd3d_shader_visibility_from_d3d12(D3D12_SHADER_VISIBILITY visibility)
+enum vkd3d_shader_visibility vkd3d_shader_visibility_from_d3d12(D3D12_SHADER_VISIBILITY visibility)
 {
     switch (visibility)
     {
@@ -251,7 +251,7 @@ static enum vkd3d_shader_descriptor_type vkd3d_descriptor_type_from_d3d12_root_p
     }
 }
 
-static HRESULT vkd3d_create_descriptor_set_layout(struct d3d12_device *device,
+HRESULT vkd3d_create_descriptor_set_layout(struct d3d12_device *device,
         VkDescriptorSetLayoutCreateFlags flags, unsigned int binding_count,
         const VkDescriptorSetLayoutBinding *bindings, VkDescriptorSetLayout *set_layout)
 {
@@ -274,7 +274,7 @@ static HRESULT vkd3d_create_descriptor_set_layout(struct d3d12_device *device,
     return S_OK;
 }
 
-static HRESULT vkd3d_create_pipeline_layout(struct d3d12_device *device,
+HRESULT vkd3d_create_pipeline_layout(struct d3d12_device *device,
         unsigned int set_layout_count, const VkDescriptorSetLayout *set_layouts,
         unsigned int push_constant_count, const VkPushConstantRange *push_constants,
         VkPipelineLayout *pipeline_layout)
@@ -537,7 +537,7 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
 
         if (d3d12_root_signature_parameter_is_raw_va(root_signature, p->ParameterType))
         {
-            push_constant_range->stageFlags |= stage_flags_from_visibility(p->ShaderVisibility);
+            push_constant_range->stageFlags |= vkd3d_vk_stage_flags_from_visibility(p->ShaderVisibility);
             push_constant_range->size += sizeof(VkDeviceSize);
         }
     }
@@ -562,7 +562,7 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
         root_signature->root_constants[j].offset = push_constant_range->size;
         root_signature->root_constants[j].size = p->Constants.Num32BitValues * sizeof(uint32_t);
 
-        push_constant_range->stageFlags |= stage_flags_from_visibility(p->ShaderVisibility);
+        push_constant_range->stageFlags |= vkd3d_vk_stage_flags_from_visibility(p->ShaderVisibility);
         push_constant_range->size += p->Constants.Num32BitValues * sizeof(uint32_t);
 
         ++j;
@@ -582,7 +582,7 @@ static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signat
 
             root_signature->descriptor_table_count += 1;
 
-            push_constant_range->stageFlags |= stage_flags_from_visibility(p->ShaderVisibility);
+            push_constant_range->stageFlags |= vkd3d_vk_stage_flags_from_visibility(p->ShaderVisibility);
             push_constant_range->size += sizeof(uint32_t);
         }
     }
@@ -866,7 +866,7 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
 
                     vk_binding->descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
                     vk_binding->descriptorCount = 1;
-                    vk_binding->stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
+                    vk_binding->stageFlags = vkd3d_vk_stage_flags_from_visibility(p->ShaderVisibility);
                     vk_binding->pImmutableSamplers = NULL;
 
                     root_signature->root_descriptor_push_mask |= 1ull << hoisted_parameter_index;
@@ -915,7 +915,7 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
             vk_binding->binding = context->vk_binding;
             vk_binding->descriptorType = vk_descriptor_type_from_d3d12_root_parameter(root_signature->device, p->ParameterType);
             vk_binding->descriptorCount = 1;
-            vk_binding->stageFlags = stage_flags_from_visibility(p->ShaderVisibility);
+            vk_binding->stageFlags = vkd3d_vk_stage_flags_from_visibility(p->ShaderVisibility);
             vk_binding->pImmutableSamplers = NULL;
             root_signature->root_descriptor_push_mask |= 1ull << i;
         }
@@ -1029,7 +1029,7 @@ static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signa
         vk_binding->binding = context->vk_binding;
         vk_binding->descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
         vk_binding->descriptorCount = 1;
-        vk_binding->stageFlags = stage_flags_from_visibility(s->ShaderVisibility);
+        vk_binding->stageFlags = vkd3d_vk_stage_flags_from_visibility(s->ShaderVisibility);
         vk_binding->pImmutableSamplers = &root_signature->static_samplers[i];
 
         binding = &root_signature->bindings[context->binding_index];
