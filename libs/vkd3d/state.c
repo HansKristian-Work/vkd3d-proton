@@ -74,6 +74,7 @@ static void d3d12_root_signature_cleanup(struct d3d12_root_signature *root_signa
     vkd3d_free(root_signature->bindings);
     vkd3d_free(root_signature->root_constants);
     vkd3d_free(root_signature->static_samplers);
+    vkd3d_free(root_signature->static_samplers_desc);
 }
 
 static ULONG STDMETHODCALLTYPE d3d12_root_signature_Release(ID3D12RootSignature *iface)
@@ -465,12 +466,15 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
         }
     }
 
-    info->hoist_descriptor_count = min(info->hoist_descriptor_count, VKD3D_MAX_HOISTED_DESCRIPTORS);
-    info->hoist_descriptor_count = min(info->hoist_descriptor_count, D3D12_MAX_ROOT_COST - desc->NumParameters);
+    if (!local_root_signature)
+    {
+        info->push_descriptor_count += info->hoist_descriptor_count;
+        info->hoist_descriptor_count = min(info->hoist_descriptor_count, VKD3D_MAX_HOISTED_DESCRIPTORS);
+        info->hoist_descriptor_count = min(info->hoist_descriptor_count, D3D12_MAX_ROOT_COST - desc->NumParameters);
+        info->binding_count += info->hoist_descriptor_count;
+        info->binding_count += desc->NumStaticSamplers;
+    }
 
-    info->push_descriptor_count += info->hoist_descriptor_count;
-    info->binding_count += info->hoist_descriptor_count;
-    info->binding_count += desc->NumStaticSamplers;
     info->parameter_count = desc->NumParameters + info->hoist_descriptor_count;
     return S_OK;
 }
@@ -973,6 +977,31 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
     return hr;
 }
 
+static HRESULT d3d12_root_signature_init_local_static_samplers(struct d3d12_root_signature *root_signature,
+        const D3D12_ROOT_SIGNATURE_DESC1 *desc)
+{
+    unsigned int i;
+    HRESULT hr;
+
+    if (!desc->NumStaticSamplers)
+        return S_OK;
+
+    for (i = 0; i < desc->NumStaticSamplers; i++)
+    {
+        const D3D12_STATIC_SAMPLER_DESC *s = &desc->pStaticSamplers[i];
+        if (FAILED(hr = vkd3d_sampler_state_create_static_sampler(&root_signature->device->sampler_state,
+                root_signature->device, s, &root_signature->static_samplers[i])))
+            return hr;
+    }
+
+    /* Cannot assign bindings until we've seen all local root signatures which go into an RTPSO.
+     * For now, just copy the static samplers. RTPSO creation will build appropriate bindings. */
+    memcpy(root_signature->static_samplers_desc, desc->pStaticSamplers,
+            sizeof(*root_signature->static_samplers_desc) * desc->NumStaticSamplers);
+
+    return S_OK;
+}
+
 static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signature *root_signature,
         const D3D12_ROOT_SIGNATURE_DESC1 *desc, struct vkd3d_descriptor_set_context *context,
         VkDescriptorSetLayout *vk_set_layout)
@@ -1042,16 +1071,6 @@ static HRESULT d3d12_root_signature_init_local(struct d3d12_root_signature *root
 
     memset(&context, 0, sizeof(context));
 
-    if (desc->NumStaticSamplers)
-    {
-        /* TODO: This is supposed to work, but all static samplers must match for
-         * all static samplers in a pipeline.
-         * Need to either use two split immutable sampler sets,
-         * or combine immutable sample set in pipeline compilation. */
-        FIXME("Unsupported static samplers in local root signature.\n");
-        return E_INVALIDARG;
-    }
-
     if (FAILED(hr = d3d12_root_signature_info_from_desc(&info, device, desc)))
         return hr;
 
@@ -1065,6 +1084,7 @@ static HRESULT d3d12_root_signature_init_local(struct d3d12_root_signature *root
 
     root_signature->binding_count = info.binding_count;
     root_signature->parameter_count = info.parameter_count;
+    root_signature->static_sampler_count = desc->NumStaticSamplers;
 
     hr = E_OUTOFMEMORY;
     if (!(root_signature->parameters = vkd3d_calloc(root_signature->parameter_count,
@@ -1076,6 +1096,15 @@ static HRESULT d3d12_root_signature_init_local(struct d3d12_root_signature *root
     root_signature->root_constant_count = info.root_constant_count;
     if (!(root_signature->root_constants = vkd3d_calloc(root_signature->root_constant_count,
             sizeof(*root_signature->root_constants))))
+        return hr;
+    if (!(root_signature->static_samplers = vkd3d_calloc(root_signature->static_sampler_count,
+            sizeof(*root_signature->static_samplers))))
+        return hr;
+    if (!(root_signature->static_samplers_desc = vkd3d_calloc(root_signature->static_sampler_count,
+            sizeof(*root_signature->static_samplers_desc))))
+        return hr;
+
+    if (FAILED(hr = d3d12_root_signature_init_local_static_samplers(root_signature, desc)))
         return hr;
 
     d3d12_root_signature_init_extra_bindings(root_signature, &info);

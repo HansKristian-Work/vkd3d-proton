@@ -1341,6 +1341,7 @@ struct d3d12_root_signature
     uint32_t descriptor_table_count;
 
     unsigned int static_sampler_count;
+    D3D12_STATIC_SAMPLER_DESC *static_samplers_desc;
     VkSampler *static_samplers;
 
     struct vkd3d_descriptor_hoist_info hoist_info;
