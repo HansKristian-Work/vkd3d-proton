@@ -123,6 +123,16 @@ static void d3d12_state_object_cleanup(struct d3d12_state_object *object)
     vkd3d_free(object->collections);
 
     VK_CALL(vkDestroyPipeline(object->device->vk_device, object->pipeline, NULL));
+
+    VK_CALL(vkDestroyPipelineLayout(object->device->vk_device,
+            object->local_static_sampler.pipeline_layout, NULL));
+    VK_CALL(vkDestroyDescriptorSetLayout(object->device->vk_device,
+            object->local_static_sampler.set_layout, NULL));
+    if (object->local_static_sampler.desc_set)
+    {
+        vkd3d_sampler_state_free_descriptor_set(&object->device->sampler_state, object->device,
+                object->local_static_sampler.desc_set, object->local_static_sampler.desc_pool);
+    }
 }
 
 static ULONG d3d12_state_object_release(struct d3d12_state_object *state_object)
