@@ -1334,6 +1334,9 @@ struct d3d12_root_signature
     struct vkd3d_shader_descriptor_binding descriptor_qa_global_info;
 #endif
 
+    VkDescriptorSetLayout set_layouts[VKD3D_MAX_DESCRIPTOR_SETS];
+    uint32_t num_set_layouts;
+
     uint32_t descriptor_table_offset;
     uint32_t descriptor_table_count;
 
