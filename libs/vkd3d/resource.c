@@ -68,6 +68,7 @@ VkSampleCountFlagBits vk_samples_from_sample_count(unsigned int sample_count)
 {
     switch (sample_count)
     {
+        case 0:
         case 1:
             return VK_SAMPLE_COUNT_1_BIT;
         case 2:
@@ -304,7 +305,7 @@ static bool vkd3d_resource_can_be_vrs(struct d3d12_device *device,
             desc->Format == DXGI_FORMAT_R8_UINT &&
             desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
             desc->MipLevels == 1 &&
-            desc->SampleDesc.Count == 1 &&
+            desc->SampleDesc.Count <= 1 &&
             desc->SampleDesc.Quality == 0 &&
             desc->Layout == D3D12_TEXTURE_LAYOUT_UNKNOWN &&
             heap_properties &&
@@ -398,7 +399,7 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     }
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D
             && desc->Width == desc->Height && desc->DepthOrArraySize >= 6
-            && desc->SampleDesc.Count == 1)
+            && desc->SampleDesc.Count <= 1)
         image_info.flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
         image_info.flags |= VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT_KHR;
@@ -1889,7 +1890,7 @@ static bool d3d12_resource_validate_texture_alignment(const D3D12_RESOURCE_DESC 
 
     if (desc->Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT
             && desc->Alignment != D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT
-            && (desc->SampleDesc.Count == 1 || desc->Alignment != D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT))
+            && (desc->SampleDesc.Count <= 1 || desc->Alignment != D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT))
     {
         WARN("Invalid resource alignment %#"PRIx64".\n", desc->Alignment);
         return false;
