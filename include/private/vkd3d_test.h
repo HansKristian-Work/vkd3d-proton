@@ -366,6 +366,8 @@ typedef void (*vkd3d_test_pfn)(void);
 
 static inline void vkd3d_run_test(const char *name, vkd3d_test_pfn test_pfn)
 {
+    const char *old_test_name;
+
     if (vkd3d_test_state.test_name_filter && !strstr(name, vkd3d_test_state.test_name_filter))
         return;
 
@@ -373,8 +375,12 @@ static inline void vkd3d_run_test(const char *name, vkd3d_test_pfn test_pfn)
             && vkd3d_debug_list_has_member(vkd3d_test_state.test_exclude_list, name))
         return;
 
-    vkd3d_test_debug("%s", name);
+    old_test_name = vkd3d_test_name;
+    vkd3d_test_debug("======== %s begin ========", name);
+    vkd3d_test_name = name;
     test_pfn();
+    vkd3d_test_name = old_test_name;
+    vkd3d_test_debug("======== %s end ==========", name);
 }
 
 static inline void vkd3d_test_start_todo(bool is_todo)
