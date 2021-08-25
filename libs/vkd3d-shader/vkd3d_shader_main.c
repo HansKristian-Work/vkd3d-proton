@@ -369,10 +369,13 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         return ret;
     }
 
-    if ((ret = vkd3d_shader_validate_shader_type(parser.shader_version.type, shader_interface_info->stage)) < 0)
+    if (shader_interface_info)
     {
-        vkd3d_shader_scan_destroy(&scan_info);
-        return ret;
+        if ((ret = vkd3d_shader_validate_shader_type(parser.shader_version.type, shader_interface_info->stage)) < 0)
+        {
+            vkd3d_shader_scan_destroy(&scan_info);
+            return ret;
+        }
     }
 
     vkd3d_shader_dump_shader(hash, dxbc, "dxbc");
