@@ -5575,7 +5575,7 @@ static const struct vkd3d_shader_buffer_reference_type *vkd3d_dxbc_compiler_get_
     {
         type = &compiler->buffer_ref_types[i];
 
-        if (type->data_type == data_type && type->flags == flags)
+        if (type->data_type == data_type && type->flags == flags && type->length == length)
             return type;
     }
 
