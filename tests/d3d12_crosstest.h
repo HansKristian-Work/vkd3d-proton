@@ -19,6 +19,11 @@
 #ifndef __VKD3D_D3D12_CROSSTEST_H
 #define __VKD3D_D3D12_CROSSTEST_H
 
+#ifdef _MSC_VER
+/* Used for M_PI */
+#define _USE_MATH_DEFINES
+#endif
+
 #ifdef _WIN32
 # include <vkd3d_win32.h>
 #endif

@@ -18,11 +18,6 @@
 
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 
-#ifdef _MSC_VER
-/* Used for M_PI */
-#define _USE_MATH_DEFINES
-#endif
-
 #include "d3d12_crosstest.h"
 
 PFN_D3D12_CREATE_VERSIONED_ROOT_SIGNATURE_DESERIALIZER pfn_D3D12CreateVersionedRootSignatureDeserializer;
