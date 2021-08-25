@@ -33,15 +33,15 @@
 static void vkd3d_test_main(int argc, char **argv);
 #endif
 
-static const char *vkd3d_test_name;
-static const char *vkd3d_test_platform = "other";
+extern const char *vkd3d_test_name;
+extern const char *vkd3d_test_platform;
 
 static void vkd3d_test_start_todo(bool is_todo);
 static int vkd3d_test_loop_todo(void);
 static void vkd3d_test_end_todo(void);
 
 #define START_TEST(name) \
-        static const char *vkd3d_test_name = #name; \
+        const char *vkd3d_test_name = #name; \
         static void vkd3d_test_main(int argc, char **argv)
 
 /*
@@ -104,7 +104,7 @@ static void vkd3d_test_end_todo(void);
 
 #define todo todo_if(true)
 
-static struct
+struct vkd3d_test_state_context
 {
     LONG success_count;
     LONG failure_count;
@@ -125,7 +125,8 @@ static struct
     const char *test_name_filter;
     const char *test_exclude_list;
     char context[1024];
-} vkd3d_test_state;
+};
+extern struct vkd3d_test_state_context vkd3d_test_state;
 
 static bool
 vkd3d_test_platform_is_windows(void)

@@ -24,6 +24,8 @@ PFN_D3D12_SERIALIZE_VERSIONED_ROOT_SIGNATURE pfn_D3D12SerializeVersionedRootSign
 PFN_D3D12_CREATE_DEVICE pfn_D3D12CreateDevice;
 PFN_D3D12_ENABLE_EXPERIMENTAL_FEATURES pfn_D3D12EnableExperimentalFeatures;
 PFN_D3D12_GET_DEBUG_INTERFACE pfn_D3D12GetDebugInterface;
+const char *vkd3d_test_platform = "other";
+struct vkd3d_test_state_context vkd3d_test_state;
 
 bool compare_float(float f, float g, int ulps)
 {
