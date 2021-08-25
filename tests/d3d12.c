@@ -22,11 +22,11 @@
 #define VKD3D_TEST_DECLARE_MAIN
 #include "d3d12_crosstest.h"
 
-#define decl_test(x) static void x(void);
+#define decl_test(x) void x(void);
 #include "d3d12_tests.h"
 #undef decl_test
 
-static void test_create_device(void)
+void test_create_device(void)
 {
     ID3D12Device *device;
     ULONG refcount;
@@ -74,7 +74,7 @@ static void test_create_device(void)
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 }
 
-static void test_node_count(void)
+void test_node_count(void)
 {
     ID3D12Device *device;
     UINT node_count;
@@ -94,7 +94,7 @@ static void test_node_count(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_check_feature_support(void)
+void test_check_feature_support(void)
 {
     D3D12_FEATURE_DATA_GPU_VIRTUAL_ADDRESS_SUPPORT gpu_virtual_address;
     D3D12_FEATURE_DATA_FEATURE_LEVELS feature_levels;
@@ -323,7 +323,7 @@ static const DXGI_FORMAT depth_stencil_formats[] =
     DXGI_FORMAT_D16_UNORM,
 };
 
-static void test_format_support(void)
+void test_format_support(void)
 {
     D3D12_FEATURE_DATA_FORMAT_SUPPORT format_support;
     ID3D12Device *device;
@@ -388,7 +388,7 @@ static void test_format_support(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_multisample_quality_levels(void)
+void test_multisample_quality_levels(void)
 {
     static const unsigned int sample_counts[] = {1, 2, 4, 8, 16, 32};
     D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS format_support;
@@ -519,7 +519,7 @@ static void test_multisample_quality_levels(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_create_command_allocator(void)
+void test_create_command_allocator(void)
 {
     ID3D12CommandAllocator *command_allocator;
     ID3D12Device *device, *tmp_device;
@@ -579,7 +579,7 @@ static void test_create_command_allocator(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_create_command_list(void)
+void test_create_command_list(void)
 {
     ID3D12CommandAllocator *command_allocator;
     ID3D12Device *device, *tmp_device;
@@ -684,7 +684,7 @@ static void test_create_command_list(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_create_command_queue(void)
+void test_create_command_queue(void)
 {
     ID3D12CommandQueue* direct_queues[8], *compute_queues[8];
     D3D12_COMMAND_QUEUE_DESC desc, result_desc;
@@ -765,7 +765,7 @@ static void test_create_command_queue(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_create_command_signature(void)
+void test_create_command_signature(void)
 {
     D3D12_INDIRECT_ARGUMENT_DESC argument_desc[3];
     D3D12_COMMAND_SIGNATURE_DESC signature_desc;
@@ -815,7 +815,7 @@ static void test_create_command_signature(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_create_committed_resource(void)
+void test_create_committed_resource(void)
 {
     D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
     D3D12_HEAP_PROPERTIES heap_properties;
@@ -1106,7 +1106,7 @@ static void test_create_committed_resource(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_create_heap(void)
+void test_create_heap(void)
 {
     D3D12_FEATURE_DATA_ARCHITECTURE architecture;
     D3D12_FEATURE_DATA_D3D12_OPTIONS options;
@@ -1332,7 +1332,7 @@ done:
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_create_placed_resource_size(void)
+void test_create_placed_resource_size(void)
 {
     D3D12_RESOURCE_ALLOCATION_INFO info;
     unsigned int mip_sizes[11], i;
@@ -1398,7 +1398,7 @@ static void test_create_placed_resource_size(void)
     ID3D12Device_Release(device);
 }
 
-static void test_create_placed_resource(void)
+void test_create_placed_resource(void)
 {
     D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
     D3D12_RESOURCE_DESC resource_desc;
@@ -1545,7 +1545,7 @@ static void test_create_placed_resource(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_create_reserved_resource(void)
+void test_create_reserved_resource(void)
 {
     D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
     D3D12_HEAP_PROPERTIES heap_properties;
@@ -1716,7 +1716,7 @@ done:
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_create_descriptor_heap(void)
+void test_create_descriptor_heap(void)
 {
     D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
     ID3D12Device *device, *tmp_device;
@@ -1794,7 +1794,7 @@ static void test_create_descriptor_heap(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_create_sampler(void)
+void test_create_sampler(void)
 {
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
     D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
@@ -1864,7 +1864,7 @@ static void test_create_sampler(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_create_unordered_access_view(void)
+void test_create_unordered_access_view(void)
 {
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
@@ -1920,7 +1920,7 @@ static void test_create_unordered_access_view(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_create_root_signature(void)
+void test_create_root_signature(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_DESCRIPTOR_RANGE descriptor_ranges[2];
@@ -2065,7 +2065,7 @@ static void test_create_root_signature(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_root_signature_limits(void)
+void test_root_signature_limits(void)
 {
     D3D12_DESCRIPTOR_RANGE descriptor_ranges[D3D12_MAX_ROOT_COST + 1];
     D3D12_ROOT_PARAMETER root_parameters[D3D12_MAX_ROOT_COST + 1];
@@ -2114,7 +2114,7 @@ static void test_root_signature_limits(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_create_compute_pipeline_state(void)
+void test_create_compute_pipeline_state(void)
 {
     D3D12_COMPUTE_PIPELINE_STATE_DESC pipeline_state_desc;
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
@@ -2189,7 +2189,7 @@ static void test_create_compute_pipeline_state(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_create_graphics_pipeline_state(void)
+void test_create_graphics_pipeline_state(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -2335,7 +2335,7 @@ static void test_create_graphics_pipeline_state(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_create_pipeline_state(void)
+void test_create_pipeline_state(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     ID3D12RootSignature *root_signature;
@@ -2886,7 +2886,7 @@ static void test_create_pipeline_state(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_create_fence(void)
+void test_create_fence(void)
 {
     ID3D12Device *device, *tmp_device;
     ID3D12Fence *fence;
@@ -2936,7 +2936,7 @@ static void test_create_fence(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_object_interface(void)
+void test_object_interface(void)
 {
     D3D12_DESCRIPTOR_HEAP_DESC descriptor_heap_desc;
     D3D12_QUERY_HEAP_DESC query_heap_desc;
@@ -3288,7 +3288,7 @@ static void private_data_interface_thread_main(void *untyped_data)
     }
 }
 
-static void test_multithread_private_data(void)
+void test_multithread_private_data(void)
 {
     static const GUID guid = {0xfdb37466, 0x428f, 0x4edf, {0xa3, 0x7f, 0x9b, 0x1d, 0xf4, 0x88, 0xc5, 0x00}};
     struct private_data_interface private_data_interface[4];
@@ -3392,7 +3392,7 @@ static void test_multithread_private_data(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_reset_command_allocator(void)
+void test_reset_command_allocator(void)
 {
     ID3D12CommandAllocator *command_allocator, *command_allocator2;
     ID3D12GraphicsCommandList *command_list, *command_list2;
@@ -3541,7 +3541,7 @@ static void test_reset_command_allocator(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_cpu_signal_fence(void)
+void test_cpu_signal_fence(void)
 {
     HANDLE event1, event2;
     ID3D12Device *device;
@@ -3810,7 +3810,7 @@ static void test_cpu_signal_fence(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_gpu_signal_fence(void)
+void test_gpu_signal_fence(void)
 {
     ID3D12CommandQueue *queue;
     HANDLE event1, event2;
@@ -4071,7 +4071,7 @@ static void fence_busy_wait_main(void *untyped_data)
         ;
 }
 
-static void test_multithread_fence_wait(void)
+void test_multithread_fence_wait(void)
 {
     struct multithread_fence_wait_data thread_data;
     ID3D12CommandQueue *queue;
@@ -4147,7 +4147,7 @@ static void test_multithread_fence_wait(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_fence_values(void)
+void test_fence_values(void)
 {
     uint64_t value, next_value;
     ID3D12CommandQueue *queue;
@@ -4226,7 +4226,7 @@ static void test_fence_values(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_clear_depth_stencil_view(void)
+void test_clear_depth_stencil_view(void)
 {
     static const float expected_values[] = {0.5f, 0.1f, 0.1f, 0.6, 1.0f, 0.5f};
     ID3D12GraphicsCommandList *command_list;
@@ -4342,7 +4342,7 @@ static void test_clear_depth_stencil_view(void)
     destroy_test_context(&context);
 }
 
-static void test_clear_render_target_view(void)
+void test_clear_render_target_view(void)
 {
     static const unsigned int array_expected_colors[] = {0xff00ff00, 0xff0000ff, 0xffff0000};
     static const struct vec4 array_colors[] =
@@ -4617,7 +4617,7 @@ static void test_clear_render_target_view(void)
     destroy_test_context(&context);
 }
 
-static void test_clear_unordered_access_view_buffer(void)
+void test_clear_unordered_access_view_buffer(void)
 {
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
     ID3D12DescriptorHeap *cpu_heap, *gpu_heap;
@@ -4836,7 +4836,7 @@ static void test_clear_unordered_access_view_buffer(void)
 #undef BUFFER_SIZE
 }
 
-static void test_clear_unordered_access_view_image(void)
+void test_clear_unordered_access_view_image(void)
 {
     unsigned int expected_colour, actual_colour;
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
@@ -5124,7 +5124,7 @@ static void test_clear_unordered_access_view_image(void)
 #undef IMAGE_SIZE
 }
 
-static void test_set_render_targets(void)
+void test_set_render_targets(void)
 {
     ID3D12DescriptorHeap *dsv_heap, *rtv_heap;
     ID3D12GraphicsCommandList *command_list;
@@ -5160,7 +5160,7 @@ static void test_set_render_targets(void)
     destroy_test_context(&context);
 }
 
-static void test_draw_instanced(void)
+void test_draw_instanced(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList *command_list;
@@ -5196,7 +5196,7 @@ static void test_draw_instanced(void)
     destroy_test_context(&context);
 }
 
-static void test_draw_indexed_instanced(void)
+void test_draw_indexed_instanced(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     static const uint16_t indices[] = {0, 1, 2};
@@ -5244,7 +5244,7 @@ static void test_draw_indexed_instanced(void)
     destroy_test_context(&context);
 }
 
-static void test_draw_no_descriptor_bindings(void)
+void test_draw_no_descriptor_bindings(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
@@ -5312,7 +5312,7 @@ static void test_draw_no_descriptor_bindings(void)
     destroy_test_context(&context);
 }
 
-static void test_multiple_render_targets(void)
+void test_multiple_render_targets(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     struct vec4 expected_vec4 = {0.0f, 0.0f, 0.0f, 1.0f};
@@ -5439,7 +5439,7 @@ static void test_multiple_render_targets(void)
     destroy_test_context(&context);
 }
 
-static void test_unknown_rtv_format(void)
+void test_unknown_rtv_format(void)
 {
     static const struct vec4 white = {1.0f, 1.0f, 1.0f, 1.0f};
     struct vec4 expected_vec4 = {0.0f, 0.0f, 0.0f, 1.0f};
@@ -5552,7 +5552,7 @@ static void test_unknown_rtv_format(void)
     destroy_test_context(&context);
 }
 
-static void test_unknown_dsv_format(void)
+void test_unknown_dsv_format(void)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12GraphicsCommandList *command_list;
@@ -5754,7 +5754,7 @@ static void test_unknown_dsv_format(void)
     destroy_test_context(&context);
 }
 
-static void test_append_aligned_element(void)
+void test_append_aligned_element(void)
 {
     ID3D12GraphicsCommandList *command_list;
     D3D12_INPUT_LAYOUT_DESC input_layout;
@@ -5953,7 +5953,7 @@ static void test_append_aligned_element(void)
     destroy_test_context(&context);
 }
 
-static void test_gpu_virtual_address(void)
+void test_gpu_virtual_address(void)
 {
     D3D12_GPU_VIRTUAL_ADDRESS vb_offset, ib_offset;
     ID3D12GraphicsCommandList *command_list;
@@ -6080,7 +6080,7 @@ static void test_gpu_virtual_address(void)
     destroy_test_context(&context);
 }
 
-static void test_fragment_coords(void)
+void test_fragment_coords(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList *command_list;
@@ -6248,7 +6248,7 @@ static void test_fragment_coords(void)
     destroy_test_context(&context);
 }
 
-static void test_fractional_viewports(void)
+void test_fractional_viewports(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList *command_list;
@@ -6401,7 +6401,7 @@ static void test_fractional_viewports(void)
     destroy_test_context(&context);
 }
 
-static void test_scissor(void)
+void test_scissor(void)
 {
     ID3D12GraphicsCommandList *command_list;
     struct test_context_desc desc;
@@ -6470,7 +6470,7 @@ static void test_scissor(void)
     destroy_test_context(&context);
 }
 
-static void test_draw_depth_no_ps(void)
+void test_draw_depth_no_ps(void)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12GraphicsCommandList *command_list;
@@ -6569,7 +6569,7 @@ static void test_draw_depth_no_ps(void)
     destroy_test_context(&context);
 }
 
-static void test_draw_depth_only(void)
+void test_draw_depth_only(void)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12GraphicsCommandList *command_list;
@@ -6710,7 +6710,7 @@ static void test_draw_depth_only(void)
     destroy_test_context(&context);
 }
 
-static void test_draw_uav_only(void)
+void test_draw_uav_only(void)
 {
     ID3D12DescriptorHeap *cpu_descriptor_heap, *descriptor_heap;
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
@@ -6815,7 +6815,7 @@ static void test_draw_uav_only(void)
     destroy_test_context(&context);
 }
 
-static void test_texture_resource_barriers(void)
+void test_texture_resource_barriers(void)
 {
     ID3D12CommandAllocator *command_allocator;
     ID3D12GraphicsCommandList *command_list;
@@ -6921,7 +6921,7 @@ static void test_texture_resource_barriers(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_device_removed_reason(void)
+void test_device_removed_reason(void)
 {
     D3D12_COMMAND_QUEUE_DESC command_queue_desc;
     ID3D12CommandAllocator *command_allocator;
@@ -6978,7 +6978,7 @@ static void test_device_removed_reason(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_map_resource(void)
+void test_map_resource(void)
 {
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC resource_desc;
@@ -7102,7 +7102,7 @@ static void test_map_resource(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_map_placed_resources(void)
+void test_map_placed_resources(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     ID3D12GraphicsCommandList *command_list;
@@ -7288,7 +7288,7 @@ static void test_map_placed_resources(void)
     destroy_test_context(&context);
 }
 
-static void test_bundle_state_inheritance(void)
+void test_bundle_state_inheritance(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList *command_list, *bundle;
@@ -7442,7 +7442,7 @@ static void test_bundle_state_inheritance(void)
     destroy_test_context(&context);
 }
 
-static void test_shader_instructions(void)
+void test_shader_instructions(void)
 {
     struct named_shader
     {
@@ -10068,7 +10068,7 @@ static void test_shader_instructions(void)
     destroy_test_context(&context);
 }
 
-static void test_compute_shader_instructions(void)
+void test_compute_shader_instructions(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     const D3D12_SHADER_BYTECODE *current_cs;
@@ -10254,7 +10254,7 @@ static void test_compute_shader_instructions(void)
     destroy_test_context(&context);
 }
 
-static void test_discard_instruction(void)
+void test_discard_instruction(void)
 {
     ID3D12PipelineState *pso_discard_nz, *pso_discard_z;
     ID3D12GraphicsCommandList *command_list;
@@ -10380,7 +10380,7 @@ static void test_discard_instruction(void)
     destroy_test_context(&context);
 }
 
-static void test_shader_interstage_interface(void)
+void test_shader_interstage_interface(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList *command_list;
@@ -10531,7 +10531,7 @@ static void test_shader_interstage_interface(void)
     destroy_test_context(&context);
 }
 
-static void test_shader_input_output_components(void)
+void test_shader_input_output_components(void)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12GraphicsCommandList *command_list;
@@ -11360,7 +11360,7 @@ static void check_root_signature_serialization1_(unsigned int line, const D3D12_
     ID3D10Blob_Release(blob);
 }
 
-static void test_root_signature_byte_code(void)
+void test_root_signature_byte_code(void)
 {
     ID3D12VersionedRootSignatureDeserializer *versioned_deserializer;
     ID3D12RootSignatureDeserializer *deserializer;
@@ -11994,7 +11994,7 @@ static void test_root_signature_byte_code(void)
     ok(!refcount, "ID3D12VersionedRootSignatureDeserializer has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_cs_constant_buffer(void)
+void test_cs_constant_buffer(void)
 {
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_descriptor_handle;
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_descriptor_handle;
@@ -12152,7 +12152,7 @@ static void test_cs_constant_buffer(void)
     destroy_test_context(&context);
 }
 
-static void test_constant_buffer_relative_addressing(void)
+void test_constant_buffer_relative_addressing(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_ROOT_PARAMETER root_parameters[2];
@@ -12255,7 +12255,7 @@ static void test_constant_buffer_relative_addressing(void)
     destroy_test_context(&context);
 }
 
-static void test_immediate_constant_buffer(void)
+void test_immediate_constant_buffer(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList *command_list;
@@ -12364,7 +12364,7 @@ static void test_immediate_constant_buffer(void)
     destroy_test_context(&context);
 }
 
-static void test_root_constants(void)
+void test_root_constants(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     static const unsigned int constants[4] = {0, 1, 0, 2};
@@ -12752,7 +12752,7 @@ static void test_root_constants(void)
     destroy_test_context(&context);
 }
 
-static void test_sample_instructions(void)
+void test_sample_instructions(void)
 {
     ID3D12DescriptorHeap *heap, *sampler_heap, *heaps[2];
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
@@ -13173,7 +13173,7 @@ static void test_sample_instructions(void)
     destroy_test_context(&context);
 }
 
-static void test_texture_ld(void)
+void test_texture_ld(void)
 {
     ID3D12GraphicsCommandList *command_list;
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
@@ -13393,7 +13393,7 @@ static void test_texture_ld(void)
     destroy_test_context(&context);
 }
 
-static void test_gather(void)
+void test_gather(void)
 {
     struct
     {
@@ -13767,7 +13767,7 @@ static void test_gather(void)
     destroy_test_context(&context);
 }
 
-static void test_gather_c(void)
+void test_gather_c(void)
 {
     struct
     {
@@ -14031,7 +14031,7 @@ static void test_gather_c(void)
     destroy_test_context(&context);
 }
 
-static void test_sample_c_lz(void)
+void test_sample_c_lz(void)
 {
     D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
     ID3D12GraphicsCommandList *command_list;
@@ -14329,7 +14329,7 @@ static void test_sample_c_lz(void)
     destroy_test_context(&context);
 }
 
-static void test_cube_maps(void)
+void test_cube_maps(void)
 {
     unsigned int i, j, sub_resource_idx, sub_resource_count;
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -14636,7 +14636,7 @@ static void test_cube_maps(void)
     destroy_test_context(&context);
 }
 
-static void test_multisample_array_texture(void)
+void test_multisample_array_texture(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_ROOT_PARAMETER root_parameters[3];
@@ -14862,7 +14862,7 @@ static void test_multisample_array_texture(void)
     destroy_test_context(&context);
 }
 
-static void test_resinfo(void)
+void test_resinfo(void)
 {
     D3D12_SHADER_RESOURCE_VIEW_DESC *current_srv_desc, srv_desc;
     const D3D12_SHADER_BYTECODE *current_ps;
@@ -15232,7 +15232,7 @@ static void test_resinfo(void)
     destroy_test_context(&context);
 }
 
-static void test_srv_component_mapping(void)
+void test_srv_component_mapping(void)
 {
     D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
     D3D12_SUBRESOURCE_DATA subresource_data;
@@ -15478,7 +15478,7 @@ static void test_srv_component_mapping(void)
     destroy_test_context(&context);
 }
 
-static void test_descriptor_tables(void)
+void test_descriptor_tables(void)
 {
     ID3D12DescriptorHeap *heap, *sampler_heap, *heaps[2];
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
@@ -15677,7 +15677,7 @@ static void test_descriptor_tables(void)
 /* Tests overlapping descriptor heap ranges for SRV and UAV descriptor tables.
  * Only descriptors used by the pipeline have to be valid.
  */
-static void test_descriptor_tables_overlapping_bindings(void)
+void test_descriptor_tables_overlapping_bindings(void)
 {
     ID3D12Resource *input_buffers[2], *output_buffers[2];
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
@@ -15868,7 +15868,7 @@ static void test_descriptor_tables_overlapping_bindings(void)
     destroy_test_context(&context);
 }
 
-static void test_update_root_descriptors(void)
+void test_update_root_descriptors(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_GPU_VIRTUAL_ADDRESS cb_va, uav_va;
@@ -15985,7 +15985,7 @@ static void test_update_root_descriptors(void)
     destroy_test_context(&context);
 }
 
-static void test_update_descriptor_tables(void)
+void test_update_descriptor_tables(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_DESCRIPTOR_RANGE descriptor_range;
@@ -16160,7 +16160,7 @@ static void test_update_descriptor_tables(void)
  * updating descriptor sets after the vkCmdBindDescriptorSets() command
  * is recorded.
  */
-static void test_update_descriptor_heap_after_closing_command_list(void)
+void test_update_descriptor_heap_after_closing_command_list(void)
 {
     ID3D12Resource *red_texture, *green_texture;
     ID3D12GraphicsCommandList *command_list;
@@ -16283,7 +16283,7 @@ static void test_update_descriptor_heap_after_closing_command_list(void)
     destroy_test_context(&context);
 }
 
-static void test_update_compute_descriptor_tables(void)
+void test_update_compute_descriptor_tables(void)
 {
     struct cb_data
     {
@@ -16821,7 +16821,7 @@ static void test_update_compute_descriptor_tables(void)
     destroy_test_context(&context);
 }
 
-static void test_update_descriptor_tables_after_root_signature_change(void)
+void test_update_descriptor_tables_after_root_signature_change(void)
 {
     ID3D12RootSignature *root_signature, *root_signature2;
     ID3D12PipelineState *pipeline_state, *pipeline_state2;
@@ -17039,7 +17039,7 @@ static void test_update_descriptor_tables_after_root_signature_change(void)
     destroy_test_context(&context);
 }
 
-static void test_copy_descriptors(void)
+void test_copy_descriptors(void)
 {
     struct data
     {
@@ -17613,7 +17613,7 @@ static void test_copy_descriptors(void)
     destroy_test_context(&context);
 }
 
-static void test_copy_descriptors_range_sizes(void)
+void test_copy_descriptors_range_sizes(void)
 {
     D3D12_CPU_DESCRIPTOR_HANDLE dst_handles[1], src_handles[1];
     D3D12_CPU_DESCRIPTOR_HANDLE green_handle, blue_handle;
@@ -17777,7 +17777,7 @@ static void test_copy_descriptors_range_sizes(void)
     destroy_test_context(&context);
 }
 
-static void test_copy_rtv_descriptors(void)
+void test_copy_rtv_descriptors(void)
 {
     D3D12_CPU_DESCRIPTOR_HANDLE dst_ranges[1], src_ranges[2];
     ID3D12GraphicsCommandList *command_list;
@@ -17896,7 +17896,7 @@ static void test_copy_rtv_descriptors(void)
     destroy_test_context(&context);
 }
 
-static void test_descriptors_visibility(void)
+void test_descriptors_visibility(void)
 {
     ID3D12Resource *vs_raw_buffer, *ps_raw_buffer;
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
@@ -18173,7 +18173,7 @@ static void test_descriptors_visibility(void)
     destroy_test_context(&context);
 }
 
-static void test_create_null_descriptors(void)
+void test_create_null_descriptors(void)
 {
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
     D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc;
@@ -18242,7 +18242,7 @@ static void test_create_null_descriptors(void)
     destroy_test_context(&context);
 }
 
-static void test_null_cbv(void)
+void test_null_cbv(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc;
@@ -18356,7 +18356,7 @@ static void test_null_cbv(void)
     destroy_test_context(&context);
 }
 
-static void test_null_srv(void)
+void test_null_srv(void)
 {
     D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
     ID3D12GraphicsCommandList *command_list;
@@ -18583,7 +18583,7 @@ static void test_null_srv(void)
     destroy_test_context(&context);
 }
 
-static void test_null_uav(void)
+void test_null_uav(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_DESCRIPTOR_RANGE descriptor_ranges[1];
@@ -18746,7 +18746,7 @@ static void test_null_uav(void)
     destroy_test_context(&context);
 }
 
-static void test_null_rtv(void)
+void test_null_rtv(void)
 {
     ID3D12GraphicsCommandList *command_list;
     D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
@@ -18791,7 +18791,7 @@ static void test_null_rtv(void)
     destroy_test_context(&context);
 }
 
-static void test_vbv_stride_edge_cases(void)
+void test_vbv_stride_edge_cases(void)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     D3D12_STREAM_OUTPUT_BUFFER_VIEW so_view;
@@ -18949,7 +18949,7 @@ static void test_vbv_stride_edge_cases(void)
     destroy_test_context(&context);
 }
 
-static void test_null_vbv(void)
+void test_null_vbv(void)
 {
     ID3D12GraphicsCommandList *command_list;
     D3D12_INPUT_LAYOUT_DESC input_layout;
@@ -19130,7 +19130,7 @@ static void check_copyable_footprints_(unsigned int line, const D3D12_RESOURCE_D
         ok_(line)(*total_size == total, "Got total size %"PRIu64", expected %"PRIu64".\n", *total_size, total);
 }
 
-static void test_get_copyable_footprints(void)
+void test_get_copyable_footprints(void)
 {
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT layouts[10];
     uint64_t row_sizes[10], total_size;
@@ -19382,7 +19382,7 @@ static void test_get_copyable_footprints(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_depth_clip(void)
+void test_depth_clip(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -19675,7 +19675,7 @@ static void check_depth_stencil_sampling_(unsigned int line, struct test_context
     wait_queue_idle(context->device, queue);
 }
 
-static void test_depth_stencil_sampling(void)
+void test_depth_stencil_sampling(void)
 {
     ID3D12PipelineState *pso_compare, *pso_depth, *pso_stencil, *pso_depth_stencil;
     D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle, srv_cpu_handle;
@@ -20023,7 +20023,7 @@ static void test_depth_stencil_sampling(void)
     destroy_test_context(&context);
 }
 
-static void test_depth_load(void)
+void test_depth_load(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_DESCRIPTOR_RANGE descriptor_ranges[2];
@@ -20197,7 +20197,7 @@ static void test_depth_load(void)
     destroy_test_context(&context);
 }
 
-static void test_depth_read_only_view(void)
+void test_depth_read_only_view(void)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12GraphicsCommandList *command_list;
@@ -20310,7 +20310,7 @@ static void test_depth_read_only_view(void)
     destroy_test_context(&context);
 }
 
-static void test_stencil_load(void)
+void test_stencil_load(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_DESCRIPTOR_RANGE descriptor_ranges[2];
@@ -20491,7 +20491,7 @@ static void test_stencil_load(void)
     destroy_test_context(&context);
 }
 
-static void test_typed_buffer_uav(void)
+void test_typed_buffer_uav(void)
 {
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_descriptor_handle;
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_descriptor_handle;
@@ -20594,7 +20594,7 @@ static void test_typed_buffer_uav(void)
     destroy_test_context(&context);
 }
 
-static void test_typed_uav_store(void)
+void test_typed_uav_store(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_DESCRIPTOR_RANGE descriptor_ranges[1];
@@ -20727,7 +20727,7 @@ static void test_typed_uav_store(void)
     destroy_test_context(&context);
 }
 
-static void test_compute_shader_registers(void)
+void test_compute_shader_registers(void)
 {
     struct data
     {
@@ -20905,7 +20905,7 @@ static void test_compute_shader_registers(void)
     destroy_test_context(&context);
 }
 
-static void test_tgsm(void)
+void test_tgsm(void)
 {
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_descriptor_handle;
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
@@ -21248,7 +21248,7 @@ static void test_tgsm(void)
     destroy_test_context(&context);
 }
 
-static void test_uav_load(void)
+void test_uav_load(void)
 {
     struct texture
     {
@@ -21664,7 +21664,7 @@ static void test_uav_load(void)
     destroy_test_context(&context);
 }
 
-static void test_cs_uav_store(void)
+void test_cs_uav_store(void)
 {
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_descriptor_handle;
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_descriptor_handle;
@@ -22083,7 +22083,7 @@ static int compare_id(const void *a, const void *b)
     return *(int *)a - *(int *)b;
 }
 
-static void test_uav_counters(void)
+void test_uav_counters(void)
 {
     ID3D12Resource *buffer, *out_buffer, *counter_buffer;
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
@@ -22301,7 +22301,7 @@ static void test_uav_counters(void)
     destroy_test_context(&context);
 }
 
-static void test_decrement_uav_counter(void)
+void test_decrement_uav_counter(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_DESCRIPTOR_RANGE descriptor_ranges[1];
@@ -22437,7 +22437,7 @@ static void test_decrement_uav_counter(void)
     destroy_test_context(&context);
 }
 
-static void test_atomic_instructions(bool use_dxil)
+void test_atomic_instructions(bool use_dxil)
 {
     ID3D12Resource *ps_buffer, *cs_buffer, *cs_buffer2;
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
@@ -22858,17 +22858,17 @@ static void test_atomic_instructions(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_atomic_instructions_dxbc(void)
+void test_atomic_instructions_dxbc(void)
 {
     test_atomic_instructions(false);
 }
 
-static void test_atomic_instructions_dxil(void)
+void test_atomic_instructions_dxil(void)
 {
     test_atomic_instructions(true);
 }
 
-static void test_buffer_srv(void)
+void test_buffer_srv(void)
 {
     struct buffer
     {
@@ -23170,7 +23170,7 @@ static void test_buffer_srv(void)
     destroy_test_context(&context);
 }
 
-static void test_create_query_heap(void)
+void test_create_query_heap(void)
 {
     ID3D12Device *device;
     D3D12_QUERY_HEAP_DESC heap_desc;
@@ -23223,7 +23223,7 @@ static void test_create_query_heap(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_query_timestamp(void)
+void test_query_timestamp(void)
 {
     uint64_t timestamps[4], timestamp_frequency, timestamp_diff, time_diff;
     ID3D12GraphicsCommandList *command_list;
@@ -23293,7 +23293,7 @@ static void test_query_timestamp(void)
     destroy_test_context(&context);
 }
 
-static void test_query_pipeline_statistics(void)
+void test_query_pipeline_statistics(void)
 {
     D3D12_QUERY_DATA_PIPELINE_STATISTICS *pipeline_statistics;
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -23394,7 +23394,7 @@ static void test_query_pipeline_statistics(void)
     destroy_test_context(&context);
 }
 
-static void test_query_occlusion(void)
+void test_query_occlusion(void)
 {
     struct test_context_desc desc;
     ID3D12GraphicsCommandList *command_list;
@@ -23529,7 +23529,7 @@ static void test_query_occlusion(void)
     destroy_test_context(&context);
 }
 
-static void test_resolve_non_issued_query_data(void)
+void test_resolve_non_issued_query_data(void)
 {
     static const uint64_t initial_data[] = {0xdeadbeef, 0xdeadbeef, 0xdeadbabe, 0xdeadbeef};
     ID3D12Resource *readback_buffer, *upload_buffer;
@@ -23583,7 +23583,7 @@ static void test_resolve_non_issued_query_data(void)
     destroy_test_context(&context);
 }
 
-static void test_resolve_query_data_in_different_command_list(void)
+void test_resolve_query_data_in_different_command_list(void)
 {
     ID3D12GraphicsCommandList *command_list;
     D3D12_QUERY_HEAP_DESC heap_desc;
@@ -23663,7 +23663,7 @@ static void test_resolve_query_data_in_different_command_list(void)
     destroy_test_context(&context);
 }
 
-static void test_resolve_query_data_in_reordered_command_list(void)
+void test_resolve_query_data_in_reordered_command_list(void)
 {
     ID3D12GraphicsCommandList *command_lists[2];
     ID3D12CommandAllocator *command_allocator;
@@ -23735,7 +23735,7 @@ static void test_resolve_query_data_in_reordered_command_list(void)
     destroy_test_context(&context);
 }
 
-static void test_execute_indirect(void)
+void test_execute_indirect(void)
 {
     ID3D12Resource *argument_buffer, *count_buffer, *uav;
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
@@ -24040,7 +24040,7 @@ static void test_execute_indirect(void)
     destroy_test_context(&context);
 }
 
-static void test_dispatch_zero_thread_groups(void)
+void test_dispatch_zero_thread_groups(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     ID3D12CommandSignature *command_signature;
@@ -24157,7 +24157,7 @@ static void test_dispatch_zero_thread_groups(void)
     destroy_test_context(&context);
 }
 
-static void test_unaligned_vertex_stride(void)
+void test_unaligned_vertex_stride(void)
 {
     ID3D12PipelineState *instance_pipeline_state;
     ID3D12GraphicsCommandList *command_list;
@@ -24341,7 +24341,7 @@ static void test_unaligned_vertex_stride(void)
     destroy_test_context(&context);
 }
 
-static void test_zero_vertex_stride(void)
+void test_zero_vertex_stride(void)
 {
     ID3D12PipelineState *instance_pipeline_state;
     ID3D12GraphicsCommandList *command_list;
@@ -24511,7 +24511,7 @@ static void test_zero_vertex_stride(void)
     destroy_test_context(&context);
 }
 
-static void test_instance_id(bool use_dxil)
+void test_instance_id(bool use_dxil)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12CommandSignature *command_signature;
@@ -24947,17 +24947,17 @@ static void test_instance_id(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_instance_id_dxbc(void)
+void test_instance_id_dxbc(void)
 {
     test_instance_id(false);
 }
 
-static void test_instance_id_dxil(void)
+void test_instance_id_dxil(void)
 {
     test_instance_id(true);
 }
 
-static void test_vertex_id(bool use_dxil)
+void test_vertex_id(bool use_dxil)
 {
 #if 0
     uint4 main(uint id : ID, uint instance_id : SV_InstanceID, uint vertex_id : SV_VertexID) : OUTPUT
@@ -25321,17 +25321,17 @@ static void test_vertex_id(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_vertex_id_dxbc(void)
+void test_vertex_id_dxbc(void)
 {
     test_vertex_id(false);
 }
 
-static void test_vertex_id_dxil(void)
+void test_vertex_id_dxil(void)
 {
     test_vertex_id(true);
 }
 
-static void test_copy_texture(void)
+void test_copy_texture(void)
 {
     D3D12_TEXTURE_COPY_LOCATION src_location, dst_location;
     ID3D12Resource *src_texture, *dst_texture;
@@ -25631,7 +25631,7 @@ static void test_copy_texture(void)
     destroy_test_context(&context);
 }
 
-static void test_copy_texture_buffer(void)
+void test_copy_texture_buffer(void)
 {
     D3D12_TEXTURE_COPY_LOCATION src_location, dst_location;
     ID3D12GraphicsCommandList *command_list;
@@ -25807,7 +25807,7 @@ static void test_copy_texture_buffer(void)
     destroy_test_context(&context);
 }
 
-static void test_copy_buffer_texture(void)
+void test_copy_buffer_texture(void)
 {
     D3D12_TEXTURE_COPY_LOCATION src_location, dst_location;
     ID3D12GraphicsCommandList *command_list;
@@ -25981,7 +25981,7 @@ static void test_copy_buffer_texture(void)
     destroy_test_context(&context);
 }
 
-static void test_copy_block_compressed_texture(void)
+void test_copy_block_compressed_texture(void)
 {
     D3D12_TEXTURE_COPY_LOCATION src_location, dst_location;
     ID3D12Resource *dst_buffer, *src_buffer;
@@ -26191,7 +26191,7 @@ static void test_copy_block_compressed_texture(void)
     destroy_test_context(&context);
 }
 
-static void test_separate_bindings(void)
+void test_separate_bindings(void)
 {
     ID3D12Resource *cs_raw_buffer, *cs_raw_uav_buffer;
     ID3D12Resource *ps_raw_buffer, *ps_raw_uav_buffer;
@@ -26509,7 +26509,7 @@ static void test_separate_bindings(void)
     destroy_test_context(&context);
 }
 
-static void test_face_culling(bool use_dxil)
+void test_face_culling(bool use_dxil)
 {
     ID3D12PipelineState *color_pso, *ccw_color_pso, *pso;
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -26980,12 +26980,12 @@ static void test_face_culling(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_face_culling_dxbc(void)
+void test_face_culling_dxbc(void)
 {
     test_face_culling(false);
 }
 
-static void test_face_culling_dxil(void)
+void test_face_culling_dxil(void)
 {
     test_face_culling(true);
 }
@@ -27042,7 +27042,7 @@ static void draw_thread_main(void *thread_data)
     ID3D12GraphicsCommandList_Release(command_list);
 }
 
-static void test_multithread_command_queue_exec(void)
+void test_multithread_command_queue_exec(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList *command_list;
@@ -27087,7 +27087,7 @@ static void test_multithread_command_queue_exec(void)
     destroy_test_context(&context);
 }
 
-static void test_geometry_shader(bool use_dxil)
+void test_geometry_shader(bool use_dxil)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12GraphicsCommandList *command_list;
@@ -27558,17 +27558,17 @@ static void test_geometry_shader(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_geometry_shader_dxbc(void)
+void test_geometry_shader_dxbc(void)
 {
     test_geometry_shader(false);
 }
 
-static void test_geometry_shader_dxil(void)
+void test_geometry_shader_dxil(void)
 {
     test_geometry_shader(true);
 }
 
-static void test_layered_rendering(bool use_dxil)
+void test_layered_rendering(bool use_dxil)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     D3D12_FEATURE_DATA_D3D12_OPTIONS options;
@@ -28140,17 +28140,17 @@ static void test_layered_rendering(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_layered_rendering_dxbc(void)
+void test_layered_rendering_dxbc(void)
 {
     test_layered_rendering(false);
 }
 
-static void test_layered_rendering_dxil(void)
+void test_layered_rendering_dxil(void)
 {
     test_layered_rendering(true);
 }
 
-static void test_ps_layer(bool use_dxil)
+void test_ps_layer(bool use_dxil)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12GraphicsCommandList *command_list;
@@ -28478,17 +28478,17 @@ static void test_ps_layer(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_ps_layer_dxbc(void)
+void test_ps_layer_dxbc(void)
 {
     test_ps_layer(false);
 }
 
-static void test_ps_layer_dxil(void)
+void test_ps_layer_dxil(void)
 {
     test_ps_layer(true);
 }
 
-static void test_nop_tessellation_shaders(void)
+void test_nop_tessellation_shaders(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -28925,7 +28925,7 @@ static void check_triangles_(unsigned int line, ID3D12Resource *buffer,
     release_resource_readback(&rb);
 }
 
-static void test_quad_tessellation(bool use_dxil)
+void test_quad_tessellation(bool use_dxil)
 {
 #if 0
     void main(float4 in_position : POSITION, out float4 out_position : SV_POSITION)
@@ -29667,17 +29667,17 @@ static void test_quad_tessellation(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_quad_tessellation_dxbc(void)
+void test_quad_tessellation_dxbc(void)
 {
     test_quad_tessellation(false);
 }
 
-static void test_quad_tessellation_dxil(void)
+void test_quad_tessellation_dxil(void)
 {
     test_quad_tessellation(true);
 }
 
-static void test_tessellation_dcl_index_range(void)
+void test_tessellation_dcl_index_range(void)
 {
     static const DWORD vs_code[] =
     {
@@ -29868,7 +29868,7 @@ static void test_tessellation_dcl_index_range(void)
     destroy_test_context(&context);
 }
 
-static void test_hull_shader_control_point_phase(bool use_dxil)
+void test_hull_shader_control_point_phase(bool use_dxil)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -30212,17 +30212,17 @@ static void test_hull_shader_control_point_phase(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_hull_shader_control_point_phase_dxbc(void)
+void test_hull_shader_control_point_phase_dxbc(void)
 {
     test_hull_shader_control_point_phase(false);
 }
 
-static void test_hull_shader_control_point_phase_dxil(void)
+void test_hull_shader_control_point_phase_dxil(void)
 {
     test_hull_shader_control_point_phase(true);
 }
 
-static void test_hull_shader_vertex_input_patch_constant_phase(void)
+void test_hull_shader_vertex_input_patch_constant_phase(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -30459,7 +30459,7 @@ static void test_hull_shader_vertex_input_patch_constant_phase(void)
     destroy_test_context(&context);
 }
 
-static void test_hull_shader_fork_phase(bool use_dxil)
+void test_hull_shader_fork_phase(bool use_dxil)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -30999,17 +30999,17 @@ static void test_hull_shader_fork_phase(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_hull_shader_fork_phase_dxbc(void)
+void test_hull_shader_fork_phase_dxbc(void)
 {
     test_hull_shader_fork_phase(false);
 }
 
-static void test_hull_shader_fork_phase_dxil(void)
+void test_hull_shader_fork_phase_dxil(void)
 {
     test_hull_shader_fork_phase(true);
 }
 
-static void test_tessellation_read_tesslevel(void)
+void test_tessellation_read_tesslevel(void)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12GraphicsCommandList *command_list;
@@ -31217,7 +31217,7 @@ static void test_tessellation_read_tesslevel(void)
     destroy_test_context(&context);
 }
 
-static void test_line_tessellation(bool use_dxil)
+void test_line_tessellation(bool use_dxil)
 {
     ID3D12Resource *vb, *so_buffer, *readback_buffer;
     D3D12_QUERY_DATA_SO_STATISTICS *so_statistics;
@@ -31829,17 +31829,17 @@ done:
     destroy_test_context(&context);
 }
 
-static void test_line_tessellation_dxbc(void)
+void test_line_tessellation_dxbc(void)
 {
     test_line_tessellation(false);
 }
 
-static void test_line_tessellation_dxil(void)
+void test_line_tessellation_dxil(void)
 {
     test_line_tessellation(true);
 }
 
-static void test_tessellation_primitive_id(void)
+void test_tessellation_primitive_id(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
@@ -32161,7 +32161,7 @@ static void test_tessellation_primitive_id(void)
     destroy_test_context(&context);
 }
 
-static void test_render_a8_dxbc(void)
+void test_render_a8_dxbc(void)
 {
     static const float black[] = {0.0f, 0.0f, 0.0f, 0.0f};
     ID3D12GraphicsCommandList *command_list;
@@ -32212,7 +32212,7 @@ static void test_render_a8_dxbc(void)
     destroy_test_context(&context);
 }
 
-static void test_render_a8_dxil(void)
+void test_render_a8_dxil(void)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     static const float black[] = {0.0f, 0.0f, 0.0f, 0.0f};
@@ -32319,7 +32319,7 @@ static void test_render_a8_dxil(void)
     destroy_test_context(&context);
 }
 
-static void test_cpu_descriptors_lifetime(void)
+void test_cpu_descriptors_lifetime(void)
 {
     static const float blue[] = {0.0f, 0.0f, 1.0f, 1.0f};
     static const float red[] = {1.0f, 0.0f, 0.0f, 1.0f};
@@ -32595,7 +32595,7 @@ static void check_clip_distance(struct test_context *context,
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 }
 
-static void test_clip_distance(bool use_dxil)
+void test_clip_distance(bool use_dxil)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -33295,17 +33295,17 @@ static void test_clip_distance(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_clip_distance_dxbc(void)
+void test_clip_distance_dxbc(void)
 {
     test_clip_distance(false);
 }
 
-static void test_clip_distance_dxil(void)
+void test_clip_distance_dxil(void)
 {
     test_clip_distance(true);
 }
 
-static void test_combined_clip_and_cull_distances(bool use_dxil)
+void test_combined_clip_and_cull_distances(bool use_dxil)
 {
     ID3D12GraphicsCommandList *command_list;
     D3D12_INPUT_LAYOUT_DESC input_layout;
@@ -33697,17 +33697,17 @@ static void test_combined_clip_and_cull_distances(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_combined_clip_and_cull_distances_dxbc(void)
+void test_combined_clip_and_cull_distances_dxbc(void)
 {
     test_combined_clip_and_cull_distances(false);
 }
 
-static void test_combined_clip_and_cull_distances_dxil(void)
+void test_combined_clip_and_cull_distances_dxil(void)
 {
     test_combined_clip_and_cull_distances(true);
 }
 
-static void test_resource_allocation_info(void)
+void test_resource_allocation_info(void)
 {
     D3D12_RESOURCE_ALLOCATION_INFO1 res_info[2];
     D3D12_RESOURCE_ALLOCATION_INFO info, info1;
@@ -33884,7 +33884,7 @@ static void test_resource_allocation_info(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_suballocate_small_textures(void)
+void test_suballocate_small_textures(void)
 {
     D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
     D3D12_RESOURCE_ALLOCATION_INFO info;
@@ -33969,7 +33969,7 @@ static void test_suballocate_small_textures(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
-static void test_command_list_initial_pipeline_state(void)
+void test_command_list_initial_pipeline_state(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     ID3D12GraphicsCommandList *command_list;
@@ -34045,7 +34045,7 @@ static void test_command_list_initial_pipeline_state(void)
     destroy_test_context(&context);
 }
 
-static void test_blend_factor(void)
+void test_blend_factor(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -34115,7 +34115,7 @@ static void test_blend_factor(void)
     destroy_test_context(&context);
 }
 
-static void test_dual_source_blending(bool use_dxil)
+void test_dual_source_blending(bool use_dxil)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -34336,17 +34336,17 @@ static void test_dual_source_blending(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_dual_source_blending_dxbc(void)
+void test_dual_source_blending_dxbc(void)
 {
     test_dual_source_blending(false);
 }
 
-static void test_dual_source_blending_dxil(void)
+void test_dual_source_blending_dxil(void)
 {
     test_dual_source_blending(true);
 }
 
-static void test_multisample_resolve(void)
+void test_multisample_resolve(void)
 {
     D3D12_HEAP_PROPERTIES heap_properties;
     ID3D12Resource *ms_render_target_copy;
@@ -34484,7 +34484,7 @@ static void test_multisample_resolve(void)
     destroy_test_context(&context);
 }
 
-static void test_multisample_rendering(void)
+void test_multisample_rendering(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -34660,7 +34660,7 @@ static void test_multisample_rendering(void)
     destroy_test_context(&context);
 }
 
-static void test_sample_mask(bool use_dxil)
+void test_sample_mask(bool use_dxil)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -34824,17 +34824,17 @@ static void test_sample_mask(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_sample_mask_dxbc(void)
+void test_sample_mask_dxbc(void)
 {
     test_sample_mask(false);
 }
 
-static void test_sample_mask_dxil(void)
+void test_sample_mask_dxil(void)
 {
     test_sample_mask(true);
 }
 
-static void test_coverage(bool use_dxil)
+void test_coverage(bool use_dxil)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -35074,17 +35074,17 @@ static void test_coverage(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_coverage_dxbc(void)
+void test_coverage_dxbc(void)
 {
     test_coverage(false);
 }
 
-static void test_coverage_dxil(void)
+void test_coverage_dxil(void)
 {
     test_coverage(true);
 }
 
-static void test_shader_get_render_target_sample_count(bool use_dxil)
+void test_shader_get_render_target_sample_count(bool use_dxil)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12GraphicsCommandList *command_list;
@@ -35210,17 +35210,17 @@ static void test_shader_get_render_target_sample_count(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_shader_get_render_target_sample_count_dxbc(void)
+void test_shader_get_render_target_sample_count_dxbc(void)
 {
     test_shader_get_render_target_sample_count(false);
 }
 
-static void test_shader_get_render_target_sample_count_dxil(void)
+void test_shader_get_render_target_sample_count_dxil(void)
 {
     test_shader_get_render_target_sample_count(true);
 }
 
-static void test_shader_sample_position(bool use_dxil)
+void test_shader_sample_position(bool use_dxil)
 {
     D3D12_TEXTURE_COPY_LOCATION src_location, dst_location;
     ID3D12Resource *texture, *readback_texture;
@@ -35431,17 +35431,17 @@ static void test_shader_sample_position(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_shader_sample_position_dxbc(void)
+void test_shader_sample_position_dxbc(void)
 {
     test_shader_sample_position(false);
 }
 
-static void test_shader_sample_position_dxil(void)
+void test_shader_sample_position_dxil(void)
 {
     test_shader_sample_position(true);
 }
 
-static void test_shader_eval_attribute(bool use_dxil)
+void test_shader_eval_attribute(bool use_dxil)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12GraphicsCommandList *command_list;
@@ -35887,17 +35887,17 @@ static void test_shader_eval_attribute(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_shader_eval_attribute_dxbc(void)
+void test_shader_eval_attribute_dxbc(void)
 {
     test_shader_eval_attribute(false);
 }
 
-static void test_shader_eval_attribute_dxil(void)
+void test_shader_eval_attribute_dxil(void)
 {
     test_shader_eval_attribute(true);
 }
 
-static void test_primitive_restart(void)
+void test_primitive_restart(void)
 {
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -36071,7 +36071,7 @@ static void test_primitive_restart(void)
     destroy_test_context(&context);
 }
 
-static void test_vertex_shader_stream_output(bool use_dxil)
+void test_vertex_shader_stream_output(bool use_dxil)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12Resource *counter_buffer, *so_buffer;
@@ -36186,7 +36186,7 @@ static void test_vertex_shader_stream_output(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_index_buffer_edge_case_stream_output(void)
+void test_index_buffer_edge_case_stream_output(void)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12Resource *counter_buffer, *so_buffer;
@@ -36332,17 +36332,17 @@ static void test_index_buffer_edge_case_stream_output(void)
     destroy_test_context(&context);
 }
 
-static void test_vertex_shader_stream_output_dxbc(void)
+void test_vertex_shader_stream_output_dxbc(void)
 {
     test_vertex_shader_stream_output(false);
 }
 
-static void test_vertex_shader_stream_output_dxil(void)
+void test_vertex_shader_stream_output_dxil(void)
 {
     test_vertex_shader_stream_output(true);
 }
 
-static void test_read_write_subresource(void)
+void test_read_write_subresource(void)
 {
     D3D12_TEXTURE_COPY_LOCATION src_location, dst_location;
     uint32_t *dst_buffer, *zero_buffer, *ptr;
@@ -36649,7 +36649,7 @@ done:
     destroy_test_context(&context);
 }
 
-static void test_queue_wait(void)
+void test_queue_wait(void)
 {
     D3D12_TEXTURE_COPY_LOCATION dst_location, src_location;
     ID3D12GraphicsCommandList *command_list;
@@ -36868,7 +36868,7 @@ skip_tests:
     destroy_test_context(&context);
 }
 
-static void test_graphics_compute_queue_synchronization(void)
+void test_graphics_compute_queue_synchronization(void)
 {
     ID3D12GraphicsCommandList *graphics_lists[2], *compute_lists[2];
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
@@ -37086,7 +37086,7 @@ static void test_graphics_compute_queue_synchronization(void)
     destroy_test_context(&context);
 }
 
-static void test_early_depth_stencil_tests(void)
+void test_early_depth_stencil_tests(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -37251,7 +37251,7 @@ static void prepare_instanced_draw(struct test_context *context)
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context->scissor_rect);
 }
 
-static void test_conditional_rendering(void)
+void test_conditional_rendering(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     ID3D12Resource *conditions, *upload_buffer;
@@ -37699,7 +37699,7 @@ static void test_conditional_rendering(void)
     destroy_test_context(&context);
 }
 
-static void test_bufinfo_instruction(bool use_dxil)
+void test_bufinfo_instruction(bool use_dxil)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -38532,17 +38532,17 @@ static void test_bufinfo_instruction(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_bufinfo_instruction_dxbc(void)
+void test_bufinfo_instruction_dxbc(void)
 {
     test_bufinfo_instruction(false);
 }
 
-static void test_bufinfo_instruction_dxil(void)
+void test_bufinfo_instruction_dxil(void)
 {
     test_bufinfo_instruction(true);
 }
 
-static void test_write_buffer_immediate(void)
+void test_write_buffer_immediate(void)
 {
     D3D12_WRITEBUFFERIMMEDIATE_PARAMETER parameters[2];
     ID3D12GraphicsCommandList2 *command_list2;
@@ -38625,7 +38625,7 @@ static void test_write_buffer_immediate(void)
     destroy_test_context(&context);
 }
 
-static void test_register_space(bool use_dxil)
+void test_register_space(bool use_dxil)
 {
     ID3D12DescriptorHeap *heap, *sampler_heap, *heaps[2];
 
@@ -39154,17 +39154,17 @@ static void test_register_space(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_register_space_sm51(void)
+void test_register_space_sm51(void)
 {
     test_register_space(false);
 }
 
-static void test_register_space_dxil(void)
+void test_register_space_dxil(void)
 {
     test_register_space(true);
 }
 
-static void test_constant_buffers(bool use_dxil)
+void test_constant_buffers(bool use_dxil)
 {
     ID3D12DescriptorHeap *heap;
 
@@ -39424,17 +39424,17 @@ static void test_constant_buffers(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_constant_buffer_sm51(void)
+void test_constant_buffer_sm51(void)
 {
     test_constant_buffers(false);
 }
 
-static void test_constant_buffer_dxil(void)
+void test_constant_buffer_dxil(void)
 {
     test_constant_buffers(true);
 }
 
-static void test_bindless_srv(bool use_dxil)
+void test_bindless_srv(bool use_dxil)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_ROOT_PARAMETER root_parameters[3];
@@ -39744,17 +39744,17 @@ static void test_bindless_srv(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_bindless_srv_sm51(void)
+void test_bindless_srv_sm51(void)
 {
     test_bindless_srv(false);
 }
 
-static void test_bindless_srv_dxil(void)
+void test_bindless_srv_dxil(void)
 {
     test_bindless_srv(true);
 }
 
-static void test_bindless_samplers(bool use_dxil)
+void test_bindless_samplers(bool use_dxil)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_ROOT_PARAMETER root_parameters[3];
@@ -39983,17 +39983,17 @@ static void test_bindless_samplers(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_bindless_samplers_sm51(void)
+void test_bindless_samplers_sm51(void)
 {
     test_bindless_samplers(false);
 }
 
-static void test_bindless_samplers_dxil(void)
+void test_bindless_samplers_dxil(void)
 {
     test_bindless_samplers(true);
 }
 
-static void test_bindless_full_root_parameters_sm51(void)
+void test_bindless_full_root_parameters_sm51(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_ROOT_PARAMETER root_parameters[63];
@@ -40353,7 +40353,7 @@ static void test_bindless_full_root_parameters_sm51(void)
     destroy_test_context(&context);
 }
 
-static void test_bindless_cbv(bool use_dxil)
+void test_bindless_cbv(bool use_dxil)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_ROOT_PARAMETER root_parameters[2];
@@ -40555,7 +40555,7 @@ static void test_bindless_cbv(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_bindless_uav(bool use_dxil)
+void test_bindless_uav(bool use_dxil)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_ROOT_PARAMETER root_parameters[1];
@@ -40788,17 +40788,17 @@ static void test_bindless_uav(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_bindless_cbv_sm51(void)
+void test_bindless_cbv_sm51(void)
 {
     test_bindless_cbv(false);
 }
 
-static void test_bindless_cbv_dxil(void)
+void test_bindless_cbv_dxil(void)
 {
     test_bindless_cbv(true);
 }
 
-static void test_bindless_uav_counter(bool use_dxil)
+void test_bindless_uav_counter(bool use_dxil)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_ROOT_PARAMETER root_parameters[1];
@@ -41021,27 +41021,27 @@ static void test_bindless_uav_counter(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_bindless_uav_sm51(void)
+void test_bindless_uav_sm51(void)
 {
     test_bindless_uav(false);
 }
 
-static void test_bindless_uav_dxil(void)
+void test_bindless_uav_dxil(void)
 {
     test_bindless_uav(true);
 }
 
-static void test_bindless_uav_counter_sm51(void)
+void test_bindless_uav_counter_sm51(void)
 {
     test_bindless_uav_counter(false);
 }
 
-static void test_bindless_uav_counter_dxil(void)
+void test_bindless_uav_counter_dxil(void)
 {
     test_bindless_uav_counter(true);
 }
 
-static void test_bindless_bufinfo(bool use_dxil)
+void test_bindless_bufinfo(bool use_dxil)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_ROOT_PARAMETER root_parameters[1];
@@ -41278,17 +41278,17 @@ static void test_bindless_bufinfo(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_bindless_bufinfo_sm51(void)
+void test_bindless_bufinfo_sm51(void)
 {
     test_bindless_bufinfo(false);
 }
 
-static void test_bindless_bufinfo_dxil(void)
+void test_bindless_bufinfo_dxil(void)
 {
     test_bindless_bufinfo(true);
 }
 
-static void test_stencil_export(bool use_dxil)
+void test_stencil_export(bool use_dxil)
 {
     D3D12_SHADER_RESOURCE_VIEW_DESC stencil_srv_desc;
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -41527,17 +41527,17 @@ static void test_stencil_export(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_stencil_export_dxbc(void)
+void test_stencil_export_dxbc(void)
 {
     test_stencil_export(false);
 }
 
-static void test_stencil_export_dxil(void)
+void test_stencil_export_dxil(void)
 {
     test_stencil_export(true);
 }
 
-static void test_raytracing(void)
+void test_raytracing(void)
 {
 #define NUM_GEOM_DESC 6
 #define NUM_UNMASKED_INSTANCES 4
@@ -42718,7 +42718,7 @@ static uint32_t compute_tile_count(uint32_t resource_size, uint32_t mip, uint32_
     return (mip_size / tile_size) + (mip_size % tile_size ? 1 : 0);
 }
 
-static void test_get_resource_tiling(void)
+void test_get_resource_tiling(void)
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS options;
     D3D12_PACKED_MIP_INFO packed_mip_info;
@@ -42967,7 +42967,7 @@ static void set_region_size(D3D12_TILE_REGION_SIZE *region, uint32_t num_tiles, 
     region->Depth = d;
 }
 
-static void test_update_tile_mappings(void)
+void test_update_tile_mappings(void)
 {
     D3D12_TILED_RESOURCE_COORDINATE region_offsets[8];
     ID3D12PipelineState *check_texture_3d_pipeline;
@@ -43757,7 +43757,7 @@ static void test_update_tile_mappings(void)
     destroy_test_context(&context);
 }
 
-static void test_sampler_border_color(void)
+void test_sampler_border_color(void)
 {
     ID3D12DescriptorHeap *heap, *sampler_heap, *heaps[2];
     D3D12_STATIC_SAMPLER_DESC static_sampler_desc;
@@ -43959,7 +43959,7 @@ static void test_sampler_border_color(void)
     destroy_test_context(&context);
 }
 
-static void test_copy_tiles(void)
+void test_copy_tiles(void)
 {
     #define TILE_SIZE 65536
     ID3D12Resource *tiled_resource, *dst_buffer, *src_buffer;
@@ -44222,7 +44222,7 @@ static void test_copy_tiles(void)
 #undef TILE_SIZE
 }
 
-static void test_buffer_feedback_instructions(bool use_dxil)
+void test_buffer_feedback_instructions(bool use_dxil)
 {
 #define TILE_SIZE 65536
     D3D12_TILED_RESOURCE_COORDINATE tile_regions[2];
@@ -44887,17 +44887,17 @@ static void test_buffer_feedback_instructions(bool use_dxil)
 #undef TILE_SIZE
 }
 
-static void test_buffer_feedback_instructions_sm51(void)
+void test_buffer_feedback_instructions_sm51(void)
 {
     test_buffer_feedback_instructions(false);
 }
 
-static void test_buffer_feedback_instructions_dxil(void)
+void test_buffer_feedback_instructions_dxil(void)
 {
     test_buffer_feedback_instructions(true);
 }
 
-static void test_texture_feedback_instructions(bool use_dxil)
+void test_texture_feedback_instructions(bool use_dxil)
 {
     #define TILE_SIZE 65536
     ID3D12DescriptorHeap *gpu_heap, *sampler_heap, *rtv_heap;
@@ -46253,17 +46253,17 @@ static void test_texture_feedback_instructions(bool use_dxil)
     #undef TILE_SIZE
 }
 
-static void test_texture_feedback_instructions_sm51(void)
+void test_texture_feedback_instructions_sm51(void)
 {
     test_texture_feedback_instructions(false);
 }
 
-static void test_texture_feedback_instructions_dxil(void)
+void test_texture_feedback_instructions_dxil(void)
 {
     test_texture_feedback_instructions(true);
 }
 
-static void test_aliasing_barrier(void)
+void test_aliasing_barrier(void)
 {
     /* This test mostly serves to verify that validation is clean,
      * and that we don't crash on weird inputs. There is no particular output we expect to see. */
@@ -46416,7 +46416,7 @@ static void test_aliasing_barrier(void)
     destroy_test_context(&context);
 }
 
-static void test_discard_resource(void)
+void test_discard_resource(void)
 {
     ID3D12GraphicsCommandList *command_list;
     D3D12_HEAP_PROPERTIES heap_properties;
@@ -46554,7 +46554,7 @@ static void test_discard_resource(void)
     destroy_test_context(&context);
 }
 
-static void test_clock_calibration(void)
+void test_clock_calibration(void)
 {
 #ifndef _WIN32
     skip("Clock calibration tests cannot pass on native Linux. Skipping.\n");
@@ -46581,7 +46581,7 @@ static void test_clock_calibration(void)
 #endif
 }
 
-static void test_open_heap_from_address(void)
+void test_open_heap_from_address(void)
 {
 #ifdef _WIN32
     ID3D12Resource *readback_resource;
@@ -46699,7 +46699,7 @@ static void test_open_heap_from_address(void)
 #endif
 }
 
-static void test_get_cached_blob(void)
+void test_get_cached_blob(void)
 {
     D3D12_COMPUTE_PIPELINE_STATE_DESC compute_desc;
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
@@ -46760,7 +46760,7 @@ static void test_get_cached_blob(void)
     destroy_test_context(&context);
 }
 
-static void test_pipeline_library(void)
+void test_pipeline_library(void)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC graphics_desc;
     D3D12_COMPUTE_PIPELINE_STATE_DESC compute_desc;
@@ -46940,7 +46940,7 @@ static void test_pipeline_library(void)
     destroy_test_context(&context);
 }
 
-static void test_buffers_oob_behavior(bool use_dxil)
+void test_buffers_oob_behavior(bool use_dxil)
 {
     ID3D12DescriptorHeap *heap, *aux_cpu_heap, *aux_gpu_heap;
     const unsigned int chunk_size = 4 * 8 * 12 * 16;
@@ -47410,17 +47410,17 @@ static void test_buffers_oob_behavior(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_buffers_oob_behavior_dxbc(void)
+void test_buffers_oob_behavior_dxbc(void)
 {
     test_buffers_oob_behavior(false);
 }
 
-static void test_buffers_oob_behavior_dxil(void)
+void test_buffers_oob_behavior_dxil(void)
 {
     test_buffers_oob_behavior(true);
 }
 
-static void test_typed_buffers_many_objects(bool use_dxil)
+void test_typed_buffers_many_objects(bool use_dxil)
 {
     ID3D12DescriptorHeap *cpu_heap, *gpu_heap;
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
@@ -47798,17 +47798,17 @@ static void test_typed_buffers_many_objects(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_typed_buffers_many_objects_dxbc(void)
+void test_typed_buffers_many_objects_dxbc(void)
 {
     test_typed_buffers_many_objects(false);
 }
 
-static void test_typed_buffers_many_objects_dxil(void)
+void test_typed_buffers_many_objects_dxil(void)
 {
     test_typed_buffers_many_objects(true);
 }
 
-static void test_create_pipeline_with_null_root_signature(void)
+void test_create_pipeline_with_null_root_signature(void)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC graphics_desc;
     D3D12_COMPUTE_PIPELINE_STATE_DESC compute_desc;
@@ -47995,7 +47995,7 @@ static void test_create_pipeline_with_null_root_signature(void)
     destroy_test_context(&context);
 }
 
-static void test_undefined_read_typed_buffer_as_untyped(bool use_dxil)
+void test_undefined_read_typed_buffer_as_untyped(bool use_dxil)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_ROOT_PARAMETER root_parameters[1];
@@ -48205,17 +48205,17 @@ static void test_undefined_read_typed_buffer_as_untyped(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_undefined_read_typed_buffer_as_untyped_dxbc(void)
+void test_undefined_read_typed_buffer_as_untyped_dxbc(void)
 {
     test_undefined_read_typed_buffer_as_untyped(false);
 }
 
-static void test_undefined_read_typed_buffer_as_untyped_dxil(void)
+void test_undefined_read_typed_buffer_as_untyped_dxil(void)
 {
     test_undefined_read_typed_buffer_as_untyped(true);
 }
 
-static void test_virtual_queries(void)
+void test_virtual_queries(void)
 {
     struct test_context_desc desc;
     ID3D12GraphicsCommandList *command_list;
@@ -48348,7 +48348,7 @@ static void test_virtual_queries(void)
     destroy_test_context(&context);
 }
 
-static void test_vrs(void)
+void test_vrs(void)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12GraphicsCommandList5 *command_list;
@@ -48460,7 +48460,7 @@ static void test_vrs(void)
     destroy_test_context(&context);
 }
 
-static void test_vrs_dxil(void)
+void test_vrs_dxil(void)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12GraphicsCommandList5 *command_list;
@@ -49096,7 +49096,7 @@ static void test_vrs_dxil(void)
     destroy_test_context(&context);
 }
 
-static void test_vrs_image(void)
+void test_vrs_image(void)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12PipelineState *pipeline_state = NULL;
@@ -49235,7 +49235,7 @@ struct suballocation_thread_data
     unsigned int seed;
 };
 
-static void test_stress_suballocation_thread(void *userdata)
+void test_stress_suballocation_thread(void *userdata)
 {
     struct suballocation_thread_data *thread_data = userdata;
     struct test_context *context = thread_data->context;
@@ -49487,7 +49487,7 @@ static void test_stress_suballocation_thread(void *userdata)
 #undef rand_r
 }
 
-static void test_stress_suballocation(void)
+void test_stress_suballocation(void)
 {
     struct suballocation_thread_data data;
     struct test_context_desc desc;
@@ -49507,7 +49507,7 @@ static void test_stress_suballocation(void)
     destroy_test_context(&context);
 }
 
-static void test_stress_suballocation_multithread(void)
+void test_stress_suballocation_multithread(void)
 {
     struct suballocation_thread_data data[8];
     struct test_context_desc desc;
@@ -49535,7 +49535,7 @@ static void test_stress_suballocation_multithread(void)
     destroy_test_context(&context);
 }
 
-static void test_placed_image_alignment(void)
+void test_placed_image_alignment(void)
 {
     ID3D12Resource *readback_buffers[4096] = { NULL };
     D3D12_TEXTURE_COPY_LOCATION copy_dst, copy_src;
@@ -49678,7 +49678,7 @@ static void test_placed_image_alignment(void)
     destroy_test_context(&context);
 }
 
-static void test_root_parameter_preservation(void)
+void test_root_parameter_preservation(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -49804,7 +49804,7 @@ static void test_root_parameter_preservation(void)
     destroy_test_context(&context);
 }
 
-static void test_cbv_hoisting(bool use_dxil)
+void test_cbv_hoisting(bool use_dxil)
 {
     D3D12_VERSIONED_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_ROOT_PARAMETER1 root_parameters[2];
@@ -50024,17 +50024,17 @@ static void test_cbv_hoisting(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_cbv_hoisting_sm51(void)
+void test_cbv_hoisting_sm51(void)
 {
     test_cbv_hoisting(false);
 }
 
-static void test_cbv_hoisting_dxil(void)
+void test_cbv_hoisting_dxil(void)
 {
     test_cbv_hoisting(true);
 }
 
-static void test_write_watch(void)
+void test_write_watch(void)
 {
 #ifndef _WIN32
     skip("WRITE_WATCH tests cannot pass on native Linux. Skipping.\n");
@@ -50154,7 +50154,7 @@ done:
 #endif
 }
 
-static void test_conservative_rasterization(bool use_dxil)
+void test_conservative_rasterization(bool use_dxil)
 {
     ID3D12PipelineState *pipeline_conservative_underestimate;
     ID3D12PipelineState *pipeline_conservative_overestimate;
@@ -50537,17 +50537,17 @@ static void test_conservative_rasterization(bool use_dxil)
     destroy_test_context(&context);
 }
 
-static void test_conservative_rasterization_dxbc(void)
+void test_conservative_rasterization_dxbc(void)
 {
     test_conservative_rasterization(false);
 }
 
-static void test_conservative_rasterization_dxil(void)
+void test_conservative_rasterization_dxil(void)
 {
     test_conservative_rasterization(true);
 }
 
-static void test_root_signature_priority(void)
+void test_root_signature_priority(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     ID3D12RootSignature *shader_root_signature;
@@ -50650,7 +50650,7 @@ static void test_root_signature_priority(void)
     destroy_test_context(&context);
 }
 
-static void test_missing_bindings_root_signature(void)
+void test_missing_bindings_root_signature(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     ID3D12RootSignature *shader_root_signature;
@@ -50728,7 +50728,7 @@ static void test_missing_bindings_root_signature(void)
     destroy_test_context(&context);
 }
 
-static void test_mismatching_pso_stages(void)
+void test_mismatching_pso_stages(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -50823,7 +50823,7 @@ static void test_mismatching_pso_stages(void)
     destroy_test_context(&context);
 }
 
-static void test_null_descriptor_mismatch_type(void)
+void test_null_descriptor_mismatch_type(void)
 {
     /* A very cursed test. This is invalid in D3D12, but some games rely on this (or at least a subset) working ._. */
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
@@ -51130,7 +51130,7 @@ static void test_null_descriptor_mismatch_type(void)
     destroy_test_context(&context);
 }
 
-static void test_view_min_lod(void)
+void test_view_min_lod(void)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     D3D12_SHADER_RESOURCE_VIEW_DESC view_desc;
@@ -51346,7 +51346,7 @@ static void test_view_min_lod(void)
     destroy_test_context(&context);
 }
 
-static void test_sv_barycentric(void)
+void test_sv_barycentric(void)
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS3 features3;
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -51725,7 +51725,7 @@ static void test_sv_barycentric(void)
     destroy_test_context(&context);
 }
 
-static void test_shader_fp16(void)
+void test_shader_fp16(void)
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS4 features4;
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
@@ -52234,7 +52234,7 @@ static void test_shader_fp16(void)
     destroy_test_context(&context);
 }
 
-static void test_shader_sm62_denorm(void)
+void test_shader_sm62_denorm(void)
 {
     D3D12_FEATURE_DATA_SHADER_MODEL shader_model;
     D3D12_ROOT_PARAMETER root_parameters[2];
@@ -52452,7 +52452,7 @@ static void test_shader_sm62_denorm(void)
     destroy_test_context(&context);
 }
 
-static void test_shader_sm64_packed(void)
+void test_shader_sm64_packed(void)
 {
     D3D12_FEATURE_DATA_SHADER_MODEL shader_model;
     D3D12_ROOT_PARAMETER root_parameters[2];
@@ -52786,7 +52786,7 @@ static void test_shader_sm64_packed(void)
     destroy_test_context(&context);
 }
 
-static void test_shader_sm65_wave_intrinsics(void)
+void test_shader_sm65_wave_intrinsics(void)
 {
     D3D12_FEATURE_DATA_SHADER_MODEL shader_model;
     D3D12_ROOT_PARAMETER root_parameters[2];
