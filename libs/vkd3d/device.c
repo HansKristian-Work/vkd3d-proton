@@ -2462,6 +2462,33 @@ static ULONG STDMETHODCALLTYPE d3d12_device_AddRef(d3d12_device_iface *iface)
     return refcount;
 }
 
+static HRESULT d3d12_device_global_pipeline_cache_init(struct d3d12_device *device)
+{
+    /* On certain drivers, VkPipelineCache has a fixed (large) memory overhead.
+     * This means that using a VkPipelineCache per PSO will explode system memory usage, leading to OOM.
+     * To counteract this, we use one global pipeline cache instead, but this means we lose the ability to
+     * serialize and unserialize PSO state. Instead, we can just serialize garbage and ignore unserialization.
+     * From a correctness PoV, this is perfectly fine, and cached PSOs should be present in disk cache either way. */
+    bool use_global;
+    uint32_t major;
+    VkResult vr;
+
+    major = VK_VERSION_MAJOR(device->device_info.properties2.properties.driverVersion);
+    use_global = device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_NVIDIA && major >= 470;
+    if (!use_global)
+        return S_OK;
+
+    WARN("Workaround applied. Creating global pipeline cache.\n");
+    vr = vkd3d_create_pipeline_cache(device, 0, NULL, &device->global_pipeline_cache);
+    return hresult_from_vk_result(vr);
+}
+
+static void d3d12_device_global_pipeline_cache_cleanup(struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VK_CALL(vkDestroyPipelineCache(device->vk_device, device->global_pipeline_cache, NULL));
+}
+
 static void d3d12_device_destroy(struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -2479,6 +2506,7 @@ static void d3d12_device_destroy(struct d3d12_device *device)
 
     vkd3d_cleanup_format_info(device);
     vkd3d_shader_debug_ring_cleanup(&device->debug_ring, device);
+    d3d12_device_global_pipeline_cache_cleanup(device);
     vkd3d_sampler_state_cleanup(&device->sampler_state, device);
     vkd3d_view_map_destroy(&device->sampler_map, device);
     vkd3d_meta_ops_cleanup(&device->meta_ops, device);
@@ -5194,11 +5222,14 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if (FAILED(hr = vkd3d_shader_debug_ring_init(&device->debug_ring, device)))
         goto out_cleanup_meta_ops;
 
+    if (FAILED(hr = d3d12_device_global_pipeline_cache_init(device)))
+        goto out_cleanup_debug_ring;
+
     if (vkd3d_descriptor_debug_active_qa_checks())
     {
         if (FAILED(hr = vkd3d_descriptor_debug_alloc_global_info(&device->descriptor_qa_global_info,
                 VKD3D_DESCRIPTOR_DEBUG_DEFAULT_NUM_COOKIES, device)))
-            goto out_cleanup_debug_ring;
+            goto out_cleanup_global_pipeline_cache;
     }
 
     vkd3d_render_pass_cache_init(&device->render_pass_cache);
@@ -5209,6 +5240,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     d3d12_device_caps_init(device);
     return S_OK;
 
+out_cleanup_global_pipeline_cache:
+    d3d12_device_global_pipeline_cache_cleanup(device);
 out_cleanup_debug_ring:
     vkd3d_shader_debug_ring_cleanup(&device->debug_ring, device);
 out_cleanup_meta_ops:

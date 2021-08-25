@@ -2227,14 +2227,19 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     shader_interface.descriptor_qa_heap_binding = &root_signature->descriptor_qa_heap_binding;
 #endif
 
-    if ((hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, &desc->cached_pso, &state->vk_pso_cache)) < 0)
+    if (!device->global_pipeline_cache)
     {
-        ERR("Failed to create pipeline cache, hr %d.\n", hr);
-        return hr;
+        if ((hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, &desc->cached_pso, &state->vk_pso_cache)) < 0)
+        {
+            ERR("Failed to create pipeline cache, hr %d.\n", hr);
+            return hr;
+        }
     }
 
     hr = vkd3d_create_compute_pipeline(device, &desc->cs, &shader_interface,
-            root_signature->compute.vk_pipeline_layout, state->vk_pso_cache, &state->compute.vk_pipeline,
+            root_signature->compute.vk_pipeline_layout,
+            state->vk_pso_cache ? state->vk_pso_cache : device->global_pipeline_cache,
+            &state->compute.vk_pipeline,
             &state->compute.meta);
 
     if (FAILED(hr))
@@ -3481,12 +3486,15 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
     if (supports_extended_dynamic_state)
     {
-        /* If we have EXT_extended_dynamic_state, we can compile a pipeline right here.
-         * There are still some edge cases where we need to fall back to special pipelines, but that should be very rare. */
-        if ((hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, &desc->cached_pso, &state->vk_pso_cache)) < 0)
+        if (!device->global_pipeline_cache)
         {
-            ERR("Failed to create pipeline cache, hr %d.\n", hr);
-            goto fail;
+            /* If we have EXT_extended_dynamic_state, we can compile a pipeline right here.
+             * There are still some edge cases where we need to fall back to special pipelines, but that should be very rare. */
+            if ((hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, &desc->cached_pso, &state->vk_pso_cache)) < 0)
+            {
+                ERR("Failed to create pipeline cache, hr %d.\n", hr);
+                goto fail;
+            }
         }
 
         for (i = 0; i < VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_COUNT; i++)
@@ -3495,7 +3503,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
                 continue;
 
             if (!(graphics->pipeline[i] = d3d12_pipeline_state_create_pipeline_variant(state, NULL, graphics->dsv_format,
-                    state->vk_pso_cache, &graphics->render_pass[i], &graphics->dynamic_state_flags, i)))
+                    state->vk_pso_cache ? state->vk_pso_cache : device->global_pipeline_cache,
+                    &graphics->render_pass[i], &graphics->dynamic_state_flags, i)))
                 goto fail;
         }
     }

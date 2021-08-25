@@ -20,7 +20,7 @@
 
 #include "vkd3d_private.h"
 
-static VkResult vkd3d_create_pipeline_cache(struct d3d12_device *device,
+VkResult vkd3d_create_pipeline_cache(struct d3d12_device *device,
         size_t size, const void *data, VkPipelineCache *cache)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;

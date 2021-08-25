@@ -1505,6 +1505,8 @@ struct d3d12_pipeline_library
 HRESULT d3d12_pipeline_library_create(struct d3d12_device *device, const void *blob,
         size_t blob_length, struct d3d12_pipeline_library **pipeline_library);
 
+VkResult vkd3d_create_pipeline_cache(struct d3d12_device *device,
+        size_t size, const void *data, VkPipelineCache *cache);
 HRESULT vkd3d_create_pipeline_cache_from_d3d12_desc(struct d3d12_device *device,
         const D3D12_CACHED_PIPELINE_STATE *state, VkPipelineCache *cache);
 VkResult vkd3d_serialize_pipeline_state(const struct d3d12_pipeline_state *state, size_t *size, void *data);
@@ -2668,6 +2670,7 @@ struct d3d12_device
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     struct vkd3d_descriptor_qa_global_info *descriptor_qa_global_info;
 #endif
+    VkPipelineCache global_pipeline_cache;
 };
 
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,
