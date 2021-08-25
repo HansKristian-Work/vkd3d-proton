@@ -1131,4 +1131,158 @@ static inline D3D12_GPU_DESCRIPTOR_HANDLE get_gpu_sampler_handle(struct test_con
     return get_gpu_handle(context->device, heap, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, offset);
 }
 
+struct vec2
+{
+    float x, y;
+};
+
+struct vec4
+{
+    float x, y, z, w;
+};
+
+struct uvec4
+{
+    unsigned int x, y, z, w;
+};
+
+struct ivec4
+{
+    int x, y, z, w;
+};
+
+struct dvec2
+{
+    double x, y;
+};
+
+bool compare_float(float f, float g, int ulps);
+bool compare_vec4(const struct vec4 *v1, const struct vec4 *v2, unsigned int ulps);
+bool compare_uvec4(const struct uvec4* v1, const struct uvec4 *v2);
+bool compare_uint8(uint8_t a, uint8_t b, unsigned int max_diff);
+bool compare_uint16(uint16_t a, uint16_t b, unsigned int max_diff);
+bool compare_uint64(uint64_t a, uint64_t b, unsigned int max_diff);
+ULONG get_refcount(void *iface);
+
+void check_interface_(unsigned int line, IUnknown *iface, REFIID riid, bool supported);
+void check_heap_properties_(unsigned int line,
+        const D3D12_HEAP_PROPERTIES *properties, const D3D12_HEAP_PROPERTIES *expected_properties);
+void check_heap_desc_(unsigned int line, const D3D12_HEAP_DESC *desc,
+        const D3D12_HEAP_DESC *expected_desc);
+void check_alignment_(unsigned int line, uint64_t size, uint64_t alignment);
+void uav_barrier(ID3D12GraphicsCommandList *list, ID3D12Resource *resource);
+void copy_sub_resource_data(const D3D12_MEMCPY_DEST *dst, const D3D12_SUBRESOURCE_DATA *src,
+        unsigned int row_count, unsigned int slice_count, size_t row_size);
+void upload_buffer_data_(unsigned int line, ID3D12Resource *buffer, size_t offset,
+        size_t size, const void *data, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list);
+void upload_texture_data_(unsigned int line, ID3D12Resource *texture,
+        const D3D12_SUBRESOURCE_DATA *data, unsigned int sub_resource_count,
+        ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list);
+void init_readback(struct resource_readback *rb, ID3D12Resource *buffer,
+        uint64_t buffer_size, uint64_t width, uint64_t height, unsigned int depth, uint64_t row_pitch);
+
+void get_buffer_readback_with_command_list(ID3D12Resource *buffer, DXGI_FORMAT format,
+        struct resource_readback *rb, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list);
+uint8_t get_readback_uint8(struct resource_readback *rb, unsigned int x, unsigned int y);
+uint16_t get_readback_uint16(struct resource_readback *rb, unsigned int x, unsigned int y);
+uint64_t get_readback_uint64(struct resource_readback *rb, unsigned int x, unsigned int y);
+float get_readback_float(struct resource_readback *rb, unsigned int x, unsigned int y);
+const struct vec4 *get_readback_vec4(struct resource_readback *rb, unsigned int x, unsigned int y);
+const struct uvec4 *get_readback_uvec4(struct resource_readback *rb, unsigned int x, unsigned int y);
+
+void check_readback_data_float_(unsigned int line, struct resource_readback *rb,
+        const RECT *rect, float expected, unsigned int max_diff);
+void check_sub_resource_float_(unsigned int line, ID3D12Resource *texture,
+        unsigned int sub_resource_idx, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list,
+        float expected, unsigned int max_diff);
+void check_readback_data_uint8_(unsigned int line, struct resource_readback *rb,
+        const RECT *rect, uint8_t expected, unsigned int max_diff);
+
+void check_sub_resource_uint8_(unsigned int line, ID3D12Resource *texture,
+        unsigned int sub_resource_idx, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list,
+        uint8_t expected, unsigned int max_diff);
+void check_readback_data_uint16_(unsigned int line, struct resource_readback *rb,
+        const RECT *rect, uint16_t expected, unsigned int max_diff);
+void check_sub_resource_uint16_(unsigned int line, ID3D12Resource *texture,
+        unsigned int sub_resource_idx, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list,
+        uint16_t expected, unsigned int max_diff);
+void check_readback_data_uint64_(unsigned int line, struct resource_readback *rb,
+        const RECT *rect, uint64_t expected, unsigned int max_diff);
+void check_sub_resource_uint64_(unsigned int line, ID3D12Resource *texture,
+        unsigned int sub_resource_idx, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list,
+        uint64_t expected, unsigned int max_diff);
+void check_sub_resource_vec4_(unsigned int line, ID3D12Resource *texture,
+        unsigned int sub_resource_idx, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list,
+        const struct vec4 *expected, unsigned int max_diff);
+void check_sub_resource_uvec4_(unsigned int line, ID3D12Resource *texture,
+        unsigned int sub_resource_idx, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list,
+        const struct uvec4 *expected_value);
+
+bool broken_on_warp(bool condition);
+bool is_min_max_filtering_supported(ID3D12Device *device);
+D3D12_TILED_RESOURCES_TIER get_tiled_resources_tier(ID3D12Device *device);
+bool is_standard_swizzle_64kb_supported(ID3D12Device *device);
+bool is_memory_pool_L1_supported(ID3D12Device *device);
+bool is_vrs_tier1_supported(ID3D12Device *device, bool *additional_shading_rates);
+bool is_vrs_tier2_supported(ID3D12Device *device);
+
+ID3D12RootSignature *create_cb_root_signature_(unsigned int line,
+        ID3D12Device *device, unsigned int reg_idx, D3D12_SHADER_VISIBILITY shader_visibility,
+        D3D12_ROOT_SIGNATURE_FLAGS flags);
+ID3D12RootSignature *create_32bit_constants_root_signature_(unsigned int line,
+        ID3D12Device *device, unsigned int reg_idx, unsigned int element_count,
+        D3D12_SHADER_VISIBILITY shader_visibility, D3D12_ROOT_SIGNATURE_FLAGS flags);
+ID3D12RootSignature *create_texture_root_signature_(unsigned int line,
+        ID3D12Device *device, D3D12_SHADER_VISIBILITY shader_visibility,
+        unsigned int constant_count, D3D12_ROOT_SIGNATURE_FLAGS flags,
+        const D3D12_STATIC_SAMPLER_DESC *sampler_desc);
+
+ID3D12CommandSignature *create_command_signature_(unsigned int line,
+        ID3D12Device *device, D3D12_INDIRECT_ARGUMENT_TYPE argument_type);
+
+bool context_supports_dxil_(unsigned int line, struct test_context *context);
+
+bool init_compute_test_context_(unsigned int line, struct test_context *context);
+ID3D12PipelineState *create_compute_pipeline_state_(unsigned int line, ID3D12Device *device,
+        ID3D12RootSignature *root_signature, const D3D12_SHADER_BYTECODE cs);
+
+struct depth_stencil_resource
+{
+    ID3D12Resource *texture;
+    ID3D12DescriptorHeap *heap;
+    D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle;
+};
+
+void init_depth_stencil_(unsigned int line, struct depth_stencil_resource *ds,
+        ID3D12Device *device, unsigned int width, unsigned int height, unsigned int array_size, unsigned int level_count,
+        DXGI_FORMAT format, DXGI_FORMAT view_format, const D3D12_CLEAR_VALUE *clear_value);
+void destroy_depth_stencil_(unsigned int line, struct depth_stencil_resource *ds);
+
+#define check_interface(a, b, c) check_interface_(__LINE__, (IUnknown *)a, b, c)
+#define check_heap_properties(a, b) check_heap_properties_(__LINE__, a, b)
+#define check_heap_desc(a, b) check_heap_desc_(__LINE__, a, b)
+#define check_alignment(a, b) check_alignment_(__LINE__, a, b)
+#define upload_buffer_data(a, b, c, d, e, f) upload_buffer_data_(__LINE__, a, b, c, d, e, f)
+#define upload_texture_data(a, b, c, d, e) upload_texture_data_(__LINE__, a, b, c, d, e)
+#define check_readback_data_float(a, b, c, d) check_readback_data_float_(__LINE__, a, b, c, d)
+#define check_sub_resource_float(a, b, c, d, e, f) check_sub_resource_float_(__LINE__, a, b, c, d, e, f)
+#define check_readback_data_uint8(a, b, c, d) check_readback_data_uint8_(__LINE__, a, b, c, d)
+#define check_sub_resource_uint8(a, b, c, d, e, f) check_sub_resource_uint8_(__LINE__, a, b, c, d, e, f)
+#define check_readback_data_uint16(a, b, c, d) check_readback_data_uint16_(__LINE__, a, b, c, d)
+#define check_sub_resource_uint16(a, b, c, d, e, f) check_sub_resource_uint16_(__LINE__, a, b, c, d, e, f)
+#define check_readback_data_uint64(a, b, c, d) check_readback_data_uint64_(__LINE__, a, b, c, d)
+#define check_sub_resource_uint64(a, b, c, d, e, f) check_sub_resource_uint64_(__LINE__, a, b, c, d, e, f)
+#define check_sub_resource_vec4(a, b, c, d, e, f) check_sub_resource_vec4_(__LINE__, a, b, c, d, e, f)
+#define check_sub_resource_uvec4(a, b, c, d, e) check_sub_resource_uvec4_(__LINE__, a, b, c, d, e)
+#define create_cb_root_signature(a, b, c, e) create_cb_root_signature_(__LINE__, a, b, c, e)
+#define create_32bit_constants_root_signature(a, b, c, e) \
+create_32bit_constants_root_signature_(__LINE__, a, b, c, e, 0)
+#define create_texture_root_signature(a, b, c, d) create_texture_root_signature_(__LINE__, a, b, c, d, NULL)
+#define create_compute_pipeline_state(a, b, c) create_compute_pipeline_state_(__LINE__, a, b, c)
+#define create_command_signature(a, b) create_command_signature_(__LINE__, a, b)
+#define init_compute_test_context(context) init_compute_test_context_(__LINE__, context)
+#define context_supports_dxil(context) context_supports_dxil_(__LINE__, context)
+#define init_depth_stencil(a, b, c, d, e, f, g, h, i) init_depth_stencil_(__LINE__, a, b, c, d, e, f, g, h, i)
+#define destroy_depth_stencil(depth_stencil) destroy_depth_stencil_(__LINE__, depth_stencil)
+
 #endif  /* __VKD3D_D3D12_TEST_UTILS_H */
