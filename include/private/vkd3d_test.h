@@ -29,7 +29,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef VKD3D_TEST_DECLARE_MAIN
 static void vkd3d_test_main(int argc, char **argv);
+#endif
+
 static const char *vkd3d_test_name;
 static const char *vkd3d_test_platform = "other";
 
@@ -266,6 +269,7 @@ vkd3d_test_debug(const char *fmt, ...)
     }
 }
 
+#ifdef VKD3D_TEST_DECLARE_MAIN
 int main(int argc, char **argv)
 {
     const char *exclude_list = getenv("VKD3D_TEST_EXCLUDE");
@@ -355,6 +359,7 @@ int wmain(int argc, WCHAR **wargv)
     return ret;
 }
 #endif  /* _WIN32 */
+#endif /* VKD3D_TEST_DECLARE_MAIN */
 
 typedef void (*vkd3d_test_pfn)(void);
 

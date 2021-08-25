@@ -29,7 +29,6 @@
 #endif
 
 #define COBJMACROS
-#define INITGUID
 #include "vkd3d_test.h"
 #include "vkd3d_windows.h"
 #define WIDL_C_INLINE_WRAPPERS
@@ -341,7 +340,7 @@ static ID3D12Device *create_device(void)
     return SUCCEEDED(hr) ? device : NULL;
 }
 
-static void init_adapter_info(void)
+static inline void init_adapter_info(void)
 {
     char name[MEMBER_SIZE(DXGI_ADAPTER_DESC, Description)];
     IDXGIAdapter *dxgi_adapter;
@@ -638,7 +637,7 @@ static bool get_driver_properties(ID3D12Device *device, VkPhysicalDeviceDriverPr
     return false;
 }
 
-static void init_adapter_info(void)
+static inline void init_adapter_info(void)
 {
     VkPhysicalDeviceDriverPropertiesKHR driver_properties;
     struct vkd3d_instance *instance;
@@ -711,7 +710,7 @@ static inline bool is_depth_clip_enable_supported(ID3D12Device *device)
 }
 #endif
 
-static void parse_args(int argc, char **argv)
+static inline void parse_args(int argc, char **argv)
 {
     int i;
 
@@ -724,7 +723,7 @@ static void parse_args(int argc, char **argv)
     }
 }
 
-static void enable_d3d12_debug_layer(int argc, char **argv)
+static inline void enable_d3d12_debug_layer(int argc, char **argv)
 {
     bool enable_debug_layer = false, enable_gpu_based_validation = false;
     ID3D12Debug1 *debug1;

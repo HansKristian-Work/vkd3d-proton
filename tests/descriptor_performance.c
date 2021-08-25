@@ -18,13 +18,9 @@
 
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 
+#define INITGUID
+#define VKD3D_TEST_DECLARE_MAIN
 #include "d3d12_crosstest.h"
-
-PFN_D3D12_CREATE_VERSIONED_ROOT_SIGNATURE_DESERIALIZER pfn_D3D12CreateVersionedRootSignatureDeserializer;
-PFN_D3D12_SERIALIZE_VERSIONED_ROOT_SIGNATURE pfn_D3D12SerializeVersionedRootSignature;
-PFN_D3D12_CREATE_DEVICE pfn_D3D12CreateDevice;
-PFN_D3D12_ENABLE_EXPERIMENTAL_FEATURES pfn_D3D12EnableExperimentalFeatures;
-PFN_D3D12_GET_DEBUG_INTERFACE pfn_D3D12GetDebugInterface;
 
 static void setup(int argc, char **argv)
 {
