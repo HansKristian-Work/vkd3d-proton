@@ -340,6 +340,27 @@ static void init_test_geometry(ID3D12Device *device, struct test_geometry *geom)
     }
 }
 
+static ID3D12Resource *create_transform_buffer(ID3D12Device *device, unsigned int count, float x_stride)
+{
+    ID3D12Resource *transform_buffer;
+    float *transform;
+    unsigned int i;
+
+    transform = calloc(12 * count, sizeof(float));
+    for (i = 0; i < count; i++)
+    {
+        /* Row-major affine transform. */
+        transform[12 * i + 0] = 1.0f;
+        transform[12 * i + 5] = 1.0f;
+        transform[12 * i + 10] = 1.0f;
+        transform[12 * i + 3] = x_stride * (float)i;
+    }
+
+    transform_buffer = create_upload_buffer(device, 12 * count * sizeof(float), transform);
+    free(transform);
+    return transform_buffer;
+}
+
 void test_raytracing(void)
 {
 #define NUM_GEOM_DESC 6
@@ -406,18 +427,7 @@ void test_raytracing(void)
 
     init_test_geometry(device, &test_geom);
 
-    /* Create a transform buffer which is used when building bottom AS. Row-major affine transform. */
-    {
-        float transform[3 * NUM_GEOM_DESC][4] = {{0.0f}};
-        for (i = 0; i < NUM_GEOM_DESC; i++)
-        {
-            transform[3 * i + 0][0] = 1.0f;
-            transform[3 * i + 1][1] = 1.0f;
-            transform[3 * i + 2][2] = 1.0f;
-            transform[3 * i + 0][3] = GEOM_OFFSET_X * (float)i;
-        }
-        transform_buffer = create_upload_buffer(device, sizeof(transform), transform);
-    }
+    transform_buffer = create_transform_buffer(device, NUM_GEOM_DESC, GEOM_OFFSET_X);
 
     /* Create bottom AS. One quad is centered around origin, but other triangle is translated. */
     {
