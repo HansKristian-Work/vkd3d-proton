@@ -440,6 +440,7 @@ static void create_acceleration_structure(struct raytracing_test_context *contex
     build_info.DestAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(rtas->rtas);
     build_info.Inputs = *inputs;
     build_info.ScratchAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(rtas->scratch);
+    build_info.SourceAccelerationStructureData = 0;
 
     postbuild_desc[0].InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE;
     postbuild_desc[0].DestBuffer = postbuild_va;
@@ -462,6 +463,187 @@ static void destroy_acceleration_structure(struct rt_acceleration_structure *rta
         ID3D12Resource_Release(rtas->scratch_update);
 }
 
+struct test_rt_geometry
+{
+    ID3D12Resource *bottom_acceleration_structures[3];
+    ID3D12Resource *top_acceleration_structures[3];
+    struct rt_acceleration_structure bottom_rtas;
+    struct rt_acceleration_structure top_rtas;
+    ID3D12Resource *transform_buffer;
+    ID3D12Resource *instance_buffer;
+};
+
+static void destroy_rt_geometry(struct test_rt_geometry *rt_geom)
+{
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(rt_geom->bottom_acceleration_structures); i++)
+        ID3D12Resource_Release(rt_geom->bottom_acceleration_structures[i]);
+    for (i = 0; i < ARRAY_SIZE(rt_geom->top_acceleration_structures); i++)
+        ID3D12Resource_Release(rt_geom->top_acceleration_structures[i]);
+    ID3D12Resource_Release(rt_geom->transform_buffer);
+    ID3D12Resource_Release(rt_geom->instance_buffer);
+    destroy_acceleration_structure(&rt_geom->bottom_rtas);
+    destroy_acceleration_structure(&rt_geom->top_rtas);
+}
+
+static void init_rt_geometry(struct raytracing_test_context *context, struct test_rt_geometry *rt_geom,
+        struct test_geometry *geom,
+        unsigned int num_geom_desc, float geom_offset_x,
+        unsigned int num_unmasked_instances_y, float instance_geom_scale, float instance_offset_y,
+        D3D12_GPU_VIRTUAL_ADDRESS postbuild_va)
+{
+#define NUM_GEOM_TEMPLATES 6
+    D3D12_RAYTRACING_GEOMETRY_DESC geom_desc_template[NUM_GEOM_TEMPLATES];
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs;
+    D3D12_RAYTRACING_INSTANCE_DESC *instance_desc;
+    D3D12_RAYTRACING_GEOMETRY_DESC *geom_desc;
+    unsigned int i;
+
+    /* Create X * Y quads where X = num_geom_desc, and Y = num_unmasked_instances_y.
+     * Additionally, create a set of quads at Y iteration -1 which are intended to be masked
+     * (miss shader should be triggered).
+     * The intention is that hit SBT index is row-linear, i.e. hit index = Y * num_geom_desc + X.
+     * Size and placement of the quads are controlled by parameters. */
+
+    rt_geom->transform_buffer = create_transform_buffer(context->context.device, num_geom_desc, geom_offset_x);
+    memset(geom_desc_template, 0, sizeof(geom_desc_template));
+
+    /* Setup a template for different geom descs which all effectively do the same thing, a simple quad. */
+    /* Tests the configuration space of the 6 supported vertex formats, and the 3 index types. */
+    geom_desc_template[0].Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+
+    geom_desc_template[0].Triangles.VertexBuffer.StartAddress =
+            ID3D12Resource_GetGPUVirtualAddress(geom->vbo) + offsetof(struct initial_vbo, f32);
+    geom_desc_template[0].Triangles.VertexBuffer.StrideInBytes = 3 * sizeof(float);
+    geom_desc_template[0].Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
+    geom_desc_template[0].Triangles.VertexCount = 6;
+
+    geom_desc_template[1] = geom_desc_template[0];
+    /* First, render something wrong, update the RTAS later and verify that it works. */
+    geom_desc_template[1].Triangles.VertexBuffer.StartAddress =
+            ID3D12Resource_GetGPUVirtualAddress(geom->zero_vbo) + offsetof(struct initial_vbo, f32);
+    geom_desc_template[1].Triangles.VertexFormat = DXGI_FORMAT_R32G32_FLOAT;
+
+    geom_desc_template[2].Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+    geom_desc_template[2].Triangles.VertexBuffer.StartAddress =
+            ID3D12Resource_GetGPUVirtualAddress(geom->vbo) + offsetof(struct initial_vbo, i16);
+    geom_desc_template[2].Triangles.VertexBuffer.StrideInBytes = 3 * sizeof(int16_t);
+    geom_desc_template[2].Triangles.VertexFormat = DXGI_FORMAT_R16G16B16A16_SNORM;
+    geom_desc_template[2].Triangles.VertexCount = 4;
+    geom_desc_template[2].Triangles.IndexBuffer =
+            ID3D12Resource_GetGPUVirtualAddress(geom->ibo) + offsetof(struct initial_ibo, u16);
+    geom_desc_template[2].Triangles.IndexFormat = DXGI_FORMAT_R16_UINT;
+    geom_desc_template[2].Triangles.IndexCount = 6;
+
+    geom_desc_template[3] = geom_desc_template[2];
+    geom_desc_template[3].Triangles.VertexFormat = DXGI_FORMAT_R16G16_SNORM;
+    geom_desc_template[3].Triangles.IndexBuffer =
+            ID3D12Resource_GetGPUVirtualAddress(geom->ibo) + offsetof(struct initial_ibo, u32);
+    geom_desc_template[3].Triangles.IndexFormat = DXGI_FORMAT_R32_UINT;
+
+    geom_desc_template[4] = geom_desc_template[2];
+    geom_desc_template[4].Triangles.VertexBuffer.StartAddress =
+            ID3D12Resource_GetGPUVirtualAddress(geom->vbo) + offsetof(struct initial_vbo, f16);
+    geom_desc_template[4].Triangles.VertexFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
+
+    geom_desc_template[5] = geom_desc_template[3];
+    geom_desc_template[5].Triangles.VertexBuffer.StartAddress =
+            ID3D12Resource_GetGPUVirtualAddress(geom->vbo) + offsetof(struct initial_vbo, f16);
+    geom_desc_template[5].Triangles.VertexFormat = DXGI_FORMAT_R16G16_FLOAT;
+
+    /* Create bottom AS. One quad is centered around origin, but other triangles are translated. */
+    memset(&inputs, 0, sizeof(inputs));
+    inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+    inputs.NumDescs = num_geom_desc;
+    inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+    inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION |
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE;
+
+    geom_desc = malloc(sizeof(*geom_desc) * num_geom_desc);
+    for (i = 0; i < num_geom_desc; i++)
+        geom_desc[i] = geom_desc_template[i % ARRAY_SIZE(geom_desc_template)];
+    inputs.pGeometryDescs = geom_desc;
+
+    /* Identity transform for index 0, checks that we handle NULL here for geom_desc 0. */
+    for (i = 1; i < num_geom_desc; i++)
+    {
+        geom_desc[i].Triangles.Transform3x4 =
+                ID3D12Resource_GetGPUVirtualAddress(rt_geom->transform_buffer) + i * 4 * 3 * sizeof(float);
+    }
+
+    create_acceleration_structure(context, &inputs, &rt_geom->bottom_rtas, postbuild_va);
+    /* Update, and now use correct VBO. */
+    geom_desc_template[1].Triangles.VertexBuffer.StartAddress =
+            ID3D12Resource_GetGPUVirtualAddress(geom->vbo) + offsetof(struct initial_vbo, f32);
+    for (i = 1; i < num_geom_desc; i += ARRAY_SIZE(geom_desc_template))
+        geom_desc[i].Triangles.VertexBuffer = geom_desc_template[1].Triangles.VertexBuffer;
+    update_acceleration_structure(context, &inputs, &rt_geom->bottom_rtas);
+
+    /* Tests CLONE and COMPACTING copies. COMPACTING can never increase size, so it's safe to allocate up front.
+     * We test the compacted size later. */
+    rt_geom->bottom_acceleration_structures[0] = rt_geom->bottom_rtas.rtas;
+    ID3D12Resource_AddRef(rt_geom->bottom_rtas.rtas);
+    rt_geom->bottom_acceleration_structures[1] = duplicate_acceleration_structure(context,
+            rt_geom->bottom_acceleration_structures[0],
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT);
+    rt_geom->bottom_acceleration_structures[2] = duplicate_acceleration_structure(context,
+            rt_geom->bottom_acceleration_structures[1],
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE);
+
+    /* Create instance buffer. One for every top-level entry into the AS. */
+    instance_desc = calloc(num_unmasked_instances_y + 1, sizeof(*instance_desc));
+
+    for (i = 0; i < num_unmasked_instances_y; i++)
+    {
+        instance_desc[i].Transform[0][0] = instance_geom_scale;
+        instance_desc[i].Transform[1][1] = instance_geom_scale;
+        instance_desc[i].Transform[2][2] = instance_geom_scale;
+        instance_desc[i].Transform[1][3] = instance_offset_y * (float)i;
+        instance_desc[i].InstanceMask = 0xff;
+        instance_desc[i].InstanceContributionToHitGroupIndex = num_geom_desc * i;
+        instance_desc[i].AccelerationStructure =
+                ID3D12Resource_GetGPUVirtualAddress(rt_geom->bottom_acceleration_structures[i & 1]);
+    }
+
+    instance_desc[num_unmasked_instances_y].Transform[0][0] = instance_geom_scale;
+    instance_desc[num_unmasked_instances_y].Transform[1][1] = instance_geom_scale;
+    instance_desc[num_unmasked_instances_y].Transform[2][2] = instance_geom_scale;
+    instance_desc[num_unmasked_instances_y].Transform[1][3] = -instance_offset_y;
+    instance_desc[num_unmasked_instances_y].InstanceMask = 0xfe; /* This instance will be masked out since shader uses mask of 0x01. */
+    instance_desc[num_unmasked_instances_y].InstanceContributionToHitGroupIndex = 0;
+    instance_desc[num_unmasked_instances_y].AccelerationStructure =
+            ID3D12Resource_GetGPUVirtualAddress(rt_geom->bottom_acceleration_structures[2]);
+
+    rt_geom->instance_buffer = create_upload_buffer(context->context.device,
+            (num_unmasked_instances_y + 1) * sizeof(*instance_desc), instance_desc);
+
+    /* Create top AS */
+    memset(&inputs, 0, sizeof(inputs));
+    inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+    inputs.NumDescs = num_unmasked_instances_y + 1;
+    inputs.InstanceDescs = ID3D12Resource_GetGPUVirtualAddress(rt_geom->instance_buffer);
+    inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+    inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION;
+
+    create_acceleration_structure(context, &inputs, &rt_geom->top_rtas,
+            postbuild_va ? (postbuild_va + 4 * sizeof(uint64_t)) : 0);
+
+    /* Tests CLONE and COMPACTING copies. COMPACTING can never increase size, so it's safe to allocate up front.
+     * We test the compacted size later. */
+    rt_geom->top_acceleration_structures[0] = rt_geom->top_rtas.rtas;
+    ID3D12Resource_AddRef(rt_geom->top_rtas.rtas);
+    rt_geom->top_acceleration_structures[1] = duplicate_acceleration_structure(context,
+            rt_geom->top_acceleration_structures[0], D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT);
+    rt_geom->top_acceleration_structures[2] = duplicate_acceleration_structure(context,
+            rt_geom->top_acceleration_structures[1], D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE);
+
+    free(geom_desc);
+    free(instance_desc);
+}
+
 void test_raytracing(void)
 {
 #define NUM_GEOM_DESC 6
@@ -472,15 +654,9 @@ void test_raytracing(void)
 
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC postbuild_desc[3];
     float sbt_colors[NUM_GEOM_DESC * NUM_UNMASKED_INSTANCES + 1][2];
-    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs;
-    D3D12_RAYTRACING_GEOMETRY_DESC geom_desc[NUM_GEOM_DESC];
-    ID3D12Resource *bottom_acceleration_structures[3];
-    ID3D12Resource *top_acceleration_structures[3];
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
-    struct rt_acceleration_structure bottom_rtas;
     D3D12_DESCRIPTOR_RANGE descriptor_ranges[2];
     ID3D12GraphicsCommandList4 *command_list4;
-    struct rt_acceleration_structure top_rtas;
     D3D12_ROOT_PARAMETER root_parameters[2];
     ID3D12GraphicsCommandList *command_list;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
@@ -489,12 +665,11 @@ void test_raytracing(void)
     ID3D12DescriptorHeap *descriptor_heap;
     ID3D12StateObject *rt_object_library;
     ID3D12RootSignature *local_rs_table;
+    struct test_rt_geometry test_rtases;
     D3D12_DESCRIPTOR_RANGE table_range;
     ID3D12Resource *postbuild_readback;
     ID3D12Resource *sbt_colors_buffer;
     ID3D12Resource *postbuild_buffer;
-    ID3D12Resource *transform_buffer;
-    ID3D12Resource *instance_buffer;
     unsigned int i, descriptor_size;
     ID3D12RootSignature *global_rs;
     struct test_geometry test_geom;
@@ -523,131 +698,10 @@ void test_raytracing(void)
     postbuild_buffer = create_default_buffer(device, 4096, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
     init_test_geometry(device, &test_geom);
-
-    transform_buffer = create_transform_buffer(device, NUM_GEOM_DESC, GEOM_OFFSET_X);
-
-    /* Create bottom AS. One quad is centered around origin, but other triangle is translated. */
-    {
-        memset(&inputs, 0, sizeof(inputs));
-        memset(geom_desc, 0, sizeof(geom_desc));
-
-        inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
-        inputs.NumDescs = ARRAY_SIZE(geom_desc);
-        inputs.pGeometryDescs = geom_desc;
-        inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
-        inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
-                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION |
-                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE;
-
-        /* Tests the configuration space of the 6 supported vertex formats, and the 3 index types. */
-        geom_desc[0].Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
-
-        geom_desc[0].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(test_geom.vbo) + offsetof(struct initial_vbo, f32);
-        geom_desc[0].Triangles.VertexBuffer.StrideInBytes = 3 * sizeof(float);
-        geom_desc[0].Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
-        geom_desc[0].Triangles.VertexCount = 6;
-
-        geom_desc[1] = geom_desc[0];
-        /* First, render something wrong, update the RTAS later and verify that it works. */
-        geom_desc[1].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(test_geom.zero_vbo) + offsetof(struct initial_vbo, f32);
-        geom_desc[1].Triangles.VertexFormat = DXGI_FORMAT_R32G32_FLOAT;
-
-        geom_desc[2].Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
-        geom_desc[2].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(test_geom.vbo) + offsetof(struct initial_vbo, i16);
-        geom_desc[2].Triangles.VertexBuffer.StrideInBytes = 3 * sizeof(int16_t);
-        geom_desc[2].Triangles.VertexFormat = DXGI_FORMAT_R16G16B16A16_SNORM;
-        geom_desc[2].Triangles.VertexCount = 4;
-        geom_desc[2].Triangles.IndexBuffer = ID3D12Resource_GetGPUVirtualAddress(test_geom.ibo) + offsetof(struct initial_ibo, u16);
-        geom_desc[2].Triangles.IndexFormat = DXGI_FORMAT_R16_UINT;
-        geom_desc[2].Triangles.IndexCount = 6;
-
-        geom_desc[3] = geom_desc[2];
-        geom_desc[3].Triangles.VertexFormat = DXGI_FORMAT_R16G16_SNORM;
-        geom_desc[3].Triangles.IndexBuffer = ID3D12Resource_GetGPUVirtualAddress(test_geom.ibo) + offsetof(struct initial_ibo, u32);
-        geom_desc[3].Triangles.IndexFormat = DXGI_FORMAT_R32_UINT;
-
-        geom_desc[4] = geom_desc[2];
-        geom_desc[4].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(test_geom.vbo) + offsetof(struct initial_vbo, f16);
-        geom_desc[4].Triangles.VertexFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
-
-        geom_desc[5] = geom_desc[3];
-        geom_desc[5].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(test_geom.vbo) + offsetof(struct initial_vbo, f16);
-        geom_desc[5].Triangles.VertexFormat = DXGI_FORMAT_R16G16_FLOAT;
-
-        /* Identity transform for index 0, checks that we handle NULL here. */
-        for (i = 1; i < ARRAY_SIZE(geom_desc); i++)
-            geom_desc[i].Triangles.Transform3x4 = ID3D12Resource_GetGPUVirtualAddress(transform_buffer) + i * 4 * 3 * sizeof(float);
-
-        create_acceleration_structure(&context, &inputs, &bottom_rtas,
-                ID3D12Resource_GetGPUVirtualAddress(postbuild_buffer));
-        /* Update, and now use correct VBO. */
-        geom_desc[1].Triangles.VertexBuffer.StartAddress =
-                ID3D12Resource_GetGPUVirtualAddress(test_geom.vbo) + offsetof(struct initial_vbo, f32);
-        update_acceleration_structure(&context, &inputs, &bottom_rtas);
-
-        /* Tests CLONE and COMPACTING copies. COMPACTING can never increase size, so it's safe to allocate up front.
-         * We test the compacted size later. */
-        bottom_acceleration_structures[0] = bottom_rtas.rtas;
-        ID3D12Resource_AddRef(bottom_rtas.rtas);
-        bottom_acceleration_structures[1] = duplicate_acceleration_structure(&context,
-                bottom_acceleration_structures[0],
-                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT);
-        bottom_acceleration_structures[2] = duplicate_acceleration_structure(&context,
-                bottom_acceleration_structures[1],
-                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE);
-    }
-
-    /* Create instance buffer. One for every top-level entry into the AS. */
-    {
-        D3D12_RAYTRACING_INSTANCE_DESC instance_desc[NUM_UNMASKED_INSTANCES + 1];
-        memset(instance_desc, 0, sizeof(instance_desc));
-
-        for (i = 0; i < NUM_UNMASKED_INSTANCES; i++)
-        {
-            instance_desc[i].Transform[0][0] = INSTANCE_GEOM_SCALE;
-            instance_desc[i].Transform[1][1] = INSTANCE_GEOM_SCALE;
-            instance_desc[i].Transform[2][2] = INSTANCE_GEOM_SCALE;
-            instance_desc[i].Transform[1][3] = INSTANCE_OFFSET_Y * (float)i;
-            instance_desc[i].InstanceMask = 0xff;
-            instance_desc[i].InstanceContributionToHitGroupIndex = NUM_GEOM_DESC * i;
-            instance_desc[i].AccelerationStructure = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structures[i & 1]);
-        }
-
-        instance_desc[NUM_UNMASKED_INSTANCES].Transform[0][0] = INSTANCE_GEOM_SCALE;
-        instance_desc[NUM_UNMASKED_INSTANCES].Transform[1][1] = INSTANCE_GEOM_SCALE;
-        instance_desc[NUM_UNMASKED_INSTANCES].Transform[2][2] = INSTANCE_GEOM_SCALE;
-        instance_desc[NUM_UNMASKED_INSTANCES].Transform[1][3] = -INSTANCE_OFFSET_Y;
-        instance_desc[NUM_UNMASKED_INSTANCES].InstanceMask = 0xfe; /* This instance will be masked out since shader uses mask of 0x01. */
-        instance_desc[NUM_UNMASKED_INSTANCES].InstanceContributionToHitGroupIndex = 0;
-        instance_desc[NUM_UNMASKED_INSTANCES].AccelerationStructure = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structures[2]);
-
-        instance_buffer = create_upload_buffer(device, sizeof(instance_desc), instance_desc);
-    }
-
-    /* Create top AS */
-    {
-        memset(&inputs, 0, sizeof(inputs));
-        memset(geom_desc, 0, sizeof(geom_desc));
-
-        inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
-        inputs.NumDescs = NUM_UNMASKED_INSTANCES + 1;
-        inputs.InstanceDescs = ID3D12Resource_GetGPUVirtualAddress(instance_buffer);
-        inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
-        inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
-                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION;
-
-        create_acceleration_structure(&context, &inputs, &top_rtas,
-                ID3D12Resource_GetGPUVirtualAddress(postbuild_buffer) + 4 * sizeof(uint64_t));
-
-        /* Tests CLONE and COMPACTING copies. COMPACTING can never increase size, so it's safe to allocate up front.
-         * We test the compacted size later. */
-        top_acceleration_structures[0] = top_rtas.rtas;
-        ID3D12Resource_AddRef(top_rtas.rtas);
-        top_acceleration_structures[1] = duplicate_acceleration_structure(&context,
-                top_acceleration_structures[0], D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT);
-        top_acceleration_structures[2] = duplicate_acceleration_structure(&context,
-                top_acceleration_structures[1], D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE);
-    }
+    init_rt_geometry(&context, &test_rtases, &test_geom,
+            NUM_GEOM_DESC, GEOM_OFFSET_X,
+            NUM_UNMASKED_INSTANCES, INSTANCE_GEOM_SCALE, INSTANCE_OFFSET_Y,
+            ID3D12Resource_GetGPUVirtualAddress(postbuild_buffer));
 
     /* Create global root signature. All RT shaders can access these parameters. */
     {
@@ -1059,7 +1113,6 @@ void test_raytracing(void)
         ray_positions = create_upload_buffer(device, sizeof(ray_pos), ray_pos);
     }
 
-    if (top_acceleration_structures[2])
     {
         D3D12_SHADER_RESOURCE_VIEW_DESC as_desc;
         D3D12_GPU_VIRTUAL_ADDRESS rtases[2];
@@ -1068,12 +1121,12 @@ void test_raytracing(void)
         as_desc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
         as_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         as_desc.Format = DXGI_FORMAT_UNKNOWN;
-        as_desc.RaytracingAccelerationStructure.Location = ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structures[2]);
+        as_desc.RaytracingAccelerationStructure.Location = ID3D12Resource_GetGPUVirtualAddress(test_rtases.top_acceleration_structures[2]);
         ID3D12Device_CreateShaderResourceView(device, NULL, &as_desc, cpu_handle);
         cpu_handle.ptr += descriptor_size;
 
-        rtases[0] = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structures[0]);
-        rtases[1] = ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structures[0]);
+        rtases[0] = ID3D12Resource_GetGPUVirtualAddress(test_rtases.bottom_acceleration_structures[0]);
+        rtases[1] = ID3D12Resource_GetGPUVirtualAddress(test_rtases.top_acceleration_structures[0]);
         /* Emitting this is not COPY_DEST, but UNORDERED_ACCESS for some bizarre reason. */
 
         postbuild_desc[0].InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE;
@@ -1214,24 +1267,12 @@ void test_raytracing(void)
     }
 
     destroy_test_geometry(&test_geom);
+    destroy_rt_geometry(&test_rtases);
     if (sbt_colors_buffer)
         ID3D12Resource_Release(sbt_colors_buffer);
-    if (instance_buffer)
-        ID3D12Resource_Release(instance_buffer);
-    ID3D12Resource_Release(transform_buffer);
     ID3D12RootSignature_Release(global_rs);
     ID3D12RootSignature_Release(local_rs);
     ID3D12RootSignature_Release(local_rs_table);
-
-    destroy_acceleration_structure(&top_rtas);
-    for (i = 0; i < ARRAY_SIZE(top_acceleration_structures); i++)
-        if (top_acceleration_structures[i])
-            ID3D12Resource_Release(top_acceleration_structures[i]);
-
-    destroy_acceleration_structure(&bottom_rtas);
-    for (i = 0; i < ARRAY_SIZE(bottom_acceleration_structures); i++)
-        if (bottom_acceleration_structures[i])
-            ID3D12Resource_Release(bottom_acceleration_structures[i]);
 
     if (rt_pso)
         ID3D12StateObject_Release(rt_pso);
