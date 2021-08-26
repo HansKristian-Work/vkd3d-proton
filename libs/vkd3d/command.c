@@ -9427,14 +9427,15 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
         }
     }
 
-    if (desc->SourceAccelerationStructureData)
+    if (build_info.build_info.mode == VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR &&
+            desc->SourceAccelerationStructureData)
     {
         build_info.build_info.srcAccelerationStructure =
                 vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map,
                         list->device, desc->SourceAccelerationStructureData);
         if (build_info.build_info.srcAccelerationStructure == VK_NULL_HANDLE)
         {
-            ERR("Failed to place destAccelerationStructure. Dropping call.\n");
+            ERR("Failed to place srcAccelerationStructure. Dropping call.\n");
             return;
         }
     }
