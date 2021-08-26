@@ -471,9 +471,7 @@ void test_raytracing(void)
 #define INSTANCE_GEOM_SCALE (0.5f)
 
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC postbuild_desc[3];
-    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuild_info;
     float sbt_colors[NUM_GEOM_DESC * NUM_UNMASKED_INSTANCES + 1][2];
-    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC build_info;
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs;
     D3D12_RAYTRACING_GEOMETRY_DESC geom_desc[NUM_GEOM_DESC];
     ID3D12Resource *bottom_acceleration_structures[3];
@@ -482,7 +480,7 @@ void test_raytracing(void)
     struct rt_acceleration_structure bottom_rtas;
     D3D12_DESCRIPTOR_RANGE descriptor_ranges[2];
     ID3D12GraphicsCommandList4 *command_list4;
-    D3D12_RESOURCE_BARRIER resource_barrier;
+    struct rt_acceleration_structure top_rtas;
     D3D12_ROOT_PARAMETER root_parameters[2];
     ID3D12GraphicsCommandList *command_list;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
@@ -491,7 +489,6 @@ void test_raytracing(void)
     ID3D12DescriptorHeap *descriptor_heap;
     ID3D12StateObject *rt_object_library;
     ID3D12RootSignature *local_rs_table;
-    ID3D12Resource *scratch_buffer_top;
     D3D12_DESCRIPTOR_RANGE table_range;
     ID3D12Resource *postbuild_readback;
     ID3D12Resource *sbt_colors_buffer;
@@ -601,7 +598,6 @@ void test_raytracing(void)
     }
 
     /* Create instance buffer. One for every top-level entry into the AS. */
-    if (bottom_acceleration_structures[2])
     {
         D3D12_RAYTRACING_INSTANCE_DESC instance_desc[NUM_UNMASKED_INSTANCES + 1];
         memset(instance_desc, 0, sizeof(instance_desc));
@@ -627,11 +623,8 @@ void test_raytracing(void)
 
         instance_buffer = create_upload_buffer(device, sizeof(instance_desc), instance_desc);
     }
-    else
-        instance_buffer = NULL;
 
     /* Create top AS */
-    if (bottom_acceleration_structures[0])
     {
         memset(&inputs, 0, sizeof(inputs));
         memset(geom_desc, 0, sizeof(geom_desc));
@@ -643,62 +636,17 @@ void test_raytracing(void)
         inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
                 D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION;
 
-        ID3D12Device5_GetRaytracingAccelerationStructurePrebuildInfo(device5, &inputs, &prebuild_info);
+        create_acceleration_structure(&context, &inputs, &top_rtas,
+                ID3D12Resource_GetGPUVirtualAddress(postbuild_buffer) + 4 * sizeof(uint64_t));
 
-        scratch_buffer_top = create_default_buffer(device, prebuild_info.ScratchDataSizeInBytes,
-            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-
-        for (i = 0; i < ARRAY_SIZE(top_acceleration_structures); i++)
-        {
-            top_acceleration_structures[i] = create_default_buffer(device, prebuild_info.ResultDataMaxSizeInBytes,
-                    D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
-        }
-
-        if (scratch_buffer_top && top_acceleration_structures[0])
-        {
-            memset(&build_info, 0, sizeof(build_info));
-            build_info.DestAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structures[0]);
-            build_info.Inputs = inputs;
-            build_info.ScratchAccelerationStructureData = ID3D12Resource_GetGPUVirtualAddress(scratch_buffer_top);
-
-            postbuild_desc[0].InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE;
-            postbuild_desc[0].DestBuffer = ID3D12Resource_GetGPUVirtualAddress(postbuild_buffer) + 4 * sizeof(uint64_t);
-            postbuild_desc[1].InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE;
-            postbuild_desc[1].DestBuffer = postbuild_desc[0].DestBuffer + sizeof(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE_DESC);
-            postbuild_desc[2].InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION;
-            postbuild_desc[2].DestBuffer = postbuild_desc[1].DestBuffer + sizeof(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE_DESC);
-
-            ID3D12GraphicsCommandList4_BuildRaytracingAccelerationStructure(command_list4, &build_info, ARRAY_SIZE(postbuild_desc), postbuild_desc);
-
-            resource_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-            resource_barrier.Flags = 0;
-
-            resource_barrier.UAV.pResource = top_acceleration_structures[0];
-            ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &resource_barrier);
-
-            /* Tests CLONE and COMPACTING copies. COMPACTING can never increase size, so it's safe to allocate up front.
-             * We test the compacted size later. */
-            ID3D12GraphicsCommandList4_CopyRaytracingAccelerationStructure(command_list4,
-                    ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structures[1]),
-                    ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structures[0]),
-                    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT);
-
-            resource_barrier.UAV.pResource = top_acceleration_structures[1];
-            ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &resource_barrier);
-
-            ID3D12GraphicsCommandList4_CopyRaytracingAccelerationStructure(command_list4,
-                ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structures[2]),
-                ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structures[1]),
-                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE);
-
-            resource_barrier.UAV.pResource = top_acceleration_structures[2];
-            ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &resource_barrier);
-        }
-    }
-    else
-    {
-        scratch_buffer_top = NULL;
-        memset(top_acceleration_structures, 0, sizeof(top_acceleration_structures));
+        /* Tests CLONE and COMPACTING copies. COMPACTING can never increase size, so it's safe to allocate up front.
+         * We test the compacted size later. */
+        top_acceleration_structures[0] = top_rtas.rtas;
+        ID3D12Resource_AddRef(top_rtas.rtas);
+        top_acceleration_structures[1] = duplicate_acceleration_structure(&context,
+                top_acceleration_structures[0], D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT);
+        top_acceleration_structures[2] = duplicate_acceleration_structure(&context,
+                top_acceleration_structures[1], D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE);
     }
 
     /* Create global root signature. All RT shaders can access these parameters. */
@@ -1274,6 +1222,8 @@ void test_raytracing(void)
     ID3D12RootSignature_Release(global_rs);
     ID3D12RootSignature_Release(local_rs);
     ID3D12RootSignature_Release(local_rs_table);
+
+    destroy_acceleration_structure(&top_rtas);
     for (i = 0; i < ARRAY_SIZE(top_acceleration_structures); i++)
         if (top_acceleration_structures[i])
             ID3D12Resource_Release(top_acceleration_structures[i]);
@@ -1283,8 +1233,6 @@ void test_raytracing(void)
         if (bottom_acceleration_structures[i])
             ID3D12Resource_Release(bottom_acceleration_structures[i]);
 
-    if (scratch_buffer_top)
-        ID3D12Resource_Release(scratch_buffer_top);
     if (rt_pso)
         ID3D12StateObject_Release(rt_pso);
     if (rt_object_library)
