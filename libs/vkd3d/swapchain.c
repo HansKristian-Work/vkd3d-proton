@@ -1967,33 +1967,15 @@ static HRESULT d3d12_swapchain_present(struct d3d12_swapchain *swapchain,
         return hr;
     }
 
-    if (swapchain->desc.Flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT)
+    if (FAILED(hr = d3d12_fence_set_event_on_completion(unsafe_impl_from_ID3D12Fence(swapchain->frame_latency_fence),
+            swapchain->frame_number, swapchain->frame_latency_event, VKD3D_WAITING_EVENT_TYPE_SEMAPHORE)))
     {
-        if (FAILED(hr = ID3D12Fence_SetEventOnCompletion(swapchain->frame_latency_fence,
-                swapchain->frame_number - swapchain->frame_latency, swapchain->frame_latency_event)))
-        {
-            ERR("Failed to enqueue frame latency event, hr %#x.\n", hr);
-            return hr;
-        }
+        ERR("Failed to enqueue frame latency event, hr %#x.\n", hr);
+        return hr;
     }
-    else
-    {
-        const uint32_t sync_latency = min(swapchain->frame_latency, swapchain->desc.BufferCount + 1);
-        const uint64_t frame_target = swapchain->frame_number - sync_latency;
 
-        if (ID3D12Fence_GetCompletedValue(swapchain->frame_latency_fence) < frame_target)
-        {
-            /* Wait on the latency. */
-            if (FAILED(hr = ID3D12Fence_SetEventOnCompletion(swapchain->frame_latency_fence,
-                    frame_target, swapchain->frame_latency_event)))
-            {
-                ERR("Failed to enqueue frame latency event (internal), hr %#x.\n", hr);
-                return hr;
-            }
-
-            WaitForSingleObject(swapchain->frame_latency_event, INFINITE);
-        }
-    }
+    if (!(swapchain->desc.Flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT))
+        WaitForSingleObject(swapchain->frame_latency_event, INFINITE);
 
     swapchain->current_buffer_index = (swapchain->current_buffer_index + 1) % swapchain->desc.BufferCount;
     return hresult_from_vk_result(vr);
@@ -2480,6 +2462,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_SetMaximumFrameLatency(dxgi_swa
         return DXGI_ERROR_INVALID_CALL;
     }
 
+    /* Only increasing the latency is handled here; apparently it is
+     * the application's responsibility to reduce the semaphore value
+     * in case the latency gets reduced. */
+    if (max_latency > swapchain->frame_latency)
+        ReleaseSemaphore(swapchain->frame_latency_event, max_latency - swapchain->frame_latency, NULL);
+
     swapchain->frame_latency = max_latency;
     LeaveCriticalSection(&swapchain->mutex);
     return S_OK;
@@ -2847,7 +2835,7 @@ static HRESULT d3d12_swapchain_init(struct d3d12_swapchain *swapchain, IDXGIFact
         return hr;
     }
 
-    if (!(swapchain->frame_latency_event = CreateEventW(NULL, FALSE, TRUE, NULL)))
+    if (!(swapchain->frame_latency_event = CreateSemaphore(NULL, swapchain->frame_latency, DXGI_MAX_SWAP_CHAIN_BUFFERS, NULL)))
     {
         hr = HRESULT_FROM_WIN32(GetLastError());
         WARN("Failed to create frame latency event, hr %#x.\n", hr);

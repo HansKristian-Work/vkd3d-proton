@@ -570,6 +570,8 @@ struct d3d12_fence
     struct vkd3d_private_store private_store;
 };
 
+struct d3d12_fence *unsafe_impl_from_ID3D12Fence1(ID3D12Fence1 *iface);
+struct d3d12_fence *unsafe_impl_from_ID3D12Fence(ID3D12Fence *iface);
 HRESULT d3d12_fence_create(struct d3d12_device *device,
         uint64_t initial_value, D3D12_FENCE_FLAGS flags, struct d3d12_fence **fence);
 HRESULT d3d12_fence_set_event_on_completion(struct d3d12_fence *fence,
