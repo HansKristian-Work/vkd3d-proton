@@ -1009,7 +1009,7 @@ static CONST_VTBL struct ID3D12Fence1Vtbl d3d12_fence_vtbl =
     d3d12_fence_GetCreationFlags,
 };
 
-static struct d3d12_fence *unsafe_impl_from_ID3D12Fence1(ID3D12Fence1 *iface)
+struct d3d12_fence *unsafe_impl_from_ID3D12Fence1(ID3D12Fence1 *iface)
 {
     if (!iface)
         return NULL;
@@ -1017,7 +1017,7 @@ static struct d3d12_fence *unsafe_impl_from_ID3D12Fence1(ID3D12Fence1 *iface)
     return impl_from_ID3D12Fence(iface);
 }
 
-static struct d3d12_fence *unsafe_impl_from_ID3D12Fence(ID3D12Fence *iface)
+struct d3d12_fence *unsafe_impl_from_ID3D12Fence(ID3D12Fence *iface)
 {
     return unsafe_impl_from_ID3D12Fence1((ID3D12Fence1 *)iface);
 }
