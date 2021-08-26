@@ -527,6 +527,12 @@ struct d3d12_fence_value
     const struct vkd3d_queue *signalling_queue;
 };
 
+enum vkd3d_waiting_event_type
+{
+    VKD3D_WAITING_EVENT_TYPE_EVENT,
+    VKD3D_WAITING_EVENT_TYPE_SEMAPHORE,
+};
+
 struct d3d12_fence
 {
     d3d12_fence_iface ID3D12Fence_iface;
@@ -553,6 +559,7 @@ struct d3d12_fence
     {
         uint64_t value;
         HANDLE event;
+        enum vkd3d_waiting_event_type type;
         bool *latch;
     } *events;
     size_t events_size;
@@ -565,6 +572,8 @@ struct d3d12_fence
 
 HRESULT d3d12_fence_create(struct d3d12_device *device,
         uint64_t initial_value, D3D12_FENCE_FLAGS flags, struct d3d12_fence **fence);
+HRESULT d3d12_fence_set_event_on_completion(struct d3d12_fence *fence,
+        UINT64 value, HANDLE event, enum vkd3d_waiting_event_type type);
 
 enum vkd3d_allocation_flag
 {
