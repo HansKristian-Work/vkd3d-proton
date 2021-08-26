@@ -278,6 +278,68 @@ static D3D12_SHADER_BYTECODE get_rt_library(void)
     return code;
 }
 
+struct initial_vbo
+{
+    float f32[3 * 3 * 2];
+    int16_t i16[3 * 3 * 2];
+    uint16_t f16[3 * 3 * 2];
+};
+
+struct initial_ibo
+{
+    uint32_t u32[6];
+    uint16_t u16[6];
+};
+
+struct test_geometry
+{
+    ID3D12Resource *vbo;
+    ID3D12Resource *zero_vbo;
+    ID3D12Resource *ibo;
+};
+
+static void destroy_test_geometry(struct test_geometry *geom)
+{
+    ID3D12Resource_Release(geom->vbo);
+    ID3D12Resource_Release(geom->zero_vbo);
+    ID3D12Resource_Release(geom->ibo);
+}
+
+static void init_test_geometry(ID3D12Device *device, struct test_geometry *geom)
+{
+    unsigned int i;
+
+    /* Emit quads with the different Tier 1.0 formats. */
+    {
+        struct initial_vbo initial_vbo_data;
+        float *pv = initial_vbo_data.f32;
+        *pv++ = -1.0f; *pv++ = +1.0f; *pv++ = 0.0f;
+        *pv++ = -1.0f; *pv++ = -1.0f; *pv++ = 0.0f;
+        *pv++ = +1.0f; *pv++ = -1.0f; *pv++ = 0.0f;
+
+        *pv++ = +1.0f; *pv++ = +1.0f; *pv++ = 0.0f;
+        *pv++ = -1.0f; *pv++ = +1.0f; *pv++ = 0.0f;
+        *pv++ = +1.0f; *pv++ = -1.0f; *pv++ = 0.0f;
+
+        for (i = 0; i < 3 * 3 * 2; i++)
+        {
+            initial_vbo_data.i16[i] = (int16_t)(0x7fff * initial_vbo_data.f32[i]);
+            initial_vbo_data.f16[i] = 0x3c00 | (initial_vbo_data.f32[i] < 0.0f ? 0x8000 : 0);
+        }
+
+        geom->vbo = create_upload_buffer(device, sizeof(initial_vbo_data), &initial_vbo_data);
+        geom->zero_vbo = create_default_buffer(device, sizeof(initial_vbo_data), D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    }
+
+    {
+        static const struct initial_ibo initial_ibo_data = {
+            { 0, 1, 2, 3, 2, 1 },
+            { 0, 1, 2, 3, 2, 1 },
+        };
+        geom->ibo = create_upload_buffer(device, sizeof(initial_ibo_data), &initial_ibo_data);
+    }
+}
+
 void test_raytracing(void)
 {
 #define NUM_GEOM_DESC 6
@@ -317,33 +379,18 @@ void test_raytracing(void)
     ID3D12Resource *instance_buffer;
     unsigned int i, descriptor_size;
     ID3D12RootSignature *global_rs;
+    struct test_geometry test_geom;
     ID3D12RootSignature *local_rs;
     ID3D12Resource *ray_positions;
     struct resource_readback rb;
     ID3D12Resource *ray_colors;
     ID3D12CommandQueue *queue;
     ID3D12StateObject *rt_pso;
-    ID3D12Resource *dummy_vbo;
     ID3D12Device5 *device5;
     unsigned int ref_count;
     ID3D12Device *device;
-    ID3D12Resource *vbo;
-    ID3D12Resource *ibo;
     ID3D12Resource *sbt;
     HRESULT hr;
-
-    struct initial_vbo
-    {
-        float f32[3 * 3 * 2];
-        int16_t i16[3 * 3 * 2];
-        uint16_t f16[3 * 3 * 2];
-    };
-
-    struct initial_ibo
-    {
-        uint32_t u32[6];
-        uint16_t u16[6];
-    };
 
     if (!init_raytracing_test_context(&context))
         return;
@@ -357,35 +404,7 @@ void test_raytracing(void)
     postbuild_readback = create_readback_buffer(device, 4096);
     postbuild_buffer = create_default_buffer(device, 4096, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
-    /* Emit quads with the different Tier 1.0 formats. */
-    {
-        struct initial_vbo initial_vbo_data;
-        float *pv = initial_vbo_data.f32;
-        *pv++ = -1.0f; *pv++ = +1.0f; *pv++ = 0.0f;
-        *pv++ = -1.0f; *pv++ = -1.0f; *pv++ = 0.0f;
-        *pv++ = +1.0f; *pv++ = -1.0f; *pv++ = 0.0f;
-
-        *pv++ = +1.0f; *pv++ = +1.0f; *pv++ = 0.0f;
-        *pv++ = -1.0f; *pv++ = +1.0f; *pv++ = 0.0f;
-        *pv++ = +1.0f; *pv++ = -1.0f; *pv++ = 0.0f;
-
-        for (i = 0; i < 3 * 3 * 2; i++)
-        {
-            initial_vbo_data.i16[i] = (int16_t)(0x7fff * initial_vbo_data.f32[i]);
-            initial_vbo_data.f16[i] = 0x3c00 | (initial_vbo_data.f32[i] < 0.0f ? 0x8000 : 0);
-        }
-
-        vbo = create_upload_buffer(device, sizeof(initial_vbo_data), &initial_vbo_data);
-        dummy_vbo = create_default_buffer(device, sizeof(initial_vbo_data), D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    }
-
-    {
-        static const struct initial_ibo initial_ibo_data = {
-            { 0, 1, 2, 3, 2, 1 },
-            { 0, 1, 2, 3, 2, 1 },
-        };
-        ibo = create_upload_buffer(device, sizeof(initial_ibo_data), &initial_ibo_data);
-    }
+    init_test_geometry(device, &test_geom);
 
     /* Create a transform buffer which is used when building bottom AS. Row-major affine transform. */
     {
@@ -416,36 +435,36 @@ void test_raytracing(void)
         /* Tests the configuration space of the 6 supported vertex formats, and the 3 index types. */
         geom_desc[0].Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
 
-        geom_desc[0].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(vbo) + offsetof(struct initial_vbo, f32);
+        geom_desc[0].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(test_geom.vbo) + offsetof(struct initial_vbo, f32);
         geom_desc[0].Triangles.VertexBuffer.StrideInBytes = 3 * sizeof(float);
         geom_desc[0].Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
         geom_desc[0].Triangles.VertexCount = 6;
 
         geom_desc[1] = geom_desc[0];
         /* First, render something wrong, update the RTAS later and verify that it works. */
-        geom_desc[1].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(dummy_vbo) + offsetof(struct initial_vbo, f32);
+        geom_desc[1].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(test_geom.zero_vbo) + offsetof(struct initial_vbo, f32);
         geom_desc[1].Triangles.VertexFormat = DXGI_FORMAT_R32G32_FLOAT;
 
         geom_desc[2].Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
-        geom_desc[2].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(vbo) + offsetof(struct initial_vbo, i16);
+        geom_desc[2].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(test_geom.vbo) + offsetof(struct initial_vbo, i16);
         geom_desc[2].Triangles.VertexBuffer.StrideInBytes = 3 * sizeof(int16_t);
         geom_desc[2].Triangles.VertexFormat = DXGI_FORMAT_R16G16B16A16_SNORM;
         geom_desc[2].Triangles.VertexCount = 4;
-        geom_desc[2].Triangles.IndexBuffer = ID3D12Resource_GetGPUVirtualAddress(ibo) + offsetof(struct initial_ibo, u16);
+        geom_desc[2].Triangles.IndexBuffer = ID3D12Resource_GetGPUVirtualAddress(test_geom.ibo) + offsetof(struct initial_ibo, u16);
         geom_desc[2].Triangles.IndexFormat = DXGI_FORMAT_R16_UINT;
         geom_desc[2].Triangles.IndexCount = 6;
 
         geom_desc[3] = geom_desc[2];
         geom_desc[3].Triangles.VertexFormat = DXGI_FORMAT_R16G16_SNORM;
-        geom_desc[3].Triangles.IndexBuffer = ID3D12Resource_GetGPUVirtualAddress(ibo) + offsetof(struct initial_ibo, u32);
+        geom_desc[3].Triangles.IndexBuffer = ID3D12Resource_GetGPUVirtualAddress(test_geom.ibo) + offsetof(struct initial_ibo, u32);
         geom_desc[3].Triangles.IndexFormat = DXGI_FORMAT_R32_UINT;
 
         geom_desc[4] = geom_desc[2];
-        geom_desc[4].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(vbo) + offsetof(struct initial_vbo, f16);
+        geom_desc[4].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(test_geom.vbo) + offsetof(struct initial_vbo, f16);
         geom_desc[4].Triangles.VertexFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
 
         geom_desc[5] = geom_desc[3];
-        geom_desc[5].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(vbo) + offsetof(struct initial_vbo, f16);
+        geom_desc[5].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(test_geom.vbo) + offsetof(struct initial_vbo, f16);
         geom_desc[5].Triangles.VertexFormat = DXGI_FORMAT_R16G16_FLOAT;
 
         /* Identity transform for index 0, checks that we handle NULL here. */
@@ -494,7 +513,7 @@ void test_raytracing(void)
             ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &resource_barrier);
 
             /* Update, and now use correct VBO. */
-            geom_desc[1].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(vbo) + offsetof(struct initial_vbo, f32);
+            geom_desc[1].Triangles.VertexBuffer.StartAddress = ID3D12Resource_GetGPUVirtualAddress(test_geom.vbo) + offsetof(struct initial_vbo, f32);
             build_info.Inputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
             /* In-place update is supported. */
             build_info.SourceAccelerationStructureData = build_info.DestAccelerationStructureData;
@@ -1189,9 +1208,7 @@ void test_raytracing(void)
         }
     }
 
-    ID3D12Resource_Release(dummy_vbo);
-    ID3D12Resource_Release(vbo);
-    ID3D12Resource_Release(ibo);
+    destroy_test_geometry(&test_geom);
     if (sbt_colors_buffer)
         ID3D12Resource_Release(sbt_colors_buffer);
     if (instance_buffer)
