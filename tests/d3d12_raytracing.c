@@ -22,6 +22,62 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 #include "d3d12_crosstest.h"
 
+struct raytracing_test_context
+{
+    struct test_context context;
+    ID3D12Device5 *device5;
+    ID3D12GraphicsCommandList4 *list4;
+};
+
+static void destroy_raytracing_test_context(struct raytracing_test_context *context)
+{
+    ID3D12Device5_Release(context->device5);
+    ID3D12GraphicsCommandList4_Release(context->list4);
+    destroy_test_context(&context->context);
+}
+
+static bool init_raytracing_test_context(struct raytracing_test_context *context)
+{
+    if (!init_compute_test_context(&context->context))
+        return false;
+
+    if (!context_supports_dxil(&context->context))
+    {
+        destroy_test_context(&context->context);
+        return false;
+    }
+
+    if (FAILED(ID3D12Device_QueryInterface(context->context.device, &IID_ID3D12Device5, (void**)&context->device5)))
+    {
+        skip("ID3D12Device5 is not supported. Skipping RT test.\n");
+        destroy_test_context(&context->context);
+        return false;
+    }
+
+    if (FAILED(ID3D12GraphicsCommandList_QueryInterface(context->context.list, &IID_ID3D12GraphicsCommandList4, (void**)&context->list4)))
+    {
+        skip("ID3D12GraphicsCommandList4 is not supported. Skipping RT test.\n");
+        ID3D12Device5_Release(context->device5);
+        destroy_test_context(&context->context);
+        return false;
+    }
+
+    {
+        D3D12_FEATURE_DATA_D3D12_OPTIONS5 opts5;
+        if (FAILED(ID3D12Device5_CheckFeatureSupport(context->device5, D3D12_FEATURE_D3D12_OPTIONS5, &opts5, sizeof(opts5))) ||
+                opts5.RaytracingTier < D3D12_RAYTRACING_TIER_1_0)
+        {
+            skip("Raytracing tier 1.0 is not supported on this device. Skipping RT test.\n");
+            ID3D12Device5_Release(context->device5);
+            ID3D12GraphicsCommandList4_Release(context->list4);
+            destroy_test_context(&context->context);
+            return false;
+        }
+    }
+
+    return true;
+}
+
 void test_raytracing(void)
 {
 #define NUM_GEOM_DESC 6
@@ -47,6 +103,7 @@ void test_raytracing(void)
     ID3D12GraphicsCommandList *command_list;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
+    struct raytracing_test_context context;
     ID3D12DescriptorHeap *descriptor_heap;
     ID3D12Resource *scratch_buffer_bottom;
     ID3D12StateObject *rt_object_library;
@@ -62,7 +119,6 @@ void test_raytracing(void)
     ID3D12RootSignature *global_rs;
     ID3D12RootSignature *local_rs;
     ID3D12Resource *ray_positions;
-    struct test_context context;
     struct resource_readback rb;
     ID3D12Resource *ray_colors;
     ID3D12CommandQueue *queue;
@@ -70,6 +126,7 @@ void test_raytracing(void)
     ID3D12Resource *dummy_vbo;
     ID3D12Device5 *device5;
     unsigned int ref_count;
+    ID3D12Device *device;
     ID3D12Resource *vbo;
     ID3D12Resource *ibo;
     ID3D12Resource *sbt;
@@ -280,48 +337,17 @@ void test_raytracing(void)
         0xb2, 0xd6, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
     };
 
-    if (!init_compute_test_context(&context))
+    if (!init_raytracing_test_context(&context))
         return;
 
-    if (!context_supports_dxil(&context))
-    {
-        destroy_test_context(&context);
-        return;
-    }
+    device = context.context.device;
+    command_list = context.context.list;
+    device5 = context.device5;
+    command_list4 = context.list4;
+    queue = context.context.queue;
 
-    command_list = context.list;
-    queue = context.queue;
-
-    if (FAILED(ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device5, (void**)&device5)))
-    {
-        skip("ID3D12Device5 is not supported. Skipping RT test.\n");
-        destroy_test_context(&context);
-        return;
-    }
-
-    if (FAILED(ID3D12GraphicsCommandList_QueryInterface(command_list, &IID_ID3D12GraphicsCommandList4, (void**)&command_list4)))
-    {
-        skip("ID3D12GraphicsCommandList4 is not supported. Skipping RT test.\n");
-        ID3D12Device5_Release(device5);
-        destroy_test_context(&context);
-        return;
-    }
-
-    {
-        D3D12_FEATURE_DATA_D3D12_OPTIONS5 opts5;
-        if (FAILED(ID3D12Device5_CheckFeatureSupport(device5, D3D12_FEATURE_D3D12_OPTIONS5, &opts5, sizeof(opts5))) ||
-            opts5.RaytracingTier < D3D12_RAYTRACING_TIER_1_0)
-        {
-            skip("Raytracing tier 1.0 is not supported on this device. Skipping RT test.\n");
-            ID3D12Device5_Release(device5);
-            ID3D12GraphicsCommandList4_Release(command_list4);
-            destroy_test_context(&context);
-            return;
-        }
-    }
-
-    postbuild_readback = create_readback_buffer(context.device, 4096);
-    postbuild_buffer = create_default_buffer(context.device, 4096, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    postbuild_readback = create_readback_buffer(device, 4096);
+    postbuild_buffer = create_default_buffer(device, 4096, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
     /* Emit quads with the different Tier 1.0 formats. */
     {
@@ -341,8 +367,8 @@ void test_raytracing(void)
             initial_vbo_data.f16[i] = 0x3c00 | (initial_vbo_data.f32[i] < 0.0f ? 0x8000 : 0);
         }
 
-        vbo = create_upload_buffer(context.device, sizeof(initial_vbo_data), &initial_vbo_data);
-        dummy_vbo = create_default_buffer(context.device, sizeof(initial_vbo_data), D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        vbo = create_upload_buffer(device, sizeof(initial_vbo_data), &initial_vbo_data);
+        dummy_vbo = create_default_buffer(device, sizeof(initial_vbo_data), D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     }
 
     {
@@ -350,7 +376,7 @@ void test_raytracing(void)
             { 0, 1, 2, 3, 2, 1 },
             { 0, 1, 2, 3, 2, 1 },
         };
-        ibo = create_upload_buffer(context.device, sizeof(initial_ibo_data), &initial_ibo_data);
+        ibo = create_upload_buffer(device, sizeof(initial_ibo_data), &initial_ibo_data);
     }
 
     /* Create a transform buffer which is used when building bottom AS. Row-major affine transform. */
@@ -363,7 +389,7 @@ void test_raytracing(void)
             transform[3 * i + 2][2] = 1.0f;
             transform[3 * i + 0][3] = GEOM_OFFSET_X * (float)i;
         }
-        transform_buffer = create_upload_buffer(context.device, sizeof(transform), transform);
+        transform_buffer = create_upload_buffer(device, sizeof(transform), transform);
     }
 
     /* Create bottom AS. One quad is centered around origin, but other triangle is translated. */
@@ -425,14 +451,14 @@ void test_raytracing(void)
         ID3D12Device5_GetRaytracingAccelerationStructurePrebuildInfo(device5, &inputs, &prebuild_info);
 
         /* An AS in D3D12 is just a plain UAV-enabled buffer. */
-        scratch_buffer_bottom = create_default_buffer(context.device, prebuild_info.ScratchDataSizeInBytes,
+        scratch_buffer_bottom = create_default_buffer(device, prebuild_info.ScratchDataSizeInBytes,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        scratch_buffer_update_bottom = create_default_buffer(context.device, prebuild_info.UpdateScratchDataSizeInBytes,
+        scratch_buffer_update_bottom = create_default_buffer(device, prebuild_info.UpdateScratchDataSizeInBytes,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
         for (i = 0; i < ARRAY_SIZE(bottom_acceleration_structures); i++)
         {
-            bottom_acceleration_structures[i] = create_default_buffer(context.device, prebuild_info.ResultDataMaxSizeInBytes,
+            bottom_acceleration_structures[i] = create_default_buffer(device, prebuild_info.ResultDataMaxSizeInBytes,
                 D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
         }
 
@@ -515,7 +541,7 @@ void test_raytracing(void)
         instance_desc[NUM_UNMASKED_INSTANCES].InstanceContributionToHitGroupIndex = 0;
         instance_desc[NUM_UNMASKED_INSTANCES].AccelerationStructure = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structures[2]);
 
-        instance_buffer = create_upload_buffer(context.device, sizeof(instance_desc), instance_desc);
+        instance_buffer = create_upload_buffer(device, sizeof(instance_desc), instance_desc);
     }
     else
         instance_buffer = NULL;
@@ -535,12 +561,12 @@ void test_raytracing(void)
 
         ID3D12Device5_GetRaytracingAccelerationStructurePrebuildInfo(device5, &inputs, &prebuild_info);
 
-        scratch_buffer_top = create_default_buffer(context.device, prebuild_info.ScratchDataSizeInBytes,
+        scratch_buffer_top = create_default_buffer(device, prebuild_info.ScratchDataSizeInBytes,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
         for (i = 0; i < ARRAY_SIZE(top_acceleration_structures); i++)
         {
-            top_acceleration_structures[i] = create_default_buffer(context.device, prebuild_info.ResultDataMaxSizeInBytes,
+            top_acceleration_structures[i] = create_default_buffer(device, prebuild_info.ResultDataMaxSizeInBytes,
                     D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
         }
 
@@ -609,7 +635,7 @@ void test_raytracing(void)
         descriptor_ranges[1].OffsetInDescriptorsFromTableStart = 2;
         descriptor_ranges[1].NumDescriptors = 1;
 
-        hr = create_root_signature(context.device, &root_signature_desc, &global_rs);
+        hr = create_root_signature(device, &root_signature_desc, &global_rs);
         ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", hr);
     }
 
@@ -640,7 +666,7 @@ void test_raytracing(void)
         root_parameters[1].Constants.RegisterSpace = 1;
         root_parameters[1].Constants.ShaderRegister = 1;
 
-        hr = create_root_signature(context.device, &root_signature_desc, &local_rs);
+        hr = create_root_signature(device, &root_signature_desc, &local_rs);
         ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", hr);
 
         root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -656,7 +682,7 @@ void test_raytracing(void)
         root_parameters[1].Descriptor.RegisterSpace = 1;
         root_parameters[1].Descriptor.ShaderRegister = 1;
 
-        hr = create_root_signature(context.device, &root_signature_desc, &local_rs_table);
+        hr = create_root_signature(device, &root_signature_desc, &local_rs_table);
         ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", hr);
     }
 
@@ -843,8 +869,8 @@ void test_raytracing(void)
     ref_count = ID3D12RootSignature_Release(local_rs);
     ok(ref_count == 1, "Ref count %u != 1.\n", ref_count);
 
-    descriptor_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 4);
-    descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    descriptor_heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 4);
+    descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descriptor_heap);
     gpu_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
 
@@ -866,7 +892,7 @@ void test_raytracing(void)
             uint8_t padded[2048];
             memcpy(padded + 0, &sbt_colors[0][0], sizeof(float));
             memcpy(padded + 1024, &sbt_colors[0][1], sizeof(float));
-            sbt_colors_buffer = create_upload_buffer(context.device, sizeof(padded), padded);
+            sbt_colors_buffer = create_upload_buffer(device, sizeof(padded), padded);
         }
 
         /* Why this is a separate interface, we will never know ... */
@@ -971,12 +997,12 @@ void test_raytracing(void)
             for (i = 1; i < ARRAY_SIZE(sbt_colors); i++)
                 memcpy(sbt_data + D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES + 64 * i, sbt_colors[i], sizeof(sbt_colors[i]));
 
-            sbt = create_upload_buffer(context.device, sizeof(sbt_data), sbt_data);
+            sbt = create_upload_buffer(device, sizeof(sbt_data), sbt_data);
             ID3D12StateObjectProperties_Release(props);
         }
         else
         {
-            destroy_test_context(&context);
+            destroy_raytracing_test_context(&context);
             return;
         }
     }
@@ -999,8 +1025,8 @@ void test_raytracing(void)
             }
         }
 
-        ray_colors = create_default_buffer(context.device, sizeof(sbt_colors), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        ray_positions = create_upload_buffer(context.device, sizeof(ray_pos), ray_pos);
+        ray_colors = create_default_buffer(device, sizeof(sbt_colors), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        ray_positions = create_upload_buffer(device, sizeof(ray_pos), ray_pos);
     }
 
     if (top_acceleration_structures[2])
@@ -1013,7 +1039,7 @@ void test_raytracing(void)
         as_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         as_desc.Format = DXGI_FORMAT_UNKNOWN;
         as_desc.RaytracingAccelerationStructure.Location = ID3D12Resource_GetGPUVirtualAddress(top_acceleration_structures[2]);
-        ID3D12Device_CreateShaderResourceView(context.device, NULL, &as_desc, cpu_handle);
+        ID3D12Device_CreateShaderResourceView(device, NULL, &as_desc, cpu_handle);
         cpu_handle.ptr += descriptor_size;
 
         rtases[0] = ID3D12Resource_GetGPUVirtualAddress(bottom_acceleration_structures[0]);
@@ -1043,7 +1069,7 @@ void test_raytracing(void)
         ray_pos_desc.Buffer.FirstElement = 0;
         ray_pos_desc.Buffer.NumElements = NUM_GEOM_DESC * NUM_UNMASKED_INSTANCES + 1;
         ray_pos_desc.Buffer.StructureByteStride = 8;
-        ID3D12Device_CreateShaderResourceView(context.device, ray_positions, &ray_pos_desc, cpu_handle);
+        ID3D12Device_CreateShaderResourceView(device, ray_positions, &ray_pos_desc, cpu_handle);
         cpu_handle.ptr += descriptor_size;
     }
 
@@ -1055,7 +1081,7 @@ void test_raytracing(void)
         ray_col_desc.Buffer.FirstElement = 0;
         ray_col_desc.Buffer.NumElements = NUM_GEOM_DESC * NUM_UNMASKED_INSTANCES + 1;
         ray_col_desc.Buffer.StructureByteStride = 8;
-        ID3D12Device_CreateUnorderedAccessView(context.device, ray_colors, NULL, &ray_col_desc, cpu_handle);
+        ID3D12Device_CreateUnorderedAccessView(device, ray_colors, NULL, &ray_col_desc, cpu_handle);
         cpu_handle.ptr += descriptor_size;
     }
 
@@ -1065,7 +1091,7 @@ void test_raytracing(void)
         memset(&miss_view_desc, 0, sizeof(miss_view_desc));
         miss_view_desc.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(sbt_colors_buffer);
         miss_view_desc.SizeInBytes = ID3D12Resource_GetDesc(sbt_colors_buffer).Width;
-        ID3D12Device_CreateConstantBufferView(context.device, &miss_view_desc, cpu_handle);
+        ID3D12Device_CreateConstantBufferView(device, &miss_view_desc, cpu_handle);
         cpu_handle.ptr += descriptor_size;
     }
 
@@ -1157,8 +1183,6 @@ void test_raytracing(void)
         }
     }
 
-    ID3D12Device5_Release(device5);
-    ID3D12GraphicsCommandList4_Release(command_list4);
     ID3D12Resource_Release(dummy_vbo);
     ID3D12Resource_Release(vbo);
     ID3D12Resource_Release(ibo);
@@ -1194,6 +1218,6 @@ void test_raytracing(void)
     ID3D12Resource_Release(postbuild_readback);
     ID3D12Resource_Release(postbuild_buffer);
 
-    destroy_test_context(&context);
+    destroy_raytracing_test_context(&context);
 }
 
