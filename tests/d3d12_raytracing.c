@@ -78,73 +78,8 @@ static bool init_raytracing_test_context(struct raytracing_test_context *context
     return true;
 }
 
-void test_raytracing(void)
+static D3D12_SHADER_BYTECODE get_rt_library(void)
 {
-#define NUM_GEOM_DESC 6
-#define NUM_UNMASKED_INSTANCES 4
-#define INSTANCE_OFFSET_Y (100.0f)
-#define GEOM_OFFSET_X (10.0f)
-#define INSTANCE_GEOM_SCALE (0.5f)
-
-    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC postbuild_desc[3];
-    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuild_info;
-    float sbt_colors[NUM_GEOM_DESC * NUM_UNMASKED_INSTANCES + 1][2];
-    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC build_info;
-    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs;
-    D3D12_RAYTRACING_GEOMETRY_DESC geom_desc[NUM_GEOM_DESC];
-    ID3D12Resource *bottom_acceleration_structures[3];
-    ID3D12Resource *top_acceleration_structures[3];
-    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
-    ID3D12Resource *scratch_buffer_update_bottom;
-    D3D12_DESCRIPTOR_RANGE descriptor_ranges[2];
-    ID3D12GraphicsCommandList4 *command_list4;
-    D3D12_RESOURCE_BARRIER resource_barrier;
-    D3D12_ROOT_PARAMETER root_parameters[2];
-    ID3D12GraphicsCommandList *command_list;
-    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
-    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
-    struct raytracing_test_context context;
-    ID3D12DescriptorHeap *descriptor_heap;
-    ID3D12Resource *scratch_buffer_bottom;
-    ID3D12StateObject *rt_object_library;
-    ID3D12RootSignature *local_rs_table;
-    ID3D12Resource *scratch_buffer_top;
-    D3D12_DESCRIPTOR_RANGE table_range;
-    ID3D12Resource *postbuild_readback;
-    ID3D12Resource *sbt_colors_buffer;
-    ID3D12Resource *postbuild_buffer;
-    ID3D12Resource *transform_buffer;
-    ID3D12Resource *instance_buffer;
-    unsigned int i, descriptor_size;
-    ID3D12RootSignature *global_rs;
-    ID3D12RootSignature *local_rs;
-    ID3D12Resource *ray_positions;
-    struct resource_readback rb;
-    ID3D12Resource *ray_colors;
-    ID3D12CommandQueue *queue;
-    ID3D12StateObject *rt_pso;
-    ID3D12Resource *dummy_vbo;
-    ID3D12Device5 *device5;
-    unsigned int ref_count;
-    ID3D12Device *device;
-    ID3D12Resource *vbo;
-    ID3D12Resource *ibo;
-    ID3D12Resource *sbt;
-    HRESULT hr;
-
-    struct initial_vbo
-    {
-        float f32[3 * 3 * 2];
-        int16_t i16[3 * 3 * 2];
-        uint16_t f16[3 * 3 * 2];
-    };
-
-    struct initial_ibo
-    {
-        uint32_t u32[6];
-        uint16_t u16[6];
-    };
-
     /* Compile with -Tlib_6_3 in DXC. */
     static const BYTE rt_lib_dxil[] =
     {
@@ -335,6 +270,79 @@ void test_raytracing(void)
         0x41, 0x86, 0x8c, 0x18, 0x50, 0x07, 0x08, 0x82, 0x41, 0x19, 0xbc, 0xc1, 0x15, 0x94, 0x41, 0x1a, 0x94, 0x41, 0x1a, 0x94, 0x01, 0x31, 0x38, 0x0c, 0xc3, 0x3c, 0xd1, 0x42, 0x02, 0x41, 0x46, 0x0c,
         0x0c, 0x00, 0x04, 0xc1, 0xe0, 0x0d, 0xd6, 0x60, 0x4b, 0xc6, 0x10, 0x04, 0x6b, 0x0c, 0x61, 0xc0, 0x46, 0x0c, 0x1c, 0x00, 0x04, 0xc1, 0x00, 0x0c, 0xea, 0x40, 0x1b, 0x96, 0x34, 0x10, 0x82, 0x28,
         0xb2, 0xd6, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+    };
+
+    D3D12_SHADER_BYTECODE code;
+    code.pShaderBytecode = rt_lib_dxil;
+    code.BytecodeLength = sizeof(rt_lib_dxil);
+    return code;
+}
+
+void test_raytracing(void)
+{
+#define NUM_GEOM_DESC 6
+#define NUM_UNMASKED_INSTANCES 4
+#define INSTANCE_OFFSET_Y (100.0f)
+#define GEOM_OFFSET_X (10.0f)
+#define INSTANCE_GEOM_SCALE (0.5f)
+
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC postbuild_desc[3];
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuild_info;
+    float sbt_colors[NUM_GEOM_DESC * NUM_UNMASKED_INSTANCES + 1][2];
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC build_info;
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs;
+    D3D12_RAYTRACING_GEOMETRY_DESC geom_desc[NUM_GEOM_DESC];
+    ID3D12Resource *bottom_acceleration_structures[3];
+    ID3D12Resource *top_acceleration_structures[3];
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    ID3D12Resource *scratch_buffer_update_bottom;
+    D3D12_DESCRIPTOR_RANGE descriptor_ranges[2];
+    ID3D12GraphicsCommandList4 *command_list4;
+    D3D12_RESOURCE_BARRIER resource_barrier;
+    D3D12_ROOT_PARAMETER root_parameters[2];
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
+    struct raytracing_test_context context;
+    ID3D12DescriptorHeap *descriptor_heap;
+    ID3D12Resource *scratch_buffer_bottom;
+    ID3D12StateObject *rt_object_library;
+    ID3D12RootSignature *local_rs_table;
+    ID3D12Resource *scratch_buffer_top;
+    D3D12_DESCRIPTOR_RANGE table_range;
+    ID3D12Resource *postbuild_readback;
+    ID3D12Resource *sbt_colors_buffer;
+    ID3D12Resource *postbuild_buffer;
+    ID3D12Resource *transform_buffer;
+    ID3D12Resource *instance_buffer;
+    unsigned int i, descriptor_size;
+    ID3D12RootSignature *global_rs;
+    ID3D12RootSignature *local_rs;
+    ID3D12Resource *ray_positions;
+    struct resource_readback rb;
+    ID3D12Resource *ray_colors;
+    ID3D12CommandQueue *queue;
+    ID3D12StateObject *rt_pso;
+    ID3D12Resource *dummy_vbo;
+    ID3D12Device5 *device5;
+    unsigned int ref_count;
+    ID3D12Device *device;
+    ID3D12Resource *vbo;
+    ID3D12Resource *ibo;
+    ID3D12Resource *sbt;
+    HRESULT hr;
+
+    struct initial_vbo
+    {
+        float f32[3 * 3 * 2];
+        int16_t i16[3 * 3 * 2];
+        uint16_t f16[3 * 3 * 2];
+    };
+
+    struct initial_ibo
+    {
+        uint32_t u32[6];
+        uint16_t u16[6];
     };
 
     if (!init_raytracing_test_context(&context))
@@ -728,8 +736,7 @@ void test_raytracing(void)
         objs[4].pDesc = &dxil_library_desc;
 
         memset(&dxil_library_desc, 0, sizeof(dxil_library_desc));
-        dxil_library_desc.DXILLibrary.pShaderBytecode = rt_lib_dxil;
-        dxil_library_desc.DXILLibrary.BytecodeLength = sizeof(rt_lib_dxil);
+        dxil_library_desc.DXILLibrary = get_rt_library();
         dxil_library_desc.NumExports = ARRAY_SIZE(dxil_exports);
         dxil_library_desc.pExports = dxil_exports;
 
@@ -802,8 +809,7 @@ void test_raytracing(void)
         objs[4].pDesc = &dxil_library_desc;
 
         memset(&dxil_library_desc, 0, sizeof(dxil_library_desc));
-        dxil_library_desc.DXILLibrary.pShaderBytecode = rt_lib_dxil;
-        dxil_library_desc.DXILLibrary.BytecodeLength = sizeof(rt_lib_dxil);
+        dxil_library_desc.DXILLibrary = get_rt_library();
         dxil_library_desc.NumExports = ARRAY_SIZE(dxil_exports);
         dxil_library_desc.pExports = dxil_exports;
         /* All entry points are exported by default. Test with custom exports, because why not. */
