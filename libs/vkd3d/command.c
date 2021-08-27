@@ -5048,6 +5048,7 @@ static bool d3d12_command_list_update_compute_state(struct d3d12_command_list *l
 
 static bool d3d12_command_list_update_raygen_state(struct d3d12_command_list *list)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     d3d12_command_list_end_current_render_pass(list, false);
 
     if (!d3d12_command_list_update_raygen_pipeline(list))
@@ -5056,6 +5057,18 @@ static bool d3d12_command_list_update_raygen_state(struct d3d12_command_list *li
     /* DXR uses compute bind point for descriptors, we will redirect internally to
      * raygen bind point in Vulkan. */
     d3d12_command_list_update_descriptors(list, VK_PIPELINE_BIND_POINT_COMPUTE);
+
+    /* If we have a static sampler set for local root signatures, bind it now.
+     * Don't bother with dirty tracking of this for time being.
+     * Should be very rare that this path is even hit. */
+    if (list->rt_state->local_static_sampler.desc_set)
+    {
+        VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
+                list->rt_state->local_static_sampler.pipeline_layout,
+                list->rt_state->local_static_sampler.set_index,
+                1, &list->rt_state->local_static_sampler.desc_set,
+                0, NULL));
+    }
 
     return true;
 }
