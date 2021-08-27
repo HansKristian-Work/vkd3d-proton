@@ -78,7 +78,7 @@ static bool init_raytracing_test_context(struct raytracing_test_context *context
     return true;
 }
 
-static D3D12_SHADER_BYTECODE get_rt_library(void)
+static D3D12_SHADER_BYTECODE get_default_rt_lib(void)
 {
     /* Compile with -Tlib_6_3 in DXC. */
     static const BYTE rt_lib_dxil[] =
@@ -853,7 +853,7 @@ static ID3D12StateObject *create_rt_collection(struct raytracing_test_context *c
     if (global_rs)
         rt_pso_factory_add_global_root_signature(&factory, global_rs);
 
-    rt_pso_factory_add_dxil_library(&factory, get_rt_library(), num_exports, exports);
+    rt_pso_factory_add_dxil_library(&factory, get_default_rt_lib(), num_exports, exports);
 
     if (local_rs)
         rt_pso_factory_add_local_root_signature(&factory, local_rs);
@@ -1027,7 +1027,7 @@ void test_raytracing(void)
         rt_pso_factory_add_pipeline_config(&factory, 1);
         rt_pso_factory_add_shader_config(&factory, 8, 8);
         /* All entry points are exported by default. Test with custom exports, because why not. */
-        rt_pso_factory_add_dxil_library(&factory, get_rt_library(), ARRAY_SIZE(dxil_exports), dxil_exports);
+        rt_pso_factory_add_dxil_library(&factory, get_default_rt_lib(), ARRAY_SIZE(dxil_exports), dxil_exports);
         local_rs_table_index = rt_pso_factory_add_local_root_signature(&factory, local_rs_table);
         local_rs_index = rt_pso_factory_add_local_root_signature(&factory, local_rs);
 
