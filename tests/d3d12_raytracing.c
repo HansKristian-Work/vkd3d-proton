@@ -644,6 +644,90 @@ static void init_rt_geometry(struct raytracing_test_context *context, struct tes
     free(instance_desc);
 }
 
+static ID3D12StateObject *create_rt_collection(struct raytracing_test_context *context,
+        unsigned int num_exports, D3D12_EXPORT_DESC *exports,
+        const D3D12_HIT_GROUP_DESC *hit_group,
+        ID3D12RootSignature *global_rs, ID3D12RootSignature *local_rs)
+{
+    D3D12_RAYTRACING_PIPELINE_CONFIG pipeline_config;
+    D3D12_STATE_OBJECT_CONFIG state_object_config;
+    D3D12_RAYTRACING_SHADER_CONFIG shader_config;
+    D3D12_GLOBAL_ROOT_SIGNATURE global_rs_desc;
+    D3D12_DXIL_LIBRARY_DESC dxil_library_desc;
+    D3D12_LOCAL_ROOT_SIGNATURE local_rs_desc;
+    D3D12_STATE_SUBOBJECT objs[7];
+    D3D12_STATE_OBJECT_DESC desc;
+    ID3D12StateObject *object;
+    unsigned obj_count;
+    HRESULT hr;
+
+    memset(objs, 0, sizeof(objs));
+
+    obj_count = 0;
+
+    objs[obj_count].Type = D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG;
+    objs[obj_count].pDesc = &state_object_config;
+    memset(&state_object_config, 0, sizeof(state_object_config));
+    state_object_config.Flags = D3D12_STATE_OBJECT_FLAG_ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL_DEFINITIONS;
+    obj_count++;
+
+    if (global_rs)
+    {
+        objs[obj_count].Type = D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE;
+        objs[obj_count].pDesc = &global_rs_desc;
+        memset(&global_rs_desc, 0, sizeof(global_rs_desc));
+        global_rs_desc.pGlobalRootSignature = global_rs;
+        obj_count++;
+    }
+
+    objs[obj_count].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG;
+    objs[obj_count].pDesc = &pipeline_config;
+    memset(&pipeline_config, 0, sizeof(pipeline_config));
+    pipeline_config.MaxTraceRecursionDepth = 1;
+    obj_count++;
+
+    objs[obj_count].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG;
+    objs[obj_count].pDesc = &shader_config;
+    memset(&shader_config, 0, sizeof(shader_config));
+    shader_config.MaxAttributeSizeInBytes = 8;
+    shader_config.MaxPayloadSizeInBytes = 8;
+    obj_count++;
+
+    objs[obj_count].Type = D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY;
+    objs[obj_count].pDesc = &dxil_library_desc;
+    obj_count++;
+
+    memset(&dxil_library_desc, 0, sizeof(dxil_library_desc));
+    dxil_library_desc.DXILLibrary = get_rt_library();
+    dxil_library_desc.NumExports = num_exports;
+    dxil_library_desc.pExports = exports;
+
+    if (local_rs)
+    {
+        objs[obj_count].Type = D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE;
+        objs[obj_count].pDesc = &local_rs_desc;
+        local_rs_desc.pLocalRootSignature = local_rs;
+        obj_count++;
+    }
+
+    if (hit_group)
+    {
+        objs[obj_count].Type = D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP;
+        objs[obj_count].pDesc = hit_group;
+        obj_count++;
+    }
+
+    memset(&desc, 0, sizeof(desc));
+    desc.Type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
+    desc.NumSubobjects = obj_count;
+    desc.pSubobjects = objs;
+
+    object = NULL;
+    hr = ID3D12Device5_CreateStateObject(context->device5, &desc, &IID_ID3D12StateObject, (void **)&object);
+    ok(SUCCEEDED(hr), "Failed to create RT collection, hr %#x.\n", hr);
+    return object;
+}
+
 void test_raytracing(void)
 {
 #define NUM_GEOM_DESC 6
@@ -774,70 +858,19 @@ void test_raytracing(void)
 
     /* Create RT collection. */
     {
-        D3D12_RAYTRACING_PIPELINE_CONFIG pipeline_config;
-        D3D12_STATE_OBJECT_CONFIG state_object_config;
-        D3D12_RAYTRACING_SHADER_CONFIG shader_config;
-        D3D12_GLOBAL_ROOT_SIGNATURE global_rs_desc;
-        D3D12_DXIL_LIBRARY_DESC dxil_library_desc;
-        D3D12_LOCAL_ROOT_SIGNATURE local_rs_desc;
         D3D12_EXPORT_DESC dxil_exports[1] = {
             { u"XRayClosest", u"RayClosest", 0 },
         };
         D3D12_HIT_GROUP_DESC hit_group;
-        D3D12_STATE_SUBOBJECT objs[7];
-        D3D12_STATE_OBJECT_DESC desc;
-
-        memset(objs, 0, sizeof(objs));
-
-        objs[0].Type = D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG;
-        objs[0].pDesc = &state_object_config;
-        memset(&state_object_config, 0, sizeof(state_object_config));
-        state_object_config.Flags = D3D12_STATE_OBJECT_FLAG_ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL_DEFINITIONS;
-
-        objs[1].Type = D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE;
-        objs[1].pDesc = &global_rs_desc;
-        memset(&global_rs_desc, 0, sizeof(global_rs_desc));
-        global_rs_desc.pGlobalRootSignature = global_rs;
-
-        objs[2].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG;
-        objs[2].pDesc = &pipeline_config;
-        memset(&pipeline_config, 0, sizeof(pipeline_config));
-        pipeline_config.MaxTraceRecursionDepth = 1;
-
-        objs[3].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG;
-        objs[3].pDesc = &shader_config;
-        memset(&shader_config, 0, sizeof(shader_config));
-        shader_config.MaxAttributeSizeInBytes = 8;
-        shader_config.MaxPayloadSizeInBytes = 8;
-
-        objs[4].Type = D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY;
-        objs[4].pDesc = &dxil_library_desc;
-
-        memset(&dxil_library_desc, 0, sizeof(dxil_library_desc));
-        dxil_library_desc.DXILLibrary = get_rt_library();
-        dxil_library_desc.NumExports = ARRAY_SIZE(dxil_exports);
-        dxil_library_desc.pExports = dxil_exports;
-
-        objs[5].Type = D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE;
-        objs[5].pDesc = &local_rs_desc;
-        local_rs_desc.pLocalRootSignature = local_rs;
-
-        objs[6].Type = D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP;
-        objs[6].pDesc = &hit_group;
 
         memset(&hit_group, 0, sizeof(hit_group));
         hit_group.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
         hit_group.ClosestHitShaderImport = u"XRayClosest";
         hit_group.HitGroupExport = u"XRayHit";
 
-        memset(&desc, 0, sizeof(desc));
-        desc.Type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
-        desc.NumSubobjects = ARRAY_SIZE(objs);
-        desc.pSubobjects = objs;
-
-        rt_object_library = NULL;
-        hr = ID3D12Device5_CreateStateObject(device5, &desc, &IID_ID3D12StateObject, (void **)&rt_object_library);
-        ok(SUCCEEDED(hr), "Failed to create RT collection, hr %#x.\n", hr);
+        rt_object_library = create_rt_collection(&context,
+                ARRAY_SIZE(dxil_exports), dxil_exports,
+                &hit_group, global_rs, local_rs);
     }
 
     /* Create RT PSO. */
