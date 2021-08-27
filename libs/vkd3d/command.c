@@ -4002,7 +4002,9 @@ static void d3d12_command_list_track_query_heap(struct d3d12_command_list *list,
     }
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_iface *iface,
+extern ULONG STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_AddRef(ID3D12GraphicsCommandListExt *iface);
+
+HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_iface *iface,
         REFIID iid, void **object)
 {
     TRACE("iface %p, iid %s, object %p.\n", iface, debugstr_guid(iid), object);
@@ -4023,13 +4025,21 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command
         return S_OK;
     }
 
+    if (IsEqualGUID(iid, &IID_ID3D12GraphicsCommandListExt))
+    {
+        struct d3d12_command_list *command_list = impl_from_ID3D12GraphicsCommandList(iface);
+        d3d12_command_list_vkd3d_ext_AddRef(&command_list->ID3D12GraphicsCommandListExt_iface);
+        *object = &command_list->ID3D12GraphicsCommandListExt_iface;
+        return S_OK;
+    }
+
     WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
 
     *object = NULL;
     return E_NOINTERFACE;
 }
 
-static ULONG STDMETHODCALLTYPE d3d12_command_list_AddRef(d3d12_command_list_iface *iface)
+ULONG STDMETHODCALLTYPE d3d12_command_list_AddRef(d3d12_command_list_iface *iface)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     ULONG refcount = InterlockedIncrement(&list->refcount);
@@ -4039,7 +4049,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_list_AddRef(d3d12_command_list_ifac
     return refcount;
 }
 
-static ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_iface *iface)
+ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_iface *iface)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     ULONG refcount = InterlockedDecrement(&list->refcount);
@@ -9756,6 +9766,8 @@ static struct d3d12_command_list *unsafe_impl_from_ID3D12CommandList(ID3D12Comma
     return CONTAINING_RECORD(iface, struct d3d12_command_list, ID3D12GraphicsCommandList_iface);
 }
 
+extern CONST_VTBL struct ID3D12GraphicsCommandListExtVtbl d3d12_command_list_vkd3d_ext_vtbl;
+
 static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d3d12_device *device,
         D3D12_COMMAND_LIST_TYPE type)
 {
@@ -9775,6 +9787,8 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     list->refcount = 1;
 
     list->type = type;
+
+    list->ID3D12GraphicsCommandListExt_iface.lpVtbl = &d3d12_command_list_vkd3d_ext_vtbl;
 
     if (FAILED(hr = vkd3d_private_store_init(&list->private_store)))
         return hr;
