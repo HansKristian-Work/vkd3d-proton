@@ -123,7 +123,7 @@ WCHAR *vkd3d_dup_entry_point_n(const char *str, size_t len)
 
 static bool is_valid_identifier_character(char v)
 {
-    return (v >= 'a' && v <= 'z') || (v >= 'A' && v <= 'Z') || v == '_';
+    return (v >= 'a' && v <= 'z') || (v >= 'A' && v <= 'Z') || v == '_' || (v >= '0' && v <= '9');
 }
 
 static const char *vkd3d_manged_entry_point_scan(const char *entry, const char **out_end_entry)
