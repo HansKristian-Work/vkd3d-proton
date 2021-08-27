@@ -658,10 +658,12 @@ static void rt_pso_factory_init(struct rt_pso_factory *factory)
     memset(factory, 0, sizeof(*factory));
 }
 
-static void rt_pso_factory_add_subobject(struct rt_pso_factory *factory, const D3D12_STATE_SUBOBJECT *object)
+static unsigned int rt_pso_factory_add_subobject(struct rt_pso_factory *factory, const D3D12_STATE_SUBOBJECT *object)
 {
+    unsigned ret = factory->subobjects_count;
     factory->subobjects = realloc(factory->subobjects, (factory->subobjects_count + 1) * sizeof(*factory->subobjects));
     factory->subobjects[factory->subobjects_count++] = *object;
+    return ret;
 }
 
 static void *rt_pso_factory_calloc(struct rt_pso_factory *factory, size_t nmemb, size_t count)
@@ -672,7 +674,7 @@ static void *rt_pso_factory_calloc(struct rt_pso_factory *factory, size_t nmemb,
     return mem;
 }
 
-static void rt_pso_factory_add_state_object_config(struct rt_pso_factory *factory, D3D12_STATE_OBJECT_FLAGS flags)
+static unsigned int rt_pso_factory_add_state_object_config(struct rt_pso_factory *factory, D3D12_STATE_OBJECT_FLAGS flags)
 {
     D3D12_STATE_OBJECT_CONFIG *config;
     D3D12_STATE_SUBOBJECT desc;
@@ -682,10 +684,10 @@ static void rt_pso_factory_add_state_object_config(struct rt_pso_factory *factor
 
     desc.Type = D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG;
     desc.pDesc = config;
-    rt_pso_factory_add_subobject(factory, &desc);
+    return rt_pso_factory_add_subobject(factory, &desc);
 }
 
-static void rt_pso_factory_add_pipeline_config(struct rt_pso_factory *factory, unsigned int recursion_depth)
+static unsigned int rt_pso_factory_add_pipeline_config(struct rt_pso_factory *factory, unsigned int recursion_depth)
 {
     D3D12_RAYTRACING_PIPELINE_CONFIG *config;
     D3D12_STATE_SUBOBJECT desc;
@@ -695,10 +697,10 @@ static void rt_pso_factory_add_pipeline_config(struct rt_pso_factory *factory, u
 
     desc.Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG;
     desc.pDesc = config;
-    rt_pso_factory_add_subobject(factory, &desc);
+    return rt_pso_factory_add_subobject(factory, &desc);
 }
 
-static void rt_pso_factory_add_shader_config(struct rt_pso_factory *factory,
+static unsigned int rt_pso_factory_add_shader_config(struct rt_pso_factory *factory,
         unsigned int attrib_size, unsigned int payload_size)
 {
     D3D12_RAYTRACING_SHADER_CONFIG *config;
@@ -710,10 +712,10 @@ static void rt_pso_factory_add_shader_config(struct rt_pso_factory *factory,
 
     desc.Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG;
     desc.pDesc = config;
-    rt_pso_factory_add_subobject(factory, &desc);
+    return rt_pso_factory_add_subobject(factory, &desc);
 }
 
-static void rt_pso_factory_add_global_root_signature(struct rt_pso_factory *factory, ID3D12RootSignature *rs)
+static unsigned int rt_pso_factory_add_global_root_signature(struct rt_pso_factory *factory, ID3D12RootSignature *rs)
 {
     D3D12_GLOBAL_ROOT_SIGNATURE *global_rs_desc;
     D3D12_STATE_SUBOBJECT desc;
@@ -723,10 +725,10 @@ static void rt_pso_factory_add_global_root_signature(struct rt_pso_factory *fact
 
     desc.Type = D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE;
     desc.pDesc = global_rs_desc;
-    rt_pso_factory_add_subobject(factory, &desc);
+    return rt_pso_factory_add_subobject(factory, &desc);
 }
 
-static void rt_pso_factory_add_local_root_signature(struct rt_pso_factory *factory, ID3D12RootSignature *rs)
+static unsigned int rt_pso_factory_add_local_root_signature(struct rt_pso_factory *factory, ID3D12RootSignature *rs)
 {
     D3D12_LOCAL_ROOT_SIGNATURE *local_rs_desc;
     D3D12_STATE_SUBOBJECT desc;
@@ -736,10 +738,10 @@ static void rt_pso_factory_add_local_root_signature(struct rt_pso_factory *facto
 
     desc.Type = D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE;
     desc.pDesc = local_rs_desc;
-    rt_pso_factory_add_subobject(factory, &desc);
+    return rt_pso_factory_add_subobject(factory, &desc);
 }
 
-static void rt_pso_factory_add_dxil_library(struct rt_pso_factory *factory,
+static unsigned int rt_pso_factory_add_dxil_library(struct rt_pso_factory *factory,
         D3D12_SHADER_BYTECODE dxil, unsigned int num_exports, D3D12_EXPORT_DESC *exports)
 {
     D3D12_DXIL_LIBRARY_DESC *lib;
@@ -752,21 +754,55 @@ static void rt_pso_factory_add_dxil_library(struct rt_pso_factory *factory,
 
     desc.Type = D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY;
     desc.pDesc = lib;
-    rt_pso_factory_add_subobject(factory, &desc);
+    return rt_pso_factory_add_subobject(factory, &desc);
 }
 
-static void rt_pso_factory_add_hit_group(struct rt_pso_factory *factory, const D3D12_HIT_GROUP_DESC *hit_group)
+static unsigned int rt_pso_factory_add_hit_group(struct rt_pso_factory *factory, const D3D12_HIT_GROUP_DESC *hit_group)
 {
     D3D12_STATE_SUBOBJECT desc;
     desc.Type = D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP;
     desc.pDesc = hit_group;
-    rt_pso_factory_add_subobject(factory, &desc);
+    return rt_pso_factory_add_subobject(factory, &desc);
+}
+
+static unsigned int rt_pso_factory_add_subobject_to_exports_association(struct rt_pso_factory *factory,
+        unsigned int subobject_index, unsigned int num_exports, LPCWSTR *exports)
+{
+    D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION *assoc;
+    D3D12_STATE_SUBOBJECT desc;
+
+    assoc = rt_pso_factory_calloc(factory, 1, sizeof(*assoc));
+    assoc->pExports = exports;
+    assoc->NumExports = num_exports;
+    /* Resolve later when compiling since base pointer can change. Encode offset here for now. */
+    assoc->pSubobjectToAssociate = (const void*)(uintptr_t)subobject_index;
+
+    desc.Type = D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION;
+    desc.pDesc = assoc;
+    return rt_pso_factory_add_subobject(factory, &desc);
+}
+
+static unsigned int rt_pso_factory_add_existing_collection(struct rt_pso_factory *factory,
+        ID3D12StateObject *collection, unsigned int num_exports, D3D12_EXPORT_DESC *exports)
+{
+    D3D12_EXISTING_COLLECTION_DESC *coll;
+    D3D12_STATE_SUBOBJECT desc;
+
+    coll = rt_pso_factory_calloc(factory, 1, sizeof(*coll));
+    coll->NumExports = num_exports;
+    coll->pExports = exports;
+    coll->pExistingCollection = collection;
+
+    desc.Type = D3D12_STATE_SUBOBJECT_TYPE_EXISTING_COLLECTION;
+    desc.pDesc = coll;
+    return rt_pso_factory_add_subobject(factory, &desc);
 }
 
 static ID3D12StateObject *rt_pso_factory_compile(struct raytracing_test_context *context,
         struct rt_pso_factory *factory,
         D3D12_STATE_OBJECT_TYPE type)
 {
+    D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION *assoc;
     D3D12_STATE_OBJECT_DESC desc;
     ID3D12StateObject *rt_pso;
     HRESULT hr;
@@ -776,6 +812,16 @@ static ID3D12StateObject *rt_pso_factory_compile(struct raytracing_test_context 
     desc.Type = type;
     desc.NumSubobjects = factory->subobjects_count;
     desc.pSubobjects = factory->subobjects;
+
+    for (i = 0; i < factory->subobjects_count; i++)
+    {
+        if (factory->subobjects[i].Type == D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION)
+        {
+            /* Resolve offsets to true pointers. */
+            assoc = (D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION *)factory->subobjects[i].pDesc;
+            assoc->pSubobjectToAssociate = factory->subobjects + (uintptr_t)assoc->pSubobjectToAssociate;
+        }
+    }
 
     rt_pso = NULL;
     hr = ID3D12Device5_CreateStateObject(context->device5, &desc, &IID_ID3D12StateObject, (void **)&rt_pso);
@@ -853,7 +899,6 @@ void test_raytracing(void)
     ID3D12Resource *ray_colors;
     ID3D12CommandQueue *queue;
     ID3D12StateObject *rt_pso;
-    ID3D12Device5 *device5;
     unsigned int ref_count;
     ID3D12Device *device;
     ID3D12Resource *sbt;
@@ -864,7 +909,6 @@ void test_raytracing(void)
 
     device = context.context.device;
     command_list = context.context.list;
-    device5 = context.device5;
     command_list4 = context.list4;
     queue = context.context.queue;
 
@@ -966,99 +1010,42 @@ void test_raytracing(void)
     /* Create RT PSO. */
     if (rt_object_library)
     {
-        D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION exports_associations[2];
-        D3D12_EXISTING_COLLECTION_DESC existing_collection;
-        D3D12_RAYTRACING_PIPELINE_CONFIG pipeline_config;
         const WCHAR *table_export[] = { u"XRayMiss" };
-        D3D12_STATE_OBJECT_CONFIG state_object_config;
-        D3D12_RAYTRACING_SHADER_CONFIG shader_config;
-        D3D12_LOCAL_ROOT_SIGNATURE local_rs_desc[2];
-        D3D12_GLOBAL_ROOT_SIGNATURE global_rs_desc;
-        D3D12_DXIL_LIBRARY_DESC dxil_library_desc;
         D3D12_EXPORT_DESC dxil_exports[2] = {
             { u"XRayMiss", u"RayMiss", 0 },
             { u"XRayGen", u"RayGen", 0 },
         };
-        D3D12_STATE_SUBOBJECT objs[11];
+        unsigned int local_rs_table_index;
         D3D12_HIT_GROUP_DESC hit_group;
-        D3D12_STATE_OBJECT_DESC desc;
+        struct rt_pso_factory factory;
+        unsigned int local_rs_index;
 
-        memset(objs, 0, sizeof(objs));
+        rt_pso_factory_init(&factory);
 
-        objs[0].Type = D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG;
-        objs[0].pDesc = &state_object_config;
-        memset(&state_object_config, 0, sizeof(state_object_config));
-        state_object_config.Flags = D3D12_STATE_OBJECT_FLAG_NONE;
-
-        objs[1].Type = D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE;
-        objs[1].pDesc = &global_rs_desc;
-        memset(&global_rs_desc, 0, sizeof(global_rs_desc));
-        global_rs_desc.pGlobalRootSignature = global_rs;
-
-        objs[2].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG;
-        objs[2].pDesc = &pipeline_config;
-        memset(&pipeline_config, 0, sizeof(pipeline_config));
-        pipeline_config.MaxTraceRecursionDepth = 1;
-
-        objs[3].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG;
-        objs[3].pDesc = &shader_config;
-        memset(&shader_config, 0, sizeof(shader_config));
-        shader_config.MaxAttributeSizeInBytes = 8;
-        shader_config.MaxPayloadSizeInBytes = 8;
-
-        objs[4].Type = D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY;
-        objs[4].pDesc = &dxil_library_desc;
-
-        memset(&dxil_library_desc, 0, sizeof(dxil_library_desc));
-        dxil_library_desc.DXILLibrary = get_rt_library();
-        dxil_library_desc.NumExports = ARRAY_SIZE(dxil_exports);
-        dxil_library_desc.pExports = dxil_exports;
+        rt_pso_factory_add_state_object_config(&factory, D3D12_STATE_OBJECT_FLAG_NONE);
+        rt_pso_factory_add_global_root_signature(&factory, global_rs);
+        rt_pso_factory_add_pipeline_config(&factory, 1);
+        rt_pso_factory_add_shader_config(&factory, 8, 8);
         /* All entry points are exported by default. Test with custom exports, because why not. */
+        rt_pso_factory_add_dxil_library(&factory, get_rt_library(), ARRAY_SIZE(dxil_exports), dxil_exports);
+        local_rs_table_index = rt_pso_factory_add_local_root_signature(&factory, local_rs_table);
+        local_rs_index = rt_pso_factory_add_local_root_signature(&factory, local_rs);
 
-        objs[5].Type = D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION;
-        objs[5].pDesc = &exports_associations[0];
-        exports_associations[0].NumExports = ARRAY_SIZE(table_export);
-        exports_associations[0].pExports = table_export;
         /* Apparently, we have to point to a subobject in the array, otherwise, it just silently fails. */
-        exports_associations[0].pSubobjectToAssociate = &objs[7];
+        rt_pso_factory_add_subobject_to_exports_association(&factory,
+                local_rs_table_index, ARRAY_SIZE(table_export), table_export);
+        rt_pso_factory_add_subobject_to_exports_association(&factory,
+                local_rs_index, 0, NULL);
 
-        objs[6].Type = D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION;
-        objs[6].pDesc = &exports_associations[1];
-        exports_associations[1].NumExports = 0;
-        exports_associations[1].pExports = NULL;
-        /* Apparently, we have to point to a subobject in the array, otherwise, it just silently fails. */
-        exports_associations[1].pSubobjectToAssociate = &objs[8];
-
-        objs[7].Type = D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE;
-        objs[7].pDesc = &local_rs_desc[0];
-        local_rs_desc[0].pLocalRootSignature = local_rs_table;
-
-        objs[8].Type = D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE;
-        objs[8].pDesc = &local_rs_desc[1];
-        local_rs_desc[1].pLocalRootSignature = local_rs;
-
-        objs[9].Type = D3D12_STATE_SUBOBJECT_TYPE_EXISTING_COLLECTION;
-        objs[9].pDesc = &existing_collection;
-        existing_collection.pExistingCollection = rt_object_library;
-        existing_collection.NumExports = 0;
-        existing_collection.pExports = NULL;
-
-        objs[10].Type = D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP;
-        objs[10].pDesc = &hit_group;
+        rt_pso_factory_add_existing_collection(&factory, rt_object_library, 0, NULL);
 
         memset(&hit_group, 0, sizeof(hit_group));
         hit_group.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
         hit_group.ClosestHitShaderImport = u"XRayClosest";
         hit_group.HitGroupExport = u"XRayHit2";
+        rt_pso_factory_add_hit_group(&factory, &hit_group);
 
-        memset(&desc, 0, sizeof(desc));
-        desc.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
-        desc.NumSubobjects = ARRAY_SIZE(objs);
-        desc.pSubobjects = objs;
-
-        rt_pso = NULL;
-        hr = ID3D12Device5_CreateStateObject(device5, &desc, &IID_ID3D12StateObject, (void **)&rt_pso);
-        ok(SUCCEEDED(hr), "Failed to create RT PSO, hr %#x.\n", hr);
+        rt_pso = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
 
         /* Docs say there should be ref-count of the collection, but apparently, that refcount is private. */
         ref_count = ID3D12StateObject_AddRef(rt_object_library);
