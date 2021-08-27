@@ -1,0 +1,37 @@
+/*
+ * * Copyright 2021 NVIDIA Corporation
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+ */
+import "vkd3d_d3d12.idl";
+import "vkd3d_vk_includes.h";
+
+[
+    uuid(11ea7a1a-0f6a-49bf-b612-3e30f8e201dd),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12DeviceExt : IUnknown
+{
+    HRESULT GetVulkanHandles(VkInstance *vk_instance, VkPhysicalDevice *vk_physical_device, VkDevice *vk_device);
+    BOOL GetExtensionSupport(D3D12_VK_EXTENSION extension);
+    HRESULT CreateCubinComputeShaderWithName(const void *cubin_data, UINT32 cubin_size, UINT32 block_x, UINT32 block_y, UINT32 block_z, const char *shader_name, D3D12_CUBIN_DATA_HANDLE **handle);
+    HRESULT DestroyCubinComputeShader(D3D12_CUBIN_DATA_HANDLE *handle);
+    HRESULT GetCudaTextureObject(D3D12_CPU_DESCRIPTOR_HANDLE srv_handle, D3D12_CPU_DESCRIPTOR_HANDLE sampler_handle, UINT32 *cuda_texture_handle);
+    HRESULT GetCudaSurfaceObject(D3D12_CPU_DESCRIPTOR_HANDLE uav_handle, UINT32 *cuda_surface_handle);
+    HRESULT CaptureUAVInfo(D3D12_UAV_INFO *uav_info);
+}
+

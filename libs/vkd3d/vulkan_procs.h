@@ -277,6 +277,17 @@ VK_DEVICE_EXT_PFN(vkQueuePresentKHR)
 /* VK_AMD_buffer_marker */
 VK_DEVICE_EXT_PFN(vkCmdWriteBufferMarkerAMD)
 
+/* VK_NVX_binary_import */
+VK_DEVICE_EXT_PFN(vkCreateCuModuleNVX);
+VK_DEVICE_EXT_PFN(vkCreateCuFunctionNVX);
+VK_DEVICE_EXT_PFN(vkDestroyCuModuleNVX);
+VK_DEVICE_EXT_PFN(vkDestroyCuFunctionNVX);
+VK_DEVICE_EXT_PFN(vkCmdCuLaunchKernelNVX);
+
+/* VK_NVX_image_view_handle */
+VK_DEVICE_EXT_PFN(vkGetImageViewHandleNVX);
+VK_DEVICE_EXT_PFN(vkGetImageViewAddressNVX);
+
 #undef VK_INSTANCE_PFN
 #undef VK_INSTANCE_EXT_PFN
 #undef VK_DEVICE_PFN

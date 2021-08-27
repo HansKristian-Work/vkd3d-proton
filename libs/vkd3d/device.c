@@ -2416,7 +2416,9 @@ static inline struct d3d12_device *impl_from_ID3D12Device(d3d12_device_iface *if
     return CONTAINING_RECORD(iface, struct d3d12_device, ID3D12Device_iface);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
+extern ULONG STDMETHODCALLTYPE d3d12_device_vkd3d_ext_AddRef(ID3D12DeviceExt *iface);
+
+HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
         REFIID riid, void **object)
 {
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
@@ -2433,6 +2435,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface 
     {
         ID3D12Device_AddRef(iface);
         *object = iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(riid, &IID_ID3D12DeviceExt))
+    {
+        struct d3d12_device *device = impl_from_ID3D12Device(iface);
+        d3d12_device_vkd3d_ext_AddRef(&device->ID3D12DeviceExt_iface);
+        *object = &device->ID3D12DeviceExt_iface;
         return S_OK;
     }
 
@@ -3447,18 +3457,46 @@ static void STDMETHODCALLTYPE d3d12_device_CreateShaderResourceView(d3d12_device
             device, unsafe_impl_from_ID3D12Resource(resource), desc);
 }
 
+__thread struct D3D12_UAV_INFO *d3d12_uav_info = NULL;
+
 static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView(d3d12_device_iface *iface,
         ID3D12Resource *resource, ID3D12Resource *counter_resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
+    VkImageViewAddressPropertiesNVX out_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_ADDRESS_PROPERTIES_NVX };
+    VkImageViewHandleInfoNVX imageViewHandleInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_HANDLE_INFO_NVX };
+    const struct vkd3d_vk_device_procs *vk_procs;
+    VkResult vr;
+    struct d3d12_resource *d3d12_resource_ = unsafe_impl_from_ID3D12Resource(resource);
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
-
+    struct d3d12_desc *d3d12_desc_cpu = d3d12_desc_from_cpu_handle(descriptor);
     TRACE("iface %p, resource %p, counter_resource %p, desc %p, descriptor %#lx.\n",
             iface, resource, counter_resource, desc, descriptor.ptr);
 
-    d3d12_desc_create_uav(d3d12_desc_from_cpu_handle(descriptor),
-            device, unsafe_impl_from_ID3D12Resource(resource),
+    d3d12_desc_create_uav(d3d12_desc_cpu,
+            device, d3d12_resource_,
             unsafe_impl_from_ID3D12Resource(counter_resource), desc);
+    
+    /* d3d12_uav_info stores the pointer to data from previous call to d3d12_device_vkd3d_ext_CaptureUAVInfo(). Below code will update the data. */
+    if (d3d12_uav_info)
+    {
+        imageViewHandleInfo.imageView = d3d12_desc_cpu->info.view->vk_image_view;
+        imageViewHandleInfo.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+
+        vk_procs = &device->vk_procs;
+        d3d12_uav_info->surfaceHandle = VK_CALL(vkGetImageViewHandleNVX(device->vk_device, &imageViewHandleInfo));
+    
+        if ((vr = VK_CALL(vkGetImageViewAddressNVX(device->vk_device, imageViewHandleInfo.imageView, &out_info))) < 0)
+        {
+            ERR("Failed to get imageview address, vr %d.\n", vr);
+            return;
+        }
+        
+        d3d12_uav_info->gpuVAStart = out_info.deviceAddress;
+        d3d12_uav_info->gpuVASize = out_info.size;
+        /* Set this to null so that subsequent calls to this API wont update the previous pointer. */
+        d3d12_uav_info = NULL;
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateRenderTargetView(d3d12_device_iface *iface,
@@ -5076,6 +5114,8 @@ struct d3d12_device *unsafe_impl_from_ID3D12Device(d3d12_device_iface *iface)
     return impl_from_ID3D12Device(iface);
 }
 
+extern CONST_VTBL struct ID3D12DeviceExtVtbl d3d12_device_vkd3d_ext_vtbl;
+
 static HRESULT d3d12_device_init(struct d3d12_device *device,
         struct vkd3d_instance *instance, const struct vkd3d_device_create_info *create_info)
 {
@@ -5109,6 +5149,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
         hr = hresult_from_errno(rc);
         goto out_free_instance;
     }
+    
+    device->ID3D12DeviceExt_iface.lpVtbl = &d3d12_device_vkd3d_ext_vtbl;
 
     if (FAILED(hr = vkd3d_create_vk_device(device, create_info)))
         goto out_free_mutex;
