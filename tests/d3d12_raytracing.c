@@ -644,88 +644,178 @@ static void init_rt_geometry(struct raytracing_test_context *context, struct tes
     free(instance_desc);
 }
 
+struct rt_pso_factory
+{
+    D3D12_STATE_SUBOBJECT *subobjects;
+    size_t subobjects_count;
+
+    void **allocs;
+    size_t allocs_count;
+};
+
+static void rt_pso_factory_init(struct rt_pso_factory *factory)
+{
+    memset(factory, 0, sizeof(*factory));
+}
+
+static void rt_pso_factory_add_subobject(struct rt_pso_factory *factory, const D3D12_STATE_SUBOBJECT *object)
+{
+    factory->subobjects = realloc(factory->subobjects, (factory->subobjects_count + 1) * sizeof(*factory->subobjects));
+    factory->subobjects[factory->subobjects_count++] = *object;
+}
+
+static void *rt_pso_factory_calloc(struct rt_pso_factory *factory, size_t nmemb, size_t count)
+{
+    void *mem = calloc(nmemb, count);
+    factory->allocs = realloc(factory->allocs, (factory->allocs_count + 1) * sizeof(*factory->allocs));
+    factory->allocs[factory->allocs_count++] = mem;
+    return mem;
+}
+
+static void rt_pso_factory_add_state_object_config(struct rt_pso_factory *factory, D3D12_STATE_OBJECT_FLAGS flags)
+{
+    D3D12_STATE_OBJECT_CONFIG *config;
+    D3D12_STATE_SUBOBJECT desc;
+
+    config = rt_pso_factory_calloc(factory, 1, sizeof(*config));
+    config->Flags = flags;
+
+    desc.Type = D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG;
+    desc.pDesc = config;
+    rt_pso_factory_add_subobject(factory, &desc);
+}
+
+static void rt_pso_factory_add_pipeline_config(struct rt_pso_factory *factory, unsigned int recursion_depth)
+{
+    D3D12_RAYTRACING_PIPELINE_CONFIG *config;
+    D3D12_STATE_SUBOBJECT desc;
+
+    config = rt_pso_factory_calloc(factory, 1, sizeof(*config));
+    config->MaxTraceRecursionDepth = recursion_depth;
+
+    desc.Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG;
+    desc.pDesc = config;
+    rt_pso_factory_add_subobject(factory, &desc);
+}
+
+static void rt_pso_factory_add_shader_config(struct rt_pso_factory *factory,
+        unsigned int attrib_size, unsigned int payload_size)
+{
+    D3D12_RAYTRACING_SHADER_CONFIG *config;
+    D3D12_STATE_SUBOBJECT desc;
+
+    config = rt_pso_factory_calloc(factory, 1, sizeof(*config));
+    config->MaxAttributeSizeInBytes = attrib_size;
+    config->MaxPayloadSizeInBytes = payload_size;
+
+    desc.Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG;
+    desc.pDesc = config;
+    rt_pso_factory_add_subobject(factory, &desc);
+}
+
+static void rt_pso_factory_add_global_root_signature(struct rt_pso_factory *factory, ID3D12RootSignature *rs)
+{
+    D3D12_GLOBAL_ROOT_SIGNATURE *global_rs_desc;
+    D3D12_STATE_SUBOBJECT desc;
+
+    global_rs_desc = rt_pso_factory_calloc(factory, 1, sizeof(*global_rs_desc));
+    global_rs_desc->pGlobalRootSignature = rs;
+
+    desc.Type = D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE;
+    desc.pDesc = global_rs_desc;
+    rt_pso_factory_add_subobject(factory, &desc);
+}
+
+static void rt_pso_factory_add_local_root_signature(struct rt_pso_factory *factory, ID3D12RootSignature *rs)
+{
+    D3D12_LOCAL_ROOT_SIGNATURE *local_rs_desc;
+    D3D12_STATE_SUBOBJECT desc;
+
+    local_rs_desc = rt_pso_factory_calloc(factory, 1, sizeof(*local_rs_desc));
+    local_rs_desc->pLocalRootSignature = rs;
+
+    desc.Type = D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE;
+    desc.pDesc = local_rs_desc;
+    rt_pso_factory_add_subobject(factory, &desc);
+}
+
+static void rt_pso_factory_add_dxil_library(struct rt_pso_factory *factory,
+        D3D12_SHADER_BYTECODE dxil, unsigned int num_exports, D3D12_EXPORT_DESC *exports)
+{
+    D3D12_DXIL_LIBRARY_DESC *lib;
+    D3D12_STATE_SUBOBJECT desc;
+
+    lib = rt_pso_factory_calloc(factory, 1, sizeof(*lib));
+    lib->DXILLibrary = dxil;
+    lib->NumExports = num_exports;
+    lib->pExports = exports;
+
+    desc.Type = D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY;
+    desc.pDesc = lib;
+    rt_pso_factory_add_subobject(factory, &desc);
+}
+
+static void rt_pso_factory_add_hit_group(struct rt_pso_factory *factory, const D3D12_HIT_GROUP_DESC *hit_group)
+{
+    D3D12_STATE_SUBOBJECT desc;
+    desc.Type = D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP;
+    desc.pDesc = hit_group;
+    rt_pso_factory_add_subobject(factory, &desc);
+}
+
+static ID3D12StateObject *rt_pso_factory_compile(struct raytracing_test_context *context,
+        struct rt_pso_factory *factory,
+        D3D12_STATE_OBJECT_TYPE type)
+{
+    D3D12_STATE_OBJECT_DESC desc;
+    ID3D12StateObject *rt_pso;
+    HRESULT hr;
+    size_t i;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.Type = type;
+    desc.NumSubobjects = factory->subobjects_count;
+    desc.pSubobjects = factory->subobjects;
+
+    rt_pso = NULL;
+    hr = ID3D12Device5_CreateStateObject(context->device5, &desc, &IID_ID3D12StateObject, (void **)&rt_pso);
+    ok(SUCCEEDED(hr), "Failed to create RT PSO, hr %#x.\n", hr);
+
+    free(factory->subobjects);
+    for (i = 0; i < factory->allocs_count; i++)
+        free(factory->allocs[i]);
+    free(factory->allocs);
+    memset(factory, 0, sizeof(*factory));
+
+    return rt_pso;
+}
+
 static ID3D12StateObject *create_rt_collection(struct raytracing_test_context *context,
         unsigned int num_exports, D3D12_EXPORT_DESC *exports,
         const D3D12_HIT_GROUP_DESC *hit_group,
         ID3D12RootSignature *global_rs, ID3D12RootSignature *local_rs)
 {
-    D3D12_RAYTRACING_PIPELINE_CONFIG pipeline_config;
-    D3D12_STATE_OBJECT_CONFIG state_object_config;
-    D3D12_RAYTRACING_SHADER_CONFIG shader_config;
-    D3D12_GLOBAL_ROOT_SIGNATURE global_rs_desc;
-    D3D12_DXIL_LIBRARY_DESC dxil_library_desc;
-    D3D12_LOCAL_ROOT_SIGNATURE local_rs_desc;
-    D3D12_STATE_SUBOBJECT objs[7];
-    D3D12_STATE_OBJECT_DESC desc;
-    ID3D12StateObject *object;
-    unsigned obj_count;
-    HRESULT hr;
+    struct rt_pso_factory factory;
 
-    memset(objs, 0, sizeof(objs));
+    rt_pso_factory_init(&factory);
 
-    obj_count = 0;
-
-    objs[obj_count].Type = D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG;
-    objs[obj_count].pDesc = &state_object_config;
-    memset(&state_object_config, 0, sizeof(state_object_config));
-    state_object_config.Flags = D3D12_STATE_OBJECT_FLAG_ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL_DEFINITIONS;
-    obj_count++;
+    rt_pso_factory_add_state_object_config(&factory,
+            D3D12_STATE_OBJECT_FLAG_ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL_DEFINITIONS);
+    rt_pso_factory_add_pipeline_config(&factory, 1);
+    rt_pso_factory_add_shader_config(&factory, 8, 8);
 
     if (global_rs)
-    {
-        objs[obj_count].Type = D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE;
-        objs[obj_count].pDesc = &global_rs_desc;
-        memset(&global_rs_desc, 0, sizeof(global_rs_desc));
-        global_rs_desc.pGlobalRootSignature = global_rs;
-        obj_count++;
-    }
+        rt_pso_factory_add_global_root_signature(&factory, global_rs);
 
-    objs[obj_count].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG;
-    objs[obj_count].pDesc = &pipeline_config;
-    memset(&pipeline_config, 0, sizeof(pipeline_config));
-    pipeline_config.MaxTraceRecursionDepth = 1;
-    obj_count++;
-
-    objs[obj_count].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG;
-    objs[obj_count].pDesc = &shader_config;
-    memset(&shader_config, 0, sizeof(shader_config));
-    shader_config.MaxAttributeSizeInBytes = 8;
-    shader_config.MaxPayloadSizeInBytes = 8;
-    obj_count++;
-
-    objs[obj_count].Type = D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY;
-    objs[obj_count].pDesc = &dxil_library_desc;
-    obj_count++;
-
-    memset(&dxil_library_desc, 0, sizeof(dxil_library_desc));
-    dxil_library_desc.DXILLibrary = get_rt_library();
-    dxil_library_desc.NumExports = num_exports;
-    dxil_library_desc.pExports = exports;
+    rt_pso_factory_add_dxil_library(&factory, get_rt_library(), num_exports, exports);
 
     if (local_rs)
-    {
-        objs[obj_count].Type = D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE;
-        objs[obj_count].pDesc = &local_rs_desc;
-        local_rs_desc.pLocalRootSignature = local_rs;
-        obj_count++;
-    }
+        rt_pso_factory_add_local_root_signature(&factory, local_rs);
 
     if (hit_group)
-    {
-        objs[obj_count].Type = D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP;
-        objs[obj_count].pDesc = hit_group;
-        obj_count++;
-    }
+        rt_pso_factory_add_hit_group(&factory, hit_group);
 
-    memset(&desc, 0, sizeof(desc));
-    desc.Type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
-    desc.NumSubobjects = obj_count;
-    desc.pSubobjects = objs;
-
-    object = NULL;
-    hr = ID3D12Device5_CreateStateObject(context->device5, &desc, &IID_ID3D12StateObject, (void **)&object);
-    ok(SUCCEEDED(hr), "Failed to create RT collection, hr %#x.\n", hr);
-    return object;
+    return rt_pso_factory_compile(context, &factory, D3D12_STATE_OBJECT_TYPE_COLLECTION);
 }
 
 void test_raytracing(void)
