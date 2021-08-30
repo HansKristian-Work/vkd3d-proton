@@ -430,7 +430,10 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
 
         allocation->flags |= VKD3D_ALLOCATION_FLAG_ALLOW_WRITE_WATCH;
         if (!(host_ptr = vkd3d_allocate_write_watch_pointer(&info->heap_properties, memory_requirements.size)))
+        {
+            VK_CALL(vkDestroyBuffer(device->vk_device, allocation->resource.vk_buffer, NULL));
             return E_INVALIDARG;
+        }
     }
 
     if (host_ptr)
@@ -445,7 +448,10 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     }
 
     if (FAILED(hr))
+    {
+        VK_CALL(vkDestroyBuffer(device->vk_device, allocation->resource.vk_buffer, NULL));
         return hr;
+    }
 
     /* Map memory if the allocation was requested to be host-visible,
      * but do not map if the allocation was meant to be device-local
