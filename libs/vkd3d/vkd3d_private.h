@@ -585,6 +585,7 @@ enum vkd3d_allocation_flag
     VKD3D_ALLOCATION_FLAG_GPU_ADDRESS       = (1u << 1),
     VKD3D_ALLOCATION_FLAG_CPU_ACCESS        = (1u << 2),
     VKD3D_ALLOCATION_FLAG_ALLOW_WRITE_WATCH = (1u << 3),
+    VKD3D_ALLOCATION_NO_FALLBACK            = (1u << 4),
 };
 
 #define VKD3D_MEMORY_CHUNK_SIZE (VKD3D_VA_BLOCK_SIZE * 16)
@@ -599,6 +600,7 @@ struct vkd3d_allocate_memory_info
     void *host_ptr;
     const void *pNext;
     uint32_t flags;
+    VkMemoryPropertyFlags optional_memory_properties;
 };
 
 struct vkd3d_allocate_heap_memory_info

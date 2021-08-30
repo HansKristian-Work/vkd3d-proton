@@ -385,6 +385,12 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     if (FAILED(hr = vkd3d_select_memory_flags(device, &info->heap_properties, &type_flags)))
         return hr;
 
+    /* Mask out optional memory properties as needed.
+     * This is relevant for chunk allocator fallbacks
+     * since the info->memory_requirements already encodes
+     * only HOST_VISIBLE types and we use NO_FALLBACK allocation mode. */
+    type_flags &= ~info->optional_memory_properties;
+
     if (allocation->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER)
     {
         /* If requested, create a buffer covering the entire allocation
@@ -440,6 +446,11 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     {
         hr = vkd3d_import_host_memory(device, host_ptr, memory_requirements.size,
                 type_flags, type_mask, &flags_info, &allocation->device_allocation);
+    }
+    else if (info->flags & VKD3D_ALLOCATION_NO_FALLBACK)
+    {
+        hr = vkd3d_try_allocate_device_memory(device, memory_requirements.size, type_flags,
+                type_mask, &flags_info, &allocation->device_allocation);
     }
     else
     {
@@ -1126,8 +1137,9 @@ static void vkd3d_memory_allocator_wait_allocation(struct vkd3d_memory_allocator
     vkd3d_memory_allocator_wait_clear_semaphore(allocator, device, wait_value, UINT64_MAX);
 }
 
-static HRESULT vkd3d_memory_allocator_add_chunk(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device,
-        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, uint32_t type_mask, struct vkd3d_memory_chunk **chunk)
+static HRESULT vkd3d_memory_allocator_try_add_chunk(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, uint32_t type_mask,
+        VkMemoryPropertyFlags optional_properties, struct vkd3d_memory_chunk **chunk)
 {
     struct vkd3d_allocate_memory_info alloc_info;
     struct vkd3d_memory_chunk *object;
@@ -1139,6 +1151,8 @@ static HRESULT vkd3d_memory_allocator_add_chunk(struct vkd3d_memory_allocator *a
     alloc_info.memory_requirements.memoryTypeBits = type_mask;
     alloc_info.heap_properties = *heap_properties;
     alloc_info.heap_flags = heap_flags;
+    alloc_info.flags = VKD3D_ALLOCATION_NO_FALLBACK;
+    alloc_info.optional_memory_properties = optional_properties;
 
     if (!(heap_flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
         alloc_info.flags |= VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER;
@@ -1159,6 +1173,7 @@ static HRESULT vkd3d_memory_allocator_add_chunk(struct vkd3d_memory_allocator *a
 
 static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory_allocator *allocator,
         struct d3d12_device *device, const VkMemoryRequirements *memory_requirements, uint32_t type_mask,
+        VkMemoryPropertyFlags optional_properties,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         struct vkd3d_memory_allocation *allocation)
 {
@@ -1190,8 +1205,8 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
 
     /* Try allocating a new chunk on one of the supported memory type
      * before the caller falls back to potentially slower memory */
-    if (FAILED(hr = vkd3d_memory_allocator_add_chunk(allocator, device, heap_properties,
-            heap_flags & heap_flag_mask, memory_requirements->memoryTypeBits, &chunk)))
+    if (FAILED(hr = vkd3d_memory_allocator_try_add_chunk(allocator, device, heap_properties,
+            heap_flags & heap_flag_mask, type_mask, optional_properties, &chunk)))
         return hr;
 
     return vkd3d_memory_chunk_allocate_range(chunk, memory_requirements, allocation);
@@ -1235,13 +1250,14 @@ static HRESULT vkd3d_suballocate_memory(struct d3d12_device *device, struct vkd3
     pthread_mutex_lock(&allocator->mutex);
 
     hr = vkd3d_memory_allocator_try_suballocate_memory(allocator, device,
-            &memory_requirements, optional_mask, &info->heap_properties,
+            &memory_requirements, optional_mask, 0, &info->heap_properties,
             info->heap_flags, allocation);
 
     if (FAILED(hr) && (required_mask & ~optional_mask))
     {
         hr = vkd3d_memory_allocator_try_suballocate_memory(allocator, device,
                 &memory_requirements, required_mask & ~optional_mask,
+                optional_flags,
                 &info->heap_properties, info->heap_flags, allocation);
     }
 
