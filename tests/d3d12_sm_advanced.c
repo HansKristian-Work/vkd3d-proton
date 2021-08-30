@@ -1131,6 +1131,7 @@ void test_shader_sm62_denorm(void)
 void test_shader_sm64_packed(void)
 {
     D3D12_FEATURE_DATA_SHADER_MODEL shader_model;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS4 features4;
     D3D12_ROOT_PARAMETER root_parameters[2];
     D3D12_ROOT_SIGNATURE_DESC rs_desc;
     struct test_context context;
@@ -1433,9 +1434,19 @@ void test_shader_sm64_packed(void)
     root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     create_root_signature(context.device, &rs_desc, &context.root_signature);
 
+    memset(&features4, 0, sizeof(features4));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS4, &features4, sizeof(features4));
+
     for (i = 0; i < ARRAY_SIZE(tests); i++)
     {
         vkd3d_test_set_context("Test %u", i);
+
+        if (tests[i].cs == &cs_dot2add && !features4.Native16BitShaderOpsSupported)
+        {
+            skip("Skipping unsupported test dot2add.\n");
+            continue;
+        }
+
         pso = create_compute_pipeline_state(context.device, context.root_signature, *tests[i].cs);
         src = create_upload_buffer(context.device, sizeof(tests[i].input), tests[i].input);
         dst = create_default_buffer(context.device, sizeof(tests[i].input), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
