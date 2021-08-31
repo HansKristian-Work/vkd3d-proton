@@ -3457,7 +3457,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateShaderResourceView(d3d12_device
             device, unsafe_impl_from_ID3D12Resource(resource), desc);
 }
 
-__thread struct D3D12_UAV_INFO *d3d12_uav_info = NULL;
+VKD3D_THREAD_LOCAL struct D3D12_UAV_INFO *d3d12_uav_info = NULL;
 
 static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView(d3d12_device_iface *iface,
         ID3D12Resource *resource, ID3D12Resource *counter_resource,
