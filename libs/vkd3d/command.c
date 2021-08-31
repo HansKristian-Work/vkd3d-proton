@@ -4745,6 +4745,14 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
         return false;
     }
 
+    /* Detect error case early, otherwise, we end up creating new pipelines
+     * and crash later when looking at DSV formats. */
+    if (!list->dsv.view && list->state->graphics.dsv_format)
+    {
+        FIXME_ONCE("Attempting to render to NULL DSV with non-NULL format in PSO. Skipping draw call.\n");
+        return false;
+    }
+
     variant_flags = d3d12_command_list_variant_flags(list);
 
     /* Try to grab the pipeline we compiled ahead of time. If we cannot do so, fall back. */
