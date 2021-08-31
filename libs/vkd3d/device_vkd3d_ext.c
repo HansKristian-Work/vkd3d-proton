@@ -198,7 +198,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaSurfaceObject(ID3
     return S_OK; 
 }
 
-extern __thread struct D3D12_UAV_INFO *d3d12_uav_info;
+extern VKD3D_THREAD_LOCAL struct D3D12_UAV_INFO *d3d12_uav_info;
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_CaptureUAVInfo(ID3D12DeviceExt *iface, D3D12_UAV_INFO *uav_info)
 {

@@ -271,4 +271,10 @@ static inline void *void_ptr_offset(void *ptr, size_t offset)
     return ((char*)ptr) + offset;
 }
 
+#ifdef _MSC_VER
+#define VKD3D_THREAD_LOCAL __declspec(thread)
+#else
+#define VKD3D_THREAD_LOCAL __thread
+#endif
+
 #endif  /* __VKD3D_COMMON_H */
