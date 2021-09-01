@@ -123,17 +123,23 @@ static const struct vkd3d_format vkd3d_formats[] =
     {DXGI_FORMAT_B4G4R4A4_UNORM,        VK_FORMAT_A4R4G4B4_UNORM_PACK16_EXT,2,  1, 1,  1, COLOR, 1},
 };
 
+static const struct vkd3d_format_footprint depth_stencil_copy_footprints[] =
+{
+    { DXGI_FORMAT_R32_TYPELESS, 1, 1, 4, 0, 0 },
+    { DXGI_FORMAT_R8_TYPELESS, 1, 1, 1, 0, 0 },
+};
+
 /* Each depth/stencil format is only compatible with itself in Vulkan. */
 static const struct vkd3d_format vkd3d_depth_stencil_formats[] =
 {
-    {DXGI_FORMAT_R32G8X24_TYPELESS,        VK_FORMAT_D32_SFLOAT_S8_UINT, 8,  1, 1, 1, DEPTH_STENCIL, 2, TYPELESS},
-    {DXGI_FORMAT_D32_FLOAT_S8X24_UINT,     VK_FORMAT_D32_SFLOAT_S8_UINT, 8,  1, 1, 1, DEPTH_STENCIL, 2},
+    {DXGI_FORMAT_R32G8X24_TYPELESS,        VK_FORMAT_D32_SFLOAT_S8_UINT, 8,  1, 1, 1, DEPTH_STENCIL, 2, TYPELESS, false, depth_stencil_copy_footprints},
+    {DXGI_FORMAT_D32_FLOAT_S8X24_UINT,     VK_FORMAT_D32_SFLOAT_S8_UINT, 8,  1, 1, 1, DEPTH_STENCIL, 2, 0, false, depth_stencil_copy_footprints},
     {DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS, VK_FORMAT_D32_SFLOAT_S8_UINT, 8,  1, 1, 1, DEPTH,         2},
     {DXGI_FORMAT_X32_TYPELESS_G8X24_UINT,  VK_FORMAT_D32_SFLOAT_S8_UINT, 8,  1, 1, 1, STENCIL,       2},
     {DXGI_FORMAT_R32_TYPELESS,             VK_FORMAT_D32_SFLOAT,         4,  1, 1, 1, DEPTH,         1, TYPELESS},
     {DXGI_FORMAT_R32_FLOAT,                VK_FORMAT_D32_SFLOAT,         4,  1, 1, 1, DEPTH,         1},
-    {DXGI_FORMAT_R24G8_TYPELESS,           VK_FORMAT_D24_UNORM_S8_UINT,  4,  1, 1, 1, DEPTH_STENCIL, 2, TYPELESS},
-    {DXGI_FORMAT_D24_UNORM_S8_UINT,        VK_FORMAT_D24_UNORM_S8_UINT,  4,  1, 1, 1, DEPTH_STENCIL, 2},
+    {DXGI_FORMAT_R24G8_TYPELESS,           VK_FORMAT_D24_UNORM_S8_UINT,  4,  1, 1, 1, DEPTH_STENCIL, 2, TYPELESS, false, depth_stencil_copy_footprints},
+    {DXGI_FORMAT_D24_UNORM_S8_UINT,        VK_FORMAT_D24_UNORM_S8_UINT,  4,  1, 1, 1, DEPTH_STENCIL, 2, 0, false, depth_stencil_copy_footprints},
     {DXGI_FORMAT_R24_UNORM_X8_TYPELESS,    VK_FORMAT_D24_UNORM_S8_UINT,  4,  1, 1, 1, DEPTH,         2},
     {DXGI_FORMAT_X24_TYPELESS_G8_UINT,     VK_FORMAT_D24_UNORM_S8_UINT,  4,  1, 1, 1, STENCIL,       2},
     {DXGI_FORMAT_R16_TYPELESS,             VK_FORMAT_D16_UNORM,          2,  1, 1, 1, DEPTH,         1, TYPELESS},
@@ -483,22 +489,22 @@ const struct vkd3d_format *vkd3d_get_format(const struct d3d12_device *device,
     return format->dxgi_format ? format : NULL;
 }
 
-const struct vkd3d_format *vkd3d_format_footprint_for_plane(const struct d3d12_device *device,
-        const struct vkd3d_format *format, unsigned int plane_idx)
+struct vkd3d_format_footprint vkd3d_format_footprint_for_plane(const struct vkd3d_format *format, unsigned int plane_idx)
 {
-    switch (format->dxgi_format)
+    if (format->plane_footprints)
     {
-        case DXGI_FORMAT_R32G8X24_TYPELESS:
-        case DXGI_FORMAT_R24G8_TYPELESS:
-        case DXGI_FORMAT_D24_UNORM_S8_UINT:
-        case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
-            if (plane_idx == 0)
-                return vkd3d_get_format(device, DXGI_FORMAT_R32_TYPELESS, false);
-            else
-                return vkd3d_get_format(device, DXGI_FORMAT_R8_TYPELESS, false);
-
-        default:
-            return format;
+        return format->plane_footprints[plane_idx];
+    }
+    else
+    {
+        struct vkd3d_format_footprint footprint;
+        footprint.dxgi_format = format->dxgi_format;
+        footprint.block_width = format->block_width;
+        footprint.block_height = format->block_height;
+        footprint.subsample_x_log2 = 0;
+        footprint.subsample_y_log2 = 0;
+        footprint.block_byte_count = format->byte_count * format->block_byte_count;
+        return footprint;
     }
 }
 

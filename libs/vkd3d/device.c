@@ -3851,7 +3851,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(d3d12_device_if
     unsigned int i, sub_resource_idx, miplevel_idx, row_count, row_size, row_pitch;
     unsigned int width, height, depth, num_planes, num_subresources;
     unsigned int num_subresources_per_plane, plane_idx;
-    const struct vkd3d_format *plane_format;
+    struct vkd3d_format_footprint plane_footprint;
     const struct vkd3d_format *format;
     uint64_t offset, size, total;
 
@@ -3903,14 +3903,14 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(d3d12_device_if
         sub_resource_idx = first_sub_resource + i;
         plane_idx = sub_resource_idx / num_subresources_per_plane;
 
-        plane_format = vkd3d_format_footprint_for_plane(device, format, plane_idx);
+        plane_footprint = vkd3d_format_footprint_for_plane(format, plane_idx);
 
         miplevel_idx = sub_resource_idx % desc->MipLevels;
-        width = align(d3d12_resource_desc_get_width(desc, miplevel_idx), plane_format->block_width);
-        height = align(d3d12_resource_desc_get_height(desc, miplevel_idx), plane_format->block_height);
+        width = align(d3d12_resource_desc_get_width(desc, miplevel_idx), plane_footprint.block_width);
+        height = align(d3d12_resource_desc_get_height(desc, miplevel_idx), plane_footprint.block_height);
         depth = d3d12_resource_desc_get_depth(desc, miplevel_idx);
-        row_count = height / plane_format->block_height;
-        row_size = (width / plane_format->block_width) * plane_format->byte_count * plane_format->block_byte_count;
+        row_count = height / plane_footprint.block_height;
+        row_size = (width / plane_footprint.block_width) * plane_footprint.block_byte_count;
 
         /* For whatever reason, we need to use 512 bytes of alignment for depth-stencil formats.
          * This is not documented, but it is observed behavior on both NV and WARP drivers.
@@ -3920,7 +3920,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(d3d12_device_if
         if (layouts)
         {
             layouts[i].Offset = base_offset + offset;
-            layouts[i].Footprint.Format = plane_format->dxgi_format;
+            layouts[i].Footprint.Format = plane_footprint.dxgi_format;
             layouts[i].Footprint.Width = width;
             layouts[i].Footprint.Height = height;
             layouts[i].Footprint.Depth = depth;
