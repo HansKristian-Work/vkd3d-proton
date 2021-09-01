@@ -3849,7 +3849,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(d3d12_device_if
             = {DXGI_FORMAT_UNKNOWN, VK_FORMAT_UNDEFINED, 1, 1, 1, 1, 0, 1};
 
     unsigned int i, sub_resource_idx, miplevel_idx, row_count, row_size, row_pitch;
-    unsigned int width, height, depth, array_size, num_planes, num_subresources;
+    unsigned int width, height, depth, num_planes, num_subresources;
     unsigned int num_subresources_per_plane, plane_idx;
     const struct vkd3d_format *plane_format;
     const struct vkd3d_format *format;
@@ -3886,9 +3886,8 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(d3d12_device_if
     }
 
     num_planes = format->plane_count;
-    array_size = d3d12_resource_desc_get_layer_count(desc);
     num_subresources_per_plane = d3d12_resource_desc_get_sub_resource_count_per_plane(desc);
-    num_subresources = num_subresources_per_plane * num_planes;
+    num_subresources = d3d12_resource_desc_get_sub_resource_count(device, desc);
 
     if (first_sub_resource >= num_subresources
             || sub_resource_count > num_subresources - first_sub_resource)
