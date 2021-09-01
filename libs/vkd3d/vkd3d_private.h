@@ -2962,6 +2962,13 @@ static inline unsigned int d3d12_resource_desc_get_sub_resource_count_per_plane(
     return d3d12_resource_desc_get_layer_count(desc) * desc->MipLevels;
 }
 
+static inline unsigned int d3d12_resource_desc_get_sub_resource_count(const struct d3d12_device *device,
+        const D3D12_RESOURCE_DESC *desc)
+{
+    const struct vkd3d_format *format = vkd3d_get_format(device, desc->Format, true);
+    return d3d12_resource_desc_get_sub_resource_count_per_plane(desc) * (format ? format->plane_count : 1);
+}
+
 static inline unsigned int d3d12_resource_get_sub_resource_count(const struct d3d12_resource *resource)
 {
     return d3d12_resource_desc_get_sub_resource_count_per_plane(&resource->desc) *
