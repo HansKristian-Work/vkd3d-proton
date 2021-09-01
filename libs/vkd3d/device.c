@@ -3846,10 +3846,12 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(d3d12_device_if
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
     static const struct vkd3d_format vkd3d_format_unknown
-            = {DXGI_FORMAT_UNKNOWN, VK_FORMAT_UNDEFINED, 1, 1, 1, 1, 0};
+            = {DXGI_FORMAT_UNKNOWN, VK_FORMAT_UNDEFINED, 1, 1, 1, 1, 0, 1};
 
     unsigned int i, sub_resource_idx, miplevel_idx, row_count, row_size, row_pitch;
-    unsigned int width, height, depth, array_size;
+    unsigned int width, height, depth, array_size, num_planes, num_subresources;
+    unsigned int num_subresources_per_plane, plane_idx;
+    const struct vkd3d_format *plane_format;
     const struct vkd3d_format *format;
     uint64_t offset, size, total;
 
@@ -3883,10 +3885,13 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(d3d12_device_if
         return;
     }
 
+    num_planes = format->plane_count;
     array_size = d3d12_resource_desc_get_layer_count(desc);
+    num_subresources_per_plane = d3d12_resource_desc_get_sub_resource_count_per_plane(desc);
+    num_subresources = num_subresources_per_plane * num_planes;
 
-    if (first_sub_resource >= desc->MipLevels * array_size
-            || sub_resource_count > desc->MipLevels * array_size - first_sub_resource)
+    if (first_sub_resource >= num_subresources
+            || sub_resource_count > num_subresources - first_sub_resource)
     {
         WARN("Invalid sub-resource range %u-%u for resource.\n", first_sub_resource, sub_resource_count);
         return;
@@ -3897,18 +3902,26 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(d3d12_device_if
     for (i = 0; i < sub_resource_count; ++i)
     {
         sub_resource_idx = first_sub_resource + i;
+        plane_idx = sub_resource_idx / num_subresources_per_plane;
+
+        plane_format = vkd3d_format_footprint_for_plane(device, format, plane_idx);
+
         miplevel_idx = sub_resource_idx % desc->MipLevels;
-        width = align(d3d12_resource_desc_get_width(desc, miplevel_idx), format->block_width);
-        height = align(d3d12_resource_desc_get_height(desc, miplevel_idx), format->block_height);
+        width = align(d3d12_resource_desc_get_width(desc, miplevel_idx), plane_format->block_width);
+        height = align(d3d12_resource_desc_get_height(desc, miplevel_idx), plane_format->block_height);
         depth = d3d12_resource_desc_get_depth(desc, miplevel_idx);
-        row_count = height / format->block_height;
-        row_size = (width / format->block_width) * format->byte_count * format->block_byte_count;
-        row_pitch = align(row_size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
+        row_count = height / plane_format->block_height;
+        row_size = (width / plane_format->block_width) * plane_format->byte_count * plane_format->block_byte_count;
+
+        /* For whatever reason, we need to use 512 bytes of alignment for depth-stencil formats.
+         * This is not documented, but it is observed behavior on both NV and WARP drivers.
+         * See test_get_copyable_footprints_planar(). */
+        row_pitch = align(row_size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT * num_planes);
 
         if (layouts)
         {
             layouts[i].Offset = base_offset + offset;
-            layouts[i].Footprint.Format = desc->Format;
+            layouts[i].Footprint.Format = plane_format->dxgi_format;
             layouts[i].Footprint.Width = width;
             layouts[i].Footprint.Height = height;
             layouts[i].Footprint.Depth = depth;
@@ -3920,7 +3933,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(d3d12_device_if
             row_sizes[i] = row_size;
 
         size = max(0, row_count - 1) * row_pitch + row_size;
-        size = max(0, depth - 1) * align(size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT) + size;
+        size = max(0, depth - 1) * align(size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT * num_planes) + size;
 
         total = offset + size;
         offset = align(total, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);

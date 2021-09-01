@@ -483,6 +483,25 @@ const struct vkd3d_format *vkd3d_get_format(const struct d3d12_device *device,
     return format->dxgi_format ? format : NULL;
 }
 
+const struct vkd3d_format *vkd3d_format_footprint_for_plane(const struct d3d12_device *device,
+        const struct vkd3d_format *format, unsigned int plane_idx)
+{
+    switch (format->dxgi_format)
+    {
+        case DXGI_FORMAT_R32G8X24_TYPELESS:
+        case DXGI_FORMAT_R24G8_TYPELESS:
+        case DXGI_FORMAT_D24_UNORM_S8_UINT:
+        case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
+            if (plane_idx == 0)
+                return vkd3d_get_format(device, DXGI_FORMAT_R32_TYPELESS, false);
+            else
+                return vkd3d_get_format(device, DXGI_FORMAT_R8_TYPELESS, false);
+
+        default:
+            return format;
+    }
+}
+
 VkFormat vkd3d_internal_get_vk_format(const struct d3d12_device *device, DXGI_FORMAT dxgi_format)
 {
     const struct vkd3d_format *format;
