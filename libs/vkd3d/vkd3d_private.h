@@ -2878,6 +2878,8 @@ DXGI_FORMAT vkd3d_get_typeless_format(const struct d3d12_device *device, DXGI_FO
 const struct vkd3d_format *vkd3d_find_uint_format(const struct d3d12_device *device,
         DXGI_FORMAT dxgi_format);
 VkFormat vkd3d_internal_get_vk_format(const struct d3d12_device *device, DXGI_FORMAT dxgi_format);
+const struct vkd3d_format *vkd3d_format_footprint_for_plane(const struct d3d12_device *device,
+        const struct vkd3d_format *format, unsigned int plane_idx);
 
 HRESULT vkd3d_init_format_info(struct d3d12_device *device);
 void vkd3d_cleanup_format_info(struct d3d12_device *device);
