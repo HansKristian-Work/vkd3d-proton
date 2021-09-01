@@ -2840,6 +2840,16 @@ enum vkd3d_format_type
     VKD3D_FORMAT_TYPE_UINT,
 };
 
+struct vkd3d_format_footprint
+{
+    DXGI_FORMAT dxgi_format;
+    uint32_t block_width;
+    uint32_t block_height;
+    uint32_t block_byte_count;
+    uint32_t subsample_x_log2;
+    uint32_t subsample_y_log2;
+};
+
 struct vkd3d_format
 {
     DXGI_FORMAT dxgi_format;
@@ -2852,6 +2862,7 @@ struct vkd3d_format
     unsigned int plane_count;
     enum vkd3d_format_type type;
     bool is_emulated;
+    const struct vkd3d_format_footprint *plane_footprints;
 };
 
 static inline size_t vkd3d_format_get_data_offset(const struct vkd3d_format *format,
@@ -2878,8 +2889,7 @@ DXGI_FORMAT vkd3d_get_typeless_format(const struct d3d12_device *device, DXGI_FO
 const struct vkd3d_format *vkd3d_find_uint_format(const struct d3d12_device *device,
         DXGI_FORMAT dxgi_format);
 VkFormat vkd3d_internal_get_vk_format(const struct d3d12_device *device, DXGI_FORMAT dxgi_format);
-const struct vkd3d_format *vkd3d_format_footprint_for_plane(const struct d3d12_device *device,
-        const struct vkd3d_format *format, unsigned int plane_idx);
+struct vkd3d_format_footprint vkd3d_format_footprint_for_plane(const struct vkd3d_format *format, unsigned int plane_idx);
 
 HRESULT vkd3d_init_format_info(struct d3d12_device *device);
 void vkd3d_cleanup_format_info(struct d3d12_device *device);
