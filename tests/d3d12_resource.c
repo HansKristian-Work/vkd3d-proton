@@ -1240,30 +1240,40 @@ static void check_copyable_footprints_(unsigned int line, const D3D12_RESOURCE_D
         const D3D12_PLACED_SUBRESOURCE_FOOTPRINT *layouts, const UINT *row_counts,
         const uint64_t *row_sizes, uint64_t *total_size)
 {
-    unsigned int miplevel, width, height, depth, row_count, row_size, row_pitch;
+    unsigned int miplevel, width, height, depth, row_count, row_size, row_pitch, layers, plane, num_planes;
     uint64_t offset, size, total;
     unsigned int i;
 
+    layers = desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? 1 : desc->DepthOrArraySize;
+    num_planes = format_num_planes(desc->Format);
     offset = total = 0;
+
     for (i = 0; i < sub_resource_count; ++i)
     {
         miplevel = (sub_resource_idx + i) % desc->MipLevels;
+        plane = (sub_resource_idx + i) / (desc->MipLevels * layers);
         width = align(max(1, desc->Width >> miplevel), format_block_width(desc->Format));
         height = align(max(1, desc->Height >> miplevel), format_block_height(desc->Format));
         depth = desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? desc->DepthOrArraySize : 1;
         depth = max(1, depth >> miplevel);
         row_count = height / format_block_height(desc->Format);
-        row_size = (width / format_block_width(desc->Format)) * format_size(desc->Format);
-        row_pitch = align(row_size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
+        row_size = (width / format_block_width(desc->Format)) * format_size_planar(desc->Format, plane);
+
+        /* For whatever reason, depth-stencil images actually have 512 byte row alignment, not 256.
+         * Both WARP and NV driver have this behavior, so it might be an undocumented requirement.
+         * This function is likely part of the core runtime though ... */
+        row_pitch = align(row_size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT * num_planes);
 
         if (layouts)
         {
             const D3D12_PLACED_SUBRESOURCE_FOOTPRINT *l = &layouts[i];
             const D3D12_SUBRESOURCE_FOOTPRINT *f = &l->Footprint;
+            DXGI_FORMAT footprint_format;
 
+            footprint_format = format_to_footprint_format(desc->Format, plane);
             ok_(line)(l->Offset == base_offset + offset,
                     "Got offset %"PRIu64", expected %"PRIu64".\n", l->Offset, base_offset + offset);
-            ok_(line)(f->Format == desc->Format, "Got format %#x, expected %#x.\n", f->Format, desc->Format);
+            ok_(line)(f->Format == footprint_format, "Got format %#x, expected %#x.\n", f->Format, footprint_format);
             ok_(line)(f->Width == width, "Got width %u, expected %u.\n", f->Width, width);
             ok_(line)(f->Height == height, "Got height %u, expected %u.\n", f->Height, height);
             ok_(line)(f->Depth == depth, "Got depth %u, expected %u.\n", f->Depth, depth);
@@ -1277,7 +1287,7 @@ static void check_copyable_footprints_(unsigned int line, const D3D12_RESOURCE_D
             ok_(line)(row_sizes[i] == row_size, "Got row size %"PRIu64", expected %u.\n", row_sizes[i], row_size);
 
         size = max(0, row_count - 1) * row_pitch + row_size;
-        size = max(0, depth - 1) * align(size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT) + size;
+        size = max(0, depth - 1) * align(size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT * num_planes) + size;
 
         total = offset + size;
         offset = align(total, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
@@ -1285,6 +1295,55 @@ static void check_copyable_footprints_(unsigned int line, const D3D12_RESOURCE_D
 
     if (total_size)
         ok_(line)(*total_size == total, "Got total size %"PRIu64", expected %"PRIu64".\n", *total_size, total);
+}
+
+void test_get_copyable_footprints_planar(void)
+{
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprints[2 * 2 * 3];
+    UINT64 row_sizes[ARRAY_SIZE(footprints)];
+    UINT row_counts[ARRAY_SIZE(footprints)];
+    D3D12_RESOURCE_DESC desc;
+    ID3D12Device *device;
+    UINT64 total_bytes;
+    unsigned int i;
+
+    /* All of these formats will have R32_TYPELESS + R8_TYPELESS placements. */
+    static const DXGI_FORMAT planar_formats[] =
+    {
+        DXGI_FORMAT_D32_FLOAT_S8X24_UINT,
+        DXGI_FORMAT_D24_UNORM_S8_UINT,
+        DXGI_FORMAT_R24G8_TYPELESS,
+        DXGI_FORMAT_R32G8X24_TYPELESS,
+    };
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.Width = 130;
+    desc.Height = 119;
+    desc.DepthOrArraySize = 2;
+    desc.MipLevels = 3;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    desc.SampleDesc.Count = 1;
+    desc.SampleDesc.Quality = 0;
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+    desc.Alignment = 0;
+
+    for (i = 0; i < ARRAY_SIZE(planar_formats); i++)
+    {
+        vkd3d_test_set_context("Test %u", i);
+        desc.Format = planar_formats[i];
+        ID3D12Device_GetCopyableFootprints(device, &desc, 0, ARRAY_SIZE(footprints), 0,
+                footprints, row_counts, row_sizes, &total_bytes);
+        check_copyable_footprints(&desc, 0, ARRAY_SIZE(footprints), 0, footprints, row_counts, row_sizes, &total_bytes);
+    }
+    vkd3d_test_set_context(NULL);
+
+    ID3D12Device_Release(device);
 }
 
 void test_get_copyable_footprints(void)
