@@ -121,7 +121,7 @@ void vkd3d_dbg_printf(enum vkd3d_dbg_channel channel, enum vkd3d_dbg_level level
 
     va_start(args, fmt);
     spinlock_acquire(&spin);
-    fprintf(log_file, "%u:%s:%s: ", tid, debug_level_names[level], function);
+    fprintf(log_file, "%04x:%s:%s: ", tid, debug_level_names[level], function);
     vfprintf(log_file, fmt, args);
     spinlock_release(&spin);
     va_end(args);
