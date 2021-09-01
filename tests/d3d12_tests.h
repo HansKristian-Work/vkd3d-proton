@@ -270,3 +270,4 @@ decl_test(test_shader_fp16);
 decl_test(test_shader_sm62_denorm);
 decl_test(test_shader_sm64_packed);
 decl_test(test_shader_sm65_wave_intrinsics);
+decl_test(test_get_copyable_footprints_planar);

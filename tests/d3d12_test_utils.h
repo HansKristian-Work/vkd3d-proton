@@ -354,6 +354,51 @@ static inline unsigned int format_size(DXGI_FORMAT format)
     }
 }
 
+static inline unsigned int format_num_planes(DXGI_FORMAT format)
+{
+    switch (format)
+    {
+        case DXGI_FORMAT_D24_UNORM_S8_UINT:
+        case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
+        case DXGI_FORMAT_R24G8_TYPELESS:
+        case DXGI_FORMAT_R32G8X24_TYPELESS:
+            return 2;
+
+        default:
+            return 1;
+    }
+}
+
+static inline unsigned int format_size_planar(DXGI_FORMAT format, unsigned int plane)
+{
+    switch (format)
+    {
+        case DXGI_FORMAT_D24_UNORM_S8_UINT:
+        case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
+        case DXGI_FORMAT_R24G8_TYPELESS:
+        case DXGI_FORMAT_R32G8X24_TYPELESS:
+            return plane ? 1 : 4;
+
+        default:
+            return format_size(format);
+    }
+}
+
+static inline unsigned int format_to_footprint_format(DXGI_FORMAT format, unsigned int plane)
+{
+    switch (format)
+    {
+        case DXGI_FORMAT_D24_UNORM_S8_UINT:
+        case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
+        case DXGI_FORMAT_R24G8_TYPELESS:
+        case DXGI_FORMAT_R32G8X24_TYPELESS:
+            return plane ? DXGI_FORMAT_R8_TYPELESS : DXGI_FORMAT_R32_TYPELESS;
+
+        default:
+            return format;
+    }
+}
+
 static inline unsigned int format_block_width(DXGI_FORMAT format)
 {
     switch (format)
