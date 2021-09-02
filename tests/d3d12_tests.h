@@ -276,3 +276,4 @@ decl_test(test_copy_buffer_to_depth_stencil);
 decl_test(test_map_texture_validation);
 decl_test(test_read_write_subresource_2d);
 decl_test(test_read_subresource_rt);
+decl_test(test_integer_blending_pipeline_state);

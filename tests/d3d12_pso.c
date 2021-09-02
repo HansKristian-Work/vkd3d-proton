@@ -97,6 +97,101 @@ void test_create_compute_pipeline_state(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+void test_integer_blending_pipeline_state(void)
+{
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12RootSignature *root_signature;
+    ID3D12PipelineState *pso;
+    D3D12_BLEND_DESC *blend;
+    ID3D12Device *device;
+    unsigned int i;
+    HRESULT hr;
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        uint main() : SV_Target
+        {
+            return 10;
+        }
+#endif
+        0x43425844, 0x9f26b611, 0xc59570a7, 0x9b327871, 0xb1015fc6, 0x00000001, 0x000000a8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x00000e01, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000030, 0x00000050, 0x0000000c,
+        0x0100086a, 0x03000065, 0x00102012, 0x00000000, 0x05000036, 0x00102012, 0x00000000, 0x00004001,
+        0x0000000a, 0x0100003e,
+    };
+
+    static const DWORD ps_code_no_rt[] =
+    {
+#if 0
+        void main()
+        {
+        }
+#endif
+        0x43425844, 0x499d4ed5, 0xbbe2842c, 0x179313ee, 0xde5cd5d9, 0x00000001, 0x00000064, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000010, 0x00000050, 0x00000004, 0x0100086a,
+        0x0100003e,
+    };
+
+    static const D3D12_SHADER_BYTECODE ps = { ps_code, sizeof(ps_code) };
+    static const D3D12_SHADER_BYTECODE ps_no_rt = { ps_code_no_rt, sizeof(ps_code_no_rt) };
+
+    struct test
+    {
+        HRESULT hr;
+        const D3D12_SHADER_BYTECODE *ps;
+        UINT8 write_mask;
+    };
+    static const struct test tests[] =
+    {
+        { S_OK, &ps_no_rt, D3D12_COLOR_WRITE_ENABLE_ALL },
+        { E_INVALIDARG, &ps, 0 },
+        { E_INVALIDARG, &ps, D3D12_COLOR_WRITE_ENABLE_ALL },
+    };
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    root_signature_desc.NumParameters = 0;
+    root_signature_desc.pParameters = NULL;
+    root_signature_desc.NumStaticSamplers = 0;
+    root_signature_desc.pStaticSamplers = NULL;
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    hr = create_root_signature(device, &root_signature_desc, &root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        vkd3d_test_set_context("Test %u", i);
+        init_pipeline_state_desc(&pso_desc, root_signature, DXGI_FORMAT_R32_UINT, NULL, tests[i].ps, NULL);
+        blend = &pso_desc.BlendState;
+        blend->IndependentBlendEnable = false;
+        blend->RenderTarget[0].BlendEnable = true;
+        blend->RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+        blend->RenderTarget[0].DestBlend = D3D12_BLEND_DEST_ALPHA;
+        blend->RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+        blend->RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+        blend->RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+        blend->RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+        blend->RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+        hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
+                &IID_ID3D12PipelineState, (void **)&pso);
+        ok(hr == tests[i].hr, "Unexpected hr %#x.\n", hr);
+        if (SUCCEEDED(hr))
+            ID3D12PipelineState_Release(pso);
+    }
+    vkd3d_test_set_context(NULL);
+    ID3D12RootSignature_Release(root_signature);
+    ID3D12Device_Release(device);
+}
+
 void test_create_graphics_pipeline_state(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
