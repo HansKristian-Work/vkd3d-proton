@@ -2854,10 +2854,10 @@ struct vkd3d_format
 {
     DXGI_FORMAT dxgi_format;
     VkFormat vk_format;
-    size_t byte_count;
-    size_t block_width;
-    size_t block_height;
-    size_t block_byte_count;
+    uint32_t byte_count;
+    uint32_t block_width;
+    uint32_t block_height;
+    uint32_t block_byte_count;
     VkImageAspectFlags vk_aspect_mask;
     unsigned int plane_count;
     enum vkd3d_format_type type;
