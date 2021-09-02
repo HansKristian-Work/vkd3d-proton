@@ -3077,6 +3077,26 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     }
 
     graphics->dsv_format = NULL;
+    format = vkd3d_get_format(device, desc->dsv_format, true);
+
+    /* F1 2021 enables stencil test on a D16_UNORM.
+     * Filter out any tests which are irrelevant for the DS format in question. */
+    if (format)
+    {
+        if (!(format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT))
+        {
+            WARN("Ignoring depthTestEnable due to lack of depth aspect.\n");
+            graphics->ds_desc.depthTestEnable = VK_FALSE;
+            graphics->ds_desc.depthBoundsTestEnable = VK_FALSE;
+        }
+
+        if (!(format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
+        {
+            WARN("Ignoring stencilTestEnable due to lack of stencil aspect.\n");
+            graphics->ds_desc.stencilTestEnable = VK_FALSE;
+        }
+    }
+
     if (graphics->ds_desc.depthTestEnable || graphics->ds_desc.stencilTestEnable || graphics->ds_desc.depthBoundsTestEnable)
     {
         if (desc->dsv_format == DXGI_FORMAT_UNKNOWN)
@@ -3084,7 +3104,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             WARN("DSV format is DXGI_FORMAT_UNKNOWN.\n");
             graphics->null_attachment_mask |= dsv_attachment_mask(graphics);
         }
-        else if ((format = vkd3d_get_format(device, desc->dsv_format, true)))
+        else if (format)
         {
             if (format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
                 graphics->dsv_format = format;
