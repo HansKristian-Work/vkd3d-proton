@@ -1684,19 +1684,6 @@ struct vkd3d_dynamic_state
 /* ID3D12CommandList */
 typedef ID3D12GraphicsCommandList5 d3d12_command_list_iface;
 
-struct vkd3d_clear_attachment
-{
-    VkImageAspectFlags aspect_mask;
-    VkImageAspectFlags discard_mask;
-    VkClearValue value;
-};
-
-struct vkd3d_clear_state
-{
-    uint64_t attachment_mask;
-    struct vkd3d_clear_attachment attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
-};
-
 enum vkd3d_initial_transition_type
 {
     VKD3D_INITIAL_TRANSITION_TYPE_RESOURCE,
@@ -1780,7 +1767,6 @@ struct d3d12_command_list
 
     struct d3d12_rtv_desc rtvs[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct d3d12_rtv_desc dsv;
-    struct vkd3d_clear_state clear_state;
     uint32_t dsv_plane_optimal_mask;
     VkImageLayout dsv_layout;
     unsigned int fb_width;
