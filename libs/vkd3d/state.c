@@ -2930,6 +2930,46 @@ static bool d3d12_is_valid_pipeline_variant(struct d3d12_device *device, uint32_
     return true;
 }
 
+static HRESULT d3d12_pipeline_state_validate_blend_state(struct d3d12_pipeline_state *state,
+        const struct d3d12_device *device,
+        const struct d3d12_pipeline_state_desc *desc, const struct vkd3d_shader_signature *sig)
+{
+    const struct vkd3d_format *format;
+    unsigned int i, j;
+
+    for (i = 0; i < desc->rtv_formats.NumRenderTargets; i++)
+    {
+        if (!state->graphics.blend_attachments[i].blendEnable)
+            continue;
+
+        format = vkd3d_get_format(device, desc->rtv_formats.RTFormats[i], false);
+        /* Blending on integer formats are not supported, and we are supposed to validate this
+         * when creating pipelines. However, if the shader does not declare the render target
+         * in the output signature, we're supposed to just ignore it. We can just force blending to false
+         * in this case. If there is an output, fail pipeline compilation. */
+        if (format && (format->type == VKD3D_FORMAT_TYPE_SINT || format->type == VKD3D_FORMAT_TYPE_UINT))
+        {
+            for (j = 0; j < sig->element_count; j++)
+            {
+                if (sig->elements[j].register_index == i)
+                {
+                    ERR("Enabling blending on RT %u with format %s, but using integer format is not supported.\n", i,
+                            debug_dxgi_format(desc->rtv_formats.RTFormats[i]));
+                    return E_INVALIDARG;
+                }
+            }
+
+            /* The output does not exist, but we have to pass the pipeline. Just nop out any invalid blend state. */
+            WARN("Enabling blending on RT %u with format %s, but using integer format is not supported. "
+                 "The output is not written, so nop-ing out blending.\n",
+                    i, debug_dxgi_format(desc->rtv_formats.RTFormats[i]));
+            state->graphics.blend_attachments[i].blendEnable = VK_FALSE;
+        }
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc)
 {
@@ -2948,6 +2988,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     struct vkd3d_shader_transform_feedback_info xfb_info;
     struct vkd3d_shader_interface_info shader_interface;
     const struct d3d12_root_signature *root_signature;
+    struct vkd3d_shader_signature output_signature;
     struct vkd3d_shader_signature input_signature;
     VkShaderStageFlagBits xfb_stage = 0;
     VkSampleCountFlagBits sample_count;
@@ -2981,6 +3022,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     graphics->primitive_topology_type = desc->primitive_topology_type;
 
     memset(&input_signature, 0, sizeof(input_signature));
+    memset(&output_signature, 0, sizeof(output_signature));
 
     for (i = desc->rtv_formats.NumRenderTargets; i < ARRAY_SIZE(desc->rtv_formats.RTFormats); ++i)
     {
@@ -3248,7 +3290,17 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
                 break;
 
             case VK_SHADER_STAGE_GEOMETRY_BIT:
+                break;
+
             case VK_SHADER_STAGE_FRAGMENT_BIT:
+                if ((ret = vkd3d_shader_parse_output_signature(&dxbc, &output_signature)) < 0)
+                {
+                    hr = hresult_from_vkd3d_result(ret);
+                    goto fail;
+                }
+
+                if (FAILED(hr = d3d12_pipeline_state_validate_blend_state(state, device, desc, &output_signature)))
+                    goto fail;
                 break;
 
             default:
@@ -3402,6 +3454,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     graphics->attribute_count = j;
     graphics->vertex_buffer_mask = mask;
     vkd3d_shader_free_shader_signature(&input_signature);
+    vkd3d_shader_free_shader_signature(&output_signature);
 
     for (i = 0; i < D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT; i++)
     {
@@ -3537,6 +3590,7 @@ fail:
         VK_CALL(vkDestroyShaderModule(device->vk_device, state->graphics.stages[i].module, NULL));
     }
     vkd3d_shader_free_shader_signature(&input_signature);
+    vkd3d_shader_free_shader_signature(&output_signature);
 
     return hr;
 }
