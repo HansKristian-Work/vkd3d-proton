@@ -990,6 +990,7 @@ struct vkd3d_descriptor_data
     uint64_t cookie;
     uint32_t set_info_mask;
     uint32_t flags;
+    VkDescriptorType current_null_type;
 };
 
 #define D3D12_DESC_ALIGNMENT 64
@@ -1004,7 +1005,6 @@ struct d3d12_desc
     DECLSPEC_ALIGN(D3D12_DESC_ALIGNMENT) struct vkd3d_descriptor_data metadata;
     struct d3d12_descriptor_heap *heap;
     uint32_t heap_offset;
-    VkDescriptorType current_null_type;
     union
     {
         VkDescriptorBufferInfo buffer;

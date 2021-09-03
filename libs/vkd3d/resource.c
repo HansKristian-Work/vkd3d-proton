@@ -3504,7 +3504,7 @@ static void d3d12_descriptor_heap_write_null_descriptor_template(struct d3d12_de
 
     /* Skip writes with the same null type that are already null. */
     if (!(desc->metadata.flags & VKD3D_DESCRIPTOR_FLAG_NON_NULL)
-            && desc->current_null_type == vk_mutable_descriptor_type)
+            && desc->metadata.current_null_type == vk_mutable_descriptor_type)
         return;
 
     num_writes = heap->null_descriptor_template.num_writes;
@@ -3524,7 +3524,7 @@ static void d3d12_descriptor_heap_write_null_descriptor_template(struct d3d12_de
     desc->metadata.cookie = 0;
     desc->metadata.flags = 0;
     desc->metadata.set_info_mask = heap->null_descriptor_template.set_info_mask;
-    desc->current_null_type = vk_mutable_descriptor_type;
+    desc->metadata.current_null_type = vk_mutable_descriptor_type;
     memset(&desc->info, 0, sizeof(desc->info));
 
     va = heap->raw_va_aux_buffer.host_ptr;
@@ -5205,7 +5205,6 @@ static HRESULT d3d12_descriptor_heap_init_data_buffer(struct d3d12_descriptor_he
     VkResult vr;
     HRESULT hr;
 
-
     if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
     {
         if (device->bindless_state.flags & VKD3D_RAW_VA_AUX_BUFFER)
@@ -5472,6 +5471,9 @@ static void d3d12_descriptor_heap_init_descriptors(struct d3d12_descriptor_heap 
             {
                 desc[i].heap = descriptor_heap;
                 desc[i].heap_offset = i;
+                /* If we begin copying from the descriptors right away, we should copy the null descriptors
+                 * which are already initialized. */
+                desc[i].metadata.set_info_mask = descriptor_heap->null_descriptor_template.set_info_mask;
             }
             break;
 
