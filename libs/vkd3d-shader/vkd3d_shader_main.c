@@ -672,6 +672,14 @@ int vkd3d_shader_parse_input_signature(const struct vkd3d_shader_code *dxbc,
     return shader_parse_input_signature(dxbc->code, dxbc->size, signature);
 }
 
+int vkd3d_shader_parse_output_signature(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_shader_signature *signature)
+{
+    TRACE("dxbc {%p, %zu}, signature %p.\n", dxbc->code, dxbc->size, signature);
+
+    return shader_parse_output_signature(dxbc->code, dxbc->size, signature);
+}
+
 struct vkd3d_shader_signature_element *vkd3d_shader_find_signature_element(
         const struct vkd3d_shader_signature *signature, const char *semantic_name,
         unsigned int semantic_index, unsigned int stream_index)

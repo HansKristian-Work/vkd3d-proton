@@ -781,6 +781,8 @@ void free_shader_desc(struct vkd3d_shader_desc *desc);
 
 int shader_parse_input_signature(const void *dxbc, size_t dxbc_length,
         struct vkd3d_shader_signature *signature);
+int shader_parse_output_signature(const void *dxbc, size_t dxbc_length,
+        struct vkd3d_shader_signature *signature);
 
 struct vkd3d_dxbc_compiler;
 

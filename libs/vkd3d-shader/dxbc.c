@@ -2249,6 +2249,21 @@ static int isgn_handler(const char *data, DWORD data_size, DWORD tag, void *ctx)
     return shader_parse_signature(tag, data, data_size, is);
 }
 
+static int osgn_handler(const char *data, DWORD data_size, DWORD tag, void *ctx)
+{
+    struct vkd3d_shader_signature *is = ctx;
+
+    if (tag != TAG_OSGN && tag != TAG_OSG1)
+        return VKD3D_OK;
+
+    if (is->elements)
+    {
+        FIXME("Multiple input signatures.\n");
+        vkd3d_shader_free_shader_signature(is);
+    }
+    return shader_parse_signature(tag, data, data_size, is);
+}
+
 int shader_parse_input_signature(const void *dxbc, size_t dxbc_length,
         struct vkd3d_shader_signature *signature)
 {
@@ -2257,6 +2272,17 @@ int shader_parse_input_signature(const void *dxbc, size_t dxbc_length,
     memset(signature, 0, sizeof(*signature));
     if ((ret = parse_dxbc(dxbc, dxbc_length, isgn_handler, signature)) < 0)
         ERR("Failed to parse input signature.\n");
+    return ret;
+}
+
+int shader_parse_output_signature(const void *dxbc, size_t dxbc_length,
+        struct vkd3d_shader_signature *signature)
+{
+    int ret;
+
+    memset(signature, 0, sizeof(*signature));
+    if ((ret = parse_dxbc(dxbc, dxbc_length, osgn_handler, signature)) < 0)
+        ERR("Failed to parse output signature.\n");
     return ret;
 }
 
