@@ -377,6 +377,7 @@ static inline unsigned int format_size_planar(DXGI_FORMAT format, unsigned int p
         case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
         case DXGI_FORMAT_R24G8_TYPELESS:
         case DXGI_FORMAT_R32G8X24_TYPELESS:
+        case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
             return plane ? 1 : 4;
 
         default:
@@ -392,6 +393,7 @@ static inline unsigned int format_to_footprint_format(DXGI_FORMAT format, unsign
         case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
         case DXGI_FORMAT_R24G8_TYPELESS:
         case DXGI_FORMAT_R32G8X24_TYPELESS:
+        case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
             return plane ? DXGI_FORMAT_R8_TYPELESS : DXGI_FORMAT_R32_TYPELESS;
 
         default:
@@ -462,10 +464,10 @@ static inline void get_texture_readback_with_command_list(ID3D12Resource *textur
 {
     D3D12_TEXTURE_COPY_LOCATION dst_location, src_location;
     D3D12_HEAP_PROPERTIES heap_properties;
+    unsigned int miplevel, plane, layers;
     D3D12_RESOURCE_DESC resource_desc;
     ID3D12Resource *src_resource;
     D3D12_RANGE read_range;
-    unsigned int miplevel;
     ID3D12Device *device;
     uint64_t buffer_size;
     HRESULT hr;
@@ -478,13 +480,16 @@ static inline void get_texture_readback_with_command_list(ID3D12Resource *textur
             "Resource %p is not texture.\n", texture);
 
     miplevel = sub_resource % resource_desc.MipLevels;
+    layers = resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D ?
+        1 : resource_desc.DepthOrArraySize;
+    plane = sub_resource / (resource_desc.MipLevels * layers);
     rb->width = max(1, resource_desc.Width >> miplevel);
     rb->width = align(rb->width, format_block_width(resource_desc.Format));
     rb->height = max(1, resource_desc.Height >> miplevel);
     rb->height = align(rb->height, format_block_height(resource_desc.Format));
     rb->depth = resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
             ? max(1, resource_desc.DepthOrArraySize >> miplevel) : 1;
-    rb->row_pitch = align(rb->width * format_size(resource_desc.Format), D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
+    rb->row_pitch = align(rb->width * format_size_planar(resource_desc.Format, plane), D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
     rb->data = NULL;
 
     if (resource_desc.SampleDesc.Count > 1)
@@ -519,7 +524,7 @@ static inline void get_texture_readback_with_command_list(ID3D12Resource *textur
     dst_location.pResource = rb->resource;
     dst_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
     dst_location.PlacedFootprint.Offset = 0;
-    dst_location.PlacedFootprint.Footprint.Format = resource_desc.Format;
+    dst_location.PlacedFootprint.Footprint.Format = format_to_footprint_format(resource_desc.Format, plane);
     dst_location.PlacedFootprint.Footprint.Width = rb->width;
     dst_location.PlacedFootprint.Footprint.Height = rb->height;
     dst_location.PlacedFootprint.Footprint.Depth = rb->depth;
