@@ -6059,21 +6059,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
         assert(d3d12_resource_is_texture(src_resource));
 
         if (!(dst_format = vkd3d_format_from_d3d12_resource_desc(list->device,
-                &src_resource->desc, dst->PlacedFootprint.Footprint.Format)))
+                &src_resource->desc, DXGI_FORMAT_UNKNOWN)))
         {
             WARN("Invalid format %#x.\n", dst->PlacedFootprint.Footprint.Format);
             return;
         }
-
-        if (dst_format->is_emulated)
-        {
-            FIXME("Format %#x is not supported yet.\n", dst_format->dxgi_format);
-            return;
-        }
-
-        if ((dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
-                && (dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
-            FIXME("Destination depth-stencil format %#x not fully supported yet.\n", dst_format->dxgi_format);
 
         vk_image_buffer_copy_from_d3d12(&buffer_image_copy, &dst->PlacedFootprint,
                 src->SubresourceIndex, &src_resource->desc, dst_format, src_box, dst_x, dst_y, dst_z);
@@ -6101,15 +6091,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
         assert(d3d12_resource_is_buffer(src_resource));
 
         if (!(src_format = vkd3d_format_from_d3d12_resource_desc(list->device,
-                &dst_resource->desc, src->PlacedFootprint.Footprint.Format)))
+                &dst_resource->desc, DXGI_FORMAT_UNKNOWN)))
         {
             WARN("Invalid format %#x.\n", src->PlacedFootprint.Footprint.Format);
-            return;
-        }
-
-        if (src_format->is_emulated)
-        {
-            FIXME("Format %#x is not supported yet.\n", src_format->dxgi_format);
             return;
         }
 
