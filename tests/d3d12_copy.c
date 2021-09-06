@@ -498,6 +498,133 @@ void test_copy_texture_buffer(void)
     destroy_test_context(&context);
 }
 
+void test_copy_buffer_to_depth_stencil(void)
+{
+    ID3D12GraphicsCommandList *command_list;
+    struct resource_readback rb_stencil;
+    ID3D12Resource *src_buffer_stencil;
+    struct resource_readback rb_depth;
+    ID3D12Resource *src_buffer_depth;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12Resource *dst_texture;
+    ID3D12CommandQueue *queue;
+    ID3D12Device *device;
+    unsigned int i;
+
+    struct test
+    {
+        DXGI_FORMAT format;
+        uint32_t input_depth;
+        uint32_t output_depth_24;
+        D3D12_RESOURCE_FLAGS flags;
+        bool stencil;
+    };
+#define UNORM24_1 ((1 << 24) - 1)
+#define FP32_1 0x3f800000
+#define FP32_MASK24 (FP32_1 & UNORM24_1)
+    /* The footprint is 32-bit and AMD and NV seem to behave differently.
+     * The footprint for 24-bit depth is actually FP32 w/ rounding or something weird like that, not sure what is going on.
+     * Either way, there are two correct results we can expect here. */
+    static const struct test tests[] =
+    {
+        { DXGI_FORMAT_D24_UNORM_S8_UINT, UNORM24_1, UNORM24_1, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, true },
+        { DXGI_FORMAT_D24_UNORM_S8_UINT, FP32_1, FP32_MASK24, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, true },
+        { DXGI_FORMAT_D32_FLOAT, FP32_1, FP32_1, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, false },
+        { DXGI_FORMAT_D32_FLOAT_S8X24_UINT, FP32_1, FP32_1, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, true },
+        { DXGI_FORMAT_R24_UNORM_X8_TYPELESS, UNORM24_1, UNORM24_1, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, false },
+        { DXGI_FORMAT_R24_UNORM_X8_TYPELESS, FP32_1, FP32_MASK24, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, false },
+        { DXGI_FORMAT_R24G8_TYPELESS, UNORM24_1, UNORM24_1, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, true },
+        { DXGI_FORMAT_R24G8_TYPELESS, FP32_1, FP32_MASK24, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, true },
+        { DXGI_FORMAT_R32_TYPELESS, FP32_1, FP32_1, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, false },
+        { DXGI_FORMAT_R32_TYPELESS, FP32_1, FP32_1, D3D12_RESOURCE_FLAG_NONE, false },
+        { DXGI_FORMAT_R32G8X24_TYPELESS, FP32_1, FP32_1, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, true },
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        D3D12_TEXTURE_COPY_LOCATION dst, src;
+        uint8_t stencil_data;
+        uint32_t depth_data;
+        D3D12_BOX src_box;
+
+        vkd3d_test_set_context("Test %u", i);
+        dst_texture = create_default_texture2d(device, 1, 1, 1, 1,
+                   tests[i].format, tests[i].flags, D3D12_RESOURCE_STATE_COPY_DEST);
+
+        depth_data = tests[i].input_depth;
+        src_buffer_depth = create_upload_buffer(device, sizeof(depth_data), &depth_data);
+
+        if (tests[i].stencil)
+        {
+            stencil_data = 0xaa;
+            src_buffer_stencil = create_upload_buffer(device, sizeof(stencil_data), &stencil_data);
+        }
+
+        set_box(&src_box, 0, 0, 0, 1, 1, 1);
+        dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        dst.pResource = dst_texture;
+        src.PlacedFootprint.Offset = 0;
+        src.PlacedFootprint.Footprint.Width = 1;
+        src.PlacedFootprint.Footprint.Height = 1;
+        src.PlacedFootprint.Footprint.Depth = 1;
+        src.PlacedFootprint.Footprint.RowPitch = D3D12_TEXTURE_DATA_PITCH_ALIGNMENT;
+
+        src.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R32_TYPELESS;
+        dst.SubresourceIndex = 0;
+        src.pResource = src_buffer_depth;
+        ID3D12GraphicsCommandList_CopyTextureRegion(command_list, &dst, 0, 0, 0, &src, &src_box);
+
+        if (tests[i].stencil)
+        {
+            src.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R8_TYPELESS;
+            dst.SubresourceIndex = 1;
+            src.pResource = src_buffer_stencil;
+            ID3D12GraphicsCommandList_CopyTextureRegion(command_list, &dst, 0, 0, 0, &src, &src_box);
+        }
+
+        transition_resource_state(command_list, dst_texture, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        get_texture_readback_with_command_list(dst_texture, 0, &rb_depth, queue, command_list);
+        reset_command_list(command_list, context.allocator);
+        if (tests[i].stencil)
+        {
+            get_texture_readback_with_command_list(dst_texture, 1, &rb_stencil, queue, command_list);
+            reset_command_list(command_list, context.allocator);
+        }
+
+        depth_data = get_readback_uint(&rb_depth, 0, 0, 0);
+        ok(depth_data == tests[i].output_depth_24 || depth_data == tests[i].input_depth, "Depth is 0x%x\n", depth_data);
+
+        if (tests[i].stencil)
+        {
+            stencil_data = get_readback_uint8(&rb_stencil, 0, 0);
+            ok(stencil_data == 0xaa, "Stencil is 0x%x\n", stencil_data);
+        }
+
+        release_resource_readback(&rb_depth);
+        ID3D12Resource_Release(src_buffer_depth);
+        ID3D12Resource_Release(dst_texture);
+        if (tests[i].stencil)
+        {
+            ID3D12Resource_Release(src_buffer_stencil);
+            release_resource_readback(&rb_stencil);
+        }
+    }
+    vkd3d_test_set_context(NULL);
+
+    destroy_test_context(&context);
+}
+
 void test_copy_buffer_texture(void)
 {
     D3D12_TEXTURE_COPY_LOCATION src_location, dst_location;
