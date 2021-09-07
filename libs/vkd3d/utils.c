@@ -481,7 +481,14 @@ const struct vkd3d_format *vkd3d_get_format(const struct d3d12_device *device,
     if (dxgi_format > VKD3D_MAX_DXGI_FORMAT)
         return NULL;
 
-    if (depth_stencil && (format = vkd3d_get_depth_stencil_format(device, dxgi_format)))
+    /* If we request a depth-stencil format (or typeless variant) that is planar,
+     * there cannot be any ambiguity which format to select, we must choose a depth-stencil format.
+     * For single aspect formats,
+     * there are cases where we need to choose either COLOR or DEPTH aspect variants based on depth_stencil argument,
+     * but there cannot be any such issue for DEPTH_STENCIL types.
+     * This fixes issues where e.g. R24_UNORM_X8_TYPELESS format is used without ALLOW_DEPTH_STENCIL. */
+    format = vkd3d_get_depth_stencil_format(device, dxgi_format);
+    if (format && (depth_stencil || format->plane_count > 1))
         return format;
 
     format = &device->formats[dxgi_format];
