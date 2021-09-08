@@ -3094,4 +3094,9 @@ void vkd3d_acceleration_structure_copy(
 #define VKD3D_VENDOR_ID_AMD 0x1002
 #define VKD3D_VENDOR_ID_INTEL 0x8086
 
+#define VKD3D_DRIVER_VERSION_MAJOR_NV(v) ((v) >> 22)
+#define VKD3D_DRIVER_VERSION_MINOR_NV(v) (((v) >> 14) & 0xff)
+#define VKD3D_DRIVER_VERSION_PATCH_NV(v) (((v) >>  6) & 0xff)
+#define VKD3D_DRIVER_VERSION_MAKE_NV(major, minor, patch) (((major) << 22) | ((minor) << 14) | ((patch) << 6))
+
 #endif  /* __VKD3D_PRIVATE_H */

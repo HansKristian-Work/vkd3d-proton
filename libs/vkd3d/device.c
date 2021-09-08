@@ -1180,14 +1180,21 @@ static void vkd3d_trace_physical_device_properties(const VkPhysicalDevicePropert
 {
     TRACE("Device name: %s.\n", properties->deviceName);
     TRACE("Vendor ID: %#x, Device ID: %#x.\n", properties->vendorID, properties->deviceID);
-    TRACE("Driver version: %#x (%u.%u.%u, %u.%u.%u.%u).\n", properties->driverVersion,
-            VK_VERSION_MAJOR(properties->driverVersion),
-            VK_VERSION_MINOR(properties->driverVersion),
-            VK_VERSION_PATCH(properties->driverVersion),
-            (properties->driverVersion >> 22),
-            (properties->driverVersion >> 14) & 0xff,
-            (properties->driverVersion >> 6)  & 0xff,
-            (properties->driverVersion >> 0)  & 0x3f);
+    if (properties->vendorID == VKD3D_VENDOR_ID_NVIDIA)
+    {
+        TRACE("Driver version: %#x (%u.%u.%u).\n", properties->driverVersion,
+                VKD3D_DRIVER_VERSION_MAJOR_NV(properties->driverVersion),
+                VKD3D_DRIVER_VERSION_MINOR_NV(properties->driverVersion),
+                VKD3D_DRIVER_VERSION_PATCH_NV(properties->driverVersion));
+    }
+    else
+    {
+        TRACE("Driver version: %#x (%u.%u.%u).\n", properties->driverVersion,
+                VK_VERSION_MAJOR(properties->driverVersion),
+                VK_VERSION_MINOR(properties->driverVersion),
+                VK_VERSION_PATCH(properties->driverVersion));
+    }
+
     TRACE("API version: %u.%u.%u.\n",
             VK_VERSION_MAJOR(properties->apiVersion),
             VK_VERSION_MINOR(properties->apiVersion),
