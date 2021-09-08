@@ -2475,13 +2475,20 @@ static HRESULT d3d12_device_global_pipeline_cache_init(struct d3d12_device *devi
      * This means that using a VkPipelineCache per PSO will explode system memory usage, leading to OOM.
      * To counteract this, we use one global pipeline cache instead, but this means we lose the ability to
      * serialize and unserialize PSO state. Instead, we can just serialize garbage and ignore unserialization.
-     * From a correctness PoV, this is perfectly fine, and cached PSOs should be present in disk cache either way. */
-    bool use_global;
-    uint32_t major;
+     * From a correctness PoV, this is perfectly fine, and cached PSOs should be present in disk cache either way.
+     * The bug was introduced in 470 series, but was fixed as of 470.62.02 driver.
+     * 470.63.01 mainline one was released before 62.02, so it is also included in workaround list. */
+    bool use_global = false;
     VkResult vr;
 
-    major = VK_VERSION_MAJOR(device->device_info.properties2.properties.driverVersion);
-    use_global = device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_NVIDIA && major >= 470;
+    if (device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_NVIDIA)
+    {
+        uint32_t driver_version = device->device_info.properties2.properties.driverVersion;
+        use_global = (driver_version >= VKD3D_DRIVER_VERSION_MAKE_NV(470, 0, 0) &&
+                driver_version < VKD3D_DRIVER_VERSION_MAKE_NV(470, 62, 2)) ||
+                driver_version == VKD3D_DRIVER_VERSION_MAKE_NV(470, 63, 1);
+    }
+
     if (!use_global)
         return S_OK;
 
