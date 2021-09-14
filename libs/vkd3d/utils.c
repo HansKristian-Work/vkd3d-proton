@@ -626,6 +626,7 @@ bool is_valid_feature_level(D3D_FEATURE_LEVEL feature_level)
 {
     static const D3D_FEATURE_LEVEL valid_feature_levels[] =
     {
+        D3D_FEATURE_LEVEL_12_2,
         D3D_FEATURE_LEVEL_12_1,
         D3D_FEATURE_LEVEL_12_0,
         D3D_FEATURE_LEVEL_11_1,
