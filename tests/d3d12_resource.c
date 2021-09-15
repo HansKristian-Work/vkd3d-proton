@@ -1860,6 +1860,252 @@ void test_suballocate_small_textures(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+/* Reduced test case which runs on more implementations. */
+void test_read_write_subresource_2d(void)
+{
+    D3D12_TEXTURE_COPY_LOCATION src_location, dst_location;
+    uint32_t *dst_buffer, *zero_buffer, *ptr;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_SUBRESOURCE_DATA texture_data;
+    D3D12_RESOURCE_DESC resource_desc;
+    struct test_context_desc desc;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *src_texture;
+    ID3D12Resource *dst_texture;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *rb_buffer;
+    unsigned int buffer_size;
+    unsigned int slice_pitch;
+    unsigned int row_pitch;
+    uint32_t got, expected;
+    unsigned int x, y, i;
+    ID3D12Device *device;
+    D3D12_BOX box;
+    HRESULT hr;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    row_pitch = 128 * sizeof(unsigned int);
+    slice_pitch = row_pitch * 100;
+    buffer_size = slice_pitch * 1;
+
+    /* Buffers are not supported */
+    rb_buffer = create_readback_buffer(device, buffer_size);
+    dst_buffer = malloc(buffer_size);
+    ok(dst_buffer, "Failed to allocate memory.\n");
+    zero_buffer = malloc(buffer_size);
+    ok(zero_buffer, "Failed to allocate memory.\n");
+    memset(zero_buffer, 0, buffer_size);
+
+    set_box(&box, 0, 0, 0, 1, 1, 1);
+    hr = ID3D12Resource_WriteToSubresource(rb_buffer, 0, &box, dst_buffer, row_pitch, slice_pitch);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    hr = ID3D12Resource_ReadFromSubresource(rb_buffer, dst_buffer, row_pitch, slice_pitch, 0, &box);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    ID3D12Resource_Release(rb_buffer);
+
+    /* Only texture on custom heaps is legal for ReadFromSubresource/WriteToSubresource */
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 128;
+    resource_desc.Height = 100;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Flags = 0;
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_CUSTOM;
+    heap_properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
+    heap_properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&src_texture);
+    if (FAILED(hr))
+    {
+        skip("Failed to create texture on custom heap.\n");
+        goto done;
+    }
+
+    /* Invalid box */
+    set_box(&box, 0, 0, 0, 128, 100, 2);
+    hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    set_box(&box, 0, 0, 2, 128, 100, 2);
+    hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    set_box(&box, 128, 0, 0, 129, 100, 1);
+    hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
+    /* NULL box */
+    hr = ID3D12Resource_WriteToSubresource(src_texture, 0, NULL, dst_buffer, row_pitch, slice_pitch);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+    hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, NULL);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+    /* Empty box */
+    set_box(&box, 128, 100, 1, 128, 100, 1);
+    hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+    set_box(&box, 0, 0, 0, 0, 0, 0);
+    hr = ID3D12Resource_WriteToSubresource(src_texture, 0, &box, dst_buffer, row_pitch, slice_pitch);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+    hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+    for (i = 0; i < 2; ++i)
+    {
+        vkd3d_test_set_context("Test %u", i);
+
+        for (y = 0; y < 100; ++y)
+        {
+            for (x = 0; x < 128; ++x)
+            {
+                ptr = &dst_buffer[y * 128 + x];
+                if (x < 2 && y < 2) /* Region 1 */
+                    *ptr = (y + 1) << 8 | (x + 1);
+                else if (2 <= x && x < 11 && 2 <= y && y < 13) /* Region 2 */
+                    *ptr = (y + 2) << 8 | (x + 2);
+                else
+                    *ptr = 0xdeadbeef;
+            }
+        }
+
+        if (i)
+        {
+            hr = ID3D12Resource_WriteToSubresource(src_texture, 0, NULL, zero_buffer, row_pitch, slice_pitch);
+            ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+            /* Write region 1 */
+            set_box(&box, 0, 0, 0, 2, 2, 1);
+            hr = ID3D12Resource_WriteToSubresource(src_texture, 0, &box, dst_buffer, row_pitch, slice_pitch);
+            ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+            /* Write region 2 */
+            set_box(&box, 2, 2, 0, 11, 13, 1);
+            hr = ID3D12Resource_WriteToSubresource(src_texture, 0, &box, &dst_buffer[2 * 128 + 2],
+                    row_pitch, slice_pitch);
+            ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+        }
+        else
+        {
+            /* Upload the test data */
+            transition_resource_state(command_list, src_texture,
+                    D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
+            texture_data.pData = dst_buffer;
+            texture_data.RowPitch = row_pitch;
+            texture_data.SlicePitch = slice_pitch;
+            upload_texture_data(src_texture, &texture_data, 1, queue, command_list);
+            reset_command_list(command_list, context.allocator);
+            transition_resource_state(command_list, src_texture,
+                    D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COMMON);
+        }
+
+        memset(dst_buffer, 0, buffer_size);
+
+        /* Read region 1 */
+        set_box(&box, 0, 0, 0, 2, 2, 1);
+        hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+        /* Read region 2 */
+        set_box(&box, 2, 2, 0, 11, 13, 1);
+        hr = ID3D12Resource_ReadFromSubresource(src_texture, &dst_buffer[2 * 128 + 2], row_pitch,
+                slice_pitch, 0, &box);
+        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+        for (y = 0; y < 100; ++y)
+        {
+            for (x = 0; x < 128; ++x)
+            {
+                if (x < 2 && y < 2) /* Region 1 */
+                    expected = (y + 1) << 8 | (x + 1);
+                else if (2 <= x && x < 11 && 2 <= y && y < 13) /* Region 2 */
+                    expected = (y + 2) << 8 | (x + 2);
+                else /* Untouched */
+                    expected = 0;
+
+                got = dst_buffer[y * 128 + x];
+                if (got != expected)
+                    break;
+            }
+            if (got != expected)
+                break;
+        }
+        ok(got == expected, "Got unexpected value 0x%08x at (%u, %u), expected 0x%08x.\n", got, x, y, expected);
+    }
+    vkd3d_test_set_context(NULL);
+
+    /* Test layout is the same */
+    dst_texture = create_default_texture2d(device, 128, 100, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, 0,
+            D3D12_RESOURCE_STATE_COPY_DEST);
+    memset(dst_buffer, 0, buffer_size);
+    texture_data.pData = dst_buffer;
+    texture_data.RowPitch = row_pitch;
+    texture_data.SlicePitch = slice_pitch;
+    upload_texture_data(dst_texture, &texture_data, 1, queue, command_list);
+    reset_command_list(command_list, context.allocator);
+
+    src_location.pResource = src_texture;
+    src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    src_location.SubresourceIndex = 0;
+    dst_location.pResource = dst_texture;
+    dst_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    dst_location.SubresourceIndex = 0;
+    set_box(&box, 0, 0, 0, 128, 100, 1);
+    ID3D12GraphicsCommandList_CopyTextureRegion(command_list, &dst_location, 0, 0, 0, &src_location, &box);
+
+    transition_resource_state(command_list, dst_texture,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(dst_texture, 0, &rb, queue, command_list);
+    for (y = 0; y < 100; ++y)
+    {
+        for (x = 0; x < 128; ++x)
+        {
+            if (x < 2 && y < 2) /* Region 1 */
+                expected = (y + 1) << 8 | (x + 1);
+            else if (2 <= x && x < 11 && 2 <= y && y < 13) /* Region 2 */
+                expected = (y + 2) << 8 | (x + 2);
+            else /* Untouched */
+                expected = 0;
+
+            got = get_readback_uint(&rb, x, y, 0);
+            if (got != expected)
+                break;
+        }
+        if (got != expected)
+            break;
+    }
+    ok(got == expected, "Got unexpected value 0x%08x at (%u, %u), expected 0x%08x.\n", got, x, y, expected);
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(src_texture);
+    ID3D12Resource_Release(dst_texture);
+
+done:
+    free(dst_buffer);
+    free(zero_buffer);
+    destroy_test_context(&context);
+}
+
 void test_read_write_subresource(void)
 {
     D3D12_TEXTURE_COPY_LOCATION src_location, dst_location;
