@@ -2003,6 +2003,39 @@ static HRESULT d3d12_resource_validate_heap_properties(const D3D12_RESOURCE_DESC
         return E_INVALIDARG;
     }
 
+    if (desc->Layout == D3D12_TEXTURE_LAYOUT_ROW_MAJOR)
+    {
+        /* ROW_MAJOR textures are severely restricted in D3D12.
+         * See test_map_texture_validation() for details. */
+        if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+        {
+            if (!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER))
+            {
+                WARN("ALLOW_CROSS_ADAPTER flag must be set to use ROW_MAJOR layout on textures.\n");
+                return E_INVALIDARG;
+            }
+
+            if (desc->MipLevels > 1 || desc->DepthOrArraySize > 1)
+            {
+                WARN("For ROW_MAJOR textures, MipLevels and DepthOrArraySize must be 1.\n");
+                return E_INVALIDARG;
+            }
+
+            if (heap_properties->Type == D3D12_HEAP_TYPE_CUSTOM &&
+                    heap_properties->CPUPageProperty != D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE)
+            {
+                WARN("ROW_MAJOR textures cannot be CPU visible with CUSTOM heaps.\n");
+                return E_INVALIDARG;
+            }
+        }
+        else if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D ||
+                desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+        {
+            WARN("1D and 3D textures cannot be ROW_MAJOR layout.\n");
+            return E_INVALIDARG;
+        }
+    }
+
     return S_OK;
 }
 
