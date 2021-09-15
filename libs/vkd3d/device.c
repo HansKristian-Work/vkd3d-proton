@@ -428,6 +428,14 @@ struct vkd3d_shader_quirk_meta
     const struct vkd3d_shader_quirk_info *info;
 };
 
+static const struct vkd3d_shader_quirk_hash psychonauts2_hashes[] = {
+    { 0x08a323ee81c1e393ull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
+};
+
+static const struct vkd3d_shader_quirk_info psychonauts2_quirks = {
+    psychonauts2_hashes, ARRAY_SIZE(psychonauts2_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_hash necromunda_hashes[] = {
     { 0x75dcbd76ee898815ull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
 };
@@ -441,6 +449,8 @@ static const struct vkd3d_shader_quirk_info f1_2020_quirks = {
 };
 
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
+    /* Psychonauts 2 (607080) */
+    { "Psychonauts2-Win64-Shipping.exe", &psychonauts2_quirks },
     /* Necromunda: Hired Gun (1222370) */
     { "Necromunda-Win64-Shipping.exe", &necromunda_quirks },
     /* F1 2020 (1080110) */
