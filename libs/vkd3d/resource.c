@@ -239,6 +239,7 @@ static bool vkd3d_is_linear_tiling_supported(const struct d3d12_device *device, 
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkImageFormatProperties properties;
+    bool supported;
     VkResult vr;
 
     if ((vr = VK_CALL(vkGetPhysicalDeviceImageFormatProperties(device->vk_physical_device, image_info->format,
@@ -246,14 +247,28 @@ static bool vkd3d_is_linear_tiling_supported(const struct d3d12_device *device, 
     {
         if (vr != VK_ERROR_FORMAT_NOT_SUPPORTED)
             WARN("Failed to get device image format properties, vr %d.\n", vr);
+        else
+        {
+            WARN("Attempting to create linear image, but not supported.\n"
+                  "usage: %#x, flags: %#x, fmt: %u, image_type: %u\n",
+                  image_info->usage, image_info->flags, image_info->format, image_info->imageType);
+        }
 
         return false;
     }
 
-    return image_info->extent.depth <= properties.maxExtent.depth
+    supported = image_info->extent.depth <= properties.maxExtent.depth
             && image_info->mipLevels <= properties.maxMipLevels
             && image_info->arrayLayers <= properties.maxArrayLayers
             && (image_info->samples & properties.sampleCounts);
+
+    if (!supported)
+    {
+        WARN("Linear tiling not supported for mipLevels = %u, arrayLayers = %u, sampes = %u, depth = %u.\n",
+                image_info->mipLevels, image_info->arrayLayers, image_info->samples, image_info->extent.depth);
+    }
+
+    return supported;
 }
 
 static VkImageLayout vk_common_image_layout_from_d3d12_desc(const D3D12_RESOURCE_DESC *desc)
