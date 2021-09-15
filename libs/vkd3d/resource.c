@@ -1477,10 +1477,11 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(d3d12_resource_iface *iface,
         return E_INVALIDARG;
     }
 
-    if (d3d12_resource_is_texture(resource))
+    if (d3d12_resource_is_texture(resource) && data)
     {
-        /* Textures seem to be mappable only on UMA adapters. */
-        FIXME("Not implemented for textures.\n");
+        /* Cannot get pointer to mapped texture.
+         * It is only possible to make UNKNOWN textures host visible,
+         * and only NULL map + Write/ReadSubresource is allowed in this scenario. */
         return E_INVALIDARG;
     }
 
