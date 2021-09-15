@@ -2616,3 +2616,247 @@ void test_placed_image_alignment(void)
     destroy_test_context(&context);
 }
 
+void test_map_texture_validation(void)
+{
+    D3D12_RESOURCE_ALLOCATION_INFO alloc_info;
+    D3D12_HEAP_PROPERTIES heap_props;
+    struct test_context context;
+    D3D12_HEAP_DESC heap_desc;
+    bool todo_host_visible_rt;
+    D3D12_RESOURCE_DESC desc;
+    ID3D12Resource *resource;
+    ID3D12Device *device;
+    ID3D12Heap *heap;
+    void *mapped_ptr;
+    unsigned int i;
+    HRESULT hr;
+
+    struct test
+    {
+        D3D12_HEAP_FLAGS heap_flags;
+        D3D12_TEXTURE_LAYOUT layout;
+        D3D12_RESOURCE_DIMENSION dimension;
+        UINT mip_levels;
+        UINT depth_or_array_size;
+        D3D12_RESOURCE_FLAGS flags;
+        D3D12_CPU_PAGE_PROPERTY page_property;
+        HRESULT heap_creation_hr;
+        HRESULT creation_hr;
+        HRESULT map_hr_with_ppdata;
+        HRESULT map_hr_without_ppdata;
+        bool custom_heap;
+        bool is_todo;
+    };
+
+    /* Various weird cases all come together to make mapping ROW_MAJOR textures impossible in D3D12. */
+    static const struct test tests[] =
+    {
+        /* MipLevel 2 not allowed. */
+        { D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER | D3D12_HEAP_FLAG_SHARED,
+                D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+                D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+                2, 1, D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER,
+                D3D12_CPU_PAGE_PROPERTY_WRITE_BACK,
+                E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, true },
+
+        /* LayerCount 2 not allowed. */
+        { D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER | D3D12_HEAP_FLAG_SHARED,
+                D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+                D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+                1, 2, D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER,
+                D3D12_CPU_PAGE_PROPERTY_WRITE_BACK,
+                E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, true },
+
+        /* Need SHARED resource flag. */
+        { D3D12_HEAP_FLAG_NONE,
+                D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+                D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+                1, 1, D3D12_RESOURCE_FLAG_NONE,
+                D3D12_CPU_PAGE_PROPERTY_WRITE_BACK,
+                S_OK, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, true },
+
+        /* WRITE_BACK not allowed. */
+        { D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER | D3D12_HEAP_FLAG_SHARED,
+                D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+                D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+                1, 1, D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER,
+                D3D12_CPU_PAGE_PROPERTY_WRITE_BACK,
+                E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, true },
+
+        /* OK, but cannot map. */
+        { D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER | D3D12_HEAP_FLAG_SHARED,
+                D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+                D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+                1, 1, D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER,
+                D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE,
+                S_OK, S_OK, E_INVALIDARG, E_INVALIDARG, true },
+
+        /* 1D texture not allowed. */
+        { D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER | D3D12_HEAP_FLAG_SHARED,
+                D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+                D3D12_RESOURCE_DIMENSION_TEXTURE1D,
+                1, 1, D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER,
+                D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE,
+                S_OK, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, true },
+
+        /* 3D texture not allowed. */
+        { D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER | D3D12_HEAP_FLAG_SHARED,
+                D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+                D3D12_RESOURCE_DIMENSION_TEXTURE3D,
+                1, 1, D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER,
+                D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE,
+                S_OK, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, true },
+
+        /* UPLOAD heap not allowed. */
+        { D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER | D3D12_HEAP_FLAG_SHARED,
+                D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+                D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+                1, 1, D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER,
+                D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
+                E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, false },
+
+        /* UPLOAD heap not allowed. */
+        { D3D12_HEAP_FLAG_NONE,
+                D3D12_TEXTURE_LAYOUT_UNKNOWN,
+                D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+                2, 2, D3D12_RESOURCE_FLAG_NONE,
+                D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
+                S_OK, E_INVALIDARG, E_INVALIDARG, E_INVALIDARG, false },
+
+        /* Allowed, but cannot get concrete pointer.
+         * TODO: 1D linear not supported in general. */
+        { D3D12_HEAP_FLAG_NONE,
+                D3D12_TEXTURE_LAYOUT_UNKNOWN,
+                D3D12_RESOURCE_DIMENSION_TEXTURE1D,
+                1, 1, D3D12_RESOURCE_FLAG_NONE,
+                D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE,
+                S_OK, S_OK, E_INVALIDARG, S_OK, true, true },
+
+        /* Allowed, but cannot get concrete pointer. */
+        { D3D12_HEAP_FLAG_NONE,
+                D3D12_TEXTURE_LAYOUT_UNKNOWN,
+                D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+                1, 1, D3D12_RESOURCE_FLAG_NONE,
+                D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE,
+                S_OK, S_OK, E_INVALIDARG, S_OK, true },
+
+        /* Allowed, but cannot get concrete pointer.
+         * TODO: Mipmapped linear not supported in general. */
+        { D3D12_HEAP_FLAG_NONE,
+                D3D12_TEXTURE_LAYOUT_UNKNOWN,
+                D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+                2, 2, D3D12_RESOURCE_FLAG_NONE,
+                D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE,
+                S_OK, S_OK, E_INVALIDARG, S_OK, true, true },
+
+        /* Allowed, but cannot map 3D with mip levels > 1.
+         * TODO: 3D linear not supported in general. */
+        { D3D12_HEAP_FLAG_NONE,
+                D3D12_TEXTURE_LAYOUT_UNKNOWN,
+                D3D12_RESOURCE_DIMENSION_TEXTURE3D,
+                2, 2, D3D12_RESOURCE_FLAG_NONE,
+                D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE,
+                S_OK, S_OK, E_INVALIDARG, E_INVALIDARG, true, true },
+
+        /* Allowed.
+         * TODO: 3D linear not supported in general. */
+        { D3D12_HEAP_FLAG_NONE,
+                D3D12_TEXTURE_LAYOUT_UNKNOWN,
+                D3D12_RESOURCE_DIMENSION_TEXTURE3D,
+                1, 2, D3D12_RESOURCE_FLAG_NONE,
+                D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE,
+                S_OK, S_OK, E_INVALIDARG, S_OK, true, true },
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    device = context.device;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.Width = 64;
+    desc.Height = 1;
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.SampleDesc.Count = 1;
+
+    memset(&heap_props, 0, sizeof(heap_props));
+    heap_props.Type = D3D12_HEAP_TYPE_CUSTOM;
+    heap_props.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        vkd3d_test_set_context("Test %u", i);
+        heap_props.CPUPageProperty = tests[i].page_property;
+        desc.MipLevels = tests[i].mip_levels;
+        desc.DepthOrArraySize = tests[i].depth_or_array_size;
+        desc.Flags = tests[i].flags;
+        desc.Layout = tests[i].layout;
+        desc.Dimension = tests[i].dimension;
+
+        if (tests[i].custom_heap)
+        {
+            heap_props.Type = D3D12_HEAP_TYPE_CUSTOM;
+            heap_props.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+        }
+        else
+        {
+            heap_props.Type = D3D12_HEAP_TYPE_UPLOAD;
+            heap_props.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+        }
+
+        alloc_info = ID3D12Device_GetResourceAllocationInfo(device, 0, 1, &desc);
+
+        if (alloc_info.SizeInBytes != UINT64_MAX)
+        {
+            memset(&heap_desc, 0, sizeof(heap_desc));
+            heap_desc.Properties = heap_props;
+            heap_desc.Flags = tests[i].heap_flags;
+
+            /* According to docs (https://docs.microsoft.com/en-us/windows/win32/direct3d12/shared-heaps),
+             * with SHARED_CROSS_ADAPTER, a heap must be created with ALLOW_ALL_BUFFERS_AND_TEXTURES.
+             * Unsure if this particular case requires HEAP_TIER_2? */
+            if (!(heap_desc.Flags & D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER))
+                heap_desc.Flags |= D3D12_HEAP_FLAG_DENY_BUFFERS | D3D12_HEAP_FLAG_DENY_RT_DS_TEXTURES;
+            heap_desc.SizeInBytes = alloc_info.SizeInBytes;
+            hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void**)&heap);
+
+            /* We cannot successfully create host visible linear RT on all implementations. */
+            todo_host_visible_rt = !(heap_desc.Flags & D3D12_HEAP_FLAG_DENY_RT_DS_TEXTURES) &&
+                    heap_desc.Properties.CPUPageProperty != D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE;
+            todo_if(tests[i].is_todo || todo_host_visible_rt)
+            ok(hr == tests[i].heap_creation_hr, "Unexpected hr %#x.\n", hr);
+
+            if (SUCCEEDED(hr))
+            {
+                hr = ID3D12Device_CreatePlacedResource(device, heap, 0, &desc, D3D12_RESOURCE_STATE_GENERIC_READ,
+                        NULL, &IID_ID3D12Resource, (void**)&resource);
+                todo_if(tests[i].is_todo) ok(hr == tests[i].creation_hr, "Unexpected hr %#x.\n", hr);
+                if (SUCCEEDED(hr))
+                    ID3D12Resource_Release(resource);
+                ID3D12Heap_Release(heap);
+            }
+        }
+
+        hr = ID3D12Device_CreateCommittedResource(device, &heap_props, tests[i].heap_flags,
+                &desc, D3D12_RESOURCE_STATE_GENERIC_READ, NULL, &IID_ID3D12Resource,
+                (void**)&resource);
+        todo_if(tests[i].is_todo) ok(hr == tests[i].creation_hr, "Unexpected hr %#x.\n", hr);
+
+        if (SUCCEEDED(hr))
+        {
+            hr = ID3D12Resource_Map(resource, 0, NULL, &mapped_ptr);
+            ok(hr == tests[i].map_hr_with_ppdata, "Unexpected hr %#x.\n", hr);
+            if (SUCCEEDED(hr))
+                ID3D12Resource_Unmap(resource, 0, NULL);
+
+            hr = ID3D12Resource_Map(resource, 0, NULL, NULL);
+            ok(hr == tests[i].map_hr_without_ppdata, "Unexpected hr %#x.\n", hr);
+            if (SUCCEEDED(hr))
+                ID3D12Resource_Unmap(resource, 0, NULL);
+            ID3D12Resource_Release(resource);
+        }
+    }
+    vkd3d_test_set_context(NULL);
+    destroy_test_context(&context);
+}
