@@ -4749,21 +4749,18 @@ static D3D12_RAYTRACING_TIER d3d12_device_determine_ray_tracing_tier(struct d3d1
 static D3D12_RESOURCE_HEAP_TIER d3d12_device_determine_heap_tier(struct d3d12_device *device)
 {
     const VkPhysicalDeviceLimits *limits = &device->device_info.properties2.properties.limits;
-    const VkPhysicalDeviceMemoryProperties *mem_properties = &device->memory_properties;
     const struct vkd3d_memory_info *mem_info = &device->memory_info;
-    uint32_t i, host_visible_types = 0;
+    const struct vkd3d_memory_info_domain *non_cpu_domain;
+    const struct vkd3d_memory_info_domain *cpu_domain;
 
-    for (i = 0; i < mem_properties->memoryTypeCount; i++)
-    {
-        if (mem_properties->memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
-            host_visible_types |= 1u << i;
-    }
+    non_cpu_domain = &mem_info->non_cpu_accessible_domain;
+    cpu_domain = &mem_info->cpu_accessible_domain;
 
     // Heap Tier 2 requires us to be able to create a heap that supports all resource
     // categories at the same time, except RT/DS textures on UPLOAD/READBACK heaps.
     if (limits->bufferImageGranularity > D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT ||
-            !(mem_info->buffer_type_mask & mem_info->sampled_type_mask & mem_info->rt_ds_type_mask) ||
-            !(mem_info->buffer_type_mask & mem_info->sampled_type_mask & host_visible_types))
+            !(non_cpu_domain->buffer_type_mask & non_cpu_domain->sampled_type_mask & non_cpu_domain->rt_ds_type_mask) ||
+            !(cpu_domain->buffer_type_mask & cpu_domain->sampled_type_mask))
         return D3D12_RESOURCE_HEAP_TIER_1;
 
     return D3D12_RESOURCE_HEAP_TIER_2;

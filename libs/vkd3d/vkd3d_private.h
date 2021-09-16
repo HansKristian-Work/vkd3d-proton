@@ -2209,12 +2209,26 @@ struct vkd3d_format_compatibility_list
     VkFormat vk_formats[VKD3D_MAX_COMPATIBLE_FORMAT_COUNT];
 };
 
-struct vkd3d_memory_info
+struct vkd3d_memory_info_domain
 {
-    uint32_t global_mask;
     uint32_t buffer_type_mask;
     uint32_t sampled_type_mask;
     uint32_t rt_ds_type_mask;
+};
+
+struct vkd3d_memory_info
+{
+    uint32_t global_mask;
+    /* Includes normal system memory, but also resizable BAR memory.
+     * Only types which have HOST_VISIBLE_BIT can be in this domain.
+     * For images, we only include memory types which are LINEAR tiled. */
+    struct vkd3d_memory_info_domain cpu_accessible_domain;
+    /* Also includes fallback memory types when DEVICE_LOCAL is exhausted.
+     * It can include HOST_VISIBLE_BIT as well, but when choosing this domain,
+     * that's not something we care about.
+     * Used when we want to allocate DEFAULT heaps or non-visible CUSTOM heaps.
+     * For images, we only include memory types which are OPTIMAL tiled. */
+    struct vkd3d_memory_info_domain non_cpu_accessible_domain;
 };
 
 HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
@@ -2695,6 +2709,30 @@ void d3d12_device_return_query_pool(struct d3d12_device *device, const struct vk
 
 uint64_t d3d12_device_get_descriptor_heap_gpu_va(struct d3d12_device *device);
 void d3d12_device_return_descriptor_heap_gpu_va(struct d3d12_device *device, uint64_t va);
+
+static inline bool is_cpu_accessible_heap(const D3D12_HEAP_PROPERTIES *properties)
+{
+    if (properties->Type == D3D12_HEAP_TYPE_DEFAULT)
+        return false;
+    if (properties->Type == D3D12_HEAP_TYPE_CUSTOM)
+    {
+        return properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE
+                || properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
+    }
+    return true;
+}
+
+static inline const struct vkd3d_memory_info_domain *d3d12_device_get_memory_info_domain(
+        struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties)
+{
+    /* Host visible and non-host visible memory types do not necessarily
+     * overlap. Need to select memory types appropriately. */
+    if (is_cpu_accessible_heap(heap_properties))
+        return &device->memory_info.cpu_accessible_domain;
+    else
+        return &device->memory_info.non_cpu_accessible_domain;
+}
 
 static inline HRESULT d3d12_device_query_interface(struct d3d12_device *device, REFIID iid, void **object)
 {
