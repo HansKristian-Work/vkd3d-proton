@@ -6715,7 +6715,7 @@ static VkImageLayout vk_image_layout_from_d3d12_resource_state(
 {
     /* Simultaneous access is always general, until we're forced to treat it differently in
      * a transfer, render pass, or similar. */
-    if (resource->flags & VKD3D_RESOURCE_SIMULTANEOUS_ACCESS)
+    if (resource->flags & (VKD3D_RESOURCE_LINEAR_TILING | VKD3D_RESOURCE_SIMULTANEOUS_ACCESS))
         return VK_IMAGE_LAYOUT_GENERAL;
 
     /* Anything generic read-related uses common layout since we get implicit promotion and decay. */
