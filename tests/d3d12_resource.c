@@ -1860,6 +1860,112 @@ void test_suballocate_small_textures(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+void test_read_subresource_rt(void)
+{
+    const FLOAT white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    D3D12_CPU_DESCRIPTOR_HANDLE desc_handle;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12DescriptorHeap *desc_heap;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12Resource *resource;
+    uint32_t pixels[4 * 4];
+    ID3D12Device *device;
+    D3D12_RECT rect;
+    uint32_t pixel;
+    uint32_t x, y;
+    D3D12_BOX box;
+    HRESULT hr;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_render_target = true;
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    device = context.device;
+
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = 4;
+    resource_desc.Height = 4;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_CUSTOM;
+    heap_properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
+    heap_properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&resource);
+
+    if (FAILED(hr))
+    {
+        skip("Cannot create CPU accessible render target. Skipping test.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    pixel = 0x80808080;
+    ID3D12Resource_Map(resource, 0, NULL, NULL);
+    for (y = 0; y < 4; y++)
+    {
+        for (x = 0; x < 4; x++)
+        {
+            set_box(&box, x, y, 0, x + 1, y + 1, 1);
+            ID3D12Resource_WriteToSubresource(resource, 0, &box, &pixel,
+                    sizeof(uint32_t), sizeof(uint32_t));
+        }
+    }
+    ID3D12Resource_Unmap(resource, 0, NULL);
+
+    desc_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+    desc_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(desc_heap);
+    ID3D12Device_CreateRenderTargetView(device, resource, NULL, desc_handle);
+    transition_resource_state(context.list, resource,
+            D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    for (x = 0; x < 4; x++)
+    {
+        set_rect(&rect, x, x, x + 1, x + 1);
+        ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, desc_handle, white, 1, &rect);
+    }
+
+    transition_resource_state(context.list, resource,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COMMON);
+
+    ID3D12GraphicsCommandList_Close(context.list);
+    exec_command_list(context.queue, context.list);
+    wait_queue_idle(device, context.queue);
+
+    ID3D12Resource_Map(resource, 0, NULL, NULL);
+    set_box(&box, 0, 0, 0, 4, 4, 1);
+    ID3D12Resource_ReadFromSubresource(resource, pixels,
+            4 * sizeof(uint32_t), 16 * sizeof(uint32_t), 0, &box);
+    ID3D12Resource_Unmap(resource, 0, NULL);
+
+    for (y = 0; y < 4; y++)
+    {
+        for (x = 0; x < 4; x++)
+        {
+            uint32_t expected = x == y ? UINT32_MAX : pixel;
+            ok(pixels[y * 4 + x] == expected, "Pixel %u, %u: %#x != %#x\n", x, y, pixels[y * 4 + x], expected);
+        }
+    }
+
+    ID3D12DescriptorHeap_Release(desc_heap);
+    ID3D12Resource_Release(resource);
+
+    destroy_test_context(&context);
+}
+
 /* Reduced test case which runs on more implementations. */
 void test_read_write_subresource_2d(void)
 {
