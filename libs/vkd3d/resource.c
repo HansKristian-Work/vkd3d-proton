@@ -1458,6 +1458,15 @@ static void d3d12_resource_get_map_ptr(struct d3d12_resource *resource, void **d
     *data = resource->mem.cpu_address;
 }
 
+static bool d3d12_resource_texture_validate_map(struct d3d12_resource *resource)
+{
+    bool invalid_map;
+    /* Very special case that is explicitly called out in the D3D12 validation layers. */
+    invalid_map = resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D &&
+            resource->desc.MipLevels > 1;
+    return !invalid_map;
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(d3d12_resource_iface *iface, UINT sub_resource,
         const D3D12_RANGE *read_range, void **data)
 {
@@ -1480,7 +1489,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_Map(d3d12_resource_iface *iface,
         return E_INVALIDARG;
     }
 
-    if (d3d12_resource_is_texture(resource) && data)
+    if (d3d12_resource_is_texture(resource) && (data || !d3d12_resource_texture_validate_map(resource)))
     {
         /* Cannot get pointer to mapped texture.
          * It is only possible to make UNKNOWN textures host visible,
