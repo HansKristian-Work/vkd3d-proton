@@ -24,34 +24,25 @@
 static void vkd3d_memory_allocator_wait_allocation(struct vkd3d_memory_allocator *allocator,
         struct d3d12_device *device, const struct vkd3d_memory_allocation *allocation);
 
-static inline bool is_cpu_accessible_heap(const D3D12_HEAP_PROPERTIES *properties)
-{
-    if (properties->Type == D3D12_HEAP_TYPE_DEFAULT)
-        return false;
-    if (properties->Type == D3D12_HEAP_TYPE_CUSTOM)
-    {
-        return properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE
-                || properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
-    }
-    return true;
-}
-
 static uint32_t vkd3d_select_memory_types(struct d3d12_device *device, const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
 {
     const VkPhysicalDeviceMemoryProperties *memory_info = &device->memory_properties;
     uint32_t type_mask = (1 << memory_info->memoryTypeCount) - 1;
+    const struct vkd3d_memory_info_domain *domain_info;
+
+    domain_info = d3d12_device_get_memory_info_domain(device, heap_properties);
 
     if (!(heap_flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
-        type_mask &= device->memory_info.buffer_type_mask;
+        type_mask &= domain_info->buffer_type_mask;
 
     if (!(heap_flags & D3D12_HEAP_FLAG_DENY_NON_RT_DS_TEXTURES))
-        type_mask &= device->memory_info.sampled_type_mask;
+        type_mask &= domain_info->sampled_type_mask;
 
     /* Render targets are not allowed on UPLOAD and READBACK heaps */
     if (!(heap_flags & D3D12_HEAP_FLAG_DENY_RT_DS_TEXTURES) &&
             heap_properties->Type != D3D12_HEAP_TYPE_UPLOAD &&
             heap_properties->Type != D3D12_HEAP_TYPE_READBACK)
-        type_mask &= device->memory_info.rt_ds_type_mask;
+        type_mask &= domain_info->rt_ds_type_mask;
 
     if (!type_mask)
         ERR("No memory type found for heap flags %#x.\n", heap_flags);

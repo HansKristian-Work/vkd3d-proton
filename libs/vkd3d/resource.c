@@ -36,18 +36,6 @@ LONG64 vkd3d_allocate_cookie()
     return InterlockedIncrement64(&global_cookie_counter);
 }
 
-static inline bool is_cpu_accessible_heap(const D3D12_HEAP_PROPERTIES *properties)
-{
-    if (properties->Type == D3D12_HEAP_TYPE_DEFAULT)
-        return false;
-    if (properties->Type == D3D12_HEAP_TYPE_CUSTOM)
-    {
-        return properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE
-                || properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
-    }
-    return true;
-}
-
 static VkImageType vk_image_type_from_d3d12_resource_dimension(D3D12_RESOURCE_DIMENSION dimension)
 {
     switch (dimension)
@@ -2523,7 +2511,8 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         if (!(use_dedicated_allocation = dedicated_requirements.prefersDedicatedAllocation))
         {
             const uint32_t type_mask = memory_requirements.memoryRequirements.memoryTypeBits & device->memory_info.global_mask;
-            use_dedicated_allocation = (type_mask & device->memory_info.buffer_type_mask) != type_mask;
+            const struct vkd3d_memory_info_domain *domain = d3d12_device_get_memory_info_domain(device, heap_properties);
+            use_dedicated_allocation = (type_mask & domain->buffer_type_mask) != type_mask;
         }
 
         memset(&allocate_info, 0, sizeof(allocate_info));
@@ -5980,10 +5969,17 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkMemoryRequirements memory_requirements;
     VkBufferCreateInfo buffer_info;
+    uint32_t sampled_type_mask_cpu;
     VkImageCreateInfo image_info;
+    uint32_t rt_ds_type_mask_cpu;
+    uint32_t sampled_type_mask;
+    uint32_t host_visible_mask;
+    uint32_t buffer_type_mask;
+    uint32_t rt_ds_type_mask;
     VkBuffer buffer;
     VkImage image;
     VkResult vr;
+    uint32_t i;
 
     info->global_mask = vkd3d_memory_info_find_global_mask(device);
 
@@ -6017,7 +6013,7 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
 
     VK_CALL(vkGetBufferMemoryRequirements(device->vk_device, buffer, &memory_requirements));
     VK_CALL(vkDestroyBuffer(device->vk_device, buffer, NULL));
-    info->buffer_type_mask = memory_requirements.memoryTypeBits;
+    buffer_type_mask = memory_requirements.memoryTypeBits;
 
     memset(&image_info, 0, sizeof(image_info));
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -6045,7 +6041,30 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
 
     VK_CALL(vkGetImageMemoryRequirements(device->vk_device, image, &memory_requirements));
     VK_CALL(vkDestroyImage(device->vk_device, image, NULL));
-    info->sampled_type_mask = memory_requirements.memoryTypeBits;
+    sampled_type_mask = memory_requirements.memoryTypeBits;
+
+    /* CPU accessible images are always LINEAR.
+     * If we ever get a way to write to OPTIMAL-ly tiled images, we can drop this and just
+     * do sampled_type_mask_cpu & host_visible_set. */
+    image_info.tiling = VK_IMAGE_TILING_LINEAR;
+    image_info.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+    image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+            VK_IMAGE_USAGE_SAMPLED_BIT;
+    /* Deliberately omit STORAGE_BIT here, since it's not supported at all on NV with HOST_VISIBLE.
+     * Probably not 100% correct, but we can fix this if we get host visible OPTIMAL at some point. */
+    sampled_type_mask_cpu = 0;
+    if (vkd3d_is_linear_tiling_supported(device, &image_info))
+    {
+        if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, &image))) == VK_SUCCESS)
+        {
+            VK_CALL(vkGetImageMemoryRequirements(device->vk_device, image, &memory_requirements));
+            VK_CALL(vkDestroyImage(device->vk_device, image, NULL));
+            sampled_type_mask_cpu = memory_requirements.memoryTypeBits;
+        }
+    }
+    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     image_info.format = VK_FORMAT_R8G8B8A8_UNORM;
     image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
@@ -6062,7 +6081,22 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
 
     VK_CALL(vkGetImageMemoryRequirements(device->vk_device, image, &memory_requirements));
     VK_CALL(vkDestroyImage(device->vk_device, image, NULL));
-    info->rt_ds_type_mask = memory_requirements.memoryTypeBits;
+    rt_ds_type_mask = memory_requirements.memoryTypeBits;
+
+    image_info.tiling = VK_IMAGE_TILING_LINEAR;
+    image_info.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+    rt_ds_type_mask_cpu = 0;
+    if (vkd3d_is_linear_tiling_supported(device, &image_info))
+    {
+        if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, &image))) == VK_SUCCESS)
+        {
+            VK_CALL(vkGetImageMemoryRequirements(device->vk_device, image, &memory_requirements));
+            VK_CALL(vkDestroyImage(device->vk_device, image, NULL));
+            rt_ds_type_mask_cpu = memory_requirements.memoryTypeBits;
+        }
+    }
+    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     image_info.format = VK_FORMAT_D32_SFLOAT_S8_UINT;
     image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
@@ -6078,14 +6112,37 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
 
     VK_CALL(vkGetImageMemoryRequirements(device->vk_device, image, &memory_requirements));
     VK_CALL(vkDestroyImage(device->vk_device, image, NULL));
-    info->rt_ds_type_mask &= memory_requirements.memoryTypeBits;
+    rt_ds_type_mask &= memory_requirements.memoryTypeBits;
 
-    info->buffer_type_mask &= info->global_mask;
-    info->sampled_type_mask &= info->global_mask;
-    info->rt_ds_type_mask &= info->global_mask;
+    /* Unsure if we can have host visible depth-stencil.
+     * On AMD, we can get linear RT, but not linear DS, so for now, just don't check for that.
+     * We will fail in resource creation instead. */
 
-    TRACE("Device supports buffers on memory types 0x%#x.\n", info->buffer_type_mask);
-    TRACE("Device supports textures on memory types 0x%#x.\n", info->sampled_type_mask);
-    TRACE("Device supports render targets on memory types 0x%#x.\n", info->rt_ds_type_mask);
+    buffer_type_mask &= info->global_mask;
+    sampled_type_mask &= info->global_mask;
+    rt_ds_type_mask &= info->global_mask;
+    sampled_type_mask_cpu &= info->global_mask;
+    rt_ds_type_mask_cpu &= info->global_mask;
+
+    info->non_cpu_accessible_domain.buffer_type_mask = buffer_type_mask;
+    info->non_cpu_accessible_domain.sampled_type_mask = sampled_type_mask;
+    info->non_cpu_accessible_domain.rt_ds_type_mask = rt_ds_type_mask;
+
+    host_visible_mask = 0;
+    for (i = 0; i < device->memory_properties.memoryTypeCount; i++)
+        if (device->memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+            host_visible_mask |= 1u << i;
+
+    info->cpu_accessible_domain.buffer_type_mask = buffer_type_mask & host_visible_mask;
+    info->cpu_accessible_domain.sampled_type_mask = sampled_type_mask_cpu & host_visible_mask;
+    info->cpu_accessible_domain.rt_ds_type_mask = rt_ds_type_mask_cpu & host_visible_mask;
+
+    TRACE("Device supports buffers on memory types 0x%#x.\n", buffer_type_mask);
+    TRACE("Device supports textures on memory types 0x%#x.\n", sampled_type_mask);
+    TRACE("Device supports render targets on memory types 0x%#x.\n", rt_ds_type_mask);
+    TRACE("Device supports CPU visible textures on memory types 0x%#x.\n",
+          info->cpu_accessible_domain.sampled_type_mask);
+    TRACE("Device supports CPU visible render targets on memory types 0x%#x.\n",
+          info->cpu_accessible_domain.rt_ds_type_mask);
     return S_OK;
 }
