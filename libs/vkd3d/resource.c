@@ -534,6 +534,15 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     {
         image_info.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
 
+        if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_IGNORE_RTV_HOST_VISIBLE) &&
+                (image_info.usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT))
+        {
+            WARN("Workaround applied. Ignoring RTV on linear resources.\n");
+            image_info.usage &= ~VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+            if (resource)
+                resource->desc.Flags &= ~D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+        }
+
         if (vkd3d_is_linear_tiling_supported(device, &image_info))
         {
             /* Required for ReadFromSubresource(). */
@@ -6222,6 +6231,12 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     info->cpu_accessible_domain.buffer_type_mask = buffer_type_mask & host_visible_mask;
     info->cpu_accessible_domain.sampled_type_mask = sampled_type_mask_cpu & host_visible_mask;
     info->cpu_accessible_domain.rt_ds_type_mask = rt_ds_type_mask_cpu & host_visible_mask;
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_IGNORE_RTV_HOST_VISIBLE)
+    {
+        /* Ignore any requirements for color attachments since we're never going to use it. */
+        info->cpu_accessible_domain.rt_ds_type_mask = info->cpu_accessible_domain.sampled_type_mask;
+    }
 
     TRACE("Device supports buffers on memory types 0x%#x.\n", buffer_type_mask);
     TRACE("Device supports textures on memory types 0x%#x.\n", sampled_type_mask);
