@@ -6207,6 +6207,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
                     &src_resource->desc, &dst_resource->desc, src_resource->format, dst_resource->format, NULL, 0, 0, 0);
             vk_image_copy.dstSubresource.layerCount = layer_count;
             vk_image_copy.srcSubresource.layerCount = layer_count;
+            vk_image_copy.dstSubresource.aspectMask = dst_resource->format->vk_aspect_mask;
+            vk_image_copy.srcSubresource.aspectMask = src_resource->format->vk_aspect_mask;
 
             /* CopyResource() always copies all subresources, so we can safely discard the dst_resource contents. */
             d3d12_command_list_copy_image(list, dst_resource, dst_resource->format,
