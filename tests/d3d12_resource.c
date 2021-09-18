@@ -122,6 +122,13 @@ void test_create_committed_resource(void)
     ID3D12Resource_Release(resource);
     resource_desc.MipLevels = 1;
 
+    resource_desc.SampleDesc.Count = 0;
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    resource_desc.SampleDesc.Count = 1;
+
     hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
             &clear_value, &IID_ID3D12Resource, (void **)&resource);
