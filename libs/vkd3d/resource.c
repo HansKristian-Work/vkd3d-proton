@@ -1974,6 +1974,12 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC *desc, struct d3d
             /* Fall through. */
         case D3D12_RESOURCE_DIMENSION_TEXTURE2D:
         case D3D12_RESOURCE_DIMENSION_TEXTURE3D:
+            if (desc->SampleDesc.Count == 0)
+            {
+                WARN("Invalid sample count 0.\n");
+                return E_INVALIDARG;
+            }
+
             if (!(format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0)))
             {
                 WARN("Invalid format %#x.\n", desc->Format);
