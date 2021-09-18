@@ -60,7 +60,7 @@ static void d3d12_command_list_notify_dsv_discard(struct d3d12_command_list *lis
         struct d3d12_resource *resource,
         uint32_t first_subresource, uint32_t subresource_count,
         uint32_t resource_subresource_count);
-static uint32_t d3d12_command_list_get_depth_stencil_resource_layout(const struct d3d12_command_list *list,
+static VkImageLayout d3d12_command_list_get_depth_stencil_resource_layout(const struct d3d12_command_list *list,
         const struct d3d12_resource *resource, uint32_t *plane_optimal_mask);
 static void d3d12_command_list_decay_optimal_dsv_resource(struct d3d12_command_list *list,
         const struct d3d12_resource *resource, uint32_t plane_optimal_mask,
