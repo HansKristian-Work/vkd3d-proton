@@ -5416,7 +5416,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawInstanced(d3d12_command_lis
         UINT start_instance_location)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct vkd3d_vk_device_procs *vk_procs = vk_procs = &list->device->vk_procs;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_scratch_allocation scratch;
 
     TRACE("iface %p, vertex_count_per_instance %u, instance_count %u, "
@@ -5454,7 +5454,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(d3d12_comm
         INT base_vertex_location, UINT start_instance_location)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct vkd3d_vk_device_procs *vk_procs = vk_procs = &list->device->vk_procs;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_scratch_allocation scratch;
 
     TRACE("iface %p, index_count_per_instance %u, instance_count %u, start_vertex_location %u, "
