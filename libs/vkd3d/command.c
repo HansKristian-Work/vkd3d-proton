@@ -10013,6 +10013,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     if (!(outstanding = vkd3d_calloc(command_list_count, sizeof(*outstanding))))
     {
         ERR("Failed to allocate outstanding submissions count.\n");
+        vkd3d_free(buffers);
         return;
     }
 
