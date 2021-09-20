@@ -1229,6 +1229,7 @@ static bool vkd3d_dxil_build_entry(struct vkd3d_shader_library_entry_point *entr
     if (!entry->plain_entry_point)
     {
         vkd3d_free(entry->mangled_entry_point);
+        entry->mangled_entry_point = NULL;
         return false;
     }
 
