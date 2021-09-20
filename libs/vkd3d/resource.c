@@ -3707,7 +3707,6 @@ static bool vkd3d_buffer_view_get_aligned_view(struct d3d12_desc *descriptor,
     VkDeviceSize max_element_headroom;
     VkDeviceSize element_align;
     VkDeviceSize max_elements;
-    VkDeviceSize element_size;
     VkDeviceSize begin_range;
     VkDeviceSize end_range;
 
@@ -3721,8 +3720,7 @@ static bool vkd3d_buffer_view_get_aligned_view(struct d3d12_desc *descriptor,
         if (format)
         {
             vkd3d_format = vkd3d_get_format(device, format, false);
-            element_size = vkd3d_format->byte_count;
-            max_resource_elements = resource->desc.Width / element_size;
+            max_resource_elements = resource->desc.Width / vkd3d_format->byte_count;
         }
         else
         {
@@ -3730,7 +3728,6 @@ static bool vkd3d_buffer_view_get_aligned_view(struct d3d12_desc *descriptor,
              * be in terms of u32 since the offset buffer must be in terms of words.
              * When using typed buffers, the offset buffer is in format of u32
              * (element offset, element size). */
-            element_size = sizeof(uint32_t);
             first_element = (first_element * structured_stride) / sizeof(uint32_t);
             num_elements = (num_elements * structured_stride) / sizeof(uint32_t);
             structured_stride = sizeof(uint32_t);
