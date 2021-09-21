@@ -2430,11 +2430,6 @@ void d3d12_device_return_query_pool(struct d3d12_device *device, const struct vk
 }
 
 /* ID3D12Device */
-static inline struct d3d12_device *impl_from_ID3D12Device(d3d12_device_iface *iface)
-{
-    return CONTAINING_RECORD(iface, struct d3d12_device, ID3D12Device_iface);
-}
-
 extern ULONG STDMETHODCALLTYPE d3d12_device_vkd3d_ext_AddRef(ID3D12DeviceExt *iface);
 
 HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
@@ -4545,7 +4540,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_SetBackgroundProcessingMode(d3d12_
     return E_NOTIMPL;
 }
 
-static CONST_VTBL struct ID3D12Device6Vtbl d3d12_device_vtbl =
+CONST_VTBL struct ID3D12Device6Vtbl d3d12_device_vtbl =
 {
     /* IUnknown methods */
     d3d12_device_QueryInterface,
@@ -5161,21 +5156,6 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
 static bool d3d12_device_supports_feature_level(struct d3d12_device *device, D3D_FEATURE_LEVEL feature_level)
 {
     return feature_level <= device->d3d12_caps.max_feature_level;
-}
-
-struct d3d12_device *unsafe_impl_from_ID3D12Device(d3d12_device_iface *iface)
-{
-    if (!iface)
-        return NULL;
-
-#ifdef VKD3D_ENABLE_PROFILING
-    assert(iface->lpVtbl == &d3d12_device_vtbl ||
-           iface->lpVtbl == &d3d12_device_vtbl_profiled);
-#else
-    assert(iface->lpVtbl == &d3d12_device_vtbl);
-#endif
-
-    return impl_from_ID3D12Device(iface);
 }
 
 extern CONST_VTBL struct ID3D12DeviceExtVtbl d3d12_device_vkd3d_ext_vtbl;
