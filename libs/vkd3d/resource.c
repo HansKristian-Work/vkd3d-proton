@@ -5597,11 +5597,6 @@ static void d3d12_query_heap_set_name(struct d3d12_query_heap *heap, const char 
 }
 
 /* ID3D12QueryHeap */
-static inline struct d3d12_query_heap *impl_from_ID3D12QueryHeap(ID3D12QueryHeap *iface)
-{
-    return CONTAINING_RECORD(iface, struct d3d12_query_heap, ID3D12QueryHeap_iface);
-}
-
 static HRESULT STDMETHODCALLTYPE d3d12_query_heap_QueryInterface(ID3D12QueryHeap *iface,
         REFIID iid, void **out)
 {
@@ -5701,7 +5696,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_query_heap_GetDevice(ID3D12QueryHeap *ifa
     return d3d12_device_query_interface(heap->device, iid, device);
 }
 
-static CONST_VTBL struct ID3D12QueryHeapVtbl d3d12_query_heap_vtbl =
+CONST_VTBL struct ID3D12QueryHeapVtbl d3d12_query_heap_vtbl =
 {
     /* IUnknown methods */
     d3d12_query_heap_QueryInterface,
@@ -5715,14 +5710,6 @@ static CONST_VTBL struct ID3D12QueryHeapVtbl d3d12_query_heap_vtbl =
     /* ID3D12DeviceChild methods */
     d3d12_query_heap_GetDevice,
 };
-
-struct d3d12_query_heap *unsafe_impl_from_ID3D12QueryHeap(ID3D12QueryHeap *iface)
-{
-    if (!iface)
-        return NULL;
-    assert(iface->lpVtbl == &d3d12_query_heap_vtbl);
-    return impl_from_ID3D12QueryHeap(iface);
-}
 
 HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_HEAP_DESC *desc,
         struct d3d12_query_heap **heap)
