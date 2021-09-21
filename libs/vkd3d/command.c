@@ -7112,7 +7112,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetDescriptorHeaps(d3d12_comman
 
     for (i = 0; i < heap_count; i++)
     {
-        struct d3d12_descriptor_heap *heap = unsafe_impl_from_ID3D12DescriptorHeap(heaps[i]);
+        struct d3d12_descriptor_heap *heap = impl_from_ID3D12DescriptorHeap(heaps[i]);
         unsigned int set_index = 0;
 
         if (!heap)

@@ -4871,11 +4871,6 @@ void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_dev
 }
 
 /* ID3D12DescriptorHeap */
-static inline struct d3d12_descriptor_heap *impl_from_ID3D12DescriptorHeap(ID3D12DescriptorHeap *iface)
-{
-    return CONTAINING_RECORD(iface, struct d3d12_descriptor_heap, ID3D12DescriptorHeap_iface);
-}
-
 static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_QueryInterface(ID3D12DescriptorHeap *iface,
         REFIID riid, void **object)
 {
@@ -5005,7 +5000,7 @@ static D3D12_GPU_DESCRIPTOR_HANDLE * STDMETHODCALLTYPE d3d12_descriptor_heap_Get
     return descriptor;
 }
 
-static CONST_VTBL struct ID3D12DescriptorHeapVtbl d3d12_descriptor_heap_vtbl =
+CONST_VTBL struct ID3D12DescriptorHeapVtbl d3d12_descriptor_heap_vtbl =
 {
     /* IUnknown methods */
     d3d12_descriptor_heap_QueryInterface,
@@ -5023,14 +5018,6 @@ static CONST_VTBL struct ID3D12DescriptorHeapVtbl d3d12_descriptor_heap_vtbl =
     d3d12_descriptor_heap_GetCPUDescriptorHandleForHeapStart,
     d3d12_descriptor_heap_GetGPUDescriptorHandleForHeapStart,
 };
-
-struct d3d12_descriptor_heap *unsafe_impl_from_ID3D12DescriptorHeap(ID3D12DescriptorHeap *iface)
-{
-    if (!iface)
-        return NULL;
-    assert(iface->lpVtbl == &d3d12_descriptor_heap_vtbl);
-    return impl_from_ID3D12DescriptorHeap(iface);
-}
 
 static HRESULT d3d12_descriptor_heap_create_descriptor_pool(struct d3d12_descriptor_heap *descriptor_heap,
         VkDescriptorPool *vk_descriptor_pool)
