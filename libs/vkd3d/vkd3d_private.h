@@ -1184,7 +1184,15 @@ struct d3d12_descriptor_heap
 HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
         const D3D12_DESCRIPTOR_HEAP_DESC *desc, struct d3d12_descriptor_heap **descriptor_heap);
 void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap);
-struct d3d12_descriptor_heap *unsafe_impl_from_ID3D12DescriptorHeap(ID3D12DescriptorHeap *iface);
+
+static inline struct d3d12_descriptor_heap *impl_from_ID3D12DescriptorHeap(ID3D12DescriptorHeap *iface)
+{
+    extern CONST_VTBL struct ID3D12DescriptorHeapVtbl d3d12_descriptor_heap_vtbl;
+    if (!iface)
+        return NULL;
+    assert(iface->lpVtbl == &d3d12_descriptor_heap_vtbl);
+    return CONTAINING_RECORD(iface, struct d3d12_descriptor_heap, ID3D12DescriptorHeap_iface);
+}
 
 static inline uint32_t d3d12_desc_heap_offset(const struct d3d12_desc *dst)
 {
