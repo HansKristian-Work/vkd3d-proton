@@ -1178,7 +1178,24 @@ struct d3d12_query_heap
 HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_HEAP_DESC *desc,
         struct d3d12_query_heap **heap);
 struct d3d12_query_heap *unsafe_impl_from_ID3D12QueryHeap(ID3D12QueryHeap *iface);
-size_t d3d12_query_heap_type_get_data_size(D3D12_QUERY_HEAP_TYPE heap_type);
+
+static inline size_t d3d12_query_heap_type_get_data_size(D3D12_QUERY_HEAP_TYPE heap_type)
+{
+    switch (heap_type)
+    {
+        case D3D12_QUERY_HEAP_TYPE_OCCLUSION:
+        case D3D12_QUERY_HEAP_TYPE_TIMESTAMP:
+        case D3D12_QUERY_HEAP_TYPE_COPY_QUEUE_TIMESTAMP:
+            return sizeof(uint64_t);
+        case D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS:
+            return sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS);
+        case D3D12_QUERY_HEAP_TYPE_SO_STATISTICS:
+            return sizeof(D3D12_QUERY_DATA_SO_STATISTICS);
+        default:
+            ERR("Unhandled query pool type %u.\n", heap_type);
+            return 0;
+    }
+}
 
 static inline bool d3d12_query_heap_type_is_inline(D3D12_QUERY_HEAP_TYPE heap_type)
 {
