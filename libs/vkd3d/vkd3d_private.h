@@ -2813,7 +2813,26 @@ void d3d12_device_unmap_vkd3d_queue(struct d3d12_device *device,
 bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent);
 void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
         const char *message, ...) VKD3D_PRINTF_FUNC(3, 4);
-struct d3d12_device *unsafe_impl_from_ID3D12Device(d3d12_device_iface *iface);
+
+static inline struct d3d12_device *impl_from_ID3D12Device(d3d12_device_iface *iface)
+{
+    extern CONST_VTBL struct ID3D12Device6Vtbl d3d12_device_vtbl;
+#ifdef VKD3D_ENABLE_PROFILING
+    extern CONST_VTBL struct ID3D12Device6Vtbl d3d12_device_vtbl_profiled;
+#endif
+    if (!iface)
+        return NULL;
+
+#ifdef VKD3D_ENABLE_PROFILING
+    assert(iface->lpVtbl == &d3d12_device_vtbl ||
+           iface->lpVtbl == &d3d12_device_vtbl_profiled);
+#else
+    assert(iface->lpVtbl == &d3d12_device_vtbl);
+#endif
+
+    return CONTAINING_RECORD(iface, struct d3d12_device, ID3D12Device_iface);
+}
+
 bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct vkd3d_shader_meta *meta);
 
 HRESULT d3d12_device_get_scratch_buffer(struct d3d12_device *device, VkDeviceSize min_size, struct vkd3d_scratch_buffer *scratch);
