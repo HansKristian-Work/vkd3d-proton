@@ -572,8 +572,20 @@ struct d3d12_fence
     struct vkd3d_private_store private_store;
 };
 
-struct d3d12_fence *unsafe_impl_from_ID3D12Fence1(ID3D12Fence1 *iface);
-struct d3d12_fence *unsafe_impl_from_ID3D12Fence(ID3D12Fence *iface);
+static inline struct d3d12_fence *impl_from_ID3D12Fence1(ID3D12Fence1 *iface)
+{
+    extern CONST_VTBL struct ID3D12Fence1Vtbl d3d12_fence_vtbl;
+    if (!iface)
+        return NULL;
+    assert(iface->lpVtbl == &d3d12_fence_vtbl);
+    return CONTAINING_RECORD(iface, struct d3d12_fence, ID3D12Fence_iface);
+}
+
+static inline struct d3d12_fence *impl_from_ID3D12Fence(ID3D12Fence *iface)
+{
+    return impl_from_ID3D12Fence1((ID3D12Fence1 *)iface);
+}
+
 HRESULT d3d12_fence_create(struct d3d12_device *device,
         uint64_t initial_value, D3D12_FENCE_FLAGS flags, struct d3d12_fence **fence);
 HRESULT d3d12_fence_set_event_on_completion(struct d3d12_fence *fence,
