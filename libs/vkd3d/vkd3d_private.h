@@ -2169,7 +2169,15 @@ struct d3d12_command_signature
 
 HRESULT d3d12_command_signature_create(struct d3d12_device *device, const D3D12_COMMAND_SIGNATURE_DESC *desc,
         struct d3d12_command_signature **signature);
-struct d3d12_command_signature *unsafe_impl_from_ID3D12CommandSignature(ID3D12CommandSignature *iface);
+
+static inline struct d3d12_command_signature *impl_from_ID3D12CommandSignature(ID3D12CommandSignature *iface)
+{
+    extern CONST_VTBL struct ID3D12CommandSignatureVtbl d3d12_command_signature_vtbl;
+    if (!iface)
+        return NULL;
+    assert(iface->lpVtbl == &d3d12_command_signature_vtbl);
+    return CONTAINING_RECORD(iface, struct d3d12_command_signature, ID3D12CommandSignature_iface);
+}
 
 /* Static samplers */
 struct vkd3d_sampler_state

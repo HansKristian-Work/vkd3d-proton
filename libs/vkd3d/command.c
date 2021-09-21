@@ -8758,7 +8758,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
         ID3D12CommandSignature *command_signature, UINT max_command_count, ID3D12Resource *arg_buffer,
         UINT64 arg_buffer_offset, ID3D12Resource *count_buffer, UINT64 count_buffer_offset)
 {
-    struct d3d12_command_signature *sig_impl = unsafe_impl_from_ID3D12CommandSignature(command_signature);
+    struct d3d12_command_signature *sig_impl = impl_from_ID3D12CommandSignature(command_signature);
     struct d3d12_resource *count_impl = impl_from_ID3D12Resource(count_buffer);
     struct d3d12_resource *arg_impl = impl_from_ID3D12Resource(arg_buffer);
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
@@ -11340,11 +11340,6 @@ VKD3D_EXPORT void vkd3d_enqueue_initial_transition(ID3D12CommandQueue *queue, ID
 }
 
 /* ID3D12CommandSignature */
-static inline struct d3d12_command_signature *impl_from_ID3D12CommandSignature(ID3D12CommandSignature *iface)
-{
-    return CONTAINING_RECORD(iface, struct d3d12_command_signature, ID3D12CommandSignature_iface);
-}
-
 static HRESULT STDMETHODCALLTYPE d3d12_command_signature_QueryInterface(ID3D12CommandSignature *iface,
         REFIID iid, void **out)
 {
@@ -11440,7 +11435,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_signature_GetDevice(ID3D12Command
     return d3d12_device_query_interface(signature->device, iid, device);
 }
 
-static CONST_VTBL struct ID3D12CommandSignatureVtbl d3d12_command_signature_vtbl =
+CONST_VTBL struct ID3D12CommandSignatureVtbl d3d12_command_signature_vtbl =
 {
     /* IUnknown methods */
     d3d12_command_signature_QueryInterface,
@@ -11454,14 +11449,6 @@ static CONST_VTBL struct ID3D12CommandSignatureVtbl d3d12_command_signature_vtbl
     /* ID3D12DeviceChild methods */
     d3d12_command_signature_GetDevice,
 };
-
-struct d3d12_command_signature *unsafe_impl_from_ID3D12CommandSignature(ID3D12CommandSignature *iface)
-{
-    if (!iface)
-        return NULL;
-    assert(iface->lpVtbl == &d3d12_command_signature_vtbl);
-    return CONTAINING_RECORD(iface, struct d3d12_command_signature, ID3D12CommandSignature_iface);
-}
 
 HRESULT d3d12_command_signature_create(struct d3d12_device *device, const D3D12_COMMAND_SIGNATURE_DESC *desc,
         struct d3d12_command_signature **signature)
