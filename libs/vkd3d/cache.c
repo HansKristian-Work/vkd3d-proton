@@ -334,7 +334,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_StorePipeline(d3d12_pipe
         LPCWSTR name, ID3D12PipelineState *pipeline)
 {
     struct d3d12_pipeline_library *pipeline_library = impl_from_ID3D12PipelineLibrary(iface);
-    struct d3d12_pipeline_state *pipeline_state = unsafe_impl_from_ID3D12PipelineState(pipeline);
+    struct d3d12_pipeline_state *pipeline_state = impl_from_ID3D12PipelineState(pipeline);
     struct vkd3d_cached_pipeline_entry entry;
     void *new_name, *new_blob;
     VkResult vr;
