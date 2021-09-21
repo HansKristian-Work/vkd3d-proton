@@ -1843,11 +1843,6 @@ struct vkd3d_compiled_pipeline
 };
 
 /* ID3D12PipelineState */
-static inline struct d3d12_pipeline_state *impl_from_ID3D12PipelineState(ID3D12PipelineState *iface)
-{
-    return CONTAINING_RECORD(iface, struct d3d12_pipeline_state, ID3D12PipelineState_iface);
-}
-
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_QueryInterface(ID3D12PipelineState *iface,
         REFIID riid, void **object)
 {
@@ -2021,7 +2016,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_GetCachedBlob(ID3D12Pipeli
     return S_OK;
 }
 
-static CONST_VTBL struct ID3D12PipelineStateVtbl d3d12_pipeline_state_vtbl =
+CONST_VTBL struct ID3D12PipelineStateVtbl d3d12_pipeline_state_vtbl =
 {
     /* IUnknown methods */
     d3d12_pipeline_state_QueryInterface,
@@ -2037,14 +2032,6 @@ static CONST_VTBL struct ID3D12PipelineStateVtbl d3d12_pipeline_state_vtbl =
     /* ID3D12PipelineState methods */
     d3d12_pipeline_state_GetCachedBlob,
 };
-
-struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12PipelineState *iface)
-{
-    if (!iface)
-        return NULL;
-    assert(iface->lpVtbl == &d3d12_pipeline_state_vtbl);
-    return impl_from_ID3D12PipelineState(iface);
-}
 
 static HRESULT create_shader_stage(struct d3d12_device *device,
         VkPipelineShaderStageCreateInfo *stage_desc, VkShaderStageFlagBits stage,

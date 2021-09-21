@@ -1576,7 +1576,15 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
         const struct vkd3d_pipeline_key *key, const struct vkd3d_format *dsv_format, VkPipelineCache vk_cache,
         struct vkd3d_render_pass_compatibility *render_pass_compat,
         uint32_t *dynamic_state_flags, uint32_t variant_flags);
-struct d3d12_pipeline_state *unsafe_impl_from_ID3D12PipelineState(ID3D12PipelineState *iface);
+
+static inline struct d3d12_pipeline_state *impl_from_ID3D12PipelineState(ID3D12PipelineState *iface)
+{
+    extern CONST_VTBL struct ID3D12PipelineStateVtbl d3d12_pipeline_state_vtbl;
+    if (!iface)
+        return NULL;
+    assert(iface->lpVtbl == &d3d12_pipeline_state_vtbl);
+    return CONTAINING_RECORD(iface, struct d3d12_pipeline_state, ID3D12PipelineState_iface);
+}
 
 /* ID3D12PipelineLibrary */
 typedef ID3D12PipelineLibrary1 d3d12_pipeline_library_iface;
