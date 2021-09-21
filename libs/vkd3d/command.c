@@ -8297,7 +8297,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(d3d12_command_list_i
         ID3D12QueryHeap *heap, D3D12_QUERY_TYPE type, UINT index)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    struct d3d12_query_heap *query_heap = unsafe_impl_from_ID3D12QueryHeap(heap);
+    struct d3d12_query_heap *query_heap = impl_from_ID3D12QueryHeap(heap);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkQueryControlFlags flags = d3d12_query_type_get_vk_flags(type);
 
@@ -8338,7 +8338,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(d3d12_command_list_ifa
         ID3D12QueryHeap *heap, D3D12_QUERY_TYPE type, UINT index)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    struct d3d12_query_heap *query_heap = unsafe_impl_from_ID3D12QueryHeap(heap);
+    struct d3d12_query_heap *query_heap = impl_from_ID3D12QueryHeap(heap);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
 
     TRACE("iface %p, heap %p, type %#x, index %u.\n", iface, heap, type, index);
@@ -8462,7 +8462,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
         ID3D12QueryHeap *heap, D3D12_QUERY_TYPE type, UINT start_index, UINT query_count,
         ID3D12Resource *dst_buffer, UINT64 aligned_dst_buffer_offset)
 {
-    struct d3d12_query_heap *query_heap = unsafe_impl_from_ID3D12QueryHeap(heap);
+    struct d3d12_query_heap *query_heap = impl_from_ID3D12QueryHeap(heap);
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_resource *buffer = impl_from_ID3D12Resource(dst_buffer);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;

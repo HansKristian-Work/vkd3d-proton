@@ -1223,7 +1223,15 @@ struct d3d12_query_heap
 
 HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_HEAP_DESC *desc,
         struct d3d12_query_heap **heap);
-struct d3d12_query_heap *unsafe_impl_from_ID3D12QueryHeap(ID3D12QueryHeap *iface);
+
+static inline struct d3d12_query_heap *impl_from_ID3D12QueryHeap(ID3D12QueryHeap *iface)
+{
+    extern CONST_VTBL struct ID3D12QueryHeapVtbl d3d12_query_heap_vtbl;
+    if (!iface)
+        return NULL;
+    assert(iface->lpVtbl == &d3d12_query_heap_vtbl);
+    return CONTAINING_RECORD(iface, struct d3d12_query_heap, ID3D12QueryHeap_iface);
+}
 
 static inline size_t d3d12_query_heap_type_get_data_size(D3D12_QUERY_HEAP_TYPE heap_type)
 {
