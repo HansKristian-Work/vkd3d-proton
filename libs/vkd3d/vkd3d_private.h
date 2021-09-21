@@ -2993,7 +2993,11 @@ struct d3d12_state_object
 
 HRESULT d3d12_state_object_create(struct d3d12_device *device, const D3D12_STATE_OBJECT_DESC *desc,
         struct d3d12_state_object **object);
-struct d3d12_state_object *impl_from_ID3D12StateObject(ID3D12StateObject *iface);
+
+static inline struct d3d12_state_object *impl_from_ID3D12StateObject(ID3D12StateObject *iface)
+{
+    return CONTAINING_RECORD(iface, struct d3d12_state_object, ID3D12StateObject_iface);
+}
 
 /* utils */
 enum vkd3d_format_type

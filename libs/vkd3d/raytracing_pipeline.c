@@ -20,11 +20,6 @@
 #include "vkd3d_private.h"
 #include "vkd3d_string.h"
 
-struct d3d12_state_object *impl_from_ID3D12StateObject(ID3D12StateObject *iface)
-{
-    return CONTAINING_RECORD(iface, struct d3d12_state_object, ID3D12StateObject_iface);
-}
-
 static inline struct d3d12_state_object *impl_from_ID3D12StateObjectProperties(ID3D12StateObjectProperties *iface)
 {
     return CONTAINING_RECORD(iface, struct d3d12_state_object, ID3D12StateObjectProperties_iface);
