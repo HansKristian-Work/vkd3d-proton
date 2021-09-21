@@ -530,7 +530,7 @@ static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *ob
                             {
                                 data->associations[data->associations_count].export = association->pExports[j];
                                 data->associations[data->associations_count].root_signature =
-                                        unsafe_impl_from_ID3D12RootSignature(local_rs->pLocalRootSignature);
+                                        impl_from_ID3D12RootSignature(local_rs->pLocalRootSignature);
                                 data->associations_count++;
                             }
                         }
@@ -766,9 +766,9 @@ static struct d3d12_root_signature *d3d12_state_object_pipeline_data_get_local_r
     }
 
     if (data->high_priority_local_root_signature)
-        return unsafe_impl_from_ID3D12RootSignature(data->high_priority_local_root_signature);
+        return impl_from_ID3D12RootSignature(data->high_priority_local_root_signature);
     else if (data->low_priority_local_root_signature)
-        return unsafe_impl_from_ID3D12RootSignature(data->low_priority_local_root_signature);
+        return impl_from_ID3D12RootSignature(data->low_priority_local_root_signature);
     else
         return NULL;
 }
@@ -877,7 +877,7 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     shader_interface_info.stage = VK_SHADER_STAGE_ALL;
     shader_interface_info.xfb_info = NULL;
 
-    global_signature = unsafe_impl_from_ID3D12RootSignature(data->global_root_signature);
+    global_signature = impl_from_ID3D12RootSignature(data->global_root_signature);
 
     if (global_signature)
     {
