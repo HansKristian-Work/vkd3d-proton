@@ -760,7 +760,20 @@ struct d3d12_heap
 
 HRESULT d3d12_heap_create(struct d3d12_device *device, const D3D12_HEAP_DESC *desc,
         void *host_address, struct d3d12_heap **heap);
-struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface);
+
+static inline struct d3d12_heap *impl_from_ID3D12Heap1(ID3D12Heap1 *iface)
+{
+    extern CONST_VTBL struct ID3D12Heap1Vtbl d3d12_heap_vtbl;
+    if (!iface)
+        return NULL;
+    assert(iface->lpVtbl == &d3d12_heap_vtbl);
+    return CONTAINING_RECORD(iface, struct d3d12_heap, ID3D12Heap_iface);
+}
+
+static inline struct d3d12_heap *impl_from_ID3D12Heap(ID3D12Heap *iface)
+{
+    return impl_from_ID3D12Heap1((ID3D12Heap1 *)iface);
+}
 
 enum vkd3d_resource_flag
 {

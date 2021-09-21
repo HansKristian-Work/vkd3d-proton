@@ -23,11 +23,6 @@
 #include "vkd3d_private.h"
 
 /* ID3D12Heap */
-static inline struct d3d12_heap *impl_from_ID3D12Heap(d3d12_heap_iface *iface)
-{
-    return CONTAINING_RECORD(iface, struct d3d12_heap, ID3D12Heap_iface);
-}
-
 static HRESULT STDMETHODCALLTYPE d3d12_heap_QueryInterface(d3d12_heap_iface *iface,
         REFIID iid, void **object)
 {
@@ -53,7 +48,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_QueryInterface(d3d12_heap_iface *ifa
 
 static ULONG STDMETHODCALLTYPE d3d12_heap_AddRef(d3d12_heap_iface *iface)
 {
-    struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
+    struct d3d12_heap *heap = impl_from_ID3D12Heap1(iface);
     ULONG refcount = InterlockedIncrement(&heap->refcount);
 
     TRACE("%p increasing refcount to %u.\n", heap, refcount);
@@ -79,7 +74,7 @@ static void d3d12_heap_set_name(struct d3d12_heap *heap, const char *name)
 
 static ULONG STDMETHODCALLTYPE d3d12_heap_Release(d3d12_heap_iface *iface)
 {
-    struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
+    struct d3d12_heap *heap = impl_from_ID3D12Heap1(iface);
     ULONG refcount = InterlockedDecrement(&heap->refcount);
 
     TRACE("%p decreasing refcount to %u.\n", heap, refcount);
@@ -93,7 +88,7 @@ static ULONG STDMETHODCALLTYPE d3d12_heap_Release(d3d12_heap_iface *iface)
 static HRESULT STDMETHODCALLTYPE d3d12_heap_GetPrivateData(d3d12_heap_iface *iface,
         REFGUID guid, UINT *data_size, void *data)
 {
-    struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
+    struct d3d12_heap *heap = impl_from_ID3D12Heap1(iface);
 
     TRACE("iface %p, guid %s, data_size %p, data %p.\n", iface, debugstr_guid(guid), data_size, data);
 
@@ -103,7 +98,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_GetPrivateData(d3d12_heap_iface *ifa
 static HRESULT STDMETHODCALLTYPE d3d12_heap_SetPrivateData(d3d12_heap_iface *iface,
         REFGUID guid, UINT data_size, const void *data)
 {
-    struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
+    struct d3d12_heap *heap = impl_from_ID3D12Heap1(iface);
 
     TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
 
@@ -114,7 +109,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_SetPrivateData(d3d12_heap_iface *ifa
 static HRESULT STDMETHODCALLTYPE d3d12_heap_SetPrivateDataInterface(d3d12_heap_iface *iface,
         REFGUID guid, const IUnknown *data)
 {
-    struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
+    struct d3d12_heap *heap = impl_from_ID3D12Heap1(iface);
 
     TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
 
@@ -124,7 +119,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_SetPrivateDataInterface(d3d12_heap_i
 
 static HRESULT STDMETHODCALLTYPE d3d12_heap_GetDevice(d3d12_heap_iface *iface, REFIID iid, void **device)
 {
-    struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
+    struct d3d12_heap *heap = impl_from_ID3D12Heap1(iface);
 
     TRACE("iface %p, iid %s, device %p.\n", iface, debugstr_guid(iid), device);
 
@@ -134,7 +129,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_GetDevice(d3d12_heap_iface *iface, R
 static D3D12_HEAP_DESC * STDMETHODCALLTYPE d3d12_heap_GetDesc(d3d12_heap_iface *iface,
         D3D12_HEAP_DESC *desc)
 {
-    struct d3d12_heap *heap = impl_from_ID3D12Heap(iface);
+    struct d3d12_heap *heap = impl_from_ID3D12Heap1(iface);
 
     TRACE("iface %p, desc %p.\n", iface, desc);
 
@@ -150,7 +145,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_GetProtectedResourceSession(d3d12_he
     return E_NOTIMPL;
 }
 
-static CONST_VTBL struct ID3D12Heap1Vtbl d3d12_heap_vtbl =
+CONST_VTBL struct ID3D12Heap1Vtbl d3d12_heap_vtbl =
 {
     /* IUnknown methods */
     d3d12_heap_QueryInterface,
@@ -168,19 +163,6 @@ static CONST_VTBL struct ID3D12Heap1Vtbl d3d12_heap_vtbl =
     /* ID3D12Heap1 methods */
     d3d12_heap_GetProtectedResourceSession,
 };
-
-static struct d3d12_heap *unsafe_impl_from_ID3D12Heap1(ID3D12Heap1 *iface)
-{
-    if (!iface)
-        return NULL;
-    assert(iface->lpVtbl == &d3d12_heap_vtbl);
-    return impl_from_ID3D12Heap(iface);
-}
-
-struct d3d12_heap *unsafe_impl_from_ID3D12Heap(ID3D12Heap *iface)
-{
-    return unsafe_impl_from_ID3D12Heap1((ID3D12Heap1 *)iface);
-}
 
 static HRESULT validate_heap_desc(const D3D12_HEAP_DESC *desc)
 {

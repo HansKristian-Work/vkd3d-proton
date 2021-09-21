@@ -3791,7 +3791,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource(d3d12_device_
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, REFIID iid, void **resource)
 {
-    struct d3d12_heap *heap_object = unsafe_impl_from_ID3D12Heap(heap);
+    struct d3d12_heap *heap_object = impl_from_ID3D12Heap(heap);
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
     struct d3d12_resource *object;
     HRESULT hr;
