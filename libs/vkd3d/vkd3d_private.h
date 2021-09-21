@@ -914,7 +914,20 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
 HRESULT d3d12_resource_create_reserved(struct d3d12_device *device,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource);
-struct d3d12_resource *unsafe_impl_from_ID3D12Resource(ID3D12Resource *iface);
+
+static inline struct d3d12_resource *impl_from_ID3D12Resource1(ID3D12Resource1 *iface)
+{
+    extern CONST_VTBL struct ID3D12Resource1Vtbl d3d12_resource_vtbl;
+    if (!iface)
+        return NULL;
+    assert(iface->lpVtbl == &d3d12_resource_vtbl);
+    return CONTAINING_RECORD(iface, struct d3d12_resource, ID3D12Resource_iface);
+}
+
+static inline struct d3d12_resource *impl_from_ID3D12Resource(ID3D12Resource *iface)
+{
+    return impl_from_ID3D12Resource1((ID3D12Resource1 *)iface);
+}
 
 HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
         VkDeviceSize size, VkMemoryPropertyFlags type_flags, uint32_t type_mask,
