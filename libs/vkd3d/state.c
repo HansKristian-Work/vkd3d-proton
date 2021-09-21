@@ -25,11 +25,6 @@
 #include <stdio.h>
 
 /* ID3D12RootSignature */
-static inline struct d3d12_root_signature *impl_from_ID3D12RootSignature(ID3D12RootSignature *iface)
-{
-    return CONTAINING_RECORD(iface, struct d3d12_root_signature, ID3D12RootSignature_iface);
-}
-
 static HRESULT STDMETHODCALLTYPE d3d12_root_signature_QueryInterface(ID3D12RootSignature *iface,
         REFIID riid, void **object)
 {
@@ -142,7 +137,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_root_signature_GetDevice(ID3D12RootSignat
     return d3d12_device_query_interface(root_signature->device, iid, device);
 }
 
-static CONST_VTBL struct ID3D12RootSignatureVtbl d3d12_root_signature_vtbl =
+CONST_VTBL struct ID3D12RootSignatureVtbl d3d12_root_signature_vtbl =
 {
     /* IUnknown methods */
     d3d12_root_signature_QueryInterface,
@@ -156,14 +151,6 @@ static CONST_VTBL struct ID3D12RootSignatureVtbl d3d12_root_signature_vtbl =
     /* ID3D12DeviceChild methods */
     d3d12_root_signature_GetDevice,
 };
-
-struct d3d12_root_signature *unsafe_impl_from_ID3D12RootSignature(ID3D12RootSignature *iface)
-{
-    if (!iface)
-        return NULL;
-    assert(iface->lpVtbl == &d3d12_root_signature_vtbl);
-    return impl_from_ID3D12RootSignature(iface);
-}
 
 static VkShaderStageFlags stage_flags_from_visibility(D3D12_SHADER_VISIBILITY visibility)
 {
@@ -2206,9 +2193,9 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     state->refcount = 1;
 
     if (desc->root_signature)
-        root_signature = unsafe_impl_from_ID3D12RootSignature(desc->root_signature);
+        root_signature = impl_from_ID3D12RootSignature(desc->root_signature);
     else
-        root_signature = unsafe_impl_from_ID3D12RootSignature(state->private_root_signature);
+        root_signature = impl_from_ID3D12RootSignature(state->private_root_signature);
 
     shader_interface.flags = d3d12_root_signature_get_shader_interface_flags(root_signature);
     shader_interface.min_ssbo_alignment = d3d12_device_get_ssbo_alignment(device);
@@ -3034,9 +3021,9 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     }
 
     if (desc->root_signature)
-        root_signature = unsafe_impl_from_ID3D12RootSignature(desc->root_signature);
+        root_signature = impl_from_ID3D12RootSignature(desc->root_signature);
     else
-        root_signature = unsafe_impl_from_ID3D12RootSignature(state->private_root_signature);
+        root_signature = impl_from_ID3D12RootSignature(state->private_root_signature);
 
     sample_count = vk_samples_from_dxgi_sample_desc(&desc->sample_desc);
     if (desc->sample_desc.Count != 1 && desc->sample_desc.Quality)

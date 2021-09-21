@@ -1344,7 +1344,16 @@ struct d3d12_root_signature
 
 HRESULT d3d12_root_signature_create(struct d3d12_device *device, const void *bytecode,
         size_t bytecode_length, struct d3d12_root_signature **root_signature);
-struct d3d12_root_signature *unsafe_impl_from_ID3D12RootSignature(ID3D12RootSignature *iface);
+
+static inline struct d3d12_root_signature *impl_from_ID3D12RootSignature(ID3D12RootSignature *iface)
+{
+    extern CONST_VTBL struct ID3D12RootSignatureVtbl d3d12_root_signature_vtbl;
+    if (!iface)
+        return NULL;
+    assert(iface->lpVtbl == &d3d12_root_signature_vtbl);
+    return CONTAINING_RECORD(iface, struct d3d12_root_signature, ID3D12RootSignature_iface);
+}
+
 unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_root_signature *root_signature);
 
 int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,

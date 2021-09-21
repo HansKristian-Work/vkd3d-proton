@@ -7180,7 +7180,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootSignature(d3d12_c
     TRACE("iface %p, root_signature %p.\n", iface, root_signature);
 
     d3d12_command_list_set_root_signature(list, VK_PIPELINE_BIND_POINT_COMPUTE,
-            unsafe_impl_from_ID3D12RootSignature(root_signature));
+            impl_from_ID3D12RootSignature(root_signature));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(d3d12_command_list_iface *iface,
@@ -7191,7 +7191,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(d3d12_
     TRACE("iface %p, root_signature %p.\n", iface, root_signature);
 
     d3d12_command_list_set_root_signature(list, VK_PIPELINE_BIND_POINT_GRAPHICS,
-            unsafe_impl_from_ID3D12RootSignature(root_signature));
+            impl_from_ID3D12RootSignature(root_signature));
 }
 
 static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *list,
