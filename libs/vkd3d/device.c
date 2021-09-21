@@ -3509,7 +3509,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateShaderResourceView(d3d12_device
             iface, resource, desc, descriptor.ptr);
 
     d3d12_desc_create_srv(d3d12_desc_from_cpu_handle(descriptor),
-            device, unsafe_impl_from_ID3D12Resource(resource), desc);
+            device, impl_from_ID3D12Resource(resource), desc);
 }
 
 VKD3D_THREAD_LOCAL struct D3D12_UAV_INFO *d3d12_uav_info = NULL;
@@ -3522,7 +3522,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView(d3d12_devic
     VkImageViewHandleInfoNVX imageViewHandleInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_HANDLE_INFO_NVX };
     const struct vkd3d_vk_device_procs *vk_procs;
     VkResult vr;
-    struct d3d12_resource *d3d12_resource_ = unsafe_impl_from_ID3D12Resource(resource);
+    struct d3d12_resource *d3d12_resource_ = impl_from_ID3D12Resource(resource);
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
     struct d3d12_desc *d3d12_desc_cpu = d3d12_desc_from_cpu_handle(descriptor);
     TRACE("iface %p, resource %p, counter_resource %p, desc %p, descriptor %#lx.\n",
@@ -3530,7 +3530,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView(d3d12_devic
 
     d3d12_desc_create_uav(d3d12_desc_cpu,
             device, d3d12_resource_,
-            unsafe_impl_from_ID3D12Resource(counter_resource), desc);
+            impl_from_ID3D12Resource(counter_resource), desc);
     
     /* d3d12_uav_info stores the pointer to data from previous call to d3d12_device_vkd3d_ext_CaptureUAVInfo(). Below code will update the data. */
     if (d3d12_uav_info)
@@ -3562,7 +3562,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateRenderTargetView(d3d12_device_i
             iface, resource, desc, descriptor.ptr);
 
     d3d12_rtv_desc_create_rtv(d3d12_rtv_desc_from_cpu_handle(descriptor),
-            impl_from_ID3D12Device(iface), unsafe_impl_from_ID3D12Resource(resource), desc);
+            impl_from_ID3D12Device(iface), impl_from_ID3D12Resource(resource), desc);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateDepthStencilView(d3d12_device_iface *iface,
@@ -3573,7 +3573,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateDepthStencilView(d3d12_device_i
             iface, resource, desc, descriptor.ptr);
 
     d3d12_rtv_desc_create_dsv(d3d12_rtv_desc_from_cpu_handle(descriptor),
-            impl_from_ID3D12Device(iface), unsafe_impl_from_ID3D12Resource(resource), desc);
+            impl_from_ID3D12Device(iface), impl_from_ID3D12Resource(resource), desc);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateSampler(d3d12_device_iface *iface,
@@ -4042,7 +4042,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetResourceTiling(d3d12_device_iface 
         D3D12_TILE_SHAPE *tile_shape, UINT *tiling_count, UINT first_tiling,
         D3D12_SUBRESOURCE_TILING *tilings)
 {
-    struct d3d12_sparse_info *sparse = &unsafe_impl_from_ID3D12Resource(resource)->sparse;
+    struct d3d12_sparse_info *sparse = &impl_from_ID3D12Resource(resource)->sparse;
     unsigned int max_tiling_count, i;
 
     TRACE("iface %p, resource %p, tile_count %p, packed_mip_info %p, "

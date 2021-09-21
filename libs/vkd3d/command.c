@@ -5531,9 +5531,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_
 
     vk_procs = &list->device->vk_procs;
 
-    dst_resource = unsafe_impl_from_ID3D12Resource(dst);
+    dst_resource = impl_from_ID3D12Resource(dst);
     assert(d3d12_resource_is_buffer(dst_resource));
-    src_resource = unsafe_impl_from_ID3D12Resource(src);
+    src_resource = impl_from_ID3D12Resource(src);
     assert(d3d12_resource_is_buffer(src_resource));
 
     d3d12_command_list_track_resource_usage(list, dst_resource, true);
@@ -6026,8 +6026,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
 
     vk_procs = &list->device->vk_procs;
 
-    dst_resource = unsafe_impl_from_ID3D12Resource(dst->pResource);
-    src_resource = unsafe_impl_from_ID3D12Resource(src->pResource);
+    dst_resource = impl_from_ID3D12Resource(dst->pResource);
+    src_resource = impl_from_ID3D12Resource(src->pResource);
 
     d3d12_command_list_track_resource_usage(list, src_resource, true);
 
@@ -6155,8 +6155,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
 
     vk_procs = &list->device->vk_procs;
 
-    dst_resource = unsafe_impl_from_ID3D12Resource(dst);
-    src_resource = unsafe_impl_from_ID3D12Resource(src);
+    dst_resource = impl_from_ID3D12Resource(dst);
+    src_resource = impl_from_ID3D12Resource(src);
 
     d3d12_command_list_track_resource_usage(list, dst_resource, false);
     d3d12_command_list_track_resource_usage(list, src_resource, true);
@@ -6225,8 +6225,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
 
     d3d12_command_list_end_current_render_pass(list, true);
 
-    tiled_res = unsafe_impl_from_ID3D12Resource(tiled_resource);
-    linear_res = unsafe_impl_from_ID3D12Resource(buffer);
+    tiled_res = impl_from_ID3D12Resource(tiled_resource);
+    linear_res = impl_from_ID3D12Resource(buffer);
 
     d3d12_command_list_track_resource_usage(list, tiled_res, true);
 
@@ -6442,8 +6442,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
     TRACE("iface %p, dst_resource %p, dst_sub_resource_idx %u, src_resource %p, src_sub_resource_idx %u, "
             "format %#x.\n", iface, dst, dst_sub_resource_idx, src, src_sub_resource_idx, format);
 
-    dst_resource = unsafe_impl_from_ID3D12Resource(dst);
-    src_resource = unsafe_impl_from_ID3D12Resource(src);
+    dst_resource = impl_from_ID3D12Resource(dst);
+    src_resource = impl_from_ID3D12Resource(src);
 
     assert(d3d12_resource_is_texture(dst_resource));
     assert(d3d12_resource_is_texture(src_resource));
@@ -6904,7 +6904,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                     continue;
                 }
 
-                if (!(preserve_resource = unsafe_impl_from_ID3D12Resource(transition->pResource)))
+                if (!(preserve_resource = impl_from_ID3D12Resource(transition->pResource)))
                 {
                     d3d12_command_list_mark_as_invalid(list, "A resource pointer is NULL.");
                     continue;
@@ -6959,7 +6959,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                 const D3D12_RESOURCE_UAV_BARRIER *uav = &current->UAV;
                 uint32_t state_mask;
 
-                preserve_resource = unsafe_impl_from_ID3D12Resource(uav->pResource);
+                preserve_resource = impl_from_ID3D12Resource(uav->pResource);
 
                 /* The only way to synchronize an RTAS is UAV barriers,
                  * as their resource state must be frozen.
@@ -6993,8 +6993,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
 
                 alias = &current->Aliasing;
                 TRACE("Aliasing barrier (before %p, after %p).\n", alias->pResourceBefore, alias->pResourceAfter);
-                before = unsafe_impl_from_ID3D12Resource(alias->pResourceBefore);
-                after = unsafe_impl_from_ID3D12Resource(alias->pResourceAfter);
+                before = impl_from_ID3D12Resource(alias->pResourceBefore);
+                after = impl_from_ID3D12Resource(alias->pResourceAfter);
 
                 discard_resource = after;
 
@@ -8108,7 +8108,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
 
     memcpy(color.uint32, values, sizeof(color.uint32));
 
-    resource_impl = unsafe_impl_from_ID3D12Resource(resource);
+    resource_impl = impl_from_ID3D12Resource(resource);
 
     if (!vkd3d_clear_uav_info_from_desc(&args, desc))
         return;
@@ -8196,7 +8196,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d
 
     memcpy(color.float32, values, sizeof(color.float32));
 
-    resource_impl = unsafe_impl_from_ID3D12Resource(resource);
+    resource_impl = impl_from_ID3D12Resource(resource);
 
     if (!vkd3d_clear_uav_info_from_desc(&args, desc))
         return;
@@ -8207,7 +8207,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
         ID3D12Resource *resource, const D3D12_DISCARD_REGION *region)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    struct d3d12_resource *texture = unsafe_impl_from_ID3D12Resource(resource);
+    struct d3d12_resource *texture = impl_from_ID3D12Resource(resource);
     unsigned int i, first_subresource, subresource_count;
     VkImageSubresourceLayers vk_subresource_layers;
     unsigned int resource_subresource_count;
@@ -8464,7 +8464,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
 {
     struct d3d12_query_heap *query_heap = unsafe_impl_from_ID3D12QueryHeap(heap);
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    struct d3d12_resource *buffer = unsafe_impl_from_ID3D12Resource(dst_buffer);
+    struct d3d12_resource *buffer = impl_from_ID3D12Resource(dst_buffer);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     size_t stride = d3d12_query_heap_type_get_data_size(query_heap->desc.Type);
     VkBufferCopy copy_region;
@@ -8529,7 +8529,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
         ID3D12Resource *buffer, UINT64 aligned_buffer_offset, D3D12_PREDICATION_OP operation)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    struct d3d12_resource *resource = unsafe_impl_from_ID3D12Resource(buffer);
+    struct d3d12_resource *resource = impl_from_ID3D12Resource(buffer);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct vkd3d_predicate_ops *predicate_ops = &list->device->meta_ops.predicate;
     struct vkd3d_predicate_resolve_args resolve_args;
@@ -8759,8 +8759,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
         UINT64 arg_buffer_offset, ID3D12Resource *count_buffer, UINT64 count_buffer_offset)
 {
     struct d3d12_command_signature *sig_impl = unsafe_impl_from_ID3D12CommandSignature(command_signature);
-    struct d3d12_resource *count_impl = unsafe_impl_from_ID3D12Resource(count_buffer);
-    struct d3d12_resource *arg_impl = unsafe_impl_from_ID3D12Resource(arg_buffer);
+    struct d3d12_resource *count_impl = impl_from_ID3D12Resource(count_buffer);
+    struct d3d12_resource *arg_impl = impl_from_ID3D12Resource(arg_buffer);
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const D3D12_COMMAND_SIGNATURE_DESC *signature_desc = &sig_impl->desc;
@@ -8968,8 +8968,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(d3d12_
             iface, dst, dst_sub_resource_idx, dst_x, dst_y,
             src, src_sub_resource_idx, src_rect, format, mode);
 
-    dst_resource = unsafe_impl_from_ID3D12Resource(dst);
-    src_resource = unsafe_impl_from_ID3D12Resource(src);
+    dst_resource = impl_from_ID3D12Resource(dst);
+    src_resource = impl_from_ID3D12Resource(src);
 
     assert(d3d12_resource_is_texture(dst_resource));
     assert(d3d12_resource_is_texture(src_resource));
@@ -9396,7 +9396,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRateImage(d3d12_com
         ID3D12Resource *image)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    struct d3d12_resource *vrs_image = unsafe_impl_from_ID3D12Resource(image);
+    struct d3d12_resource *vrs_image = impl_from_ID3D12Resource(image);
 
     TRACE("iface %p, image %p.\n", iface, image);
 
@@ -9768,7 +9768,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12Comma
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
     unsigned int region_tile = 0, region_idx = 0, range_tile = 0, range_idx = 0;
-    struct d3d12_resource *res = unsafe_impl_from_ID3D12Resource(resource);
+    struct d3d12_resource *res = impl_from_ID3D12Resource(resource);
     struct d3d12_heap *memory_heap = impl_from_ID3D12Heap(heap);
     struct vkd3d_sparse_memory_bind *bind, **bound_tiles;
     struct d3d12_sparse_info *sparse = &res->sparse;
@@ -9912,8 +9912,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_CopyTileMappings(ID3D12Command
         const D3D12_TILE_REGION_SIZE *region_size, D3D12_TILE_MAPPING_FLAGS flags)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
-    struct d3d12_resource *dst_res = unsafe_impl_from_ID3D12Resource(dst_resource);
-    struct d3d12_resource *src_res = unsafe_impl_from_ID3D12Resource(src_resource);
+    struct d3d12_resource *dst_res = impl_from_ID3D12Resource(dst_resource);
+    struct d3d12_resource *src_res = impl_from_ID3D12Resource(src_resource);
     struct d3d12_command_queue_submission sub;
     struct vkd3d_sparse_memory_bind *bind;
     unsigned int i;
@@ -11327,7 +11327,7 @@ VKD3D_EXPORT void vkd3d_enqueue_initial_transition(ID3D12CommandQueue *queue, ID
 {
     struct d3d12_command_queue_submission sub;
     struct d3d12_command_queue *d3d12_queue = impl_from_ID3D12CommandQueue(queue);
-    struct d3d12_resource *d3d12_resource = unsafe_impl_from_ID3D12Resource(resource);
+    struct d3d12_resource *d3d12_resource = impl_from_ID3D12Resource(resource);
 
     memset(&sub, 0, sizeof(sub));
     sub.type = VKD3D_SUBMISSION_EXECUTE;
