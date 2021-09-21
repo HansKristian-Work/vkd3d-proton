@@ -519,11 +519,6 @@ static const struct vkd3d_shader_root_parameter *root_signature_get_root_descrip
 }
 
 /* ID3D12Fence */
-static struct d3d12_fence *impl_from_ID3D12Fence(d3d12_fence_iface *iface)
-{
-    return CONTAINING_RECORD(iface, struct d3d12_fence, ID3D12Fence_iface);
-}
-
 static void d3d12_fence_destroy_vk_objects(struct d3d12_fence *fence)
 {
     const struct vkd3d_vk_device_procs *vk_procs;
@@ -803,7 +798,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_QueryInterface(d3d12_fence_iface *i
 
 static ULONG STDMETHODCALLTYPE d3d12_fence_AddRef(d3d12_fence_iface *iface)
 {
-    struct d3d12_fence *fence = impl_from_ID3D12Fence(iface);
+    struct d3d12_fence *fence = impl_from_ID3D12Fence1(iface);
     ULONG refcount = InterlockedIncrement(&fence->refcount);
 
     TRACE("%p increasing refcount to %u.\n", fence, refcount);
@@ -813,7 +808,7 @@ static ULONG STDMETHODCALLTYPE d3d12_fence_AddRef(d3d12_fence_iface *iface)
 
 static ULONG STDMETHODCALLTYPE d3d12_fence_Release(d3d12_fence_iface *iface)
 {
-    struct d3d12_fence *fence = impl_from_ID3D12Fence(iface);
+    struct d3d12_fence *fence = impl_from_ID3D12Fence1(iface);
     ULONG refcount = InterlockedDecrement(&fence->refcount);
 
     TRACE("%p decreasing refcount to %u.\n", fence, refcount);
@@ -831,7 +826,7 @@ static ULONG STDMETHODCALLTYPE d3d12_fence_Release(d3d12_fence_iface *iface)
 static HRESULT STDMETHODCALLTYPE d3d12_fence_GetPrivateData(d3d12_fence_iface *iface,
         REFGUID guid, UINT *data_size, void *data)
 {
-    struct d3d12_fence *fence = impl_from_ID3D12Fence(iface);
+    struct d3d12_fence *fence = impl_from_ID3D12Fence1(iface);
 
     TRACE("iface %p, guid %s, data_size %p, data %p.\n",
             iface, debugstr_guid(guid), data_size, data);
@@ -842,7 +837,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_GetPrivateData(d3d12_fence_iface *i
 static HRESULT STDMETHODCALLTYPE d3d12_fence_SetPrivateData(d3d12_fence_iface *iface,
         REFGUID guid, UINT data_size, const void *data)
 {
-    struct d3d12_fence *fence = impl_from_ID3D12Fence(iface);
+    struct d3d12_fence *fence = impl_from_ID3D12Fence1(iface);
 
     TRACE("iface %p, guid %s, data_size %u, data %p.\n",
             iface, debugstr_guid(guid), data_size, data);
@@ -854,7 +849,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_SetPrivateData(d3d12_fence_iface *i
 static HRESULT STDMETHODCALLTYPE d3d12_fence_SetPrivateDataInterface(d3d12_fence_iface *iface,
         REFGUID guid, const IUnknown *data)
 {
-    struct d3d12_fence *fence = impl_from_ID3D12Fence(iface);
+    struct d3d12_fence *fence = impl_from_ID3D12Fence1(iface);
 
     TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
 
@@ -864,7 +859,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_SetPrivateDataInterface(d3d12_fence
 
 static HRESULT STDMETHODCALLTYPE d3d12_fence_GetDevice(d3d12_fence_iface *iface, REFIID iid, void **device)
 {
-    struct d3d12_fence *fence = impl_from_ID3D12Fence(iface);
+    struct d3d12_fence *fence = impl_from_ID3D12Fence1(iface);
 
     TRACE("iface %p, iid %s, device %p.\n", iface, debugstr_guid(iid), device);
 
@@ -873,7 +868,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_GetDevice(d3d12_fence_iface *iface,
 
 static UINT64 STDMETHODCALLTYPE d3d12_fence_GetCompletedValue(d3d12_fence_iface *iface)
 {
-    struct d3d12_fence *fence = impl_from_ID3D12Fence(iface);
+    struct d3d12_fence *fence = impl_from_ID3D12Fence1(iface);
     uint64_t completed_value;
     int rc;
 
@@ -963,7 +958,7 @@ HRESULT d3d12_fence_set_event_on_completion(struct d3d12_fence *fence,
 static HRESULT STDMETHODCALLTYPE d3d12_fence_SetEventOnCompletion(d3d12_fence_iface *iface,
         UINT64 value, HANDLE event)
 {
-    struct d3d12_fence *fence = impl_from_ID3D12Fence(iface);
+    struct d3d12_fence *fence = impl_from_ID3D12Fence1(iface);
 
     TRACE("iface %p, value %#"PRIx64", event %p.\n", iface, value, event);
 
@@ -972,7 +967,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_SetEventOnCompletion(d3d12_fence_if
 
 static HRESULT STDMETHODCALLTYPE d3d12_fence_Signal(d3d12_fence_iface *iface, UINT64 value)
 {
-    struct d3d12_fence *fence = impl_from_ID3D12Fence(iface);
+    struct d3d12_fence *fence = impl_from_ID3D12Fence1(iface);
 
     TRACE("iface %p, value %#"PRIx64".\n", iface, value);
 
@@ -981,14 +976,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_Signal(d3d12_fence_iface *iface, UI
 
 static D3D12_FENCE_FLAGS STDMETHODCALLTYPE d3d12_fence_GetCreationFlags(d3d12_fence_iface *iface)
 {
-    struct d3d12_fence *fence = impl_from_ID3D12Fence(iface);
+    struct d3d12_fence *fence = impl_from_ID3D12Fence1(iface);
 
     TRACE("iface %p.\n", iface);
 
     return fence->d3d12_flags;
 }
 
-static CONST_VTBL struct ID3D12Fence1Vtbl d3d12_fence_vtbl =
+CONST_VTBL struct ID3D12Fence1Vtbl d3d12_fence_vtbl =
 {
     /* IUnknown methods */
     d3d12_fence_QueryInterface,
@@ -1008,19 +1003,6 @@ static CONST_VTBL struct ID3D12Fence1Vtbl d3d12_fence_vtbl =
     /* ID3D12Fence1 methods */
     d3d12_fence_GetCreationFlags,
 };
-
-struct d3d12_fence *unsafe_impl_from_ID3D12Fence1(ID3D12Fence1 *iface)
-{
-    if (!iface)
-        return NULL;
-    assert(iface->lpVtbl == &d3d12_fence_vtbl);
-    return impl_from_ID3D12Fence(iface);
-}
-
-struct d3d12_fence *unsafe_impl_from_ID3D12Fence(ID3D12Fence *iface)
-{
-    return unsafe_impl_from_ID3D12Fence1((ID3D12Fence1 *)iface);
-}
 
 static HRESULT d3d12_fence_init_timeline(struct d3d12_fence *fence, struct d3d12_device *device,
         UINT64 initial_value)
@@ -10120,7 +10102,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Signal(ID3D12CommandQueue *
 
     TRACE("iface %p, fence %p, value %#"PRIx64".\n", iface, fence_iface, value);
 
-    fence = unsafe_impl_from_ID3D12Fence(fence_iface);
+    fence = impl_from_ID3D12Fence(fence_iface);
     d3d12_fence_inc_ref(fence);
 
     sub.type = VKD3D_SUBMISSION_SIGNAL;
@@ -10139,7 +10121,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_Wait(ID3D12CommandQueue *if
 
     TRACE("iface %p, fence %p, value %#"PRIx64".\n", iface, fence_iface, value);
 
-    fence = unsafe_impl_from_ID3D12Fence(fence_iface);
+    fence = impl_from_ID3D12Fence(fence_iface);
     d3d12_fence_inc_ref(fence);
 
     sub.type = VKD3D_SUBMISSION_WAIT;
