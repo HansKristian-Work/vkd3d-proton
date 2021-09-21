@@ -8492,6 +8492,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
             iface, heap, type, start_index, query_count,
             dst_buffer, aligned_dst_buffer_offset);
 
+    /* Some games call this with a query_count of 0.
+     * Avoid ending the render pass and doing worthless tracking. */
+    if (!query_count)
+        return;
+
     if (!d3d12_resource_is_buffer(buffer))
     {
         WARN("Destination resource is not a buffer.\n");
