@@ -2442,7 +2442,7 @@ static bool d3d12_resource_may_alias_other_resources(struct d3d12_resource *reso
 
 static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *list, struct d3d12_resource *resource,
         struct vkd3d_view *view, VkImageAspectFlags clear_aspects, const VkClearValue *clear_value, UINT rect_count,
-        const D3D12_RECT *rects, bool is_bound)
+        const D3D12_RECT *rects)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkAttachmentDescriptionStencilLayout stencil_attachment_desc;
@@ -2491,10 +2491,7 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
 
     if (clear_aspects & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
     {
-        if (is_bound)
-            attachment_desc.initialLayout = list->dsv_layout;
-        else
-            attachment_desc.initialLayout = d3d12_command_list_get_depth_stencil_resource_layout(list, resource, NULL);
+        attachment_desc.initialLayout = d3d12_command_list_get_depth_stencil_resource_layout(list, resource, NULL);
 
         if (separate_ds_layouts)
         {
@@ -7808,7 +7805,7 @@ static void d3d12_command_list_clear_attachment(struct d3d12_command_list *list,
          * uses a read-only layout in the current render pass */
         d3d12_command_list_end_current_render_pass(list, false);
         d3d12_command_list_clear_attachment_pass(list, resource, view,
-                clear_aspects, clear_value, rect_count, rects, false);
+                clear_aspects, clear_value, rect_count, rects);
     }
     else
     {
