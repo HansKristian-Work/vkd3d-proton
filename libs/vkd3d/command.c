@@ -8283,6 +8283,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
         return;
     }
 
+    /* Only care about resources which could alias memory with something else.
+     * We only need to transition committed resources once,
+     * and render targets tend to be that.
+     * There are no particular performance benefits in using DiscardResource as far as I know ... */
+    if (!d3d12_resource_may_alias_other_resources(texture))
+        return;
+
     /* Assume that pRegion == NULL means that we should discard
      * the entire resource. This does not seem to be documented. */
     resource_subresource_count = d3d12_resource_get_sub_resource_count(texture);
