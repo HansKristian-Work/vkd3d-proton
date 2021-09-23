@@ -61,3 +61,11 @@ executable('descriptor-performance', 'descriptor_performance.c',
   c_args              : vkd3d_test_flags,
   override_options    : [ 'c_std='+vkd3d_c_std ],
   link_with           : [ d3d12_test_utils_lib ])
+
+executable('renderpass-performance', 'renderpass_performance.c',
+  dependencies        : vkd3d_test_deps,
+  include_directories : vkd3d_private_includes,
+  install             : false,
+  c_args              : vkd3d_test_flags,
+  override_options    : [ 'c_std='+vkd3d_c_std ],
+  link_with           : [ d3d12_test_utils_lib ])
