@@ -70,7 +70,7 @@ static bool init_context(struct context *ctx)
     ctx->heap = create_cpu_descriptor_heap(ctx->device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 64);
     for (i = 0; i < ARRAY_SIZE(ctx->resources); i++)
     {
-        ctx->resources[i] = create_default_texture2d(ctx->device, 1024, 1024, 1, 1,
+        ctx->resources[i] = create_default_texture2d(ctx->device, 512, 512, 1, 1,
                 DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
                 D3D12_RESOURCE_STATE_RENDER_TARGET);
     }
@@ -114,8 +114,8 @@ enum clear_mode
 static double do_benchmark_run(struct context *ctx, unsigned int clear_iterations,
         enum clear_mode mode, bool pre_discard, unsigned int num_resources)
 {
-    const D3D12_RECT partial_rect = { 513, 0, 1018, 518 };
-    const D3D12_RECT full_rect = { 0, 0, 1024, 1024 };
+    const D3D12_RECT partial_rect = { 257, 0, 509, 259 };
+    const D3D12_RECT full_rect = { 0, 0, 512, 512 };
     D3D12_CPU_DESCRIPTOR_HANDLE base_h, h;
     D3D12_DISCARD_REGION discard_region;
     double start_time, end_time;
