@@ -137,12 +137,6 @@ void test_queue_wait(void)
     check_readback_data_uint(&rb, NULL, 0xff00ff00, 0);
     release_resource_readback(&rb);
 
-    if (!vkd3d_test_platform_is_windows())
-    {
-        skip("Wait() is not implemented yet.\n"); /* FIXME */
-        goto skip_tests;
-    }
-
     /* Wait() before CPU signal */
     update_buffer_data(cb, 0, sizeof(blue), &blue);
     queue_wait(queue, fence, 2);
@@ -218,7 +212,6 @@ void test_queue_wait(void)
     check_readback_data_uint(&rb, NULL, 0xff00ff00, 0);
     release_resource_readback(&rb);
 
-skip_tests:
     /* Signal() and Wait() in the same command queue */
     update_buffer_data(cb, 0, sizeof(blue), &blue);
     queue_signal(queue, fence, 7);
