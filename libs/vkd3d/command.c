@@ -2438,6 +2438,8 @@ static VkImageLayout vk_separate_stencil_layout(VkImageLayout combined_layout)
             VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL;
 }
 
+static bool d3d12_resource_may_alias_other_resources(struct d3d12_resource *resource);
+
 static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *list, struct d3d12_resource *resource,
         struct vkd3d_view *view, VkImageAspectFlags clear_aspects, const VkClearValue *clear_value, UINT rect_count,
         const D3D12_RECT *rects, bool is_bound)
@@ -2453,6 +2455,8 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     VkSubpassEndInfoKHR subpass_end_info;
     VkRenderPassCreateInfo2KHR pass_info;
     VkRenderPassBeginInfo begin_info;
+    bool require_full_src_barrier;
+    bool require_full_dst_barrier;
     VkFramebuffer vk_framebuffer;
     VkRenderPass vk_render_pass;
     VkPipelineStageFlags stages;
@@ -2461,7 +2465,15 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     VkAccessFlags access;
     VkExtent3D extent;
     bool clear_op;
+    bool discard;
     VkResult vr;
+
+    /* There is no reason to introduce a full barrier for a clear unless we are forced by
+     * the API to inject a true discard.
+     * For aliased resources in D3D12, a full clear can complete the alias ownership transfer,
+     * and we must be conservative and use UNDEFINED oldLayout. For committed resources (common case),
+     * this can never happen and we rely on the initial transition mechanism instead. */
+    discard = d3d12_resource_may_alias_other_resources(resource);
 
     attachment_desc.sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2_KHR;
     attachment_desc.pNext = NULL;
@@ -2562,7 +2574,7 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
 
         /* Ignore 3D images as re-initializing those may cause us to
          * discard the entire image, not just the layers to clear. */
-        if (resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+        if (discard && resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D)
         {
             if (separate_ds_layouts)
             {
@@ -2598,16 +2610,35 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
         subpass_desc.pColorAttachments = &attachment_ref;
     }
 
+    require_full_src_barrier = (attachment_desc.initialLayout != attachment_ref.layout) ||
+            (separate_ds_layouts && (stencil_attachment_desc.stencilInitialLayout != stencil_attachment_ref.stencilLayout));
+    require_full_dst_barrier = (attachment_desc.finalLayout != attachment_ref.layout) ||
+            (separate_ds_layouts && (stencil_attachment_desc.stencilFinalLayout != stencil_attachment_ref.stencilLayout));
+
     dependencies[0].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2_KHR;
     dependencies[0].pNext = NULL;
     dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
     dependencies[0].dstSubpass = 0;
+
     dependencies[0].srcStageMask = stages;
     dependencies[0].dstStageMask = stages;
-    dependencies[0].srcAccessMask = clear_op ? access : 0;
-    dependencies[0].dstAccessMask = access;
-    dependencies[0].dependencyFlags = 0;
     dependencies[0].viewOffset = 0;
+
+    if (require_full_src_barrier)
+    {
+        dependencies[0].srcAccessMask = clear_op ? access : 0;
+        dependencies[0].dstAccessMask = access;
+        dependencies[0].dependencyFlags = 0;
+    }
+    else
+    {
+        /* Same setup as normal render passes.
+         * The 0 access mask is technically a hack.
+         * See vkd3d_render_pass_cache_create_pass_locked(). */
+        dependencies[0].srcAccessMask = 0;
+        dependencies[0].dstAccessMask = 0;
+        dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    }
 
     dependencies[1].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2_KHR;
     dependencies[1].pNext = NULL;
@@ -2615,10 +2646,23 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
     dependencies[1].srcStageMask = stages;
     dependencies[1].dstStageMask = stages;
-    dependencies[1].srcAccessMask = access;
-    dependencies[1].dstAccessMask = 0;
-    dependencies[1].dependencyFlags = 0;
     dependencies[1].viewOffset = 0;
+
+    if (require_full_dst_barrier)
+    {
+        dependencies[1].srcAccessMask = access;
+        dependencies[1].dstAccessMask = 0;
+        dependencies[1].dependencyFlags = 0;
+    }
+    else
+    {
+        /* Same setup as normal render passes.
+        * The 0 access mask is technically a hack.
+        * See vkd3d_render_pass_cache_create_pass_locked(). */
+        dependencies[1].srcAccessMask = 0;
+        dependencies[1].dstAccessMask = 0;
+        dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+    }
 
     pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2_KHR;
     pass_info.pNext = NULL;
