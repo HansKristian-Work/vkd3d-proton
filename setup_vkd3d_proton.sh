@@ -51,7 +51,7 @@ export WINEDLLOVERRIDES="mscoree,mshtml="
 if [ -n "$WINE" ]; then
    wine="$WINE"
    wine64="${WINE}64"
-   wineboot="${WINE}boot"
+   wineboot="${WINE} wineboot"
 fi
 
 # avoid empty WINE variable
