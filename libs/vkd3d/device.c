@@ -2553,6 +2553,12 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     vkd3d_memory_allocator_cleanup(&device->memory_allocator, device);
     /* Tear down descriptor global info late, so we catch last minute faults after we drain the queues. */
     vkd3d_descriptor_debug_free_global_info(device->descriptor_qa_global_info, device);
+
+#ifdef VKD3D_ENABLE_RENDERDOC
+    if (vkd3d_renderdoc_active() && vkd3d_renderdoc_global_capture_enabled())
+        vkd3d_renderdoc_end_capture(device->vkd3d_instance->vk_instance);
+#endif
+
     VK_CALL(vkDestroyDevice(device->vk_device, NULL));
     pthread_mutex_destroy(&device->mutex);
     if (device->parent)
@@ -5257,6 +5263,12 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
         IUnknown_AddRef(device->parent);
 
     d3d12_device_caps_init(device);
+
+#ifdef VKD3D_ENABLE_RENDERDOC
+    if (vkd3d_renderdoc_active() && vkd3d_renderdoc_global_capture_enabled())
+        vkd3d_renderdoc_begin_capture(device->vkd3d_instance->vk_instance);
+#endif
+
     return S_OK;
 
 out_cleanup_global_pipeline_cache:
