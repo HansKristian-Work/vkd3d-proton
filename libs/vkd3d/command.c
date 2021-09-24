@@ -568,7 +568,12 @@ HRESULT d3d12_fence_signal_event(struct d3d12_fence *fence, HANDLE event, enum v
 
         case VKD3D_WAITING_EVENT_TYPE_SEMAPHORE:
 #ifdef _WIN32
-            return ReleaseSemaphore(event, 1, NULL) ? S_OK : E_FAIL;
+            /* Failing to release semaphore is expected if the counter exceeds the maximum limit.
+             * If the application does not wait for the semaphore once per present, this
+             * will eventually happen. */
+            if (!ReleaseSemaphore(event, 1, NULL))
+                WARN("Failed to release semaphore. Application likely forgot to wait for presentation event.\n");
+            return S_OK;
 #else
             ERR("Semaphores not supported on this platform.\n");
             return E_NOTIMPL;
