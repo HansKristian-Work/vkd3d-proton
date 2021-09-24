@@ -1541,16 +1541,20 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
     pass_info.pAttachments = attachments;
     pass_info.subpassCount = 1;
     pass_info.pSubpasses = &sub_pass_desc;
-    if (stages)
+
+    if (stages && device->device_info.properties2.properties.vendorID != VKD3D_VENDOR_ID_NVIDIA)
     {
         pass_info.dependencyCount = ARRAY_SIZE(dependencies);
         pass_info.pDependencies = dependencies;
     }
     else
     {
+        /* An NV speed hack. Even with BY_REGION_BIT and access masks forces to 0,
+         * the driver seems to insist on a full barrier here. */
         pass_info.dependencyCount = 0;
         pass_info.pDependencies = NULL;
     }
+
     pass_info.correlatedViewMaskCount = 0;
     pass_info.pCorrelatedViewMasks = NULL;
 
