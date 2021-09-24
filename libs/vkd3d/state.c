@@ -4336,7 +4336,7 @@ static bool vkd3d_bindless_supports_mutable_type(struct d3d12_device *device, ui
 
 static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *device)
 {
-    const struct vkd3d_physical_device_info *device_info = &device->device_info;
+    struct vkd3d_physical_device_info *device_info = &device->device_info;
     const struct vkd3d_vulkan_info *vk_info = &device->vk_info;
     uint32_t flags = 0;
 
@@ -4379,7 +4379,13 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
     {
         flags |= VKD3D_BINDLESS_RAW_SSBO;
 
-        if (device_info->properties2.properties.limits.minStorageBufferOffsetAlignment > 4)
+        if (device_info->properties2.properties.vendorID == VKD3D_VENDOR_ID_NVIDIA)
+        {
+            /* NVIDIA reports 16 bytes, but that's somewhat misleading. It actually depends on how you access memory in
+             * the shader w.r.t vectorized loads. And we never use those for SSBOs, so ... */
+            device_info->properties2.properties.limits.minStorageBufferOffsetAlignment = 4;
+        }
+        else if (device_info->properties2.properties.limits.minStorageBufferOffsetAlignment > 4)
             flags |= VKD3D_SSBO_OFFSET_BUFFER;
     }
 
