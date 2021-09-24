@@ -26,6 +26,7 @@
 bool vkd3d_renderdoc_active(void);
 bool vkd3d_renderdoc_loaded_api(void);
 bool vkd3d_renderdoc_should_capture_shader_hash(vkd3d_shader_hash_t hash);
+bool vkd3d_renderdoc_global_capture_enabled(void);
 
 bool vkd3d_renderdoc_begin_capture(void *instance);
 void vkd3d_renderdoc_end_capture(void *instance);

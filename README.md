@@ -204,6 +204,9 @@ pass `-Denable_renderdoc=true` to Meson.
  vkd3d-proton will automatically make a capture when a specific shader is encountered.
  - `VKD3D_AUTO_CAPTURE_COUNTS` - A comma-separated list of indices. This can be used to control which queue submissions to capture.
  E.g., use `VKD3D_AUTO_CAPTURE_COUNTS=0,4,10` to capture the 0th (first submission), 4th and 10th submissions which are candidates for capturing.
+ If `VKD3D_AUTO_CAPTURE_COUNTS` is `-1`, the entire app runtime can be turned into one big capture.
+ This is only intended to be used when capturing something like the test suite,
+ or tiny applications with a finite runtime to make it easier to debug cross submission work.
 
  If only `VKD3D_AUTO_CAPTURE_COUNTS` is set, any queue submission is considered for capturing.
  If only `VKD3D_AUTO_CAPTURE_SHADER` is set, `VKD3D_AUTO_CAPTURE_COUNTS` is considered to be equal to `"0"`, i.e. a capture is only
