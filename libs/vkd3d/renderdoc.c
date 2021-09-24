@@ -42,12 +42,20 @@ static vkd3d_shader_hash_t renderdoc_capture_shader_hash;
 static uint32_t *renderdoc_capture_counts;
 static size_t renderdoc_capture_counts_count;
 static bool vkd3d_renderdoc_is_active;
+static bool vkd3d_renderdoc_global_capture;
 
 static void vkd3d_renderdoc_init_capture_count_list(const char *env)
 {
     size_t array_size = 0;
     uint32_t count;
     char *endp;
+
+    if (strcmp(env, "-1") == 0)
+    {
+        INFO("Doing one big capture of the entire lifetime of a device.\n");
+        vkd3d_renderdoc_global_capture = true;
+        return;
+    }
 
     while (*env != '\0')
     {
@@ -180,6 +188,11 @@ bool vkd3d_renderdoc_active(void)
     return vkd3d_renderdoc_is_active;
 }
 
+bool vkd3d_renderdoc_global_capture_enabled(void)
+{
+    return vkd3d_renderdoc_global_capture;
+}
+
 bool vkd3d_renderdoc_should_capture_shader_hash(vkd3d_shader_hash_t hash)
 {
     return (renderdoc_capture_shader_hash == hash) || (renderdoc_capture_shader_hash == 0);
@@ -190,9 +203,12 @@ bool vkd3d_renderdoc_begin_capture(void *instance)
     static uint32_t overall_counter;
     uint32_t counter;
 
-    counter = vkd3d_atomic_uint32_increment(&overall_counter, vkd3d_memory_order_relaxed) - 1;
-    if (!vkd3d_renderdoc_enable_submit_counter(counter))
-        return false;
+    if (!vkd3d_renderdoc_global_capture)
+    {
+        counter = vkd3d_atomic_uint32_increment(&overall_counter, vkd3d_memory_order_relaxed) - 1;
+        if (!vkd3d_renderdoc_enable_submit_counter(counter))
+            return false;
+    }
 
     if (renderdoc_api)
         renderdoc_api->StartFrameCapture(RENDERDOC_DEVICEPOINTER_FROM_VKINSTANCE(instance), NULL);
@@ -214,6 +230,9 @@ void vkd3d_renderdoc_command_list_check_capture(struct d3d12_command_list *list,
         struct d3d12_pipeline_state *state)
 {
     unsigned int i;
+
+    if (vkd3d_renderdoc_global_capture_enabled())
+        return;
 
     if (vkd3d_renderdoc_active() && state)
     {
@@ -246,6 +265,9 @@ bool vkd3d_renderdoc_command_queue_begin_capture(struct d3d12_command_queue *com
     VkDebugUtilsLabelEXT capture_label;
     bool debug_capture;
 
+    if (vkd3d_renderdoc_global_capture_enabled())
+        return false;
+
     debug_capture = vkd3d_renderdoc_begin_capture(command_queue->device->vkd3d_instance->vk_instance);
     if (debug_capture && !vkd3d_renderdoc_loaded_api())
     {
@@ -272,6 +294,9 @@ void vkd3d_renderdoc_command_queue_end_capture(struct d3d12_command_queue *comma
 {
     const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
     VkDebugUtilsLabelEXT capture_label;
+
+    if (vkd3d_renderdoc_global_capture_enabled())
+        return;
 
     if (!vkd3d_renderdoc_loaded_api())
     {
