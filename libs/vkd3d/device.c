@@ -503,6 +503,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"force_exclusive_queue", VKD3D_CONFIG_FLAG_FORCE_RTV_EXCLUSIVE_QUEUE | VKD3D_CONFIG_FLAG_FORCE_DSV_EXCLUSIVE_QUEUE},
     {"no_upload_hvv", VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV},
     {"log_memory_budget", VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET},
+    {"force_host_cached", VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED},
 };
 
 static void vkd3d_config_flags_init_once(void)
