@@ -158,6 +158,7 @@ commas or semicolons.
       May free up vital VRAM in certain critical situations, at cost of lower GPU performance.
       A fraction of VRAM is reserved for resizable BAR allocations either way,
       so it should not be a real issue even on lower VRAM cards.
+    - `force_host_cached` - Forces all host visible allocations to be CACHED, which greatly accelerates captures.
  - `VKD3D_DEBUG` - controls the debug level for log messages produced by
    vkd3d-proton. Accepts the following values: none, err, info, fixme, warn, trace.
  - `VKD3D_SHADER_DEBUG` - controls the debug level for log messages produced by
