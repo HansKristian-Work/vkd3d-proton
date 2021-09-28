@@ -325,6 +325,7 @@ enum vkd3d_render_pass_key_flag
 struct vkd3d_render_pass_key
 {
     uint32_t attachment_count;
+    uint32_t rtv_active_mask;
     uint32_t flags; /* vkd3d_render_pass_key_flag */
     uint32_t sample_count;
     VkFormat vk_formats[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
@@ -1436,6 +1437,7 @@ struct d3d12_graphics_pipeline_state
     VkPipelineColorBlendAttachmentState blend_attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     unsigned int rt_count;
     unsigned int null_attachment_mask;
+    unsigned int rtv_active_mask;
     unsigned int patch_vertex_count;
     const struct vkd3d_format *dsv_format;
     VkFormat rtv_formats[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
@@ -1554,6 +1556,7 @@ struct vkd3d_pipeline_key
     D3D12_PRIMITIVE_TOPOLOGY topology;
     uint32_t viewport_count;
     uint32_t strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+    uint32_t rtv_active_mask;
     VkFormat dsv_format;
 
     bool dynamic_stride;
@@ -1565,11 +1568,13 @@ bool d3d12_pipeline_state_has_replaced_shaders(struct d3d12_pipeline_state *stat
 HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindPoint bind_point,
         const struct d3d12_pipeline_state_desc *desc, struct d3d12_pipeline_state **state);
 VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
-        const struct vkd3d_dynamic_state *dyn_state, const struct vkd3d_format *dsv_format,
+        const struct vkd3d_dynamic_state *dyn_state,
+        uint32_t rtv_nonnull_mask, const struct vkd3d_format *dsv_format,
         const struct vkd3d_render_pass_compatibility **render_pass_compat,
         uint32_t *dynamic_state_flags, uint32_t variant_flags);
 VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
-        const struct vkd3d_dynamic_state *dyn_state, const struct vkd3d_format *dsv_format,
+        const struct vkd3d_dynamic_state *dyn_state,
+        uint32_t rtv_nonnull_mask, const struct vkd3d_format *dsv_format,
         const struct vkd3d_render_pass_compatibility **render_pass_compat,
         uint32_t *dynamic_state_flags, uint32_t variant_flags);
 VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_state *state,
@@ -1872,6 +1877,7 @@ struct d3d12_command_list
 
     struct d3d12_rtv_desc rtvs[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct d3d12_rtv_desc dsv;
+    uint32_t rtv_nonnull_mask;
     uint32_t dsv_plane_optimal_mask;
     VkImageLayout dsv_layout;
     unsigned int fb_width;
