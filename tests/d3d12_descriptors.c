@@ -3400,6 +3400,7 @@ void test_null_rtv(void)
     /* Attempting to clear a NULL RTV crashes on native D3D12, so try to draw something instead */
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
 
     transition_sub_resource_state(command_list, context.render_target, 0,
