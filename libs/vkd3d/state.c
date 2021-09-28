@@ -1346,7 +1346,8 @@ struct vkd3d_render_pass_entry
     VkRenderPass vk_render_pass;
 };
 
-STATIC_ASSERT(sizeof(struct vkd3d_render_pass_key) == 48);
+/* Ensure that key is packed, and can be memcmp'd. */
+STATIC_ASSERT(sizeof(struct vkd3d_render_pass_key) == 52);
 
 static VkImageLayout vkd3d_render_pass_get_depth_stencil_layout(const struct vkd3d_render_pass_key *key)
 {
@@ -1399,7 +1400,7 @@ static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pa
 
     for (index = 0, attachment_index = 0; index < rt_count; ++index)
     {
-        if (!key->vk_formats[index])
+        if (!(key->rtv_active_mask & (1u << index)))
         {
             attachment_references[index].sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2_KHR;
             attachment_references[index].pNext = NULL;
@@ -2657,7 +2658,7 @@ STATIC_ASSERT(sizeof(struct vkd3d_shader_transform_feedback_element) == sizeof(D
 
 static HRESULT d3d12_graphics_pipeline_state_create_render_pass_for_plane_mask(
         struct d3d12_graphics_pipeline_state *graphics, struct d3d12_device *device,
-        const struct vkd3d_format *dynamic_dsv_format,
+        uint32_t rtv_active_mask, const struct vkd3d_format *dynamic_dsv_format,
         uint32_t plane_optimal_mask,
         VkRenderPass *vk_render_pass,
         uint32_t *out_plane_optimal_mask,
@@ -2670,6 +2671,7 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass_for_plane_mask(
 
     memcpy(key.vk_formats, graphics->rtv_formats, sizeof(graphics->rtv_formats));
     key.attachment_count = graphics->rt_count;
+    key.rtv_active_mask = rtv_active_mask;
     key.flags = 0;
 
     if (graphics->dsv_format)
@@ -2767,7 +2769,7 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass_for_plane_mask(
 
 static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
         struct d3d12_graphics_pipeline_state *graphics, struct d3d12_device *device,
-        const struct vkd3d_format *dynamic_dsv_format,
+        uint32_t rtv_active_mask, const struct vkd3d_format *dynamic_dsv_format,
         struct vkd3d_render_pass_compatibility *render_pass_compat,
         uint32_t *out_plane_optimal_mask,
         uint32_t variant_flags)
@@ -2779,7 +2781,7 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
          plane_optimal_mask++)
     {
         if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass_for_plane_mask(
-                graphics, device, dynamic_dsv_format,
+                graphics, device, rtv_active_mask, dynamic_dsv_format,
                 plane_optimal_mask, &render_pass_compat->dsv_layouts[plane_optimal_mask],
                 plane_optimal_mask == 0 ? out_plane_optimal_mask : NULL, variant_flags)))
         {
@@ -3025,6 +3027,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     }
 
     graphics->null_attachment_mask = 0;
+    graphics->rtv_active_mask = 0;
     for (i = 0; i < rt_count; ++i)
     {
         const D3D12_RENDER_TARGET_BLEND_DESC *rt_desc;
@@ -3039,6 +3042,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         {
             ps_output_swizzle[i] = vkd3d_get_rt_format_swizzle(format);
             graphics->rtv_formats[i] = format->vk_format;
+            graphics->rtv_active_mask |= 1u << i;
         }
         else
         {
@@ -3543,7 +3547,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
                 continue;
 
             if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics,
-                device, NULL, &graphics->render_pass[i], &graphics->dsv_plane_optimal_mask, i)))
+                    device, graphics->rtv_active_mask, NULL,
+                    &graphics->render_pass[i], &graphics->dsv_plane_optimal_mask, i)))
                 goto fail;
         }
     }
@@ -3829,6 +3834,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     struct d3d12_device *device = state->device;
     VkGraphicsPipelineCreateInfo pipeline_desc;
     VkPipelineViewportStateCreateInfo vp_desc;
+    uint32_t rtv_active_mask;
     VkPipeline vk_pipeline;
     unsigned int i;
     VkResult vr;
@@ -3915,7 +3921,15 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
                 dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED);
     }
 
-    if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics, device, dsv_format,
+    rtv_active_mask = key ? key->rtv_active_mask : graphics->rtv_active_mask;
+    if (graphics->rtv_active_mask != rtv_active_mask)
+    {
+        TRACE("Compiling %p with fallback RTV write mask (PSO = 0x%x, RT = 0x%x).\n", state,
+                state->graphics.rtv_active_mask, key->rtv_active_mask);
+    }
+
+    if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics, device,
+            rtv_active_mask, dsv_format,
             render_pass_compat, &graphics->dsv_plane_optimal_mask, variant_flags)))
         return VK_NULL_HANDLE;
 
@@ -3970,7 +3984,8 @@ static bool d3d12_pipeline_state_can_use_dynamic_stride(struct d3d12_pipeline_st
 }
 
 VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
-        const struct vkd3d_dynamic_state *dyn_state, const struct vkd3d_format *dsv_format,
+        const struct vkd3d_dynamic_state *dyn_state,
+        uint32_t rtv_nonnull_mask, const struct vkd3d_format *dsv_format,
         const struct vkd3d_render_pass_compatibility **render_pass_compat,
         uint32_t *dynamic_state_flags, uint32_t variant_flags)
 {
@@ -3988,6 +4003,15 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
         TRACE("DSV format mismatch, expected %u, got %u, buggy application!\n",
                 graphics->dsv_format ? graphics->dsv_format->vk_format : VK_FORMAT_UNDEFINED,
                 dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED);
+        return VK_NULL_HANDLE;
+    }
+
+    /* Case where we render to null or unbound RTV.
+     * We'll need to nop out the attachments in the render pass / PSO. */
+    if (state->graphics.rtv_active_mask & ~rtv_nonnull_mask)
+    {
+        TRACE("RTV mismatch. Writing to attachment mask 0x%x, but only 0x%x RTVs are bound.\n",
+                state->graphics.rtv_active_mask, rtv_nonnull_mask);
         return VK_NULL_HANDLE;
     }
 
@@ -4016,7 +4040,8 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
 }
 
 VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
-        const struct vkd3d_dynamic_state *dyn_state, const struct vkd3d_format *dsv_format,
+        const struct vkd3d_dynamic_state *dyn_state,
+        uint32_t rtv_nonnull_mask, const struct vkd3d_format *dsv_format,
         const struct vkd3d_render_pass_compatibility **render_pass_compat,
         uint32_t *dynamic_state_flags, uint32_t variant_flags)
 {
@@ -4070,6 +4095,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     }
 
     pipeline_key.dsv_format = dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
+    pipeline_key.rtv_active_mask = state->graphics.rtv_active_mask & rtv_nonnull_mask;
 
     if ((vk_pipeline = d3d12_pipeline_state_find_compiled_pipeline(state, &pipeline_key, render_pass_compat,
             dynamic_state_flags)))
