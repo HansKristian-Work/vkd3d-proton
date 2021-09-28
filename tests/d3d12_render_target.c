@@ -22,6 +22,81 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 #include "d3d12_crosstest.h"
 
+void test_unbound_rtv_rendering(void)
+{
+    static const struct vec4 white = { 1.0f, 1.0f, 1.0f, 1.0f };
+    static const struct vec4 red = { 1.0f, 0.0f, 0.0f, 1.0f };
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12GraphicsCommandList *command_list;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12CommandQueue *queue;
+    HRESULT hr;
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        Outputs main()
+        {
+            Outputs o;
+            o.col0 = float4(1.0, 0.0, 0.0, 1.0);
+            o.col1 = 0.5;
+            return o;
+        }
+#endif
+        0x43425844, 0xbbb26641, 0x99a7dc17, 0xc556a4cd, 0x3aa2843e, 0x00000001, 0x000000ec, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000088, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000044, 0x00000002, 0x00000008, 0x00000038, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x00000038, 0x00000001, 0x00000000, 0x00000003, 0x00000001, 0x00000e01, 0x545f5653,
+        0x65677261, 0xabab0074, 0x58454853, 0x0000005c, 0x00000050, 0x00000017, 0x0100086a, 0x03000065,
+        0x001020f2, 0x00000000, 0x03000065, 0x00102012, 0x00000001, 0x08000036, 0x001020f2, 0x00000000,
+        0x00004002, 0x3f800000, 0x00000000, 0x00000000, 0x3f800000, 0x05000036, 0x00102012, 0x00000001,
+        0x00004001, 0x3f000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    desc.rt_width = 32;
+    desc.rt_height = 32;
+    desc.no_pipeline = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    /* Apparently, rendering to an NULL RTV is fine. D3D12 validation does not complain about this case at all. */
+    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps, NULL);
+    pso_desc.NumRenderTargets = 2;
+    pso_desc.RTVFormats[0] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    pso_desc.RTVFormats[1] = DXGI_FORMAT_R32_FLOAT;
+    pso_desc.DSVFormat = DXGI_FORMAT_UNKNOWN;
+    pso_desc.BlendState.RenderTarget[0].RenderTargetWriteMask = 0xf;
+    pso_desc.BlendState.RenderTarget[1].RenderTargetWriteMask = 0xf;
+    pso_desc.DepthStencilState.DepthEnable = false;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, &white.x, 0, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    set_viewport(&context.viewport, 0.0f, 0.0f, 32.0f, 32.0f, 0.5f, 0.5f);
+    ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_vec4(context.render_target, 0, queue, command_list, &red, 0);
+    destroy_test_context(&context);
+}
+
 void test_unknown_rtv_format(void)
 {
     static const struct vec4 white = {1.0f, 1.0f, 1.0f, 1.0f};
