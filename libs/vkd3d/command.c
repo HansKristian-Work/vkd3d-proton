@@ -2728,6 +2728,12 @@ static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_l
                 list->dsv_layout :
                 d3d12_command_list_get_depth_stencil_resource_layout(list, resource, NULL);
     }
+    else if (resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
+    {
+        stages = vk_queue_shader_stages(list->vk_queue_flags);
+        access = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+        layout = VK_IMAGE_LAYOUT_GENERAL;
+    }
     else
     {
         ERR("Unsupported resource flags %#x.\n", resource->desc.Flags);
@@ -8230,7 +8236,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
     /* This method is only supported on DIRECT and COMPUTE queues,
      * but we only implement it for render targets, so ignore it
      * on compute. */
-    if (list->type != D3D12_COMMAND_LIST_TYPE_DIRECT)
+    if (list->type != D3D12_COMMAND_LIST_TYPE_DIRECT && list->type != D3D12_COMMAND_LIST_TYPE_COMPUTE)
     {
         WARN("Not supported for queue type %d.\n", list->type);
         return;
@@ -8241,8 +8247,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
         return;
 
     /* D3D12 requires that the texture is either in render target
-     * state or in depth-stencil state depending on usage flags */
-    if (!(texture->desc.Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)))
+     * state, in depth-stencil state, or in UAV state depending on usage flags.
+     * In compute lists, we only allow UAV state. */
+    if (!(texture->desc.Flags &
+          (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET |
+           D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL |
+           D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)))
     {
         WARN("Not supported for resource %p.\n", resource);
         return;
