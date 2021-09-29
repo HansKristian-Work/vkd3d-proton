@@ -3094,6 +3094,69 @@ void test_aliasing_barrier(void)
     destroy_test_context(&context);
 }
 
+static void test_discard_resource_uav_type(bool compute_queue)
+{
+    static const float white[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav;
+    struct test_context context;
+    ID3D12DescriptorHeap *gpu;
+    ID3D12DescriptorHeap *cpu;
+    ID3D12Resource *resource;
+
+    if (compute_queue)
+    {
+        /* Creates a COMPUTE list instead of DIRECT. */
+        if (!init_compute_test_context(&context))
+            return;
+    }
+    else
+    {
+        if (!init_test_context(&context, NULL))
+            return;
+    }
+
+    /* In compute lists, we can discard UAV enabled resources,
+     * and the resource must be in UAV state. */
+
+    resource = create_default_texture2d(context.device, 4, 4, 1, 1, DXGI_FORMAT_R32_FLOAT,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    gpu = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    cpu = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+
+    memset(&uav, 0, sizeof(uav));
+    uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+    uav.Format = DXGI_FORMAT_R32_FLOAT;
+    ID3D12Device_CreateUnorderedAccessView(context.device, resource, NULL, &uav,
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(gpu));
+    ID3D12Device_CreateUnorderedAccessView(context.device, resource, NULL, &uav,
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu));
+
+    ID3D12GraphicsCommandList_DiscardResource(context.list, resource, NULL);
+    ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(context.list,
+            ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(gpu),
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu),
+            resource, white, 0, NULL);
+
+    transition_resource_state(context.list, resource,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_float(resource, 0, context.queue, context.list, 1.0f, 0);
+
+    ID3D12DescriptorHeap_Release(gpu);
+    ID3D12DescriptorHeap_Release(cpu);
+    ID3D12Resource_Release(resource);
+    destroy_test_context(&context);
+}
+
+void test_discard_resource_uav(void)
+{
+    vkd3d_test_set_context("Test graphics");
+    test_discard_resource_uav_type(false);
+    vkd3d_test_set_context("Test compute");
+    test_discard_resource_uav_type(true);
+}
+
 void test_discard_resource(void)
 {
     ID3D12GraphicsCommandList *command_list;
