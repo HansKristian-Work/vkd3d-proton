@@ -2685,6 +2685,25 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     VK_CALL(vkCmdEndRenderPass2KHR(list->vk_command_buffer, &subpass_end_info));
 }
 
+static VkPipelineStageFlags vk_queue_shader_stages(VkQueueFlags vk_queue_flags)
+{
+    VkPipelineStageFlags queue_shader_stages = 0;
+
+    if (vk_queue_flags & VK_QUEUE_GRAPHICS_BIT)
+    {
+        queue_shader_stages |= VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+                VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT |
+                VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT |
+                VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT |
+                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    }
+
+    if (vk_queue_flags & VK_QUEUE_COMPUTE_BIT)
+        queue_shader_stages |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+
+    return queue_shader_stages;
+}
+
 static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_list *list,
         struct d3d12_resource *resource, const VkImageSubresourceLayers *subresource, bool is_bound)
 {
@@ -3545,21 +3564,11 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
         const struct d3d12_resource *resource, uint32_t state_mask, VkQueueFlags vk_queue_flags,
         VkPipelineStageFlags *stages, VkAccessFlags *access)
 {
-    VkPipelineStageFlags queue_shader_stages = 0;
     struct d3d12_device *device = list->device;
+    VkPipelineStageFlags queue_shader_stages;
     uint32_t unhandled_state = 0;
 
-    if (vk_queue_flags & VK_QUEUE_GRAPHICS_BIT)
-    {
-        queue_shader_stages |= VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
-                VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT |
-                VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT |
-                VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT |
-                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    }
-
-    if (vk_queue_flags & VK_QUEUE_COMPUTE_BIT)
-        queue_shader_stages |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+    queue_shader_stages = vk_queue_shader_stages(vk_queue_flags);
 
     if (state_mask == D3D12_RESOURCE_STATE_COMMON)
     {
