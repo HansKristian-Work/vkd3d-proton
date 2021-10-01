@@ -7664,7 +7664,9 @@ static void vkd3d_dxbc_compiler_emit_ext_glsl_instruction(struct vkd3d_dxbc_comp
     {
         /* In D3D bits are numbered from the most significant bit. */
         val_id = vkd3d_spirv_build_op_isub(builder, type_id,
-                vkd3d_dxbc_compiler_get_constant_uint(compiler, 31), val_id);
+                vkd3d_dxbc_compiler_get_constant_uint_vector(compiler, 31,
+                        vkd3d_write_mask_component_count(dst->write_mask)),
+                val_id);
     }
 
     if (glsl_inst == GLSLstd450Fma && (instruction->flags & VKD3DSI_PRECISE_XYZW))
