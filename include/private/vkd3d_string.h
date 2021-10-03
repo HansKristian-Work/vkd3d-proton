@@ -37,4 +37,14 @@ char *vkd3d_strdup_n(const char *str, size_t n);
 WCHAR *vkd3d_wstrdup(const WCHAR *str);
 WCHAR *vkd3d_wstrdup_n(const WCHAR *str, size_t n);
 
+static inline bool vkd3d_string_ends_with_n(const char *str, size_t str_len, const char *ending, size_t ending_len)
+{
+    return str_len >= ending_len && !strncmp(str + (str_len - ending_len), ending, ending_len);
+}
+
+static inline bool vkd3d_string_ends_with(const char *str, const char *ending)
+{
+    return vkd3d_string_ends_with_n(str, strlen(str), ending, strlen(ending));
+}
+
 #endif /* __VKD3D_STRING_H */
