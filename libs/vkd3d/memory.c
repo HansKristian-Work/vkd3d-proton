@@ -66,6 +66,7 @@ static uint32_t vkd3d_find_memory_types_with_flags(struct d3d12_device *device, 
 
 static HRESULT vkd3d_select_memory_flags(struct d3d12_device *device, const D3D12_HEAP_PROPERTIES *heap_properties, VkMemoryPropertyFlags *type_flags)
 {
+    HRESULT hr;
     switch (heap_properties->Type)
     {
         case D3D12_HEAP_TYPE_DEFAULT:
@@ -85,13 +86,8 @@ static HRESULT vkd3d_select_memory_flags(struct d3d12_device *device, const D3D1
             break;
 
         case D3D12_HEAP_TYPE_CUSTOM:
-            if (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_UNKNOWN
-                    || (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_L1
-                    && (is_cpu_accessible_heap(heap_properties) || d3d12_device_is_uma(device, NULL))))
-            {
-                WARN("Invalid memory pool preference.\n");
-                return E_INVALIDARG;
-            }
+            if (FAILED(hr = d3d12_device_validate_custom_heap_type(device, heap_properties)))
+                return hr;
 
             switch (heap_properties->CPUPageProperty)
             {
@@ -106,9 +102,7 @@ static HRESULT vkd3d_select_memory_flags(struct d3d12_device *device, const D3D1
                 case D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE:
                     *type_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
                     break;
-                case D3D12_CPU_PAGE_PROPERTY_UNKNOWN:
                 default:
-                    WARN("Invalid CPU page property.\n");
                     return E_INVALIDARG;
             }
             break;

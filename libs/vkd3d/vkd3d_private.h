@@ -761,6 +761,8 @@ struct d3d12_heap
 
 HRESULT d3d12_heap_create(struct d3d12_device *device, const D3D12_HEAP_DESC *desc,
         void *host_address, struct d3d12_heap **heap);
+HRESULT d3d12_device_validate_custom_heap_type(struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties);
 
 static inline struct d3d12_heap *impl_from_ID3D12Heap1(ID3D12Heap1 *iface)
 {
