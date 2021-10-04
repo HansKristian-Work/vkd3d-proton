@@ -514,8 +514,14 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
         memory_requirements = info->memory_requirements;
     }
 
-    type_mask = vkd3d_select_memory_types(device, &info->heap_properties,
-            info->heap_flags) & memory_requirements.memoryTypeBits;
+    /* If an allocation is a dedicated fallback allocation,
+     * we must not look at heap_flags, since we might end up noping out
+     * the memory types we want to allocate with. */
+    type_mask = memory_requirements.memoryTypeBits;
+    if (info->flags & VKD3D_ALLOCATION_FLAG_DEDICATED)
+        type_mask &= device->memory_info.global_mask;
+    else
+        type_mask &= vkd3d_select_memory_types(device, &info->heap_properties, info->heap_flags);
 
     /* Allocate actual backing storage */
     flags_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
@@ -549,7 +555,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
         hr = vkd3d_import_host_memory(device, host_ptr, memory_requirements.size,
                 type_flags, type_mask, &flags_info, &allocation->device_allocation);
     }
-    else if (info->flags & VKD3D_ALLOCATION_NO_FALLBACK)
+    else if (info->flags & VKD3D_ALLOCATION_FLAG_NO_FALLBACK)
     {
         hr = vkd3d_try_allocate_device_memory(device, memory_requirements.size, type_flags,
                 type_mask, &flags_info, &allocation->device_allocation);
@@ -1253,7 +1259,7 @@ static HRESULT vkd3d_memory_allocator_try_add_chunk(struct vkd3d_memory_allocato
     alloc_info.memory_requirements.memoryTypeBits = type_mask;
     alloc_info.heap_properties = *heap_properties;
     alloc_info.heap_flags = heap_flags;
-    alloc_info.flags = VKD3D_ALLOCATION_NO_FALLBACK;
+    alloc_info.flags = VKD3D_ALLOCATION_FLAG_NO_FALLBACK;
     alloc_info.optional_memory_properties = optional_properties;
 
     if (!(heap_flags & D3D12_HEAP_FLAG_DENY_BUFFERS))

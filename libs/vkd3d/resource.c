@@ -2536,6 +2536,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
             dedicated_info.image = object->res.vk_image;
             dedicated_info.buffer = VK_NULL_HANDLE;
             allocate_info.pNext = &dedicated_info;
+            allocate_info.flags = VKD3D_ALLOCATION_FLAG_DEDICATED;
         }
         else
         {
