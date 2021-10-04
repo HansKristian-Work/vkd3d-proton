@@ -303,7 +303,8 @@ HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
             /* It might be the case (NV with RT/DS heap) that we just cannot fall back in any meaningful way.
              * E.g. there exists no memory type that is not DEVICE_LOCAL and covers both RT and DS.
              * For this case, we have no choice but to not allocate,
-             * and defer actual memory allocation to CreatePlacedResource() time. */
+             * and defer actual memory allocation to CreatePlacedResource() time.
+			 * NVIDIA bug reference for fixing this case: 2175829. */
             WARN("Memory allocation failed, but it is not possible to fallback to system memory here. Deferring allocation.\n");
             return hr;
         }
