@@ -2784,6 +2784,65 @@ void test_stress_suballocation_thread(void *userdata)
 #undef rand_r
 }
 
+void test_stress_fallback_render_target_allocation_device(void)
+{
+    D3D12_RESOURCE_ALLOCATION_INFO alloc_info;
+    struct test_context context;
+    D3D12_HEAP_DESC heap_desc;
+    D3D12_RESOURCE_DESC desc;
+    ID3D12Resource *resource;
+    ID3D12Heap *heaps[1024];
+    unsigned int i;
+    HRESULT hr;
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    /* Spam allocate enough that we should exhaust VRAM and require fallbacks to system memory.
+     * Verify that we don't collapse in such a situation.
+     * Render targets hit some particular edge cases on NV that we should focus on testing. */
+
+    memset(&desc, 0, sizeof(desc));
+    desc.Width = 2048;
+    desc.Height = 2048;
+    desc.DepthOrArraySize = 1;
+    desc.MipLevels = 1;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.SampleDesc.Count = 1;
+
+    alloc_info = ID3D12Device_GetResourceAllocationInfo(context.device, 0, 1, &desc);
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.SizeInBytes = alloc_info.SizeInBytes;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES;
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    memset(heaps, 0, sizeof(heaps));
+
+    for (i = 0; i < ARRAY_SIZE(heaps); i++)
+    {
+        hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void**)&heaps[i]);
+        ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n", hr);
+
+        if (SUCCEEDED(hr))
+        {
+            hr = ID3D12Device_CreatePlacedResource(context.device, heaps[i], 0, &desc,
+                    D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void**)&resource);
+            ok(SUCCEEDED(hr), "Failed to place resource, hr #%x.\n", hr);
+            if (SUCCEEDED(hr))
+                ID3D12Resource_Release(resource);
+        }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(heaps); i++)
+        if (heaps[i])
+            ID3D12Heap_Release(heaps[i]);
+
+    destroy_test_context(&context);
+}
+
 void test_stress_suballocation_rebar(void)
 {
     ID3D12Resource *resources_suballocate[4096];
