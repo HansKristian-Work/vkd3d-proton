@@ -2630,6 +2630,20 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
     if (FAILED(hr = d3d12_resource_validate_heap(desc, heap)))
         return hr;
 
+    if (heap->allocation.device_allocation.vk_memory == VK_NULL_HANDLE)
+    {
+        WARN("Placing resource on heap with no memory backing it. Falling back to committed resource.\n");
+        if (FAILED(hr = d3d12_resource_create_committed(device, desc, &heap->desc.Properties,
+                heap->desc.Flags & ~(D3D12_HEAP_FLAG_DENY_BUFFERS |
+                        D3D12_HEAP_FLAG_DENY_NON_RT_DS_TEXTURES |
+                        D3D12_HEAP_FLAG_DENY_RT_DS_TEXTURES),
+                initial_state, optimized_clear_value, resource)))
+        {
+            ERR("Failed to create fallback committed resource.\n");
+        }
+        return hr;
+    }
+
     if (FAILED(hr = d3d12_resource_create(device, VKD3D_RESOURCE_PLACED, desc,
             &heap->desc.Properties, heap->desc.Flags, initial_state, optimized_clear_value, &object)))
         return hr;
