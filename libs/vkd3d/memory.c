@@ -165,6 +165,11 @@ void vkd3d_free_device_memory(struct d3d12_device *device, const struct vkd3d_de
         }
         pthread_mutex_unlock(&device->memory_info.budget_lock);
     }
+    else if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
+    {
+        INFO("Freeing memory of type %u, %"PRIu64" KiB.\n",
+                allocation->vk_memory_type, allocation->size / 1024);
+    }
 }
 
 static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
@@ -236,6 +241,12 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
                 }
             }
             pthread_mutex_unlock(&memory_info->budget_lock);
+        }
+        else if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
+        {
+            INFO("%s memory of type #%u, size %"PRIu64" KiB.\n",
+                    (vr == VK_SUCCESS ? "Allocated" : "Failed to allocate"),
+                    type_index, allocate_info.allocationSize / 1024);
         }
 
         if (vr == VK_SUCCESS)
