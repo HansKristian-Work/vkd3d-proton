@@ -164,8 +164,33 @@ CONST_VTBL struct ID3D12Heap1Vtbl d3d12_heap_vtbl =
     d3d12_heap_GetProtectedResourceSession,
 };
 
-static HRESULT validate_heap_desc(const D3D12_HEAP_DESC *desc)
+HRESULT d3d12_device_validate_custom_heap_type(struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties)
 {
+    if (heap_properties->Type != D3D12_HEAP_TYPE_CUSTOM)
+        return S_OK;
+
+    if (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_UNKNOWN
+            || (heap_properties->MemoryPoolPreference == D3D12_MEMORY_POOL_L1
+            && (is_cpu_accessible_heap(heap_properties) || d3d12_device_is_uma(device, NULL))))
+    {
+        WARN("Invalid memory pool preference.\n");
+        return E_INVALIDARG;
+    }
+
+    if (heap_properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_UNKNOWN)
+    {
+        WARN("Must have explicit CPU page property for CUSTOM heap type.\n");
+        return E_INVALIDARG;
+    }
+
+    return S_OK;
+}
+
+static HRESULT validate_heap_desc(struct d3d12_device *device, const D3D12_HEAP_DESC *desc)
+{
+    HRESULT hr;
+
     if (!desc->SizeInBytes)
     {
         WARN("Invalid size %"PRIu64".\n", desc->SizeInBytes);
@@ -184,6 +209,9 @@ static HRESULT validate_heap_desc(const D3D12_HEAP_DESC *desc)
         WARN("D3D12_HEAP_FLAG_ALLOW_DISPLAY is only for committed resources.\n");
         return E_INVALIDARG;
     }
+
+    if (FAILED(hr = d3d12_device_validate_custom_heap_type(device, &desc->Properties)))
+        return hr;
 
     return S_OK;
 }
@@ -207,7 +235,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap, struct d3d12_device *dev
     if (!heap->desc.Alignment)
         heap->desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
 
-    if (FAILED(hr = validate_heap_desc(&heap->desc)))
+    if (FAILED(hr = validate_heap_desc(device, &heap->desc)))
         return hr;
 
     alloc_info.heap_desc = heap->desc;
