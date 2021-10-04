@@ -252,6 +252,7 @@ decl_test(test_vrs_dxil);
 decl_test(test_vrs_image);
 decl_test(test_stress_suballocation);
 decl_test(test_stress_suballocation_multithread);
+decl_test(test_stress_suballocation_rebar);
 decl_test(test_placed_image_alignment);
 decl_test(test_root_parameter_preservation);
 decl_test(test_cbv_hoisting_sm51);

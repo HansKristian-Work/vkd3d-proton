@@ -2784,6 +2784,42 @@ void test_stress_suballocation_thread(void *userdata)
 #undef rand_r
 }
 
+void test_stress_suballocation_rebar(void)
+{
+    ID3D12Resource *resources_suballocate[4096];
+    ID3D12Resource *resources_direct[1024];
+    struct test_context context;
+    unsigned int i;
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    /* Spam allocate enough that we should either exhaust small BAR, or our budget.
+     * Verify that we don't collapse in such a situation. */
+
+    for (i = 0; i < ARRAY_SIZE(resources_suballocate); i++)
+    {
+        resources_suballocate[i] = create_upload_buffer(context.device, 256 * 1024, NULL);
+        ok(!!resources_suballocate[i], "Failed to create buffer.\n");
+    }
+
+    for (i = 0; i < ARRAY_SIZE(resources_suballocate); i++)
+        if (resources_suballocate[i])
+            ID3D12Resource_Release(resources_suballocate[i]);
+
+    for (i = 0; i < ARRAY_SIZE(resources_direct); i++)
+    {
+        resources_direct[i] = create_upload_buffer(context.device, 2 * 1024 * 1024, NULL);
+        ok(!!resources_direct[i], "Failed to create buffer.\n");
+    }
+
+    for (i = 0; i < ARRAY_SIZE(resources_direct); i++)
+        if (resources_direct[i])
+            ID3D12Resource_Release(resources_direct[i]);
+
+    destroy_test_context(&context);
+}
+
 void test_stress_suballocation(void)
 {
     struct suballocation_thread_data data;
