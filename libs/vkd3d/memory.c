@@ -144,6 +144,12 @@ void vkd3d_free_device_memory(struct d3d12_device *device, const struct vkd3d_de
     VkDeviceSize *type_current;
     bool budget_sensitive;
 
+    if (allocation->vk_memory == VK_NULL_HANDLE)
+    {
+        /* Deferred heap. Return early to skip confusing log messages. */
+        return;
+    }
+
     VK_CALL(vkFreeMemory(device->vk_device, allocation->vk_memory, NULL));
     budget_sensitive = !!(device->memory_info.budget_sensitive_mask & (1u << allocation->vk_memory_type));
     if (budget_sensitive)
@@ -1311,6 +1317,9 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
 void vkd3d_free_memory(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
         const struct vkd3d_memory_allocation *allocation)
 {
+    if (allocation->device_allocation.vk_memory == VK_NULL_HANDLE)
+        return;
+
     if (allocation->clear_semaphore_value)
         vkd3d_memory_allocator_wait_allocation(allocator, device, allocation);
 
