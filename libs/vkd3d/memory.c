@@ -1396,10 +1396,31 @@ HRESULT vkd3d_allocate_memory(struct d3d12_device *device, struct vkd3d_memory_a
     return hr;
 }
 
+static bool vkd3d_heap_allocation_accept_deferred_resource_placements(struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags)
+{
+    uint32_t type_mask;
+
+    /* Normally, if a memory allocation fails, we consider it an error, but there are some exceptions
+     * where we can defer memory allocation, like CreateHeap where fallback system memory type is not available.
+     * In this case, we will defer memory allocation until CreatePlacedResource() time, and we should
+     * accept that a memory allocation failed. */
+
+    /* Only accept deferrals for DEFAULT / CPU_NOT_AVAILABLE heaps.
+     * If we're going for host memory, we have nowhere left to fall back to either way. */
+    if (is_cpu_accessible_heap(heap_properties))
+        return false;
+
+    type_mask = vkd3d_select_memory_types(device, heap_properties, heap_flags);
+    return device->memory_properties.memoryHeapCount > 1 &&
+            !vkd3d_memory_info_type_mask_covers_multiple_memory_heaps(&device->memory_properties, type_mask);
+}
+
 HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
         const struct vkd3d_allocate_heap_memory_info *info, struct vkd3d_memory_allocation *allocation)
 {
     struct vkd3d_allocate_memory_info alloc_info;
+    HRESULT hr;
 
     memset(&alloc_info, 0, sizeof(alloc_info));
     alloc_info.memory_requirements.memoryTypeBits = ~0u;
@@ -1412,7 +1433,17 @@ HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_mem
     if (!(info->heap_desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
         alloc_info.flags |= VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER;
 
-    return vkd3d_allocate_memory(device, allocator, &alloc_info, allocation);
+    hr = vkd3d_allocate_memory(device, allocator, &alloc_info, allocation);
+    if (hr == E_OUTOFMEMORY && vkd3d_heap_allocation_accept_deferred_resource_placements(device,
+            &info->heap_desc.Properties, info->heap_desc.Flags))
+    {
+        /* It's okay and sometimes expected that we fail here.
+         * Defer allocation until CreatePlacedResource(). */
+        memset(allocation, 0, sizeof(*allocation));
+        hr = S_OK;
+    }
+
+    return hr;
 }
 
 HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer,
