@@ -1644,6 +1644,16 @@ static uint32_t vkd3d_spirv_build_op_glsl_std450_tr1(struct vkd3d_spirv_builder 
     return vkd3d_spirv_build_op_ext_inst(builder, result_type, id, op, &operand, 1);
 }
 
+static uint32_t vkd3d_spirv_build_op_glsl_std450_tr2(struct vkd3d_spirv_builder *builder,
+        enum GLSLstd450 op, uint32_t result_type, uint32_t operand0, uint32_t operand1)
+{
+    uint32_t operands[] = { operand0, operand1 };
+    uint32_t id;
+
+    id = vkd3d_spirv_get_glsl_std450_instr_set(builder);
+    return vkd3d_spirv_build_op_ext_inst(builder, result_type, id, op, operands, 2);
+}
+
 static uint32_t vkd3d_spirv_build_op_glsl_std450_fabs(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t operand)
 {
@@ -7948,7 +7958,7 @@ static void vkd3d_dxbc_compiler_emit_udiv(struct vkd3d_dxbc_compiler *compiler,
 static void vkd3d_dxbc_compiler_emit_bitfield_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    uint32_t src_ids[4], constituents[VKD3D_VEC4_SIZE], type_id, mask_id;
+    uint32_t src_ids[4], constituents[VKD3D_VEC4_SIZE], type_id, mask_id, max_bits_id, clamp_width;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
@@ -7963,6 +7973,7 @@ static void vkd3d_dxbc_compiler_emit_bitfield_instruction(struct vkd3d_dxbc_comp
     component_type = vkd3d_component_type_from_data_type(dst->reg.data_type);
     type_id = vkd3d_spirv_get_type_id(builder, component_type, 1);
     mask_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0x1f);
+    max_bits_id = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0x20);
 
     switch (instruction->handler_idx)
     {
@@ -7991,6 +8002,12 @@ static void vkd3d_dxbc_compiler_emit_bitfield_instruction(struct vkd3d_dxbc_comp
         {
             src_ids[j] = vkd3d_spirv_build_op_and(builder, type_id, src_ids[j], mask_id);
         }
+
+        /* In DXBC, offset + width >= 32 is well-defined, but not SPIR-V. We can achieve well-defined
+         * behavior in all cases by clamping width to 32 - offset. Offset is already masked to [0, 31] range. */
+        clamp_width = vkd3d_spirv_build_op_isub(builder, type_id, max_bits_id, src_ids[src_count - 2]);
+        src_ids[src_count - 1] = vkd3d_spirv_build_op_glsl_std450_tr2(builder, GLSLstd450UMin, type_id,
+                src_ids[src_count - 1], clamp_width);
 
         constituents[k++] = vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
                 op, type_id, src_ids, src_count);
