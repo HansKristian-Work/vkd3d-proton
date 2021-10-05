@@ -49,7 +49,7 @@
 #define MAKE_MAGIC(a,b,c,d) (((uint32_t)a) | (((uint32_t)b) << 8) | (((uint32_t)c) << 16) | (((uint32_t)d) << 24))
 
 #define VKD3D_MAX_COMPATIBLE_FORMAT_COUNT 6u
-#define VKD3D_MAX_SHADER_EXTENSIONS       2u
+#define VKD3D_MAX_SHADER_EXTENSIONS       3u
 #define VKD3D_MAX_SHADER_STAGES           5u
 #define VKD3D_MAX_VK_SYNC_OBJECTS         4u
 
@@ -122,6 +122,7 @@ struct vkd3d_vulkan_info
     bool KHR_create_renderpass2;
     bool KHR_sampler_mirror_clamp_to_edge;
     bool KHR_separate_depth_stencil_layouts;
+    bool KHR_shader_integer_dot_product;
     /* EXT device extensions */
     bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;
@@ -2662,6 +2663,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceFloatControlsPropertiesKHR float_control_properties;
     VkPhysicalDeviceFragmentShadingRatePropertiesKHR fragment_shading_rate_properties;
     VkPhysicalDeviceConservativeRasterizationPropertiesEXT conservative_rasterization_properties;
+    VkPhysicalDeviceShaderIntegerDotProductPropertiesKHR shader_integer_dot_product_properties;
 
     VkPhysicalDeviceProperties2KHR properties2;
 
@@ -2690,6 +2692,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceShaderDrawParametersFeatures shader_draw_parameters_features;
     VkPhysicalDeviceSubgroupSizeControlFeaturesEXT subgroup_size_control_features;
     VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR separate_depth_stencil_layout_features;
+    VkPhysicalDeviceShaderIntegerDotProductFeaturesKHR shader_integer_dot_product_features;
 
     VkPhysicalDeviceFeatures2 features2;
 

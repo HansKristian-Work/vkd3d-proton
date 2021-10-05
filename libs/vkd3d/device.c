@@ -74,6 +74,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_CREATE_RENDERPASS_2, KHR_create_renderpass2),
     VK_EXTENSION(KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE, KHR_sampler_mirror_clamp_to_edge),
     VK_EXTENSION(KHR_SEPARATE_DEPTH_STENCIL_LAYOUTS, KHR_separate_depth_stencil_layouts),
+    VK_EXTENSION(KHR_SHADER_INTEGER_DOT_PRODUCT, KHR_shader_integer_dot_product),
     /* EXT extensions */
     VK_EXTENSION(EXT_CALIBRATED_TIMESTAMPS, EXT_calibrated_timestamps),
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
@@ -1181,6 +1182,16 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->separate_depth_stencil_layout_features);
     }
 
+    if (vulkan_info->KHR_shader_integer_dot_product)
+    {
+        info->shader_integer_dot_product_features.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_FEATURES_KHR;
+        info->shader_integer_dot_product_properties.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_PROPERTIES_KHR;
+        vk_prepend_struct(&info->features2, &info->shader_integer_dot_product_features);
+        vk_prepend_struct(&info->properties2, &info->shader_integer_dot_product_properties);
+    }
+
     /* Core in Vulkan 1.1. */
     info->shader_draw_parameters_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES;
     vk_prepend_struct(&info->features2, &info->shader_draw_parameters_features);
@@ -1685,6 +1696,14 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     {
         vulkan_info->shader_extensions[vulkan_info->shader_extension_count++] =
                 VKD3D_SHADER_TARGET_EXTENSION_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION;
+    }
+
+    if (device->device_info.shader_integer_dot_product_features.shaderIntegerDotProduct &&
+            physical_device_info->shader_integer_dot_product_properties.integerDotProduct4x8BitPackedSignedAccelerated &&
+            physical_device_info->shader_integer_dot_product_properties.integerDotProduct4x8BitPackedUnsignedAccelerated)
+    {
+        vulkan_info->shader_extensions[vulkan_info->shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_SPV_KHR_INTEGER_DOT_PRODUCT;
     }
 
     if (physical_device_info->features2.features.shaderStorageImageReadWithoutFormat)
