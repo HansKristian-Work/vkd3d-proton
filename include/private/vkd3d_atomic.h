@@ -262,7 +262,7 @@ static inline uint64_t vkd3d_atomic_uint64_compare_exchange(UINT64* target, uint
 
 #endif
 
-#if defined(__x86_64__) || defined(_WIN64)
+#if INTPTR_MAX == INT64_MAX
 # define vkd3d_atomic_ptr_load_explicit(target, order)                       ((void *)vkd3d_atomic_uint64_load_explicit((uint64_t *)target, order))
 # define vkd3d_atomic_ptr_store_explicit(target, value, order)               (vkd3d_atomic_uint64_store_explicit((uint64_t *)target, (uint64_t)value, order))
 # define vkd3d_atomic_ptr_exchange_explicit(target, value, order)            ((void *)vkd3d_atomic_uint64_exchange_explicit((uint64_t *)target, (uint64_t)value, order))
