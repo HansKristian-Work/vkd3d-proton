@@ -1389,6 +1389,11 @@ void test_shader_sm64_packed(void)
     {
         { &cs_u8dot, { 0x010203ff, 0x05ff0708, 1000 }, 1000 + 1 * 5 + 2 * 255 + 3 * 7 + 255 * 8 },
         { &cs_i8dot, { 0x010203ff, 0x05ff0708, 1000 }, 1000 + 1 * 5 + 2 * (-1) + 3 * 7 + (-1) * 8 },
+        { &cs_u8dot, { 0x01010101, 0x01010101, 0xffffffffu }, 0x3u },
+        { &cs_i8dot, { 0x01010101, 0x01010101, 0x7fffffffu }, 0x80000003u },
+        { &cs_i8dot, { 0x01010101, 0x01010101, 0xffffffffu }, 0x00000003u },
+        { &cs_i8dot, { 0xffffffffu, 0x01010101, 0x80000003u }, 0x7fffffffu },
+        { &cs_i8dot, { 0xffffffffu, 0x01010101, 0x3u }, 0xffffffffu },
         { &cs_dot2add, { FP16_EXP2(0), FP16_EXP2(0), 0x3f800000 }, 0x40000000 }, /* 2 = 1 + (1 * 1 + 0 * 0) */
         { &cs_dot2add, { FP16_EXP2(0) | (FP16_EXP2(1) << 16), FP16_EXP2(2) | (FP16_EXP2(3) << 16), 0x3f800000 }, 0x41a80000 }, /* 21 = 1 + (1 * 4 + 2 * 8) */
         /* Carefully test inf behavior. Verify that the operation is acc += float(a.x * b.x) + float(a.y * b.y).
