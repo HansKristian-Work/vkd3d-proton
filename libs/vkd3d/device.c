@@ -4522,9 +4522,6 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
         return;
     }
 
-    if (build_info.build_info.mode == VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR)
-        FIXME("MODE_UPDATE_KHR in PrebuildInfo?\n");
-
     memset(&size_info, 0, sizeof(size_info));
     size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
 
