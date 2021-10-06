@@ -413,15 +413,16 @@ const struct vkd3d_shader_quirk_info *vkd3d_shader_quirk_info;
 
 struct vkd3d_instance_application_meta
 {
+    enum vkd3d_string_compare_mode mode;
     const char *name;
     uint64_t global_flags_add;
     uint64_t global_flags_remove;
 };
 static const struct vkd3d_instance_application_meta application_override[] = {
     /* MSVC fails to compile empty array. */
-    { "GravityMark.exe", VKD3D_CONFIG_FLAG_FORCE_MINIMUM_SUBGROUP_SIZE, 0 },
-    { "Deathloop.exe", VKD3D_CONFIG_FLAG_IGNORE_RTV_HOST_VISIBLE, 0 },
-    { NULL, 0, 0 }
+    { VKD3D_STRING_COMPARE_EXACT, "GravityMark.exe", VKD3D_CONFIG_FLAG_FORCE_MINIMUM_SUBGROUP_SIZE, 0 },
+    { VKD3D_STRING_COMPARE_EXACT, "Deathloop.exe", VKD3D_CONFIG_FLAG_IGNORE_RTV_HOST_VISIBLE, 0 },
+    { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
 };
 
 struct vkd3d_shader_quirk_meta
@@ -468,7 +469,7 @@ static void vkd3d_instance_apply_application_workarounds(void)
 
     for (i = 0; i < ARRAY_SIZE(application_override); i++)
     {
-        if (application_override[i].name && !strcmp(app, application_override[i].name))
+        if (vkd3d_string_compare(application_override[i].mode, app, application_override[i].name))
         {
             vkd3d_config_flags |= application_override[i].global_flags_add;
             vkd3d_config_flags &= ~application_override[i].global_flags_remove;
