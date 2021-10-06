@@ -116,6 +116,7 @@ struct vkd3d_vulkan_info
     bool KHR_acceleration_structure;
     bool KHR_deferred_host_operations;
     bool KHR_pipeline_library;
+    bool KHR_ray_query;
     bool KHR_spirv_1_4;
     bool KHR_shader_float_controls;
     bool KHR_fragment_shading_rate;
@@ -2715,6 +2716,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR separate_depth_stencil_layout_features;
     VkPhysicalDeviceShaderIntegerDotProductFeaturesKHR shader_integer_dot_product_features;
     VkPhysicalDeviceFragmentShaderBarycentricFeaturesNV barycentric_features_nv;
+    VkPhysicalDeviceRayQueryFeaturesKHR ray_query_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
