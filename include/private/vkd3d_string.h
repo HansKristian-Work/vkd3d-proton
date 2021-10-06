@@ -47,4 +47,35 @@ static inline bool vkd3d_string_ends_with(const char *str, const char *ending)
     return vkd3d_string_ends_with_n(str, strlen(str), ending, strlen(ending));
 }
 
+enum vkd3d_string_compare_mode
+{
+    VKD3D_STRING_COMPARE_NEVER,
+    VKD3D_STRING_COMPARE_ALWAYS,
+    VKD3D_STRING_COMPARE_EXACT,
+    VKD3D_STRING_COMPARE_STARTS_WITH,
+    VKD3D_STRING_COMPARE_ENDS_WITH,
+    VKD3D_STRING_COMPARE_CONTAINS,
+};
+
+static inline bool vkd3d_string_compare(enum vkd3d_string_compare_mode mode, const char *string, const char *comparator)
+{
+    switch (mode)
+    {
+        default:
+        case VKD3D_STRING_COMPARE_NEVER:
+            return false;
+        case VKD3D_STRING_COMPARE_ALWAYS:
+            return true;
+        case VKD3D_STRING_COMPARE_EXACT:
+            return !strcmp(string, comparator);
+        case VKD3D_STRING_COMPARE_STARTS_WITH:
+            return !strncmp(string, comparator, strlen(comparator));
+        case VKD3D_STRING_COMPARE_ENDS_WITH:
+            return vkd3d_string_ends_with(string, comparator);
+        case VKD3D_STRING_COMPARE_CONTAINS:
+            return strstr(string, comparator) != NULL;
+    }
+}
+
+
 #endif /* __VKD3D_STRING_H */
