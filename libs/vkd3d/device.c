@@ -427,6 +427,7 @@ static const struct vkd3d_instance_application_meta application_override[] = {
 
 struct vkd3d_shader_quirk_meta
 {
+    enum vkd3d_string_compare_mode mode;
     const char *name;
     const struct vkd3d_shader_quirk_info *info;
 };
@@ -453,11 +454,11 @@ static const struct vkd3d_shader_quirk_info f1_2020_quirks = {
 
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* Psychonauts 2 (607080) */
-    { "Psychonauts2-Win64-Shipping.exe", &psychonauts2_quirks },
+    { VKD3D_STRING_COMPARE_EXACT, "Psychonauts2-Win64-Shipping.exe", &psychonauts2_quirks },
     /* Necromunda: Hired Gun (1222370) */
-    { "Necromunda-Win64-Shipping.exe", &necromunda_quirks },
+    { VKD3D_STRING_COMPARE_EXACT, "Necromunda-Win64-Shipping.exe", &necromunda_quirks },
     /* F1 2020 (1080110) */
-    { "F1_2020_dx12.exe", &f1_2020_quirks },
+    { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2020_quirks },
 };
 
 static void vkd3d_instance_apply_application_workarounds(void)
@@ -481,7 +482,7 @@ static void vkd3d_instance_apply_application_workarounds(void)
 
     for (i = 0; i < ARRAY_SIZE(application_shader_quirks); i++)
     {
-        if (application_shader_quirks[i].name && !strcmp(app, application_shader_quirks[i].name))
+        if (vkd3d_string_compare(application_shader_quirks[i].mode, app, application_shader_quirks[i].name))
         {
             vkd3d_shader_quirk_info = application_shader_quirks[i].info;
             INFO("Detected game %s, adding shader quirks for specific shaders.\n", app);
