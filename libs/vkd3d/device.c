@@ -459,6 +459,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Necromunda-Win64-Shipping.exe", &necromunda_quirks },
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2020_quirks },
+    /* MSVC fails to compile empty array. */
+    { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
 };
 
 static void vkd3d_instance_apply_application_workarounds(void)
