@@ -432,20 +432,13 @@ struct vkd3d_shader_quirk_meta
     const struct vkd3d_shader_quirk_info *info;
 };
 
-static const struct vkd3d_shader_quirk_hash psychonauts2_hashes[] = {
+static const struct vkd3d_shader_quirk_hash ue4_hashes[] = {
     { 0x08a323ee81c1e393ull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
-};
-
-static const struct vkd3d_shader_quirk_info psychonauts2_quirks = {
-    psychonauts2_hashes, ARRAY_SIZE(psychonauts2_hashes), 0,
-};
-
-static const struct vkd3d_shader_quirk_hash necromunda_hashes[] = {
     { 0x75dcbd76ee898815ull, VKD3D_SHADER_QUIRK_FORCE_EXPLICIT_LOD_IN_CONTROL_FLOW },
 };
 
-static const struct vkd3d_shader_quirk_info necromunda_quirks = {
-    necromunda_hashes, ARRAY_SIZE(necromunda_hashes), 0,
+static const struct vkd3d_shader_quirk_info ue4_quirks = {
+    ue4_hashes, ARRAY_SIZE(ue4_hashes), 0,
 };
 
 static const struct vkd3d_shader_quirk_info f1_2020_quirks = {
@@ -453,10 +446,8 @@ static const struct vkd3d_shader_quirk_info f1_2020_quirks = {
 };
 
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
-    /* Psychonauts 2 (607080) */
-    { VKD3D_STRING_COMPARE_EXACT, "Psychonauts2-Win64-Shipping.exe", &psychonauts2_quirks },
-    /* Necromunda: Hired Gun (1222370) */
-    { VKD3D_STRING_COMPARE_EXACT, "Necromunda-Win64-Shipping.exe", &necromunda_quirks },
+    /* Unreal Engine 4 */
+    { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2020_quirks },
     /* MSVC fails to compile empty array. */
