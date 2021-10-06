@@ -68,6 +68,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION_COND(KHR_ACCELERATION_STRUCTURE, KHR_acceleration_structure, VKD3D_CONFIG_FLAG_DXR),
     VK_EXTENSION_COND(KHR_DEFERRED_HOST_OPERATIONS, KHR_deferred_host_operations, VKD3D_CONFIG_FLAG_DXR),
     VK_EXTENSION_COND(KHR_PIPELINE_LIBRARY, KHR_pipeline_library, VKD3D_CONFIG_FLAG_DXR),
+    VK_EXTENSION_COND(KHR_RAY_QUERY, KHR_ray_query, VKD3D_CONFIG_FLAG_DXR11),
     VK_EXTENSION(KHR_SPIRV_1_4, KHR_spirv_1_4),
     VK_EXTENSION(KHR_SHADER_FLOAT_CONTROLS, KHR_shader_float_controls),
     VK_EXTENSION(KHR_FRAGMENT_SHADING_RATE, KHR_fragment_shading_rate),
@@ -497,6 +498,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"debug_utils", VKD3D_CONFIG_FLAG_DEBUG_UTILS},
     {"force_static_cbv", VKD3D_CONFIG_FLAG_FORCE_STATIC_CBV},
     {"dxr", VKD3D_CONFIG_FLAG_DXR},
+    {"dxr11", VKD3D_CONFIG_FLAG_DXR | VKD3D_CONFIG_FLAG_DXR11},
     {"single_queue", VKD3D_CONFIG_FLAG_SINGLE_QUEUE},
     {"descriptor_qa_checks", VKD3D_CONFIG_FLAG_DESCRIPTOR_QA_CHECKS},
     {"force_rtv_exclusive_queue", VKD3D_CONFIG_FLAG_FORCE_RTV_EXCLUSIVE_QUEUE},
@@ -1159,6 +1161,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->ray_tracing_pipeline_features);
         vk_prepend_struct(&info->properties2, &info->acceleration_structure_properties);
         vk_prepend_struct(&info->properties2, &info->ray_tracing_pipeline_properties);
+    }
+
+    if (vulkan_info->KHR_ray_query)
+    {
+        info->ray_query_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->ray_query_features);
     }
 
     if (vulkan_info->KHR_shader_float_controls)
@@ -4700,14 +4708,31 @@ static D3D12_CONSERVATIVE_RASTERIZATION_TIER d3d12_device_determine_conservative
     return D3D12_CONSERVATIVE_RASTERIZATION_TIER_3;
 }
 
-static D3D12_RAYTRACING_TIER d3d12_device_determine_ray_tracing_tier(struct d3d12_device *device)
+static bool d3d12_device_supports_rtas_formats(struct d3d12_device *device, const VkFormat *format, size_t count)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
+    VkFormatProperties properties;
+    size_t i;
+
+    for (i = 0; i < count; i++)
+    {
+        VK_CALL(vkGetPhysicalDeviceFormatProperties(device->vk_physical_device, format[i], &properties));
+
+        if (!(properties.bufferFeatures & VK_FORMAT_FEATURE_ACCELERATION_STRUCTURE_VERTEX_BUFFER_BIT_KHR))
+        {
+            INFO("Vulkan format %u is not supported for RTAS VBO.\n", format[i]);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static D3D12_RAYTRACING_TIER d3d12_device_determine_ray_tracing_tier(struct d3d12_device *device)
+{
     const struct vkd3d_physical_device_info *info = &device->device_info;
     D3D12_RAYTRACING_TIER tier = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
-    VkFormatProperties properties;
     bool supports_vbo_formats;
-    unsigned int i;
 
     /* Tier 1.0 formats. 1.1 adds:
      * - RGBA8_{U,S}NORM
@@ -4723,6 +4748,16 @@ static D3D12_RAYTRACING_TIER d3d12_device_determine_ray_tracing_tier(struct d3d1
         VK_FORMAT_R16G16B16A16_SNORM,
     };
 
+    static const VkFormat required_vbo_formats_tier_11[] = {
+        VK_FORMAT_R16G16B16A16_UNORM,
+        VK_FORMAT_R16G16_UNORM,
+        VK_FORMAT_A2B10G10R10_UNORM_PACK32,
+        VK_FORMAT_R8G8B8A8_UNORM,
+        VK_FORMAT_R8G8_UNORM,
+        VK_FORMAT_R8G8B8A8_SNORM,
+        VK_FORMAT_R8G8_SNORM,
+    };
+
     if (info->ray_tracing_pipeline_features.rayTracingPipeline &&
         info->acceleration_structure_features.accelerationStructure &&
         info->ray_tracing_pipeline_properties.maxRayHitAttributeSize >= D3D12_RAYTRACING_MAX_ATTRIBUTE_SIZE_IN_BYTES &&
@@ -4735,19 +4770,8 @@ static D3D12_RAYTRACING_TIER d3d12_device_determine_ray_tracing_tier(struct d3d1
     {
         /* DXR has 31 ray depth min-spec, but no content uses that. We will instead pass through implementations
          * which only expose 1 level of recursion and fail PSO compiles if they actually exceed device limits. */
-        supports_vbo_formats = true;
-        for (i = 0; i < ARRAY_SIZE(required_vbo_formats); i++)
-        {
-            VK_CALL(vkGetPhysicalDeviceFormatProperties(device->vk_physical_device,
-                    required_vbo_formats[i],
-                    &properties));
-
-            if (!(properties.bufferFeatures & VK_FORMAT_FEATURE_ACCELERATION_STRUCTURE_VERTEX_BUFFER_BIT_KHR))
-            {
-                supports_vbo_formats = false;
-                INFO("Vulkan format %u is not supported for RTAS VBO, cannot support DXR tier 1.0.\n", required_vbo_formats[i]);
-            }
-        }
+        supports_vbo_formats = d3d12_device_supports_rtas_formats(device,
+                required_vbo_formats, ARRAY_SIZE(required_vbo_formats));
 
         if (supports_vbo_formats)
         {
@@ -4758,6 +4782,20 @@ static D3D12_RAYTRACING_TIER d3d12_device_determine_ray_tracing_tier(struct d3d1
             }
             else
                 INFO("Could enable DXR, but VKD3D_CONFIG=dxr is not used.\n");
+        }
+    }
+
+    if (tier == D3D12_RAYTRACING_TIER_1_0 && info->ray_query_features.rayQuery)
+    {
+        /* Try to enable DXR 1.1. We can only support RayQuery from 1.1 with existing spec,
+         * so only check for things we can support. */
+        supports_vbo_formats = d3d12_device_supports_rtas_formats(device,
+                required_vbo_formats_tier_11, ARRAY_SIZE(required_vbo_formats_tier_11));
+
+        if (supports_vbo_formats)
+        {
+            INFO("DXR 1.1 support enabled.\n");
+            tier = D3D12_RAYTRACING_TIER_1_1;
         }
     }
 
