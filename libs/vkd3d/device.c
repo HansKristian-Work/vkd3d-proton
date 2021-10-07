@@ -4099,7 +4099,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePipelineLibrary(d3d12_device
         const void *blob, SIZE_T blob_size, REFIID iid, void **lib)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    struct d3d12_pipeline_library* pipeline_library;
+    struct d3d12_pipeline_library *pipeline_library;
     HRESULT hr;
 
     TRACE("iface %p, blob %p, blob_size %lu, iid %s, lib %p.\n",
@@ -4108,8 +4108,16 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePipelineLibrary(d3d12_device
     if (FAILED(hr = d3d12_pipeline_library_create(device, blob, blob_size, &pipeline_library)))
         return hr;
 
-    return return_interface(&pipeline_library->ID3D12PipelineLibrary_iface,
-            &IID_ID3D12PipelineLibrary, iid, lib);
+    if (lib)
+    {
+        return return_interface(&pipeline_library->ID3D12PipelineLibrary_iface,
+                &IID_ID3D12PipelineLibrary, iid, lib);
+    }
+    else
+    {
+        ID3D12PipelineLibrary_Release(&pipeline_library->ID3D12PipelineLibrary_iface);
+        return S_FALSE;
+    }
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_SetEventOnMultipleFenceCompletion(d3d12_device_iface *iface,
