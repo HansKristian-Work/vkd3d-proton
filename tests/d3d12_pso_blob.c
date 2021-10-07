@@ -156,7 +156,11 @@ void test_pipeline_library(void)
 
     /* Test adding pipelines to an empty pipeline library */
     hr = ID3D12Device1_CreatePipelineLibrary(device1, NULL, 0, &IID_ID3D12PipelineLibrary, (void**)&pipeline_library);
-    ok(hr == S_OK, "Failed to create pipeline library, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create pipeline library, hr %#x.\n", hr);
+
+    /* ppData == NULL means a query */
+    hr = ID3D12Device1_CreatePipelineLibrary(device1, NULL, 0, NULL, NULL);
+    ok(hr == S_FALSE, "Failed to query pipeline library, hr %#x.\n", hr);
 
     memset(&root_signature_desc, 0, sizeof(root_signature_desc));
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
