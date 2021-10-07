@@ -432,6 +432,31 @@ static void create_acceleration_structure(struct raytracing_test_context *contex
     else
         rtas->scratch_update = NULL;
 
+    /* Verify how the build mode behaves here. */
+    {
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS tmp_inputs = *inputs;
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO tmp_prebuild_info;
+
+        /* We should ignore this flag when querying prebuild info.
+         * Deduced by: Equal sizes, no validation errors.
+         * Vulkan does not seem to care either, and this trips validation
+         * errors in neither D3D12 nor Vulkan. */
+        tmp_inputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
+        ID3D12Device5_GetRaytracingAccelerationStructurePrebuildInfo(context->device5, &tmp_inputs, &tmp_prebuild_info);
+        ok(tmp_prebuild_info.ResultDataMaxSizeInBytes == prebuild_info.ResultDataMaxSizeInBytes,
+                "Size mismatch, %"PRIu64" != %"PRIu64".\n",
+                tmp_prebuild_info.ResultDataMaxSizeInBytes,
+                prebuild_info.ResultDataMaxSizeInBytes);
+        ok(tmp_prebuild_info.ScratchDataSizeInBytes == prebuild_info.ScratchDataSizeInBytes,
+                "Size mismatch, %"PRIu64" != %"PRIu64".\n",
+                tmp_prebuild_info.ScratchDataSizeInBytes,
+                prebuild_info.ScratchDataSizeInBytes);
+        ok(tmp_prebuild_info.UpdateScratchDataSizeInBytes == prebuild_info.UpdateScratchDataSizeInBytes,
+                "Size mismatch, %"PRIu64" != %"PRIu64".\n",
+                tmp_prebuild_info.UpdateScratchDataSizeInBytes,
+                prebuild_info.UpdateScratchDataSizeInBytes);
+    }
+
     rtas->rtas = create_default_buffer(context->context.device,
             prebuild_info.ResultDataMaxSizeInBytes,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
