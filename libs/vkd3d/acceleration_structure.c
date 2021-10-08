@@ -71,6 +71,7 @@ bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *devi
     VkAccelerationStructureBuildGeometryInfoKHR *build_info;
     VkAccelerationStructureGeometryAabbsDataKHR *aabbs;
     const D3D12_RAYTRACING_GEOMETRY_DESC *geom_desc;
+    bool have_triangles, have_aabbs;
     unsigned int i;
 
     build_info = &info->build_info;
@@ -111,6 +112,9 @@ bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *devi
     }
     else
     {
+        have_triangles = false;
+        have_aabbs = false;
+
         if (desc->NumDescs <= VKD3D_BUILD_INFO_STACK_COUNT)
         {
             memset(info->geometries, 0, sizeof(*info->geometries) * desc->NumDescs);
@@ -139,6 +143,14 @@ bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *devi
             switch (geom_desc->Type)
             {
                 case D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES:
+                    /* Runtime validates this. */
+                    if (have_aabbs)
+                    {
+                        ERR("Cannot mix and match geometry types in a BLAS.\n");
+                        return false;
+                    }
+                    have_triangles = true;
+
                     info->geometries[i].geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
                     triangles = &info->geometries[i].geometry.triangles;
                     triangles->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
@@ -164,6 +176,14 @@ bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *devi
                     break;
 
                 case D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS:
+                    /* Runtime validates this. */
+                    if (have_triangles)
+                    {
+                        ERR("Cannot mix and match geometry types in a BLAS.\n");
+                        return false;
+                    }
+                    have_aabbs = true;
+
                     info->geometries[i].geometryType = VK_GEOMETRY_TYPE_AABBS_KHR;
                     aabbs = &info->geometries[i].geometry.aabbs;
                     aabbs->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_AABBS_DATA_KHR;
