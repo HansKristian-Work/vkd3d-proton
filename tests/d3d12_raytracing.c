@@ -36,7 +36,7 @@ static void destroy_raytracing_test_context(struct raytracing_test_context *cont
     destroy_test_context(&context->context);
 }
 
-static bool init_raytracing_test_context(struct raytracing_test_context *context)
+static bool init_raytracing_test_context(struct raytracing_test_context *context, D3D12_RAYTRACING_TIER tier)
 {
     if (!init_compute_test_context(&context->context))
         return false;
@@ -65,9 +65,9 @@ static bool init_raytracing_test_context(struct raytracing_test_context *context
     {
         D3D12_FEATURE_DATA_D3D12_OPTIONS5 opts5;
         if (FAILED(ID3D12Device5_CheckFeatureSupport(context->device5, D3D12_FEATURE_D3D12_OPTIONS5, &opts5, sizeof(opts5))) ||
-                opts5.RaytracingTier < D3D12_RAYTRACING_TIER_1_0)
+                opts5.RaytracingTier < tier)
         {
-            skip("Raytracing tier 1.0 is not supported on this device. Skipping RT test.\n");
+            skip("Raytracing tier #%x is not supported on this device. Skipping RT test.\n", tier);
             ID3D12Device5_Release(context->device5);
             ID3D12GraphicsCommandList4_Release(context->list4);
             destroy_test_context(&context->context);
@@ -1141,7 +1141,7 @@ void test_raytracing(void)
     ID3D12Resource *sbt;
     HRESULT hr;
 
-    if (!init_raytracing_test_context(&context))
+    if (!init_raytracing_test_context(&context, D3D12_RAYTRACING_TIER_1_0))
         return;
 
     device = context.context.device;
@@ -1653,7 +1653,7 @@ void test_raytracing_local_rs_static_sampler(void)
     ID3D12Resource *uav;
     ID3D12Resource *sbt;
 
-    if (!init_raytracing_test_context(&context))
+    if (!init_raytracing_test_context(&context, D3D12_RAYTRACING_TIER_1_0))
         return;
 
     device = context.context.device;
