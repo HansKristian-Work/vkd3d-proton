@@ -1118,6 +1118,21 @@ static unsigned int rt_pso_factory_add_pipeline_config(struct rt_pso_factory *fa
     return rt_pso_factory_add_subobject(factory, &desc);
 }
 
+static unsigned int rt_pso_factory_add_pipeline_config1(struct rt_pso_factory *factory, unsigned int recursion_depth,
+        D3D12_RAYTRACING_PIPELINE_FLAGS flags)
+{
+    D3D12_RAYTRACING_PIPELINE_CONFIG1 *config;
+    D3D12_STATE_SUBOBJECT desc;
+
+    config = rt_pso_factory_calloc(factory, 1, sizeof(*config));
+    config->MaxTraceRecursionDepth = recursion_depth;
+    config->Flags = flags;
+
+    desc.Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG1;
+    desc.pDesc = config;
+    return rt_pso_factory_add_subobject(factory, &desc);
+}
+
 static unsigned int rt_pso_factory_add_shader_config(struct rt_pso_factory *factory,
         unsigned int attrib_size, unsigned int payload_size)
 {
@@ -1254,10 +1269,22 @@ static ID3D12StateObject *rt_pso_factory_compile(struct raytracing_test_context 
     return rt_pso;
 }
 
+enum rt_test_mode
+{
+    TEST_MODE_PLAIN,
+    TEST_MODE_TRACE_RAY_FORCE_OPAQUE,
+    TEST_MODE_TRACE_RAY_FORCE_NON_OPAQUE,
+    TEST_MODE_TRACE_RAY_SKIP_TRIANGLES,
+    TEST_MODE_TRACE_RAY_SKIP_AABBS,
+    TEST_MODE_PSO_SKIP_TRIANGLES,
+    TEST_MODE_PSO_SKIP_AABBS,
+};
+
 static ID3D12StateObject *create_rt_collection(struct raytracing_test_context *context,
         unsigned int num_exports, D3D12_EXPORT_DESC *exports,
         const D3D12_HIT_GROUP_DESC *hit_group,
-        ID3D12RootSignature *global_rs, ID3D12RootSignature *local_rs)
+        ID3D12RootSignature *global_rs, ID3D12RootSignature *local_rs,
+        enum rt_test_mode test_mode)
 {
     struct rt_pso_factory factory;
 
@@ -1265,7 +1292,14 @@ static ID3D12StateObject *create_rt_collection(struct raytracing_test_context *c
 
     rt_pso_factory_add_state_object_config(&factory,
             D3D12_STATE_OBJECT_FLAG_ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL_DEFINITIONS);
-    rt_pso_factory_add_pipeline_config(&factory, 1);
+
+    if (test_mode == TEST_MODE_PSO_SKIP_TRIANGLES)
+        rt_pso_factory_add_pipeline_config1(&factory, 1, D3D12_RAYTRACING_PIPELINE_FLAG_SKIP_TRIANGLES);
+    else if (test_mode == TEST_MODE_PSO_SKIP_AABBS)
+        rt_pso_factory_add_pipeline_config1(&factory, 1, D3D12_RAYTRACING_PIPELINE_FLAG_SKIP_PROCEDURAL_PRIMITIVES);
+    else
+        rt_pso_factory_add_pipeline_config(&factory, 1);
+
     rt_pso_factory_add_shader_config(&factory, 8, 8);
 
     if (global_rs)
@@ -1281,15 +1315,6 @@ static ID3D12StateObject *create_rt_collection(struct raytracing_test_context *c
 
     return rt_pso_factory_compile(context, &factory, D3D12_STATE_OBJECT_TYPE_COLLECTION);
 }
-
-enum rt_test_mode
-{
-    TEST_MODE_PLAIN,
-    TEST_MODE_TRACE_RAY_FORCE_OPAQUE,
-    TEST_MODE_TRACE_RAY_FORCE_NON_OPAQUE,
-    TEST_MODE_TRACE_RAY_SKIP_TRIANGLES,
-    TEST_MODE_TRACE_RAY_SKIP_AABBS,
-};
 
 static uint32_t test_mode_to_trace_flags(enum rt_test_mode mode)
 {
@@ -1460,7 +1485,7 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
 
         rt_object_library_tri = create_rt_collection(&context,
                 ARRAY_SIZE(dxil_exports), dxil_exports,
-                &hit_group, global_rs, local_rs);
+                &hit_group, global_rs, local_rs, mode);
     }
 
     /* Create RT collection (AABB). */
@@ -1481,7 +1506,7 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
 
         rt_object_library_aabb = create_rt_collection(&context,
                 ARRAY_SIZE(dxil_exports), dxil_exports,
-                &hit_group, global_rs, local_rs);
+                &hit_group, global_rs, local_rs, mode);
     }
 
     /* Create RT PSO. */
@@ -1501,7 +1526,14 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
 
         rt_pso_factory_add_state_object_config(&factory, D3D12_STATE_OBJECT_FLAG_NONE);
         rt_pso_factory_add_global_root_signature(&factory, global_rs);
-        rt_pso_factory_add_pipeline_config(&factory, 1);
+
+        if (mode == TEST_MODE_PSO_SKIP_TRIANGLES)
+            rt_pso_factory_add_pipeline_config1(&factory, 1, D3D12_RAYTRACING_PIPELINE_FLAG_SKIP_TRIANGLES);
+        else if (mode == TEST_MODE_PSO_SKIP_AABBS)
+            rt_pso_factory_add_pipeline_config1(&factory, 1, D3D12_RAYTRACING_PIPELINE_FLAG_SKIP_PROCEDURAL_PRIMITIVES);
+        else
+            rt_pso_factory_add_pipeline_config(&factory, 1);
+
         rt_pso_factory_add_shader_config(&factory, 8, 8);
         /* All entry points are exported by default. Test with custom exports, because why not. */
         rt_pso_factory_add_dxil_library(&factory, get_default_rt_lib(), ARRAY_SIZE(dxil_exports), dxil_exports);
@@ -1868,8 +1900,8 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
                 if (!use_aabb && (i & 3) == 0)
                     expect_hit = true; /* Use an SBT without any-hit shader, so opaque flags don't matter. */
 
-                if ((use_aabb && mode == TEST_MODE_TRACE_RAY_SKIP_AABBS) ||
-                        (!use_aabb && mode == TEST_MODE_TRACE_RAY_SKIP_TRIANGLES))
+                if ((use_aabb && (mode == TEST_MODE_TRACE_RAY_SKIP_AABBS || mode == TEST_MODE_PSO_SKIP_AABBS)) ||
+                        (!use_aabb && (mode == TEST_MODE_TRACE_RAY_SKIP_TRIANGLES || mode == TEST_MODE_PSO_SKIP_TRIANGLES)))
                 {
                     expect_hit = false;
                     culled = true;
@@ -1999,6 +2031,8 @@ void test_raytracing(void)
         { TEST_MODE_TRACE_RAY_FORCE_NON_OPAQUE, D3D12_RAYTRACING_TIER_1_0, "TraceRayForceNonOpaque" },
         { TEST_MODE_TRACE_RAY_SKIP_TRIANGLES, D3D12_RAYTRACING_TIER_1_1, "TraceRaySkipTriangles" },
         { TEST_MODE_TRACE_RAY_SKIP_AABBS, D3D12_RAYTRACING_TIER_1_1, "TraceRaySkipAABBs" },
+        { TEST_MODE_PSO_SKIP_TRIANGLES, D3D12_RAYTRACING_TIER_1_1, "PSOSkipTriangles" },
+        { TEST_MODE_PSO_SKIP_AABBS, D3D12_RAYTRACING_TIER_1_1, "PSOSkipAABBs" },
     };
 
     unsigned int i;
