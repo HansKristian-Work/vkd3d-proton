@@ -733,7 +733,7 @@ static VkDeviceSize d3d12_state_object_pipeline_data_compute_default_stack_size(
         if (export->stack_size_intersection != UINT32_MAX)
             stack.max_intersect = max(stack.max_intersect, export->stack_size_intersection);
         if (export->stack_size_any != UINT32_MAX)
-            stack.max_anyhit = max(stack.max_anyhit, export->stack_size_intersection);
+            stack.max_anyhit = max(stack.max_anyhit, export->stack_size_any);
     }
 
     for (i = 0; i < data->collections_count; i++)
