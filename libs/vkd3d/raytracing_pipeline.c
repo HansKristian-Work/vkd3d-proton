@@ -346,7 +346,9 @@ struct d3d12_state_object_collection
 
 struct d3d12_state_object_pipeline_data
 {
-    const D3D12_RAYTRACING_PIPELINE_CONFIG *pipeline_config;
+    D3D12_RAYTRACING_PIPELINE_CONFIG1 pipeline_config;
+    bool has_pipeline_config;
+
     const D3D12_RAYTRACING_SHADER_CONFIG *shader_config;
     ID3D12RootSignature *global_root_signature;
     ID3D12RootSignature *high_priority_local_root_signature;
@@ -505,12 +507,35 @@ static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *ob
 
             case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG:
             {
-                if (data->pipeline_config && memcmp(data->pipeline_config, obj->pDesc, sizeof(*data->pipeline_config)) != 0)
+                const D3D12_RAYTRACING_PIPELINE_CONFIG *pipeline_config;
+                D3D12_RAYTRACING_PIPELINE_CONFIG1 config1;
+
+                pipeline_config = obj->pDesc;
+                config1.Flags = 0;
+                config1.MaxTraceRecursionDepth = pipeline_config->MaxTraceRecursionDepth;
+
+                if (data->has_pipeline_config &&
+                        memcmp(&data->pipeline_config, &config1, sizeof(config1)) != 0)
                 {
                     ERR("RAYTRACING_PIPELINE_CONFIG must match if multiple objects are present.\n");
                     return E_INVALIDARG;
                 }
-                data->pipeline_config = obj->pDesc;
+                data->has_pipeline_config = true;
+                data->pipeline_config = config1;
+                break;
+            }
+
+            case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG1:
+            {
+                const D3D12_RAYTRACING_PIPELINE_CONFIG1 *pipeline_config = obj->pDesc;
+                if (data->has_pipeline_config &&
+                        memcmp(&data->pipeline_config, pipeline_config, sizeof(*pipeline_config)) != 0)
+                {
+                    ERR("RAYTRACING_PIPELINE_CONFIG1 must match if multiple objects are present.\n");
+                    return E_INVALIDARG;
+                }
+                data->has_pipeline_config = true;
+                data->pipeline_config = *pipeline_config;
                 break;
             }
 
@@ -585,7 +610,7 @@ static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *ob
         }
     }
 
-    if (!data->pipeline_config)
+    if (!data->has_pipeline_config)
     {
         ERR("Must have pipeline config.\n");
         return E_INVALIDARG;
@@ -1302,7 +1327,12 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     pipeline_create_info.pLibraryInfo = &library_info;
     pipeline_create_info.pLibraryInterface = &interface_create_info;
     pipeline_create_info.pDynamicState = &dynamic_state;
-    pipeline_create_info.maxPipelineRayRecursionDepth = data->pipeline_config->MaxTraceRecursionDepth;
+    pipeline_create_info.maxPipelineRayRecursionDepth = data->pipeline_config.MaxTraceRecursionDepth;
+
+    if (data->pipeline_config.Flags & D3D12_RAYTRACING_PIPELINE_FLAG_SKIP_TRIANGLES)
+        pipeline_create_info.flags |= VK_PIPELINE_CREATE_RAY_TRACING_SKIP_TRIANGLES_BIT_KHR;
+    if (data->pipeline_config.Flags & D3D12_RAYTRACING_PIPELINE_FLAG_SKIP_PROCEDURAL_PRIMITIVES)
+        pipeline_create_info.flags |= VK_PIPELINE_CREATE_RAY_TRACING_SKIP_AABBS_BIT_KHR;
 
     library_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LIBRARY_CREATE_INFO_KHR;
     library_info.pNext = NULL;
@@ -1314,13 +1344,13 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     interface_create_info.maxPipelineRayPayloadSize = data->shader_config->MaxPayloadSizeInBytes;
     interface_create_info.maxPipelineRayHitAttributeSize = data->shader_config->MaxAttributeSizeInBytes;
 
-    if (data->pipeline_config->MaxTraceRecursionDepth >
+    if (data->pipeline_config.MaxTraceRecursionDepth >
             object->device->device_info.ray_tracing_pipeline_properties.maxRayRecursionDepth)
     {
         /* We cannot do anything about this, since we let sub-minspec devices through,
          * and this content actually tries to use recursion. */
         ERR("MaxTraceRecursionDepth %u exceeds device limit of %u.\n",
-                data->pipeline_config->MaxTraceRecursionDepth,
+                data->pipeline_config.MaxTraceRecursionDepth,
                 object->device->device_info.ray_tracing_pipeline_properties.maxRayRecursionDepth);
         return E_INVALIDARG;
     }
