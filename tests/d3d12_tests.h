@@ -282,3 +282,4 @@ decl_test(test_integer_blending_pipeline_state);
 decl_test(test_discard_resource_uav);
 decl_test(test_unbound_rtv_rendering);
 decl_test(test_raytracing_local_rs_static_sampler);
+decl_test(test_rayquery);
