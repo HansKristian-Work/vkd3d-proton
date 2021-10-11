@@ -49,7 +49,7 @@
 #define MAKE_MAGIC(a,b,c,d) (((uint32_t)a) | (((uint32_t)b) << 8) | (((uint32_t)c) << 16) | (((uint32_t)d) << 24))
 
 #define VKD3D_MAX_COMPATIBLE_FORMAT_COUNT 6u
-#define VKD3D_MAX_SHADER_EXTENSIONS       3u
+#define VKD3D_MAX_SHADER_EXTENSIONS       4u
 #define VKD3D_MAX_SHADER_STAGES           5u
 #define VKD3D_MAX_VK_SYNC_OBJECTS         4u
 
