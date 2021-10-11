@@ -1151,6 +1151,19 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
                     goto end;
                 }
             }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_RAY_TRACING_PRIMITIVE_CULLING)
+            {
+                /* Only relevant for ray tracing pipelines. Ray query requires support for PrimitiveCulling feature,
+                 * and the SPIR-V capability is implicitly enabled. */
+                static const dxil_spv_option_shader_ray_tracing_primitive_culling helper =
+                        { { DXIL_SPV_OPTION_SHADER_RAY_TRACING_PRIMITIVE_CULLING }, DXIL_SPV_TRUE };
+                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support RAY_TRACING_PRIMITIVE_CULLING.\n");
+                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+                    goto end;
+                }
+            }
         }
     }
 
