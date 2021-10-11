@@ -1723,6 +1723,12 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
                 VKD3D_SHADER_TARGET_EXTENSION_READ_STORAGE_IMAGE_WITHOUT_FORMAT;
     }
 
+    if (device->device_info.ray_tracing_pipeline_features.rayTraversalPrimitiveCulling)
+    {
+        vulkan_info->shader_extensions[vulkan_info->shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_RAY_TRACING_PRIMITIVE_CULLING;
+    }
+
     /* Disable unused Vulkan features. */
     features->shaderTessellationAndGeometryPointSize = VK_FALSE;
 
