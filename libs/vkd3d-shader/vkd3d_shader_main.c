@@ -730,8 +730,8 @@ uint32_t vkd3d_shader_compile_arguments_select_quirks(
     {
         for (i = 0; i < compile_args->quirks->num_hashes; i++)
             if (compile_args->quirks->hashes[i].shader_hash == shader_hash)
-                return compile_args->quirks->hashes[i].quirks;
-        return compile_args->quirks->default_quirks;
+                return compile_args->quirks->hashes[i].quirks | compile_args->quirks->global_quirks;
+        return compile_args->quirks->default_quirks | compile_args->quirks->global_quirks;
     }
     else
         return 0;
