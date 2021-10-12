@@ -424,6 +424,12 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     /* MSVC fails to compile empty array. */
     { VKD3D_STRING_COMPARE_EXACT, "GravityMark.exe", VKD3D_CONFIG_FLAG_FORCE_MINIMUM_SUBGROUP_SIZE, 0 },
     { VKD3D_STRING_COMPARE_EXACT, "Deathloop.exe", VKD3D_CONFIG_FLAG_IGNORE_RTV_HOST_VISIBLE, 0 },
+    /* Shadow of the Tomb Raider (750920).
+     * Invariant workarounds actually cause more issues than they resolve on NV.
+     * RADV already has workarounds by default.
+     * FIXME: The proper workaround will be a workaround which force-emits mul + add + precise. The vertex shaders
+     * are broken enough that normal invariance is not enough. */
+    { VKD3D_STRING_COMPARE_EXACT, "SOTTR.exe", VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION, 0 },
     { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
 };
 
@@ -486,6 +492,30 @@ static void vkd3d_instance_apply_application_workarounds(void)
     }
 }
 
+static void vkd3d_instance_apply_global_shader_quirks(void)
+{
+    struct override
+    {
+        uint64_t config;
+        uint32_t quirk;
+        bool negative;
+    };
+
+    static const struct override overrides[] =
+    {
+        { VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION, VKD3D_SHADER_QUIRK_INVARIANT_POSITION, true },
+    };
+    uint64_t eq_test;
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(overrides); i++)
+    {
+        eq_test = overrides[i].negative ? 0 : overrides[i].config;
+        if ((vkd3d_config_flags & overrides[i].config) == eq_test)
+            vkd3d_shader_quirk_info.global_quirks |= overrides[i].quirk;
+    }
+}
+
 static const struct vkd3d_debug_option vkd3d_config_options[] =
 {
     /* Enable Vulkan debug extensions. */
@@ -503,6 +533,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"no_upload_hvv", VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV},
     {"log_memory_budget", VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET},
     {"force_host_cached", VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED},
+    {"no_invariant_position", VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -514,6 +545,8 @@ static void vkd3d_config_flags_init_once(void)
 
     if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS))
         vkd3d_instance_apply_application_workarounds();
+
+    vkd3d_instance_apply_global_shader_quirks();
 
 #ifdef VKD3D_ENABLE_RENDERDOC
     /* Enable debug utils by default for Renderdoc builds */
