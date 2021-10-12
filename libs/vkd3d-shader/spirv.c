@@ -3845,8 +3845,14 @@ static void vkd3d_dxbc_compiler_emit_store_dst_scalar(struct vkd3d_dxbc_compiler
     vkd3d_dxbc_compiler_emit_store_dst_components(compiler, dst, component_type, component_ids);
 }
 
+static bool vkd3d_dxbc_compiler_has_quirk(struct vkd3d_dxbc_compiler *compiler,
+        enum vkd3d_shader_quirk quirk)
+{
+    return !!(compiler->quirks & quirk);
+}
+
 static void vkd3d_dxbc_compiler_decorate_builtin(struct vkd3d_dxbc_compiler *compiler,
-        uint32_t target_id, SpvBuiltIn builtin)
+        uint32_t target_id, SpvBuiltIn builtin, SpvStorageClass storage_class)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
 
@@ -3882,6 +3888,13 @@ static void vkd3d_dxbc_compiler_decorate_builtin(struct vkd3d_dxbc_compiler *com
             break;
         case SpvBuiltInCullDistance:
             vkd3d_spirv_enable_capability(builder, SpvCapabilityCullDistance);
+            break;
+        case SpvBuiltInPosition:
+            if (storage_class == SpvStorageClassOutput &&
+                    vkd3d_dxbc_compiler_has_quirk(compiler, VKD3D_SHADER_QUIRK_INVARIANT_POSITION))
+            {
+                vkd3d_spirv_build_op_decorate(builder, target_id, SpvDecorationInvariant, NULL, 0);
+            }
             break;
         default:
             break;
@@ -3961,7 +3974,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_draw_parameter_fixup(struct vkd3d_dxbc_
     base_var_id = vkd3d_dxbc_compiler_emit_variable(compiler, &builder->global_stream,
             SpvStorageClassInput, VKD3D_TYPE_INT, 1);
     vkd3d_spirv_add_iface_variable(builder, base_var_id);
-    vkd3d_dxbc_compiler_decorate_builtin(compiler, base_var_id, base);
+    vkd3d_dxbc_compiler_decorate_builtin(compiler, base_var_id, base, SpvStorageClassInput);
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_INT, 1);
     base_id = vkd3d_spirv_build_op_load(builder,
@@ -4364,7 +4377,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_builtin_variable(struct vkd3d_dxbc_comp
             &builder->global_stream, storage_class,
             builtin->component_type, builtin->component_count, array_size);
     vkd3d_spirv_add_iface_variable(builder, id);
-    vkd3d_dxbc_compiler_decorate_builtin(compiler, id, builtin->spirv_builtin);
+    vkd3d_dxbc_compiler_decorate_builtin(compiler, id, builtin->spirv_builtin, storage_class);
 
     if (compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL && storage_class == SpvStorageClassInput
             && builtin->component_type != VKD3D_TYPE_FLOAT && builtin->component_type != VKD3D_TYPE_BOOL)
@@ -9063,12 +9076,6 @@ static void vkd3d_dxbc_compiler_emit_lod(struct vkd3d_dxbc_compiler *compiler,
 
     vkd3d_dxbc_compiler_emit_store_dst_swizzled(compiler,
             dst, val_id, image.sampled_type, resource->swizzle);
-}
-
-static bool vkd3d_dxbc_compiler_has_quirk(struct vkd3d_dxbc_compiler *compiler,
-        enum vkd3d_shader_quirk quirk)
-{
-    return !!(compiler->quirks & quirk);
 }
 
 static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler,

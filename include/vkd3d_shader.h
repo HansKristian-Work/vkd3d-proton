@@ -307,6 +307,10 @@ enum vkd3d_shader_quirk
     /* After every write to group shared memory, force a memory barrier.
      * This works around buggy games which forget to use barrier(). */
     VKD3D_SHADER_QUIRK_FORCE_TGSM_BARRIERS = (1 << 1),
+
+    /* For Position builtins in Output storage class, emit Invariant decoration.
+     * Normally, games have to emit Precise math for position, but if they forget ... */
+    VKD3D_SHADER_QUIRK_INVARIANT_POSITION = (1 << 2),
 };
 
 struct vkd3d_shader_quirk_hash

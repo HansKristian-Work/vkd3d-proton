@@ -490,6 +490,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     unsigned int i, max_size;
     vkd3d_shader_hash_t hash;
     int ret = VKD3D_OK;
+    uint32_t quirks;
     void *code;
 
     dxil_spv_set_thread_log_callback(vkd3d_dxil_log_callback, NULL);
@@ -502,6 +503,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         spirv->meta.replaced = true;
         return ret;
     }
+    quirks = vkd3d_shader_compile_arguments_select_quirks(compiler_args, hash);
 
     dxil_spv_begin_thread_allocator_context();
 
@@ -757,6 +759,18 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
                     goto end;
                 }
             }
+        }
+    }
+
+    if (quirks & VKD3D_SHADER_QUIRK_INVARIANT_POSITION)
+    {
+        const dxil_spv_option_invariant_position helper =
+                { { DXIL_SPV_OPTION_INVARIANT_POSITION }, DXIL_SPV_TRUE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support INVARIANT_POSITION.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
         }
     }
 
