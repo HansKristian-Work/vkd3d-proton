@@ -411,7 +411,7 @@ static void vkd3d_init_debug_messenger_callback(struct vkd3d_instance *instance)
 }
 
 uint64_t vkd3d_config_flags;
-const struct vkd3d_shader_quirk_info *vkd3d_shader_quirk_info;
+struct vkd3d_shader_quirk_info vkd3d_shader_quirk_info;
 
 struct vkd3d_instance_application_meta
 {
@@ -479,7 +479,7 @@ static void vkd3d_instance_apply_application_workarounds(void)
     {
         if (vkd3d_string_compare(application_shader_quirks[i].mode, app, application_shader_quirks[i].name))
         {
-            vkd3d_shader_quirk_info = application_shader_quirks[i].info;
+            vkd3d_shader_quirk_info = *application_shader_quirks[i].info;
             INFO("Detected game %s, adding shader quirks for specific shaders.\n", app);
             break;
         }

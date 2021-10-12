@@ -191,7 +191,7 @@ struct vkd3d_instance
 };
 
 extern uint64_t vkd3d_config_flags;
-extern const struct vkd3d_shader_quirk_info *vkd3d_shader_quirk_info;
+extern struct vkd3d_shader_quirk_info vkd3d_shader_quirk_info;
 
 union vkd3d_thread_handle
 {
