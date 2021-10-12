@@ -4157,6 +4157,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
 
     pipeline_key.dsv_format = dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
     pipeline_key.rtv_active_mask = state->graphics.rtv_active_mask & rtv_nonnull_mask;
+    pipeline_key.variant_flags = variant_flags;
 
     if ((vk_pipeline = d3d12_pipeline_state_find_compiled_pipeline(state, &pipeline_key, render_pass_compat,
             dynamic_state_flags)))
