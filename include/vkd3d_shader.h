@@ -324,6 +324,10 @@ struct vkd3d_shader_quirk_info
     const struct vkd3d_shader_quirk_hash *hashes;
     unsigned int num_hashes;
     uint32_t default_quirks;
+
+    /* Quirks which are ORed in with the other masks (including default_quirks).
+     * Used mostly for additional overrides from VKD3D_CONFIG. */
+    uint32_t global_quirks;
 };
 
 struct vkd3d_shader_compile_arguments
