@@ -3,12 +3,12 @@ LIBRARY vkd3d-proton-utils-3.dll
 EXPORTS
     D3D12CreateDevice @101
     D3D12GetDebugInterface @102
-    D3D12CreateRootSignatureDeserializer @107
-    D3D12CreateVersionedRootSignatureDeserializer @108
+    D3D12CreateRootSignatureDeserializer
+    D3D12CreateVersionedRootSignatureDeserializer
 
-    D3D12EnableExperimentalFeatures @110
-    D3D12SerializeRootSignature @115
-    D3D12SerializeVersionedRootSignature @116
+    D3D12EnableExperimentalFeatures
+    D3D12SerializeRootSignature
+    D3D12SerializeVersionedRootSignature
 
     vkd3d_create_event
     vkd3d_wait_event
