@@ -1578,6 +1578,7 @@ struct vkd3d_pipeline_key
     uint32_t viewport_count;
     uint32_t strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     uint32_t rtv_active_mask;
+    uint32_t variant_flags;
     VkFormat dsv_format;
 
     bool dynamic_stride;
