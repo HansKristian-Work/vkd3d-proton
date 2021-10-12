@@ -2364,24 +2364,10 @@ struct vkd3d_dxbc_compiler *vkd3d_dxbc_compiler_create(const struct vkd3d_shader
     memset(compiler, 0, sizeof(*compiler));
 
     compiler->shader_version = *shader_version;
+    compiler->quirks = vkd3d_shader_compile_arguments_select_quirks(compile_args, shader_hash);
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     compiler->descriptor_qa_shader_hash = shader_hash;
 #endif
-
-    if (compile_args && compile_args->quirks)
-    {
-        for (i = 0; i < compile_args->quirks->num_hashes; i++)
-        {
-            if (compile_args->quirks->hashes[i].shader_hash == shader_hash)
-            {
-                compiler->quirks = compile_args->quirks->hashes[i].quirks;
-                break;
-            }
-        }
-
-        if (i == compile_args->quirks->num_hashes)
-            compiler->quirks = compile_args->quirks->default_quirks;
-    }
 
     max_element_count = max(output_signature->element_count, patch_constant_signature->element_count);
     if (!(compiler->output_info = vkd3d_calloc(max_element_count, sizeof(*compiler->output_info))))

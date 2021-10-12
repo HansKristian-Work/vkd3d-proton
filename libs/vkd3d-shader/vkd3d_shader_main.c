@@ -721,3 +721,18 @@ vkd3d_shader_hash_t vkd3d_shader_hash(const struct vkd3d_shader_code *shader)
 
     return h;
 }
+
+uint32_t vkd3d_shader_compile_arguments_select_quirks(
+        const struct vkd3d_shader_compile_arguments *compile_args, vkd3d_shader_hash_t shader_hash)
+{
+    unsigned int i;
+    if (compile_args && compile_args->quirks)
+    {
+        for (i = 0; i < compile_args->quirks->num_hashes; i++)
+            if (compile_args->quirks->hashes[i].shader_hash == shader_hash)
+                return compile_args->quirks->hashes[i].quirks;
+        return compile_args->quirks->default_quirks;
+    }
+    else
+        return 0;
+}
