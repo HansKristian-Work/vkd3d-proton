@@ -3123,6 +3123,7 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
         struct d3d12_query_heap *heap;
         uint32_t virtual_query_count;
         uint32_t unique_query_count;
+        uint32_t map_size;
         VkDeviceSize resolve_buffer_offset;
         VkDeviceSize resolve_buffer_size;
     };
@@ -3194,6 +3195,7 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
             d->heap = q->heap;
             d->virtual_query_count = 1;
             d->unique_query_count = 0;
+            d->map_size = 0;
             d->resolve_buffer_offset = resolve_buffer_size;
 
             r = NULL;
@@ -3221,6 +3223,7 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
             r->query_count++;
 
         query_map_size = max(query_map_size, q->index + 1);
+        d->map_size = max(d->map_size, q->index + 1);
         resolve_buffer_size += resolve_buffer_stride;
 
         d->resolve_buffer_size = resolve_buffer_size - d->resolve_buffer_offset;
@@ -3264,7 +3267,7 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
     {
         struct dispatch_entry *d = &dispatches[i];
         if (i != 0)
-            memset(query_map, 0, sizeof(*query_map) * query_map_size);
+            memset(query_map, 0, sizeof(*query_map) * d->map_size);
 
         /* First pass that counts unique queries since the compute
          * shader expects list heads to be packed first in the array */
