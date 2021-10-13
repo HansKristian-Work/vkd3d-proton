@@ -1,5 +1,97 @@
 # Change Log
 
+## 2.5
+
+This is a release with a little bit of everything!
+
+### Features
+
+#### DXR progress
+
+DXR has seen significant work in the background.
+
+- DXR 1.1 is now experimentally exposed. It can be enabled with `VKD3D_CONFIG=dxr11`.
+  Note that DXR 1.1 cannot be fully implemented in `VK_KHR_ray_tracing`'s current form, in particular
+  DispatchRays() indirect is not compatible yet,
+  although we have not observed a game which requires this API feature.
+- DXR 1.1 inline raytracing support is fully implemented.
+- DXR 1.0 support is more or less feature complete.
+  Some weird edge cases remain, but will likely not be implemented unless required by a game.
+  `VKD3D_CONFIG=dxr` will eventually be dropped when it matures.
+
+Some new DXR games are starting to come alive, especially with DXR 1.1 enabled,
+but there are significant bugs as well that we currently cannot easily debug.
+Some experimental results on NVIDIA:
+
+- **Control** - already worked
+- **DEATHLOOP** - appears to work correctly
+- **Cyberpunk 2077** - DXR can be enabled, but GPU timeouts
+- **World of Warcraft** - according to a user, it works, but we have not confirmed ourselves
+- **Metro Exodus: Enhanced Edition** -
+    gets ingame and appears to work? Not sure if it looks correct.
+    Heavy CPU stutter for some reason ...
+- **Metro Exodus** (original release) - GPU timeouts when enabling DXR
+- **Resident Evil: Village** - Appears to work, but the visual difference is subtle.
+
+It's worth experimenting with these and others.
+DXR is incredibly complicated, so expect bugs.
+From here, DXR support is mostly a case of stamping out issues one by one.
+
+#### NVIDIA DLSS
+
+NVIDIA contributed integration APIs in vkd3d-proton which enables DLSS support in D3D12 titles in Proton.
+See Proton documentation for how to enable NvAPI support.
+
+#### Shader models
+
+A fair bit of work went into DXIL translation support to catch up with native drivers.
+
+- Shader model 6.5 is exposed.
+  Shader model 6.6 should be straight forward once that becomes relevant.
+- Shader model 6.4 implementation takes advantage of `VK_KHR_shader_integer_dot_product` when supported.
+- Proper fallback for FP16 math on GPUs which do not expose native FP16 support (Polaris, Pascal).
+  Notably fixes AMD FSR shaders in Resident Evil: Village (and others).
+- Shader model 6.1 SV_Barycentric support implemented (NVIDIA only for now).
+- Support shader model 6.2 FP32 denorm control.
+
+### Performance
+
+Resizable BAR can improve GPU performance about 10-15% in the best case, depends a lot on the game.
+Horizon Zero Dawn and Death Stranding in particular improve massively with this change.
+
+By default, vkd3d-proton will now take advantage of PCI-e BAR memory types through heuristics
+as D3D12 does not expose direct support for resizable BAR, and native D3D12 drivers are known to use heuristics as well.
+Without resizable BAR enabled in BIOS/vBIOS, we only get 256 MiB which can help performance,
+but many games will improve performance even more
+when we are allowed to use more than that.
+There is an upper limit for how much VRAM is dedicated to this purpose.
+We also added `VKD3D_CONFIG=no_upload_hvv` to disable all uses of PCI-e BAR memory.
+
+Other performance improvements:
+
+- Avoid redundant descriptor update work in certain scenarios (NVIDIA contribution).
+- Minor tweaks here and there to reduce CPU overhead.
+
+### Fixes and workarounds
+
+- Fix behavior for swap chain presentation latency HANDLE. Fixes spurious deadlocks in some cases.
+- Fix many issues related to depth-stencil handling, which fixed various issues in DEATHLOOP, F1 2021, WRC 10.
+- Fix DIRT 5 rendering issues and crashes. Should be fully playable now.
+- Fix some Diablo II Resurrected rendering issues.
+- Workaround shader bugs in Psychonauts 2.
+- Workaround some Unreal Engine 4 shader bugs which multiple titles trigger.
+- Fix some stability issues when VRAM is exhausted on NVIDIA.
+- Fix CPU crash in boot-up sequence of Far Cry 6 (game is still kinda buggy though, but gets in-game).
+- Fix various bugs with host visible images. Fixes DEATHLOOP.
+- Fix various DXIL conversion bugs.
+- Add Invariant geometry workarounds for specific games which require it.
+- Fix how d3d12.dll exports symbols to be more in line with MSVC.
+- Fix some edge cases in bitfield instructions.
+- Work around extreme CPU memory bloat on the specific NVIDIA driver versions which had this bug.
+- Fix regression in Evil Genius 2: World Domination.
+- Fix crashes in Hitman 3.
+- Various correctness and crash fixes.
+
 ## 2.4
 
 This is a release which focuses on performance and bug-fixes.
