@@ -3249,7 +3249,7 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
             entry_buffer_size, ssbo_alignment, &entry_buffer))
         goto cleanup;
 
-    if (!(query_map = vkd3d_malloc(sizeof(*query_map) * query_map_size)) ||
+    if (!(query_map = vkd3d_calloc(query_map_size, sizeof(*query_map))) ||
             !(query_list = vkd3d_malloc(sizeof(*query_list) * list->pending_queries_count)))
     {
         ERR("Failed to allocate query map.\n");
@@ -3263,7 +3263,8 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
     for (i = 0; i < dispatch_count; i++)
     {
         struct dispatch_entry *d = &dispatches[i];
-        memset(query_map, 0, sizeof(*query_map) * query_map_size);
+        if (i != 0)
+            memset(query_map, 0, sizeof(*query_map) * query_map_size);
 
         /* First pass that counts unique queries since the compute
          * shader expects list heads to be packed first in the array */
