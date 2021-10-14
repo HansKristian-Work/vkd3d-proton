@@ -3123,6 +3123,8 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
         struct d3d12_query_heap *heap;
         uint32_t virtual_query_count;
         uint32_t unique_query_count;
+        uint32_t min_index;
+        uint32_t max_index;
         VkDeviceSize resolve_buffer_offset;
         VkDeviceSize resolve_buffer_size;
     };
@@ -3150,10 +3152,16 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
         uint32_t src_index;
         uint32_t next;
     };
+
+    struct query_map
+    {
+        struct query_entry *entry;
+        unsigned int dispatch_id;
+    };
     
     struct query_entry *dst_queries = NULL;
     struct query_entry *query_list = NULL;
-    struct query_entry **query_map = NULL;
+    struct query_map *query_map = NULL;
     size_t query_map_size = 0;
 
     if (!list->pending_queries_count)
@@ -3191,6 +3199,8 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
             resolve_index = 0;
 
             d = &dispatches[dispatch_count++];
+            d->min_index = q->index;
+            d->max_index = q->index;
             d->heap = q->heap;
             d->virtual_query_count = 1;
             d->unique_query_count = 0;
@@ -3199,7 +3209,11 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
             r = NULL;
         }
         else
+        {
             d->virtual_query_count++;
+            d->min_index = min(d->min_index, q->index);
+            d->max_index = max(d->max_index, q->index);
+        }
 
         /* Prepare one resolve entry per Vulkan query range */
         if (!r || r->query_pool != q->vk_pool || r->first_query + r->query_count != q->vk_index)
@@ -3220,7 +3234,6 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
         else
             r->query_count++;
 
-        query_map_size = max(query_map_size, q->index + 1);
         resolve_buffer_size += resolve_buffer_stride;
 
         d->resolve_buffer_size = resolve_buffer_size - d->resolve_buffer_offset;
@@ -3249,7 +3262,13 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
             entry_buffer_size, ssbo_alignment, &entry_buffer))
         goto cleanup;
 
-    if (!(query_map = vkd3d_malloc(sizeof(*query_map) * query_map_size)) ||
+    for (i = 0; i < dispatch_count; i++)
+    {
+        const struct dispatch_entry *d = &dispatches[i];
+        query_map_size = max(query_map_size, d->max_index - d->min_index + 1);
+    }
+
+    if (!(query_map = vkd3d_calloc(query_map_size, sizeof(*query_map))) ||
             !(query_list = vkd3d_malloc(sizeof(*query_list) * list->pending_queries_count)))
     {
         ERR("Failed to allocate query map.\n");
@@ -3263,20 +3282,22 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
     for (i = 0; i < dispatch_count; i++)
     {
         struct dispatch_entry *d = &dispatches[i];
-        memset(query_map, 0, sizeof(*query_map) * query_map_size);
+        unsigned int dispatch_id = i + 1;
 
         /* First pass that counts unique queries since the compute
          * shader expects list heads to be packed first in the array */
         for (j = 0; j < d->virtual_query_count; j++)
         {
             const struct vkd3d_active_query *q = &src_queries[j];
+            struct query_map *e = &query_map[q->index - d->min_index];
 
-            if (!query_map[q->index])
+            if (e->dispatch_id != dispatch_id)
             {
-                query_map[q->index] = &dst_queries[d->unique_query_count++];
-                query_map[q->index]->dst_index = q->index;
-                query_map[q->index]->src_index = q->resolve_index;
-                query_map[q->index]->next = ~0u;
+                e->entry = &dst_queries[d->unique_query_count++];
+                e->entry->dst_index = q->index;
+                e->entry->src_index = q->resolve_index;
+                e->entry->next = ~0u;
+                e->dispatch_id = dispatch_id;
             }
         }
 
@@ -3284,16 +3305,17 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
         for (j = 0, k = d->unique_query_count; j < d->virtual_query_count; j++)
         {
             const struct vkd3d_active_query *q = &src_queries[j];
+            struct query_map *e = &query_map[q->index - d->min_index];
 
             /* Skip entries that we already added in the first pass */
-            if (query_map[q->index]->src_index == q->resolve_index)
+            if (e->entry->src_index == q->resolve_index)
                 continue;
 
-            query_map[q->index]->next = k;
-            query_map[q->index] = &dst_queries[k++];
-            query_map[q->index]->dst_index = q->index;
-            query_map[q->index]->src_index = q->resolve_index;
-            query_map[q->index]->next = ~0u;
+            e->entry->next = k;
+            e->entry = &dst_queries[k++];
+            e->entry->dst_index = q->index;
+            e->entry->src_index = q->resolve_index;
+            e->entry->next = ~0u;
         }
 
         src_queries += d->virtual_query_count;
