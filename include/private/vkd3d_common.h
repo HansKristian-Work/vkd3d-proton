@@ -42,6 +42,11 @@
 
 #define MEMBER_SIZE(t, m) sizeof(((t *)0)->m)
 
+static inline uint64_t align64(uint64_t addr, uint64_t alignment)
+{
+    return (addr + (alignment - 1)) & ~(alignment - 1);
+}
+
 static inline size_t align(size_t addr, size_t alignment)
 {
     return (addr + (alignment - 1)) & ~(alignment - 1);
