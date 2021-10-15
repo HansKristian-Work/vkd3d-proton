@@ -4097,13 +4097,16 @@ static void STDMETHODCALLTYPE d3d12_device_GetResourceTiling(d3d12_device_iface 
     if (tile_shape)
         *tile_shape = sparse->tile_shape;
 
-    max_tiling_count = sparse->tiling_count - min(first_tiling, sparse->tiling_count);
-    max_tiling_count = min(max_tiling_count, *tiling_count);
+    if (tiling_count)
+    {
+        max_tiling_count = sparse->tiling_count - min(first_tiling, sparse->tiling_count);
+        max_tiling_count = min(max_tiling_count, *tiling_count);
 
-    for (i = 0; i < max_tiling_count; i++)
-        tilings[i] = sparse->tilings[first_tiling + i];
+        for (i = 0; i < max_tiling_count; i++)
+            tilings[i] = sparse->tilings[first_tiling + i];
 
-    *tiling_count = max_tiling_count;
+        *tiling_count = max_tiling_count;
+    }
 }
 
 static LUID * STDMETHODCALLTYPE d3d12_device_GetAdapterLuid(d3d12_device_iface *iface, LUID *luid)
