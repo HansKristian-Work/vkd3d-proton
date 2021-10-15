@@ -119,6 +119,11 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         buffer_info.flags |= VK_BUFFER_CREATE_SPARSE_BINDING_BIT |
                 VK_BUFFER_CREATE_SPARSE_RESIDENCY_BIT |
                 VK_BUFFER_CREATE_SPARSE_ALIASED_BIT;
+
+        /* If we attempt to bind sparse buffer with non-64k pages, we crash drivers.
+         * Specs seems a bit unclear how non-aligned VkBuffer sizes are supposed to work,
+         * so be safe. Pad out sparse buffers to their natural page size. */
+        buffer_info.size = align64(buffer_info.size, VKD3D_TILE_SIZE);
     }
 
     buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT
@@ -2282,13 +2287,15 @@ static HRESULT d3d12_resource_init_sparse_info(struct d3d12_resource *resource,
         {
             VkDeviceSize offset = VKD3D_TILE_SIZE * i;
             sparse->tiles[i].buffer.offset = offset;
-            sparse->tiles[i].buffer.length = min(VKD3D_TILE_SIZE, resource->desc.Width - offset);
+            sparse->tiles[i].buffer.length = align(min(VKD3D_TILE_SIZE, resource->desc.Width - offset),
+                    VKD3D_TILE_SIZE);
         }
         else if (sparse->packed_mips.NumPackedMips && i >= sparse->packed_mips.StartTileIndexInOverallResource)
         {
             VkDeviceSize offset = VKD3D_TILE_SIZE * (i - sparse->packed_mips.StartTileIndexInOverallResource);
             sparse->tiles[i].buffer.offset = vk_memory_requirements.imageMipTailOffset + offset;
-            sparse->tiles[i].buffer.length = min(VKD3D_TILE_SIZE, vk_memory_requirements.imageMipTailSize - offset);
+            sparse->tiles[i].buffer.length = align(min(VKD3D_TILE_SIZE, vk_memory_requirements.imageMipTailSize - offset),
+                    VKD3D_TILE_SIZE);
         }
         else
         {
