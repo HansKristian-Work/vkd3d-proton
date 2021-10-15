@@ -1,4 +1,4 @@
-project('vkd3d-proton', ['c'], version : '2.4', meson_version : '>= 0.49', default_options : [
+project('vkd3d-proton', ['c'], version : '2.5', meson_version : '>= 0.49', default_options : [
   'warning_level=2',
 ])
 
