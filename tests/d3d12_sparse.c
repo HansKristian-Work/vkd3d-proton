@@ -31,6 +31,7 @@ static uint32_t compute_tile_count(uint32_t resource_size, uint32_t mip, uint32_
 void test_get_resource_tiling(void)
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS options;
+    D3D12_SUBRESOURCE_TILING tilings_alt[16];
     D3D12_PACKED_MIP_INFO packed_mip_info;
     D3D12_SUBRESOURCE_TILING tilings[16];
     UINT num_resource_tiles, num_tilings;
@@ -126,6 +127,15 @@ void test_get_resource_tiling(void)
     hr = ID3D12Device_CreateReservedResource(context.device, &resource_desc,
         D3D12_RESOURCE_STATE_GENERIC_READ, NULL, &IID_ID3D12Resource, (void **)&resource);
     ok(hr == S_OK, "Failed to create reserved resource, hr %#x.\n", hr);
+
+    /* This is nonsense, but it doesn't crash or generate errors. */
+    ID3D12Device_GetResourceTiling(context.device, resource, NULL, NULL, NULL, NULL, 0, NULL);
+
+    /* If num_tilings is NULL, tilings_alt is ignored. */
+    memset(tilings, 0, sizeof(tilings));
+    memset(tilings_alt, 0, sizeof(tilings_alt));
+    ID3D12Device_GetResourceTiling(context.device, resource, NULL, NULL, NULL, NULL, 0, tilings_alt);
+    ok(memcmp(tilings, tilings_alt, sizeof(tilings_alt)) == 0, "Mismatch.\n");
 
     num_tilings = 0;
     ID3D12Device_GetResourceTiling(context.device, resource, NULL, NULL, NULL, &num_tilings, 0, NULL);
