@@ -534,6 +534,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"log_memory_budget", VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET},
     {"force_host_cached", VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED},
     {"no_invariant_position", VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION},
+    {"disable_sparse", VKD3D_CONFIG_FLAG_DISABLE_SPARSE},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -4728,6 +4729,9 @@ static D3D12_TILED_RESOURCES_TIER d3d12_device_determine_tiled_resources_tier(st
     const VkPhysicalDeviceSamplerFilterMinmaxProperties *minmax_properties = &device->device_info.sampler_filter_minmax_properties;
     const VkPhysicalDeviceSparseProperties *sparse_properties = &device->device_info.properties2.properties.sparseProperties;
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DISABLE_SPARSE)
+        return D3D12_TILED_RESOURCES_TIER_NOT_SUPPORTED;
 
     if (!features->sparseBinding || !features->sparseResidencyAliased ||
             !features->sparseResidencyBuffer || !features->sparseResidencyImage2D ||
