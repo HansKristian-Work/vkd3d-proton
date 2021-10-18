@@ -90,6 +90,7 @@ Other performance improvements:
 - Work around extreme CPU memory bloat on the specific NVIDIA driver versions which had this bug.
 - Fix regression in Evil Genius 2: World Domination.
 - Fix crashes in Hitman 3.
+- Fix terrain rendering in Anno 1800.
 - Various correctness and crash fixes.
 
 ## 2.4
