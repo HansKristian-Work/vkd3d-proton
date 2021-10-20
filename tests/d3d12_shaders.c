@@ -11410,11 +11410,11 @@ static void test_shader_get_render_target_sample_count(bool use_dxil)
         use_dxil ? (const void*)ps_code_dxil : (const void*)ps_code_dxbc,
         use_dxil ? sizeof(ps_code_dxil) : sizeof(ps_code_dxbc),
     };
-    static const struct vec4 sample_count = {8.0f, 8.0f, 8.0f, 8.0f};
+    static const struct vec4 sample_count = {4.0f, 4.0f, 4.0f, 4.0f};
 
     memset(&desc, 0, sizeof(desc));
     desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-    desc.sample_desc.Count = 8;
+    desc.sample_desc.Count = 4;
     desc.no_pipeline = true;
     if (!init_test_context(&context, &desc))
         return;
