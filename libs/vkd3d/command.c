@@ -5665,18 +5665,19 @@ static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy *copy,
 
 static void vk_image_buffer_copy_from_d3d12(VkBufferImageCopy *copy,
         const D3D12_PLACED_SUBRESOURCE_FOOTPRINT *footprint, unsigned int sub_resource_idx,
-        const D3D12_RESOURCE_DESC *image_desc, const struct vkd3d_format *format,
+        const D3D12_RESOURCE_DESC *image_desc,
+        const struct vkd3d_format *src_format, const struct vkd3d_format *dst_format,
         const D3D12_BOX *src_box, unsigned int dst_x, unsigned int dst_y, unsigned int dst_z)
 {
-    VkDeviceSize row_count = footprint->Footprint.Height / format->block_height;
+    VkDeviceSize row_count = footprint->Footprint.Height / dst_format->block_height;
 
-    copy->bufferOffset = footprint->Offset + vkd3d_format_get_data_offset(format,
+    copy->bufferOffset = footprint->Offset + vkd3d_format_get_data_offset(dst_format,
             footprint->Footprint.RowPitch, row_count * footprint->Footprint.RowPitch, dst_x, dst_y, dst_z);
     copy->bufferRowLength = footprint->Footprint.RowPitch /
-            (format->byte_count * format->block_byte_count) * format->block_width;
+            (dst_format->byte_count * dst_format->block_byte_count) * dst_format->block_width;
     copy->bufferImageHeight = footprint->Footprint.Height;
     vk_image_subresource_layers_from_d3d12(&copy->imageSubresource,
-            format, sub_resource_idx, image_desc->MipLevels,
+            src_format, sub_resource_idx, image_desc->MipLevels,
             d3d12_resource_desc_get_layer_count(image_desc));
     copy->imageOffset.x = src_box ? src_box->left : 0;
     copy->imageOffset.y = src_box ? src_box->top : 0;
@@ -6091,15 +6092,23 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
         assert(d3d12_resource_is_buffer(dst_resource));
         assert(d3d12_resource_is_texture(src_resource));
 
-        if (!(dst_format = vkd3d_format_from_d3d12_resource_desc(list->device,
+        if (!(src_format = vkd3d_format_from_d3d12_resource_desc(list->device,
                 &src_resource->desc, DXGI_FORMAT_UNKNOWN)))
         {
             WARN("Invalid format %#x.\n", dst->PlacedFootprint.Footprint.Format);
             return;
         }
 
+        if (!(dst_format = vkd3d_get_format(list->device, dst->PlacedFootprint.Footprint.Format,
+                true)))
+        {
+            WARN("Invalid format %#x.\n", dst->PlacedFootprint.Footprint.Format);
+            return;
+        }
+
         vk_image_buffer_copy_from_d3d12(&buffer_image_copy, &dst->PlacedFootprint,
-                src->SubresourceIndex, &src_resource->desc, dst_format, src_box, dst_x, dst_y, dst_z);
+                src->SubresourceIndex, &src_resource->desc, src_format, dst_format,
+                src_box, dst_x, dst_y, dst_z);
         buffer_image_copy.bufferOffset += dst_resource->mem.offset;
 
         vk_layout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
