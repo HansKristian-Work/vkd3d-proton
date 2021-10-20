@@ -510,7 +510,7 @@ void test_copy_buffer_to_depth_stencil(void)
     ID3D12Resource *dst_texture;
     ID3D12CommandQueue *queue;
     ID3D12Device *device;
-    unsigned int i;
+    unsigned int i, x, y;
 
     struct test
     {
@@ -554,31 +554,40 @@ void test_copy_buffer_to_depth_stencil(void)
 
     for (i = 0; i < ARRAY_SIZE(tests); i++)
     {
+        uint32_t depth_data[(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT / 4) * 4];
+        uint8_t stencil_data[D3D12_TEXTURE_DATA_PITCH_ALIGNMENT * 4];
         D3D12_TEXTURE_COPY_LOCATION dst, src;
-        uint8_t stencil_data;
-        uint32_t depth_data;
         D3D12_BOX src_box;
 
         vkd3d_test_set_context("Test %u", i);
-        dst_texture = create_default_texture2d(device, 1, 1, 1, 1,
+        dst_texture = create_default_texture2d(device, 2, 2, 1, 1,
                    tests[i].format, tests[i].flags, D3D12_RESOURCE_STATE_COPY_DEST);
 
-        depth_data = tests[i].input_depth;
-        src_buffer_depth = create_upload_buffer(device, sizeof(depth_data), &depth_data);
+        memset(depth_data, 0, sizeof(depth_data));
+        depth_data[0] = tests[i].input_depth;
+        depth_data[1] = tests[i].input_depth;
+        depth_data[D3D12_TEXTURE_DATA_PITCH_ALIGNMENT / 4] = tests[i].input_depth;
+        depth_data[D3D12_TEXTURE_DATA_PITCH_ALIGNMENT / 4 + 1] = tests[i].input_depth;
+
+        src_buffer_depth = create_upload_buffer(device, sizeof(depth_data), depth_data);
 
         if (tests[i].stencil)
         {
-            stencil_data = 0xaa;
-            src_buffer_stencil = create_upload_buffer(device, sizeof(stencil_data), &stencil_data);
+            memset(stencil_data, 0, sizeof(stencil_data));
+            stencil_data[0] = 0xaa;
+            stencil_data[1] = 0xab;
+            stencil_data[D3D12_TEXTURE_DATA_PITCH_ALIGNMENT + 0] = 0xac;
+            stencil_data[D3D12_TEXTURE_DATA_PITCH_ALIGNMENT + 1] = 0xad;
+            src_buffer_stencil = create_upload_buffer(device, sizeof(stencil_data), stencil_data);
         }
 
-        set_box(&src_box, 0, 0, 0, 1, 1, 1);
+        set_box(&src_box, 0, 0, 0, 2, 2, 1);
         dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
         src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
         dst.pResource = dst_texture;
         src.PlacedFootprint.Offset = 0;
-        src.PlacedFootprint.Footprint.Width = 1;
-        src.PlacedFootprint.Footprint.Height = 1;
+        src.PlacedFootprint.Footprint.Width = 2;
+        src.PlacedFootprint.Footprint.Height = 2;
         src.PlacedFootprint.Footprint.Depth = 1;
         src.PlacedFootprint.Footprint.RowPitch = D3D12_TEXTURE_DATA_PITCH_ALIGNMENT;
 
@@ -605,13 +614,25 @@ void test_copy_buffer_to_depth_stencil(void)
             reset_command_list(command_list, context.allocator);
         }
 
-        depth_data = get_readback_uint(&rb_depth, 0, 0, 0);
-        ok(depth_data == tests[i].output_depth_24 || depth_data == tests[i].input_depth, "Depth is 0x%x\n", depth_data);
+        for (y = 0; y < 2; y++)
+        {
+            for (x = 0; x < 2; x++)
+            {
+                uint32_t v = get_readback_uint(&rb_depth, x, y, 0);
+                ok(v == tests[i].output_depth_24 || v == tests[i].input_depth, "Depth is 0x%x\n", v);
+            }
+        }
 
         if (tests[i].stencil)
         {
-            stencil_data = get_readback_uint8(&rb_stencil, 0, 0);
-            ok(stencil_data == 0xaa, "Stencil is 0x%x\n", stencil_data);
+            for (y = 0; y < 2; y++)
+            {
+                for (x = 0; x < 2; x++)
+                {
+                    uint8_t v = get_readback_uint8(&rb_stencil, x, y);
+                    ok(v == 0xaa + y * 2 + x, "Stencil is 0x%x\n", v);
+                }
+            }
         }
 
         release_resource_readback(&rb_depth);
