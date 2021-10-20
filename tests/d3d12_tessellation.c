@@ -1784,16 +1784,16 @@ void test_hull_shader_vertex_input_patch_constant_phase(void)
             d.c = (155.0 / 255.0).xxxx;
 
             if (vid == 0)
-                d.position = float4(-1, -1, 0, 0);
+                d.position = float4(-1, -1, 0, 1);
             else if (vid == 1)
-                d.position = float4(-1, 1, 0, 0);
+                d.position = float4(-1, 3, 0, 1);
             else
-                d.position = float4(3, 1, 0, 0);
+                d.position = float4(3, -1, 0, 1);
 
             return d;
         }
 #endif
-        0x43425844, 0xae8bdf44, 0x9e5a4ce7, 0xf21eca02, 0x3e1dd4ac, 0x00000001, 0x00000234, 0x00000003,
+        0x43425844, 0x64268a24, 0xcd8d91b3, 0x70514911, 0x95555eb8, 0x00000001, 0x00000234, 0x00000003,
         0x0000002c, 0x00000060, 0x000000e8, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
         0x00000000, 0x00000006, 0x00000001, 0x00000000, 0x00000101, 0x565f5653, 0x65747265, 0x00444978,
         0x4e47534f, 0x00000080, 0x00000004, 0x00000008, 0x00000068, 0x00000000, 0x00000001, 0x00000003,
@@ -1805,9 +1805,9 @@ void test_hull_shader_vertex_input_patch_constant_phase(void)
         0x001020f2, 0x00000001, 0x03000065, 0x001020f2, 0x00000002, 0x03000065, 0x001020f2, 0x00000003,
         0x02000068, 0x00000001, 0x07000020, 0x00100012, 0x00000000, 0x0010100a, 0x00000000, 0x00004001,
         0x00000001, 0x0f000037, 0x001000f2, 0x00000000, 0x00100006, 0x00000000, 0x00004002, 0xbf800000,
-        0x3f800000, 0x00000000, 0x00000000, 0x00004002, 0x40400000, 0x3f800000, 0x00000000, 0x00000000,
+        0x40400000, 0x00000000, 0x3f800000, 0x00004002, 0x40400000, 0xbf800000, 0x00000000, 0x3f800000,
         0x0c000037, 0x001020f2, 0x00000000, 0x00101006, 0x00000000, 0x00100e46, 0x00000000, 0x00004002,
-        0xbf800000, 0xbf800000, 0x00000000, 0x00000000, 0x08000036, 0x001020f2, 0x00000001, 0x00004002,
+        0xbf800000, 0xbf800000, 0x00000000, 0x3f800000, 0x08000036, 0x001020f2, 0x00000001, 0x00004002,
         0x3ec8c8c9, 0x3ec8c8c9, 0x3ec8c8c9, 0x3ec8c8c9, 0x08000036, 0x001020f2, 0x00000002, 0x00004002,
         0x3f48c8c9, 0x3f48c8c9, 0x3f48c8c9, 0x3f48c8c9, 0x08000036, 0x001020f2, 0x00000003, 0x00004002,
         0x3f1b9b9c, 0x3f1b9b9c, 0x3f1b9b9c, 0x3f1b9b9c, 0x0100003e,
@@ -1987,7 +1987,6 @@ void test_hull_shader_vertex_input_patch_constant_phase(void)
 
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    bug_if(is_radv_device(context.device))
     check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff9bc864, 0);
 
     destroy_test_context(&context);
