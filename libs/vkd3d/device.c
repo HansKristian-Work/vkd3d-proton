@@ -3033,9 +3033,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
         {
             const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
             D3D12_FEATURE_DATA_FORMAT_SUPPORT *data = feature_data;
-            VkFormatFeatureFlagBits image_features;
+            VkFormatFeatureFlags2KHR image_features;
+            VkFormatProperties3KHR properties3;
             const struct vkd3d_format *format;
-            VkFormatProperties properties;
+            VkFormatProperties2 properties;
 
             if (feature_data_size != sizeof(*data))
             {
@@ -3053,23 +3054,37 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
                 return E_INVALIDARG;
             }
 
-            VK_CALL(vkGetPhysicalDeviceFormatProperties(device->vk_physical_device, format->vk_format, &properties));
-            image_features = properties.linearTilingFeatures | properties.optimalTilingFeatures;
+            properties.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2;
+            properties.pNext = NULL;
 
-            if (properties.bufferFeatures)
+            if (device->vk_info.KHR_format_feature_flags2)
+            {
+                properties3.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3_KHR;
+                properties3.pNext = NULL;
+                vk_prepend_struct(&properties, &properties3);
+            }
+
+            VK_CALL(vkGetPhysicalDeviceFormatProperties2(device->vk_physical_device, format->vk_format, &properties));
+
+            if (device->vk_info.KHR_format_feature_flags2)
+                image_features = properties3.linearTilingFeatures | properties3.optimalTilingFeatures;
+            else
+                image_features = properties.formatProperties.linearTilingFeatures | properties.formatProperties.optimalTilingFeatures;
+
+            if (properties.formatProperties.bufferFeatures)
                 data->Support1 |= D3D12_FORMAT_SUPPORT1_BUFFER;
-            if (properties.bufferFeatures & VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT)
+            if (properties.formatProperties.bufferFeatures & VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT)
                 data->Support1 |= D3D12_FORMAT_SUPPORT1_IA_VERTEX_BUFFER;
             if (data->Format == DXGI_FORMAT_R16_UINT || data->Format == DXGI_FORMAT_R32_UINT)
                 data->Support1 |= D3D12_FORMAT_SUPPORT1_IA_INDEX_BUFFER;
             if (image_features)
                 data->Support1 |= D3D12_FORMAT_SUPPORT1_TEXTURE1D | D3D12_FORMAT_SUPPORT1_TEXTURE2D
                         | D3D12_FORMAT_SUPPORT1_TEXTURE3D | D3D12_FORMAT_SUPPORT1_TEXTURECUBE;
-            if (image_features & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT)
+            if (image_features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT_KHR)
             {
                 data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_LOAD | D3D12_FORMAT_SUPPORT1_MULTISAMPLE_LOAD
                         | D3D12_FORMAT_SUPPORT1_SHADER_GATHER;
-                if (image_features & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)
+                if (image_features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT_KHR)
                 {
                     data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE
                             | D3D12_FORMAT_SUPPORT1_MIP;
@@ -3078,15 +3093,15 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
                     data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE_COMPARISON
                             | D3D12_FORMAT_SUPPORT1_SHADER_GATHER_COMPARISON;
             }
-            if (image_features & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT)
+            if (image_features & VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT_KHR)
                 data->Support1 |= D3D12_FORMAT_SUPPORT1_RENDER_TARGET | D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RENDERTARGET;
-            if (image_features & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT)
+            if (image_features & VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT_KHR)
                 data->Support1 |= D3D12_FORMAT_SUPPORT1_BLENDABLE;
-            if (image_features & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+            if (image_features & VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT_KHR)
                 data->Support1 |= D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL;
-            if (image_features & VK_FORMAT_FEATURE_BLIT_SRC_BIT)
+            if (image_features & VK_FORMAT_FEATURE_2_BLIT_SRC_BIT_KHR)
                 data->Support1 |= D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RESOLVE;
-            if (image_features & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT)
+            if (image_features & VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR)
             {
                 data->Support1 |= D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW;
                 if (device->device_info.features2.features.shaderStorageImageReadWithoutFormat)
@@ -3095,7 +3110,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
                     data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE;
             }
 
-            if (image_features & VK_FORMAT_FEATURE_STORAGE_IMAGE_ATOMIC_BIT)
+            if (image_features & VK_FORMAT_FEATURE_2_STORAGE_IMAGE_ATOMIC_BIT_KHR)
                 data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_ADD
                         | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_BITWISE_OPS
                         | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_COMPARE_STORE_OR_COMPARE_EXCHANGE
