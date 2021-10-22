@@ -124,6 +124,7 @@ struct vkd3d_vulkan_info
     bool KHR_sampler_mirror_clamp_to_edge;
     bool KHR_separate_depth_stencil_layouts;
     bool KHR_shader_integer_dot_product;
+    bool KHR_format_feature_flags2;
     /* EXT device extensions */
     bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;
