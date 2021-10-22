@@ -1736,34 +1736,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     vulkan_info->texel_buffer_alignment_properties = physical_device_info->texel_buffer_alignment_properties;
     vulkan_info->vertex_attrib_zero_divisor = physical_device_info->vertex_divisor_features.vertexAttributeInstanceRateZeroDivisor;
 
-    /* Shader extensions. */
-    vulkan_info->shader_extension_count = 0;
-    if (vulkan_info->EXT_shader_demote_to_helper_invocation)
-    {
-        vulkan_info->shader_extensions[vulkan_info->shader_extension_count++] =
-                VKD3D_SHADER_TARGET_EXTENSION_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION;
-    }
-
-    if (device->device_info.shader_integer_dot_product_features.shaderIntegerDotProduct &&
-            physical_device_info->shader_integer_dot_product_properties.integerDotProduct4x8BitPackedSignedAccelerated &&
-            physical_device_info->shader_integer_dot_product_properties.integerDotProduct4x8BitPackedUnsignedAccelerated)
-    {
-        vulkan_info->shader_extensions[vulkan_info->shader_extension_count++] =
-                VKD3D_SHADER_TARGET_EXTENSION_SPV_KHR_INTEGER_DOT_PRODUCT;
-    }
-
-    if (physical_device_info->features2.features.shaderStorageImageReadWithoutFormat)
-    {
-        vulkan_info->shader_extensions[vulkan_info->shader_extension_count++] =
-                VKD3D_SHADER_TARGET_EXTENSION_READ_STORAGE_IMAGE_WITHOUT_FORMAT;
-    }
-
-    if (device->device_info.ray_tracing_pipeline_features.rayTraversalPrimitiveCulling)
-    {
-        vulkan_info->shader_extensions[vulkan_info->shader_extension_count++] =
-                VKD3D_SHADER_TARGET_EXTENSION_RAY_TRACING_PRIMITIVE_CULLING;
-    }
-
     /* Disable unused Vulkan features. */
     features->shaderTessellationAndGeometryPointSize = VK_FALSE;
 
@@ -5293,6 +5265,36 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
     d3d12_device_caps_override(device);
 }
 
+static void vkd3d_init_shader_extensions(struct d3d12_device *device)
+{
+    device->vk_info.shader_extension_count = 0;
+    if (device->vk_info.EXT_shader_demote_to_helper_invocation)
+    {
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION;
+    }
+
+    if (device->device_info.shader_integer_dot_product_features.shaderIntegerDotProduct &&
+            device->device_info.shader_integer_dot_product_properties.integerDotProduct4x8BitPackedSignedAccelerated &&
+            device->device_info.shader_integer_dot_product_properties.integerDotProduct4x8BitPackedUnsignedAccelerated)
+    {
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_SPV_KHR_INTEGER_DOT_PRODUCT;
+    }
+
+    if (device->device_info.features2.features.shaderStorageImageReadWithoutFormat)
+    {
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_READ_STORAGE_IMAGE_WITHOUT_FORMAT;
+    }
+
+    if (device->device_info.ray_tracing_pipeline_features.rayTraversalPrimitiveCulling)
+    {
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_RAY_TRACING_PRIMITIVE_CULLING;
+    }
+}
+
 static bool d3d12_device_supports_feature_level(struct d3d12_device *device, D3D_FEATURE_LEVEL feature_level)
 {
     return feature_level <= device->d3d12_caps.max_feature_level;
@@ -5382,6 +5384,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
         IUnknown_AddRef(device->parent);
 
     d3d12_device_caps_init(device);
+
+    vkd3d_init_shader_extensions(device);
 
 #ifdef VKD3D_ENABLE_RENDERDOC
     if (vkd3d_renderdoc_active() && vkd3d_renderdoc_global_capture_enabled())
