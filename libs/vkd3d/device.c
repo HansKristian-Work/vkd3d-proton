@@ -2800,9 +2800,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandList(d3d12_device_ifa
     return return_interface(object, &IID_ID3D12GraphicsCommandList, riid, command_list);
 }
 
-/* Direct3D feature levels restrict which formats can be optionally supported. */
-static void vkd3d_restrict_format_support_for_feature_level(D3D12_FEATURE_DATA_FORMAT_SUPPORT *format_support)
+static void vkd3d_determine_format_support_for_feature_level(const struct d3d12_device *device,
+        D3D12_FEATURE_DATA_FORMAT_SUPPORT *format_support)
 {
+    /* Direct3D feature levels restrict which formats can be optionally supported. */
     static const D3D12_FEATURE_DATA_FORMAT_SUPPORT blacklisted_format_features[] =
     {
         {DXGI_FORMAT_B8G8R8A8_TYPELESS, D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW,
@@ -2820,6 +2821,18 @@ static void vkd3d_restrict_format_support_for_feature_level(D3D12_FEATURE_DATA_F
             format_support->Support2 &= ~blacklisted_format_features[i].Support2;
             break;
         }
+    }
+
+    /* TypedUAVLoadAdditionalFormats is an all or nothing set */
+    if (!device->d3d12_caps.options.TypedUAVLoadAdditionalFormats)
+        format_support->Support2 &= ~D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD;
+
+    /* R32_{UINT, SINT, FLOAT} always have to support typed reads */
+    if (format_support->Format == DXGI_FORMAT_R32_UINT ||
+                format_support->Format == DXGI_FORMAT_R32_SINT ||
+                format_support->Format == DXGI_FORMAT_R32_FLOAT)
+    {
+        format_support->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD;
     }
 }
 
@@ -2904,6 +2917,99 @@ bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent)
     }
 
     return true;
+}
+
+static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D12_FEATURE_DATA_FORMAT_SUPPORT *data)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkFormatFeatureFlags2KHR image_features;
+    VkFormatProperties3KHR properties3;
+    const struct vkd3d_format *format;
+    VkFormatProperties2 properties;
+
+    data->Support1 = D3D12_FORMAT_SUPPORT1_NONE;
+    data->Support2 = D3D12_FORMAT_SUPPORT2_NONE;
+    if (!(format = vkd3d_get_format(device, data->Format, false)))
+        format = vkd3d_get_format(device, data->Format, true);
+    if (!format)
+    {
+        FIXME("Unhandled format %#x.\n", data->Format);
+        return E_INVALIDARG;
+    }
+
+    properties.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2;
+    properties.pNext = NULL;
+
+    if (device->vk_info.KHR_format_feature_flags2)
+    {
+        properties3.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3_KHR;
+        properties3.pNext = NULL;
+        vk_prepend_struct(&properties, &properties3);
+    }
+
+    VK_CALL(vkGetPhysicalDeviceFormatProperties2(device->vk_physical_device, format->vk_format, &properties));
+
+    if (device->vk_info.KHR_format_feature_flags2)
+        image_features = properties3.linearTilingFeatures | properties3.optimalTilingFeatures;
+    else
+        image_features = properties.formatProperties.linearTilingFeatures | properties.formatProperties.optimalTilingFeatures;
+
+    if (properties.formatProperties.bufferFeatures)
+        data->Support1 |= D3D12_FORMAT_SUPPORT1_BUFFER;
+    if (properties.formatProperties.bufferFeatures & VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT)
+        data->Support1 |= D3D12_FORMAT_SUPPORT1_IA_VERTEX_BUFFER;
+    if (data->Format == DXGI_FORMAT_R16_UINT || data->Format == DXGI_FORMAT_R32_UINT)
+        data->Support1 |= D3D12_FORMAT_SUPPORT1_IA_INDEX_BUFFER;
+    if (image_features)
+    {
+        data->Support1 |= D3D12_FORMAT_SUPPORT1_TEXTURE1D | D3D12_FORMAT_SUPPORT1_TEXTURE2D
+                | D3D12_FORMAT_SUPPORT1_TEXTURE3D | D3D12_FORMAT_SUPPORT1_TEXTURECUBE;
+    }
+    if (image_features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT_KHR)
+    {
+        data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_LOAD | D3D12_FORMAT_SUPPORT1_MULTISAMPLE_LOAD
+                | D3D12_FORMAT_SUPPORT1_SHADER_GATHER;
+        if (image_features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT_KHR)
+        {
+            data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE
+                    | D3D12_FORMAT_SUPPORT1_MIP;
+        }
+        if (format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
+        {
+            data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE_COMPARISON
+                    | D3D12_FORMAT_SUPPORT1_SHADER_GATHER_COMPARISON;
+        }
+    }
+    if (image_features & VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT_KHR)
+        data->Support1 |= D3D12_FORMAT_SUPPORT1_RENDER_TARGET | D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RENDERTARGET;
+    if (image_features & VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT_KHR)
+        data->Support1 |= D3D12_FORMAT_SUPPORT1_BLENDABLE;
+    if (image_features & VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT_KHR)
+        data->Support1 |= D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL;
+    if (image_features & VK_FORMAT_FEATURE_2_BLIT_SRC_BIT_KHR)
+        data->Support1 |= D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RESOLVE;
+    if (image_features & VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR)
+    {
+        data->Support1 |= D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW;
+        if (device->device_info.features2.features.shaderStorageImageReadWithoutFormat ||
+                (image_features & VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR))
+            data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD;
+        if (device->device_info.features2.features.shaderStorageImageWriteWithoutFormat ||
+                (image_features & VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT_KHR))
+            data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE;
+    }
+
+    if (image_features & VK_FORMAT_FEATURE_2_STORAGE_IMAGE_ATOMIC_BIT_KHR)
+    {
+        data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_ADD
+                | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_BITWISE_OPS
+                | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_COMPARE_STORE_OR_COMPARE_EXCHANGE
+                | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_EXCHANGE
+                | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_SIGNED_MIN_OR_MAX
+                | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_UNSIGNED_MIN_OR_MAX;
+    }
+
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_iface *iface,
@@ -3003,12 +3109,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
 
         case D3D12_FEATURE_FORMAT_SUPPORT:
         {
-            const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
             D3D12_FEATURE_DATA_FORMAT_SUPPORT *data = feature_data;
-            VkFormatFeatureFlags2KHR image_features;
-            VkFormatProperties3KHR properties3;
-            const struct vkd3d_format *format;
-            VkFormatProperties2 properties;
+            HRESULT hr;
 
             if (feature_data_size != sizeof(*data))
             {
@@ -3016,81 +3118,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
                 return E_INVALIDARG;
             }
 
-            data->Support1 = D3D12_FORMAT_SUPPORT1_NONE;
-            data->Support2 = D3D12_FORMAT_SUPPORT2_NONE;
-            if (!(format = vkd3d_get_format(device, data->Format, false)))
-                format = vkd3d_get_format(device, data->Format, true);
-            if (!format)
-            {
-                FIXME("Unhandled format %#x.\n", data->Format);
-                return E_INVALIDARG;
-            }
+            if (FAILED(hr = d3d12_device_get_format_support(device, data)))
+                return hr;
 
-            properties.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2;
-            properties.pNext = NULL;
-
-            if (device->vk_info.KHR_format_feature_flags2)
-            {
-                properties3.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3_KHR;
-                properties3.pNext = NULL;
-                vk_prepend_struct(&properties, &properties3);
-            }
-
-            VK_CALL(vkGetPhysicalDeviceFormatProperties2(device->vk_physical_device, format->vk_format, &properties));
-
-            if (device->vk_info.KHR_format_feature_flags2)
-                image_features = properties3.linearTilingFeatures | properties3.optimalTilingFeatures;
-            else
-                image_features = properties.formatProperties.linearTilingFeatures | properties.formatProperties.optimalTilingFeatures;
-
-            if (properties.formatProperties.bufferFeatures)
-                data->Support1 |= D3D12_FORMAT_SUPPORT1_BUFFER;
-            if (properties.formatProperties.bufferFeatures & VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT)
-                data->Support1 |= D3D12_FORMAT_SUPPORT1_IA_VERTEX_BUFFER;
-            if (data->Format == DXGI_FORMAT_R16_UINT || data->Format == DXGI_FORMAT_R32_UINT)
-                data->Support1 |= D3D12_FORMAT_SUPPORT1_IA_INDEX_BUFFER;
-            if (image_features)
-                data->Support1 |= D3D12_FORMAT_SUPPORT1_TEXTURE1D | D3D12_FORMAT_SUPPORT1_TEXTURE2D
-                        | D3D12_FORMAT_SUPPORT1_TEXTURE3D | D3D12_FORMAT_SUPPORT1_TEXTURECUBE;
-            if (image_features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT_KHR)
-            {
-                data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_LOAD | D3D12_FORMAT_SUPPORT1_MULTISAMPLE_LOAD
-                        | D3D12_FORMAT_SUPPORT1_SHADER_GATHER;
-                if (image_features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT_KHR)
-                {
-                    data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE
-                            | D3D12_FORMAT_SUPPORT1_MIP;
-                }
-                if (format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
-                    data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE_COMPARISON
-                            | D3D12_FORMAT_SUPPORT1_SHADER_GATHER_COMPARISON;
-            }
-            if (image_features & VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT_KHR)
-                data->Support1 |= D3D12_FORMAT_SUPPORT1_RENDER_TARGET | D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RENDERTARGET;
-            if (image_features & VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT_KHR)
-                data->Support1 |= D3D12_FORMAT_SUPPORT1_BLENDABLE;
-            if (image_features & VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT_KHR)
-                data->Support1 |= D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL;
-            if (image_features & VK_FORMAT_FEATURE_2_BLIT_SRC_BIT_KHR)
-                data->Support1 |= D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RESOLVE;
-            if (image_features & VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR)
-            {
-                data->Support1 |= D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW;
-                if (device->device_info.features2.features.shaderStorageImageReadWithoutFormat)
-                    data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD;
-                if (device->device_info.features2.features.shaderStorageImageWriteWithoutFormat)
-                    data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE;
-            }
-
-            if (image_features & VK_FORMAT_FEATURE_2_STORAGE_IMAGE_ATOMIC_BIT_KHR)
-                data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_ADD
-                        | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_BITWISE_OPS
-                        | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_COMPARE_STORE_OR_COMPARE_EXCHANGE
-                        | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_EXCHANGE
-                        | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_SIGNED_MIN_OR_MAX
-                        | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_UNSIGNED_MIN_OR_MAX;
-
-            vkd3d_restrict_format_support_for_feature_level(data);
+            vkd3d_determine_format_support_for_feature_level(device, data);
 
             TRACE("Format %#x, support1 %#x, support2 %#x.\n", data->Format, data->Support1, data->Support2);
             return S_OK;
@@ -4870,6 +4901,46 @@ static D3D12_RESOURCE_HEAP_TIER d3d12_device_determine_heap_tier(struct d3d12_de
     return D3D12_RESOURCE_HEAP_TIER_2;
 }
 
+static bool d3d12_device_determine_additional_typed_uav_support(struct d3d12_device *device)
+{
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT format_support;
+    size_t i;
+
+    /* from https://docs.microsoft.com/en-us/windows/win32/direct3d12/typed-unordered-access-view-loads#supported-formats-and-api-calls */
+    static const DXGI_FORMAT required_formats[] =
+    {
+        /* required */
+        DXGI_FORMAT_R32_FLOAT,
+        DXGI_FORMAT_R32_UINT,
+        DXGI_FORMAT_R32_SINT,
+        /* supported as a set */
+        DXGI_FORMAT_R32G32B32A32_FLOAT,
+        DXGI_FORMAT_R32G32B32A32_UINT,
+        DXGI_FORMAT_R32G32B32A32_SINT,
+        DXGI_FORMAT_R16G16B16A16_FLOAT,
+        DXGI_FORMAT_R16G16B16A16_UINT,
+        DXGI_FORMAT_R16G16B16A16_SINT,
+        DXGI_FORMAT_R8G8B8A8_UNORM,
+        DXGI_FORMAT_R8G8B8A8_UINT,
+        DXGI_FORMAT_R8G8B8A8_SINT,
+        DXGI_FORMAT_R16_FLOAT,
+        DXGI_FORMAT_R16_UINT,
+        DXGI_FORMAT_R16_SINT,
+        DXGI_FORMAT_R8_UNORM,
+        DXGI_FORMAT_R8_UINT,
+        DXGI_FORMAT_R8_SINT,
+    };
+
+    for (i = 0; i < ARRAY_SIZE(required_formats); i++)
+    {
+        format_support.Format = required_formats[i];
+        d3d12_device_get_format_support(device, &format_support);
+        if (!(format_support.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD))
+            return false;
+    }
+    return true;
+}
+
 static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
@@ -4883,9 +4954,7 @@ static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
     options->TiledResourcesTier = d3d12_device_determine_tiled_resources_tier(device);
     options->ResourceBindingTier = d3d12_device_determine_resource_binding_tier(device);
     options->PSSpecifiedStencilRefSupported = vk_info->EXT_shader_stencil_export;
-    options->TypedUAVLoadAdditionalFormats =
-            features->shaderStorageImageExtendedFormats &&
-            features->shaderStorageImageReadWithoutFormat;
+    options->TypedUAVLoadAdditionalFormats = d3d12_device_determine_additional_typed_uav_support(device);
     /* Requires VK_EXT_fragment_shader_interlock */
     options->ROVsSupported = FALSE;
     options->ConservativeRasterizationTier = d3d12_device_determine_conservative_rasterization_tier(device);
@@ -5282,7 +5351,7 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
                 VKD3D_SHADER_TARGET_EXTENSION_SPV_KHR_INTEGER_DOT_PRODUCT;
     }
 
-    if (device->device_info.features2.features.shaderStorageImageReadWithoutFormat)
+    if (d3d12_device_determine_additional_typed_uav_support(device))
     {
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                 VKD3D_SHADER_TARGET_EXTENSION_READ_STORAGE_IMAGE_WITHOUT_FORMAT;
