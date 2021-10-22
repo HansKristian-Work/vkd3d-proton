@@ -76,6 +76,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE, KHR_sampler_mirror_clamp_to_edge),
     VK_EXTENSION(KHR_SEPARATE_DEPTH_STENCIL_LAYOUTS, KHR_separate_depth_stencil_layouts),
     VK_EXTENSION(KHR_SHADER_INTEGER_DOT_PRODUCT, KHR_shader_integer_dot_product),
+    VK_EXTENSION(KHR_FORMAT_FEATURE_FLAGS_2, KHR_format_feature_flags2),
     /* EXT extensions */
     VK_EXTENSION(EXT_CALIBRATED_TIMESTAMPS, EXT_calibrated_timestamps),
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
