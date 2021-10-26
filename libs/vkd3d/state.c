@@ -429,6 +429,17 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
 
     local_root_signature = !!(desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
 
+    /* Need to emit bindings for the magic internal table binding. */
+    if (desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED)
+    {
+        d3d12_root_signature_info_count_srv_uav_table(info, device);
+        d3d12_root_signature_info_count_srv_uav_table(info, device);
+        d3d12_root_signature_info_count_cbv_table(info);
+    }
+
+    if (desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_SAMPLER_HEAP_DIRECTLY_INDEXED)
+        d3d12_root_signature_info_count_sampler_table(info);
+
     for (i = 0; i < desc->NumParameters; ++i)
     {
         const D3D12_ROOT_PARAMETER1 *p = &desc->pParameters[i];
@@ -631,6 +642,108 @@ static enum vkd3d_bindless_set_flag vkd3d_bindless_set_flag_from_descriptor_rang
     }
 }
 
+static void vkd3d_shader_resource_binding_init_global_heap(struct vkd3d_shader_resource_binding *binding,
+        D3D12_DESCRIPTOR_RANGE_TYPE range_type)
+{
+    binding->type = vkd3d_descriptor_type_from_d3d12_range_type(range_type);
+    binding->register_space = UINT32_MAX;
+    binding->register_index = UINT32_MAX;
+    binding->register_count = UINT32_MAX;
+    binding->shader_visibility = VKD3D_SHADER_VISIBILITY_ALL;
+    binding->descriptor_table = 0; /* Ignored. */
+    binding->descriptor_offset = 0; /* Ignored. */
+}
+
+static void d3d12_root_signature_init_srv_uav_binding(struct d3d12_root_signature *root_signature,
+        struct vkd3d_descriptor_set_context *context, D3D12_DESCRIPTOR_RANGE_TYPE range_type,
+        struct vkd3d_shader_resource_binding *binding,
+        struct vkd3d_shader_resource_binding *out_bindings_base, uint32_t *out_index)
+{
+    struct vkd3d_bindless_state *bindless_state = &root_signature->device->bindless_state;
+    enum vkd3d_bindless_set_flag range_flag;
+    bool has_aux_buffer;
+
+    range_flag = vkd3d_bindless_set_flag_from_descriptor_range_type(range_type);
+    binding->flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER;
+    has_aux_buffer = false;
+
+    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_RAW_VA_AUX_BUFFER)
+    {
+        binding->flags |= VKD3D_SHADER_BINDING_FLAG_RAW_VA;
+        binding->binding = root_signature->raw_va_aux_buffer_binding;
+        has_aux_buffer = true;
+    }
+    else if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV)
+    {
+        /* There is no fallback heap for RTAS (SRV), this is only relevant for UAV counters. */
+        if (vkd3d_bindless_state_find_binding(bindless_state, range_flag | VKD3D_BINDLESS_SET_AUX_BUFFER, &binding->binding))
+            has_aux_buffer = true;
+        else
+            ERR("Failed to find aux buffer binding.\n");
+    }
+
+    if (has_aux_buffer)
+        out_bindings_base[(*out_index)++] = *binding;
+
+    if (vkd3d_bindless_state_find_binding(bindless_state, range_flag | VKD3D_BINDLESS_SET_BUFFER, &binding->binding))
+    {
+        binding->flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_BUFFER;
+        out_bindings_base[(*out_index)++] = *binding;
+    }
+
+    if (vkd3d_bindless_state_find_binding(bindless_state, range_flag | VKD3D_BINDLESS_SET_RAW_SSBO, &binding->binding))
+    {
+        binding->flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_BUFFER | VKD3D_SHADER_BINDING_FLAG_RAW_SSBO;
+        out_bindings_base[(*out_index)++] = *binding;
+    }
+
+    if (vkd3d_bindless_state_find_binding(bindless_state, range_flag | VKD3D_BINDLESS_SET_IMAGE, &binding->binding))
+    {
+        binding->flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_IMAGE;
+        out_bindings_base[(*out_index)++] = *binding;
+    }
+}
+
+static void d3d12_root_signature_init_srv_uav_heap_bindings(struct d3d12_root_signature *root_signature,
+        struct vkd3d_descriptor_set_context *context, D3D12_DESCRIPTOR_RANGE_TYPE range_type)
+{
+    struct vkd3d_shader_resource_binding binding;
+    vkd3d_shader_resource_binding_init_global_heap(&binding, range_type);
+    d3d12_root_signature_init_srv_uav_binding(root_signature, context, range_type, &binding,
+            root_signature->bindings, &context->binding_index);
+}
+
+static void d3d12_root_signature_init_cbv_srv_uav_heap_bindings(struct d3d12_root_signature *root_signature,
+        struct vkd3d_descriptor_set_context *context)
+{
+    struct vkd3d_bindless_state *bindless_state = &root_signature->device->bindless_state;
+    struct vkd3d_shader_resource_binding binding;
+
+    d3d12_root_signature_init_srv_uav_heap_bindings(root_signature, context, D3D12_DESCRIPTOR_RANGE_TYPE_SRV);
+    d3d12_root_signature_init_srv_uav_heap_bindings(root_signature, context, D3D12_DESCRIPTOR_RANGE_TYPE_UAV);
+
+    vkd3d_shader_resource_binding_init_global_heap(&binding, D3D12_DESCRIPTOR_RANGE_TYPE_CBV);
+    if (vkd3d_bindless_state_find_binding(bindless_state, VKD3D_BINDLESS_SET_CBV, &binding.binding))
+    {
+        binding.flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_BUFFER;
+        root_signature->bindings[context->binding_index++] = binding;
+    }
+}
+
+static void d3d12_root_signature_init_sampler_heap_bindings(struct d3d12_root_signature *root_signature,
+        struct vkd3d_descriptor_set_context *context)
+{
+    struct vkd3d_bindless_state *bindless_state = &root_signature->device->bindless_state;
+    struct vkd3d_shader_resource_binding binding;
+
+    vkd3d_shader_resource_binding_init_global_heap(&binding, D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER);
+    if (vkd3d_bindless_state_find_binding(bindless_state, VKD3D_BINDLESS_SET_SAMPLER, &binding.binding))
+    {
+        binding.flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_IMAGE;
+        root_signature->bindings[context->binding_index++] = binding;
+    }
+}
+
 static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_root_signature *root_signature,
         const D3D12_ROOT_SIGNATURE_DESC1 *desc, const struct d3d12_root_signature_info *info,
         struct vkd3d_descriptor_set_context *context)
@@ -641,9 +754,13 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
     unsigned int i, j, t, range_count;
     uint32_t range_descriptor_offset;
     bool local_root_signature;
-    bool has_aux_buffer;
 
     local_root_signature = !!(desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
+
+    if (desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED)
+        d3d12_root_signature_init_cbv_srv_uav_heap_bindings(root_signature, context);
+    if (desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_SAMPLER_HEAP_DIRECTLY_INDEXED)
+        d3d12_root_signature_init_sampler_heap_bindings(root_signature, context);
 
     for (i = 0, t = 0; i < desc->NumParameters; ++i)
     {
@@ -702,44 +819,8 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
                     break;
                 case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
                 case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
-                    binding.flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER;
-
-                    has_aux_buffer = false;
-                    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_RAW_VA_AUX_BUFFER)
-                    {
-                        binding.flags |= VKD3D_SHADER_BINDING_FLAG_RAW_VA;
-                        binding.binding = root_signature->raw_va_aux_buffer_binding;
-                        has_aux_buffer = true;
-                    }
-                    else if (range->RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_UAV)
-                    {
-                        /* There is no fallback heap for RTAS (SRV), this is only relevant for UAV counters. */
-                        if (vkd3d_bindless_state_find_binding(bindless_state, range_flag | VKD3D_BINDLESS_SET_AUX_BUFFER, &binding.binding))
-                            has_aux_buffer = true;
-                        else
-                            ERR("Failed to find aux buffer binding.\n");
-                    }
-
-                    if (has_aux_buffer)
-                        table->first_binding[table->binding_count++] = binding;
-
-                    if (vkd3d_bindless_state_find_binding(bindless_state, range_flag | VKD3D_BINDLESS_SET_BUFFER, &binding.binding))
-                    {
-                        binding.flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_BUFFER;
-                        table->first_binding[table->binding_count++] = binding;
-                    }
-
-                    if (vkd3d_bindless_state_find_binding(bindless_state, range_flag | VKD3D_BINDLESS_SET_RAW_SSBO, &binding.binding))
-                    {
-                        binding.flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_BUFFER | VKD3D_SHADER_BINDING_FLAG_RAW_SSBO;
-                        table->first_binding[table->binding_count++] = binding;
-                    }
-
-                    if (vkd3d_bindless_state_find_binding(bindless_state, range_flag | VKD3D_BINDLESS_SET_IMAGE, &binding.binding))
-                    {
-                        binding.flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_IMAGE;
-                        table->first_binding[table->binding_count++] = binding;
-                    }
+                    d3d12_root_signature_init_srv_uav_binding(root_signature, context, range->RangeType,
+                            &binding, table->first_binding, &table->binding_count);
                     break;
                 default:
                     FIXME("Unhandled descriptor range type %u.\n", range->RangeType);
