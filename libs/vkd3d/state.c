@@ -363,6 +363,33 @@ static bool d3d12_descriptor_range_can_hoist_cbv_descriptor(
             (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_STATIC_CBV);
 }
 
+static void d3d12_root_signature_info_count_srv_uav_table(struct d3d12_root_signature_info *info,
+        struct d3d12_device *device)
+{
+    /* separate image + buffer descriptors + aux buffer descriptor. */
+    info->binding_count += 3;
+
+    if (device->bindless_state.flags & VKD3D_BINDLESS_RAW_SSBO)
+        info->binding_count += 1;
+
+    if (device->bindless_state.flags & VKD3D_RAW_VA_AUX_BUFFER)
+        info->has_raw_va_aux_buffer = true;
+    if (device->bindless_state.flags & VKD3D_SSBO_OFFSET_BUFFER)
+        info->has_ssbo_offset_buffer = true;
+    if (device->bindless_state.flags & VKD3D_TYPED_OFFSET_BUFFER)
+        info->has_typed_offset_buffer = true;
+}
+
+static void d3d12_root_signature_info_count_cbv_table(struct d3d12_root_signature_info *info)
+{
+    info->binding_count += 1;
+}
+
+static void d3d12_root_signature_info_count_sampler_table(struct d3d12_root_signature_info *info)
+{
+    info->binding_count += 1;
+}
+
 static HRESULT d3d12_root_signature_info_count_descriptors(struct d3d12_root_signature_info *info,
         struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC1 *desc, const D3D12_DESCRIPTOR_RANGE1 *range)
 {
@@ -370,18 +397,7 @@ static HRESULT d3d12_root_signature_info_count_descriptors(struct d3d12_root_sig
     {
         case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
         case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
-            /* separate image + buffer descriptors + aux buffer descriptor. */
-            info->binding_count += 3;
-
-            if (device->bindless_state.flags & VKD3D_BINDLESS_RAW_SSBO)
-                info->binding_count += 1;
-
-            if (device->bindless_state.flags & VKD3D_RAW_VA_AUX_BUFFER)
-                info->has_raw_va_aux_buffer = true;
-            if (device->bindless_state.flags & VKD3D_SSBO_OFFSET_BUFFER)
-                info->has_ssbo_offset_buffer = true;
-            if (device->bindless_state.flags & VKD3D_TYPED_OFFSET_BUFFER)
-                info->has_typed_offset_buffer = true;
+            d3d12_root_signature_info_count_srv_uav_table(info, device);
             break;
         case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
             if (!(desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE) &&
@@ -389,10 +405,10 @@ static HRESULT d3d12_root_signature_info_count_descriptors(struct d3d12_root_sig
             {
                 info->hoist_descriptor_count += 1;
             }
-            info->binding_count += 1;
+            d3d12_root_signature_info_count_cbv_table(info);
             break;
         case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
-            info->binding_count += 1;
+            d3d12_root_signature_info_count_sampler_table(info);
             break;
         default:
             FIXME("Unhandled descriptor type %#x.\n", range->RangeType);
