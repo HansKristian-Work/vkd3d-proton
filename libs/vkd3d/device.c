@@ -105,6 +105,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(NVX_BINARY_IMPORT, NVX_binary_import),
     VK_EXTENSION(NVX_IMAGE_VIEW_HANDLE, NVX_image_view_handle),
     VK_EXTENSION(NV_FRAGMENT_SHADER_BARYCENTRIC, NV_fragment_shader_barycentric),
+    VK_EXTENSION(NV_COMPUTE_SHADER_DERIVATIVES, NV_compute_shader_derivatives),
     /* VALVE extensions */
     VK_EXTENSION(VALVE_MUTABLE_DESCRIPTOR_TYPE, VALVE_mutable_descriptor_type),
 };
@@ -1235,6 +1236,13 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->barycentric_features_nv.sType =
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_NV;
         vk_prepend_struct(&info->features2, &info->barycentric_features_nv);
+    }
+
+    if (vulkan_info->NV_compute_shader_derivatives)
+    {
+        info->compute_shader_derivatives_features_nv.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COMPUTE_SHADER_DERIVATIVES_FEATURES_NV;
+        vk_prepend_struct(&info->features2, &info->compute_shader_derivatives_features_nv);
     }
 
     /* Core in Vulkan 1.1. */
@@ -5174,6 +5182,10 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
             TRACE("Enabling support for SM 6.5.\n");
         }
 
+        /* Required features:
+         * - ComputeShader derivatives (linear only, dxil-spirv can synthesize Quad).
+         * - TBD
+         */
         if (device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_5 &&
                 (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_SHADER_MODEL))
         {
