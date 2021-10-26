@@ -77,9 +77,26 @@ static unsigned dxil_resource_flags_from_kind(dxil_spv_resource_kind kind, bool 
     }
 }
 
+static bool dxil_resource_is_global_heap(const dxil_spv_d3d_binding *d3d_binding)
+{
+    return d3d_binding->register_index == UINT32_MAX &&
+            d3d_binding->register_space == UINT32_MAX &&
+            d3d_binding->range_size == UINT32_MAX;
+}
+
+static bool vkd3d_shader_resource_binding_is_global_heap(const struct vkd3d_shader_resource_binding *binding)
+{
+    return binding->register_index == UINT32_MAX &&
+            binding->register_space == UINT32_MAX &&
+            binding->register_count == UINT32_MAX;
+}
+
 static bool dxil_resource_is_in_range(const struct vkd3d_shader_resource_binding *binding,
                                       const dxil_spv_d3d_binding *d3d_binding)
 {
+    if (vkd3d_shader_resource_binding_is_global_heap(binding) && dxil_resource_is_global_heap(d3d_binding))
+        return true;
+
     if (binding->register_space != d3d_binding->register_space)
         return false;
     if (d3d_binding->register_index < binding->register_index)
@@ -143,19 +160,28 @@ static dxil_spv_bool dxil_remap_inner(
             else if (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS)
             {
                 vk_binding->bindless.use_heap = DXIL_SPV_TRUE;
-                vk_binding->bindless.heap_root_offset = binding->descriptor_offset +
-                        d3d_binding->register_index - binding->register_index;
-                vk_binding->root_constant_index = binding->descriptor_table + remap->descriptor_table_offset_words;
                 vk_binding->set = binding->binding.set;
                 vk_binding->binding = binding->binding.binding;
 
-                if (vk_binding->root_constant_index < 2 * remap->num_root_descriptors)
+                if (dxil_resource_is_global_heap(d3d_binding))
                 {
-                    ERR("Bindless push constant table offset is impossible. %u < 2 * %u\n",
-                        vk_binding->root_constant_index, remap->num_root_descriptors);
-                    return DXIL_SPV_FALSE;
+                    vk_binding->bindless.heap_root_offset = 0; /* No constant offset. */
+                    vk_binding->root_constant_index = UINT32_MAX; /* No push offset. */
                 }
-                vk_binding->root_constant_index -= 2 * remap->num_root_descriptors;
+                else
+                {
+                    vk_binding->bindless.heap_root_offset = binding->descriptor_offset +
+                            d3d_binding->register_index - binding->register_index;
+                    vk_binding->root_constant_index = binding->descriptor_table + remap->descriptor_table_offset_words;
+
+                    if (vk_binding->root_constant_index < 2 * remap->num_root_descriptors)
+                    {
+                        ERR("Bindless push constant table offset is impossible. %u < 2 * %u\n",
+                                vk_binding->root_constant_index, remap->num_root_descriptors);
+                        return DXIL_SPV_FALSE;
+                    }
+                    vk_binding->root_constant_index -= 2 * remap->num_root_descriptors;
+                }
 
                 /* Acceleration structures are mapped to SSBO uvec2[] array instead of normal heap. */
                 if (d3d_binding->kind == DXIL_SPV_RESOURCE_KIND_RT_ACCELERATION_STRUCTURE)
