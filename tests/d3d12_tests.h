@@ -222,6 +222,7 @@ decl_test(test_bindless_uav_counter_sm51);
 decl_test(test_bindless_uav_counter_dxil);
 decl_test(test_bindless_bufinfo_sm51);
 decl_test(test_bindless_bufinfo_dxil);
+decl_test(test_bindless_heap_sm66);
 decl_test(test_stencil_export_dxbc);
 decl_test(test_stencil_export_dxil);
 decl_test(test_raytracing);
