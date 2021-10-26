@@ -534,6 +534,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"log_memory_budget", VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET},
     {"force_host_cached", VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED},
     {"no_invariant_position", VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION},
+    {"experimental_shader_model", VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_SHADER_MODEL},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -5171,6 +5172,13 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
              * which map directly to normal wave operations. */
             device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_5;
             TRACE("Enabling support for SM 6.5.\n");
+        }
+
+        if (device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_5 &&
+                (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_SHADER_MODEL))
+        {
+            INFO("Enabling experimental support for SM 6.6.\n");
+            device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_6;
         }
     }
     else
