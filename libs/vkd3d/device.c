@@ -2919,6 +2919,63 @@ bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent)
     return true;
 }
 
+static bool vk_format_is_supported_by_global_read_write_without_format(VkFormat format)
+{
+    size_t i;
+
+    /* from https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#formats-without-shader-storage-format */
+    static const VkFormat supported_formats[] =
+    {
+        VK_FORMAT_R8G8B8A8_UNORM,
+        VK_FORMAT_R8G8B8A8_SNORM,
+        VK_FORMAT_R8G8B8A8_UINT,
+        VK_FORMAT_R8G8B8A8_SINT,
+        VK_FORMAT_R32_UINT,
+        VK_FORMAT_R32_SINT,
+        VK_FORMAT_R32_SFLOAT,
+        VK_FORMAT_R32G32_UINT,
+        VK_FORMAT_R32G32_SINT,
+        VK_FORMAT_R32G32_SFLOAT,
+        VK_FORMAT_R32G32B32A32_UINT,
+        VK_FORMAT_R32G32B32A32_SINT,
+        VK_FORMAT_R32G32B32A32_SFLOAT,
+        VK_FORMAT_R16G16B16A16_UINT,
+        VK_FORMAT_R16G16B16A16_SINT,
+        VK_FORMAT_R16G16B16A16_SFLOAT,
+        VK_FORMAT_R16G16_SFLOAT,
+        VK_FORMAT_B10G11R11_UFLOAT_PACK32,
+        VK_FORMAT_R16_SFLOAT,
+        VK_FORMAT_R16G16B16A16_UNORM,
+        VK_FORMAT_A2B10G10R10_UNORM_PACK32,
+        VK_FORMAT_R16G16_UNORM,
+        VK_FORMAT_R8G8_UNORM,
+        VK_FORMAT_R16_UNORM,
+        VK_FORMAT_R8_UNORM,
+        VK_FORMAT_R16G16B16A16_SNORM,
+        VK_FORMAT_R16G16_SNORM,
+        VK_FORMAT_R8G8_SNORM,
+        VK_FORMAT_R16_SNORM,
+        VK_FORMAT_R8_SNORM,
+        VK_FORMAT_R16G16_SINT,
+        VK_FORMAT_R8G8_SINT,
+        VK_FORMAT_R16_SINT,
+        VK_FORMAT_R8_SINT,
+        VK_FORMAT_A2B10G10R10_UINT_PACK32,
+        VK_FORMAT_R16G16_UINT,
+        VK_FORMAT_R8G8_UINT,
+        VK_FORMAT_R16_UINT,
+        VK_FORMAT_R8_UINT,
+    };
+
+    for (i = 0; i < ARRAY_SIZE(supported_formats); i++)
+    {
+        if (format == supported_formats[i])
+            return true;
+    }
+
+    return false;
+}
+
 static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D12_FEATURE_DATA_FORMAT_SUPPORT *data)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -2991,12 +3048,19 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
     if (image_features & VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR)
     {
         data->Support1 |= D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW;
-        if (device->device_info.features2.features.shaderStorageImageReadWithoutFormat ||
-                (image_features & VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR))
+        if (image_features & VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR)
             data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD;
-        if (device->device_info.features2.features.shaderStorageImageWriteWithoutFormat ||
-                (image_features & VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT_KHR))
+        if (image_features & VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT_KHR)
             data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE;
+
+        if (!device->vk_info.KHR_format_feature_flags2 &&
+                vk_format_is_supported_by_global_read_write_without_format(format->vk_format))
+        {
+            if (device->device_info.features2.features.shaderStorageImageReadWithoutFormat)
+                data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD;
+            if (device->device_info.features2.features.shaderStorageImageWriteWithoutFormat)
+                data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE;
+        }
     }
 
     if (image_features & VK_FORMAT_FEATURE_2_STORAGE_IMAGE_ATOMIC_BIT_KHR)
