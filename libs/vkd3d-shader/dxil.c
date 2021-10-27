@@ -843,6 +843,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
             &spirv->meta.cs_workgroup_size[1],
             &spirv->meta.cs_workgroup_size[2]);
     dxil_spv_converter_get_patch_vertex_count(converter, &spirv->meta.patch_vertex_count);
+    dxil_spv_converter_get_compute_required_wave_size(converter, &spirv->meta.cs_required_wave_size);
     spirv->meta.uses_native_16bit_operations = dxil_spv_converter_uses_shader_feature(converter,
             DXIL_SPV_SHADER_FEATURE_NATIVE_16BIT_OPERATIONS) == DXIL_SPV_TRUE;
 
