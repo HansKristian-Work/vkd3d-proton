@@ -272,6 +272,7 @@ decl_test(test_sv_barycentric);
 decl_test(test_shader_fp16);
 decl_test(test_shader_sm62_denorm);
 decl_test(test_shader_sm64_packed);
+decl_test(test_shader_sm66_packed);
 decl_test(test_shader_sm65_wave_intrinsics);
 decl_test(test_shader_sm66_wave_size);
 decl_test(test_shader_sm66_quad_op_semantics);
