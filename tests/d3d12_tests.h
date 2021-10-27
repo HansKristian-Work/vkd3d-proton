@@ -273,6 +273,7 @@ decl_test(test_shader_fp16);
 decl_test(test_shader_sm62_denorm);
 decl_test(test_shader_sm64_packed);
 decl_test(test_shader_sm65_wave_intrinsics);
+decl_test(test_shader_sm66_wave_size);
 decl_test(test_shader_sm66_quad_op_semantics);
 decl_test(test_shader_sm66_compute_derivatives);
 decl_test(test_shader_sm66_64bit_atomics);
