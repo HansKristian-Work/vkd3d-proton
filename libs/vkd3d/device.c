@@ -5708,6 +5708,28 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
         return false;
     }
 
+    if (meta->cs_required_wave_size)
+    {
+        const struct vkd3d_physical_device_info *info = &device->device_info;
+        if (!info->subgroup_size_control_features.subgroupSizeControl ||
+                !info->subgroup_size_control_features.computeFullSubgroups ||
+                !(info->subgroup_size_control_properties.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT))
+        {
+            ERR("Required subgroup size control features are not supported for SM 6.6 WaveSize.\n");
+            return E_INVALIDARG;
+        }
+
+        if (meta->cs_required_wave_size < info->subgroup_size_control_properties.minSubgroupSize ||
+                meta->cs_required_wave_size > info->subgroup_size_control_properties.maxSubgroupSize)
+        {
+            ERR("Requested WaveSize %u, but supported range is [%u, %u].\n",
+                    meta->cs_required_wave_size,
+                    info->subgroup_size_control_properties.minSubgroupSize,
+                    info->subgroup_size_control_properties.maxSubgroupSize);
+            return E_INVALIDARG;
+        }
+    }
+
     return true;
 }
 
