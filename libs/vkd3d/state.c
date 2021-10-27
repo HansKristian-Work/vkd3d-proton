@@ -2241,26 +2241,38 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     if (!d3d12_device_validate_shader_meta(device, &spirv.meta))
         return E_INVALIDARG;
 
-    if (spirv.meta.uses_subgroup_size && device->device_info.subgroup_size_control_features.subgroupSizeControl)
+    if ((spirv.meta.uses_subgroup_size &&
+            device->device_info.subgroup_size_control_features.subgroupSizeControl) ||
+            spirv.meta.cs_required_wave_size)
     {
-        /* GravityMark checks minSubgroupSize and based on that uses a shader variant.
-         * This shader variant unfortunately expects that a subgroup 32 variant will actually use wave32 on AMD.
-         * amdgpu-pro and AMDVLK happens to emit wave32, but RADV will emit wave64 here unless we force it to be wave32.
-         * This is an application bug, since the shader is not guaranteed a specific size, but we can only workaround ...
-         * This path will also be relevant in SM 6.6 where we have to handle [WaveSize(N)] attribute. */
         uint32_t subgroup_size_alignment = device->device_info.subgroup_size_control_properties.maxSubgroupSize;
-        if (required_subgroup_size_info &&
-                (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_MINIMUM_SUBGROUP_SIZE) &&
-                (device->device_info.subgroup_size_control_properties.requiredSubgroupSizeStages & stage))
+        stage_desc->flags |= VK_PIPELINE_SHADER_STAGE_CREATE_ALLOW_VARYING_SUBGROUP_SIZE_BIT_EXT;
+
+        if (required_subgroup_size_info)
         {
-            subgroup_size_alignment = device->device_info.subgroup_size_control_properties.minSubgroupSize;
+            if (spirv.meta.cs_required_wave_size)
+            {
+                /* [WaveSize(N)] attribute in SM 6.6. */
+                subgroup_size_alignment = spirv.meta.cs_required_wave_size;
+                stage_desc->pNext = required_subgroup_size_info;
+                stage_desc->flags &= ~VK_PIPELINE_SHADER_STAGE_CREATE_ALLOW_VARYING_SUBGROUP_SIZE_BIT_EXT;
+            }
+            else if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_MINIMUM_SUBGROUP_SIZE) &&
+                    (device->device_info.subgroup_size_control_properties.requiredSubgroupSizeStages & stage))
+            {
+                /* GravityMark checks minSubgroupSize and based on that uses a shader variant.
+                 * This shader variant unfortunately expects that a subgroup 32 variant will actually use wave32 on AMD.
+                 * amdgpu-pro and AMDVLK happens to emit wave32, but RADV will emit wave64 here unless we force it to be wave32.
+                 * This is an application bug, since the shader is not guaranteed a specific size, but we can only workaround ... */
+                subgroup_size_alignment = device->device_info.subgroup_size_control_properties.minSubgroupSize;
+                stage_desc->pNext = required_subgroup_size_info;
+                stage_desc->flags &= ~VK_PIPELINE_SHADER_STAGE_CREATE_ALLOW_VARYING_SUBGROUP_SIZE_BIT_EXT;
+            }
+
             required_subgroup_size_info->sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO_EXT;
             required_subgroup_size_info->pNext = NULL;
             required_subgroup_size_info->requiredSubgroupSize = subgroup_size_alignment;
-            stage_desc->pNext = required_subgroup_size_info;
         }
-        else
-            stage_desc->flags |= VK_PIPELINE_SHADER_STAGE_CREATE_ALLOW_VARYING_SUBGROUP_SIZE_BIT_EXT;
 
         /* If we can, we should be explicit and enable FULL_SUBGROUPS bit as well. This should be default
          * behavior, but cannot hurt. */
