@@ -275,6 +275,7 @@ decl_test(test_shader_sm64_packed);
 decl_test(test_shader_sm65_wave_intrinsics);
 decl_test(test_shader_sm66_quad_op_semantics);
 decl_test(test_shader_sm66_compute_derivatives);
+decl_test(test_shader_sm66_64bit_atomics);
 decl_test(test_get_copyable_footprints_planar);
 decl_test(test_depth_stencil_test_no_dsv);
 decl_test(test_copy_buffer_to_depth_stencil);
