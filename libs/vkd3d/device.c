@@ -3574,6 +3574,76 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             return S_OK;
         }
 
+        case D3D12_FEATURE_D3D12_OPTIONS8:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS8 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            *data = device->d3d12_caps.options8;
+
+            TRACE("Unaligned block textures supported %u.\n", data->UnalignedBlockTexturesSupported);
+            return S_OK;
+        }
+
+        case D3D12_FEATURE_D3D12_OPTIONS9:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS9 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            *data = device->d3d12_caps.options9;
+
+            TRACE("AtomicInt64 on typed resource supported %u.\n", data->AtomicInt64OnTypedResourceSupported);
+            TRACE("AtomicInt64 on group shared supported %u.\n", data->AtomicInt64OnGroupSharedSupported);
+            TRACE("Mesh shader pipeline stats supported %u.\n", data->MeshShaderPipelineStatsSupported);
+            TRACE("Mesh shader supports full range render target array index %u.\n", data->MeshShaderSupportsFullRangeRenderTargetArrayIndex);
+            TRACE("Derivatives in mesh and amplification shaders supported %u.\n", data->DerivativesInMeshAndAmplificationShadersSupported);
+            TRACE("Wave MMA tier #%x.\n", data->WaveMMATier);
+            return S_OK;
+        }
+
+        case D3D12_FEATURE_D3D12_OPTIONS10:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS10 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            *data = device->d3d12_caps.options10;
+
+            TRACE("Variable rate shading sum combiner supported %u.\n", data->VariableRateShadingSumCombinerSupported);
+            TRACE("Mesh shader per primitive shading rate supported %u.\n", data->MeshShaderPerPrimitiveShadingRateSupported);
+            return S_OK;
+        }
+
+        case D3D12_FEATURE_D3D12_OPTIONS11:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS11 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            *data = device->d3d12_caps.options11;
+
+            TRACE("AtomicInt64 on descriptor heap resource supported %u.\n", data->AtomicInt64OnDescriptorHeapResourceSupported);
+            return S_OK;
+        }
+
         case D3D12_FEATURE_QUERY_META_COMMAND:
         {
             D3D12_FEATURE_DATA_QUERY_META_COMMAND *data = feature_data;
@@ -5170,6 +5240,43 @@ static void d3d12_device_caps_init_feature_options7(struct d3d12_device *device)
     options7->SamplerFeedbackTier = D3D12_SAMPLER_FEEDBACK_TIER_NOT_SUPPORTED;
 }
 
+static void d3d12_device_caps_init_feature_options8(struct d3d12_device *device)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS8 *options8 = &device->d3d12_caps.options8;
+
+    /* Advertise that it is possible to use a top mip level which is not aligned to 4.
+     * Weird legacy D3D11 requirement that is not relevant anymore, and does not exist in Vulkan. */
+    options8->UnalignedBlockTexturesSupported = TRUE;
+}
+
+static void d3d12_device_caps_init_feature_options9(struct d3d12_device *device)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS9 *options9 = &device->d3d12_caps.options9;
+
+    options9->AtomicInt64OnGroupSharedSupported = FALSE; /* TODO */
+    options9->AtomicInt64OnTypedResourceSupported = FALSE; /* TODO */
+    options9->DerivativesInMeshAndAmplificationShadersSupported = FALSE;
+    options9->MeshShaderSupportsFullRangeRenderTargetArrayIndex = FALSE;
+    options9->MeshShaderPipelineStatsSupported = FALSE;
+    options9->WaveMMATier = D3D12_WAVE_MMA_TIER_NOT_SUPPORTED;
+}
+
+static void d3d12_device_caps_init_feature_options10(struct d3d12_device *device)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS10 *options10 = &device->d3d12_caps.options10;
+
+    options10->VariableRateShadingSumCombinerSupported =
+            d3d12_device_determine_variable_shading_rate_tier(device) >= D3D12_VARIABLE_SHADING_RATE_TIER_1;
+    options10->MeshShaderPerPrimitiveShadingRateSupported = FALSE;
+}
+
+static void d3d12_device_caps_init_feature_options11(struct d3d12_device *device)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS11 *options11 = &device->d3d12_caps.options11;
+
+    options11->AtomicInt64OnDescriptorHeapResourceSupported = FALSE; /* TODO */
+}
+
 static void d3d12_device_caps_init_feature_level(struct d3d12_device *device)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
@@ -5405,6 +5512,10 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
     d3d12_device_caps_init_feature_options5(device);
     d3d12_device_caps_init_feature_options6(device);
     d3d12_device_caps_init_feature_options7(device);
+    d3d12_device_caps_init_feature_options8(device);
+    d3d12_device_caps_init_feature_options9(device);
+    d3d12_device_caps_init_feature_options10(device);
+    d3d12_device_caps_init_feature_options11(device);
     d3d12_device_caps_init_feature_level(device);
 
     d3d12_device_caps_override(device);
