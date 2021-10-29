@@ -125,6 +125,7 @@ struct vkd3d_vulkan_info
     bool KHR_separate_depth_stencil_layouts;
     bool KHR_shader_integer_dot_product;
     bool KHR_format_feature_flags2;
+    bool KHR_shader_atomic_int64;
     /* EXT device extensions */
     bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;
@@ -145,6 +146,7 @@ struct vkd3d_vulkan_info
     bool EXT_extended_dynamic_state;
     bool EXT_external_memory_host;
     bool EXT_4444_formats;
+    bool EXT_shader_image_atomic_int64;
     /* AMD device extensions */
     bool AMD_buffer_marker;
     bool AMD_shader_core_properties;
@@ -2720,6 +2722,8 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceFragmentShaderBarycentricFeaturesNV barycentric_features_nv;
     VkPhysicalDeviceRayQueryFeaturesKHR ray_query_features;
     VkPhysicalDeviceComputeShaderDerivativesFeaturesNV compute_shader_derivatives_features_nv;
+    VkPhysicalDeviceShaderAtomicInt64FeaturesKHR shader_atomic_int64_features;
+    VkPhysicalDeviceShaderImageAtomicInt64FeaturesEXT shader_image_atomic_int64_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
