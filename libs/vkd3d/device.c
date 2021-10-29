@@ -538,7 +538,6 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"log_memory_budget", VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET},
     {"force_host_cached", VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED},
     {"no_invariant_position", VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION},
-    {"experimental_shader_model", VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_SHADER_MODEL},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -5431,12 +5430,23 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
 
         /* Required features:
          * - ComputeShader derivatives (linear only, dxil-spirv can synthesize Quad).
-         * - TBD
+         * - 64-bit atomics. Only buffer atomics are required for SM 6.6.
+         * - Strict IsHelperInvocation(). The emulated path might have some edge cases here,
+         *   no reason not to require it.
+         * - 8-bit integers. Widely supported, even on older targets. Can be emulated if need be.
+         * - WaveSize attribute, requiredSubgroupSizeStages + FullSubgroups feature is required.
+         * - RayPayload attribute (purely metadata in DXIL land, irrelevant for us).
          */
         if (device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_5 &&
-                (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_SHADER_MODEL))
+                device->device_info.compute_shader_derivatives_features_nv.computeDerivativeGroupLinear &&
+                device->device_info.shader_atomic_int64_features.shaderBufferInt64Atomics &&
+                device->device_info.demote_features.shaderDemoteToHelperInvocation &&
+                device->device_info.float16_int8_features.shaderInt8 &&
+                device->device_info.subgroup_size_control_features.computeFullSubgroups &&
+                device->device_info.subgroup_size_control_features.subgroupSizeControl &&
+                (device->device_info.subgroup_size_control_properties.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT))
         {
-            INFO("Enabling experimental support for SM 6.6.\n");
+            INFO("Enabling support for SM 6.6.\n");
             device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_6;
         }
     }
