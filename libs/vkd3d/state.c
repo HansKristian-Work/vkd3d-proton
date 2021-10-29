@@ -2490,7 +2490,8 @@ static void rs_stream_info_from_d3d12(VkPipelineRasterizationStateStreamCreateIn
         VkPipelineRasterizationStateCreateInfo *vk_rs_desc, const D3D12_STREAM_OUTPUT_DESC *so_desc,
         const struct vkd3d_vulkan_info *vk_info)
 {
-    if (!so_desc->RasterizedStream || so_desc->RasterizedStream == D3D12_SO_NO_RASTERIZED_STREAM)
+    if (!so_desc->NumEntries || !so_desc->RasterizedStream
+            || so_desc->RasterizedStream == D3D12_SO_NO_RASTERIZED_STREAM)
         return;
 
     if (!vk_info->rasterization_stream)
@@ -3641,7 +3642,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     rs_desc_from_d3d12(&graphics->rs_desc, &desc->rasterizer_state);
     have_attachment = graphics->rt_count || graphics->dsv_format || is_dsv_format_unknown;
     if ((!have_attachment && !(desc->ps.pShaderBytecode && desc->ps.BytecodeLength))
-            || (so_desc->NumEntries != 0 && so_desc->RasterizedStream == D3D12_SO_NO_RASTERIZED_STREAM))
+            || (graphics->xfb_enabled && so_desc->RasterizedStream == D3D12_SO_NO_RASTERIZED_STREAM))
         graphics->rs_desc.rasterizerDiscardEnable = VK_TRUE;
 
     rs_stream_info_from_d3d12(&graphics->rs_stream_info, &graphics->rs_desc, so_desc, vk_info);
