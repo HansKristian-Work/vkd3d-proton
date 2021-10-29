@@ -5172,8 +5172,7 @@ static void d3d12_device_caps_init_feature_options1(struct d3d12_device *device)
     }
 
     options1->ExpandedComputeResourceStates = TRUE;
-    /* Does spirv-dxil support this? */
-    options1->Int64ShaderOps = FALSE;
+    options1->Int64ShaderOps = TRUE;
 
     FIXME("TotalLaneCount = %u, may be inaccurate.\n", options1->TotalLaneCount);
 }
