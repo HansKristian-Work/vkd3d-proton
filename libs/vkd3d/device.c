@@ -5268,8 +5268,11 @@ static void d3d12_device_caps_init_feature_options9(struct d3d12_device *device)
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS9 *options9 = &device->d3d12_caps.options9;
 
-    options9->AtomicInt64OnGroupSharedSupported = FALSE; /* TODO */
-    options9->AtomicInt64OnTypedResourceSupported = FALSE; /* TODO */
+    options9->AtomicInt64OnGroupSharedSupported =
+            device->device_info.shader_atomic_int64_features.shaderSharedInt64Atomics;
+    /* Unsure if sparse 64-bit image atomics is also required. */
+    options9->AtomicInt64OnTypedResourceSupported =
+            device->device_info.shader_image_atomic_int64_features.shaderImageInt64Atomics;
     options9->DerivativesInMeshAndAmplificationShadersSupported = FALSE;
     options9->MeshShaderSupportsFullRangeRenderTargetArrayIndex = FALSE;
     options9->MeshShaderPipelineStatsSupported = FALSE;
@@ -5289,7 +5292,8 @@ static void d3d12_device_caps_init_feature_options11(struct d3d12_device *device
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS11 *options11 = &device->d3d12_caps.options11;
 
-    options11->AtomicInt64OnDescriptorHeapResourceSupported = FALSE; /* TODO */
+    options11->AtomicInt64OnDescriptorHeapResourceSupported =
+            device->device_info.shader_atomic_int64_features.shaderBufferInt64Atomics;
 }
 
 static void d3d12_device_caps_init_feature_level(struct d3d12_device *device)
