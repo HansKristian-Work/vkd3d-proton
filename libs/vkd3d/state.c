@@ -2855,15 +2855,18 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass_for_plane_mask(
     key.rtv_active_mask = rtv_active_mask;
     key.flags = 0;
 
-    if (graphics->dsv_format)
+    if (dynamic_dsv_format)
     {
-        dsv_format = graphics->dsv_format->vk_format;
-        aspects = graphics->dsv_format->vk_aspect_mask;
-    }
-    else if (dynamic_dsv_format && (graphics->null_attachment_mask & dsv_attachment_mask(graphics)))
-    {
-        dsv_format = dynamic_dsv_format->vk_format;
-        aspects = dynamic_dsv_format->vk_aspect_mask;
+        if (graphics->dsv_format)
+        {
+            dsv_format = graphics->dsv_format->vk_format;
+            aspects = graphics->dsv_format->vk_aspect_mask;
+        }
+        else if (graphics->null_attachment_mask & dsv_attachment_mask(graphics))
+        {
+            dsv_format = dynamic_dsv_format->vk_format;
+            aspects = dynamic_dsv_format->vk_aspect_mask;
+        }
     }
 
     if (dsv_format)
@@ -4009,6 +4012,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     VkPipelineVertexInputDivisorStateCreateInfoEXT input_divisor_info;
     VkPipelineTessellationStateCreateInfo tessellation_info;
+    VkPipelineDepthStencilStateCreateInfo fallback_ds_desc;
     VkPipelineDynamicStateCreateInfo dynamic_create_info;
     VkPipelineVertexInputStateCreateInfo input_desc;
     VkPipelineInputAssemblyStateCreateInfo ia_desc;
@@ -4100,6 +4104,16 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     {
         TRACE("Compiling %p with fallback DSV format %#x.\n", state,
                 dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED);
+    }
+    else if (!dsv_format && graphics->dsv_format)
+    {
+        TRACE("Compiling %p with fallback NULL DSV format.\n", state);
+        fallback_ds_desc = graphics->ds_desc;
+        fallback_ds_desc.depthTestEnable = VK_FALSE;
+        fallback_ds_desc.depthWriteEnable = VK_FALSE;
+        fallback_ds_desc.depthBoundsTestEnable = VK_FALSE;
+        fallback_ds_desc.stencilTestEnable = VK_FALSE;
+        pipeline_desc.pDepthStencilState = &fallback_ds_desc;
     }
 
     rtv_active_mask = key ? key->rtv_active_mask : graphics->rtv_active_mask;

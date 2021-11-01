@@ -4361,7 +4361,7 @@ static bool d3d12_command_list_has_depth_stencil_view(struct d3d12_command_list 
     assert(d3d12_pipeline_state_is_graphics(list->state));
     graphics = &list->state->graphics;
 
-    return graphics->dsv_format || (d3d12_pipeline_state_has_unknown_dsv_format(list->state) && list->dsv.format);
+    return list->dsv.format && (graphics->dsv_format || d3d12_pipeline_state_has_unknown_dsv_format(list->state));
 }
 
 static void d3d12_command_list_get_fb_extent(struct d3d12_command_list *list,
@@ -4580,14 +4580,6 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
     if (!d3d12_pipeline_state_is_graphics(list->state))
     {
         WARN("Pipeline state %p is not a graphics pipeline.\n", list->state);
-        return false;
-    }
-
-    /* Detect error case early, otherwise, we end up creating new pipelines
-     * and crash later when looking at DSV formats. */
-    if (!list->dsv.view && list->state->graphics.dsv_format)
-    {
-        FIXME_ONCE("Attempting to render to NULL DSV with non-NULL format in PSO. Skipping draw call.\n");
         return false;
     }
 
