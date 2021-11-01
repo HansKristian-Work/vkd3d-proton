@@ -498,7 +498,7 @@ void test_depth_stencil_test_no_dsv(void)
               D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     /* vkd3d-proton just skips the draw call in this situation.
      * At least test that we don't crash. */
-    todo check_sub_resource_vec4(context.render_target, 0, queue, command_list, &blue, 0);
+    check_sub_resource_vec4(context.render_target, 0, queue, command_list, &blue, 0);
 
     destroy_test_context(&context);
 }
