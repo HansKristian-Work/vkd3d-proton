@@ -2807,9 +2807,9 @@ static HRESULT compute_input_layout_offsets(const struct d3d12_device *device,
         if (e->AlignedByteOffset != D3D12_APPEND_ALIGNED_ELEMENT)
             offsets[i] = e->AlignedByteOffset;
         else
-            offsets[i] = input_slot_offsets[e->InputSlot];
+            offsets[i] = align(input_slot_offsets[e->InputSlot], min(4, format->byte_count));
 
-        input_slot_offsets[e->InputSlot] = align(offsets[i] + format->byte_count, 4);
+        input_slot_offsets[e->InputSlot] = offsets[i] + format->byte_count;
     }
 
     return S_OK;
