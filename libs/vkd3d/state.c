@@ -2822,6 +2822,7 @@ static uint32_t d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_pi
         { VKD3D_DYNAMIC_STATE_TOPOLOGY,              VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY_EXT },
         { VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE,  VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE_EXT },
         { VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE, VK_DYNAMIC_STATE_FRAGMENT_SHADING_RATE_KHR },
+        { VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART,     VK_DYNAMIC_STATE_PRIMITIVE_RESTART_ENABLE_EXT },
     };
 
     dynamic_state_flags = 0;
@@ -2865,6 +2866,9 @@ static uint32_t d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_pi
      * so we don't need to worry about side effects when there are no render targets. */
     if (d3d12_device_supports_variable_shading_rate_tier_1(state->device) && graphics->rt_count)
         dynamic_state_flags |= VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE;
+
+    if (graphics->index_buffer_strip_cut_value)
+        dynamic_state_flags |= VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART;
 
     /* Build dynamic state create info */
     for (i = 0, count = 0; i < ARRAY_SIZE(dynamic_state_list); i++)
@@ -4144,7 +4148,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     /* Try to keep as much dynamic state as possible so we don't have to rebind state unnecessarily. */
 
     if (graphics->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH &&
-        graphics->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED)
+            graphics->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED)
         pipeline_key.dynamic_topology = true;
     else
         pipeline_key.topology = dyn_state->primitive_topology;

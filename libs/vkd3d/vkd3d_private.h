@@ -149,6 +149,7 @@ struct vkd3d_vulkan_info
     bool EXT_transform_feedback;
     bool EXT_vertex_attribute_divisor;
     bool EXT_extended_dynamic_state;
+    bool EXT_extended_dynamic_state2;
     bool EXT_external_memory_host;
     bool EXT_4444_formats;
     bool EXT_shader_image_atomic_int64;
@@ -1416,7 +1417,7 @@ HRESULT vkd3d_create_descriptor_set_layout(struct d3d12_device *device,
         VkDescriptorSetLayoutCreateFlags flags, unsigned int binding_count,
         const VkDescriptorSetLayoutBinding *bindings, VkDescriptorSetLayout *set_layout);
 
-#define VKD3D_MAX_DYNAMIC_STATE_COUNT (7)
+#define VKD3D_MAX_DYNAMIC_STATE_COUNT (8)
 
 enum vkd3d_dynamic_state_flag
 {
@@ -1429,6 +1430,7 @@ enum vkd3d_dynamic_state_flag
     VKD3D_DYNAMIC_STATE_VERTEX_BUFFER         = (1 << 6),
     VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE  = (1 << 7),
     VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE = (1 << 8),
+    VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART     = (1 << 9),
 };
 
 struct vkd3d_shader_debug_ring_spec_constants
@@ -1607,6 +1609,21 @@ HRESULT vkd3d_pipeline_state_desc_from_d3d12_compute_desc(struct d3d12_pipeline_
         const D3D12_COMPUTE_PIPELINE_STATE_DESC *d3d12_desc);
 HRESULT vkd3d_pipeline_state_desc_from_d3d12_stream_desc(struct d3d12_pipeline_state_desc *desc,
         const D3D12_PIPELINE_STATE_STREAM_DESC *d3d12_desc, VkPipelineBindPoint *vk_bind_point);
+
+static inline bool vk_primitive_topology_supports_restart(VkPrimitiveTopology topology)
+{
+    switch (topology)
+    {
+        case VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP:
+        case VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP_WITH_ADJACENCY:
+        case VK_PRIMITIVE_TOPOLOGY_LINE_STRIP:
+        case VK_PRIMITIVE_TOPOLOGY_LINE_STRIP_WITH_ADJACENCY:
+            return true;
+
+        default:
+            return false;
+    }
+}
 
 struct vkd3d_pipeline_key
 {
@@ -2958,6 +2975,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceShaderSubgroupExtendedTypesFeaturesKHR subgroup_extended_types_features;
     VkPhysicalDeviceRobustness2FeaturesEXT robustness2_features;
     VkPhysicalDeviceExtendedDynamicStateFeaturesEXT extended_dynamic_state_features;
+    VkPhysicalDeviceExtendedDynamicState2FeaturesEXT extended_dynamic_state2_features;
     VkPhysicalDeviceMutableDescriptorTypeFeaturesVALVE mutable_descriptor_features;
     VkPhysicalDeviceRayTracingPipelineFeaturesKHR ray_tracing_pipeline_features;
     VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features;
