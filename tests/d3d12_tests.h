@@ -199,6 +199,7 @@ decl_test(test_primitive_restart);
 decl_test(test_index_buffer_edge_case_stream_output);
 decl_test(test_vertex_shader_stream_output_dxbc);
 decl_test(test_vertex_shader_stream_output_dxil);
+decl_test(test_primitive_restart_list_topology_stream_output);
 decl_test(test_read_write_subresource);
 decl_test(test_queue_wait);
 decl_test(test_graphics_compute_queue_synchronization);
