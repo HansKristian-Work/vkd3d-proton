@@ -5254,6 +5254,15 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
                 dyn_state->vk_primitive_topology));
     }
 
+    if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART)
+    {
+        /* The primitive restart dynamic state is only present if the PSO
+         * has a strip cut value, so we only need to check if the
+         * current primitive topology is a strip type. */
+        VK_CALL(vkCmdSetPrimitiveRestartEnableEXT(list->vk_command_buffer,
+                vk_primitive_topology_supports_restart(dyn_state->vk_primitive_topology)));
+    }
+
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE)
     {
         update_vbos = (dyn_state->dirty_vbos | dyn_state->dirty_vbo_strides) & list->state->graphics.vertex_buffer_mask;
@@ -6791,7 +6800,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetPrimitiveTopology(d3d12_co
     dyn_state->primitive_topology = topology;
     dyn_state->vk_primitive_topology = vk_topology_from_d3d12_topology(topology);
     d3d12_command_list_invalidate_current_pipeline(list, false);
-    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_TOPOLOGY;
+    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_TOPOLOGY | VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetViewports(d3d12_command_list_iface *iface,
