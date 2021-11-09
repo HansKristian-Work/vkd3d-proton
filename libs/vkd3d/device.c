@@ -5591,6 +5591,17 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
     {
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                 VKD3D_SHADER_TARGET_EXTENSION_SCALAR_BLOCK_LAYOUT;
+
+        if (device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_AMD)
+        {
+            /* Raw load-store instructions on AMD are bounds checked correctly per component.
+             * In other cases, we must be careful when emitting byte address buffers and block
+             * any attempt to vectorize vec3.
+             * We can still vectorize vec3 structured buffers however as long as SCALAR_BLOCK_LAYOUT
+             * is supported. */
+            device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                    VKD3D_SHADER_TARGET_EXTENSION_ASSUME_PER_COMPONENT_SSBO_ROBUSTNESS;
+        }
     }
 }
 
