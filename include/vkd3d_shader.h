@@ -292,6 +292,14 @@ enum vkd3d_shader_target_extension
     VKD3D_SHADER_TARGET_EXTENSION_SPV_KHR_INTEGER_DOT_PRODUCT,
     VKD3D_SHADER_TARGET_EXTENSION_RAY_TRACING_PRIMITIVE_CULLING,
     VKD3D_SHADER_TARGET_EXTENSION_SCALAR_BLOCK_LAYOUT,
+
+    /* When using scalar block layout with a vec3 array on a byte address buffer,
+     * there is diverging behavior across hardware.
+     * On AMD, robustness is checked per component, which means we can implement ByteAddressBuffer
+     * without further hackery. On NVIDIA, robustness does not seem to work this way, so it's either
+     * all in range, or all out of range. We can implement structured buffer vectorization of vec3,
+     * but not byte address buffer. */
+    VKD3D_SHADER_TARGET_EXTENSION_ASSUME_PER_COMPONENT_SSBO_ROBUSTNESS,
 };
 
 enum vkd3d_shader_quirk
