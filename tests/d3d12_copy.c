@@ -619,7 +619,7 @@ void test_copy_buffer_to_depth_stencil(void)
             for (x = 0; x < 2; x++)
             {
                 uint32_t v = get_readback_uint(&rb_depth, x, y, 0);
-                ok(v == tests[i].output_depth_24 || v == tests[i].input_depth, "Depth is 0x%x\n", v);
+                ok((v & 0xffffffu) == tests[i].output_depth_24 || v == tests[i].input_depth, "Depth is 0x%x\n", v);
             }
         }
 
