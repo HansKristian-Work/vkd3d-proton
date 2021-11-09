@@ -992,6 +992,17 @@ static bool d3d12_device_determine_additional_shading_rates_supported(struct d3d
     return additional_shading_rates_supported == ARRAY_SIZE(additional_shading_rates);
 }
 
+static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_device_info *info)
+{
+    /* A performance workaround for NV.
+     * The 16 byte offset is a lie, as that is only actually required when we
+     * use vectorized load-stores. When we emit vectorized load-store ops,
+     * the storage buffer must be aligned properly, so this is fine in practice
+     * and is a nice speed boost. */
+    if (info->properties2.properties.vendorID == VKD3D_VENDOR_ID_NVIDIA)
+        info->properties2.properties.limits.minStorageBufferOffsetAlignment = 4;
+}
+
 static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *info, struct d3d12_device *device)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
@@ -2178,6 +2189,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     }
 
     vkd3d_physical_device_info_init(&device->device_info, device);
+    vkd3d_physical_device_info_apply_workarounds(&device->device_info);
 
     if (FAILED(hr = vkd3d_init_device_caps(device, create_info, &device->device_info)))
     {
