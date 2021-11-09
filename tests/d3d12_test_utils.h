@@ -78,7 +78,7 @@ static inline bool compare_color(DWORD c1, DWORD c2, BYTE max_diff)
     return true;
 }
 
-static inline D3D12_SHADER_BYTECODE shader_bytecode(const DWORD *code, size_t size)
+static inline D3D12_SHADER_BYTECODE shader_bytecode(const void *code, size_t size)
 {
     D3D12_SHADER_BYTECODE shader_bytecode = { code, size };
     return shader_bytecode;
