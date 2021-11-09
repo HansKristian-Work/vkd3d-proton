@@ -513,7 +513,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     dxil_spv_parsed_blob blob = NULL;
     dxil_spv_compiled_spirv compiled;
     dxil_spv_shader_stage stage;
-    unsigned int i, max_size;
+    unsigned int i, j, max_size;
     vkd3d_shader_hash_t hash;
     int ret = VKD3D_OK;
     uint32_t quirks;
@@ -744,8 +744,19 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
             }
             else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SCALAR_BLOCK_LAYOUT)
             {
-                static const dxil_spv_option_scalar_block_layout helper =
+                dxil_spv_option_scalar_block_layout helper =
                         { { DXIL_SPV_OPTION_SCALAR_BLOCK_LAYOUT }, DXIL_SPV_TRUE };
+
+                for (j = 0; j < compiler_args->target_extension_count; j++)
+                {
+                    if (compiler_args->target_extensions[j] ==
+                            VKD3D_SHADER_TARGET_EXTENSION_ASSUME_PER_COMPONENT_SSBO_ROBUSTNESS)
+                    {
+                        helper.supports_per_component_robustness = DXIL_SPV_TRUE;
+                        break;
+                    }
+                }
+
                 if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
                 {
                     ERR("dxil-spirv does not support SCALAR_BLOCK_LAYOUT.\n");
@@ -1205,8 +1216,19 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
             }
             else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SCALAR_BLOCK_LAYOUT)
             {
-                static const dxil_spv_option_scalar_block_layout helper =
+                dxil_spv_option_scalar_block_layout helper =
                         { { DXIL_SPV_OPTION_SCALAR_BLOCK_LAYOUT }, DXIL_SPV_TRUE };
+
+                for (j = 0; j < compiler_args->target_extension_count; j++)
+                {
+                    if (compiler_args->target_extensions[j] ==
+                            VKD3D_SHADER_TARGET_EXTENSION_ASSUME_PER_COMPONENT_SSBO_ROBUSTNESS)
+                    {
+                        helper.supports_per_component_robustness = DXIL_SPV_TRUE;
+                        break;
+                    }
+                }
+
                 if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
                 {
                     ERR("dxil-spirv does not support SCALAR_BLOCK_LAYOUT.\n");
