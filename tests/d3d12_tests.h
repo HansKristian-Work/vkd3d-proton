@@ -242,6 +242,7 @@ decl_test(test_get_cached_blob);
 decl_test(test_pipeline_library);
 decl_test(test_buffers_oob_behavior_dxbc);
 decl_test(test_buffers_oob_behavior_dxil);
+decl_test(test_buffers_oob_behavior_vectorized_byte_address);
 decl_test(test_typed_buffers_many_objects_dxbc);
 decl_test(test_typed_buffers_many_objects_dxil);
 decl_test(test_create_pipeline_with_null_root_signature);
