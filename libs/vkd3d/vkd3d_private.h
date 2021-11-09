@@ -49,7 +49,7 @@
 #define MAKE_MAGIC(a,b,c,d) (((uint32_t)a) | (((uint32_t)b) << 8) | (((uint32_t)c) << 16) | (((uint32_t)d) << 24))
 
 #define VKD3D_MAX_COMPATIBLE_FORMAT_COUNT 6u
-#define VKD3D_MAX_SHADER_EXTENSIONS       4u
+#define VKD3D_MAX_SHADER_EXTENSIONS       5u
 #define VKD3D_MAX_SHADER_STAGES           5u
 #define VKD3D_MAX_VK_SYNC_OBJECTS         4u
 
@@ -147,6 +147,7 @@ struct vkd3d_vulkan_info
     bool EXT_external_memory_host;
     bool EXT_4444_formats;
     bool EXT_shader_image_atomic_int64;
+    bool EXT_scalar_block_layout;
     /* AMD device extensions */
     bool AMD_buffer_marker;
     bool AMD_shader_core_properties;
@@ -2724,6 +2725,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceComputeShaderDerivativesFeaturesNV compute_shader_derivatives_features_nv;
     VkPhysicalDeviceShaderAtomicInt64FeaturesKHR shader_atomic_int64_features;
     VkPhysicalDeviceShaderImageAtomicInt64FeaturesEXT shader_image_atomic_int64_features;
+    VkPhysicalDeviceScalarBlockLayoutFeaturesEXT scalar_block_layout_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
