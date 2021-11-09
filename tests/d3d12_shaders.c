@@ -200,6 +200,7 @@ void test_shader_instructions(void)
     };
 
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
     ID3D12GraphicsCommandList *command_list;
     const struct named_shader *current_ps;
     struct test_context_desc desc;
@@ -2179,16 +2180,17 @@ void test_shader_instructions(void)
             struct vec4 f;
         } output;
         bool skip_on_warp;
+        bool requires_fp64;
     }
     uint_tests[] =
     {
-        {&ps_dadd,      {.d = {{2.5, 0.0}}},  {{0x20a80000, 0x400c0000, 0x20500000, 0x40120000}}},
-        {&ps_dmax,      {.d = {{2.5, 0.0}}},  {{0x40200000, 0x40200000, 0x40200000, 0x40200000}}},
-        {&ps_dmax,      {.d = {{0.5, 0.0}}},  {{0x3f800000, 0x3f800000, 0x3f800000, 0x3f800000}}},
-        {&ps_dmovc,     {.d = {{0.5, 0.0}}},  {{0x40900000, 0x40900000, 0x40900000, 0x40900000}}},
-        {&ps_dmovc,     {.d = {{1.5, 0.0}}},  {{0x3fc00000, 0x3fc00000, 0x3fc00000, 0x3fc00000}}},
-        {&ps_dmodifier, {.d = {{1.5, 0.0}}},  {{0xbfc00000, 0x3fc00000, 0x40200000, 0x00000000}}},
-        {&ps_dmodifier, {.d = {{-1.5, 0.0}}}, {{0x3fc00000, 0x3fc00000, 0x3fc00000, 0x00000000}}},
+        {&ps_dadd,      {.d = {{2.5, 0.0}}},  {{0x20a80000, 0x400c0000, 0x20500000, 0x40120000}}, false, true},
+        {&ps_dmax,      {.d = {{2.5, 0.0}}},  {{0x40200000, 0x40200000, 0x40200000, 0x40200000}}, false, true},
+        {&ps_dmax,      {.d = {{0.5, 0.0}}},  {{0x3f800000, 0x3f800000, 0x3f800000, 0x3f800000}}, false, true},
+        {&ps_dmovc,     {.d = {{0.5, 0.0}}},  {{0x40900000, 0x40900000, 0x40900000, 0x40900000}}, false, true},
+        {&ps_dmovc,     {.d = {{1.5, 0.0}}},  {{0x3fc00000, 0x3fc00000, 0x3fc00000, 0x3fc00000}}, false, true},
+        {&ps_dmodifier, {.d = {{1.5, 0.0}}},  {{0xbfc00000, 0x3fc00000, 0x40200000, 0x00000000}}, false, true},
+        {&ps_dmodifier, {.d = {{-1.5, 0.0}}}, {{0x3fc00000, 0x3fc00000, 0x3fc00000, 0x00000000}}, false, true},
 
         {&ps_bfi, {{{     0,      0,    0,    0}}}, {{         0,          0,          0,          0}}},
         {&ps_bfi, {{{     0,      0,    0,    1}}}, {{         1,          1,          1,          1}}},
@@ -2709,6 +2711,9 @@ void test_shader_instructions(void)
     command_list = context.list;
     queue = context.queue;
 
+    memset(&options, 0, sizeof(options));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
+
     context.root_signature = create_cb_root_signature(context.device,
             0, D3D12_SHADER_VISIBILITY_PIXEL, D3D12_ROOT_SIGNATURE_FLAG_NONE);
 
@@ -2774,6 +2779,12 @@ void test_shader_instructions(void)
         if (uint_tests[i].skip_on_warp && use_warp_device)
         {
             skip("Skipping shader '%s' test on WARP.\n", uint_tests[i].ps->name);
+            continue;
+        }
+
+        if (uint_tests[i].requires_fp64 && !options.DoublePrecisionFloatShaderOps)
+        {
+            skip("Skipping FP64 test due to lack of feature support.\n");
             continue;
         }
 
