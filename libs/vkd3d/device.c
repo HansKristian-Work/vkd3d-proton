@@ -99,6 +99,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_EXTERNAL_MEMORY_HOST, EXT_external_memory_host),
     VK_EXTENSION(EXT_4444_FORMATS, EXT_4444_formats),
     VK_EXTENSION(EXT_SHADER_IMAGE_ATOMIC_INT64, EXT_shader_image_atomic_int64),
+    VK_EXTENSION(EXT_SCALAR_BLOCK_LAYOUT, EXT_scalar_block_layout),
     /* AMD extensions */
     VK_EXTENSION(AMD_BUFFER_MARKER, AMD_buffer_marker),
     VK_EXTENSION(AMD_SHADER_CORE_PROPERTIES, AMD_shader_core_properties),
@@ -1259,6 +1260,13 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->shader_image_atomic_int64_features.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_IMAGE_ATOMIC_INT64_FEATURES_EXT;
         vk_prepend_struct(&info->features2, &info->shader_image_atomic_int64_features);
+    }
+
+    if (vulkan_info->EXT_scalar_block_layout)
+    {
+        info->scalar_block_layout_features.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->scalar_block_layout_features);
     }
 
     /* Core in Vulkan 1.1. */
@@ -5577,6 +5585,12 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
     {
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                 VKD3D_SHADER_TARGET_EXTENSION_RAY_TRACING_PRIMITIVE_CULLING;
+    }
+
+    if (device->device_info.scalar_block_layout_features.scalarBlockLayout)
+    {
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_SCALAR_BLOCK_LAYOUT;
     }
 }
 
