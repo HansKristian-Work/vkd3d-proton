@@ -80,6 +80,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_SHADER_ATOMIC_INT64, KHR_shader_atomic_int64),
     VK_EXTENSION(KHR_BIND_MEMORY_2, KHR_bind_memory2),
     VK_EXTENSION(KHR_COPY_COMMANDS_2, KHR_copy_commands2),
+    VK_EXTENSION(KHR_DYNAMIC_RENDERING, KHR_dynamic_rendering),
     /* EXT extensions */
     VK_EXTENSION(EXT_CALIBRATED_TIMESTAMPS, EXT_calibrated_timestamps),
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
@@ -1368,6 +1369,13 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->scalar_block_layout_features);
     }
 
+    if (vulkan_info->KHR_dynamic_rendering)
+    {
+        info->dynamic_rendering_features.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->dynamic_rendering_features);
+    }
+
     if (vulkan_info->VALVE_descriptor_set_host_mapping)
     {
         info->descriptor_set_host_mapping_features.sType =
@@ -1949,6 +1957,12 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     if (!vulkan_info->KHR_copy_commands2)
     {
         ERR("KHR_copy_commands2 is not supported by this implementation. This is required for correct operation.\n");
+        return E_INVALIDARG;
+    }
+
+    if (!physical_device_info->dynamic_rendering_features.dynamicRendering)
+    {
+        ERR("KHR_dynamic_rendering is not supported by this implementation. This is required for correct operation.\n");
         return E_INVALIDARG;
     }
 
