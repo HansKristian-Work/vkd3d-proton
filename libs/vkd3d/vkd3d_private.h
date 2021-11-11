@@ -3104,6 +3104,7 @@ static inline bool d3d12_device_use_ssbo_root_descriptors(struct d3d12_device *d
 }
 
 bool d3d12_device_supports_variable_shading_rate_tier_1(struct d3d12_device *device);
+bool d3d12_device_supports_variable_shading_rate_tier_2(struct d3d12_device *device);
 bool d3d12_device_supports_ray_tracing_tier_1_0(const struct d3d12_device *device);
 
 /* ID3DBlob */
@@ -3269,6 +3270,16 @@ static inline const struct vkd3d_format *vkd3d_format_from_d3d12_resource_desc(
 {
     return vkd3d_get_format(device, view_format ? view_format : desc->Format,
             desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+}
+
+static inline unsigned int vkd3d_get_color_attachment_count(unsigned int attachment_mask)
+{
+    unsigned int count = 0;
+
+    while (attachment_mask >> count)
+        count++;
+
+    return count;
 }
 
 static inline VkImageSubresourceRange vk_subresource_range_from_layers(const VkImageSubresourceLayers *layers)

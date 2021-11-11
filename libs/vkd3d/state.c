@@ -4228,11 +4228,13 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     VkPipelineVertexInputDivisorStateCreateInfoEXT input_divisor_info;
     VkPipelineCreationFeedbackEXT feedbacks[VKD3D_MAX_SHADER_STAGES];
     VkPipelineShaderStageCreateInfo stages[VKD3D_MAX_SHADER_STAGES];
+    VkFormat rtv_formats[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     VkPipelineTessellationStateCreateInfo tessellation_info;
     VkPipelineDepthStencilStateCreateInfo fallback_ds_desc;
     VkPipelineCreationFeedbackCreateInfoEXT feedback_info;
     VkPipelineDynamicStateCreateInfo dynamic_create_info;
     VkPipelineVertexInputStateCreateInfo input_desc;
+    VkPipelineRenderingCreateInfoKHR rendering_info;
     VkPipelineInputAssemblyStateCreateInfo ia_desc;
     struct d3d12_device *device = state->device;
     VkGraphicsPipelineCreateInfo pipeline_desc;
@@ -4298,8 +4300,25 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     vp_desc.scissorCount = key && !key->dynamic_viewport ? max(key->viewport_count, 1) : 0;
     vp_desc.pScissors = NULL;
 
+    rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
+    rendering_info.pNext = NULL;
+    rendering_info.viewMask = 0;
+    rendering_info.colorAttachmentCount = vkd3d_get_color_attachment_count(graphics->rtv_active_mask);
+    rendering_info.pColorAttachmentFormats = rtv_formats;
+    rendering_info.depthAttachmentFormat = dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
+    rendering_info.stencilAttachmentFormat = dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
+
+    rtv_active_mask = key ? key->rtv_active_mask : graphics->rtv_active_mask;
+    for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+    {
+        if (rtv_active_mask & (1u << i))
+            rtv_formats[i] = graphics->rtv_formats[i];
+        else
+            rtv_formats[i] = VK_FORMAT_UNDEFINED;
+    }
+
     pipeline_desc.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipeline_desc.pNext = NULL;
+    pipeline_desc.pNext = &rendering_info;
     pipeline_desc.flags = 0;
     pipeline_desc.stageCount = graphics->stage_count;
     pipeline_desc.pStages = graphics->stages;
@@ -4313,9 +4332,13 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     pipeline_desc.pColorBlendState = &graphics->blend_desc;
     pipeline_desc.pDynamicState = &dynamic_create_info;
     pipeline_desc.layout = graphics->pipeline_layout;
+    pipeline_desc.renderPass = VK_NULL_HANDLE;
     pipeline_desc.subpass = 0;
     pipeline_desc.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_desc.basePipelineIndex = -1;
+
+    if (d3d12_device_supports_variable_shading_rate_tier_2(device))
+        pipeline_desc.flags |= VK_PIPELINE_CREATE_RENDERING_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
 
     /* A workaround for SottR, which creates pipelines with DSV_UNKNOWN, but still insists on using a depth buffer.
      * If we notice that the base pipeline's DSV format does not match the dynamic DSV format, we fall-back to create a new render pass. */
@@ -4335,7 +4358,6 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
         pipeline_desc.pDepthStencilState = &fallback_ds_desc;
     }
 
-    rtv_active_mask = key ? key->rtv_active_mask : graphics->rtv_active_mask;
     if (graphics->rtv_active_mask != rtv_active_mask)
     {
         TRACE("Compiling %p with fallback RTV write mask (PSO = 0x%x, RT = 0x%x).\n", state,
@@ -4346,9 +4368,6 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
             rtv_active_mask, dsv_format,
             render_pass_compat, &graphics->dsv_plane_optimal_mask, variant_flags)))
         return VK_NULL_HANDLE;
-
-    /* Any of these is fine from a compatibility PoV. */
-    pipeline_desc.renderPass = render_pass_compat->dsv_layouts[0];
 
     if (key)
     {
