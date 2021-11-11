@@ -2559,7 +2559,6 @@ struct vkd3d_copy_image_info
 {
     VkDescriptorSetLayout vk_set_layout;
     VkPipelineLayout vk_pipeline_layout;
-    VkRenderPass vk_render_pass;
     VkPipeline vk_pipeline;
 };
 
@@ -2568,7 +2567,6 @@ struct vkd3d_copy_image_pipeline_key
     const struct vkd3d_format *format;
     VkImageViewType view_type;
     VkSampleCountFlagBits sample_count;
-    VkImageLayout layout;
     VkImageAspectFlags dst_aspect_mask;
 };
 
@@ -2576,7 +2574,6 @@ struct vkd3d_copy_image_pipeline
 {
     struct vkd3d_copy_image_pipeline_key key;
 
-    VkRenderPass vk_render_pass;
     VkPipeline vk_pipeline;
 };
 
