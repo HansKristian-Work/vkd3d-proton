@@ -1254,17 +1254,6 @@ static void d3d12_command_allocator_free_command_buffer(struct d3d12_command_all
     d3d12_command_allocator_free_vk_command_buffer(allocator, list->vk_init_commands);
 }
 
-static bool d3d12_command_allocator_add_render_pass(struct d3d12_command_allocator *allocator, VkRenderPass pass)
-{
-    if (!vkd3d_array_reserve((void **)&allocator->passes, &allocator->passes_size,
-            allocator->pass_count + 1, sizeof(*allocator->passes)))
-        return false;
-
-    allocator->passes[allocator->pass_count++] = pass;
-
-    return true;
-}
-
 static bool d3d12_command_allocator_add_framebuffer(struct d3d12_command_allocator *allocator,
         VkFramebuffer framebuffer)
 {
@@ -1506,12 +1495,6 @@ static void d3d12_command_allocator_free_resources(struct d3d12_command_allocato
         VK_CALL(vkDestroyFramebuffer(device->vk_device, allocator->framebuffers[i], NULL));
     }
     allocator->framebuffer_count = 0;
-
-    for (i = 0; i < allocator->pass_count; ++i)
-    {
-        VK_CALL(vkDestroyRenderPass(device->vk_device, allocator->passes[i], NULL));
-    }
-    allocator->pass_count = 0;
 }
 
 static void d3d12_command_allocator_set_name(struct d3d12_command_allocator *allocator, const char *name)
@@ -1585,7 +1568,6 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
             vkd3d_free(allocator->descriptor_pool_caches[i].free_descriptor_pools);
         }
         vkd3d_free(allocator->framebuffers);
-        vkd3d_free(allocator->passes);
 
         if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_RECYCLE_COMMAND_POOLS)
         {
@@ -1879,10 +1861,6 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     }
 
     memset(allocator->descriptor_pool_caches, 0, sizeof(allocator->descriptor_pool_caches));
-
-    allocator->passes = NULL;
-    allocator->passes_size = 0;
-    allocator->pass_count = 0;
 
     allocator->framebuffers = NULL;
     allocator->framebuffers_size = 0;
