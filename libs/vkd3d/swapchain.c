@@ -180,7 +180,6 @@ struct d3d12_swapchain
     VkImage vk_images[DXGI_MAX_SWAP_CHAIN_BUFFERS];
     VkImage vk_swapchain_images[DXGI_MAX_SWAP_CHAIN_BUFFERS];
     VkImageView vk_swapchain_image_views[DXGI_MAX_SWAP_CHAIN_BUFFERS];
-    VkFramebuffer vk_framebuffers[DXGI_MAX_SWAP_CHAIN_BUFFERS];
     VkCommandBuffer vk_cmd_buffers[DXGI_MAX_SWAP_CHAIN_BUFFERS];
     bool vk_acquire_semaphores_signaled[DXGI_MAX_SWAP_CHAIN_BUFFERS];
     VkSemaphore vk_acquire_semaphores[DXGI_MAX_SWAP_CHAIN_BUFFERS];
@@ -817,8 +816,6 @@ static HRESULT d3d12_swapchain_get_user_graphics_pipeline(struct d3d12_swapchain
     HRESULT hr;
 
     key.bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    key.load_op = swapchain->desc.Scaling == DXGI_SCALING_NONE ?
-            VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     key.filter = swapchain->desc.Scaling == DXGI_SCALING_NONE ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
     key.format = format;
 
@@ -987,15 +984,12 @@ static VkResult d3d12_swapchain_record_swapchain_blit(struct d3d12_swapchain *sw
         VkCommandBuffer vk_cmd_buffer, unsigned int dst_index, unsigned int src_index)
 {
     const struct vkd3d_vk_device_procs *vk_procs = d3d12_swapchain_procs(swapchain);
-    VkSubpassBeginInfoKHR subpass_begin_info;
-    VkSubpassEndInfoKHR subpass_end_info;
+    VkRenderingAttachmentInfoKHR attachment_info;
     VkCommandBufferBeginInfo begin_info;
-    VkRenderPassBeginInfo rp_info;
-    VkClearValue clear_value;
+    VkImageMemoryBarrier image_barrier;
+    VkRenderingInfoKHR rendering_info;
     VkViewport viewport;
     VkResult vr;
-
-    memset(&clear_value, 0, sizeof(clear_value));
 
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin_info.pNext = NULL;
@@ -1008,39 +1002,28 @@ static VkResult d3d12_swapchain_record_swapchain_blit(struct d3d12_swapchain *sw
         return vr;
     }
 
-    rp_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    rp_info.pNext = NULL;
-    rp_info.renderPass = swapchain->pipeline.vk_render_pass;
-    rp_info.framebuffer = swapchain->vk_framebuffers[dst_index];
-
-    rp_info.renderArea.offset.x = 0;
-    rp_info.renderArea.offset.y = 0;
-    rp_info.renderArea.extent.width = swapchain->vk_swapchain_width;
-    rp_info.renderArea.extent.height = swapchain->vk_swapchain_height;
-
-    subpass_begin_info.sType = VK_STRUCTURE_TYPE_SUBPASS_BEGIN_INFO_KHR;
-    subpass_begin_info.pNext = NULL;
-    subpass_begin_info.contents = VK_SUBPASS_CONTENTS_INLINE;
-
-    subpass_end_info.sType = VK_STRUCTURE_TYPE_SUBPASS_END_INFO_KHR;
-    subpass_end_info.pNext = NULL;
+    memset(&attachment_info, 0, sizeof(attachment_info));
+    attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
+    attachment_info.imageView = swapchain->vk_swapchain_image_views[dst_index];
+    attachment_info.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
     if (swapchain->desc.Scaling == DXGI_SCALING_NONE)
-    {
-        rp_info.clearValueCount = 1;
-        rp_info.pClearValues = &clear_value;
-    }
-    else
-    {
-        rp_info.clearValueCount = 0;
-        rp_info.pClearValues = NULL;
-    }
+        attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+
+    memset(&rendering_info, 0, sizeof(rendering_info));
+    rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR;
+    rendering_info.renderArea.extent.width = swapchain->vk_swapchain_width;
+    rendering_info.renderArea.extent.height = swapchain->vk_swapchain_height;
+    rendering_info.layerCount = 1;
+    rendering_info.colorAttachmentCount = 1;
+    rendering_info.pColorAttachments = &attachment_info;
 
     viewport.x = viewport.y = 0.0f;
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 
-    VK_CALL(vkCmdBeginRenderPass2KHR(vk_cmd_buffer, &rp_info, &subpass_begin_info));
     if (swapchain->desc.Scaling == DXGI_SCALING_NONE)
     {
         viewport.width = (float)swapchain->desc.Width;
@@ -1052,15 +1035,48 @@ static VkResult d3d12_swapchain_record_swapchain_blit(struct d3d12_swapchain *sw
         viewport.height = swapchain->vk_swapchain_height;
     }
 
-    VK_CALL(vkCmdSetViewport(vk_cmd_buffer, 0, 1, &viewport));
-    VK_CALL(vkCmdSetScissor(vk_cmd_buffer, 0, 1, &rp_info.renderArea));
+    image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    image_barrier.pNext = NULL;
+    image_barrier.srcAccessMask = 0;
+    image_barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    image_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    image_barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    image_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    image_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    image_barrier.image = swapchain->vk_swapchain_images[dst_index];
+    image_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    image_barrier.subresourceRange.baseMipLevel = 0;
+    image_barrier.subresourceRange.levelCount = 1;
+    image_barrier.subresourceRange.baseArrayLayer = 0;
+    image_barrier.subresourceRange.layerCount = 1;
 
+    if (attachment_info.loadOp != VK_ATTACHMENT_LOAD_OP_DONT_CARE)
+        image_barrier.dstAccessMask |= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+
+    VK_CALL(vkCmdPipelineBarrier(vk_cmd_buffer,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            0, 0, NULL, 0, NULL, 1, &image_barrier));
+
+    VK_CALL(vkCmdBeginRenderingKHR(vk_cmd_buffer, &rendering_info));
+    VK_CALL(vkCmdSetViewport(vk_cmd_buffer, 0, 1, &viewport));
+    VK_CALL(vkCmdSetScissor(vk_cmd_buffer, 0, 1, &rendering_info.renderArea));
     VK_CALL(vkCmdBindPipeline(vk_cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, swapchain->pipeline.vk_pipeline));
     VK_CALL(vkCmdBindDescriptorSets(vk_cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
             swapchain->pipeline.vk_pipeline_layout, 0, 1, &swapchain->descriptors.sets[src_index],
             0, NULL));
     VK_CALL(vkCmdDraw(vk_cmd_buffer, 3, 1, 0, 0));
-    VK_CALL(vkCmdEndRenderPass2KHR(vk_cmd_buffer, &subpass_end_info));
+    VK_CALL(vkCmdEndRenderingKHR(vk_cmd_buffer));
+
+    image_barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    image_barrier.dstAccessMask = 0;
+    image_barrier.oldLayout = image_barrier.newLayout;
+    image_barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    VK_CALL(vkCmdPipelineBarrier(vk_cmd_buffer,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+            0, 0, NULL, 0, NULL, 1, &image_barrier));
 
     if ((vr = VK_CALL(vkEndCommandBuffer(vk_cmd_buffer))) < 0)
         WARN("Failed to end command buffer, vr %d.\n", vr);
@@ -1068,7 +1084,7 @@ static VkResult d3d12_swapchain_record_swapchain_blit(struct d3d12_swapchain *sw
     return vr;
 }
 
-static void d3d12_swapchain_destroy_framebuffers(struct d3d12_swapchain *swapchain)
+static void d3d12_swapchain_destroy_views(struct d3d12_swapchain *swapchain)
 {
     const struct vkd3d_vk_device_procs *vk_procs = d3d12_swapchain_procs(swapchain);
     VkDevice vk_device = d3d12_swapchain_device(swapchain)->vk_device;
@@ -1077,29 +1093,17 @@ static void d3d12_swapchain_destroy_framebuffers(struct d3d12_swapchain *swapcha
     for (i = 0; i < swapchain->buffer_count; i++)
     {
         VK_CALL(vkDestroyImageView(vk_device, swapchain->vk_swapchain_image_views[i], NULL));
-        VK_CALL(vkDestroyFramebuffer(vk_device, swapchain->vk_framebuffers[i], NULL));
         swapchain->vk_swapchain_image_views[i] = VK_NULL_HANDLE;
-        swapchain->vk_framebuffers[i] = VK_NULL_HANDLE;
     }
 }
 
-static HRESULT d3d12_swapchain_create_framebuffers(struct d3d12_swapchain *swapchain, VkFormat format)
+static HRESULT d3d12_swapchain_create_views(struct d3d12_swapchain *swapchain, VkFormat format)
 {
     const struct vkd3d_vk_device_procs *vk_procs = d3d12_swapchain_procs(swapchain);
     VkDevice vk_device = d3d12_swapchain_device(swapchain)->vk_device;
     VkImageViewCreateInfo image_view_info;
-    VkFramebufferCreateInfo fb_info;
     unsigned int i;
     VkResult vr;
-
-    fb_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    fb_info.pNext = NULL;
-    fb_info.flags = 0;
-    fb_info.renderPass = swapchain->pipeline.vk_render_pass;
-    fb_info.width = swapchain->vk_swapchain_width;
-    fb_info.height = swapchain->vk_swapchain_height;
-    fb_info.layers = 1;
-    fb_info.attachmentCount = 1;
 
     image_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     image_view_info.pNext = NULL;
@@ -1120,9 +1124,6 @@ static HRESULT d3d12_swapchain_create_framebuffers(struct d3d12_swapchain *swapc
     {
         image_view_info.image = swapchain->vk_swapchain_images[i];
         if ((vr = VK_CALL(vkCreateImageView(vk_device, &image_view_info, NULL, &swapchain->vk_swapchain_image_views[i]))))
-            return hresult_from_vk_result(vr);
-        fb_info.pAttachments = &swapchain->vk_swapchain_image_views[i];
-        if ((vr = VK_CALL(vkCreateFramebuffer(vk_device, &fb_info, NULL, &swapchain->vk_framebuffers[i]))))
             return hresult_from_vk_result(vr);
     }
 
@@ -1225,7 +1226,7 @@ static HRESULT d3d12_swapchain_create_buffers(struct d3d12_swapchain *swapchain,
     VkResult vr;
     HRESULT hr;
 
-    d3d12_swapchain_destroy_framebuffers(swapchain);
+    d3d12_swapchain_destroy_views(swapchain);
 
     if ((vr = VK_CALL(vkGetSwapchainImagesKHR(vk_device, vk_swapchain, &image_count, NULL))) < 0)
     {
@@ -1255,7 +1256,7 @@ static HRESULT d3d12_swapchain_create_buffers(struct d3d12_swapchain *swapchain,
 
     if (queue_desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT)
     {
-        if (FAILED(hr = d3d12_swapchain_create_framebuffers(swapchain, vk_swapchain_format)))
+        if (FAILED(hr = d3d12_swapchain_create_views(swapchain, vk_swapchain_format)))
             return hr;
     }
 
@@ -1575,7 +1576,7 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
             return hr;
 
         d3d12_swapchain_destroy_buffers(swapchain, FALSE);
-        d3d12_swapchain_destroy_framebuffers(swapchain);
+        d3d12_swapchain_destroy_views(swapchain);
         swapchain->buffer_count = 0;
         return S_OK;
     }
@@ -1637,7 +1638,7 @@ static void d3d12_swapchain_destroy(struct d3d12_swapchain *swapchain)
     const struct vkd3d_vk_device_procs *vk_procs = d3d12_swapchain_procs(swapchain);
 
     d3d12_swapchain_destroy_buffers(swapchain, TRUE);
-    d3d12_swapchain_destroy_framebuffers(swapchain);
+    d3d12_swapchain_destroy_views(swapchain);
 
     if (swapchain->frame_latency_event)
         CloseHandle(swapchain->frame_latency_event);

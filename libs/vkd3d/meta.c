@@ -591,88 +591,13 @@ void vkd3d_copy_image_ops_cleanup(struct vkd3d_copy_image_ops *meta_copy_image_o
     vkd3d_free(meta_copy_image_ops->pipelines);
 }
 
-static VkResult vkd3d_meta_create_swapchain_render_pass(struct d3d12_device *device,
-        const struct vkd3d_swapchain_pipeline_key *key, VkRenderPass *render_pass)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkRenderPassCreateInfo2KHR render_pass_info;
-    VkAttachmentDescription2KHR attachment_desc;
-    VkAttachmentReference2KHR attachment_ref;
-    VkSubpassDescription2KHR subpass_desc;
-    VkSubpassDependency2KHR subpass_dep;
-
-    attachment_desc.sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2_KHR;
-    attachment_desc.pNext = NULL;
-    attachment_desc.loadOp = key->load_op;
-    attachment_desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    attachment_desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachment_desc.format = key->format;
-    attachment_desc.samples = VK_SAMPLE_COUNT_1_BIT;
-    attachment_desc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    attachment_desc.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-    attachment_desc.flags = 0;
-
-    attachment_ref.sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2_KHR;
-    attachment_ref.pNext = NULL;
-    attachment_ref.attachment = 0;
-    attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    attachment_ref.aspectMask = 0; /* input attachment aspect mask */
-
-    subpass_desc.sType = VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2_KHR;
-    subpass_desc.pNext = NULL;
-    subpass_desc.flags = 0;
-    subpass_desc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass_desc.viewMask = 0;
-    subpass_desc.inputAttachmentCount = 0;
-    subpass_desc.pInputAttachments = NULL;
-    subpass_desc.colorAttachmentCount = 1;
-    subpass_desc.pColorAttachments = &attachment_ref;
-    subpass_desc.pResolveAttachments = NULL;
-    subpass_desc.pDepthStencilAttachment = NULL;
-    subpass_desc.preserveAttachmentCount = 0;
-    subpass_desc.pPreserveAttachments = NULL;
-
-    subpass_dep.sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2_KHR;
-    subpass_dep.pNext = NULL;
-    subpass_dep.srcSubpass = VK_SUBPASS_EXTERNAL;
-    subpass_dep.dstSubpass = 0;
-    subpass_dep.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    subpass_dep.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    subpass_dep.srcAccessMask = 0;
-    subpass_dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    subpass_dep.dependencyFlags = 0;
-    subpass_dep.viewOffset = 0;
-
-    render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2_KHR;
-    render_pass_info.pNext = NULL;
-    render_pass_info.flags = 0;
-    render_pass_info.attachmentCount = 1;
-    render_pass_info.pAttachments = &attachment_desc;
-    render_pass_info.subpassCount = 1;
-    render_pass_info.pSubpasses = &subpass_desc;
-    render_pass_info.dependencyCount = 1;
-    render_pass_info.pDependencies = &subpass_dep;
-    render_pass_info.correlatedViewMaskCount = 0;
-    render_pass_info.pCorrelatedViewMasks = NULL;
-
-    return VK_CALL(vkCreateRenderPass2KHR(device->vk_device, &render_pass_info, NULL, render_pass));
-}
-
 static HRESULT vkd3d_meta_create_swapchain_pipeline(struct vkd3d_meta_ops *meta_ops,
         const struct vkd3d_swapchain_pipeline_key *key, struct vkd3d_swapchain_pipeline *pipeline)
 {
-    const struct vkd3d_vk_device_procs *vk_procs = &meta_ops->device->vk_procs;
     struct vkd3d_swapchain_ops *meta_swapchain_ops = &meta_ops->swapchain;
     VkPipelineColorBlendAttachmentState blend_att;
     VkPipelineColorBlendStateCreateInfo cb_state;
     VkResult vr;
-
-    if ((vr = vkd3d_meta_create_swapchain_render_pass(meta_ops->device, key, &pipeline->vk_render_pass)))
-    {
-        ERR("Failed to create render pass, vr %d.\n", vr);
-        return hresult_from_vk_result(vr);
-    }
 
     memset(&cb_state, 0, sizeof(cb_state));
     memset(&blend_att, 0, sizeof(blend_att));
@@ -690,10 +615,7 @@ static HRESULT vkd3d_meta_create_swapchain_pipeline(struct vkd3d_meta_ops *meta_
             meta_swapchain_ops->vk_vs_module, meta_swapchain_ops->vk_fs_module, 1,
             NULL, &cb_state,
             NULL, &pipeline->vk_pipeline)) < 0)
-    {
-        VK_CALL(vkDestroyRenderPass(meta_ops->device->vk_device, pipeline->vk_render_pass, NULL));
         return hresult_from_vk_result(vr);
-    }
 
     pipeline->key = *key;
     return S_OK;
@@ -1023,7 +945,6 @@ void vkd3d_swapchain_ops_cleanup(struct vkd3d_swapchain_ops *meta_swapchain_ops,
     {
         struct vkd3d_swapchain_pipeline *pipeline = &meta_swapchain_ops->pipelines[i];
 
-        VK_CALL(vkDestroyRenderPass(device->vk_device, pipeline->vk_render_pass, NULL));
         VK_CALL(vkDestroyPipeline(device->vk_device, pipeline->vk_pipeline, NULL));
     }
 
@@ -1064,7 +985,6 @@ HRESULT vkd3d_meta_get_swapchain_pipeline(struct vkd3d_meta_ops *meta_ops,
 
         if (!memcmp(key, &pipeline->key, sizeof(*key)))
         {
-            info->vk_render_pass = pipeline->vk_render_pass;
             info->vk_pipeline = pipeline->vk_pipeline;
             pthread_mutex_unlock(&meta_swapchain_ops->mutex);
             return S_OK;
@@ -1086,7 +1006,6 @@ HRESULT vkd3d_meta_get_swapchain_pipeline(struct vkd3d_meta_ops *meta_ops,
         return hr;
     }
 
-    info->vk_render_pass = pipeline->vk_render_pass;
     info->vk_pipeline = pipeline->vk_pipeline;
 
     pthread_mutex_unlock(&meta_swapchain_ops->mutex);

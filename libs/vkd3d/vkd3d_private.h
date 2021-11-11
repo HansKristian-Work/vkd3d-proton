@@ -2600,7 +2600,6 @@ void vkd3d_copy_image_ops_cleanup(struct vkd3d_copy_image_ops *meta_copy_image_o
 struct vkd3d_swapchain_pipeline_key
 {
     VkPipelineBindPoint bind_point;
-    VkAttachmentLoadOp load_op;
     VkFormat format;
     VkFilter filter;
 };
@@ -2609,13 +2608,11 @@ struct vkd3d_swapchain_info
 {
     VkDescriptorSetLayout vk_set_layout;
     VkPipelineLayout vk_pipeline_layout;
-    VkRenderPass vk_render_pass;
     VkPipeline vk_pipeline;
 };
 
 struct vkd3d_swapchain_pipeline
 {
-    VkRenderPass vk_render_pass;
     VkPipeline vk_pipeline;
     struct vkd3d_swapchain_pipeline_key key;
 };
