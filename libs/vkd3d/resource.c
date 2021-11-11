@@ -466,7 +466,7 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
 
         image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     }
-    else if (desc->Layout == D3D12_TEXTURE_LAYOUT_UNKNOWN)
+    else if (desc->Layout == D3D12_TEXTURE_LAYOUT_UNKNOWN || desc->Layout == D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE)
     {
         image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     }
