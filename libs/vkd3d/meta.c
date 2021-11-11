@@ -137,73 +137,8 @@ static VkResult vkd3d_meta_create_compute_pipeline(struct d3d12_device *device,
     return vr;
 }
 
-static VkResult vkd3d_meta_create_render_pass(struct d3d12_device *device, VkSampleCountFlagBits samples,
-        const struct vkd3d_format *format, VkImageLayout layout, VkRenderPass *vk_render_pass)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkAttachmentDescription2KHR attachment_desc;
-    VkAttachmentReference2KHR attachment_ref;
-    VkSubpassDescription2KHR subpass_desc;
-    VkRenderPassCreateInfo2KHR pass_info;
-    bool has_depth_target;
-    VkResult vr;
-
-    assert(format);
-
-    has_depth_target = (format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) != 0;
-
-    attachment_desc.sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2_KHR;
-    attachment_desc.pNext = NULL;
-    attachment_desc.flags = 0;
-    attachment_desc.format = format->vk_format;
-    attachment_desc.samples = samples;
-    attachment_desc.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    attachment_desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    attachment_desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
-    attachment_desc.initialLayout = layout;
-    attachment_desc.finalLayout = layout;
-
-    attachment_ref.sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2_KHR;
-    attachment_ref.pNext = NULL;
-    attachment_ref.attachment = 0;
-    attachment_ref.layout = layout;
-    attachment_ref.aspectMask = 0; /* input attachment aspect mask */
-
-    subpass_desc.sType = VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2_KHR;
-    subpass_desc.pNext = NULL;
-    subpass_desc.flags = 0;
-    subpass_desc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass_desc.viewMask = 0;
-    subpass_desc.inputAttachmentCount = 0;
-    subpass_desc.pInputAttachments = NULL;
-    subpass_desc.colorAttachmentCount = has_depth_target ? 0 : 1;
-    subpass_desc.pColorAttachments = has_depth_target ? NULL : &attachment_ref;
-    subpass_desc.pResolveAttachments = NULL;
-    subpass_desc.pDepthStencilAttachment = has_depth_target ? &attachment_ref : NULL;
-    subpass_desc.preserveAttachmentCount = 0;
-    subpass_desc.pPreserveAttachments = NULL;
-
-    pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2_KHR;
-    pass_info.pNext = NULL;
-    pass_info.flags = 0;
-    pass_info.attachmentCount = 1;
-    pass_info.pAttachments = &attachment_desc;
-    pass_info.subpassCount = 1;
-    pass_info.pSubpasses = &subpass_desc;
-    pass_info.dependencyCount = 0;
-    pass_info.pDependencies = NULL;
-    pass_info.correlatedViewMaskCount = 0;
-    pass_info.pCorrelatedViewMasks = NULL;
-
-    if ((vr = VK_CALL(vkCreateRenderPass2KHR(device->vk_device, &pass_info, NULL, vk_render_pass))) < 0)
-        ERR("Failed to create render pass, vr %d.\n", vr);
-
-    return vr;
-}
-
 static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_ops,
-        VkPipelineLayout layout, VkRenderPass render_pass,
+        VkPipelineLayout layout, VkFormat color_format, VkFormat ds_format,
         VkShaderModule vs_module, VkShaderModule fs_module,
         VkSampleCountFlagBits samples, const VkPipelineDepthStencilStateCreateInfo *ds_state,
         const VkPipelineColorBlendStateCreateInfo *cb_state, const VkSpecializationInfo *spec_info,
@@ -213,6 +148,7 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
     VkPipelineShaderStageCreateInfo shader_stages[3];
     VkPipelineInputAssemblyStateCreateInfo ia_state;
     VkPipelineRasterizationStateCreateInfo rs_state;
+    VkPipelineRenderingCreateInfoKHR rendering_info;
     VkPipelineVertexInputStateCreateInfo vi_state;
     VkPipelineMultisampleStateCreateInfo ms_state;
     VkPipelineViewportStateCreateInfo vp_state;
@@ -279,8 +215,16 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
     dyn_state.dynamicStateCount = ARRAY_SIZE(dynamic_states);
     dyn_state.pDynamicStates = dynamic_states;
 
+    rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
+    rendering_info.pNext = NULL;
+    rendering_info.viewMask = 0;
+    rendering_info.colorAttachmentCount = color_format ? 1 : 0;
+    rendering_info.pColorAttachmentFormats = color_format ? &color_format : NULL;
+    rendering_info.depthAttachmentFormat = ds_format;
+    rendering_info.stencilAttachmentFormat = ds_format;
+
     pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipeline_info.pNext = NULL;
+    pipeline_info.pNext = &rendering_info;
     pipeline_info.flags = 0;
     pipeline_info.stageCount = 0;
     pipeline_info.pStages = shader_stages;
@@ -294,7 +238,7 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
     pipeline_info.pColorBlendState = cb_state;
     pipeline_info.pDynamicState = &dyn_state;
     pipeline_info.layout = layout;
-    pipeline_info.renderPass = render_pass;
+    pipeline_info.renderPass = VK_NULL_HANDLE;
     pipeline_info.subpass = 0;
     pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_info.basePipelineIndex = -1;
@@ -633,7 +577,6 @@ void vkd3d_copy_image_ops_cleanup(struct vkd3d_copy_image_ops *meta_copy_image_o
     {
         struct vkd3d_copy_image_pipeline *pipeline = &meta_copy_image_ops->pipelines[i];
 
-        VK_CALL(vkDestroyRenderPass(device->vk_device, pipeline->vk_render_pass, NULL));
         VK_CALL(vkDestroyPipeline(device->vk_device, pipeline->vk_pipeline, NULL));
     }
 
@@ -743,7 +686,7 @@ static HRESULT vkd3d_meta_create_swapchain_pipeline(struct vkd3d_meta_ops *meta_
             VK_COLOR_COMPONENT_A_BIT;
 
     if ((vr = vkd3d_meta_create_graphics_pipeline(meta_ops,
-            meta_swapchain_ops->vk_pipeline_layouts[key->filter], pipeline->vk_render_pass,
+            meta_swapchain_ops->vk_pipeline_layouts[key->filter], key->format, VK_FORMAT_UNDEFINED,
             meta_swapchain_ops->vk_vs_module, meta_swapchain_ops->vk_fs_module, 1,
             NULL, &cb_state,
             NULL, &pipeline->vk_pipeline)) < 0)
@@ -759,7 +702,6 @@ static HRESULT vkd3d_meta_create_swapchain_pipeline(struct vkd3d_meta_ops *meta_
 static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta_ops,
         const struct vkd3d_copy_image_pipeline_key *key, struct vkd3d_copy_image_pipeline *pipeline)
 {
-    const struct vkd3d_vk_device_procs *vk_procs = &meta_ops->device->vk_procs;
     struct vkd3d_copy_image_ops *meta_copy_image_ops = &meta_ops->copy_image;
     VkPipelineColorBlendAttachmentState blend_attachment;
     VkPipelineDepthStencilStateCreateInfo ds_state;
@@ -846,10 +788,7 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
     cb_state.pAttachments = &blend_attachment;
     memset(&cb_state.blendConstants, 0, sizeof(cb_state.blendConstants));
 
-    if ((vr = vkd3d_meta_create_render_pass(meta_ops->device,
-            key->sample_count, key->format, key->layout, &pipeline->vk_render_pass)) < 0)
-        return hresult_from_vk_result(vr);
-
+    /* Special path when copying stencil -> color. */
     if (key->format->vk_format == VK_FORMAT_R8_UINT)
     {
         /* Special path when copying stencil -> color. */
@@ -867,14 +806,13 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
     }
 
     if ((vr = vkd3d_meta_create_graphics_pipeline(meta_ops,
-            meta_copy_image_ops->vk_pipeline_layout, pipeline->vk_render_pass,
+            meta_copy_image_ops->vk_pipeline_layout,
+            has_depth_target ? VK_FORMAT_UNDEFINED : key->format->vk_format,
+            has_depth_target ? key->format->vk_format : VK_FORMAT_UNDEFINED,
             VK_NULL_HANDLE, vk_module, key->sample_count,
             has_depth_target ? &ds_state : NULL, has_depth_target ? NULL : &cb_state,
             &spec_info, &pipeline->vk_pipeline)) < 0)
-    {
-        VK_CALL(vkDestroyRenderPass(meta_ops->device->vk_device, pipeline->vk_render_pass, NULL));
         return hresult_from_vk_result(vr);
-    }
 
     pipeline->key = *key;
     return S_OK;
@@ -904,7 +842,6 @@ HRESULT vkd3d_meta_get_copy_image_pipeline(struct vkd3d_meta_ops *meta_ops,
 
         if (!memcmp(key, &pipeline->key, sizeof(*key)))
         {
-            info->vk_render_pass = pipeline->vk_render_pass;
             info->vk_pipeline = pipeline->vk_pipeline;
             pthread_mutex_unlock(&meta_copy_image_ops->mutex);
             return S_OK;
@@ -926,7 +863,6 @@ HRESULT vkd3d_meta_get_copy_image_pipeline(struct vkd3d_meta_ops *meta_ops,
         return hr;
     }
 
-    info->vk_render_pass = pipeline->vk_render_pass;
     info->vk_pipeline = pipeline->vk_pipeline;
 
     pthread_mutex_unlock(&meta_copy_image_ops->mutex);

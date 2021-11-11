@@ -5837,25 +5837,21 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_texture_view_desc dst_view_desc, src_view_desc;
     struct vkd3d_copy_image_pipeline_key pipeline_key;
+    VkRenderingAttachmentInfoKHR attachment_info;
     VkPipelineStageFlags src_stages, dst_stages;
     struct vkd3d_copy_image_info pipeline_info;
     VkImageMemoryBarrier vk_image_barriers[2];
-    VkSubpassBeginInfoKHR subpass_begin_info;
     VkWriteDescriptorSet vk_descriptor_write;
     struct vkd3d_copy_image_args push_args;
     struct vkd3d_view *dst_view, *src_view;
-    VkSubpassEndInfoKHR subpass_end_info;
     VkAccessFlags src_access, dst_access;
     VkImageLayout src_layout, dst_layout;
     bool dst_is_depth_stencil, use_copy;
     VkDescriptorImageInfo vk_image_info;
     VkDescriptorSet vk_descriptor_set;
-    VkRenderPassBeginInfo begin_info;
+    VkRenderingInfoKHR rendering_info;
     VkCopyImageInfo2KHR copy_info;
-    VkFramebuffer vk_framebuffer;
     VkViewport viewport;
-    VkExtent3D extent;
-    VkRect2D scissor;
     unsigned int i;
     HRESULT hr;
 
@@ -5973,10 +5969,10 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
             goto cleanup;
         }
 
+        memset(&pipeline_key, 0, sizeof(pipeline_key));
         pipeline_key.format = dst_format;
         pipeline_key.view_type = vkd3d_meta_get_copy_image_view_type(dst_resource->desc.Dimension);
         pipeline_key.sample_count = vk_samples_from_dxgi_sample_desc(&dst_resource->desc.SampleDesc);
-        pipeline_key.layout = dst_layout;
         pipeline_key.dst_aspect_mask = region->dstSubresource.aspectMask;
 
         if (FAILED(hr = vkd3d_meta_get_copy_image_pipeline(&list->device->meta_ops, &pipeline_key, &pipeline_info)))
@@ -6026,33 +6022,31 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
             goto cleanup;
         }
 
-        extent.width = d3d12_resource_desc_get_width(&dst_resource->desc, dst_view_desc.miplevel_idx);
-        extent.height = d3d12_resource_desc_get_height(&dst_resource->desc, dst_view_desc.miplevel_idx);
-        extent.depth = dst_view_desc.layer_count;
+        memset(&attachment_info, 0, sizeof(attachment_info));
+        attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
+        attachment_info.imageView = dst_view->vk_image_view;
+        attachment_info.imageLayout = dst_layout;
+        attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
-        if (!d3d12_command_list_create_framebuffer(list, pipeline_info.vk_render_pass, 1, &dst_view->vk_image_view, extent, &vk_framebuffer))
+        memset(&rendering_info, 0, sizeof(rendering_info));
+        rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR;
+        rendering_info.renderArea.offset.x = region->dstOffset.x;
+        rendering_info.renderArea.offset.y = region->dstOffset.y;
+        rendering_info.renderArea.extent.width = region->extent.width;
+        rendering_info.renderArea.extent.height = region->extent.height;
+        rendering_info.layerCount = dst_view_desc.layer_count;
+
+        if (dst_is_depth_stencil)
         {
-            ERR("Failed to create framebuffer.\n");
-            goto cleanup;
+            rendering_info.pDepthAttachment = &attachment_info;
+            rendering_info.pStencilAttachment = &attachment_info;
         }
-
-        begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        begin_info.pNext = NULL;
-        begin_info.renderPass = pipeline_info.vk_render_pass;
-        begin_info.framebuffer = vk_framebuffer;
-        begin_info.clearValueCount = 0;
-        begin_info.pClearValues = NULL;
-        begin_info.renderArea.offset.x = 0;
-        begin_info.renderArea.offset.y = 0;
-        begin_info.renderArea.extent.width = extent.width;
-        begin_info.renderArea.extent.height = extent.height;
-
-        subpass_begin_info.sType = VK_STRUCTURE_TYPE_SUBPASS_BEGIN_INFO_KHR;
-        subpass_begin_info.pNext = NULL;
-        subpass_begin_info.contents = VK_SUBPASS_CONTENTS_INLINE;
-
-        subpass_end_info.sType = VK_STRUCTURE_TYPE_SUBPASS_END_INFO_KHR;
-        subpass_end_info.pNext = NULL;
+        else
+        {
+            rendering_info.colorAttachmentCount = 1;
+            rendering_info.pColorAttachments = &attachment_info;
+        }
 
         viewport.x = (float)region->dstOffset.x;
         viewport.y = (float)region->dstOffset.y;
@@ -6060,11 +6054,6 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         viewport.height = (float)region->extent.height;
         viewport.minDepth = 0.0f;
         viewport.maxDepth = 1.0f;
-
-        scissor.offset.x = region->dstOffset.x;
-        scissor.offset.y = region->dstOffset.y;
-        scissor.extent.width = region->extent.width;
-        scissor.extent.height = region->extent.height;
 
         push_args.offset.x = region->srcOffset.x - region->dstOffset.x;
         push_args.offset.y = region->srcOffset.y - region->dstOffset.y;
@@ -6096,16 +6085,16 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
 
         VK_CALL(vkUpdateDescriptorSets(list->device->vk_device, 1, &vk_descriptor_write, 0, NULL));
 
-        VK_CALL(vkCmdBeginRenderPass2KHR(list->vk_command_buffer, &begin_info, &subpass_begin_info));
+        VK_CALL(vkCmdBeginRenderingKHR(list->vk_command_buffer, &rendering_info));
         VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_info.vk_pipeline));
         VK_CALL(vkCmdSetViewport(list->vk_command_buffer, 0, 1, &viewport));
-        VK_CALL(vkCmdSetScissor(list->vk_command_buffer, 0, 1, &scissor));
+        VK_CALL(vkCmdSetScissor(list->vk_command_buffer, 0, 1, &rendering_info.renderArea));
         VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                 pipeline_info.vk_pipeline_layout, 0, 1, &vk_descriptor_set, 0, NULL));
         VK_CALL(vkCmdPushConstants(list->vk_command_buffer, pipeline_info.vk_pipeline_layout,
                 VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_args), &push_args));
         VK_CALL(vkCmdDraw(list->vk_command_buffer, 3, region->dstSubresource.layerCount, 0, 0));
-        VK_CALL(vkCmdEndRenderPass2KHR(list->vk_command_buffer, &subpass_end_info));
+        VK_CALL(vkCmdEndRenderingKHR(list->vk_command_buffer));
 
 cleanup:
         if (dst_view)
