@@ -2576,35 +2576,46 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
         const D3D12_RECT *rects, bool is_bound)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkAttachmentDescriptionStencilLayout stencil_attachment_desc;
-    VkAttachmentReferenceStencilLayout stencil_attachment_ref;
-    VkAttachmentDescription2KHR attachment_desc;
-    VkAttachmentReference2KHR attachment_ref;
-    VkSubpassBeginInfoKHR subpass_begin_info;
-    VkSubpassDependency2KHR dependencies[2];
-    VkSubpassDescription2KHR subpass_desc;
-    VkSubpassEndInfoKHR subpass_end_info;
-    VkRenderPassCreateInfo2KHR pass_info;
-    VkRenderPassBeginInfo begin_info;
-    VkFramebuffer vk_framebuffer;
-    VkRenderPass vk_render_pass;
+    VkRenderingAttachmentInfoKHR attachment_info, stencil_attachment_info;
+    VkImageLayout initial_layouts[2], final_layouts[2];
+    uint32_t plane_write_mask, image_barrier_count, i;
+    VkImageMemoryBarrier image_barriers[2];
+    VkRenderingInfoKHR rendering_info;
     VkPipelineStageFlags stages;
-    uint32_t plane_write_mask;
     bool separate_ds_layouts;
     VkAccessFlags access;
-    VkExtent3D extent;
     bool clear_op;
-    VkResult vr;
 
-    attachment_desc.sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2_KHR;
-    attachment_desc.pNext = NULL;
-    attachment_desc.flags = 0;
-    attachment_desc.format = view->format->vk_format;
-    attachment_desc.samples = vk_samples_from_dxgi_sample_desc(&resource->desc.SampleDesc);
-    attachment_desc.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    attachment_desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    attachment_desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
+    memset(initial_layouts, 0, sizeof(initial_layouts));
+    memset(final_layouts, 0, sizeof(final_layouts));
+
+    memset(&attachment_info, 0, sizeof(attachment_info));
+    attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
+    attachment_info.imageView = view->vk_image_view;
+    attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachment_info.clearValue = *clear_value;
+
+    stencil_attachment_info = attachment_info;
+
+    memset(&rendering_info, 0, sizeof(rendering_info));
+    rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR;
+    rendering_info.renderArea.offset.x = 0;
+    rendering_info.renderArea.offset.y = 0;
+    rendering_info.renderArea.extent.width = d3d12_resource_desc_get_width(&resource->desc, view->info.texture.miplevel_idx);
+    rendering_info.renderArea.extent.height = d3d12_resource_desc_get_height(&resource->desc, view->info.texture.miplevel_idx);
+    rendering_info.layerCount = view->info.texture.layer_count;
+
+    if (view->format->vk_aspect_mask & VK_IMAGE_ASPECT_COLOR_BIT)
+    {
+        rendering_info.colorAttachmentCount = 1;
+        rendering_info.pColorAttachments = &attachment_info;
+    }
+
+    if (view->format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
+        rendering_info.pDepthAttachment = &attachment_info;
+    if (view->format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT)
+        rendering_info.pStencilAttachment = &stencil_attachment_info;
 
     /* If we need to discard a single aspect, use separate layouts, since we have to use UNDEFINED barrier when we can. */
     separate_ds_layouts = view->format->vk_aspect_mask == (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT) &&
@@ -2612,18 +2623,12 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
 
     if (clear_aspects & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
     {
-        if (is_bound)
-            attachment_desc.initialLayout = list->dsv_layout;
-        else
-            attachment_desc.initialLayout = d3d12_command_list_get_depth_stencil_resource_layout(list, resource, NULL);
+        initial_layouts[0] = is_bound ? list->dsv_layout : d3d12_command_list_get_depth_stencil_resource_layout(list, resource, NULL);
 
         if (separate_ds_layouts)
         {
-            stencil_attachment_desc.sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_STENCIL_LAYOUT;
-            stencil_attachment_desc.pNext = NULL;
-            stencil_attachment_desc.stencilInitialLayout = vk_separate_stencil_layout(attachment_desc.initialLayout);
-            attachment_desc.initialLayout = vk_separate_depth_layout(attachment_desc.initialLayout);
-            attachment_desc.pNext = &stencil_attachment_desc;
+            initial_layouts[1] = vk_separate_stencil_layout(initial_layouts[0]);
+            initial_layouts[0] = vk_separate_depth_layout(initial_layouts[0]);
         }
 
         /* We have proven a write, try to promote the image layout to something OPTIMAL. */
@@ -2633,65 +2638,39 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
         if (clear_aspects & VK_IMAGE_ASPECT_STENCIL_BIT)
             plane_write_mask |= VKD3D_STENCIL_PLANE_OPTIMAL;
 
-        attachment_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        attachment_desc.finalLayout = dsv_plane_optimal_mask_to_layout(
+        final_layouts[0] = dsv_plane_optimal_mask_to_layout(
                 d3d12_command_list_notify_dsv_writes(list, resource, view, plane_write_mask),
                 resource->format->vk_aspect_mask);
 
         if (separate_ds_layouts)
         {
-            stencil_attachment_desc.stencilFinalLayout = vk_separate_stencil_layout(attachment_desc.finalLayout);
-            attachment_desc.finalLayout = vk_separate_depth_layout(attachment_desc.finalLayout);
+            /* Do not transition aspects that we are not supposed to clear */
+            final_layouts[1] = vk_separate_stencil_layout(final_layouts[0]);
+            final_layouts[0] = vk_separate_depth_layout(final_layouts[0]);
+
+            attachment_info.imageLayout = final_layouts[0];
+            stencil_attachment_info.imageLayout = final_layouts[1];
+        }
+        else
+        {
+            attachment_info.imageLayout = final_layouts[0];
+            stencil_attachment_info.imageLayout = final_layouts[0];
         }
     }
     else
     {
-        attachment_desc.initialLayout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        attachment_desc.finalLayout = attachment_desc.initialLayout;
+        attachment_info.imageLayout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        initial_layouts[0] = attachment_info.imageLayout;
+        final_layouts[0] = attachment_info.imageLayout;
     }
-
-    attachment_ref.sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2_KHR;
-    attachment_ref.pNext = NULL;
-    attachment_ref.attachment = 0;
-    attachment_ref.aspectMask = 0; /* input attachment aspect mask */
-
-    if (separate_ds_layouts)
-    {
-        stencil_attachment_ref.sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_STENCIL_LAYOUT;
-        stencil_attachment_ref.pNext = NULL;
-        stencil_attachment_ref.stencilLayout = vk_separate_stencil_layout(attachment_ref.layout);
-        attachment_ref.layout = vk_separate_depth_layout(attachment_ref.layout);
-        attachment_ref.pNext = &stencil_attachment_ref;
-
-        /* Don't trigger any layout change for aspects we don't intend to touch. */
-        if (!(clear_aspects & VK_IMAGE_ASPECT_DEPTH_BIT))
-            attachment_ref.layout = attachment_desc.initialLayout;
-        if (!(clear_aspects & VK_IMAGE_ASPECT_STENCIL_BIT))
-            stencil_attachment_ref.stencilLayout = stencil_attachment_desc.stencilInitialLayout;
-    }
-
-    subpass_desc.sType = VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2_KHR;
-    subpass_desc.pNext = NULL;
-    subpass_desc.flags = 0;
-    subpass_desc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass_desc.viewMask = 0;
-    subpass_desc.inputAttachmentCount = 0;
-    subpass_desc.pInputAttachments = NULL;
-    subpass_desc.colorAttachmentCount = 0;
-    subpass_desc.pColorAttachments = NULL;
-    subpass_desc.pResolveAttachments = NULL;
-    subpass_desc.pDepthStencilAttachment = NULL;
-    subpass_desc.preserveAttachmentCount = 0;
-    subpass_desc.pPreserveAttachments = NULL;
 
     if ((clear_op = !rect_count))
     {
         if (clear_aspects & (VK_IMAGE_ASPECT_COLOR_BIT | VK_IMAGE_ASPECT_DEPTH_BIT))
-            attachment_desc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 
         if (clear_aspects & (VK_IMAGE_ASPECT_STENCIL_BIT))
-            attachment_desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            stencil_attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 
         /* Ignore 3D images as re-initializing those may cause us to
          * discard the entire image, not just the layers to clear. */
@@ -2700,12 +2679,12 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
             if (separate_ds_layouts)
             {
                 if (clear_aspects & VK_IMAGE_ASPECT_DEPTH_BIT)
-                    attachment_desc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                    initial_layouts[0] = VK_IMAGE_LAYOUT_UNDEFINED;
                 if (clear_aspects & VK_IMAGE_ASPECT_STENCIL_BIT)
-                    stencil_attachment_desc.stencilInitialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                    initial_layouts[1] = VK_IMAGE_LAYOUT_UNDEFINED;
             }
             else
-                attachment_desc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                initial_layouts[0] = VK_IMAGE_LAYOUT_UNDEFINED;
         }
     }
 
@@ -2716,8 +2695,6 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
 
         if (!clear_op || clear_aspects != view->format->vk_aspect_mask)
             access |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
-
-        subpass_desc.pDepthStencilAttachment = &attachment_ref;
     }
     else
     {
@@ -2726,85 +2703,50 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
 
         if (!clear_op)
             access |= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
-
-        subpass_desc.colorAttachmentCount = 1;
-        subpass_desc.pColorAttachments = &attachment_ref;
     }
 
-    dependencies[0].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2_KHR;
-    dependencies[0].pNext = NULL;
-    dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
-    dependencies[0].dstSubpass = 0;
-    dependencies[0].srcStageMask = stages;
-    dependencies[0].dstStageMask = stages;
-    dependencies[0].srcAccessMask = clear_op ? access : 0;
-    dependencies[0].dstAccessMask = access;
-    dependencies[0].dependencyFlags = 0;
-    dependencies[0].viewOffset = 0;
+    image_barrier_count = 0;
 
-    dependencies[1].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2_KHR;
-    dependencies[1].pNext = NULL;
-    dependencies[1].srcSubpass = 0;
-    dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
-    dependencies[1].srcStageMask = stages;
-    dependencies[1].dstStageMask = stages;
-    dependencies[1].srcAccessMask = access;
-    dependencies[1].dstAccessMask = 0;
-    dependencies[1].dependencyFlags = 0;
-    dependencies[1].viewOffset = 0;
-
-    pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2_KHR;
-    pass_info.pNext = NULL;
-    pass_info.flags = 0;
-    pass_info.attachmentCount = 1;
-    pass_info.pAttachments = &attachment_desc;
-    pass_info.subpassCount = 1;
-    pass_info.pSubpasses = &subpass_desc;
-    pass_info.dependencyCount = ARRAY_SIZE(dependencies);
-    pass_info.pDependencies = dependencies;
-    pass_info.correlatedViewMaskCount = 0;
-    pass_info.pCorrelatedViewMasks = NULL;
-
-    if ((vr = VK_CALL(vkCreateRenderPass2KHR(list->device->vk_device, &pass_info, NULL, &vk_render_pass))) < 0)
+    for (i = 0; i < (separate_ds_layouts ? 2 : 1); i++)
     {
-        WARN("Failed to create Vulkan render pass, vr %d.\n", vr);
-        return;
+        if (initial_layouts[i] != final_layouts[i])
+        {
+            VkImageMemoryBarrier *barrier = &image_barriers[image_barrier_count++];
+
+            memset(barrier, 0, sizeof(*barrier));
+            barrier->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            barrier->srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier->dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier->image = resource->res.vk_image;
+            barrier->srcAccessMask = clear_op ? 0 : access;
+            barrier->dstAccessMask = access;
+            barrier->oldLayout = initial_layouts[i];
+            barrier->newLayout = final_layouts[i];
+            barrier->subresourceRange.aspectMask = view->format->vk_aspect_mask;
+            barrier->subresourceRange.baseMipLevel = view->info.texture.miplevel_idx;
+            barrier->subresourceRange.levelCount = 1;
+            barrier->subresourceRange.baseArrayLayer = view->info.texture.layer_idx;
+            barrier->subresourceRange.layerCount = view->info.texture.layer_count;
+
+            if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+            {
+                barrier->subresourceRange.baseArrayLayer = 0;
+                barrier->subresourceRange.layerCount = 1;
+            }
+
+            if (separate_ds_layouts)
+                barrier->subresourceRange.aspectMask = i ? VK_IMAGE_ASPECT_STENCIL_BIT : VK_IMAGE_ASPECT_DEPTH_BIT;
+        }
     }
 
-    if (!d3d12_command_allocator_add_render_pass(list->allocator, vk_render_pass))
+    if (image_barrier_count)
     {
-        WARN("Failed to add render pass.\n");
-        VK_CALL(vkDestroyRenderPass(list->device->vk_device, vk_render_pass, NULL));
-        return;
+        VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            stages, stages, 0, 0, NULL, 0, NULL,
+            image_barrier_count, image_barriers));
     }
 
-    extent.width = d3d12_resource_desc_get_width(&resource->desc, view->info.texture.miplevel_idx);
-    extent.height = d3d12_resource_desc_get_height(&resource->desc, view->info.texture.miplevel_idx);
-    extent.depth = view->info.texture.layer_count;
-
-    if (!d3d12_command_list_create_framebuffer(list, vk_render_pass, 1, &view->vk_image_view, extent, &vk_framebuffer))
-    {
-        ERR("Failed to create framebuffer.\n");
-        return;
-    }
-
-    subpass_begin_info.sType = VK_STRUCTURE_TYPE_SUBPASS_BEGIN_INFO_KHR;
-    subpass_begin_info.pNext = NULL;
-    subpass_begin_info.contents = VK_SUBPASS_CONTENTS_INLINE;
-
-    begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    begin_info.pNext = NULL;
-    begin_info.renderPass = vk_render_pass;
-    begin_info.framebuffer = vk_framebuffer;
-    begin_info.renderArea.offset.x = 0;
-    begin_info.renderArea.offset.y = 0;
-    begin_info.renderArea.extent.width = extent.width;
-    begin_info.renderArea.extent.height = extent.height;
-    begin_info.clearValueCount = clear_op ? 1 : 0;
-    begin_info.pClearValues = clear_op ? clear_value : NULL;
-
-    VK_CALL(vkCmdBeginRenderPass2KHR(list->vk_command_buffer,
-            &begin_info, &subpass_begin_info));
+    VK_CALL(vkCmdBeginRenderingKHR(list->vk_command_buffer, &rendering_info));
 
     if (!clear_op)
     {
@@ -2812,10 +2754,7 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
                 clear_aspects, clear_value, rect_count, rects);
     }
 
-    subpass_end_info.sType = VK_STRUCTURE_TYPE_SUBPASS_END_INFO_KHR;
-    subpass_end_info.pNext = NULL;
-
-    VK_CALL(vkCmdEndRenderPass2KHR(list->vk_command_buffer, &subpass_end_info));
+    VK_CALL(vkCmdEndRenderingKHR(list->vk_command_buffer));
 }
 
 static VkPipelineStageFlags vk_queue_shader_stages(VkQueueFlags vk_queue_flags)
