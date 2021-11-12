@@ -1958,6 +1958,22 @@ struct vkd3d_query_range
     uint32_t flags;
 };
 
+enum vkd3d_rendering_flags
+{
+    VKD3D_RENDERING_ACTIVE    = (1u << 0),
+    VKD3D_RENDERING_SUSPENDED = (1u << 1),
+    VKD3D_RENDERING_CURRENT   = (1u << 2),
+};
+
+struct vkd3d_rendering_info
+{
+    VkRenderingInfoKHR info;
+    VkRenderingAttachmentInfoKHR rtv[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
+    VkRenderingAttachmentInfoKHR dsv;
+    VkRenderingFragmentShadingRateAttachmentInfoKHR vrs;
+    uint32_t state_flags;
+};
+
 /* ID3D12CommandListExt */
 typedef ID3D12GraphicsCommandListExt d3d12_command_list_vkd3d_ext_iface;
 
@@ -2007,12 +2023,9 @@ struct d3d12_command_list
     unsigned int fb_layer_count;
 
     bool xfb_enabled;
-    bool render_pass_suspended;
 
     bool predicate_enabled;
     VkDeviceAddress predicate_va;
-
-    VkFramebuffer current_framebuffer;
 
     /* This is VK_NULL_HANDLE when we are no longer sure which pipeline to bind,
      * if this is NULL, we might need to lookup a pipeline key in order to bind the correct pipeline. */
@@ -2023,7 +2036,7 @@ struct d3d12_command_list
     VkPipeline command_buffer_pipeline;
 
     VkRenderPass pso_render_pass;
-    VkRenderPass current_render_pass;
+    struct vkd3d_rendering_info rendering_info;
     struct vkd3d_dynamic_state dynamic_state;
     struct vkd3d_pipeline_bindings pipeline_bindings[VKD3D_PIPELINE_BIND_POINT_COUNT];
     VkPipelineBindPoint active_bind_point;
@@ -3106,6 +3119,7 @@ static inline bool d3d12_device_use_ssbo_root_descriptors(struct d3d12_device *d
 bool d3d12_device_supports_variable_shading_rate_tier_1(struct d3d12_device *device);
 bool d3d12_device_supports_variable_shading_rate_tier_2(struct d3d12_device *device);
 bool d3d12_device_supports_ray_tracing_tier_1_0(const struct d3d12_device *device);
+UINT d3d12_determine_shading_rate_image_tile_size(struct d3d12_device *device);
 
 /* ID3DBlob */
 struct d3d_blob
