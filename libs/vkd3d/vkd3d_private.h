@@ -1795,10 +1795,6 @@ struct d3d12_command_allocator
 
     struct d3d12_descriptor_pool_cache descriptor_pool_caches[VKD3D_DESCRIPTOR_POOL_TYPE_COUNT];
 
-    VkFramebuffer *framebuffers;
-    size_t framebuffers_size;
-    size_t framebuffer_count;
-
     struct vkd3d_view **views;
     size_t views_size;
     size_t view_count;

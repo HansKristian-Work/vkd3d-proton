@@ -1254,18 +1254,6 @@ static void d3d12_command_allocator_free_command_buffer(struct d3d12_command_all
     d3d12_command_allocator_free_vk_command_buffer(allocator, list->vk_init_commands);
 }
 
-static bool d3d12_command_allocator_add_framebuffer(struct d3d12_command_allocator *allocator,
-        VkFramebuffer framebuffer)
-{
-    if (!vkd3d_array_reserve((void **)&allocator->framebuffers, &allocator->framebuffers_size,
-            allocator->framebuffer_count + 1, sizeof(*allocator->framebuffers)))
-        return false;
-
-    allocator->framebuffers[allocator->framebuffer_count++] = framebuffer;
-
-    return true;
-}
-
 static bool d3d12_command_allocator_add_descriptor_pool(struct d3d12_command_allocator *allocator,
         VkDescriptorPool pool, enum vkd3d_descriptor_pool_types pool_type)
 {
@@ -1489,12 +1477,6 @@ static void d3d12_command_allocator_free_resources(struct d3d12_command_allocato
         vkd3d_view_decref(allocator->views[i], device);
     }
     allocator->view_count = 0;
-
-    for (i = 0; i < allocator->framebuffer_count; ++i)
-    {
-        VK_CALL(vkDestroyFramebuffer(device->vk_device, allocator->framebuffers[i], NULL));
-    }
-    allocator->framebuffer_count = 0;
 }
 
 static void d3d12_command_allocator_set_name(struct d3d12_command_allocator *allocator, const char *name)
@@ -1567,7 +1549,6 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
             vkd3d_free(allocator->descriptor_pool_caches[i].descriptor_pools);
             vkd3d_free(allocator->descriptor_pool_caches[i].free_descriptor_pools);
         }
-        vkd3d_free(allocator->framebuffers);
 
         if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_RECYCLE_COMMAND_POOLS)
         {
@@ -1862,11 +1843,6 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
 
     memset(allocator->descriptor_pool_caches, 0, sizeof(allocator->descriptor_pool_caches));
 
-    allocator->framebuffers = NULL;
-    allocator->framebuffers_size = 0;
-    allocator->framebuffer_count = 0;
-
-
     allocator->views = NULL;
     allocator->views_size = 0;
     allocator->view_count = 0;
@@ -2063,9 +2039,6 @@ static void d3d12_command_list_invalidate_current_pipeline(struct d3d12_command_
         list->command_buffer_pipeline = VK_NULL_HANDLE;
     }
 }
-
-static bool d3d12_command_list_create_framebuffer(struct d3d12_command_list *list, VkRenderPass render_pass,
-        uint32_t view_count, const VkImageView *views, VkExtent3D extent, VkFramebuffer *vk_framebuffer);
 
 static D3D12_RECT d3d12_get_image_rect(struct d3d12_resource *resource, unsigned int mip_level)
 {
@@ -4435,40 +4408,6 @@ static void d3d12_command_list_get_fb_extent(struct d3d12_command_list *list,
         if (layer_count)
             *layer_count = 1;
     }
-}
-
-static bool d3d12_command_list_create_framebuffer(struct d3d12_command_list *list, VkRenderPass render_pass,
-        uint32_t view_count, const VkImageView *views, VkExtent3D extent, VkFramebuffer *vk_framebuffer)
-{
-    struct d3d12_device *device = list->device;
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    struct VkFramebufferCreateInfo fb_desc;
-    VkResult vr;
-
-    fb_desc.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    fb_desc.pNext = NULL;
-    fb_desc.flags = 0;
-    fb_desc.renderPass = render_pass;
-    fb_desc.attachmentCount = view_count;
-    fb_desc.pAttachments = views;
-    fb_desc.width = extent.width;
-    fb_desc.height = extent.height;
-    fb_desc.layers = extent.depth;
-
-    if ((vr = VK_CALL(vkCreateFramebuffer(device->vk_device, &fb_desc, NULL, vk_framebuffer))) < 0)
-    {
-        ERR("Failed to create Vulkan framebuffer, vr %d.\n", vr);
-        return false;
-    }
-
-    if (!d3d12_command_allocator_add_framebuffer(list->allocator, *vk_framebuffer))
-    {
-        WARN("Failed to add framebuffer.\n");
-        VK_CALL(vkDestroyFramebuffer(device->vk_device, *vk_framebuffer, NULL));
-        return false;
-    }
-
-    return true;
 }
 
 static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *list)
