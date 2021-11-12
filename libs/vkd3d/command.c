@@ -2045,9 +2045,9 @@ static inline struct d3d12_command_list *impl_from_ID3D12GraphicsCommandList(d3d
     return CONTAINING_RECORD(iface, struct d3d12_command_list, ID3D12GraphicsCommandList_iface);
 }
 
-static void d3d12_command_list_invalidate_current_framebuffer(struct d3d12_command_list *list)
+static void d3d12_command_list_invalidate_rendering_info(struct d3d12_command_list *list)
 {
-    list->current_framebuffer = VK_NULL_HANDLE;
+    list->rendering_info.state_flags &= ~VKD3D_RENDERING_CURRENT;
 }
 
 static void d3d12_command_list_invalidate_current_pipeline(struct d3d12_command_list *list, bool meta_shader)
@@ -3497,21 +3497,17 @@ static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list
                 list->so_counter_buffers, list->so_counter_buffer_offsets));
     }
 
-    if (list->current_render_pass)
-    {
-        VkSubpassEndInfoKHR subpass_end_info;
-        subpass_end_info.sType = VK_STRUCTURE_TYPE_SUBPASS_END_INFO_KHR;
-        subpass_end_info.pNext = NULL;
-
-        VK_CALL(vkCmdEndRenderPass2KHR(list->vk_command_buffer, &subpass_end_info));
-    }
+    if (list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE)
+        VK_CALL(vkCmdEndRenderingKHR(list->vk_command_buffer));
 
     /* Don't emit barriers for temporary suspension of the render pass */
-    if (!suspend && (list->current_render_pass || list->render_pass_suspended))
+    if (!suspend && (list->rendering_info.state_flags & (VKD3D_RENDERING_ACTIVE | VKD3D_RENDERING_SUSPENDED)))
         d3d12_command_list_emit_render_pass_transition(list, VKD3D_RENDER_PASS_TRANSITION_MODE_END);
 
-    list->render_pass_suspended = suspend && (list->current_render_pass || list->render_pass_suspended);
-    list->current_render_pass = VK_NULL_HANDLE;
+    if (suspend && (list->rendering_info.state_flags & (VKD3D_RENDERING_ACTIVE)))
+        list->rendering_info.state_flags |= VKD3D_RENDERING_SUSPENDED;
+
+    list->rendering_info.state_flags &= ~VKD3D_RENDERING_ACTIVE;
 
     if (list->xfb_enabled)
     {
@@ -3528,11 +3524,6 @@ static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list
 
         list->xfb_enabled = false;
     }
-}
-
-static void d3d12_command_list_invalidate_current_render_pass(struct d3d12_command_list *list)
-{
-    d3d12_command_list_end_current_render_pass(list, false);
 }
 
 static void d3d12_command_list_invalidate_push_constants(struct vkd3d_pipeline_bindings *bindings)
@@ -4304,11 +4295,9 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
 
     list->has_valid_index_buffer = false;
 
-    list->current_framebuffer = VK_NULL_HANDLE;
     list->current_pipeline = VK_NULL_HANDLE;
     list->command_buffer_pipeline = VK_NULL_HANDLE;
     list->pso_render_pass = VK_NULL_HANDLE;
-    list->current_render_pass = VK_NULL_HANDLE;
 
     memset(&list->dynamic_state, 0, sizeof(list->dynamic_state));
     list->dynamic_state.blend_constants[0] = D3D12_DEFAULT_BLEND_FACTOR_RED;
@@ -4361,7 +4350,7 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     list->dsv_resource_tracking_count = 0;
     list->tracked_copy_buffer_count = 0;
 
-    list->render_pass_suspended = false;
+    list->rendering_info.state_flags = 0;
 }
 
 static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
@@ -4482,29 +4471,37 @@ static bool d3d12_command_list_create_framebuffer(struct d3d12_command_list *lis
     return true;
 }
 
-static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_list *list)
+static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *list)
 {
-    VkImageView views[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 2];
+    struct vkd3d_rendering_info *rendering_info = &list->rendering_info;
     struct d3d12_graphics_pipeline_state *graphics;
-    VkFramebuffer vk_framebuffer;
-    unsigned int view_count;
     uint32_t rtv_mask;
-    VkExtent3D extent;
     unsigned int i;
 
-    if (list->current_framebuffer != VK_NULL_HANDLE)
+    if (rendering_info->state_flags & VKD3D_RENDERING_CURRENT)
         return true;
 
     graphics = &list->state->graphics;
     rtv_mask = graphics->rtv_active_mask & list->rtv_nonnull_mask;
-    view_count = 0;
 
-    /* The pipeline has fallback render passes / PSO in case we're
-     * attempting to render to unbound RTV. */
-    while (rtv_mask)
+    rendering_info->info.colorAttachmentCount = vkd3d_get_color_attachment_count(graphics->rtv_active_mask);
+    rendering_info->rtv_mask = rtv_mask;
+
+    /* The pipeline has fallback PSO in case we're attempting to render to unbound RTV. */
+    for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
     {
-        i = vkd3d_bitmask_iter32(&rtv_mask);
-        views[view_count++] = list->rtvs[i].view->vk_image_view;
+        VkRenderingAttachmentInfoKHR *attachment = &rendering_info->rtv[i];
+
+        if (rtv_mask & (1u << i))
+        {
+            attachment->imageView = list->rtvs[i].view->vk_image_view;
+            attachment->imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        }
+        else
+        {
+            attachment->imageView = VK_NULL_HANDLE;
+            attachment->imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        }
     }
 
     if (d3d12_command_list_has_depth_stencil_view(list))
@@ -4515,21 +4512,30 @@ static bool d3d12_command_list_update_current_framebuffer(struct d3d12_command_l
             return false;
         }
 
-        views[view_count++] = list->dsv.view->vk_image_view;
+        rendering_info->dsv.imageView = list->dsv.view->vk_image_view;
+        rendering_info->dsv.imageLayout = list->dsv_layout;
+    }
+    else
+    {
+        rendering_info->dsv.imageView = VK_NULL_HANDLE;
+        rendering_info->dsv.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     }
 
     if (list->vrs_image)
-        views[view_count++] = list->vrs_image->vrs_view;
-
-    d3d12_command_list_get_fb_extent(list, &extent.width, &extent.height, &extent.depth);
-
-    if (!d3d12_command_list_create_framebuffer(list, list->pso_render_pass, view_count, views, extent, &vk_framebuffer))
     {
-        ERR("Failed to create framebuffer.\n");
-        return false;
+        rendering_info->vrs.imageView = list->vrs_image->vrs_view;
+        rendering_info->vrs.imageLayout = VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR;
+    }
+    else
+    {
+        rendering_info->vrs.imageView = VK_NULL_HANDLE;
+        rendering_info->vrs.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     }
 
-    list->current_framebuffer = vk_framebuffer;
+    d3d12_command_list_get_fb_extent(list,
+            &rendering_info->info.renderArea.extent.width,
+            &rendering_info->info.renderArea.extent.height,
+            &rendering_info->info.layerCount);
 
     return true;
 }
@@ -4673,11 +4679,11 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
      * that the PSO does not add any write masks we didn't already account for. */
     if (list->pso_render_pass != vk_render_pass)
     {
-        d3d12_command_list_invalidate_current_framebuffer(list);
+        d3d12_command_list_invalidate_rendering_info(list);
         /* Don't end render pass if none is active, or otherwise
          * deferred clears are not going to work as intended. */
-        if (list->current_render_pass || list->render_pass_suspended)
-            d3d12_command_list_invalidate_current_render_pass(list);
+        if (list->rendering_info.state_flags & (VKD3D_RENDERING_ACTIVE | VKD3D_RENDERING_SUSPENDED))
+            d3d12_command_list_end_current_render_pass(list, false);
 
         if (d3d12_command_list_has_depth_stencil_view(list))
         {
@@ -5369,14 +5375,12 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct d3d12_graphics_pipeline_state *graphics;
-    VkSubpassBeginInfoKHR subpass_begin_info;
-    VkRenderPassBeginInfo begin_desc;
     VkRenderPass vk_render_pass;
 
     d3d12_command_list_promote_dsv_layout(list);
     if (!d3d12_command_list_update_graphics_pipeline(list))
         return false;
-    if (!d3d12_command_list_update_current_framebuffer(list))
+    if (!d3d12_command_list_update_rendering_info(list))
         return false;
 
     if (list->dynamic_state.dirty_flags)
@@ -5384,7 +5388,7 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
 
     d3d12_command_list_update_descriptors(list, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
-    if (list->current_render_pass != VK_NULL_HANDLE)
+    if (list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE)
     {
         d3d12_command_list_handle_active_queries(list, false);
         return true;
@@ -5393,27 +5397,12 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     vk_render_pass = list->pso_render_pass;
     assert(vk_render_pass);
 
-    if (!list->render_pass_suspended)
+    if (!(list->rendering_info.state_flags & VKD3D_RENDERING_SUSPENDED))
         d3d12_command_list_emit_render_pass_transition(list, VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN);
 
-    begin_desc.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    begin_desc.pNext = NULL;
-    begin_desc.renderPass = vk_render_pass;
-    begin_desc.framebuffer = list->current_framebuffer;
-    begin_desc.renderArea.offset.x = 0;
-    begin_desc.renderArea.offset.y = 0;
-    d3d12_command_list_get_fb_extent(list,
-            &begin_desc.renderArea.extent.width, &begin_desc.renderArea.extent.height, NULL);
-    begin_desc.clearValueCount = 0;
-    begin_desc.pClearValues = NULL;
+    VK_CALL(vkCmdBeginRenderingKHR(list->vk_command_buffer, &list->rendering_info.info));
 
-    subpass_begin_info.sType = VK_STRUCTURE_TYPE_SUBPASS_BEGIN_INFO_KHR;
-    subpass_begin_info.pNext = NULL;
-    subpass_begin_info.contents = VK_SUBPASS_CONTENTS_INLINE;
-
-    VK_CALL(vkCmdBeginRenderPass2KHR(list->vk_command_buffer, &begin_desc, &subpass_begin_info));
-
-    list->current_render_pass = vk_render_pass;
+    list->rendering_info.state_flags |= VKD3D_RENDERING_ACTIVE;
 
     graphics = &list->state->graphics;
     if (graphics->xfb_enabled)
@@ -7918,8 +7907,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
             iface, render_target_descriptor_count, render_target_descriptors,
             single_descriptor_handle, depth_stencil_descriptor);
 
-    d3d12_command_list_invalidate_current_framebuffer(list);
-    d3d12_command_list_invalidate_current_render_pass(list);
+    d3d12_command_list_invalidate_rendering_info(list);
+    d3d12_command_list_end_current_render_pass(list, false);
 
     if (render_target_descriptor_count > ARRAY_SIZE(list->rtvs))
     {
@@ -8031,10 +8020,10 @@ static void d3d12_command_list_clear_attachment(struct d3d12_command_list *list,
 
     attachment_idx = d3d12_command_list_find_attachment(list, resource, view);
 
-    if (attachment_idx == D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT && list->current_render_pass)
+    if (attachment_idx == D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT && (list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE))
         writable = (vk_writable_aspects_from_image_layout(list->dsv_layout) & clear_aspects) == clear_aspects;
 
-    if (attachment_idx < 0 || !list->current_render_pass || !writable)
+    if (attachment_idx < 0 || !(list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE) || !writable)
     {
         /* View currently not bound as a render target, or bound but
          * the render pass isn't active and we're only going to clear
@@ -8625,7 +8614,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
             vk_subresource_layers = vk_subresource_layers_from_subresource(&vk_subresource);
             attachment_idx = d3d12_command_list_find_attachment_view(list, texture, &vk_subresource_layers);
 
-            is_bound = attachment_idx >= 0 && (list->current_render_pass || list->render_pass_suspended);
+            is_bound = attachment_idx >= 0 && (list->rendering_info.state_flags & (VKD3D_RENDERING_ACTIVE | VKD3D_RENDERING_SUSPENDED));
             if (is_bound)
                 has_bound_subresource = true;
             else
@@ -8654,7 +8643,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
             vk_subresource_layers = vk_subresource_layers_from_subresource(&vk_subresource);
             attachment_idx = d3d12_command_list_find_attachment_view(list, texture, &vk_subresource_layers);
 
-            is_bound = attachment_idx >= 0 && (list->current_render_pass || list->render_pass_suspended);
+            is_bound = attachment_idx >= 0 && (list->rendering_info.state_flags & (VKD3D_RENDERING_ACTIVE | VKD3D_RENDERING_SUSPENDED));
             d3d12_command_list_end_current_render_pass(list, is_bound);
             vk_subresource_range = vk_subresource_range_from_layers(&vk_subresource_layers);
             d3d12_command_list_discard_attachment_barrier(list, texture, &vk_subresource_range, is_bound);
@@ -9814,17 +9803,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRateImage(d3d12_com
     if (vrs_image == list->vrs_image)
         return;
 
-    d3d12_command_list_invalidate_current_framebuffer(list);
+    d3d12_command_list_invalidate_rendering_info(list);
 
     /* Need to end the renderpass if we have one to make
      * way for the new VRS attachment */
-    if (list->current_render_pass || list->render_pass_suspended)
-        d3d12_command_list_invalidate_current_render_pass(list);
-
-    /* We've moved from not having a VRS image to having one
-     * or vice versa, find the right pipeline variant. */
-    if (!list->vrs_image != !vrs_image)
-        d3d12_command_list_invalidate_current_pipeline(list, false);
+    if (list->rendering_info.state_flags & (VKD3D_RENDERING_ACTIVE | VKD3D_RENDERING_SUSPENDED))
+        d3d12_command_list_end_current_render_pass(list, false);
 
     if (vrs_image)
         d3d12_command_list_track_resource_usage(list, vrs_image, true);
@@ -9951,6 +9935,43 @@ static struct d3d12_command_list *unsafe_impl_from_ID3D12CommandList(ID3D12Comma
 
 extern CONST_VTBL struct ID3D12GraphicsCommandListExtVtbl d3d12_command_list_vkd3d_ext_vtbl;
 
+static void d3d12_command_list_init_attachment_info(VkRenderingAttachmentInfoKHR *attachment_info)
+{
+    attachment_info->sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
+    attachment_info->loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    attachment_info->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+}
+
+static void d3d12_command_list_init_rendering_info(struct d3d12_device *device, struct vkd3d_rendering_info *rendering_info)
+{
+    unsigned int i;
+
+    rendering_info->info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR;
+    rendering_info->info.colorAttachmentCount = D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT;
+    rendering_info->info.pColorAttachments = rendering_info->rtv;
+    rendering_info->info.pDepthAttachment = &rendering_info->dsv;
+    rendering_info->info.pStencilAttachment = &rendering_info->dsv;
+
+    for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+        d3d12_command_list_init_attachment_info(&rendering_info->rtv[i]);
+
+    d3d12_command_list_init_attachment_info(&rendering_info->dsv);
+
+    if (device->device_info.fragment_shading_rate_features.attachmentFragmentShadingRate)
+    {
+        uint32_t tile_size = d3d12_determine_shading_rate_image_tile_size(device);
+
+        if (tile_size)
+        {
+            rendering_info->vrs.sType = VK_STRUCTURE_TYPE_RENDERING_FRAGMENT_SHADING_RATE_ATTACHMENT_INFO_KHR;
+            rendering_info->vrs.shadingRateAttachmentTexelSize.width = tile_size;
+            rendering_info->vrs.shadingRateAttachmentTexelSize.height = tile_size;
+
+            vk_prepend_struct(&rendering_info->info, &rendering_info->vrs);
+        }
+    }
+}
+
 static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d3d12_device *device,
         D3D12_COMMAND_LIST_TYPE type)
 {
@@ -9972,6 +9993,8 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     list->type = type;
 
     list->ID3D12GraphicsCommandListExt_iface.lpVtbl = &d3d12_command_list_vkd3d_ext_vtbl;
+
+    d3d12_command_list_init_rendering_info(device, &list->rendering_info);
 
     if (FAILED(hr = vkd3d_private_store_init(&list->private_store)))
         return hr;
