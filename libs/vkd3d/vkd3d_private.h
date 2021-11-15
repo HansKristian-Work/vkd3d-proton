@@ -331,7 +331,6 @@ enum vkd3d_render_pass_key_flag
     VKD3D_RENDER_PASS_KEY_STENCIL_ENABLE = (1u << 1),
     VKD3D_RENDER_PASS_KEY_DEPTH_WRITE    = (1u << 2),
     VKD3D_RENDER_PASS_KEY_STENCIL_WRITE  = (1u << 3),
-    VKD3D_RENDER_PASS_KEY_VRS_ATTACHMENT = (1u << 4),
 
     VKD3D_RENDER_PASS_KEY_DEPTH_STENCIL_ENABLE = (VKD3D_RENDER_PASS_KEY_DEPTH_ENABLE | VKD3D_RENDER_PASS_KEY_STENCIL_ENABLE),
     VKD3D_RENDER_PASS_KEY_DEPTH_STENCIL_WRITE  = (VKD3D_RENDER_PASS_KEY_DEPTH_WRITE  | VKD3D_RENDER_PASS_KEY_STENCIL_WRITE),
@@ -1482,12 +1481,6 @@ struct vkd3d_shader_debug_ring_spec_info
     VkSpecializationInfo spec_info;
 };
 
-enum vkd3d_graphics_pipeline_static_variant_flag
-{
-    VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_VRS_ATTACHMENT = (1u << 0),
-    VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_LAST_BIT       = (1u << 1),
-};
-
 /* One render pass for each plane optimal mask. */
 #define VKD3D_RENDER_PASS_COMPATIBILITY_VARIANT_COUNT 4
 struct vkd3d_render_pass_compatibility
@@ -1500,8 +1493,6 @@ enum vkd3d_plane_optimal_flag
     VKD3D_DEPTH_PLANE_OPTIMAL = (1 << 0),
     VKD3D_STENCIL_PLANE_OPTIMAL = (1 << 1),
 };
-
-#define VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_COUNT ((uint32_t)VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_LAST_BIT)
 
 struct d3d12_graphics_pipeline_state
 {
@@ -1530,7 +1521,7 @@ struct d3d12_graphics_pipeline_state
     const struct vkd3d_format *dsv_format;
     VkFormat rtv_formats[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     uint32_t dsv_plane_optimal_mask;
-    struct vkd3d_render_pass_compatibility render_pass[VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_COUNT];
+    struct vkd3d_render_pass_compatibility render_pass;
 
     D3D12_INDEX_BUFFER_STRIP_CUT_VALUE index_buffer_strip_cut_value;
     VkPipelineRasterizationStateCreateInfo rs_desc;
@@ -1546,7 +1537,7 @@ struct d3d12_graphics_pipeline_state
     uint32_t dynamic_state_flags; /* vkd3d_dynamic_state_flag */
 
     VkPipelineLayout pipeline_layout;
-    VkPipeline pipeline[VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_COUNT];
+    VkPipeline pipeline;
     struct list compiled_fallback_pipelines;
 
     bool xfb_enabled;
@@ -1657,7 +1648,6 @@ struct vkd3d_pipeline_key
     uint32_t viewport_count;
     uint32_t strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     uint32_t rtv_active_mask;
-    uint32_t variant_flags;
     VkFormat dsv_format;
 
     bool dynamic_stride;
@@ -1672,16 +1662,16 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
         const struct vkd3d_dynamic_state *dyn_state,
         uint32_t rtv_nonnull_mask, const struct vkd3d_format *dsv_format,
         const struct vkd3d_render_pass_compatibility **render_pass_compat,
-        uint32_t *dynamic_state_flags, uint32_t variant_flags);
+        uint32_t *dynamic_state_flags);
 VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
         const struct vkd3d_dynamic_state *dyn_state,
         uint32_t rtv_nonnull_mask, const struct vkd3d_format *dsv_format,
         const struct vkd3d_render_pass_compatibility **render_pass_compat,
-        uint32_t *dynamic_state_flags, uint32_t variant_flags);
+        uint32_t *dynamic_state_flags);
 VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_state *state,
         const struct vkd3d_pipeline_key *key, const struct vkd3d_format *dsv_format, VkPipelineCache vk_cache,
         struct vkd3d_render_pass_compatibility *render_pass_compat,
-        uint32_t *dynamic_state_flags, uint32_t variant_flags);
+        uint32_t *dynamic_state_flags);
 
 static inline struct d3d12_pipeline_state *impl_from_ID3D12PipelineState(ID3D12PipelineState *iface)
 {
