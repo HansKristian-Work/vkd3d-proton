@@ -4189,8 +4189,8 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(d3d12_device_if
         memset(row_counts, 0xff, sizeof(*row_counts) * sub_resource_count);
     if (row_sizes)
         memset(row_sizes, 0xff, sizeof(*row_sizes) * sub_resource_count);
-    if (total_bytes)
-        *total_bytes = ~(uint64_t)0;
+
+    total = ~(uint64_t)0;
 
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
     {
@@ -4199,13 +4199,13 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(d3d12_device_if
     else if (!(format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0)))
     {
         WARN("Invalid format %#x.\n", desc->Format);
-        return;
+        goto end;
     }
 
     if (FAILED(d3d12_resource_validate_desc(desc, device)))
     {
         WARN("Invalid resource desc.\n");
-        return;
+        goto end;
     }
 
     num_planes = format->plane_count;
@@ -4216,7 +4216,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(d3d12_device_if
             || sub_resource_count > num_subresources - first_sub_resource)
     {
         WARN("Invalid sub-resource range %u-%u for resource.\n", first_sub_resource, sub_resource_count);
-        return;
+        goto end;
     }
 
     offset = 0;
@@ -4260,6 +4260,8 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(d3d12_device_if
         total = offset + size;
         offset = align(total, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
     }
+
+end:
     if (total_bytes)
         *total_bytes = total;
 }
