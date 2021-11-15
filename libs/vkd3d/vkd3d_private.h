@@ -336,32 +336,6 @@ enum vkd3d_render_pass_key_flag
     VKD3D_RENDER_PASS_KEY_DEPTH_STENCIL_WRITE  = (VKD3D_RENDER_PASS_KEY_DEPTH_WRITE  | VKD3D_RENDER_PASS_KEY_STENCIL_WRITE),
 };
 
-struct vkd3d_render_pass_key
-{
-    uint32_t attachment_count;
-    uint32_t rtv_active_mask;
-    uint32_t flags; /* vkd3d_render_pass_key_flag */
-    uint32_t sample_count;
-    VkFormat vk_formats[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 1];
-};
-
-struct vkd3d_render_pass_entry;
-
-struct vkd3d_render_pass_cache
-{
-    struct vkd3d_render_pass_entry *render_passes;
-    size_t render_pass_count;
-    size_t render_passes_size;
-    spinlock_t lock;
-};
-
-void vkd3d_render_pass_cache_cleanup(struct vkd3d_render_pass_cache *cache,
-        struct d3d12_device *device);
-HRESULT vkd3d_render_pass_cache_find(struct vkd3d_render_pass_cache *cache,
-        struct d3d12_device *device, const struct vkd3d_render_pass_key *key,
-        VkRenderPass *vk_render_pass);
-void vkd3d_render_pass_cache_init(struct vkd3d_render_pass_cache *cache);
-
 struct vkd3d_private_store
 {
     pthread_mutex_t mutex;
@@ -1482,12 +1456,6 @@ struct vkd3d_shader_debug_ring_spec_info
 };
 
 /* One render pass for each plane optimal mask. */
-#define VKD3D_RENDER_PASS_COMPATIBILITY_VARIANT_COUNT 4
-struct vkd3d_render_pass_compatibility
-{
-    VkRenderPass dsv_layouts[VKD3D_RENDER_PASS_COMPATIBILITY_VARIANT_COUNT];
-};
-
 enum vkd3d_plane_optimal_flag
 {
     VKD3D_DEPTH_PLANE_OPTIMAL = (1 << 0),
@@ -1521,7 +1489,6 @@ struct d3d12_graphics_pipeline_state
     const struct vkd3d_format *dsv_format;
     VkFormat rtv_formats[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     uint32_t dsv_plane_optimal_mask;
-    struct vkd3d_render_pass_compatibility render_pass;
 
     D3D12_INDEX_BUFFER_STRIP_CUT_VALUE index_buffer_strip_cut_value;
     VkPipelineRasterizationStateCreateInfo rs_desc;
@@ -1659,19 +1626,14 @@ bool d3d12_pipeline_state_has_replaced_shaders(struct d3d12_pipeline_state *stat
 HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindPoint bind_point,
         const struct d3d12_pipeline_state_desc *desc, struct d3d12_pipeline_state **state);
 VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
-        const struct vkd3d_dynamic_state *dyn_state,
-        uint32_t rtv_nonnull_mask, const struct vkd3d_format *dsv_format,
-        const struct vkd3d_render_pass_compatibility **render_pass_compat,
-        uint32_t *dynamic_state_flags);
+        const struct vkd3d_dynamic_state *dyn_state, uint32_t rtv_nonnull_mask,
+        const struct vkd3d_format *dsv_format, uint32_t *dynamic_state_flags);
 VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
-        const struct vkd3d_dynamic_state *dyn_state,
-        uint32_t rtv_nonnull_mask, const struct vkd3d_format *dsv_format,
-        const struct vkd3d_render_pass_compatibility **render_pass_compat,
-        uint32_t *dynamic_state_flags);
+        const struct vkd3d_dynamic_state *dyn_state, uint32_t rtv_nonnull_mask,
+        const struct vkd3d_format *dsv_format, uint32_t *dynamic_state_flags);
 VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_state *state,
-        const struct vkd3d_pipeline_key *key, const struct vkd3d_format *dsv_format, VkPipelineCache vk_cache,
-        struct vkd3d_render_pass_compatibility *render_pass_compat,
-        uint32_t *dynamic_state_flags);
+        const struct vkd3d_pipeline_key *key, const struct vkd3d_format *dsv_format,
+        VkPipelineCache vk_cache, uint32_t *dynamic_state_flags);
 
 static inline struct d3d12_pipeline_state *impl_from_ID3D12PipelineState(ID3D12PipelineState *iface)
 {
@@ -2924,7 +2886,6 @@ struct d3d12_device
     PFN_vkd3d_signal_event signal_event;
 
     pthread_mutex_t mutex;
-    struct vkd3d_render_pass_cache render_pass_cache;
 
     VkPhysicalDeviceMemoryProperties memory_properties;
 

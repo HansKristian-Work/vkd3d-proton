@@ -1512,268 +1512,6 @@ unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_
     return flags;
 }
 
-/* vkd3d_render_pass_cache */
-struct vkd3d_render_pass_entry
-{
-    struct vkd3d_render_pass_key key;
-    VkRenderPass vk_render_pass;
-};
-
-/* Ensure that key is packed, and can be memcmp'd. */
-STATIC_ASSERT(sizeof(struct vkd3d_render_pass_key) == 52);
-
-static VkImageLayout vkd3d_render_pass_get_depth_stencil_layout(const struct vkd3d_render_pass_key *key)
-{
-    if (!(key->flags & VKD3D_RENDER_PASS_KEY_DEPTH_STENCIL_ENABLE))
-        return VK_IMAGE_LAYOUT_UNDEFINED;
-
-    if ((key->flags & VKD3D_RENDER_PASS_KEY_DEPTH_STENCIL_WRITE) == VKD3D_RENDER_PASS_KEY_DEPTH_STENCIL_WRITE)
-        return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    else if (key->flags & VKD3D_RENDER_PASS_KEY_DEPTH_WRITE)
-        return VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL;
-    else if (key->flags & VKD3D_RENDER_PASS_KEY_STENCIL_WRITE)
-        return VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL;
-    else
-        return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-}
-
-static HRESULT vkd3d_render_pass_cache_create_pass_locked(struct vkd3d_render_pass_cache *cache,
-        struct d3d12_device *device, const struct vkd3d_render_pass_key *key, VkRenderPass *vk_render_pass)
-{
-    VkAttachmentReference2KHR attachment_references[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 2];
-    VkAttachmentDescription2KHR attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 2];
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    struct vkd3d_render_pass_entry *entry;
-    unsigned int index, attachment_index;
-    VkSubpassDependency2KHR dependencies[2];
-    VkSubpassDescription2KHR sub_pass_desc;
-    VkRenderPassCreateInfo2KHR pass_info;
-    VkPipelineStageFlags stages;
-    bool have_depth_stencil;
-    unsigned int rt_count;
-    VkResult vr;
-
-    if (!vkd3d_array_reserve((void **)&cache->render_passes, &cache->render_passes_size,
-            cache->render_pass_count + 1, sizeof(*cache->render_passes)))
-    {
-        *vk_render_pass = VK_NULL_HANDLE;
-        return E_OUTOFMEMORY;
-    }
-
-    entry = &cache->render_passes[cache->render_pass_count];
-
-    entry->key = *key;
-
-    have_depth_stencil = !!(key->flags & VKD3D_RENDER_PASS_KEY_DEPTH_STENCIL_ENABLE);
-    rt_count = have_depth_stencil ? key->attachment_count - 1 : key->attachment_count;
-    assert(rt_count <= D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT);
-
-    stages = 0;
-
-    for (index = 0, attachment_index = 0; index < rt_count; ++index)
-    {
-        if (!(key->rtv_active_mask & (1u << index)))
-        {
-            attachment_references[index].sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2_KHR;
-            attachment_references[index].pNext = NULL;
-            attachment_references[index].attachment = VK_ATTACHMENT_UNUSED;
-            attachment_references[index].layout = VK_IMAGE_LAYOUT_UNDEFINED;
-            attachment_references[index].aspectMask = 0;
-            continue;
-        }
-
-        attachments[attachment_index].sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2_KHR;
-        attachments[attachment_index].pNext = NULL;
-        attachments[attachment_index].flags = 0;
-        attachments[attachment_index].format = key->vk_formats[index];
-        attachments[attachment_index].samples = key->sample_count;
-        attachments[attachment_index].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        attachments[attachment_index].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        attachments[attachment_index].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        attachments[attachment_index].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        attachments[attachment_index].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        attachments[attachment_index].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-        attachment_references[index].sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2_KHR;
-        attachment_references[index].pNext = NULL;
-        attachment_references[index].attachment = attachment_index;
-        attachment_references[index].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        attachment_references[index].aspectMask = 0;
-
-        stages |= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        ++attachment_index;
-    }
-
-    if (have_depth_stencil)
-    {
-        VkImageLayout depth_layout = vkd3d_render_pass_get_depth_stencil_layout(key);
-
-        attachments[attachment_index].sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2_KHR;
-        attachments[attachment_index].pNext = NULL;
-        attachments[attachment_index].flags = 0;
-        attachments[attachment_index].format = key->vk_formats[index];
-        attachments[attachment_index].samples = key->sample_count;
-        attachments[attachment_index].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        attachments[attachment_index].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        attachments[attachment_index].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        attachments[attachment_index].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
-        attachments[attachment_index].initialLayout = depth_layout;
-        attachments[attachment_index].finalLayout = depth_layout;
-
-        attachment_references[index].sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2_KHR;
-        attachment_references[index].pNext = NULL;
-        attachment_references[index].attachment = attachment_index;
-        attachment_references[index].layout = depth_layout;
-        attachment_references[index].aspectMask = 0;
-
-        stages |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-        attachment_index++;
-        index++;
-    }
-
-    /* HACK: Stage masks should technically not be 0 */
-    dependencies[0].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2_KHR;
-    dependencies[0].pNext = NULL;
-    dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
-    dependencies[0].dstSubpass = 0;
-    dependencies[0].srcStageMask = stages;
-    dependencies[0].dstStageMask = stages;
-    dependencies[0].srcAccessMask = 0;
-    dependencies[0].dstAccessMask = 0;
-    dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-    dependencies[0].viewOffset = 0;
-
-    dependencies[1].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2_KHR;
-    dependencies[1].pNext = NULL;
-    dependencies[1].srcSubpass = 0;
-    dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
-    dependencies[1].srcStageMask = stages;
-    dependencies[1].dstStageMask = stages;
-    dependencies[1].srcAccessMask = 0;
-    dependencies[1].dstAccessMask = 0;
-    dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-    dependencies[1].viewOffset = 0;
-
-    sub_pass_desc.sType = VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2_KHR;
-    sub_pass_desc.pNext = NULL;
-    sub_pass_desc.flags = 0;
-    sub_pass_desc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    sub_pass_desc.viewMask = 0;
-    sub_pass_desc.inputAttachmentCount = 0;
-    sub_pass_desc.pInputAttachments = NULL;
-    sub_pass_desc.colorAttachmentCount = rt_count;
-    sub_pass_desc.pColorAttachments = attachment_references;
-    sub_pass_desc.pResolveAttachments = NULL;
-    sub_pass_desc.pDepthStencilAttachment = have_depth_stencil
-            ? &attachment_references[rt_count]
-            : NULL;
-    sub_pass_desc.preserveAttachmentCount = 0;
-    sub_pass_desc.pPreserveAttachments = NULL;
-
-    pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2_KHR;
-    pass_info.pNext = NULL;
-    pass_info.flags = 0;
-    pass_info.attachmentCount = attachment_index;
-    pass_info.pAttachments = attachments;
-    pass_info.subpassCount = 1;
-    pass_info.pSubpasses = &sub_pass_desc;
-    if (stages)
-    {
-        pass_info.dependencyCount = ARRAY_SIZE(dependencies);
-        pass_info.pDependencies = dependencies;
-    }
-    else
-    {
-        pass_info.dependencyCount = 0;
-        pass_info.pDependencies = NULL;
-    }
-    pass_info.correlatedViewMaskCount = 0;
-    pass_info.pCorrelatedViewMasks = NULL;
-
-    if ((vr = VK_CALL(vkCreateRenderPass2KHR(device->vk_device, &pass_info, NULL, vk_render_pass))) >= 0)
-    {
-        entry->vk_render_pass = *vk_render_pass;
-        ++cache->render_pass_count;
-    }
-    else
-    {
-        WARN("Failed to create Vulkan render pass, vr %d.\n", vr);
-        *vk_render_pass = VK_NULL_HANDLE;
-    }
-
-    return hresult_from_vk_result(vr);
-}
-
-HRESULT vkd3d_render_pass_cache_find(struct vkd3d_render_pass_cache *cache,
-        struct d3d12_device *device, const struct vkd3d_render_pass_key *key, VkRenderPass *vk_render_pass)
-{
-    size_t searched_count;
-    bool found = false;
-    HRESULT hr = S_OK;
-    size_t i;
-
-    rw_spinlock_acquire_read(&cache->lock);
-    for (i = 0; i < cache->render_pass_count; ++i)
-    {
-        struct vkd3d_render_pass_entry *current = &cache->render_passes[i];
-
-        if (!memcmp(&current->key, key, sizeof(*key)))
-        {
-            *vk_render_pass = current->vk_render_pass;
-            found = true;
-            break;
-        }
-    }
-    searched_count = cache->render_pass_count;
-    rw_spinlock_release_read(&cache->lock);
-
-    if (!found)
-    {
-        rw_spinlock_acquire_write(&cache->lock);
-        /* If another thread came in and wrote the render pass we want in between the read unlock and write lock,
-         * find it now. */
-        for (i = searched_count; i < cache->render_pass_count; ++i)
-        {
-            struct vkd3d_render_pass_entry *current = &cache->render_passes[i];
-
-            if (!memcmp(&current->key, key, sizeof(*key)))
-            {
-                *vk_render_pass = current->vk_render_pass;
-                rw_spinlock_release_write(&cache->lock);
-                return S_OK;
-            }
-        }
-        hr = vkd3d_render_pass_cache_create_pass_locked(cache, device, key, vk_render_pass);
-        rw_spinlock_release_write(&cache->lock);
-    }
-
-    return hr;
-}
-
-void vkd3d_render_pass_cache_init(struct vkd3d_render_pass_cache *cache)
-{
-    cache->render_passes = NULL;
-    cache->render_pass_count = 0;
-    cache->render_passes_size = 0;
-    cache->lock = 0;
-}
-
-void vkd3d_render_pass_cache_cleanup(struct vkd3d_render_pass_cache *cache,
-        struct d3d12_device *device)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    unsigned int i;
-
-    for (i = 0; i < cache->render_pass_count; ++i)
-    {
-        struct vkd3d_render_pass_entry *current = &cache->render_passes[i];
-        VK_CALL(vkDestroyRenderPass(device->vk_device, current->vk_render_pass, NULL));
-    }
-
-    vkd3d_free(cache->render_passes);
-    cache->render_passes = NULL;
-}
-
 static void d3d12_promote_depth_stencil_desc(D3D12_DEPTH_STENCIL_DESC1 *out, const D3D12_DEPTH_STENCIL_DESC *in)
 {
     out->DepthEnable = in->DepthEnable;
@@ -1976,7 +1714,6 @@ struct vkd3d_compiled_pipeline
     struct list entry;
     struct vkd3d_pipeline_key key;
     VkPipeline vk_pipeline;
-    struct vkd3d_render_pass_compatibility render_pass_compat;
     uint32_t dynamic_state_flags;
 };
 
@@ -2970,22 +2707,12 @@ static unsigned int vkd3d_get_rt_format_swizzle(const struct vkd3d_format *forma
 
 STATIC_ASSERT(sizeof(struct vkd3d_shader_transform_feedback_element) == sizeof(D3D12_SO_DECLARATION_ENTRY));
 
-static HRESULT d3d12_graphics_pipeline_state_create_render_pass_for_plane_mask(
-        struct d3d12_graphics_pipeline_state *graphics, struct d3d12_device *device,
-        uint32_t rtv_active_mask, const struct vkd3d_format *dynamic_dsv_format,
-        uint32_t plane_optimal_mask,
-        VkRenderPass *vk_render_pass,
-        uint32_t *out_plane_optimal_mask)
+static uint32_t d3d12_graphics_pipeline_state_get_plane_optimal_mask(
+        struct d3d12_graphics_pipeline_state *graphics, const struct vkd3d_format *dynamic_dsv_format)
 {
     VkFormat dsv_format = VK_FORMAT_UNDEFINED;
-    struct vkd3d_render_pass_key key;
+    uint32_t plane_optimal_mask = 0;
     VkImageAspectFlags aspects = 0;
-    unsigned int i;
-
-    memcpy(key.vk_formats, graphics->rtv_formats, sizeof(graphics->rtv_formats));
-    key.attachment_count = graphics->rt_count;
-    key.rtv_active_mask = rtv_active_mask;
-    key.flags = 0;
 
     if (dynamic_dsv_format)
     {
@@ -3005,103 +2732,25 @@ static HRESULT d3d12_graphics_pipeline_state_create_render_pass_for_plane_mask(
     {
         assert(graphics->ds_desc.front.writeMask == graphics->ds_desc.back.writeMask);
 
-        if (aspects & VK_IMAGE_ASPECT_DEPTH_BIT)
-        {
-            if (plane_optimal_mask & VKD3D_DEPTH_PLANE_OPTIMAL)
-            {
-                key.flags |= VKD3D_RENDER_PASS_KEY_DEPTH_ENABLE | VKD3D_RENDER_PASS_KEY_DEPTH_WRITE;
-            }
-            else if (graphics->ds_desc.depthTestEnable || graphics->ds_desc.depthBoundsTestEnable)
-            {
-                key.flags |= VKD3D_RENDER_PASS_KEY_DEPTH_ENABLE;
-                if (graphics->ds_desc.depthWriteEnable)
-                {
-                    key.flags |= VKD3D_RENDER_PASS_KEY_DEPTH_WRITE;
-                    plane_optimal_mask |= VKD3D_DEPTH_PLANE_OPTIMAL;
-                }
-            }
-        }
+        if ((aspects & VK_IMAGE_ASPECT_DEPTH_BIT) &&
+                ((graphics->ds_desc.depthTestEnable || graphics->ds_desc.depthBoundsTestEnable) && graphics->ds_desc.depthWriteEnable))
+            plane_optimal_mask |= VKD3D_DEPTH_PLANE_OPTIMAL;
 
-        if (aspects & VK_IMAGE_ASPECT_STENCIL_BIT)
-        {
-            if (plane_optimal_mask & VKD3D_STENCIL_PLANE_OPTIMAL)
-            {
-                key.flags |= VKD3D_RENDER_PASS_KEY_STENCIL_ENABLE | VKD3D_RENDER_PASS_KEY_STENCIL_WRITE;
-            }
-            else if (graphics->ds_desc.stencilTestEnable)
-            {
-                key.flags |= VKD3D_RENDER_PASS_KEY_STENCIL_ENABLE;
-                if (graphics->ds_desc.front.writeMask != 0)
-                {
-                    key.flags |= VKD3D_RENDER_PASS_KEY_STENCIL_WRITE;
-                    plane_optimal_mask |= VKD3D_STENCIL_PLANE_OPTIMAL;
-                }
-            }
-        }
+        if ((aspects & VK_IMAGE_ASPECT_STENCIL_BIT) &&
+                (graphics->ds_desc.stencilTestEnable && graphics->ds_desc.front.writeMask))
+            plane_optimal_mask |= VKD3D_STENCIL_PLANE_OPTIMAL;
 
         /* If our format does not have both aspects, use same state across the aspects so that we are more likely
          * to match one of our common formats, DS_READ_ONLY or DS_OPTIMAL.
          * Otherwise, we are very likely to hit the DS write / stencil read layout. */
         if (!(aspects & VK_IMAGE_ASPECT_DEPTH_BIT))
-        {
-            key.flags |= (key.flags & VKD3D_RENDER_PASS_KEY_STENCIL_ENABLE) ?
-                    VKD3D_RENDER_PASS_KEY_DEPTH_ENABLE : 0;
-            key.flags |= (key.flags & VKD3D_RENDER_PASS_KEY_STENCIL_WRITE) ?
-                    VKD3D_RENDER_PASS_KEY_DEPTH_WRITE : 0;
             plane_optimal_mask |= (plane_optimal_mask & VKD3D_STENCIL_PLANE_OPTIMAL) ? VKD3D_DEPTH_PLANE_OPTIMAL : 0;
-        }
 
         if (!(aspects & VK_IMAGE_ASPECT_STENCIL_BIT))
-        {
-            key.flags |= (key.flags & VKD3D_RENDER_PASS_KEY_DEPTH_ENABLE) ?
-                    VKD3D_RENDER_PASS_KEY_STENCIL_ENABLE : 0;
-            key.flags |= (key.flags & VKD3D_RENDER_PASS_KEY_DEPTH_WRITE) ?
-                    VKD3D_RENDER_PASS_KEY_STENCIL_WRITE : 0;
             plane_optimal_mask |= (plane_optimal_mask & VKD3D_DEPTH_PLANE_OPTIMAL) ? VKD3D_STENCIL_PLANE_OPTIMAL : 0;
-        }
-
-        key.vk_formats[key.attachment_count++] = dsv_format;
     }
 
-    if (key.attachment_count != ARRAY_SIZE(key.vk_formats))
-        key.vk_formats[ARRAY_SIZE(key.vk_formats) - 1] = VK_FORMAT_UNDEFINED;
-    for (i = key.attachment_count; i < ARRAY_SIZE(key.vk_formats); ++i)
-        assert(key.vk_formats[i] == VK_FORMAT_UNDEFINED);
-
-    key.sample_count = graphics->ms_desc.rasterizationSamples;
-
-    if (out_plane_optimal_mask)
-    {
-        /* Represents the aspects which the PSO will write to, i.e. DEPTH_WRITE state is required to
-         * draw using this PSO. */
-        *out_plane_optimal_mask = plane_optimal_mask;
-    }
-
-    return vkd3d_render_pass_cache_find(&device->render_pass_cache, device, &key, vk_render_pass);
-}
-
-static HRESULT d3d12_graphics_pipeline_state_create_render_pass(
-        struct d3d12_graphics_pipeline_state *graphics, struct d3d12_device *device,
-        uint32_t rtv_active_mask, const struct vkd3d_format *dynamic_dsv_format,
-        struct vkd3d_render_pass_compatibility *render_pass_compat,
-        uint32_t *out_plane_optimal_mask)
-{
-    uint32_t plane_optimal_mask;
-    HRESULT hr;
-
-    for (plane_optimal_mask = 0; plane_optimal_mask < ARRAY_SIZE(render_pass_compat->dsv_layouts);
-         plane_optimal_mask++)
-    {
-        if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass_for_plane_mask(
-                graphics, device, rtv_active_mask, dynamic_dsv_format,
-                plane_optimal_mask, &render_pass_compat->dsv_layouts[plane_optimal_mask],
-                plane_optimal_mask == 0 ? out_plane_optimal_mask : NULL)))
-        {
-            return hr;
-        }
-    }
-
-    return S_OK;
+    return plane_optimal_mask;
 }
 
 static bool vk_blend_factor_needs_blend_constants(VkBlendFactor blend_factor)
@@ -3833,16 +3482,12 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         }
 
         if (!(graphics->pipeline = d3d12_pipeline_state_create_pipeline_variant(state, NULL, graphics->dsv_format,
-                state->vk_pso_cache ? state->vk_pso_cache : device->global_pipeline_cache,
-                &graphics->render_pass, &graphics->dynamic_state_flags)))
+                state->vk_pso_cache ? state->vk_pso_cache : device->global_pipeline_cache, &graphics->dynamic_state_flags)))
             goto fail;
     }
     else
     {
-        if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics,
-                device, graphics->rtv_active_mask, NULL,
-                &graphics->render_pass, &graphics->dsv_plane_optimal_mask)))
-            goto fail;
+        graphics->dsv_plane_optimal_mask = d3d12_graphics_pipeline_state_get_plane_optimal_mask(graphics, NULL);
     }
 
     list_init(&graphics->compiled_fallback_pipelines);
@@ -4086,15 +3731,11 @@ enum VkPrimitiveTopology vk_topology_from_d3d12_topology(D3D12_PRIMITIVE_TOPOLOG
 }
 
 static VkPipeline d3d12_pipeline_state_find_compiled_pipeline(struct d3d12_pipeline_state *state,
-        const struct vkd3d_pipeline_key *key,
-        const struct vkd3d_render_pass_compatibility **render_pass_compat,
-        uint32_t *dynamic_state_flags)
+        const struct vkd3d_pipeline_key *key, uint32_t *dynamic_state_flags)
 {
     const struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
-    VkPipeline vk_pipeline = VK_NULL_HANDLE;
     struct vkd3d_compiled_pipeline *current;
-
-    *render_pass_compat = NULL;
+    VkPipeline vk_pipeline = VK_NULL_HANDLE;
 
     rw_spinlock_acquire_read(&state->lock);
     LIST_FOR_EACH_ENTRY(current, &graphics->compiled_fallback_pipelines, struct vkd3d_compiled_pipeline, entry)
@@ -4102,7 +3743,6 @@ static VkPipeline d3d12_pipeline_state_find_compiled_pipeline(struct d3d12_pipel
         if (!memcmp(&current->key, key, sizeof(*key)))
         {
             vk_pipeline = current->vk_pipeline;
-            *render_pass_compat = &current->render_pass_compat;
             *dynamic_state_flags = current->dynamic_state_flags;
             break;
         }
@@ -4113,10 +3753,7 @@ static VkPipeline d3d12_pipeline_state_find_compiled_pipeline(struct d3d12_pipel
 }
 
 static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_state *state,
-        const struct vkd3d_pipeline_key *key, VkPipeline vk_pipeline,
-        const struct vkd3d_render_pass_compatibility *render_pass_compat,
-        const struct vkd3d_render_pass_compatibility **out_render_pass_compat,
-        uint32_t dynamic_state_flags)
+        const struct vkd3d_pipeline_key *key, VkPipeline vk_pipeline, uint32_t dynamic_state_flags)
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     struct vkd3d_compiled_pipeline *compiled_pipeline, *current;
@@ -4126,9 +3763,7 @@ static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_sta
 
     compiled_pipeline->key = *key;
     compiled_pipeline->vk_pipeline = vk_pipeline;
-    compiled_pipeline->render_pass_compat = *render_pass_compat;
     compiled_pipeline->dynamic_state_flags = dynamic_state_flags;
-    *out_render_pass_compat = &compiled_pipeline->render_pass_compat;
 
     rw_spinlock_acquire_write(&state->lock);
 
@@ -4151,7 +3786,6 @@ static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_sta
 
 VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_state *state,
         const struct vkd3d_pipeline_key *key, const struct vkd3d_format *dsv_format, VkPipelineCache vk_cache,
-        struct vkd3d_render_pass_compatibility *render_pass_compat,
         uint32_t *dynamic_state_flags)
 {
     VkVertexInputBindingDescription bindings[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
@@ -4297,10 +3931,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
                 state->graphics.rtv_active_mask, key->rtv_active_mask);
     }
 
-    if (FAILED(hr = d3d12_graphics_pipeline_state_create_render_pass(graphics, device,
-            rtv_active_mask, dsv_format,
-            render_pass_compat, &graphics->dsv_plane_optimal_mask)))
-        return VK_NULL_HANDLE;
+    graphics->dsv_plane_optimal_mask = d3d12_graphics_pipeline_state_get_plane_optimal_mask(graphics, dsv_format);
 
     if (key)
     {
@@ -4395,10 +4026,8 @@ static bool d3d12_pipeline_state_can_use_dynamic_stride(struct d3d12_pipeline_st
 }
 
 VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
-        const struct vkd3d_dynamic_state *dyn_state,
-        uint32_t rtv_nonnull_mask, const struct vkd3d_format *dsv_format,
-        const struct vkd3d_render_pass_compatibility **render_pass_compat,
-        uint32_t *dynamic_state_flags)
+        const struct vkd3d_dynamic_state *dyn_state, uint32_t rtv_nonnull_mask,
+        const struct vkd3d_format *dsv_format, uint32_t *dynamic_state_flags)
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
 
@@ -4445,20 +4074,16 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
         return VK_NULL_HANDLE;
     }
 
-    *render_pass_compat = &state->graphics.render_pass;
     *dynamic_state_flags = state->graphics.dynamic_state_flags;
     return state->graphics.pipeline;
 }
 
 VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
-        const struct vkd3d_dynamic_state *dyn_state,
-        uint32_t rtv_nonnull_mask, const struct vkd3d_format *dsv_format,
-        const struct vkd3d_render_pass_compatibility **render_pass_compat,
-        uint32_t *dynamic_state_flags)
+        const struct vkd3d_dynamic_state *dyn_state, uint32_t rtv_nonnull_mask,
+        const struct vkd3d_format *dsv_format, uint32_t *dynamic_state_flags)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &state->device->vk_procs;
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
-    struct vkd3d_render_pass_compatibility new_render_pass_compat;
     struct d3d12_device *device = state->device;
     struct vkd3d_pipeline_key pipeline_key;
     uint32_t stride, stride_align_mask;
@@ -4508,8 +4133,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     pipeline_key.dsv_format = dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
     pipeline_key.rtv_active_mask = state->graphics.rtv_active_mask & rtv_nonnull_mask;
 
-    if ((vk_pipeline = d3d12_pipeline_state_find_compiled_pipeline(state, &pipeline_key, render_pass_compat,
-            dynamic_state_flags)))
+    if ((vk_pipeline = d3d12_pipeline_state_find_compiled_pipeline(state, &pipeline_key, dynamic_state_flags)))
     {
         return vk_pipeline;
     }
@@ -4518,7 +4142,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
         FIXME("Extended dynamic state is supported, but compiling a fallback pipeline late!\n");
 
     vk_pipeline = d3d12_pipeline_state_create_pipeline_variant(state,
-            &pipeline_key, dsv_format, VK_NULL_HANDLE, &new_render_pass_compat, dynamic_state_flags);
+            &pipeline_key, dsv_format, VK_NULL_HANDLE, dynamic_state_flags);
 
     if (!vk_pipeline)
     {
@@ -4526,15 +4150,12 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
         return VK_NULL_HANDLE;
     }
 
-    if (d3d12_pipeline_state_put_pipeline_to_cache(state, &pipeline_key, vk_pipeline, &new_render_pass_compat,
-            render_pass_compat, *dynamic_state_flags))
-    {
+    if (d3d12_pipeline_state_put_pipeline_to_cache(state, &pipeline_key, vk_pipeline, *dynamic_state_flags))
         return vk_pipeline;
-    }
 
     /* Other thread compiled the pipeline before us. */
     VK_CALL(vkDestroyPipeline(device->vk_device, vk_pipeline, NULL));
-    vk_pipeline = d3d12_pipeline_state_find_compiled_pipeline(state, &pipeline_key, render_pass_compat, dynamic_state_flags);
+    vk_pipeline = d3d12_pipeline_state_find_compiled_pipeline(state, &pipeline_key, dynamic_state_flags);
     if (!vk_pipeline)
         ERR("Could not get the pipeline compiled by other thread from the cache.\n");
     return vk_pipeline;

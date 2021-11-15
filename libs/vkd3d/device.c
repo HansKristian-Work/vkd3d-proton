@@ -2762,7 +2762,6 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     vkd3d_view_map_destroy(&device->sampler_map, device);
     vkd3d_meta_ops_cleanup(&device->meta_ops, device);
     vkd3d_bindless_state_cleanup(&device->bindless_state, device);
-    vkd3d_render_pass_cache_cleanup(&device->render_pass_cache, device);
     d3d12_device_destroy_vkd3d_queues(device);
     vkd3d_memory_allocator_cleanup(&device->memory_allocator, device);
     /* Tear down descriptor global info late, so we catch last minute faults after we drain the queues. */
@@ -6059,8 +6058,6 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
                 VKD3D_DESCRIPTOR_DEBUG_DEFAULT_NUM_COOKIES, device)))
             goto out_cleanup_global_pipeline_cache;
     }
-
-    vkd3d_render_pass_cache_init(&device->render_pass_cache);
 
     if ((device->parent = create_info->parent))
         IUnknown_AddRef(device->parent);
