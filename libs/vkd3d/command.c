@@ -4564,7 +4564,6 @@ static void d3d12_command_list_check_vbo_alignment(struct d3d12_command_list *li
 static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    const struct vkd3d_render_pass_compatibility *render_pass_compat;
     uint32_t dsv_plane_optimal_mask;
     uint32_t new_active_flags;
     VkImageLayout dsv_layout;
@@ -4580,13 +4579,11 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
     }
 
     /* Try to grab the pipeline we compiled ahead of time. If we cannot do so, fall back. */
-    if (!(vk_pipeline = d3d12_pipeline_state_get_pipeline(list->state,
-            &list->dynamic_state, list->rtv_nonnull_mask, list->dsv.format,
-            &render_pass_compat, &new_active_flags)))
+    if (!(vk_pipeline = d3d12_pipeline_state_get_pipeline(list->state, &list->dynamic_state,
+            list->rtv_nonnull_mask, list->dsv.format, &new_active_flags)))
     {
-        if (!(vk_pipeline = d3d12_pipeline_state_get_or_create_pipeline(list->state,
-                &list->dynamic_state, list->rtv_nonnull_mask, list->dsv.format,
-                &render_pass_compat, &new_active_flags)))
+        if (!(vk_pipeline = d3d12_pipeline_state_get_or_create_pipeline(list->state, &list->dynamic_state,
+                list->rtv_nonnull_mask, list->dsv.format, &new_active_flags)))
             return false;
     }
 
