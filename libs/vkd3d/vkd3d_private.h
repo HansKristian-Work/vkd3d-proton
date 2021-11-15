@@ -1958,6 +1958,7 @@ struct vkd3d_rendering_info
     VkRenderingAttachmentInfoKHR dsv;
     VkRenderingFragmentShadingRateAttachmentInfoKHR vrs;
     uint32_t state_flags;
+    uint32_t rtv_mask;
 };
 
 /* ID3D12CommandListExt */
@@ -2021,7 +2022,6 @@ struct d3d12_command_list
      * possible calls to vkCmdBindPipeline and avoids invalidating dynamic state. */
     VkPipeline command_buffer_pipeline;
 
-    VkRenderPass pso_render_pass;
     struct vkd3d_rendering_info rendering_info;
     struct vkd3d_dynamic_state dynamic_state;
     struct vkd3d_pipeline_bindings pipeline_bindings[VKD3D_PIPELINE_BIND_POINT_COUNT];

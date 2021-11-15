@@ -4270,7 +4270,6 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
 
     list->current_pipeline = VK_NULL_HANDLE;
     list->command_buffer_pipeline = VK_NULL_HANDLE;
-    list->pso_render_pass = VK_NULL_HANDLE;
 
     memset(&list->dynamic_state, 0, sizeof(list->dynamic_state));
     list->dynamic_state.blend_constants[0] = D3D12_DEFAULT_BLEND_FACTOR_RED;
@@ -4422,6 +4421,7 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
 
     graphics = &list->state->graphics;
     rtv_mask = graphics->rtv_active_mask & list->rtv_nonnull_mask;
+    rendering_info->rtv_mask = rtv_mask;
 
     rendering_info->info.colorAttachmentCount = vkd3d_get_color_attachment_count(graphics->rtv_active_mask);
     rendering_info->rtv_mask = rtv_mask;
@@ -4565,10 +4565,10 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct vkd3d_render_pass_compatibility *render_pass_compat;
-    VkRenderPass vk_render_pass;
+    uint32_t dsv_plane_optimal_mask;
     uint32_t new_active_flags;
+    VkImageLayout dsv_layout;
     VkPipeline vk_pipeline;
-    uint32_t i;
 
     if (list->current_pipeline != VK_NULL_HANDLE)
         return true;
@@ -4590,42 +4590,28 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
             return false;
     }
 
-    /* Try to match render passes so we can stay compatible. */
-    for (i = 1, vk_render_pass = render_pass_compat->dsv_layouts[0];
-         vk_render_pass != list->pso_render_pass && i < ARRAY_SIZE(render_pass_compat->dsv_layouts);
-         i++)
+    if (d3d12_command_list_has_depth_stencil_view(list))
     {
-        vk_render_pass = render_pass_compat->dsv_layouts[i];
+        /* Select new dsv_layout. Any new PSO write we didn't observe yet must be updated here. */
+        dsv_plane_optimal_mask = list->dsv_plane_optimal_mask | list->state->graphics.dsv_plane_optimal_mask;
+        dsv_layout = dsv_plane_optimal_mask_to_layout(dsv_plane_optimal_mask, list->dsv.format->vk_aspect_mask);
+    }
+    else
+    {
+        dsv_plane_optimal_mask = 0;
+        dsv_layout = VK_IMAGE_LAYOUT_UNDEFINED;
     }
 
-    /* The render pass cache ensures that we use the same Vulkan render pass
-     * object for compatible render passes.
-     * If vk_render_pass == list->pso_render_pass, we know for certain
-     * that the PSO does not add any write masks we didn't already account for. */
-    if (list->pso_render_pass != vk_render_pass)
+    /* If we need to bind or unbind certain render targets or if the DSV layout changed, interrupt rendering */
+    if (((list->state->graphics.rtv_active_mask & list->rtv_nonnull_mask) != list->rendering_info.rtv_mask) ||
+            (dsv_layout != list->rendering_info.dsv.imageLayout))
     {
         d3d12_command_list_invalidate_rendering_info(list);
-        /* Don't end render pass if none is active, or otherwise
-         * deferred clears are not going to work as intended. */
-        if (list->rendering_info.state_flags & (VKD3D_RENDERING_ACTIVE | VKD3D_RENDERING_SUSPENDED))
-            d3d12_command_list_end_current_render_pass(list, false);
-
-        if (d3d12_command_list_has_depth_stencil_view(list))
-        {
-            /* Select new dsv_layout. Any new PSO write we didn't observe yet must be updated here. */
-            list->dsv_plane_optimal_mask |= list->state->graphics.dsv_plane_optimal_mask;
-            list->dsv_layout = dsv_plane_optimal_mask_to_layout(list->dsv_plane_optimal_mask,
-                    list->dsv.format->vk_aspect_mask);
-            /* Pick render pass based on new plane optimal mask. */
-            list->pso_render_pass = render_pass_compat->dsv_layouts[list->dsv_plane_optimal_mask];
-        }
-        else
-        {
-            list->pso_render_pass = render_pass_compat->dsv_layouts[0];
-            list->dsv_plane_optimal_mask = 0;
-            list->dsv_layout = VK_IMAGE_LAYOUT_UNDEFINED;
-        }
+        d3d12_command_list_end_current_render_pass(list, false);
     }
+
+    list->dsv_plane_optimal_mask = dsv_plane_optimal_mask;
+    list->dsv_layout = dsv_layout;
 
     if (list->command_buffer_pipeline != vk_pipeline)
     {
@@ -5300,7 +5286,6 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct d3d12_graphics_pipeline_state *graphics;
-    VkRenderPass vk_render_pass;
 
     d3d12_command_list_promote_dsv_layout(list);
     if (!d3d12_command_list_update_graphics_pipeline(list))
@@ -5318,9 +5303,6 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
         d3d12_command_list_handle_active_queries(list, false);
         return true;
     }
-
-    vk_render_pass = list->pso_render_pass;
-    assert(vk_render_pass);
 
     if (!(list->rendering_info.state_flags & VKD3D_RENDERING_SUSPENDED))
         d3d12_command_list_emit_render_pass_transition(list, VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN);
