@@ -4561,16 +4561,6 @@ static void d3d12_command_list_check_vbo_alignment(struct d3d12_command_list *li
     }
 }
 
-static uint32_t d3d12_command_list_variant_flags(struct d3d12_command_list *list)
-{
-    uint32_t flags = 0;
-
-    if (list->vrs_image)
-        flags |= VKD3D_GRAPHICS_PIPELINE_STATIC_VARIANT_VRS_ATTACHMENT;
-
-    return flags;
-}
-
 static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -4578,7 +4568,6 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
     VkRenderPass vk_render_pass;
     uint32_t new_active_flags;
     VkPipeline vk_pipeline;
-    uint32_t variant_flags;
     uint32_t i;
 
     if (list->current_pipeline != VK_NULL_HANDLE)
@@ -4590,17 +4579,14 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
         return false;
     }
 
-    variant_flags = d3d12_command_list_variant_flags(list);
-
     /* Try to grab the pipeline we compiled ahead of time. If we cannot do so, fall back. */
     if (!(vk_pipeline = d3d12_pipeline_state_get_pipeline(list->state,
             &list->dynamic_state, list->rtv_nonnull_mask, list->dsv.format,
-            &render_pass_compat, &new_active_flags,
-            variant_flags)))
+            &render_pass_compat, &new_active_flags)))
     {
         if (!(vk_pipeline = d3d12_pipeline_state_get_or_create_pipeline(list->state,
                 &list->dynamic_state, list->rtv_nonnull_mask, list->dsv.format,
-                &render_pass_compat, &new_active_flags, variant_flags)))
+                &render_pass_compat, &new_active_flags)))
             return false;
     }
 
