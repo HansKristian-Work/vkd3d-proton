@@ -32,6 +32,7 @@ These extensions will likely become mandatory later.
 
 - `VK_KHR_buffer_device_address`
 - `VK_EXT_extended_dynamic_state`
+- `VK_EXT_image_view_min_lod`
 
 `VK_VALVE_mutable_descriptor_type` is also highly recommended, but not mandatory.
 
