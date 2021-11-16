@@ -77,7 +77,7 @@ void test_create_query_heap(void)
 
 void test_query_timestamp(void)
 {
-    uint64_t timestamps[4], timestamp_frequency, timestamp_diff, time_diff;
+    UINT64 timestamps[4], timestamp_frequency, timestamp_diff, time_diff;
     ID3D12GraphicsCommandList *command_list;
     D3D12_QUERY_HEAP_DESC heap_desc;
     struct test_context_desc desc;

@@ -209,8 +209,8 @@ void upload_texture_data_(unsigned int line, ID3D12Resource *texture,
 {
     D3D12_TEXTURE_COPY_LOCATION dst_location, src_location;
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT *layouts;
-    uint64_t *row_sizes, required_size;
     D3D12_RESOURCE_DESC resource_desc;
+    UINT64 *row_sizes, required_size;
     ID3D12Resource *upload_buffer;
     D3D12_MEMCPY_DEST dst_data;
     ID3D12Device *device;
