@@ -1356,8 +1356,8 @@ void test_get_copyable_footprints_planar(void)
 void test_get_copyable_footprints(void)
 {
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT layouts[10];
-    uint64_t row_sizes[10], total_size;
     D3D12_RESOURCE_DESC resource_desc;
+    UINT64 row_sizes[10], total_size;
     unsigned int sub_resource_count;
     unsigned int i, j, k, l;
     ID3D12Device *device;
