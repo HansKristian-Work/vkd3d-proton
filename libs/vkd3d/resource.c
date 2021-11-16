@@ -3461,9 +3461,10 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_t
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     const struct vkd3d_format *format = desc->format;
-    struct VkImageViewCreateInfo view_desc;
+    VkImageViewMinLodCreateInfoEXT min_lod_desc;
+    VkImageView vk_view = VK_NULL_HANDLE;
+    VkImageViewCreateInfo view_desc;
     struct vkd3d_view *object;
-    VkImageView vk_view;
     VkResult vr;
 
     view_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -3481,35 +3482,39 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_t
     view_desc.subresourceRange.baseArrayLayer = desc->layer_idx;
     view_desc.subresourceRange.layerCount = desc->layer_count;
 
-    if (desc->miplevel_clamp != 0.0f)
-        FIXME_ONCE("Cannot handle MinResourceLOD clamp of %f correctly.\n", desc->miplevel_clamp);
-
-    /* This is not correct, but it's the best we can do with existing API.
-     * It should at least avoid a scenario where implicit LOD fetches from invalid levels.
-     * TODO: We will need an extension with vkCreateImageView pNext specifying minLODClamp.
-     * It will be trivial to add in RADV at least ... */
-    if (desc->miplevel_clamp >= 1.0f)
+    /* If we clamp out of bounds, then don't make a view
+     * and use a NULL descriptor to stay in-spec.
+     * The clamp is absolute, and not affected by the baseMipLevel. */
+    if (desc->miplevel_clamp <= (float)(desc->miplevel_idx + desc->miplevel_count - 1))
     {
-        uint32_t clamp_base_level;
-        uint32_t new_base_level;
-        uint32_t end_level;
-
-        clamp_base_level = max((uint32_t)desc->miplevel_clamp, view_desc.subresourceRange.baseMipLevel);
-        if (view_desc.subresourceRange.levelCount != VK_REMAINING_MIP_LEVELS)
+        if (device->device_info.image_view_min_lod_features.minLod)
         {
-            end_level = view_desc.subresourceRange.baseMipLevel + view_desc.subresourceRange.levelCount;
-            new_base_level = min(end_level - 1, clamp_base_level);
-            view_desc.subresourceRange.levelCount = end_level - new_base_level;
-            view_desc.subresourceRange.baseMipLevel = new_base_level;
+            min_lod_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_MIN_LOD_CREATE_INFO_EXT;
+            min_lod_desc.pNext = NULL;
+            min_lod_desc.minLod = desc->miplevel_clamp;
+            vk_prepend_struct(&view_desc, &min_lod_desc);
         }
         else
-            view_desc.subresourceRange.baseMipLevel = clamp_base_level;
-    }
+        {
+            if (desc->miplevel_clamp != 0.0f)
+                FIXME_ONCE("Cannot handle MinResourceLOD clamp of %f correctly.\n", desc->miplevel_clamp);
+            /* This is not correct, but it's the best we can do without VK_EXT_image_view_min_lod.
+            * It should at least avoid a scenario where implicit LOD fetches from invalid levels. */
+            if (desc->miplevel_clamp >= 1.0f)
+            {
+                uint32_t clamp_base_level = max((uint32_t)desc->miplevel_clamp, view_desc.subresourceRange.baseMipLevel);
+                uint32_t end_level = view_desc.subresourceRange.baseMipLevel + view_desc.subresourceRange.levelCount;
+                uint32_t new_base_level = min(end_level - 1, clamp_base_level);
+                view_desc.subresourceRange.levelCount = end_level - new_base_level;
+                view_desc.subresourceRange.baseMipLevel = new_base_level;
+            }
+        }
 
-    if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, &vk_view))) < 0)
-    {
-        WARN("Failed to create Vulkan image view, vr %d.\n", vr);
-        return false;
+        if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, &vk_view))) < 0)
+        {
+            WARN("Failed to create Vulkan image view, vr %d.\n", vr);
+            return false;
+        }
     }
 
     if (!(object = vkd3d_view_create(VKD3D_VIEW_TYPE_IMAGE)))
@@ -4035,8 +4040,8 @@ static void vkd3d_create_texture_srv(struct d3d12_desc *descriptor,
         }
     }
 
-    /* Only applicable to workaround path. */
-    key.u.texture.miplevel_clamp = min(key.u.texture.miplevel_clamp, (float)resource->desc.MipLevels - 1.0f);
+    if (key.u.texture.miplevel_count == VK_REMAINING_MIP_LEVELS)
+        key.u.texture.miplevel_count = resource->desc.MipLevels - key.u.texture.miplevel_idx;
 
     if (!(view = vkd3d_view_map_create_view(&resource->view_map, device, &key)))
         return;

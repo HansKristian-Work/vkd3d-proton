@@ -133,6 +133,7 @@ struct vkd3d_vulkan_info
     bool EXT_custom_border_color;
     bool EXT_depth_clip_enable;
     bool EXT_descriptor_indexing;
+    bool EXT_image_view_min_lod;
     bool EXT_inline_uniform_block;
     bool EXT_robustness2;
     bool EXT_sampler_filter_minmax;
@@ -2726,6 +2727,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceShaderAtomicInt64FeaturesKHR shader_atomic_int64_features;
     VkPhysicalDeviceShaderImageAtomicInt64FeaturesEXT shader_image_atomic_int64_features;
     VkPhysicalDeviceScalarBlockLayoutFeaturesEXT scalar_block_layout_features;
+    VkPhysicalDeviceImageViewMinLodFeaturesEXT image_view_min_lod_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
