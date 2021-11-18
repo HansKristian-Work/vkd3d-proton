@@ -2538,6 +2538,7 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
             || IsEqualGUID(riid, &IID_ID3D12Device4)
             || IsEqualGUID(riid, &IID_ID3D12Device5)
             || IsEqualGUID(riid, &IID_ID3D12Device6)
+            || IsEqualGUID(riid, &IID_ID3D12Device7)
             || IsEqualGUID(riid, &IID_ID3D12Object)
             || IsEqualGUID(riid, &IID_IUnknown))
     {
@@ -4830,7 +4831,25 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_SetBackgroundProcessingMode(d3d12_
     return E_NOTIMPL;
 }
 
-CONST_VTBL struct ID3D12Device6Vtbl d3d12_device_vtbl =
+static HRESULT STDMETHODCALLTYPE d3d12_device_AddToStateObject(d3d12_device_iface *iface, const D3D12_STATE_OBJECT_DESC *addition,
+        ID3D12StateObject *state_object, REFIID riid, void **new_state_object)
+{
+    FIXME("iface %p, addition %p, state_object %p, riid %s, new_state_object %p stub!\n",
+            iface, addition, state_object, debugstr_guid(riid), new_state_object);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateProtectedResourceSession1(d3d12_device_iface *iface,
+        const D3D12_PROTECTED_RESOURCE_SESSION_DESC1 *desc, REFIID riid, void **session)
+{
+    FIXME("iface %p, desc %p, riid %s, session %p stub!\n",
+            iface, desc, debugstr_guid(riid), session);
+
+    return E_NOTIMPL;
+}
+
+CONST_VTBL struct ID3D12Device7Vtbl d3d12_device_vtbl =
 {
     /* IUnknown methods */
     d3d12_device_QueryInterface,
@@ -4907,6 +4926,9 @@ CONST_VTBL struct ID3D12Device6Vtbl d3d12_device_vtbl =
     d3d12_device_CheckDriverMatchingIdentifier,
     /* ID3D12Device6 methods */
     d3d12_device_SetBackgroundProcessingMode,
+    /* ID3D12Device7 methods */
+    d3d12_device_AddToStateObject,
+    d3d12_device_CreateProtectedResourceSession1,
 };
 
 #ifdef VKD3D_ENABLE_PROFILING
