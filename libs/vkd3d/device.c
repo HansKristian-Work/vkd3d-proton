@@ -2539,6 +2539,7 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
             || IsEqualGUID(riid, &IID_ID3D12Device5)
             || IsEqualGUID(riid, &IID_ID3D12Device6)
             || IsEqualGUID(riid, &IID_ID3D12Device7)
+            || IsEqualGUID(riid, &IID_ID3D12Device8)
             || IsEqualGUID(riid, &IID_ID3D12Object)
             || IsEqualGUID(riid, &IID_IUnknown))
     {
@@ -4062,26 +4063,27 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateHeap(d3d12_device_iface *ifa
     return d3d12_device_CreateHeap1(iface, desc, NULL, iid, heap);
 }
 
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource1(d3d12_device_iface *iface,
+        ID3D12Heap *heap, UINT64 heap_offset, const D3D12_RESOURCE_DESC1 *resource_desc,
+        D3D12_RESOURCE_STATES initial_state, const D3D12_CLEAR_VALUE *optimized_clear_value,
+        REFIID riid, void **resource);
+
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource(d3d12_device_iface *iface,
         ID3D12Heap *heap, UINT64 heap_offset,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, REFIID iid, void **resource)
 {
-    struct d3d12_heap *heap_object = impl_from_ID3D12Heap(heap);
-    struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    struct d3d12_resource *object;
-    HRESULT hr;
+    D3D12_RESOURCE_DESC1 desc1;
 
     TRACE("iface %p, heap %p, heap_offset %#"PRIx64", desc %p, initial_state %#x, "
-            "optimized_clear_value %p, iid %s, resource %p.\n",
+            "optimized_clear_value %p, riid %s, resource %p.\n",
             iface, heap, heap_offset, desc, initial_state,
             optimized_clear_value, debugstr_guid(iid), resource);
 
-    if (FAILED(hr = d3d12_resource_create_placed(device, desc, heap_object,
-            heap_offset, initial_state, optimized_clear_value, &object)))
-        return hr;
+    d3d12_resource_promote_desc(desc, &desc1);
 
-    return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);
+    return d3d12_device_CreatePlacedResource1(iface, heap, heap_offset, &desc1,
+            initial_state, optimized_clear_value, iid, resource);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource1(d3d12_device_iface *iface,
@@ -4170,108 +4172,27 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_GetDeviceRemovedReason(d3d12_devic
     return device->removed_reason;
 }
 
+static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints1(d3d12_device_iface *iface,
+        const D3D12_RESOURCE_DESC1 *desc, UINT first_sub_resource, UINT sub_resource_count,
+        UINT64 base_offset, D3D12_PLACED_SUBRESOURCE_FOOTPRINT *layouts, UINT *row_counts,
+        UINT64 *row_sizes, UINT64 *total_bytes);
+
 static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(d3d12_device_iface *iface,
         const D3D12_RESOURCE_DESC *desc, UINT first_sub_resource, UINT sub_resource_count,
         UINT64 base_offset, D3D12_PLACED_SUBRESOURCE_FOOTPRINT *layouts,
         UINT *row_counts, UINT64 *row_sizes, UINT64 *total_bytes)
 {
-    struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    static const struct vkd3d_format vkd3d_format_unknown
-            = {DXGI_FORMAT_UNKNOWN, VK_FORMAT_UNDEFINED, 1, 1, 1, 1, 0, 1};
-
-    unsigned int i, sub_resource_idx, miplevel_idx, row_count, row_size, row_pitch;
-    unsigned int width, height, depth, num_planes, num_subresources;
-    unsigned int num_subresources_per_plane, plane_idx;
-    struct vkd3d_format_footprint plane_footprint;
-    const struct vkd3d_format *format;
-    uint64_t offset, size, total;
+    D3D12_RESOURCE_DESC1 desc1;
 
     TRACE("iface %p, desc %p, first_sub_resource %u, sub_resource_count %u, base_offset %#"PRIx64", "
             "layouts %p, row_counts %p, row_sizes %p, total_bytes %p.\n",
             iface, desc, first_sub_resource, sub_resource_count, base_offset,
             layouts, row_counts, row_sizes, total_bytes);
 
-    if (layouts)
-        memset(layouts, 0xff, sizeof(*layouts) * sub_resource_count);
-    if (row_counts)
-        memset(row_counts, 0xff, sizeof(*row_counts) * sub_resource_count);
-    if (row_sizes)
-        memset(row_sizes, 0xff, sizeof(*row_sizes) * sub_resource_count);
+    d3d12_resource_promote_desc(desc, &desc1);
 
-    total = ~(uint64_t)0;
-
-    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
-    {
-        format = &vkd3d_format_unknown;
-    }
-    else if (!(format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0)))
-    {
-        WARN("Invalid format %#x.\n", desc->Format);
-        goto end;
-    }
-
-    if (FAILED(d3d12_resource_validate_desc(desc, device)))
-    {
-        WARN("Invalid resource desc.\n");
-        goto end;
-    }
-
-    num_planes = format->plane_count;
-    num_subresources_per_plane = d3d12_resource_desc_get_sub_resource_count_per_plane(desc);
-    num_subresources = d3d12_resource_desc_get_sub_resource_count(device, desc);
-
-    if (first_sub_resource >= num_subresources
-            || sub_resource_count > num_subresources - first_sub_resource)
-    {
-        WARN("Invalid sub-resource range %u-%u for resource.\n", first_sub_resource, sub_resource_count);
-        goto end;
-    }
-
-    offset = 0;
-    total = 0;
-    for (i = 0; i < sub_resource_count; ++i)
-    {
-        sub_resource_idx = first_sub_resource + i;
-        plane_idx = sub_resource_idx / num_subresources_per_plane;
-
-        plane_footprint = vkd3d_format_footprint_for_plane(format, plane_idx);
-
-        miplevel_idx = sub_resource_idx % desc->MipLevels;
-        width = align(d3d12_resource_desc_get_width(desc, miplevel_idx), plane_footprint.block_width);
-        height = align(d3d12_resource_desc_get_height(desc, miplevel_idx), plane_footprint.block_height);
-        depth = d3d12_resource_desc_get_depth(desc, miplevel_idx);
-        row_count = height / plane_footprint.block_height;
-        row_size = (width / plane_footprint.block_width) * plane_footprint.block_byte_count;
-
-        /* For whatever reason, we need to use 512 bytes of alignment for depth-stencil formats.
-         * This is not documented, but it is observed behavior on both NV and WARP drivers.
-         * See test_get_copyable_footprints_planar(). */
-        row_pitch = align(row_size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT * num_planes);
-
-        if (layouts)
-        {
-            layouts[i].Offset = base_offset + offset;
-            layouts[i].Footprint.Format = plane_footprint.dxgi_format;
-            layouts[i].Footprint.Width = width;
-            layouts[i].Footprint.Height = height;
-            layouts[i].Footprint.Depth = depth;
-            layouts[i].Footprint.RowPitch = row_pitch;
-        }
-        if (row_counts)
-            row_counts[i] = row_count;
-        if (row_sizes)
-            row_sizes[i] = row_size;
-
-        size = max(0, row_count - 1) * row_pitch + row_size;
-        size = max(0, depth - 1) * align(size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT * num_planes) + size;
-
-        total = offset + size;
-        offset = align(total, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
-    }
-
-end:
-    if (total_bytes)
-        *total_bytes = total;
+    return d3d12_device_GetCopyableFootprints1(iface, &desc1, first_sub_resource,
+            sub_resource_count, base_offset, layouts, row_counts, row_sizes, total_bytes);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateQueryHeap(d3d12_device_iface *iface,
@@ -4563,6 +4484,11 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateProtectedResourceSession(d3d
     return E_NOTIMPL;
 }
 
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource2(d3d12_device_iface *iface,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, const D3D12_RESOURCE_DESC1 *desc,
+        D3D12_RESOURCE_STATES initial_state, const D3D12_CLEAR_VALUE *optimized_clear_value,
+        ID3D12ProtectedResourceSession *protected_session, REFIID iid, void **resource);
+
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource1(d3d12_device_iface *iface,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
@@ -4570,26 +4496,17 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource1(d3d12_dev
         ID3D12ProtectedResourceSession *protected_session,
         REFIID iid, void **resource)
 {
-    struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    struct d3d12_resource *object;
-    HRESULT hr;
+    D3D12_RESOURCE_DESC1 desc1;
 
     TRACE("iface %p, heap_properties %p, heap_flags %#x,  desc %p, initial_state %#x, "
             "optimized_clear_value %p, protected_session %p, iid %s, resource %p.\n",
             iface, heap_properties, heap_flags, desc, initial_state,
             optimized_clear_value, protected_session, debugstr_guid(iid), resource);
 
-    if (protected_session)
-        FIXME("Ignoring protected session %p.\n", protected_session);
+    d3d12_resource_promote_desc(desc, &desc1);
 
-    if (FAILED(hr = d3d12_resource_create_committed(device, desc, heap_properties,
-            heap_flags, initial_state, optimized_clear_value, &object)))
-    {
-        *resource = NULL;
-        return hr;
-    }
-
-    return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);
+    return d3d12_device_CreateCommittedResource2(iface, heap_properties, heap_flags, &desc1,
+            initial_state, optimized_clear_value, protected_session, iid, resource);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateHeap1(d3d12_device_iface *iface,
@@ -4621,6 +4538,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource1(d3d12_devi
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
     struct d3d12_resource *object;
+    D3D12_RESOURCE_DESC1 desc1;
     HRESULT hr;
 
     TRACE("iface %p, desc %p, initial_state %#x, optimized_clear_value %p, protected_session %p, iid %s, resource %p.\n",
@@ -4629,84 +4547,47 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource1(d3d12_devi
     if (protected_session)
         FIXME("Ignoring protected session %p.\n", protected_session);
 
-    if (FAILED(hr = d3d12_resource_create_reserved(device, desc,
+    d3d12_resource_promote_desc(desc, &desc1);
+
+    if (FAILED(hr = d3d12_resource_create_reserved(device, &desc1,
             initial_state, optimized_clear_value, &object)))
         return hr;
 
     return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);
 }
 
+static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourceAllocationInfo2(d3d12_device_iface *iface,
+        D3D12_RESOURCE_ALLOCATION_INFO *info, UINT visible_mask, UINT count, const D3D12_RESOURCE_DESC1 *resource_descs,
+        D3D12_RESOURCE_ALLOCATION_INFO1 *resource_infos);
+
 static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourceAllocationInfo1(d3d12_device_iface *iface,
         D3D12_RESOURCE_ALLOCATION_INFO *info, UINT visible_mask, UINT count, const D3D12_RESOURCE_DESC *resource_descs,
         D3D12_RESOURCE_ALLOCATION_INFO1 *resource_infos)
 {
-    struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    uint64_t requested_alignment, resource_offset;
-    D3D12_RESOURCE_ALLOCATION_INFO resource_info;
-    bool hasMsaaResource = false;
+    D3D12_RESOURCE_DESC1 local_descs[16];
+    D3D12_RESOURCE_DESC1 *desc1;
     unsigned int i;
 
-    TRACE("iface %p, info %p, visible_mask 0x%08x, count %u, resource_descs %p.\n",
-            iface, info, visible_mask, count, resource_descs);
+    TRACE("iface %p, info %p, visible_mask 0x%08x, count %u, resource_descs %p, resource_infos %p.\n",
+            iface, info, visible_mask, count, resource_descs, resource_infos);
 
-    debug_ignored_node_mask(visible_mask);
-
-    info->SizeInBytes = 0;
-    info->Alignment = 0;
-
-    for (i = 0; i < count; i++)
+    if (count > ARRAY_SIZE(local_descs))
+        desc1 = vkd3d_malloc(sizeof(*desc1) * count);
+    else
     {
-        const D3D12_RESOURCE_DESC *desc = &resource_descs[i];
-        hasMsaaResource |= desc->SampleDesc.Count > 1;
-
-        if (FAILED(d3d12_resource_validate_desc(desc, device)))
-        {
-            WARN("Invalid resource desc.\n");
-            goto invalid;
-        }
-
-        if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
-        {
-            resource_info.SizeInBytes = desc->Width;
-            resource_info.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-        }
-        else
-        {
-            if (FAILED(vkd3d_get_image_allocation_info(device, desc, &resource_info)))
-            {
-                WARN("Failed to get allocation info for texture.\n");
-                goto invalid;
-            }
-
-            requested_alignment = desc->Alignment
-                    ? desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-            resource_info.Alignment = max(resource_info.Alignment, requested_alignment);
-        }
-
-        resource_info.SizeInBytes = align(resource_info.SizeInBytes, resource_info.Alignment);
-        resource_offset = align(info->SizeInBytes, resource_info.Alignment);
-
-        if (resource_infos)
-        {
-            resource_infos[i].Offset = resource_offset;
-            resource_infos[i].SizeInBytes = resource_info.SizeInBytes;
-            resource_infos[i].Alignment = resource_info.Alignment;
-        }
-
-        info->SizeInBytes = resource_offset + resource_info.SizeInBytes;
-        info->Alignment = max(info->Alignment, resource_info.Alignment);
+        /* Avoid a compiler warning */
+        memset(local_descs, 0, sizeof(local_descs));
+        desc1 = local_descs;
     }
 
-    return info;
 
-invalid:
-    info->SizeInBytes = ~(uint64_t)0;
+    for (i = 0; i < count; i++)
+        d3d12_resource_promote_desc(&resource_descs[i], &desc1[i]);
 
-    /* FIXME: Should we support D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT for small MSSA resources? */
-    if (hasMsaaResource)
-        info->Alignment = D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
-    else
-        info->Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    d3d12_device_GetResourceAllocationInfo2(iface, info, visible_mask, count, desc1, resource_infos);
+
+    if (desc1 != local_descs)
+        vkd3d_free(desc1);
 
     return info;
 }
@@ -4849,7 +4730,242 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateProtectedResourceSession1(d3
     return E_NOTIMPL;
 }
 
-CONST_VTBL struct ID3D12Device7Vtbl d3d12_device_vtbl =
+static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourceAllocationInfo2(d3d12_device_iface *iface,
+        D3D12_RESOURCE_ALLOCATION_INFO *info, UINT visible_mask, UINT count, const D3D12_RESOURCE_DESC1 *resource_descs,
+        D3D12_RESOURCE_ALLOCATION_INFO1 *resource_infos)
+{
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    uint64_t requested_alignment, resource_offset;
+    D3D12_RESOURCE_ALLOCATION_INFO resource_info;
+    bool hasMsaaResource = false;
+    unsigned int i;
+
+    TRACE("iface %p, info %p, visible_mask 0x%08x, count %u, resource_descs %p.\n",
+            iface, info, visible_mask, count, resource_descs);
+
+    debug_ignored_node_mask(visible_mask);
+
+    info->SizeInBytes = 0;
+    info->Alignment = 0;
+
+    for (i = 0; i < count; i++)
+    {
+        const D3D12_RESOURCE_DESC1 *desc = &resource_descs[i];
+        hasMsaaResource |= desc->SampleDesc.Count > 1;
+
+        if (FAILED(d3d12_resource_validate_desc(desc, device)))
+        {
+            WARN("Invalid resource desc.\n");
+            goto invalid;
+        }
+
+        if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+        {
+            resource_info.SizeInBytes = desc->Width;
+            resource_info.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+        }
+        else
+        {
+            if (FAILED(vkd3d_get_image_allocation_info(device, desc, &resource_info)))
+            {
+                WARN("Failed to get allocation info for texture.\n");
+                goto invalid;
+            }
+
+            requested_alignment = desc->Alignment
+                    ? desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+            resource_info.Alignment = max(resource_info.Alignment, requested_alignment);
+        }
+
+        resource_info.SizeInBytes = align(resource_info.SizeInBytes, resource_info.Alignment);
+        resource_offset = align(info->SizeInBytes, resource_info.Alignment);
+
+        if (resource_infos)
+        {
+            resource_infos[i].Offset = resource_offset;
+            resource_infos[i].SizeInBytes = resource_info.SizeInBytes;
+            resource_infos[i].Alignment = resource_info.Alignment;
+        }
+
+        info->SizeInBytes = resource_offset + resource_info.SizeInBytes;
+        info->Alignment = max(info->Alignment, resource_info.Alignment);
+    }
+
+    return info;
+
+invalid:
+    info->SizeInBytes = ~(uint64_t)0;
+
+    /* FIXME: Should we support D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT for small MSSA resources? */
+    if (hasMsaaResource)
+        info->Alignment = D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
+    else
+        info->Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+
+    return info;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource2(d3d12_device_iface *iface,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, const D3D12_RESOURCE_DESC1 *desc,
+        D3D12_RESOURCE_STATES initial_state, const D3D12_CLEAR_VALUE *optimized_clear_value,
+        ID3D12ProtectedResourceSession *protected_session, REFIID iid, void **resource)
+{
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_resource *object;
+    HRESULT hr;
+
+    TRACE("iface %p, heap_properties %p, heap_flags %#x,  desc %p, initial_state %#x, "
+            "optimized_clear_value %p, protected_session %p, iid %s, resource %p.\n",
+            iface, heap_properties, heap_flags, desc, initial_state,
+            optimized_clear_value, protected_session, debugstr_guid(iid), resource);
+
+    if (protected_session)
+        FIXME("Ignoring protected session %p.\n", protected_session);
+
+    if (FAILED(hr = d3d12_resource_create_committed(device, desc, heap_properties,
+            heap_flags, initial_state, optimized_clear_value, &object)))
+    {
+        *resource = NULL;
+        return hr;
+    }
+
+    return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource1(d3d12_device_iface *iface,
+        ID3D12Heap *heap, UINT64 heap_offset, const D3D12_RESOURCE_DESC1 *resource_desc,
+        D3D12_RESOURCE_STATES initial_state, const D3D12_CLEAR_VALUE *optimized_clear_value,
+        REFIID iid, void **resource)
+{
+    struct d3d12_heap *heap_object = impl_from_ID3D12Heap(heap);
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_resource *object;
+    HRESULT hr;
+
+    TRACE("iface %p, heap %p, heap_offset %#"PRIx64", desc %p, initial_state %#x, "
+            "optimized_clear_value %p, iid %s, resource %p.\n",
+            iface, heap, heap_offset, resource_desc, initial_state,
+            optimized_clear_value, debugstr_guid(iid), resource);
+
+    if (FAILED(hr = d3d12_resource_create_placed(device, resource_desc, heap_object,
+            heap_offset, initial_state, optimized_clear_value, &object)))
+        return hr;
+
+    return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);
+}
+
+static void STDMETHODCALLTYPE d3d12_device_CreateSamplerFeedbackUnorderedAccessView(d3d12_device_iface *iface,
+        ID3D12Resource *target_resource, ID3D12Resource *feedback_resource, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
+{
+    FIXME("iface %p, target_resource %p, feedback_resource %p, descriptor %#lx stub!\n",
+            iface, target_resource, feedback_resource, descriptor);
+}
+
+static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints1(d3d12_device_iface *iface,
+        const D3D12_RESOURCE_DESC1 *desc, UINT first_sub_resource, UINT sub_resource_count,
+        UINT64 base_offset, D3D12_PLACED_SUBRESOURCE_FOOTPRINT *layouts, UINT *row_counts,
+        UINT64 *row_sizes, UINT64 *total_bytes)
+{
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    static const struct vkd3d_format vkd3d_format_unknown
+            = {DXGI_FORMAT_UNKNOWN, VK_FORMAT_UNDEFINED, 1, 1, 1, 1, 0, 1};
+
+    unsigned int i, sub_resource_idx, miplevel_idx, row_count, row_size, row_pitch;
+    unsigned int width, height, depth, num_planes, num_subresources;
+    unsigned int num_subresources_per_plane, plane_idx;
+    struct vkd3d_format_footprint plane_footprint;
+    const struct vkd3d_format *format;
+    uint64_t offset, size, total;
+
+    TRACE("iface %p, desc %p, first_sub_resource %u, sub_resource_count %u, base_offset %#"PRIx64", "
+            "layouts %p, row_counts %p, row_sizes %p, total_bytes %p.\n",
+            iface, desc, first_sub_resource, sub_resource_count, base_offset,
+            layouts, row_counts, row_sizes, total_bytes);
+
+    if (layouts)
+        memset(layouts, 0xff, sizeof(*layouts) * sub_resource_count);
+    if (row_counts)
+        memset(row_counts, 0xff, sizeof(*row_counts) * sub_resource_count);
+    if (row_sizes)
+        memset(row_sizes, 0xff, sizeof(*row_sizes) * sub_resource_count);
+
+    total = ~(uint64_t)0;
+
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+    {
+        format = &vkd3d_format_unknown;
+    }
+    else if (!(format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0)))
+    {
+        WARN("Invalid format %#x.\n", desc->Format);
+        goto end;
+    }
+
+    if (FAILED(d3d12_resource_validate_desc(desc, device)))
+    {
+        WARN("Invalid resource desc.\n");
+        goto end;
+    }
+
+    num_planes = format->plane_count;
+    num_subresources_per_plane = d3d12_resource_desc_get_sub_resource_count_per_plane(desc);
+    num_subresources = d3d12_resource_desc_get_sub_resource_count(device, desc);
+
+    if (first_sub_resource >= num_subresources
+            || sub_resource_count > num_subresources - first_sub_resource)
+    {
+        WARN("Invalid sub-resource range %u-%u for resource.\n", first_sub_resource, sub_resource_count);
+        goto end;
+    }
+
+    offset = 0;
+    total = 0;
+    for (i = 0; i < sub_resource_count; ++i)
+    {
+        sub_resource_idx = first_sub_resource + i;
+        plane_idx = sub_resource_idx / num_subresources_per_plane;
+
+        plane_footprint = vkd3d_format_footprint_for_plane(format, plane_idx);
+
+        miplevel_idx = sub_resource_idx % desc->MipLevels;
+        width = align(d3d12_resource_desc_get_width(desc, miplevel_idx), plane_footprint.block_width);
+        height = align(d3d12_resource_desc_get_height(desc, miplevel_idx), plane_footprint.block_height);
+        depth = d3d12_resource_desc_get_depth(desc, miplevel_idx);
+        row_count = height / plane_footprint.block_height;
+        row_size = (width / plane_footprint.block_width) * plane_footprint.block_byte_count;
+
+        /* For whatever reason, we need to use 512 bytes of alignment for depth-stencil formats.
+         * This is not documented, but it is observed behavior on both NV and WARP drivers.
+         * See test_get_copyable_footprints_planar(). */
+        row_pitch = align(row_size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT * num_planes);
+
+        if (layouts)
+        {
+            layouts[i].Offset = base_offset + offset;
+            layouts[i].Footprint.Format = plane_footprint.dxgi_format;
+            layouts[i].Footprint.Width = width;
+            layouts[i].Footprint.Height = height;
+            layouts[i].Footprint.Depth = depth;
+            layouts[i].Footprint.RowPitch = row_pitch;
+        }
+        if (row_counts)
+            row_counts[i] = row_count;
+        if (row_sizes)
+            row_sizes[i] = row_size;
+
+        size = max(0, row_count - 1) * row_pitch + row_size;
+        size = max(0, depth - 1) * align(size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT * num_planes) + size;
+
+        total = offset + size;
+        offset = align(total, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
+    }
+
+end:
+    if (total_bytes)
+        *total_bytes = total;
+}
+
+CONST_VTBL struct ID3D12Device8Vtbl d3d12_device_vtbl =
 {
     /* IUnknown methods */
     d3d12_device_QueryInterface,
@@ -4929,6 +5045,12 @@ CONST_VTBL struct ID3D12Device7Vtbl d3d12_device_vtbl =
     /* ID3D12Device7 methods */
     d3d12_device_AddToStateObject,
     d3d12_device_CreateProtectedResourceSession1,
+    /* ID3D12Device8 methods */
+    d3d12_device_GetResourceAllocationInfo2,
+    d3d12_device_CreateCommittedResource2,
+    d3d12_device_CreatePlacedResource1,
+    d3d12_device_CreateSamplerFeedbackUnorderedAccessView,
+    d3d12_device_GetCopyableFootprints1,
 };
 
 #ifdef VKD3D_ENABLE_PROFILING

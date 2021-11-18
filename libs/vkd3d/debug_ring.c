@@ -174,7 +174,7 @@ HRESULT vkd3d_shader_debug_ring_init(struct vkd3d_shader_debug_ring *ring,
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     D3D12_HEAP_PROPERTIES heap_properties;
-    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_RESOURCE_DESC1 resource_desc;
     const char *env;
 
     memset(ring, 0, sizeof(*ring));

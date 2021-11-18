@@ -117,7 +117,7 @@ static HRESULT vkd3d_select_memory_flags(struct d3d12_device *device, const D3D1
 
 static HRESULT vkd3d_create_global_buffer(struct d3d12_device *device, VkDeviceSize size, const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, VkBuffer *vk_buffer)
 {
-    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_RESOURCE_DESC1 resource_desc;
 
     memset(&resource_desc, 0, sizeof(resource_desc));
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;

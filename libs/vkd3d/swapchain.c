@@ -227,7 +227,7 @@ static inline const struct vkd3d_vk_device_procs* d3d12_swapchain_procs(struct d
     return &swapchain->command_queue->device->vk_procs;
 }
 
-static inline struct ID3D12Device7* d3d12_swapchain_device_iface(struct d3d12_swapchain* swapchain)
+static inline struct ID3D12Device8* d3d12_swapchain_device_iface(struct d3d12_swapchain* swapchain)
 {
     return &swapchain->command_queue->device->ID3D12Device_iface;
 }
@@ -927,7 +927,7 @@ static HRESULT d3d12_swapchain_create_user_descriptors(struct d3d12_swapchain *s
 static HRESULT d3d12_swapchain_create_user_buffers(struct d3d12_swapchain *swapchain, VkFormat vk_format)
 {
     D3D12_HEAP_PROPERTIES heap_properties;
-    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_RESOURCE_DESC1 resource_desc;
     struct d3d12_resource* object;
     HRESULT hr;
     UINT i;
@@ -941,6 +941,7 @@ static HRESULT d3d12_swapchain_create_user_buffers(struct d3d12_swapchain *swapc
     heap_properties.CreationNodeMask = 1;
     heap_properties.VisibleNodeMask = 1;
 
+    memset(&resource_desc, 0, sizeof(resource_desc));
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     resource_desc.Alignment = 0;
     resource_desc.Width = swapchain->desc.Width;
@@ -1706,7 +1707,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_GetDevice(dxgi_swapchain_iface 
 
     TRACE("iface %p, iid %s, device %p.\n", iface, debugstr_guid(iid), device);
 
-    return ID3D12Device7_QueryInterface(d3d12_swapchain_device_iface(swapchain), iid, device);
+    return ID3D12Device8_QueryInterface(d3d12_swapchain_device_iface(swapchain), iid, device);
 }
 
 /* IDXGISwapChain methods */
@@ -2827,7 +2828,7 @@ static HRESULT d3d12_swapchain_init(struct d3d12_swapchain *swapchain, IDXGIFact
     if (swapchain_desc->Flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT)
         swapchain->frame_latency = 1;
 
-    if (FAILED(hr = ID3D12Device7_CreateFence(d3d12_swapchain_device_iface(swapchain), DXGI_MAX_SWAP_CHAIN_BUFFERS,
+    if (FAILED(hr = ID3D12Device8_CreateFence(d3d12_swapchain_device_iface(swapchain), DXGI_MAX_SWAP_CHAIN_BUFFERS,
             0, &IID_ID3D12Fence, (void **)&swapchain->frame_latency_fence)))
     {
         WARN("Failed to create frame latency fence, hr %#x.\n", hr);
