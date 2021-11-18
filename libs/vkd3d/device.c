@@ -2540,6 +2540,7 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
             || IsEqualGUID(riid, &IID_ID3D12Device6)
             || IsEqualGUID(riid, &IID_ID3D12Device7)
             || IsEqualGUID(riid, &IID_ID3D12Device8)
+            || IsEqualGUID(riid, &IID_ID3D12Device9)
             || IsEqualGUID(riid, &IID_ID3D12Object)
             || IsEqualGUID(riid, &IID_IUnknown))
     {
@@ -4965,7 +4966,35 @@ end:
         *total_bytes = total;
 }
 
-CONST_VTBL struct ID3D12Device8Vtbl d3d12_device_vtbl =
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateShaderCacheSession(d3d12_device_iface *iface,
+        const D3D12_SHADER_CACHE_SESSION_DESC *desc, REFIID iid, void **session)
+{
+    FIXME("iface %p, desc %p, iid %s, session %p stub!\n",
+            iface, desc, debugstr_guid(iid), session);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_ShaderCacheControl(d3d12_device_iface *iface,
+        D3D12_SHADER_CACHE_KIND_FLAGS kinds, D3D12_SHADER_CACHE_CONTROL_FLAGS control)
+{
+    FIXME("iface %p, kinds %#x, control %#x stub!\n", iface, kinds, control);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandQueue1(d3d12_device_iface *iface,
+        const D3D12_COMMAND_QUEUE_DESC *desc, REFIID creator_id, REFIID iid, void **command_queue)
+{
+    TRACE("iface %p, desc %p, creator_id %s, iid %s, command_queue %p.\n",
+            iface, desc, debugstr_guid(creator_id), debugstr_guid(iid), command_queue);
+
+    WARN("Ignoring creator id %s.\n", debugstr_guid(creator_id));
+
+    return d3d12_device_CreateCommandQueue(iface, desc, iid, command_queue);
+}
+
+CONST_VTBL struct ID3D12Device9Vtbl d3d12_device_vtbl =
 {
     /* IUnknown methods */
     d3d12_device_QueryInterface,
@@ -5051,6 +5080,10 @@ CONST_VTBL struct ID3D12Device8Vtbl d3d12_device_vtbl =
     d3d12_device_CreatePlacedResource1,
     d3d12_device_CreateSamplerFeedbackUnorderedAccessView,
     d3d12_device_GetCopyableFootprints1,
+    /* ID3D12Device9 methods */
+    d3d12_device_CreateShaderCacheSession,
+    d3d12_device_ShaderCacheControl,
+    d3d12_device_CreateCommandQueue1,
 };
 
 #ifdef VKD3D_ENABLE_PROFILING

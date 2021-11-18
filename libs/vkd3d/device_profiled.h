@@ -239,7 +239,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateSamplerFeedbackUnorderedAccessV
     DEVICE_PROFILED_CALL(CreateSamplerFeedbackUnorderedAccessView, iface, target_resource, feedback_resource, descriptor);
 }
 
-CONST_VTBL struct ID3D12Device8Vtbl d3d12_device_vtbl_profiled =
+CONST_VTBL struct ID3D12Device9Vtbl d3d12_device_vtbl_profiled =
 {
     /* IUnknown methods */
     d3d12_device_QueryInterface,
@@ -325,6 +325,10 @@ CONST_VTBL struct ID3D12Device8Vtbl d3d12_device_vtbl_profiled =
     d3d12_device_CreatePlacedResource1_profiled,
     d3d12_device_CreateSamplerFeedbackUnorderedAccessView_profiled,
     d3d12_device_GetCopyableFootprints1,
+    /* ID3D12Device9 methods */
+    d3d12_device_CreateShaderCacheSession,
+    d3d12_device_ShaderCacheControl,
+    d3d12_device_CreateCommandQueue1,
 };
 
 #endif
