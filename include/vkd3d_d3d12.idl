@@ -2158,6 +2158,15 @@ interface ID3D12Resource1 : ID3D12Resource
 {
     HRESULT GetProtectedResourceSession(REFIID riid, void **protected_session);
 }
+[
+    uuid(be36ec3b-ea85-4aeb-a45a-e9d76404a495),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12Resource2 : ID3D12Resource1 {
+    D3D12_RESOURCE_DESC1 GetDesc1();
+}
 
 [
     uuid(7116d91c-e7e4-47ce-b8c6-ec8168f437e5),
@@ -3313,6 +3322,45 @@ typedef struct D3D12_DISPATCH_MESH_ARGUMENTS
     UINT ThreadGroupCountZ;
 } D3D12_DISPATCH_MESH_ARGUMENTS;
 
+typedef enum D3D12_SHADER_CACHE_MODE
+{
+    D3D12_SHADER_CACHE_MODE_MEMORY = 0,
+    D3D12_SHADER_CACHE_MODE_DISK = 1,
+} D3D12_SHADER_CACHE_MODE;
+
+typedef enum D3D12_SHADER_CACHE_FLAGS
+{
+    D3D12_SHADER_CACHE_FLAG_NONE = 0,
+    D3D12_SHADER_CACHE_FLAG_DRIVER_VERSIONED = 0x1,
+    D3D12_SHADER_CACHE_FLAG_USE_WORKING_DIR = 0x2,
+} D3D12_SHADER_CACHE_FLAGS;
+
+typedef struct D3D12_SHADER_CACHE_SESSION_DESC
+{
+    GUID Identifier;
+    D3D12_SHADER_CACHE_MODE Mode;
+    D3D12_SHADER_CACHE_FLAGS Flags;
+    UINT MaximumInMemoryCacheSizeBytes;
+    UINT MaximumInMemoryCacheEntries;
+    UINT MaximumValueFileSizeBytes;
+    UINT64 Version;
+} D3D12_SHADER_CACHE_SESSION_DESC;
+
+typedef enum D3D12_SHADER_CACHE_KIND_FLAGS
+{
+    D3D12_SHADER_CACHE_KIND_FLAG_IMPLICIT_D3D_CACHE_FOR_DRIVER = 0x1,
+    D3D12_SHADER_CACHE_KIND_FLAG_IMPLICIT_D3D_CONVERSIONS = 0x2,
+    D3D12_SHADER_CACHE_KIND_FLAG_IMPLICIT_DRIVER_MANAGED = 0x4,
+    D3D12_SHADER_CACHE_KIND_FLAG_APPLICATION_MANAGED = 0x8,
+} D3D12_SHADER_CACHE_KIND_FLAGS;
+
+typedef enum D3D12_SHADER_CACHE_CONTROL_FLAGS
+{
+    D3D12_SHADER_CACHE_CONTROL_FLAG_DISABLE = 0x1,
+    D3D12_SHADER_CACHE_CONTROL_FLAG_ENABLE = 0x2,
+    D3D12_SHADER_CACHE_CONTROL_FLAG_CLEAR = 0x4,
+} D3D12_SHADER_CACHE_CONTROL_FLAGS;
+
 [
     uuid(dbb84c27-36ce-4fc9-b801-f048c46ac570),
     object,
@@ -3554,6 +3602,17 @@ interface ID3D12GraphicsCommandList5 : ID3D12GraphicsCommandList4
     void RSSetShadingRate(D3D12_SHADING_RATE base, const D3D12_SHADING_RATE_COMBINER *combiners);
 
     void RSSetShadingRateImage(ID3D12Resource *image);
+}
+
+[
+    uuid(c3827890-e548-4cfa-96cf-5689a9370f80),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12GraphicsCommandList6 : ID3D12GraphicsCommandList5
+{
+    void DispatchMesh(UINT x, UINT y, UINT z);
 }
 
 typedef enum D3D12_TILE_RANGE_FLAGS
@@ -4043,6 +4102,67 @@ interface ID3D12Device6 : ID3D12Device5
             D3D12_MEASUREMENTS_ACTION action, HANDLE event, BOOL further_measurements);
 }
 
+[
+    uuid(5c014b53-68a1-4b9b-8bd1-dd6046b9358b),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12Device7 : ID3D12Device6
+{
+    HRESULT AddToStateObject(const D3D12_STATE_OBJECT_DESC *addition,
+            ID3D12StateObject *state_object, REFIID riid, void **new_state_object);
+
+    HRESULT CreateProtectedResourceSession1(
+            const D3D12_PROTECTED_RESOURCE_SESSION_DESC1 *desc,
+            REFIID riid, void **session);
+}
+[
+    uuid(9218e6bb-f944-4f7e-a75c-b1b2c7b701f3),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12Device8 : ID3D12Device7
+{
+    D3D12_RESOURCE_ALLOCATION_INFO GetResourceAllocationInfo2(UINT visible_mask,
+            UINT resource_desc_count, const D3D12_RESOURCE_DESC1 *resource_descs,
+            D3D12_RESOURCE_ALLOCATION_INFO1 *resource_allocation_infos);
+
+    HRESULT CreateCommittedResource2(const D3D12_HEAP_PROPERTIES *heap_properties,
+            D3D12_HEAP_FLAGS heap_flags, const D3D12_RESOURCE_DESC1 *resource_desc,
+            D3D12_RESOURCE_STATES initial_state, const D3D12_CLEAR_VALUE *optimized_clear_value,
+            ID3D12ProtectedResourceSession *protected_session, REFIID riid, void **resource);
+
+    HRESULT CreatePlacedResource1(ID3D12Heap *heap, UINT64 heap_offset,
+            const D3D12_RESOURCE_DESC1 *resource_desc, D3D12_RESOURCE_STATES initial_state,
+            const D3D12_CLEAR_VALUE *optimized_clear_value, REFIID riid, void **resource);
+
+    void CreateSamplerFeedbackUnorderedAccessView(ID3D12Resource *target_resource,
+            ID3D12Resource *feedback_resource, D3D12_CPU_DESCRIPTOR_HANDLE descriptor);
+
+    void GetCopyableFootprints1(const D3D12_RESOURCE_DESC1 *resource_desc,
+            UINT first_sub_resource, UINT sub_resource_count, UINT64 base_offset,
+            D3D12_PLACED_SUBRESOURCE_FOOTPRINT *layouts, UINT *row_count,
+            UINT64 *row_size, UINT64 *total_bytes);
+}
+[
+    uuid(4c80e962-f032-4f60-bc9e-ebc2cfa1d83c),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12Device9 : ID3D12Device8
+{
+    HRESULT CreateShaderCacheSession(const D3D12_SHADER_CACHE_SESSION_DESC *desc,
+            REFIID riid, void **session);
+
+    HRESULT ShaderCacheControl(D3D12_SHADER_CACHE_KIND_FLAGS kinds,
+            D3D12_SHADER_CACHE_CONTROL_FLAGS control);
+
+    HRESULT CreateCommandQueue1(const D3D12_COMMAND_QUEUE_DESC *desc,
+            REFIID creator_id, REFIID riid, void **command_queue);
+}
 [
     uuid(34ab647b-3cc8-46ac-841b-c0965645c046),
     object,
