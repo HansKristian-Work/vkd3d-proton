@@ -215,7 +215,31 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePipelineState_profiled(d3d12
     DEVICE_PROFILED_CALL_HRESULT(CreatePipelineState, iface, desc, riid, pipeline_state);
 }
 
-CONST_VTBL struct ID3D12Device7Vtbl d3d12_device_vtbl_profiled =
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource2_profiled(d3d12_device_iface *iface,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, const D3D12_RESOURCE_DESC1 *desc,
+        D3D12_RESOURCE_STATES initial_state, const D3D12_CLEAR_VALUE *optimized_clear_value,
+        ID3D12ProtectedResourceSession *protected_session, REFIID iid, void **resource)
+{
+    DEVICE_PROFILED_CALL_HRESULT(CreateCommittedResource2, iface, heap_properties, heap_flags,
+            desc, initial_state, optimized_clear_value, protected_session, iid, resource);
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource1_profiled(d3d12_device_iface *iface,
+        ID3D12Heap *heap, UINT64 heap_offset, const D3D12_RESOURCE_DESC1 *desc,
+        D3D12_RESOURCE_STATES initial_state, const D3D12_CLEAR_VALUE *optimized_clear_value,
+        REFIID iid, void **resource)
+{
+    DEVICE_PROFILED_CALL_HRESULT(CreatePlacedResource1, iface, heap, heap_offset,
+            desc, initial_state, optimized_clear_value, iid, resource);
+}
+
+static void STDMETHODCALLTYPE d3d12_device_CreateSamplerFeedbackUnorderedAccessView_profiled(d3d12_device_iface *iface,
+        ID3D12Resource *target_resource, ID3D12Resource *feedback_resource, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
+{
+    DEVICE_PROFILED_CALL(CreateSamplerFeedbackUnorderedAccessView, iface, target_resource, feedback_resource, descriptor);
+}
+
+CONST_VTBL struct ID3D12Device8Vtbl d3d12_device_vtbl_profiled =
 {
     /* IUnknown methods */
     d3d12_device_QueryInterface,
@@ -295,6 +319,12 @@ CONST_VTBL struct ID3D12Device7Vtbl d3d12_device_vtbl_profiled =
     /* ID3D12Device7 methods */
     d3d12_device_AddToStateObject,
     d3d12_device_CreateProtectedResourceSession1,
+    /* ID3D12Device8 methods */
+    d3d12_device_GetResourceAllocationInfo2,
+    d3d12_device_CreateCommittedResource2_profiled,
+    d3d12_device_CreatePlacedResource1_profiled,
+    d3d12_device_CreateSamplerFeedbackUnorderedAccessView_profiled,
+    d3d12_device_GetCopyableFootprints1,
 };
 
 #endif
