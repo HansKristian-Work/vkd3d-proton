@@ -2778,7 +2778,7 @@ struct vkd3d_queue_family_info
 };
 
 /* ID3D12Device */
-typedef ID3D12Device6 d3d12_device_iface;
+typedef ID3D12Device7 d3d12_device_iface;
 
 struct vkd3d_descriptor_qa_global_info;
 struct vkd3d_descriptor_qa_heap_buffer_data;
@@ -2864,9 +2864,9 @@ void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
 
 static inline struct d3d12_device *impl_from_ID3D12Device(d3d12_device_iface *iface)
 {
-    extern CONST_VTBL struct ID3D12Device6Vtbl d3d12_device_vtbl;
+    extern CONST_VTBL struct ID3D12Device7Vtbl d3d12_device_vtbl;
 #ifdef VKD3D_ENABLE_PROFILING
-    extern CONST_VTBL struct ID3D12Device6Vtbl d3d12_device_vtbl_profiled;
+    extern CONST_VTBL struct ID3D12Device7Vtbl d3d12_device_vtbl_profiled;
 #endif
     if (!iface)
         return NULL;
@@ -2918,23 +2918,23 @@ static inline const struct vkd3d_memory_info_domain *d3d12_device_get_memory_inf
 
 static inline HRESULT d3d12_device_query_interface(struct d3d12_device *device, REFIID iid, void **object)
 {
-    return ID3D12Device6_QueryInterface(&device->ID3D12Device_iface, iid, object);
+    return ID3D12Device7_QueryInterface(&device->ID3D12Device_iface, iid, object);
 }
 
 static inline ULONG d3d12_device_add_ref(struct d3d12_device *device)
 {
-    return ID3D12Device6_AddRef(&device->ID3D12Device_iface);
+    return ID3D12Device7_AddRef(&device->ID3D12Device_iface);
 }
 
 static inline ULONG d3d12_device_release(struct d3d12_device *device)
 {
-    return ID3D12Device6_Release(&device->ID3D12Device_iface);
+    return ID3D12Device7_Release(&device->ID3D12Device_iface);
 }
 
 static inline unsigned int d3d12_device_get_descriptor_handle_increment_size(struct d3d12_device *device,
         D3D12_DESCRIPTOR_HEAP_TYPE descriptor_type)
 {
-    return ID3D12Device6_GetDescriptorHandleIncrementSize(&device->ID3D12Device_iface, descriptor_type);
+    return ID3D12Device7_GetDescriptorHandleIncrementSize(&device->ID3D12Device_iface, descriptor_type);
 }
 
 static inline bool d3d12_device_use_ssbo_raw_buffer(struct d3d12_device *device)

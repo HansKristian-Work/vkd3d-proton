@@ -215,7 +215,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePipelineState_profiled(d3d12
     DEVICE_PROFILED_CALL_HRESULT(CreatePipelineState, iface, desc, riid, pipeline_state);
 }
 
-CONST_VTBL struct ID3D12Device6Vtbl d3d12_device_vtbl_profiled =
+CONST_VTBL struct ID3D12Device7Vtbl d3d12_device_vtbl_profiled =
 {
     /* IUnknown methods */
     d3d12_device_QueryInterface,
@@ -292,6 +292,9 @@ CONST_VTBL struct ID3D12Device6Vtbl d3d12_device_vtbl_profiled =
     d3d12_device_CheckDriverMatchingIdentifier,
     /* ID3D12Device6 methods */
     d3d12_device_SetBackgroundProcessingMode,
+    /* ID3D12Device7 methods */
+    d3d12_device_AddToStateObject,
+    d3d12_device_CreateProtectedResourceSession1,
 };
 
 #endif
