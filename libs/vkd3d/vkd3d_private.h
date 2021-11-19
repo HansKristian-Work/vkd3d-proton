@@ -1822,7 +1822,7 @@ struct vkd3d_dynamic_state
 };
 
 /* ID3D12CommandList */
-typedef ID3D12GraphicsCommandList5 d3d12_command_list_iface;
+typedef ID3D12GraphicsCommandList6 d3d12_command_list_iface;
 
 enum vkd3d_initial_transition_type
 {

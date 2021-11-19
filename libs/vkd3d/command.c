@@ -3860,6 +3860,7 @@ HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_i
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList3)
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList4)
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList5)
+            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList6)
             || IsEqualGUID(iid, &IID_ID3D12CommandList)
             || IsEqualGUID(iid, &IID_ID3D12DeviceChild)
             || IsEqualGUID(iid, &IID_ID3D12Object)
@@ -9541,7 +9542,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRateImage(d3d12_com
     list->vrs_image = vrs_image;
 }
 
-static CONST_VTBL struct ID3D12GraphicsCommandList5Vtbl d3d12_command_list_vtbl =
+static void STDMETHODCALLTYPE d3d12_command_list_DispatchMesh(d3d12_command_list_iface *iface, UINT x, UINT y, UINT z)
+{
+    FIXME("iface %p, x %u, y %u, z %u stub!", iface, x, y, z);
+}
+
+static CONST_VTBL struct ID3D12GraphicsCommandList6Vtbl d3d12_command_list_vtbl =
 {
     /* IUnknown methods */
     d3d12_command_list_QueryInterface,
@@ -9632,6 +9638,8 @@ static CONST_VTBL struct ID3D12GraphicsCommandList5Vtbl d3d12_command_list_vtbl 
     /* ID3D12GraphicsCommandList5 methods */
     d3d12_command_list_RSSetShadingRate,
     d3d12_command_list_RSSetShadingRateImage,
+    /* ID3D12GraphicsCommandList6 methods */
+    d3d12_command_list_DispatchMesh,
 };
 
 #ifdef VKD3D_ENABLE_PROFILING
