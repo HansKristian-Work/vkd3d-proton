@@ -459,7 +459,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRateImage_profiled(
     COMMAND_LIST_PROFILED_CALL(RSSetShadingRateImage, iface, image);
 }
 
-static CONST_VTBL struct ID3D12GraphicsCommandList5Vtbl d3d12_command_list_vtbl_profiled =
+static void STDMETHODCALLTYPE d3d12_command_list_DispatchMesh_profiled(d3d12_command_list_iface *iface, UINT x, UINT y, UINT z)
+{
+    COMMAND_LIST_PROFILED_CALL(DispatchMesh, iface, x, y, z);
+}
+
+static CONST_VTBL struct ID3D12GraphicsCommandList6Vtbl d3d12_command_list_vtbl_profiled =
 {
     /* IUnknown methods */
     d3d12_command_list_QueryInterface,
@@ -550,6 +555,8 @@ static CONST_VTBL struct ID3D12GraphicsCommandList5Vtbl d3d12_command_list_vtbl_
     /* ID3D12GraphicsCommandList5 methods */
     d3d12_command_list_RSSetShadingRate_profiled,
     d3d12_command_list_RSSetShadingRateImage_profiled,
+    /* ID3D12GraphicsCommandList6 methods */
+    d3d12_command_list_DispatchMesh_profiled,
 };
 
 #endif
