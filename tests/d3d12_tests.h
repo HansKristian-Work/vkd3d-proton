@@ -135,6 +135,7 @@ decl_test(test_resolve_non_issued_query_data);
 decl_test(test_resolve_query_data_in_different_command_list);
 decl_test(test_resolve_query_data_in_reordered_command_list);
 decl_test(test_execute_indirect);
+decl_test(test_execute_indirect_state);
 decl_test(test_dispatch_zero_thread_groups);
 decl_test(test_unaligned_vertex_stride);
 decl_test(test_zero_vertex_stride);
