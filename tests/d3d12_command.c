@@ -1449,6 +1449,594 @@ void test_vbv_stride_edge_cases(void)
     destroy_test_context(&context);
 }
 
+void test_execute_indirect_state(void)
+{
+    static const struct vec4 values = { 1000.0f, 2000.0f, 3000.0f, 4000.0f };
+    D3D12_INDIRECT_ARGUMENT_DESC indirect_argument_descs[2];
+    D3D12_COMMAND_SIGNATURE_DESC command_signature_desc;
+    D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12CommandSignature *command_signature;
+    D3D12_SO_DECLARATION_ENTRY so_entries[1];
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_ROOT_PARAMETER root_parameters[4];
+    D3D12_STREAM_OUTPUT_BUFFER_VIEW sov;
+    ID3D12Resource *streamout_buffer;
+    D3D12_VERTEX_BUFFER_VIEW vbvs[2];
+    ID3D12Resource *argument_buffer;
+    struct test_context_desc desc;
+    ID3D12Resource *count_buffer;
+    struct test_context context;
+    struct resource_readback rb;
+    D3D12_INDEX_BUFFER_VIEW ibv;
+    ID3D12CommandQueue *queue;
+    const UINT so_stride = 16;
+    ID3D12PipelineState *pso;
+    ID3D12Resource *vbo[3];
+    ID3D12Resource *ibo[2];
+    unsigned int i, j, k;
+    ID3D12Resource *cbv;
+    ID3D12Resource *srv;
+    ID3D12Resource *uav;
+    HRESULT hr;
+
+    static const D3D12_INPUT_ELEMENT_DESC layout_desc[] =
+    {
+        {"COLOR", 0, DXGI_FORMAT_R32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"COLOR", 1, DXGI_FORMAT_R32_FLOAT, 1, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    };
+
+    struct test
+    {
+        const D3D12_INDIRECT_ARGUMENT_DESC *indirect_arguments;
+        uint32_t indirect_argument_count;
+        const void *argument_buffer_data;
+        size_t argument_buffer_size;
+        uint32_t api_max_count;
+        const struct vec4 *expected_output;
+        uint32_t expected_output_count;
+        uint32_t stride;
+        bool needs_root_sig;
+    };
+
+    /* Modify root parameters. */
+    struct root_constant_data
+    {
+        float constants[2];
+        D3D12_DRAW_INDEXED_ARGUMENTS indexed;
+    };
+
+    static const D3D12_INDIRECT_ARGUMENT_DESC root_constant_sig[2] =
+    {
+        { .Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT, .Constant = {
+            .RootParameterIndex = 0, .DestOffsetIn32BitValues = 1, .Num32BitValuesToSet = 2 }},
+        { .Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED }
+    };
+
+    static const struct root_constant_data root_constant_data[] =
+    {
+        {
+            .constants = { 100.0f, 500.0f },
+            .indexed = { .IndexCountPerInstance = 2, .InstanceCount = 1 }
+        },
+        {
+            .constants = { 200.0f, 800.0f },
+            .indexed = { .IndexCountPerInstance = 1, .InstanceCount = 2,
+                         .StartIndexLocation = 1, .StartInstanceLocation = 100, }
+        },
+    };
+
+    static const struct vec4 root_constant_expected[] =
+    {
+        { 1000.0f, 64.0f + 100.0f, 500.0f, 4000.0f },
+        { 1001.0f, 65.0f + 100.0f, 500.0f, 4000.0f },
+        { 1001.0f, 65.0f + 200.0f, 800.0f, 4000.0f },
+        { 1001.0f, 65.0f + 200.0f, 800.0f, 4001.0f },
+    };
+
+    /* Modify VBOs. */
+    struct indirect_vbo_data
+    {
+        D3D12_VERTEX_BUFFER_VIEW view[2];
+        D3D12_DRAW_INDEXED_ARGUMENTS indexed;
+    };
+
+    static const D3D12_INDIRECT_ARGUMENT_DESC indirect_vbo_sig[3] =
+    {
+        { .Type = D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW, .VertexBuffer = { .Slot = 0 }},
+        { .Type = D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW, .VertexBuffer = { .Slot = 1 }},
+        { .Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED },
+    };
+
+    /* Fill buffer locations later. */
+    struct indirect_vbo_data indirect_vbo_data[] =
+    {
+        {
+            .view = { { 0, 64, 8 }, { 0, 64, 16 } },
+            .indexed = { .IndexCountPerInstance = 2, .InstanceCount = 2 }
+        },
+        {
+            /* Test indirectly binding NULL descriptor and 0 stride. */
+            .view = { { 0, 0, 0 }, { 0, 64, 0 } },
+            .indexed = { .IndexCountPerInstance = 2, .InstanceCount = 1 }
+        }
+    };
+
+    static const struct vec4 indirect_vbo_expected[] =
+    {
+        { 1064.0f, 2128.0f, 3000.0f, 4000.0f },
+        { 1066.0f, 2132.0f, 3000.0f, 4000.0f },
+        { 1064.0f, 2128.0f, 3000.0f, 4001.0f },
+        { 1066.0f, 2132.0f, 3000.0f, 4001.0f },
+        { 1000.0f, 2016.0f, 3000.0f, 4000.0f }, /* This is buggy on WARP and AMD. We seem to get null descriptor instead. */
+        { 1000.0f, 2016.0f, 3000.0f, 4000.0f }, /* This is buggy on WARP and AMD. */
+    };
+
+    /* Modify just one VBO. */
+    struct indirect_vbo_one_data
+    {
+        D3D12_VERTEX_BUFFER_VIEW view;
+        D3D12_DRAW_INDEXED_ARGUMENTS indexed;
+    };
+
+    static const D3D12_INDIRECT_ARGUMENT_DESC indirect_vbo_one_sig[2] =
+    {
+        { .Type = D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW, .VertexBuffer = { .Slot = 0 }},
+        { .Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED },
+    };
+
+    /* Fill buffer locations later. */
+    struct indirect_vbo_one_data indirect_vbo_one_data[] =
+    {
+        {
+            .view = { 0, 64, 8 },
+            .indexed = { .IndexCountPerInstance = 2, .InstanceCount = 1 }
+        },
+        {
+            .indexed = { .IndexCountPerInstance = 1, .InstanceCount = 1 }
+        }
+    };
+
+    static const struct vec4 indirect_vbo_one_expected[] =
+    {
+        { 1128.0f, 2064.0f, 3000.0f, 4000.0f },
+        { 1130.0f, 2065.0f, 3000.0f, 4000.0f },
+        { 1000.0f, 2064.0f, 3000.0f, 4000.0f },
+    };
+
+    /* Indirect IBO */
+    struct indirect_ibo_data
+    {
+        D3D12_INDEX_BUFFER_VIEW view;
+        D3D12_DRAW_INDEXED_ARGUMENTS indexed;
+    };
+
+    static const D3D12_INDIRECT_ARGUMENT_DESC indirect_ibo_sig[2] =
+    {
+        { .Type = D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW },
+        { .Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED },
+    };
+
+    struct indirect_ibo_data indirect_ibo_data[] =
+    {
+        {
+            .view = { 0, 0, DXGI_FORMAT_R32_UINT },
+            .indexed = { .IndexCountPerInstance = 2, .InstanceCount = 1 }
+        },
+        {
+            .view = { 0, 64, DXGI_FORMAT_R16_UINT },
+            .indexed = { .IndexCountPerInstance = 4, .InstanceCount = 1 }
+        },
+    };
+
+    static const struct vec4 indirect_ibo_expected[] =
+    {
+        { 1000.0f, 2064.0f, 3000.0f, 4000.0f },
+        { 1000.0f, 2064.0f, 3000.0f, 4000.0f },
+        { 1016.0f, 2080.0f, 3000.0f, 4000.0f },
+        { 1000.0f, 2064.0f, 3000.0f, 4000.0f },
+        { 1017.0f, 2081.0f, 3000.0f, 4000.0f },
+        { 1000.0f, 2064.0f, 3000.0f, 4000.0f },
+    };
+
+    /* Indirect root arguments */
+    struct indirect_root_descriptor_data
+    {
+        D3D12_GPU_VIRTUAL_ADDRESS cbv;
+        D3D12_GPU_VIRTUAL_ADDRESS srv;
+        D3D12_GPU_VIRTUAL_ADDRESS uav;
+        D3D12_DRAW_ARGUMENTS array;
+    };
+
+    static const D3D12_INDIRECT_ARGUMENT_DESC indirect_root_descriptor_sig[4] =
+    {
+        { .Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT_BUFFER_VIEW, .ConstantBufferView = { .RootParameterIndex = 1 } },
+        { .Type = D3D12_INDIRECT_ARGUMENT_TYPE_SHADER_RESOURCE_VIEW, .ShaderResourceView = { .RootParameterIndex = 2 } },
+        { .Type = D3D12_INDIRECT_ARGUMENT_TYPE_UNORDERED_ACCESS_VIEW, .UnorderedAccessView = { .RootParameterIndex = 3 } },
+        { .Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW },
+    };
+
+    struct indirect_root_descriptor_data indirect_root_descriptor_data[] =
+    {
+        { .array = { .VertexCountPerInstance = 1, .InstanceCount = 1 } },
+        { .array = { .VertexCountPerInstance = 1, .InstanceCount = 1 } },
+    };
+
+    static const struct vec4 indirect_root_descriptor_expected[] =
+    {
+        { 1000.0f, 2064.0f, 3000.0f + 64.0f, 4000.0f + 2.0f },
+        { 1000.0f, 2064.0f, 3000.0f + 128.0f, 4000.0f + 3.0f },
+    };
+
+    /* Test packing rules.
+     * 64-bit aligned values are tightly packed with 32-bit alignment when they are in indirect command buffers. */
+    struct indirect_alignment_data
+    {
+        float value;
+        uint32_t cbv_va[2];
+        D3D12_DRAW_ARGUMENTS arrays;
+    };
+    static const D3D12_INDIRECT_ARGUMENT_DESC indirect_alignment_sig[3] =
+    {
+        { .Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT, .Constant = {
+                .RootParameterIndex = 0, .DestOffsetIn32BitValues = 1, .Num32BitValuesToSet = 1 }},
+        { .Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT_BUFFER_VIEW, .ConstantBufferView = { .RootParameterIndex = 1 }},
+        { .Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW },
+    };
+
+    struct indirect_alignment_data indirect_alignment_data[] =
+    {
+        {
+            .value = 5.0f,
+            .arrays = { .VertexCountPerInstance = 1, .InstanceCount = 1 }
+        },
+        {
+            .value = 6.0f,
+            .arrays = { .VertexCountPerInstance = 1, .InstanceCount = 1 }
+        },
+    };
+
+    static const struct vec4 indirect_alignment_expected[] =
+    {
+        { 1000.0f, 69.0f, 3064.0f, 4000.0f },
+        { 1000.0f, 70.0f, 3128.0f, 4000.0f },
+    };
+
+#define DECL_TEST(t, needs_root_sig) { t##_sig, ARRAY_SIZE(t##_sig), t##_data, sizeof(t##_data), ARRAY_SIZE(t##_data), \
+        t##_expected, ARRAY_SIZE(t##_expected), sizeof(*(t##_data)), needs_root_sig }
+    const struct test tests[] =
+    {
+        DECL_TEST(root_constant, true),
+        DECL_TEST(indirect_vbo, false),
+        DECL_TEST(indirect_vbo_one, false),
+        DECL_TEST(indirect_ibo, false),
+        DECL_TEST(indirect_root_descriptor, true),
+        DECL_TEST(indirect_alignment, true),
+    };
+#undef DECL_TEST
+
+    uint32_t ibo_data[ARRAY_SIZE(ibo)][64];
+    float vbo_data[ARRAY_SIZE(vbo)][64];
+    float generic_data[4096];
+
+    static const DWORD vs_code[] =
+    {
+#if 0
+    cbuffer RootCBV : register(b0)
+    {
+            float a;
+    };
+
+    StructuredBuffer<float> RootSRV : register(t0);
+
+    cbuffer RootConstants : register(b0, space1)
+    {
+            float4 root;
+    };
+
+    float4 main(float c0 : COLOR0, float c1 : COLOR1, uint iid : SV_InstanceID) : SV_Position
+    {
+            return float4(c0, c1, a, RootSRV[0] + float(iid)) + root;
+    }
+#endif
+        0x43425844, 0x33b7b302, 0x34259b9b, 0x3e8568d9, 0x5a5e0c3e, 0x00000001, 0x00000268, 0x00000003,
+        0x0000002c, 0x00000098, 0x000000cc, 0x4e475349, 0x00000064, 0x00000003, 0x00000008, 0x00000050,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x00000101, 0x00000050, 0x00000001, 0x00000000,
+        0x00000003, 0x00000001, 0x00000101, 0x00000056, 0x00000000, 0x00000008, 0x00000001, 0x00000002,
+        0x00000101, 0x4f4c4f43, 0x56530052, 0x736e495f, 0x636e6174, 0x00444965, 0x4e47534f, 0x0000002c,
+        0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f,
+        0x505f5653, 0x7469736f, 0x006e6f69, 0x58454853, 0x00000194, 0x00010051, 0x00000065, 0x0100086a,
+        0x07000059, 0x00308e46, 0x00000000, 0x00000000, 0x00000000, 0x00000001, 0x00000000, 0x07000059,
+        0x00308e46, 0x00000001, 0x00000000, 0x00000000, 0x00000001, 0x00000001, 0x070000a2, 0x00307e46,
+        0x00000000, 0x00000000, 0x00000000, 0x00000004, 0x00000000, 0x0300005f, 0x00101012, 0x00000000,
+        0x0300005f, 0x00101012, 0x00000001, 0x04000060, 0x00101012, 0x00000002, 0x00000008, 0x04000067,
+        0x001020f2, 0x00000000, 0x00000001, 0x02000068, 0x00000001, 0x0a0000a7, 0x00100012, 0x00000000,
+        0x00004001, 0x00000000, 0x00004001, 0x00000000, 0x00207006, 0x00000000, 0x00000000, 0x05000056,
+        0x00100022, 0x00000000, 0x0010100a, 0x00000002, 0x07000000, 0x00100012, 0x00000000, 0x0010001a,
+        0x00000000, 0x0010000a, 0x00000000, 0x09000000, 0x00102012, 0x00000000, 0x0010100a, 0x00000000,
+        0x0030800a, 0x00000001, 0x00000000, 0x00000000, 0x09000000, 0x00102022, 0x00000000, 0x0010100a,
+        0x00000001, 0x0030801a, 0x00000001, 0x00000000, 0x00000000, 0x0b000000, 0x00102042, 0x00000000,
+        0x0030800a, 0x00000000, 0x00000000, 0x00000000, 0x0030802a, 0x00000001, 0x00000000, 0x00000000,
+        0x09000000, 0x00102082, 0x00000000, 0x0010000a, 0x00000000, 0x0030803a, 0x00000001, 0x00000000,
+        0x00000000, 0x0100003e,
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_root_signature = true;
+    desc.no_pipeline = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+
+    for (j = 0; j < ARRAY_SIZE(ibo); j++)
+        for (i = 0; i < ARRAY_SIZE(ibo_data[j]); i++)
+            ibo_data[j][i] = j * 16 + i;
+
+    for (j = 0; j < ARRAY_SIZE(vbo); j++)
+        for (i = 0; i < ARRAY_SIZE(vbo_data[j]); i++)
+            vbo_data[j][i] = (float)(j * ARRAY_SIZE(vbo_data[j]) + i);
+
+    for (i = 0; i < ARRAY_SIZE(generic_data); i++)
+        generic_data[i] = (float)i;
+
+    for (i = 0; i < ARRAY_SIZE(ibo); i++)
+        ibo[i] = create_upload_buffer(context.device, sizeof(ibo_data[i]), ibo_data[i]);
+    for (i = 0; i < ARRAY_SIZE(vbo); i++)
+        vbo[i] = create_upload_buffer(context.device, sizeof(vbo_data[i]), vbo_data[i]);
+    cbv = create_upload_buffer(context.device, sizeof(generic_data), generic_data);
+    srv = create_upload_buffer(context.device, sizeof(generic_data), generic_data);
+    uav = create_default_buffer(context.device, sizeof(generic_data),
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    indirect_vbo_data[0].view[0].BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vbo[1]);
+    indirect_vbo_data[0].view[1].BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vbo[2]);
+    indirect_vbo_data[1].view[0].BufferLocation = 0;
+    indirect_vbo_data[1].view[1].BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vbo[0]) + 64;
+
+    indirect_vbo_one_data[0].view.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vbo[2]);
+    indirect_vbo_one_data[1].view.BufferLocation = 0;
+
+    indirect_ibo_data[1].view.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(ibo[1]);
+
+    indirect_root_descriptor_data[0].cbv = ID3D12Resource_GetGPUVirtualAddress(cbv) + 256;
+    indirect_root_descriptor_data[0].srv = ID3D12Resource_GetGPUVirtualAddress(srv) + 8;
+    indirect_root_descriptor_data[0].uav = ID3D12Resource_GetGPUVirtualAddress(uav) + 4;
+    indirect_root_descriptor_data[1].cbv = ID3D12Resource_GetGPUVirtualAddress(cbv) + 512;
+    indirect_root_descriptor_data[1].srv = ID3D12Resource_GetGPUVirtualAddress(srv) + 12;
+    indirect_root_descriptor_data[1].uav = ID3D12Resource_GetGPUVirtualAddress(uav) + 8;
+
+    memcpy(indirect_alignment_data[0].cbv_va, &indirect_root_descriptor_data[0].cbv, sizeof(D3D12_GPU_VIRTUAL_ADDRESS));
+    memcpy(indirect_alignment_data[1].cbv_va, &indirect_root_descriptor_data[1].cbv, sizeof(D3D12_GPU_VIRTUAL_ADDRESS));
+
+    memset(&root_signature_desc, 0, sizeof(root_signature_desc));
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
+            D3D12_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT;
+
+    memset(root_parameters, 0, sizeof(root_parameters));
+    root_signature_desc.pParameters = root_parameters;
+    root_signature_desc.NumParameters = ARRAY_SIZE(root_parameters);
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_parameters[0].Constants.RegisterSpace = 1;
+    root_parameters[0].Constants.Num32BitValues = 4;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    root_parameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    root_parameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", hr);
+
+    memset(so_entries, 0, sizeof(so_entries));
+    so_entries[0].ComponentCount = 4;
+    so_entries[0].SemanticName = "SV_Position";
+
+    memset(&pso_desc, 0, sizeof(pso_desc));
+    pso_desc.VS.pShaderBytecode = vs_code;
+    pso_desc.VS.BytecodeLength = sizeof(vs_code);
+    pso_desc.StreamOutput.NumStrides = 1;
+    pso_desc.StreamOutput.pBufferStrides = &so_stride;
+    pso_desc.StreamOutput.pSODeclaration = so_entries;
+    pso_desc.StreamOutput.NumEntries = ARRAY_SIZE(so_entries);
+    pso_desc.StreamOutput.RasterizedStream = D3D12_SO_NO_RASTERIZED_STREAM;
+    pso_desc.pRootSignature = context.root_signature;
+    pso_desc.SampleDesc.Count = 1;
+    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+    pso_desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    pso_desc.InputLayout.NumElements = ARRAY_SIZE(layout_desc);
+    pso_desc.InputLayout.pInputElementDescs = layout_desc;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&pso);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+
+    /* Verify sanity checks.
+     * As per validation layers, there must be exactly one command in the signature.
+     * It must come last. Verify that we check for this. */
+    memset(&command_signature_desc, 0, sizeof(command_signature_desc));
+    command_signature_desc.NumArgumentDescs = 1;
+    command_signature_desc.pArgumentDescs = indirect_argument_descs;
+    command_signature_desc.ByteStride = sizeof(D3D12_VERTEX_BUFFER_VIEW);
+    indirect_argument_descs[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW;
+    hr = ID3D12Device_CreateCommandSignature(context.device, &command_signature_desc, NULL,
+            &IID_ID3D12CommandSignature, (void**)&command_signature);
+    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", hr);
+
+    command_signature_desc.NumArgumentDescs = 2;
+    command_signature_desc.pArgumentDescs = indirect_argument_descs;
+    command_signature_desc.ByteStride = sizeof(D3D12_DRAW_INDEXED_ARGUMENTS) + sizeof(D3D12_VERTEX_BUFFER_VIEW);
+    indirect_argument_descs[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
+    indirect_argument_descs[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW;
+    hr = ID3D12Device_CreateCommandSignature(context.device, &command_signature_desc, NULL,
+            &IID_ID3D12CommandSignature, (void**)&command_signature);
+    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", hr);
+
+    command_signature_desc.ByteStride = sizeof(D3D12_DRAW_INDEXED_ARGUMENTS) + sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
+    indirect_argument_descs[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
+    indirect_argument_descs[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
+    hr = ID3D12Device_CreateCommandSignature(context.device, &command_signature_desc, NULL,
+            &IID_ID3D12CommandSignature, (void**)&command_signature);
+    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        struct vec4 expect_reset_state[2];
+        const struct vec4 *expect, *v;
+        uint32_t expected_output_size;
+        uint32_t clear_vbo_mask;
+        bool clear_ibo;
+        uint32_t size;
+
+        vkd3d_test_set_context("Test %u", i);
+
+        command_signature_desc.ByteStride = tests[i].stride;
+        command_signature_desc.pArgumentDescs = tests[i].indirect_arguments;
+        command_signature_desc.NumArgumentDescs = tests[i].indirect_argument_count;
+        command_signature_desc.NodeMask = 0;
+        hr = ID3D12Device_CreateCommandSignature(context.device, &command_signature_desc,
+                tests[i].needs_root_sig ? context.root_signature : NULL,
+                &IID_ID3D12CommandSignature, (void**)&command_signature);
+        ok(SUCCEEDED(hr), "Failed to create command signature, hr #%x.\n", hr);
+
+        argument_buffer = create_upload_buffer(context.device, 256 * 1024, NULL);
+        {
+            void *ptr;
+            ID3D12Resource_Map(argument_buffer, 0, NULL, &ptr);
+            memcpy(ptr, tests[i].argument_buffer_data, tests[i].argument_buffer_size);
+            ID3D12Resource_Unmap(argument_buffer, 0, NULL);
+        }
+
+        count_buffer = create_upload_buffer(context.device, sizeof(tests[i].api_max_count), &tests[i].api_max_count);
+        streamout_buffer = create_default_buffer(context.device, 64 * 1024,
+                D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_STREAM_OUT);
+
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, pso);
+        sov.SizeInBytes = 64 * 1024 - sizeof(struct vec4);
+        sov.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(streamout_buffer) + sizeof(struct vec4);
+        sov.BufferFilledSizeLocation = ID3D12Resource_GetGPUVirtualAddress(streamout_buffer);
+        ID3D12GraphicsCommandList_SOSetTargets(command_list, 0, 1, &sov);
+
+        /* Set up default rendering state. */
+        ibv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(ibo[0]);
+        ibv.SizeInBytes = sizeof(ibo_data[0]);
+        ibv.Format = DXGI_FORMAT_R32_UINT;
+        vbvs[0].BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vbo[0]);
+        vbvs[0].SizeInBytes = sizeof(vbo_data[0]);
+        vbvs[0].StrideInBytes = 4;
+        vbvs[1].BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vbo[1]);
+        vbvs[1].SizeInBytes = sizeof(vbo_data[1]);
+        vbvs[1].StrideInBytes = 4;
+
+        ID3D12GraphicsCommandList_IASetIndexBuffer(command_list, &ibv);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_POINTLIST);
+        ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 2, vbvs);
+        ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 4, &values, 0);
+        ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 1,
+                ID3D12Resource_GetGPUVirtualAddress(cbv));
+        ID3D12GraphicsCommandList_SetGraphicsRootShaderResourceView(command_list, 2,
+                ID3D12Resource_GetGPUVirtualAddress(srv));
+        ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(command_list, 3,
+                ID3D12Resource_GetGPUVirtualAddress(uav));
+        ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature, tests[i].api_max_count,
+                argument_buffer, 0, NULL, 0);
+        /* Test equivalent call with indirect count. */
+        ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature, 1024,
+                argument_buffer, 0, count_buffer, 0);
+
+        /* Root descriptors which are part of the state block are cleared to NULL. Recover them here
+         * since attempting to draw next test will crash GPU. */
+        ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 1,
+                ID3D12Resource_GetGPUVirtualAddress(cbv));
+        ID3D12GraphicsCommandList_SetGraphicsRootShaderResourceView(command_list, 2,
+                ID3D12Resource_GetGPUVirtualAddress(srv));
+        ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(command_list, 3,
+                ID3D12Resource_GetGPUVirtualAddress(uav));
+
+        /* Other state is cleared to 0. */
+        ID3D12GraphicsCommandList_DrawIndexedInstanced(command_list, 2, 1, 0, 0, 0);
+        transition_resource_state(command_list, streamout_buffer, D3D12_RESOURCE_STATE_STREAM_OUT, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        get_buffer_readback_with_command_list(streamout_buffer, DXGI_FORMAT_R32G32B32A32_FLOAT, &rb, queue, command_list);
+        reset_command_list(command_list, context.allocator);
+
+        expected_output_size = (tests[i].expected_output_count * 2 + 2) * sizeof(struct vec4);
+        size = get_readback_uint(&rb, 0, 0, 0);
+        ok(size == expected_output_size, "Expected size %u, got %u.\n", expected_output_size, size);
+
+        for (j = 0; j < tests[i].expected_output_count; j++)
+        {
+            expect = &tests[i].expected_output[j];
+            v = get_readback_vec4(&rb, j + 1, 0);
+            todo ok(compare_vec4(v, expect, 0), "Element (direct count) %u failed: (%f, %f, %f, %f) != (%f, %f, %f, %f)\n",
+                    j, v->x, v->y, v->z, v->w, expect->x, expect->y, expect->z, expect->w);
+
+            v = get_readback_vec4(&rb, j + tests[i].expected_output_count + 1, 0);
+            todo ok(compare_vec4(v, expect, 0), "Element (indirect count) %u failed: (%f, %f, %f, %f) != (%f, %f, %f, %f)\n",
+                    j, v->x, v->y, v->z, v->w, expect->x, expect->y, expect->z, expect->w);
+        }
+
+        clear_vbo_mask = 0;
+        clear_ibo = false;
+        expect_reset_state[0] = values;
+
+        /* Root constant state is cleared to zero if it's part of the signature. */
+        for (j = 0; j < tests[i].indirect_argument_count; j++)
+        {
+            if (tests[i].indirect_arguments[j].Type == D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT)
+            {
+                for (k = 0; k < tests[i].indirect_arguments[j].Constant.Num32BitValuesToSet; k++)
+                    (&expect_reset_state[0].x)[tests[i].indirect_arguments[j].Constant.DestOffsetIn32BitValues + k] = 0.0f;
+            }
+            else if (tests[i].indirect_arguments[j].Type == D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW)
+                clear_vbo_mask |= 1u << tests[i].indirect_arguments[j].VertexBuffer.Slot;
+            else if (tests[i].indirect_arguments[j].Type == D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW)
+                clear_ibo = true;
+        }
+
+        expect_reset_state[1] = expect_reset_state[0];
+
+        /* VBO/IBO state is cleared to zero if it's part of the signature.
+         * A NULL IBO should be seen as a IBO which only reads 0 index. */
+        if (!clear_ibo && !(clear_vbo_mask & (1u << 0)))
+            expect_reset_state[1].x += 1.0f;
+
+        if (!(clear_vbo_mask & (1u << 1)))
+        {
+            expect_reset_state[0].y += 64.0f;
+            expect_reset_state[1].y += clear_ibo ? 64.0f : 65.0f;
+        }
+
+        for (j = 0; j < 2; j++)
+        {
+            v = get_readback_vec4(&rb, j + 1 + 2 * tests[i].expected_output_count, 0);
+            expect = &expect_reset_state[j];
+            todo ok(compare_vec4(v, expect, 0), "Post-reset element %u failed: (%f, %f, %f, %f) != (%f, %f, %f, %f)\n",
+                    j, v->x, v->y, v->z, v->w, expect->x, expect->y, expect->z, expect->w);
+        }
+
+        ID3D12CommandSignature_Release(command_signature);
+        ID3D12Resource_Release(argument_buffer);
+        ID3D12Resource_Release(count_buffer);
+        ID3D12Resource_Release(streamout_buffer);
+        release_resource_readback(&rb);
+    }
+    vkd3d_test_set_context(NULL);
+
+    ID3D12PipelineState_Release(pso);
+    for (i = 0; i < ARRAY_SIZE(vbo); i++)
+        ID3D12Resource_Release(vbo[i]);
+    for (i = 0; i < ARRAY_SIZE(ibo); i++)
+        ID3D12Resource_Release(ibo[i]);
+    ID3D12Resource_Release(cbv);
+    ID3D12Resource_Release(srv);
+    ID3D12Resource_Release(uav);
+
+    destroy_test_context(&context);
+}
+
 void test_execute_indirect(void)
 {
     ID3D12Resource *argument_buffer, *count_buffer, *uav;
