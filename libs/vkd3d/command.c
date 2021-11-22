@@ -9614,6 +9614,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
         return;
     }
 
+    /* Temporary workaround, since we cannot parse non-draw arguments yet. Point directly
+     * to the first argument. Should avoid hard crashes for now. */
+    arg_buffer_offset += sig_impl->argument_buffer_offset;
+
     for (i = 0; i < signature_desc->NumArgumentDescs; ++i)
     {
         const D3D12_INDIRECT_ARGUMENT_DESC *arg_desc = &signature_desc->pArgumentDescs[i];
@@ -12443,37 +12447,136 @@ CONST_VTBL struct ID3D12CommandSignatureVtbl d3d12_command_signature_vtbl =
     d3d12_command_signature_GetDevice,
 };
 
-HRESULT d3d12_command_signature_create(struct d3d12_device *device, const D3D12_COMMAND_SIGNATURE_DESC *desc,
+HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12_root_signature *root_signature,
+        const D3D12_COMMAND_SIGNATURE_DESC *desc,
         struct d3d12_command_signature **signature)
 {
     struct d3d12_command_signature *object;
+    bool requires_root_signature = false;
+    uint32_t argument_buffer_offset = 0;
+    uint32_t signature_size = 0;
+    bool has_action = false;
     unsigned int i;
+    bool is_action;
     HRESULT hr;
 
     for (i = 0; i < desc->NumArgumentDescs; ++i)
     {
         const D3D12_INDIRECT_ARGUMENT_DESC *argument_desc = &desc->pArgumentDescs[i];
+        is_action = false;
+
         switch (argument_desc->Type)
         {
             case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW:
-            case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED:
-            case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
-            case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS:
-                if (i != desc->NumArgumentDescs - 1)
-                {
-                    WARN("Draw/dispatch must be the last element of a command signature.\n");
-                    return E_INVALIDARG;
-                }
+                argument_buffer_offset = signature_size;
+                signature_size += sizeof(D3D12_DRAW_ARGUMENTS);
+                is_action = true;
                 break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED:
+                argument_buffer_offset = signature_size;
+                signature_size += sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
+                is_action = true;
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
+                argument_buffer_offset = signature_size;
+                signature_size += sizeof(D3D12_DISPATCH_ARGUMENTS);
+                is_action = true;
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS:
+                argument_buffer_offset = signature_size;
+                signature_size += sizeof(D3D12_DISPATCH_RAYS_DESC);
+                is_action = true;
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH:
+                argument_buffer_offset = signature_size;
+                signature_size += sizeof(D3D12_DISPATCH_MESH_ARGUMENTS);
+                is_action = true;
+                FIXME("Unsupported indirect dispatch mesh.\n");
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT:
+                requires_root_signature = true;
+                signature_size += argument_desc->Constant.Num32BitValuesToSet * sizeof(uint32_t);
+                FIXME("Unsupported indirect argument type CONSTANT.\n");
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_SHADER_RESOURCE_VIEW:
+            case D3D12_INDIRECT_ARGUMENT_TYPE_UNORDERED_ACCESS_VIEW:
+            case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT_BUFFER_VIEW:
+                requires_root_signature = true;
+                /* The command signature payload is *not* aligned. */
+                signature_size += sizeof(D3D12_GPU_VIRTUAL_ADDRESS);
+                FIXME("Unsupported indirect root descriptor type: %u.\n", argument_desc->Type);
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW:
+                /* The command signature payload is *not* aligned. */
+                signature_size += sizeof(D3D12_VERTEX_BUFFER_VIEW);
+                FIXME("Unsupported indirect VBV.\n");
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW:
+                /* The command signature payload is *not* aligned. */
+                signature_size += sizeof(D3D12_INDEX_BUFFER_VIEW);
+                FIXME("Unsupported indirect IBV.\n");
+                break;
+
             default:
+                FIXME("Unsupported indirect argument type: %u.\n", argument_desc->Type);
                 break;
         }
+
+        if (is_action)
+        {
+            if (has_action)
+            {
+                ERR("Using multiple action commands per command signature is invalid.\n");
+                return E_INVALIDARG;
+            }
+
+            if (i != desc->NumArgumentDescs - 1)
+            {
+                WARN("Action command must be the last element of a command signature.\n");
+                return E_INVALIDARG;
+            }
+
+            has_action = true;
+        }
+    }
+
+    if (!has_action)
+    {
+        ERR("Command signature must have exactly one action command.\n");
+        return E_INVALIDARG;
+    }
+
+    if (desc->ByteStride < signature_size)
+    {
+        ERR("Command signature stride %u must be at least %u bytes.\n",
+                desc->ByteStride, signature_size);
+        return E_INVALIDARG;
+    }
+
+    if (requires_root_signature && !root_signature)
+    {
+        ERR("Command signature requires root signature, but is not provided.\n");
+        return E_INVALIDARG;
+    }
+    else if (!requires_root_signature && root_signature)
+    {
+        ERR("Command signature does not require root signature, root signature must be NULL.\n");
+        return E_INVALIDARG;
     }
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
     object->ID3D12CommandSignature_iface.lpVtbl = &d3d12_command_signature_vtbl;
+    object->argument_buffer_offset = argument_buffer_offset;
     object->refcount = 1;
 
     object->desc = *desc;
