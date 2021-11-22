@@ -2366,13 +2366,15 @@ struct d3d12_command_signature
     LONG refcount;
 
     D3D12_COMMAND_SIGNATURE_DESC desc;
+    uint32_t argument_buffer_offset;
 
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
 };
 
-HRESULT d3d12_command_signature_create(struct d3d12_device *device, const D3D12_COMMAND_SIGNATURE_DESC *desc,
+HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12_root_signature *root_signature,
+        const D3D12_COMMAND_SIGNATURE_DESC *desc,
         struct d3d12_command_signature **signature);
 
 static inline struct d3d12_command_signature *impl_from_ID3D12CommandSignature(ID3D12CommandSignature *iface)
