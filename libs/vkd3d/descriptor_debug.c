@@ -197,7 +197,7 @@ HRESULT vkd3d_descriptor_debug_alloc_global_info(
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_descriptor_qa_global_info *global_info;
-    D3D12_RESOURCE_DESC buffer_desc;
+    D3D12_RESOURCE_DESC1 buffer_desc;
     D3D12_HEAP_PROPERTIES heap_info;
     D3D12_HEAP_FLAGS heap_flags;
     VkResult vr;
@@ -395,7 +395,7 @@ void vkd3d_descriptor_debug_unregister_heap(uint64_t cookie)
 }
 
 void vkd3d_descriptor_debug_register_resource_cookie(struct vkd3d_descriptor_qa_global_info *global_info,
-        uint64_t cookie, const D3D12_RESOURCE_DESC *desc)
+        uint64_t cookie, const D3D12_RESOURCE_DESC1 *desc)
 {
     const char *fmt;
     DECL_BUFFER();
@@ -453,7 +453,7 @@ void vkd3d_descriptor_debug_register_allocation_cookie(
         struct vkd3d_descriptor_qa_global_info *global_info,
         uint64_t cookie, const struct vkd3d_allocate_memory_info *info)
 {
-    D3D12_RESOURCE_DESC desc;
+    D3D12_RESOURCE_DESC1 desc;
 
     memset(&desc, 0, sizeof(desc));
     desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;

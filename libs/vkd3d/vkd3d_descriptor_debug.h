@@ -52,7 +52,7 @@ void vkd3d_descriptor_debug_unregister_heap(uint64_t cookie);
 
 void vkd3d_descriptor_debug_register_resource_cookie(
         struct vkd3d_descriptor_qa_global_info *global_info,
-        uint64_t cookie, const D3D12_RESOURCE_DESC *desc);
+        uint64_t cookie, const D3D12_RESOURCE_DESC1 *desc);
 void vkd3d_descriptor_debug_register_allocation_cookie(
         struct vkd3d_descriptor_qa_global_info *global_info,
         uint64_t cookie, const struct vkd3d_allocate_memory_info *info);
