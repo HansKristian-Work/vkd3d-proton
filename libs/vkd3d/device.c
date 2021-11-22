@@ -4429,9 +4429,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_SetStablePowerState(d3d12_device_i
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandSignature(d3d12_device_iface *iface,
-        const D3D12_COMMAND_SIGNATURE_DESC *desc, ID3D12RootSignature *root_signature,
+        const D3D12_COMMAND_SIGNATURE_DESC *desc, ID3D12RootSignature *root_signature_iface,
         REFIID iid, void **command_signature)
 {
+    struct d3d12_root_signature *root_signature = impl_from_ID3D12RootSignature(root_signature_iface);
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
     struct d3d12_command_signature *object;
     HRESULT hr;
@@ -4439,7 +4440,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandSignature(d3d12_devic
     TRACE("iface %p, desc %p, root_signature %p, iid %s, command_signature %p.\n",
             iface, desc, root_signature, debugstr_guid(iid), command_signature);
 
-    if (FAILED(hr = d3d12_command_signature_create(device, desc, &object)))
+    if (FAILED(hr = d3d12_command_signature_create(device, root_signature, desc, &object)))
         return hr;
 
     return return_interface(&object->ID3D12CommandSignature_iface,
