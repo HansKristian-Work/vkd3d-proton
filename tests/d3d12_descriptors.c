@@ -4469,3 +4469,241 @@ void test_view_min_lod(void)
     destroy_test_context(&context);
 }
 
+void test_typed_srv_uav_cast(void)
+{
+    /* Test rules for CastFullyTypedFormat.
+     * This is more of a meta-test. It's not supposed to generate any real results, but we can observe outputs
+     * from D3D12 validation layers and VK validation layers to sanity check our assumptions.
+     * Should also serve as more clear documentation on actual behavior. */
+    D3D12_FEATURE_DATA_D3D12_OPTIONS3 options3;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv;
+    struct test_context context;
+    ID3D12Resource *uav_texture;
+    ID3D12DescriptorHeap *heap;
+    ID3D12Resource *texture;
+    VKD3D_UNUSED HRESULT hr;
+    unsigned int i;
+
+    struct test
+    {
+        DXGI_FORMAT image;
+        DXGI_FORMAT view;
+        bool valid_srv;
+        bool valid_uav;
+    };
+
+    /* Rules:
+     * FLOAT cannot be cast to non-FLOAT and vice versa.
+     * UNORM cannot be cast to SNORM and vice versa.
+     * Everything else is fair game as long as it's within same family.
+     * UAVs have some weird legacy rules which were probably inherited from D3D11 ... */
+    static const struct test tests[] =
+    {
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM, true, true },
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, true, false },
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_SINT, true, true },
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UINT, true, true },
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_SNORM, false, false },
+
+        { DXGI_FORMAT_R8G8B8A8_SNORM, DXGI_FORMAT_R8G8B8A8_UNORM, false, false },
+        { DXGI_FORMAT_R8G8B8A8_SNORM, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, false, false },
+        { DXGI_FORMAT_R8G8B8A8_SNORM, DXGI_FORMAT_R8G8B8A8_SINT, true, true },
+        { DXGI_FORMAT_R8G8B8A8_SNORM, DXGI_FORMAT_R8G8B8A8_UINT, true, true },
+        { DXGI_FORMAT_R8G8B8A8_SNORM, DXGI_FORMAT_R8G8B8A8_SNORM, true, true },
+
+        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_UNORM, true, true },
+        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, true, false },
+        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_SINT, true, true },
+        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_UINT, true, true },
+        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_SNORM, true, true },
+
+        { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UNORM, true, true },
+        { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, true, false },
+        { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_SINT, true, true },
+        { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UINT, true, true },
+        { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_SNORM, true, true },
+
+        /* FLOAT cannot cast with UINT or SINT. */
+        { DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R32_UINT, false, false },
+        { DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R32_SINT, false, false },
+        { DXGI_FORMAT_R32_UINT, DXGI_FORMAT_R32_FLOAT, false, false },
+        { DXGI_FORMAT_R32_SINT, DXGI_FORMAT_R32_FLOAT, false, false },
+        { DXGI_FORMAT_R16_FLOAT, DXGI_FORMAT_R16_UINT, false, false },
+        { DXGI_FORMAT_R16_FLOAT, DXGI_FORMAT_R16_SINT, false, false },
+        { DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R16_FLOAT, false, false },
+        { DXGI_FORMAT_R16_SINT, DXGI_FORMAT_R16_FLOAT, false, false },
+
+        /* Special D3D11 magic. For UAVs, we can reinterpret formats as the "always supported" types R32{U,I,F}.
+         * If typeless, we can cast to any R32U/I/F format.
+         * If not typeless, we follow float <-> non-float ban. */
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R32_UINT, false, true },
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R32_SINT, false, true },
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R32_FLOAT, false, false },
+        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R32_UINT, false, true },
+        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R32_SINT, false, true },
+        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R32_FLOAT, false, false },
+        { DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R32_UINT, false, true },
+        { DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R32_SINT, false, true },
+        { DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R32_FLOAT, false, true },
+
+        { DXGI_FORMAT_R16G16_UNORM, DXGI_FORMAT_R32_UINT, false, true },
+        { DXGI_FORMAT_R16G16_UNORM, DXGI_FORMAT_R32_SINT, false, true },
+        { DXGI_FORMAT_R16G16_UNORM, DXGI_FORMAT_R32_FLOAT, false, false },
+        { DXGI_FORMAT_R16G16_UINT, DXGI_FORMAT_R32_UINT, false, true },
+        { DXGI_FORMAT_R16G16_UINT, DXGI_FORMAT_R32_SINT, false, true },
+        { DXGI_FORMAT_R16G16_UINT, DXGI_FORMAT_R32_FLOAT, false, false },
+        { DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R32_UINT, false, false },
+        { DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R32_SINT, false, false },
+        { DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R32_FLOAT, false, true },
+        { DXGI_FORMAT_R16G16_TYPELESS, DXGI_FORMAT_R32_UINT, false, true },
+        { DXGI_FORMAT_R16G16_TYPELESS, DXGI_FORMAT_R32_SINT, false, true },
+        { DXGI_FORMAT_R16G16_TYPELESS, DXGI_FORMAT_R32_FLOAT, false, true },
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS3, &options3, sizeof(options3))) ||
+            !options3.CastingFullyTypedFormatSupported)
+    {
+        skip("CastingFullyTypedFormat is not supported, skipping ...\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&srv, 0, sizeof(srv));
+    srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv.Texture2D.MipLevels = 1;
+
+    memset(&uav, 0, sizeof(uav));
+    uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+
+#define PURGE() do { \
+    if (uav_texture) ID3D12Resource_Release(uav_texture); \
+    if (texture) ID3D12Resource_Release(texture); \
+    if (heap) ID3D12DescriptorHeap_Release(heap); \
+    uav_texture = NULL; \
+    texture = NULL; \
+    heap = NULL;     \
+} while(0)
+
+#define PURGE_CONTEXT() do { \
+    PURGE(); \
+    destroy_test_context(&context); \
+    context.device = NULL; \
+} while(0)
+
+#define BEGIN_CONTEXT() do { \
+    if (!context.device) \
+        init_compute_test_context(&context); \
+} while(0)
+
+#define BEGIN() do { \
+    BEGIN_CONTEXT(); \
+    uav_texture = create_default_texture2d(context.device, 1024, 1024, 1, 1, tests[i].image, \
+        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST); \
+    texture = create_default_texture2d(context.device, 1024, 1024, 1, 1, tests[i].image, \
+        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST); \
+    heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1); \
+} while(0)
+
+    /* When enabled, only intended to pass on real runtime.
+     * The native runtime actually performs validation and will trip device lost if a mistake is made.
+     * We don't validate this in vkd3d-proton. */
+#define VERIFY_FAILURE_CASES 0
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        vkd3d_test_set_context("Test %u", i);
+
+        BEGIN();
+
+        srv.Format = tests[i].view;
+        uav.Format = tests[i].view;
+
+        if (tests[i].valid_srv || VERIFY_FAILURE_CASES)
+        {
+            ID3D12Device_CreateShaderResourceView(context.device, texture, &srv,
+                    ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap));
+
+            if (!tests[i].valid_srv && VERIFY_FAILURE_CASES)
+            {
+                hr = ID3D12Device_GetDeviceRemovedReason(context.device);
+
+                if ((tests[i].image == DXGI_FORMAT_R8G8B8A8_UNORM && tests[i].view == DXGI_FORMAT_R8G8B8A8_SNORM) ||
+                    (tests[i].image == DXGI_FORMAT_R8G8B8A8_SNORM && tests[i].view == DXGI_FORMAT_R8G8B8A8_UNORM) ||
+                    (tests[i].image == DXGI_FORMAT_R8G8B8A8_SNORM && tests[i].view == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB))
+                {
+                    /* It is a documented bug that the runtime forgot to validate UNORM <-> SNORM cast, so trip errors here. */
+                    hr = E_FAIL;
+                }
+
+                ok(FAILED(hr), "Unexpected hr %#x\n", hr);
+                PURGE_CONTEXT();
+                BEGIN();
+            }
+
+            ID3D12Device_CreateShaderResourceView(context.device, uav_texture, &srv,
+                    ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap));
+
+            if (!tests[i].valid_srv && VERIFY_FAILURE_CASES)
+            {
+                hr = ID3D12Device_GetDeviceRemovedReason(context.device);
+
+                if ((tests[i].image == DXGI_FORMAT_R8G8B8A8_UNORM && tests[i].view == DXGI_FORMAT_R8G8B8A8_SNORM) ||
+                    (tests[i].image == DXGI_FORMAT_R8G8B8A8_SNORM && tests[i].view == DXGI_FORMAT_R8G8B8A8_UNORM) ||
+                    (tests[i].image == DXGI_FORMAT_R8G8B8A8_SNORM && tests[i].view == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB))
+                {
+                    /* It is a documented bug that the runtime forgot to validate UNORM <-> SNORM cast, so trip errors here. */
+                    hr = E_FAIL;
+                }
+
+                ok(FAILED(hr), "Unexpected hr %#x\n", hr);
+                PURGE_CONTEXT();
+                BEGIN();
+            }
+        }
+
+        if (tests[i].valid_uav || VERIFY_FAILURE_CASES)
+        {
+            ID3D12Device_CreateUnorderedAccessView(context.device, uav_texture, NULL, &uav,
+                    ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap));
+
+            if (!tests[i].valid_uav && VERIFY_FAILURE_CASES)
+            {
+                hr = ID3D12Device_GetDeviceRemovedReason(context.device);
+
+                if ((tests[i].image == DXGI_FORMAT_R8G8B8A8_UNORM && tests[i].view == DXGI_FORMAT_R8G8B8A8_SNORM) ||
+                    (tests[i].image == DXGI_FORMAT_R8G8B8A8_SNORM && tests[i].view == DXGI_FORMAT_R8G8B8A8_UNORM) ||
+                    (tests[i].image == DXGI_FORMAT_R8G8B8A8_SNORM && tests[i].view == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB))
+                {
+                    /* It is a documented bug that the runtime forgot to validate UNORM <-> SNORM cast, so trip errors here. */
+                    hr = E_FAIL;
+                }
+
+                ok(FAILED(hr), "Unexpected hr %#x\n", hr);
+                PURGE_CONTEXT();
+                BEGIN();
+            }
+        }
+
+        hr = ID3D12Device_GetDeviceRemovedReason(context.device);
+        ok(SUCCEEDED(hr), "Unexpected hr %#x\n", hr);
+
+        if (SUCCEEDED(hr))
+        {
+            PURGE();
+        }
+        else
+        {
+            PURGE_CONTEXT();
+            BEGIN_CONTEXT();
+        }
+    }
+
+    vkd3d_test_set_context(NULL);
+
+    destroy_test_context(&context);
+}
