@@ -212,19 +212,12 @@ static unsigned int max_miplevel_count(const D3D12_RESOURCE_DESC1 *desc)
 static const struct vkd3d_format_compatibility_list *vkd3d_get_format_compatibility_list(
         const struct d3d12_device *device, DXGI_FORMAT dxgi_format)
 {
-    DXGI_FORMAT typeless_format;
-    unsigned int i;
+    const struct vkd3d_format_compatibility_list *list = &device->format_compatibility_lists[dxgi_format];
 
-    if (!(typeless_format = vkd3d_get_typeless_format(device, dxgi_format)))
-        typeless_format = dxgi_format;
+    if (list->format_count < 2)
+        return NULL;
 
-    for (i = 0; i < device->format_compatibility_list_count; ++i)
-    {
-        if (device->format_compatibility_lists[i].typeless_format == typeless_format)
-            return &device->format_compatibility_lists[i];
-    }
-
-    return NULL;
+    return list;
 }
 
 static bool vkd3d_is_linear_tiling_supported(const struct d3d12_device *device, VkImageCreateInfo *image_info)

@@ -153,13 +153,13 @@ static const struct vkd3d_format vkd3d_depth_stencil_formats[] =
 #undef SINT
 #undef UINT
 
-static const struct vkd3d_format_compatibility_info_2
+static const struct dxgi_format_compatibility_list
 {
     DXGI_FORMAT image_format;
     DXGI_FORMAT view_formats[VKD3D_MAX_COMPATIBLE_FORMAT_COUNT];
     DXGI_FORMAT uint_format; /* for ClearUAVUint */
 }
-vkd3d_format_compatibility_info_2[] =
+dxgi_format_compatibility_list[] =
 {
     {DXGI_FORMAT_R32G32B32A32_TYPELESS,
             {DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_R32G32B32A32_UINT, DXGI_FORMAT_R32G32B32A32_SINT},
@@ -485,34 +485,25 @@ vkd3d_format_compatibility_info[] =
     {DXGI_FORMAT_B8G8R8X8_UNORM,           DXGI_FORMAT_B8G8R8X8_TYPELESS},
 };
 
-static bool dxgi_format_is_depth_stencil(DXGI_FORMAT dxgi_format)
+void vkd3d_format_compatibility_list_add_format(struct vkd3d_format_compatibility_list *list, VkFormat vk_format)
 {
     unsigned int i;
+    bool found = false;
 
-    for (i = 0; i < ARRAY_SIZE(vkd3d_formats); ++i)
+    for (i = 0; i < list->format_count && !found; i++)
+        found = list->vk_formats[i] == vk_format;
+
+    if (!found)
     {
-        const struct vkd3d_format *current = &vkd3d_formats[i];
-
-        if (current->dxgi_format == dxgi_format)
-            return current->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT);
+        assert(list->format_count < ARRAY_SIZE(list->vk_formats));
+        list->vk_formats[list->format_count++] = vk_format;
     }
-
-    for (i = 0; i < ARRAY_SIZE(vkd3d_depth_stencil_formats); ++i)
-    {
-        if (vkd3d_depth_stencil_formats[i].dxgi_format == dxgi_format)
-            return true;
-    }
-
-    return false;
 }
 
-/* FIXME: This table should be generated at compile-time. */
 static HRESULT vkd3d_init_format_compatibility_lists(struct d3d12_device *device)
 {
-    struct vkd3d_format_compatibility_list *lists, *current_list;
-    const struct vkd3d_format_compatibility_info *current;
-    DXGI_FORMAT dxgi_format;
-    VkFormat vk_format;
+    struct vkd3d_format_compatibility_list *lists, *dst;
+    const struct dxgi_format_compatibility_list *src;
     unsigned int count;
     unsigned int i, j;
 
@@ -522,62 +513,25 @@ static HRESULT vkd3d_init_format_compatibility_lists(struct d3d12_device *device
     if (!device->vk_info.KHR_image_format_list)
         return S_OK;
 
-    count = 1;
-    dxgi_format = vkd3d_format_compatibility_info[0].typeless_format;
-    for (i = 0; i < ARRAY_SIZE(vkd3d_format_compatibility_info); ++i)
-    {
-        DXGI_FORMAT typeless_format = vkd3d_format_compatibility_info[i].typeless_format;
-
-        if (dxgi_format != typeless_format)
-        {
-            ++count;
-            dxgi_format = typeless_format;
-        }
-    }
+    count = 0;
+    for (i = 0; i < ARRAY_SIZE(dxgi_format_compatibility_list); ++i)
+        count = max(count, dxgi_format_compatibility_list[i].image_format + 1);
 
     if (!(lists = vkd3d_calloc(count, sizeof(*lists))))
         return E_OUTOFMEMORY;
 
-    count = 0;
-    current_list = lists;
-    current_list->typeless_format = vkd3d_format_compatibility_info[0].typeless_format;
-    for (i = 0; i < ARRAY_SIZE(vkd3d_format_compatibility_info); ++i)
+    for (i = 0; i < ARRAY_SIZE(dxgi_format_compatibility_list); ++i)
     {
-        current = &vkd3d_format_compatibility_info[i];
+        src = &dxgi_format_compatibility_list[i];
+        dst = &lists[src->image_format];
 
-        if (current_list->typeless_format != current->typeless_format)
-        {
-            /* Avoid empty format lists. */
-            if (current_list->format_count)
-            {
-                ++current_list;
-                ++count;
-            }
+        dst->uint_format = src->uint_format;
+        dst->vk_formats[dst->format_count++] = vkd3d_get_vk_format(src->image_format);
 
-            current_list->typeless_format = current->typeless_format;
-        }
-
-        /* In Vulkan, each depth-stencil format is only compatible with itself. */
-        if (dxgi_format_is_depth_stencil(current->format))
-            continue;
-
-        if (!(vk_format = vkd3d_get_vk_format(current->format)))
-            continue;
-
-        for (j = 0; j < current_list->format_count; ++j)
-        {
-            if (current_list->vk_formats[j] == vk_format)
-                break;
-        }
-
-        if (j >= current_list->format_count)
-        {
-            assert(current_list->format_count < VKD3D_MAX_COMPATIBLE_FORMAT_COUNT);
-            current_list->vk_formats[current_list->format_count++] = vk_format;
-        }
+        for (j = 0; j < ARRAY_SIZE(src->view_formats) && src->view_formats[j]; j++)
+            vkd3d_format_compatibility_list_add_format(dst, vkd3d_get_vk_format(src->view_formats[j]));
     }
-    if (current_list->format_count)
-        ++count;
+
 
     device->format_compatibility_list_count = count;
     device->format_compatibility_lists = lists;
