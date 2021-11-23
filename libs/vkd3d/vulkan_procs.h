@@ -293,6 +293,12 @@ VK_DEVICE_EXT_PFN(vkCmdCuLaunchKernelNVX)
 VK_DEVICE_EXT_PFN(vkGetImageViewHandleNVX)
 VK_DEVICE_EXT_PFN(vkGetImageViewAddressNVX)
 
+/* VK_NV_device_generated_commands */
+VK_DEVICE_EXT_PFN(vkCreateIndirectCommandsLayoutNV)
+VK_DEVICE_EXT_PFN(vkDestroyIndirectCommandsLayoutNV)
+VK_DEVICE_EXT_PFN(vkGetGeneratedCommandsMemoryRequirementsNV)
+VK_DEVICE_EXT_PFN(vkCmdExecuteGeneratedCommandsNV)
+
 #undef VK_INSTANCE_PFN
 #undef VK_INSTANCE_EXT_PFN
 #undef VK_DEVICE_PFN
