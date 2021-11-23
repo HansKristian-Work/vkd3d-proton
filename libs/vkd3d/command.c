@@ -9205,6 +9205,218 @@ STATIC_ASSERT(sizeof(VkDispatchIndirectCommand) == sizeof(D3D12_DISPATCH_ARGUMEN
 STATIC_ASSERT(sizeof(VkDrawIndexedIndirectCommand) == sizeof(D3D12_DRAW_INDEXED_ARGUMENTS));
 STATIC_ASSERT(sizeof(VkDrawIndirectCommand) == sizeof(D3D12_DRAW_ARGUMENTS));
 
+static HRESULT d3d12_command_signature_allocate_stream_memory_for_list(
+        struct d3d12_command_list *list,
+        struct d3d12_command_signature *signature,
+        uint32_t max_command_count,
+        struct vkd3d_scratch_allocation *allocation);
+
+static HRESULT d3d12_command_signature_allocate_preprocess_memory_for_list(
+        struct d3d12_command_list *list,
+        struct d3d12_command_signature *signature, VkPipeline render_pipeline,
+        uint32_t max_command_count,
+        struct vkd3d_scratch_allocation *allocation, VkDeviceSize *size);
+
+static void d3d12_command_list_execute_indirect_state_template(
+        struct d3d12_command_list *list, struct d3d12_command_signature *signature,
+        uint32_t max_command_count,
+        struct d3d12_resource *arg_buffer, UINT64 arg_buffer_offset,
+        struct d3d12_resource *count_buffer, UINT64 count_buffer_offset)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct vkd3d_scratch_allocation preprocess_allocation;
+    struct vkd3d_scratch_allocation stream_allocation;
+    struct vkd3d_scratch_allocation count_allocation;
+    struct vkd3d_execute_indirect_args patch_args;
+    VkGeneratedCommandsInfoNV generated;
+    VkIndirectCommandsStreamNV stream;
+    VkDeviceSize preprocess_size;
+    VkPipeline current_pipeline;
+    VkMemoryBarrier barrier;
+    unsigned int i;
+    HRESULT hr;
+
+    /* To build device generated commands, we need to know the pipeline we're going to render with. */
+    if (!d3d12_command_list_update_graphics_pipeline(list))
+        return;
+    current_pipeline = list->current_pipeline;
+
+    /* FIXME: If we're forced to emit non-dynamic vertex strides, and the indirect state
+     * wants to emit dynamic VBOs (dynamic stride), can that possibly work? Extremely unlikely to
+     * actually happen in practice, but something to consider for later ... */
+
+    /* TODO: If we can prove that there have been no transitions to INDIRECT state,
+     * we can hoist all patch jobs to the beginning of the command buffer and build a fixup
+     * command buffer that batches everything. For now, take the slow path always. */
+    d3d12_command_list_end_current_render_pass(list, true);
+    d3d12_command_list_invalidate_current_pipeline(list, true);
+
+    memset(&patch_args, 0, sizeof(patch_args));
+    if (FAILED(hr = d3d12_command_signature_allocate_preprocess_memory_for_list(
+            list, signature, current_pipeline,
+            max_command_count, &preprocess_allocation, &preprocess_size)))
+    {
+        WARN("Failed to allocate preprocess memory.\n");
+        return;
+    }
+
+    if (FAILED(hr = d3d12_command_signature_allocate_stream_memory_for_list(
+            list, signature, max_command_count, &stream_allocation)))
+    {
+        WARN("Failed to allocate stream memory.\n");
+        return;
+    }
+
+    if (count_buffer)
+    {
+        if (FAILED(hr = d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+                sizeof(uint32_t),
+                list->device->device_info.device_generated_commands_properties_nv.minSequencesCountBufferOffsetAlignment,
+                &count_allocation)))
+        {
+            WARN("Failed to allocate count memory.\n");
+            return;
+        }
+    }
+
+    patch_args.template_va = signature->state_template.buffer_va;
+    patch_args.api_buffer_va = d3d12_resource_get_va(arg_buffer, arg_buffer_offset);
+    patch_args.device_generated_commands_va = stream_allocation.va;
+    patch_args.indirect_count_va = count_buffer ? d3d12_resource_get_va(count_buffer, count_buffer_offset) : 0;
+    patch_args.dst_indirect_count_va = count_buffer ? count_allocation.va : 0;
+    patch_args.api_buffer_word_stride = signature->desc.ByteStride / sizeof(uint32_t);
+    patch_args.device_generated_commands_word_stride = signature->state_template.stride / sizeof(uint32_t);
+
+    VK_CALL(vkCmdPushConstants(list->vk_command_buffer, signature->state_template.pipeline.vk_pipeline_layout,
+            VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(patch_args), &patch_args));
+    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+            signature->state_template.pipeline.vk_pipeline));
+
+    /* TODO: We can batch the {prologue barrier} { work } { work } ... {epilogue barrier} later. */
+    /* The argument buffer and indirect count buffers are in indirect state, but we'll need to read it. */
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    barrier.pNext = NULL;
+
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier, 0, NULL, 0, NULL));
+
+    /* One workgroup processes the patching for one draw. We could potentially use indirect dispatch
+     * to restrict the patching work to just the indirect count, but meh, just more barriers.
+     * We'll nop out the workgroup early based on direct count, and the number of threads should be trivial either way. */
+    VK_CALL(vkCmdDispatch(list->vk_command_buffer, max_command_count, 1, 1));
+
+    barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_COMMAND_PREPROCESS_READ_BIT_NV | VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_COMMAND_PREPROCESS_BIT_NV,
+            0, 1, &barrier, 0, NULL, 0, NULL));
+
+    if (!d3d12_command_list_begin_render_pass(list))
+    {
+        WARN("Failed to begin render pass, ignoring draw.\n");
+        return;
+    }
+
+    /* Bind IBO. If we always update the IBO indirectly, do not validate the index buffer here.
+     * We can render fine even with a NULL IBO bound. */
+    for (i = 0; i < signature->desc.NumArgumentDescs; i++)
+        if (signature->desc.pArgumentDescs[i].Type == D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW)
+            break;
+
+    if (i == signature->desc.NumArgumentDescs &&
+            signature->desc.pArgumentDescs[signature->desc.NumArgumentDescs - 1].Type ==
+                    D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED &&
+            !d3d12_command_list_update_index_buffer(list))
+    {
+        return;
+    }
+
+    generated.sType = VK_STRUCTURE_TYPE_GENERATED_COMMANDS_INFO_NV;
+    generated.pNext = NULL;
+    generated.pipeline = list->current_pipeline;
+    generated.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    generated.indirectCommandsLayout = signature->state_template.layout;
+    generated.streamCount = 1;
+    generated.pStreams = &stream;
+    generated.preprocessBuffer = preprocess_allocation.buffer;
+    generated.preprocessOffset = preprocess_allocation.offset;
+    generated.preprocessSize = preprocess_size;
+    generated.sequencesCount = max_command_count;
+    generated.sequencesIndexBuffer = VK_NULL_HANDLE;
+    generated.sequencesIndexOffset = 0;
+
+    if (count_buffer)
+    {
+        generated.sequencesCountBuffer = count_allocation.buffer;
+        generated.sequencesCountOffset = count_allocation.offset;
+    }
+    else
+    {
+        generated.sequencesCountBuffer = VK_NULL_HANDLE;
+        generated.sequencesCountOffset = 0;
+    }
+
+    stream.buffer = stream_allocation.buffer;
+    stream.offset = stream_allocation.offset;
+
+    VK_CALL(vkCmdExecuteGeneratedCommandsNV(list->vk_command_buffer, VK_FALSE, &generated));
+
+    /* Need to clear state to zero if it was part of a command signature. */
+    for (i = 0; i < signature->desc.NumArgumentDescs; i++)
+    {
+        const D3D12_INDIRECT_ARGUMENT_DESC *arg = &signature->desc.pArgumentDescs[i];
+        switch (arg->Type)
+        {
+            case D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW:
+                /* Null IBO */
+                list->index_buffer.is_non_null = false;
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW:
+            {
+                /* Null VBO */
+                uint32_t slot = arg->VertexBuffer.Slot;
+                list->dynamic_state.vertex_buffers[slot] = VK_NULL_HANDLE;
+                list->dynamic_state.vertex_strides[slot] = 0;
+                list->dynamic_state.vertex_offsets[slot] = 0;
+                list->dynamic_state.vertex_sizes[slot] = 0;
+                break;
+            }
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT_BUFFER_VIEW:
+            case D3D12_INDIRECT_ARGUMENT_TYPE_SHADER_RESOURCE_VIEW:
+            case D3D12_INDIRECT_ARGUMENT_TYPE_UNORDERED_ACCESS_VIEW:
+            {
+                uint32_t index = arg->ConstantBufferView.RootParameterIndex;
+                d3d12_command_list_set_root_descriptor(list,
+                        VK_PIPELINE_BIND_POINT_GRAPHICS, index, 0);
+                break;
+            }
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT:
+            {
+                uint32_t zeroes[D3D12_MAX_ROOT_COST];
+                memset(zeroes, 0, sizeof(uint32_t) * arg->Constant.Num32BitValuesToSet);
+                d3d12_command_list_set_root_constants(list,
+                        VK_PIPELINE_BIND_POINT_GRAPHICS, arg->Constant.RootParameterIndex,
+                        arg->Constant.DestOffsetIn32BitValues,
+                        arg->Constant.Num32BitValuesToSet, zeroes);
+                break;
+            }
+
+            default:
+                break;
+        }
+    }
+
+    /* Spec mentions that all state related to the bind point is undefined after this, so
+     * invalidate all state. Unclear exactly which state is invalidated though ...
+     * Treat it as a meta shader. We need to nuke all state after running execute generated commands. */
+    d3d12_command_list_invalidate_all_state(list);
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_list_iface *iface,
         ID3D12CommandSignature *command_signature, UINT max_command_count, ID3D12Resource *arg_buffer,
         UINT64 arg_buffer_offset, ID3D12Resource *count_buffer, UINT64 count_buffer_offset)
@@ -9223,9 +9435,24 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
             iface, command_signature, max_command_count, arg_buffer, arg_buffer_offset,
             count_buffer, count_buffer_offset);
 
+    if (!max_command_count)
+        return;
+
     if ((count_buffer || list->predicate_va) && !list->device->vk_info.KHR_draw_indirect_count)
     {
         FIXME("Count buffers not supported by Vulkan implementation.\n");
+        return;
+    }
+
+    if (sig_impl->requires_state_template)
+    {
+        /* Complex execute indirect path. */
+        if (list->predicate_va)
+            FIXME("Predicated ExecuteIndirect with state template not supported yet. Ignoring predicate.\n");
+        d3d12_command_list_execute_indirect_state_template(list, sig_impl,
+                max_command_count,
+                arg_impl, arg_buffer_offset,
+                count_impl, count_buffer_offset);
         return;
     }
 
@@ -11838,6 +12065,22 @@ static ULONG STDMETHODCALLTYPE d3d12_command_signature_AddRef(ID3D12CommandSigna
     return refcount;
 }
 
+static void d3d12_command_signature_cleanup(struct d3d12_command_signature *signature)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &signature->device->vk_procs;
+
+    if (signature->device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
+    {
+        VK_CALL(vkDestroyBuffer(signature->device->vk_device, signature->state_template.buffer, NULL));
+        vkd3d_free_device_memory(signature->device, &signature->state_template.memory);
+        VK_CALL(vkDestroyIndirectCommandsLayoutNV(signature->device->vk_device, signature->state_template.layout, NULL));
+    }
+
+    vkd3d_private_store_destroy(&signature->private_store);
+    vkd3d_free((void *)signature->desc.pArgumentDescs);
+    vkd3d_free(signature);
+}
+
 static ULONG STDMETHODCALLTYPE d3d12_command_signature_Release(ID3D12CommandSignature *iface)
 {
     struct d3d12_command_signature *signature = impl_from_ID3D12CommandSignature(iface);
@@ -11848,12 +12091,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_signature_Release(ID3D12CommandSign
     if (!refcount)
     {
         struct d3d12_device *device = signature->device;
-
-        vkd3d_private_store_destroy(&signature->private_store);
-
-        vkd3d_free((void *)signature->desc.pArgumentDescs);
-        vkd3d_free(signature);
-
+        d3d12_command_signature_cleanup(signature);
         d3d12_device_release(device);
     }
 
@@ -11916,12 +12154,341 @@ CONST_VTBL struct ID3D12CommandSignatureVtbl d3d12_command_signature_vtbl =
     d3d12_command_signature_GetDevice,
 };
 
+enum vkd3d_patch_command_token
+{
+    VKD3D_PATCH_COMMAND_TOKEN_COPY_U32 = 0,
+    VKD3D_PATCH_COMMAND_TOKEN_COPY_INDEX_FORMAT = 1,
+    VKD3D_PATCH_COMMAND_INT_MAX = 0x7fffffff
+};
+
+struct vkd3d_patch_command
+{
+    enum vkd3d_patch_command_token token;
+    uint32_t src_offset;
+    uint32_t dst_offset;
+};
+
+static HRESULT d3d12_command_signature_init_patch_commands_buffer(struct d3d12_command_signature *signature,
+        struct d3d12_device *device,
+        const struct vkd3d_patch_command *commands, size_t command_count)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    D3D12_RESOURCE_DESC1 buffer_desc;
+    D3D12_HEAP_PROPERTIES heap_info;
+    HRESULT hr = S_OK;
+    VkResult vr;
+    void *ptr;
+
+    memset(&heap_info, 0, sizeof(heap_info));
+    heap_info.Type = D3D12_HEAP_TYPE_UPLOAD;
+    memset(&buffer_desc, 0, sizeof(buffer_desc));
+    buffer_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    buffer_desc.Width = command_count * sizeof(struct vkd3d_patch_command);
+    buffer_desc.Height = 1;
+    buffer_desc.DepthOrArraySize = 1;
+    buffer_desc.SampleDesc.Count = 1;
+    buffer_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    buffer_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    if (FAILED(hr = vkd3d_create_buffer(device, &heap_info, D3D12_HEAP_FLAG_NONE,
+            &buffer_desc, &signature->state_template.buffer)))
+        return hr;
+
+    if (FAILED(hr = vkd3d_allocate_buffer_memory(device, signature->state_template.buffer,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &signature->state_template.memory)))
+        return hr;
+
+    signature->state_template.buffer_va = vkd3d_get_buffer_device_address(device,
+            signature->state_template.buffer);
+
+    if ((vr = VK_CALL(vkMapMemory(device->vk_device, signature->state_template.memory.vk_memory,
+            0, VK_WHOLE_SIZE, 0, (void**)&ptr))))
+        return hr;
+
+    memcpy(ptr, commands, command_count * sizeof(struct vkd3d_patch_command));
+    VK_CALL(vkUnmapMemory(device->vk_device, signature->state_template.memory.vk_memory));
+
+    return hr;
+}
+
+static HRESULT d3d12_command_signature_init_indirect_commands_layout(
+        struct d3d12_command_signature *signature, struct d3d12_device *device,
+        const VkIndirectCommandsLayoutTokenNV *tokens, uint32_t token_count,
+        uint32_t stream_stride)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkIndirectCommandsLayoutCreateInfoNV create_info;
+    VkResult vr;
+
+    create_info.sType = VK_STRUCTURE_TYPE_INDIRECT_COMMANDS_LAYOUT_CREATE_INFO_NV;
+    create_info.pNext = NULL;
+    create_info.flags = 0;
+    create_info.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    create_info.streamCount = 1;
+    create_info.pStreamStrides = &stream_stride;
+    create_info.tokenCount = token_count;
+    create_info.pTokens = tokens;
+
+    signature->state_template.stride = stream_stride;
+
+    if (token_count > device->device_info.device_generated_commands_properties_nv.maxIndirectCommandsTokenCount)
+    {
+        FIXME("Token count %u is too large (max %u).\n",
+                token_count, device->device_info.device_generated_commands_properties_nv.maxIndirectCommandsTokenCount);
+        return E_NOTIMPL;
+    }
+
+    vr = VK_CALL(vkCreateIndirectCommandsLayoutNV(device->vk_device, &create_info, NULL, &signature->state_template.layout));
+    return hresult_from_vk_result(vr);
+}
+
+static HRESULT d3d12_command_signature_allocate_stream_memory_for_list(
+        struct d3d12_command_list *list,
+        struct d3d12_command_signature *signature,
+        uint32_t max_command_count,
+        struct vkd3d_scratch_allocation *allocation)
+{
+    if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+            max_command_count * signature->state_template.stride,
+            list->device->device_info.device_generated_commands_properties_nv.minIndirectCommandsBufferOffsetAlignment,
+            allocation))
+        return E_OUTOFMEMORY;
+
+    return S_OK;
+}
+
+static HRESULT d3d12_command_signature_allocate_preprocess_memory_for_list(
+        struct d3d12_command_list *list,
+        struct d3d12_command_signature *signature, VkPipeline render_pipeline,
+        uint32_t max_command_count,
+        struct vkd3d_scratch_allocation *allocation, VkDeviceSize *size)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkGeneratedCommandsMemoryRequirementsInfoNV info;
+    VkMemoryRequirements2 memory_info;
+
+    memory_info.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
+    memory_info.pNext = NULL;
+
+    info.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    info.sType = VK_STRUCTURE_TYPE_GENERATED_COMMANDS_MEMORY_REQUIREMENTS_INFO_NV;
+    info.pNext = NULL;
+    info.maxSequencesCount = max_command_count;
+    info.pipeline = render_pipeline;
+    info.indirectCommandsLayout = signature->state_template.layout;
+
+    if (max_command_count > list->device->device_info.device_generated_commands_properties_nv.maxIndirectSequenceCount)
+    {
+        FIXME("max_command_count %u exceeds device limit %u.\n",
+                max_command_count,
+                list->device->device_info.device_generated_commands_properties_nv.maxIndirectSequenceCount);
+        return E_NOTIMPL;
+    }
+
+    VK_CALL(vkGetGeneratedCommandsMemoryRequirementsNV(list->device->vk_device, &info, &memory_info));
+
+    if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator, memory_info.memoryRequirements.size,
+            list->device->device_info.device_generated_commands_properties_nv.minIndirectCommandsBufferOffsetAlignment,
+            allocation))
+        return E_OUTOFMEMORY;
+
+    /* Going to assume the memory type is okay ... It's device local after all. */
+    *size = memory_info.memoryRequirements.size;
+    return S_OK;
+}
+
+static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_signature *signature,
+        const D3D12_COMMAND_SIGNATURE_DESC *desc,
+        struct d3d12_root_signature *root_signature,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_shader_root_parameter *root_parameter;
+    const struct vkd3d_shader_root_constant *root_constant;
+    struct vkd3d_patch_command *patch_commands = NULL;
+    VkIndirectCommandsLayoutTokenNV *tokens = NULL;
+    VkIndirectCommandsLayoutTokenNV token;
+    uint32_t generic_u32_copy_count;
+    size_t patch_commands_count = 0;
+    size_t patch_commands_size = 0;
+    uint32_t root_parameter_index;
+    uint32_t src_word_offset = 0;
+    uint32_t stream_stride = 0;
+    uint32_t dst_word_offset;
+    size_t token_count = 0;
+    size_t token_size = 0;
+    HRESULT hr = S_OK;
+    uint32_t i, j;
+
+    if (!device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
+    {
+        WARN("Device generated commands not supported, indirect state commands will be ignored.\n");
+        return S_OK;
+    }
+
+    for (i = 0; i < desc->NumArgumentDescs; i++)
+    {
+        const D3D12_INDIRECT_ARGUMENT_DESC *argument_desc = &desc->pArgumentDescs[i];
+        memset(&token, 0, sizeof(token));
+        token.sType = VK_STRUCTURE_TYPE_INDIRECT_COMMANDS_LAYOUT_TOKEN_NV;
+        generic_u32_copy_count = 0;
+        dst_word_offset = 0;
+
+        switch (argument_desc->Type)
+        {
+            case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT:
+                root_parameter_index = argument_desc->Constant.RootParameterIndex;
+                root_constant = root_signature_get_32bit_constants(root_signature, root_parameter_index);
+                token.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_CONSTANT_NV;
+                token.pushconstantPipelineLayout = root_signature->graphics.vk_pipeline_layout;
+                token.pushconstantShaderStageFlags = root_signature->graphics.vk_push_stages;
+                token.pushconstantOffset = root_constant->constant_index + argument_desc->Constant.DestOffsetIn32BitValues;
+                token.pushconstantSize = argument_desc->Constant.Num32BitValuesToSet;
+                token.pushconstantOffset *= sizeof(uint32_t);
+                token.pushconstantSize *= sizeof(uint32_t);
+
+                stream_stride = align(stream_stride, sizeof(uint32_t));
+                token.offset = stream_stride;
+                stream_stride += token.pushconstantSize;
+                dst_word_offset = token.offset / sizeof(uint32_t);
+
+                generic_u32_copy_count = argument_desc->Constant.Num32BitValuesToSet;
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_UNORDERED_ACCESS_VIEW:
+            case D3D12_INDIRECT_ARGUMENT_TYPE_SHADER_RESOURCE_VIEW:
+            case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT_BUFFER_VIEW:
+                root_parameter_index = argument_desc->ShaderResourceView.RootParameterIndex;
+                root_parameter = root_signature_get_parameter(root_signature, root_parameter_index);
+                if (!(root_signature->root_descriptor_raw_va_mask & (1ull << root_parameter_index)))
+                {
+                    ERR("Root parameter %u is not a raw VA. Cannot implement command signature which updates root descriptor.\n",
+                            root_parameter_index);
+                    hr = E_NOTIMPL;
+                    goto end;
+                }
+
+                token.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_CONSTANT_NV;
+                token.pushconstantPipelineLayout = root_signature->graphics.vk_pipeline_layout;
+                token.pushconstantShaderStageFlags = root_signature->graphics.vk_push_stages;
+                token.pushconstantOffset = root_parameter->descriptor.raw_va_root_descriptor_index * sizeof(VkDeviceAddress);
+                token.pushconstantSize = sizeof(VkDeviceAddress);
+
+                stream_stride = align(stream_stride, sizeof(uint32_t));
+                token.offset = stream_stride;
+                stream_stride += token.pushconstantSize;
+                dst_word_offset = token.offset / sizeof(uint32_t);
+
+                /* Simply patch by copying U32s. Need to handle unaligned U32s since everything is tightly packed. */
+                generic_u32_copy_count = sizeof(VkDeviceAddress) / sizeof(uint32_t);
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW:
+                token.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_VERTEX_BUFFER_NV;
+                token.vertexBindingUnit = argument_desc->VertexBuffer.Slot;
+                token.vertexDynamicStride = VK_TRUE;
+
+                stream_stride = align(stream_stride, sizeof(VkDeviceAddress));
+                token.offset = stream_stride;
+                stream_stride += sizeof(VkBindVertexBufferIndirectCommandNV);
+                dst_word_offset = token.offset / sizeof(uint32_t);
+
+                /* The VBV indirect layout is the same as DX, so just copy the U32s. */
+                generic_u32_copy_count = sizeof(D3D12_VERTEX_BUFFER_VIEW) / sizeof(uint32_t);
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW:
+                token.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_INDEX_BUFFER_NV;
+                stream_stride = align(stream_stride, sizeof(VkDeviceAddress));
+                token.offset = stream_stride;
+                stream_stride += sizeof(VkBindVertexBufferIndirectCommandNV);
+                dst_word_offset = token.offset / sizeof(uint32_t);
+
+                /* Need to convert the index buffer type. Could maybe use the pIndexTypes LUT feature,
+                 * but we'd need a pretty chonkers LUT to make that work ... */
+                vkd3d_array_reserve((void**)&patch_commands, &patch_commands_size,
+                        patch_commands_count + sizeof(D3D12_INDEX_BUFFER_VIEW) / sizeof(uint32_t),
+                        sizeof(*patch_commands));
+
+                for (j = 0; j < 3; j++)
+                {
+                    patch_commands[patch_commands_count].token = VKD3D_PATCH_COMMAND_TOKEN_COPY_U32;
+                    patch_commands[patch_commands_count].src_offset = src_word_offset++;
+                    patch_commands[patch_commands_count].dst_offset = dst_word_offset++;
+                    patch_commands_count++;
+                }
+
+                patch_commands[patch_commands_count].token = VKD3D_PATCH_COMMAND_TOKEN_COPY_INDEX_FORMAT;
+                patch_commands[patch_commands_count].src_offset = src_word_offset++;
+                patch_commands[patch_commands_count].dst_offset = dst_word_offset++;
+                patch_commands_count++;
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW:
+                token.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_DRAW_NV;
+                stream_stride = align(stream_stride, sizeof(uint32_t));
+                token.offset = stream_stride;
+                stream_stride += sizeof(VkDrawIndirectCommand);
+                dst_word_offset = token.offset / sizeof(uint32_t);
+                generic_u32_copy_count = sizeof(VkDrawIndirectCommand) / sizeof(uint32_t);
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED:
+                token.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_DRAW_INDEXED_NV;
+                stream_stride = align(stream_stride, sizeof(uint32_t));
+                token.offset = stream_stride;
+                stream_stride += sizeof(VkDrawIndexedIndirectCommand);
+                dst_word_offset = token.offset / sizeof(uint32_t);
+                generic_u32_copy_count = sizeof(VkDrawIndexedIndirectCommand) / sizeof(uint32_t);
+                break;
+
+            default:
+                FIXME("Unsupported token type %u.\n", argument_desc->Type);
+                hr = E_NOTIMPL;
+                goto end;
+        }
+
+        vkd3d_array_reserve((void**)&tokens, &token_size, token_count + 1, sizeof(*tokens));
+        tokens[token_count++] = token;
+
+        if (generic_u32_copy_count)
+        {
+            vkd3d_array_reserve((void**)&patch_commands, &patch_commands_size,
+                    patch_commands_count + generic_u32_copy_count,
+                    sizeof(*patch_commands));
+
+            /* Simply patch by copying U32s. */
+            for (j = 0; j < generic_u32_copy_count; j++, patch_commands_count++)
+            {
+                patch_commands[patch_commands_count].token = VKD3D_PATCH_COMMAND_TOKEN_COPY_U32;
+                patch_commands[patch_commands_count].src_offset = src_word_offset++;
+                patch_commands[patch_commands_count].dst_offset = dst_word_offset++;
+            }
+        }
+    }
+
+    stream_stride = align(stream_stride, sizeof(VkDeviceAddress));
+
+    if (FAILED(hr = d3d12_command_signature_init_patch_commands_buffer(signature, device, patch_commands, patch_commands_count)))
+        goto end;
+    if (FAILED(hr = d3d12_command_signature_init_indirect_commands_layout(signature, device, tokens, token_count, stream_stride)))
+        goto end;
+    if (FAILED(hr = vkd3d_meta_get_execute_indirect_pipeline(&device->meta_ops, patch_commands_count, &signature->state_template.pipeline)))
+        goto end;
+
+end:
+    vkd3d_free(tokens);
+    vkd3d_free(patch_commands);
+    return hr;
+}
+
 HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12_root_signature *root_signature,
         const D3D12_COMMAND_SIGNATURE_DESC *desc,
         struct d3d12_command_signature **signature)
 {
     struct d3d12_command_signature *object;
     bool requires_root_signature = false;
+    bool requires_state_template = false;
     uint32_t argument_buffer_offset = 0;
     uint32_t signature_size = 0;
     bool has_action = false;
@@ -11958,41 +12525,39 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
                 argument_buffer_offset = signature_size;
                 signature_size += sizeof(D3D12_DISPATCH_RAYS_DESC);
                 is_action = true;
-                FIXME("Unsupported indirect dispatch rays.\n");
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH:
                 argument_buffer_offset = signature_size;
                 signature_size += sizeof(D3D12_DISPATCH_MESH_ARGUMENTS);
                 is_action = true;
-                FIXME("Unsupported indirect dispatch mesh.\n");
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT:
                 requires_root_signature = true;
+                requires_state_template = true;
                 signature_size += argument_desc->Constant.Num32BitValuesToSet * sizeof(uint32_t);
-                FIXME("Unsupported indirect argument type CONSTANT.\n");
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_SHADER_RESOURCE_VIEW:
             case D3D12_INDIRECT_ARGUMENT_TYPE_UNORDERED_ACCESS_VIEW:
             case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT_BUFFER_VIEW:
                 requires_root_signature = true;
+                requires_state_template = true;
                 /* The command signature payload is *not* aligned. */
                 signature_size += sizeof(D3D12_GPU_VIRTUAL_ADDRESS);
-                FIXME("Unsupported indirect root descriptor type: %u.\n", argument_desc->Type);
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW:
                 /* The command signature payload is *not* aligned. */
                 signature_size += sizeof(D3D12_VERTEX_BUFFER_VIEW);
-                FIXME("Unsupported indirect VBV.\n");
+                requires_state_template = true;
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW:
                 /* The command signature payload is *not* aligned. */
                 signature_size += sizeof(D3D12_INDEX_BUFFER_VIEW);
-                FIXME("Unsupported indirect IBV.\n");
+                requires_state_template = true;
                 break;
 
             default:
@@ -12042,11 +12607,10 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
         return E_INVALIDARG;
     }
 
-    if (!(object = vkd3d_malloc(sizeof(*object))))
+    if (!(object = vkd3d_calloc(1, sizeof(*object))))
         return E_OUTOFMEMORY;
 
     object->ID3D12CommandSignature_iface.lpVtbl = &d3d12_command_signature_vtbl;
-    object->argument_buffer_offset = argument_buffer_offset;
     object->refcount = 1;
 
     object->desc = *desc;
@@ -12064,6 +12628,18 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
         vkd3d_free(object);
         return hr;
     }
+
+    if ((object->requires_state_template = requires_state_template))
+    {
+        if (FAILED(hr = d3d12_command_signature_init_state_template(object, desc, root_signature, device)))
+        {
+            vkd3d_free((void *)object->desc.pArgumentDescs);
+            vkd3d_free(object);
+            return hr;
+        }
+    }
+    else
+        object->argument_buffer_offset = argument_buffer_offset;
 
     d3d12_device_add_ref(object->device = device);
 
