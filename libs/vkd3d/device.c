@@ -125,6 +125,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(NV_FRAGMENT_SHADER_BARYCENTRIC, NV_fragment_shader_barycentric),
     VK_EXTENSION(NV_COMPUTE_SHADER_DERIVATIVES, NV_compute_shader_derivatives),
     VK_EXTENSION_COND(NV_DEVICE_DIAGNOSTIC_CHECKPOINTS, NV_device_diagnostic_checkpoints, VKD3D_CONFIG_FLAG_BREADCRUMBS),
+    VK_EXTENSION(NV_DEVICE_GENERATED_COMMANDS, NV_device_generated_commands),
     /* VALVE extensions */
     VK_EXTENSION(VALVE_MUTABLE_DESCRIPTOR_TYPE, VALVE_mutable_descriptor_type),
     VK_EXTENSION(VALVE_DESCRIPTOR_SET_HOST_MAPPING, VALVE_descriptor_set_host_mapping),
@@ -1410,6 +1411,16 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->compute_shader_derivatives_features_nv.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COMPUTE_SHADER_DERIVATIVES_FEATURES_NV;
         vk_prepend_struct(&info->features2, &info->compute_shader_derivatives_features_nv);
+    }
+
+    if (vulkan_info->NV_device_generated_commands)
+    {
+        info->device_generated_commands_features_nv.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_GENERATED_COMMANDS_FEATURES_NV;
+        info->device_generated_commands_properties_nv.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_GENERATED_COMMANDS_PROPERTIES_NV;
+        vk_prepend_struct(&info->features2, &info->device_generated_commands_features_nv);
+        vk_prepend_struct(&info->properties2, &info->device_generated_commands_properties_nv);
     }
 
     if (vulkan_info->KHR_shader_atomic_int64)

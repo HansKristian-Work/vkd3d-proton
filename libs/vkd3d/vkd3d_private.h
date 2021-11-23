@@ -171,6 +171,7 @@ struct vkd3d_vulkan_info
     bool NV_fragment_shader_barycentric;
     bool NV_compute_shader_derivatives;
     bool NV_device_diagnostic_checkpoints;
+    bool NV_device_generated_commands;
     /* VALVE extensions */
     bool VALVE_mutable_descriptor_type;
     bool VALVE_descriptor_set_host_mapping;
@@ -3077,6 +3078,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceShaderIntegerDotProductPropertiesKHR shader_integer_dot_product_properties;
     VkPhysicalDeviceDriverPropertiesKHR driver_properties;
     VkPhysicalDeviceMaintenance4PropertiesKHR maintenance4_properties;
+    VkPhysicalDeviceDeviceGeneratedCommandsPropertiesNV device_generated_commands_properties_nv;
 
     VkPhysicalDeviceProperties2KHR properties2;
 
@@ -3121,6 +3123,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceCoherentMemoryFeaturesAMD device_coherent_memory_features_amd;
     VkPhysicalDeviceMaintenance4FeaturesKHR maintenance4_features;
     VkPhysicalDeviceRayTracingMaintenance1FeaturesKHR ray_tracing_maintenance1_features;
+    VkPhysicalDeviceDeviceGeneratedCommandsFeaturesNV device_generated_commands_features_nv;
 
     VkPhysicalDeviceFeatures2 features2;
 
