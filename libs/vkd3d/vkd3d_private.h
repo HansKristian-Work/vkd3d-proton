@@ -2383,6 +2383,18 @@ struct d3d12_command_signature
     D3D12_COMMAND_SIGNATURE_DESC desc;
     uint32_t argument_buffer_offset;
 
+    /* Complex command signatures require some work to stamp out device generated commands. */
+    struct
+    {
+        VkBuffer buffer;
+        VkDeviceAddress buffer_va;
+        struct vkd3d_device_memory_allocation memory;
+        VkIndirectCommandsLayoutNV layout;
+        uint32_t stride;
+        struct vkd3d_execute_indirect_info pipeline;
+    } state_template;
+    bool requires_state_template;
+
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
