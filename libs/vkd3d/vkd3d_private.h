@@ -2226,6 +2226,12 @@ HRESULT d3d12_command_queue_create(struct d3d12_device *device,
         const D3D12_COMMAND_QUEUE_DESC *desc, struct d3d12_command_queue **queue);
 void d3d12_command_queue_submit_stop(struct d3d12_command_queue *queue);
 
+struct vkd3d_execute_indirect_info
+{
+    VkPipelineLayout vk_pipeline_layout;
+    VkPipeline vk_pipeline;
+};
+
 /* ID3D12CommandSignature */
 struct d3d12_command_signature
 {
@@ -2656,6 +2662,37 @@ HRESULT vkd3d_predicate_ops_init(struct vkd3d_predicate_ops *meta_predicate_ops,
 void vkd3d_predicate_ops_cleanup(struct vkd3d_predicate_ops *meta_predicate_ops,
         struct d3d12_device *device);
 
+struct vkd3d_execute_indirect_args
+{
+    VkDeviceAddress template_va;
+    VkDeviceAddress api_buffer_va;
+    VkDeviceAddress device_generated_commands_va;
+    VkDeviceAddress indirect_count_va;
+    VkDeviceAddress dst_indirect_count_va;
+    uint32_t api_buffer_word_stride;
+    uint32_t device_generated_commands_word_stride;
+};
+
+struct vkd3d_execute_indirect_pipeline
+{
+    VkPipeline vk_pipeline;
+    uint32_t workgroup_size_x;
+};
+
+struct vkd3d_execute_indirect_ops
+{
+    VkPipelineLayout vk_pipeline_layout;
+    struct vkd3d_execute_indirect_pipeline *pipelines;
+    size_t pipelines_count;
+    size_t pipelines_size;
+    pthread_mutex_t mutex;
+};
+
+HRESULT vkd3d_execute_indirect_ops_init(struct vkd3d_execute_indirect_ops *meta_indirect_ops,
+        struct d3d12_device *device);
+void vkd3d_execute_indirect_ops_cleanup(struct vkd3d_execute_indirect_ops *meta_indirect_ops,
+        struct d3d12_device *device);
+
 struct vkd3d_meta_ops_common
 {
     VkShaderModule vk_module_fullscreen_vs;
@@ -2671,6 +2708,7 @@ struct vkd3d_meta_ops
     struct vkd3d_swapchain_ops swapchain;
     struct vkd3d_query_ops query;
     struct vkd3d_predicate_ops predicate;
+    struct vkd3d_execute_indirect_ops execute_indirect;
 };
 
 HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device);
@@ -2702,6 +2740,9 @@ bool vkd3d_meta_get_query_gather_pipeline(struct vkd3d_meta_ops *meta_ops,
 
 void vkd3d_meta_get_predicate_pipeline(struct vkd3d_meta_ops *meta_ops,
         enum vkd3d_predicate_command_type command_type, struct vkd3d_predicate_command_info *info);
+
+HRESULT vkd3d_meta_get_execute_indirect_pipeline(struct vkd3d_meta_ops *meta_ops,
+        uint32_t patch_command_count, struct vkd3d_execute_indirect_info *info);
 
 enum vkd3d_time_domain_flag
 {
