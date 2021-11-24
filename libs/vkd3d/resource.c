@@ -3546,6 +3546,8 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_t
     VkImageView vk_view = VK_NULL_HANDLE;
     VkImageViewCreateInfo view_desc;
     struct vkd3d_view *object;
+    uint32_t clamp_base_level;
+    uint32_t end_level;
     VkResult vr;
 
     view_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -3568,26 +3570,24 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_t
      * The clamp is absolute, and not affected by the baseMipLevel. */
     if (desc->miplevel_clamp <= (float)(desc->miplevel_idx + desc->miplevel_count - 1))
     {
-        if (device->device_info.image_view_min_lod_features.minLod)
+        if (desc->miplevel_clamp > (float)desc->miplevel_idx)
         {
-            min_lod_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_MIN_LOD_CREATE_INFO_EXT;
-            min_lod_desc.pNext = NULL;
-            min_lod_desc.minLod = desc->miplevel_clamp;
-            vk_prepend_struct(&view_desc, &min_lod_desc);
-        }
-        else
-        {
-            if (desc->miplevel_clamp != 0.0f)
-                FIXME_ONCE("Cannot handle MinResourceLOD clamp of %f correctly.\n", desc->miplevel_clamp);
-            /* This is not correct, but it's the best we can do without VK_EXT_image_view_min_lod.
-            * It should at least avoid a scenario where implicit LOD fetches from invalid levels. */
-            if (desc->miplevel_clamp >= 1.0f)
+            if (device->device_info.image_view_min_lod_features.minLod)
             {
-                uint32_t clamp_base_level = max((uint32_t)desc->miplevel_clamp, view_desc.subresourceRange.baseMipLevel);
-                uint32_t end_level = view_desc.subresourceRange.baseMipLevel + view_desc.subresourceRange.levelCount;
-                uint32_t new_base_level = min(end_level - 1, clamp_base_level);
-                view_desc.subresourceRange.levelCount = end_level - new_base_level;
-                view_desc.subresourceRange.baseMipLevel = new_base_level;
+                min_lod_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_MIN_LOD_CREATE_INFO_EXT;
+                min_lod_desc.pNext = NULL;
+                min_lod_desc.minLod = desc->miplevel_clamp;
+                vk_prepend_struct(&view_desc, &min_lod_desc);
+            }
+            else
+            {
+                FIXME_ONCE("Cannot handle MinResourceLOD clamp of %f correctly.\n", desc->miplevel_clamp);
+                /* This is not correct, but it's the best we can do without VK_EXT_image_view_min_lod.
+                 * It should at least avoid a scenario where implicit LOD fetches from invalid levels. */
+                clamp_base_level = (uint32_t)desc->miplevel_clamp;
+                end_level = view_desc.subresourceRange.baseMipLevel + view_desc.subresourceRange.levelCount;
+                view_desc.subresourceRange.levelCount = end_level - clamp_base_level;
+                view_desc.subresourceRange.baseMipLevel = clamp_base_level;
             }
         }
 
