@@ -923,6 +923,7 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
     struct vkd3d_shader_resource_binding *binding;
     VkDescriptorSetLayoutCreateFlags vk_flags;
     struct vkd3d_shader_root_parameter *param;
+    uint32_t raw_va_root_descriptor_count = 0;
     unsigned int hoisted_parameter_index;
     const D3D12_DESCRIPTOR_RANGE1 *range;
     unsigned int i, j, k;
@@ -1039,10 +1040,13 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
         param = &root_signature->parameters[i];
         param->parameter_type = p->ParameterType;
         param->descriptor.binding = binding;
+        param->descriptor.raw_va_root_descriptor_index = raw_va_root_descriptor_count;
 
         context->binding_index += 1;
 
-        if (!raw_va)
+        if (raw_va)
+            raw_va_root_descriptor_count += 1;
+        else
             context->vk_binding += 1;
     }
 
