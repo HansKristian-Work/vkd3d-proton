@@ -4707,3 +4707,157 @@ void test_typed_srv_uav_cast(void)
 
     destroy_test_context(&context);
 }
+
+void test_typed_srv_cast_clear(void)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS3 options3;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    struct test_context_desc test_desc;
+    D3D12_RENDER_TARGET_VIEW_DESC rtv;
+    D3D12_CLEAR_VALUE clear_value;
+    struct test_context context;
+    unsigned int test_iteration;
+    ID3D12DescriptorHeap *heap;
+    D3D12_RESOURCE_DESC desc;
+    ID3D12Resource *texture;
+    unsigned int i, j;
+    FLOAT colors[4];
+    bool fast_clear;
+
+    struct test
+    {
+        DXGI_FORMAT image;
+        DXGI_FORMAT view;
+        float clear_value;
+        float optimized_clear_value;
+        uint32_t expected_component;
+        uint32_t ulp;
+        bool is_radv_bug;
+    };
+
+    /* RADV currently misses some cases where fast clear triggers for signed <-> unsigned and we get weird results. */
+
+    static const struct test tests[] =
+    {
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_SINT, 0.0f, 0.0f, 0 },
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_SINT, 1.0f, 1.0f / 255.0f, 1 },
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_SINT, 127.0f, 127.0f / 255.0f, 0x7f, 0, true },
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_SINT, -128.0f, 128.0f / 255.0f, 0x80 },
+        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_SINT, 0.0f, 0.0f, 0 },
+        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_SINT, 127.0f, 127.0f, 0x7f, 0, true },
+        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_SINT, -128.0f, 128.0f, 0x80 },
+
+        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_SNORM, 0.0f, 0.0f, 0 },
+        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_SNORM, 1.0f, 127.0f / 255.0f, 0x7f, 0, true },
+        /* Could be 0x80 or 0x81 */
+        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_SNORM, -1.0f, 129.0f / 255.0f, 0x80, 1},
+
+        { DXGI_FORMAT_R8G8B8A8_SNORM, DXGI_FORMAT_R8G8B8A8_UINT, 0.0f, 0.0f, 0},
+        { DXGI_FORMAT_R8G8B8A8_SNORM, DXGI_FORMAT_R8G8B8A8_UINT, 255.0f, -1.0f / 127.0f, 0xff, 0, true },
+        /* AMD native drivers return 0x81 here. Seems broken, but NV and Intel do the right thing ... */
+        { DXGI_FORMAT_R8G8B8A8_SNORM, DXGI_FORMAT_R8G8B8A8_UINT, 128.0f, -1.0f, 0x80, 1 },
+        { DXGI_FORMAT_R8G8B8A8_SNORM, DXGI_FORMAT_R8G8B8A8_UINT, 129.0f, -1.0f, 0x81 },
+        { DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R8G8B8A8_UINT, 128.0f, -1.0f, 0x80 },
+        { DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R8G8B8A8_UINT, 129.0f, -1.0f, 0x81 },
+
+        { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UINT, 0.0f, 0.0f, 0 },
+        { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UINT, 1.0f, 1.0f, 1 },
+        { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UINT, 255.0f, -1.0f, 0xff, 0, true },
+        { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UNORM, 0.0f, 0.0f, 0 },
+        { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UNORM, 1.0f, -1.0f, 0xff, 0, true },
+        { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UNORM, 0.0f, 0.0f, 0 },
+        { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UNORM, 128.0f / 255.0f, -128.0f, 0x80 },
+        { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UNORM, 129.0f / 255.0f, -127.0f, 0x81 },
+#if 0
+        /* Not allowed by validation layer. */
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_SNORM, 0.0f, 0.0f, 0 },
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_SNORM, 1.0f, 127.0f / 255.0f, 0x7f },
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_SNORM, -1.0f, 129.0f / 255.0f, 0x80 /* Could be 0x80 or 0x81 */, 1},
+        { DXGI_FORMAT_R8G8B8A8_SNORM, DXGI_FORMAT_R8G8B8A8_UNORM, 0.0f, 0.0f, 0 },
+        { DXGI_FORMAT_R8G8B8A8_SNORM, DXGI_FORMAT_R8G8B8A8_UNORM, 1.0f, -1.0f / 127.0f, 0xff },
+#endif
+    };
+
+    memset(&test_desc, 0, sizeof(test_desc));
+    test_desc.no_root_signature = true;
+    test_desc.no_pipeline = true;
+    test_desc.no_render_target = true;
+
+    if (!init_test_context(&context, &test_desc))
+        return;
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS3, &options3, sizeof(options3))) ||
+        !options3.CastingFullyTypedFormatSupported)
+    {
+        skip("CastingFullyTypedFormat is not supported, skipping ...\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    for (i = 0; i < 2 * ARRAY_SIZE(tests); i++)
+    {
+        test_iteration = i / 2;
+        fast_clear = !!(i % 2);
+
+        vkd3d_test_set_context("Test %u (%s)", test_iteration, fast_clear ? "fast" : "non-fast");
+
+        memset(&desc, 0, sizeof(desc));
+        desc.Width = 1024;
+        desc.Height = 1024;
+        desc.Format = tests[test_iteration].image;
+        desc.DepthOrArraySize = 1;
+        desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+        desc.MipLevels = 1;
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        desc.SampleDesc.Count = 1;
+
+        if (tests[test_iteration].image == DXGI_FORMAT_R8G8B8A8_TYPELESS)
+        {
+            clear_value.Format = tests[test_iteration].view;
+            for (j = 0; j < 4; j++)
+                clear_value.Color[j] = tests[test_iteration].clear_value;
+        }
+        else
+        {
+            clear_value.Format = tests[test_iteration].image;
+            for (j = 0; j < 4; j++)
+                clear_value.Color[j] = tests[test_iteration].optimized_clear_value;
+        }
+
+        ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                &desc, D3D12_RESOURCE_STATE_RENDER_TARGET,
+                fast_clear ? &clear_value : NULL,
+                &IID_ID3D12Resource, (void**)&texture);
+
+        memset(&rtv, 0, sizeof(rtv));
+        rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+        rtv.Format = tests[test_iteration].view;
+        ID3D12Device_CreateRenderTargetView(context.device, texture, &rtv,
+                ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap));
+
+        for (j = 0; j < 4; j++)
+            colors[j] = tests[test_iteration].clear_value;
+
+        ID3D12GraphicsCommandList_ClearRenderTargetView(context.list,
+                ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap),
+                colors, 0, NULL);
+
+        transition_resource_state(context.list, texture, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        bug_if(is_radv_device(context.device) && tests[test_iteration].is_radv_bug)
+        check_sub_resource_uint(texture, 0, context.queue, context.list, tests[test_iteration].expected_component * 0x01010101u, tests[test_iteration].ulp);
+
+        reset_command_list(context.list, context.allocator);
+        ID3D12Resource_Release(texture);
+    }
+    vkd3d_test_set_context(NULL);
+
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
