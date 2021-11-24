@@ -2856,26 +2856,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandList(d3d12_device_ifa
 static void vkd3d_determine_format_support_for_feature_level(const struct d3d12_device *device,
         D3D12_FEATURE_DATA_FORMAT_SUPPORT *format_support)
 {
-    /* Direct3D feature levels restrict which formats can be optionally supported. */
-    static const D3D12_FEATURE_DATA_FORMAT_SUPPORT blacklisted_format_features[] =
-    {
-        {DXGI_FORMAT_B8G8R8A8_TYPELESS, D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW,
-                D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD | D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE},
-        {DXGI_FORMAT_B8G8R8A8_UNORM,    D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW,
-                D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD | D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE},
-    };
-    unsigned int i;
-
-    for (i = 0; i < ARRAY_SIZE(blacklisted_format_features); ++i)
-    {
-        if (blacklisted_format_features[i].Format == format_support->Format)
-        {
-            format_support->Support1 &= ~blacklisted_format_features[i].Support1;
-            format_support->Support2 &= ~blacklisted_format_features[i].Support2;
-            break;
-        }
-    }
-
     /* TypedUAVLoadAdditionalFormats is an all or nothing set */
     if (!device->d3d12_caps.options.TypedUAVLoadAdditionalFormats)
         format_support->Support2 &= ~D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD;
