@@ -1217,6 +1217,106 @@ void vkd3d_meta_get_predicate_pipeline(struct vkd3d_meta_ops *meta_ops,
     info->data_size = predicate_ops->data_sizes[command_type];
 }
 
+HRESULT vkd3d_execute_indirect_ops_init(struct vkd3d_execute_indirect_ops *meta_indirect_ops,
+        struct d3d12_device *device)
+{
+    VkPushConstantRange push_constant_range;
+    VkResult vr;
+    int rc;
+
+    if ((rc = pthread_mutex_init(&meta_indirect_ops->mutex, NULL)))
+        return hresult_from_errno(rc);
+
+    push_constant_range.offset = 0;
+    push_constant_range.size = sizeof(struct vkd3d_execute_indirect_args);
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL, 1,
+            &push_constant_range, &meta_indirect_ops->vk_pipeline_layout)) < 0)
+    {
+        pthread_mutex_destroy(&meta_indirect_ops->mutex);
+        return hresult_from_vk_result(vr);
+    }
+
+    meta_indirect_ops->pipelines_count = 0;
+    meta_indirect_ops->pipelines_size = 0;
+    meta_indirect_ops->pipelines = NULL;
+    return S_OK;
+}
+
+HRESULT vkd3d_meta_get_execute_indirect_pipeline(struct vkd3d_meta_ops *meta_ops,
+        uint32_t patch_command_count, struct vkd3d_execute_indirect_info *info)
+{
+    struct vkd3d_execute_indirect_ops *meta_indirect_ops = &meta_ops->execute_indirect;
+    VkSpecializationMapEntry map_entry;
+    VkSpecializationInfo spec;
+    HRESULT hr = S_OK;
+    VkResult vr;
+    size_t i;
+    int rc;
+
+    if ((rc = pthread_mutex_lock(&meta_indirect_ops->mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        return hresult_from_errno(rc);
+    }
+
+    for (i = 0; i < meta_indirect_ops->pipelines_count; i++)
+    {
+        if (meta_indirect_ops->pipelines[i].workgroup_size_x == patch_command_count)
+        {
+            info->vk_pipeline_layout = meta_indirect_ops->vk_pipeline_layout;
+            info->vk_pipeline = meta_indirect_ops->pipelines[i].vk_pipeline;
+            goto out;
+        }
+    }
+
+    map_entry.constantID = 0;
+    map_entry.offset = 0;
+    map_entry.size = sizeof(patch_command_count);
+
+    spec.pMapEntries = &map_entry;
+    spec.pData = &patch_command_count;
+    spec.mapEntryCount = 1;
+    spec.dataSize = sizeof(patch_command_count);
+
+    vkd3d_array_reserve((void**)&meta_indirect_ops->pipelines, &meta_indirect_ops->pipelines_size,
+            meta_indirect_ops->pipelines_count + 1, sizeof(*meta_indirect_ops->pipelines));
+
+    meta_indirect_ops->pipelines[meta_indirect_ops->pipelines_count].workgroup_size_x = patch_command_count;
+
+    vr = vkd3d_meta_create_compute_pipeline(meta_ops->device,
+            sizeof(cs_execute_indirect_patch), cs_execute_indirect_patch,
+            meta_indirect_ops->vk_pipeline_layout, &spec,
+            &meta_indirect_ops->pipelines[meta_indirect_ops->pipelines_count].vk_pipeline);
+
+    if (vr)
+    {
+        hr = hresult_from_vk_result(vr);
+        goto out;
+    }
+
+    info->vk_pipeline_layout = meta_indirect_ops->vk_pipeline_layout;
+    info->vk_pipeline = meta_indirect_ops->pipelines[meta_indirect_ops->pipelines_count].vk_pipeline;
+    meta_indirect_ops->pipelines_count++;
+
+out:
+    pthread_mutex_unlock(&meta_indirect_ops->mutex);
+    return hr;
+}
+
+void vkd3d_execute_indirect_ops_cleanup(struct vkd3d_execute_indirect_ops *meta_indirect_ops,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    size_t i;
+
+    for (i = 0; i < meta_indirect_ops->pipelines_count; i++)
+        VK_CALL(vkDestroyPipeline(device->vk_device, meta_indirect_ops->pipelines[i].vk_pipeline, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_indirect_ops->vk_pipeline_layout, NULL));
+    pthread_mutex_destroy(&meta_indirect_ops->mutex);
+}
+
 HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device)
 {
     HRESULT hr;
@@ -1242,8 +1342,13 @@ HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device
     if (FAILED(hr = vkd3d_predicate_ops_init(&meta_ops->predicate, device)))
         goto fail_predicate_ops;
 
+    if (FAILED(hr = vkd3d_execute_indirect_ops_init(&meta_ops->execute_indirect, device)))
+        goto fail_execute_indirect_ops;
+
     return S_OK;
 
+fail_execute_indirect_ops:
+    vkd3d_predicate_ops_cleanup(&meta_ops->predicate, device);
 fail_predicate_ops:
     vkd3d_query_ops_cleanup(&meta_ops->query, device);
 fail_query_ops:
@@ -1260,6 +1365,7 @@ fail_common:
 
 HRESULT vkd3d_meta_ops_cleanup(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device)
 {
+    vkd3d_execute_indirect_ops_cleanup(&meta_ops->execute_indirect, device);
     vkd3d_predicate_ops_cleanup(&meta_ops->predicate, device);
     vkd3d_query_ops_cleanup(&meta_ops->query, device);
     vkd3d_swapchain_ops_cleanup(&meta_ops->swapchain, device);
