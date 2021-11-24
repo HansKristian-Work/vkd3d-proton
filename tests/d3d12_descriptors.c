@@ -4336,10 +4336,10 @@ void test_view_min_lod(void)
         {&ps_view_min_lod_load, 0,  3.0f, 0.0f, 0xffffffff},
 
         {&ps_view_min_lod_load, 0, -1.0f, 1.0f, 0x00000000},
-        {&ps_view_min_lod_load, 0,  0.0f, 1.0f, 0x00000000, true},
-        {&ps_view_min_lod_load, 0,  1.0f, 1.0f, 0xffffffff, true},
-        {&ps_view_min_lod_load, 0,  2.0f, 1.0f, 0x0f0f0f0f, true},
-        {&ps_view_min_lod_load, 0,  3.0f, 1.0f, 0xffffffff, true},
+        {&ps_view_min_lod_load, 0,  0.0f, 1.0f, 0x00000000},
+        {&ps_view_min_lod_load, 0,  1.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_load, 0,  2.0f, 1.0f, 0x0f0f0f0f},
+        {&ps_view_min_lod_load, 0,  3.0f, 1.0f, 0xffffffff},
 
         {&ps_view_min_lod_load, 1, -1.0f, 1.0f, 0x00000000},
         {&ps_view_min_lod_load, 1,  0.0f, 1.0f, 0xffffffff},
@@ -4348,7 +4348,7 @@ void test_view_min_lod(void)
         {&ps_view_min_lod_load, 1,  3.0f, 1.0f, 0x00000000},
 
         {&ps_view_min_lod_load, 1, -1.0f, 9.0f, 0x00000000},
-        {&ps_view_min_lod_load, 1,  0.0f, 9.0f, 0x00000000, true},
+        {&ps_view_min_lod_load, 1,  0.0f, 9.0f, 0x00000000},
         {&ps_view_min_lod_load, 1,  1.0f, 9.0f, 0x00000000},
         {&ps_view_min_lod_load, 1,  2.0f, 9.0f, 0x00000000},
         {&ps_view_min_lod_load, 1,  3.0f, 9.0f, 0x00000000},
@@ -4361,8 +4361,8 @@ void test_view_min_lod(void)
 
         {&ps_view_min_lod_sample, 0, -1.0f, 1.0f, 0xffffffff},
         {&ps_view_min_lod_sample, 0,  0.0f, 1.0f, 0xffffffff},
-        {&ps_view_min_lod_sample, 0,  1.0f, 1.0f, 0xffffffff, true},
-        {&ps_view_min_lod_sample, 0,  2.0f, 1.0f, 0x0f0f0f0f, true},
+        {&ps_view_min_lod_sample, 0,  1.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_sample, 0,  2.0f, 1.0f, 0x0f0f0f0f},
         {&ps_view_min_lod_sample, 0,  3.0f, 1.0f, 0xffffffff},
 
         {&ps_view_min_lod_sample, 1, -1.0f, 1.0f, 0xffffffff},
@@ -4372,11 +4372,11 @@ void test_view_min_lod(void)
         {&ps_view_min_lod_sample, 1,  3.0f, 1.0f, 0xffffffff},
         {&ps_view_min_lod_sample, 1,  4.0f, 1.0f, 0xffffffff},
 
-        {&ps_view_min_lod_sample, 1, -1.0f, 9.0f, 0x00000000, true},
-        {&ps_view_min_lod_sample, 1,  0.0f, 9.0f, 0x00000000, true},
-        {&ps_view_min_lod_sample, 1,  1.0f, 9.0f, 0x00000000, true},
-        {&ps_view_min_lod_sample, 1,  2.0f, 9.0f, 0x00000000, true},
-        {&ps_view_min_lod_sample, 1,  3.0f, 9.0f, 0x00000000, true},
+        {&ps_view_min_lod_sample, 1, -1.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_sample, 1,  0.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_sample, 1,  1.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_sample, 1,  2.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_sample, 1,  3.0f, 9.0f, 0x00000000},
     };
 
     /* Alternate mip colors */
