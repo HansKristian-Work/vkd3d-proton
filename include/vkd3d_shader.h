@@ -241,6 +241,7 @@ struct vkd3d_shader_root_constant
 struct vkd3d_shader_root_descriptor
 {
     struct vkd3d_shader_resource_binding *binding;
+    uint32_t raw_va_root_descriptor_index;
 };
 
 struct vkd3d_shader_root_parameter
