@@ -1,0 +1,76 @@
+#version 450
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : require
+
+layout(local_size_x_id = 0) in;
+
+struct Command
+{
+	uint type;
+	uint src_offset;
+	uint dst_offset;
+};
+
+const int COMMAND_TYPE_COPY_U32 = 0;
+const int COMMAND_TYPE_COPY_INDEX_TYPE = 1;
+const int DXGI_FORMAT_R32_UINT = 0x2a;
+const int VK_INDEX_TYPE_UINT16 = 0;
+const int VK_INDEX_TYPE_UINT32 = 1;
+
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer Commands
+{
+	Command commands[];
+};
+
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer SrcBuffer {
+	uint values[];
+};
+
+layout(buffer_reference, std430, buffer_reference_align = 4) writeonly buffer DstBuffer {
+	uint values[];
+};
+
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer IndirectCount {
+	uint count;
+};
+
+layout(buffer_reference, std430, buffer_reference_align = 4) writeonly buffer IndirectCountWrite {
+	uint count;
+};
+
+layout(push_constant) uniform Registers
+{
+	Commands commands_va;
+	SrcBuffer src_buffer_va;
+	DstBuffer dst_buffer_va;
+	uvec2 indirect_count_va;
+	IndirectCountWrite dst_indirect_count_va;
+	uint src_stride;
+	uint dst_stride;
+};
+
+void main()
+{
+	Command cmd = commands_va.commands[gl_LocalInvocationIndex];
+
+	uint draw_id = gl_WorkGroupID.x;
+	uint max_draws = ~0u;
+	if (any(notEqual(indirect_count_va, uvec2(0))))
+	{
+		max_draws = IndirectCount(indirect_count_va).count;
+		if (gl_WorkGroupID.x == 0u)
+			dst_indirect_count_va.count = max_draws;
+	}
+
+	if (draw_id < max_draws)
+	{
+		uint src_offset = src_stride * draw_id + cmd.src_offset;
+		uint dst_offset = dst_stride * draw_id + cmd.dst_offset;
+
+		uint src_value = src_buffer_va.values[src_offset];
+		if (cmd.type == COMMAND_TYPE_COPY_INDEX_TYPE)
+			src_value = src_value == DXGI_FORMAT_R32_UINT ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16;
+
+		dst_buffer_va.values[dst_offset] = src_value;
+	}
+}
