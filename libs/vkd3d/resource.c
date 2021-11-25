@@ -209,15 +209,40 @@ static unsigned int max_miplevel_count(const D3D12_RESOURCE_DESC1 *desc)
     return vkd3d_log2i(size) + 1;
 }
 
-static const struct vkd3d_format_compatibility_list *vkd3d_get_format_compatibility_list(
-        const struct d3d12_device *device, DXGI_FORMAT dxgi_format)
+static bool vkd3d_get_format_compatibility_list(const struct d3d12_device *device,
+        const D3D12_RESOURCE_DESC1 *desc, struct vkd3d_format_compatibility_list *out_list)
 {
-    const struct vkd3d_format_compatibility_list *list = &device->format_compatibility_lists[dxgi_format];
+    static const VkFormat r32_uav_formats[] = { VK_FORMAT_R32_UINT, VK_FORMAT_R32_SINT, VK_FORMAT_R32_SFLOAT };
+    const struct vkd3d_format *format = vkd3d_get_format(device, desc->Format, false);
+    struct vkd3d_format_compatibility_list list;
+    unsigned int i;
 
-    if (list->format_count < 2)
-        return NULL;
+    memset(&list, 0, sizeof(list));
 
-    return list;
+    if (desc->Format < device->format_compatibility_list_count)
+        list = device->format_compatibility_lists[desc->Format];
+
+    if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
+    {
+        const struct vkd3d_format *uint_format = vkd3d_get_format(device, list.uint_format, false);
+
+        /* Format used for ClearUnorderedAccessViewUint */
+        if (uint_format)
+            vkd3d_format_compatibility_list_add_format(&list, uint_format->vk_format);
+
+        /* Legacy D3D11 compatibility rule that allows typed UAV loads on FL11.0 hardware */
+        if (format->byte_count == 4 && format->type == VKD3D_FORMAT_TYPE_TYPELESS)
+        {
+            for (i = 0; i < ARRAY_SIZE(r32_uav_formats); i++)
+                vkd3d_format_compatibility_list_add_format(&list, r32_uav_formats[i]);
+        }
+    }
+
+    if (list.format_count < 2)
+        return false;
+
+    *out_list = list;
+    return true;
 }
 
 static bool vkd3d_is_linear_tiling_supported(const struct d3d12_device *device, VkImageCreateInfo *image_info)
@@ -351,7 +376,7 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
         const D3D12_RESOURCE_DESC1 *desc, struct d3d12_resource *resource, VkImage *vk_image)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    const struct vkd3d_format_compatibility_list *compat_list;
+    struct vkd3d_format_compatibility_list compat_list;
     const bool sparse_resource = !heap_properties;
     VkImageFormatListCreateInfoKHR format_list;
     const struct vkd3d_format *format;
@@ -377,24 +402,17 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info.pNext = NULL;
     image_info.flags = 0;
-    if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
+    if (!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
     {
-        /* Format compatibility rules are more relaxed for UAVs. */
-        if (format->type != VKD3D_FORMAT_TYPE_UINT)
-            image_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
-    }
-    else if (!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) && format->type == VKD3D_FORMAT_TYPE_TYPELESS)
-    {
-        image_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
-
-        if ((compat_list = vkd3d_get_format_compatibility_list(device, desc->Format)))
+        if (vkd3d_get_format_compatibility_list(device, desc, &compat_list))
         {
             format_list.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO_KHR;
             format_list.pNext = NULL;
-            format_list.viewFormatCount = compat_list->format_count;
-            format_list.pViewFormats = compat_list->vk_formats;
+            format_list.viewFormatCount = compat_list.format_count;
+            format_list.pViewFormats = compat_list.vk_formats;
 
             image_info.pNext = &format_list;
+            image_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
         }
     }
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D
