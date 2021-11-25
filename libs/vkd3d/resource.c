@@ -371,6 +371,41 @@ static HRESULT vkd3d_resource_make_vrs_view(struct d3d12_device *device,
     return hresult_from_vk_result(vr);
 }
 
+static bool vkd3d_format_allows_shader_copies(DXGI_FORMAT dxgi_format)
+{
+    unsigned int i;
+
+    static const DXGI_FORMAT shader_copy_formats[] = {
+        DXGI_FORMAT_D32_FLOAT,
+        DXGI_FORMAT_D32_FLOAT_S8X24_UINT,
+        DXGI_FORMAT_D16_UNORM,
+        DXGI_FORMAT_R32_TYPELESS,
+        DXGI_FORMAT_R32_FLOAT,
+        DXGI_FORMAT_R32_UINT,
+        DXGI_FORMAT_R32_SINT,
+        DXGI_FORMAT_R16_TYPELESS,
+        DXGI_FORMAT_R16_FLOAT,
+        DXGI_FORMAT_R16_UINT,
+        DXGI_FORMAT_R16_SINT,
+        DXGI_FORMAT_R16_UNORM,
+        DXGI_FORMAT_R16_SNORM,
+        DXGI_FORMAT_R8_TYPELESS,
+        DXGI_FORMAT_R8_UINT,
+        DXGI_FORMAT_R8_SINT,
+        DXGI_FORMAT_R8_UNORM,
+        DXGI_FORMAT_R8_SNORM,
+        DXGI_FORMAT_A8_UNORM,
+    };
+
+    for (i = 0; i < ARRAY_SIZE(shader_copy_formats); i++)
+    {
+        if (dxgi_format == shader_copy_formats[i])
+            return true;
+    }
+
+    return false;
+}
+
 static HRESULT vkd3d_create_image(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC1 *desc, struct d3d12_resource *resource, VkImage *vk_image)
@@ -381,7 +416,6 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     VkImageFormatListCreateInfoKHR format_list;
     const struct vkd3d_format *format;
     VkImageCreateInfo image_info;
-    DXGI_FORMAT typeless_format;
     bool use_concurrent;
     unsigned int i;
     VkResult vr;
@@ -502,11 +536,7 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
         image_info.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
 
     /* Additional usage flags for shader-based copies */
-    typeless_format = vkd3d_get_typeless_format(device, format->dxgi_format);
-
-    if (typeless_format == DXGI_FORMAT_R32_TYPELESS ||
-            typeless_format == DXGI_FORMAT_R16_TYPELESS ||
-            typeless_format == DXGI_FORMAT_R8_TYPELESS)
+    if (vkd3d_format_allows_shader_copies(format->dxgi_format))
     {
         image_info.usage |= (format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
                 ? VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
