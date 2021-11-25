@@ -4296,7 +4296,7 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
 {
     d3d12_command_list_iface *iface = &list->ID3D12GraphicsCommandList_iface;
 
-    list->index_buffer_format = DXGI_FORMAT_UNKNOWN;
+    list->index_buffer.dxgi_format = DXGI_FORMAT_UNKNOWN;
 
     memset(list->rtvs, 0, sizeof(list->rtvs));
     memset(&list->dsv, 0, sizeof(list->dsv));
@@ -4311,7 +4311,7 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
     list->predicate_enabled = false;
     list->predicate_va = 0;
 
-    list->has_valid_index_buffer = false;
+    list->index_buffer.is_non_null = false;
 
     list->current_pipeline = VK_NULL_HANDLE;
     list->command_buffer_pipeline = VK_NULL_HANDLE;
@@ -5353,18 +5353,18 @@ static void d3d12_command_list_check_index_buffer_strip_cut_value(struct d3d12_c
         switch (graphics->index_buffer_strip_cut_value)
         {
         case D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF:
-            if (list->index_buffer_format != DXGI_FORMAT_R16_UINT)
+            if (list->index_buffer.dxgi_format != DXGI_FORMAT_R16_UINT)
             {
                 TRACE("Strip cut value 0xffff is not supported with index buffer format %#x.\n",
-                      list->index_buffer_format);
+                      list->index_buffer.dxgi_format);
             }
             break;
 
         case D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFFFFFF:
-            if (list->index_buffer_format != DXGI_FORMAT_R32_UINT)
+            if (list->index_buffer.dxgi_format != DXGI_FORMAT_R32_UINT)
             {
                 TRACE("Strip cut value 0xffffffff is not supported with index buffer format %#x.\n",
-                      list->index_buffer_format);
+                      list->index_buffer.dxgi_format);
             }
             break;
 
@@ -5462,6 +5462,33 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawInstanced(d3d12_command_lis
     VKD3D_BREADCRUMB_COMMAND(DRAW);
 }
 
+static bool d3d12_command_list_update_index_buffer(struct d3d12_command_list *list)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+
+    if (!list->index_buffer.is_non_null)
+    {
+        FIXME_ONCE("Application attempts to perform an indexed draw call without index buffer bound.\n");
+        /* We are supposed to render all 0 indices here. However, there are several problems with emulating this approach.
+         * There is no robustness support for index buffers, and if we render all 0 indices,
+         * it is extremely unlikely that this would create a meaningful side effect.
+         * For any line or triangle primitive, we would end up creating degenerates for every primitive.
+         * The only reasonable scenarios where we will observe anything is stream-out with all duplicate values, or
+         * geometry shaders where the application makes use of PrimitiveID to construct primitives.
+         * Until proven to be required otherwise, we just ignore the draw call. */
+        return false;
+    }
+
+    if (list->index_buffer.is_dirty)
+    {
+        VK_CALL(vkCmdBindIndexBuffer(list->vk_command_buffer, list->index_buffer.buffer,
+                list->index_buffer.offset, list->index_buffer.vk_type));
+        list->index_buffer.is_dirty = false;
+    }
+
+    return true;
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(d3d12_command_list_iface *iface,
         UINT index_count_per_instance, UINT instance_count, UINT start_vertex_location,
         INT base_vertex_location, UINT start_instance_location)
@@ -5475,18 +5502,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(d3d12_comm
             iface, index_count_per_instance, instance_count, start_vertex_location,
             base_vertex_location, start_instance_location);
 
-    if (!list->has_valid_index_buffer)
-    {
-        FIXME_ONCE("Application attempts to perform an indexed draw call without index buffer bound.\n");
-        /* We are supposed to render all 0 indices here. However, there are several problems with emulating this approach.
-         * There is no robustness support for index buffers, and if we render all 0 indices,
-         * it is extremely unlikely that this would create a meaningful side effect.
-         * For any line or triangle primitive, we would end up creating degenerates for every primitive.
-         * The only reasonable scenarios where we will observe anything is stream-out with all duplicate values, or
-         * geometry shaders where the application makes use of PrimitiveID to construct primitives.
-         * Until proven to be required otherwise, we just ignore the draw call. */
+    if (!d3d12_command_list_update_index_buffer(list))
         return;
-    }
 
     if (list->predicate_va)
     {
@@ -7693,7 +7710,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(d3d12_command_
         const D3D12_INDEX_BUFFER_VIEW *view)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct vkd3d_unique_resource *resource;
     enum VkIndexType index_type;
 
@@ -7701,7 +7717,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(d3d12_command_
 
     if (!view)
     {
-        list->has_valid_index_buffer = false;
+        list->index_buffer.is_non_null = false;
         VKD3D_BREADCRUMB_AUX32(0);
         VKD3D_BREADCRUMB_COMMAND_STATE(IBO);
         return;
@@ -7722,13 +7738,15 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(d3d12_command_
             break;
     }
 
-    list->index_buffer_format = view->Format;
-    list->has_valid_index_buffer = view->BufferLocation != 0;
-    if (list->has_valid_index_buffer)
+    list->index_buffer.dxgi_format = view->Format;
+    list->index_buffer.vk_type = index_type;
+    list->index_buffer.is_non_null = view->BufferLocation != 0;
+    if (list->index_buffer.is_non_null)
     {
         resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, view->BufferLocation);
-        VK_CALL(vkCmdBindIndexBuffer(list->vk_command_buffer, resource->vk_buffer,
-                view->BufferLocation - resource->va, index_type));
+        list->index_buffer.buffer = resource->vk_buffer;
+        list->index_buffer.offset = view->BufferLocation - resource->va;
+        list->index_buffer.is_dirty = true;
     }
 
     VKD3D_BREADCRUMB_AUX32(index_type == VK_INDEX_TYPE_UINT32 ? 32 : 16);
@@ -9486,11 +9504,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED:
-                if (!list->has_valid_index_buffer)
-                {
-                    FIXME_ONCE("Application attempts to perform an indexed draw call without index buffer bound.\n");
-                    break;
-                }
+                if (!d3d12_command_list_update_index_buffer(list))
+                    return;
 
                 if (!d3d12_command_list_begin_render_pass(list))
                 {

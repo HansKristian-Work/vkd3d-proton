@@ -2065,11 +2065,19 @@ struct d3d12_command_list
     bool is_valid;
     bool debug_capture;
     bool has_replaced_shaders;
-    bool has_valid_index_buffer;
+
+    struct
+    {
+        VkBuffer buffer;
+        VkDeviceSize offset;
+        DXGI_FORMAT dxgi_format;
+        VkIndexType vk_type;
+        bool is_non_null;
+        bool is_dirty;
+    } index_buffer;
+
     VkCommandBuffer vk_command_buffer;
     VkCommandBuffer vk_init_commands;
-
-    DXGI_FORMAT index_buffer_format;
 
     struct d3d12_rtv_desc rtvs[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct d3d12_rtv_desc dsv;
