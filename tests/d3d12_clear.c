@@ -634,6 +634,7 @@ void test_clear_unordered_access_view_buffer(void)
 
 void test_clear_unordered_access_view_image(void)
 {
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT format_support;
     unsigned int expected_colour, actual_colour;
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
     ID3D12DescriptorHeap *cpu_heap, *gpu_heap;
@@ -716,6 +717,9 @@ void test_clear_unordered_access_view_image(void)
         {DXGI_FORMAT_R11G11B10_FLOAT, 1, 1, 0, 0, 1, 0, {{0}},
                 {0x3f000000 /* 1.0f */, 0 /* 0.0f */, 0xbf800000 /* -1.0f */, 0x3f000000 /* 1.0f */},
                 0x00000380, true},
+        {DXGI_FORMAT_B8G8R8A8_UNORM,  1, 1, 0, 0, 1, 0, {{0}},
+                {0, 0, 0x3f000080 /* 0.5f + epsilon */, 0x3f800000 /* 1.0f */}, 0xff000080, true},
+        {DXGI_FORMAT_B8G8R8A8_UNORM,  1, 1, 0, 0, 1, 0, {{0}}, {1, 2, 3, 4}, 0x04010203},
     };
 
     static const struct
@@ -754,6 +758,17 @@ void test_clear_unordered_access_view_image(void)
 
             if (tests[i].image_layers > 1 && !uav_dimensions[d].is_layered)
                 continue;
+
+            memset(&format_support, 0, sizeof(format_support));
+            format_support.Format = tests[i].format;
+
+            if (FAILED(hr = ID3D12Device_CheckFeatureSupport(device,
+                    D3D12_FEATURE_FORMAT_SUPPORT, &format_support, sizeof(format_support))) ||
+                    !(format_support.Support1 & D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW))
+            {
+                skip("Format %u not supported.\n", tests[i].format);
+                continue;
+            }
 
             resource_desc.Dimension = uav_dimensions[d].resource_dim;
             resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
