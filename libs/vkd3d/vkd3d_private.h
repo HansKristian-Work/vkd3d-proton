@@ -3113,9 +3113,6 @@ void vkd3d_format_copy_data(const struct vkd3d_format *format, const uint8_t *sr
 
 const struct vkd3d_format *vkd3d_get_format(const struct d3d12_device *device,
         DXGI_FORMAT dxgi_format, bool depth_stencil);
-DXGI_FORMAT vkd3d_get_typeless_format(const struct d3d12_device *device, DXGI_FORMAT dxgi_format);
-const struct vkd3d_format *vkd3d_find_uint_format(const struct d3d12_device *device,
-        DXGI_FORMAT dxgi_format);
 VkFormat vkd3d_internal_get_vk_format(const struct d3d12_device *device, DXGI_FORMAT dxgi_format);
 struct vkd3d_format_footprint vkd3d_format_footprint_for_plane(const struct vkd3d_format *format, unsigned int plane_idx);
 
