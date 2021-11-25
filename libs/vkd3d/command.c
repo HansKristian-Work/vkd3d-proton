@@ -8084,7 +8084,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list, const 
     }
 }
 
-static const struct vkd3d_format *vkd3d_fixup_clear_uav_uint_color(struct d3d12_device *device,
+static void vkd3d_fixup_clear_uav_uint_color(struct d3d12_device *device,
         DXGI_FORMAT dxgi_format, VkClearColorValue *color)
 {
     switch (dxgi_format)
@@ -8093,11 +8093,20 @@ static const struct vkd3d_format *vkd3d_fixup_clear_uav_uint_color(struct d3d12_
             color->uint32[0] = (color->uint32[0] & 0x7FF)
                     | ((color->uint32[1] & 0x7FF) << 11)
                     | ((color->uint32[2] & 0x3FF) << 22);
-            return vkd3d_get_format(device, DXGI_FORMAT_R32_UINT, false);
+            break;
 
-        default:
-            return NULL;
+        default: ;
     }
+}
+
+static const struct vkd3d_format *vkd3d_clear_uav_find_uint_format(struct d3d12_device *device, DXGI_FORMAT dxgi_format)
+{
+    DXGI_FORMAT uint_format = DXGI_FORMAT_UNKNOWN;
+
+    if (dxgi_format < device->format_compatibility_list_count)
+        uint_format = device->format_compatibility_lists[dxgi_format].uint_format;
+
+    return vkd3d_get_format(device, uint_format, false);
 }
 
 static bool vkd3d_clear_uav_info_from_desc(struct vkd3d_clear_uav_info *args, const struct d3d12_desc *desc)
@@ -8179,15 +8188,16 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
     if (args.has_view && desc->info.view->format->type != VKD3D_FORMAT_TYPE_UINT)
     {
         const struct vkd3d_view *base_view = desc->info.view;
-        uint_format = vkd3d_find_uint_format(list->device, base_view->format->dxgi_format);
+        uint_format = vkd3d_clear_uav_find_uint_format(list->device, base_view->format->dxgi_format);
 
-        if (!uint_format && !(uint_format = vkd3d_fixup_clear_uav_uint_color(
-                list->device, base_view->format->dxgi_format, &color)))
+        if (!uint_format)
         {
             ERR("Unhandled format %d.\n", base_view->format->dxgi_format);
             return;
         }
 
+
+        vkd3d_fixup_clear_uav_uint_color(list->device, base_view->format->dxgi_format, &color);
         vkd3d_mask_uint_clear_color(color.uint32, uint_format->vk_format);
 
         if (d3d12_resource_is_texture(resource_impl))
