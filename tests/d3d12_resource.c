@@ -3143,7 +3143,7 @@ void test_map_texture_validation(void)
                 D3D12_RESOURCE_DIMENSION_TEXTURE2D,
                 1, 1, D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER,
                 D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE,
-                S_OK, S_OK, E_INVALIDARG, E_INVALIDARG, true },
+                S_OK, S_OK, E_INVALIDARG, E_INVALIDARG, true, true },
 
         /* 1D texture not allowed. */
         { D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER | D3D12_HEAP_FLAG_SHARED,
@@ -3192,7 +3192,7 @@ void test_map_texture_validation(void)
                 D3D12_RESOURCE_DIMENSION_TEXTURE2D,
                 1, 1, D3D12_RESOURCE_FLAG_NONE,
                 D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE,
-                S_OK, S_OK, E_INVALIDARG, S_OK, true },
+                S_OK, S_OK, E_INVALIDARG, S_OK, true, true },
 
         /* Allowed, but cannot get concrete pointer.
          * TODO: Mipmapped linear not supported in general. */
