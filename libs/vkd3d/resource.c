@@ -2771,7 +2771,7 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
     if (d3d12_resource_is_texture(object))
     {
         if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, object->res.vk_image,
-                object->mem.device_allocation.vk_memory, object->mem.offset)) < 0))
+                object->mem.device_allocation.vk_memory, object->mem.offset))) < 0)
         {
             ERR("Failed to bind image memory, vr %d.\n", vr);
             hr = hresult_from_vk_result(vr);
