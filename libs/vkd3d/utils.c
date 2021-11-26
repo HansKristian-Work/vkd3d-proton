@@ -1027,6 +1027,9 @@ HRESULT hresult_from_vk_result(VkResult vr)
             /* fall-through */
         case VK_ERROR_OUT_OF_HOST_MEMORY:
             return E_OUTOFMEMORY;
+        case VK_ERROR_VALIDATION_FAILED_EXT:
+            /* NV driver sometimes returns this on invalid API usage. */
+            return E_INVALIDARG;
         default:
             FIXME("Unhandled VkResult %d.\n", vr);
             /* fall-through */
