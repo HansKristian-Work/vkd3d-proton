@@ -1955,7 +1955,11 @@ void test_execute_indirect_state(void)
         ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(command_list, 3,
                 ID3D12Resource_GetGPUVirtualAddress(uav));
 
-        /* Other state is cleared to 0. */
+        /* Other state is cleared to 0. For testing sanity, reset the index buffer since we don't support NULL IBO yet. */
+        for (j = 0; j < tests[i].indirect_argument_count; j++)
+            if (tests[i].indirect_arguments[j].Type == D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW)
+                ID3D12GraphicsCommandList_IASetIndexBuffer(command_list, &ibv);
+
         ID3D12GraphicsCommandList_DrawIndexedInstanced(command_list, 2, 1, 0, 0, 0);
         transition_resource_state(command_list, streamout_buffer, D3D12_RESOURCE_STATE_STREAM_OUT, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
@@ -1970,11 +1974,11 @@ void test_execute_indirect_state(void)
         {
             expect = &tests[i].expected_output[j];
             v = get_readback_vec4(&rb, j + 1, 0);
-            todo ok(compare_vec4(v, expect, 0), "Element (direct count) %u failed: (%f, %f, %f, %f) != (%f, %f, %f, %f)\n",
+            ok(compare_vec4(v, expect, 0), "Element (direct count) %u failed: (%f, %f, %f, %f) != (%f, %f, %f, %f)\n",
                     j, v->x, v->y, v->z, v->w, expect->x, expect->y, expect->z, expect->w);
 
             v = get_readback_vec4(&rb, j + tests[i].expected_output_count + 1, 0);
-            todo ok(compare_vec4(v, expect, 0), "Element (indirect count) %u failed: (%f, %f, %f, %f) != (%f, %f, %f, %f)\n",
+            ok(compare_vec4(v, expect, 0), "Element (indirect count) %u failed: (%f, %f, %f, %f) != (%f, %f, %f, %f)\n",
                     j, v->x, v->y, v->z, v->w, expect->x, expect->y, expect->z, expect->w);
         }
 
@@ -1992,8 +1996,10 @@ void test_execute_indirect_state(void)
             }
             else if (tests[i].indirect_arguments[j].Type == D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW)
                 clear_vbo_mask |= 1u << tests[i].indirect_arguments[j].VertexBuffer.Slot;
+#if 0
             else if (tests[i].indirect_arguments[j].Type == D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW)
                 clear_ibo = true;
+#endif
         }
 
         expect_reset_state[1] = expect_reset_state[0];
@@ -2013,7 +2019,7 @@ void test_execute_indirect_state(void)
         {
             v = get_readback_vec4(&rb, j + 1 + 2 * tests[i].expected_output_count, 0);
             expect = &expect_reset_state[j];
-            todo ok(compare_vec4(v, expect, 0), "Post-reset element %u failed: (%f, %f, %f, %f) != (%f, %f, %f, %f)\n",
+            ok(compare_vec4(v, expect, 0), "Post-reset element %u failed: (%f, %f, %f, %f) != (%f, %f, %f, %f)\n",
                     j, v->x, v->y, v->z, v->w, expect->x, expect->y, expect->z, expect->w);
         }
 
