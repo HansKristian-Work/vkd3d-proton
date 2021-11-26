@@ -2127,6 +2127,12 @@ struct d3d12_command_list
         bool is_dirty;
     } index_buffer;
 
+    struct
+    {
+        bool has_observed_transition_to_indirect;
+        bool has_emitted_indirect_to_compute_barrier;
+    } execute_indirect;
+
     VkCommandBuffer vk_command_buffer;
     VkCommandBuffer vk_init_commands;
 
