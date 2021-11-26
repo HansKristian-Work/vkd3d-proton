@@ -4055,6 +4055,7 @@ static HRESULT d3d12_command_list_batch_reset_query_pools(struct d3d12_command_l
 static HRESULT d3d12_command_list_build_init_commands(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkMemoryBarrier barrier;
     VkResult vr;
     HRESULT hr;
 
@@ -4063,6 +4064,18 @@ static HRESULT d3d12_command_list_build_init_commands(struct d3d12_command_list 
 
     if (!list->vk_init_commands)
         return S_OK;
+
+    if (list->execute_indirect.has_emitted_indirect_to_compute_barrier)
+    {
+        /* We've patched an indirect command stream here, so do the final barrier now. */
+        barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        barrier.pNext = NULL;
+        barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_COMMAND_PREPROCESS_READ_BIT_NV | VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+        VK_CALL(vkCmdPipelineBarrier(list->vk_init_commands, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_COMMAND_PREPROCESS_BIT_NV,
+                0, 1, &barrier, 0, NULL, 0, NULL));
+    }
 
     if ((vr = VK_CALL(vkEndCommandBuffer(list->vk_init_commands))) < 0)
     {
@@ -4366,6 +4379,8 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     list->tracked_copy_buffer_count = 0;
 
     list->rendering_info.state_flags = 0;
+    list->execute_indirect.has_emitted_indirect_to_compute_barrier = false;
+    list->execute_indirect.has_observed_transition_to_indirect = false;
 }
 
 static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
@@ -7145,6 +7160,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                 VkImageLayout new_layout = VK_IMAGE_LAYOUT_UNDEFINED;
                 uint32_t dsv_decay_mask = 0;
 
+                /* If we have not observed any transition to INDIRECT_ARGUMENT it means
+                 * that in this command buffer there couldn't legally have been writes to an indirect
+                 * command buffer. The docs mention an implementation strategy where we can do this optimization.
+                 * This is very handy when handling back-to-back ExecuteIndirects(). */
+                if (transition->StateAfter == D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT)
+                    list->execute_indirect.has_observed_transition_to_indirect = true;
+
                 if (!is_valid_resource_state(transition->StateBefore))
                 {
                     d3d12_command_list_mark_as_invalid(list,
@@ -9432,6 +9454,7 @@ static void d3d12_command_list_execute_indirect_state_template(
     struct vkd3d_scratch_allocation count_allocation;
     struct vkd3d_execute_indirect_args patch_args;
     VkGeneratedCommandsInfoNV generated;
+    VkCommandBuffer vk_patch_cmd_buffer;
     VkIndirectCommandsStreamNV stream;
     VkDeviceSize preprocess_size;
     VkPipeline current_pipeline;
@@ -9449,16 +9472,6 @@ static void d3d12_command_list_execute_indirect_state_template(
     if (!d3d12_command_list_update_graphics_pipeline(list))
         return;
     current_pipeline = list->current_pipeline;
-
-    /* FIXME: If we're forced to emit non-dynamic vertex strides, and the indirect state
-     * wants to emit dynamic VBOs (dynamic stride), can that possibly work? Extremely unlikely to
-     * actually happen in practice, but something to consider for later ... */
-
-    /* TODO: If we can prove that there have been no transitions to INDIRECT state,
-     * we can hoist all patch jobs to the beginning of the command buffer and build a fixup
-     * command buffer that batches everything. For now, take the slow path always. */
-    d3d12_command_list_end_current_render_pass(list, true);
-    d3d12_command_list_invalidate_current_pipeline(list, true);
 
     memset(&patch_args, 0, sizeof(patch_args));
     if (FAILED(hr = d3d12_command_signature_allocate_preprocess_memory_for_list(
@@ -9496,31 +9509,51 @@ static void d3d12_command_list_execute_indirect_state_template(
     patch_args.api_buffer_word_stride = signature->desc.ByteStride / sizeof(uint32_t);
     patch_args.device_generated_commands_word_stride = signature->state_template.stride / sizeof(uint32_t);
 
-    VK_CALL(vkCmdPushConstants(list->vk_command_buffer, signature->state_template.pipeline.vk_pipeline_layout,
-            VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(patch_args), &patch_args));
-    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-            signature->state_template.pipeline.vk_pipeline));
-
-    /* TODO: We can batch the {prologue barrier} { work } { work } ... {epilogue barrier} later. */
-    /* The argument buffer and indirect count buffers are in indirect state, but we'll need to read it. */
     barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
     barrier.pNext = NULL;
-
     barrier.srcAccessMask = 0;
     barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier, 0, NULL, 0, NULL));
+
+    if (!list->execute_indirect.has_observed_transition_to_indirect)
+    {
+        /* Fast path, throw the template resolve to the init command buffer. */
+        d3d12_command_allocator_allocate_init_command_buffer(list->allocator, list);
+        vk_patch_cmd_buffer = list->vk_init_commands;
+        if (!list->execute_indirect.has_emitted_indirect_to_compute_barrier)
+        {
+            VK_CALL(vkCmdPipelineBarrier(vk_patch_cmd_buffer, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier, 0, NULL, 0, NULL));
+            list->execute_indirect.has_emitted_indirect_to_compute_barrier = true;
+        }
+    }
+    else
+    {
+        vk_patch_cmd_buffer = list->vk_command_buffer;
+        VK_CALL(vkCmdPipelineBarrier(vk_patch_cmd_buffer, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier, 0, NULL, 0, NULL));
+        d3d12_command_list_end_current_render_pass(list, true);
+        d3d12_command_list_invalidate_current_pipeline(list, true);
+    }
+
+    VK_CALL(vkCmdPushConstants(vk_patch_cmd_buffer, signature->state_template.pipeline.vk_pipeline_layout,
+            VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(patch_args), &patch_args));
+    VK_CALL(vkCmdBindPipeline(vk_patch_cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+            signature->state_template.pipeline.vk_pipeline));
 
     /* One workgroup processes the patching for one draw. We could potentially use indirect dispatch
      * to restrict the patching work to just the indirect count, but meh, just more barriers.
      * We'll nop out the workgroup early based on direct count, and the number of threads should be trivial either way. */
-    VK_CALL(vkCmdDispatch(list->vk_command_buffer, max_command_count, 1, 1));
+    VK_CALL(vkCmdDispatch(vk_patch_cmd_buffer, max_command_count, 1, 1));
 
-    barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_COMMAND_PREPROCESS_READ_BIT_NV | VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
-    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-            VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_COMMAND_PREPROCESS_BIT_NV,
-            0, 1, &barrier, 0, NULL, 0, NULL));
+    if (vk_patch_cmd_buffer == list->vk_command_buffer)
+    {
+        barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_COMMAND_PREPROCESS_READ_BIT_NV | VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+        VK_CALL(vkCmdPipelineBarrier(vk_patch_cmd_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_COMMAND_PREPROCESS_BIT_NV,
+                0, 1, &barrier, 0, NULL, 0, NULL));
+        /* The barrier is deferred if we moved the dispatch to init command buffer. */
+    }
 
     if (!d3d12_command_list_begin_render_pass(list))
     {
