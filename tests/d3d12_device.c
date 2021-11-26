@@ -327,18 +327,6 @@ void test_format_support(void)
     unsigned int i;
     HRESULT hr;
 
-    static const struct
-    {
-        D3D12_FEATURE_DATA_FORMAT_SUPPORT f;
-        bool broken;
-    }
-    unsupported_format_features[] =
-    {
-        /* A recent version of WARP suppots B8G8R8A8 UAVs even on D3D_FEATURE_LEVEL_11_0. */
-        {{DXGI_FORMAT_B8G8R8A8_TYPELESS, D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW,
-                D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD | D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE}, true},
-    };
-
     if (!(device = create_device()))
     {
         skip("Failed to create device.\n");
@@ -353,23 +341,6 @@ void test_format_support(void)
             "Got unexpected support1 %#x.\n", format_support.Support1);
     ok(!format_support.Support2 || format_support.Support2 == D3D12_FORMAT_SUPPORT2_TILED,
             "Got unexpected support2 %#x.\n", format_support.Support2);
-
-    for (i = 0; i < ARRAY_SIZE(unsupported_format_features); ++i)
-    {
-        memset(&format_support, 0, sizeof(format_support));
-        format_support.Format = unsupported_format_features[i].f.Format;
-        hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FORMAT_SUPPORT,
-                &format_support, sizeof(format_support));
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
-        ok(!(format_support.Support1 & unsupported_format_features[i].f.Support1)
-                || broken_on_warp(unsupported_format_features[i].broken),
-                "Format %#x supports %#x.\n", unsupported_format_features[i].f.Format,
-                format_support.Support1 & unsupported_format_features[i].f.Support1);
-        ok(!(format_support.Support2 & unsupported_format_features[i].f.Support2)
-                || broken_on_warp(unsupported_format_features[i].broken),
-                "Format %#x supports %#x.\n", unsupported_format_features[i].f.Format,
-                format_support.Support2 & unsupported_format_features[i].f.Support2);
-    }
 
     for (i = 0; i < ARRAY_SIZE(depth_stencil_formats); ++i)
     {
