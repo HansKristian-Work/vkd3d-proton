@@ -1460,6 +1460,7 @@ void test_execute_indirect_state(void)
     D3D12_SO_DECLARATION_ENTRY so_entries[1];
     ID3D12GraphicsCommandList *command_list;
     D3D12_ROOT_PARAMETER root_parameters[4];
+    ID3D12Resource *argument_buffer_late;
     D3D12_STREAM_OUTPUT_BUFFER_VIEW sov;
     ID3D12Resource *streamout_buffer;
     D3D12_VERTEX_BUFFER_VIEW vbvs[2];
@@ -1901,6 +1902,8 @@ void test_execute_indirect_state(void)
         ok(SUCCEEDED(hr), "Failed to create command signature, hr #%x.\n", hr);
 
         argument_buffer = create_upload_buffer(context.device, 256 * 1024, NULL);
+        argument_buffer_late = create_default_buffer(context.device, 256 * 1024,
+                D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
         {
             void *ptr;
             ID3D12Resource_Map(argument_buffer, 0, NULL, &ptr);
@@ -1945,6 +1948,12 @@ void test_execute_indirect_state(void)
         /* Test equivalent call with indirect count. */
         ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature, 1024,
                 argument_buffer, 0, count_buffer, 0);
+        /* Test equivalent, but now with late transition to INDIRECT. */
+        ID3D12GraphicsCommandList_CopyResource(command_list, argument_buffer_late, argument_buffer);
+        transition_resource_state(command_list, argument_buffer_late, D3D12_RESOURCE_STATE_COPY_DEST,
+                D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
+        ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature, 1024,
+                argument_buffer_late, 0, count_buffer, 0);
 
         /* Root descriptors which are part of the state block are cleared to NULL. Recover them here
          * since attempting to draw next test will crash GPU. */
@@ -1955,18 +1964,15 @@ void test_execute_indirect_state(void)
         ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(command_list, 3,
                 ID3D12Resource_GetGPUVirtualAddress(uav));
 
-        /* Other state is cleared to 0. For testing sanity, reset the index buffer since we don't support NULL IBO yet. */
-        for (j = 0; j < tests[i].indirect_argument_count; j++)
-            if (tests[i].indirect_arguments[j].Type == D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW)
-                ID3D12GraphicsCommandList_IASetIndexBuffer(command_list, &ibv);
+        /* Other state is cleared to 0. */
 
-        ID3D12GraphicsCommandList_DrawIndexedInstanced(command_list, 2, 1, 0, 0, 0);
+        ID3D12GraphicsCommandList_DrawInstanced(command_list, 2, 1, 0, 0);
         transition_resource_state(command_list, streamout_buffer, D3D12_RESOURCE_STATE_STREAM_OUT, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
         get_buffer_readback_with_command_list(streamout_buffer, DXGI_FORMAT_R32G32B32A32_FLOAT, &rb, queue, command_list);
         reset_command_list(command_list, context.allocator);
 
-        expected_output_size = (tests[i].expected_output_count * 2 + 2) * sizeof(struct vec4);
+        expected_output_size = (tests[i].expected_output_count * 3 + 2) * sizeof(struct vec4);
         size = get_readback_uint(&rb, 0, 0, 0);
         ok(size == expected_output_size, "Expected size %u, got %u.\n", expected_output_size, size);
 
@@ -1980,10 +1986,13 @@ void test_execute_indirect_state(void)
             v = get_readback_vec4(&rb, j + tests[i].expected_output_count + 1, 0);
             ok(compare_vec4(v, expect, 0), "Element (indirect count) %u failed: (%f, %f, %f, %f) != (%f, %f, %f, %f)\n",
                     j, v->x, v->y, v->z, v->w, expect->x, expect->y, expect->z, expect->w);
+
+            v = get_readback_vec4(&rb, j + 2 * tests[i].expected_output_count + 1, 0);
+            ok(compare_vec4(v, expect, 0), "Element (late latch) %u failed: (%f, %f, %f, %f) != (%f, %f, %f, %f)\n",
+                    j, v->x, v->y, v->z, v->w, expect->x, expect->y, expect->z, expect->w);
         }
 
         clear_vbo_mask = 0;
-        clear_ibo = false;
         expect_reset_state[0] = values;
 
         /* Root constant state is cleared to zero if it's part of the signature. */
@@ -1996,28 +2005,24 @@ void test_execute_indirect_state(void)
             }
             else if (tests[i].indirect_arguments[j].Type == D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW)
                 clear_vbo_mask |= 1u << tests[i].indirect_arguments[j].VertexBuffer.Slot;
-#if 0
-            else if (tests[i].indirect_arguments[j].Type == D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW)
-                clear_ibo = true;
-#endif
         }
 
         expect_reset_state[1] = expect_reset_state[0];
 
         /* VBO/IBO state is cleared to zero if it's part of the signature.
          * A NULL IBO should be seen as a IBO which only reads 0 index. */
-        if (!clear_ibo && !(clear_vbo_mask & (1u << 0)))
+        if (!(clear_vbo_mask & (1u << 0)))
             expect_reset_state[1].x += 1.0f;
 
         if (!(clear_vbo_mask & (1u << 1)))
         {
             expect_reset_state[0].y += 64.0f;
-            expect_reset_state[1].y += clear_ibo ? 64.0f : 65.0f;
+            expect_reset_state[1].y += 65.0f;
         }
 
         for (j = 0; j < 2; j++)
         {
-            v = get_readback_vec4(&rb, j + 1 + 2 * tests[i].expected_output_count, 0);
+            v = get_readback_vec4(&rb, j + 1 + 3 * tests[i].expected_output_count, 0);
             expect = &expect_reset_state[j];
             ok(compare_vec4(v, expect, 0), "Post-reset element %u failed: (%f, %f, %f, %f) != (%f, %f, %f, %f)\n",
                     j, v->x, v->y, v->z, v->w, expect->x, expect->y, expect->z, expect->w);
@@ -2025,6 +2030,7 @@ void test_execute_indirect_state(void)
 
         ID3D12CommandSignature_Release(command_signature);
         ID3D12Resource_Release(argument_buffer);
+        ID3D12Resource_Release(argument_buffer_late);
         ID3D12Resource_Release(count_buffer);
         ID3D12Resource_Release(streamout_buffer);
         release_resource_readback(&rb);
