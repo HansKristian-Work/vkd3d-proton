@@ -4398,6 +4398,14 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     d3d12_command_list_reset_internal_state(list);
 }
 
+static void d3d12_command_list_invalidate_all_state(struct d3d12_command_list *list)
+{
+    d3d12_command_list_invalidate_current_pipeline(list, true);
+    d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_GRAPHICS, true);
+    d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_COMPUTE, true);
+    list->index_buffer.is_dirty = true;
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_Reset(d3d12_command_list_iface *iface,
         ID3D12CommandAllocator *allocator, ID3D12PipelineState *initial_pipeline_state)
 {
