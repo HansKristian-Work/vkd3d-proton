@@ -4227,7 +4227,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints(d3d12_device_if
 
     d3d12_resource_promote_desc(desc, &desc1);
 
-    return d3d12_device_GetCopyableFootprints1(iface, &desc1, first_sub_resource,
+    d3d12_device_GetCopyableFootprints1(iface, &desc1, first_sub_resource,
             sub_resource_count, base_offset, layouts, row_counts, row_sizes, total_bytes);
 }
 
