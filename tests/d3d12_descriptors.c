@@ -4353,6 +4353,12 @@ void test_view_min_lod(void)
         {&ps_view_min_lod_load, 1,  2.0f, 9.0f, 0x00000000},
         {&ps_view_min_lod_load, 1,  3.0f, 9.0f, 0x00000000},
 
+        /* floor(minLOD) behavior for integer fetch. */
+        {&ps_view_min_lod_load, 1, 0.0f, 1.9f, 0xffffffff},
+        {&ps_view_min_lod_load, 1, 0.0f, 2.0f, 0x00000000},
+        {&ps_view_min_lod_load, 1, 1.0f, 2.9f, 0x0f0f0f0f},
+        {&ps_view_min_lod_load, 1, 1.0f, 3.0f, 0x00000000},
+
         {&ps_view_min_lod_sample, 0, -1.0f, 0.0f, 0x0f0f0f0f},
         {&ps_view_min_lod_sample, 0,  0.0f, 0.0f, 0x0f0f0f0f},
         {&ps_view_min_lod_sample, 0,  1.0f, 0.0f, 0xffffffff},
@@ -4377,6 +4383,18 @@ void test_view_min_lod(void)
         {&ps_view_min_lod_sample, 1,  1.0f, 9.0f, 0x00000000},
         {&ps_view_min_lod_sample, 1,  2.0f, 9.0f, 0x00000000},
         {&ps_view_min_lod_sample, 1,  3.0f, 9.0f, 0x00000000},
+
+        /* Tests rounding behavior for POINT mip filter. Nearest mip level is selected after clamp on AMD and NV,
+         * but not Intel, oddly enough. */
+        {&ps_view_min_lod_sample, 1, 0.25f, 1.00f, 0xffffffff},
+        {&ps_view_min_lod_sample, 1, 0.25f, 1.25f, 0xffffffff},
+        {&ps_view_min_lod_sample, 1, 0.25f, 2.00f, 0x0f0f0f0f},
+        {&ps_view_min_lod_sample, 1, -0.25f, 1.00f, 0xffffffff},
+        {&ps_view_min_lod_sample, 1, -0.25f, 1.25f, 0xffffffff},
+        {&ps_view_min_lod_sample, 1, -0.25f, 2.00f, 0x0f0f0f0f},
+        /* Intel HW fails these tests on native, D3D11 functional spec is not well defined here. */
+        /*{&ps_view_min_lod_sample, 1, 0.25f, 1.75f, 0x0f0f0f0f},*/
+        /*{&ps_view_min_lod_sample, 1, -0.25f, 1.75f, 0x0f0f0f0f},*/
     };
 
     /* Alternate mip colors */
