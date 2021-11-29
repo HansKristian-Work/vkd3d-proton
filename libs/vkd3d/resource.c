@@ -236,6 +236,24 @@ static bool vkd3d_get_format_compatibility_list(const struct d3d12_device *devic
             for (i = 0; i < ARRAY_SIZE(r32_uav_formats); i++)
                 vkd3d_format_compatibility_list_add_format(&list, r32_uav_formats[i]);
         }
+
+        /* 64-bit image atomics in D3D12 are done through RG32_UINT instead.
+         * We don't actually create 64-bit image views correctly at the moment,
+         * but adding the alias gives a clear signal to driver that we might use atomics on the image,
+         * which should disable compression or similar.
+         * If we can create R32G32_UINT views on this resource, we need to add R64_UINT as well as a potential
+         * mutable format. */
+        if (device->device_info.shader_image_atomic_int64_features.shaderImageInt64Atomics)
+        {
+            for (i = 0; i < list.format_count; i++)
+            {
+                if (list.vk_formats[i] == VK_FORMAT_R32G32_UINT)
+                {
+                    vkd3d_format_compatibility_list_add_format(&list, VK_FORMAT_R64_UINT);
+                    break;
+                }
+            }
+        }
     }
 
     if (list.format_count < 2)
