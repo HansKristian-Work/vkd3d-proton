@@ -478,7 +478,9 @@ struct vkd3d_instance_application_meta
 static const struct vkd3d_instance_application_meta application_override[] = {
     /* MSVC fails to compile empty array. */
     { VKD3D_STRING_COMPARE_EXACT, "GravityMark.exe", VKD3D_CONFIG_FLAG_FORCE_MINIMUM_SUBGROUP_SIZE, 0 },
-    { VKD3D_STRING_COMPARE_EXACT, "Deathloop.exe", VKD3D_CONFIG_FLAG_IGNORE_RTV_HOST_VISIBLE, 0 },
+    /* The game forgets to do a barrier when going from render pass to compute. */
+    { VKD3D_STRING_COMPARE_EXACT, "Deathloop.exe",
+            VKD3D_CONFIG_FLAG_IGNORE_RTV_HOST_VISIBLE | VKD3D_CONFIG_FLAG_WORKAROUND_MISSING_COLOR_COMPUTE_BARRIERS, 0 },
     /* Shadow of the Tomb Raider (750920).
      * Invariant workarounds actually cause more issues than they resolve on NV.
      * RADV already has workarounds by default.

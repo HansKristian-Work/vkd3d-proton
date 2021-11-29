@@ -1973,6 +1973,14 @@ struct d3d12_command_list
     size_t dsv_resource_tracking_count;
     size_t dsv_resource_tracking_size;
 
+    /* Hackery needed for game workarounds. */
+    struct
+    {
+        /* Used to keep track of COLOR write -> COMPUTE where game forget to insert barrier
+         * before the dispatch. */
+        bool has_pending_color_write;
+    } workaround_state;
+
     struct vkd3d_private_store private_store;
 };
 
