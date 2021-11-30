@@ -273,6 +273,55 @@ static unsigned int vkd3d_enable_extensions(const char *extensions[],
     return extension_count;
 }
 
+static bool vkd3d_remove_extension(const char *to_remove, const char *extensions[], uint32_t *extension_count)
+{
+    uint32_t i;
+
+    for (i = 0; i < *extension_count; i++)
+    {
+        if (strcmp(to_remove, extensions[i]) != 0)
+            continue;
+
+        WARN("Removing %s extension from the array.\n", to_remove);
+
+        if (i < (*extension_count - 1))
+            extensions[i] = extensions[*extension_count - 1];
+
+        (*extension_count)--;
+
+        return true;
+    }
+
+    return false;
+}
+
+static bool vkd3d_disable_nvx_extensions(struct d3d12_device *device, const char *extensions[], uint32_t *enabled_extension_count)
+{
+    struct vkd3d_vulkan_info *vk_info = &device->vk_info;
+    bool disabled = false;
+    unsigned int i;
+
+    static const struct vkd3d_optional_extension_info nvx_extensions[] =
+    {
+        VK_EXTENSION(NVX_BINARY_IMPORT, NVX_binary_import),
+        VK_EXTENSION(NVX_IMAGE_VIEW_HANDLE, NVX_image_view_handle),
+    };
+
+    for (i = 0; i < ARRAY_SIZE(nvx_extensions); ++i)
+    {
+        const char *extension_name = nvx_extensions[i].extension_name;
+        bool *supported = (void *)((uintptr_t)vk_info + nvx_extensions[i].vulkan_info_offset);
+
+        if (vkd3d_remove_extension(extension_name, extensions, enabled_extension_count))
+        {
+            *supported = false;
+            disabled = true;
+        }
+    }
+
+    return disabled;
+}
+
 static HRESULT vkd3d_init_instance_caps(struct vkd3d_instance *instance,
         const struct vkd3d_instance_create_info *create_info,
         uint32_t *instance_extension_count, bool *user_extension_supported)
@@ -2230,6 +2279,12 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     vkd3d_free(user_extension_supported);
 
     vr = VK_CALL(vkCreateDevice(physical_device, &device_info, NULL, &vk_device));
+    if (vr == VK_ERROR_INITIALIZATION_FAILED &&
+            vkd3d_disable_nvx_extensions(device, extensions, &device_info.enabledExtensionCount))
+    {
+        WARN("Disabled extensions that can cause Vulkan device creation to fail, retrying.\n");
+        vr = VK_CALL(vkCreateDevice(physical_device, &device_info, NULL, &vk_device));
+    }
     vkd3d_free((void *)extensions);
     if (vr < 0)
     {
