@@ -594,6 +594,17 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
             WARN("Forcing VK_IMAGE_TILING_LINEAR for CPU readable texture.\n");
             image_info.tiling = VK_IMAGE_TILING_LINEAR;
         }
+        else if (image_info.flags & VK_IMAGE_CREATE_EXTENDED_USAGE_BIT)
+        {
+            /* Apparently NV drivers do not support EXTENDED_USAGE_BIT on linear images? */
+            image_info.flags &= ~VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
+            WARN("Linear image not supported, attempting without EXTENDED_USAGE as a workaround ...\n");
+            if (vkd3d_is_linear_tiling_supported(device, &image_info))
+            {
+                WARN("Forcing VK_IMAGE_TILING_LINEAR for CPU readable texture.\n");
+                image_info.tiling = VK_IMAGE_TILING_LINEAR;
+            }
+        }
     }
     else
     {
