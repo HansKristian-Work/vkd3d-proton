@@ -4457,7 +4457,8 @@ static bool is_dual_source_blending(const struct vkd3d_dxbc_compiler *compiler)
 
 static uint32_t vkd3d_dxbc_compiler_get_io_variable(struct vkd3d_dxbc_compiler *compiler,
         SpvStorageClass storage_class, uint32_t reg_idx, uint32_t array_size,
-        enum vkd3d_shader_interpolation_mode interpolation_mode, bool is_patch_constant,
+        enum vkd3d_shader_interpolation_mode interpolation_mode,
+        bool is_patch_constant, bool relax_precision,
         unsigned int *out_component_count, enum vkd3d_component_type *out_component_type)
 {
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
@@ -4543,6 +4544,9 @@ static uint32_t vkd3d_dxbc_compiler_get_io_variable(struct vkd3d_dxbc_compiler *
     if (compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL && storage_class == SpvStorageClassInput)
         vkd3d_dxbc_compiler_emit_interpolation_decorations(compiler, var_id, interpolation_mode);
 
+    if (relax_precision)
+        vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationRelaxedPrecision, NULL, 0);
+
     vkd3d_spirv_add_iface_variable(builder, var_id);
     var_ids[reg_idx] = var_id;
     return var_id;
@@ -4567,6 +4571,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     SpvStorageClass storage_class;
     struct rb_entry *entry = NULL;
     bool use_private_var = false;
+    bool is_relaxed_precision;
     unsigned int write_mask;
     unsigned int array_size;
     bool is_patch_constant;
@@ -4609,11 +4614,13 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
     {
         component_type = builtin->component_type;
         input_component_count = builtin->component_count;
+        is_relaxed_precision = false;
     }
     else
     {
         component_type = signature_element->component_type;
         input_component_count = vkd3d_write_mask_component_count(signature_element->mask & 0xff);
+        is_relaxed_precision = signature_element->min_precision != VKD3D_SHADER_MINIMUM_PRECISION_NONE;
     }
 
     if ((use_private_var = builtin && builtin->fixup_pfn))
@@ -4644,7 +4651,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
         if (use_private_var)
         {
             input_id = vkd3d_dxbc_compiler_get_io_variable(compiler, SpvStorageClassInput,
-                    reg_idx, array_size, interpolation_mode, is_patch_constant,
+                    reg_idx, array_size, interpolation_mode, is_patch_constant, is_relaxed_precision,
                     &input_component_count, &component_type);
             apply_patch_decoration = false;
         }
@@ -4671,7 +4678,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_input(struct vkd3d_dxbc_compiler *compi
         if (!entry)
         {
             input_id = vkd3d_dxbc_compiler_get_io_variable(compiler, SpvStorageClassInput,
-                    reg_idx, array_size, interpolation_mode, is_patch_constant,
+                    reg_idx, array_size, interpolation_mode, is_patch_constant, is_relaxed_precision,
                     &input_component_count, &component_type);
             apply_patch_decoration = false;
         }
@@ -5051,6 +5058,7 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
     SpvStorageClass storage_class;
     struct rb_entry *entry = NULL;
     unsigned int signature_idx;
+    bool is_relaxed_precision;
     bool use_private_variable;
     unsigned int write_mask;
     unsigned int array_size;
@@ -5082,10 +5090,12 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
         component_type = builtin->component_type;
         if (!builtin->spirv_array_size)
             output_component_count = builtin->component_count;
+        is_relaxed_precision = false;
     }
     else
     {
         component_type = signature_element->component_type;
+        is_relaxed_precision = signature_element->min_precision != VKD3D_SHADER_MINIMUM_PRECISION_NONE;
     }
 
     storage_class = SpvStorageClassOutput;
@@ -5142,7 +5152,7 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
         else
         {
             id = vkd3d_dxbc_compiler_get_io_variable(compiler, storage_class,
-                reg->idx[0].offset, array_size, VKD3DSIM_NONE, is_patch_constant,
+                reg->idx[0].offset, array_size, VKD3DSIM_NONE, is_patch_constant, is_relaxed_precision,
                 &output_component_count, &component_type);
             apply_patch_decoration = false;
         }
@@ -7424,6 +7434,7 @@ static void vkd3d_dxbc_compiler_emit_default_control_point_phase(struct vkd3d_dx
     struct vkd3d_shader_register_info input_info;
     struct vkd3d_shader_register input_reg;
     uint32_t invocation_id, dst_write_mask;
+    bool is_relaxed_precision;
     unsigned int i;
 
     invocation_id = vkd3d_dxbc_compiler_emit_load_invocation_id(compiler);
@@ -7463,17 +7474,19 @@ static void vkd3d_dxbc_compiler_emit_default_control_point_phase(struct vkd3d_dx
             }
             else
             {
+                is_relaxed_precision = input->min_precision != VKD3D_SHADER_MINIMUM_PRECISION_NONE;
                 input_id = vkd3d_dxbc_compiler_get_io_variable(compiler, SpvStorageClassInput,
                         input->register_index, compiler->input_control_point_count, VKD3DSIM_NONE,
-                        false, &input_component_count, &input_component_type);
+                        false, is_relaxed_precision, &input_component_count, &input_component_type);
             }
 
             vkd3d_spirv_build_op_name(builder, input_id, "vicp%u", input->register_index);
         }
 
+        is_relaxed_precision = output->min_precision != VKD3D_SHADER_MINIMUM_PRECISION_NONE;
         output_id = vkd3d_dxbc_compiler_get_io_variable(compiler, SpvStorageClassOutput,
                 output->register_index, compiler->output_control_point_count, VKD3DSIM_NONE,
-                false, &output_component_count, &output_component_type);
+                false, is_relaxed_precision, &output_component_count, &output_component_type);
         vkd3d_spirv_build_op_name(builder, output_id, "vocp%u", output->register_index);
 
         src_id = vkd3d_dxbc_compiler_load_invocation_input(compiler, input_id, invocation_id,
@@ -7609,6 +7622,56 @@ static SpvOp vkd3d_dxbc_compiler_map_alu_instruction(const struct vkd3d_shader_i
     return SpvOpMax;
 }
 
+/* Only attempt to use relaxed precision for float ops.
+ * Relaxed precision on integers requires correct signage to be used on the type
+ * and we generally cannot handle that in any reasonable way with DXBC with the way
+ * we generate code. */
+static bool vkd3d_glsl450_inst_can_relax_precision(enum GLSLstd450 inst)
+{
+    switch (inst)
+    {
+        case GLSLstd450Fma:
+        case GLSLstd450NMax:
+        case GLSLstd450NMin:
+        case GLSLstd450NClamp:
+        case GLSLstd450RoundEven:
+        case GLSLstd450Floor:
+        case GLSLstd450Ceil:
+        case GLSLstd450Trunc:
+        case GLSLstd450Fract:
+        case GLSLstd450Exp2:
+        case GLSLstd450Log2:
+        case GLSLstd450InverseSqrt:
+        case GLSLstd450FAbs:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
+static bool vkd3d_spirv_inst_can_relax_precision(SpvOp op)
+{
+    switch (op)
+    {
+        case SpvOpFAdd:
+        case SpvOpFSub:
+        case SpvOpFMul:
+        case SpvOpFDiv:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
+static void vkd3d_dxbc_compiler_emit_relaxed_precision(struct vkd3d_spirv_builder *builder,
+        const struct vkd3d_shader_dst_param *dst, uint32_t val_id)
+{
+    if (dst->reg.modifier & VKD3DSPRM_RELAXED_PRECISION)
+        vkd3d_spirv_build_op_decorate(builder, val_id, SpvDecorationRelaxedPrecision, NULL, 0);
+}
+
 static void vkd3d_dxbc_compiler_emit_alu_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
@@ -7639,6 +7702,9 @@ static void vkd3d_dxbc_compiler_emit_alu_instruction(struct vkd3d_dxbc_compiler 
             src_ids, instruction->src_count);
     if (instruction->flags & VKD3DSI_PRECISE_XYZW)
         vkd3d_spirv_build_op_decorate(builder, val_id, SpvDecorationNoContraction, NULL, 0);
+
+    if (vkd3d_spirv_inst_can_relax_precision(op))
+        vkd3d_dxbc_compiler_emit_relaxed_precision(builder, dst, val_id);
 
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
@@ -7769,6 +7835,9 @@ static void vkd3d_dxbc_compiler_emit_ext_glsl_instruction(struct vkd3d_dxbc_comp
     if (glsl_inst == GLSLstd450Fma && (instruction->flags & VKD3DSI_PRECISE_XYZW))
         vkd3d_spirv_build_op_decorate(builder, val_id, SpvDecorationNoContraction, NULL, 0);
 
+    if (vkd3d_glsl450_inst_can_relax_precision(glsl_inst))
+        vkd3d_dxbc_compiler_emit_relaxed_precision(builder, dst, val_id);
+
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
@@ -7883,6 +7952,7 @@ static void vkd3d_dxbc_compiler_emit_dot(struct vkd3d_dxbc_compiler *compiler,
     if (instruction->flags & VKD3DSI_PRECISE_XYZW)
         vkd3d_spirv_build_op_decorate(builder, val_id, SpvDecorationNoContraction, NULL, 0);
 
+    vkd3d_dxbc_compiler_emit_relaxed_precision(builder, dst, val_id);
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
@@ -7907,6 +7977,7 @@ static void vkd3d_dxbc_compiler_emit_rcp(struct vkd3d_dxbc_compiler *compiler,
 
     src_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, dst->write_mask);
     val_id = vkd3d_spirv_build_op_fdiv(builder, type_id, one_id, src_id);
+    vkd3d_dxbc_compiler_emit_relaxed_precision(builder, dst, val_id);
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, val_id);
 }
 
@@ -7925,6 +7996,7 @@ static void vkd3d_dxbc_compiler_emit_sincos(struct vkd3d_dxbc_compiler *compiler
         src_id = vkd3d_dxbc_compiler_emit_load_src(compiler, src, dst_sin->write_mask);
 
         sin_id = vkd3d_spirv_build_op_glsl_std450_sin(builder, type_id, src_id);
+        vkd3d_dxbc_compiler_emit_relaxed_precision(builder, dst_sin, sin_id);
     }
 
     if (dst_cos->reg.type != VKD3DSPR_NULL)
@@ -7936,6 +8008,7 @@ static void vkd3d_dxbc_compiler_emit_sincos(struct vkd3d_dxbc_compiler *compiler
         }
 
         cos_id = vkd3d_spirv_build_op_glsl_std450_cos(builder, type_id, src_id);
+        vkd3d_dxbc_compiler_emit_relaxed_precision(builder, dst_cos, cos_id);
     }
 
     if (sin_id)
@@ -9135,6 +9208,12 @@ static void vkd3d_dxbc_compiler_emit_ld(struct vkd3d_dxbc_compiler *compiler,
 
     if (dst[0].reg.type != VKD3DSPR_NULL)
     {
+        if (!is_sparse_op)
+        {
+            /* Sparse returns a struct and we'd have to OpMemberDecorate which is a mess. */
+            vkd3d_dxbc_compiler_emit_relaxed_precision(builder, &dst[0], val_id);
+        }
+
         vkd3d_dxbc_compiler_emit_store_dst_swizzled(compiler,
                 &dst[0], val_id, image.sampled_type, src[1].swizzle);
     }
@@ -9293,6 +9372,12 @@ static void vkd3d_dxbc_compiler_emit_sample(struct vkd3d_dxbc_compiler *compiler
 
     if (dst[0].reg.type != VKD3DSPR_NULL)
     {
+        if (!is_sparse_op)
+        {
+            /* Sparse returns a struct and we'd have to OpMemberDecorate which is a mess. */
+            vkd3d_dxbc_compiler_emit_relaxed_precision(builder, &dst[0], val_id);
+        }
+
         vkd3d_dxbc_compiler_emit_store_dst_swizzled(compiler,
                 &dst[0], val_id, image.sampled_type, resource->swizzle);
     }
@@ -9361,6 +9446,12 @@ static void vkd3d_dxbc_compiler_emit_sample_c(struct vkd3d_dxbc_compiler *compil
 
     if (dst[0].reg.type != VKD3DSPR_NULL)
     {
+        if (!is_sparse_op)
+        {
+            /* Sparse returns a struct and we'd have to OpMemberDecorate which is a mess. */
+            vkd3d_dxbc_compiler_emit_relaxed_precision(builder, &dst[0], val_id);
+        }
+
         vkd3d_dxbc_compiler_emit_store_dst_scalar(compiler,
                 &dst[0], val_id, image.sampled_type, src[1].swizzle);
     }
@@ -9454,6 +9545,12 @@ static void vkd3d_dxbc_compiler_emit_gather4(struct vkd3d_dxbc_compiler *compile
 
     if (dst[0].reg.type != VKD3DSPR_NULL)
     {
+        if (!is_sparse_op)
+        {
+            /* Sparse returns a struct and we'd have to OpMemberDecorate which is a mess. */
+            vkd3d_dxbc_compiler_emit_relaxed_precision(builder, &dst[0], val_id);
+        }
+
         vkd3d_dxbc_compiler_emit_store_dst_swizzled(compiler,
                 &dst[0], val_id, image.sampled_type, resource->swizzle);
     }
