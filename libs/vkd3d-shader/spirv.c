@@ -3515,7 +3515,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_constant_buffer(struct vkd3d_dxbc_
         ptr_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
                 base_id, indexes, last_index + 1);
 
-        if (reg->modifier == VKD3DSPRM_NONUNIFORM)
+        if (reg->modifier & VKD3DSPRM_NONUNIFORM)
             vkd3d_dxbc_compiler_decorate_nonuniform(compiler, ptr_id);
 
         component_ids[j++] = vkd3d_spirv_build_op_loadv(builder, type_id, ptr_id,
@@ -8939,7 +8939,7 @@ static uint32_t vkd3d_dxbc_compiler_get_resource_index(struct vkd3d_dxbc_compile
 #endif
 
     /* AMD drivers rely on the index being marked as nonuniform */
-    if (reg->modifier == VKD3DSPRM_NONUNIFORM)
+    if (reg->modifier & VKD3DSPRM_NONUNIFORM)
         vkd3d_dxbc_compiler_decorate_nonuniform(compiler, index_id);
 
     return index_id;
@@ -9027,7 +9027,7 @@ static void vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *compil
         image->image_id = 0;
     }
 
-    if (image->image_id && resource_reg->modifier == VKD3DSPRM_NONUNIFORM)
+    if (image->image_id && (resource_reg->modifier & VKD3DSPRM_NONUNIFORM))
         vkd3d_dxbc_compiler_decorate_nonuniform(compiler, image->image_id);
 
     if (sampled)
@@ -9043,12 +9043,12 @@ static void vkd3d_dxbc_compiler_prepare_image(struct vkd3d_dxbc_compiler *compil
         image->sampled_image_id = vkd3d_spirv_build_op_sampled_image(builder,
                 sampled_image_type_id, image->image_id, sampler_id);
 
-        if (sampler_reg->modifier == VKD3DSPRM_NONUNIFORM)
+        if (sampler_reg->modifier & VKD3DSPRM_NONUNIFORM)
             vkd3d_dxbc_compiler_decorate_nonuniform(compiler, sampler_id);
 
         /* To be strict against Vulkan spec, the sampled image itself needs to be marked as NonUniform. */
-        if ((image->image_id && resource_reg->modifier == VKD3DSPRM_NONUNIFORM) ||
-            sampler_reg->modifier == VKD3DSPRM_NONUNIFORM)
+        if ((image->image_id && (resource_reg->modifier & VKD3DSPRM_NONUNIFORM)) ||
+                (sampler_reg->modifier & VKD3DSPRM_NONUNIFORM))
         {
             vkd3d_dxbc_compiler_decorate_nonuniform(compiler, image->sampled_image_id);
         }
@@ -9681,7 +9681,7 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc
             ptr_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id, image.id, indices, ARRAY_SIZE(indices));
             constituents[j++] = vkd3d_spirv_build_op_loadv(builder, type_id, ptr_id, access_mask, &alignment, 1);
 
-            if (resource->reg.modifier == VKD3DSPRM_NONUNIFORM)
+            if (resource->reg.modifier & VKD3DSPRM_NONUNIFORM)
                 vkd3d_dxbc_compiler_decorate_nonuniform(compiler, ptr_id);
         }
         else
@@ -9821,7 +9821,7 @@ static void vkd3d_dxbc_compiler_emit_store_uav_raw_structured(struct vkd3d_dxbc_
             ptr_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id, image.id, indices, ARRAY_SIZE(indices));
             vkd3d_spirv_build_op_storev(builder, ptr_id, texel_id, access_mask, &alignment, 1);
 
-            if (dst->reg.modifier == VKD3DSPRM_NONUNIFORM)
+            if (dst->reg.modifier & VKD3DSPRM_NONUNIFORM)
                 vkd3d_dxbc_compiler_decorate_nonuniform(compiler, ptr_id);
         }
         else
@@ -10032,7 +10032,7 @@ static void vkd3d_dxbc_compiler_emit_uav_counter_instruction(struct vkd3d_dxbc_c
                 ctr_ptr_type_id, image_ptr, zero_id, zero_id);
 
         /* Need to mark the pointer argument itself as non-uniform. */
-        if (src->reg.modifier == VKD3DSPRM_NONUNIFORM)
+        if (src->reg.modifier & VKD3DSPRM_NONUNIFORM)
             vkd3d_dxbc_compiler_decorate_nonuniform(compiler, pointer_id);
     }
     else
@@ -10195,7 +10195,7 @@ static void vkd3d_dxbc_compiler_emit_atomic_instruction(struct vkd3d_dxbc_compil
         ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, image.storage_class, type_id);
         pointer_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id, image.id, indices, ARRAY_SIZE(indices));
 
-        if (resource->reg.modifier == VKD3DSPRM_NONUNIFORM)
+        if (resource->reg.modifier & VKD3DSPRM_NONUNIFORM)
             vkd3d_dxbc_compiler_decorate_nonuniform(compiler, pointer_id);
     }
     else
@@ -10207,7 +10207,7 @@ static void vkd3d_dxbc_compiler_emit_atomic_instruction(struct vkd3d_dxbc_compil
         pointer_id = vkd3d_spirv_build_op_image_texel_pointer(builder,
                 ptr_type_id, image.id, coordinate_id, sample_id);
 
-        if (resource->reg.modifier == VKD3DSPRM_NONUNIFORM)
+        if (resource->reg.modifier & VKD3DSPRM_NONUNIFORM)
             vkd3d_dxbc_compiler_decorate_nonuniform(compiler, pointer_id);
     }
 
@@ -10258,7 +10258,7 @@ static void vkd3d_dxbc_compiler_emit_bufinfo(struct vkd3d_dxbc_compiler *compile
         }
         else
         {
-            if (src->reg.modifier == VKD3DSPRM_NONUNIFORM)
+            if (src->reg.modifier & VKD3DSPRM_NONUNIFORM)
                 vkd3d_dxbc_compiler_decorate_nonuniform(compiler, image.id);
 
             val_id = vkd3d_spirv_build_op_array_length(builder, type_id, image.id, 0);
