@@ -14253,3 +14253,242 @@ void test_constant_buffer_dxil(void)
     test_constant_buffers(true);
 }
 
+void test_minprecision_dxbc(void)
+{
+    static const D3D12_VIEWPORT vp = { 0.0f, 0.0f, 2.0f, 2.0f, 0.0f, 1.0f };
+    static const FLOAT white[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    static const D3D12_RECT sci = { 0, 0, 2, 2 };
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_STATIC_SAMPLER_DESC static_sampler;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
+    D3D12_DESCRIPTOR_RANGE descriptor_range;
+    D3D12_ROOT_PARAMETER root_parameter;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    struct test_context_desc desc;
+    struct test_context context;
+    struct resource_readback rb;
+    D3D12_SUBRESOURCE_DATA data;
+    ID3D12DescriptorHeap *heap;
+    ID3D12Resource *texture;
+    unsigned int x, y;
+
+    static const uint8_t tex_data[] =
+    {
+        2, 4, 6, 8,
+        10, 12, 14, 16,
+        18, 20, 22, 24,
+        26, 28, 30, 32,
+    };
+
+    static const uint32_t expected_output[] =
+    {
+        0xbdbd1422, 0xfdfd0c22,
+        0xfdfd0c22, 0xbdbd1422,
+    };
+
+    static const DWORD vs_code[] =
+    {
+#if 0
+    struct VSOut
+    {
+        float4 pos : SV_Position;
+        min16float2 uv : UV;
+    };
+
+    VSOut main(uint vid : SV_VertexID)
+    {
+        VSOut vout;
+
+        if (vid == 0)
+            vout.pos = float4(-1, -1, 0, 1);
+        else if (vid == 1)
+            vout.pos = float4(3, -1, 0, 1);
+        else
+            vout.pos = float4(-1, 3, 0, 1);
+
+        vout.uv = min16float2(vout.pos.xy * 0.5 + 0.5);
+        vout.uv.y = min16float(1.0) - vout.uv.y;
+        return vout;
+    }
+#endif
+        0x43425844, 0xeb05c6ae, 0x0b887e52, 0xad169d77, 0x0a9ce882, 0x00000001, 0x00000240, 0x00000004,
+        0x00000030, 0x0000006c, 0x000000cc, 0x00000230, 0x31475349, 0x00000034, 0x00000001, 0x00000008,
+        0x00000000, 0x00000028, 0x00000000, 0x00000006, 0x00000001, 0x00000000, 0x00000101, 0x00000000,
+        0x565f5653, 0x65747265, 0x00444978, 0x3147534f, 0x00000058, 0x00000002, 0x00000008, 0x00000000,
+        0x00000048, 0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f, 0x00000000, 0x00000000,
+        0x00000054, 0x00000000, 0x00000000, 0x00000003, 0x00000001, 0x00000c03, 0x00000001, 0x505f5653,
+        0x7469736f, 0x006e6f69, 0xab005655, 0x58454853, 0x0000015c, 0x00010050, 0x00000057, 0x0101086a,
+        0x04000060, 0x00101012, 0x00000000, 0x00000006, 0x04000067, 0x001020f2, 0x00000000, 0x00000001,
+        0x04000065, 0x80102032, 0x00004001, 0x00000001, 0x02000068, 0x00000001, 0x07000020, 0x00100012,
+        0x00000000, 0x0010100a, 0x00000000, 0x00004001, 0x00000001, 0x0f000037, 0x001000f2, 0x00000000,
+        0x00100006, 0x00000000, 0x00004002, 0x40400000, 0xbf800000, 0x00000000, 0x3f800000, 0x00004002,
+        0xbf800000, 0x40400000, 0x00000000, 0x3f800000, 0x0c000037, 0x001000f2, 0x00000000, 0x00101006,
+        0x00000000, 0x00100e46, 0x00000000, 0x00004002, 0xbf800000, 0xbf800000, 0x00000000, 0x3f800000,
+        0x05000036, 0x001020f2, 0x00000000, 0x00100e46, 0x00000000, 0x0f000032, 0x00100032, 0x00000000,
+        0x00100046, 0x00000000, 0x00004002, 0x3f000000, 0x3f000000, 0x00000000, 0x00000000, 0x00004002,
+        0x3f000000, 0x3f000000, 0x00000000, 0x00000000, 0x09000000, 0x80102022, 0x00004001, 0x00000001,
+        0x8010001a, 0x00000041, 0x00000000, 0x00004001, 0x3f800000, 0x06000036, 0x80102012, 0x00004001,
+        0x00000001, 0x0010000a, 0x00000000, 0x0100003e, 0x30494653, 0x00000008, 0x00000010, 0x00000000,
+    };
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+    struct VSOut
+    {
+        float4 pos : SV_Position;
+        min16float2 uv : UV;
+    };
+
+    Texture2D<min16float3> T : register(t0);
+    SamplerState S : register(s0);
+
+    min16float4 ps_main(VSOut vout) : SV_Target
+    {
+        min16float3 s0 = round(min16float(255.0) * T.Sample(S, vout.uv));
+        min16float3 s1 = round(min16float(255.0) * T.Sample(S, min16float2(1.0, 1.0) - vout.uv));
+
+        min16float adds = dot(s0 + s1, min16float(1.0).xxx);
+        min16float subs = dot(abs(s0 - s1), min16float(1.0).xxx);
+        min16float muls = dot(s0 * s1, min16float(1.0).xxx);
+
+        return min16float4(adds / min16float(255.0), subs / min16float(255.0), muls / min16float(255.0), dot(s0, s1) / min16float(255.0));
+    }
+#endif
+        0x43425844, 0xff40ae01, 0x7de33435, 0x621d36ba, 0x90f202fe, 0x00000001, 0x00000410, 0x00000004,
+        0x00000030, 0x00000090, 0x000000cc, 0x00000400, 0x31475349, 0x00000058, 0x00000002, 0x00000008,
+        0x00000000, 0x00000048, 0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f, 0x00000000,
+        0x00000000, 0x00000054, 0x00000000, 0x00000000, 0x00000003, 0x00000001, 0x00000303, 0x00000001,
+        0x505f5653, 0x7469736f, 0x006e6f69, 0xab005655, 0x3147534f, 0x00000034, 0x00000001, 0x00000008,
+        0x00000000, 0x00000028, 0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x0000000f, 0x00000001,
+        0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x0000032c, 0x00000050, 0x000000cb, 0x0101086a,
+        0x0300005a, 0x00106000, 0x00000000, 0x04001858, 0x00107000, 0x00000000, 0x00005555, 0x04001062,
+        0x80101032, 0x00004001, 0x00000001, 0x04000065, 0x801020f2, 0x00004001, 0x00000000, 0x02000068,
+        0x00000003, 0x0c000000, 0x80100032, 0x00004001, 0x00000000, 0x80101046, 0x00004041, 0x00000001,
+        0x00004002, 0x3f800000, 0x3f800000, 0x00000000, 0x00000000, 0x8d000045, 0x800000c2, 0x00155543,
+        0x80100072, 0x00004001, 0x00000000, 0x80100046, 0x00004001, 0x00000000, 0x00107e46, 0x00000000,
+        0x00106000, 0x00000000, 0x0c000038, 0x80100072, 0x00004001, 0x00000000, 0x80100246, 0x00004001,
+        0x00000000, 0x00004002, 0x437f0000, 0x437f0000, 0x437f0000, 0x00000000, 0x07000040, 0x80100072,
+        0x00004001, 0x00000000, 0x80100246, 0x00004001, 0x00000000, 0x8d000045, 0x800000c2, 0x00155543,
+        0x80100072, 0x00004001, 0x00000001, 0x80101046, 0x00004001, 0x00000001, 0x00107e46, 0x00000000,
+        0x00106000, 0x00000000, 0x0c000038, 0x80100072, 0x00004001, 0x00000001, 0x80100246, 0x00004001,
+        0x00000001, 0x00004002, 0x437f0000, 0x437f0000, 0x437f0000, 0x00000000, 0x07000040, 0x80100072,
+        0x00004001, 0x00000001, 0x80100246, 0x00004001, 0x00000001, 0x0a000000, 0x80100072, 0x00004001,
+        0x00000002, 0x80100246, 0x00004001, 0x00000000, 0x80100246, 0x00004001, 0x00000001, 0x0c000010,
+        0x80100082, 0x00004001, 0x00000000, 0x80100246, 0x00004001, 0x00000002, 0x00004002, 0x3f800000,
+        0x3f800000, 0x3f800000, 0x00000000, 0x09000038, 0x80102012, 0x00004001, 0x00000000, 0x8010003a,
+        0x00004001, 0x00000000, 0x00004001, 0x3b808081, 0x0a000000, 0x80100072, 0x00004001, 0x00000002,
+        0x80100246, 0x00004041, 0x00000000, 0x80100246, 0x00004001, 0x00000001, 0x0c000010, 0x80100082,
+        0x00004001, 0x00000000, 0x80100246, 0x00004081, 0x00000002, 0x00004002, 0x3f800000, 0x3f800000,
+        0x3f800000, 0x00000000, 0x0a000038, 0x80100072, 0x00004001, 0x00000002, 0x80100246, 0x00004001,
+        0x00000000, 0x80100246, 0x00004001, 0x00000001, 0x0a000010, 0x80100012, 0x00004001, 0x00000000,
+        0x80100246, 0x00004001, 0x00000001, 0x80100246, 0x00004001, 0x00000000, 0x0c000038, 0x801020a2,
+        0x00004001, 0x00000000, 0x801003f6, 0x00004001, 0x00000000, 0x00004002, 0x00000000, 0x3b808081,
+        0x00000000, 0x3b808081, 0x0c000010, 0x80100012, 0x00004001, 0x00000000, 0x80100246, 0x00004001,
+        0x00000002, 0x00004002, 0x3f800000, 0x3f800000, 0x3f800000, 0x00000000, 0x09000038, 0x80102042,
+        0x00004001, 0x00000000, 0x8010000a, 0x00004001, 0x00000000, 0x00004001, 0x3b808081, 0x0100003e,
+        0x30494653, 0x00000008, 0x00000010, 0x00000000,
+    };
+
+    static const D3D12_SHADER_BYTECODE vs = SHADER_BYTECODE(vs_code);
+    static const D3D12_SHADER_BYTECODE ps = SHADER_BYTECODE(ps_code);
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.rt_width = 2;
+    desc.rt_height = 2;
+    desc.no_root_signature = true;
+    desc.no_pipeline = true;
+
+    if (!init_test_context(&context, &desc))
+        return;
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options))) ||
+            !(options.MinPrecisionSupport & D3D12_SHADER_MIN_PRECISION_SUPPORT_16_BIT))
+    {
+        skip("Device does not support 16-bit min-precision, skipping.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    texture = create_default_texture2d(context.device, 4, 4, 1, 1, DXGI_FORMAT_R8_UNORM,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    memset(&srv_desc, 0, sizeof(srv_desc));
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv_desc.Format = DXGI_FORMAT_R8_UNORM;
+    srv_desc.Texture2D.MipLevels = 1;
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    ID3D12Device_CreateShaderResourceView(context.device, texture, &srv_desc,
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap));
+
+    data.pData = tex_data;
+    data.RowPitch = 4;
+    data.SlicePitch = 4 * 4;
+    upload_texture_data(texture, &data, 1, context.queue, context.list);
+    reset_command_list(context.list, context.allocator);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(&static_sampler, 0, sizeof(static_sampler));
+    memset(&root_parameter, 0, sizeof(root_parameter));
+    memset(&descriptor_range, 0, sizeof(descriptor_range));
+
+    rs_desc.pParameters = &root_parameter;
+    rs_desc.pStaticSamplers = &static_sampler;
+    rs_desc.NumParameters = 1;
+    rs_desc.NumStaticSamplers = 1;
+
+    static_sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    static_sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    static_sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    static_sampler.Filter = D3D12_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+    static_sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    root_parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    root_parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameter.DescriptorTable.NumDescriptorRanges = 1;
+    root_parameter.DescriptorTable.pDescriptorRanges = &descriptor_range;
+
+    descriptor_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    descriptor_range.NumDescriptors = 1;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    memset(&pso_desc, 0, sizeof(pso_desc));
+    init_pipeline_state_desc(&pso_desc, context.root_signature, DXGI_FORMAT_R8G8B8A8_UNORM, &vs, &ps, NULL);
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, white, 0, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(context.list, 0,
+            ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &sci);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, context.queue, context.list);
+
+    for (y = 0; y < 2; y++)
+    {
+        for (x = 0; x < 2; x++)
+        {
+            uint32_t expected;
+            uint32_t value;
+
+            value = get_readback_uint(&rb, x, y, 0);
+            expected = expected_output[y * 2 + x];
+            ok(expected == value, "Pixel %u, %u mismatch, %x != %x.\n", x, y, value, expected);
+        }
+    }
+
+    release_resource_readback(&rb);
+    ID3D12DescriptorHeap_Release(heap);
+    ID3D12Resource_Release(texture);
+    destroy_test_context(&context);
+}
