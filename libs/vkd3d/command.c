@@ -6801,32 +6801,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
     }
 }
 
-static void vk_image_memory_barrier_for_after_aliasing_barrier(struct d3d12_device *device,
-        VkQueueFlags vk_queue_flags, struct d3d12_resource *after, VkImageMemoryBarrier *vk_barrier)
-{
-    vk_barrier->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    vk_barrier->pNext = NULL;
-    vk_barrier->srcAccessMask = 0;
-    vk_barrier->dstAccessMask = vk_access_flags_all_possible_for_image(device, after->desc.Flags, vk_queue_flags, true);
-    vk_barrier->oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-    /* We currently do not know the resource state.
-     * There are two scenarios here:
-     * - The image is in render target state. In this case, we must have a following Discard / Clear / Copy,
-     * which will transition away from UNDEFINED either way.
-     * - Otherwise, we have to initialize the image in some way anyways which will trigger oldLayout = UNDEFINED.
-     * Just discarding to common_layout is a sensible option. */
-    vk_barrier->newLayout = after->common_layout;
-    vk_barrier->srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    vk_barrier->dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    vk_barrier->image = after->res.vk_image;
-    vk_barrier->subresourceRange.aspectMask = after->format->vk_aspect_mask;
-    vk_barrier->subresourceRange.baseMipLevel = 0;
-    vk_barrier->subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
-    vk_barrier->subresourceRange.baseArrayLayer = 0;
-    vk_barrier->subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
-}
-
 static bool d3d12_resource_may_alias_other_resources(struct d3d12_resource *resource)
 {
     /* Treat a NULL resource as "all" resources. */
@@ -7017,7 +6991,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
     {
         const D3D12_RESOURCE_BARRIER *current = &barriers[i];
         struct d3d12_resource *preserve_resource = NULL;
-        struct d3d12_resource *discard_resource = NULL;
 
         have_split_barriers = have_split_barriers
                 || (current->Flags & D3D12_RESOURCE_BARRIER_FLAG_BEGIN_ONLY)
@@ -7142,14 +7115,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                 before = impl_from_ID3D12Resource(alias->pResourceBefore);
                 after = impl_from_ID3D12Resource(alias->pResourceAfter);
 
-                discard_resource = after;
-
                 if (d3d12_resource_may_alias_other_resources(before) && d3d12_resource_may_alias_other_resources(after))
                 {
-                    /* An aliasing barrier in D3D12 means that we should wait for all writes to complete on before resource,
-                     * and then potentially emit an UNDEFINED -> default barrier on image resources.
-                     * before can be NULL, which means "any" resource. */
-
+                    /* Aliasing barriers in D3D12 are extremely weird and don't behavior like you would expect.
+                     * For buffer aliasing, it is basically a global memory barrier, but for images it gets
+                     * quite weird. We cannot perform UNDEFINED transitions here, even if that is what makes sense.
+                     * UNDEFINED transitions are deferred to their required "activation" command, which is a full-subresource
+                     * command that writes every pixel. We detect those cases and perform a transition away from UNDEFINED. */
                     if (before && d3d12_resource_is_texture(before))
                     {
                         alias_src_access = vk_access_flags_all_possible_for_image(list->device,
@@ -7166,33 +7138,23 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
 
                     if (after && d3d12_resource_is_texture(after))
                     {
-                        VkImageMemoryBarrier vk_alias_barrier;
-
-                        /* An aliasing barrier discards to common layout.
-                         * We'll see a DiscardResource later anyways which should make the resource optimal. */
-                        if (after->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
-                            d3d12_command_list_notify_decay_dsv_resource(list, after);
-
-                        vk_image_memory_barrier_for_after_aliasing_barrier(list->device, list->vk_queue_flags,
-                                after, &vk_alias_barrier);
-                        d3d12_command_list_barrier_batch_add_layout_transition(list, &batch, &vk_alias_barrier);
-                        /* If this alias triggers a flush, make sure we add global barriers after that happens. */
-                        batch.vk_memory_barrier.srcAccessMask |= alias_src_access;
-                        batch.src_stage_mask |= VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-                        batch.dst_stage_mask |= VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+                        /* To correctly alias images, it is required to perform an initializing operation
+                         * at a later time. This includes fully clearing a render target, full subresource CopyResource,
+                         * etc. In all those cases we will handle UNDEFINED layouts. Making memory visible is redundant at this stage,
+                         * since memory only needs to be available to perform transition away from UNDEFINED.
+                         * Thus, at the very least, we need srcAccessMask to be correct in the aliasing barrier. */
+                        alias_dst_access = 0;
                     }
                     else
                     {
-                        if (!after)
-                            FIXME_ONCE("NULL resource for pResourceAfter. Won't be able to transition images away from UNDEFINED.\n");
                         alias_dst_access = vk_access_flags_all_possible_for_buffer(list->device,
                                 list->vk_queue_flags, true);
-
-                        batch.src_stage_mask |= VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-                        batch.dst_stage_mask |= VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-                        batch.vk_memory_barrier.srcAccessMask |= alias_src_access;
-                        batch.vk_memory_barrier.dstAccessMask |= alias_dst_access;
                     }
+
+                    batch.src_stage_mask |= VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+                    batch.dst_stage_mask |= VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+                    batch.vk_memory_barrier.srcAccessMask |= alias_src_access;
+                    batch.vk_memory_barrier.dstAccessMask |= alias_dst_access;
                 }
                 break;
             }
@@ -7204,23 +7166,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
 
         if (preserve_resource)
             d3d12_command_list_track_resource_usage(list, preserve_resource, true);
-
-        /* We will need to skip any initial transition if the aliasing barrier is the first use we observe in
-         * a command list.
-         * Consider a scenario of two freshly allocated resources A and B which alias each other.
-         * - A is used with Clear/DiscardResource.
-         * - Use A.
-         * - Aliasing barrier A -> B.
-         * - B gets Clear/DiscardResource.
-         * - Use B.
-         * With initial transitions, we risk getting this order of commands if we naively queue up transitions.
-         * - A UNDEFINED -> common
-         * - B UNDEFINED -> common
-         * - A is used (woops! B is the current owner).
-         * It is critical to avoid redundant initial layout transitions if the first use transitions away from
-         * UNDEFINED to make sure aliasing ownership is maintained correctly throughout a submission. */
-        if (discard_resource)
-            d3d12_command_list_track_resource_usage(list, discard_resource, false);
     }
 
     d3d12_command_list_barrier_batch_end(list, &batch);
