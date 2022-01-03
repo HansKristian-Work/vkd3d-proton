@@ -424,6 +424,34 @@ static bool vkd3d_format_allows_shader_copies(DXGI_FORMAT dxgi_format)
     return false;
 }
 
+static bool vkd3d_format_check_usage_support(struct d3d12_device *device, VkFormat format, VkImageUsageFlags usage, VkImageTiling tiling)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkFormatFeatureFlags required_flags, supported_flags;
+    VkFormatProperties format_properties;
+
+    VK_CALL(vkGetPhysicalDeviceFormatProperties(device->vk_physical_device, format, &format_properties));
+
+    supported_flags = tiling == VK_IMAGE_TILING_LINEAR
+            ? format_properties.linearTilingFeatures
+            : format_properties.optimalTilingFeatures;
+
+    required_flags = 0;
+
+    if (usage & VK_IMAGE_USAGE_SAMPLED_BIT)
+        required_flags |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+    if (usage & VK_IMAGE_USAGE_STORAGE_BIT)
+        required_flags |= VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
+    if (usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+        required_flags |= VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;
+    if (usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+        required_flags |= VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    if (usage & VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)
+        required_flags |= VK_FORMAT_FEATURE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
+
+    return (supported_flags & required_flags) == required_flags;
+}
+
 static HRESULT vkd3d_create_image(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC1 *desc, struct d3d12_resource *resource, VkImage *vk_image)
@@ -464,7 +492,7 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
             format_list.pViewFormats = compat_list.vk_formats;
 
             image_info.pNext = &format_list;
-            image_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
+            image_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
         }
     }
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D
@@ -596,6 +624,8 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     if (heap_properties && is_cpu_accessible_heap(heap_properties))
     {
         image_info.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+        /* Required for ReadFromSubresource(). */
+        image_info.tiling = VK_IMAGE_TILING_LINEAR;
 
         if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_IGNORE_RTV_HOST_VISIBLE) &&
                 (image_info.usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT))
@@ -605,28 +635,37 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
             if (resource)
                 resource->desc.Flags &= ~D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
         }
-
-        if (vkd3d_is_linear_tiling_supported(device, &image_info))
-        {
-            /* Required for ReadFromSubresource(). */
-            WARN("Forcing VK_IMAGE_TILING_LINEAR for CPU readable texture.\n");
-            image_info.tiling = VK_IMAGE_TILING_LINEAR;
-        }
-        else if (image_info.flags & VK_IMAGE_CREATE_EXTENDED_USAGE_BIT)
-        {
-            /* Apparently NV drivers do not support EXTENDED_USAGE_BIT on linear images? */
-            image_info.flags &= ~VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
-            WARN("Linear image not supported, attempting without EXTENDED_USAGE as a workaround ...\n");
-            if (vkd3d_is_linear_tiling_supported(device, &image_info))
-            {
-                WARN("Forcing VK_IMAGE_TILING_LINEAR for CPU readable texture.\n");
-                image_info.tiling = VK_IMAGE_TILING_LINEAR;
-            }
-        }
     }
     else
     {
         image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    }
+
+    if ((image_info.flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) &&
+            !vkd3d_format_check_usage_support(device, format->vk_format, image_info.usage, image_info.tiling))
+        image_info.flags |= VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
+
+    if (image_info.tiling == VK_IMAGE_TILING_LINEAR)
+    {
+        bool supported = vkd3d_is_linear_tiling_supported(device, &image_info);
+
+        /* Apparently NV drivers do not support EXTENDED_USAGE_BIT on linear images? */
+        if (!supported && (image_info.flags & VK_IMAGE_CREATE_EXTENDED_USAGE_BIT))
+        {
+            WARN("Linear image not supported, attempting without EXTENDED_USAGE as a workaround ...\n");
+            image_info.flags &= ~VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
+            supported = vkd3d_is_linear_tiling_supported(device, &image_info);
+        }
+
+        if (!supported)
+        {
+            WARN("Linear image not supported, forcing OPTIMAL tiling ...\n");
+            image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+
+            if ((image_info.flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) &&
+                    !vkd3d_format_check_usage_support(device, format->vk_format, image_info.usage, image_info.tiling))
+                image_info.flags |= VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
+        }
     }
 
     if (sparse_resource)
