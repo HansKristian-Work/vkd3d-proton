@@ -4121,14 +4121,16 @@ static void d3d12_command_list_insert_query_range(struct d3d12_command_list *lis
     if (pos > 0)
     {
         range = &list->query_ranges[pos - 1];
-        merge_lo = range->flags == flags
+        merge_lo = range->vk_pool == vk_pool
+                && range->flags == flags
                 && range->index + range->count == index;
     }
 
     if (pos < list->query_ranges_count)
     {
         range = &list->query_ranges[pos];
-        merge_hi = range->flags == flags
+        merge_hi = range->vk_pool == vk_pool
+                && range->flags == flags
                 && range->index == index + count;
     }
 
