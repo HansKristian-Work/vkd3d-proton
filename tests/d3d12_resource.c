@@ -3314,3 +3314,78 @@ void test_map_texture_validation(void)
     vkd3d_test_set_context(NULL);
     destroy_test_context(&context);
 }
+
+void test_aliasing_barrier_edge_cases(void)
+{
+    const FLOAT color[4] = { 0.0f, 0.0f, 1.0f, 0.0f };
+    D3D12_RESOURCE_ALLOCATION_INFO alloc_info;
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv[3];
+    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_RESOURCE_BARRIER barrier;
+    struct test_context_desc desc;
+    ID3D12Resource *resources[3];
+    struct test_context context;
+    ID3D12DescriptorHeap *rtvs;
+    D3D12_HEAP_DESC heap_desc;
+    ID3D12Heap *heap;
+    unsigned int i;
+    HRESULT hr;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    desc.no_pipeline = true;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_desc.Width = 2048;
+    resource_desc.Height = 2048;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    resource_desc.MipLevels = 1;
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+
+    alloc_info = ID3D12Device_GetResourceAllocationInfo(context.device, 0, 1, &resource_desc);
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.SizeInBytes = alloc_info.SizeInBytes;
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES;
+    hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void**)&heap);
+    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n", hr);
+
+    rtvs = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, ARRAY_SIZE(resources));
+    for (i = 0; i < ARRAY_SIZE(resources); i++)
+    {
+        D3D12_CPU_DESCRIPTOR_HANDLE h = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtvs);
+        h.ptr += i * ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+        hr = ID3D12Device_CreatePlacedResource(context.device, heap, 0, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET,
+                NULL, &IID_ID3D12Resource, (void**)&resources[i]);
+        ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+        ID3D12Device_CreateRenderTargetView(context.device, resources[i], NULL, h);
+        rtv[i] = h;
+    }
+
+    /* D3D12 validation does not complain about any of this, and it works on native drivers, somehow ...
+     * It's somewhat clear from this that aliasing barrier on its own should not modify any image layout,
+     * we should only consider global memory barriers here. */
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, rtv[0], color, 0, NULL);
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_ALIASING;
+    barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrier.Aliasing.pResourceBefore = resources[2];
+    barrier.Aliasing.pResourceAfter = resources[1];
+    ID3D12GraphicsCommandList_ResourceBarrier(context.list, 1, &barrier);
+    transition_resource_state(context.list, resources[0], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_uint(resources[0], 0, context.queue, context.list, 0x00ff0000, 0);
+
+    ID3D12DescriptorHeap_Release(rtvs);
+    for (i = 0; i < ARRAY_SIZE(resources); i++)
+        ID3D12Resource_Release(resources[i]);
+    ID3D12Heap_Release(heap);
+
+    destroy_test_context(&context);
+}
