@@ -4806,8 +4806,6 @@ void test_shader_sm66_is_helper_lane(void)
             else
                 expected = white;
 
-            /* https://gitlab.freedesktop.org/mesa/mesa/-/issues/5570 */
-            bug_if(x == 0 && y == 0 && is_radv_device(context.device))
             ok(compare_vec4(value, &expected, 0), "Mismatch pixel %u, %u, (%f %f %f %f) != (%f %f %f %f).\n",
                     x, y, expected.x, expected.y, expected.z, expected.w,
                     value->x, value->y, value->z, value->w);

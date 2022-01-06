@@ -4750,7 +4750,6 @@ void test_typed_srv_cast_clear(void)
         float optimized_clear_value;
         uint32_t expected_component;
         uint32_t ulp;
-        bool is_radv_bug;
     };
 
     /* RADV currently misses some cases where fast clear triggers for signed <-> unsigned and we get weird results. */
@@ -4759,19 +4758,19 @@ void test_typed_srv_cast_clear(void)
     {
         { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_SINT, 0.0f, 0.0f, 0 },
         { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_SINT, 1.0f, 1.0f / 255.0f, 1 },
-        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_SINT, 127.0f, 127.0f / 255.0f, 0x7f, 0, true },
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_SINT, 127.0f, 127.0f / 255.0f, 0x7f, 0},
         { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_SINT, -128.0f, 128.0f / 255.0f, 0x80 },
         { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_SINT, 0.0f, 0.0f, 0 },
-        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_SINT, 127.0f, 127.0f, 0x7f, 0, true },
+        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_SINT, 127.0f, 127.0f, 0x7f, 0},
         { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_SINT, -128.0f, 128.0f, 0x80 },
 
         { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_SNORM, 0.0f, 0.0f, 0 },
-        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_SNORM, 1.0f, 127.0f / 255.0f, 0x7f, 0, true },
+        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_SNORM, 1.0f, 127.0f / 255.0f, 0x7f, 0},
         /* Could be 0x80 or 0x81 */
         { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R8G8B8A8_SNORM, -1.0f, 129.0f / 255.0f, 0x80, 1},
 
         { DXGI_FORMAT_R8G8B8A8_SNORM, DXGI_FORMAT_R8G8B8A8_UINT, 0.0f, 0.0f, 0},
-        { DXGI_FORMAT_R8G8B8A8_SNORM, DXGI_FORMAT_R8G8B8A8_UINT, 255.0f, -1.0f / 127.0f, 0xff, 0, true },
+        { DXGI_FORMAT_R8G8B8A8_SNORM, DXGI_FORMAT_R8G8B8A8_UINT, 255.0f, -1.0f / 127.0f, 0xff, 0},
         /* AMD native drivers return 0x81 here. Seems broken, but NV and Intel do the right thing ... */
         { DXGI_FORMAT_R8G8B8A8_SNORM, DXGI_FORMAT_R8G8B8A8_UINT, 128.0f, -1.0f, 0x80, 1 },
         { DXGI_FORMAT_R8G8B8A8_SNORM, DXGI_FORMAT_R8G8B8A8_UINT, 129.0f, -1.0f, 0x81 },
@@ -4780,9 +4779,9 @@ void test_typed_srv_cast_clear(void)
 
         { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UINT, 0.0f, 0.0f, 0 },
         { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UINT, 1.0f, 1.0f, 1 },
-        { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UINT, 255.0f, -1.0f, 0xff, 0, true },
+        { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UINT, 255.0f, -1.0f, 0xff, 0},
         { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UNORM, 0.0f, 0.0f, 0 },
-        { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UNORM, 1.0f, -1.0f, 0xff, 0, true },
+        { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UNORM, 1.0f, -1.0f, 0xff, 0},
         { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UNORM, 0.0f, 0.0f, 0 },
         { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UNORM, 128.0f / 255.0f, -128.0f, 0x80 },
         { DXGI_FORMAT_R8G8B8A8_SINT, DXGI_FORMAT_R8G8B8A8_UNORM, 129.0f / 255.0f, -127.0f, 0x81 },
@@ -4868,7 +4867,6 @@ void test_typed_srv_cast_clear(void)
 
         transition_resource_state(context.list, texture, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
-        bug_if(is_radv_device(context.device) && tests[test_iteration].is_radv_bug)
         check_sub_resource_uint(texture, 0, context.queue, context.list, tests[test_iteration].expected_component * 0x01010101u, tests[test_iteration].ulp);
 
         reset_command_list(context.list, context.allocator);
