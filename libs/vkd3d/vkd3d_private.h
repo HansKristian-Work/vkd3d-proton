@@ -1704,6 +1704,20 @@ struct vkd3d_query_pool
     uint32_t next_index;
 };
 
+struct d3d12_command_allocator_scratch_pool
+{
+    struct vkd3d_scratch_buffer *scratch_buffers;
+    size_t scratch_buffers_size;
+    size_t scratch_buffer_count;
+};
+
+enum vkd3d_scratch_pool_kind
+{
+    VKD3D_SCRATCH_POOL_KIND_DEVICE_STORAGE = 0,
+    VKD3D_SCRATCH_POOL_KIND_INDIRECT_PREPROCESS,
+    VKD3D_SCRATCH_POOL_KIND_COUNT
+};
+
 /* ID3D12CommandAllocator */
 struct d3d12_command_allocator
 {
@@ -1737,9 +1751,7 @@ struct d3d12_command_allocator
     size_t command_buffers_size;
     size_t command_buffer_count;
 
-    struct vkd3d_scratch_buffer *scratch_buffers;
-    size_t scratch_buffers_size;
-    size_t scratch_buffer_count;
+    struct d3d12_command_allocator_scratch_pool scratch_pools[VKD3D_SCRATCH_POOL_KIND_COUNT];
 
     struct vkd3d_query_pool *query_pools;
     size_t query_pools_size;
@@ -2891,6 +2903,12 @@ struct vkd3d_descriptor_qa_heap_buffer_data;
 /* ID3D12DeviceExt */
 typedef ID3D12DeviceExt d3d12_device_vkd3d_ext_iface;
 
+struct d3d12_device_scratch_pool
+{
+    struct vkd3d_scratch_buffer scratch_buffers[VKD3D_SCRATCH_BUFFER_COUNT];
+    size_t scratch_buffer_count;
+};
+
 struct d3d12_device
 {
     d3d12_device_iface ID3D12Device_iface;
@@ -2926,8 +2944,7 @@ struct d3d12_device
 
     struct vkd3d_memory_allocator memory_allocator;
 
-    struct vkd3d_scratch_buffer scratch_buffers[VKD3D_SCRATCH_BUFFER_COUNT];
-    size_t scratch_buffer_count;
+    struct d3d12_device_scratch_pool scratch_pools[VKD3D_SCRATCH_POOL_KIND_COUNT];
 
     struct vkd3d_query_pool query_pools[VKD3D_VIRTUAL_QUERY_POOL_COUNT];
     size_t query_pool_count;
@@ -2989,8 +3006,10 @@ static inline struct d3d12_device *impl_from_ID3D12Device(d3d12_device_iface *if
 
 bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct vkd3d_shader_meta *meta);
 
-HRESULT d3d12_device_get_scratch_buffer(struct d3d12_device *device, VkDeviceSize min_size, struct vkd3d_scratch_buffer *scratch);
-void d3d12_device_return_scratch_buffer(struct d3d12_device *device, const struct vkd3d_scratch_buffer *scratch);
+HRESULT d3d12_device_get_scratch_buffer(struct d3d12_device *device, enum vkd3d_scratch_pool_kind kind,
+        VkDeviceSize min_size, uint32_t memory_types, struct vkd3d_scratch_buffer *scratch);
+void d3d12_device_return_scratch_buffer(struct d3d12_device *device, enum vkd3d_scratch_pool_kind kind,
+        const struct vkd3d_scratch_buffer *scratch);
 
 HRESULT d3d12_device_get_query_pool(struct d3d12_device *device, uint32_t type_index, struct vkd3d_query_pool *pool);
 void d3d12_device_return_query_pool(struct d3d12_device *device, const struct vkd3d_query_pool *pool);
