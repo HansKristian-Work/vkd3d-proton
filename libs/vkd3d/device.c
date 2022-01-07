@@ -2539,23 +2539,52 @@ static void d3d12_remove_device_singleton(LUID luid)
     }
 }
 
-static HRESULT d3d12_device_create_scratch_buffer(struct d3d12_device *device, VkDeviceSize size, struct vkd3d_scratch_buffer *scratch)
+static HRESULT d3d12_device_create_scratch_buffer(struct d3d12_device *device, enum vkd3d_scratch_pool_kind kind,
+        VkDeviceSize size, uint32_t memory_types, struct vkd3d_scratch_buffer *scratch)
 {
-    struct vkd3d_allocate_heap_memory_info alloc_info;
     HRESULT hr;
 
     TRACE("device %p, size %llu, scratch %p.\n", device, size, scratch);
 
-    memset(&alloc_info, 0, sizeof(alloc_info));
-    alloc_info.heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
-    alloc_info.heap_desc.SizeInBytes = size;
-    alloc_info.heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-    alloc_info.heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
-    alloc_info.extra_allocation_flags = VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH;
+    if (kind == VKD3D_SCRATCH_POOL_KIND_DEVICE_STORAGE)
+    {
+        struct vkd3d_allocate_heap_memory_info alloc_info;
 
-    if (FAILED(hr = vkd3d_allocate_heap_memory(device, &device->memory_allocator,
-            &alloc_info, &scratch->allocation)))
-        return hr;
+        /* We only care about memory types for INDIRECT_PREPROCESS. */
+        assert(memory_types == ~0u);
+
+        memset(&alloc_info, 0, sizeof(alloc_info));
+        alloc_info.heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+        alloc_info.heap_desc.SizeInBytes = size;
+        alloc_info.heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+        alloc_info.heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS | D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
+        alloc_info.extra_allocation_flags = VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH;
+
+        if (FAILED(hr = vkd3d_allocate_heap_memory(device, &device->memory_allocator,
+                &alloc_info, &scratch->allocation)))
+            return hr;
+    }
+    else if (kind == VKD3D_SCRATCH_POOL_KIND_INDIRECT_PREPROCESS)
+    {
+        struct vkd3d_allocate_memory_info alloc_info;
+        memset(&alloc_info, 0, sizeof(alloc_info));
+
+        alloc_info.heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+        alloc_info.memory_requirements.size = size;
+        alloc_info.memory_requirements.memoryTypeBits = memory_types;
+        alloc_info.memory_requirements.alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+        alloc_info.heap_flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS | D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
+        alloc_info.optional_memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+        alloc_info.flags = VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER | VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH;
+
+        if (FAILED(hr = vkd3d_allocate_memory(device, &device->memory_allocator,
+                &alloc_info, &scratch->allocation)))
+            return hr;
+    }
+    else
+    {
+        return E_INVALIDARG;
+    }
 
     scratch->offset = 0;
     return S_OK;
@@ -2568,35 +2597,47 @@ static void d3d12_device_destroy_scratch_buffer(struct d3d12_device *device, con
     vkd3d_free_memory(device, &device->memory_allocator, &scratch->allocation);
 }
 
-HRESULT d3d12_device_get_scratch_buffer(struct d3d12_device *device, VkDeviceSize min_size, struct vkd3d_scratch_buffer *scratch)
+HRESULT d3d12_device_get_scratch_buffer(struct d3d12_device *device, enum vkd3d_scratch_pool_kind kind,
+        VkDeviceSize min_size, uint32_t memory_types, struct vkd3d_scratch_buffer *scratch)
 {
+    struct d3d12_device_scratch_pool *pool = &device->scratch_pools[kind];
+    struct vkd3d_scratch_buffer *candidate;
+    size_t i;
+
     if (min_size > VKD3D_SCRATCH_BUFFER_SIZE)
-        return d3d12_device_create_scratch_buffer(device, min_size, scratch);
+        return d3d12_device_create_scratch_buffer(device, kind, min_size, memory_types, scratch);
 
     pthread_mutex_lock(&device->mutex);
 
-    if (device->scratch_buffer_count)
+    for (i = pool->scratch_buffer_count; i; i--)
     {
-        *scratch = device->scratch_buffers[--device->scratch_buffer_count];
-        scratch->offset = 0;
-        pthread_mutex_unlock(&device->mutex);
-        return S_OK;
+        candidate = &pool->scratch_buffers[i - 1];
+
+        /* Extremely unlikely to fail since we have separate lists per pool kind, but to be 100% correct ... */
+        if (memory_types & (1u << candidate->allocation.device_allocation.vk_memory_type))
+        {
+            *scratch = *candidate;
+            scratch->offset = 0;
+            pool->scratch_buffers[i - 1] = pool->scratch_buffers[--pool->scratch_buffer_count];
+            pthread_mutex_unlock(&device->mutex);
+            return S_OK;
+        }
     }
-    else
-    {
-        pthread_mutex_unlock(&device->mutex);
-        return d3d12_device_create_scratch_buffer(device, VKD3D_SCRATCH_BUFFER_SIZE, scratch);
-    }
+
+    pthread_mutex_unlock(&device->mutex);
+    return d3d12_device_create_scratch_buffer(device, kind, VKD3D_SCRATCH_BUFFER_SIZE, memory_types, scratch);
 }
 
-void d3d12_device_return_scratch_buffer(struct d3d12_device *device, const struct vkd3d_scratch_buffer *scratch)
+void d3d12_device_return_scratch_buffer(struct d3d12_device *device, enum vkd3d_scratch_pool_kind kind,
+        const struct vkd3d_scratch_buffer *scratch)
 {
+    struct d3d12_device_scratch_pool *pool = &device->scratch_pools[kind];
     pthread_mutex_lock(&device->mutex);
 
     if (scratch->allocation.resource.size == VKD3D_SCRATCH_BUFFER_SIZE &&
-            device->scratch_buffer_count < VKD3D_SCRATCH_BUFFER_COUNT)
+            pool->scratch_buffer_count < VKD3D_SCRATCH_BUFFER_COUNT)
     {
-        device->scratch_buffers[device->scratch_buffer_count++] = *scratch;
+        pool->scratch_buffers[pool->scratch_buffer_count++] = *scratch;
         pthread_mutex_unlock(&device->mutex);
     }
     else
@@ -2815,10 +2856,11 @@ static ULONG STDMETHODCALLTYPE d3d12_device_AddRef(d3d12_device_iface *iface)
 static void d3d12_device_destroy(struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    size_t i;
+    size_t i, j;
 
-    for (i = 0; i < device->scratch_buffer_count; i++)
-        d3d12_device_destroy_scratch_buffer(device, &device->scratch_buffers[i]);
+    for (i = 0; i < VKD3D_SCRATCH_POOL_KIND_COUNT; i++)
+        for (j = 0; j < device->scratch_pools[i].scratch_buffer_count; j++)
+            d3d12_device_destroy_scratch_buffer(device, &device->scratch_pools[i].scratch_buffers[j]);
 
     for (i = 0; i < device->query_pool_count; i++)
         d3d12_device_destroy_query_pool(device, &device->query_pools[i]);
