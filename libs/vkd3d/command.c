@@ -1553,7 +1553,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
 {
     struct d3d12_command_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
     ULONG refcount = InterlockedDecrement(&allocator->refcount);
-    unsigned int i;
+    unsigned int i, j;
 
     TRACE("%p decreasing refcount to %u.\n", allocator, refcount);
 
@@ -1609,13 +1609,16 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
         vkd3d_free(allocator->command_buffers);
         VK_CALL(vkDestroyCommandPool(device->vk_device, allocator->vk_command_pool, NULL));
 
-        for (i = 0; i < allocator->scratch_buffer_count; i++)
-            d3d12_device_return_scratch_buffer(device, &allocator->scratch_buffers[i]);
+        for (i = 0; i < VKD3D_SCRATCH_POOL_KIND_COUNT; i++)
+        {
+            for (j = 0; j < allocator->scratch_pools[i].scratch_buffer_count; j++)
+                d3d12_device_return_scratch_buffer(device, i, &allocator->scratch_pools[i].scratch_buffers[j]);
+            vkd3d_free(allocator->scratch_pools[i].scratch_buffers);
+        }
 
         for (i = 0; i < allocator->query_pool_count; i++)
             d3d12_device_return_query_pool(device, &allocator->query_pools[i]);
 
-        vkd3d_free(allocator->scratch_buffers);
         vkd3d_free(allocator->query_pools);
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
@@ -1684,7 +1687,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
     struct d3d12_device *device;
     LONG pending;
     VkResult vr;
-    size_t i;
+    size_t i, j;
 
     TRACE("iface %p.\n", iface);
 
@@ -1735,8 +1738,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
     }
 
     /* Return scratch buffers to the device */
-    for (i = 0; i < allocator->scratch_buffer_count; i++)
-        d3d12_device_return_scratch_buffer(device, &allocator->scratch_buffers[i]);
+    for (i = 0; i < VKD3D_SCRATCH_POOL_KIND_COUNT; i++)
+    {
+        for (j = 0; j < allocator->scratch_pools[i].scratch_buffer_count; j++)
+            d3d12_device_return_scratch_buffer(device, i, &allocator->scratch_pools[i].scratch_buffers[j]);
+        allocator->scratch_pools[i].scratch_buffer_count = 0;
+    }
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
@@ -1747,8 +1754,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
         allocator->breadcrumb_context_index_count = 0;
     }
 #endif
-
-    allocator->scratch_buffer_count = 0;
 
     /* Return query pools to the device */
     for (i = 0; i < allocator->query_pool_count; i++)
@@ -1907,9 +1912,7 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     allocator->command_buffers_size = 0;
     allocator->command_buffer_count = 0;
 
-    allocator->scratch_buffers = NULL;
-    allocator->scratch_buffers_size = 0;
-    allocator->scratch_buffer_count = 0;
+    memset(allocator->scratch_pools, 0, sizeof(allocator->scratch_pools));
 
     allocator->query_pools = NULL;
     allocator->query_pools_size = 0;
@@ -1959,8 +1962,11 @@ struct vkd3d_scratch_allocation
 };
 
 static bool d3d12_command_allocator_allocate_scratch_memory(struct d3d12_command_allocator *allocator,
-        VkDeviceSize size, VkDeviceSize alignment, struct vkd3d_scratch_allocation *allocation)
+        enum vkd3d_scratch_pool_kind kind,
+        VkDeviceSize size, VkDeviceSize alignment, uint32_t memory_types,
+        struct vkd3d_scratch_allocation *allocation)
 {
+    struct d3d12_command_allocator_scratch_pool *pool = &allocator->scratch_pools[kind];
     VkDeviceSize aligned_offset, aligned_size;
     struct vkd3d_scratch_buffer *scratch;
     unsigned int i;
@@ -1968,9 +1974,14 @@ static bool d3d12_command_allocator_allocate_scratch_memory(struct d3d12_command
     aligned_size = align(size, alignment);
 
     /* Probe last block first since the others are likely full */
-    for (i = allocator->scratch_buffer_count; i; i--)
+    for (i = pool->scratch_buffer_count; i; i--)
     {
-        scratch = &allocator->scratch_buffers[i - 1];
+        scratch = &pool->scratch_buffers[i - 1];
+
+        /* Extremely unlikely to fail since we have separate lists per pool kind, but to be 100% correct ... */
+        if (!(memory_types & (1u << scratch->allocation.device_allocation.vk_memory_type)))
+            continue;
+
         aligned_offset = align(scratch->offset, alignment);
 
         if (aligned_offset + aligned_size <= scratch->allocation.resource.size)
@@ -1984,21 +1995,21 @@ static bool d3d12_command_allocator_allocate_scratch_memory(struct d3d12_command
         }
     }
 
-    if (!vkd3d_array_reserve((void**)&allocator->scratch_buffers, &allocator->scratch_buffers_size,
-            allocator->scratch_buffer_count + 1, sizeof(*allocator->scratch_buffers)))
+    if (!vkd3d_array_reserve((void**)&pool->scratch_buffers, &pool->scratch_buffers_size,
+            pool->scratch_buffer_count + 1, sizeof(*pool->scratch_buffers)))
     {
         ERR("Failed to allocate scratch buffer.\n");
         return false;
     }
 
-    scratch = &allocator->scratch_buffers[allocator->scratch_buffer_count];
-    if (FAILED(d3d12_device_get_scratch_buffer(allocator->device, aligned_size, scratch)))
+    scratch = &pool->scratch_buffers[pool->scratch_buffer_count];
+    if (FAILED(d3d12_device_get_scratch_buffer(allocator->device, kind, aligned_size, memory_types, scratch)))
     {
         ERR("Failed to create scratch buffer.\n");
         return false;
     }
 
-    allocator->scratch_buffer_count += 1;
+    pool->scratch_buffer_count += 1;
     scratch->offset = aligned_size;
 
     allocation->buffer = scratch->allocation.resource.vk_buffer;
@@ -3387,7 +3398,8 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
 
     /* Allocate scratch buffer and resolve virtual Vulkan queries into it */
     if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
-            resolve_buffer_size, max(ssbo_alignment, sizeof(uint64_t)), &resolve_buffer))
+            VKD3D_SCRATCH_POOL_KIND_DEVICE_STORAGE,
+            resolve_buffer_size, max(ssbo_alignment, sizeof(uint64_t)), ~0u, &resolve_buffer))
         goto cleanup;
 
     for (i = 0; i < resolve_count; i++)
@@ -3404,7 +3416,8 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
     entry_buffer_size = sizeof(struct query_entry) * list->pending_queries_count;
 
     if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
-            entry_buffer_size, ssbo_alignment, &entry_buffer))
+            VKD3D_SCRATCH_POOL_KIND_DEVICE_STORAGE,
+            entry_buffer_size, ssbo_alignment, ~0u, &entry_buffer))
         goto cleanup;
 
     for (i = 0; i < dispatch_count; i++)
@@ -5407,7 +5420,8 @@ static bool d3d12_command_list_emit_predicated_command(struct d3d12_command_list
     vkd3d_meta_get_predicate_pipeline(&list->device->meta_ops, command_type, &pipeline_info);
 
     if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
-            pipeline_info.data_size, sizeof(uint32_t), scratch))
+            VKD3D_SCRATCH_POOL_KIND_DEVICE_STORAGE,
+            pipeline_info.data_size, sizeof(uint32_t), ~0u, scratch))
         return false;
 
     d3d12_command_list_end_current_render_pass(list, true);
@@ -8541,7 +8555,8 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     scratch_buffer_size = element_count * format->byte_count;
 
     if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
-            scratch_buffer_size, 16, &scratch))
+            VKD3D_SCRATCH_POOL_KIND_DEVICE_STORAGE,
+            scratch_buffer_size, 16, ~0u, &scratch))
     {
         ERR("Failed to allocate scratch memory for UAV clear.\n");
         return;
@@ -9388,7 +9403,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
     if (resource)
     {
         if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
-                sizeof(uint32_t), sizeof(uint32_t), &scratch))
+                VKD3D_SCRATCH_POOL_KIND_DEVICE_STORAGE,
+                sizeof(uint32_t), sizeof(uint32_t), ~0u, &scratch))
             return;
 
         begin_info.sType = VK_STRUCTURE_TYPE_CONDITIONAL_RENDERING_BEGIN_INFO_EXT;
