@@ -471,6 +471,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     VkMemoryRequirements memory_requirements;
     VkMemoryAllocateFlagsInfo flags_info;
     VkMemoryPropertyFlags type_flags;
+    VkBindBufferMemoryInfo bind_info;
     void *host_ptr = info->host_ptr;
     uint32_t type_mask;
     VkResult vr;
@@ -599,8 +600,13 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     /* Bind memory to global or dedicated buffer as needed */
     if (allocation->resource.vk_buffer)
     {
-        if ((vr = VK_CALL(vkBindBufferMemory(device->vk_device,
-                allocation->resource.vk_buffer, allocation->device_allocation.vk_memory, 0))) < 0)
+        bind_info.sType = VK_STRUCTURE_TYPE_BIND_BUFFER_MEMORY_INFO;
+        bind_info.pNext = NULL;
+        bind_info.buffer = allocation->resource.vk_buffer;
+        bind_info.memory = allocation->device_allocation.vk_memory;
+        bind_info.memoryOffset = 0;
+
+        if ((vr = VK_CALL(vkBindBufferMemory2KHR(device->vk_device, 1, &bind_info))) < 0)
         {
             ERR("Failed to bind buffer memory, vr %d.\n", vr);
             vkd3d_memory_allocation_free(allocation, device, allocator);
@@ -1454,6 +1460,7 @@ HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_bu
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkMemoryRequirements memory_requirements;
     VkMemoryAllocateFlagsInfo flags_info;
+    VkBindBufferMemoryInfo bind_info;
     VkResult vr;
     HRESULT hr;
 
@@ -1470,7 +1477,13 @@ HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_bu
             type_flags, memory_requirements.memoryTypeBits, &flags_info, allocation)))
         return hr;
 
-    if (FAILED(vr = VK_CALL(vkBindBufferMemory(device->vk_device, vk_buffer, allocation->vk_memory, 0))))
+    bind_info.sType = VK_STRUCTURE_TYPE_BIND_BUFFER_MEMORY_INFO;
+    bind_info.pNext = NULL;
+    bind_info.buffer = vk_buffer;
+    bind_info.memory = allocation->vk_memory;
+    bind_info.memoryOffset = 0;
+
+    if (FAILED(vr = VK_CALL(vkBindBufferMemory2KHR(device->vk_device, 1, &bind_info))))
         return hresult_from_vk_result(vr);
 
     return hr;
@@ -1482,6 +1495,7 @@ HRESULT vkd3d_allocate_image_memory(struct d3d12_device *device, VkImage vk_imag
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkMemoryRequirements memory_requirements;
+    VkBindImageMemoryInfo bind_info;
     VkResult vr;
     HRESULT hr;
 
@@ -1491,7 +1505,13 @@ HRESULT vkd3d_allocate_image_memory(struct d3d12_device *device, VkImage vk_imag
             type_flags, memory_requirements.memoryTypeBits, NULL, allocation)))
         return hr;
 
-    if (FAILED(vr = VK_CALL(vkBindImageMemory(device->vk_device, vk_image, allocation->vk_memory, 0))))
+    bind_info.sType = VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_INFO;
+    bind_info.pNext = NULL;
+    bind_info.image = vk_image;
+    bind_info.memory = allocation->vk_memory;
+    bind_info.memoryOffset = 0;
+
+    if (FAILED(vr = VK_CALL(vkBindImageMemory2KHR(device->vk_device, 1, &bind_info))))
         return hresult_from_vk_result(vr);
 
     return hr;
