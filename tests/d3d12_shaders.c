@@ -2181,6 +2181,7 @@ void test_shader_instructions(void)
         } output;
         bool skip_on_warp;
         bool requires_fp64;
+        bool is_todo;
     }
     uint_tests[] =
     {
@@ -2343,9 +2344,24 @@ void test_shader_instructions(void)
         {&ps_f16tof32_2, {{{0x000f0000, 0x000f3c00, 0x000f5640, 0x000f5bd0}}}, {{250, 100, 1, 0}}},
         {&ps_f16tof32_2, {{{0xffff0000, 0xffff3c00, 0xffff5640, 0xffff5bd0}}}, {{250, 100, 1, 0}}},
 
+        /* Verify subnormal behavior. D3D11 functional spec says FP16 denorms must be preserved. */
+        {&ps_f32tof16, {.f = {{1.0f / 0x1000000, 2.0f / 0x1000000, 3.0f / 0x1000000, 4.0f / 0x1000000}}}, {{1, 2, 3, 4}}},
+        {&ps_f32tof16, {.f = {{-1.0f / 0x1000000, -2.0f / 0x1000000, -3.0f / 0x1000000, -4.0f / 0x1000000}}}, {{0x8001, 0x8002, 0x8003, 0x8004}}},
+        /* Verify RTZ behavior on fp32 -> fp16 rounding. D3D11 functional spec calls this out explicitly. */
+        {&ps_f32tof16, {.f = {{1024.0f, 1025.0f, 1026.0f, 1027.0f}}}, {{0x6400, 0x6401, 0x6402, 0x6403}}},
+        {&ps_f32tof16, {.f = {{2048.0f, 2050.0f, 2052.0f, 2054.0f}}}, {{0x6800, 0x6801, 0x6802, 0x6803}}},
+        {&ps_f32tof16, {.f = {{-1024.0f, -1025.0f, -1026.0f, -1027.0f}}}, {{0xe400, 0xe401, 0xe402, 0xe403}}},
+        {&ps_f32tof16, {.f = {{-2048.0f, -2050.0f, -2052.0f, -2054.0f}}}, {{0xe800, 0xe801, 0xe802, 0xe803}}},
+
+        /* We cannot efficiently implement this since we have no dedicated RTZ rounding opcode in SPIR-V. */
+        {&ps_f32tof16, {.f = {{1024.75f, 1025.75f, 1026.75f, 1027.75f}}}, {{0x6400, 0x6401, 0x6402, 0x6403}}, false, false, true},
+        {&ps_f32tof16, {.f = {{2049.75f, 2051.75f, 2053.75f, 2055.75f}}}, {{0x6800, 0x6801, 0x6802, 0x6803}}, false, false, true},
+        {&ps_f32tof16, {.f = {{-1024.75f, -1025.75f, -1026.75f, -1027.75f}}}, {{0xe400, 0xe401, 0xe402, 0xe403}}, false, false, true},
+        {&ps_f32tof16, {.f = {{-2049.75f, -2051.75f, -2053.75f, -2055.75f}}}, {{0xe800, 0xe801, 0xe802, 0xe803}}, false, false, true},
+        {&ps_f32tof16, {.f = {{0.75f / 0x1000000, -0.75f / 0x1000000, 1.75f / 0x1000000, -1.75f / 0x1000000}}}, {{0x0000, 0x8000, 0x0001, 0x8001}}, false, false, true},
+
         {&ps_f32tof16, {.f = {{0.0f, 1.0f, -1.0f, 666.0f}}}, {{0, 0x3c00, 0xbc00, 0x6134}}},
         {&ps_f32tof16, {.f = {{INFINITY, -INFINITY, 100000.0f, -100000.0}}}, {{0x7C00, 0xFC00, 0x7BFF, 0xFBFF}}},
-
         {&ps_f32tof16_2, {.f = {{0.0f, 1.0f, -1.0f, 666.0f}}}, {{0x6134, 0xbc00, 0x3c00, 0}}},
 
         {&ps_imad, {{{0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}}}, {{ 0,  0,  0,  0}}},
@@ -2815,6 +2831,8 @@ void test_shader_instructions(void)
 
         transition_resource_state(command_list, context.render_target,
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        todo_if(uint_tests[i].is_todo)
         check_sub_resource_uvec4(context.render_target, 0, queue, command_list, &uint_tests[i].output.u);
 
         reset_command_list(command_list, context.allocator);
