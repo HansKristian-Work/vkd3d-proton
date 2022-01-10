@@ -127,6 +127,7 @@ struct vkd3d_vulkan_info
     bool KHR_format_feature_flags2;
     bool KHR_shader_atomic_int64;
     bool KHR_bind_memory2;
+    bool KHR_copy_commands2;
     /* EXT device extensions */
     bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;

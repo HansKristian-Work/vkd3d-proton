@@ -79,6 +79,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_FORMAT_FEATURE_FLAGS_2, KHR_format_feature_flags2),
     VK_EXTENSION(KHR_SHADER_ATOMIC_INT64, KHR_shader_atomic_int64),
     VK_EXTENSION(KHR_BIND_MEMORY_2, KHR_bind_memory2),
+    VK_EXTENSION(KHR_COPY_COMMANDS_2, KHR_copy_commands2),
     /* EXT extensions */
     VK_EXTENSION(EXT_CALIBRATED_TIMESTAMPS, EXT_calibrated_timestamps),
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
@@ -1905,6 +1906,12 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     if (!vulkan_info->KHR_bind_memory2)
     {
         ERR("KHR_bind_memory2 is not supported by this implementation. This is required for correct operation.\n");
+        return E_INVALIDARG;
+    }
+
+    if (!vulkan_info->KHR_copy_commands2)
+    {
+        ERR("KHR_copy_commands2 is not supported by this implementation. This is required for correct operation.\n");
         return E_INVALIDARG;
     }
 
