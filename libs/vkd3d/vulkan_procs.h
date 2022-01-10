@@ -225,6 +225,10 @@ VK_DEVICE_EXT_PFN(vkCmdEndRenderPass2KHR)
 VK_DEVICE_EXT_PFN(vkCmdNextSubpass2KHR)
 VK_DEVICE_EXT_PFN(vkCreateRenderPass2KHR)
 
+/* VK_KHR_bind_memory2 */
+VK_DEVICE_EXT_PFN(vkBindBufferMemory2KHR);
+VK_DEVICE_EXT_PFN(vkBindImageMemory2KHR);
+
 /* VK_EXT_calibrated_timestamps */
 VK_DEVICE_EXT_PFN(vkGetCalibratedTimestampsEXT)
 VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceCalibrateableTimeDomainsEXT)
