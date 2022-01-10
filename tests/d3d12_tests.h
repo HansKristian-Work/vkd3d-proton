@@ -74,6 +74,7 @@ decl_test(test_map_resource);
 decl_test(test_map_placed_resources);
 decl_test(test_bundle_state_inheritance);
 decl_test(test_shader_instructions);
+decl_test(test_shader_instructions_dxil);
 decl_test(test_compute_shader_instructions);
 decl_test(test_discard_instruction);
 decl_test(test_shader_interstage_interface);
