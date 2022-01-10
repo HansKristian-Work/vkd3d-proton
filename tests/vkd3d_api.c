@@ -823,6 +823,7 @@ static VkDeviceMemory allocate_vulkan_image_memory(ID3D12Device *device,
         VkMemoryPropertyFlags required_flags, VkImage vk_image)
 {
     VkMemoryRequirements memory_requirements;
+    VkBindImageMemoryInfo bind_info;
     VkDeviceMemory vk_memory;
     VkDevice vk_device;
     VkResult vr;
@@ -832,7 +833,13 @@ static VkDeviceMemory allocate_vulkan_image_memory(ID3D12Device *device,
     vkGetImageMemoryRequirements(vk_device, vk_image, &memory_requirements);
     vk_memory = allocate_vulkan_device_memory(device, required_flags, &memory_requirements);
 
-    vr = vkBindImageMemory(vk_device, vk_image, vk_memory, 0);
+    bind_info.sType = VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_INFO;
+    bind_info.pNext = NULL;
+    bind_info.image = vk_image;
+    bind_info.memory = vk_memory;
+    bind_info.memoryOffset = 0;
+
+    vr = vkBindImageMemory2KHR(vk_device, 1, &bind_info);
     ok(vr == VK_SUCCESS, "Got unexpected VkResult %d.\n", vr);
 
     return vk_memory;

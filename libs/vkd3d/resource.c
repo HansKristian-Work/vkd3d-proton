@@ -2611,6 +2611,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         VkMemoryDedicatedAllocateInfo dedicated_info;
         VkImageMemoryRequirementsInfo2 image_info;
         VkMemoryRequirements2 memory_requirements;
+        VkBindImageMemoryInfo bind_info;
         bool use_dedicated_allocation;
         VkResult vr;
 
@@ -2666,8 +2667,13 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         if (FAILED(hr = vkd3d_allocate_memory(device, &device->memory_allocator, &allocate_info, &object->mem)))
             goto fail;
 
-        if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, object->res.vk_image,
-                object->mem.device_allocation.vk_memory, object->mem.offset))))
+        bind_info.sType = VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_INFO;
+        bind_info.pNext = NULL;
+        bind_info.image = object->res.vk_image;
+        bind_info.memory = object->mem.device_allocation.vk_memory;
+        bind_info.memoryOffset = object->mem.offset;
+
+        if ((vr = VK_CALL(vkBindImageMemory2KHR(device->vk_device, 1, &bind_info))))
         {
             ERR("Failed to bind image memory, vr %d.\n", vr);
             hr = hresult_from_vk_result(vr);
@@ -2740,6 +2746,7 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkMemoryRequirements memory_requirements;
+    VkBindImageMemoryInfo bind_info;
     struct d3d12_resource *object;
     VkResult vr;
     HRESULT hr;
@@ -2799,8 +2806,13 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
 
     if (d3d12_resource_is_texture(object))
     {
-        if ((vr = VK_CALL(vkBindImageMemory(device->vk_device, object->res.vk_image,
-                object->mem.device_allocation.vk_memory, object->mem.offset))) < 0)
+        bind_info.sType = VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_INFO;
+        bind_info.pNext = NULL;
+        bind_info.image = object->res.vk_image;
+        bind_info.memory = object->mem.device_allocation.vk_memory;
+        bind_info.memoryOffset = object->mem.offset;
+
+        if ((vr = VK_CALL(vkBindImageMemory2KHR(device->vk_device, 1, &bind_info))) < 0)
         {
             ERR("Failed to bind image memory, vr %d.\n", vr);
             hr = hresult_from_vk_result(vr);
