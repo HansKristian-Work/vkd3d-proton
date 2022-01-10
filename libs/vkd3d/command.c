@@ -5568,7 +5568,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_resource *dst_resource, *src_resource;
     const struct vkd3d_vk_device_procs *vk_procs;
-    VkBufferCopy buffer_copy;
+    VkCopyBufferInfo2KHR copy_info;
+    VkBufferCopy2KHR buffer_copy;
 
     TRACE("iface %p, dst_resource %p, dst_offset %#"PRIx64", src_resource %p, "
             "src_offset %#"PRIx64", byte_count %#"PRIx64".\n",
@@ -5586,12 +5587,20 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_
 
     d3d12_command_list_end_current_render_pass(list, true);
 
+    buffer_copy.sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2_KHR;
+    buffer_copy.pNext = NULL;
     buffer_copy.srcOffset = src_offset + src_resource->mem.offset;
     buffer_copy.dstOffset = dst_offset + dst_resource->mem.offset;
     buffer_copy.size = byte_count;
 
-    VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
-            src_resource->res.vk_buffer, dst_resource->res.vk_buffer, 1, &buffer_copy));
+    copy_info.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2_KHR;
+    copy_info.pNext = NULL;
+    copy_info.srcBuffer = src_resource->res.vk_buffer;
+    copy_info.dstBuffer = dst_resource->res.vk_buffer;
+    copy_info.regionCount = 1;
+    copy_info.pRegions = &buffer_copy;
+
+    VK_CALL(vkCmdCopyBuffer2KHR(list->vk_command_buffer, &copy_info));
 }
 
 static void vk_image_subresource_layers_from_d3d12(VkImageSubresourceLayers *subresource,
@@ -5615,7 +5624,7 @@ static void vk_extent_3d_from_d3d12_miplevel(VkExtent3D *extent,
     extent->depth = d3d12_resource_desc_get_depth(resource_desc, miplevel_idx);
 }
 
-static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy *copy,
+static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy2KHR *copy,
         const D3D12_PLACED_SUBRESOURCE_FOOTPRINT *footprint, unsigned int sub_resource_idx,
         const D3D12_RESOURCE_DESC1 *image_desc, const struct vkd3d_format *src_format,
         const struct vkd3d_format *dst_format, const D3D12_BOX *src_box, unsigned int dst_x,
@@ -5658,7 +5667,7 @@ static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy *copy,
     }
 }
 
-static void vk_image_buffer_copy_from_d3d12(VkBufferImageCopy *copy,
+static void vk_image_buffer_copy_from_d3d12(VkBufferImageCopy2KHR *copy,
         const D3D12_PLACED_SUBRESOURCE_FOOTPRINT *footprint, unsigned int sub_resource_idx,
         const D3D12_RESOURCE_DESC1 *image_desc,
         const struct vkd3d_format *src_format, const struct vkd3d_format *dst_format,
@@ -5690,7 +5699,7 @@ static void vk_image_buffer_copy_from_d3d12(VkBufferImageCopy *copy,
     }
 }
 
-static void vk_image_copy_from_d3d12(VkImageCopy *image_copy,
+static void vk_image_copy_from_d3d12(VkImageCopy2KHR *image_copy,
         unsigned int src_sub_resource_idx, unsigned int dst_sub_resource_idx,
         const D3D12_RESOURCE_DESC1 *src_desc, const D3D12_RESOURCE_DESC1 *dst_desc,
         const struct vkd3d_format *src_format, const struct vkd3d_format *dst_format,
@@ -5699,6 +5708,8 @@ static void vk_image_copy_from_d3d12(VkImageCopy *image_copy,
     vk_image_subresource_layers_from_d3d12(&image_copy->srcSubresource,
             src_format, src_sub_resource_idx, src_desc->MipLevels,
             d3d12_resource_desc_get_layer_count(src_desc));
+    image_copy->sType = VK_STRUCTURE_TYPE_IMAGE_COPY_2_KHR;
+    image_copy->pNext = NULL;
     image_copy->srcOffset.x = src_box ? src_box->left : 0;
     image_copy->srcOffset.y = src_box ? src_box->top : 0;
     image_copy->srcOffset.z = src_box ? src_box->front : 0;
@@ -5728,7 +5739,7 @@ static void vk_image_copy_from_d3d12(VkImageCopy *image_copy,
 static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         struct d3d12_resource *dst_resource, const struct vkd3d_format *dst_format,
         struct d3d12_resource *src_resource, const struct vkd3d_format *src_format,
-        const VkImageCopy *region, bool writes_full_subresource, bool overlapping_subresource)
+        const VkImageCopy2KHR *region, bool writes_full_subresource, bool overlapping_subresource)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_texture_view_desc dst_view_desc, src_view_desc;
@@ -5747,6 +5758,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
     VkDescriptorImageInfo vk_image_info;
     VkDescriptorSet vk_descriptor_set;
     VkRenderPassBeginInfo begin_info;
+    VkCopyImageInfo2KHR copy_info;
     VkFramebuffer vk_framebuffer;
     VkViewport viewport;
     VkExtent3D extent;
@@ -5845,10 +5857,16 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
 
     if (use_copy)
     {
-        VK_CALL(vkCmdCopyImage(list->vk_command_buffer,
-                src_resource->res.vk_image, src_layout,
-                dst_resource->res.vk_image, dst_layout,
-                1, region));
+        copy_info.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_INFO_2_KHR;
+        copy_info.pNext = NULL;
+        copy_info.srcImage = src_resource->res.vk_image;
+        copy_info.srcImageLayout = src_layout;
+        copy_info.dstImage = dst_resource->res.vk_image;
+        copy_info.dstImageLayout = dst_layout;
+        copy_info.regionCount = 1;
+        copy_info.pRegions = region;
+
+        VK_CALL(vkCmdCopyImage2KHR(list->vk_command_buffer, &copy_info));
     }
     else
     {
@@ -6057,10 +6075,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
     struct d3d12_resource *dst_resource, *src_resource;
     const struct vkd3d_format *src_format, *dst_format;
     const struct vkd3d_vk_device_procs *vk_procs;
-    VkBufferImageCopy buffer_image_copy;
+    VkBufferImageCopy2KHR buffer_image_copy;
     bool writes_full_subresource;
     VkImageLayout vk_layout;
-    VkImageCopy image_copy;
+    VkImageCopy2KHR image_copy;
 
     TRACE("iface %p, dst %p, dst_x %u, dst_y %u, dst_z %u, src %p, src_box %p.\n",
             iface, dst, dst_x, dst_y, dst_z, src, src_box);
@@ -6080,9 +6098,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
 
     d3d12_command_list_end_current_render_pass(list, false);
 
+    buffer_image_copy.sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2_KHR;
+    buffer_image_copy.pNext = NULL;
+
     if (src->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX
             && dst->Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT)
     {
+        VkCopyImageToBufferInfo2KHR copy_info;
+
         d3d12_command_list_track_resource_usage(list, dst_resource, true);
         assert(d3d12_resource_is_buffer(dst_resource));
         assert(d3d12_resource_is_texture(src_resource));
@@ -6113,9 +6136,15 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
                 0, src_resource->common_layout, VK_PIPELINE_STAGE_TRANSFER_BIT,
                 VK_ACCESS_TRANSFER_READ_BIT, vk_layout);
 
-        VK_CALL(vkCmdCopyImageToBuffer(list->vk_command_buffer,
-                src_resource->res.vk_image, vk_layout,
-                dst_resource->res.vk_buffer, 1, &buffer_image_copy));
+        copy_info.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_BUFFER_INFO_2_KHR;
+        copy_info.pNext = NULL;
+        copy_info.srcImage = src_resource->res.vk_image;
+        copy_info.srcImageLayout = vk_layout;
+        copy_info.dstBuffer = dst_resource->res.vk_buffer;
+        copy_info.regionCount = 1;
+        copy_info.pRegions = &buffer_image_copy;
+
+        VK_CALL(vkCmdCopyImageToBuffer2KHR(list->vk_command_buffer, &copy_info));
 
         d3d12_command_list_transition_image_layout(list, src_resource->res.vk_image,
                 &buffer_image_copy.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
@@ -6124,6 +6153,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
     else if (src->Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT
             && dst->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
     {
+        VkCopyBufferToImageInfo2KHR copy_info;
+
         assert(d3d12_resource_is_texture(dst_resource));
         assert(d3d12_resource_is_buffer(src_resource));
 
@@ -6159,9 +6190,15 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
                 VK_PIPELINE_STAGE_TRANSFER_BIT,
                 VK_ACCESS_TRANSFER_WRITE_BIT, vk_layout);
 
-        VK_CALL(vkCmdCopyBufferToImage(list->vk_command_buffer,
-                src_resource->res.vk_buffer, dst_resource->res.vk_image,
-                vk_layout, 1, &buffer_image_copy));
+        copy_info.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2_KHR;
+        copy_info.pNext = NULL;
+        copy_info.srcBuffer = src_resource->res.vk_buffer;
+        copy_info.dstImage = dst_resource->res.vk_image;
+        copy_info.dstImageLayout = vk_layout;
+        copy_info.regionCount = 1;
+        copy_info.pRegions = &buffer_image_copy;
+
+        VK_CALL(vkCmdCopyBufferToImage2KHR(list->vk_command_buffer, &copy_info));
 
         d3d12_command_list_transition_image_layout(list, dst_resource->res.vk_image,
                 &buffer_image_copy.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -6209,8 +6246,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_resource *dst_resource, *src_resource;
     const struct vkd3d_vk_device_procs *vk_procs;
-    VkBufferCopy vk_buffer_copy;
-    VkImageCopy vk_image_copy;
+    VkBufferCopy2KHR vk_buffer_copy;
+    VkCopyBufferInfo2KHR copy_info;
+    VkImageCopy2KHR vk_image_copy;
     unsigned int layer_count;
     unsigned int i;
 
@@ -6231,11 +6269,20 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
         assert(d3d12_resource_is_buffer(src_resource));
         assert(src_resource->desc.Width == dst_resource->desc.Width);
 
+        vk_buffer_copy.sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2_KHR;
+        vk_buffer_copy.pNext = NULL;
         vk_buffer_copy.srcOffset = src_resource->mem.offset;
         vk_buffer_copy.dstOffset = dst_resource->mem.offset;
         vk_buffer_copy.size = dst_resource->desc.Width;
-        VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
-                src_resource->res.vk_buffer, dst_resource->res.vk_buffer, 1, &vk_buffer_copy));
+
+        copy_info.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2_KHR;
+        copy_info.pNext = NULL;
+        copy_info.srcBuffer = src_resource->res.vk_buffer;
+        copy_info.dstBuffer = dst_resource->res.vk_buffer;
+        copy_info.regionCount = 1;
+        copy_info.pRegions = &vk_buffer_copy;
+
+        VK_CALL(vkCmdCopyBuffer2KHR(list->vk_command_buffer, &copy_info));
     }
     else
     {
@@ -6275,9 +6322,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct d3d12_resource *tiled_res, *linear_res;
     VkImageMemoryBarrier vk_image_barrier;
-    VkBufferImageCopy buffer_image_copy;
+    VkBufferImageCopy2KHR buffer_image_copy;
+    VkCopyBufferInfo2KHR copy_info;
     VkImageLayout vk_image_layout;
-    VkBufferCopy buffer_copy;
+    VkBufferCopy2KHR buffer_copy;
     bool copy_to_buffer;
     unsigned int i;
 
@@ -6340,6 +6388,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
             unsigned int tile_index = vkd3d_get_tile_index_from_region(&tiled_res->sparse, region_coord, region_size, i);
             const struct d3d12_sparse_image_region *region = &tiled_res->sparse.tiles[tile_index].image;
 
+            buffer_image_copy.sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2_KHR;
+            buffer_image_copy.pNext = NULL;
             buffer_image_copy.bufferOffset = buffer_offset + VKD3D_TILE_SIZE * i;
             buffer_image_copy.imageSubresource = vk_subresource_layers_from_subresource(&region->subresource);
             buffer_image_copy.imageOffset = region->offset;
@@ -6347,15 +6397,31 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
 
             if (copy_to_buffer)
             {
-                VK_CALL(vkCmdCopyImageToBuffer(list->vk_command_buffer,
-                        tiled_res->res.vk_image, vk_image_layout, linear_res->res.vk_buffer,
-                        1, &buffer_image_copy));
+                VkCopyImageToBufferInfo2KHR copy_info;
+
+                copy_info.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_BUFFER_INFO_2_KHR;
+                copy_info.pNext = NULL;
+                copy_info.srcImage = tiled_res->res.vk_image;
+                copy_info.srcImageLayout = vk_image_layout;
+                copy_info.dstBuffer = linear_res->res.vk_buffer;
+                copy_info.regionCount = 1;
+                copy_info.pRegions = &buffer_image_copy;
+
+                VK_CALL(vkCmdCopyImageToBuffer2KHR(list->vk_command_buffer, &copy_info));
             }
             else
             {
-                VK_CALL(vkCmdCopyBufferToImage(list->vk_command_buffer,
-                        linear_res->res.vk_buffer, tiled_res->res.vk_image, vk_image_layout,
-                        1, &buffer_image_copy));
+                VkCopyBufferToImageInfo2KHR copy_info;
+
+                copy_info.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2_KHR;
+                copy_info.pNext = NULL;
+                copy_info.srcBuffer = linear_res->res.vk_buffer;
+                copy_info.dstImage = tiled_res->res.vk_image;
+                copy_info.dstImageLayout = vk_image_layout;
+                copy_info.regionCount = 1;
+                copy_info.pRegions = &buffer_image_copy;
+
+                VK_CALL(vkCmdCopyBufferToImage2KHR(list->vk_command_buffer, &copy_info));
             }
         }
 
@@ -6370,6 +6436,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
     }
     else
     {
+        buffer_copy.sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2_KHR;
+        buffer_copy.pNext = NULL;
         buffer_copy.size = region_size->NumTiles * VKD3D_TILE_SIZE;
 
         if (copy_to_buffer)
@@ -6383,21 +6451,26 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
             buffer_copy.dstOffset = VKD3D_TILE_SIZE * region_coord->X;
         }
 
-        VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
-                copy_to_buffer ? tiled_res->res.vk_buffer : linear_res->res.vk_buffer,
-                copy_to_buffer ? linear_res->res.vk_buffer : tiled_res->res.vk_buffer,
-                1, &buffer_copy));
+        copy_info.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2_KHR;
+        copy_info.pNext = NULL;
+        copy_info.srcBuffer = copy_to_buffer ? tiled_res->res.vk_buffer : linear_res->res.vk_buffer;
+        copy_info.dstBuffer = copy_to_buffer ? linear_res->res.vk_buffer : tiled_res->res.vk_buffer,
+        copy_info.regionCount = 1;
+        copy_info.pRegions = &buffer_copy;
+
+        VK_CALL(vkCmdCopyBuffer2KHR(list->vk_command_buffer, &copy_info));
     }
 }
 
 static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *list,
         struct d3d12_resource *dst_resource, struct d3d12_resource *src_resource,
-        const VkImageResolve *resolve, DXGI_FORMAT format, D3D12_RESOLVE_MODE mode)
+        const VkImageResolve2KHR *resolve, DXGI_FORMAT format, D3D12_RESOLVE_MODE mode)
 {
     const struct vkd3d_vk_device_procs *vk_procs;
     VkImageMemoryBarrier vk_image_barriers[2];
     const struct vkd3d_format *vk_format;
     VkImageLayout dst_layout, src_layout;
+    VkResolveImageInfo2KHR resolve_info;
     const struct d3d12_device *device;
     bool writes_full_subresource;
     unsigned int i;
@@ -6475,9 +6548,16 @@ static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *li
             VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
             0, 0, NULL, 0, NULL, ARRAY_SIZE(vk_image_barriers), vk_image_barriers));
 
-    VK_CALL(vkCmdResolveImage(list->vk_command_buffer, src_resource->res.vk_image,
-            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_resource->res.vk_image,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, resolve));
+    resolve_info.sType = VK_STRUCTURE_TYPE_RESOLVE_IMAGE_INFO_2_KHR;
+    resolve_info.pNext = NULL;
+    resolve_info.srcImage = src_resource->res.vk_image;
+    resolve_info.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    resolve_info.dstImage = dst_resource->res.vk_image;
+    resolve_info.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    resolve_info.regionCount = 1;
+    resolve_info.pRegions = resolve;
+
+    VK_CALL(vkCmdResolveImage2KHR(list->vk_command_buffer, &resolve_info));
 
     vk_image_barriers[0].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     vk_image_barriers[0].dstAccessMask = 0;
@@ -6500,7 +6580,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_resource *dst_resource, *src_resource;
-    VkImageResolve vk_image_resolve;
+    VkImageResolve2KHR vk_image_resolve;
 
     TRACE("iface %p, dst_resource %p, dst_sub_resource_idx %u, src_resource %p, src_sub_resource_idx %u, "
             "format %#x.\n", iface, dst, dst_sub_resource_idx, src, src_sub_resource_idx, format);
@@ -6523,6 +6603,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
     memset(&vk_image_resolve.dstOffset, 0, sizeof(vk_image_resolve.dstOffset));
     vk_extent_3d_from_d3d12_miplevel(&vk_image_resolve.extent,
             &dst_resource->desc, vk_image_resolve.dstSubresource.mipLevel);
+
+    vk_image_resolve.sType = VK_STRUCTURE_TYPE_IMAGE_RESOLVE_2_KHR;
+    vk_image_resolve.pNext = NULL;
 
     d3d12_command_list_resolve_subresource(list, dst_resource, src_resource, &vk_image_resolve, format,
             D3D12_RESOLVE_MODE_AVERAGE);
@@ -8625,7 +8708,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
     struct d3d12_resource *buffer = impl_from_ID3D12Resource(dst_buffer);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     size_t stride = d3d12_query_heap_type_get_data_size(query_heap->desc.Type);
-    VkBufferCopy copy_region;
+    VkCopyBufferInfo2KHR copy_info;
+    VkBufferCopy2KHR copy_region;
 
     TRACE("iface %p, heap %p, type %#x, start_index %u, query_count %u, "
             "dst_buffer %p, aligned_dst_buffer_offset %#"PRIx64".\n",
@@ -8656,13 +8740,20 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
 
         if (type != D3D12_QUERY_TYPE_BINARY_OCCLUSION)
         {
+            copy_region.sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2_KHR;
+            copy_region.pNext = NULL;
             copy_region.srcOffset = stride * start_index;
             copy_region.dstOffset = buffer->mem.offset + aligned_dst_buffer_offset;
             copy_region.size = stride * query_count;
 
-            VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
-                    query_heap->vk_buffer, buffer->res.vk_buffer,
-                    1, &copy_region));
+            copy_info.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2_KHR;
+            copy_info.pNext = NULL;
+            copy_info.srcBuffer = query_heap->vk_buffer;
+            copy_info.dstBuffer = buffer->res.vk_buffer;
+            copy_info.regionCount = 1;
+            copy_info.pRegions = &copy_region;
+
+            VK_CALL(vkCmdCopyBuffer2KHR(list->vk_command_buffer, &copy_info));
         }
         else
         {
@@ -8695,8 +8786,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
     VkPipelineStageFlags dst_stages, src_stages;
     struct vkd3d_scratch_allocation scratch;
     VkAccessFlags dst_access, src_access;
+    VkCopyBufferInfo2KHR copy_info;
+    VkBufferCopy2KHR copy_region;
     VkMemoryBarrier vk_barrier;
-    VkBufferCopy copy_region;
 
     TRACE("iface %p, buffer %p, aligned_buffer_offset %#"PRIx64", operation %#x.\n",
             iface, buffer, aligned_buffer_offset, operation);
@@ -8753,12 +8845,20 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
         {
             FIXME_ONCE("64-bit predicates not supported.\n");
 
+            copy_region.sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2_KHR;
+            copy_region.pNext = NULL;
             copy_region.srcOffset = resource->mem.offset + aligned_buffer_offset;
             copy_region.dstOffset = scratch.offset;
             copy_region.size = sizeof(uint32_t);
 
-            VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
-                    resource->res.vk_buffer, scratch.buffer, 1, &copy_region));
+            copy_info.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2_KHR;
+            copy_info.pNext = NULL;
+            copy_info.srcBuffer = resource->res.vk_buffer;
+            copy_info.dstBuffer = scratch.buffer;
+            copy_info.regionCount = 1;
+            copy_info.pRegions = &copy_region;
+
+            VK_CALL(vkCmdCopyBuffer2KHR(list->vk_command_buffer, &copy_info));
 
             src_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
             src_access = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -9162,7 +9262,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(d3d12_
 
     if (mode == D3D12_RESOLVE_MODE_AVERAGE || mode == D3D12_RESOLVE_MODE_MIN || mode == D3D12_RESOLVE_MODE_MAX)
     {
-        VkImageResolve vk_image_resolve;
+        VkImageResolve2KHR vk_image_resolve;
+        vk_image_resolve.sType = VK_STRUCTURE_TYPE_IMAGE_RESOLVE_2_KHR;
+        vk_image_resolve.pNext = NULL;
         vk_image_resolve.srcSubresource = src_subresource;
         vk_image_resolve.dstSubresource = dst_subresource;
         vk_image_resolve.extent = extent;
@@ -9174,11 +9276,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(d3d12_
     {
         /* This is a glorified copy path. The region can overlap fully, in which case we have an in-place decompress.
          * Do nothing here. We can copy within a subresource, in which case we enter GENERAL layout.
-         * Otherwise, this can always map to vkCmdCopyImage, except for DEPTH -> COLOR copy.
+         * Otherwise, this can always map to vkCmdCopyImage2KHR, except for DEPTH -> COLOR copy.
          * In this case, just use the fallback paths as is. */
         bool writes_full_subresource;
         bool overlapping_subresource;
-        VkImageCopy image_copy;
+        VkImageCopy2KHR image_copy;
 
         overlapping_subresource = dst_resource == src_resource && dst_sub_resource_idx == src_sub_resource_idx;
 
@@ -9194,6 +9296,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(d3d12_
         d3d12_command_list_track_resource_usage(list, src_resource, true);
         d3d12_command_list_track_resource_usage(list, dst_resource, !writes_full_subresource);
 
+        image_copy.sType = VK_STRUCTURE_TYPE_IMAGE_COPY_2_KHR;
+        image_copy.pNext = NULL;
         image_copy.srcSubresource = src_subresource;
         image_copy.dstSubresource = dst_subresource;
         image_copy.srcOffset = src_offset;

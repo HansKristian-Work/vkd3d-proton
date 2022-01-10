@@ -1133,7 +1133,7 @@ void test_multisample_resolve(void)
     src_rect.bottom = 4;
     ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, ms_render_target, 0, 4, 0, ms_render_target, 0, &src_rect, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOLVE_MODE_DECOMPRESS);
 
-    /* DECOMPRESS to other resource MSAA <-> MSAA. vkCmdCopyImage path. */
+    /* DECOMPRESS to other resource MSAA <-> MSAA. vkCmdCopyImage2KHR path. */
     ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, ms_render_target_copy, 0, 0, 0, ms_render_target, 0, &src_rect, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOLVE_MODE_DECOMPRESS);
     transition_resource_state(context.list, ms_render_target_copy, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
 

@@ -289,7 +289,8 @@ void vkd3d_shader_debug_ring_cleanup(struct vkd3d_shader_debug_ring *ring,
 void vkd3d_shader_debug_ring_end_command_buffer(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkBufferCopy buffer_copy;
+    VkCopyBufferInfo2KHR copy_info;
+    VkBufferCopy2KHR buffer_copy;
     VkMemoryBarrier barrier;
 
     if (list->device->debug_ring.active &&
@@ -305,15 +306,20 @@ void vkd3d_shader_debug_ring_end_command_buffer(struct d3d12_command_list *list)
                                      VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
                                      1, &barrier, 0, NULL, 0, NULL));
 
+        buffer_copy.sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2_KHR;
+        buffer_copy.pNext = NULL;
         buffer_copy.size = list->device->debug_ring.ring_offset;
         buffer_copy.dstOffset = 0;
         buffer_copy.srcOffset = 0;
 
-        VK_CALL(vkCmdCopyBuffer(list->vk_command_buffer,
-                                list->device->debug_ring.device_atomic_buffer,
-                                list->device->debug_ring.host_buffer,
-                                1, &buffer_copy));
+        copy_info.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2_KHR;
+        copy_info.pNext = NULL;
+        copy_info.srcBuffer = list->device->debug_ring.device_atomic_buffer;
+        copy_info.dstBuffer = list->device->debug_ring.host_buffer;
+        copy_info.regionCount = 1;
+        copy_info.pRegions = &buffer_copy;
 
+        VK_CALL(vkCmdCopyBuffer2KHR(list->vk_command_buffer, &copy_info));
         /* Host barrier is taken care of automatically. */
     }
 }
