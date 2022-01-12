@@ -1460,6 +1460,7 @@ void test_execute_indirect_state(void)
     D3D12_SO_DECLARATION_ENTRY so_entries[1];
     ID3D12GraphicsCommandList *command_list;
     D3D12_ROOT_PARAMETER root_parameters[4];
+    ID3D12RootSignature *root_signatures[2];
     ID3D12Resource *argument_buffer_late;
     D3D12_STREAM_OUTPUT_BUFFER_VIEW sov;
     ID3D12Resource *streamout_buffer;
@@ -1467,12 +1468,12 @@ void test_execute_indirect_state(void)
     ID3D12Resource *argument_buffer;
     struct test_context_desc desc;
     ID3D12Resource *count_buffer;
+    ID3D12PipelineState *psos[2];
     struct test_context context;
     struct resource_readback rb;
     D3D12_INDEX_BUFFER_VIEW ibv;
     ID3D12CommandQueue *queue;
     const UINT so_stride = 16;
-    ID3D12PipelineState *pso;
     ID3D12Resource *vbo[3];
     ID3D12Resource *ibo[2];
     unsigned int i, j, k;
@@ -1497,6 +1498,7 @@ void test_execute_indirect_state(void)
         const struct vec4 *expected_output;
         uint32_t expected_output_count;
         uint32_t stride;
+        uint32_t pso_index;
         bool needs_root_sig;
     };
 
@@ -1528,6 +1530,35 @@ void test_execute_indirect_state(void)
     };
 
     static const struct vec4 root_constant_expected[] =
+    {
+        { 1000.0f, 64.0f + 100.0f, 500.0f, 4000.0f },
+        { 1001.0f, 65.0f + 100.0f, 500.0f, 4000.0f },
+        { 1001.0f, 65.0f + 200.0f, 800.0f, 4000.0f },
+        { 1001.0f, 65.0f + 200.0f, 800.0f, 4001.0f },
+    };
+
+    /* Modify root parameters, but very large root signature to test boundary conditions. */
+    static const D3D12_INDIRECT_ARGUMENT_DESC root_constant_spill_sig[2] =
+    {
+        { .Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT, .Constant = {
+                .RootParameterIndex = 0, .DestOffsetIn32BitValues = 44 + 1, .Num32BitValuesToSet = 2 }},
+        { .Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED }
+    };
+
+    static const struct root_constant_data root_constant_spill_data[] =
+    {
+        {
+            .constants = { 100.0f, 500.0f },
+            .indexed = { .IndexCountPerInstance = 2, .InstanceCount = 1 }
+        },
+        {
+            .constants = { 200.0f, 800.0f },
+            .indexed = { .IndexCountPerInstance = 1, .InstanceCount = 2,
+                    .StartIndexLocation = 1, .StartInstanceLocation = 100, }
+        },
+    };
+
+    static const struct vec4 root_constant_spill_expected[] =
     {
         { 1000.0f, 64.0f + 100.0f, 500.0f, 4000.0f },
         { 1001.0f, 65.0f + 100.0f, 500.0f, 4000.0f },
@@ -1703,16 +1734,18 @@ void test_execute_indirect_state(void)
         { 1000.0f, 70.0f, 3128.0f, 4000.0f },
     };
 
-#define DECL_TEST(t, needs_root_sig) { t##_sig, ARRAY_SIZE(t##_sig), t##_data, sizeof(t##_data), ARRAY_SIZE(t##_data), \
-        t##_expected, ARRAY_SIZE(t##_expected), sizeof(*(t##_data)), needs_root_sig }
+#define DECL_TEST(t, pso_index, needs_root_sig) { t##_sig, ARRAY_SIZE(t##_sig), t##_data, sizeof(t##_data), ARRAY_SIZE(t##_data), \
+        t##_expected, ARRAY_SIZE(t##_expected), sizeof(*(t##_data)), pso_index, needs_root_sig }
     const struct test tests[] =
     {
-        DECL_TEST(root_constant, true),
-        DECL_TEST(indirect_vbo, false),
-        DECL_TEST(indirect_vbo_one, false),
-        DECL_TEST(indirect_ibo, false),
-        DECL_TEST(indirect_root_descriptor, true),
-        DECL_TEST(indirect_alignment, true),
+        DECL_TEST(root_constant, 0, true),
+        DECL_TEST(indirect_vbo, 0, false),
+        DECL_TEST(indirect_vbo_one, 0, false),
+        DECL_TEST(indirect_ibo, 0, false),
+        DECL_TEST(indirect_root_descriptor, 0, true),
+        DECL_TEST(indirect_alignment, 0, true),
+        DECL_TEST(root_constant_spill, 1, true),
+        DECL_TEST(indirect_root_descriptor, 1, true),
     };
 #undef DECL_TEST
 
@@ -1720,7 +1753,7 @@ void test_execute_indirect_state(void)
     float vbo_data[ARRAY_SIZE(vbo)][64];
     float generic_data[4096];
 
-    static const DWORD vs_code[] =
+    static const DWORD vs_code_small_cbv[] =
     {
 #if 0
     cbuffer RootCBV : register(b0)
@@ -1760,6 +1793,50 @@ void test_execute_indirect_state(void)
         0x0030800a, 0x00000000, 0x00000000, 0x00000000, 0x0030802a, 0x00000001, 0x00000000, 0x00000000,
         0x09000000, 0x00102082, 0x00000000, 0x0010000a, 0x00000000, 0x0030803a, 0x00000001, 0x00000000,
         0x00000000, 0x0100003e,
+    };
+
+    static const DWORD vs_code_large_cbv[] =
+    {
+#if 0
+    cbuffer RootCBV : register(b0)
+    {
+        float a;
+    };
+
+    StructuredBuffer<float> RootSRV : register(t0);
+
+    cbuffer RootConstants : register(b0, space1)
+    {
+        // Cannot use arrays for root constants in D3D12.
+        float4 pad0, pad1, pad2, pad3, pad4, pad5, pad6, pad7, pad8, pad9, pad10;
+        float4 root;
+    };
+
+    float4 main(float c0 : COLOR0, float c1 : COLOR1, uint iid : SV_InstanceID) : SV_Position
+    {
+        return float4(c0, c1, a, RootSRV[0] + float(iid)) + root;
+    }
+#endif
+        0x43425844, 0x99a057e8, 0x20344569, 0x434f8a7a, 0xf9171e08, 0x00000001, 0x00000268, 0x00000003,
+        0x0000002c, 0x00000098, 0x000000cc, 0x4e475349, 0x00000064, 0x00000003, 0x00000008, 0x00000050,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x00000101, 0x00000050, 0x00000001, 0x00000000,
+        0x00000003, 0x00000001, 0x00000101, 0x00000056, 0x00000000, 0x00000008, 0x00000001, 0x00000002,
+        0x00000101, 0x4f4c4f43, 0x56530052, 0x736e495f, 0x636e6174, 0x00444965, 0x4e47534f, 0x0000002c,
+        0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f,
+        0x505f5653, 0x7469736f, 0x006e6f69, 0x58454853, 0x00000194, 0x00010051, 0x00000065, 0x0100086a,
+        0x07000059, 0x00308e46, 0x00000000, 0x00000000, 0x00000000, 0x00000001, 0x00000000, 0x07000059,
+        0x00308e46, 0x00000001, 0x00000000, 0x00000000, 0x0000000c, 0x00000001, 0x070000a2, 0x00307e46,
+        0x00000000, 0x00000000, 0x00000000, 0x00000004, 0x00000000, 0x0300005f, 0x00101012, 0x00000000,
+        0x0300005f, 0x00101012, 0x00000001, 0x04000060, 0x00101012, 0x00000002, 0x00000008, 0x04000067,
+        0x001020f2, 0x00000000, 0x00000001, 0x02000068, 0x00000001, 0x0a0000a7, 0x00100012, 0x00000000,
+        0x00004001, 0x00000000, 0x00004001, 0x00000000, 0x00207006, 0x00000000, 0x00000000, 0x05000056,
+        0x00100022, 0x00000000, 0x0010100a, 0x00000002, 0x07000000, 0x00100012, 0x00000000, 0x0010001a,
+        0x00000000, 0x0010000a, 0x00000000, 0x09000000, 0x00102012, 0x00000000, 0x0010100a, 0x00000000,
+        0x0030800a, 0x00000001, 0x00000000, 0x0000000b, 0x09000000, 0x00102022, 0x00000000, 0x0010100a,
+        0x00000001, 0x0030801a, 0x00000001, 0x00000000, 0x0000000b, 0x0b000000, 0x00102042, 0x00000000,
+        0x0030800a, 0x00000000, 0x00000000, 0x00000000, 0x0030802a, 0x00000001, 0x00000000, 0x0000000b,
+        0x09000000, 0x00102082, 0x00000000, 0x0010000a, 0x00000000, 0x0030803a, 0x00000001, 0x00000000,
+        0x0000000b, 0x0100003e,
     };
 
     memset(&desc, 0, sizeof(desc));
@@ -1828,7 +1905,10 @@ void test_execute_indirect_state(void)
     root_parameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
     root_parameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     root_parameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
-    hr = create_root_signature(context.device, &root_signature_desc, &context.root_signature);
+    hr = create_root_signature(context.device, &root_signature_desc, &root_signatures[0]);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", hr);
+    root_parameters[0].Constants.Num32BitValues = 48;
+    hr = create_root_signature(context.device, &root_signature_desc, &root_signatures[1]);
     ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", hr);
 
     memset(so_entries, 0, sizeof(so_entries));
@@ -1836,21 +1916,26 @@ void test_execute_indirect_state(void)
     so_entries[0].SemanticName = "SV_Position";
 
     memset(&pso_desc, 0, sizeof(pso_desc));
-    pso_desc.VS.pShaderBytecode = vs_code;
-    pso_desc.VS.BytecodeLength = sizeof(vs_code);
+    pso_desc.VS.pShaderBytecode = vs_code_small_cbv;
+    pso_desc.VS.BytecodeLength = sizeof(vs_code_small_cbv);
     pso_desc.StreamOutput.NumStrides = 1;
     pso_desc.StreamOutput.pBufferStrides = &so_stride;
     pso_desc.StreamOutput.pSODeclaration = so_entries;
     pso_desc.StreamOutput.NumEntries = ARRAY_SIZE(so_entries);
     pso_desc.StreamOutput.RasterizedStream = D3D12_SO_NO_RASTERIZED_STREAM;
-    pso_desc.pRootSignature = context.root_signature;
+    pso_desc.pRootSignature = root_signatures[0];
     pso_desc.SampleDesc.Count = 1;
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
     pso_desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
     pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
     pso_desc.InputLayout.NumElements = ARRAY_SIZE(layout_desc);
     pso_desc.InputLayout.pInputElementDescs = layout_desc;
-    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&pso);
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&psos[0]);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+    pso_desc.VS.pShaderBytecode = vs_code_large_cbv;
+    pso_desc.VS.BytecodeLength = sizeof(vs_code_large_cbv);
+    pso_desc.pRootSignature = root_signatures[1];
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&psos[1]);
     ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
 
     /* Verify sanity checks.
@@ -1897,7 +1982,7 @@ void test_execute_indirect_state(void)
         command_signature_desc.NumArgumentDescs = tests[i].indirect_argument_count;
         command_signature_desc.NodeMask = 0;
         hr = ID3D12Device_CreateCommandSignature(context.device, &command_signature_desc,
-                tests[i].needs_root_sig ? context.root_signature : NULL,
+                tests[i].needs_root_sig ? root_signatures[tests[i].pso_index] : NULL,
                 &IID_ID3D12CommandSignature, (void**)&command_signature);
         ok(SUCCEEDED(hr), "Failed to create command signature, hr #%x.\n", hr);
 
@@ -1915,8 +2000,8 @@ void test_execute_indirect_state(void)
         streamout_buffer = create_default_buffer(context.device, 64 * 1024,
                 D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_STREAM_OUT);
 
-        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
-        ID3D12GraphicsCommandList_SetPipelineState(command_list, pso);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, root_signatures[tests[i].pso_index]);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list, psos[tests[i].pso_index]);
         sov.SizeInBytes = 64 * 1024 - sizeof(struct vec4);
         sov.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(streamout_buffer) + sizeof(struct vec4);
         sov.BufferFilledSizeLocation = ID3D12Resource_GetGPUVirtualAddress(streamout_buffer);
@@ -1936,7 +2021,10 @@ void test_execute_indirect_state(void)
         ID3D12GraphicsCommandList_IASetIndexBuffer(command_list, &ibv);
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_POINTLIST);
         ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 2, vbvs);
-        ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 4, &values, 0);
+
+        for (j = 0; j < (tests[i].pso_index ? 12 : 1); j++)
+            ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(command_list, 0, 4, &values, 4 * j);
+
         ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(command_list, 1,
                 ID3D12Resource_GetGPUVirtualAddress(cbv));
         ID3D12GraphicsCommandList_SetGraphicsRootShaderResourceView(command_list, 2,
@@ -2001,7 +2089,7 @@ void test_execute_indirect_state(void)
             if (tests[i].indirect_arguments[j].Type == D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT)
             {
                 for (k = 0; k < tests[i].indirect_arguments[j].Constant.Num32BitValuesToSet; k++)
-                    (&expect_reset_state[0].x)[tests[i].indirect_arguments[j].Constant.DestOffsetIn32BitValues + k] = 0.0f;
+                    (&expect_reset_state[0].x)[(tests[i].indirect_arguments[j].Constant.DestOffsetIn32BitValues + k) % 4] = 0.0f;
             }
             else if (tests[i].indirect_arguments[j].Type == D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW)
                 clear_vbo_mask |= 1u << tests[i].indirect_arguments[j].VertexBuffer.Slot;
@@ -2037,7 +2125,10 @@ void test_execute_indirect_state(void)
     }
     vkd3d_test_set_context(NULL);
 
-    ID3D12PipelineState_Release(pso);
+    for (i = 0; i < ARRAY_SIZE(psos); i++)
+        ID3D12PipelineState_Release(psos[i]);
+    for (i = 0; i < ARRAY_SIZE(root_signatures); i++)
+        ID3D12RootSignature_Release(root_signatures[i]);
     for (i = 0; i < ARRAY_SIZE(vbo); i++)
         ID3D12Resource_Release(vbo[i]);
     for (i = 0; i < ARRAY_SIZE(ibo); i++)
