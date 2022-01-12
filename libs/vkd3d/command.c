@@ -9439,6 +9439,12 @@ static void d3d12_command_list_execute_indirect_state_template(
     unsigned int i;
     HRESULT hr;
 
+    if (!list->device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
+    {
+        WARN("Ignoring unsupported state template execute indirect.\n");
+        return;
+    }
+
     /* To build device generated commands, we need to know the pipeline we're going to render with. */
     if (!d3d12_command_list_update_graphics_pipeline(list))
         return;
