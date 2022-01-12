@@ -218,16 +218,16 @@ VK_DEVICE_EXT_PFN(vkCmdNextSubpass2KHR)
 VK_DEVICE_EXT_PFN(vkCreateRenderPass2KHR)
 
 /* VK_KHR_bind_memory2 */
-VK_DEVICE_EXT_PFN(vkBindBufferMemory2KHR);
-VK_DEVICE_EXT_PFN(vkBindImageMemory2KHR);
+VK_DEVICE_EXT_PFN(vkBindBufferMemory2KHR)
+VK_DEVICE_EXT_PFN(vkBindImageMemory2KHR)
 
 /* VK_KHR_copy_commands2 */
-VK_DEVICE_EXT_PFN(vkCmdBlitImage2KHR);
-VK_DEVICE_EXT_PFN(vkCmdCopyBuffer2KHR);
-VK_DEVICE_EXT_PFN(vkCmdCopyBufferToImage2KHR);
-VK_DEVICE_EXT_PFN(vkCmdCopyImage2KHR);
-VK_DEVICE_EXT_PFN(vkCmdCopyImageToBuffer2KHR);
-VK_DEVICE_EXT_PFN(vkCmdResolveImage2KHR);
+VK_DEVICE_EXT_PFN(vkCmdBlitImage2KHR)
+VK_DEVICE_EXT_PFN(vkCmdCopyBuffer2KHR)
+VK_DEVICE_EXT_PFN(vkCmdCopyBufferToImage2KHR)
+VK_DEVICE_EXT_PFN(vkCmdCopyImage2KHR)
+VK_DEVICE_EXT_PFN(vkCmdCopyImageToBuffer2KHR)
+VK_DEVICE_EXT_PFN(vkCmdResolveImage2KHR)
 
 /* VK_EXT_calibrated_timestamps */
 VK_DEVICE_EXT_PFN(vkGetCalibratedTimestampsEXT)
