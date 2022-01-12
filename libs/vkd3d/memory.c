@@ -1078,6 +1078,24 @@ static HRESULT vkd3d_memory_allocator_flush_clears_locked(struct vkd3d_memory_al
                 allocation->offset, allocation->resource.size, 0));
     }
 
+    if (!(buffer_memory_barriers = calloc(clear_queue->allocations_count, sizeof(VkBufferMemoryBarrier))))
+        return E_FAIL;
+    for (i = 0; i < clear_queue->allocations_count; i++)
+    {
+        /* Games probably won't read a buffer they just allocated, but ensure they do return zero. */
+        const struct vkd3d_memory_allocation *allocation = clear_queue->allocations[i];
+        buffer_memory_barriers[i].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        buffer_memory_barriers[i].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        buffer_memory_barriers[i].dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+        buffer_memory_barriers[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        buffer_memory_barriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        buffer_memory_barriers[i].buffer = allocation->resource.vk_buffer;
+        buffer_memory_barriers[i].offset = allocation->offset;
+        buffer_memory_barriers[i].size = allocation->resource.size;
+    }
+    VK_CALL(vkCmdPipelineBarrier(vk_cmd_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0, NULL, clear_queue->allocations_count, buffer_memory_barriers, 0, NULL));
+    free(buffer_memory_barriers);
+
     if ((vr = VK_CALL(vkEndCommandBuffer(vk_cmd_buffer))) < 0)
     {
         ERR("Failed to end command buffer, vr %d.\n", vr);
