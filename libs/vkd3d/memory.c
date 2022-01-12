@@ -1038,6 +1038,7 @@ static HRESULT vkd3d_memory_allocator_flush_clears_locked(struct vkd3d_memory_al
     uint32_t queue_mask, queue_index;
     VkCommandBuffer vk_cmd_buffer;
     VkSubmitInfo submit_info;
+    VkBufferMemoryBarrier *buffer_memory_barriers;
     VkQueue vk_queue;
     VkResult vr;
     size_t i;
@@ -1177,19 +1178,41 @@ HRESULT vkd3d_memory_allocator_flush_clears(struct vkd3d_memory_allocator *alloc
 }
 
 #define VKD3D_MEMORY_CLEAR_QUEUE_MAX_PENDING_BYTES (256ull << 20) /* 256 MiB */
+#define VKD3D_MEMORY_CLEAR_MAX_CPU_BYTES (4ull << 20) /* 4 MiB */
 
 static void vkd3d_memory_allocator_clear_allocation(struct vkd3d_memory_allocator *allocator,
         struct d3d12_device *device, struct vkd3d_memory_allocation *allocation)
 {
     struct vkd3d_memory_clear_queue *clear_queue = &allocator->clear_queue;
+    bool clear_with_gpu = false;
+    bool wait_for_clear = false;
 
     if (allocation->cpu_address)
     {
-        /* Probably faster than doing this on the GPU
-         * and having to worry about synchronization */
-        memset(allocation->cpu_address, 0, allocation->resource.size);
+        if (allocation->resource.size <= VKD3D_MEMORY_CLEAR_MAX_CPU_BYTES)
+        {
+            /* Probably faster than doing this on the GPU */
+            memset(allocation->cpu_address, 0, allocation->resource.size);
+        }
+        else
+        {
+            /*
+             * Do it on the GPU. No need to flush memory ranges since this is a fresh allocation. From Vulkan
+             * specification 11.2.12:
+             * Unmapping non-coherent memory does not implicitly flush the host mapped memory, and host writes that have
+             * not been flushed may not ever be visible to the device. However, implementations must ensure that writes
+             * that have not been flushed do not become visible to any other memory.
+             */
+            clear_with_gpu = true;
+            wait_for_clear = true;
+        }
     }
     else if (allocation->resource.vk_buffer)
+    {
+        clear_with_gpu = true;
+    }
+
+    if (clear_with_gpu)
     {
         pthread_mutex_lock(&clear_queue->mutex);
 
@@ -1209,8 +1232,11 @@ static void vkd3d_memory_allocator_clear_allocation(struct vkd3d_memory_allocato
         clear_queue->allocations[clear_queue->allocations_count++] = allocation;
         clear_queue->num_bytes_pending += allocation->resource.size;
 
-        if (clear_queue->num_bytes_pending >= VKD3D_MEMORY_CLEAR_QUEUE_MAX_PENDING_BYTES)
+        if (wait_for_clear || clear_queue->num_bytes_pending >= VKD3D_MEMORY_CLEAR_QUEUE_MAX_PENDING_BYTES)
             vkd3d_memory_allocator_flush_clears_locked(allocator, device);
+
+        if (wait_for_clear)
+            vkd3d_memory_allocator_wait_clear_semaphore(allocator, device, allocation->clear_semaphore_value, UINT64_MAX);
 
         pthread_mutex_unlock(&clear_queue->mutex);
     }
@@ -1369,7 +1395,7 @@ static HRESULT vkd3d_suballocate_memory(struct d3d12_device *device, struct vkd3
     uint32_t required_mask, optional_mask;
     VkMemoryPropertyFlags type_flags;
     HRESULT hr;
-    
+
     if (FAILED(hr = vkd3d_select_memory_flags(device, &info->heap_properties, &type_flags)))
         return hr;
 
