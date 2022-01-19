@@ -1171,3 +1171,99 @@ void test_multisample_resolve(void)
     destroy_test_context(&context);
 }
 
+void test_copy_buffer_overlap(void)
+{
+    uint32_t reference_output[4][16 * 1024] = {{0}};
+    ID3D12Resource *dst_buffer[4];
+    uint32_t src_data[16 * 1024];
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *src_buffer;
+    unsigned int i, j;
+
+    struct copy_command
+    {
+        unsigned int buf_index;
+        unsigned int dst_index;
+        unsigned int src_index;
+        unsigned int count;
+    };
+    static const struct copy_command commands[] =
+    {
+        /* These should be able to run without any barriers. */
+        { 0, 0, 0, 8192 },
+        { 0, 8192, 8192, 8192 },
+        { 1, 0, 0, 8192 },
+        { 1, 8192, 8192, 8192 },
+        { 2, 0, 0, 8192 },
+        { 2, 8192, 8192, 8192 },
+        { 3, 0, 0, 8192 },
+        { 3, 8192, 8192, 8192 },
+        /* Needs barrier. */
+        { 0, 1, 0, 8192 },
+        /* Needs barrier. */
+        { 0, 8000, 4, 1 },
+        { 1, 1000, 5001, 3},
+        /* Needs barrier. */
+        { 1, 1000, 5000, 8192 },
+        { 2, 0, 0, 8192 },
+        /* Needs barrier. */
+        { 2, 1, 0, 8192 },
+        /* Needs barrier. */
+        { 2, 2, 0, 8192 },
+        /* Needs barrier. */
+        { 2, 3, 0, 8192 },
+    };
+
+    /* Drivers are required to implicitly synchronize any overlapping copies to same destination.
+     * There is no Transfer barrier after all, only UAV ...
+     * For images we do this implicitly through image layout transitions on entry/exit,
+     * but for buffers, we need to explicitly inject barriers as necessary.
+     * Verify that reordering of copy commands does not happen. */
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    for (i = 0; i < ARRAY_SIZE(src_data); i++)
+        src_data[i] = i;
+
+    src_buffer = create_upload_buffer(context.device, sizeof(src_data), src_data);
+    for (i = 0; i < ARRAY_SIZE(dst_buffer); i++)
+    {
+        dst_buffer[i] = create_default_buffer(context.device, sizeof(src_data),
+                D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(commands); i++)
+    {
+        ID3D12GraphicsCommandList_CopyBufferRegion(context.list,
+                dst_buffer[commands[i].buf_index], commands[i].dst_index * sizeof(uint32_t),
+                src_buffer, commands[i].src_index * sizeof(uint32_t),
+                commands[i].count * sizeof(uint32_t));
+
+        for (j = 0; j < commands[i].count; j++)
+            reference_output[commands[i].buf_index][commands[i].dst_index + j] = commands[i].src_index + j;
+    }
+
+    for (i = 0; i < ARRAY_SIZE(dst_buffer); i++)
+    {
+        transition_resource_state(context.list, dst_buffer[i],
+                D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(dst_buffer[i], DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+
+        for (j = 0; j < ARRAY_SIZE(reference_output[i]); j++)
+        {
+            ok(get_readback_uint(&rb, j, 0, 0) == reference_output[i][j], "%u, %u: Expected %u, got %u.\n",
+                    i, j, reference_output[i][j], get_readback_uint(&rb, j, 0, 0));
+        }
+
+        release_resource_readback(&rb);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(dst_buffer); i++)
+        ID3D12Resource_Release(dst_buffer[i]);
+    ID3D12Resource_Release(src_buffer);
+    destroy_test_context(&context);
+}
+

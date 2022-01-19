@@ -146,6 +146,7 @@ decl_test(test_copy_texture);
 decl_test(test_copy_texture_buffer);
 decl_test(test_copy_buffer_texture);
 decl_test(test_copy_block_compressed_texture);
+decl_test(test_copy_buffer_overlap);
 decl_test(test_separate_bindings);
 decl_test(test_face_culling_dxbc);
 decl_test(test_face_culling_dxil);
