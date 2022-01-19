@@ -1888,6 +1888,15 @@ struct d3d12_resource_tracking
     uint32_t plane_optimal_mask;
 };
 
+#define VKD3D_BUFFER_COPY_TRACKING_BUFFER_COUNT 4
+struct d3d12_buffer_copy_tracked_buffer
+{
+    /* Need to track on VkBuffer level to handle aliasing. For ID3D12Heap, all resources share one VkBuffer. */
+    VkBuffer vk_buffer;
+    VkDeviceSize hazard_begin;
+    VkDeviceSize hazard_end;
+};
+
 struct d3d12_command_list
 {
     d3d12_command_list_iface ID3D12GraphicsCommandList_iface;
@@ -1974,6 +1983,9 @@ struct d3d12_command_list
     struct d3d12_resource_tracking *dsv_resource_tracking;
     size_t dsv_resource_tracking_count;
     size_t dsv_resource_tracking_size;
+
+    struct d3d12_buffer_copy_tracked_buffer tracked_copy_buffers[VKD3D_BUFFER_COPY_TRACKING_BUFFER_COUNT];
+    unsigned int tracked_copy_buffer_count;
 
     /* Hackery needed for game workarounds. */
     struct
