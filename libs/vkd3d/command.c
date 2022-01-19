@@ -2201,17 +2201,25 @@ static void d3d12_command_list_reset_buffer_copy_tracking(struct d3d12_command_l
 }
 
 static void d3d12_command_list_mark_copy_buffer_write(struct d3d12_command_list *list, VkBuffer vk_buffer,
-        VkDeviceSize offset, VkDeviceSize size)
+        VkDeviceSize offset, VkDeviceSize size, bool sparse)
 {
     struct d3d12_buffer_copy_tracked_buffer *tracked_buffer;
     VkDeviceSize range_end = offset + size;
     unsigned int i;
 
+    if (sparse)
+    {
+        vk_buffer = VK_NULL_HANDLE;
+        offset = 0;
+        size = VK_WHOLE_SIZE;
+    }
+
     for (i = 0; i < list->tracked_copy_buffer_count; i++)
     {
         tracked_buffer = &list->tracked_copy_buffers[i];
 
-        if (tracked_buffer->vk_buffer == vk_buffer)
+        /* Any write to a sparse buffer will be considered to be aliasing with any other resource. */
+        if (tracked_buffer->vk_buffer == vk_buffer || tracked_buffer->vk_buffer == VK_NULL_HANDLE || sparse)
         {
             if (range_end > tracked_buffer->hazard_begin && offset < tracked_buffer->hazard_end)
             {
@@ -5700,7 +5708,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_
     copy_info.regionCount = 1;
     copy_info.pRegions = &buffer_copy;
 
-    d3d12_command_list_mark_copy_buffer_write(list, copy_info.dstBuffer, buffer_copy.dstOffset, buffer_copy.size);
+    d3d12_command_list_mark_copy_buffer_write(list, copy_info.dstBuffer, buffer_copy.dstOffset, buffer_copy.size,
+            !!(dst_resource->flags & VKD3D_RESOURCE_RESERVED));
     VK_CALL(vkCmdCopyBuffer2KHR(list->vk_command_buffer, &copy_info));
 }
 
@@ -6419,7 +6428,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
         copy_info.regionCount = 1;
         copy_info.pRegions = &vk_buffer_copy;
 
-        d3d12_command_list_mark_copy_buffer_write(list, copy_info.dstBuffer, vk_buffer_copy.dstOffset, vk_buffer_copy.size);
+        d3d12_command_list_mark_copy_buffer_write(list, copy_info.dstBuffer, vk_buffer_copy.dstOffset, vk_buffer_copy.size,
+                !!(dst_resource->flags & VKD3D_RESOURCE_RESERVED));
         VK_CALL(vkCmdCopyBuffer2KHR(list->vk_command_buffer, &copy_info));
     }
     else
@@ -6619,7 +6629,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
         copy_info.regionCount = 1;
         copy_info.pRegions = &buffer_copy;
 
-        d3d12_command_list_mark_copy_buffer_write(list, copy_info.dstBuffer, buffer_copy.dstOffset, buffer_copy.size);
+        d3d12_command_list_mark_copy_buffer_write(list, copy_info.dstBuffer, buffer_copy.dstOffset, buffer_copy.size,
+                !!((copy_to_buffer ? linear_res : tiled_res)->flags & VKD3D_RESOURCE_RESERVED));
         VK_CALL(vkCmdCopyBuffer2KHR(list->vk_command_buffer, &copy_info));
     }
 }
@@ -8881,7 +8892,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
             copy_info.regionCount = 1;
             copy_info.pRegions = &copy_region;
 
-            d3d12_command_list_mark_copy_buffer_write(list, copy_info.dstBuffer, copy_region.dstOffset, copy_region.size);
+            d3d12_command_list_mark_copy_buffer_write(list, copy_info.dstBuffer, copy_region.dstOffset, copy_region.size,
+                    !!(buffer->flags & VKD3D_RESOURCE_RESERVED));
             VK_CALL(vkCmdCopyBuffer2KHR(list->vk_command_buffer, &copy_info));
         }
         else
@@ -8898,7 +8910,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
     {
         d3d12_command_list_read_query_range(list, query_heap->vk_query_pool, start_index, query_count);
         d3d12_command_list_mark_copy_buffer_write(list, buffer->res.vk_buffer,
-                buffer->mem.offset + aligned_dst_buffer_offset, sizeof(uint64_t));
+                buffer->mem.offset + aligned_dst_buffer_offset, sizeof(uint64_t),
+                !!(buffer->flags & VKD3D_RESOURCE_RESERVED));
         VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer, query_heap->vk_query_pool,
                 start_index, query_count, buffer->res.vk_buffer, buffer->mem.offset + aligned_dst_buffer_offset,
                 stride, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
