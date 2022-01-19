@@ -8989,7 +8989,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
             copy_info.regionCount = 1;
             copy_info.pRegions = &copy_region;
 
-            d3d12_command_list_mark_copy_buffer_write(list, copy_info.dstBuffer, copy_region.dstOffset, copy_region.size);
             VK_CALL(vkCmdCopyBuffer2KHR(list->vk_command_buffer, &copy_info));
 
             src_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
