@@ -1453,7 +1453,7 @@ struct d3d12_graphics_pipeline_state
 {
     struct vkd3d_shader_debug_ring_spec_info spec_info[VKD3D_MAX_SHADER_STAGES];
     VkPipelineShaderStageCreateInfo stages[VKD3D_MAX_SHADER_STAGES];
-    struct vkd3d_shader_meta stage_meta[VKD3D_MAX_SHADER_STAGES];
+    struct vkd3d_shader_code code[VKD3D_MAX_SHADER_STAGES];
     size_t stage_count;
 
     VkVertexInputAttributeDescription attributes[D3D12_VS_INPUT_REGISTER_COUNT];
@@ -1506,7 +1506,16 @@ static inline unsigned int dsv_attachment_mask(const struct d3d12_graphics_pipel
 struct d3d12_compute_pipeline_state
 {
     VkPipeline vk_pipeline;
-    struct vkd3d_shader_meta meta;
+    struct vkd3d_shader_code code;
+};
+
+/* To be able to load a pipeline from cache, this information must match exactly,
+ * otherwise, we must regard the PSO as incompatible (which is invalid usage and must be validated). */
+struct vkd3d_pipeline_cache_compatibility
+{
+    uint64_t state_desc_compat_hash;
+    uint64_t root_signature_compat_hash;
+    uint64_t dxbc_blob_hashes[VKD3D_MAX_SHADER_STAGES];
 };
 
 /* ID3D12PipelineState */
@@ -1524,7 +1533,7 @@ struct d3d12_pipeline_state
     VkPipelineCache vk_pso_cache;
     spinlock_t lock;
 
-    vkd3d_shader_hash_t root_signature_compat_hash;
+    struct vkd3d_pipeline_cache_compatibility pipeline_cache_compat;
     ID3D12RootSignature *private_root_signature;
     struct d3d12_device *device;
 
@@ -1640,7 +1649,12 @@ struct d3d12_pipeline_library
     struct d3d12_device *device;
 
     rwlock_t mutex;
-    struct hash_map map;
+    struct hash_map pso_map;
+    struct hash_map driver_cache_map;
+    struct hash_map spirv_cache_map;
+
+    size_t total_name_table_size;
+    size_t total_blob_size;
 
     struct vkd3d_private_store private_store;
 };
@@ -1652,7 +1666,17 @@ VkResult vkd3d_create_pipeline_cache(struct d3d12_device *device,
         size_t size, const void *data, VkPipelineCache *cache);
 HRESULT vkd3d_create_pipeline_cache_from_d3d12_desc(struct d3d12_device *device,
         const struct d3d12_cached_pipeline_state *state, VkPipelineCache *cache);
-VkResult vkd3d_serialize_pipeline_state(const struct d3d12_pipeline_state *state, size_t *size, void *data);
+HRESULT vkd3d_get_cached_spirv_code_from_d3d12_desc(
+        const struct d3d12_cached_pipeline_state *state,
+        VkShaderStageFlagBits stage,
+        struct vkd3d_shader_code *spirv_code);
+VkResult vkd3d_serialize_pipeline_state(struct d3d12_pipeline_library *pipeline_library,
+        const struct d3d12_pipeline_state *state, size_t *size, void *data);
+HRESULT d3d12_cached_pipeline_state_validate(struct d3d12_device *device,
+        const struct d3d12_cached_pipeline_state *state,
+        const struct vkd3d_pipeline_cache_compatibility *compat);
+void vkd3d_pipeline_cache_compat_from_state_desc(struct vkd3d_pipeline_cache_compatibility *compat,
+        const struct d3d12_pipeline_state_desc *desc);
 
 struct vkd3d_buffer
 {

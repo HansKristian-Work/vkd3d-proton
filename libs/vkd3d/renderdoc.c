@@ -238,7 +238,7 @@ void vkd3d_renderdoc_command_list_check_capture(struct d3d12_command_list *list,
     {
         if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_COMPUTE)
         {
-            if (vkd3d_renderdoc_should_capture_shader_hash(state->compute.meta.hash))
+            if (vkd3d_renderdoc_should_capture_shader_hash(state->compute.code.meta.hash))
             {
                 WARN("Triggering RenderDoc capture for this command list.\n");
                 list->debug_capture = true;
@@ -248,7 +248,7 @@ void vkd3d_renderdoc_command_list_check_capture(struct d3d12_command_list *list,
         {
             for (i = 0; i < state->graphics.stage_count; i++)
             {
-                if (vkd3d_renderdoc_should_capture_shader_hash(state->graphics.stage_meta[i].hash))
+                if (vkd3d_renderdoc_should_capture_shader_hash(state->graphics.code[i].meta.hash))
                 {
                     WARN("Triggering RenderDoc capture for this command list.\n");
                     list->debug_capture = true;
