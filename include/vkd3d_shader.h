@@ -63,7 +63,9 @@ struct vkd3d_shader_meta
     bool replaced;
     bool uses_subgroup_size;
     bool uses_native_16bit_operations;
+    bool padding;
 };
+STATIC_ASSERT(sizeof(struct vkd3d_shader_meta) == 32);
 
 struct vkd3d_shader_code
 {
@@ -71,6 +73,8 @@ struct vkd3d_shader_code
     size_t size;
     struct vkd3d_shader_meta meta;
 };
+
+vkd3d_shader_hash_t vkd3d_shader_hash(const struct vkd3d_shader_code *shader);
 
 enum vkd3d_shader_descriptor_type
 {
