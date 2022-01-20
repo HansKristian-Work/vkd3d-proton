@@ -712,12 +712,12 @@ void vkd3d_shader_free_shader_signature(struct vkd3d_shader_signature *signature
 
 vkd3d_shader_hash_t vkd3d_shader_hash(const struct vkd3d_shader_code *shader)
 {
-    vkd3d_shader_hash_t h = 0xcbf29ce484222325ull;
+    vkd3d_shader_hash_t h = hash_fnv1_init();
     const uint8_t *code = shader->code;
     size_t i, n;
 
     for (i = 0, n = shader->size; i < n; i++)
-        h = (h * 0x100000001b3ull) ^ code[i];
+        h = hash_fnv1_iterate_u8(h, code[i]);
 
     return h;
 }
