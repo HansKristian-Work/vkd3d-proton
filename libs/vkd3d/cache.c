@@ -35,17 +35,22 @@ VkResult vkd3d_create_pipeline_cache(struct d3d12_device *device,
     return VK_CALL(vkCreatePipelineCache(device->vk_device, &info, NULL, cache));
 }
 
-#define VKD3D_CACHE_BLOB_VERSION MAKE_MAGIC('V','K','B',1)
+#define VKD3D_CACHE_BLOB_VERSION MAKE_MAGIC('V','K','B',2)
 
 struct vkd3d_pipeline_blob
 {
     uint32_t version;
     uint32_t vendor_id;
     uint32_t device_id;
+    uint32_t padding;
     uint64_t vkd3d_build;
+    uint64_t vkd3d_shader_interface_key;
     uint8_t cache_uuid[VK_UUID_SIZE];
     uint8_t vk_blob[];
 };
+
+STATIC_ASSERT(offsetof(struct vkd3d_pipeline_blob, vk_blob) == (32 + VK_UUID_SIZE));
+STATIC_ASSERT(offsetof(struct vkd3d_pipeline_blob, vk_blob) == sizeof(struct vkd3d_pipeline_blob));
 
 HRESULT vkd3d_create_pipeline_cache_from_d3d12_desc(struct d3d12_device *device,
         const struct d3d12_cached_pipeline_state *state, VkPipelineCache *cache)
@@ -69,8 +74,11 @@ HRESULT vkd3d_create_pipeline_cache_from_d3d12_desc(struct d3d12_device *device,
         return D3D12_ERROR_ADAPTER_NOT_FOUND;
 
     /* Check the vkd3d build since the shader compiler itself may change,
-     * and the driver since that will affect the generated pipeline cache */
+     * and the driver since that will affect the generated pipeline cache.
+     * Based on global configuration flags, which extensions are available, etc,
+     * the generated shaders may also change, so key on that as well. */
     if (blob->vkd3d_build != vkd3d_build ||
+            blob->vkd3d_shader_interface_key != device->shader_interface_key ||
             memcmp(blob->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE))
         return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
 
@@ -94,6 +102,8 @@ VkResult vkd3d_serialize_pipeline_state(const struct d3d12_pipeline_state *state
             ERR("Failed to retrieve pipeline cache size, vr %d.\n", vr);
             return vr;
         }
+
+        /* TODO: If configured for it, also serialize out SPIR-V. */
     }
 
     total_size += vk_blob_size;
@@ -106,6 +116,8 @@ VkResult vkd3d_serialize_pipeline_state(const struct d3d12_pipeline_state *state
         blob->version = VKD3D_CACHE_BLOB_VERSION;
         blob->vendor_id = device_properties->vendorID;
         blob->device_id = device_properties->deviceID;
+        blob->padding = 0;
+        blob->vkd3d_shader_interface_key = state->device->shader_interface_key;
         blob->vkd3d_build = vkd3d_build;
         memcpy(blob->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE);
 
@@ -114,6 +126,8 @@ VkResult vkd3d_serialize_pipeline_state(const struct d3d12_pipeline_state *state
             if ((vr = VK_CALL(vkGetPipelineCacheData(state->device->vk_device, state->vk_pso_cache, &vk_blob_size, blob->vk_blob))))
                 return vr;
         }
+
+        /* TODO: If configured for it, also serialize out SPIR-V. */
     }
 
     *size = total_size;
@@ -173,7 +187,7 @@ struct vkd3d_serialized_pipeline
     uint8_t data[];
 };
 
-#define VKD3D_PIPELINE_LIBRARY_VERSION MAKE_MAGIC('V','K','L',1)
+#define VKD3D_PIPELINE_LIBRARY_VERSION MAKE_MAGIC('V','K','L',2)
 
 struct vkd3d_serialized_pipeline_library
 {
@@ -182,9 +196,13 @@ struct vkd3d_serialized_pipeline_library
     uint32_t device_id;
     uint32_t pipeline_count;
     uint64_t vkd3d_build;
+    uint64_t vkd3d_shader_interface_key;
     uint8_t cache_uuid[VK_UUID_SIZE];
     uint8_t data[];
 };
+
+STATIC_ASSERT(sizeof(struct vkd3d_serialized_pipeline_library) == offsetof(struct vkd3d_serialized_pipeline_library, data));
+STATIC_ASSERT(sizeof(struct vkd3d_serialized_pipeline_library) == 32 + VK_UUID_SIZE);
 
 /* ID3D12PipelineLibrary */
 static inline struct d3d12_pipeline_library *impl_from_ID3D12PipelineLibrary(d3d12_pipeline_library_iface *iface)
@@ -541,6 +559,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_Serialize(d3d12_pipeline
     header->device_id = device_properties->deviceID;
     header->pipeline_count = pipeline_library->map.used_count;
     header->vkd3d_build = vkd3d_build;
+    header->vkd3d_shader_interface_key = pipeline_library->device->shader_interface_key;
     memcpy(header->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE);
 
     for (i = 0; i < pipeline_library->map.entry_count; i++)
@@ -632,6 +651,7 @@ static HRESULT d3d12_pipeline_library_read_blob(struct d3d12_pipeline_library *p
         return D3D12_ERROR_ADAPTER_NOT_FOUND;
 
     if (header->vkd3d_build != vkd3d_build ||
+            header->vkd3d_shader_interface_key != device->shader_interface_key ||
             memcmp(header->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE))
         return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
 
