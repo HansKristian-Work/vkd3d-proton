@@ -5855,6 +5855,49 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
     }
 }
 
+static void vkd3d_compute_shader_interface_key(struct d3d12_device *device)
+{
+    /* This key needs to hold all state which could potentially affect shader compilation.
+     * We may generate different SPIR-V based on the bindless state flags.
+     * The bindless states are affected by various flags. */
+    unsigned int i;
+    uint64_t key;
+
+    key = hash_fnv1_init();
+
+    /* Technically, any changes in vkd3d-shader will be reflected in the vkd3d-proton Git hash,
+     * but it is useful to be able to modify the internal revision while developing since
+     * we have no mechanism for emitting dirty Git revisions. */
+    key = hash_fnv1_iterate_u64(key, vkd3d_shader_get_revision());
+    key = hash_fnv1_iterate_u32(key, device->bindless_state.flags);
+    key = hash_fnv1_iterate_u32(key, device->bindless_state.cbv_srv_uav_count);
+    key = hash_fnv1_iterate_u32(key, device->bindless_state.set_count);
+    for (i = 0; i < device->bindless_state.set_count; i++)
+    {
+        key = hash_fnv1_iterate_u32(key, device->bindless_state.set_info[i].flags);
+        key = hash_fnv1_iterate_u32(key, device->bindless_state.set_info[i].binding_index);
+        key = hash_fnv1_iterate_u32(key, device->bindless_state.set_info[i].set_index);
+        key = hash_fnv1_iterate_u32(key, device->bindless_state.set_info[i].heap_type);
+        key = hash_fnv1_iterate_u32(key, device->bindless_state.set_info[i].vk_descriptor_type);
+    }
+
+    key = hash_fnv1_iterate_u32(key, vkd3d_shader_quirk_info.global_quirks);
+    key = hash_fnv1_iterate_u32(key, vkd3d_shader_quirk_info.default_quirks);
+    key = hash_fnv1_iterate_u32(key, vkd3d_shader_quirk_info.num_hashes);
+    /* If apps attempt to use the same shader cache with different executables, we might end up with different
+     * quirk tables due to app workarounds, so hash that too. */
+    for (i = 0; i < vkd3d_shader_quirk_info.num_hashes; i++)
+    {
+        key = hash_fnv1_iterate_u64(key, vkd3d_shader_quirk_info.hashes[i].shader_hash);
+        key = hash_fnv1_iterate_u32(key, vkd3d_shader_quirk_info.hashes[i].quirks);
+    }
+
+    for (i = 0; i < device->vk_info.shader_extension_count; i++)
+        key = hash_fnv1_iterate_u32(key, device->vk_info.shader_extensions[i]);
+
+    device->shader_interface_key = key;
+}
+
 static bool d3d12_device_supports_feature_level(struct d3d12_device *device, D3D_FEATURE_LEVEL feature_level)
 {
     return feature_level <= device->d3d12_caps.max_feature_level;
@@ -5946,6 +5989,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     d3d12_device_caps_init(device);
 
     vkd3d_init_shader_extensions(device);
+    vkd3d_compute_shader_interface_key(device);
 
 #ifdef VKD3D_ENABLE_RENDERDOC
     if (vkd3d_renderdoc_active() && vkd3d_renderdoc_global_capture_enabled())

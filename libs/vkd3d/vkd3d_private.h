@@ -2881,6 +2881,7 @@ struct d3d12_device
     struct vkd3d_descriptor_qa_global_info *descriptor_qa_global_info;
 #endif
     VkPipelineCache global_pipeline_cache;
+    uint64_t shader_interface_key;
 };
 
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,
