@@ -212,4 +212,27 @@ static inline uint32_t hash_uint64(uint64_t n)
     return hash_combine((uint32_t)n, (uint32_t)(n >> 32));
 }
 
+/* A somewhat stronger hash when we're meant to store the hash (pipeline caches, etc). Based on FNV-1a. */
+static inline uint64_t hash_fnv1_init()
+{
+    return 0xcbf29ce484222325ull;
+}
+
+static inline uint64_t hash_fnv1_iterate_u8(uint64_t h, uint8_t value)
+{
+    return (h * 0x100000001b3ull) ^ value;
+}
+
+static inline uint64_t hash_fnv1_iterate_u32(uint64_t h, uint32_t value)
+{
+    return (h * 0x100000001b3ull) ^ value;
+}
+
+static inline uint64_t hash_fnv1_iterate_u64(uint64_t h, uint64_t value)
+{
+    h = hash_fnv1_iterate_u32(h, value & UINT32_MAX);
+    h = hash_fnv1_iterate_u32(h, value >> 32);
+    return h;
+}
+
 #endif  /* __VKD3D_HASHMAP_H */
