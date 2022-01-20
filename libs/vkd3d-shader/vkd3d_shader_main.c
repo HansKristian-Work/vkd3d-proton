@@ -736,3 +736,12 @@ uint32_t vkd3d_shader_compile_arguments_select_quirks(
     else
         return 0;
 }
+
+uint64_t vkd3d_shader_get_revision(void)
+{
+    /* This is meant to be bumped every time a change is made to the shader compiler.
+     * Might get nuked later ...
+     * It's not immediately useful for invalidating pipeline caches, since that would mostly be covered
+     * by vkd3d-proton Git hash. */
+    return 1;
+}

@@ -799,6 +799,8 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
 uint32_t vkd3d_shader_compile_arguments_select_quirks(
         const struct vkd3d_shader_compile_arguments *args, vkd3d_shader_hash_t hash);
 
+uint64_t vkd3d_shader_get_revision(void);
+
 #endif  /* VKD3D_SHADER_NO_PROTOTYPES */
 
 /*
