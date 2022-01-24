@@ -48,20 +48,20 @@ struct vkd3d_pipeline_blob
 };
 
 HRESULT vkd3d_create_pipeline_cache_from_d3d12_desc(struct d3d12_device *device,
-        const D3D12_CACHED_PIPELINE_STATE *state, VkPipelineCache *cache)
+        const struct d3d12_cached_pipeline_state *state, VkPipelineCache *cache)
 {
     const VkPhysicalDeviceProperties *device_properties = &device->device_info.properties2.properties;
-    const struct vkd3d_pipeline_blob *blob = state->pCachedBlob;
+    const struct vkd3d_pipeline_blob *blob = state->blob.pCachedBlob;
     VkResult vr;
 
-    if (!state->CachedBlobSizeInBytes)
+    if (!state->blob.CachedBlobSizeInBytes)
     {
         vr = vkd3d_create_pipeline_cache(device, 0, NULL, cache);
         return hresult_from_vk_result(vr);
     }
 
     /* Avoid E_INVALIDARG with an invalid header size, since that may confuse some games */
-    if (state->CachedBlobSizeInBytes < sizeof(*blob) || blob->version != VKD3D_CACHE_BLOB_VERSION)
+    if (state->blob.CachedBlobSizeInBytes < sizeof(*blob) || blob->version != VKD3D_CACHE_BLOB_VERSION)
         return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
 
     /* Indicate that the cached data is not useful if we're running on a different device or driver */
@@ -74,7 +74,7 @@ HRESULT vkd3d_create_pipeline_cache_from_d3d12_desc(struct d3d12_device *device,
             memcmp(blob->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE))
         return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
 
-    vr = vkd3d_create_pipeline_cache(device, state->CachedBlobSizeInBytes - sizeof(*blob), blob->vk_blob, cache);
+    vr = vkd3d_create_pipeline_cache(device, state->blob.CachedBlobSizeInBytes - sizeof(*blob), blob->vk_blob, cache);
     return hresult_from_vk_result(vr);
 }
 
@@ -428,8 +428,9 @@ static HRESULT d3d12_pipeline_library_load_pipeline(struct d3d12_pipeline_librar
         return E_INVALIDARG;
     }
 
-    desc->cached_pso.CachedBlobSizeInBytes = e->data.blob_length;
-    desc->cached_pso.pCachedBlob = e->data.blob;
+    desc->cached_pso.blob.CachedBlobSizeInBytes = e->data.blob_length;
+    desc->cached_pso.blob.pCachedBlob = e->data.blob;
+    desc->cached_pso.library = pipeline_library;
     rwlock_unlock_read(&pipeline_library->mutex);
 
     return d3d12_pipeline_state_create(pipeline_library->device, bind_point, desc, state);

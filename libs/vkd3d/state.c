@@ -1877,7 +1877,8 @@ HRESULT vkd3d_pipeline_state_desc_from_d3d12_graphics_desc(struct d3d12_pipeline
     desc->dsv_format = d3d12_desc->DSVFormat;
     desc->sample_desc = d3d12_desc->SampleDesc;
     desc->node_mask = d3d12_desc->NodeMask;
-    desc->cached_pso = d3d12_desc->CachedPSO;
+    desc->cached_pso.blob = d3d12_desc->CachedPSO;
+    desc->cached_pso.library = NULL;
     desc->flags = d3d12_desc->Flags;
     return S_OK;
 }
@@ -1889,7 +1890,8 @@ HRESULT vkd3d_pipeline_state_desc_from_d3d12_compute_desc(struct d3d12_pipeline_
     desc->root_signature = d3d12_desc->pRootSignature;
     desc->cs = d3d12_desc->CS;
     desc->node_mask = d3d12_desc->NodeMask;
-    desc->cached_pso = d3d12_desc->CachedPSO;
+    desc->cached_pso.blob = d3d12_desc->CachedPSO;
+    desc->cached_pso.library = NULL;
     desc->flags = d3d12_desc->Flags;
     return S_OK;
 }
@@ -1972,7 +1974,7 @@ HRESULT vkd3d_pipeline_state_desc_from_d3d12_stream_desc(struct d3d12_pipeline_s
             VKD3D_HANDLE_SUBOBJECT(DEPTH_STENCIL_FORMAT, DXGI_FORMAT, desc->dsv_format);
             VKD3D_HANDLE_SUBOBJECT(SAMPLE_DESC, DXGI_SAMPLE_DESC, desc->sample_desc);
             VKD3D_HANDLE_SUBOBJECT(NODE_MASK, UINT, desc->node_mask);
-            VKD3D_HANDLE_SUBOBJECT(CACHED_PSO, D3D12_CACHED_PIPELINE_STATE, desc->cached_pso);
+            VKD3D_HANDLE_SUBOBJECT(CACHED_PSO, D3D12_CACHED_PIPELINE_STATE, desc->cached_pso.blob);
             VKD3D_HANDLE_SUBOBJECT(FLAGS, D3D12_PIPELINE_STATE_FLAGS, desc->flags);
             VKD3D_HANDLE_SUBOBJECT(DEPTH_STENCIL1, D3D12_DEPTH_STENCIL_DESC1, desc->depth_stencil_state);
             VKD3D_HANDLE_SUBOBJECT(VIEW_INSTANCING, D3D12_VIEW_INSTANCING_DESC, desc->view_instancing_desc);
