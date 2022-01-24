@@ -2243,7 +2243,7 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     if (!d3d12_device_validate_shader_meta(device, &spirv.meta))
         return E_INVALIDARG;
 
-    if ((spirv.meta.uses_subgroup_size &&
+    if (((spirv.meta.flags & VKD3D_SHADER_META_FLAG_USES_SUBGROUP_SIZE) &&
             device->device_info.subgroup_size_control_features.subgroupSizeControl) ||
             spirv.meta.cs_required_wave_size)
     {
@@ -2331,7 +2331,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
     pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_info.basePipelineIndex = -1;
 
-    if (meta->replaced && device->debug_ring.active)
+    if ((meta->flags & VKD3D_SHADER_META_FLAG_REPLACED) && device->debug_ring.active)
     {
         vkd3d_shader_debug_ring_init_spec_constant(device, &spec_info, meta->hash);
         pipeline_info.stage.pSpecializationInfo = &spec_info.spec_info;
@@ -3483,7 +3483,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         if (shader_stages[i].stage == VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT)
             graphics->patch_vertex_count = graphics->stage_meta[graphics->stage_count].patch_vertex_count;
 
-        if (graphics->stage_meta[graphics->stage_count].replaced && device->debug_ring.active)
+        if ((graphics->stage_meta[graphics->stage_count].flags & VKD3D_SHADER_META_FLAG_REPLACED) &&
+                device->debug_ring.active)
         {
             vkd3d_shader_debug_ring_init_spec_constant(device,
                     &graphics->spec_info[graphics->stage_count],
@@ -3764,11 +3765,11 @@ bool d3d12_pipeline_state_has_replaced_shaders(struct d3d12_pipeline_state *stat
 {
     unsigned int i;
     if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_COMPUTE)
-        return state->compute.meta.replaced;
+        return !!(state->compute.meta.flags & VKD3D_SHADER_META_FLAG_REPLACED);
     else if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS)
     {
         for (i = 0; i < state->graphics.stage_count; i++)
-            if (state->graphics.stage_meta[i].replaced)
+            if (state->graphics.stage_meta[i].flags & VKD3D_SHADER_META_FLAG_REPLACED)
                 return true;
         return false;
     }

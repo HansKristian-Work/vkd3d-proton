@@ -526,7 +526,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     spirv->meta.hash = hash;
     if (vkd3d_shader_replace(hash, &spirv->code, &spirv->size))
     {
-        spirv->meta.replaced = true;
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_REPLACED;
         return ret;
     }
     quirks = vkd3d_shader_compile_arguments_select_quirks(compiler_args, hash);
@@ -859,15 +859,16 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     memcpy(code, compiled.data, compiled.size);
     spirv->code = code;
     spirv->size = compiled.size;
-    spirv->meta.uses_subgroup_size = dxil_spv_converter_uses_subgroup_size(converter) == DXIL_SPV_TRUE;
+    if (dxil_spv_converter_uses_subgroup_size(converter) == DXIL_SPV_TRUE)
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_USES_SUBGROUP_SIZE;
     dxil_spv_converter_get_compute_workgroup_dimensions(converter,
             &spirv->meta.cs_workgroup_size[0],
             &spirv->meta.cs_workgroup_size[1],
             &spirv->meta.cs_workgroup_size[2]);
     dxil_spv_converter_get_patch_vertex_count(converter, &spirv->meta.patch_vertex_count);
     dxil_spv_converter_get_compute_required_wave_size(converter, &spirv->meta.cs_required_wave_size);
-    spirv->meta.uses_native_16bit_operations = dxil_spv_converter_uses_shader_feature(converter,
-            DXIL_SPV_SHADER_FEATURE_NATIVE_16BIT_OPERATIONS) == DXIL_SPV_TRUE;
+    if (dxil_spv_converter_uses_shader_feature(converter, DXIL_SPV_SHADER_FEATURE_NATIVE_16BIT_OPERATIONS) == DXIL_SPV_TRUE)
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_USES_NATIVE_16BIT_OPERATIONS;
 
     vkd3d_shader_dump_spirv_shader(hash, spirv);
 
@@ -912,7 +913,7 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     {
         if (vkd3d_shader_replace_export(hash, &spirv->code, &spirv->size, demangled_export))
         {
-            spirv->meta.replaced = true;
+            spirv->meta.flags |= VKD3D_SHADER_META_FLAG_REPLACED;
             vkd3d_free(demangled_export);
             return ret;
         }
@@ -1286,9 +1287,10 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     memcpy(code, compiled.data, compiled.size);
     spirv->code = code;
     spirv->size = compiled.size;
-    spirv->meta.uses_subgroup_size = dxil_spv_converter_uses_subgroup_size(converter) == DXIL_SPV_TRUE;
-    spirv->meta.uses_native_16bit_operations = dxil_spv_converter_uses_shader_feature(converter,
-            DXIL_SPV_SHADER_FEATURE_NATIVE_16BIT_OPERATIONS) == DXIL_SPV_TRUE;
+    if (dxil_spv_converter_uses_subgroup_size(converter) == DXIL_SPV_TRUE)
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_USES_SUBGROUP_SIZE;
+    if (dxil_spv_converter_uses_shader_feature(converter, DXIL_SPV_SHADER_FEATURE_NATIVE_16BIT_OPERATIONS) == DXIL_SPV_TRUE)
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_USES_NATIVE_16BIT_OPERATIONS;
 
     if (demangled_export)
         vkd3d_shader_dump_spirv_shader_export(hash, spirv, demangled_export);
