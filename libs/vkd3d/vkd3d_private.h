@@ -1549,6 +1549,14 @@ static inline bool d3d12_pipeline_state_has_unknown_dsv_format(struct d3d12_pipe
     return false;
 }
 
+struct d3d12_cached_pipeline_state
+{
+    D3D12_CACHED_PIPELINE_STATE blob;
+    /* For cached PSO if that blob comes from a library.
+     * Might need it to resolve references. */
+    struct d3d12_pipeline_library *library;
+};
+
 struct d3d12_pipeline_state_desc
 {
     ID3D12RootSignature *root_signature;
@@ -1571,7 +1579,7 @@ struct d3d12_pipeline_state_desc
     DXGI_SAMPLE_DESC sample_desc;
     D3D12_VIEW_INSTANCING_DESC view_instancing_desc;
     UINT node_mask;
-    D3D12_CACHED_PIPELINE_STATE cached_pso;
+    struct d3d12_cached_pipeline_state cached_pso;
     D3D12_PIPELINE_STATE_FLAGS flags;
 };
 
@@ -1645,7 +1653,7 @@ HRESULT d3d12_pipeline_library_create(struct d3d12_device *device, const void *b
 VkResult vkd3d_create_pipeline_cache(struct d3d12_device *device,
         size_t size, const void *data, VkPipelineCache *cache);
 HRESULT vkd3d_create_pipeline_cache_from_d3d12_desc(struct d3d12_device *device,
-        const D3D12_CACHED_PIPELINE_STATE *state, VkPipelineCache *cache);
+        const struct d3d12_cached_pipeline_state *state, VkPipelineCache *cache);
 VkResult vkd3d_serialize_pipeline_state(const struct d3d12_pipeline_state *state, size_t *size, void *data);
 
 struct vkd3d_buffer
