@@ -54,16 +54,20 @@ enum vkd3d_shader_visibility
 
 typedef uint64_t vkd3d_shader_hash_t;
 
+enum vkd3d_shader_meta_flags
+{
+    VKD3D_SHADER_META_FLAG_REPLACED = 1 << 0,
+    VKD3D_SHADER_META_FLAG_USES_SUBGROUP_SIZE = 1 << 1,
+    VKD3D_SHADER_META_FLAG_USES_NATIVE_16BIT_OPERATIONS = 1 << 2,
+};
+
 struct vkd3d_shader_meta
 {
     vkd3d_shader_hash_t hash;
     unsigned int cs_workgroup_size[3]; /* Only contains valid data if uses_subgroup_size is true. */
     unsigned int patch_vertex_count; /* Relevant for HS. May be 0, in which case the patch vertex count is not known. */
     unsigned int cs_required_wave_size; /* If non-zero, force a specific CS subgroup size. */
-    bool replaced;
-    bool uses_subgroup_size;
-    bool uses_native_16bit_operations;
-    bool padding;
+    uint32_t flags; /* vkd3d_shader_meta_flags */
 };
 STATIC_ASSERT(sizeof(struct vkd3d_shader_meta) == 32);
 

@@ -6930,8 +6930,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
             for (i = 0; i < state->graphics.stage_count; i++)
             {
                 TRACE("Binding graphics module with hash: %016"PRIx64" (replaced: %s).\n",
-                      state->graphics.stage_meta[i].hash,
-                      state->graphics.stage_meta[i].replaced ? "yes" : "no");
+                        state->graphics.stage_meta[i].hash,
+                        (state->graphics.stage_meta[i].flags & VKD3D_SHADER_META_FLAG_REPLACED) ? "yes" : "no");
             }
         }
     }

@@ -349,7 +349,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     spirv->meta.hash = hash;
     if (vkd3d_shader_replace(hash, &spirv->code, &spirv->size))
     {
-        spirv->meta.replaced = true;
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_REPLACED;
         return VKD3D_OK;
     }
 
