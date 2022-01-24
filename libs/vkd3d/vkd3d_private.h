@@ -1633,7 +1633,7 @@ struct d3d12_pipeline_library
 
     struct d3d12_device *device;
 
-    pthread_mutex_t mutex;
+    rwlock_t mutex;
     struct hash_map map;
 
     struct vkd3d_private_store private_store;
