@@ -236,7 +236,7 @@ static void d3d12_pipeline_library_cleanup(struct d3d12_pipeline_library *pipeli
     hash_map_clear(&pipeline_library->map);
 
     vkd3d_private_store_destroy(&pipeline_library->private_store);
-    pthread_mutex_destroy(&pipeline_library->mutex);
+    rwlock_destroy(&pipeline_library->mutex);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_QueryInterface(d3d12_pipeline_library_iface *iface,
@@ -342,7 +342,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_StorePipeline(d3d12_pipe
 
     TRACE("iface %p, name %s, pipeline %p.\n", iface, debugstr_w(name), pipeline);
 
-    if ((rc = pthread_mutex_lock(&pipeline_library->mutex)))
+    if ((rc = rwlock_lock_write(&pipeline_library->mutex)))
     {
         ERR("Failed to lock mutex, rc %d.\n", rc);
         return hresult_from_errno(rc);
@@ -354,14 +354,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_StorePipeline(d3d12_pipe
     if (hash_map_find(&pipeline_library->map, &entry.key))
     {
         WARN("Pipeline %s already exists.\n", debugstr_w(name));
-        pthread_mutex_unlock(&pipeline_library->mutex);
+        rwlock_unlock_write(&pipeline_library->mutex);
         return E_INVALIDARG;
     }
 
     /* We need to allocate persistent storage for the name */
     if (!(new_name = malloc(entry.key.name_length)))
     {
-        pthread_mutex_unlock(&pipeline_library->mutex);
+        rwlock_unlock_write(&pipeline_library->mutex);
         return E_OUTOFMEMORY;
     }
 
@@ -371,14 +371,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_StorePipeline(d3d12_pipe
     if (FAILED(vr = vkd3d_serialize_pipeline_state(pipeline_state, &entry.data.blob_length, NULL)))
     {
         vkd3d_free(new_name);
-        pthread_mutex_unlock(&pipeline_library->mutex);
+        rwlock_unlock_write(&pipeline_library->mutex);
         return hresult_from_vk_result(vr);
     }
 
     if (!(new_blob = malloc(entry.data.blob_length)))
     {
         vkd3d_free(new_name);
-        pthread_mutex_unlock(&pipeline_library->mutex);
+        rwlock_unlock_write(&pipeline_library->mutex);
         return E_OUTOFMEMORY;
     }
 
@@ -386,7 +386,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_StorePipeline(d3d12_pipe
     {
         vkd3d_free(new_name);
         vkd3d_free(new_blob);
-        pthread_mutex_unlock(&pipeline_library->mutex);
+        rwlock_unlock_write(&pipeline_library->mutex);
         return hresult_from_vk_result(vr);
     }
 
@@ -397,11 +397,11 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_StorePipeline(d3d12_pipe
     {
         vkd3d_free(new_name);
         vkd3d_free(new_blob);
-        pthread_mutex_unlock(&pipeline_library->mutex);
+        rwlock_unlock_write(&pipeline_library->mutex);
         return E_OUTOFMEMORY;
     }
 
-    pthread_mutex_unlock(&pipeline_library->mutex);
+    rwlock_unlock_write(&pipeline_library->mutex);
     return S_OK;
 }
 
@@ -412,7 +412,7 @@ static HRESULT d3d12_pipeline_library_load_pipeline(struct d3d12_pipeline_librar
     struct vkd3d_cached_pipeline_key key;
     int rc;
 
-    if ((rc = pthread_mutex_lock(&pipeline_library->mutex)))
+    if ((rc = rwlock_lock_read(&pipeline_library->mutex)))
     {
         ERR("Failed to lock mutex, rc %d.\n", rc);
         return hresult_from_errno(rc);
@@ -424,13 +424,13 @@ static HRESULT d3d12_pipeline_library_load_pipeline(struct d3d12_pipeline_librar
     if (!(e = (const struct vkd3d_cached_pipeline_entry*)hash_map_find(&pipeline_library->map, &key)))
     {
         WARN("Pipeline %s does not exist.\n", debugstr_w(name));
-        pthread_mutex_unlock(&pipeline_library->mutex);
+        rwlock_unlock_read(&pipeline_library->mutex);
         return E_INVALIDARG;
     }
 
     desc->cached_pso.CachedBlobSizeInBytes = e->data.blob_length;
     desc->cached_pso.pCachedBlob = e->data.blob;
-    pthread_mutex_unlock(&pipeline_library->mutex);
+    rwlock_unlock_read(&pipeline_library->mutex);
 
     return d3d12_pipeline_state_create(pipeline_library->device, bind_point, desc, state);
 }
@@ -488,7 +488,7 @@ static SIZE_T STDMETHODCALLTYPE d3d12_pipeline_library_GetSerializedSize(d3d12_p
 
     TRACE("iface %p.\n", iface);
 
-    if ((rc = pthread_mutex_lock(&pipeline_library->mutex)))
+    if ((rc = rwlock_lock_read(&pipeline_library->mutex)))
     {
         ERR("Failed to lock mutex, rc %d.\n", rc);
         return 0;
@@ -509,7 +509,7 @@ static SIZE_T STDMETHODCALLTYPE d3d12_pipeline_library_GetSerializedSize(d3d12_p
         }
     }
 
-    pthread_mutex_unlock(&pipeline_library->mutex);
+    rwlock_unlock_read(&pipeline_library->mutex);
     return total_size;
 }
 
@@ -529,7 +529,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_Serialize(d3d12_pipeline
     if (data_size < sizeof(*header))
         return E_INVALIDARG;
 
-    if ((rc = pthread_mutex_lock(&pipeline_library->mutex)))
+    if ((rc = rwlock_lock_read(&pipeline_library->mutex)))
     {
         ERR("Failed to lock mutex, rc %d.\n", rc);
         return 0;
@@ -553,7 +553,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_Serialize(d3d12_pipeline
             /* Fails if the provided buffer is too small to fit the pipeline */
             if (!d3d12_pipeline_library_serialize_entry(pipeline_library, e, &pipeline_size, serialized_data))
             {
-                pthread_mutex_unlock(&pipeline_library->mutex);
+                rwlock_unlock_read(&pipeline_library->mutex);
                 return E_INVALIDARG;
             }
 
@@ -562,7 +562,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_Serialize(d3d12_pipeline
         }
     }
 
-    pthread_mutex_unlock(&pipeline_library->mutex);
+    rwlock_unlock_read(&pipeline_library->mutex);
     return S_OK;
 }
 
@@ -676,7 +676,7 @@ static HRESULT d3d12_pipeline_library_init(struct d3d12_pipeline_library *pipeli
     if (!blob_length && blob)
         return E_INVALIDARG;
 
-    if ((rc = pthread_mutex_init(&pipeline_library->mutex, NULL)))
+    if ((rc = rwlock_init(&pipeline_library->mutex)))
         return hresult_from_errno(rc);
 
     hash_map_init(&pipeline_library->map, &vkd3d_cached_pipeline_hash,
@@ -697,7 +697,7 @@ static HRESULT d3d12_pipeline_library_init(struct d3d12_pipeline_library *pipeli
 cleanup_hash_map:
     hash_map_clear(&pipeline_library->map);
 cleanup_mutex:
-    pthread_mutex_destroy(&pipeline_library->mutex);
+    rwlock_destroy(&pipeline_library->mutex);
     return hr;
 }
 
