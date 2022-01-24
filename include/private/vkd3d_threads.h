@@ -114,6 +114,48 @@ static inline int pthread_mutex_destroy(pthread_mutex_t *lock)
     return 0;
 }
 
+/* SRWLocks distinguish between write and read unlocks, but pthread interface does not,
+ * so make a trivial wrapper type instead to avoid any possible API conflicts. */
+typedef struct rwlock
+{
+    SRWLOCK rwlock;
+} rwlock_t;
+
+static inline int rwlock_init(rwlock_t *lock)
+{
+    InitializeSRWLock(&lock->rwlock);
+    return 0;
+}
+
+static inline int rwlock_lock_write(rwlock_t *lock)
+{
+    AcquireSRWLockExclusive(&lock->rwlock);
+    return 0;
+}
+
+static inline int rwlock_lock_read(rwlock_t *lock)
+{
+    AcquireSRWLockShared(&lock->rwlock);
+    return 0;
+}
+
+static inline int rwlock_unlock_write(rwlock_t *lock)
+{
+    ReleaseSRWLockExclusive(&lock->rwlock);
+    return 0;
+}
+
+static inline int rwlock_unlock_read(rwlock_t *lock)
+{
+    ReleaseSRWLockShared(&lock->rwlock);
+    return 0;
+}
+
+static inline int rwlock_destroy(rwlock_t *lock)
+{
+    return 0;
+}
+
 static inline int pthread_cond_init(pthread_cond_t *cond, void *attr)
 {
     (void)attr;
@@ -172,6 +214,42 @@ static inline void vkd3d_set_thread_name(const char *name)
 {
     pthread_setname_np(pthread_self(), name);
 }
+
+typedef struct rwlock
+{
+    pthread_rwlock_t rwlock;
+} rwlock_t;
+
+static inline int rwlock_init(rwlock_t *lock)
+{
+    return pthread_rwlock_init(&lock->rwlock, NULL);
+}
+
+static inline int rwlock_lock_write(rwlock_t *lock)
+{
+    return pthread_rwlock_wrlock(&lock->rwlock);
+}
+
+static inline int rwlock_lock_read(rwlock_t *lock)
+{
+    return pthread_rwlock_rdlock(&lock->rwlock);
+}
+
+static inline int rwlock_unlock_write(rwlock_t *lock)
+{
+    return pthread_rwlock_unlock(&lock->rwlock);
+}
+
+static inline int rwlock_unlock_read(rwlock_t *lock)
+{
+    return pthread_rwlock_unlock(&lock->rwlock);
+}
+
+static inline int rwlock_destroy(rwlock_t *lock)
+{
+    return pthread_rwlock_destroy(&lock->rwlock);
+}
+
 #define PTHREAD_ONCE_CALLBACK
 #endif
 
