@@ -174,9 +174,9 @@ static inline struct hash_map_entry *hash_map_insert(struct hash_map *hash_map, 
     if (!(target->flags & HASH_MAP_ENTRY_OCCUPIED))
     {
         hash_map->used_count += 1;
-        memcpy(target, entry, hash_map->entry_size);
         target->flags = HASH_MAP_ENTRY_OCCUPIED;
         target->hash_value = hash_value;
+        memcpy(target + 1, entry + 1, hash_map->entry_size - sizeof(*entry));
     }
 
     /* If target is occupied, we already have an entry in the hashmap.
@@ -193,6 +193,7 @@ static inline void hash_map_init(struct hash_map *hash_map, pfn_hash_func hash_f
     hash_map->entry_size = entry_size;
     hash_map->entry_count = 0;
     hash_map->used_count = 0;
+    assert(entry_size > sizeof(struct hash_map_entry));
 }
 
 static inline void hash_map_clear(struct hash_map *hash_map)
