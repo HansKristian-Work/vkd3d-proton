@@ -594,6 +594,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"log_memory_budget", VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET},
     {"force_host_cached", VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED},
     {"no_invariant_position", VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION},
+    {"global_pipeline_cache", VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -2664,12 +2665,20 @@ static HRESULT d3d12_device_global_pipeline_cache_init(struct d3d12_device *devi
         use_global = (driver_version >= VKD3D_DRIVER_VERSION_MAKE_NV(470, 0, 0) &&
                 driver_version < VKD3D_DRIVER_VERSION_MAKE_NV(470, 62, 2)) ||
                 driver_version == VKD3D_DRIVER_VERSION_MAKE_NV(470, 63, 1);
+
+        if (use_global)
+            WARN("Workaround applied. Creating global pipeline cache.\n");
+    }
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE)
+    {
+        INFO("Using global pipeline cache, PSO caches will not be saved to individual blobs.\n");
+        use_global = true;
     }
 
     if (!use_global)
         return S_OK;
 
-    WARN("Workaround applied. Creating global pipeline cache.\n");
     vr = vkd3d_create_pipeline_cache(device, 0, NULL, &device->global_pipeline_cache);
     return hresult_from_vk_result(vr);
 }
