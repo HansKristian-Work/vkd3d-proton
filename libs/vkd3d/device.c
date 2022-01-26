@@ -2378,6 +2378,7 @@ static void d3d12_remove_device_singleton(LUID luid)
         if (!memcmp(&current->adapter_luid, &luid, sizeof(LUID)))
         {
             list_remove(&current->entry);
+            vkd3d_free(current);
             return;
         }
     }
