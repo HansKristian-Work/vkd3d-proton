@@ -3992,7 +3992,7 @@ ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_iface *ifa
         vkd3d_free(list->active_queries);
         vkd3d_free(list->pending_queries);
         vkd3d_free(list->dsv_resource_tracking);
-        vkd3d_free(list);
+        vkd3d_free_aligned(list);
 
         d3d12_device_release(device);
     }
@@ -9990,12 +9990,14 @@ HRESULT d3d12_command_list_create(struct d3d12_device *device,
 
     debug_ignored_node_mask(node_mask);
 
-    if (!(object = vkd3d_malloc(sizeof(*object))))
+    /* We store RTV descriptors by value, which we align to 64 bytes, so d3d12_command_list inherits this requirement.
+     * Otherwise ubsan complains. */
+    if (!(object = vkd3d_malloc_aligned(sizeof(*object), D3D12_DESC_ALIGNMENT)))
         return E_OUTOFMEMORY;
 
     if (FAILED(hr = d3d12_command_list_init(object, device, type)))
     {
-        vkd3d_free(object);
+        vkd3d_free_aligned(object);
         return hr;
     }
 
