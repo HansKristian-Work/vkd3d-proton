@@ -25,6 +25,7 @@ d3d12_test_src = [
   'd3d12_render_target.c',
   'd3d12_tessellation.c',
   'd3d12_sm_advanced.c',
+  'd3d12_mesh_shader.c',
   'd3d12_descriptors.c',
   'd3d12_raytracing.c',
   'd3d12_robustness.c',
