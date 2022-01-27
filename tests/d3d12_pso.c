@@ -392,33 +392,15 @@ void test_create_pipeline_state(void)
         0x3f800000, 0x3f800000, 0x3f800000, 0x3f800000, 0x0100003e,
     };
 
-    static const union d3d12_root_signature_subobject
-    {
-        struct
-        {
-            D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
-            ID3D12RootSignature *root_signature;
-        };
-        void *dummy_align;
-    }
-    root_signature_subobject =
+    static const union d3d12_root_signature_subobject root_signature_subobject =
     {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE,
         NULL, /* fill in dynamically */
     }};
 
-    static const union d3d12_shader_bytecode_subobject
-    {
-        struct
-        {
-            D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
-            D3D12_SHADER_BYTECODE shader_bytecode;
-        };
-        void *dummy_align;
-    }
-    vs_subobject = {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VS, { vs_code, sizeof(vs_code) } }},
-    ps_subobject = {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, { ps_code, sizeof(ps_code) } }},
-    cs_subobject = {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_CS, { cs_code, sizeof(cs_code) } }};
+    static const union d3d12_shader_bytecode_subobject vs_subobject = {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VS, { vs_code, sizeof(vs_code) } }};
+    static const union d3d12_shader_bytecode_subobject ps_subobject = {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, { ps_code, sizeof(ps_code) } }};
+    static const union d3d12_shader_bytecode_subobject cs_subobject = {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_CS, { cs_code, sizeof(cs_code) } }};
 
     static const D3D12_SO_DECLARATION_ENTRY so_entries[] =
     {
@@ -427,16 +409,7 @@ void test_create_pipeline_state(void)
 
     static const UINT so_strides[] = { 16u };
 
-    static const union d3d12_stream_output_subobject
-    {
-        struct
-        {
-            D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
-            D3D12_STREAM_OUTPUT_DESC stream_output_desc;
-        };
-        void *dummy_align;
-    }
-    stream_output_subobject =
+    static const union d3d12_stream_output_subobject stream_output_subobject =
     {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_STREAM_OUTPUT,
         { so_entries, ARRAY_SIZE(so_entries),
@@ -444,16 +417,7 @@ void test_create_pipeline_state(void)
             D3D12_SO_NO_RASTERIZED_STREAM },
     }};
 
-    static const union d3d12_blend_subobject
-    {
-        struct
-        {
-            D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
-            D3D12_BLEND_DESC blend_desc;
-        };
-        void *dummy_align;
-    }
-    blend_subobject =
+    static const union d3d12_blend_subobject blend_subobject =
     {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_BLEND,
         { FALSE, TRUE,
@@ -464,31 +428,13 @@ void test_create_pipeline_state(void)
         }
     }};
 
-    static const union d3d12_sample_mask_subobject
-    {
-        struct
-        {
-            D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
-            UINT sample_mask;
-        };
-        void *dummy_align;
-    }
-    sample_mask_subobject =
+    static const union d3d12_sample_mask_subobject sample_mask_subobject =
     {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_MASK,
         0xFFFFFFFFu
     }};
 
-    static const union d3d12_rasterizer_subobject
-    {
-        struct
-        {
-            D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
-            D3D12_RASTERIZER_DESC rasterizer_desc;
-        };
-        void *dummy_align;
-    }
-    rasterizer_subobject =
+    static const union d3d12_rasterizer_subobject rasterizer_subobject =
     {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER,
         { D3D12_FILL_MODE_SOLID, D3D12_CULL_MODE_BACK,
@@ -496,16 +442,7 @@ void test_create_pipeline_state(void)
             D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF },
     }};
 
-    static const union d3d12_depth_stencil_subobject
-    {
-        struct
-        {
-            D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
-            D3D12_DEPTH_STENCIL_DESC depth_stencil_desc;
-        };
-        void *dummy_align;
-    }
-    depth_stencil_subobject =
+    static const union d3d12_depth_stencil_subobject depth_stencil_subobject =
     {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL,
         { TRUE, D3D12_DEPTH_WRITE_MASK_ALL, D3D12_COMPARISON_FUNC_LESS_EQUAL, TRUE, 0xFF, 0xFF,
@@ -518,151 +455,61 @@ void test_create_pipeline_state(void)
         { "POS", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
     };
 
-    static const union d3d12_input_layout_subobject
-    {
-        struct
-        {
-            D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
-            D3D12_INPUT_LAYOUT_DESC input_layout;
-        };
-        void *dummy_align;
-    }
-    input_layout_subobject =
+    static const union d3d12_input_layout_subobject input_layout_subobject =
     {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_INPUT_LAYOUT,
         { input_elements, ARRAY_SIZE(input_elements) },
     }};
 
-    static const union d3d12_ib_strip_cut_value_subobject
-    {
-        struct
-        {
-            D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
-            D3D12_INDEX_BUFFER_STRIP_CUT_VALUE strip_cut_value;
-        };
-        void *dummy_align;
-    }
-    ib_strip_cut_value_subobject =
+    static const union d3d12_ib_strip_cut_value_subobject ib_strip_cut_value_subobject =
     {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_IB_STRIP_CUT_VALUE,
         D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFFFFFF,
     }};
 
-    static const union d3d12_primitive_topology_subobject
-    {
-        struct
-        {
-            D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
-            D3D12_PRIMITIVE_TOPOLOGY_TYPE primitive_topology_type;
-        };
-        void *dummy_align;
-    }
-    primitive_topology_subobject =
+    static const union d3d12_primitive_topology_subobject primitive_topology_subobject =
     {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY,
         D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
     }};
 
-    static const union d3d12_render_target_formats_subobject
-    {
-        struct
-        {
-            D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
-            D3D12_RT_FORMAT_ARRAY render_target_formats;
-        };
-        void *dummy_align;
-    }
-    render_target_formats_subobject =
+    static const union d3d12_render_target_formats_subobject render_target_formats_subobject =
     {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS,
         { { DXGI_FORMAT_R8G8B8A8_UNORM }, 1 },
     }};
 
-    static const union d3d12_depth_stencil_format_subobject
-    {
-        struct
-        {
-            D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
-            DXGI_FORMAT depth_stencil_format;
-        };
-        void *dummy_align;
-    }
-    depth_stencil_format_subobject =
+    static const union d3d12_depth_stencil_format_subobject depth_stencil_format_subobject =
     {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL_FORMAT,
         DXGI_FORMAT_D32_FLOAT_S8X24_UINT,
     }};
 
-    static const union d3d12_sample_desc_subobject
-    {
-        struct
-        {
-            D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
-            DXGI_SAMPLE_DESC sample_desc;
-        };
-        void *dummy_align;
-    }
-    sample_desc_subobject =
+    static const union d3d12_sample_desc_subobject sample_desc_subobject =
     {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_DESC,
         { 1, 0 },
     }};
 
-    static const union d3d12_node_mask_subobject
-    {
-        struct
-        {
-            D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
-            UINT node_mask;
-        };
-        void *dummy_align;
-    }
-    node_mask_subobject =
+    static const union d3d12_node_mask_subobject node_mask_subobject =
     {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_NODE_MASK,
         0x0,
     }};
 
-    static const union d3d12_cached_pso_subobject
-    {
-        struct
-        {
-            D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
-            D3D12_CACHED_PIPELINE_STATE cached_pso;
-        };
-        void *dummy_align;
-    }
-    cached_pso_subobject =
+    static const union d3d12_cached_pso_subobject cached_pso_subobject =
     {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_CACHED_PSO,
         { NULL, 0 },
     }};
 
-    static const union d3d12_flags_subobject
-    {
-        struct
-        {
-            D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
-            D3D12_PIPELINE_STATE_FLAGS flags;
-        };
-        void *dummy_align;
-    }
-    flags_subobject =
+    static const union d3d12_flags_subobject flags_subobject =
     {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_FLAGS,
         D3D12_PIPELINE_STATE_FLAG_NONE,
     }};
 
-    static const union d3d12_depth_stencil1_subobject
-    {
-        struct
-        {
-            D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
-            D3D12_DEPTH_STENCIL_DESC1 depth_stencil_desc;
-        };
-        void *dummy_align;
-    }
-    depth_stencil1_subobject =
+    static const union d3d12_depth_stencil1_subobject depth_stencil1_subobject =
     {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL1,
         { TRUE, D3D12_DEPTH_WRITE_MASK_ALL, D3D12_COMPARISON_FUNC_LESS_EQUAL, TRUE, 0xFF, 0xFF,
@@ -670,16 +517,7 @@ void test_create_pipeline_state(void)
             { D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_INCR, D3D12_COMPARISON_FUNC_EQUAL } },
     }};
 
-    static const union d3d12_view_instancing_subobject
-    {
-        struct
-        {
-            D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
-            D3D12_VIEW_INSTANCING_DESC view_instancing_desc;
-        };
-        void *dummy_align;
-    }
-    view_instancing_subobject =
+    static const union d3d12_view_instancing_subobject view_instancing_subobject =
     {{
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VIEW_INSTANCING,
         { 0, NULL, D3D12_VIEW_INSTANCING_FLAG_NONE },
