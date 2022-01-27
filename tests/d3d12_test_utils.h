@@ -964,6 +964,16 @@ static inline ID3D12PipelineState *create_pipeline_state_dxil_(unsigned int line
     return pipeline_state;
 }
 
+#define create_pipeline_state_from_stream(device, desc, state) create_pipeline_state_from_stream_(device, desc, sizeof(*desc), state)
+static inline HRESULT create_pipeline_state_from_stream_(ID3D12Device2 *device, void *stream, size_t size, ID3D12PipelineState **state)
+{
+    D3D12_PIPELINE_STATE_STREAM_DESC pipeline_desc;
+    pipeline_desc.SizeInBytes = size;
+    pipeline_desc.pPipelineStateSubobjectStream = stream;
+
+    return ID3D12Device2_CreatePipelineState(device, &pipeline_desc, &IID_ID3D12PipelineState, (void **)state);
+}
+
 struct test_context_desc
 {
     unsigned int rt_width, rt_height, rt_array_size;
@@ -1338,5 +1348,185 @@ create_32bit_constants_root_signature_(__LINE__, a, b, c, e, 0)
 #define context_supports_dxil(context) context_supports_dxil_(__LINE__, context)
 #define init_depth_stencil(a, b, c, d, e, f, g, h, i) init_depth_stencil_(__LINE__, a, b, c, d, e, f, g, h, i)
 #define destroy_depth_stencil(depth_stencil) destroy_depth_stencil_(__LINE__, depth_stencil)
+
+union d3d12_root_signature_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        ID3D12RootSignature *root_signature;
+    };
+    void *dummy_align;
+};
+
+union d3d12_shader_bytecode_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        D3D12_SHADER_BYTECODE shader_bytecode;
+    };
+    void *dummy_align;
+};
+
+union d3d12_stream_output_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        D3D12_STREAM_OUTPUT_DESC stream_output_desc;
+    };
+    void *dummy_align;
+};
+
+union d3d12_blend_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        D3D12_BLEND_DESC blend_desc;
+    };
+    void *dummy_align;
+};
+
+union d3d12_sample_mask_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        UINT sample_mask;
+    };
+    void *dummy_align;
+};
+
+union d3d12_rasterizer_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        D3D12_RASTERIZER_DESC rasterizer_desc;
+    };
+    void *dummy_align;
+};
+
+union d3d12_depth_stencil_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        D3D12_DEPTH_STENCIL_DESC depth_stencil_desc;
+    };
+    void *dummy_align;
+};
+
+union d3d12_input_layout_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        D3D12_INPUT_LAYOUT_DESC input_layout;
+    };
+    void *dummy_align;
+};
+
+union d3d12_ib_strip_cut_value_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        D3D12_INDEX_BUFFER_STRIP_CUT_VALUE strip_cut_value;
+    };
+    void *dummy_align;
+};
+
+union d3d12_primitive_topology_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        D3D12_PRIMITIVE_TOPOLOGY_TYPE primitive_topology_type;
+    };
+    void *dummy_align;
+};
+
+union d3d12_render_target_formats_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        D3D12_RT_FORMAT_ARRAY render_target_formats;
+    };
+    void *dummy_align;
+};
+
+union d3d12_depth_stencil_format_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        DXGI_FORMAT depth_stencil_format;
+    };
+    void *dummy_align;
+};
+
+union d3d12_sample_desc_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        DXGI_SAMPLE_DESC sample_desc;
+    };
+    void *dummy_align;
+};
+
+union d3d12_node_mask_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        UINT node_mask;
+    };
+    void *dummy_align;
+};
+
+union d3d12_cached_pso_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        D3D12_CACHED_PIPELINE_STATE cached_pso;
+    };
+    void *dummy_align;
+};
+
+union d3d12_flags_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        D3D12_PIPELINE_STATE_FLAGS flags;
+    };
+    void *dummy_align;
+};
+
+union d3d12_depth_stencil1_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        D3D12_DEPTH_STENCIL_DESC1 depth_stencil_desc;
+    };
+    void *dummy_align;
+};
+
+union d3d12_view_instancing_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        D3D12_VIEW_INSTANCING_DESC view_instancing_desc;
+    };
+    void *dummy_align;
+};
 
 #endif  /* __VKD3D_D3D12_TEST_UTILS_H */
