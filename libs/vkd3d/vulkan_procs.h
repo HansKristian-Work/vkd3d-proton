@@ -269,6 +269,11 @@ VK_DEVICE_EXT_PFN(vkCmdSetPrimitiveRestartEnableEXT)
 /* VK_EXT_external_memory_host */
 VK_DEVICE_EXT_PFN(vkGetMemoryHostPointerPropertiesEXT)
 
+/* VK_EXT_mesh_shader */
+VK_DEVICE_EXT_PFN(vkCmdDrawMeshTasksEXT)
+VK_DEVICE_EXT_PFN(vkCmdDrawMeshTasksIndirectEXT)
+VK_DEVICE_EXT_PFN(vkCmdDrawMeshTasksIndirectCountEXT)
+
 /* VK_KHR_surface */
 VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceSurfacePresentModesKHR)
 VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceSurfaceSupportKHR)

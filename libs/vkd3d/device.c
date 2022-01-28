@@ -119,6 +119,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_SHADER_IMAGE_ATOMIC_INT64, EXT_shader_image_atomic_int64),
     VK_EXTENSION(EXT_SCALAR_BLOCK_LAYOUT, EXT_scalar_block_layout),
     VK_EXTENSION(EXT_PIPELINE_CREATION_FEEDBACK, EXT_pipeline_creation_feedback),
+    VK_EXTENSION(EXT_MESH_SHADER, EXT_mesh_shader),
     /* AMD extensions */
     VK_EXTENSION(AMD_BUFFER_MARKER, AMD_buffer_marker),
     VK_EXTENSION(AMD_DEVICE_COHERENT_MEMORY, AMD_device_coherent_memory),
@@ -1524,13 +1525,21 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->driver_properties.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES_KHR;
         vk_prepend_struct(&info->properties2, &info->driver_properties);
-	}
+    }
 
     if (vulkan_info->AMD_device_coherent_memory)
     {
         info->device_coherent_memory_features_amd.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COHERENT_MEMORY_FEATURES_AMD;
         vk_prepend_struct(&info->features2, &info->device_coherent_memory_features_amd);
+    }
+
+    if (vulkan_info->EXT_mesh_shader)
+    {
+        info->mesh_shader_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT;
+        info->mesh_shader_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT;
+        vk_prepend_struct(&info->features2, &info->mesh_shader_features);
+        vk_prepend_struct(&info->properties2, &info->mesh_shader_properties);
     }
 
     /* Core in Vulkan 1.1. */
@@ -1939,6 +1948,12 @@ static void vkd3d_trace_physical_device_features(const struct vkd3d_physical_dev
     TRACE("  VkPhysicalDeviceCustomBorderColorFeaturesEXT:\n");
     TRACE("    customBorderColors: %#x\n", info->custom_border_color_features.customBorderColors);
     TRACE("    customBorderColorWithoutFormat: %#x\n", info->custom_border_color_features.customBorderColorWithoutFormat);
+
+    TRACE("  VkPhysicalDeviceMeshShaderFeaturesEXT:\n");
+    TRACE("    meshShader: %#x\n", info->mesh_shader_features.meshShader);
+    TRACE("    taskShader: %#x\n", info->mesh_shader_features.taskShader);
+    TRACE("    multiviewMeshShader: %#x\n", info->mesh_shader_features.multiviewMeshShader);
+    TRACE("    primitiveFragmentShadingRateMeshShader: %#x\n", info->mesh_shader_features.primitiveFragmentShadingRateMeshShader);
 }
 
 static HRESULT vkd3d_init_device_extensions(struct d3d12_device *device,
