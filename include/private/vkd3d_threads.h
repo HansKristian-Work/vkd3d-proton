@@ -51,6 +51,8 @@ typedef struct pthread_cond
     CONDITION_VARIABLE cond;
 } pthread_cond_t;
 
+typedef pthread_cond_t condvar_reltime_t;
+
 static DWORD WINAPI win32_thread_wrapper_routine(void *arg)
 {
     pthread_t thread = arg;
@@ -187,6 +189,32 @@ static inline int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *lock)
     return ret ? 0 : -1;
 }
 
+static inline int condvar_reltime_init(condvar_reltime_t *cond)
+{
+    return pthread_cond_init(cond, NULL);
+}
+
+static inline int condvar_reltime_destroy(condvar_reltime_t *cond)
+{
+    return pthread_cond_destroy(cond);
+}
+
+static inline int condvar_reltime_signal(condvar_reltime_t *cond)
+{
+    return pthread_cond_signal(cond);
+}
+
+static inline int condvar_reltime_wait_timeout_seconds(condvar_reltime_t *cond, pthread_mutex_t *lock, unsigned int seconds)
+{
+    BOOL ret = SleepConditionVariableSRW(&cond->cond, &lock->lock, seconds * 1000, 0);
+    if (ret)
+        return 0;
+    else if (GetLastError() == ERROR_TIMEOUT)
+        return 1;
+    else
+        return -1;
+}
+
 static inline void vkd3d_set_thread_name(const char *name)
 {
     (void)name;
@@ -210,6 +238,9 @@ static inline void pthread_once(pthread_once_t *once, void (*func)(void))
 }
 #else
 #include <pthread.h>
+#include <errno.h>
+#include <time.h>
+
 static inline void vkd3d_set_thread_name(const char *name)
 {
     pthread_setname_np(pthread_self(), name);
@@ -248,6 +279,53 @@ static inline int rwlock_unlock_read(rwlock_t *lock)
 static inline int rwlock_destroy(rwlock_t *lock)
 {
     return pthread_rwlock_destroy(&lock->rwlock);
+}
+
+typedef struct condvar_reltime
+{
+    pthread_cond_t cond;
+} condvar_reltime_t;
+
+static inline int condvar_reltime_init(condvar_reltime_t *cond)
+{
+    pthread_condattr_t attr;
+    int rc;
+
+    pthread_condattr_init(&attr);
+    pthread_condattr_setclock(&attr, CLOCK_MONOTONIC);
+    rc = pthread_cond_init(&cond->cond, &attr);
+    pthread_condattr_destroy(&attr);
+
+    return rc;
+}
+
+static inline void condvar_reltime_destroy(condvar_reltime_t *cond)
+{
+    pthread_cond_destroy(&cond->cond);
+}
+
+static inline int condvar_reltime_signal(condvar_reltime_t *cond)
+{
+    return pthread_cond_signal(&cond->cond);
+}
+
+static inline int condvar_reltime_wait_timeout_seconds(condvar_reltime_t *cond, pthread_mutex_t *lock, unsigned int seconds)
+{
+    struct timespec ts;
+    int rc;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    ts.tv_sec += seconds;
+
+    /* This is absolute time. */
+    rc = pthread_cond_timedwait(&cond->cond, lock, &ts);
+
+    if (rc == ETIMEDOUT)
+        return 1;
+    else if (rc == 0)
+        return 0;
+    else
+        return -1;
 }
 
 #define PTHREAD_ONCE_CALLBACK
