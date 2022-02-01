@@ -3323,7 +3323,7 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     VK_CALL(vkCmdEndRenderingKHR(list->vk_command_buffer));
 }
 
-static VkPipelineStageFlags vk_queue_shader_stages(VkQueueFlags vk_queue_flags)
+static VkPipelineStageFlags vk_queue_shader_stages(struct d3d12_device *device, VkQueueFlags vk_queue_flags)
 {
     VkPipelineStageFlags queue_shader_stages = 0;
 
@@ -3334,6 +3334,13 @@ static VkPipelineStageFlags vk_queue_shader_stages(VkQueueFlags vk_queue_flags)
                 VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT |
                 VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT |
                 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+
+        if (device->device_info.mesh_shader_features.meshShader &&
+                device->device_info.mesh_shader_features.taskShader)
+        {
+            queue_shader_stages |= VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT |
+                    VK_PIPELINE_STAGE_TASK_SHADER_BIT_EXT;
+        }
     }
 
     if (vk_queue_flags & VK_QUEUE_COMPUTE_BIT)
@@ -3370,7 +3377,7 @@ static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_l
     }
     else if (resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
     {
-        stages = vk_queue_shader_stages(list->vk_queue_flags);
+        stages = vk_queue_shader_stages(list->device, list->vk_queue_flags);
         access = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
         layout = VK_IMAGE_LAYOUT_GENERAL;
     }
@@ -4163,7 +4170,7 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
     VkPipelineStageFlags queue_shader_stages;
     uint32_t unhandled_state = 0;
 
-    queue_shader_stages = vk_queue_shader_stages(vk_queue_flags);
+    queue_shader_stages = vk_queue_shader_stages(list->device, vk_queue_flags);
 
     if (state_mask == D3D12_RESOURCE_STATE_COMMON)
     {
@@ -9107,7 +9114,7 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT;
 
     VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-            vk_queue_shader_stages(list->vk_queue_flags),
+            vk_queue_shader_stages(list->device, list->vk_queue_flags),
             VK_PIPELINE_STAGE_TRANSFER_BIT,
             0, 1, &barrier, 0, NULL, 0, NULL));
 
@@ -9164,7 +9171,7 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
 
     VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
             VK_PIPELINE_STAGE_TRANSFER_BIT,
-            vk_queue_shader_stages(list->vk_queue_flags),
+            vk_queue_shader_stages(list->device, list->vk_queue_flags),
             0, 1, &barrier, 0, NULL, 0, NULL));
 }
 
