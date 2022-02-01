@@ -11299,7 +11299,33 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRateImage(d3d12_com
 
 static void STDMETHODCALLTYPE d3d12_command_list_DispatchMesh(d3d12_command_list_iface *iface, UINT x, UINT y, UINT z)
 {
-    FIXME("iface %p, x %u, y %u, z %u stub!", iface, x, y, z);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct vkd3d_scratch_allocation scratch;
+
+    TRACE("iface %p, x %u, y %u, z %u.\n", iface, x, y, z);
+
+    if (list->predicate_va)
+    {
+        union vkd3d_predicate_command_direct_args args;
+        args.dispatch.x = x;
+        args.dispatch.y = y;
+        args.dispatch.z = z;
+
+        if (!d3d12_command_list_emit_predicated_command(list, VKD3D_PREDICATE_COMMAND_DISPATCH, 0, &args, &scratch))
+            return;
+    }
+
+    if (!d3d12_command_list_begin_render_pass(list))
+    {
+        WARN("Failed to begin render pass, ignoring draw call.\n");
+        return;
+    }
+
+    if (!list->predicate_va)
+        VK_CALL(vkCmdDrawMeshTasksEXT(list->vk_command_buffer, x, y, z));
+    else
+        VK_CALL(vkCmdDrawMeshTasksIndirectEXT(list->vk_command_buffer, scratch.buffer, scratch.offset, 1, 0));
 }
 
 static CONST_VTBL struct ID3D12GraphicsCommandList6Vtbl d3d12_command_list_vtbl =
