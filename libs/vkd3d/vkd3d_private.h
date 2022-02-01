@@ -1423,7 +1423,7 @@ struct d3d12_root_signature
 
     vkd3d_shader_hash_t compatibility_hash;
 
-    struct d3d12_bind_point_layout graphics, compute, raygen;
+    struct d3d12_bind_point_layout graphics, mesh, compute, raygen;
     VkDescriptorSetLayout vk_sampler_descriptor_layout;
     VkDescriptorSetLayout vk_root_descriptor_layout;
 
