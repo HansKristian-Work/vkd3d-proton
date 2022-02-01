@@ -2306,6 +2306,47 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     return S_OK;
 }
 
+static void vkd3d_report_pipeline_creation_feedback_results(const VkPipelineCreationFeedbackCreateInfoEXT *feedback)
+{
+    uint32_t i;
+
+    if (feedback->pPipelineCreationFeedback->flags & VK_PIPELINE_CREATION_FEEDBACK_VALID_BIT_EXT)
+    {
+        if (feedback->pPipelineCreationFeedback->flags &
+                VK_PIPELINE_CREATION_FEEDBACK_APPLICATION_PIPELINE_CACHE_HIT_BIT_EXT)
+        {
+            INFO("Pipeline compilation reused pipeline cache.\n");
+        }
+        else
+        {
+            INFO("Pipeline compilation did not reuse pipeline cache data, compilation took %"PRIu64" ns.\n",
+                    feedback->pPipelineCreationFeedback->duration);
+        }
+    }
+    else
+        INFO("Global feedback is not marked valid.\n");
+
+    for (i = 0; i < feedback->pipelineStageCreationFeedbackCount; i++)
+    {
+        if (feedback->pPipelineStageCreationFeedbacks[i].flags &
+                VK_PIPELINE_CREATION_FEEDBACK_VALID_BIT_EXT)
+        {
+            if (feedback->pPipelineStageCreationFeedbacks[i].flags &
+                    VK_PIPELINE_CREATION_FEEDBACK_APPLICATION_PIPELINE_CACHE_HIT_BIT_EXT)
+            {
+                INFO("  Stage %u: Pipeline compilation reused pipeline cache.\n", i);
+            }
+            else
+            {
+                INFO("  Stage %u: compilation took %"PRIu64" ns.\n",
+                        i, feedback->pPipelineCreationFeedback->duration);
+            }
+        }
+        else
+            INFO("  Stage %u: Feedback is not marked valid.\n", i);
+    }
+}
+
 static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
         const D3D12_SHADER_BYTECODE *code, const struct vkd3d_shader_interface_info *shader_interface,
         VkPipelineLayout vk_pipeline_layout, VkPipelineCache vk_cache, VkPipeline *vk_pipeline,
@@ -2313,9 +2354,12 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
 {
     VkPipelineShaderStageRequiredSubgroupSizeCreateInfoEXT required_subgroup_size_info;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkPipelineCreationFeedbackCreateInfoEXT feedback_info;
     struct vkd3d_shader_debug_ring_spec_info spec_info;
     struct vkd3d_shader_compile_arguments compile_args;
+    VkPipelineCreationFeedbackEXT feedbacks[1];
     VkComputePipelineCreateInfo pipeline_info;
+    VkPipelineCreationFeedbackEXT feedback;
     VkResult vr;
     HRESULT hr;
 
@@ -2343,8 +2387,21 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
     }
 
     TRACE("Calling vkCreateComputePipelines.\n");
+
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG) &&
+            device->vk_info.EXT_pipeline_creation_feedback)
+    {
+        feedback_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATION_FEEDBACK_CREATE_INFO_EXT;
+        feedback_info.pNext = NULL;
+        feedback_info.pPipelineStageCreationFeedbacks = feedbacks;
+        feedback_info.pipelineStageCreationFeedbackCount = 1;
+        feedback_info.pPipelineCreationFeedback = &feedback;
+        pipeline_info.pNext = &feedback_info;
+    }
+
     vr = VK_CALL(vkCreateComputePipelines(device->vk_device,
             vk_cache, 1, &pipeline_info, NULL, vk_pipeline));
+
     TRACE("Called vkCreateComputePipelines.\n");
     VK_CALL(vkDestroyShaderModule(device->vk_device, pipeline_info.stage.module, NULL));
     if (vr < 0)
@@ -2352,6 +2409,9 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
         WARN("Failed to create Vulkan compute pipeline, hr %#x.", hr);
         return hresult_from_vk_result(vr);
     }
+
+    if (pipeline_info.pNext)
+        vkd3d_report_pipeline_creation_feedback_results(&feedback_info);
 
     return S_OK;
 }
@@ -4026,14 +4086,17 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     VkDynamicState dynamic_state_buffer[VKD3D_MAX_DYNAMIC_STATE_COUNT];
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     VkPipelineVertexInputDivisorStateCreateInfoEXT input_divisor_info;
+    VkPipelineCreationFeedbackEXT feedbacks[VKD3D_MAX_SHADER_STAGES];
     VkPipelineTessellationStateCreateInfo tessellation_info;
     VkPipelineDepthStencilStateCreateInfo fallback_ds_desc;
+    VkPipelineCreationFeedbackCreateInfoEXT feedback_info;
     VkPipelineDynamicStateCreateInfo dynamic_create_info;
     VkPipelineVertexInputStateCreateInfo input_desc;
     VkPipelineInputAssemblyStateCreateInfo ia_desc;
     struct d3d12_device *device = state->device;
     VkGraphicsPipelineCreateInfo pipeline_desc;
     VkPipelineViewportStateCreateInfo vp_desc;
+    VkPipelineCreationFeedbackEXT feedback;
     uint32_t rtv_active_mask;
     VkPipeline vk_pipeline;
     unsigned int i;
@@ -4147,6 +4210,18 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     pipeline_desc.renderPass = render_pass_compat->dsv_layouts[0];
 
     TRACE("Calling vkCreateGraphicsPipelines.\n");
+
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG) &&
+            device->vk_info.EXT_pipeline_creation_feedback)
+    {
+        feedback_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATION_FEEDBACK_CREATE_INFO_EXT;
+        feedback_info.pNext = NULL;
+        feedback_info.pPipelineStageCreationFeedbacks = feedbacks;
+        feedback_info.pipelineStageCreationFeedbackCount = pipeline_desc.stageCount;
+        feedback_info.pPipelineCreationFeedback = &feedback;
+        pipeline_desc.pNext = &feedback_info;
+    }
+
     if ((vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device,
             vk_cache, 1, &pipeline_desc, NULL, &vk_pipeline))) < 0)
     {
@@ -4154,6 +4229,9 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
         return VK_NULL_HANDLE;
     }
     TRACE("Completed vkCreateGraphicsPipelines.\n");
+
+    if (pipeline_desc.pNext)
+        vkd3d_report_pipeline_creation_feedback_results(&feedback_info);
 
     return vk_pipeline;
 }
