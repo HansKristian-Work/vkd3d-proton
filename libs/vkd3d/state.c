@@ -1472,6 +1472,11 @@ HRESULT d3d12_root_signature_create(struct d3d12_device *device,
     }
 
     hr = d3d12_root_signature_init(object, device, &root_signature_desc.d3d12.Desc_1_1);
+
+    /* For pipeline libraries, (and later DXR to some degree), we need a way to
+     * compare root signature objects. */
+    object->compatibility_hash = vkd3d_shader_hash(&dxbc);
+
     vkd3d_shader_free_root_signature(&root_signature_desc.vkd3d);
     if (FAILED(hr))
     {
@@ -3794,6 +3799,7 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
         const struct d3d12_pipeline_state_desc *desc, struct d3d12_pipeline_state **state)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct d3d12_root_signature *root_signature;
     struct d3d12_pipeline_state *object;
     HRESULT hr;
 
@@ -3811,7 +3817,13 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
             vkd3d_free(object);
             return hr;
         }
+        root_signature = impl_from_ID3D12RootSignature(object->private_root_signature);
     }
+    else
+        root_signature = impl_from_ID3D12RootSignature(desc->root_signature);
+
+    if (root_signature)
+        object->root_signature_compat_hash = root_signature->compatibility_hash;
 
     switch (bind_point)
     {
