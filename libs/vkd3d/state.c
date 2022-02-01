@@ -71,6 +71,7 @@ static void d3d12_root_signature_cleanup(struct d3d12_root_signature *root_signa
             root_signature->vk_sampler_set, root_signature->vk_sampler_pool);
 
     VK_CALL(vkDestroyPipelineLayout(device->vk_device, root_signature->graphics.vk_pipeline_layout, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, root_signature->mesh.vk_pipeline_layout, NULL));
     VK_CALL(vkDestroyPipelineLayout(device->vk_device, root_signature->compute.vk_pipeline_layout, NULL));
     VK_CALL(vkDestroyPipelineLayout(device->vk_device, root_signature->raygen.vk_pipeline_layout, NULL));
     VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, root_signature->vk_sampler_descriptor_layout, NULL));
@@ -1258,6 +1259,7 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
     const VkPhysicalDeviceProperties *vk_device_properties = &device->device_info.properties2.properties;
     const struct vkd3d_bindless_state *bindless_state = &device->bindless_state;
     struct vkd3d_descriptor_set_context context;
+    VkShaderStageFlagBits mesh_shader_stages;
     struct d3d12_root_signature_info info;
     unsigned int i;
     HRESULT hr;
@@ -1386,6 +1388,19 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
             &root_signature->push_constant_range,
             VK_SHADER_STAGE_ALL_GRAPHICS, &root_signature->graphics)))
         return hr;
+
+    if (device->device_info.mesh_shader_features.meshShader && device->device_info.mesh_shader_features.taskShader)
+    {
+        mesh_shader_stages = VK_SHADER_STAGE_MESH_BIT_EXT |
+                VK_SHADER_STAGE_TASK_BIT_EXT |
+                VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
+                device, root_signature->num_set_layouts, root_signature->set_layouts,
+                &root_signature->push_constant_range,
+                mesh_shader_stages, &root_signature->mesh)))
+            return hr;
+    }
 
     if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
             device, root_signature->num_set_layouts, root_signature->set_layouts,
