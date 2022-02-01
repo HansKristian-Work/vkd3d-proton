@@ -5920,6 +5920,16 @@ static bool d3d12_device_determine_additional_typed_uav_support(struct d3d12_dev
     return true;
 }
 
+static D3D12_MESH_SHADER_TIER d3d12_device_determine_mesh_shader_tier(struct d3d12_device *device)
+{
+    const VkPhysicalDeviceMeshShaderFeaturesEXT *mesh_shader_features = &device->device_info.mesh_shader_features;
+
+    if (!mesh_shader_features->meshShader || !mesh_shader_features->taskShader)
+        return D3D12_MESH_SHADER_TIER_NOT_SUPPORTED;
+
+    return D3D12_MESH_SHADER_TIER_1;
+}
+
 static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
@@ -6075,8 +6085,7 @@ static void d3d12_device_caps_init_feature_options7(struct d3d12_device *device)
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS7 *options7 = &device->d3d12_caps.options7;
 
-    /* Not supported */
-    options7->MeshShaderTier = D3D12_MESH_SHADER_TIER_NOT_SUPPORTED;
+    options7->MeshShaderTier = d3d12_device_determine_mesh_shader_tier(device);
     options7->SamplerFeedbackTier = D3D12_SAMPLER_FEEDBACK_TIER_NOT_SUPPORTED;
 }
 
@@ -6099,7 +6108,8 @@ static void d3d12_device_caps_init_feature_options9(struct d3d12_device *device)
     options9->AtomicInt64OnTypedResourceSupported =
             device->device_info.shader_image_atomic_int64_features.shaderImageInt64Atomics;
     options9->DerivativesInMeshAndAmplificationShadersSupported = FALSE;
-    options9->MeshShaderSupportsFullRangeRenderTargetArrayIndex = FALSE;
+    options9->MeshShaderSupportsFullRangeRenderTargetArrayIndex = d3d12_device_determine_mesh_shader_tier(device) &&
+            device->device_info.mesh_shader_properties.maxMeshOutputLayers >= device->device_info.properties2.properties.limits.maxFramebufferLayers;
     options9->MeshShaderPipelineStatsSupported = FALSE;
     options9->WaveMMATier = D3D12_WAVE_MMA_TIER_NOT_SUPPORTED;
 }
@@ -6110,7 +6120,9 @@ static void d3d12_device_caps_init_feature_options10(struct d3d12_device *device
 
     options10->VariableRateShadingSumCombinerSupported =
             d3d12_device_determine_variable_shading_rate_tier(device) >= D3D12_VARIABLE_SHADING_RATE_TIER_1;
-    options10->MeshShaderPerPrimitiveShadingRateSupported = FALSE;
+    options10->MeshShaderPerPrimitiveShadingRateSupported = d3d12_device_determine_mesh_shader_tier(device) &&
+            d3d12_device_determine_variable_shading_rate_tier(device) &&
+            device->device_info.mesh_shader_features.primitiveFragmentShadingRateMeshShader;
 }
 
 static void d3d12_device_caps_init_feature_options11(struct d3d12_device *device)
