@@ -191,6 +191,10 @@ VkShaderStageFlags vkd3d_vk_stage_flags_from_visibility(D3D12_SHADER_VISIBILITY 
             return VK_SHADER_STAGE_GEOMETRY_BIT;
         case D3D12_SHADER_VISIBILITY_PIXEL:
             return VK_SHADER_STAGE_FRAGMENT_BIT;
+        case D3D12_SHADER_VISIBILITY_AMPLIFICATION:
+            return VK_SHADER_STAGE_TASK_BIT_EXT;
+        case D3D12_SHADER_VISIBILITY_MESH:
+            return VK_SHADER_STAGE_MESH_BIT_EXT;
         default:
             return 0;
     }
