@@ -254,7 +254,7 @@ void test_pipeline_library(void)
 
     hr = ID3D12PipelineLibrary_LoadComputePipeline(pipeline_library,
             graphics_name, &compute_desc, &IID_ID3D12PipelineState, (void**)&state);
-    todo ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", hr);
 
     if (SUCCEEDED(hr))
         ID3D12PipelineState_Release(state);
