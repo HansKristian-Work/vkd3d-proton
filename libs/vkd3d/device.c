@@ -552,6 +552,15 @@ static void vkd3d_instance_apply_application_workarounds(void)
     }
 }
 
+static void vkd3d_instance_deduce_config_flags_from_environment(void)
+{
+    if (getenv("VKD3D_SHADER_OVERRIDE"))
+    {
+        INFO("VKD3D_SHADER_OVERRIDE is used, pipeline_library_ignore_spirv option is enforced.\n");
+        vkd3d_config_flags |= VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_IGNORE_SPIRV;
+    }
+}
+
 static void vkd3d_instance_apply_global_shader_quirks(void)
 {
     struct override
@@ -595,6 +604,10 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"force_host_cached", VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED},
     {"no_invariant_position", VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION},
     {"global_pipeline_cache", VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE},
+    {"pipeline_library_no_serialize_spirv", VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_NO_SERIALIZE_SPIRV},
+    {"pipeline_library_sanitize_spirv", VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_SANITIZE_SPIRV},
+    {"pipeline_library_log", VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG},
+    {"pipeline_library_ignore_spirv", VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_IGNORE_SPIRV},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -607,6 +620,7 @@ static void vkd3d_config_flags_init_once(void)
     if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS))
         vkd3d_instance_apply_application_workarounds();
 
+    vkd3d_instance_deduce_config_flags_from_environment();
     vkd3d_instance_apply_global_shader_quirks();
 
 #ifdef VKD3D_ENABLE_RENDERDOC
