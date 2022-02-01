@@ -151,6 +151,7 @@ struct vkd3d_vulkan_info
     bool EXT_4444_formats;
     bool EXT_shader_image_atomic_int64;
     bool EXT_scalar_block_layout;
+    bool EXT_pipeline_creation_feedback;
     /* AMD device extensions */
     bool AMD_buffer_marker;
     bool AMD_shader_core_properties;
