@@ -10548,6 +10548,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                     break;
 
                 case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
+                case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH:
                     type = VKD3D_PREDICATE_COMMAND_DISPATCH_INDIRECT;
                     indirect_va = d3d12_resource_get_va(arg_impl, arg_buffer_offset);
                     break;
@@ -10618,6 +10619,26 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                 {
                     VK_CALL(vkCmdDrawIndexedIndirect(list->vk_command_buffer, arg_impl->res.vk_buffer,
                             arg_buffer_offset + arg_impl->mem.offset, max_command_count, signature_desc->ByteStride));
+                }
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH:
+                if (!d3d12_command_list_begin_render_pass(list))
+                {
+                    WARN("Failed to begin render pass, ignoring draw.\n");
+                    break;
+                }
+
+                if (count_buffer || list->predicate_va)
+                {
+                    VK_CALL(vkCmdDrawMeshTasksIndirectCountEXT(list->vk_command_buffer, arg_impl->res.vk_buffer,
+                            arg_buffer_offset  + arg_impl->mem.offset, scratch.buffer, scratch.offset,
+                            max_command_count, signature_desc->ByteStride));
+                }
+                else
+                {
+                    VK_CALL(vkCmdDrawMeshTasksIndirectEXT(list->vk_command_buffer,
+                            scratch.buffer, scratch.offset, 1, 0));
                 }
                 break;
 
