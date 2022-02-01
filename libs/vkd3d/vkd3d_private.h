@@ -1716,6 +1716,8 @@ struct d3d12_pipeline_state_desc
     D3D12_SHADER_BYTECODE hs;
     D3D12_SHADER_BYTECODE gs;
     D3D12_SHADER_BYTECODE cs;
+    D3D12_SHADER_BYTECODE as;
+    D3D12_SHADER_BYTECODE ms;
     D3D12_STREAM_OUTPUT_DESC stream_output;
     D3D12_BLEND_DESC blend_state;
     UINT sample_mask;

@@ -1721,13 +1721,37 @@ HRESULT vkd3d_pipeline_state_desc_from_d3d12_compute_desc(struct d3d12_pipeline_
 #define VKD3D_HANDLE_SUBOBJECT(type_enum, type, left_side) \
     VKD3D_HANDLE_SUBOBJECT_EXPLICIT(type_enum, type, left_side = subobject->data)
 
+static VkShaderStageFlags vkd3d_pipeline_state_desc_get_shader_stages(const struct d3d12_pipeline_state_desc *desc)
+{
+    VkShaderStageFlags result = 0;
+
+    if (desc->vs.BytecodeLength && desc->vs.pShaderBytecode)
+        result |= VK_SHADER_STAGE_VERTEX_BIT;
+    if (desc->hs.BytecodeLength && desc->hs.pShaderBytecode)
+        result |= VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
+    if (desc->ds.BytecodeLength && desc->ds.pShaderBytecode)
+        result |= VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+    if (desc->gs.BytecodeLength && desc->gs.pShaderBytecode)
+        result |= VK_SHADER_STAGE_GEOMETRY_BIT;
+    if (desc->ps.BytecodeLength && desc->ps.pShaderBytecode)
+        result |= VK_SHADER_STAGE_FRAGMENT_BIT;
+    if (desc->as.BytecodeLength && desc->as.pShaderBytecode)
+        result |= VK_SHADER_STAGE_TASK_BIT_EXT;
+    if (desc->ms.BytecodeLength && desc->ms.pShaderBytecode)
+        result |= VK_SHADER_STAGE_MESH_BIT_EXT;
+    if (desc->cs.BytecodeLength && desc->cs.pShaderBytecode)
+        result |= VK_SHADER_STAGE_COMPUTE_BIT;
+
+    return result;
+}
+
 HRESULT vkd3d_pipeline_state_desc_from_d3d12_stream_desc(struct d3d12_pipeline_state_desc *desc,
         const D3D12_PIPELINE_STATE_STREAM_DESC *d3d12_desc, VkPipelineBindPoint *vk_bind_point)
 {
+    VkShaderStageFlags defined_stages, disallowed_stages;
     D3D12_PIPELINE_STATE_SUBOBJECT_TYPE subobject_type;
     const char *stream_ptr, *stream_end;
     uint64_t defined_subobjects = 0;
-    bool is_graphics, is_compute;
     uint64_t subobject_bit;
 
     /* Initialize defaults for undefined subobjects */
@@ -1766,6 +1790,8 @@ HRESULT vkd3d_pipeline_state_desc_from_d3d12_stream_desc(struct d3d12_pipeline_s
             VKD3D_HANDLE_SUBOBJECT(HS, D3D12_SHADER_BYTECODE, desc->hs);
             VKD3D_HANDLE_SUBOBJECT(GS, D3D12_SHADER_BYTECODE, desc->gs);
             VKD3D_HANDLE_SUBOBJECT(CS, D3D12_SHADER_BYTECODE, desc->cs);
+            VKD3D_HANDLE_SUBOBJECT(AS, D3D12_SHADER_BYTECODE, desc->as);
+            VKD3D_HANDLE_SUBOBJECT(MS, D3D12_SHADER_BYTECODE, desc->ms);
             VKD3D_HANDLE_SUBOBJECT(STREAM_OUTPUT, D3D12_STREAM_OUTPUT_DESC, desc->stream_output);
             VKD3D_HANDLE_SUBOBJECT(BLEND, D3D12_BLEND_DESC, desc->blend_state);
             VKD3D_HANDLE_SUBOBJECT(SAMPLE_MASK, UINT, desc->sample_mask);
@@ -1791,18 +1817,35 @@ HRESULT vkd3d_pipeline_state_desc_from_d3d12_stream_desc(struct d3d12_pipeline_s
     }
 
     /* Deduce pipeline type from specified shaders */
-    is_graphics = desc->vs.pShaderBytecode && desc->vs.BytecodeLength;
-    is_compute = desc->cs.pShaderBytecode && desc->cs.BytecodeLength;
+    defined_stages = vkd3d_pipeline_state_desc_get_shader_stages(desc);
 
-    if (is_graphics == is_compute)
+    if (defined_stages & VK_SHADER_STAGE_VERTEX_BIT)
     {
-        ERR("Cannot deduce pipeline type.\n");
+        disallowed_stages = VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_COMPUTE_BIT;
+        *vk_bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    }
+    else if (defined_stages & VK_SHADER_STAGE_MESH_BIT_EXT)
+    {
+        disallowed_stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+        *vk_bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    }
+    else if (defined_stages & VK_SHADER_STAGE_COMPUTE_BIT)
+    {
+        disallowed_stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT;
+        *vk_bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
+    }
+    else
+    {
+        ERR("Cannot deduce pipeline type from shader stages 0x%#x.\n", defined_stages);
         return E_INVALIDARG;
     }
 
-    *vk_bind_point = is_graphics
-        ? VK_PIPELINE_BIND_POINT_GRAPHICS
-        : VK_PIPELINE_BIND_POINT_COMPUTE;
+    if (defined_stages & disallowed_stages)
+    {
+        ERR("Invalid combination of shader stages 0x%#x.\n", defined_stages);
+        return E_INVALIDARG;
+    }
+
     return S_OK;
 }
 
