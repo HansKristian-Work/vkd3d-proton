@@ -3191,6 +3191,7 @@ struct d3d12_device
     struct vkd3d_view_map sampler_map;
     struct vkd3d_sampler_state sampler_state;
     struct vkd3d_shader_debug_ring debug_ring;
+    struct vkd3d_pipeline_library_disk_cache disk_cache;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     struct vkd3d_breadcrumb_tracer breadcrumb_tracer;
 #endif

@@ -2831,6 +2831,7 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
         vkd3d_breadcrumb_tracer_cleanup(&device->breadcrumb_tracer, device);
 #endif
+    vkd3d_pipeline_library_flush_disk_cache(&device->disk_cache);
     d3d12_device_global_pipeline_cache_cleanup(device);
     vkd3d_sampler_state_cleanup(&device->sampler_state, device);
     vkd3d_view_map_destroy(&device->sampler_map, device);
@@ -4499,10 +4500,16 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePipelineLibrary(d3d12_device
 
     flags = 0;
 
-    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_NO_SERIALIZE_SPIRV))
+    /* If we use a disk cache, it is somewhat meaningless to use application pipeline libraries
+     * to store SPIR-V / blob.
+     * We only need to store metadata so we can implement the API correctly w.r.t. return values, and
+     * PSO reload. */
+    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_NO_SERIALIZE_SPIRV) &&
+            !device->disk_cache.library)
         flags |= VKD3D_PIPELINE_LIBRARY_FLAG_SAVE_FULL_SPIRV;
 
-    /* If we're using global pipeline caches, these are irrelevant. */
+    /* If we're using global pipeline caches, these are irrelevant.
+     * Do not use pipeline library blobs at all. */
     if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE))
     {
         flags |= VKD3D_PIPELINE_LIBRARY_FLAG_SAVE_PSO_BLOB |
@@ -6167,6 +6174,10 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     vkd3d_init_shader_extensions(device);
     vkd3d_compute_shader_interface_key(device);
 
+    /* Make sure all extensions and shader interface keys are computed. */
+    if (FAILED(hr = vkd3d_pipeline_library_init_disk_cache(&device->disk_cache, device)))
+        goto out_cleanup_descriptor_qa_global_info;
+
 #ifdef VKD3D_ENABLE_RENDERDOC
     if (vkd3d_renderdoc_active() && vkd3d_renderdoc_global_capture_enabled())
         vkd3d_renderdoc_begin_capture(device->vkd3d_instance->vk_instance);
@@ -6174,6 +6185,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     return S_OK;
 
+out_cleanup_descriptor_qa_global_info:
+    vkd3d_descriptor_debug_free_global_info(device->descriptor_qa_global_info, device);
 out_cleanup_global_pipeline_cache:
     d3d12_device_global_pipeline_cache_cleanup(device);
 out_cleanup_breadcrumb_tracer:
