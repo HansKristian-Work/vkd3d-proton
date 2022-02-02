@@ -1651,6 +1651,10 @@ struct d3d12_pipeline_library
     struct d3d12_device *device;
 
     rwlock_t mutex;
+    /* driver_cache_map and spirv_cache_map can be touched in serialize_pipeline_state.
+     * Use the internal mutex when touching the internal caches
+     * so we don't need a big lock on the outside when serializing. */
+    rwlock_t internal_hashmap_mutex;
     struct hash_map pso_map;
     struct hash_map driver_cache_map;
     struct hash_map spirv_cache_map;
