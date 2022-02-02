@@ -7754,7 +7754,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(d3d12_command_
 
     if (!view)
     {
-        WARN("Got NULL index buffer view, indexed draw calls will be dropped.\n");
         list->has_valid_index_buffer = false;
         return;
     }
