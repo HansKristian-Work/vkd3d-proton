@@ -9493,6 +9493,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_WriteBufferImmediate(d3d12_comm
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkPipelineStageFlagBits stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
     const struct vkd3d_unique_resource *resource;
+    VkBuffer payload_buffer = VK_NULL_HANDLE;
+    VkDeviceSize begin_offset = 0;
+    size_t payload_index = 0;
+    UINT32 payload[0x40];
     VkDeviceSize offset;
     unsigned int i;
 
@@ -9530,9 +9534,31 @@ static void STDMETHODCALLTYPE d3d12_command_list_WriteBufferImmediate(d3d12_comm
                 wait_stage_mask |= stage;
             }
 
-            VK_CALL(vkCmdUpdateBuffer(list->vk_command_buffer, resource->vk_buffer,
-                    offset, sizeof(parameters[i].Value), &parameters[i].Value));
+            if (payload_index == 0 ||
+                    payload_buffer != resource->vk_buffer ||
+                    begin_offset + payload_index * 4 != offset ||
+                    payload_index == sizeof(payload) / sizeof(payload[0]))
+            {
+                if (payload_index != 0)
+                {
+                    /* Non-contiguous update, flush the current payload */
+                    VK_CALL(vkCmdUpdateBuffer(list->vk_command_buffer, payload_buffer,
+                            begin_offset, payload_index * sizeof(UINT32), payload));
+                }
+
+                payload_buffer = resource->vk_buffer;
+                payload_index = 0;
+                begin_offset = offset;
+            }
+
+            payload[payload_index] = parameters[i].Value;
+            ++payload_index;
         }
+    }
+    if (payload_index != 0)
+    {
+        VK_CALL(vkCmdUpdateBuffer(list->vk_command_buffer, payload_buffer,
+                begin_offset, payload_index * sizeof(UINT32), payload));
     }
 }
 
