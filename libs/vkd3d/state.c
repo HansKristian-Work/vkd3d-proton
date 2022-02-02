@@ -2270,7 +2270,8 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
 }
 
 static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *state,
-        struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc)
+        struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc,
+        const struct d3d12_cached_pipeline_state *cached_pso)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_shader_interface_info shader_interface;
@@ -2303,14 +2304,14 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
 
     if (!device->global_pipeline_cache)
     {
-        if ((hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, &desc->cached_pso, &state->vk_pso_cache)) < 0)
+        if ((hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, cached_pso, &state->vk_pso_cache)) < 0)
         {
             ERR("Failed to create pipeline cache, hr %d.\n", hr);
             return hr;
         }
     }
 
-    vkd3d_load_spirv_from_cached_state(device, &desc->cached_pso,
+    vkd3d_load_spirv_from_cached_state(device, cached_pso,
             VK_SHADER_STAGE_COMPUTE_BIT, &state->compute.code);
 
     hr = vkd3d_create_compute_pipeline(device,
@@ -2980,7 +2981,8 @@ static HRESULT d3d12_pipeline_state_validate_blend_state(struct d3d12_pipeline_s
 }
 
 static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *state,
-        struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc)
+        struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc,
+        const struct d3d12_cached_pipeline_state *cached_pso)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
     unsigned int ps_output_swizzle[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
@@ -3315,7 +3317,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         if (!b->pShaderBytecode)
             continue;
 
-        if (FAILED(vkd3d_load_spirv_from_cached_state(device, &desc->cached_pso,
+        if (FAILED(vkd3d_load_spirv_from_cached_state(device, cached_pso,
                 shader_stages[i].stage, &graphics->code[stage_count])))
         {
             for (j = 0; j < stage_count; j++)
@@ -3576,7 +3578,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     {
         if (!device->global_pipeline_cache)
         {
-            if ((hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, &desc->cached_pso, &state->vk_pso_cache)) < 0)
+            if ((hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, cached_pso, &state->vk_pso_cache)) < 0)
             {
                 ERR("Failed to create pipeline cache, hr %d.\n", hr);
                 goto fail;
@@ -3650,6 +3652,8 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
         const struct d3d12_pipeline_state_desc *desc, struct d3d12_pipeline_state **state)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    const struct d3d12_cached_pipeline_state *desc_cached_pso;
+    struct d3d12_cached_pipeline_state cached_pso;
     struct d3d12_root_signature *root_signature;
     struct d3d12_pipeline_state *object;
     HRESULT hr;
@@ -3677,6 +3681,8 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
     if (root_signature)
         object->pipeline_cache_compat.root_signature_compat_hash = root_signature->compatibility_hash;
 
+    desc_cached_pso = &desc->cached_pso;
+
     if (desc->cached_pso.blob.CachedBlobSizeInBytes)
     {
         if (FAILED(hr = d3d12_cached_pipeline_state_validate(device, &desc->cached_pso,
@@ -3688,6 +3694,21 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
             return hr;
         }
     }
+    else if (device->disk_cache.library)
+    {
+        if (SUCCEEDED(vkd3d_pipeline_library_find_cached_blob_from_disk_cache(&device->disk_cache,
+                &object->pipeline_cache_compat, &cached_pso)))
+        {
+            /* Validation is somewhat redundant, but we need to be very careful about potential corruption.
+             * It should never fail in normal operation, but ...
+             * However, unlike app-proved blob, it's not fatal if we fail, so just fall back. */
+            if (SUCCEEDED(hr = d3d12_cached_pipeline_state_validate(device, &cached_pso,
+                    &object->pipeline_cache_compat)))
+                desc_cached_pso = &cached_pso;
+            else
+                FIXME("Failed to validate internal pipeline which was fetched from disk cache. This should not happen.\n");
+        }
+    }
 
     object->ID3D12PipelineState_iface.lpVtbl = &d3d12_pipeline_state_vtbl;
     object->refcount = 1;
@@ -3696,11 +3717,11 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
     switch (bind_point)
     {
         case VK_PIPELINE_BIND_POINT_COMPUTE:
-            hr = d3d12_pipeline_state_init_compute(object, device, desc);
+            hr = d3d12_pipeline_state_init_compute(object, device, desc, desc_cached_pso);
             break;
 
         case VK_PIPELINE_BIND_POINT_GRAPHICS:
-            hr = d3d12_pipeline_state_init_graphics(object, device, desc);
+            hr = d3d12_pipeline_state_init_graphics(object, device, desc, desc_cached_pso);
             break;
 
         default:
@@ -3729,7 +3750,7 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
      * For graphics pipelines, we have to keep VkShaderModules around in case we need fallback pipelines.
      * If we keep the SPIR-V around in memory, we can always create shader modules on-demand in case we
      * need to actually create fallback pipelines. This avoids unnecessary memory bloat. */
-    if (desc->cached_pso.blob.CachedBlobSizeInBytes ||
+    if (desc_cached_pso->blob.CachedBlobSizeInBytes ||
             (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_NO_SERIALIZE_SPIRV))
         d3d12_pipeline_state_free_spirv_code(object);
     else
@@ -3737,10 +3758,17 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
 
     /* We don't expect to serialize the PSO blob if we loaded it from cache.
      * Free the cache now to save on memory. */
-    if (desc->cached_pso.blob.CachedBlobSizeInBytes)
+    if (desc_cached_pso->blob.CachedBlobSizeInBytes)
     {
         VK_CALL(vkDestroyPipelineCache(device->vk_device, object->vk_pso_cache, NULL));
         object->vk_pso_cache = VK_NULL_HANDLE;
+    }
+    else if (device->disk_cache.library)
+    {
+        /* We compiled this PSO without any cache (internal or app-provided),
+         * so we should serialize this to internal disk cache.
+         * Pushes work to disk$ thread. */
+        vkd3d_pipeline_library_store_pipeline_to_disk_cache(&device->disk_cache, object);
     }
 
     TRACE("Created pipeline state %p.\n", object);
