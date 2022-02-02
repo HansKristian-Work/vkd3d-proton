@@ -39,6 +39,7 @@
 #include "vkd3d_command_list_vkd3d_ext.h"
 #include "vkd3d_device_vkd3d_ext.h"
 #include "vkd3d_string.h"
+#include "vkd3d_file_utils.h"
 #include <assert.h>
 #include <inttypes.h>
 #include <limits.h>
@@ -1664,6 +1665,37 @@ static inline struct d3d12_pipeline_state *impl_from_ID3D12PipelineState(ID3D12P
 /* ID3D12PipelineLibrary */
 typedef ID3D12PipelineLibrary1 d3d12_pipeline_library_iface;
 
+struct vkd3d_pipeline_library_disk_cache_item
+{
+    struct d3d12_pipeline_state *state;
+};
+
+struct vkd3d_pipeline_library_disk_cache
+{
+    /* This memory is generally mapped with MapViewOfFile() or mmap(),
+     * and must remain mapped for the duration of the library. */
+    struct vkd3d_memory_mapped_file mapped_file;
+    struct d3d12_pipeline_library *library;
+
+    pthread_t thread;
+    condvar_reltime_t cond;
+    pthread_mutex_t lock;
+    bool thread_active;
+
+    struct vkd3d_pipeline_library_disk_cache_item *items;
+    size_t items_count;
+    size_t items_size;
+
+    char read_path[VKD3D_PATH_MAX];
+    char write_path[VKD3D_PATH_MAX];
+
+    /* The stream archive is designed to be safe against concurrent readers and writers, ala Fossilize.
+     * There is a read-only portion, and a write-only portion which can be merged back to the read-only archive
+     * on demand. */
+    FILE *stream_archive_write_file;
+    bool stream_archive_attempted_write;
+};
+
 struct d3d12_pipeline_library
 {
     d3d12_pipeline_library_iface ID3D12PipelineLibrary_iface;
@@ -1685,6 +1717,13 @@ struct d3d12_pipeline_library
     size_t total_name_table_size;
     size_t total_blob_size;
 
+    /* Non-owned pointer. Calls back into the disk cache when blobs are added. */
+    struct vkd3d_pipeline_library_disk_cache *disk_cache_listener;
+    /* Useful if parsing a huge archive in the disk thread from a cold cache.
+     * If we want to tear down device immediately after device creation (not too uncommon),
+     * we can end up blocking for a long time. */
+    uint32_t stream_archive_cancellation_point;
+
     struct vkd3d_private_store private_store;
 };
 
@@ -1694,6 +1733,9 @@ enum vkd3d_pipeline_library_flags
     VKD3D_PIPELINE_LIBRARY_FLAG_SAVE_PSO_BLOB = 1 << 1,
     VKD3D_PIPELINE_LIBRARY_FLAG_INTERNAL_KEYS = 1 << 2,
     VKD3D_PIPELINE_LIBRARY_FLAG_USE_PIPELINE_CACHE_UUID = 1 << 3,
+    VKD3D_PIPELINE_LIBRARY_FLAG_STREAM_ARCHIVE = 1 << 4,
+    /* We expect to parse archive from thread, so consider thread safety and cancellation points. */
+    VKD3D_PIPELINE_LIBRARY_FLAG_STREAM_ARCHIVE_PARSE_ASYNC = 1 << 5,
 };
 
 HRESULT d3d12_pipeline_library_create(struct d3d12_device *device, const void *blob,
@@ -1720,6 +1762,22 @@ ULONG d3d12_pipeline_library_inc_public_ref(struct d3d12_pipeline_library *state
 ULONG d3d12_pipeline_library_dec_public_ref(struct d3d12_pipeline_library *state);
 void d3d12_pipeline_library_inc_ref(struct d3d12_pipeline_library *state);
 void d3d12_pipeline_library_dec_ref(struct d3d12_pipeline_library *state);
+
+/* For internal on-disk pipeline cache fallback. The key to Load/StorePipeline is implied by the PSO cache compatibility. */
+HRESULT vkd3d_pipeline_library_store_pipeline_to_disk_cache(struct vkd3d_pipeline_library_disk_cache *pipeline_library,
+        struct d3d12_pipeline_state *state);
+HRESULT vkd3d_pipeline_library_find_cached_blob_from_disk_cache(struct vkd3d_pipeline_library_disk_cache *pipeline_library,
+        const struct vkd3d_pipeline_cache_compatibility *compat,
+        struct d3d12_cached_pipeline_state *cached_state);
+void vkd3d_pipeline_library_disk_cache_notify_blob_insert(struct vkd3d_pipeline_library_disk_cache *disk_cache,
+        uint64_t hash, uint32_t type /* vkd3d_serialized_pipeline_stream_entry_type */,
+        const void *data, size_t size);
+
+/* Called on device init. */
+HRESULT vkd3d_pipeline_library_init_disk_cache(struct vkd3d_pipeline_library_disk_cache *cache,
+        struct d3d12_device *device);
+/* Called on device destroy. */
+void vkd3d_pipeline_library_flush_disk_cache(struct vkd3d_pipeline_library_disk_cache *cache);
 
 struct vkd3d_buffer
 {

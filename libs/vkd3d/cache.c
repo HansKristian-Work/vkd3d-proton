@@ -47,6 +47,18 @@ struct vkd3d_cached_pipeline_entry
     struct vkd3d_cached_pipeline_data data;
 };
 
+/* The stream format is used for internal magic cache.
+ * In this scheme, we optimize for append performance rather than read performance.
+ * TODO: This is a stepping stone for Fossilize integration, which would allow e.g. Steam to provide us with
+ * pre-primed caches. */
+enum vkd3d_serialized_pipeline_stream_entry_type
+{
+    VKD3D_SERIALIZED_PIPELINE_STREAM_ENTRY_SPIRV = 0,
+    VKD3D_SERIALIZED_PIPELINE_STREAM_ENTRY_DRIVER_CACHE = 1,
+    VKD3D_SERIALIZED_PIPELINE_STREAM_ENTRY_PIPELINE = 2,
+    VKD3D_SERIALIZED_PIPELINE_STREAM_MAX_INT = 0x7fffffff,
+};
+
 #define VKD3D_PIPELINE_BLOB_CHUNK_SIZE(type) \
     align(sizeof(struct vkd3d_pipeline_blob_chunk) + sizeof(struct vkd3d_pipeline_blob_chunk_##type), \
     VKD3D_PIPELINE_BLOB_CHUNK_ALIGN)
@@ -246,6 +258,18 @@ struct vkd3d_pipeline_blob_internal
 STATIC_ASSERT(offsetof(struct vkd3d_pipeline_blob, data) == (32 + VK_UUID_SIZE));
 STATIC_ASSERT(offsetof(struct vkd3d_pipeline_blob, data) == sizeof(struct vkd3d_pipeline_blob));
 
+struct vkd3d_serialized_pipeline_stream_entry
+{
+    uint64_t hash;
+    uint64_t checksum; /* Checksum of the rest of this header + data. */
+    uint32_t size;
+    enum vkd3d_serialized_pipeline_stream_entry_type type;
+    uint8_t data[];
+};
+STATIC_ASSERT(sizeof(struct vkd3d_serialized_pipeline_stream_entry) ==
+        offsetof(struct vkd3d_serialized_pipeline_stream_entry, data));
+STATIC_ASSERT(sizeof(struct vkd3d_serialized_pipeline_stream_entry) == 24);
+
 static uint32_t vkd3d_pipeline_blob_compute_data_checksum(const uint8_t *data, size_t size)
 {
     const struct vkd3d_shader_code code = { data, size };
@@ -253,6 +277,26 @@ static uint32_t vkd3d_pipeline_blob_compute_data_checksum(const uint8_t *data, s
 
     h = vkd3d_shader_hash(&code);
     return hash_uint64(h);
+}
+
+static uint64_t vkd3d_serialized_pipeline_stream_entry_compute_checksum(const uint8_t *data,
+        const struct vkd3d_serialized_pipeline_stream_entry *entry)
+{
+    const struct vkd3d_shader_code code = { data, entry->size };
+    vkd3d_shader_hash_t h;
+
+    h = vkd3d_shader_hash(&code);
+    h = hash_fnv1_iterate_u64(h, entry->hash);
+    h = hash_fnv1_iterate_u32(h, entry->size);
+    h = hash_fnv1_iterate_u32(h, entry->type);
+    return h;
+}
+
+static bool vkd3d_serialized_pipeline_stream_entry_validate(const uint8_t *data,
+        const struct vkd3d_serialized_pipeline_stream_entry *entry)
+{
+    uint64_t checksum = vkd3d_serialized_pipeline_stream_entry_compute_checksum(data, entry);
+    return checksum == entry->checksum;
 }
 
 static const struct vkd3d_pipeline_blob_chunk *find_blob_chunk(const struct vkd3d_pipeline_blob_chunk *chunk,
@@ -330,13 +374,18 @@ HRESULT d3d12_cached_pipeline_state_validate(struct d3d12_device *device,
         if (memcmp(blob->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE) != 0)
             return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
 
-    checksum = vkd3d_pipeline_blob_compute_data_checksum(blob->data, payload_size);
-
-    if (checksum != blob->checksum)
+    /* In stream archives, we perform checksums ahead of time before accepting a stream blob into internal cache.
+     * No need to do redundant work. */
+    if (!(pipeline_library_flags & VKD3D_PIPELINE_LIBRARY_FLAG_STREAM_ARCHIVE))
     {
-        ERR("Corrupt PSO cache blob entry found!\n");
-        /* Same rationale as above, avoid E_INVALIDARG, since that may confuse some games */
-        return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
+        checksum = vkd3d_pipeline_blob_compute_data_checksum(blob->data, payload_size);
+
+        if (checksum != blob->checksum)
+        {
+            ERR("Corrupt PSO cache blob entry found!\n");
+            /* Same rationale as above, avoid E_INVALIDARG, since that may confuse some games */
+            return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
+        }
     }
 
     /* Fetch compat info. */
@@ -423,11 +472,16 @@ static bool d3d12_pipeline_library_find_internal_blob(struct d3d12_pipeline_libr
 
         *data = internal->data;
         *size = entry->data.blob_length - sizeof(*internal);
-        checksum = vkd3d_pipeline_blob_compute_data_checksum(*data, *size);
-        if (checksum != internal->checksum)
+
+        /* In stream archives, checksums are handled at the outer layer, just ignore them here. */
+        if (!(pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_STREAM_ARCHIVE))
         {
-            FIXME("Checksum mismatch.\n");
-            goto out;
+            checksum = vkd3d_pipeline_blob_compute_data_checksum(*data, *size);
+            if (checksum != internal->checksum)
+            {
+                FIXME("Checksum mismatch.\n");
+                goto out;
+            }
         }
 
         ret = true;
@@ -737,13 +791,24 @@ static void vkd3d_shader_code_serialize_referenced(struct d3d12_pipeline_library
         blob.size = varint_size;
         entry.key.internal_key_hash = vkd3d_shader_hash(&blob);
 
-        internal->checksum = vkd3d_pipeline_blob_compute_data_checksum(internal->data, wrapped_varint_size);
+        /* In stream archives, checksums are handled at the outer layer, just ignore them here. */
+        if (!pipeline_library || !(pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_STREAM_ARCHIVE))
+            internal->checksum = vkd3d_pipeline_blob_compute_data_checksum(internal->data, wrapped_varint_size);
+        else
+            internal->checksum = 0;
 
         /* For duplicate, we won't insert. Just free the blob. */
         if (!d3d12_pipeline_library_insert_hash_map_blob_internal(pipeline_library,
                 &pipeline_library->spirv_cache_map, &entry))
         {
             vkd3d_free(internal);
+        }
+        else if (pipeline_library->disk_cache_listener)
+        {
+            vkd3d_pipeline_library_disk_cache_notify_blob_insert(pipeline_library->disk_cache_listener,
+                    entry.key.internal_key_hash,
+                    VKD3D_SERIALIZED_PIPELINE_STREAM_ENTRY_SPIRV,
+                    entry.data.blob, entry.data.blob_length);
         }
 
         chunk->type = VKD3D_PIPELINE_BLOB_CHUNK_TYPE_VARINT_SPIRV_LINK | (stage << VKD3D_PIPELINE_BLOB_CHUNK_INDEX_SHIFT);
@@ -858,13 +923,25 @@ static VkResult vkd3d_serialize_pipeline_state_referenced(struct d3d12_pipeline_
         blob.code = internal->data;
         blob.size = vk_pipeline_cache_size;
         entry.key.internal_key_hash = vkd3d_shader_hash(&blob);
-        internal->checksum = vkd3d_pipeline_blob_compute_data_checksum(blob.code, blob.size);
+
+        /* In stream archives, checksums are handled at the outer layer, just ignore them here. */
+        if (!pipeline_library || !(pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_STREAM_ARCHIVE))
+            internal->checksum = vkd3d_pipeline_blob_compute_data_checksum(blob.code, blob.size);
+        else
+            internal->checksum = 0;
 
         /* For duplicate, we won't insert. Just free the blob. */
         if (!d3d12_pipeline_library_insert_hash_map_blob_internal(pipeline_library,
                 &pipeline_library->driver_cache_map, &entry))
         {
             vkd3d_free(internal);
+        }
+        else if (pipeline_library->disk_cache_listener)
+        {
+            vkd3d_pipeline_library_disk_cache_notify_blob_insert(pipeline_library->disk_cache_listener,
+                    entry.key.internal_key_hash,
+                    VKD3D_SERIALIZED_PIPELINE_STREAM_ENTRY_DRIVER_CACHE,
+                    entry.data.blob, entry.data.blob_length);
         }
 
         /* Store PSO cache, or link to it if using pipeline cache. */
@@ -990,7 +1067,11 @@ VkResult vkd3d_serialize_pipeline_state(struct d3d12_pipeline_library *pipeline_
                     vk_blob_size_pipeline_cache, varint_size);
         }
 
-        blob->checksum = vkd3d_pipeline_blob_compute_data_checksum(blob->data, vk_blob_size);
+        /* In stream archives, checksums are handled at the outer layer, just ignore them here. */
+        if (!pipeline_library || !(pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_STREAM_ARCHIVE))
+            blob->checksum = vkd3d_pipeline_blob_compute_data_checksum(blob->data, vk_blob_size);
+        else
+            blob->checksum = 0;
     }
 
     *size = total_size;
@@ -1044,9 +1125,10 @@ struct vkd3d_serialized_pipeline_toc_entry
 };
 STATIC_ASSERT(sizeof(struct vkd3d_serialized_pipeline_toc_entry) == 16);
 
-#define VKD3D_PIPELINE_LIBRARY_VERSION MAKE_MAGIC('V','K','L',3)
+#define VKD3D_PIPELINE_LIBRARY_VERSION_TOC MAKE_MAGIC('V','K','L',3)
+#define VKD3D_PIPELINE_LIBRARY_VERSION_STREAM MAKE_MAGIC('V','K','S',3)
 
-struct vkd3d_serialized_pipeline_library
+struct vkd3d_serialized_pipeline_library_toc
 {
     uint32_t version;
     uint32_t vendor_id;
@@ -1059,8 +1141,9 @@ struct vkd3d_serialized_pipeline_library
     uint8_t cache_uuid[VK_UUID_SIZE];
     struct vkd3d_serialized_pipeline_toc_entry entries[];
 };
-STATIC_ASSERT(sizeof(struct vkd3d_serialized_pipeline_library) == offsetof(struct vkd3d_serialized_pipeline_library, entries));
-STATIC_ASSERT(sizeof(struct vkd3d_serialized_pipeline_library) == 40 + VK_UUID_SIZE);
+STATIC_ASSERT(sizeof(struct vkd3d_serialized_pipeline_library_toc) ==
+        offsetof(struct vkd3d_serialized_pipeline_library_toc, entries));
+STATIC_ASSERT(sizeof(struct vkd3d_serialized_pipeline_library_toc) == 40 + VK_UUID_SIZE);
 
 /* Binary layout:
  * - Header
@@ -1101,6 +1184,25 @@ STATIC_ASSERT(sizeof(struct vkd3d_serialized_pipeline_library) == 40 + VK_UUID_S
  *   It is also more cache friendly this way.
  * - Having a more split TOC structure like this makes it easier to add SPIR-V deduplication and PSO cache deduplication.
  */
+
+/* The stream variant. Blobs are emitted one after the other with header + data. */
+
+/* It's possible to just make this header into a bucket hash for e.g. Fossilize. */
+struct vkd3d_serialized_pipeline_library_stream
+{
+    uint32_t version;
+    uint32_t vendor_id;
+    uint32_t device_id;
+    uint32_t reserved;
+    uint64_t vkd3d_build;
+    uint64_t vkd3d_shader_interface_key;
+    /* Mostly irrelevant since we use GLOBAL_PIPELINE_CACHE by default for stream archives. */
+    uint8_t cache_uuid[VK_UUID_SIZE];
+    uint8_t entries[];
+};
+STATIC_ASSERT(sizeof(struct vkd3d_serialized_pipeline_library_stream) ==
+        offsetof(struct vkd3d_serialized_pipeline_library_stream, entries));
+STATIC_ASSERT(sizeof(struct vkd3d_serialized_pipeline_library_stream) == 32 + VK_UUID_SIZE);
 
 /* ID3D12PipelineLibrary */
 static inline struct d3d12_pipeline_library *impl_from_ID3D12PipelineLibrary(d3d12_pipeline_library_iface *iface)
@@ -1548,7 +1650,11 @@ static size_t d3d12_pipeline_library_get_serialized_size(struct d3d12_pipeline_l
 {
     size_t total_size = 0;
 
-    total_size += sizeof(struct vkd3d_serialized_pipeline_library);
+    /* Stream archives are not serialized as a monolithic blob. */
+    if (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_STREAM_ARCHIVE)
+        return 0;
+
+    total_size += sizeof(struct vkd3d_serialized_pipeline_library_toc);
     total_size += sizeof(struct vkd3d_serialized_pipeline_toc_entry) * pipeline_library->pso_map.used_count;
     total_size += sizeof(struct vkd3d_serialized_pipeline_toc_entry) * pipeline_library->spirv_cache_map.used_count;
     total_size += sizeof(struct vkd3d_serialized_pipeline_toc_entry) * pipeline_library->driver_cache_map.used_count;
@@ -1613,11 +1719,27 @@ static void d3d12_pipeline_library_serialize_hash_map(const struct hash_map *map
     *inout_blob_offset = blob_offset;
 }
 
+static void d3d12_pipeline_library_serialize_stream_archive_header(struct d3d12_pipeline_library *pipeline_library,
+        struct vkd3d_serialized_pipeline_library_stream *header)
+{
+    const VkPhysicalDeviceProperties *device_properties = &pipeline_library->device->device_info.properties2.properties;
+    header->version = VKD3D_PIPELINE_LIBRARY_VERSION_STREAM;
+    header->vendor_id = device_properties->vendorID;
+    header->device_id = device_properties->deviceID;
+    header->reserved = 0;
+    header->vkd3d_build = vkd3d_build;
+    header->vkd3d_shader_interface_key = pipeline_library->device->shader_interface_key;
+    if (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_USE_PIPELINE_CACHE_UUID)
+        memcpy(header->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE);
+    else
+        memset(header->cache_uuid, 0, VK_UUID_SIZE);
+}
+
 static HRESULT d3d12_pipeline_library_serialize(struct d3d12_pipeline_library *pipeline_library,
         void *data, size_t data_size)
 {
     const VkPhysicalDeviceProperties *device_properties = &pipeline_library->device->device_info.properties2.properties;
-    struct vkd3d_serialized_pipeline_library *header = data;
+    struct vkd3d_serialized_pipeline_library_toc *header = data;
     struct vkd3d_serialized_pipeline_toc_entry *toc_entries;
     uint64_t driver_cache_size;
     uint8_t *serialized_data;
@@ -1628,11 +1750,15 @@ static HRESULT d3d12_pipeline_library_serialize(struct d3d12_pipeline_library *p
     size_t blob_offset;
     uint64_t pso_size;
 
+    /* Stream archives are not serialized as a monolithic blob. */
+    if (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_STREAM_ARCHIVE)
+        return E_INVALIDARG;
+
     required_size = d3d12_pipeline_library_get_serialized_size(pipeline_library);
     if (data_size < required_size)
         return E_INVALIDARG;
 
-    header->version = VKD3D_PIPELINE_LIBRARY_VERSION;
+    header->version = VKD3D_PIPELINE_LIBRARY_VERSION_TOC;
     header->vendor_id = device_properties->vendorID;
     header->device_id = device_properties->deviceID;
     header->pipeline_count = pipeline_library->pso_map.used_count;
@@ -1820,11 +1946,161 @@ static HRESULT d3d12_pipeline_library_unserialize_hash_map(
     return S_OK;
 }
 
-static HRESULT d3d12_pipeline_library_read_blob(struct d3d12_pipeline_library *pipeline_library,
+static HRESULT d3d12_pipeline_library_validate_stream_format_header(struct d3d12_pipeline_library *pipeline_library,
         struct d3d12_device *device, const void *blob, size_t blob_length)
 {
     const VkPhysicalDeviceProperties *device_properties = &device->device_info.properties2.properties;
-    const struct vkd3d_serialized_pipeline_library *header = blob;
+    const struct vkd3d_serialized_pipeline_library_stream *header = blob;
+
+    if (blob_length < sizeof(*header) || header->version != VKD3D_PIPELINE_LIBRARY_VERSION_STREAM)
+        return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
+
+    if (header->device_id != device_properties->deviceID || header->vendor_id != device_properties->vendorID)
+        return D3D12_ERROR_ADAPTER_NOT_FOUND;
+
+    if (header->vkd3d_build != vkd3d_build)
+        return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
+
+    if (header->vkd3d_shader_interface_key != device->shader_interface_key)
+        return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
+
+    /* If we never store pipeline caches, we don't have to care about pipeline cache UUID. */
+    if (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_USE_PIPELINE_CACHE_UUID)
+        if (memcmp(header->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE) != 0)
+            return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
+
+    return S_OK;
+}
+
+static HRESULT d3d12_pipeline_library_read_blob_stream_format(struct d3d12_pipeline_library *pipeline_library,
+        struct d3d12_device *device, const void *blob, size_t blob_length)
+{
+    const struct vkd3d_serialized_pipeline_library_stream *header = blob;
+    const struct vkd3d_serialized_pipeline_stream_entry *entries;
+    struct vkd3d_cached_pipeline_entry entry;
+    uint64_t blob_length_saved = blob_length;
+    uint32_t driver_cache_count = 0;
+    uint32_t pipeline_count = 0;
+    bool early_teardown = false;
+    uint32_t spirv_count = 0;
+    uint32_t aligned_size;
+    struct hash_map *map;
+    HRESULT hr;
+
+    if (FAILED(hr = d3d12_pipeline_library_validate_stream_format_header(pipeline_library, device, blob, blob_length)))
+        return hr;
+
+    entries = (const struct vkd3d_serialized_pipeline_stream_entry *)header->entries;
+    blob_length -= offsetof(struct vkd3d_serialized_pipeline_library_stream, entries);
+
+    while (blob_length >= sizeof(*entries))
+    {
+        /* Parsing this can take a long time. Tear down as quick as we can. */
+        if (vkd3d_atomic_uint32_load_explicit(&pipeline_library->stream_archive_cancellation_point,
+                vkd3d_memory_order_relaxed))
+        {
+            INFO("Device teardown request received, stopping parse early.\n");
+            early_teardown = true;
+            break;
+        }
+
+        blob_length -= sizeof(*entries);
+        aligned_size = align(entries->size, VKD3D_PIPELINE_BLOB_ALIGN);
+
+        /* Sliced files are expected to work since application may terminate in the middle of writing. */
+        if (blob_length < aligned_size)
+        {
+            INFO("Sliced stream cache entry detected. Ignoring rest of archive.\n");
+            break;
+        }
+
+        if (!vkd3d_serialized_pipeline_stream_entry_validate(entries->data, entries))
+        {
+            INFO("Corrupt stream cache entry detected. Ignoring rest of archive.\n");
+            break;
+        }
+
+        entry.key.name_length = 0;
+        entry.key.name = NULL;
+        entry.key.internal_key_hash = entries->hash;
+        entry.data.blob_length = entries->size;
+        entry.data.blob = entries->data;
+        /* The read-only portion of the stream archive is backed by mmap so we avoid committing too much memory.
+         * Similar idea as normal application pipeline libraries. */
+        entry.data.is_new = 0;
+        entry.data.state = NULL;
+
+        switch (entries->type)
+        {
+            case VKD3D_SERIALIZED_PIPELINE_STREAM_ENTRY_SPIRV:
+                map = &pipeline_library->spirv_cache_map;
+                spirv_count++;
+                break;
+
+            case VKD3D_SERIALIZED_PIPELINE_STREAM_ENTRY_DRIVER_CACHE:
+                map = &pipeline_library->driver_cache_map;
+                driver_cache_count++;
+                break;
+
+            case VKD3D_SERIALIZED_PIPELINE_STREAM_ENTRY_PIPELINE:
+                map = &pipeline_library->pso_map;
+                pipeline_count++;
+                break;
+
+            default:
+                FIXME("Unrecognized type %u.\n", entries->type);
+                map = NULL;
+                break;
+        }
+
+        if (map)
+        {
+            /* If async flag is set it means we're parsing from a thread, and we must lock since application
+             * might be busy trying to create pipelines at this time.
+             * If we're parsing at device init, we don't need to lock. */
+            if (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_STREAM_ARCHIVE_PARSE_ASYNC)
+            {
+                if (entries->type == VKD3D_SERIALIZED_PIPELINE_STREAM_ENTRY_PIPELINE)
+                {
+                    /* Pipeline entries are handled with the main mutex. */
+                    rwlock_lock_write(&pipeline_library->mutex);
+                    d3d12_pipeline_library_insert_hash_map_blob_locked(pipeline_library, map, &entry);
+                    rwlock_unlock_write(&pipeline_library->mutex);
+                }
+                else
+                {
+                    /* Non-PSO caches use the internal lock implicitly here. */
+                    d3d12_pipeline_library_insert_hash_map_blob_internal(pipeline_library, map, &entry);
+                }
+            }
+            else
+                d3d12_pipeline_library_insert_hash_map_blob_locked(pipeline_library, map, &entry);
+        }
+
+        blob_length -= aligned_size;
+        entries = (const struct vkd3d_serialized_pipeline_stream_entry *)&entries->data[aligned_size];
+    }
+
+    if (!early_teardown && (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG))
+    {
+        INFO("Loading stream pipeline library (%"PRIu64" bytes):\n"
+                "  D3D12 PSO count: %u\n"
+                "  Unique SPIR-V count: %u\n"
+                "  Unique VkPipelineCache count: %u\n",
+                blob_length_saved,
+                pipeline_count,
+                spirv_count,
+                driver_cache_count);
+    }
+
+    return S_OK;
+}
+
+static HRESULT d3d12_pipeline_library_read_blob_toc_format(struct d3d12_pipeline_library *pipeline_library,
+        struct d3d12_device *device, const void *blob, size_t blob_length)
+{
+    const VkPhysicalDeviceProperties *device_properties = &device->device_info.properties2.properties;
+    const struct vkd3d_serialized_pipeline_library_toc *header = blob;
     const uint8_t *serialized_data_base;
     size_t serialized_data_size;
     const uint8_t *name_table;
@@ -1836,7 +2112,7 @@ static HRESULT d3d12_pipeline_library_read_blob(struct d3d12_pipeline_library *p
     /* Same logic as for pipeline blobs, indicate that the app needs
      * to rebuild the pipeline library in case vkd3d itself or the
      * underlying device/driver changed */
-    if (blob_length < sizeof(*header) || header->version != VKD3D_PIPELINE_LIBRARY_VERSION)
+    if (blob_length < sizeof(*header) || header->version != VKD3D_PIPELINE_LIBRARY_VERSION_TOC)
     {
         if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
             INFO("Rejecting pipeline library due to invalid header version.\n");
@@ -1877,7 +2153,7 @@ static HRESULT d3d12_pipeline_library_read_blob(struct d3d12_pipeline_library *p
 
     total_toc_entries = header->pipeline_count + header->spirv_count + header->driver_cache_count;
 
-    header_entry_size = offsetof(struct vkd3d_serialized_pipeline_library, entries) +
+    header_entry_size = offsetof(struct vkd3d_serialized_pipeline_library_toc, entries) +
             total_toc_entries * sizeof(struct vkd3d_serialized_pipeline_toc_entry);
 
     if (blob_length < header_entry_size)
@@ -1917,9 +2193,9 @@ static HRESULT d3d12_pipeline_library_read_blob(struct d3d12_pipeline_library *p
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
     {
         INFO("Loading pipeline library (%"PRIu64" bytes):\n"
-             "  D3D12 PSO count: %u\n"
-             "  Unique SPIR-V count: %u\n"
-             "  Unique VkPipelineCache count: %u\n",
+                "  D3D12 PSO count: %u\n"
+                "  Unique SPIR-V count: %u\n"
+                "  Unique VkPipelineCache count: %u\n",
                 (uint64_t)blob_length,
                 header->pipeline_count,
                 header->spirv_count,
@@ -1927,6 +2203,18 @@ static HRESULT d3d12_pipeline_library_read_blob(struct d3d12_pipeline_library *p
     }
 
     return S_OK;
+}
+
+static HRESULT d3d12_pipeline_library_read_blob(struct d3d12_pipeline_library *pipeline_library,
+        struct d3d12_device *device, const void *blob, size_t blob_length)
+{
+    /* For stream archives, we are expected to call the appropriate parsing function after creation. */
+    if (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_STREAM_ARCHIVE)
+        return E_INVALIDARG;
+
+    /* For app-visible pipeline library, this format moves all TOC information to beginning of blob
+     * which optimizes for parsing speed. */
+    return d3d12_pipeline_library_read_blob_toc_format(pipeline_library, device, blob, blob_length);
 }
 
 static HRESULT d3d12_pipeline_library_init(struct d3d12_pipeline_library *pipeline_library,
@@ -2162,4 +2450,761 @@ void vkd3d_pipeline_cache_compat_from_state_desc(struct vkd3d_pipeline_cache_com
             output_index++;
         }
     }
+}
+
+static uint64_t vkd3d_pipeline_cache_compatibility_condense(const struct vkd3d_pipeline_cache_compatibility *compat)
+{
+    unsigned int i;
+    uint64_t h;
+
+    h = hash_fnv1_init();
+    h = hash_fnv1_iterate_u64(h, compat->state_desc_compat_hash);
+    h = hash_fnv1_iterate_u64(h, compat->root_signature_compat_hash);
+    for (i = 0; i < ARRAY_SIZE(compat->dxbc_blob_hashes); i++)
+        h = hash_fnv1_iterate_u64(h, compat->dxbc_blob_hashes[i]);
+    return h;
+}
+
+static HRESULT vkd3d_pipeline_library_disk_cache_save_pipeline_state(struct vkd3d_pipeline_library_disk_cache *cache,
+        const struct vkd3d_pipeline_library_disk_cache_item *item)
+{
+    struct d3d12_pipeline_library *library = cache->library;
+    struct vkd3d_cached_pipeline_entry entry;
+    void *new_blob;
+    VkResult vr;
+    int rc;
+
+    /* Try to avoid taking writer locks until we're absolutely forced to.
+     * It's fairly likely we'll see duplicates here, so we should avoid stalling
+     * when multiple threads are hammering us with PSO creation. */
+
+    entry.key.name_length = 0;
+    entry.key.name = NULL;
+    entry.key.internal_key_hash = vkd3d_pipeline_cache_compatibility_condense(&item->state->pipeline_cache_compat);
+
+    if ((rc = rwlock_lock_read(&library->mutex)))
+    {
+        ERR("Failed to lock mutex, rc %d.\n", rc);
+        return hresult_from_errno(rc);
+    }
+
+    if (hash_map_find(&library->pso_map, &entry.key))
+    {
+        /* This could happen if a parallel thread tried to create the same PSO.
+         * In a single threaded scenario we would find the PSO when creating the PSO,
+         * and we would never try to enter this path. */
+        rwlock_unlock_read(&library->mutex);
+        return E_INVALIDARG;
+    }
+
+    if (FAILED(vr = vkd3d_serialize_pipeline_state(library, item->state, &entry.data.blob_length, NULL)))
+    {
+        rwlock_unlock_read(&library->mutex);
+        return hresult_from_vk_result(vr);
+    }
+
+    if (!(new_blob = malloc(entry.data.blob_length)))
+    {
+        rwlock_unlock_read(&library->mutex);
+        return E_OUTOFMEMORY;
+    }
+
+    if (FAILED(vr = vkd3d_serialize_pipeline_state(library, item->state, &entry.data.blob_length, new_blob)))
+    {
+        vkd3d_free(new_blob);
+        rwlock_unlock_read(&library->mutex);
+        return hresult_from_vk_result(vr);
+    }
+
+    entry.data.blob = new_blob;
+    entry.data.is_new = 1;
+    /* We cannot hand the same object out again, since this is not part of the ID3D12PipelineLibrary interface. */
+    entry.data.state = NULL;
+
+    /* Now is the time to promote to a writer lock. */
+    rwlock_unlock_read(&library->mutex);
+
+    if ((rc = rwlock_lock_write(&library->mutex)))
+    {
+        ERR("Failed to lock mutex, rc %d.\n", rc);
+        vkd3d_free(new_blob);
+        return hresult_from_errno(rc);
+    }
+
+    if (!d3d12_pipeline_library_insert_hash_map_blob_locked(library, &library->pso_map, &entry))
+    {
+        /* Found duplicate. */
+        vkd3d_free(new_blob);
+        rwlock_unlock_write(&library->mutex);
+        return E_OUTOFMEMORY;
+    }
+
+    rwlock_unlock_write(&library->mutex);
+
+    if (library->disk_cache_listener)
+    {
+        vkd3d_pipeline_library_disk_cache_notify_blob_insert(library->disk_cache_listener,
+                entry.key.internal_key_hash,
+                VKD3D_SERIALIZED_PIPELINE_STREAM_ENTRY_PIPELINE,
+                entry.data.blob, entry.data.blob_length);
+    }
+
+    return S_OK;
+}
+
+HRESULT vkd3d_pipeline_library_store_pipeline_to_disk_cache(
+        struct vkd3d_pipeline_library_disk_cache *cache,
+        struct d3d12_pipeline_state *state)
+{
+    /* Push new work to disk cache thread. */
+    d3d12_pipeline_state_inc_ref(state);
+    pthread_mutex_lock(&cache->lock);
+    vkd3d_array_reserve((void**)&cache->items, &cache->items_size,
+            cache->items_count + 1, sizeof(*cache->items));
+    cache->items[cache->items_count].state = state;
+    cache->items_count++;
+    condvar_reltime_signal(&cache->cond);
+    pthread_mutex_unlock(&cache->lock);
+
+    return S_OK;
+}
+
+HRESULT vkd3d_pipeline_library_find_cached_blob_from_disk_cache(struct vkd3d_pipeline_library_disk_cache *cache,
+        const struct vkd3d_pipeline_cache_compatibility *compat,
+        struct d3d12_cached_pipeline_state *cached_state)
+{
+    struct d3d12_pipeline_library *library = cache->library;
+    const struct vkd3d_cached_pipeline_entry *e;
+    struct vkd3d_cached_pipeline_key key;
+    int rc;
+
+    if ((rc = rwlock_lock_read(&library->mutex)))
+    {
+        ERR("Failed to lock mutex, rc %d.\n", rc);
+        return hresult_from_errno(rc);
+    }
+
+    key.name_length = 0;
+    key.name = NULL;
+    key.internal_key_hash = vkd3d_pipeline_cache_compatibility_condense(compat);
+
+    if (!(e = (const struct vkd3d_cached_pipeline_entry*)hash_map_find(&library->pso_map, &key)))
+    {
+        rwlock_unlock_read(&library->mutex);
+        return E_INVALIDARG;
+    }
+
+    cached_state->blob.CachedBlobSizeInBytes = e->data.blob_length;
+    cached_state->blob.pCachedBlob = e->data.blob;
+    cached_state->library = library;
+    rwlock_unlock_read(&library->mutex);
+    return S_OK;
+}
+
+static void *vkd3d_pipeline_library_disk_thread_main(void *userarg);
+
+struct disk_cache_entry_key
+{
+    uint64_t hash;
+    enum vkd3d_serialized_pipeline_stream_entry_type type;
+};
+
+struct disk_cache_entry
+{
+    struct hash_map_entry entry;
+    struct disk_cache_entry_key key;
+};
+
+static uint32_t disk_cache_entry_key_cb(const void *key_)
+{
+    const struct disk_cache_entry_key *key = key_;
+    return hash_combine(hash_uint64(key->hash), key->type);
+}
+
+static bool disk_cache_entry_compare_cb(const void *key, const struct hash_map_entry *entry)
+{
+    const struct disk_cache_entry_key *new_key = key;
+    const struct disk_cache_entry_key *old_key = &((const struct disk_cache_entry *)entry)->key;
+    return new_key->hash == old_key->hash && new_key->type == old_key->type;
+}
+
+static void vkd3d_pipeline_library_disk_cache_merge(struct vkd3d_pipeline_library_disk_cache *cache,
+        const char *read_path, const char *write_path)
+{
+    const struct vkd3d_serialized_pipeline_library_stream *write_cache_header;
+    const struct vkd3d_serialized_pipeline_stream_entry *write_entries;
+    struct vkd3d_serialized_pipeline_stream_entry stream_entry;
+    struct vkd3d_serialized_pipeline_library_stream header;
+    struct vkd3d_memory_mapped_file mapped_write_cache;
+    char merge_path[VKD3D_PATH_MAX];
+    unsigned int existing_entries;
+    struct disk_cache_entry entry;
+    uint8_t *tmp_buffer = NULL;
+    size_t tmp_buffer_size = 0;
+    unsigned int new_entries;
+    size_t write_cache_size;
+    struct hash_map map;
+    size_t aligned_size;
+    FILE *merge_file;
+    int64_t off;
+    HRESULT hr;
+
+    memset(&mapped_write_cache, 0, sizeof(mapped_write_cache));
+    snprintf(merge_path, sizeof(merge_path), "%s.merge", read_path);
+    hash_map_init(&map, disk_cache_entry_key_cb, disk_cache_entry_compare_cb, sizeof(struct disk_cache_entry));
+    merge_file = NULL;
+
+    /* If we only have a write-only cache, but no read-only one, this will succeed.
+     * We're done. */
+    if (vkd3d_file_rename_no_replace(write_path, read_path))
+    {
+        INFO("Promoting write cache to read cache. No need to merge any disk caches.\n");
+        goto out;
+    }
+
+    /* We're going to fwrite the mapped data directly. */
+    if (!vkd3d_file_map_read_only(write_path, &mapped_write_cache))
+    {
+        INFO("No write cache exists. No need to merge any disk caches.\n");
+        goto out;
+    }
+
+    /* If the write cache is out of date, just nuke it and move on. Nothing to do. */
+    if (FAILED(hr = d3d12_pipeline_library_validate_stream_format_header(cache->library,
+            cache->library->device, mapped_write_cache.mapped, mapped_write_cache.mapped_size)))
+    {
+        INFO("Write cache is invalid (hr #%x), nuking it.\n", hr);
+        goto out;
+    }
+
+    /* If we fail here, there is either a stale merge file lying around (which we will clean up at the end),
+     * or some other process is merging caches concurrently.
+     * It is somewhat unpredictable what will happen with all the atomic renames and deletions in flight,
+     * but we'll end up in a consistent state either way.
+     * The expectation is that games are loaded with one instance. */
+    if (vkd3d_file_rename_no_replace(read_path, merge_path))
+    {
+        INFO("Merging disk caches.\n");
+        merge_file = fopen(merge_path, "rb+");
+
+        /* Shouldn't happen, but can happen if another process races us and deletes the merge file
+         * in the interim. */
+        if (!merge_file)
+        {
+            INFO("Cannot re-open merge cache. Likely a race condition with multiple processes.\n");
+            goto out;
+        }
+
+        existing_entries = 0;
+        new_entries = 0;
+
+        /* If we have a read-only cache, atomically move to the merge path.
+         * If we win, the merge-only file is "owned" by this thread, and we consider it safe to append to it.
+         * Here, we will open the file in append mode, seek to the last whole blob entry,
+         * and then append the write-only portion. */
+
+        if (fread(&header, sizeof(header), 1, merge_file) != 1 ||
+                FAILED(hr = d3d12_pipeline_library_validate_stream_format_header(cache->library,
+                        cache->library->device, &header, sizeof(header))))
+        {
+            INFO("Read-only cache is out of date, discarding it.\n");
+            /* Just promote the write cache to read cache and call it a day. */
+            fclose(merge_file);
+            merge_file = NULL;
+            vkd3d_file_delete(merge_path);
+            if (vkd3d_file_rename_overwrite(write_path, read_path))
+                INFO("Successfully promoted write cache to read cache.\n");
+        }
+        else
+        {
+            /* Find the end of the read cache which contains whole and sane entries.
+             * At the same time, add entries to the hash map, so that we don't insert duplicates. */
+            off = _ftelli64(merge_file);
+
+            /* From a cold disk cache, this can be quite slow. Poll the teardown atomic. */
+            while (fread(&stream_entry, sizeof(stream_entry), 1, merge_file) == 1)
+            {
+                /* Don't want to throw away the disk caches here. Try again next time. */
+                if (vkd3d_atomic_uint32_load_explicit(&cache->library->stream_archive_cancellation_point,
+                        vkd3d_memory_order_relaxed))
+                {
+                    INFO("Device teardown request received, stopping parse early.\n");
+                    /* Move the file back, don't delete anything. */
+                    fclose(merge_file);
+                    merge_file = NULL;
+                    vkd3d_file_rename_overwrite(merge_path, read_path);
+                    goto out_cancellation;
+                }
+
+                aligned_size = align(stream_entry.size, VKD3D_PIPELINE_BLOB_ALIGN);
+
+                /* Before accepting this as a valid entry, ensure checksums are correct.
+                 * Ideally we'd have mmap going here, but appending while mmaping a file is ... dubious :) */
+                if (!vkd3d_array_reserve((void**)&tmp_buffer, &tmp_buffer_size,
+                        aligned_size, 1))
+                    break;
+
+                if (fread(tmp_buffer, 1, aligned_size, merge_file) != aligned_size)
+                {
+                    INFO("Read-only archive entry is sliced. Ignoring rest of archive.\n");
+                    break;
+                }
+
+                if (!vkd3d_serialized_pipeline_stream_entry_validate(tmp_buffer, &stream_entry))
+                {
+                    INFO("Found corrupt entry in read-only archive. Ignoring rest of archive.\n");
+                    break;
+                }
+
+                entry.key.hash = stream_entry.hash;
+                entry.key.type = stream_entry.type;
+                if (!hash_map_find(&map, &entry.key) && hash_map_insert(&map, &entry.key, &entry.entry))
+                    existing_entries++;
+                off = _ftelli64(merge_file);
+            }
+
+            if (_fseeki64(merge_file, off, SEEK_SET) == 0)
+            {
+                /* Merge entries. */
+                write_cache_header = mapped_write_cache.mapped;
+                write_cache_size = mapped_write_cache.mapped_size;
+                write_entries = (const struct vkd3d_serialized_pipeline_stream_entry *)write_cache_header->entries;
+                write_cache_size -= sizeof(*write_cache_header);
+
+                while (write_cache_size >= sizeof(*write_entries))
+                {
+                    /* Don't want to throw away the disk caches here. Try again next time. */
+                    if (vkd3d_atomic_uint32_load_explicit(&cache->library->stream_archive_cancellation_point,
+                            vkd3d_memory_order_relaxed))
+                    {
+                        INFO("Device teardown request received, stopping parse early.\n");
+                        /* Move the file back, don't delete anything. */
+                        fclose(merge_file);
+                        merge_file = NULL;
+                        vkd3d_file_rename_overwrite(merge_path, read_path);
+                        goto out_cancellation;
+                    }
+
+                    write_cache_size -= sizeof(*write_entries);
+                    aligned_size = align(write_entries->size, VKD3D_PIPELINE_BLOB_ALIGN);
+
+                    if (write_cache_size < aligned_size)
+                    {
+                        INFO("Write-only archive entry is sliced. Ignoring rest of archive.\n");
+                        break;
+                    }
+
+                    if (!vkd3d_serialized_pipeline_stream_entry_validate(write_entries->data, write_entries))
+                    {
+                        INFO("Found corrupt entry in write-only archive. Ignoring rest of archive.\n");
+                        break;
+                    }
+
+                    entry.key.hash = write_entries->hash;
+                    entry.key.type = write_entries->type;
+                    if (!hash_map_find(&map, &entry.key) && hash_map_insert(&map, &entry.key, &entry.entry))
+                    {
+                        if (fwrite(write_entries, sizeof(*write_entries), 1, merge_file) != 1 ||
+                                fwrite(write_entries->data, 1, aligned_size, merge_file) != aligned_size)
+                        {
+                            ERR("Failed to append blob to read-cache.\n");
+                            break;
+                        }
+                        new_entries++;
+                    }
+
+                    write_cache_size -= aligned_size;
+                    write_entries = (const struct vkd3d_serialized_pipeline_stream_entry *)&write_entries->data[aligned_size];
+                }
+            }
+
+            INFO("Done merging shader caches, existing entries: %u, new entries: %u.\n",
+                    existing_entries, new_entries);
+
+            fclose(merge_file);
+            merge_file = NULL;
+            if (vkd3d_file_rename_overwrite(merge_path, read_path))
+                INFO("Successfully replaced shader cache with merged cache.\n");
+            else
+                INFO("Failed to replace shader cache.\n");
+        }
+    }
+
+out:
+    /* There shouldn't be any write cache left after merging. */
+    vkd3d_file_delete(write_path);
+
+    /* If we have a stale merge file lying around, we might have been killed at some point
+     * when we tried to merge the read-only cache earlier.
+     * We might lose cache data this way, but this shouldn't happen except in extreme circumstances.
+     * We need to ensure that some thread will eventually be able exclusively create the merge file,
+     * otherwise, we'll never be able to promote new blobs to the read-only cache.
+     * In a normal situation, merge_path will never exist at this point. */
+    vkd3d_file_delete(merge_path);
+
+out_cancellation:
+    if (merge_file)
+        fclose(merge_file);
+    vkd3d_file_unmap(&mapped_write_cache);
+    hash_map_clear(&map);
+    vkd3d_free(tmp_buffer);
+}
+
+static void vkd3d_pipeline_library_disk_cache_initial_setup(struct vkd3d_pipeline_library_disk_cache *cache)
+{
+    HRESULT hr;
+
+    /* Fairly complex operation. Ideally, Steam handles this.
+     * After this operation, only read_path should remain, and write_path (and temporary merge path) is deleted. */
+    vkd3d_pipeline_library_disk_cache_merge(cache, cache->read_path, cache->write_path);
+
+    if (!vkd3d_file_map_read_only(cache->read_path, &cache->mapped_file))
+    {
+        INFO("Failed to map read-only cache: %s.\n", cache->read_path);
+    }
+    else
+    {
+        hr = d3d12_pipeline_library_read_blob_stream_format(cache->library, cache->library->device,
+                cache->mapped_file.mapped, cache->mapped_file.mapped_size);
+
+        if (hr == D3D12_ERROR_DRIVER_VERSION_MISMATCH)
+            INFO("Cannot load existing on-disk cache due to driver version mismatch.\n");
+        else if (hr == D3D12_ERROR_ADAPTER_NOT_FOUND)
+            INFO("Cannot load existing on-disk cache due to driver version mismatch.\n");
+        else if (FAILED(hr))
+            INFO("Failed to load driver cache with hr #%x, falling back to empty cache.\n", hr);
+    }
+
+    /* When we add new internal blobs from this point,
+     * we'll be notified where we can write out a stream blob to disk.
+     * This all happens within the disk$ thread. */
+    cache->library->disk_cache_listener = cache;
+}
+
+HRESULT vkd3d_pipeline_library_init_disk_cache(struct vkd3d_pipeline_library_disk_cache *cache,
+        struct d3d12_device *device)
+{
+    VKD3D_UNUSED size_t i, n;
+    const char *separator;
+    const char *path;
+    uint32_t flags;
+    HRESULT hr;
+    int rc;
+
+    memset(cache, 0, sizeof(*cache));
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_APP_CACHE_ONLY)
+        return S_OK;
+
+    /* Match DXVK style here. The environment variable is a directory.
+     * If not set, it is in current working directory. */
+    path = getenv("VKD3D_SHADER_CACHE_PATH");
+    if (path && *path == '\0')
+        path = NULL;
+
+    if (path)
+    {
+        separator = &path[strlen(path) - 1];
+        separator = (*separator == '/' || *separator == '\\') ? "" : "/";
+    }
+    else
+        separator = "";
+
+#ifdef _WIN32
+    /* Wine has some curious bugs when it comes to MoveFileA, DeleteFileA and RenameFileA.
+     * RenameFileA only works if we use Windows style paths with back-slashes (not forward slashes) for whatever reason.
+     * Seems to be related to drive detection (Rename fails with drive mismatch in some cases for example).
+     * Manually remap Unix style paths to conservative Win32.
+     * Normally Wine accepts Unix style paths, but not here for whatever reason. */
+
+    if (path && path[0] == '/')
+        snprintf(cache->read_path, sizeof(cache->read_path), "Z:\\%s%svkd3d-proton.cache", path + 1, separator);
+    else if (path)
+        snprintf(cache->read_path, sizeof(cache->read_path), "%s%svkd3d-proton.cache", path, separator);
+    else
+        snprintf(cache->read_path, sizeof(cache->read_path), "vkd3d-proton.cache", path);
+
+    for (i = 0, n = strlen(cache->read_path); i < n; i++)
+        if (cache->read_path[i] == '/')
+            cache->read_path[i] = '\\';
+    INFO("Remapping VKD3D_SHADER_CACHE to: %s.\n", cache->read_path);
+#else
+    if (path)
+        snprintf(cache->read_path, sizeof(cache->read_path), "%s%svkd3d-proton.cache", path, separator);
+    else
+        strcpy(cache->read_path, "vkd3d-proton.cache");
+#endif
+
+    INFO("Attempting to load disk cache from: %s.\n", cache->read_path);
+
+    /* Split the reader and writer. */
+    snprintf(cache->write_path, sizeof(cache->write_path), "%s.write", cache->read_path);
+
+    flags = VKD3D_PIPELINE_LIBRARY_FLAG_INTERNAL_KEYS | VKD3D_PIPELINE_LIBRARY_FLAG_STREAM_ARCHIVE;
+
+    /* This flag is mostly for debug. Normally we want to do shader cache management in disk thread. */
+    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SHADER_CACHE_SYNC))
+        flags |= VKD3D_PIPELINE_LIBRARY_FLAG_STREAM_ARCHIVE_PARSE_ASYNC;
+
+    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_NO_SERIALIZE_SPIRV))
+        flags |= VKD3D_PIPELINE_LIBRARY_FLAG_SAVE_FULL_SPIRV;
+
+    /* For internal caches, we're mostly just concerned with caching SPIR-V.
+     * We expect the driver cache deals with PSO blobs. */
+    hr = d3d12_pipeline_library_create(device, NULL, 0, flags, &cache->library);
+
+    /* Start with an empty pipeline library, we'll parse stream archive and append. */
+
+    if (SUCCEEDED(hr))
+    {
+        /* This is held internally, so make sure it's held alive by private references. */
+        d3d12_pipeline_library_inc_ref(cache->library);
+        d3d12_pipeline_library_dec_public_ref(cache->library);
+
+        if (!(flags & VKD3D_PIPELINE_LIBRARY_FLAG_STREAM_ARCHIVE_PARSE_ASYNC))
+            vkd3d_pipeline_library_disk_cache_initial_setup(cache);
+
+        cache->thread_active = true;
+        if ((rc = pthread_mutex_init(&cache->lock, NULL)) < 0)
+            goto mutex_fail;
+        if ((rc = condvar_reltime_init(&cache->cond)) < 0)
+            goto cond_fail;
+        if ((rc = pthread_create(&cache->thread, NULL, vkd3d_pipeline_library_disk_thread_main, cache)) < 0)
+            goto thread_fail;
+    }
+
+    return hr;
+
+thread_fail:
+    condvar_reltime_destroy(&cache->cond);
+cond_fail:
+    pthread_mutex_destroy(&cache->lock);
+mutex_fail:
+    ERR("Failed to start pipeline library disk thread.\n");
+    if (cache->library)
+        d3d12_pipeline_library_dec_ref(cache->library);
+    cache->library = NULL;
+    cache->thread_active = false;
+    return hr;
+}
+
+void vkd3d_pipeline_library_flush_disk_cache(struct vkd3d_pipeline_library_disk_cache *cache)
+{
+    /* Ask disk thread to tear down as quick as possible if it's busy parsing stuff
+     * in the disk$ thread. */
+    if (cache->library)
+    {
+        vkd3d_atomic_uint32_store_explicit(&cache->library->stream_archive_cancellation_point, 1,
+                vkd3d_memory_order_relaxed);
+    }
+
+    if (cache->thread_active)
+    {
+        pthread_mutex_lock(&cache->lock);
+        cache->thread_active = false;
+        condvar_reltime_signal(&cache->cond);
+        pthread_mutex_unlock(&cache->lock);
+
+        pthread_join(cache->thread, NULL);
+        condvar_reltime_destroy(&cache->cond);
+        pthread_mutex_destroy(&cache->lock);
+    }
+
+    vkd3d_free(cache->items);
+    cache->items = NULL;
+    cache->items_count = 0;
+    cache->items_size = 0;
+
+    if (cache->library)
+    {
+        cache->library->stream_archive_cancellation_point = 0;
+        d3d12_pipeline_library_dec_ref(cache->library);
+    }
+
+    vkd3d_file_unmap(&cache->mapped_file);
+}
+
+void vkd3d_pipeline_library_disk_cache_notify_blob_insert(struct vkd3d_pipeline_library_disk_cache *disk_cache,
+        uint64_t hash, uint32_t type /* vkd3d_serialized_pipeline_stream_entry_type */,
+        const void *data, size_t size)
+{
+    /* Always called from disk$ thread, so we don't have to consider thread safety. */
+    struct vkd3d_serialized_pipeline_library_stream header;
+    struct vkd3d_serialized_pipeline_stream_entry entry;
+    uint8_t zero_array[VKD3D_PIPELINE_BLOB_ALIGN];
+    uint32_t padding_size;
+
+    /* On first write (new blob), create a new file. */
+    if (!disk_cache->stream_archive_attempted_write)
+    {
+        disk_cache->stream_archive_attempted_write = true;
+
+        /* Fails if multiple processes run the same application, but this doesn't really happen in practice. */
+        disk_cache->stream_archive_write_file = vkd3d_file_open_exclusive_write(disk_cache->write_path);
+        if (disk_cache->stream_archive_write_file)
+        {
+            d3d12_pipeline_library_serialize_stream_archive_header(disk_cache->library, &header);
+            if (fwrite(&header, sizeof(header), 1, disk_cache->stream_archive_write_file) != 1)
+            {
+                ERR("Failed to write stream archive header.\n");
+                fclose(disk_cache->stream_archive_write_file);
+                disk_cache->stream_archive_write_file = NULL;
+            }
+        }
+        else
+            ERR("Failed to open stream archive write file exclusively: %s.\n", disk_cache->write_path);
+    }
+
+    if (disk_cache->stream_archive_write_file)
+    {
+        entry.hash = hash;
+        entry.type = type;
+        entry.size = size;
+        entry.checksum = vkd3d_serialized_pipeline_stream_entry_compute_checksum(data, &entry);
+
+        if (fwrite(&entry, sizeof(entry), 1, disk_cache->stream_archive_write_file) != 1)
+            ERR("Failed to write entry header.\n");
+        if (fwrite(data, 1, size, disk_cache->stream_archive_write_file) != size)
+            ERR("Failed to write blob data.\n");
+
+        /* Write padding data. */
+        padding_size = align(size, VKD3D_PIPELINE_BLOB_ALIGN) - size;
+        if (padding_size)
+        {
+            memset(zero_array, 0, padding_size);
+            if (fwrite(zero_array, 1, padding_size, disk_cache->stream_archive_write_file) != padding_size)
+                ERR("Failed to write padding.\n");
+        }
+
+        /* Defer fflush until things quiet down. No need to spam fflush 1000s of times per second. */
+    }
+}
+
+static void *vkd3d_pipeline_library_disk_thread_main(void *userarg)
+{
+    struct vkd3d_pipeline_library_disk_cache_item *tmp_items = NULL;
+    struct vkd3d_pipeline_library_disk_cache *cache = userarg;
+    unsigned int wakeup_counter = 0;
+    size_t tmp_items_count = 0;
+    size_t tmp_items_size = 0;
+    bool active = true;
+    bool dirty = false;
+    HRESULT hr;
+    size_t i;
+    int rc;
+
+    vkd3d_set_thread_name("vkd3d-disk$");
+
+    if (cache->library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_STREAM_ARCHIVE_PARSE_ASYNC)
+    {
+        /* If device is nuked while parsing, we will return early since we poll an atomic. */
+        INFO("Performing async setup of stream archive ...\n");
+        vkd3d_pipeline_library_disk_cache_initial_setup(cache);
+        INFO("Done performing async setup of stream archive.\n");
+    }
+
+    while (active)
+    {
+        pthread_mutex_lock(&cache->lock);
+
+        /* If new pipelines haven't been queued up for a while, flush out the disk cache. */
+        active = cache->thread_active;
+
+        if (active)
+            rc = condvar_reltime_wait_timeout_seconds(&cache->cond, &cache->lock, 1);
+        else
+            rc = 0;
+
+        /* For debug purposes, it's useful to know how hard we're being hammered. */
+        wakeup_counter++;
+
+        /* Should have a local array so we can serialize without being in a lock. */
+        if (cache->items_count > 0)
+        {
+            vkd3d_array_reserve((void**)&tmp_items, &tmp_items_size,
+                    tmp_items_count + cache->items_count, sizeof(*tmp_items));
+            memcpy(tmp_items + tmp_items_count, cache->items, cache->items_count * sizeof(*cache->items));
+            tmp_items_count += cache->items_count;
+            cache->items_count = 0;
+        }
+
+        pthread_mutex_unlock(&cache->lock);
+
+        for (i = 0; i < tmp_items_count; i++)
+        {
+            if (FAILED(hr = vkd3d_pipeline_library_disk_cache_save_pipeline_state(cache, &tmp_items[i])))
+            {
+                /* INVALIDARG is expected for duplicates. */
+                if (hr != E_INVALIDARG)
+                    ERR("Failed to serialize pipeline to disk cache, hr #%x.\n", hr);
+            }
+            else if (!dirty)
+            {
+                dirty = true;
+                INFO("Pipeline cache marked dirty. Flush is scheduled.\n");
+            }
+
+            d3d12_pipeline_state_dec_ref(tmp_items[i].state);
+        }
+        tmp_items_count = 0;
+
+        if (rc > 0)
+        {
+            /* Timeout, try to flush. */
+            if (dirty)
+            {
+                INFO("Flushing disk cache (wakeup counter since last flush = %u). "
+                     "It seems like application has stopped creating new PSOs for the time being.\n",
+                     wakeup_counter);
+
+                if (cache->stream_archive_write_file)
+                    fflush(cache->stream_archive_write_file);
+                wakeup_counter = 0;
+                dirty = false;
+            }
+        }
+        else if (rc < 0)
+        {
+            ERR("Error waiting for condition variable in library disk thread.\n");
+            break;
+        }
+    }
+
+    /* Teardown path. */
+    for (i = 0; i < tmp_items_count; i++)
+    {
+        if (FAILED(hr = vkd3d_pipeline_library_disk_cache_save_pipeline_state(cache, &tmp_items[i])))
+        {
+            /* INVALIDARG is expected for duplicates. */
+            if (hr != E_INVALIDARG)
+                ERR("Failed to serialize pipeline to disk cache, hr #%x.\n", hr);
+        }
+        else
+            dirty = true;
+
+        d3d12_pipeline_state_dec_ref(tmp_items[i].state);
+    }
+
+    for (i = 0; i < cache->items_count; i++)
+    {
+        if (FAILED(hr = vkd3d_pipeline_library_disk_cache_save_pipeline_state(cache, &cache->items[i])))
+        {
+            /* INVALIDARG is expected for duplicates. */
+            if (hr != E_INVALIDARG)
+                ERR("Failed to serialize pipeline to disk cache, hr #%x.\n", hr);
+        }
+        else
+            dirty = true;
+
+        d3d12_pipeline_state_dec_ref(cache->items[i].state);
+    }
+
+    if (cache->stream_archive_write_file)
+    {
+        fclose(cache->stream_archive_write_file);
+        cache->stream_archive_write_file = NULL;
+    }
+
+    vkd3d_free(tmp_items);
+    return NULL;
 }
