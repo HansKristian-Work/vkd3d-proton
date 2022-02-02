@@ -4474,12 +4474,26 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePipelineLibrary(d3d12_device
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
     struct d3d12_pipeline_library *pipeline_library;
+    uint32_t flags;
     HRESULT hr;
 
     TRACE("iface %p, blob %p, blob_size %lu, iid %s, lib %p.\n",
             iface, blob, blob_size, debugstr_guid(iid), lib);
 
-    if (FAILED(hr = d3d12_pipeline_library_create(device, blob, blob_size, &pipeline_library)))
+    flags = 0;
+
+    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_NO_SERIALIZE_SPIRV))
+        flags |= VKD3D_PIPELINE_LIBRARY_FLAG_SAVE_FULL_SPIRV;
+
+    /* If we're using global pipeline caches, these are irrelevant. */
+    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE))
+    {
+        flags |= VKD3D_PIPELINE_LIBRARY_FLAG_SAVE_PSO_BLOB |
+                VKD3D_PIPELINE_LIBRARY_FLAG_USE_PIPELINE_CACHE_UUID;
+    }
+
+    if (FAILED(hr = d3d12_pipeline_library_create(device, blob, blob_size,
+            flags, &pipeline_library)))
         return hr;
 
     if (lib)
