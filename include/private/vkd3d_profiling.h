@@ -21,7 +21,7 @@
 
 #include "vkd3d_windows.h"
 #include "vkd3d_spinlock.h"
-#include <stdint.h>
+#include "vkd3d_common.h"
 
 #ifdef VKD3D_ENABLE_PROFILING
 
@@ -37,23 +37,6 @@ bool vkd3d_uses_profiling(void);
 unsigned int vkd3d_profiling_register_region(const char *name, spinlock_t *lock, uint32_t *latch);
 void vkd3d_profiling_notify_work(unsigned int index, uint64_t start_ticks, uint64_t end_ticks, unsigned int iteration_count);
 
-static inline uint64_t vkd3d_profiling_get_tick_count(void)
-{
-#ifdef _WIN32
-    LARGE_INTEGER li, lf;
-    uint64_t whole, part;
-    QueryPerformanceCounter(&li);
-    QueryPerformanceFrequency(&lf);
-    whole = (li.QuadPart / lf.QuadPart) * 1000000000;
-    part = ((li.QuadPart % lf.QuadPart) * 1000000000) / lf.QuadPart;
-    return whole + part;
-#else
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
-    return ts.tv_sec * 1000000000ll + ts.tv_nsec;
-#endif
-}
-
 #define VKD3D_REGION_DECL(name) \
     static uint32_t _vkd3d_region_latch_##name; \
     static spinlock_t _vkd3d_region_lock_##name; \
@@ -65,12 +48,12 @@ static inline uint64_t vkd3d_profiling_get_tick_count(void)
     do { \
         if (!(_vkd3d_region_index_##name = vkd3d_atomic_uint32_load_explicit(&_vkd3d_region_latch_##name, vkd3d_memory_order_acquire))) \
             _vkd3d_region_index_##name = vkd3d_profiling_register_region(#name, &_vkd3d_region_lock_##name, &_vkd3d_region_latch_##name); \
-        _vkd3d_region_begin_tick_##name = vkd3d_profiling_get_tick_count(); \
+        _vkd3d_region_begin_tick_##name = vkd3d_get_current_time_ns(); \
     } while(0)
 
 #define VKD3D_REGION_END_ITERATIONS(name, iter) \
     do { \
-        _vkd3d_region_end_tick_##name = vkd3d_profiling_get_tick_count(); \
+        _vkd3d_region_end_tick_##name = vkd3d_get_current_time_ns(); \
         vkd3d_profiling_notify_work(_vkd3d_region_index_##name, _vkd3d_region_begin_tick_##name, _vkd3d_region_end_tick_##name, iter); \
     } while(0)
 

@@ -30,6 +30,8 @@
 
 #ifdef _MSC_VER
 #include <intrin.h>
+#else
+#include <time.h>
 #endif
 
 #ifndef ARRAY_SIZE
@@ -289,5 +291,22 @@ static inline void *void_ptr_offset(void *ptr, size_t offset)
 #else
 #define VKD3D_THREAD_LOCAL __thread
 #endif
+
+static inline uint64_t vkd3d_get_current_time_ns(void)
+{
+#ifdef _WIN32
+    LARGE_INTEGER li, lf;
+    uint64_t whole, part;
+    QueryPerformanceCounter(&li);
+    QueryPerformanceFrequency(&lf);
+    whole = (li.QuadPart / lf.QuadPart) * 1000000000;
+    part = ((li.QuadPart % lf.QuadPart) * 1000000000) / lf.QuadPart;
+    return whole + part;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+    return ts.tv_sec * 1000000000ll + ts.tv_nsec;
+#endif
+}
 
 #endif  /* __VKD3D_COMMON_H */
