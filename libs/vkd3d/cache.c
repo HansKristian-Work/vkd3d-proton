@@ -1470,10 +1470,9 @@ static void d3d12_pipeline_library_serialize_hash_map(const struct hash_map *map
     *inout_blob_offset = blob_offset;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_Serialize(d3d12_pipeline_library_iface *iface,
-        void *data, SIZE_T data_size)
+static HRESULT d3d12_pipeline_library_serialize(struct d3d12_pipeline_library *pipeline_library,
+        void *data, size_t data_size)
 {
-    struct d3d12_pipeline_library *pipeline_library = impl_from_ID3D12PipelineLibrary(iface);
     const VkPhysicalDeviceProperties *device_properties = &pipeline_library->device->device_info.properties2.properties;
     struct vkd3d_serialized_pipeline_library *header = data;
     struct vkd3d_serialized_pipeline_toc_entry *toc_entries;
@@ -1485,22 +1484,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_Serialize(d3d12_pipeline
     size_t name_offset;
     size_t blob_offset;
     uint64_t pso_size;
-    int rc;
-
-    TRACE("iface %p.\n", iface);
-
-    if ((rc = rwlock_lock_read(&pipeline_library->mutex)))
-    {
-        ERR("Failed to lock mutex, rc %d.\n", rc);
-        return 0;
-    }
 
     required_size = d3d12_pipeline_library_get_serialized_size(pipeline_library);
     if (data_size < required_size)
-    {
-        rwlock_unlock_read(&pipeline_library->mutex);
         return E_INVALIDARG;
-    }
 
     header->version = VKD3D_PIPELINE_LIBRARY_VERSION;
     header->vendor_id = device_properties->vendorID;
@@ -1537,21 +1524,40 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_Serialize(d3d12_pipeline
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
     {
         INFO("Serializing pipeline library (%"PRIu64" bytes):\n"
-             "  TOC overhead: %"PRIu64" bytes\n"
-             "  Name table overhead: %"PRIu64" bytes\n"
-             "  D3D12 PSO count: %u (%"PRIu64" bytes)\n"
-             "  Unique SPIR-V count: %u (%"PRIu64" bytes)\n"
-             "  Unique VkPipelineCache count: %u (%"PRIu64" bytes)\n",
-                (uint64_t)data_size,
-                (uint64_t)(serialized_data - (const uint8_t*)data),
-                (uint64_t)name_offset,
-                header->pipeline_count, pso_size,
-                header->spirv_count, spirv_size,
-                header->driver_cache_count, driver_cache_size);
+            "  TOC overhead: %"PRIu64" bytes\n"
+            "  Name table overhead: %"PRIu64" bytes\n"
+            "  D3D12 PSO count: %u (%"PRIu64" bytes)\n"
+            "  Unique SPIR-V count: %u (%"PRIu64" bytes)\n"
+            "  Unique VkPipelineCache count: %u (%"PRIu64" bytes)\n",
+            (uint64_t)data_size,
+            (uint64_t)(serialized_data - (const uint8_t*)data),
+            (uint64_t)name_offset,
+            header->pipeline_count, pso_size,
+            header->spirv_count, spirv_size,
+            header->driver_cache_count, driver_cache_size);
     }
 
-    rwlock_unlock_read(&pipeline_library->mutex);
     return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_Serialize(d3d12_pipeline_library_iface *iface,
+        void *data, SIZE_T data_size)
+{
+    struct d3d12_pipeline_library *pipeline_library = impl_from_ID3D12PipelineLibrary(iface);
+    HRESULT hr;
+    int rc;
+
+    TRACE("iface %p.\n", iface);
+
+    if ((rc = rwlock_lock_read(&pipeline_library->mutex)))
+    {
+        ERR("Failed to lock mutex, rc %d.\n", rc);
+        return E_FAIL;
+    }
+
+    hr = d3d12_pipeline_library_serialize(pipeline_library, data, data_size);
+    rwlock_unlock_read(&pipeline_library->mutex);
+    return hr;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_LoadPipeline(d3d12_pipeline_library_iface *iface,
