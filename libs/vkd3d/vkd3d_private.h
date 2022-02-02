@@ -1669,6 +1669,7 @@ struct d3d12_pipeline_library
     d3d12_pipeline_library_iface ID3D12PipelineLibrary_iface;
     LONG refcount;
     LONG internal_refcount;
+    uint32_t flags;
 
     struct d3d12_device *device;
 
@@ -1687,8 +1688,17 @@ struct d3d12_pipeline_library
     struct vkd3d_private_store private_store;
 };
 
+enum vkd3d_pipeline_library_flags
+{
+    VKD3D_PIPELINE_LIBRARY_FLAG_SAVE_FULL_SPIRV = 1 << 0,
+    VKD3D_PIPELINE_LIBRARY_FLAG_SAVE_PSO_BLOB = 1 << 1,
+    VKD3D_PIPELINE_LIBRARY_FLAG_INTERNAL_KEYS = 1 << 2,
+    VKD3D_PIPELINE_LIBRARY_FLAG_USE_PIPELINE_CACHE_UUID = 1 << 3,
+};
+
 HRESULT d3d12_pipeline_library_create(struct d3d12_device *device, const void *blob,
-        size_t blob_length, struct d3d12_pipeline_library **pipeline_library);
+        size_t blob_length, uint32_t flags, /* vkd3d_pipeline_library_flags */
+        struct d3d12_pipeline_library **pipeline_library);
 
 VkResult vkd3d_create_pipeline_cache(struct d3d12_device *device,
         size_t size, const void *data, VkPipelineCache *cache);
