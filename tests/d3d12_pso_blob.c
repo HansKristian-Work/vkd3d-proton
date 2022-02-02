@@ -259,6 +259,13 @@ void test_pipeline_library(void)
     ok(hr == S_OK, "Failed to load graphics pipeline from pipeline library, hr %#x.\n", hr);
     ID3D12PipelineState_Release(state);
 
+    /* Verify that modifying a PSO description must be invalidated by runtime. */
+    graphics_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+    hr = ID3D12PipelineLibrary_LoadGraphicsPipeline(pipeline_library,
+            graphics_name, &graphics_desc, &IID_ID3D12PipelineState, (void**)&state);
+    ok(hr == E_INVALIDARG, "Unexpected result, hr %#x.\n", hr);
+    graphics_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+
     serialized_size = ID3D12PipelineLibrary_GetSerializedSize(pipeline_library);
     ok(serialized_size > 0, "Serialized size for pipeline library is 0.\n");
 
