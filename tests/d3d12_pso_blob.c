@@ -26,6 +26,7 @@ void test_get_cached_blob(void)
 {
     D3D12_COMPUTE_PIPELINE_STATE_DESC compute_desc;
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
+    ID3D12RootSignature *root_signature_alt;
     ID3D12RootSignature *root_signature;
     struct test_context context;
     ID3D12PipelineState *state;
@@ -45,6 +46,18 @@ void test_get_cached_blob(void)
         0x0400009b, 0x00000001, 0x00000001, 0x00000001, 0x0100003e,
     };
 
+#if 0
+    [numthreads(2,1,1)]
+    void main() { }
+#endif
+    static const DWORD cs_dxbc_2[] =
+    {
+        0x43425844, 0xcdd3f1fb, 0x7e892d91, 0xe5a2ea15, 0xab4fc56d, 0x00000001, 0x00000074, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000020, 0x00050050, 0x00000008, 0x0100086a,
+        0x0400009b, 0x00000002, 0x00000001, 0x00000001, 0x0100003e,
+    };
+
     if (!init_test_context(&context, NULL))
         return;
 
@@ -52,6 +65,10 @@ void test_get_cached_blob(void)
 
     memset(&root_signature_desc, 0, sizeof(root_signature_desc));
     hr = create_root_signature(device, &root_signature_desc, &root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    hr = create_root_signature(device, &root_signature_desc, &root_signature_alt);
     ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
 
     memset(&compute_desc, 0, sizeof(compute_desc));
@@ -77,7 +94,24 @@ void test_get_cached_blob(void)
     ok(hr == S_OK, "Failed to create compute pipeline, hr %#x.\n", hr);
 
     ID3D12PipelineState_Release(state);
+
+    /* Using mismatched shader code must fail. */
+    compute_desc.CS.pShaderBytecode = cs_dxbc_2;
+    compute_desc.CS.BytecodeLength = sizeof(cs_dxbc_2);
+    hr = ID3D12Device_CreateComputePipelineState(device,
+            &compute_desc, &IID_ID3D12PipelineState, (void**)&state);
+    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", hr);
+
+    /* Using mismatched root signature must fail. */
+    compute_desc.CS.pShaderBytecode = cs_dxbc;
+    compute_desc.CS.BytecodeLength = sizeof(cs_dxbc);
+    compute_desc.pRootSignature = root_signature_alt;
+    hr = ID3D12Device_CreateComputePipelineState(device,
+            &compute_desc, &IID_ID3D12PipelineState, (void**)&state);
+    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", hr);
+
     ID3D12RootSignature_Release(root_signature);
+    ID3D12RootSignature_Release(root_signature_alt);
 
     ID3D10Blob_Release(blob);
     destroy_test_context(&context);
