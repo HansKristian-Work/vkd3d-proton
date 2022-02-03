@@ -2481,6 +2481,7 @@ struct vkd3d_copy_image_pipeline_key
     VkImageViewType view_type;
     VkSampleCountFlagBits sample_count;
     VkImageLayout layout;
+    VkImageAspectFlags dst_aspect_mask;
 };
 
 struct vkd3d_copy_image_pipeline
@@ -2497,6 +2498,7 @@ struct vkd3d_copy_image_ops
     VkPipelineLayout vk_pipeline_layout;
     VkShaderModule vk_fs_float_module;
     VkShaderModule vk_fs_uint_module;
+    VkShaderModule vk_fs_stencil_module;
 
     pthread_mutex_t mutex;
 

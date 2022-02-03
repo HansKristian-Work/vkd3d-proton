@@ -50,6 +50,7 @@ enum vkd3d_meta_copy_mode
 #include <gs_fullscreen.h>
 #include <fs_copy_image_float.h>
 #include <fs_copy_image_uint.h>
+#include <fs_copy_image_stencil.h>
 #include <vs_swapchain_fullscreen.h>
 #include <fs_swapchain_fullscreen.h>
 
