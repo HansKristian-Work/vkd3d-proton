@@ -207,7 +207,7 @@ void test_copy_texture(void)
 
     for (i = 0; i < ARRAY_SIZE(resource_states); ++i)
     {
-        src_texture = create_default_texture(device, 16, 16, DXGI_FORMAT_R8G8B8A8_UNORM,
+        src_texture = create_default_texture(device, 4, 4, DXGI_FORMAT_R8G8B8A8_UNORM,
                 0, D3D12_RESOURCE_STATE_COPY_DEST);
         texture_data.pData = bitmap_data;
         texture_data.RowPitch = 4 * sizeof(*bitmap_data);
