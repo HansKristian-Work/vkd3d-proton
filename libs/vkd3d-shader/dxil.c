@@ -487,6 +487,8 @@ static bool dxil_match_shader_stage(dxil_spv_shader_stage blob_stage, VkShaderSt
         case DXIL_SPV_STAGE_GEOMETRY: stage = VK_SHADER_STAGE_GEOMETRY_BIT; break;
         case DXIL_SPV_STAGE_PIXEL: stage = VK_SHADER_STAGE_FRAGMENT_BIT; break;
         case DXIL_SPV_STAGE_COMPUTE: stage = VK_SHADER_STAGE_COMPUTE_BIT; break;
+        case DXIL_SPV_STAGE_AMPLIFICATION: stage = VK_SHADER_STAGE_TASK_BIT_EXT; break;
+        case DXIL_SPV_STAGE_MESH: stage = VK_SHADER_STAGE_MESH_BIT_EXT; break;
         default: return false;
     }
 
