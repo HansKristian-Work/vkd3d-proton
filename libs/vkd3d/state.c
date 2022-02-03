@@ -2968,13 +2968,16 @@ static uint32_t d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_pi
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     uint32_t dynamic_state_flags;
     unsigned int i, count;
+    bool is_mesh_pipeline;
+
+    is_mesh_pipeline = !!(graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT);
 
     dynamic_state_flags = 0;
 
     /* Enable dynamic states as necessary */
     dynamic_state_flags |= VKD3D_DYNAMIC_STATE_VIEWPORT | VKD3D_DYNAMIC_STATE_SCISSOR;
 
-    if (graphics->attribute_binding_count)
+    if (graphics->attribute_binding_count && !is_mesh_pipeline)
     {
         if (!key || key->dynamic_stride)
             dynamic_state_flags |= VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE;
@@ -2982,7 +2985,7 @@ static uint32_t d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_pi
             dynamic_state_flags |= VKD3D_DYNAMIC_STATE_VERTEX_BUFFER;
     }
 
-    if (!key || key->dynamic_topology)
+    if ((!key || key->dynamic_topology) && !is_mesh_pipeline)
         dynamic_state_flags |= VKD3D_DYNAMIC_STATE_TOPOLOGY;
 
     if (graphics->ds_desc.stencilTestEnable)
@@ -3011,7 +3014,7 @@ static uint32_t d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_pi
     if (d3d12_device_supports_variable_shading_rate_tier_1(state->device) && graphics->rt_count)
         dynamic_state_flags |= VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE;
 
-    if (graphics->index_buffer_strip_cut_value)
+    if (graphics->index_buffer_strip_cut_value && !is_mesh_pipeline)
         dynamic_state_flags |= VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART;
 
     /* Build dynamic state create info */
@@ -3118,6 +3121,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     struct vkd3d_shader_interface_info shader_interface;
     const struct d3d12_root_signature *root_signature;
     bool have_attachment, can_compile_pipeline_early;
+    struct vkd3d_shader_stage_io_map ms_ps_interface;
     struct vkd3d_shader_signature output_signature;
     struct vkd3d_shader_signature input_signature;
     VkShaderStageFlagBits xfb_stage = 0;
@@ -3142,14 +3146,20 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         {VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,    offsetof(struct d3d12_pipeline_state_desc, hs)},
         {VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT, offsetof(struct d3d12_pipeline_state_desc, ds)},
         {VK_SHADER_STAGE_GEOMETRY_BIT,                offsetof(struct d3d12_pipeline_state_desc, gs)},
+        {VK_SHADER_STAGE_TASK_BIT_EXT,                offsetof(struct d3d12_pipeline_state_desc, as)},
+        {VK_SHADER_STAGE_MESH_BIT_EXT,                offsetof(struct d3d12_pipeline_state_desc, ms)},
         {VK_SHADER_STAGE_FRAGMENT_BIT,                offsetof(struct d3d12_pipeline_state_desc, ps)},
     };
 
-    state->pipeline_type = VKD3D_PIPELINE_TYPE_GRAPHICS;
-
+    graphics->stage_flags = vkd3d_pipeline_state_desc_get_shader_stages(desc);
     graphics->stage_count = 0;
     graphics->primitive_topology_type = desc->primitive_topology_type;
 
+    state->pipeline_type = (graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT)
+            ? VKD3D_PIPELINE_TYPE_MESH_GRAPHICS
+            : VKD3D_PIPELINE_TYPE_GRAPHICS;
+
+    memset(&ms_ps_interface, 0, sizeof(ms_ps_interface));
     memset(&input_signature, 0, sizeof(input_signature));
     memset(&output_signature, 0, sizeof(output_signature));
 
@@ -3179,7 +3189,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         rt_count = ARRAY_SIZE(graphics->blend_attachments);
     }
 
-    if (!desc->ps.pShaderBytecode || !desc->ps.BytecodeLength)
+    if (!(graphics->stage_flags & VK_SHADER_STAGE_FRAGMENT_BIT))
     {
         /* Avoids validation errors where app might bind bogus RTV format which does not match the PSO.
          * D3D12 validation does not complain about this when PS is NULL since RTVs are not accessed to begin with.
@@ -3359,9 +3369,9 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         xfb_info.buffer_strides = so_desc->pBufferStrides;
         xfb_info.buffer_stride_count = so_desc->NumStrides;
 
-        if (desc->gs.pShaderBytecode)
+        if (graphics->stage_flags & VK_SHADER_STAGE_GEOMETRY_BIT)
             xfb_stage = VK_SHADER_STAGE_GEOMETRY_BIT;
-        else if (desc->ds.pShaderBytecode)
+        else if (graphics->stage_flags & VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT)
             xfb_stage = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
         else
             xfb_stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -3390,7 +3400,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         const D3D12_SHADER_BYTECODE *b = (const void *)((uintptr_t)desc + shader_stages[i].offset);
         const struct vkd3d_shader_code dxbc = {b->pShaderBytecode, b->BytecodeLength};
 
-        if (!b->pShaderBytecode)
+        if (!(graphics->stage_flags & shader_stages[i].stage))
             continue;
 
         switch (shader_stages[i].stage)
@@ -3414,6 +3424,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
                 break;
 
             case VK_SHADER_STAGE_GEOMETRY_BIT:
+            case VK_SHADER_STAGE_TASK_BIT_EXT:
+            case VK_SHADER_STAGE_MESH_BIT_EXT:
                 break;
 
             case VK_SHADER_STAGE_FRAGMENT_BIT:
@@ -3442,8 +3454,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     stage_count = 0;
     for (i = 0; i < ARRAY_SIZE(shader_stages); i++)
     {
-        const D3D12_SHADER_BYTECODE *b = (const void *)((uintptr_t)desc + shader_stages[i].offset);
-        if (!b->pShaderBytecode)
+        if (!(graphics->stage_flags & shader_stages[i].stage))
             continue;
 
         if (FAILED(vkd3d_load_spirv_from_cached_state(device, cached_pso,
@@ -3469,8 +3480,26 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     for (i = 0; i < ARRAY_SIZE(shader_stages); i++)
     {
         const D3D12_SHADER_BYTECODE *b = (const void *)((uintptr_t)desc + shader_stages[i].offset);
-        if (!b->pShaderBytecode)
+
+        if (!(graphics->stage_flags & shader_stages[i].stage))
             continue;
+
+        if (shader_stages[i].stage == VK_SHADER_STAGE_MESH_BIT_EXT)
+        {
+            shader_interface.stage_output_map = &ms_ps_interface;
+            shader_interface.stage_input_map = NULL;
+        }
+        else if ((shader_stages[i].stage == VK_SHADER_STAGE_FRAGMENT_BIT) &&
+                (graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT))
+        {
+            shader_interface.stage_output_map = NULL;
+            shader_interface.stage_input_map = &ms_ps_interface;
+        }
+        else
+        {
+            shader_interface.stage_output_map = NULL;
+            shader_interface.stage_input_map = NULL;
+        }
 
         shader_interface.xfb_info = shader_stages[i].stage == xfb_stage ? &xfb_info : NULL;
         shader_interface.stage = shader_stages[i].stage;
@@ -3496,7 +3525,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         ++stage_count;
     }
 
-    graphics->attribute_count = desc->input_layout.NumElements;
+    graphics->attribute_count = (graphics->stage_flags & VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT)
+            ? 0 : desc->input_layout.NumElements;
     if (graphics->attribute_count > ARRAY_SIZE(graphics->attributes))
     {
         FIXME("InputLayout.NumElements %zu > %zu, ignoring extra elements.\n",
@@ -3659,7 +3689,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     rs_desc_from_d3d12(&graphics->rs_desc, &desc->rasterizer_state);
     have_attachment = graphics->rt_count || graphics->dsv_format ||
             d3d12_graphics_pipeline_state_has_unknown_dsv_format_with_test(graphics);
-    if ((!have_attachment && !(desc->ps.pShaderBytecode && desc->ps.BytecodeLength))
+    if ((!have_attachment && !(graphics->stage_flags & VK_SHADER_STAGE_FRAGMENT_BIT))
             || (graphics->xfb_enabled && so_desc->RasterizedStream == D3D12_SO_NO_RASTERIZED_STREAM))
         graphics->rs_desc.rasterizerDiscardEnable = VK_TRUE;
 
@@ -3693,13 +3723,21 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         goto fail;
     }
 
-    /* If we don't know vertex count for tessellation shaders, we need to defer compilation, but this should
-     * be exceedingly rare. */
-    can_compile_pipeline_early =
-            (desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH || graphics->patch_vertex_count != 0) &&
-            desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
+    if (graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT)
+    {
+        can_compile_pipeline_early = true;
+        graphics->pipeline_layout = root_signature->mesh.vk_pipeline_layout;
+    }
+    else
+    {
+        /* If we don't know vertex count for tessellation shaders, we need to defer compilation, but this should
+         * be exceedingly rare. */
+        can_compile_pipeline_early =
+                (desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH || graphics->patch_vertex_count != 0) &&
+                desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
+        graphics->pipeline_layout = root_signature->graphics.vk_pipeline_layout;
+    }
 
-    graphics->pipeline_layout = root_signature->graphics.vk_pipeline_layout;
     graphics->pipeline = VK_NULL_HANDLE;
     state->device = device;
 
@@ -3730,12 +3768,14 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
     d3d12_device_add_ref(state->device);
 
+    vkd3d_shader_stage_io_map_free(&ms_ps_interface);
     return S_OK;
 
 fail:
     vkd3d_shader_free_shader_signature(&input_signature);
     vkd3d_shader_free_shader_signature(&output_signature);
 
+    vkd3d_shader_stage_io_map_free(&ms_ps_interface);
     return hr;
 }
 
@@ -4105,40 +4145,43 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
             bindings[i].stride = key->strides[i];
     }
 
-    input_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    input_desc.pNext = NULL;
-    input_desc.flags = 0;
-    input_desc.vertexBindingDescriptionCount = graphics->attribute_binding_count;
-    input_desc.pVertexBindingDescriptions = bindings;
-    input_desc.vertexAttributeDescriptionCount = graphics->attribute_count;
-    input_desc.pVertexAttributeDescriptions = graphics->attributes;
-
-    if (graphics->instance_divisor_count)
+    if (!(graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT))
     {
-        input_desc.pNext = &input_divisor_info;
-        input_divisor_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_DIVISOR_STATE_CREATE_INFO_EXT;
-        input_divisor_info.pNext = NULL;
-        input_divisor_info.vertexBindingDivisorCount = graphics->instance_divisor_count;
-        input_divisor_info.pVertexBindingDivisors = graphics->instance_divisors;
+        input_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        input_desc.pNext = NULL;
+        input_desc.flags = 0;
+        input_desc.vertexBindingDescriptionCount = graphics->attribute_binding_count;
+        input_desc.pVertexBindingDescriptions = bindings;
+        input_desc.vertexAttributeDescriptionCount = graphics->attribute_count;
+        input_desc.pVertexAttributeDescriptions = graphics->attributes;
+
+        if (graphics->instance_divisor_count)
+        {
+            input_desc.pNext = &input_divisor_info;
+            input_divisor_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_DIVISOR_STATE_CREATE_INFO_EXT;
+            input_divisor_info.pNext = NULL;
+            input_divisor_info.vertexBindingDivisorCount = graphics->instance_divisor_count;
+            input_divisor_info.pVertexBindingDivisors = graphics->instance_divisors;
+        }
+
+        ia_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        ia_desc.pNext = NULL;
+        ia_desc.flags = 0;
+        ia_desc.topology = key && !key->dynamic_topology ?
+                vk_topology_from_d3d12_topology(key->topology) :
+                vk_topology_from_d3d12_topology_type(graphics->primitive_topology_type, !!graphics->index_buffer_strip_cut_value);
+        ia_desc.primitiveRestartEnable = graphics->index_buffer_strip_cut_value &&
+                                        (key && !key->dynamic_topology ?
+                                          vkd3d_topology_can_restart(ia_desc.topology) :
+                                          vkd3d_topology_type_can_restart(graphics->primitive_topology_type));
+
+        tessellation_info.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO;
+        tessellation_info.pNext = NULL;
+        tessellation_info.flags = 0;
+        tessellation_info.patchControlPoints = key && !key->dynamic_topology ?
+                max(key->topology - D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST + 1, 1) :
+                graphics->patch_vertex_count;
     }
-
-    ia_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    ia_desc.pNext = NULL;
-    ia_desc.flags = 0;
-    ia_desc.topology = key && !key->dynamic_topology ?
-            vk_topology_from_d3d12_topology(key->topology) :
-            vk_topology_from_d3d12_topology_type(graphics->primitive_topology_type, !!graphics->index_buffer_strip_cut_value);
-    ia_desc.primitiveRestartEnable = graphics->index_buffer_strip_cut_value &&
-                                     (key && !key->dynamic_topology ?
-                                      vkd3d_topology_can_restart(ia_desc.topology) :
-                                      vkd3d_topology_type_can_restart(graphics->primitive_topology_type));
-
-    tessellation_info.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO;
-    tessellation_info.pNext = NULL;
-    tessellation_info.flags = 0;
-    tessellation_info.patchControlPoints = key && !key->dynamic_topology ?
-            max(key->topology - D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST + 1, 1) :
-            graphics->patch_vertex_count;
 
     vp_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
     vp_desc.pNext = NULL;
@@ -4169,14 +4212,11 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
             rtv_formats[i] = VK_FORMAT_UNDEFINED;
     }
 
+    memset(&pipeline_desc, 0, sizeof(pipeline_desc));
     pipeline_desc.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipeline_desc.pNext = &rendering_info;
-    pipeline_desc.flags = 0;
     pipeline_desc.stageCount = graphics->stage_count;
     pipeline_desc.pStages = graphics->stages;
-    pipeline_desc.pVertexInputState = &input_desc;
-    pipeline_desc.pInputAssemblyState = &ia_desc;
-    pipeline_desc.pTessellationState = &tessellation_info;
     pipeline_desc.pViewportState = &vp_desc;
     pipeline_desc.pRasterizationState = &graphics->rs_desc;
     pipeline_desc.pMultisampleState = &graphics->ms_desc;
@@ -4184,13 +4224,17 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     pipeline_desc.pColorBlendState = &graphics->blend_desc;
     pipeline_desc.pDynamicState = &dynamic_create_info;
     pipeline_desc.layout = graphics->pipeline_layout;
-    pipeline_desc.renderPass = VK_NULL_HANDLE;
-    pipeline_desc.subpass = 0;
-    pipeline_desc.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_desc.basePipelineIndex = -1;
 
     if (d3d12_device_supports_variable_shading_rate_tier_2(device))
         pipeline_desc.flags |= VK_PIPELINE_CREATE_RENDERING_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
+
+    if (!(graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT))
+    {
+        pipeline_desc.pVertexInputState = &input_desc;
+        pipeline_desc.pInputAssemblyState = &ia_desc;
+        pipeline_desc.pTessellationState = &tessellation_info;
+    }
 
     /* A workaround for SottR, which creates pipelines with DSV_UNKNOWN, but still insists on using a depth buffer.
      * If we notice that the base pipeline's DSV format does not match the dynamic DSV format, we fall-back to create a new render pass. */
@@ -4344,30 +4388,32 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     memset(&pipeline_key, 0, sizeof(pipeline_key));
 
     /* Try to keep as much dynamic state as possible so we don't have to rebind state unnecessarily. */
-
-    if (graphics->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH &&
+    if (!(graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT))
+    {
+        if (graphics->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH &&
             graphics->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED)
-        pipeline_key.dynamic_topology = true;
-    else
-        pipeline_key.topology = dyn_state->primitive_topology;
+            pipeline_key.dynamic_topology = true;
+        else
+            pipeline_key.topology = dyn_state->primitive_topology;
 
-    if (d3d12_pipeline_state_can_use_dynamic_stride(state, dyn_state))
-    {
-        pipeline_key.dynamic_stride = true;
-    }
-    else
-    {
-        for (i = 0; i < graphics->attribute_binding_count; ++i)
+        if (d3d12_pipeline_state_can_use_dynamic_stride(state, dyn_state))
         {
-            stride = dyn_state->vertex_strides[graphics->attribute_bindings[i].binding];
-            stride_align_mask = state->graphics.vertex_buffer_stride_align_mask[graphics->attribute_bindings[i].binding];
-            if (stride & stride_align_mask)
+            pipeline_key.dynamic_stride = true;
+        }
+        else
+        {
+            for (i = 0; i < graphics->attribute_binding_count; ++i)
             {
-                FIXME("Attempting to use VBO stride of %u bytes, but D3D12 requires alignment of %u bytes. VBO stride will be adjusted.\n",
-                        stride, stride_align_mask + 1);
-                stride &= ~stride_align_mask;
+                stride = dyn_state->vertex_strides[graphics->attribute_bindings[i].binding];
+                stride_align_mask = state->graphics.vertex_buffer_stride_align_mask[graphics->attribute_bindings[i].binding];
+                if (stride & stride_align_mask)
+                {
+                    FIXME("Attempting to use VBO stride of %u bytes, but D3D12 requires alignment of %u bytes. VBO stride will be adjusted.\n",
+                            stride, stride_align_mask + 1);
+                    stride &= ~stride_align_mask;
+                }
+                pipeline_key.strides[i] = stride;
             }
-            pipeline_key.strides[i] = stride;
         }
     }
 
