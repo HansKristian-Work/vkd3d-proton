@@ -606,6 +606,16 @@ HRESULT vkd3d_copy_image_ops_init(struct vkd3d_copy_image_ops *meta_copy_image_o
         goto fail;
     }
 
+    if (device->vk_info.EXT_shader_stencil_export)
+    {
+        if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_copy_image_stencil),
+                &meta_copy_image_ops->vk_fs_stencil_module)) < 0)
+        {
+            ERR("Failed to create shader modules, vr %d.\n", vr);
+            goto fail;
+        }
+    }
+
     return S_OK;
 
 fail:
@@ -631,6 +641,7 @@ void vkd3d_copy_image_ops_cleanup(struct vkd3d_copy_image_ops *meta_copy_image_o
     VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_copy_image_ops->vk_pipeline_layout, NULL));
     VK_CALL(vkDestroyShaderModule(device->vk_device, meta_copy_image_ops->vk_fs_float_module, NULL));
     VK_CALL(vkDestroyShaderModule(device->vk_device, meta_copy_image_ops->vk_fs_uint_module, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_copy_image_ops->vk_fs_stencil_module, NULL));
 
     pthread_mutex_destroy(&meta_copy_image_ops->mutex);
 
@@ -793,13 +804,30 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
     ds_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
     ds_state.pNext = NULL;
     ds_state.flags = 0;
-    ds_state.depthTestEnable = VK_TRUE;
-    ds_state.depthWriteEnable = VK_TRUE;
+    ds_state.depthTestEnable = (key->dst_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT) ? VK_TRUE : VK_FALSE;
+    ds_state.depthWriteEnable = ds_state.depthTestEnable;
     ds_state.depthCompareOp = VK_COMPARE_OP_ALWAYS;
     ds_state.depthBoundsTestEnable = VK_FALSE;
-    ds_state.stencilTestEnable = VK_FALSE;
-    memset(&ds_state.front, 0, sizeof(ds_state.front));
-    memset(&ds_state.back, 0, sizeof(ds_state.back));
+
+    if (key->dst_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT)
+    {
+        ds_state.stencilTestEnable = VK_TRUE;
+        ds_state.front.reference = 0;
+        ds_state.front.writeMask = 0xff;
+        ds_state.front.compareMask = 0xff;
+        ds_state.front.passOp = VK_STENCIL_OP_REPLACE;
+        ds_state.front.failOp = VK_STENCIL_OP_KEEP;
+        ds_state.front.depthFailOp = VK_STENCIL_OP_KEEP;
+        ds_state.front.compareOp = VK_COMPARE_OP_ALWAYS;
+        ds_state.back = ds_state.front;
+    }
+    else
+    {
+        ds_state.stencilTestEnable = VK_FALSE;
+        memset(&ds_state.front, 0, sizeof(ds_state.front));
+        memset(&ds_state.back, 0, sizeof(ds_state.back));
+    }
+
     ds_state.minDepthBounds = 0.0f;
     ds_state.maxDepthBounds = 1.0f;
 
@@ -822,11 +850,21 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
             key->sample_count, key->format, key->layout, &pipeline->vk_render_pass)) < 0)
         return hresult_from_vk_result(vr);
 
-    /* Special path when copying stencil -> color. */
     if (key->format->vk_format == VK_FORMAT_R8_UINT)
+    {
+        /* Special path when copying stencil -> color. */
         vk_module = meta_copy_image_ops->vk_fs_uint_module;
+    }
+    else if (key->dst_aspect_mask == VK_IMAGE_ASPECT_STENCIL_BIT)
+    {
+        /* FragStencilRef path. */
+        vk_module = meta_copy_image_ops->vk_fs_stencil_module;
+    }
     else
+    {
+        /* Depth or float color path. */
         vk_module = meta_copy_image_ops->vk_fs_float_module;
+    }
 
     if ((vr = vkd3d_meta_create_graphics_pipeline(meta_ops,
             meta_copy_image_ops->vk_pipeline_layout, pipeline->vk_render_pass,

@@ -5994,6 +5994,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         pipeline_key.view_type = vkd3d_meta_get_copy_image_view_type(dst_resource->desc.Dimension);
         pipeline_key.sample_count = vk_samples_from_dxgi_sample_desc(&dst_resource->desc.SampleDesc);
         pipeline_key.layout = dst_layout;
+        pipeline_key.dst_aspect_mask = region->dstSubresource.aspectMask;
 
         if (FAILED(hr = vkd3d_meta_get_copy_image_pipeline(&list->device->meta_ops, &pipeline_key, &pipeline_info)))
         {
@@ -6364,12 +6365,17 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
                  &src_resource->desc, &dst_resource->desc, src_format, dst_format,
                  src_box, dst_x, dst_y, dst_z);
 
-        if ((dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
-                && (dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT)
-                && (image_copy.dstSubresource.aspectMask & VK_IMAGE_ASPECT_STENCIL_BIT))
+        /* If aspect masks do not match, we have to use fallback copies with a render pass, and there
+         * is no standard way to write to stencil without fallbacks.
+         * Checking aspect masks here is equivalent to checking formats. vkCmdCopyImage can only be
+         * used for compatible formats and depth stencil formats are only compatible with themselves. */
+        if (dst_format->vk_aspect_mask != src_format->vk_aspect_mask &&
+                (image_copy.dstSubresource.aspectMask & VK_IMAGE_ASPECT_STENCIL_BIT) &&
+                !list->device->vk_info.EXT_shader_stencil_export)
         {
-            FIXME("Destination depth-stencil format %#x is not supported for STENCIL dst copy.\n",
+            FIXME("Destination depth-stencil format %#x is not supported for STENCIL dst copy with render pass fallback.\n",
                     dst_format->dxgi_format);
+            return;
         }
 
         writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
