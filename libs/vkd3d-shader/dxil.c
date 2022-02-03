@@ -347,6 +347,42 @@ static dxil_spv_bool dxil_output_remap(void *userdata, const dxil_spv_d3d_stream
     return DXIL_SPV_TRUE;
 }
 
+static dxil_spv_bool dxil_shader_stage_output_capture(void *userdata, const dxil_spv_d3d_shader_stage_io *d3d_input,
+                                                      dxil_spv_vulkan_shader_stage_io *vk_input)
+{
+    struct vkd3d_shader_stage_io_map *io_map = userdata;
+    struct vkd3d_shader_stage_io_entry *e;
+
+    if (!(e = vkd3d_shader_stage_io_map_append(io_map, d3d_input->semantic, d3d_input->semantic_index)))
+    {
+        ERR("Duplicate semantic %s (%u).\n", d3d_input->semantic, d3d_input->semantic_index);
+        return false;
+    }
+
+    e->vk_location = vk_input->location;
+    e->vk_component = vk_input->component;
+    e->vk_flags = vk_input->flags;
+    return true;
+}
+
+static dxil_spv_bool dxil_shader_stage_input_remap(void *userdata, const dxil_spv_d3d_shader_stage_io *d3d_input,
+                                                   dxil_spv_vulkan_shader_stage_io *vk_input)
+{
+    const struct vkd3d_shader_stage_io_map *io_map = userdata;
+    const struct vkd3d_shader_stage_io_entry *e;
+
+    if (!(e = vkd3d_shader_stage_io_map_find(io_map, d3d_input->semantic, d3d_input->semantic_index)))
+    {
+        ERR("Undefined semantic %s (%u).\n", d3d_input->semantic, d3d_input->semantic_index);
+        return false;
+    }
+
+    vk_input->location = e->vk_location;
+    vk_input->component = e->vk_component;
+    vk_input->flags = e->vk_flags;
+    return true;
+}
+
 static dxil_spv_bool dxil_uav_remap(void *userdata, const dxil_spv_uav_d3d_binding *d3d_binding,
                                     dxil_spv_uav_vulkan_binding *vk_binding)
 {
@@ -863,6 +899,12 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
 
     if (shader_interface_info->xfb_info)
         dxil_spv_converter_set_stream_output_remapper(converter, dxil_output_remap, (void *)shader_interface_info->xfb_info);
+
+    if (shader_interface_info->stage_input_map)
+        dxil_spv_converter_set_stage_input_remapper(converter, dxil_shader_stage_input_remap, (void *)shader_interface_info->stage_input_map);
+
+    if (shader_interface_info->stage_output_map)
+        dxil_spv_converter_set_stage_output_remapper(converter, dxil_shader_stage_output_capture, (void *)shader_interface_info->stage_output_map);
 
     if (dxil_spv_converter_run(converter) != DXIL_SPV_SUCCESS)
     {
