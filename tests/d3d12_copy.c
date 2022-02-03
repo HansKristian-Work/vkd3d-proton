@@ -137,6 +137,10 @@ void test_copy_texture(void)
         { 0.7f, 41, DXGI_FORMAT_R32G8X24_TYPELESS, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R32G8X24_TYPELESS, true, false },
         { 0.2f, 42, DXGI_FORMAT_R32G8X24_TYPELESS, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R32G8X24_TYPELESS, false, true },
         { 0.5f, 43, DXGI_FORMAT_R32G8X24_TYPELESS, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R32G8X24_TYPELESS, true, true },
+
+        /* Test color <-> stencil copies. */
+        { 1.0f, 44, DXGI_FORMAT_R32G8X24_TYPELESS, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R8_UINT, true, false },
+        { 1.0f, 45, DXGI_FORMAT_R32G8X24_TYPELESS, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R8_UINT, true, true },
     };
 
     static const D3D12_RESOURCE_STATES resource_states[] =
@@ -309,7 +313,7 @@ void test_copy_texture(void)
 
         if (depth_copy_tests[i].roundtrip)
         {
-            /* Test color to depth copy. */
+            /* Test color to depth/stencil copy. */
             D3D12_TEXTURE_COPY_LOCATION tmp_src_location = dst_location;
             D3D12_TEXTURE_COPY_LOCATION tmp_dst_location = src_location;
             transition_sub_resource_state(command_list, dst_texture, srv.Texture2D.PlaneSlice,
