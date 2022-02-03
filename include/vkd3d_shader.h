@@ -196,6 +196,28 @@ enum vkd3d_shader_interface_flag
     VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER             = 0x00000010u
 };
 
+struct vkd3d_shader_stage_io_entry
+{
+    const char *semantic_name;
+    unsigned int semantic_index;
+    unsigned int vk_location;
+    unsigned int vk_component;
+    unsigned int vk_flags;
+};
+
+struct vkd3d_shader_stage_io_map
+{
+    struct vkd3d_shader_stage_io_entry *entries;
+    size_t entries_size;
+    size_t entry_count;
+};
+
+struct vkd3d_shader_stage_io_entry *vkd3d_shader_stage_io_map_append(struct vkd3d_shader_stage_io_map *map,
+        const char *semantic_name, unsigned int semantic_index);
+const struct vkd3d_shader_stage_io_entry *vkd3d_shader_stage_io_map_find(const struct vkd3d_shader_stage_io_map *map,
+        const char *semantic_name, unsigned int semantic_index);
+void vkd3d_shader_stage_io_map_free(struct vkd3d_shader_stage_io_map *map);
+
 struct vkd3d_shader_interface_info
 {
     unsigned int flags; /* vkd3d_shader_interface_flags */
@@ -219,6 +241,9 @@ struct vkd3d_shader_interface_info
     /* Ignored unless VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER is set. */
     const struct vkd3d_shader_descriptor_binding *descriptor_qa_heap_binding;
 #endif
+
+    const struct vkd3d_shader_stage_io_map *stage_input_map;
+    struct vkd3d_shader_stage_io_map *stage_output_map;
 
     VkShaderStageFlagBits stage;
 

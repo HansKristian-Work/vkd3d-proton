@@ -2405,6 +2405,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     else
         root_signature = state->private_root_signature;
 
+    memset(&shader_interface, 0, sizeof(shader_interface));
     shader_interface.flags = d3d12_root_signature_get_shader_interface_flags(root_signature);
     shader_interface.min_ssbo_alignment = d3d12_device_get_ssbo_alignment(device);
     shader_interface.descriptor_tables.offset = root_signature->descriptor_table_offset;
@@ -2416,7 +2417,6 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     shader_interface.push_constant_ubo_binding = &root_signature->push_constant_ubo_binding;
     shader_interface.offset_buffer_binding = &root_signature->offset_buffer_binding;
     shader_interface.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    shader_interface.xfb_info = NULL;
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     shader_interface.descriptor_qa_global_binding = &root_signature->descriptor_qa_global_info;
     shader_interface.descriptor_qa_heap_binding = &root_signature->descriptor_qa_heap_binding;
@@ -3367,6 +3367,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             xfb_stage = VK_SHADER_STAGE_VERTEX_BIT;
     }
 
+    memset(&shader_interface, 0, sizeof(shader_interface));
     shader_interface.flags = d3d12_root_signature_get_shader_interface_flags(root_signature);
     shader_interface.min_ssbo_alignment = d3d12_device_get_ssbo_alignment(device);
     shader_interface.descriptor_tables.offset = root_signature->descriptor_table_offset;

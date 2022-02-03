@@ -19,6 +19,7 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_SHADER
 
 #include "vkd3d_shader_private.h"
+#include "vkd3d_string.h"
 
 #include "vkd3d_platform.h"
 
@@ -747,4 +748,48 @@ uint64_t vkd3d_shader_get_revision(void)
      * It's not immediately useful for invalidating pipeline caches, since that would mostly be covered
      * by vkd3d-proton Git hash. */
     return 1;
+}
+
+struct vkd3d_shader_stage_io_entry *vkd3d_shader_stage_io_map_append(struct vkd3d_shader_stage_io_map *map,
+        const char *semantic_name, unsigned int semantic_index)
+{
+    struct vkd3d_shader_stage_io_entry *e;
+
+    if (vkd3d_shader_stage_io_map_find(map, semantic_name, semantic_index))
+        return NULL;
+
+    if (!vkd3d_array_reserve((void **)&map->entries, &map->entries_size,
+            map->entry_count + 1, sizeof(*map->entries)))
+        return NULL;
+
+    e = &map->entries[map->entry_count++];
+    e->semantic_name = vkd3d_strdup(semantic_name);
+    e->semantic_index = semantic_index;
+    return e;
+}
+
+const struct vkd3d_shader_stage_io_entry *vkd3d_shader_stage_io_map_find(const struct vkd3d_shader_stage_io_map *map,
+        const char *semantic_name, unsigned int semantic_index)
+{
+    unsigned int i;
+
+    for (i = 0; i < map->entry_count; i++)
+    {
+        struct vkd3d_shader_stage_io_entry *e = &map->entries[i];
+
+        if (!strcmp(e->semantic_name, semantic_name) && e->semantic_index == semantic_index)
+            return e;
+    }
+
+    return NULL;
+}
+
+void vkd3d_shader_stage_io_map_free(struct vkd3d_shader_stage_io_map *map)
+{
+    unsigned int i;
+
+    for (i = 0; i < map->entry_count; i++)
+        vkd3d_free((void *)map->entries[i].semantic_name);
+
+    vkd3d_free(map->entries);
 }
