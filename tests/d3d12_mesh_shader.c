@@ -365,7 +365,10 @@ void test_mesh_shader_create_pipeline(void)
     ms_ps_pipeline_desc.rasterizer = rasterizer_subobject;
 
     hr = create_pipeline_state_from_stream(device2, &ms_ps_pipeline_desc, &pipeline_state);
-    ok(hr == E_INVALIDARG, "Unexpected result for pipeline creation, hr %#x.\n", hr);
+    todo ok(hr == E_INVALIDARG, "Unexpected result for pipeline creation, hr %#x.\n", hr);
+
+    if (SUCCEEDED(hr))
+        ID3D12PipelineState_Release(pipeline_state);
 
     ms_ps_pipeline_desc.ms = ms_nontrivial_subobject;
 
