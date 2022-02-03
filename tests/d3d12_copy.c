@@ -119,6 +119,7 @@ void test_copy_texture(void)
         DXGI_FORMAT readback_format;
         bool stencil;
         bool roundtrip;
+        bool requires_stencil_export;
     };
     static const struct depth_copy_test depth_copy_tests[] = {
         { 0.0f, 0, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_FLOAT, false, false },
@@ -140,7 +141,7 @@ void test_copy_texture(void)
 
         /* Test color <-> stencil copies. */
         { 1.0f, 44, DXGI_FORMAT_R32G8X24_TYPELESS, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R8_UINT, true, false },
-        { 1.0f, 45, DXGI_FORMAT_R32G8X24_TYPELESS, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R8_UINT, true, true },
+        { 1.0f, 45, DXGI_FORMAT_R32G8X24_TYPELESS, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, DXGI_FORMAT_R8_UINT, true, true, true },
     };
 
     static const D3D12_RESOURCE_STATES resource_states[] =
@@ -352,6 +353,8 @@ void test_copy_texture(void)
 
         if (depth_copy_tests[i].stencil)
         {
+            /* Supported on AMD, but not NV. Need buffer copy roundtrip workaround for that to work. */
+            todo_if(depth_copy_tests[i].requires_stencil_export)
             check_sub_resource_float(context.render_target, 0, queue, command_list, (float)depth_copy_tests[i].stencil_value, 0);
         }
         else
