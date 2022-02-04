@@ -416,6 +416,7 @@ void test_depth_stencil_test_no_dsv(void)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12GraphicsCommandList *command_list;
+    struct depth_stencil_resource ds;
     struct test_context_desc desc;
     struct test_context context;
     ID3D12CommandQueue *queue;
@@ -455,6 +456,8 @@ void test_depth_stencil_test_no_dsv(void)
     command_list = context.list;
     queue = context.queue;
 
+    init_depth_stencil(&ds, context.device, 32, 32, 1, 1, DXGI_FORMAT_D32_FLOAT, 0, NULL);
+
     context.root_signature = create_32bit_constants_root_signature(context.device,
               0, 4, D3D12_SHADER_VISIBILITY_PIXEL);
 
@@ -462,14 +465,16 @@ void test_depth_stencil_test_no_dsv(void)
     pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
     pso_desc.DepthStencilState.DepthEnable = true;
     pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_EQUAL;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
     ok(hr == S_OK, "Failed to create graphics pipeline state, hr %#x.\n", hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(command_list, ds.dsv_handle, D3D12_CLEAR_FLAG_DEPTH,
+            1.0f, 0, 0, NULL);
 
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, &ds.dsv_handle);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -484,6 +489,9 @@ void test_depth_stencil_test_no_dsv(void)
     set_viewport(&context.viewport, 0.0f, 0.0f, 32.0f, 32.0f, 0.9f, 0.9f);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+
+    /* Now, dynamically disable the depth attachment. */
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
 
     /* Native behavior seems to be that depth test is just disabled entirely here.
      * This last draw is the color we should get on NV at least.
@@ -500,6 +508,7 @@ void test_depth_stencil_test_no_dsv(void)
      * At least test that we don't crash. */
     check_sub_resource_vec4(context.render_target, 0, queue, command_list, &blue, 0);
 
+    destroy_depth_stencil(&ds);
     destroy_test_context(&context);
 }
 
