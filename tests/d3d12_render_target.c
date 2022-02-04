@@ -28,9 +28,11 @@ void test_unbound_rtv_rendering(void)
     static const struct vec4 red = { 1.0f, 0.0f, 0.0f, 1.0f };
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12GraphicsCommandList *command_list;
+    D3D12_CPU_DESCRIPTOR_HANDLE rt_handle;
     struct test_context_desc desc;
     struct test_context context;
     ID3D12CommandQueue *queue;
+    ID3D12Resource *fp32_rt;
     HRESULT hr;
 
     static const DWORD ps_code[] =
@@ -59,11 +61,20 @@ void test_unbound_rtv_rendering(void)
     desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
     desc.rt_width = 32;
     desc.rt_height = 32;
+    desc.rt_descriptor_count = 2;
     desc.no_pipeline = true;
     if (!init_test_context(&context, &desc))
         return;
     command_list = context.list;
     queue = context.queue;
+
+    fp32_rt = create_default_texture2d(context.device, 32, 32,
+            1, 1, DXGI_FORMAT_R32_FLOAT, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+            D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    rt_handle = context.rtv;
+    rt_handle.ptr += ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+    ID3D12Device_CreateRenderTargetView(context.device, fp32_rt, NULL, rt_handle);
 
     /* Apparently, rendering to an NULL RTV is fine. D3D12 validation does not complain about this case at all. */
     init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps, NULL);
@@ -81,19 +92,29 @@ void test_unbound_rtv_rendering(void)
     ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, &white.x, 0, NULL);
-    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rt_handle, &white.x, 0, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     set_viewport(&context.viewport, 0.0f, 0.0f, 32.0f, 32.0f, 0.5f, 0.5f);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
     ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+
+    /* First, render to both RTs, but then only render to 1 RT. */
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 2, &context.rtv, true, NULL);
+    ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_DrawInstanced(command_list, 3, 1, 0, 0);
 
     transition_resource_state(command_list, context.render_target,
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(command_list, fp32_rt,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
     check_sub_resource_vec4(context.render_target, 0, queue, command_list, &red, 0);
+    reset_command_list(command_list, context.allocator);
+    check_sub_resource_float(fp32_rt, 0, queue, command_list, 0.5f, 0);
+    ID3D12Resource_Release(fp32_rt);
     destroy_test_context(&context);
 }
 
