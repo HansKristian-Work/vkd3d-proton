@@ -4438,14 +4438,19 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearState(d3d12_command_list_i
     d3d12_command_list_reset_api_state(list, pipeline_state);
 }
 
+static bool d3d12_graphics_pipeline_state_is_depth_stencil_sensitive(const struct d3d12_graphics_pipeline_state *graphics)
+{
+    return graphics->dsv_format || d3d12_graphics_pipeline_state_has_unknown_dsv_format(graphics);
+}
+
 static bool d3d12_command_list_has_depth_stencil_view(struct d3d12_command_list *list)
 {
-    struct d3d12_graphics_pipeline_state *graphics;
+    const struct d3d12_graphics_pipeline_state *graphics;
 
     assert(d3d12_pipeline_state_is_graphics(list->state));
     graphics = &list->state->graphics;
 
-    return list->dsv.format && (graphics->dsv_format || d3d12_pipeline_state_has_unknown_dsv_format(list->state));
+    return list->dsv.format && (graphics->dsv_format || d3d12_graphics_pipeline_state_has_unknown_dsv_format(graphics));
 }
 
 static void d3d12_command_list_get_fb_extent(struct d3d12_command_list *list,
@@ -7930,8 +7935,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const VkPhysicalDeviceLimits *limits = &list->device->vk_info.device_limits;
+    const struct d3d12_graphics_pipeline_state *graphics;
     VkFormat prev_dsv_format, next_dsv_format;
     const struct d3d12_rtv_desc *rtv_desc;
+    uint32_t prev_rtv_non_null_mask;
     unsigned int i;
 
     TRACE("iface %p, render_target_descriptor_count %u, render_target_descriptors %p, "
@@ -7961,6 +7968,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
     /* Need to deduce DSV layouts again. */
     list->dsv_layout = VK_IMAGE_LAYOUT_UNDEFINED;
     list->dsv_plane_optimal_mask = 0;
+
+    prev_rtv_non_null_mask = list->rtv_nonnull_mask;
     list->rtv_nonnull_mask = 0;
 
     for (i = 0; i < render_target_descriptor_count; ++i)
@@ -8009,8 +8018,17 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
         }
     }
 
-    if (prev_dsv_format != next_dsv_format && d3d12_pipeline_state_has_unknown_dsv_format(list->state))
-        d3d12_command_list_invalidate_current_pipeline(list, false);
+    if (d3d12_pipeline_state_is_graphics(list->state))
+    {
+        graphics = &list->state->graphics;
+        if ((prev_dsv_format != next_dsv_format && d3d12_graphics_pipeline_state_is_depth_stencil_sensitive(graphics)) ||
+                ((prev_rtv_non_null_mask ^ list->rtv_nonnull_mask) & graphics->rtv_active_mask))
+        {
+            /* If we change the NULL-ness of any attachments, we are at risk of having to use fallback pipelines.
+             * Invalidate the pipeline since we'll have to refresh the VkRenderPass and VkPipeline. */
+            d3d12_command_list_invalidate_current_pipeline(list, false);
+        }
+    }
 }
 
 static bool d3d12_rect_fully_covers_region(const D3D12_RECT *a, const D3D12_RECT *b)

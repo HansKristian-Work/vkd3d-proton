@@ -1537,16 +1537,10 @@ static inline bool d3d12_pipeline_state_is_graphics(const struct d3d12_pipeline_
     return state && state->vk_bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS;
 }
 
-static inline bool d3d12_pipeline_state_has_unknown_dsv_format(struct d3d12_pipeline_state *state)
+static inline bool d3d12_graphics_pipeline_state_has_unknown_dsv_format(
+        const struct d3d12_graphics_pipeline_state *graphics)
 {
-    if (d3d12_pipeline_state_is_graphics(state))
-    {
-        struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
-
-        return graphics->null_attachment_mask & dsv_attachment_mask(graphics);
-    }
-
-    return false;
+    return graphics->null_attachment_mask & dsv_attachment_mask(graphics);
 }
 
 struct d3d12_cached_pipeline_state
