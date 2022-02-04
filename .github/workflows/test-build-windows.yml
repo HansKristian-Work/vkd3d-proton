@@ -21,9 +21,9 @@ jobs:
         Write-Output "$([System.Environment]::GetEnvironmentVariable('VULKAN_SDK', 'Machine'))\Bin" `
           | Out-File -FilePath "${Env:GITHUB_PATH}" -Append
 
-    - name: Setup Meson and Ninja
+    - name: Setup Meson
       shell: pwsh
-      run: pip install meson ninja
+      run: pip install meson
 
     - name: Find Visual Studio
       shell: pwsh
@@ -43,8 +43,8 @@ jobs:
     - name: Build MSVC x86
       shell: pwsh
       run: |
-        meson -Denable_tests=True -Denable_extras=True --buildtype release build-msvc-x86
-        ninja -C build-msvc-x86
+        meson -Denable_tests=True -Denable_extras=True --buildtype release --backend vs2022 build-msvc-x86
+        msbuild -m build-msvc-x86/vkd3d-proton.sln
 
     - name: Prepare MSVC x64
       shell: pwsh
@@ -55,5 +55,5 @@ jobs:
     - name: Build MSVC x64
       shell: pwsh
       run: |
-        meson -Denable_tests=True -Denable_extras=True --buildtype release build-msvc-x64
-        ninja -C build-msvc-x64
+        meson -Denable_tests=True -Denable_extras=True --buildtype release --backend vs2022 build-msvc-x64
+        msbuild -m build-msvc-x64/vkd3d-proton.sln
