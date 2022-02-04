@@ -44,4 +44,4 @@ jobs:
       shell: pwsh
       run: |
         meson -Denable_tests=True -Denable_extras=True --buildtype release build-msvc-x64
-        ninja -C build-msvc-x64
+        ninja -C build-msvc-x64 --verbose
