@@ -1110,6 +1110,8 @@ static HRESULT vkd3d_memory_allocator_flush_clears_locked(struct vkd3d_memory_al
     vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
     vkd3d_queue_release(allocator->vkd3d_queue);
 
+    VKD3D_DEVICE_REPORT_BREADCRUMB_IF(device, vr == VK_ERROR_DEVICE_LOST);
+
     if (vr < 0)
     {
         ERR("Failed to submit command buffer, vr %d.\n", vr);

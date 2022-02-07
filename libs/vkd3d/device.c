@@ -610,6 +610,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"pipeline_library_sanitize_spirv", VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_SANITIZE_SPIRV},
     {"pipeline_library_log", VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG},
     {"pipeline_library_ignore_spirv", VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_IGNORE_SPIRV},
+    {"breadcrumbs", VKD3D_CONFIG_FLAG_BREADCRUMBS},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -2730,6 +2731,10 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     vkd3d_cleanup_format_info(device);
     vkd3d_memory_info_cleanup(&device->memory_info, device);
     vkd3d_shader_debug_ring_cleanup(&device->debug_ring, device);
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
+        vkd3d_breadcrumb_tracer_cleanup(&device->breadcrumb_tracer, device);
+#endif
     d3d12_device_global_pipeline_cache_cleanup(device);
     vkd3d_sampler_state_cleanup(&device->sampler_state, device);
     vkd3d_view_map_destroy(&device->sampler_map, device);
@@ -6004,8 +6009,14 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if (FAILED(hr = vkd3d_shader_debug_ring_init(&device->debug_ring, device)))
         goto out_cleanup_meta_ops;
 
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
+        if (FAILED(hr = vkd3d_breadcrumb_tracer_init(&device->breadcrumb_tracer, device)))
+            goto out_cleanup_debug_ring;
+#endif
+
     if (FAILED(hr = d3d12_device_global_pipeline_cache_init(device)))
-        goto out_cleanup_debug_ring;
+        goto out_cleanup_breadcrumb_tracer;
 
     if (vkd3d_descriptor_debug_active_qa_checks())
     {
@@ -6033,7 +6044,12 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
 out_cleanup_global_pipeline_cache:
     d3d12_device_global_pipeline_cache_cleanup(device);
+out_cleanup_breadcrumb_tracer:
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
+        vkd3d_breadcrumb_tracer_cleanup(&device->breadcrumb_tracer, device);
 out_cleanup_debug_ring:
+#endif
     vkd3d_shader_debug_ring_cleanup(&device->debug_ring, device);
 out_cleanup_meta_ops:
     vkd3d_meta_ops_cleanup(&device->meta_ops, device);

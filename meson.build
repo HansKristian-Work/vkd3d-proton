@@ -64,6 +64,11 @@ if not enable_trace
   add_project_arguments('-DVKD3D_NO_TRACE_MESSAGES', language : 'c')
 endif
 
+enable_breadcrumbs = enable_trace
+if enable_breadcrumbs
+  add_project_arguments('-DVKD3D_ENABLE_BREADCRUMBS', language : 'c')
+endif
+
 vkd3d_external_includes = [ './subprojects/Vulkan-Headers/include', './subprojects/SPIRV-Headers/include' ]
 vkd3d_public_includes   = [ './include' ] + vkd3d_external_includes
 vkd3d_private_includes  = [ './include/private' ] + vkd3d_public_includes
