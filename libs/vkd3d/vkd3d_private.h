@@ -156,6 +156,7 @@ struct vkd3d_vulkan_info
     bool EXT_pipeline_creation_feedback;
     /* AMD device extensions */
     bool AMD_buffer_marker;
+    bool AMD_device_coherent_memory;
     bool AMD_shader_core_properties;
     bool AMD_shader_core_properties2;
     /* NV device extensions */
@@ -2815,6 +2816,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceImageViewMinLodFeaturesEXT image_view_min_lod_features;
     VkPhysicalDeviceDescriptorSetHostMappingFeaturesVALVE descriptor_set_host_mapping_features;
     VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamic_rendering_features;
+    VkPhysicalDeviceCoherentMemoryFeaturesAMD device_coherent_memory_features_amd;
 
     VkPhysicalDeviceFeatures2 features2;
 
