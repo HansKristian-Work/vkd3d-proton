@@ -1782,6 +1782,12 @@ struct d3d12_command_allocator
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
+
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    unsigned int *breadcrumb_context_indices;
+    size_t breadcrumb_context_index_size;
+    size_t breadcrumb_context_index_count;
+#endif
 };
 
 HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
@@ -2046,6 +2052,10 @@ struct d3d12_command_list
     } workaround_state;
 
     struct vkd3d_private_store private_store;
+
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    unsigned int breadcrumb_context_index;
+#endif
 };
 
 HRESULT d3d12_command_list_create(struct d3d12_device *device,
@@ -2338,6 +2348,150 @@ void *vkd3d_shader_debug_ring_thread_main(void *arg);
 void vkd3d_shader_debug_ring_init_spec_constant(struct d3d12_device *device,
         struct vkd3d_shader_debug_ring_spec_info *info, vkd3d_shader_hash_t hash);
 void vkd3d_shader_debug_ring_end_command_buffer(struct d3d12_command_list *list);
+
+enum vkd3d_breadcrumb_command_type
+{
+    VKD3D_BREADCRUMB_COMMAND_SET_TOP_MARKER,
+    VKD3D_BREADCRUMB_COMMAND_SET_BOTTOM_MARKER,
+    VKD3D_BREADCRUMB_COMMAND_SET_SHADER_HASH,
+    VKD3D_BREADCRUMB_COMMAND_DRAW,
+    VKD3D_BREADCRUMB_COMMAND_DRAW_INDEXED,
+    VKD3D_BREADCRUMB_COMMAND_DISPATCH,
+    VKD3D_BREADCRUMB_COMMAND_EXECUTE_INDIRECT,
+    VKD3D_BREADCRUMB_COMMAND_COPY,
+    VKD3D_BREADCRUMB_COMMAND_RESOLVE,
+    VKD3D_BREADCRUMB_COMMAND_WBI,
+    VKD3D_BREADCRUMB_COMMAND_RESOLVE_QUERY,
+    VKD3D_BREADCRUMB_COMMAND_GATHER_VIRTUAL_QUERY,
+    VKD3D_BREADCRUMB_COMMAND_BUILD_RTAS,
+    VKD3D_BREADCRUMB_COMMAND_COPY_RTAS,
+    VKD3D_BREADCRUMB_COMMAND_EMIT_RTAS_POSTBUILD,
+    VKD3D_BREADCRUMB_COMMAND_TRACE_RAYS,
+    VKD3D_BREADCRUMB_COMMAND_BARRIER,
+    VKD3D_BREADCRUMB_COMMAND_AUX32, /* Used to report arbitrary 32-bit words as arguments to other commands. */
+    VKD3D_BREADCRUMB_COMMAND_AUX64, /* Used to report arbitrary 64-bit words as arguments to other commands. */
+    VKD3D_BREADCRUMB_COMMAND_VBO,
+    VKD3D_BREADCRUMB_COMMAND_IBO,
+    VKD3D_BREADCRUMB_COMMAND_ROOT_DESC,
+    VKD3D_BREADCRUMB_COMMAND_ROOT_CONST,
+};
+
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+struct vkd3d_breadcrumb_counter
+{
+    uint32_t begin_marker;
+    uint32_t end_marker;
+};
+
+struct vkd3d_breadcrumb_command
+{
+    enum vkd3d_breadcrumb_command_type type;
+    union
+    {
+        struct
+        {
+            vkd3d_shader_hash_t hash;
+            VkShaderStageFlagBits stage;
+        } shader;
+
+        uint32_t word_32bit;
+        uint64_t word_64bit;
+        uint32_t count;
+    };
+};
+
+struct vkd3d_breadcrumb_command_list_trace_context
+{
+    struct vkd3d_breadcrumb_command *commands;
+    size_t command_size;
+    size_t command_count;
+    uint32_t counter;
+    uint32_t locked;
+};
+
+struct vkd3d_breadcrumb_tracer
+{
+    /* There is room for N live command lists in this system.
+     * We can allocate an index for each command list.
+     * For AMD buffer markers, the index refers to the u32 counter in mapped.
+     * 0 is inactive (has never been executed),
+     * 1 is a command set on command buffer begin,
+     * UINT_MAX is set on completion of the command buffer.
+     * Concurrent submits is not legal. The counter will go back to 1 again from UINT_MAX
+     * for multiple submits. */
+    VkBuffer host_buffer;
+    struct vkd3d_device_memory_allocation host_buffer_memory;
+    struct vkd3d_breadcrumb_counter *mapped;
+
+    struct vkd3d_breadcrumb_command_list_trace_context *trace_contexts;
+    size_t trace_context_index;
+
+    pthread_mutex_t lock;
+};
+
+HRESULT vkd3d_breadcrumb_tracer_init(struct vkd3d_breadcrumb_tracer *tracer, struct d3d12_device *device);
+void vkd3d_breadcrumb_tracer_cleanup(struct vkd3d_breadcrumb_tracer *tracer, struct d3d12_device *device);
+unsigned int vkd3d_breadcrumb_tracer_allocate_command_list(struct vkd3d_breadcrumb_tracer *tracer,
+        struct d3d12_command_list *list, struct d3d12_command_allocator *allocator);
+/* Command allocator keeps a list of allocated breadcrumb command lists. */
+void vkd3d_breadcrumb_tracer_release_command_lists(struct vkd3d_breadcrumb_tracer *tracer,
+        const unsigned int *indices, size_t indices_count);
+void vkd3d_breadcrumb_tracer_report_device_lost(struct vkd3d_breadcrumb_tracer *tracer,
+        struct d3d12_device *device);
+void vkd3d_breadcrumb_tracer_begin_command_list(struct d3d12_command_list *list);
+void vkd3d_breadcrumb_tracer_add_command(struct d3d12_command_list *list,
+        const struct vkd3d_breadcrumb_command *command);
+void vkd3d_breadcrumb_tracer_signal(struct d3d12_command_list *list);
+void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list);
+
+#define VKD3D_BREADCRUMB_COMMAND(cmd_type) do { \
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \
+        struct vkd3d_breadcrumb_command breadcrumb_cmd; \
+        breadcrumb_cmd.type = VKD3D_BREADCRUMB_COMMAND_##cmd_type; \
+        vkd3d_breadcrumb_tracer_add_command(list, &breadcrumb_cmd); \
+        vkd3d_breadcrumb_tracer_signal(list); \
+    } \
+} while(0)
+
+/* State commands do no work on their own, should not signal. */
+#define VKD3D_BREADCRUMB_COMMAND_STATE(cmd_type) do { \
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \
+        struct vkd3d_breadcrumb_command breadcrumb_cmd; \
+        breadcrumb_cmd.type = VKD3D_BREADCRUMB_COMMAND_##cmd_type; \
+        vkd3d_breadcrumb_tracer_add_command(list, &breadcrumb_cmd); \
+    } \
+} while(0)
+
+#define VKD3D_BREADCRUMB_AUX32(v) do { \
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \
+        struct vkd3d_breadcrumb_command breadcrumb_cmd; \
+        breadcrumb_cmd.type = VKD3D_BREADCRUMB_COMMAND_AUX32; \
+        breadcrumb_cmd.word_32bit = v; \
+        vkd3d_breadcrumb_tracer_add_command(list, &breadcrumb_cmd); \
+    } \
+} while(0)
+
+#define VKD3D_BREADCRUMB_AUX64(v) do { \
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \
+        struct vkd3d_breadcrumb_command breadcrumb_cmd; \
+        breadcrumb_cmd.type = VKD3D_BREADCRUMB_COMMAND_AUX64; \
+        breadcrumb_cmd.word_64bit = v; \
+        vkd3d_breadcrumb_tracer_add_command(list, &breadcrumb_cmd); \
+    } \
+} while(0)
+
+#define VKD3D_DEVICE_REPORT_BREADCRUMB_IF(device, cond) do { \
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) && (cond)) { \
+        vkd3d_breadcrumb_tracer_report_device_lost(&(device)->breadcrumb_tracer, device); \
+    } \
+} while(0)
+#else
+#define VKD3D_BREADCRUMB_COMMAND(type) ((void)(VKD3D_BREADCRUMB_COMMAND_##type))
+#define VKD3D_BREADCRUMB_COMMAND_STATE(type) ((void)(VKD3D_BREADCRUMB_COMMAND_##type))
+#define VKD3D_BREADCRUMB_AUX32(v) ((void)(v))
+#define VKD3D_BREADCRUMB_AUX64(v) ((void)(v))
+#define VKD3D_DEVICE_REPORT_BREADCRUMB_IF(device, cond) ((void)(device), (void)(cond))
+#endif /* VKD3D_ENABLE_BREADCRUMBS */
 
 /* Bindless */
 enum vkd3d_bindless_flags
@@ -2942,6 +3096,9 @@ struct d3d12_device
     struct vkd3d_view_map sampler_map;
     struct vkd3d_sampler_state sampler_state;
     struct vkd3d_shader_debug_ring debug_ring;
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    struct vkd3d_breadcrumb_tracer breadcrumb_tracer;
+#endif
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     struct vkd3d_descriptor_qa_global_info *descriptor_qa_global_info;
 #endif
