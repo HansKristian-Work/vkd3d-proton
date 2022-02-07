@@ -1302,14 +1302,18 @@ static VkResult d3d12_swapchain_unsignal_acquire_semaphore(struct d3d12_swapchai
     if ((vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, vk_fence))))
     {
         ERR("Failed to submit unsignal operation, vr %d\n", vr);
+        VKD3D_DEVICE_REPORT_BREADCRUMB_IF(swapchain->command_queue->device, vr == VK_ERROR_DEVICE_LOST);
         goto end;
     }
 
     swapchain->vk_acquire_semaphores_signaled[frame_id] = false;
 
     if (vk_fence)
+    {
         if ((vr = VK_CALL(vkWaitForFences(swapchain->command_queue->device->vk_device, 1, &vk_fence, VK_TRUE, UINT64_MAX))))
             ERR("Failed to wait for fences, vr %d\n", vr);
+        VKD3D_DEVICE_REPORT_BREADCRUMB_IF(swapchain->command_queue->device, vr == VK_ERROR_DEVICE_LOST);
+    }
 
 end:
     VK_CALL(vkDestroyFence(vk_device, vk_fence, NULL));
@@ -1321,6 +1325,7 @@ static void d3d12_swapchain_destroy_buffers(struct d3d12_swapchain *swapchain, B
     const struct vkd3d_vk_device_procs *vk_procs = d3d12_swapchain_procs(swapchain);
     VkQueue vk_queue;
     unsigned int i;
+    VkResult vr;
 
     if (swapchain->command_queue)
     {
@@ -1333,7 +1338,8 @@ static void d3d12_swapchain_destroy_buffers(struct d3d12_swapchain *swapchain, B
                 if (swapchain->vk_acquire_semaphores_signaled[i])
                     d3d12_swapchain_unsignal_acquire_semaphore(swapchain, vk_queue, i, false);
 
-            VK_CALL(vkQueueWaitIdle(vk_queue));
+            vr = VK_CALL(vkQueueWaitIdle(vk_queue));
+            VKD3D_DEVICE_REPORT_BREADCRUMB_IF(swapchain->command_queue->device, vr == VK_ERROR_DEVICE_LOST);
 
             vkd3d_release_vk_queue(d3d12_swapchain_queue_iface(swapchain));
         }
@@ -1803,6 +1809,8 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
                 swapchain->vk_acquire_semaphores[swapchain->frame_id],
                 VK_NULL_HANDLE, &swapchain->vk_image_index));
 
+        VKD3D_DEVICE_REPORT_BREADCRUMB_IF(swapchain->command_queue->device, vr == VK_ERROR_DEVICE_LOST);
+
         if (vr >= 0)
         {
             swapchain->vk_acquire_semaphores_signaled[swapchain->frame_id] = true;
@@ -1842,6 +1850,7 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
             VK_TRUE, UINT64_MAX))))
     {
         ERR("Failed to wait for fence.\n");
+        VKD3D_DEVICE_REPORT_BREADCRUMB_IF(swapchain->command_queue->device, vr == VK_ERROR_DEVICE_LOST);
         return vr;
     }
 
@@ -1870,6 +1879,7 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
     if ((vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, swapchain->vk_blit_fences[swapchain->vk_image_index]))) < 0)
     {
         ERR("Failed to blit swapchain buffer, vr %d.\n", vr);
+        VKD3D_DEVICE_REPORT_BREADCRUMB_IF(swapchain->command_queue->device, vr == VK_ERROR_DEVICE_LOST);
         return vr;
     }
 
@@ -1901,6 +1911,8 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
                     swapchain->vk_acquire_semaphores[swapchain->frame_id], VK_NULL_HANDLE,
                     &swapchain->vk_image_index));
 
+            VKD3D_DEVICE_REPORT_BREADCRUMB_IF(swapchain->command_queue->device, vr == VK_ERROR_DEVICE_LOST);
+
             if (vr >= 0)
             {
                 swapchain->vk_acquire_semaphores_signaled[swapchain->frame_id] = true;
@@ -1921,6 +1933,8 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
         }
         vr = VK_SUCCESS;
     }
+
+    VKD3D_DEVICE_REPORT_BREADCRUMB_IF(swapchain->command_queue->device, vr == VK_ERROR_DEVICE_LOST);
 
     return vr;
 }
