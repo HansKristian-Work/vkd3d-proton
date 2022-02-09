@@ -51,6 +51,7 @@ const uint DEBUG_CHANNEL_FMT_F32 = 2;
 const uint DEBUG_CHANNEL_FMT_HEX_ALL = DEBUG_CHANNEL_FMT_HEX * 0x55555555u;
 const uint DEBUG_CHANNEL_FMT_I32_ALL = DEBUG_CHANNEL_FMT_I32 * 0x55555555u;
 const uint DEBUG_CHANNEL_FMT_F32_ALL = DEBUG_CHANNEL_FMT_F32 * 0x55555555u;
+const uint DEBUG_CHANNEL_WORD_COOKIE = 0xdeadca70u; /* Let host fish for this cookie in device lost scenarios. */
 
 uint DEBUG_CHANNEL_INSTANCE_COUNTER;
 uvec3 DEBUG_CHANNEL_ID;
@@ -103,7 +104,7 @@ void DEBUG_CHANNEL_UNLOCK_MESSAGE(RingBuffer buf, uint offset, uint num_words)
 	 * If the host thread observed a num_word of 0, we know a message was allocated, but we don't necessarily
 	 * have a complete write yet.
 	 * In a device lost scenario, we can try to fish for valid messages. */
-	buf.data[(offset + 0) & DEBUG_SHADER_RING_MASK] = num_words;
+	buf.data[(offset + 0) & DEBUG_SHADER_RING_MASK] = num_words | DEBUG_CHANNEL_WORD_COOKIE;
 	memoryBarrierBuffer();
 }
 
