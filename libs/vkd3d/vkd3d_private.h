@@ -2283,6 +2283,7 @@ struct vkd3d_shader_debug_ring
     pthread_t ring_thread;
     pthread_mutex_t ring_lock;
     pthread_cond_t ring_cond;
+    bool device_lost;
     bool active;
 };
 
@@ -2305,6 +2306,9 @@ void vkd3d_shader_debug_ring_cleanup(struct vkd3d_shader_debug_ring *state,
 void *vkd3d_shader_debug_ring_thread_main(void *arg);
 void vkd3d_shader_debug_ring_init_spec_constant(struct d3d12_device *device,
         struct vkd3d_shader_debug_ring_spec_info *info, vkd3d_shader_hash_t hash);
+/* If we assume device lost, try really hard to fish for messages. */
+void vkd3d_shader_debug_ring_kick(struct vkd3d_shader_debug_ring *state,
+        struct d3d12_device *device, bool device_lost);
 
 enum vkd3d_breadcrumb_command_type
 {
@@ -2437,9 +2441,11 @@ void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list);
     } \
 } while(0)
 
+/* Remember to kick debug ring as well. */
 #define VKD3D_DEVICE_REPORT_BREADCRUMB_IF(device, cond) do { \
     if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) && (cond)) { \
         vkd3d_breadcrumb_tracer_report_device_lost(&(device)->breadcrumb_tracer, device); \
+        vkd3d_shader_debug_ring_kick(&(device)->debug_ring, device, true); \
     } \
 } while(0)
 #else

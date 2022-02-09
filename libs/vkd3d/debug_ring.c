@@ -358,3 +358,25 @@ void vkd3d_shader_debug_ring_cleanup(struct vkd3d_shader_debug_ring *ring,
     vkd3d_free_device_memory(device, &ring->host_buffer_memory);
     vkd3d_free_device_memory(device, &ring->device_atomic_buffer_memory);
 }
+
+static pthread_mutex_t debug_ring_teardown_lock = PTHREAD_MUTEX_INITIALIZER;
+
+void vkd3d_shader_debug_ring_kick(struct vkd3d_shader_debug_ring *ring, struct d3d12_device *device, bool device_lost)
+{
+    if (device_lost)
+    {
+        /* Need a global lock here since multiple threads can observe device lost at the same time. */
+        pthread_mutex_lock(&debug_ring_teardown_lock);
+        {
+            ring->device_lost = true;
+            /* We're going to die or hang after this most likely, so make sure we get to see all messages the
+             * GPU had to write. Just cleanup now. */
+            vkd3d_shader_debug_ring_cleanup(ring, device);
+        }
+        pthread_mutex_unlock(&debug_ring_teardown_lock);
+    }
+    else
+    {
+        pthread_cond_signal(&ring->ring_cond);
+    }
+}

@@ -350,8 +350,7 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
     VKD3D_DEVICE_REPORT_BREADCRUMB_IF(device, vr == VK_ERROR_DEVICE_LOST);
 
     /* This is a good time to kick the debug threads into action. */
-    if (device->debug_ring.active)
-        pthread_cond_signal(&device->debug_ring.ring_cond);
+    vkd3d_shader_debug_ring_kick(&device->debug_ring, device, false);
     vkd3d_descriptor_debug_kick_qa_check(device->descriptor_qa_global_info);
 
     TRACE("Signaling fence %p value %#"PRIx64".\n", fence->fence, fence->value);
