@@ -104,6 +104,8 @@ void *vkd3d_shader_debug_ring_thread_main(void *arg)
                 /* The debug ring shader has "release" semantics for the word count write,
                  * so just make sure the reads don't get reordered here. */
                 message_word_count = READ_RING_WORD_ACQUIRE(0);
+#define DEBUG_CHANNEL_WORD_COOKIE 0xdeadca70u
+#define DEBUG_CHANNEL_WORD_MASK 0xfffffff0u
 
                 if (message_word_count == 0)
                 {
@@ -114,6 +116,15 @@ void *vkd3d_shader_debug_ring_thread_main(void *arg)
                     break;
                 }
 
+                /* If something is written here, it must be a cookie. */
+                if ((message_word_count & DEBUG_CHANNEL_WORD_MASK) != DEBUG_CHANNEL_WORD_COOKIE)
+                {
+                    ERR("Invalid message work cookie detected, 0x%x.\n", message_word_count);
+                    break;
+                }
+
+                message_word_count &= ~DEBUG_CHANNEL_WORD_MASK;
+
                 if (i + message_word_count > count)
                 {
                     ERR("Message word count %u is out of bounds (i = %u, count = %u).\n",
@@ -121,7 +132,7 @@ void *vkd3d_shader_debug_ring_thread_main(void *arg)
                     break;
                 }
 
-                if (message_word_count < 8 || message_word_count > 16 + 8)
+                if (message_word_count < 8)
                 {
                     ERR("Message word count %u is invalid.\n", message_word_count);
                     break;
