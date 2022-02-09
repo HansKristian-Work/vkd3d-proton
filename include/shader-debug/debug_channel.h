@@ -221,4 +221,76 @@ void DEBUG_CHANNEL_MSG(float v0, float v1, float v2, float v3)
 	DEBUG_CHANNEL_MSG_(DEBUG_CHANNEL_FMT_F32_ALL, floatBitsToUint(v0), floatBitsToUint(v1), floatBitsToUint(v2), floatBitsToUint(v3));
 }
 
+void DEBUG_CHANNEL_MSG_UNIFORM(uint v0)
+{
+    if (subgroupElect())
+        DEBUG_CHANNEL_MSG(v0);
+}
+
+void DEBUG_CHANNEL_MSG_UNIFORM(uint v0, uint v1)
+{
+    if (subgroupElect())
+        DEBUG_CHANNEL_MSG(v0, v1);
+}
+
+void DEBUG_CHANNEL_MSG_UNIFORM(uint v0, uint v1, uint v2)
+{
+    if (subgroupElect())
+        DEBUG_CHANNEL_MSG(v0, v1, v2);
+}
+
+void DEBUG_CHANNEL_MSG_UNIFORM(uint v0, uint v1, uint v2, uint v3)
+{
+    if (subgroupElect())
+        DEBUG_CHANNEL_MSG(v0, v1, v2, v3);
+}
+
+void DEBUG_CHANNEL_MSG_UNIFORM(int v0)
+{
+    if (subgroupElect())
+        DEBUG_CHANNEL_MSG(v0);
+}
+
+void DEBUG_CHANNEL_MSG_UNIFORM(int v0, int v1)
+{
+    if (subgroupElect())
+        DEBUG_CHANNEL_MSG(v0, v1);
+}
+
+void DEBUG_CHANNEL_MSG_UNIFORM(int v0, int v1, int v2)
+{
+    if (subgroupElect())
+        DEBUG_CHANNEL_MSG(v0, v1, v2);
+}
+
+void DEBUG_CHANNEL_MSG_UNIFORM(int v0, int v1, int v2, int v3)
+{
+    if (subgroupElect())
+        DEBUG_CHANNEL_MSG(v0, v1, v2, v3);
+}
+
+void DEBUG_CHANNEL_MSG_UNIFORM(float v0)
+{
+    if (subgroupElect())
+        DEBUG_CHANNEL_MSG(v0);
+}
+
+void DEBUG_CHANNEL_MSG_UNIFORM(float v0, float v1)
+{
+    if (subgroupElect())
+        DEBUG_CHANNEL_MSG(v0, v1);
+}
+
+void DEBUG_CHANNEL_MSG_UNIFORM(float v0, float v1, float v2)
+{
+    if (subgroupElect())
+        DEBUG_CHANNEL_MSG(v0, v1, v2);
+}
+
+void DEBUG_CHANNEL_MSG_UNIFORM(float v0, float v1, float v2, float v3)
+{
+    if (subgroupElect())
+        DEBUG_CHANNEL_MSG(v0, v1, v2, v3);
+}
+
 #endif
