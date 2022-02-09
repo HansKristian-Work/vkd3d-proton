@@ -4176,8 +4176,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
     /* If we have some pending copy barriers, need to resolve those now, since we cannot track across command lists. */
     d3d12_command_list_resolve_buffer_copy_writes(list);
 
-    vkd3d_shader_debug_ring_end_command_buffer(list);
-
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
         vkd3d_breadcrumb_tracer_end_command_list(list);

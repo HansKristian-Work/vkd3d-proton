@@ -2317,11 +2317,12 @@ struct vkd3d_shader_debug_ring
     struct vkd3d_device_memory_allocation host_buffer_memory;
     struct vkd3d_device_memory_allocation device_atomic_buffer_memory;
 
-    void *mapped;
+    uint32_t *mapped_control_block;
+    uint32_t *mapped_ring;
     VkDeviceAddress ring_device_address;
     VkDeviceAddress atomic_device_address;
     size_t ring_size;
-    size_t ring_offset;
+    size_t control_block_size;
 
     pthread_t ring_thread;
     pthread_mutex_t ring_lock;
@@ -2348,7 +2349,6 @@ void vkd3d_shader_debug_ring_cleanup(struct vkd3d_shader_debug_ring *state,
 void *vkd3d_shader_debug_ring_thread_main(void *arg);
 void vkd3d_shader_debug_ring_init_spec_constant(struct d3d12_device *device,
         struct vkd3d_shader_debug_ring_spec_info *info, vkd3d_shader_hash_t hash);
-void vkd3d_shader_debug_ring_end_command_buffer(struct d3d12_command_list *list);
 
 enum vkd3d_breadcrumb_command_type
 {
