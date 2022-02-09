@@ -53,16 +53,94 @@ void vkd3d_shader_debug_ring_init_spec_constant(struct d3d12_device *device,
     info->map_entries[3].size = sizeof(uint32_t);
 }
 
+#define READ_RING_WORD(off) ring->mapped_ring[(off) & (ring->ring_size - 1)]
+#define READ_RING_WORD_ACQUIRE(off) \
+    vkd3d_atomic_uint32_load_explicit(&ring->mapped_ring[(off) & (ring->ring_size - 1)], \
+    vkd3d_memory_order_acquire)
+#define DEBUG_CHANNEL_WORD_COOKIE 0xdeadca70u
+#define DEBUG_CHANNEL_WORD_MASK 0xfffffff0u
+
+static bool vkd3d_shader_debug_ring_print_message(struct vkd3d_shader_debug_ring *ring,
+        uint32_t word_offset, uint32_t message_word_count)
+{
+    uint32_t i, debug_instance, debug_thread_id[3], fmt;
+    char message_buffer[4096];
+    uint64_t shader_hash;
+
+    if (message_word_count < 8)
+    {
+        ERR("Message word count %u is invalid.\n", message_word_count);
+        return false;
+    }
+
+    shader_hash = (uint64_t)READ_RING_WORD(word_offset + 1) | ((uint64_t)READ_RING_WORD(word_offset + 2) << 32);
+    debug_instance = READ_RING_WORD(word_offset + 3);
+    for (i = 0; i < 3; i++)
+        debug_thread_id[i] = READ_RING_WORD(word_offset + 4 + i);
+    fmt = READ_RING_WORD(word_offset + 7);
+
+    snprintf(message_buffer, sizeof(message_buffer), "Shader: %"PRIx64": Instance %u, ID (%u, %u, %u):",
+            shader_hash, debug_instance,
+            debug_thread_id[0], debug_thread_id[1], debug_thread_id[2]);
+
+    word_offset += 8;
+    message_word_count -= 8;
+
+    for (i = 0; i < message_word_count; i++)
+    {
+        union
+        {
+            float f32;
+            uint32_t u32;
+            int32_t i32;
+        } u;
+        const char *delim;
+        size_t len, avail;
+        u.u32 = READ_RING_WORD(word_offset + i);
+
+        len = strlen(message_buffer);
+        if (len + 1 >= sizeof(message_buffer))
+            break;
+        avail = sizeof(message_buffer) - len;
+
+        delim = i == 0 ? " " : ", ";
+
+#define VKD3D_DEBUG_CHANNEL_FMT_HEX 0u
+#define VKD3D_DEBUG_CHANNEL_FMT_I32 1u
+#define VKD3D_DEBUG_CHANNEL_FMT_F32 2u
+        switch ((fmt >> (2u * i)) & 3u)
+        {
+            case VKD3D_DEBUG_CHANNEL_FMT_HEX:
+                snprintf(message_buffer + len, avail, "%s#%x", delim, u.u32);
+                break;
+
+            case VKD3D_DEBUG_CHANNEL_FMT_I32:
+                snprintf(message_buffer + len, avail, "%s%d", delim, u.i32);
+                break;
+
+            case VKD3D_DEBUG_CHANNEL_FMT_F32:
+                snprintf(message_buffer + len, avail, "%s%f", delim, u.f32);
+                break;
+
+            default:
+                snprintf(message_buffer + len, avail, "%s????", delim);
+                break;
+        }
+    }
+
+    INFO("%s\n", message_buffer);
+    return true;
+}
+
 void *vkd3d_shader_debug_ring_thread_main(void *arg)
 {
-    uint32_t last_counter, new_counter, count, i, j, message_word_count, debug_instance, debug_thread_id[3], fmt;
+    uint32_t last_counter, new_counter, count, i, cookie_word_count;
     volatile const uint32_t *ring_counter; /* Atomic updated by the GPU. */
     struct vkd3d_shader_debug_ring *ring;
     struct d3d12_device *device = arg;
-    char message_buffer[4096];
     bool is_active = true;
-    uint64_t shader_hash;
     uint32_t *ring_base;
+    uint32_t word_count;
     size_t ring_mask;
 
     ring = &device->debug_ring;
@@ -96,18 +174,12 @@ void *vkd3d_shader_debug_ring_thread_main(void *arg)
 
             for (i = 0; i < count; )
             {
-#define READ_RING_WORD(off) ring_base[((off) + i + last_counter) & ring_mask]
-#define READ_RING_WORD_ACQUIRE(off) \
-        vkd3d_atomic_uint32_load_explicit(&ring_base[((off) + i + last_counter) & ring_mask], \
-                vkd3d_memory_order_acquire)
-
                 /* The debug ring shader has "release" semantics for the word count write,
                  * so just make sure the reads don't get reordered here. */
-                message_word_count = READ_RING_WORD_ACQUIRE(0);
-#define DEBUG_CHANNEL_WORD_COOKIE 0xdeadca70u
-#define DEBUG_CHANNEL_WORD_MASK 0xfffffff0u
+                cookie_word_count = READ_RING_WORD_ACQUIRE(last_counter + i);
+                word_count = cookie_word_count & ~DEBUG_CHANNEL_WORD_MASK;
 
-                if (message_word_count == 0)
+                if (cookie_word_count == 0)
                 {
                     ERR("Message was allocated, but write did not complete. last_counter = %u, rewrite new_counter = %u -> %u\n",
                             last_counter, new_counter, last_counter + i);
@@ -117,87 +189,23 @@ void *vkd3d_shader_debug_ring_thread_main(void *arg)
                 }
 
                 /* If something is written here, it must be a cookie. */
-                if ((message_word_count & DEBUG_CHANNEL_WORD_MASK) != DEBUG_CHANNEL_WORD_COOKIE)
+                if ((cookie_word_count & DEBUG_CHANNEL_WORD_MASK) != DEBUG_CHANNEL_WORD_COOKIE)
                 {
-                    ERR("Invalid message work cookie detected, 0x%x.\n", message_word_count);
+                    ERR("Invalid message work cookie detected, 0x%x.\n", cookie_word_count);
                     break;
                 }
 
-                message_word_count &= ~DEBUG_CHANNEL_WORD_MASK;
-
-                if (i + message_word_count > count)
+                if (i + word_count > count)
                 {
                     ERR("Message word count %u is out of bounds (i = %u, count = %u).\n",
-                            message_word_count, i, count);
+                            word_count, i, count);
                     break;
                 }
 
-                if (message_word_count < 8)
-                {
-                    ERR("Message word count %u is invalid.\n", message_word_count);
+                if (!vkd3d_shader_debug_ring_print_message(ring, last_counter + i, word_count))
                     break;
-                }
 
-                shader_hash = (uint64_t)READ_RING_WORD(1) | ((uint64_t)READ_RING_WORD(2) << 32);
-                debug_instance = READ_RING_WORD(3);
-                for (j = 0; j < 3; j++)
-                    debug_thread_id[j] = READ_RING_WORD(4 + j);
-                fmt = READ_RING_WORD(7);
-
-                snprintf(message_buffer, sizeof(message_buffer), "Shader: %"PRIx64": Instance %u, ID (%u, %u, %u):",
-                         shader_hash, debug_instance,
-                         debug_thread_id[0], debug_thread_id[1], debug_thread_id[2]);
-
-                i += 8;
-                message_word_count -= 8;
-
-                for (j = 0; j < message_word_count; j++)
-                {
-                    union
-                    {
-                        float f32;
-                        uint32_t u32;
-                        int32_t i32;
-                    } u;
-                    const char *delim;
-                    size_t len, avail;
-                    u.u32 = READ_RING_WORD(j);
-
-                    len = strlen(message_buffer);
-                    if (len + 1 >= sizeof(message_buffer))
-                        break;
-                    avail = sizeof(message_buffer) - len;
-
-                    delim = j == 0 ? " " : ", ";
-
-#define VKD3D_DEBUG_CHANNEL_FMT_HEX 0u
-#define VKD3D_DEBUG_CHANNEL_FMT_I32 1u
-#define VKD3D_DEBUG_CHANNEL_FMT_F32 2u
-                    switch ((fmt >> (2u * j)) & 3u)
-                    {
-                    case VKD3D_DEBUG_CHANNEL_FMT_HEX:
-                        snprintf(message_buffer + len, avail, "%s#%x", delim, u.u32);
-                        break;
-
-                    case VKD3D_DEBUG_CHANNEL_FMT_I32:
-                        snprintf(message_buffer + len, avail, "%s%d", delim, u.i32);
-                        break;
-
-                    case VKD3D_DEBUG_CHANNEL_FMT_F32:
-                        snprintf(message_buffer + len, avail, "%s%f", delim, u.f32);
-                        break;
-
-                    default:
-                        snprintf(message_buffer + len, avail, "%s????", delim);
-                        break;
-                    }
-                }
-
-                INFO("%s\n", message_buffer);
-
-#undef READ_RING_WORD
-#undef READ_RING_WORD_ACQUIRE
-                i += message_word_count;
+                i += word_count;
             }
         }
 
@@ -210,6 +218,35 @@ void *vkd3d_shader_debug_ring_thread_main(void *arg)
             ring_base[last_counter & ring_mask] = 0;
             last_counter++;
         }
+    }
+
+    if (ring->device_lost)
+    {
+        INFO("Device lost detected, attempting to fish for clues.\n");
+        new_counter = *ring_counter;
+        if (last_counter != new_counter)
+        {
+            count = (new_counter - last_counter) & ring_mask;
+            for (i = 0; i < count; )
+            {
+                cookie_word_count = READ_RING_WORD_ACQUIRE(last_counter + i);
+                word_count = cookie_word_count & ~DEBUG_CHANNEL_WORD_MASK;
+
+                /* This is considered a message if it has the marker and a word count that is in-range. */
+                if ((cookie_word_count & DEBUG_CHANNEL_WORD_MASK) == DEBUG_CHANNEL_WORD_COOKIE &&
+                        i + word_count <= count &&
+                        vkd3d_shader_debug_ring_print_message(ring, last_counter + i, word_count))
+                {
+                    i += word_count;
+                }
+                else
+                {
+                    /* Keep going. */
+                    i++;
+                }
+            }
+        }
+        INFO("Done fishing for clues ...\n");
     }
 
     return NULL;
