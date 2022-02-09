@@ -24,13 +24,13 @@
 #extension GL_KHR_shader_subgroup_basic : require
 #extension GL_KHR_shader_subgroup_ballot : require
 
-layout(buffer_reference, std430, buffer_reference_align = 4) buffer ControlBlock
+layout(buffer_reference, std430, buffer_reference_align = 4) coherent buffer ControlBlock
 {
 	uint message_counter;
 	uint instance_counter;
 };
 
-layout(buffer_reference, std430, buffer_reference_align = 4) buffer RingBuffer
+layout(buffer_reference, std430, buffer_reference_align = 4) coherent buffer RingBuffer
 {
 	uint data[];
 };
@@ -63,9 +63,19 @@ void DEBUG_CHANNEL_INIT(uvec3 id)
 	DEBUG_CHANNEL_INSTANCE_COUNTER = subgroupBroadcastFirst(inst);
 }
 
-void DEBUG_CHANNEL_WRITE_HEADER(RingBuffer buf, uint offset, uint num_words, uint fmt)
+void DEBUG_CHANNEL_UNLOCK_MESSAGE(RingBuffer buf, uint offset, uint num_words)
 {
+	memoryBarrierBuffer();
+	/* Make sure this word is made visible last. This way the ring thread can avoid reading bogus messages.
+	 * If the host thread observed a num_word of 0, we know a message was allocated, but we don't necessarily
+	 * have a complete write yet.
+	 * In a device lost scenario, we can try to fish for valid messages. */
 	buf.data[(offset + 0) & DEBUG_SHADER_RING_MASK] = num_words;
+	memoryBarrierBuffer();
+}
+
+void DEBUG_CHANNEL_WRITE_HEADER(RingBuffer buf, uint offset, uint fmt)
+{
 	buf.data[(offset + 1) & DEBUG_SHADER_RING_MASK] = uint(DEBUG_SHADER_HASH);
 	buf.data[(offset + 2) & DEBUG_SHADER_RING_MASK] = uint(DEBUG_SHADER_HASH >> 32);
 	buf.data[(offset + 3) & DEBUG_SHADER_RING_MASK] = DEBUG_CHANNEL_INSTANCE_COUNTER;
@@ -87,7 +97,9 @@ void DEBUG_CHANNEL_MSG_()
 		return;
 	uint words = 8;
 	uint offset = DEBUG_CHANNEL_ALLOCATE(words);
-	DEBUG_CHANNEL_WRITE_HEADER(RingBuffer(DEBUG_SHADER_RING_BDA), offset, words, 0);
+	RingBuffer buf = RingBuffer(DEBUG_SHADER_RING_BDA);
+	DEBUG_CHANNEL_WRITE_HEADER(buf, offset, 0);
+	DEBUG_CHANNEL_UNLOCK_MESSAGE(buf, offset, words);
 }
 
 void DEBUG_CHANNEL_MSG_(uint fmt, uint v0)
@@ -97,8 +109,9 @@ void DEBUG_CHANNEL_MSG_(uint fmt, uint v0)
 	RingBuffer buf = RingBuffer(DEBUG_SHADER_RING_BDA);
 	uint words = 9;
 	uint offset = DEBUG_CHANNEL_ALLOCATE(words);
-	DEBUG_CHANNEL_WRITE_HEADER(buf, offset, words, fmt);
+	DEBUG_CHANNEL_WRITE_HEADER(buf, offset, fmt);
 	buf.data[(offset + 8) & DEBUG_SHADER_RING_MASK] = v0;
+	DEBUG_CHANNEL_UNLOCK_MESSAGE(buf, offset, words);
 }
 
 void DEBUG_CHANNEL_MSG_(uint fmt, uint v0, uint v1)
@@ -108,9 +121,10 @@ void DEBUG_CHANNEL_MSG_(uint fmt, uint v0, uint v1)
 	RingBuffer buf = RingBuffer(DEBUG_SHADER_RING_BDA);
 	uint words = 10;
 	uint offset = DEBUG_CHANNEL_ALLOCATE(words);
-	DEBUG_CHANNEL_WRITE_HEADER(buf, offset, words, fmt);
+	DEBUG_CHANNEL_WRITE_HEADER(buf, offset, fmt);
 	buf.data[(offset + 8) & DEBUG_SHADER_RING_MASK] = v0;
 	buf.data[(offset + 9) & DEBUG_SHADER_RING_MASK] = v1;
+	DEBUG_CHANNEL_UNLOCK_MESSAGE(buf, offset, words);
 }
 
 void DEBUG_CHANNEL_MSG_(uint fmt, uint v0, uint v1, uint v2)
@@ -120,10 +134,11 @@ void DEBUG_CHANNEL_MSG_(uint fmt, uint v0, uint v1, uint v2)
 	RingBuffer buf = RingBuffer(DEBUG_SHADER_RING_BDA);
 	uint words = 11;
 	uint offset = DEBUG_CHANNEL_ALLOCATE(words);
-	DEBUG_CHANNEL_WRITE_HEADER(buf, offset, words, fmt);
+	DEBUG_CHANNEL_WRITE_HEADER(buf, offset, fmt);
 	buf.data[(offset + 8) & DEBUG_SHADER_RING_MASK] = v0;
 	buf.data[(offset + 9) & DEBUG_SHADER_RING_MASK] = v1;
 	buf.data[(offset + 10) & DEBUG_SHADER_RING_MASK] = v2;
+	DEBUG_CHANNEL_UNLOCK_MESSAGE(buf, offset, words);
 }
 
 void DEBUG_CHANNEL_MSG_(uint fmt, uint v0, uint v1, uint v2, uint v3)
@@ -133,11 +148,12 @@ void DEBUG_CHANNEL_MSG_(uint fmt, uint v0, uint v1, uint v2, uint v3)
 	RingBuffer buf = RingBuffer(DEBUG_SHADER_RING_BDA);
 	uint words = 12;
 	uint offset = DEBUG_CHANNEL_ALLOCATE(words);
-	DEBUG_CHANNEL_WRITE_HEADER(buf, offset, words, fmt);
+	DEBUG_CHANNEL_WRITE_HEADER(buf, offset, fmt);
 	buf.data[(offset + 8) & DEBUG_SHADER_RING_MASK] = v0;
 	buf.data[(offset + 9) & DEBUG_SHADER_RING_MASK] = v1;
 	buf.data[(offset + 10) & DEBUG_SHADER_RING_MASK] = v2;
 	buf.data[(offset + 11) & DEBUG_SHADER_RING_MASK] = v3;
+	DEBUG_CHANNEL_UNLOCK_MESSAGE(buf, offset, words);
 }
 
 void DEBUG_CHANNEL_MSG()
