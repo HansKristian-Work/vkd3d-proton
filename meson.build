@@ -79,7 +79,7 @@ idl_generator = generator(idl_compiler,
 
 glsl_compiler  = find_program('glslangValidator')
 glsl_args = [ '-V', '--vn', '@BASENAME@', '@INPUT@', '-o', '@OUTPUT@' ]
-if run_command(glsl_compiler, [ '--quiet', '--version' ]).returncode() == 0
+if run_command(glsl_compiler, [ '--quiet', '--version' ], check : false).returncode() == 0
     glsl_args += [ '--quiet' ]
 endif
 glsl_generator = generator(glsl_compiler,
