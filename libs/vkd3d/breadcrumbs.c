@@ -27,6 +27,11 @@
 /* Just allocate everything up front. This only consumes host memory anyways. */
 #define MAX_COMMAND_LISTS (32 * 1024)
 
+/* Questionable on 32-bit, but we don't really care. */
+#define NV_ENCODE_CHECKPOINT(context, counter) ((void*) ((uintptr_t)(context) + (uintptr_t)MAX_COMMAND_LISTS * (counter)))
+#define NV_CHECKPOINT_CONTEXT(ptr) ((uint32_t)((uintptr_t)(ptr) % MAX_COMMAND_LISTS))
+#define NV_CHECKPOINT_COUNTER(ptr) ((uint32_t)((uintptr_t)(ptr) / MAX_COMMAND_LISTS))
+
 static const char *vkd3d_breadcrumb_command_type_to_str(enum vkd3d_breadcrumb_command_type type)
 {
     switch (type)
@@ -140,10 +145,15 @@ HRESULT vkd3d_breadcrumb_tracer_init(struct vkd3d_breadcrumb_tracer *tracer, str
 
         memset(tracer->mapped, 0, sizeof(*tracer->mapped) * MAX_COMMAND_LISTS);
     }
+    else if (device->vk_info.NV_device_diagnostic_checkpoints)
+    {
+        INFO("Enabling NV_device_diagnostics_checkpoints breadcrumbs.\n");
+    }
     else
     {
-        /* TODO: NV checkpoints path. */
-        return E_NOTIMPL;
+        ERR("Breadcrumbs require support for either AMD_buffer_marker or NV_device_diagnostics_checkpoints.\n");
+        hr = E_FAIL;
+        goto err;
     }
 
     tracer->trace_contexts = vkd3d_calloc(MAX_COMMAND_LISTS, sizeof(*tracer->trace_contexts));
@@ -211,7 +221,12 @@ unsigned int vkd3d_breadcrumb_tracer_allocate_command_list(struct vkd3d_breadcru
      * before we observe the device lost. */
     tracer->trace_contexts[index].command_count = 0;
     tracer->trace_contexts[index].counter = 0;
-    memset(&tracer->mapped[index], 0, sizeof(tracer->mapped[index]));
+
+    if (list->device->device_info.device_coherent_memory_features_amd.deviceCoherentMemory &&
+            list->device->vk_info.AMD_buffer_marker)
+    {
+        memset(&tracer->mapped[index], 0, sizeof(tracer->mapped[index]));
+    }
 
     vkd3d_array_reserve((void**)&allocator->breadcrumb_context_indices, &allocator->breadcrumb_context_index_size,
             allocator->breadcrumb_context_index_count + 1,
@@ -356,9 +371,81 @@ static void vkd3d_breadcrumb_tracer_report_command_list_amd(struct vkd3d_breadcr
     ERR("Done analyzing command list.\n");
 }
 
+static void vkd3d_breadcrumb_tracer_report_queue_nv(struct vkd3d_breadcrumb_tracer *tracer,
+        struct d3d12_device *device,
+        VkQueue vk_queue)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    uint32_t begin_marker, end_marker;
+    uint32_t checkpoint_context_index;
+    VkCheckpointDataNV *checkpoints;
+    uint32_t checkpoint_marker;
+    uint32_t checkpoint_count;
+    uint32_t context_index;
+    uint32_t i;
+
+    VK_CALL(vkGetQueueCheckpointDataNV(vk_queue, &checkpoint_count, NULL));
+    if (checkpoint_count == 0)
+        return;
+
+    checkpoints = vkd3d_calloc(checkpoint_count, sizeof(VkCheckpointDataNV));
+    for (i = 0; i < checkpoint_count; i++)
+        checkpoints[i].sType = VK_STRUCTURE_TYPE_CHECKPOINT_DATA_NV;
+    VK_CALL(vkGetQueueCheckpointDataNV(vk_queue, &checkpoint_count, checkpoints));
+
+    context_index = UINT32_MAX;
+    begin_marker = 0;
+    end_marker = 0;
+
+    for (i = 0; i < checkpoint_count; i++)
+    {
+        checkpoint_context_index = NV_CHECKPOINT_CONTEXT(checkpoints[i].pCheckpointMarker);
+        checkpoint_marker = NV_CHECKPOINT_COUNTER(checkpoints[i].pCheckpointMarker);
+
+        if (context_index != checkpoint_context_index && context_index != UINT32_MAX)
+        {
+            FIXME("Markers have different contexts. Execution is likely split across multiple command buffers?\n");
+            context_index = UINT32_MAX;
+            break;
+        }
+
+        context_index = checkpoint_context_index;
+
+        if (checkpoints[i].stage == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT && checkpoint_marker > begin_marker)
+        {
+            /* We want to find the latest TOP_OF_PIPE_BIT. Then we prove that command processor got to that point. */
+            begin_marker = checkpoint_marker;
+        }
+        else if (checkpoints[i].stage == VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT && checkpoint_marker > end_marker)
+        {
+            /* We want to find the latest BOTTOM_OF_PIPE_BIT. Then we prove that we got that far. */
+            end_marker = checkpoint_marker;
+        }
+        else if (checkpoints[i].stage != VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT &&
+                checkpoints[i].stage != VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT)
+        {
+            FIXME("Unexpected checkpoint pipeline stage. #%x\n", checkpoints[i].stage);
+            context_index = UINT32_MAX;
+            break;
+        }
+    }
+
+    if (context_index != UINT32_MAX && begin_marker != 0 && end_marker != 0 && end_marker != UINT32_MAX)
+    {
+        ERR("Found pending command list context %u in executable state, TOP_OF_PIPE marker %u, BOTTOM_OF_PIPE marker %u.\n",
+                context_index, begin_marker, end_marker);
+        vkd3d_breadcrumb_tracer_report_command_list(&tracer->trace_contexts[context_index], begin_marker, end_marker);
+        ERR("Done analyzing command list.\n");
+    }
+
+    vkd3d_free(checkpoints);
+}
+
 void vkd3d_breadcrumb_tracer_report_device_lost(struct vkd3d_breadcrumb_tracer *tracer,
         struct d3d12_device *device)
 {
+    struct vkd3d_queue_family_info *queue_family_info;
+    VkQueue vk_queue;
     unsigned int i;
 
     ERR("Device lost observed, analyzing breadcrumbs ...\n");
@@ -370,9 +457,29 @@ void vkd3d_breadcrumb_tracer_report_device_lost(struct vkd3d_breadcrumb_tracer *
         for (i = 0; i < MAX_COMMAND_LISTS; i++)
             vkd3d_breadcrumb_tracer_report_command_list_amd(tracer, i);
     }
-    else
+    else if (device->vk_info.NV_device_diagnostic_checkpoints)
     {
-        /* TODO: NV one is more direct, look at checkpoints and deduce it from there. */
+        /* vkGetQueueCheckpointDataNV does not require us to synchronize access to the queue. */
+        queue_family_info = d3d12_device_get_vkd3d_queue_family(device, D3D12_COMMAND_LIST_TYPE_DIRECT);
+        for (i = 0; i < queue_family_info->queue_count; i++)
+        {
+            vk_queue = queue_family_info->queues[i]->vk_queue;
+            vkd3d_breadcrumb_tracer_report_queue_nv(tracer, device, vk_queue);
+        }
+
+        queue_family_info = d3d12_device_get_vkd3d_queue_family(device, D3D12_COMMAND_LIST_TYPE_COMPUTE);
+        for (i = 0; i < queue_family_info->queue_count; i++)
+        {
+            vk_queue = queue_family_info->queues[i]->vk_queue;
+            vkd3d_breadcrumb_tracer_report_queue_nv(tracer, device, vk_queue);
+        }
+
+        queue_family_info = d3d12_device_get_vkd3d_queue_family(device, D3D12_COMMAND_LIST_TYPE_COPY);
+        for (i = 0; i < queue_family_info->queue_count; i++)
+        {
+            vk_queue = queue_family_info->queues[i]->vk_queue;
+            vkd3d_breadcrumb_tracer_report_queue_nv(tracer, device, vk_queue);
+        }
     }
 
     ERR("Done analyzing breadcrumbs ...\n");
@@ -406,9 +513,14 @@ void vkd3d_breadcrumb_tracer_begin_command_list(struct d3d12_command_list *list)
                         offsetof(struct vkd3d_breadcrumb_counter, begin_marker),
                 trace->counter));
     }
-    else
+    else if (list->device->vk_info.NV_device_diagnostic_checkpoints)
     {
-        /* NV checkpoint */
+        /* A checkpoint is implicitly a top and bottom marker. */
+        cmd.count = trace->counter;
+        cmd.type = VKD3D_BREADCRUMB_COMMAND_SET_BOTTOM_MARKER;
+        vkd3d_breadcrumb_tracer_add_command(list, &cmd);
+
+        VK_CALL(vkCmdSetCheckpointNV(list->vk_command_buffer, NV_ENCODE_CHECKPOINT(context, trace->counter)));
     }
 }
 
@@ -445,15 +557,14 @@ void vkd3d_breadcrumb_tracer_signal(struct d3d12_command_list *list)
 
     trace = &breadcrumb_tracer->trace_contexts[context];
 
-    cmd.type = VKD3D_BREADCRUMB_COMMAND_SET_BOTTOM_MARKER;
-    cmd.count = trace->counter;
-    vkd3d_breadcrumb_tracer_add_command(list, &cmd);
-
-    TRACE("Breadcrumb signal bottom-of-pipe context %u -> %u\n", context, cmd.count);
-
     if (list->device->device_info.device_coherent_memory_features_amd.deviceCoherentMemory &&
             list->device->vk_info.AMD_buffer_marker)
     {
+        cmd.type = VKD3D_BREADCRUMB_COMMAND_SET_BOTTOM_MARKER;
+        cmd.count = trace->counter;
+        vkd3d_breadcrumb_tracer_add_command(list, &cmd);
+        TRACE("Breadcrumb signal bottom-of-pipe context %u -> %u\n", context, cmd.count);
+
         VK_CALL(vkCmdWriteBufferMarkerAMD(list->vk_command_buffer,
                 VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
                 breadcrumb_tracer->host_buffer,
@@ -461,20 +572,36 @@ void vkd3d_breadcrumb_tracer_signal(struct d3d12_command_list *list)
                         offsetof(struct vkd3d_breadcrumb_counter, end_marker),
                 trace->counter));
 
+        trace->counter++;
+
+        cmd.type = VKD3D_BREADCRUMB_COMMAND_SET_TOP_MARKER;
+        cmd.count = trace->counter;
+        vkd3d_breadcrumb_tracer_add_command(list, &cmd);
+        TRACE("Breadcrumb signal top-of-pipe context %u -> %u\n", context, cmd.count);
+
         VK_CALL(vkCmdWriteBufferMarkerAMD(list->vk_command_buffer,
                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                 breadcrumb_tracer->host_buffer,
                 context * sizeof(struct vkd3d_breadcrumb_counter) +
                         offsetof(struct vkd3d_breadcrumb_counter, begin_marker),
-                trace->counter + 1));
+                trace->counter));
     }
+    else if (list->device->vk_info.NV_device_diagnostic_checkpoints)
+    {
+        trace->counter++;
 
-    trace->counter++;
+        cmd.type = VKD3D_BREADCRUMB_COMMAND_SET_TOP_MARKER;
+        cmd.count = trace->counter;
+        vkd3d_breadcrumb_tracer_add_command(list, &cmd);
+        TRACE("Breadcrumb signal top-of-pipe context %u -> %u\n", context, cmd.count);
 
-    cmd.type = VKD3D_BREADCRUMB_COMMAND_SET_TOP_MARKER;
-    cmd.count = trace->counter;
-    vkd3d_breadcrumb_tracer_add_command(list, &cmd);
-    TRACE("Breadcrumb signal top-of-pipe context %u -> %u\n", context, cmd.count);
+        cmd.type = VKD3D_BREADCRUMB_COMMAND_SET_BOTTOM_MARKER;
+        cmd.count = trace->counter;
+        vkd3d_breadcrumb_tracer_add_command(list, &cmd);
+        TRACE("Breadcrumb signal bottom-of-pipe context %u -> %u\n", context, cmd.count);
+
+        VK_CALL(vkCmdSetCheckpointNV(list->vk_command_buffer, NV_ENCODE_CHECKPOINT(context, trace->counter)));
+    }
 }
 
 void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list)
@@ -507,6 +634,10 @@ void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list)
                 context * sizeof(struct vkd3d_breadcrumb_counter) +
                         offsetof(struct vkd3d_breadcrumb_counter, end_marker),
                 trace->counter));
+    }
+    else if (list->device->vk_info.NV_device_diagnostic_checkpoints)
+    {
+        VK_CALL(vkCmdSetCheckpointNV(list->vk_command_buffer, NV_ENCODE_CHECKPOINT(context, trace->counter)));
     }
 
     cmd.count = trace->counter;
