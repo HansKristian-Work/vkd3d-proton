@@ -50,6 +50,8 @@ static const char *vkd3d_breadcrumb_command_type_to_str(enum vkd3d_breadcrumb_co
             return "dispatch";
         case VKD3D_BREADCRUMB_COMMAND_EXECUTE_INDIRECT:
             return "execute_indirect";
+        case VKD3D_BREADCRUMB_COMMAND_EXECUTE_INDIRECT_TEMPLATE:
+            return "execute_indirect_template";
         case VKD3D_BREADCRUMB_COMMAND_COPY:
             return "copy";
         case VKD3D_BREADCRUMB_COMMAND_RESOLVE:

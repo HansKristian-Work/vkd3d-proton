@@ -9894,6 +9894,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                 max_command_count,
                 arg_impl, arg_buffer_offset,
                 count_impl, count_buffer_offset);
+        VKD3D_BREADCRUMB_COMMAND(EXECUTE_INDIRECT_TEMPLATE);
         return;
     }
 
