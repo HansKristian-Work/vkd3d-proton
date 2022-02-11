@@ -23,6 +23,9 @@
 #extension GL_ARB_gpu_shader_int64 : require
 #extension GL_KHR_shader_subgroup_basic : require
 #extension GL_KHR_shader_subgroup_ballot : require
+#ifdef DEBUG_CHANNEL_HELPER_LANES
+#extension GL_EXT_demote_to_helper_invocation : require
+#endif
 
 layout(buffer_reference, std430, buffer_reference_align = 4) coherent buffer ControlBlock
 {
@@ -52,15 +55,45 @@ const uint DEBUG_CHANNEL_FMT_F32_ALL = DEBUG_CHANNEL_FMT_F32 * 0x55555555u;
 uint DEBUG_CHANNEL_INSTANCE_COUNTER;
 uvec3 DEBUG_CHANNEL_ID;
 
+/* Need to make sure the elected subgroup can have side effects. */
+#ifdef DEBUG_CHANNEL_HELPER_LANES
+bool DEBUG_CHANNEL_ELECT()
+{
+	bool elected = false;
+	if (!helperInvocationEXT())
+		elected = subgroupElect();
+	return elected;
+}
+#else
+bool DEBUG_CHANNEL_ELECT()
+{
+	return subgroupElect();
+}
+#endif
+
 void DEBUG_CHANNEL_INIT(uvec3 id)
 {
 	if (!DEBUG_SHADER_RING_ACTIVE)
 		return;
 	DEBUG_CHANNEL_ID = id;
 	uint inst;
-	if (subgroupElect())
+#ifdef DEBUG_CHANNEL_HELPER_LANES
+	if (!helperInvocationEXT())
+	{
+		/* Elect and broadcast must happen without helper lanes here.
+		 * We must perform the instance increment with side effects,
+		 * and broadcast first must pick the elected lane. */
+		if (subgroupElect())
+			inst = atomicAdd(ControlBlock(DEBUG_SHADER_ATOMIC_BDA).instance_counter, 1u);
+		DEBUG_CHANNEL_INSTANCE_COUNTER = subgroupBroadcastFirst(inst);
+	}
+	/* Helper lanes cannot write debug messages, since they cannot have side effects.
+	 * Leave it undefined, and we should ensure SGPR propagation either way ... */
+#else
+	if (DEBUG_CHANNEL_ELECT())
 		inst = atomicAdd(ControlBlock(DEBUG_SHADER_ATOMIC_BDA).instance_counter, 1u);
 	DEBUG_CHANNEL_INSTANCE_COUNTER = subgroupBroadcastFirst(inst);
+#endif
 }
 
 void DEBUG_CHANNEL_UNLOCK_MESSAGE(RingBuffer buf, uint offset, uint num_words)
@@ -223,73 +256,73 @@ void DEBUG_CHANNEL_MSG(float v0, float v1, float v2, float v3)
 
 void DEBUG_CHANNEL_MSG_UNIFORM(uint v0)
 {
-    if (subgroupElect())
+    if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0);
 }
 
 void DEBUG_CHANNEL_MSG_UNIFORM(uint v0, uint v1)
 {
-    if (subgroupElect())
+    if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0, v1);
 }
 
 void DEBUG_CHANNEL_MSG_UNIFORM(uint v0, uint v1, uint v2)
 {
-    if (subgroupElect())
+    if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0, v1, v2);
 }
 
 void DEBUG_CHANNEL_MSG_UNIFORM(uint v0, uint v1, uint v2, uint v3)
 {
-    if (subgroupElect())
+    if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0, v1, v2, v3);
 }
 
 void DEBUG_CHANNEL_MSG_UNIFORM(int v0)
 {
-    if (subgroupElect())
+    if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0);
 }
 
 void DEBUG_CHANNEL_MSG_UNIFORM(int v0, int v1)
 {
-    if (subgroupElect())
+    if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0, v1);
 }
 
 void DEBUG_CHANNEL_MSG_UNIFORM(int v0, int v1, int v2)
 {
-    if (subgroupElect())
+    if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0, v1, v2);
 }
 
 void DEBUG_CHANNEL_MSG_UNIFORM(int v0, int v1, int v2, int v3)
 {
-    if (subgroupElect())
+    if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0, v1, v2, v3);
 }
 
 void DEBUG_CHANNEL_MSG_UNIFORM(float v0)
 {
-    if (subgroupElect())
+    if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0);
 }
 
 void DEBUG_CHANNEL_MSG_UNIFORM(float v0, float v1)
 {
-    if (subgroupElect())
+    if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0, v1);
 }
 
 void DEBUG_CHANNEL_MSG_UNIFORM(float v0, float v1, float v2)
 {
-    if (subgroupElect())
+    if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0, v1, v2);
 }
 
 void DEBUG_CHANNEL_MSG_UNIFORM(float v0, float v1, float v2, float v3)
 {
-    if (subgroupElect())
+    if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0, v1, v2, v3);
 }
 
