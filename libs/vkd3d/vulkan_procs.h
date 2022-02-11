@@ -282,6 +282,10 @@ VK_DEVICE_EXT_PFN(vkQueuePresentKHR)
 /* VK_AMD_buffer_marker */
 VK_DEVICE_EXT_PFN(vkCmdWriteBufferMarkerAMD)
 
+/* VK_NV_device_diagnostic_checkpoints */
+VK_DEVICE_EXT_PFN(vkCmdSetCheckpointNV)
+VK_DEVICE_EXT_PFN(vkGetQueueCheckpointDataNV)
+
 /* VK_NVX_binary_import */
 VK_DEVICE_EXT_PFN(vkCreateCuModuleNVX)
 VK_DEVICE_EXT_PFN(vkCreateCuFunctionNVX)
