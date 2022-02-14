@@ -270,7 +270,7 @@ HRESULT vkd3d_shader_debug_ring_init(struct vkd3d_shader_debug_ring *ring,
     ring->ring_size = (size_t)1 << strtoul(env, NULL, 0);
     ring->control_block_size = 4096;
 
-    WARN("Enabling shader debug ring of size: %zu.\n", ring->ring_size);
+    INFO("Enabling shader debug ring of size: %zu.\n", ring->ring_size);
 
     if (!device->device_info.buffer_device_address_features.bufferDeviceAddress)
     {
