@@ -8395,7 +8395,9 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     scratch_buffer_size = element_count * format->byte_count;
 
     if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
-            scratch_buffer_size, 16, &scratch))
+            VKD3D_SCRATCH_POOL_KIND_DEVICE_STORAGE,
+            scratch_buffer_size, 16, ~0u,
+            &scratch))
     {
         ERR("Failed to allocate scratch memory for UAV clear.\n");
         return;

@@ -2803,6 +2803,14 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         allocate_info.heap_desc.SizeInBytes = align(desc->Width, allocate_info.heap_desc.Alignment);
         allocate_info.heap_desc.Flags = heap_flags | D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
 
+        /* Be very careful with suballocated buffers. */
+        if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_ZERO_MEMORY_WORKAROUNDS_COMMITTED_BUFFER_UAV) &&
+                (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) &&
+                desc->Width < VKD3D_VA_BLOCK_SIZE)
+        {
+            allocate_info.heap_desc.Flags &= ~D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
+        }
+
         if (FAILED(hr = vkd3d_allocate_heap_memory(device,
                 &device->memory_allocator, &allocate_info, &object->mem)))
             goto fail;
