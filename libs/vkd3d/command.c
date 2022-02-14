@@ -331,6 +331,7 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
     struct d3d12_device *device = worker->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkSemaphoreWaitInfoKHR wait_info;
+    uint64_t timeout = UINT64_MAX;
     HRESULT hr;
     int vr;
 
@@ -341,13 +342,21 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
     wait_info.pSemaphores = &fence->fence->timeline_semaphore;
     wait_info.pValues = &fence->value;
 
-    if ((vr = VK_CALL(vkWaitSemaphoresKHR(device->vk_device, &wait_info, ~(uint64_t)0))))
+    /* Some drivers hang indefinitely in face of device lost.
+     * If a wait here takes more than 5 seconds, this is pretty much
+     * a guaranteed timeout (TDR) scenario.
+     * Usually, we'd observe DEVICE_LOST in subsequent submissions,
+     * but if application submits something and expects to wait on that submission
+     * immediately, this can happen. */
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
+        timeout = 5000000000ull;
+
+    if ((vr = VK_CALL(vkWaitSemaphoresKHR(device->vk_device, &wait_info, timeout))))
     {
         ERR("Failed to wait for Vulkan timeline semaphore, vr %d.\n", vr);
+        VKD3D_DEVICE_REPORT_BREADCRUMB_IF(device, vr == VK_ERROR_DEVICE_LOST || vr == VK_TIMEOUT);
         return;
     }
-
-    VKD3D_DEVICE_REPORT_BREADCRUMB_IF(device, vr == VK_ERROR_DEVICE_LOST);
 
     /* This is a good time to kick the debug threads into action. */
     if (device->debug_ring.active)
