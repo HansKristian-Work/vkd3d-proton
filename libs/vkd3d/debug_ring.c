@@ -66,7 +66,7 @@ void *vkd3d_shader_debug_ring_thread_main(void *arg)
     size_t ring_mask;
 
     ring = &device->debug_ring;
-    ring_mask = ring->ring_size - 1;
+    ring_mask = (ring->ring_size / sizeof(uint32_t)) - 1;
     ring_counter = ring->mapped_control_block;
     ring_base = ring->mapped_ring;
     last_counter = 0;
