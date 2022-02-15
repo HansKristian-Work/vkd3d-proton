@@ -497,9 +497,10 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Deathloop.exe", VKD3D_CONFIG_FLAG_IGNORE_RTV_HOST_VISIBLE, 0 },
     /* Halo Infinite (1240440).
      * Game relies on NON_ZEROED committed UAVs to be cleared to zero on allocation.
-     * This works okay with zerovram on first game boot, but not later, since this memory is guaranteed to be recycled. */
+     * This works okay with zerovram on first game boot, but not later, since this memory is guaranteed to be recycled.
+     * Game also relies on indirectly modifying CBV root descriptors, which means we are forced to rel yon RAW_VA_CBV. */
     { VKD3D_STRING_COMPARE_EXACT, "HaloInfinite.exe",
-            VKD3D_CONFIG_FLAG_ZERO_MEMORY_WORKAROUNDS_COMMITTED_BUFFER_UAV, 0 },
+            VKD3D_CONFIG_FLAG_ZERO_MEMORY_WORKAROUNDS_COMMITTED_BUFFER_UAV | VKD3D_CONFIG_FLAG_FORCE_RAW_VA_CBV, 0 },
     /* Shadow of the Tomb Raider (750920).
      * Invariant workarounds actually cause more issues than they resolve on NV.
      * RADV already has workarounds by default.
