@@ -2492,12 +2492,14 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
             device->vk_info.EXT_pipeline_creation_feedback)
     {
         feedback_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATION_FEEDBACK_CREATE_INFO_EXT;
-        feedback_info.pNext = NULL;
+        feedback_info.pNext = pipeline_info.pNext;
         feedback_info.pPipelineStageCreationFeedbacks = feedbacks;
         feedback_info.pipelineStageCreationFeedbackCount = 1;
         feedback_info.pPipelineCreationFeedback = &feedback;
         pipeline_info.pNext = &feedback_info;
     }
+    else
+        feedback_info.pipelineStageCreationFeedbackCount = 0;
 
     vr = VK_CALL(vkCreateComputePipelines(device->vk_device,
             vk_cache, 1, &pipeline_info, NULL, vk_pipeline));
@@ -2510,7 +2512,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
         return hresult_from_vk_result(vr);
     }
 
-    if (pipeline_info.pNext)
+    if (feedback_info.pipelineStageCreationFeedbackCount)
         vkd3d_report_pipeline_creation_feedback_results(&feedback_info);
 
     return S_OK;
@@ -4373,12 +4375,14 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
             device->vk_info.EXT_pipeline_creation_feedback)
     {
         feedback_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATION_FEEDBACK_CREATE_INFO_EXT;
-        feedback_info.pNext = NULL;
+        feedback_info.pNext = pipeline_desc.pNext;
         feedback_info.pPipelineStageCreationFeedbacks = feedbacks;
         feedback_info.pipelineStageCreationFeedbackCount = pipeline_desc.stageCount;
         feedback_info.pPipelineCreationFeedback = &feedback;
         pipeline_desc.pNext = &feedback_info;
     }
+    else
+        feedback_info.pipelineStageCreationFeedbackCount = 0;
 
     if ((vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device,
             vk_cache, 1, &pipeline_desc, NULL, &vk_pipeline))) < 0)
@@ -4394,7 +4398,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
             if (stages[i].module != graphics->stages[i].module)
                 VK_CALL(vkDestroyShaderModule(device->vk_device, stages[i].module, NULL));
 
-    if (pipeline_desc.pNext)
+    if (feedback_info.pipelineStageCreationFeedbackCount)
         vkd3d_report_pipeline_creation_feedback_results(&feedback_info);
 
     return vk_pipeline;
