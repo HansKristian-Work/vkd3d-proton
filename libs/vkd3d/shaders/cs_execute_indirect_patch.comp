@@ -11,8 +11,7 @@ struct Command
 	uint dst_offset;
 };
 
-const int COMMAND_TYPE_COPY_U32 = 0;
-const int COMMAND_TYPE_COPY_INDEX_TYPE = 1;
+const int COMMAND_TYPE_COPY_INDEX_TYPE = 4;
 const int DXGI_FORMAT_R32_UINT = 0x2a;
 const int VK_INDEX_TYPE_UINT16 = 0;
 const int VK_INDEX_TYPE_UINT32 = 1;

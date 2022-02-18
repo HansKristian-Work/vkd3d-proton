@@ -12704,6 +12704,7 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
         struct d3d12_root_signature *root_signature,
         struct d3d12_device *device)
 {
+    const enum vkd3d_patch_command_token *generic_u32_copy_types;
     const struct vkd3d_shader_root_parameter *root_parameter;
     const struct vkd3d_shader_root_constant *root_constant;
     struct vkd3d_patch_command *patch_commands = NULL;
@@ -12720,6 +12721,46 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
     size_t token_size = 0;
     HRESULT hr = S_OK;
     uint32_t i, j;
+
+    /* Mostly for debug. Lets debug ring report what it is writing easily. */
+    static const enum vkd3d_patch_command_token ibv_types[] =
+    {
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_IBO_VA_LO,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_IBO_VA_HI,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_IBO_SIZE,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_INDEX_FORMAT,
+    };
+
+    static const enum vkd3d_patch_command_token vbv_types[] =
+    {
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_VBO_VA_LO,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_VBO_VA_HI,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_VBO_SIZE,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_VBO_STRIDE,
+    };
+
+    static const enum vkd3d_patch_command_token draw_types[] =
+    {
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_VERTEX_COUNT,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_INSTANCE_COUNT,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_FIRST_VERTEX,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_FIRST_INSTANCE,
+    };
+
+    static const enum vkd3d_patch_command_token draw_indexed_types[] =
+    {
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_INDEX_COUNT,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_INSTANCE_COUNT,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_FIRST_INDEX,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_VERTEX_OFFSET,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_FIRST_INSTANCE,
+    };
+
+    static const enum vkd3d_patch_command_token va_types[] =
+    {
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_ROOT_VA_LO,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_ROOT_VA_HI,
+    };
 
     if (!device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
     {
@@ -12754,6 +12795,7 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
                 dst_word_offset = token.offset / sizeof(uint32_t);
 
                 generic_u32_copy_count = argument_desc->Constant.Num32BitValuesToSet;
+                generic_u32_copy_types = NULL;
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_UNORDERED_ACCESS_VIEW:
@@ -12782,6 +12824,7 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
 
                 /* Simply patch by copying U32s. Need to handle unaligned U32s since everything is tightly packed. */
                 generic_u32_copy_count = sizeof(VkDeviceAddress) / sizeof(uint32_t);
+                generic_u32_copy_types = va_types;
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW:
@@ -12796,6 +12839,7 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
 
                 /* The VBV indirect layout is the same as DX, so just copy the U32s. */
                 generic_u32_copy_count = sizeof(D3D12_VERTEX_BUFFER_VIEW) / sizeof(uint32_t);
+                generic_u32_copy_types = vbv_types;
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW:
@@ -12811,18 +12855,13 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
                         patch_commands_count + sizeof(D3D12_INDEX_BUFFER_VIEW) / sizeof(uint32_t),
                         sizeof(*patch_commands));
 
-                for (j = 0; j < 3; j++)
+                for (j = 0; j < 4; j++)
                 {
-                    patch_commands[patch_commands_count].token = VKD3D_PATCH_COMMAND_TOKEN_COPY_U32;
+                    patch_commands[patch_commands_count].token = ibv_types[j];
                     patch_commands[patch_commands_count].src_offset = src_word_offset++;
                     patch_commands[patch_commands_count].dst_offset = dst_word_offset++;
                     patch_commands_count++;
                 }
-
-                patch_commands[patch_commands_count].token = VKD3D_PATCH_COMMAND_TOKEN_COPY_INDEX_FORMAT;
-                patch_commands[patch_commands_count].src_offset = src_word_offset++;
-                patch_commands[patch_commands_count].dst_offset = dst_word_offset++;
-                patch_commands_count++;
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW:
@@ -12832,6 +12871,7 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
                 stream_stride += sizeof(VkDrawIndirectCommand);
                 dst_word_offset = token.offset / sizeof(uint32_t);
                 generic_u32_copy_count = sizeof(VkDrawIndirectCommand) / sizeof(uint32_t);
+                generic_u32_copy_types = draw_types;
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED:
@@ -12841,6 +12881,7 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
                 stream_stride += sizeof(VkDrawIndexedIndirectCommand);
                 dst_word_offset = token.offset / sizeof(uint32_t);
                 generic_u32_copy_count = sizeof(VkDrawIndexedIndirectCommand) / sizeof(uint32_t);
+                generic_u32_copy_types = draw_indexed_types;
                 break;
 
             default:
@@ -12861,7 +12902,8 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
             /* Simply patch by copying U32s. */
             for (j = 0; j < generic_u32_copy_count; j++, patch_commands_count++)
             {
-                patch_commands[patch_commands_count].token = VKD3D_PATCH_COMMAND_TOKEN_COPY_U32;
+                patch_commands[patch_commands_count].token =
+                        generic_u32_copy_types ? generic_u32_copy_types[j] : VKD3D_PATCH_COMMAND_TOKEN_COPY_CONST_U32;
                 patch_commands[patch_commands_count].src_offset = src_word_offset++;
                 patch_commands[patch_commands_count].dst_offset = dst_word_offset++;
             }
