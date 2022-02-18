@@ -83,7 +83,7 @@ idl_generator = generator(idl_compiler,
   arguments : [ '-h', '-o', '@OUTPUT@', '@INPUT@' ])
 
 glsl_compiler  = find_program('glslangValidator')
-glsl_args = [ '-V', '--vn', '@BASENAME@', '@INPUT@', '-o', '@OUTPUT@' ]
+glsl_args = [ '-V', '--target-env', 'vulkan1.1', '--vn', '@BASENAME@', '@INPUT@', '-o', '@OUTPUT@' ]
 if run_command(glsl_compiler, [ '--quiet', '--version' ], check : false).returncode() == 0
     glsl_args += [ '--quiet' ]
 endif
