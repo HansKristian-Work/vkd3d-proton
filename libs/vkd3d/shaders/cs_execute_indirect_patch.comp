@@ -54,10 +54,11 @@ void main()
 	Command cmd = commands_va.commands[gl_LocalInvocationIndex];
 
 	uint draw_id = gl_WorkGroupID.x;
-	uint max_draws = ~0u;
+	uint max_draws = gl_NumWorkGroups.x;
+
 	if (any(notEqual(indirect_count_va, uvec2(0))))
 	{
-		max_draws = IndirectCount(indirect_count_va).count;
+		max_draws = min(max_draws, IndirectCount(indirect_count_va).count);
 		if (gl_WorkGroupID.x == 0u)
 			dst_indirect_count_va.count = max_draws;
 	}
