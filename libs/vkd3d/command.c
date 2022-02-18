@@ -12772,13 +12772,6 @@ CONST_VTBL struct ID3D12CommandSignatureVtbl d3d12_command_signature_vtbl =
     d3d12_command_signature_GetDevice,
 };
 
-enum vkd3d_patch_command_token
-{
-    VKD3D_PATCH_COMMAND_TOKEN_COPY_U32 = 0,
-    VKD3D_PATCH_COMMAND_TOKEN_COPY_INDEX_FORMAT = 1,
-    VKD3D_PATCH_COMMAND_INT_MAX = 0x7fffffff
-};
-
 struct vkd3d_patch_command
 {
     enum vkd3d_patch_command_token token;
