@@ -132,7 +132,7 @@ static bool vkd3d_shader_debug_ring_print_message(struct vkd3d_shader_debug_ring
         /* We got this from our internal debug shaders. Pretty-print.
          * TODO: Might consider a callback system that listeners from different subsystems can listen to and print their own messages,
          * but that is overengineering at this time ... */
-        snprintf(message_buffer, sizeof(message_buffer), "ExecuteIndirect: Instance %u, Debug tag %u, DrawID %u (ThreadID %u): ",
+        snprintf(message_buffer, sizeof(message_buffer), "ExecuteIndirect: Instance %010u, Debug tag %u, DrawID %u (ThreadID %u): ",
                 debug_instance, debug_thread_id[0], debug_thread_id[1], debug_thread_id[2]);
 
         if (message_word_count == 2)
@@ -181,7 +181,7 @@ static bool vkd3d_shader_debug_ring_print_message(struct vkd3d_shader_debug_ring
     }
     else
     {
-        snprintf(message_buffer, sizeof(message_buffer), "Shader: %"PRIx64": Instance %u, ID (%u, %u, %u):",
+        snprintf(message_buffer, sizeof(message_buffer), "Shader: %"PRIx64": Instance %010u, ID (%u, %u, %u):",
                 shader_hash, debug_instance,
                 debug_thread_id[0], debug_thread_id[1], debug_thread_id[2]);
 
