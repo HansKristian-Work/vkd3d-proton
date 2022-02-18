@@ -1466,10 +1466,11 @@ struct vkd3d_shader_debug_ring_spec_constants
     uint32_t ring_words;
 };
 
+#define VKD3D_SHADER_DEBUG_RING_SPEC_INFO_MAP_ENTRIES 4
 struct vkd3d_shader_debug_ring_spec_info
 {
     struct vkd3d_shader_debug_ring_spec_constants constants;
-    VkSpecializationMapEntry map_entries[4];
+    VkSpecializationMapEntry map_entries[VKD3D_SHADER_DEBUG_RING_SPEC_INFO_MAP_ENTRIES];
     VkSpecializationInfo spec_info;
 };
 
@@ -3054,6 +3055,9 @@ struct vkd3d_execute_indirect_args
     VkDeviceAddress dst_indirect_count_va;
     uint32_t api_buffer_word_stride;
     uint32_t device_generated_commands_word_stride;
+
+    /* Arbitrary tag used for debug version of state patcher. Debug messages from tag 0 are ignored. */
+    uint32_t debug_tag;
 };
 
 struct vkd3d_execute_indirect_pipeline

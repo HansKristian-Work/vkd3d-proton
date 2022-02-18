@@ -1244,14 +1244,24 @@ HRESULT vkd3d_execute_indirect_ops_init(struct vkd3d_execute_indirect_ops *meta_
     return S_OK;
 }
 
+struct vkd3d_meta_execute_indirect_spec_constant_data
+{
+    struct vkd3d_shader_debug_ring_spec_constants constants;
+    uint32_t workgroup_size_x;
+};
+
 HRESULT vkd3d_meta_get_execute_indirect_pipeline(struct vkd3d_meta_ops *meta_ops,
         uint32_t patch_command_count, struct vkd3d_execute_indirect_info *info)
 {
+    struct vkd3d_meta_execute_indirect_spec_constant_data execute_indirect_spec_constants;
+    VkSpecializationMapEntry map_entry[VKD3D_SHADER_DEBUG_RING_SPEC_INFO_MAP_ENTRIES + 1];
     struct vkd3d_execute_indirect_ops *meta_indirect_ops = &meta_ops->execute_indirect;
-    VkSpecializationMapEntry map_entry;
+    struct vkd3d_shader_debug_ring_spec_info debug_ring_info;
+
     VkSpecializationInfo spec;
     HRESULT hr = S_OK;
     VkResult vr;
+    bool debug;
     size_t i;
     int rc;
 
@@ -1271,14 +1281,41 @@ HRESULT vkd3d_meta_get_execute_indirect_pipeline(struct vkd3d_meta_ops *meta_ops
         }
     }
 
-    map_entry.constantID = 0;
-    map_entry.offset = 0;
-    map_entry.size = sizeof(patch_command_count);
+    debug = meta_ops->device->debug_ring.active;
 
-    spec.pMapEntries = &map_entry;
-    spec.pData = &patch_command_count;
-    spec.mapEntryCount = 1;
-    spec.dataSize = sizeof(patch_command_count);
+    /* If we have debug ring, we can dump indirect command buffer data to the ring as well.
+     * Vital for debugging broken execute indirect data with templates. */
+    if (debug)
+    {
+        vkd3d_shader_debug_ring_init_spec_constant(meta_ops->device, &debug_ring_info,
+                0 /* Reserve this hash for internal debug streams. */);
+
+        memset(&execute_indirect_spec_constants, 0, sizeof(execute_indirect_spec_constants));
+        execute_indirect_spec_constants.constants = debug_ring_info.constants;
+        execute_indirect_spec_constants.workgroup_size_x = patch_command_count;
+
+        memcpy(map_entry, debug_ring_info.map_entries, sizeof(debug_ring_info.map_entries));
+        map_entry[VKD3D_SHADER_DEBUG_RING_SPEC_INFO_MAP_ENTRIES].constantID = 4;
+        map_entry[VKD3D_SHADER_DEBUG_RING_SPEC_INFO_MAP_ENTRIES].offset =
+                offsetof(struct vkd3d_meta_execute_indirect_spec_constant_data, workgroup_size_x);
+        map_entry[VKD3D_SHADER_DEBUG_RING_SPEC_INFO_MAP_ENTRIES].size = sizeof(patch_command_count);
+
+        spec.pMapEntries = map_entry;
+        spec.pData = &execute_indirect_spec_constants;
+        spec.mapEntryCount = ARRAY_SIZE(map_entry);
+        spec.dataSize = sizeof(execute_indirect_spec_constants);
+    }
+    else
+    {
+        map_entry[0].constantID = 0;
+        map_entry[0].offset = 0;
+        map_entry[0].size = sizeof(patch_command_count);
+
+        spec.pMapEntries = map_entry;
+        spec.pData = &patch_command_count;
+        spec.mapEntryCount = 1;
+        spec.dataSize = sizeof(patch_command_count);
+    }
 
     vkd3d_array_reserve((void**)&meta_indirect_ops->pipelines, &meta_indirect_ops->pipelines_size,
             meta_indirect_ops->pipelines_count + 1, sizeof(*meta_indirect_ops->pipelines));
@@ -1286,7 +1323,8 @@ HRESULT vkd3d_meta_get_execute_indirect_pipeline(struct vkd3d_meta_ops *meta_ops
     meta_indirect_ops->pipelines[meta_indirect_ops->pipelines_count].workgroup_size_x = patch_command_count;
 
     vr = vkd3d_meta_create_compute_pipeline(meta_ops->device,
-            sizeof(cs_execute_indirect_patch), cs_execute_indirect_patch,
+            debug ? sizeof(cs_execute_indirect_patch_debug_ring) : sizeof(cs_execute_indirect_patch),
+            debug ? cs_execute_indirect_patch_debug_ring : cs_execute_indirect_patch,
             meta_indirect_ops->vk_pipeline_layout, &spec,
             &meta_indirect_ops->pipelines[meta_indirect_ops->pipelines_count].vk_pipeline);
 
