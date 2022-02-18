@@ -2433,6 +2433,13 @@ struct vkd3d_execute_indirect_info
     VkPipeline vk_pipeline;
 };
 
+enum vkd3d_patch_command_token
+{
+    VKD3D_PATCH_COMMAND_TOKEN_COPY_U32 = 0,
+    VKD3D_PATCH_COMMAND_TOKEN_COPY_INDEX_FORMAT = 1,
+    VKD3D_PATCH_COMMAND_INT_MAX = 0x7fffffff
+};
+
 /* ID3D12CommandSignature */
 struct d3d12_command_signature
 {
