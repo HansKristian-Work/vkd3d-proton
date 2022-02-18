@@ -51,12 +51,13 @@ layout(push_constant) uniform Registers
 
 	// Debug metadata here
 	uint debug_tag;
+    uint implicit_instance;
 };
 
 void main()
 {
     if (debug_tag != 0u)
-        DEBUG_CHANNEL_INIT(uvec3(debug_tag, gl_WorkGroupID.x, gl_LocalInvocationIndex));
+        DEBUG_CHANNEL_INIT_IMPLICIT_INSTANCE(uvec3(debug_tag, gl_WorkGroupID.x, gl_LocalInvocationIndex), implicit_instance);
 
     Command cmd = commands_va.commands[gl_LocalInvocationIndex];
 
