@@ -61,12 +61,56 @@ void vkd3d_shader_debug_ring_init_spec_constant(struct d3d12_device *device,
 #define DEBUG_CHANNEL_WORD_COOKIE 0xdeadca70u
 #define DEBUG_CHANNEL_WORD_MASK 0xfffffff0u
 
+static const char *vkd3d_patch_command_token_str(enum vkd3d_patch_command_token token)
+{
+    switch (token)
+    {
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_CONST_U32: return "RootConst";
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_IBO_VA_LO: return "IBO VA LO";
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_IBO_VA_HI: return "IBO VA HI";
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_IBO_SIZE: return "IBO Size";
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_INDEX_FORMAT: return "IBO Type";
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_VBO_VA_LO: return "VBO VA LO";
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_VBO_VA_HI: return "VBO VA HI";
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_VBO_SIZE: return "VBO Size";
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_VBO_STRIDE: return "VBO Stride";
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_ROOT_VA_LO: return "ROOT VA LO";
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_ROOT_VA_HI: return "ROOT VA HI";
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_VERTEX_COUNT: return "Vertex Count";
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_INDEX_COUNT: return "Index Count";
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_INSTANCE_COUNT: return "Instance Count";
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_FIRST_INDEX: return "First Index";
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_FIRST_VERTEX: return "First Vertex";
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_FIRST_INSTANCE: return "First Instance";
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_VERTEX_OFFSET: return "Vertex Offset";
+        default: return "???";
+    }
+}
+
+static bool vkd3d_patch_command_token_is_hex(enum vkd3d_patch_command_token token)
+{
+    switch (token)
+    {
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_IBO_VA_LO:
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_IBO_VA_HI:
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_VBO_VA_LO:
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_VBO_VA_HI:
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_ROOT_VA_LO:
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_ROOT_VA_HI:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
 static bool vkd3d_shader_debug_ring_print_message(struct vkd3d_shader_debug_ring *ring,
         uint32_t word_offset, uint32_t message_word_count)
 {
     uint32_t i, debug_instance, debug_thread_id[3], fmt;
     char message_buffer[4096];
     uint64_t shader_hash;
+    size_t len, avail;
 
     if (message_word_count < 8)
     {
@@ -80,52 +124,106 @@ static bool vkd3d_shader_debug_ring_print_message(struct vkd3d_shader_debug_ring
         debug_thread_id[i] = READ_RING_WORD(word_offset + 4 + i);
     fmt = READ_RING_WORD(word_offset + 7);
 
-    snprintf(message_buffer, sizeof(message_buffer), "Shader: %"PRIx64": Instance %u, ID (%u, %u, %u):",
-            shader_hash, debug_instance,
-            debug_thread_id[0], debug_thread_id[1], debug_thread_id[2]);
-
     word_offset += 8;
     message_word_count -= 8;
 
-    for (i = 0; i < message_word_count; i++)
+    if (shader_hash == 0)
     {
-        union
+        /* We got this from our internal debug shaders. Pretty-print.
+         * TODO: Might consider a callback system that listeners from different subsystems can listen to and print their own messages,
+         * but that is overengineering at this time ... */
+        snprintf(message_buffer, sizeof(message_buffer), "ExecuteIndirect: Instance %u, Debug tag %u, DrawID %u (ThreadID %u): ",
+                debug_instance, debug_thread_id[0], debug_thread_id[1], debug_thread_id[2]);
+
+        if (message_word_count == 2)
         {
-            float f32;
-            uint32_t u32;
-            int32_t i32;
-        } u;
-        const char *delim;
-        size_t len, avail;
-        u.u32 = READ_RING_WORD(word_offset + i);
+            len = strlen(message_buffer);
+            avail = sizeof(message_buffer) - len;
+            snprintf(message_buffer + len, avail, "DrawCount %u, MaxDrawCount %u",
+                    READ_RING_WORD(word_offset + 0),
+                    READ_RING_WORD(word_offset + 1));
+        }
+        else if (message_word_count == 4)
+        {
+            union { uint32_t u32; float f32; int32_t s32; } value;
+            enum vkd3d_patch_command_token token;
+            uint32_t dst_offset;
+            uint32_t src_offset;
 
-        len = strlen(message_buffer);
-        if (len + 1 >= sizeof(message_buffer))
-            break;
-        avail = sizeof(message_buffer) - len;
+            len = strlen(message_buffer);
+            avail = sizeof(message_buffer) - len;
 
-        delim = i == 0 ? " " : ", ";
+            token = READ_RING_WORD(word_offset + 0);
+            dst_offset = READ_RING_WORD(word_offset + 1);
+            src_offset = READ_RING_WORD(word_offset + 2);
+            value.u32 = READ_RING_WORD(word_offset + 3);
+
+            if (vkd3d_patch_command_token_is_hex(token))
+            {
+                snprintf(message_buffer + len, avail, "%s <- #%08x",
+                        vkd3d_patch_command_token_str(token), value.u32);
+            }
+            else if (token == VKD3D_PATCH_COMMAND_TOKEN_COPY_CONST_U32)
+            {
+                snprintf(message_buffer + len, avail, "%s <- {hex #%08x, s32 %d, f32 %f}",
+                        vkd3d_patch_command_token_str(token), value.u32, value.s32, value.f32);
+            }
+            else
+            {
+                snprintf(message_buffer + len, avail, "%s <- %d",
+                        vkd3d_patch_command_token_str(token), value.s32);
+            }
+
+            len = strlen(message_buffer);
+            avail = sizeof(message_buffer) - len;
+            snprintf(message_buffer + len, avail, " (dst offset %u, src offset %u)", dst_offset, src_offset);
+        }
+    }
+    else
+    {
+        snprintf(message_buffer, sizeof(message_buffer), "Shader: %"PRIx64": Instance %u, ID (%u, %u, %u):",
+                shader_hash, debug_instance,
+                debug_thread_id[0], debug_thread_id[1], debug_thread_id[2]);
+
+        for (i = 0; i < message_word_count; i++)
+        {
+            union
+            {
+                float f32;
+                uint32_t u32;
+                int32_t i32;
+            } u;
+            const char *delim;
+            u.u32 = READ_RING_WORD(word_offset + i);
+
+            len = strlen(message_buffer);
+            if (len + 1 >= sizeof(message_buffer))
+                break;
+            avail = sizeof(message_buffer) - len;
+
+            delim = i == 0 ? " " : ", ";
 
 #define VKD3D_DEBUG_CHANNEL_FMT_HEX 0u
 #define VKD3D_DEBUG_CHANNEL_FMT_I32 1u
 #define VKD3D_DEBUG_CHANNEL_FMT_F32 2u
-        switch ((fmt >> (2u * i)) & 3u)
-        {
-            case VKD3D_DEBUG_CHANNEL_FMT_HEX:
-                snprintf(message_buffer + len, avail, "%s#%x", delim, u.u32);
-                break;
+            switch ((fmt >> (2u * i)) & 3u)
+            {
+                case VKD3D_DEBUG_CHANNEL_FMT_HEX:
+                    snprintf(message_buffer + len, avail, "%s#%x", delim, u.u32);
+                    break;
 
-            case VKD3D_DEBUG_CHANNEL_FMT_I32:
-                snprintf(message_buffer + len, avail, "%s%d", delim, u.i32);
-                break;
+                case VKD3D_DEBUG_CHANNEL_FMT_I32:
+                    snprintf(message_buffer + len, avail, "%s%d", delim, u.i32);
+                    break;
 
-            case VKD3D_DEBUG_CHANNEL_FMT_F32:
-                snprintf(message_buffer + len, avail, "%s%f", delim, u.f32);
-                break;
+                case VKD3D_DEBUG_CHANNEL_FMT_F32:
+                    snprintf(message_buffer + len, avail, "%s%f", delim, u.f32);
+                    break;
 
-            default:
-                snprintf(message_buffer + len, avail, "%s????", delim);
-                break;
+                default:
+                    snprintf(message_buffer + len, avail, "%s????", delim);
+                    break;
+            }
         }
     }
 
