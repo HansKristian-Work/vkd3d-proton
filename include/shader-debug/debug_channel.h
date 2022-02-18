@@ -97,6 +97,14 @@ void DEBUG_CHANNEL_INIT(uvec3 id)
 #endif
 }
 
+void DEBUG_CHANNEL_INIT_IMPLICIT_INSTANCE(uvec3 id, uint inst)
+{
+	if (!DEBUG_SHADER_RING_ACTIVE)
+		return;
+	DEBUG_CHANNEL_ID = id;
+	DEBUG_CHANNEL_INSTANCE_COUNTER = inst;
+}
+
 void DEBUG_CHANNEL_UNLOCK_MESSAGE(RingBuffer buf, uint offset, uint num_words)
 {
 	memoryBarrierBuffer();

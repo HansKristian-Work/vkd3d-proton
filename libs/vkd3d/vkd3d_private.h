@@ -3069,6 +3069,7 @@ struct vkd3d_execute_indirect_args
 
     /* Arbitrary tag used for debug version of state patcher. Debug messages from tag 0 are ignored. */
     uint32_t debug_tag;
+    uint32_t implicit_instance;
 };
 
 struct vkd3d_execute_indirect_pipeline
