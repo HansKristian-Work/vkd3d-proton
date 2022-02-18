@@ -9526,6 +9526,15 @@ static void d3d12_command_list_execute_indirect_state_template(
     patch_args.dst_indirect_count_va = count_buffer ? count_allocation.va : 0;
     patch_args.api_buffer_word_stride = signature->desc.ByteStride / sizeof(uint32_t);
     patch_args.device_generated_commands_word_stride = signature->state_template.stride / sizeof(uint32_t);
+    patch_args.debug_tag = 0; /* Modify to non-zero value as desired when debugging. */
+
+    if (patch_args.debug_tag != 0)
+    {
+        /* Makes log easier to understand since a sorted log will appear in-order. */
+        static uint32_t vkd3d_implicit_instance_count;
+        patch_args.implicit_instance = vkd3d_atomic_uint32_increment(
+                &vkd3d_implicit_instance_count, vkd3d_memory_order_relaxed) - 1;
+    }
 
     barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
     barrier.pNext = NULL;

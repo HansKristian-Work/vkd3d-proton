@@ -130,9 +130,10 @@ static bool vkd3d_shader_debug_ring_print_message(struct vkd3d_shader_debug_ring
     if (shader_hash == 0)
     {
         /* We got this from our internal debug shaders. Pretty-print.
+         * Make sure the log is sortable for easier debug.
          * TODO: Might consider a callback system that listeners from different subsystems can listen to and print their own messages,
          * but that is overengineering at this time ... */
-        snprintf(message_buffer, sizeof(message_buffer), "ExecuteIndirect: Instance %010u, Debug tag %u, DrawID %u (ThreadID %u): ",
+        snprintf(message_buffer, sizeof(message_buffer), "ExecuteIndirect: GlobalCommandIndex %010u, Debug tag %010u, DrawID %04u (ThreadID %04u): ",
                 debug_instance, debug_thread_id[0], debug_thread_id[1], debug_thread_id[2]);
 
         if (message_word_count == 2)
