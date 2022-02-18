@@ -28,6 +28,7 @@ vkd3d_shaders =[
   'shaders/vs_swapchain_fullscreen.vert',
   'shaders/fs_swapchain_fullscreen.frag',
   'shaders/cs_execute_indirect_patch.comp',
+  'shaders/cs_execute_indirect_patch_debug_ring.comp',
 ]
 
 vkd3d_src = [
