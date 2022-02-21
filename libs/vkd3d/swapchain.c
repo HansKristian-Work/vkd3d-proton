@@ -1401,8 +1401,10 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
     VkFormat vk_format, vk_swapchain_format;
     unsigned int width, height, image_count;
     VkSurfaceCapabilitiesKHR surface_caps;
+    unsigned int override_image_count;
     VkSwapchainKHR vk_swapchain;
     VkImageUsageFlags usage;
+    const char *count_env;
     VkResult vr;
     HRESULT hr;
 
@@ -1426,6 +1428,15 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
     /* Need to account for the front buffer, so + 1 */
     image_count = swapchain->desc.BufferCount + 1;
     image_count = max(image_count, surface_caps.minImageCount);
+
+    count_env = getenv("VKD3D_SWAPCHAIN_IMAGES");
+    if (count_env)
+    {
+        override_image_count = strtoul(count_env, NULL, 0);
+        image_count = max(image_count, override_image_count);
+        INFO("Overriding swapchain images to %u.\n", image_count);
+    }
+
     if (surface_caps.maxImageCount)
         image_count = min(image_count, surface_caps.maxImageCount);
 
