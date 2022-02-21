@@ -74,10 +74,38 @@ static void copy_descriptor_heap(ID3D12Device *device, ID3D12DescriptorHeap *gpu
             D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 }
 
-static void zero_descriptor_heap(ID3D12Device *device, ID3D12DescriptorHeap *heap,
-        ID3D12Resource *resource, unsigned int count)
+static void copy_descriptor_heap_single(ID3D12Device *device, ID3D12DescriptorHeap *gpu_heap,
+        ID3D12DescriptorHeap *cpu_heap, unsigned int count)
 {
-    fill_descriptor_heap_srv(device, heap, resource, NULL, count);
+    D3D12_CPU_DESCRIPTOR_HANDLE gpu;
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu;
+    UINT64 increment;
+    unsigned int i;
+
+    gpu = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(gpu_heap);
+    cpu = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_heap);
+    increment = ID3D12Device_GetDescriptorHandleIncrementSize(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    for (i = 0; i < count; i++)
+    {
+        ID3D12Device_CopyDescriptorsSimple(device, 1, gpu, cpu,
+                D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        gpu.ptr += increment;
+        cpu.ptr += increment;
+    }
+}
+
+static void zero_descriptor_heap(ID3D12Device *device, ID3D12DescriptorHeap *heap, unsigned int count)
+{
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    memset(&srv_desc, 0, sizeof(srv_desc));
+
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv_desc.Texture2D.MipLevels = 1;
+
+    fill_descriptor_heap_srv(device, heap, NULL, &srv_desc, count);
 }
 
 static void do_benchmark_run(ID3D12Device *device)
@@ -165,7 +193,7 @@ static void do_benchmark_run(ID3D12Device *device)
     /* Create zero descriptors. */
     {
         start_time = get_time();
-        zero_descriptor_heap(device, gpu_heap, texture, 1000000);
+        zero_descriptor_heap(device, gpu_heap, 1000000);
         end_time = get_time();
         printf("Creating 1M null-SRVs took: %.3f ms.\n", 1e3 * (end_time - start_time));
     }
@@ -176,6 +204,24 @@ static void do_benchmark_run(ID3D12Device *device)
         copy_descriptor_heap(device, gpu_heap, cpu_heap, 1000000);
         end_time = get_time();
         printf("Copying 1M SRVs to zeroed GPU visible heap took: %.3f ms.\n", 1e3 * (end_time - start_time));
+    }
+
+    /* Try copying descriptors one at a time on top of zero-initialized descriptor heap. */
+    {
+        start_time = get_time();
+        copy_descriptor_heap_single(device, gpu_heap, cpu_heap, 1000000);
+        end_time = get_time();
+        printf("Copying 1M individual SRVs to GPU visible heap (duplicates) took: %.3f ms.\n", 1e3 * (end_time - start_time));
+    }
+
+    /* Create zero descriptors. */
+    zero_descriptor_heap(device, gpu_heap, 1000000);
+
+    {
+        start_time = get_time();
+        copy_descriptor_heap_single(device, gpu_heap, cpu_heap, 1000000);
+        end_time = get_time();
+        printf("Copying 1M individual SRVs to zeroed GPU visible heap took: %.3f ms.\n", 1e3 * (end_time - start_time));
     }
 
     ID3D12Resource_Release(texture);
