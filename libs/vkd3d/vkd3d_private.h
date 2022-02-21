@@ -1092,6 +1092,7 @@ static inline struct d3d12_desc *d3d12_desc_from_gpu_handle(D3D12_GPU_DESCRIPTOR
 
 void d3d12_desc_copy(struct d3d12_desc *dst, struct d3d12_desc *src,
         unsigned int count, D3D12_DESCRIPTOR_HEAP_TYPE heap_type, struct d3d12_device *device);
+void d3d12_desc_copy_single(struct d3d12_desc *dst, struct d3d12_desc *src, struct d3d12_device *device);
 void d3d12_desc_create_cbv(struct d3d12_desc *descriptor,
         struct d3d12_device *device, const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc);
 void d3d12_desc_create_srv(struct d3d12_desc *descriptor,

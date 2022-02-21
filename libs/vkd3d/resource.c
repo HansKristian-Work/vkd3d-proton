@@ -3040,7 +3040,7 @@ void vkd3d_view_decref(struct vkd3d_view *view, struct d3d12_device *device)
         vkd3d_view_destroy(view, device);
 }
 
-static void d3d12_desc_copy_single(struct d3d12_desc *dst, struct d3d12_desc *src,
+void d3d12_desc_copy_single(struct d3d12_desc *dst, struct d3d12_desc *src,
         struct d3d12_device *device)
 {
     VkCopyDescriptorSet vk_copies[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
