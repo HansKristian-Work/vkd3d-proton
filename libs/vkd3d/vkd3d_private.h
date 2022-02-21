@@ -2989,10 +2989,23 @@ static inline ULONG d3d12_device_release(struct d3d12_device *device)
     return ID3D12Device9_Release(&device->ID3D12Device_iface);
 }
 
-static inline unsigned int d3d12_device_get_descriptor_handle_increment_size(struct d3d12_device *device,
-        D3D12_DESCRIPTOR_HEAP_TYPE descriptor_type)
+static inline unsigned int d3d12_device_get_descriptor_handle_increment_size(
+        D3D12_DESCRIPTOR_HEAP_TYPE descriptor_heap_type)
 {
-    return ID3D12Device9_GetDescriptorHandleIncrementSize(&device->ID3D12Device_iface, descriptor_type);
+    switch (descriptor_heap_type)
+    {
+        case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
+        case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
+            return sizeof(struct d3d12_desc);
+
+        case D3D12_DESCRIPTOR_HEAP_TYPE_RTV:
+        case D3D12_DESCRIPTOR_HEAP_TYPE_DSV:
+            return sizeof(struct d3d12_rtv_desc);
+
+        default:
+            FIXME("Unhandled type %#x.\n", descriptor_heap_type);
+            return 0;
+    }
 }
 
 static inline bool d3d12_device_use_ssbo_raw_buffer(struct d3d12_device *device)
