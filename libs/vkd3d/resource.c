@@ -2085,10 +2085,16 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC1 *desc, struct d3
                 return E_INVALIDARG;
             }
 
+            if (desc->Alignment != 0 && desc->Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+            {
+                WARN("Invalid alignment %"PRIu64" for buffer resource. Must be 0 or D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT.\n",
+                        desc->Alignment);
+                return E_INVALIDARG;
+            }
+
             if (desc->Format != DXGI_FORMAT_UNKNOWN || desc->Layout != D3D12_TEXTURE_LAYOUT_ROW_MAJOR
                     || desc->Height != 1 || desc->DepthOrArraySize != 1
-                    || desc->SampleDesc.Count != 1 || desc->SampleDesc.Quality != 0
-                    || (desc->Alignment != 0 && desc->Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT))
+                    || desc->SampleDesc.Count != 1 || desc->SampleDesc.Quality != 0)
             {
                 WARN("Invalid parameters for a buffer resource.\n");
                 return E_INVALIDARG;
