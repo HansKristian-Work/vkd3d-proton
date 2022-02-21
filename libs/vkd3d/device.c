@@ -3935,6 +3935,25 @@ static inline D3D12_CPU_DESCRIPTOR_HANDLE d3d12_advance_cpu_descriptor_handle(D3
     return handle;
 }
 
+static inline void d3d12_device_copy_descriptors_cbv_srv_uav_sampler(struct d3d12_device *device,
+        D3D12_CPU_DESCRIPTOR_HANDLE dst, D3D12_CPU_DESCRIPTOR_HANDLE src,
+        D3D12_DESCRIPTOR_HEAP_TYPE heap_type,
+        UINT descriptor_count)
+{
+    if (descriptor_count == 1)
+    {
+        /* Most common path. This path is faster for 1 descriptor. */
+        d3d12_desc_copy_single(d3d12_desc_from_cpu_handle(dst),
+                d3d12_desc_from_cpu_handle(src), device);
+    }
+    else
+    {
+        d3d12_desc_copy(d3d12_desc_from_cpu_handle(dst),
+                d3d12_desc_from_cpu_handle(src), descriptor_count,
+                heap_type, device);
+    }
+}
+
 static inline void d3d12_device_copy_descriptors(struct d3d12_device *device,
         UINT dst_descriptor_range_count, const D3D12_CPU_DESCRIPTOR_HANDLE *dst_descriptor_range_offsets,
         const UINT *dst_descriptor_range_sizes,
@@ -4026,15 +4045,30 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptorsSimple(d3d12_device_if
         const D3D12_CPU_DESCRIPTOR_HANDLE src_descriptor_range_offset,
         D3D12_DESCRIPTOR_HEAP_TYPE descriptor_heap_type)
 {
+    struct d3d12_device *device;
     TRACE("iface %p, descriptor_count %u, dst_descriptor_range_offset %#lx, "
             "src_descriptor_range_offset %#lx, descriptor_heap_type %#x.\n",
             iface, descriptor_count, dst_descriptor_range_offset.ptr, src_descriptor_range_offset.ptr,
             descriptor_heap_type);
 
-    d3d12_device_copy_descriptors(impl_from_ID3D12Device(iface),
-            1, &dst_descriptor_range_offset, &descriptor_count,
-            1, &src_descriptor_range_offset, &descriptor_count,
-            descriptor_heap_type);
+    device = impl_from_ID3D12Device(iface);
+
+    if (descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV ||
+            descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
+    {
+        /* Fast and hot path. */
+        d3d12_device_copy_descriptors_cbv_srv_uav_sampler(device,
+                dst_descriptor_range_offset, src_descriptor_range_offset,
+                descriptor_heap_type,
+                descriptor_count);
+    }
+    else
+    {
+        d3d12_device_copy_descriptors(device,
+                1, &dst_descriptor_range_offset, &descriptor_count,
+                1, &src_descriptor_range_offset, &descriptor_count,
+                descriptor_heap_type);
+    }
 }
 
 static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourceAllocationInfo1(d3d12_device_iface *iface,
