@@ -3808,20 +3808,7 @@ static UINT STDMETHODCALLTYPE d3d12_device_GetDescriptorHandleIncrementSize(d3d1
 {
     TRACE("iface %p, descriptor_heap_type %#x.\n", iface, descriptor_heap_type);
 
-    switch (descriptor_heap_type)
-    {
-        case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
-        case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
-            return sizeof(struct d3d12_desc);
-
-        case D3D12_DESCRIPTOR_HEAP_TYPE_RTV:
-        case D3D12_DESCRIPTOR_HEAP_TYPE_DSV:
-            return sizeof(struct d3d12_rtv_desc);
-
-        default:
-            FIXME("Unhandled type %#x.\n", descriptor_heap_type);
-            return 0;
-    }
+    return d3d12_device_get_descriptor_handle_increment_size(descriptor_heap_type);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateRootSignature(d3d12_device_iface *iface,
@@ -3960,7 +3947,7 @@ static inline void d3d12_device_copy_descriptors(struct d3d12_device *device,
     unsigned int dst_range_size, src_range_size, copy_count;
     unsigned int increment;
 
-    increment = d3d12_device_get_descriptor_handle_increment_size(device, descriptor_heap_type);
+    increment = d3d12_device_get_descriptor_handle_increment_size(descriptor_heap_type);
 
     dst_range_idx = dst_idx = 0;
     src_range_idx = src_idx = 0;

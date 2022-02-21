@@ -5677,7 +5677,7 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
     struct d3d12_descriptor_heap *object;
     HRESULT hr;
 
-    if (!(descriptor_size = d3d12_device_get_descriptor_handle_increment_size(device, desc->Type)))
+    if (!(descriptor_size = d3d12_device_get_descriptor_handle_increment_size(desc->Type)))
     {
         WARN("No descriptor size for descriptor type %#x.\n", desc->Type);
         return E_INVALIDARG;
