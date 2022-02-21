@@ -2386,10 +2386,17 @@ void vkd3d_bindless_state_cleanup(struct vkd3d_bindless_state *bindless_state,
 bool vkd3d_bindless_state_find_binding(const struct vkd3d_bindless_state *bindless_state,
         uint32_t flags, struct vkd3d_shader_descriptor_binding *binding);
 struct vkd3d_descriptor_binding vkd3d_bindless_state_find_set(const struct vkd3d_bindless_state *bindless_state, uint32_t flags);
-struct vkd3d_descriptor_binding vkd3d_bindless_state_binding_from_info_index(
-        const struct vkd3d_bindless_state *bindless_state, uint32_t index);
 uint32_t vkd3d_bindless_state_find_set_info_index(const struct vkd3d_bindless_state *bindless_state,
         uint32_t flags);
+
+static inline struct vkd3d_descriptor_binding vkd3d_bindless_state_binding_from_info_index(
+        const struct vkd3d_bindless_state *bindless_state, uint32_t index)
+{
+    struct vkd3d_descriptor_binding binding;
+    binding.binding = bindless_state->set_info[index].binding_index;
+    binding.set = bindless_state->set_info[index].set_index;
+    return binding;
+}
 
 static inline VkDescriptorType vkd3d_bindless_state_get_cbv_descriptor_type(const struct vkd3d_bindless_state *bindless_state)
 {

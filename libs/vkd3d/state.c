@@ -5071,15 +5071,6 @@ struct vkd3d_descriptor_binding vkd3d_bindless_state_find_set(const struct vkd3d
     return binding;
 }
 
-struct vkd3d_descriptor_binding vkd3d_bindless_state_binding_from_info_index(
-        const struct vkd3d_bindless_state *bindless_state, uint32_t index)
-{
-    struct vkd3d_descriptor_binding binding;
-    binding.binding = bindless_state->set_info[index].binding_index;
-    binding.set = bindless_state->set_info[index].set_index;
-    return binding;
-}
-
 uint32_t vkd3d_bindless_state_find_set_info_index(const struct vkd3d_bindless_state *bindless_state, uint32_t flags)
 {
     D3D12_DESCRIPTOR_HEAP_TYPE heap_type;
