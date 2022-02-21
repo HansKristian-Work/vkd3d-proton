@@ -93,6 +93,7 @@ HRESULT vkd3d_breadcrumb_tracer_init(struct vkd3d_breadcrumb_tracer *tracer, str
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC1 resource_desc;
+    VkMemoryPropertyFlags memory_props;
     HRESULT hr;
     int rc;
 
@@ -101,8 +102,7 @@ HRESULT vkd3d_breadcrumb_tracer_init(struct vkd3d_breadcrumb_tracer *tracer, str
     if ((rc = pthread_mutex_init(&tracer->lock, NULL)))
         return hresult_from_errno(rc);
 
-    if (device->device_info.device_coherent_memory_features_amd.deviceCoherentMemory &&
-            device->vk_info.AMD_buffer_marker)
+    if (device->vk_info.AMD_buffer_marker)
     {
         INFO("Enabling AMD_buffer_marker breadcrumbs.\n");
         memset(&resource_desc, 0, sizeof(resource_desc));
@@ -122,15 +122,22 @@ HRESULT vkd3d_breadcrumb_tracer_init(struct vkd3d_breadcrumb_tracer *tracer, str
             goto err;
         }
 
+        memory_props = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+
         /* If device faults in the middle of execution we will never get the chance to flush device caches.
          * Make sure that breadcrumbs are always written directly out.
-         * This is the primary usecase for the device coherent/uncached extension after all ... */
+         * This is the primary usecase for the device coherent/uncached extension after all ...
+         * Don't make this a hard requirement since buffer markers might be implicitly coherent on some
+         * implementations (Turnip?). */
+        if (device->device_info.device_coherent_memory_features_amd.deviceCoherentMemory)
+        {
+            memory_props |= VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD |
+                    VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD;
+        }
+
         if (FAILED(hr = vkd3d_allocate_buffer_memory(device, tracer->host_buffer,
-                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
-                        VK_MEMORY_PROPERTY_HOST_CACHED_BIT |
-                        VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD |
-                        VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD,
-                &tracer->host_buffer_memory)))
+                memory_props, &tracer->host_buffer_memory)))
         {
             goto err;
         }
@@ -170,8 +177,7 @@ void vkd3d_breadcrumb_tracer_cleanup(struct vkd3d_breadcrumb_tracer *tracer, str
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
-    if (device->device_info.device_coherent_memory_features_amd.deviceCoherentMemory &&
-            device->vk_info.AMD_buffer_marker)
+    if (device->vk_info.AMD_buffer_marker)
     {
         VK_CALL(vkDestroyBuffer(device->vk_device, tracer->host_buffer, NULL));
         vkd3d_free_device_memory(device, &tracer->host_buffer_memory);
@@ -222,11 +228,8 @@ unsigned int vkd3d_breadcrumb_tracer_allocate_command_list(struct vkd3d_breadcru
     tracer->trace_contexts[index].command_count = 0;
     tracer->trace_contexts[index].counter = 0;
 
-    if (list->device->device_info.device_coherent_memory_features_amd.deviceCoherentMemory &&
-            list->device->vk_info.AMD_buffer_marker)
-    {
+    if (list->device->vk_info.AMD_buffer_marker)
         memset(&tracer->mapped[index], 0, sizeof(tracer->mapped[index]));
-    }
 
     vkd3d_array_reserve((void**)&allocator->breadcrumb_context_indices, &allocator->breadcrumb_context_index_size,
             allocator->breadcrumb_context_index_count + 1,
@@ -450,8 +453,7 @@ void vkd3d_breadcrumb_tracer_report_device_lost(struct vkd3d_breadcrumb_tracer *
 
     ERR("Device lost observed, analyzing breadcrumbs ...\n");
 
-    if (device->device_info.device_coherent_memory_features_amd.deviceCoherentMemory &&
-            device->vk_info.AMD_buffer_marker)
+    if (device->vk_info.AMD_buffer_marker)
     {
         /* AMD path, buffer marker. */
         for (i = 0; i < MAX_COMMAND_LISTS; i++)
@@ -503,8 +505,7 @@ void vkd3d_breadcrumb_tracer_begin_command_list(struct d3d12_command_list *list)
     cmd.type = VKD3D_BREADCRUMB_COMMAND_SET_TOP_MARKER;
     vkd3d_breadcrumb_tracer_add_command(list, &cmd);
 
-    if (list->device->device_info.device_coherent_memory_features_amd.deviceCoherentMemory &&
-            list->device->vk_info.AMD_buffer_marker)
+    if (list->device->vk_info.AMD_buffer_marker)
     {
         VK_CALL(vkCmdWriteBufferMarkerAMD(list->vk_command_buffer,
                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
@@ -557,8 +558,7 @@ void vkd3d_breadcrumb_tracer_signal(struct d3d12_command_list *list)
 
     trace = &breadcrumb_tracer->trace_contexts[context];
 
-    if (list->device->device_info.device_coherent_memory_features_amd.deviceCoherentMemory &&
-            list->device->vk_info.AMD_buffer_marker)
+    if (list->device->vk_info.AMD_buffer_marker)
     {
         cmd.type = VKD3D_BREADCRUMB_COMMAND_SET_BOTTOM_MARKER;
         cmd.count = trace->counter;
@@ -618,8 +618,7 @@ void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list)
     trace = &breadcrumb_tracer->trace_contexts[context];
     trace->counter = UINT32_MAX;
 
-    if (list->device->device_info.device_coherent_memory_features_amd.deviceCoherentMemory &&
-            list->device->vk_info.AMD_buffer_marker)
+    if (list->device->vk_info.AMD_buffer_marker)
     {
         VK_CALL(vkCmdWriteBufferMarkerAMD(list->vk_command_buffer,
                 VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
