@@ -4640,12 +4640,16 @@ static uint32_t vkd3d_bindless_build_mutable_type_list(VkDescriptorType *list, u
                 VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     }
 
-    /* SSBO for untyped UAV is deliberately left out since it has its own descriptor set. */
-
     if (flags & VKD3D_BINDLESS_UAV)
     {
         list[count++] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         list[count++] = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+
+        /* This behavior should be default, but there are too many broken games.
+         * Can be used as a perf/memory opt-in.
+         * Will likely be required on Intel as well due to anemic bindless sizes. */
+        if ((flags & VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO) && !(flags & VKD3D_BINDLESS_CBV_AS_SSBO))
+            list[count++] = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     }
 
     if (flags & VKD3D_BINDLESS_SRV)
@@ -4858,6 +4862,12 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
     {
         flags |= VKD3D_BINDLESS_RAW_SSBO;
 
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_MUTABLE_SINGLE_SET)
+        {
+            INFO("Enabling single descriptor set path for MUTABLE.\n");
+            flags |= VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO;
+        }
+
         if (device_info->properties2.properties.limits.minStorageBufferOffsetAlignment > 4)
             flags |= VKD3D_SSBO_OFFSET_BUFFER;
     }
@@ -4896,7 +4906,10 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
         flags |= VKD3D_BINDLESS_MUTABLE_TYPE;
     }
     else
+    {
         INFO("Device does not support VK_VALVE_mutable_descriptor_type.\n");
+        flags &= ~VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO;
+    }
 
     return flags;
 }
@@ -4907,6 +4920,7 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
     const uint32_t required_flags = VKD3D_BINDLESS_SRV |
             VKD3D_BINDLESS_UAV | VKD3D_BINDLESS_CBV | VKD3D_BINDLESS_SAMPLER;
     uint32_t extra_bindings = 0;
+    bool use_raw_ssbo_binding;
     HRESULT hr = E_FAIL;
 
     memset(bindless_state, 0, sizeof(*bindless_state));
@@ -4936,15 +4950,21 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
 
     if (bindless_state->flags & VKD3D_BINDLESS_MUTABLE_TYPE)
     {
+        use_raw_ssbo_binding = !!(bindless_state->flags & VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO);
+
         /* If we can, prefer to use one universal descriptor type which works for any descriptor.
          * The exception is SSBOs since we need to workaround buggy applications which create typed buffers,
-         * but assume they can be read as untyped buffers. */
+         * but assume they can be read as untyped buffers.
+         * If we opt-in to it, we can move everything into the mutable set. */
         if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
                 VKD3D_BINDLESS_SET_CBV | VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_SRV |
                 VKD3D_BINDLESS_SET_BUFFER | VKD3D_BINDLESS_SET_IMAGE |
+                (use_raw_ssbo_binding ? VKD3D_BINDLESS_SET_RAW_SSBO : 0) |
                 VKD3D_BINDLESS_SET_MUTABLE | extra_bindings,
                 VK_DESCRIPTOR_TYPE_MUTABLE_VALVE)))
             goto fail;
+
+        use_raw_ssbo_binding = !use_raw_ssbo_binding && (bindless_state->flags & VKD3D_BINDLESS_RAW_SSBO);
     }
     else
     {
@@ -4968,9 +4988,11 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
                 VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_IMAGE,
                 VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)))
             goto fail;
+
+        use_raw_ssbo_binding = !!(bindless_state->flags & VKD3D_BINDLESS_RAW_SSBO);
     }
 
-    if (bindless_state->flags & VKD3D_BINDLESS_RAW_SSBO)
+    if (use_raw_ssbo_binding)
     {
         if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
                 VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_SRV |
