@@ -3942,6 +3942,7 @@ static inline void d3d12_device_copy_descriptors_cbv_srv_uav_sampler(struct d3d1
         D3D12_DESCRIPTOR_HEAP_TYPE heap_type,
         UINT descriptor_count)
 {
+#ifndef VKD3D_ENABLE_DESCRIPTOR_QA
     if (descriptor_count == 1)
     {
         /* Most common path. This path is faster for 1 descriptor. */
@@ -3949,6 +3950,7 @@ static inline void d3d12_device_copy_descriptors_cbv_srv_uav_sampler(struct d3d1
                 d3d12_desc_from_cpu_handle(src), device);
     }
     else
+#endif
     {
         d3d12_desc_copy(d3d12_desc_from_cpu_handle(dst),
                 d3d12_desc_from_cpu_handle(src), descriptor_count,
