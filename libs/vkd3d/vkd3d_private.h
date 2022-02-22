@@ -2930,6 +2930,11 @@ bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent);
 void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
         const char *message, ...) VKD3D_PRINTF_FUNC(3, 4);
 
+static inline struct d3d12_device *unsafe_impl_from_ID3D12Device(d3d12_device_iface *iface)
+{
+    return CONTAINING_RECORD(iface, struct d3d12_device, ID3D12Device_iface);
+}
+
 static inline struct d3d12_device *impl_from_ID3D12Device(d3d12_device_iface *iface)
 {
     extern CONST_VTBL struct ID3D12Device9Vtbl d3d12_device_vtbl;
