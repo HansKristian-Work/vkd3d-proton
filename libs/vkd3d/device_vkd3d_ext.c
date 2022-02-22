@@ -154,20 +154,22 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaTextureObject(ID3
 {
     VkImageViewHandleInfoNVX imageViewHandleInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_HANDLE_INFO_NVX };
     const struct vkd3d_vk_device_procs *vk_procs;
-    struct d3d12_desc *sampler_desc;
+    struct d3d12_desc_split sampler_desc;
+    struct d3d12_desc_split srv_desc;
     struct d3d12_device *device;
-    struct d3d12_desc *srv_desc;
-    
-    TRACE("iface %p, srv_handle %#x, sampler_handle %#x, cuda_texture_handle %p.\n", iface, srv_handle, sampler_handle, cuda_texture_handle);
+
+    TRACE("iface %p, srv_handle %zu, sampler_handle %zu, cuda_texture_handle %p.\n",
+            iface, srv_handle.ptr, sampler_handle.ptr, cuda_texture_handle);
+
     if (!cuda_texture_handle)
        return E_INVALIDARG;
 
     device = d3d12_device_from_ID3D12DeviceExt(iface);
-    srv_desc = d3d12_desc_from_cpu_handle(srv_handle);
-    sampler_desc = d3d12_desc_from_cpu_handle(sampler_handle);
+    srv_desc = d3d12_desc_decode_va(srv_handle.ptr);
+    sampler_desc = d3d12_desc_decode_va(sampler_handle.ptr);
 
-    imageViewHandleInfo.imageView = srv_desc->info.view->vk_image_view;
-    imageViewHandleInfo.sampler = sampler_desc->info.view->vk_sampler;
+    imageViewHandleInfo.imageView = srv_desc.view->info.view->vk_image_view;
+    imageViewHandleInfo.sampler = sampler_desc.view->info.view->vk_sampler;
     imageViewHandleInfo.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 
     vk_procs = &device->vk_procs;
@@ -180,17 +182,17 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaSurfaceObject(ID3
 {
     VkImageViewHandleInfoNVX imageViewHandleInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_HANDLE_INFO_NVX };
     const struct vkd3d_vk_device_procs *vk_procs;
+    struct d3d12_desc_split uav_desc;
     struct d3d12_device *device;
-    struct d3d12_desc *uav_desc;
-    
-    TRACE("iface %p, uav_handle %#x, cuda_surface_handle %p.\n", iface, uav_handle, cuda_surface_handle);
+
+    TRACE("iface %p, uav_handle %zu, cuda_surface_handle %p.\n", iface, uav_handle.ptr, cuda_surface_handle);
     if (!cuda_surface_handle)
        return E_INVALIDARG;
 
     device = d3d12_device_from_ID3D12DeviceExt(iface);
-    uav_desc = d3d12_desc_from_cpu_handle(uav_handle);
+    uav_desc = d3d12_desc_decode_va(uav_handle.ptr);
 
-    imageViewHandleInfo.imageView = uav_desc->info.view->vk_image_view;
+    imageViewHandleInfo.imageView = uav_desc.view->info.view->vk_image_view;
     imageViewHandleInfo.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
 
     vk_procs = &device->vk_procs;

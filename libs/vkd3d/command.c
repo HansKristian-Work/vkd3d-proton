@@ -4364,7 +4364,8 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
     memset(list->so_counter_buffers, 0, sizeof(list->so_counter_buffers));
     memset(list->so_counter_buffer_offsets, 0, sizeof(list->so_counter_buffer_offsets));
 
-    list->cbv_srv_uav_descriptors = NULL;
+    list->cbv_srv_uav_descriptors_types = NULL;
+    list->cbv_srv_uav_descriptors_view = NULL;
     list->vrs_image = NULL;
 
     list->workaround_state.has_pending_color_write = false;
@@ -5047,9 +5048,10 @@ static void d3d12_command_list_update_hoisted_descriptors(struct d3d12_command_l
 {
     const struct d3d12_root_signature *rs = bindings->root_signature;
     const struct vkd3d_descriptor_hoist_desc *hoist_desc;
+    const struct vkd3d_descriptor_metadata_types *types;
     struct vkd3d_root_descriptor_info *root_parameter;
+    const struct vkd3d_descriptor_metadata_view *view;
     union vkd3d_descriptor_info *info;
-    const struct d3d12_desc *desc;
     unsigned int i;
 
     /* We don't track dirty table index, just update every hoisted descriptor.
@@ -5058,9 +5060,13 @@ static void d3d12_command_list_update_hoisted_descriptors(struct d3d12_command_l
     {
         hoist_desc = &rs->hoist_info.desc[i];
 
-        desc = list->cbv_srv_uav_descriptors;
-        if (desc)
-            desc += bindings->descriptor_tables[hoist_desc->table_index] + hoist_desc->table_offset;
+        view = list->cbv_srv_uav_descriptors_view;
+        types = list->cbv_srv_uav_descriptors_types;
+        if (view)
+        {
+            view += bindings->descriptor_tables[hoist_desc->table_index] + hoist_desc->table_offset;
+            types += bindings->descriptor_tables[hoist_desc->table_index] + hoist_desc->table_offset;
+        }
 
         root_parameter = &bindings->root_descriptors[hoist_desc->parameter_index];
 
@@ -5069,10 +5075,10 @@ static void d3d12_command_list_update_hoisted_descriptors(struct d3d12_command_l
         root_parameter->vk_descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         info = &root_parameter->info;
 
-        if (desc && (desc->metadata.flags & VKD3D_DESCRIPTOR_FLAG_OFFSET_RANGE))
+        if (types && (types->flags & VKD3D_DESCRIPTOR_FLAG_OFFSET_RANGE))
         {
             /* Buffer descriptors must be valid on recording time. */
-            info->buffer = desc->info.buffer;
+            info->buffer = view->info.buffer;
         }
         else
         {
@@ -7421,7 +7427,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetDescriptorHeaps(d3d12_comman
 
         /* In case we need to hoist buffer descriptors. */
         if (heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
-            list->cbv_srv_uav_descriptors = (const struct d3d12_desc *) heap->descriptors;
+        {
+            struct d3d12_desc_split d;
+            d = d3d12_desc_decode_va(heap->cpu_va.ptr);
+            list->cbv_srv_uav_descriptors_types = d.types;
+            list->cbv_srv_uav_descriptors_view = d.view;
+        }
     }
 
     for (i = 0; i < ARRAY_SIZE(list->pipeline_bindings); i++)
@@ -8165,7 +8176,8 @@ struct vkd3d_clear_uav_info
     } u;
 };
 
-static void d3d12_command_list_clear_uav(struct d3d12_command_list *list, const struct d3d12_desc *desc,
+static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
+        const struct d3d12_desc_split *d,
         struct d3d12_resource *resource, const struct vkd3d_clear_uav_info *args,
         const VkClearColorValue *clear_color, UINT rect_count, const D3D12_RECT *rects)
 {
@@ -8261,14 +8273,14 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list, const 
 
     if (d3d12_resource_is_buffer(resource))
     {
-        const struct vkd3d_bound_buffer_range *ranges = desc->heap->buffer_ranges.host_ptr;
+        const struct vkd3d_bound_buffer_range *ranges = d->heap->buffer_ranges.host_ptr;
 
         if (args->has_view)
         {
             if (list->device->bindless_state.flags & VKD3D_TYPED_OFFSET_BUFFER)
             {
-                extra_offset = ranges[desc->heap_offset].element_offset;
-                full_rect.right = ranges[desc->heap_offset].element_count;
+                extra_offset = ranges[d->offset].element_offset;
+                full_rect.right = ranges[d->offset].element_count;
             }
             else
             {
@@ -8280,8 +8292,8 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list, const 
         }
         else if (list->device->bindless_state.flags & VKD3D_SSBO_OFFSET_BUFFER)
         {
-            extra_offset = ranges[desc->heap_offset].byte_offset / sizeof(uint32_t);
-            full_rect.right = ranges[desc->heap_offset].byte_count / sizeof(uint32_t);
+            extra_offset = ranges[d->offset].byte_offset / sizeof(uint32_t);
+            full_rect.right = ranges[d->offset].byte_count / sizeof(uint32_t);
         }
         else
             full_rect.right = args->u.buffer.range / sizeof(uint32_t);
@@ -8379,19 +8391,19 @@ static const struct vkd3d_format *vkd3d_clear_uav_find_uint_format(struct d3d12_
     return vkd3d_get_format(device, uint_format, false);
 }
 
-static bool vkd3d_clear_uav_info_from_desc(struct vkd3d_clear_uav_info *args, const struct d3d12_desc *desc)
+static inline bool vkd3d_clear_uav_info_from_desc(struct vkd3d_clear_uav_info *args, const struct d3d12_desc_split *d)
 {
-    if (desc->metadata.flags & VKD3D_DESCRIPTOR_FLAG_VIEW)
+    if (d->types->flags & VKD3D_DESCRIPTOR_FLAG_VIEW)
     {
         args->has_view = true;
-        args->u.view = desc->info.view;
+        args->u.view = d->view->info.view;
         return true;
     }
-    else if (desc->metadata.flags & VKD3D_DESCRIPTOR_FLAG_OFFSET_RANGE)
+    else if (d->types->flags & VKD3D_DESCRIPTOR_FLAG_OFFSET_RANGE)
     {
         args->has_view = false;
-        args->u.buffer.offset = desc->info.buffer.offset;
-        args->u.buffer.range = desc->info.buffer.range;
+        args->u.buffer.offset = d->view->info.buffer.offset;
+        args->u.buffer.range = d->view->info.buffer.range;
         return true;
     }
     else
@@ -8438,11 +8450,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
         const UINT values[4], UINT rect_count, const D3D12_RECT *rects)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct d3d12_desc *desc = d3d12_desc_from_cpu_handle(cpu_handle);
     const struct vkd3d_format *uint_format;
     struct vkd3d_view *inline_view = NULL;
     struct d3d12_resource *resource_impl;
     struct vkd3d_clear_uav_info args;
+    struct d3d12_desc_split d;
     VkClearColorValue color;
 
     TRACE("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p.\n",
@@ -8450,17 +8462,18 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
 
     memcpy(color.uint32, values, sizeof(color.uint32));
 
+    d = d3d12_desc_decode_va(cpu_handle.ptr);
     resource_impl = impl_from_ID3D12Resource(resource);
 
-    if (!vkd3d_clear_uav_info_from_desc(&args, desc))
+    if (!vkd3d_clear_uav_info_from_desc(&args, &d))
         return;
 
     if (args.has_view)
-        color = vkd3d_fixup_clear_uav_swizzle(list->device, desc->info.view->format->dxgi_format, color);
+        color = vkd3d_fixup_clear_uav_swizzle(list->device, d.view->info.view->format->dxgi_format, color);
 
-    if (args.has_view && desc->info.view->format->type != VKD3D_FORMAT_TYPE_UINT)
+    if (args.has_view && d.view->info.view->format->type != VKD3D_FORMAT_TYPE_UINT)
     {
-        const struct vkd3d_view *base_view = desc->info.view;
+        const struct vkd3d_view *base_view = d.view->info.view;
         uint_format = vkd3d_clear_uav_find_uint_format(list->device, base_view->format->dxgi_format);
 
         if (!uint_format)
@@ -8514,10 +8527,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
     }
     else if (args.has_view)
     {
-        vkd3d_mask_uint_clear_color(color.uint32, desc->info.view->format->vk_format);
+        vkd3d_mask_uint_clear_color(color.uint32, d.view->info.view->format->vk_format);
     }
 
-    d3d12_command_list_clear_uav(list, desc, resource_impl, &args, &color, rect_count, rects);
+    d3d12_command_list_clear_uav(list, &d, resource_impl, &args, &color, rect_count, rects);
 
     if (inline_view)
     {
@@ -8531,24 +8544,25 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d
         const float values[4], UINT rect_count, const D3D12_RECT *rects)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct d3d12_desc *desc = d3d12_desc_from_cpu_handle(cpu_handle);
     struct d3d12_resource *resource_impl;
     struct vkd3d_clear_uav_info args;
+    struct d3d12_desc_split d;
     VkClearColorValue color;
 
     TRACE("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p.\n",
             iface, gpu_handle.ptr, cpu_handle.ptr, resource, values, rect_count, rects);
 
+    d = d3d12_desc_decode_va(cpu_handle.ptr);
     memcpy(color.float32, values, sizeof(color.float32));
     resource_impl = impl_from_ID3D12Resource(resource);
 
-    if (!vkd3d_clear_uav_info_from_desc(&args, desc))
+    if (!vkd3d_clear_uav_info_from_desc(&args, &d))
         return;
 
     if (args.has_view)
-        color = vkd3d_fixup_clear_uav_swizzle(list->device, desc->info.view->format->dxgi_format, color);
+        color = vkd3d_fixup_clear_uav_swizzle(list->device, d.view->info.view->format->dxgi_format, color);
 
-    d3d12_command_list_clear_uav(list, desc, resource_impl, &args, &color, rect_count, rects);
+    d3d12_command_list_clear_uav(list, &d, resource_impl, &args, &color, rect_count, rects);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_list_iface *iface,

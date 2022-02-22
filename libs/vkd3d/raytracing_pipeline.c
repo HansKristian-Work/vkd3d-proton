@@ -1016,7 +1016,7 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
 #endif
     }
 
-    shader_interface_local_info.descriptor_size = sizeof(struct d3d12_desc);
+    shader_interface_local_info.descriptor_size = VKD3D_RESOURCE_DESC_INCREMENT;
 
     local_static_sampler_bindings = NULL;
     local_static_sampler_bindings_count = 0;
