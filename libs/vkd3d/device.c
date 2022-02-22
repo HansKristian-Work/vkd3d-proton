@@ -3840,7 +3840,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateConstantBufferView(d3d12_device
 
     TRACE("iface %p, desc %p, descriptor %#lx.\n", iface, desc, descriptor.ptr);
 
-    d3d12_desc_create_cbv(d3d12_desc_from_cpu_handle(descriptor), device, desc);
+    d3d12_desc_create_cbv(descriptor.ptr, device, desc);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateShaderResourceView(d3d12_device_iface *iface,
@@ -3852,8 +3852,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateShaderResourceView(d3d12_device
     TRACE("iface %p, resource %p, desc %p, descriptor %#lx.\n",
             iface, resource, desc, descriptor.ptr);
 
-    d3d12_desc_create_srv(d3d12_desc_from_cpu_handle(descriptor),
-            device, impl_from_ID3D12Resource(resource), desc);
+    d3d12_desc_create_srv(descriptor.ptr, device, impl_from_ID3D12Resource(resource), desc);
 }
 
 VKD3D_THREAD_LOCAL struct D3D12_UAV_INFO *d3d12_uav_info = NULL;
@@ -3868,18 +3867,19 @@ static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView(d3d12_devic
     VkResult vr;
     struct d3d12_resource *d3d12_resource_ = impl_from_ID3D12Resource(resource);
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    struct d3d12_desc *d3d12_desc_cpu = d3d12_desc_from_cpu_handle(descriptor);
     TRACE("iface %p, resource %p, counter_resource %p, desc %p, descriptor %#lx.\n",
             iface, resource, counter_resource, desc, descriptor.ptr);
 
-    d3d12_desc_create_uav(d3d12_desc_cpu,
+    d3d12_desc_create_uav(descriptor.ptr,
             device, d3d12_resource_,
             impl_from_ID3D12Resource(counter_resource), desc);
     
     /* d3d12_uav_info stores the pointer to data from previous call to d3d12_device_vkd3d_ext_CaptureUAVInfo(). Below code will update the data. */
     if (d3d12_uav_info)
     {
-        imageViewHandleInfo.imageView = d3d12_desc_cpu->info.view->vk_image_view;
+        struct d3d12_desc_split d = d3d12_desc_decode_va(descriptor.ptr);
+
+        imageViewHandleInfo.imageView = d.view->info.view->vk_image_view;
         imageViewHandleInfo.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
 
         vk_procs = &device->vk_procs;
@@ -3927,7 +3927,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateSampler(d3d12_device_iface *ifa
 
     TRACE("iface %p, desc %p, descriptor %#lx.\n", iface, desc, descriptor.ptr);
 
-    d3d12_desc_create_sampler(d3d12_desc_from_cpu_handle(descriptor), device, desc);
+    d3d12_desc_create_sampler(descriptor.ptr, device, desc);
 }
 
 static inline D3D12_CPU_DESCRIPTOR_HANDLE d3d12_advance_cpu_descriptor_handle(D3D12_CPU_DESCRIPTOR_HANDLE handle,
@@ -3946,15 +3946,12 @@ static inline void d3d12_device_copy_descriptors_cbv_srv_uav_sampler(struct d3d1
     if (descriptor_count == 1)
     {
         /* Most common path. This path is faster for 1 descriptor. */
-        d3d12_desc_copy_single(d3d12_desc_from_cpu_handle(dst),
-                d3d12_desc_from_cpu_handle(src), device);
+        d3d12_desc_copy_single(dst.ptr, src.ptr, device);
     }
     else
 #endif
     {
-        d3d12_desc_copy(d3d12_desc_from_cpu_handle(dst),
-                d3d12_desc_from_cpu_handle(src), descriptor_count,
-                heap_type, device);
+        d3d12_desc_copy(dst.ptr, src.ptr, descriptor_count, heap_type, device);
     }
 }
 
@@ -3991,8 +3988,7 @@ static inline void d3d12_device_copy_descriptors(struct d3d12_device *device,
         {
             case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER:
             case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
-                d3d12_desc_copy(d3d12_desc_from_cpu_handle(dst),
-                        d3d12_desc_from_cpu_handle(src), copy_count,
+                d3d12_desc_copy(dst.ptr, src.ptr, copy_count,
                         descriptor_heap_type, device);
                 break;
             case D3D12_DESCRIPTOR_HEAP_TYPE_RTV:
