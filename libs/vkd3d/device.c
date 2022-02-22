@@ -4055,7 +4055,7 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptorsSimple(d3d12_device_if
             iface, descriptor_count, dst_descriptor_range_offset.ptr, src_descriptor_range_offset.ptr,
             descriptor_heap_type);
 
-    device = impl_from_ID3D12Device(iface);
+    device = unsafe_impl_from_ID3D12Device(iface);
 
     if (descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV ||
             descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
