@@ -208,6 +208,14 @@ static inline unsigned int vkd3d_log2i(unsigned int x)
 #endif
 }
 
+static inline unsigned int vkd3d_log2i_ceil(unsigned int x)
+{
+    if (x == 1)
+        return 0;
+    else
+        return vkd3d_log2i(x - 1) + 1;
+}
+
 static inline int ascii_isupper(int c)
 {
     return 'A' <= c && c <= 'Z';
