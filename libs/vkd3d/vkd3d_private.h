@@ -1045,12 +1045,13 @@ enum vkd3d_descriptor_flag
     VKD3D_DESCRIPTOR_FLAG_BUFFER_OFFSET     = (1 << 2),
     VKD3D_DESCRIPTOR_FLAG_OFFSET_RANGE      = (1 << 3),
     VKD3D_DESCRIPTOR_FLAG_NON_NULL          = (1 << 4),
+    VKD3D_DESCRIPTOR_FLAG_SINGLE_DESCRIPTOR = (1 << 5),
 };
 
 struct vkd3d_descriptor_binding
 {
-    uint16_t set;
-    uint16_t binding;
+    uint8_t set;
+    uint8_t binding;
 };
 
 #define VKD3D_RESOURCE_DESC_INCREMENT_LOG2 5
@@ -1063,10 +1064,15 @@ struct vkd3d_descriptor_binding
 struct vkd3d_descriptor_metadata_types
 {
     VkDescriptorType current_null_type;
-    uint16_t set_info_mask;
-    uint16_t flags;
+    uint8_t set_info_mask;
+    uint8_t flags;
+    /* If SINGLE_DESCRIPTOR is set, use the embedded write info instead
+     * to avoid missing caches. */
+    struct vkd3d_descriptor_binding single_binding;
 };
 STATIC_ASSERT(sizeof(struct vkd3d_descriptor_metadata_types) == 8);
+/* Our use of 8-bit mask relies on MAX_BINDLESS_DESCRIPTOR_SETS fitting. */
+STATIC_ASSERT(VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS <= 8);
 
 struct vkd3d_descriptor_metadata_view
 {
