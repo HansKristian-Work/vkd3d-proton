@@ -293,6 +293,10 @@ VK_DEVICE_EXT_PFN(vkCmdCuLaunchKernelNVX)
 VK_DEVICE_EXT_PFN(vkGetImageViewHandleNVX)
 VK_DEVICE_EXT_PFN(vkGetImageViewAddressNVX)
 
+/* VK_VALVE_descriptor_set_host_mapping */
+VK_DEVICE_EXT_PFN(vkGetDescriptorSetLayoutHostMappingInfoVALVE)
+VK_DEVICE_EXT_PFN(vkGetDescriptorSetHostMappingVALVE)
+
 #undef VK_INSTANCE_PFN
 #undef VK_INSTANCE_EXT_PFN
 #undef VK_DEVICE_PFN
