@@ -6568,7 +6568,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
 
             buffer_image_copy.sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2_KHR;
             buffer_image_copy.pNext = NULL;
-            buffer_image_copy.bufferOffset = buffer_offset + VKD3D_TILE_SIZE * i;
+            buffer_image_copy.bufferOffset = buffer_offset + VKD3D_TILE_SIZE * i + linear_res->mem.offset;
             buffer_image_copy.imageSubresource = vk_subresource_layers_from_subresource(&region->subresource);
             buffer_image_copy.imageOffset = region->offset;
             buffer_image_copy.imageExtent = region->extent;
@@ -6624,13 +6624,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
 
         if (copy_to_buffer)
         {
-            buffer_copy.srcOffset = VKD3D_TILE_SIZE * region_coord->X;
-            buffer_copy.dstOffset = buffer_offset;
+            buffer_copy.srcOffset = VKD3D_TILE_SIZE * region_coord->X + tiled_res->mem.offset;
+            buffer_copy.dstOffset = buffer_offset + linear_res->mem.offset;
         }
         else
         {
-            buffer_copy.srcOffset = buffer_offset;
-            buffer_copy.dstOffset = VKD3D_TILE_SIZE * region_coord->X;
+            buffer_copy.srcOffset = buffer_offset + linear_res->mem.offset;
+            buffer_copy.dstOffset = VKD3D_TILE_SIZE * region_coord->X + tiled_res->mem.offset;
         }
 
         copy_info.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2_KHR;
