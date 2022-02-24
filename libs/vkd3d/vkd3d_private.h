@@ -237,7 +237,8 @@ HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
 HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
         struct d3d12_device *device);
 
-#define VKD3D_VA_BLOCK_SIZE_BITS (20)
+/* 2 MiB is a good threshold, because it's huge page size. */
+#define VKD3D_VA_BLOCK_SIZE_BITS (21)
 #define VKD3D_VA_BLOCK_SIZE (1ull << VKD3D_VA_BLOCK_SIZE_BITS)
 #define VKD3D_VA_LO_MASK (VKD3D_VA_BLOCK_SIZE - 1)
 
@@ -614,7 +615,7 @@ enum vkd3d_allocation_flag
     VKD3D_ALLOCATION_FLAG_DEDICATED         = (1u << 5),
 };
 
-#define VKD3D_MEMORY_CHUNK_SIZE (VKD3D_VA_BLOCK_SIZE * 16)
+#define VKD3D_MEMORY_CHUNK_SIZE (VKD3D_VA_BLOCK_SIZE * 8)
 
 struct vkd3d_memory_chunk;
 
