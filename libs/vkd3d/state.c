@@ -4664,6 +4664,71 @@ static uint32_t vkd3d_bindless_build_mutable_type_list(VkDescriptorType *list, u
     return count;
 }
 
+/* Make sure copy sizes are deducible to constants by compiler, especially the single descriptor case.
+ * We can get a linear stream of SIMD copies this way.
+ * Potentially we can also use alignment hints to get aligned moves here,
+ * but it doesn't seem to matter at all for perf, so don't bother adding the extra complexity. */
+#define VKD3D_DECL_DESCRIPTOR_COPY_SIZE(bytes) \
+static inline void vkd3d_descriptor_copy_desc_##bytes(void * restrict dst_, const void * restrict src_, \
+        size_t dst_index, size_t src_index, size_t count) \
+{ \
+    uint8_t *dst = dst_; \
+    const uint8_t *src = src_; \
+    memcpy(dst + dst_index * (bytes), src + src_index * (bytes), count * (bytes)); \
+} \
+static inline void vkd3d_descriptor_copy_desc_##bytes##_single(void * restrict dst_, const void * restrict src_, \
+        size_t dst_index, size_t src_index) \
+{ \
+    vkd3d_descriptor_copy_desc_##bytes(dst_, src_, dst_index, src_index, 1); \
+}
+VKD3D_DECL_DESCRIPTOR_COPY_SIZE(8)
+VKD3D_DECL_DESCRIPTOR_COPY_SIZE(16)
+VKD3D_DECL_DESCRIPTOR_COPY_SIZE(32)
+VKD3D_DECL_DESCRIPTOR_COPY_SIZE(48)
+VKD3D_DECL_DESCRIPTOR_COPY_SIZE(64)
+
+static pfn_vkd3d_host_mapping_copy_template vkd3d_bindless_find_copy_template(uint32_t descriptor_size)
+{
+    switch (descriptor_size)
+    {
+        case 8:
+            return vkd3d_descriptor_copy_desc_8;
+        case 16:
+            return vkd3d_descriptor_copy_desc_16;
+        case 32:
+            return vkd3d_descriptor_copy_desc_32;
+        case 48:
+            return vkd3d_descriptor_copy_desc_48;
+        case 64:
+            return vkd3d_descriptor_copy_desc_64;
+        default:
+            break;
+    }
+
+    return NULL;
+}
+
+static pfn_vkd3d_host_mapping_copy_template_single vkd3d_bindless_find_copy_template_single(uint32_t descriptor_size)
+{
+    switch (descriptor_size)
+    {
+        case 8:
+            return vkd3d_descriptor_copy_desc_8_single;
+        case 16:
+            return vkd3d_descriptor_copy_desc_16_single;
+        case 32:
+            return vkd3d_descriptor_copy_desc_32_single;
+        case 48:
+            return vkd3d_descriptor_copy_desc_48_single;
+        case 64:
+            return vkd3d_descriptor_copy_desc_64_single;
+        default:
+            break;
+    }
+
+    return NULL;
+}
+
 static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bindless_state,
         struct d3d12_device *device, uint32_t flags, VkDescriptorType vk_descriptor_type)
 {
@@ -4674,6 +4739,8 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
     VkDescriptorType mutable_descriptor_types[VKD3D_MAX_MUTABLE_DESCRIPTOR_TYPES];
     VkDescriptorSetLayoutBindingFlagsCreateInfoEXT vk_binding_flags_info;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkDescriptorSetLayoutHostMappingInfoVALVE mapping_info;
+    VkDescriptorSetBindingReferenceVALVE binding_reference;
     VkMutableDescriptorTypeCreateInfoVALVE mutable_info;
     VkDescriptorSetLayoutCreateInfo vk_set_layout_info;
     VkDescriptorSetLayoutBinding *vk_binding;
@@ -4745,6 +4812,40 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
     if ((vr = VK_CALL(vkCreateDescriptorSetLayout(device->vk_device,
             &vk_set_layout_info, NULL, &set_info->vk_set_layout))) < 0)
         ERR("Failed to create descriptor set layout, vr %d.\n", vr);
+
+    /* If we're able, we should implement descriptor copies with functions we roll ourselves. */
+    if (device->device_info.descriptor_set_host_mapping_features.descriptorSetHostMapping)
+    {
+        INFO("Device supports VK_VALVE_descriptor_set_host_mapping!\n");
+        binding_reference.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_BINDING_REFERENCE_VALVE;
+        binding_reference.pNext = NULL;
+        binding_reference.descriptorSetLayout = set_info->vk_set_layout;
+        binding_reference.binding = set_info->binding_index;
+        mapping_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_HOST_MAPPING_INFO_VALVE;
+        mapping_info.pNext = NULL;
+
+        VK_CALL(vkGetDescriptorSetLayoutHostMappingInfoVALVE(device->vk_device,
+                &binding_reference, &mapping_info));
+
+        set_info->host_mapping_offset = mapping_info.descriptorOffset;
+        set_info->host_mapping_descriptor_size = mapping_info.descriptorSize;
+        set_info->host_copy_template = vkd3d_bindless_find_copy_template(mapping_info.descriptorSize);
+        set_info->host_copy_template_single = vkd3d_bindless_find_copy_template_single(mapping_info.descriptorSize);
+
+        if (!set_info->host_copy_template || !set_info->host_copy_template_single)
+        {
+            FIXME("Couldn't find suitable host copy template.\n");
+            set_info->host_copy_template = NULL;
+            set_info->host_copy_template_single = NULL;
+        }
+    }
+    else
+    {
+        set_info->host_mapping_offset = 0;
+        set_info->host_mapping_descriptor_size = 0;
+        set_info->host_copy_template = NULL;
+        set_info->host_copy_template_single = NULL;
+    }
 
     vk_binding->descriptorCount = d3d12_max_host_descriptor_count_from_heap_type(device, set_info->heap_type);
 

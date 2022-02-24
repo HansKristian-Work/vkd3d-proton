@@ -116,6 +116,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(NV_COMPUTE_SHADER_DERIVATIVES, NV_compute_shader_derivatives),
     /* VALVE extensions */
     VK_EXTENSION(VALVE_MUTABLE_DESCRIPTOR_TYPE, VALVE_mutable_descriptor_type),
+    VK_EXTENSION(VALVE_DESCRIPTOR_SET_HOST_MAPPING, VALVE_descriptor_set_host_mapping),
 };
 
 static unsigned int get_spec_version(const VkExtensionProperties *extensions,
@@ -1365,6 +1366,13 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->scalar_block_layout_features.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES_EXT;
         vk_prepend_struct(&info->features2, &info->scalar_block_layout_features);
+    }
+
+    if (vulkan_info->VALVE_descriptor_set_host_mapping)
+    {
+        info->descriptor_set_host_mapping_features.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_SET_HOST_MAPPING_FEATURES_VALVE;
+        vk_prepend_struct(&info->features2, &info->descriptor_set_host_mapping_features);
     }
 
     /* Core in Vulkan 1.1. */

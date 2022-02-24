@@ -164,6 +164,7 @@ struct vkd3d_vulkan_info
     bool NV_compute_shader_derivatives;
     /* VALVE extensions */
     bool VALVE_mutable_descriptor_type;
+    bool VALVE_descriptor_set_host_mapping;
 
     bool rasterization_stream;
     bool transform_feedback_queries;
@@ -1167,6 +1168,19 @@ struct d3d12_null_descriptor_template
     bool has_mutable_descriptors;
 };
 
+typedef void (*pfn_vkd3d_host_mapping_copy_template)(void * restrict dst, const void * restrict src,
+        size_t dst_index, size_t src_index, size_t count);
+typedef void (*pfn_vkd3d_host_mapping_copy_template_single)(void * restrict dst, const void * restrict src,
+        size_t dst_index, size_t src_index);
+
+struct d3d12_descriptor_heap_set
+{
+    VkDescriptorSet vk_descriptor_set;
+    void *mapped_set;
+    pfn_vkd3d_host_mapping_copy_template copy_template;
+    pfn_vkd3d_host_mapping_copy_template_single copy_template_single;
+};
+
 struct d3d12_descriptor_heap
 {
     ID3D12DescriptorHeap ID3D12DescriptorHeap_iface;
@@ -1177,7 +1191,8 @@ struct d3d12_descriptor_heap
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_va;
 
     VkDescriptorPool vk_descriptor_pool;
-    VkDescriptorSet vk_descriptor_sets[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+
+    struct d3d12_descriptor_heap_set sets[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
 
     struct vkd3d_device_memory_allocation device_allocation;
     VkBuffer vk_buffer;
@@ -2407,6 +2422,12 @@ struct vkd3d_bindless_set_info
     uint32_t set_index;
     uint32_t binding_index;
 
+    /* For VK_VALVE_descriptor_set_host_mapping */
+    size_t host_mapping_offset;
+    size_t host_mapping_descriptor_size;
+    pfn_vkd3d_host_mapping_copy_template host_copy_template;
+    pfn_vkd3d_host_mapping_copy_template_single host_copy_template_single;
+
     VkDescriptorSetLayout vk_set_layout;
     VkDescriptorSetLayout vk_host_set_layout;
 };
@@ -2833,6 +2854,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceShaderImageAtomicInt64FeaturesEXT shader_image_atomic_int64_features;
     VkPhysicalDeviceScalarBlockLayoutFeaturesEXT scalar_block_layout_features;
     VkPhysicalDeviceImageViewMinLodFeaturesEXT image_view_min_lod_features;
+    VkPhysicalDeviceDescriptorSetHostMappingFeaturesVALVE descriptor_set_host_mapping_features;
 
     VkPhysicalDeviceFeatures2 features2;
 

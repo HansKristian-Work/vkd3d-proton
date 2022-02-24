@@ -3051,11 +3051,10 @@ void d3d12_desc_copy_single(vkd3d_cpu_descriptor_va_t dst_va, vkd3d_cpu_descript
 {
     VkCopyDescriptorSet vk_copies[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    const struct vkd3d_bindless_set_info *set_info;
     struct vkd3d_descriptor_binding binding;
     uint32_t set_mask, set_info_index;
     struct d3d12_desc_split src, dst;
-    const VkDescriptorSet *src_sets;
-    const VkDescriptorSet *dst_sets;
     VkCopyDescriptorSet *vk_copy;
     uint32_t copy_count = 0;
     uint32_t flags;
@@ -3064,8 +3063,6 @@ void d3d12_desc_copy_single(vkd3d_cpu_descriptor_va_t dst_va, vkd3d_cpu_descript
     dst = d3d12_desc_decode_va(dst_va);
 
     flags = src.types->flags;
-    src_sets = src.heap->vk_descriptor_sets;
-    dst_sets = dst.heap->vk_descriptor_sets;
     set_mask = src.types->set_info_mask;
 
     if (flags & VKD3D_DESCRIPTOR_FLAG_SINGLE_DESCRIPTOR)
@@ -3075,16 +3072,26 @@ void d3d12_desc_copy_single(vkd3d_cpu_descriptor_va_t dst_va, vkd3d_cpu_descript
          * it seems. */
         binding = src.types->single_binding;
 
-        vk_copy = &vk_copies[copy_count++];
-        vk_copy->sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
-        vk_copy->pNext = NULL;
-        vk_copy->srcSet = src_sets[binding.set];
-        vk_copy->srcBinding = binding.binding;
-        vk_copy->srcArrayElement = src.offset;
-        vk_copy->dstSet = dst_sets[binding.set];
-        vk_copy->dstBinding = binding.binding;
-        vk_copy->dstArrayElement = dst.offset;
-        vk_copy->descriptorCount = 1;
+        if (src.heap->sets[binding.set].copy_template_single)
+        {
+            src.heap->sets[binding.set].copy_template_single(
+                    dst.heap->sets[binding.set].mapped_set,
+                    src.heap->sets[binding.set].mapped_set,
+                    dst.offset, src.offset);
+        }
+        else
+        {
+            vk_copy = &vk_copies[copy_count++];
+            vk_copy->sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
+            vk_copy->pNext = NULL;
+            vk_copy->srcSet = src.heap->sets[binding.set].vk_descriptor_set;
+            vk_copy->srcBinding = binding.binding;
+            vk_copy->srcArrayElement = src.offset;
+            vk_copy->dstSet = dst.heap->sets[binding.set].vk_descriptor_set;
+            vk_copy->dstBinding = binding.binding;
+            vk_copy->dstArrayElement = dst.offset;
+            vk_copy->descriptorCount = 1;
+        }
     }
     else
     {
@@ -3092,18 +3099,30 @@ void d3d12_desc_copy_single(vkd3d_cpu_descriptor_va_t dst_va, vkd3d_cpu_descript
         while (set_mask)
         {
             set_info_index = vkd3d_bitmask_iter32(&set_mask);
-            binding = vkd3d_bindless_state_binding_from_info_index(&device->bindless_state, set_info_index);
+            set_info = &device->bindless_state.set_info[set_info_index];
 
-            vk_copy = &vk_copies[copy_count++];
-            vk_copy->sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
-            vk_copy->pNext = NULL;
-            vk_copy->srcSet = src_sets[binding.set];
-            vk_copy->srcBinding = binding.binding;
-            vk_copy->srcArrayElement = src.offset;
-            vk_copy->dstSet = dst_sets[binding.set];
-            vk_copy->dstBinding = binding.binding;
-            vk_copy->dstArrayElement = dst.offset;
-            vk_copy->descriptorCount = 1;
+            if (set_info->host_copy_template_single)
+            {
+                set_info->host_copy_template_single(
+                        dst.heap->sets[set_info->set_index].mapped_set,
+                        src.heap->sets[set_info->set_index].mapped_set,
+                        dst.offset, src.offset);
+            }
+            else
+            {
+                binding = vkd3d_bindless_state_binding_from_info_index(&device->bindless_state, set_info_index);
+
+                vk_copy = &vk_copies[copy_count++];
+                vk_copy->sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
+                vk_copy->pNext = NULL;
+                vk_copy->srcSet = src.heap->sets[binding.set].vk_descriptor_set;
+                vk_copy->srcBinding = binding.binding;
+                vk_copy->srcArrayElement = src.offset;
+                vk_copy->dstSet = dst.heap->sets[binding.set].vk_descriptor_set;
+                vk_copy->dstBinding = binding.binding;
+                vk_copy->dstArrayElement = dst.offset;
+                vk_copy->descriptorCount = 1;
+            }
         }
     }
 
@@ -3123,10 +3142,10 @@ void d3d12_desc_copy_single(vkd3d_cpu_descriptor_va_t dst_va, vkd3d_cpu_descript
             vk_copy = &vk_copies[copy_count++];
             vk_copy->sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
             vk_copy->pNext = NULL;
-            vk_copy->srcSet = src_sets[binding.set];
+            vk_copy->srcSet = src.heap->sets[binding.set].vk_descriptor_set;
             vk_copy->srcBinding = binding.binding;
             vk_copy->srcArrayElement = src.offset;
-            vk_copy->dstSet = dst_sets[binding.set];
+            vk_copy->dstSet = dst.heap->sets[binding.set].vk_descriptor_set;
             vk_copy->dstBinding = binding.binding;
             vk_copy->dstArrayElement = dst.offset;
             vk_copy->descriptorCount = 1;
@@ -3152,6 +3171,7 @@ void d3d12_desc_copy_range(vkd3d_cpu_descriptor_va_t dst_va, vkd3d_cpu_descripto
 {
     VkCopyDescriptorSet vk_copies[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    const struct vkd3d_bindless_set_info *set_info;
     struct vkd3d_descriptor_binding binding;
     struct d3d12_desc_split src, dst;
     VkCopyDescriptorSet *vk_copy;
@@ -3172,18 +3192,30 @@ void d3d12_desc_copy_range(vkd3d_cpu_descriptor_va_t dst_va, vkd3d_cpu_descripto
     while (set_info_mask)
     {
         set_info_index = vkd3d_bitmask_iter32(&set_info_mask);
-        binding = vkd3d_bindless_state_binding_from_info_index(&device->bindless_state, set_info_index);
+        set_info = &device->bindless_state.set_info[set_info_index];
 
-        vk_copy = &vk_copies[copy_count++];
-        vk_copy->sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
-        vk_copy->pNext = NULL;
-        vk_copy->srcSet = src.heap->vk_descriptor_sets[binding.set];
-        vk_copy->srcBinding = binding.binding;
-        vk_copy->srcArrayElement = src.offset;
-        vk_copy->dstSet = dst.heap->vk_descriptor_sets[binding.set];
-        vk_copy->dstBinding = binding.binding;
-        vk_copy->dstArrayElement = dst.offset;
-        vk_copy->descriptorCount = count;
+        if (set_info->host_copy_template)
+        {
+            set_info->host_copy_template(
+                    dst.heap->sets[set_info->set_index].mapped_set,
+                    src.heap->sets[set_info->set_index].mapped_set,
+                    dst.offset, src.offset, count);
+        }
+        else
+        {
+            binding = vkd3d_bindless_state_binding_from_info_index(&device->bindless_state, set_info_index);
+
+            vk_copy = &vk_copies[copy_count++];
+            vk_copy->sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
+            vk_copy->pNext = NULL;
+            vk_copy->srcSet = src.heap->sets[binding.set].vk_descriptor_set;
+            vk_copy->srcBinding = binding.binding;
+            vk_copy->srcArrayElement = src.offset;
+            vk_copy->dstSet = dst.heap->sets[binding.set].vk_descriptor_set;
+            vk_copy->dstBinding = binding.binding;
+            vk_copy->dstArrayElement = dst.offset;
+            vk_copy->descriptorCount = count;
+        }
     }
 
     if (heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
@@ -3201,10 +3233,10 @@ void d3d12_desc_copy_range(vkd3d_cpu_descriptor_va_t dst_va, vkd3d_cpu_descripto
             vk_copy = &vk_copies[copy_count++];
             vk_copy->sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
             vk_copy->pNext = NULL;
-            vk_copy->srcSet = src.heap->vk_descriptor_sets[binding.set];
+            vk_copy->srcSet = src.heap->sets[binding.set].vk_descriptor_set;
             vk_copy->srcBinding = binding.binding;
             vk_copy->srcArrayElement = src.offset;
-            vk_copy->dstSet = dst.heap->vk_descriptor_sets[binding.set];
+            vk_copy->dstSet = dst.heap->sets[binding.set].vk_descriptor_set;
             vk_copy->dstBinding = binding.binding;
             vk_copy->dstArrayElement = dst.offset;
             vk_copy->descriptorCount = count;
@@ -3692,7 +3724,7 @@ static inline void vkd3d_init_write_descriptor_set(VkWriteDescriptorSet *vk_writ
 {
     vk_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     vk_write->pNext = NULL;
-    vk_write->dstSet = split->heap->vk_descriptor_sets[binding.set];
+    vk_write->dstSet = split->heap->sets[binding.set].vk_descriptor_set;
     vk_write->dstBinding = binding.binding;
     vk_write->dstArrayElement = split->offset;
     vk_write->descriptorCount = 1;
@@ -5420,6 +5452,32 @@ static void d3d12_descriptor_heap_zero_initialize(struct d3d12_descriptor_heap *
     vkd3d_free(buffer_infos);
 }
 
+static void d3d12_descriptor_heap_get_host_mapping(struct d3d12_descriptor_heap *descriptor_heap,
+        const struct vkd3d_bindless_set_info *binding, uint32_t set_index)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &descriptor_heap->device->vk_procs;
+    uint8_t *mapped_set = NULL;
+
+    descriptor_heap->sets[set_index].mapped_set = NULL;
+    descriptor_heap->sets[set_index].copy_template = NULL;
+    descriptor_heap->sets[set_index].copy_template_single = NULL;
+
+    if (binding->host_copy_template && binding->host_copy_template_single)
+    {
+        VK_CALL(vkGetDescriptorSetHostMappingVALVE(descriptor_heap->device->vk_device,
+                descriptor_heap->sets[set_index].vk_descriptor_set, (void**)&mapped_set));
+
+        if (mapped_set)
+        {
+            mapped_set += binding->host_mapping_offset;
+            descriptor_heap->sets[set_index].mapped_set = mapped_set;
+            /* Keep a local copy close so we can fetch stuff from same cache line easily. */
+            descriptor_heap->sets[set_index].copy_template = binding->host_copy_template;
+            descriptor_heap->sets[set_index].copy_template_single = binding->host_copy_template_single;
+        }
+    }
+}
+
 static HRESULT d3d12_descriptor_heap_create_descriptor_set(struct d3d12_descriptor_heap *descriptor_heap,
         const struct vkd3d_bindless_set_info *binding, VkDescriptorSet *vk_descriptor_set)
 {
@@ -5606,7 +5664,7 @@ static void d3d12_descriptor_heap_update_extra_bindings(struct d3d12_descriptor_
 
             vk_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             vk_write->pNext = NULL;
-            vk_write->dstSet = descriptor_heap->vk_descriptor_sets[set_index];
+            vk_write->dstSet = descriptor_heap->sets[set_index].vk_descriptor_set;
             vk_write->dstBinding = binding_index++;
             vk_write->dstArrayElement = 0;
             vk_write->descriptorCount = 1;
@@ -5665,7 +5723,7 @@ static void d3d12_descriptor_heap_add_null_descriptor_template(
     write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     write->pNext = NULL;
     write->descriptorCount = 1;
-    write->dstSet = descriptor_heap->vk_descriptor_sets[set_info->set_index];
+    write->dstSet = descriptor_heap->sets[set_info->set_index].vk_descriptor_set;
     write->dstBinding = set_info->binding_index;
 
     /* Replaced when instantiating template. */
@@ -5724,8 +5782,10 @@ static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descript
             if (set_info->heap_type == desc->Type)
             {
                 if (FAILED(hr = d3d12_descriptor_heap_create_descriptor_set(descriptor_heap,
-                        set_info, &descriptor_heap->vk_descriptor_sets[set_info->set_index])))
+                        set_info, &descriptor_heap->sets[set_info->set_index].vk_descriptor_set)))
                     goto fail;
+
+                d3d12_descriptor_heap_get_host_mapping(descriptor_heap, set_info, set_info->set_index);
 
                 if (descriptor_heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
                     d3d12_descriptor_heap_add_null_descriptor_template(descriptor_heap, set_info, i);

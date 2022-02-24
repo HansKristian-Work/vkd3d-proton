@@ -7476,7 +7476,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetDescriptorHeaps(d3d12_comman
             if (bindless_state->set_info[j].heap_type != heap->desc.Type)
                 continue;
 
-            list->descriptor_heaps[j] = heap->vk_descriptor_sets[set_index++];
+            list->descriptor_heaps[j] = heap->sets[set_index++].vk_descriptor_set;
             dirty_mask |= 1ull << j;
         }
 
