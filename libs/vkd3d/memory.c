@@ -1404,7 +1404,8 @@ HRESULT vkd3d_allocate_memory(struct d3d12_device *device, struct vkd3d_memory_a
     if (FAILED(hr))
         return hr;
 
-    if (!(info->heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED))
+    if (!(info->heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED) &&
+            !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_MEMORY_ALLOCATOR_SKIP_CLEAR))
         vkd3d_memory_allocator_clear_allocation(allocator, device, allocation);
 
     return hr;
