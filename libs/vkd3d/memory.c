@@ -1056,6 +1056,13 @@ static HRESULT vkd3d_memory_allocator_flush_clears_locked(struct vkd3d_memory_al
      * rather than rewriting the command buffer or dispatching the clear */
     vk_cmd_buffer = clear_queue->vk_command_buffers[clear_queue->command_buffer_index];
 
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
+    {
+        INFO("Submitting clear command list.\n");
+        for (i = 0; i < clear_queue->allocations_count; i++)
+            INFO("Clearing allocation %zu: %"PRIu64".\n", i, clear_queue->allocations[i]->resource.size);
+    }
+
     vkd3d_memory_allocator_wait_clear_semaphore(allocator, device,
             clear_queue->next_signal_value - VKD3D_MEMORY_CLEAR_COMMAND_BUFFER_COUNT, UINT64_MAX);
 
