@@ -1418,8 +1418,26 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
             swapchain->vk_surface, &swapchain->desc, &vk_swapchain_format)))
         return hr;
 
-    if ((vr = VK_CALL(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device,
-            swapchain->vk_surface, &surface_caps))) < 0)
+    vr = VK_CALL(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device,
+            swapchain->vk_surface, &surface_caps));
+
+    if (vr == VK_ERROR_SURFACE_LOST_KHR)
+    {
+        /* We already handle the scenario where swapchain is 0x0 and we fallback to pure user
+         * swapchain. Do something similar here. */
+        WARN("Surface is lost, synthesizing a fake surface_caps so we can keep presenting into the aether.\n");
+        memset(&surface_caps, 0, sizeof(surface_caps));
+        surface_caps.minImageCount = 2;
+        surface_caps.currentTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+        surface_caps.maxImageArrayLayers = 1;
+        surface_caps.supportedCompositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        surface_caps.supportedUsageFlags = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        surface_caps.supportedTransforms = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+        vr = VK_SUCCESS;
+    }
+
+    if (vr)
     {
         WARN("Failed to get surface capabilities, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
