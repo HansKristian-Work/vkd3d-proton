@@ -1587,28 +1587,33 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
         vkd3d_free(allocator->framebuffers);
         vkd3d_free(allocator->passes);
 
-        if (pthread_mutex_lock(&device->mutex) == 0)
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_RECYCLE_COMMAND_POOLS)
         {
-            if (device->cached_command_allocator_count < ARRAY_SIZE(device->cached_command_allocators))
+            /* Don't want to do this unless we have to, so hide it behind a config.
+             * For well-behaving apps, we'll just bloat memory. */
+            if (pthread_mutex_lock(&device->mutex) == 0)
             {
-                /* Recycle the pool. Some games spam free/allocate pools,
-                 * even if it completely goes against the point of the API. */
+                if (device->cached_command_allocator_count < ARRAY_SIZE(device->cached_command_allocators))
+                {
+                    /* Recycle the pool. Some games spam free/allocate pools,
+                     * even if it completely goes against the point of the API. */
 
-                /* Have to free command buffers here if we're going to recycle,
-                 * otherwise DestroyCommandPool takes care of it. */
-                VK_CALL(vkFreeCommandBuffers(device->vk_device, allocator->vk_command_pool,
-                        allocator->command_buffer_count, allocator->command_buffers));
-                VK_CALL(vkResetCommandPool(device->vk_device, allocator->vk_command_pool, 0));
+                    /* Have to free command buffers here if we're going to recycle,
+                     * otherwise DestroyCommandPool takes care of it. */
+                    VK_CALL(vkFreeCommandBuffers(device->vk_device, allocator->vk_command_pool,
+                            allocator->command_buffer_count, allocator->command_buffers));
+                    VK_CALL(vkResetCommandPool(device->vk_device, allocator->vk_command_pool, 0));
 
-                device->cached_command_allocators[device->cached_command_allocator_count].vk_command_pool =
-                        allocator->vk_command_pool;
-                device->cached_command_allocators[device->cached_command_allocator_count].vk_family_index =
-                        allocator->vk_family_index;
-                device->cached_command_allocator_count++;
-                allocator->vk_command_pool = VK_NULL_HANDLE;
+                    device->cached_command_allocators[device->cached_command_allocator_count].vk_command_pool =
+                            allocator->vk_command_pool;
+                    device->cached_command_allocators[device->cached_command_allocator_count].vk_family_index =
+                            allocator->vk_family_index;
+                    device->cached_command_allocator_count++;
+                    allocator->vk_command_pool = VK_NULL_HANDLE;
+                }
+
+                pthread_mutex_unlock(&device->mutex);
             }
-
-            pthread_mutex_unlock(&device->mutex);
         }
 
         /* Command buffers are implicitly freed when destroying the pool. */
@@ -1843,20 +1848,23 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     allocator->vk_command_pool = VK_NULL_HANDLE;
     allocator->vk_family_index = queue_family->vk_family_index;
 
-    /* Try to recycle command allocators. Some games spam free/allocate pools. */
-    if (pthread_mutex_lock(&device->mutex) == 0)
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_RECYCLE_COMMAND_POOLS)
     {
-        for (i = 0; i < device->cached_command_allocator_count; i++)
+        /* Try to recycle command allocators. Some games spam free/allocate pools. */
+        if (pthread_mutex_lock(&device->mutex) == 0)
         {
-            if (device->cached_command_allocators[i].vk_family_index == queue_family->vk_family_index)
+            for (i = 0; i < device->cached_command_allocator_count; i++)
             {
-                allocator->vk_command_pool = device->cached_command_allocators[i].vk_command_pool;
-                device->cached_command_allocators[i] =
-                        device->cached_command_allocators[--device->cached_command_allocator_count];
-                break;
+                if (device->cached_command_allocators[i].vk_family_index == queue_family->vk_family_index)
+                {
+                    allocator->vk_command_pool = device->cached_command_allocators[i].vk_command_pool;
+                    device->cached_command_allocators[i] =
+                            device->cached_command_allocators[--device->cached_command_allocator_count];
+                    break;
+                }
             }
+            pthread_mutex_unlock(&device->mutex);
         }
-        pthread_mutex_unlock(&device->mutex);
     }
 
     if (allocator->vk_command_pool == VK_NULL_HANDLE)
