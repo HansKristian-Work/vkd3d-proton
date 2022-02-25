@@ -490,6 +490,11 @@ static const struct vkd3d_instance_application_meta application_override[] = {
      * FIXME: The proper workaround will be a workaround which force-emits mul + add + precise. The vertex shaders
      * are broken enough that normal invariance is not enough. */
     { VKD3D_STRING_COMPARE_EXACT, "SOTTR.exe", VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION, 0 },
+    /* Elden Ring (1245620).
+     * Game is really churny on committed memory allocations, and does not use NOT_ZEROED. Clearing works causes bubbles.
+     * It seems to work just fine however to skip the clears. */
+    { VKD3D_STRING_COMPARE_EXACT, "eldenring.exe",
+            VKD3D_CONFIG_FLAG_MEMORY_ALLOCATOR_SKIP_CLEAR, 0 },
     { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
 };
 
