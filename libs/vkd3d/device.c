@@ -2717,6 +2717,9 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     for (i = 0; i < device->query_pool_count; i++)
         d3d12_device_destroy_query_pool(device, &device->query_pools[i]);
 
+    for (i = 0; i < device->cached_command_allocator_count; i++)
+        VK_CALL(vkDestroyCommandPool(device->vk_device, device->cached_command_allocators[i].vk_command_pool, NULL));
+
     vkd3d_free(device->descriptor_heap_gpu_vas);
 
     vkd3d_private_store_destroy(&device->private_store);

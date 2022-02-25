@@ -1587,7 +1587,31 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
         vkd3d_free(allocator->framebuffers);
         vkd3d_free(allocator->passes);
 
-        /* All command buffers are implicitly freed when a pool is destroyed. */
+        if (pthread_mutex_lock(&device->mutex) == 0)
+        {
+            if (device->cached_command_allocator_count < ARRAY_SIZE(device->cached_command_allocators))
+            {
+                /* Recycle the pool. Some games spam free/allocate pools,
+                 * even if it completely goes against the point of the API. */
+
+                /* Have to free command buffers here if we're going to recycle,
+                 * otherwise DestroyCommandPool takes care of it. */
+                VK_CALL(vkFreeCommandBuffers(device->vk_device, allocator->vk_command_pool,
+                        allocator->command_buffer_count, allocator->command_buffers));
+                VK_CALL(vkResetCommandPool(device->vk_device, allocator->vk_command_pool, 0));
+
+                device->cached_command_allocators[device->cached_command_allocator_count].vk_command_pool =
+                        allocator->vk_command_pool;
+                device->cached_command_allocators[device->cached_command_allocator_count].vk_family_index =
+                        allocator->vk_family_index;
+                device->cached_command_allocator_count++;
+                allocator->vk_command_pool = VK_NULL_HANDLE;
+            }
+
+            pthread_mutex_unlock(&device->mutex);
+        }
+
+        /* Command buffers are implicitly freed when destroying the pool. */
         vkd3d_free(allocator->command_buffers);
         VK_CALL(vkDestroyCommandPool(device->vk_device, allocator->vk_command_pool, NULL));
 
@@ -1796,6 +1820,7 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     VkCommandPoolCreateInfo command_pool_info;
     VkResult vr;
     HRESULT hr;
+    size_t i;
 
     if (FAILED(hr = vkd3d_private_store_init(&allocator->private_store)))
         return hr;
@@ -1815,12 +1840,34 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     command_pool_info.flags = 0;
     command_pool_info.queueFamilyIndex = queue_family->vk_family_index;
 
-    if ((vr = VK_CALL(vkCreateCommandPool(device->vk_device, &command_pool_info, NULL,
-            &allocator->vk_command_pool))) < 0)
+    allocator->vk_command_pool = VK_NULL_HANDLE;
+    allocator->vk_family_index = queue_family->vk_family_index;
+
+    /* Try to recycle command allocators. Some games spam free/allocate pools. */
+    if (pthread_mutex_lock(&device->mutex) == 0)
     {
-        WARN("Failed to create Vulkan command pool, vr %d.\n", vr);
-        vkd3d_private_store_destroy(&allocator->private_store);
-        return hresult_from_vk_result(vr);
+        for (i = 0; i < device->cached_command_allocator_count; i++)
+        {
+            if (device->cached_command_allocators[i].vk_family_index == queue_family->vk_family_index)
+            {
+                allocator->vk_command_pool = device->cached_command_allocators[i].vk_command_pool;
+                device->cached_command_allocators[i] =
+                        device->cached_command_allocators[--device->cached_command_allocator_count];
+                break;
+            }
+        }
+        pthread_mutex_unlock(&device->mutex);
+    }
+
+    if (allocator->vk_command_pool == VK_NULL_HANDLE)
+    {
+        if ((vr = VK_CALL(vkCreateCommandPool(device->vk_device, &command_pool_info, NULL,
+                &allocator->vk_command_pool))) < 0)
+        {
+            WARN("Failed to create Vulkan command pool, vr %d.\n", vr);
+            vkd3d_private_store_destroy(&allocator->private_store);
+            return hresult_from_vk_result(vr);
+        }
     }
 
     memset(allocator->descriptor_pool_caches, 0, sizeof(allocator->descriptor_pool_caches));
