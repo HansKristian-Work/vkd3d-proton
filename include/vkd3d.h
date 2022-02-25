@@ -31,6 +31,7 @@
 #  define VK_USE_PLATFORM_WIN32_KHR
 # endif
 # include <vulkan/vulkan.h>
+# include "private/vulkan_private_extensions.h"
 #endif  /* VKD3D_NO_VULKAN_H */
 
 #define VKD3D_MIN_API_VERSION VK_API_VERSION_1_1
