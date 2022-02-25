@@ -1773,6 +1773,7 @@ struct d3d12_command_allocator
 
     D3D12_COMMAND_LIST_TYPE type;
     VkQueueFlags vk_queue_flags;
+    uint32_t vk_family_index;
 
     VkCommandPool vk_command_pool;
 
@@ -2881,6 +2882,13 @@ struct vkd3d_queue_family_info
     VkQueueFlags vk_queue_flags;
 };
 
+#define VKD3D_CACHED_COMMAND_ALLOCATOR_COUNT 8
+struct vkd3d_cached_command_allocator
+{
+    VkCommandPool vk_command_pool;
+    uint32_t vk_family_index;
+};
+
 /* ID3D12Device */
 typedef ID3D12Device9 d3d12_device_iface;
 
@@ -2930,6 +2938,9 @@ struct d3d12_device
 
     struct vkd3d_query_pool query_pools[VKD3D_VIRTUAL_QUERY_POOL_COUNT];
     size_t query_pool_count;
+
+    struct vkd3d_cached_command_allocator cached_command_allocators[VKD3D_CACHED_COMMAND_ALLOCATOR_COUNT];
+    size_t cached_command_allocator_count;
 
     uint32_t *descriptor_heap_gpu_vas;
     size_t descriptor_heap_gpu_va_count;
