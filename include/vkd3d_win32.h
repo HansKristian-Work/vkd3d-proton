@@ -51,6 +51,7 @@
 
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <vulkan/vulkan.h>
+#include "private/vulkan_private_extensions.h"
 
 #ifdef __MINGW32__
 # define static
