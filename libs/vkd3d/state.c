@@ -2247,6 +2247,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_GetCachedBlob(ID3D12Pipeli
         return hresult_from_vk_result(vr);
     }
 
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+        INFO("Serializing cached blob: %zu bytes.\n", cache_size);
+
     if (FAILED(hr = d3d_blob_create(cache_data, cache_size, &blob_object)))
     {
         ERR("Failed to create blob, hr %#x.", hr);
