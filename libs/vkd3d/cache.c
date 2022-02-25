@@ -1164,6 +1164,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_StorePipeline(d3d12_pipe
 
     TRACE("iface %p, name %s, pipeline %p.\n", iface, debugstr_w(name), pipeline);
 
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+        INFO("Serializing pipeline to library.\n");
+
     if ((rc = rwlock_lock_write(&pipeline_library->mutex)))
     {
         ERR("Failed to lock mutex, rc %d.\n", rc);
@@ -1270,6 +1273,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_LoadGraphicsPipeline(d3d
     TRACE("iface %p, name %s, desc %p, iid %s, pipeline_state %p.\n", iface,
             debugstr_w(name), desc, debugstr_guid(iid), pipeline_state);
 
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+        INFO("Attempting LoadGraphicsPipeline.\n");
+
     if (FAILED(hr = vkd3d_pipeline_state_desc_from_d3d12_graphics_desc(&pipeline_desc, desc)))
         return hr;
 
@@ -1291,6 +1297,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_LoadComputePipeline(d3d1
 
     TRACE("iface %p, name %s, desc %p, iid %s, pipeline_state %p.\n", iface,
             debugstr_w(name), desc, debugstr_guid(iid), pipeline_state);
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+        INFO("Attempting LoadComputePipeline.\n");
 
     if (FAILED(hr = vkd3d_pipeline_state_desc_from_d3d12_compute_desc(&pipeline_desc, desc)))
         return hr;
@@ -1464,6 +1473,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_LoadPipeline(d3d12_pipel
 
     TRACE("iface %p, name %s, desc %p, iid %s, pipeline_state %p.\n", iface,
             debugstr_w(name), desc, debugstr_guid(iid), pipeline_state);
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+        INFO("Attempting LoadPipeline.\n");
 
     if (FAILED(hr = vkd3d_pipeline_state_desc_from_d3d12_stream_desc(&pipeline_desc, desc, &pipeline_type)))
         return hr;
@@ -1687,6 +1699,8 @@ static HRESULT d3d12_pipeline_library_init(struct d3d12_pipeline_library *pipeli
         if (FAILED(hr = d3d12_pipeline_library_read_blob(pipeline_library, device, blob, blob_length)))
             goto cleanup_hash_map;
     }
+    else if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+        INFO("Creating empty pipeline library.\n");
 
     if (FAILED(hr = vkd3d_private_store_init(&pipeline_library->private_store)))
         goto cleanup_mutex;
