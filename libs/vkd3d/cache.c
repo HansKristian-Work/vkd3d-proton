@@ -1696,7 +1696,19 @@ static HRESULT d3d12_pipeline_library_init(struct d3d12_pipeline_library *pipeli
 
     if (blob_length)
     {
-        if (FAILED(hr = d3d12_pipeline_library_read_blob(pipeline_library, device, blob, blob_length)))
+        hr = d3d12_pipeline_library_read_blob(pipeline_library, device, blob, blob_length);
+
+        if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_IGNORE_MISMATCH_DRIVER) &&
+                (hr == D3D12_ERROR_ADAPTER_NOT_FOUND || hr == D3D12_ERROR_DRIVER_VERSION_MISMATCH))
+        {
+            /* Sigh ... Otherwise, certain games might never create a replacement
+             * pipeline library and never serialize out pipeline libraries. */
+            INFO("Application provided a pipeline library which does not match with what we expect.\n"
+                 "Creating an empty pipeline library instead as a workaround.\n");
+            hr = S_OK;
+        }
+
+        if (FAILED(hr))
             goto cleanup_hash_map;
     }
     else if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
