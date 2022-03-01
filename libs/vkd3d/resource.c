@@ -4900,6 +4900,7 @@ void d3d12_desc_create_sampler(vkd3d_cpu_descriptor_va_t desc_va,
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     union vkd3d_descriptor_info descriptor_info;
+    struct vkd3d_descriptor_binding binding;
     VkWriteDescriptorSet vk_write;
     struct d3d12_desc_split d;
     struct vkd3d_view_key key;
@@ -4923,19 +4924,19 @@ void d3d12_desc_create_sampler(vkd3d_cpu_descriptor_va_t desc_va,
     vkd3d_descriptor_debug_register_view_cookie(device->descriptor_qa_global_info, view->cookie, 0);
 
     info_index = vkd3d_bindless_state_find_set_info_index(&device->bindless_state, VKD3D_BINDLESS_SET_SAMPLER);
+    binding = vkd3d_bindless_state_binding_from_info_index(&device->bindless_state, info_index);
 
     d.view->info.view = view;
     d.view->cookie = view->cookie;
     d.types->set_info_mask = 1u << info_index;
-    d.types->flags = VKD3D_DESCRIPTOR_FLAG_VIEW | VKD3D_DESCRIPTOR_FLAG_NON_NULL;
+    d.types->flags = VKD3D_DESCRIPTOR_FLAG_VIEW | VKD3D_DESCRIPTOR_FLAG_NON_NULL | VKD3D_DESCRIPTOR_FLAG_SINGLE_DESCRIPTOR;
+    d.types->single_binding = binding;
 
     descriptor_info.image.sampler = view->vk_sampler;
     descriptor_info.image.imageView = VK_NULL_HANDLE;
     descriptor_info.image.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    vkd3d_init_write_descriptor_set(&vk_write, &d,
-            vkd3d_bindless_state_binding_from_info_index(&device->bindless_state, info_index),
-            VK_DESCRIPTOR_TYPE_SAMPLER, &descriptor_info);
+    vkd3d_init_write_descriptor_set(&vk_write, &d, binding, VK_DESCRIPTOR_TYPE_SAMPLER, &descriptor_info);
 
     vkd3d_descriptor_debug_write_descriptor(d.heap->descriptor_heap_info.host_ptr,
             d.heap->cookie, d.offset,
