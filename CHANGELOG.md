@@ -1,5 +1,70 @@
 # Change Log
 
+## 2.6
+
+It has been a long while since 2.5, and this release rolls up a lot of fixes, features and optimizations.
+
+### Fixes
+
+- Fix black screen rendering bug in Horizon Zero Dawn after latest game updates.
+- Fix crashes on startup in Final Fantasy VII: Remake and Warframe.
+- Fix crashes in Guardians of the Galaxy when interacting with certain game objects.
+- Fix hang on game shutdown in Elden Ring.
+- Fix broken geometry rendering in Age of Empires: IV.
+
+### Optimization
+
+- Improve generated shader code for vectorized load-store operations in DXIL.
+- Greatly reduce CPU overhead for descriptor copy operations,
+  which is a key contributor to CPU overhead in D3D12.
+
+### Features
+
+#### Pipeline library rewrite
+
+Support D3D12 pipeline libraries better where we can now also cache
+generated SPIR-V from DXBC/DXIL.
+Massively reduces subsequent load times in Monster Hunter: Rise,
+and helps other titles like Guardian of the Galaxy and Elden Ring.
+Also lays the groundwork for internal driver caches down the line for games which do not use this API.
+Also, deduplicates binary blobs for reduced disk size requirements.
+
+#### Shader models
+
+Shader model 6.6 is now fully implemented. This includes support for:
+- ResourceDescriptorHeap[] direct access
+- 64-bit atomics
+- IsHelperLane()
+- Compute shader derivatives
+- WaveSize attribute
+- Packed math intrinsics
+
+#### Minor features
+
+- Handle API feature MinResourceLODClamp correctly if `VK_EXT_image_view_min_lod` is supported.
+- Expose CastFullyTypedFormat feature.
+- Expose some advanced shader features on Intel related to UAV formats (`VK_KHR_format_feature_flags2`).
+- Support COLOR -> STENCIL copies.
+
+### Workarounds
+
+- Workaround DEATHLOOP not emitting synchronization commands correctly. Fixes menu flicker on RADV.
+- Workaround quirky API usage in Elden Ring. Removes many kinds of stutter and chug when traversing the scenery.
+- Workaround certain environments failing to create Vulkan device if some `VK_NVX_*` extensions are enabled.
+- Workaround glitched foliage rendering in Horizon Zero Dawn after latest game updates.
+- Workaround some questionable UE4 shaders causing glitched rendering on RADV.
+
+### Note on future Vulkan driver requirements
+
+2.6 is expected to be the last vkd3d-proton release before we require some newer Vulkan extensions.
+`VK_KHR_dynamic_rendering` and `VK_EXT_extended_dynamic_state`
+(and likely `dynamic_state_2` as well) will be required.
+
+`VK_KHR_dynamic_rendering` in particular requires up-to-date drivers and the legacy render pass path
+will be abandoned in favor of it. Supporting both paths at the same time is not practical.
+Moving to `VK_KHR_dynamic_rendering` allows us to fix some critical flaws with the legacy API
+which caused potential shader compilation stutters and extra CPU overhead.
+
 ## 2.5
 
 This is a release with a little bit of everything!
