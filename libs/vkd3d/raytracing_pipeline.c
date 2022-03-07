@@ -552,6 +552,7 @@ static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *ob
                      * here. */
                     case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG:
                     case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG:
+                    case D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE:
                         break;
 
                     case D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE:
