@@ -6919,7 +6919,7 @@ static void vk_image_memory_barrier_for_transition(
     {
         VkImageSubresource subresource;
 
-        subresource = d3d12_resource_get_vk_subresource(resource, subresource_idx, true);
+        subresource = d3d12_resource_get_vk_subresource(resource, subresource_idx, false);
         image_barrier->subresourceRange.aspectMask = subresource.aspectMask;
         image_barrier->subresourceRange.baseMipLevel = subresource.mipLevel;
         image_barrier->subresourceRange.baseArrayLayer = subresource.arrayLayer;
@@ -6935,6 +6935,7 @@ static void vk_image_memory_barrier_for_transition(
         image_barrier->subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
     }
 }
+
 static void d3d12_command_list_barrier_batch_init(struct d3d12_command_list_barrier_batch *batch)
 {
     batch->image_barrier_count = 0;
