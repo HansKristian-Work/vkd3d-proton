@@ -51,7 +51,7 @@ static void d3d12_command_list_barrier_batch_add_layout_transition(
 
 static uint32_t d3d12_command_list_promote_dsv_resource(struct d3d12_command_list *list,
         struct d3d12_resource *resource, uint32_t plane_optimal_mask);
-static void d3d12_command_list_notify_decay_dsv_resource(struct d3d12_command_list *list,
+static uint32_t d3d12_command_list_notify_decay_dsv_resource(struct d3d12_command_list *list,
         struct d3d12_resource *resource);
 static uint32_t d3d12_command_list_notify_dsv_writes(struct d3d12_command_list *list,
         struct d3d12_resource *resource, const struct vkd3d_view *view,
@@ -2321,23 +2321,27 @@ static void d3d12_command_list_decay_optimal_dsv_resource(struct d3d12_command_l
     d3d12_command_list_barrier_batch_add_layout_transition(list, batch, &barrier);
 }
 
-static void d3d12_command_list_notify_decay_dsv_resource(struct d3d12_command_list *list,
+static uint32_t d3d12_command_list_notify_decay_dsv_resource(struct d3d12_command_list *list,
         struct d3d12_resource *resource)
 {
+    uint32_t decay_aspects;
     size_t i, n;
 
     /* No point in adding these since they are always deduced to be optimal. */
     if (resource->desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE)
-        return;
+        return 0;
 
     for (i = 0, n = list->dsv_resource_tracking_count; i < n; i++)
     {
         if (list->dsv_resource_tracking[i].resource == resource)
         {
+            decay_aspects = list->dsv_resource_tracking[i].plane_optimal_mask;
             list->dsv_resource_tracking[i] = list->dsv_resource_tracking[--list->dsv_resource_tracking_count];
-            return;
+            return decay_aspects;
         }
     }
+
+    return 0;
 }
 
 static uint32_t d3d12_command_list_promote_dsv_resource(struct d3d12_command_list *list,
@@ -2423,7 +2427,11 @@ static void d3d12_command_list_notify_dsv_discard(struct d3d12_command_list *lis
     }
 }
 
-static void d3d12_command_list_notify_dsv_state(struct d3d12_command_list *list,
+/* Returns a mask of DSV aspects which should be considered to be fully transitioned for all subresources.
+ * For these aspects, force layer/mip count to ALL. Only relevant for decay transitions.
+ * We only promote when all subresources are transitioned as one, but if a single subresource enters read-only,
+ * we decay the entire resource. */
+static uint32_t d3d12_command_list_notify_dsv_state(struct d3d12_command_list *list,
         struct d3d12_resource *resource, D3D12_RESOURCE_STATES state, UINT subresource)
 {
     /* Need to decide if we should promote or decay or promote DSV optimal state.
@@ -2436,10 +2444,11 @@ static void d3d12_command_list_notify_dsv_state(struct d3d12_command_list *list,
      * if applications prove to be buggy. */
     bool dsv_optimal = state == D3D12_RESOURCE_STATE_DEPTH_READ ||
             state == D3D12_RESOURCE_STATE_DEPTH_WRITE;
+    uint32_t dsv_decay_mask = 0;
 
     if (!dsv_optimal)
     {
-        d3d12_command_list_notify_decay_dsv_resource(list, resource);
+        dsv_decay_mask = d3d12_command_list_notify_decay_dsv_resource(list, resource);
     }
     else if (subresource == D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES)
     {
@@ -2463,6 +2472,8 @@ static void d3d12_command_list_notify_dsv_state(struct d3d12_command_list *list,
                 d3d12_command_list_promote_dsv_resource(list, resource, VKD3D_STENCIL_PLANE_OPTIMAL);
         }
     }
+
+    return dsv_decay_mask;
 }
 
 static void d3d12_command_list_decay_optimal_dsv_resources(struct d3d12_command_list *list)
@@ -6903,7 +6914,8 @@ static VkImageLayout vk_image_layout_from_d3d12_resource_state(
 static void vk_image_memory_barrier_for_transition(
         VkImageMemoryBarrier *image_barrier, const struct d3d12_resource *resource,
         UINT subresource_idx, VkImageLayout old_layout, VkImageLayout new_layout,
-        VkAccessFlags src_access, VkAccessFlags dst_access)
+        VkAccessFlags src_access, VkAccessFlags dst_access,
+        uint32_t dsv_decay_mask)
 {
     image_barrier->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     image_barrier->pNext = NULL;
@@ -6925,6 +6937,28 @@ static void vk_image_memory_barrier_for_transition(
         image_barrier->subresourceRange.baseArrayLayer = subresource.arrayLayer;
         image_barrier->subresourceRange.levelCount = 1;
         image_barrier->subresourceRange.layerCount = 1;
+
+        /* In a decay, need to transition everything that we promoted back to the common state.
+         * DSV decay is all or nothing, so just use a full transition. */
+        if ((dsv_decay_mask & VKD3D_DEPTH_PLANE_OPTIMAL) &&
+                (resource->format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT))
+        {
+            image_barrier->subresourceRange.aspectMask |= VK_IMAGE_ASPECT_DEPTH_BIT;
+            image_barrier->subresourceRange.baseMipLevel = 0;
+            image_barrier->subresourceRange.baseArrayLayer = 0;
+            image_barrier->subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+            image_barrier->subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+        }
+
+        if ((dsv_decay_mask & VKD3D_STENCIL_PLANE_OPTIMAL) &&
+                (resource->format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
+        {
+            image_barrier->subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+            image_barrier->subresourceRange.baseMipLevel = 0;
+            image_barrier->subresourceRange.baseArrayLayer = 0;
+            image_barrier->subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+            image_barrier->subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+        }
     }
     else
     {
@@ -7054,6 +7088,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                 VkPipelineStageFlags transition_dst_stage_mask = 0;
                 VkImageLayout old_layout = VK_IMAGE_LAYOUT_UNDEFINED;
                 VkImageLayout new_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+                uint32_t dsv_decay_mask = 0;
 
                 if (transition->StateBefore == D3D12_RESOURCE_STATE_RENDER_TARGET)
                     list->workaround_state.has_pending_color_write = false;
@@ -7100,7 +7135,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                 if (preserve_resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
                 {
                     /* If we enter DEPTH_WRITE or DEPTH_READ we can promote to optimal. */
-                    d3d12_command_list_notify_dsv_state(list, preserve_resource,
+                    /* Depth-stencil aspects are transitioned all or nothing.
+                     * If just one aspect transitions out of READ_ONLY, we have a decay situation.
+                     * We must transition the entire image from optimal state to read-only state. */
+                    dsv_decay_mask = d3d12_command_list_notify_dsv_state(list, preserve_resource,
                             transition->StateAfter, transition->Subresource);
                 }
 
@@ -7116,7 +7154,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                     vk_image_memory_barrier_for_transition(&vk_transition,
                             preserve_resource,
                             transition->Subresource, old_layout, new_layout,
-                            transition_src_access, transition_dst_access);
+                            transition_src_access, transition_dst_access,
+                            dsv_decay_mask);
                     d3d12_command_list_barrier_batch_add_layout_transition(list, &batch, &vk_transition);
                 }
                 else
