@@ -284,6 +284,7 @@ decl_test(test_shader_sm66_64bit_atomics);
 decl_test(test_shader_sm66_is_helper_lane);
 decl_test(test_get_copyable_footprints_planar);
 decl_test(test_depth_stencil_test_no_dsv);
+decl_test(test_depth_stencil_layout_tracking);
 decl_test(test_copy_buffer_to_depth_stencil);
 decl_test(test_map_texture_validation);
 decl_test(test_read_write_subresource_2d);

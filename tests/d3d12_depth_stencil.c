@@ -1533,3 +1533,461 @@ void test_stencil_export_dxil(void)
     test_stencil_export(true);
 }
 
+void test_depth_stencil_layout_tracking(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    struct depth_stencil_resource ds;
+    struct test_context_desc desc;
+    ID3D12PipelineState *psos[4];
+    struct test_context context;
+    D3D12_DISCARD_REGION region;
+    ID3D12RootSignature *rs;
+    unsigned int i, j;
+    HRESULT hr;
+
+    static const DWORD vs_code[] =
+    {
+#if 0
+    cbuffer C : register(b0)
+    {
+        float z;
+    };
+
+    float4 main(uint vid : SV_VertexID) : SV_Position
+    {
+        if (vid == 0)
+            return float4(-1.0, -1.0, z, 1.0);
+        else if (vid == 1)
+            return float4(-1.0, +3.0, z, 1.0);
+        else
+            return float4(+3.0, -1.0, z, 1.0);
+    }
+#endif
+        0x43425844, 0x31be9212, 0x8e44bbde, 0x8f0a87b5, 0xb8d5783b, 0x00000001, 0x000001dc, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000006, 0x00000001, 0x00000000, 0x00000101, 0x565f5653, 0x65747265, 0x00444978,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x505f5653, 0x7469736f, 0x006e6f69, 0x58454853, 0x00000140, 0x00010050,
+        0x00000050, 0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x04000060, 0x00101012,
+        0x00000000, 0x00000006, 0x04000067, 0x001020f2, 0x00000000, 0x00000001, 0x02000068, 0x00000001,
+        0x0300001f, 0x0010100a, 0x00000000, 0x08000036, 0x001020b2, 0x00000000, 0x00004002, 0xbf800000,
+        0xbf800000, 0x00000000, 0x3f800000, 0x06000036, 0x00102042, 0x00000000, 0x0020800a, 0x00000000,
+        0x00000000, 0x0100003e, 0x01000012, 0x07000020, 0x00100012, 0x00000000, 0x0010100a, 0x00000000,
+        0x00004001, 0x00000001, 0x0304001f, 0x0010000a, 0x00000000, 0x08000036, 0x001020b2, 0x00000000,
+        0x00004002, 0xbf800000, 0x40400000, 0x00000000, 0x3f800000, 0x06000036, 0x00102042, 0x00000000,
+        0x0020800a, 0x00000000, 0x00000000, 0x0100003e, 0x01000012, 0x08000036, 0x001020b2, 0x00000000,
+        0x00004002, 0x40400000, 0xbf800000, 0x00000000, 0x3f800000, 0x06000036, 0x00102042, 0x00000000,
+        0x0020800a, 0x00000000, 0x00000000, 0x0100003e, 0x01000015, 0x01000015, 0x0100003e,
+    };
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+    void main() {}
+#endif
+        0x43425844, 0x499d4ed5, 0xbbe2842c, 0x179313ee, 0xde5cd5d9, 0x00000001, 0x00000064, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000010, 0x00000050, 0x00000004, 0x0100086a,
+        0x0100003e,
+    };
+
+    static const D3D12_SHADER_BYTECODE vs = SHADER_BYTECODE(vs_code);
+    static const D3D12_SHADER_BYTECODE ps = SHADER_BYTECODE(ps_code);
+
+    enum draw_type
+    {
+        DRAW_TYPE_DRAW,
+        DRAW_TYPE_TRANSITION,
+        DRAW_TYPE_CLEAR,
+        DRAW_TYPE_DISCARD,
+    };
+
+    struct draw
+    {
+        bool depth_write;
+        bool stencil_write;
+        enum draw_type type;
+        D3D12_RECT rect;
+        float z;
+        uint8_t stencil;
+    };
+
+    static const struct draw test_full_promotion[] =
+    {
+        { false, false, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+        { true, true, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    static const struct draw test_full_promotion_no_read[] =
+    {
+        { true, true, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    static const struct draw test_partial_promotion[] =
+    {
+        { false, false, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+        /* Expect transition to WRITE/READ */
+        { true, false, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+        /* Expect transition to WRITE/WRITE */
+        { false, true, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+        { false, false, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    static const struct draw test_full_implicit_transition[] =
+    {
+        { true, true, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    static const struct draw test_full_explicit_transition[] =
+    {
+        { false, false, DRAW_TYPE_TRANSITION },
+        { true, true, DRAW_TYPE_TRANSITION },
+        /* We should already know the attachment is optimal. */
+        { true, true, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    static const struct draw test_partial_transition_depth[] =
+    {
+        { false, true, DRAW_TYPE_TRANSITION },
+        /* Mark depth as optimal. */
+        { true, true, DRAW_TYPE_TRANSITION },
+        /* Promote stencil state here. */
+        { true, true, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    static const struct draw test_partial_transition_stencil[] =
+    {
+        { true, false, DRAW_TYPE_TRANSITION },
+        /* Mark stencil as optimal. */
+        { true, true, DRAW_TYPE_TRANSITION },
+        /* Promote depth state here. */
+        { true, true, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    static const struct draw test_full_clear_transition[] =
+    {
+        { true, true, DRAW_TYPE_CLEAR, { 0, 0, 1024, 1024 }, 0.5f, 128 },
+        /* We should already know the attachment is optimal. */
+        { true, true, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    static const struct draw test_full_discard_transition[] =
+    {
+        { true, true, DRAW_TYPE_DISCARD },
+        /* We should already know the attachment is optimal. */
+        { true, true, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    static const struct draw test_partial_clear_depth[] =
+    {
+        { true, false, DRAW_TYPE_CLEAR, { 0, 0, 1024, 1024 }, 0.5f, 128 },
+        /* Promote stencil here. */
+        { true, true, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    static const struct draw test_partial_clear_stencil[] =
+    {
+        { false, true, DRAW_TYPE_CLEAR, { 0, 0, 1024, 1024 }, 0.5f, 128 },
+        /* Promote depth here. */
+        { true, true, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    static const struct draw test_partial_discard_depth[] =
+    {
+        { true, false, DRAW_TYPE_DISCARD },
+        /* Promote stencil here. */
+        { true, true, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    static const struct draw test_partial_discard_stencil[] =
+    {
+        { false, true, DRAW_TYPE_DISCARD },
+        /* Promote depth here. */
+        { true, true, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    static const struct draw test_decay[] =
+    {
+        { true, true, DRAW_TYPE_CLEAR, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+        /* This should decay the resource back to READ_ONLY. */
+        { false, false, DRAW_TYPE_TRANSITION },
+        { false, false, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    static const struct draw test_decay_depth[] =
+    {
+        { true, true, DRAW_TYPE_CLEAR, { 0, 0, 1024, 1024 }, 0.0f, 128 },
+        { false, true, DRAW_TYPE_TRANSITION },
+        { false, true, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    static const struct draw test_decay_stencil[] =
+    {
+        { true, true, DRAW_TYPE_CLEAR, { 0, 0, 1024, 1024 }, 0.5f, 0 },
+        { true, false, DRAW_TYPE_TRANSITION },
+        { true, false, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    static const struct draw test_sub_clear_no_render_pass[] =
+    {
+        /* Both of these will be emitted as separate clear passes, but no UNDEFINED transition. */
+        { true, true, DRAW_TYPE_CLEAR, { 0, 0, 1024, 512 }, 0.0f, 0 },
+        { true, true, DRAW_TYPE_CLEAR, { 0, 512, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    static const struct draw test_sub_clear_separate_no_render_pass[] =
+    {
+        /* Same as above, but separate layouts. */
+        { true, false, DRAW_TYPE_CLEAR, { 0, 0, 1024, 512 }, 0.0f, 0 },
+        { true, false, DRAW_TYPE_CLEAR, { 0, 512, 1024, 1024 }, 0.0f, 0 },
+        { false, true, DRAW_TYPE_CLEAR, { 0, 0, 1024, 512 }, 0.0f, 0 },
+        { false, true, DRAW_TYPE_CLEAR, { 0, 512, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    static const struct draw test_sub_clear_after_discard[] =
+    {
+        /* Both of these will be emitted as separate clear passes, but no UNDEFINED transition. */
+        { true, true, DRAW_TYPE_DISCARD },
+        { true, true, DRAW_TYPE_CLEAR, { 0, 0, 1024, 512 }, 0.0f, 0 },
+        { true, true, DRAW_TYPE_CLEAR, { 0, 512, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    static const struct draw test_sub_clear_separate_after_discard[] =
+    {
+        /* Same as above, but separate layouts. */
+        { true, false, DRAW_TYPE_DISCARD },
+        { true, false, DRAW_TYPE_CLEAR, { 0, 0, 1024, 512 }, 0.0f, 0 },
+        { true, false, DRAW_TYPE_CLEAR, { 0, 512, 1024, 1024 }, 0.0f, 0 },
+        { false, true, DRAW_TYPE_DISCARD },
+        { false, true, DRAW_TYPE_CLEAR, { 0, 0, 1024, 512 }, 0.0f, 0 },
+        { false, true, DRAW_TYPE_CLEAR, { 0, 512, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    static const struct draw test_clear_in_render_pass[] =
+    {
+        { true, true, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.5f, 128 },
+        /* No need to split render pass here and promote layout. */
+        { true, true, DRAW_TYPE_CLEAR, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    static const struct draw test_clear_in_render_pass_promote[] =
+    {
+        { false, false, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.5f, 128 },
+        /* Need to split render pass here and promote layout. */
+        { true, true, DRAW_TYPE_CLEAR, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    static const struct draw test_partial_clear_in_render_pass_promote[] =
+    {
+        { true, false, DRAW_TYPE_DRAW, { 0, 0, 1024, 1024 }, 0.0f, 128 },
+        /* Need to split render pass here and promote layout. */
+        { false, true, DRAW_TYPE_CLEAR, { 0, 0, 1024, 1024 }, 0.0f, 0 },
+    };
+
+    struct test
+    {
+        const struct draw *draws;
+        unsigned int draw_count;
+    };
+
+    /* It's also useful to test this with validation layers on, since this is mostly a test to see if we handle
+     * the layout transitions correctly. */
+    static const struct test tests[] =
+    {
+        { test_full_promotion, ARRAY_SIZE(test_full_promotion) },
+        { test_full_promotion_no_read, ARRAY_SIZE(test_full_promotion_no_read) },
+        { test_partial_promotion, ARRAY_SIZE(test_partial_promotion) },
+        { test_full_implicit_transition, ARRAY_SIZE(test_full_implicit_transition) },
+        { test_full_explicit_transition, ARRAY_SIZE(test_full_explicit_transition) },
+        { test_full_clear_transition, ARRAY_SIZE(test_full_clear_transition) },
+        { test_full_discard_transition, ARRAY_SIZE(test_full_discard_transition) },
+        { test_partial_transition_depth, ARRAY_SIZE(test_partial_transition_depth) },
+        { test_partial_transition_stencil, ARRAY_SIZE(test_partial_transition_stencil) },
+        { test_partial_clear_depth, ARRAY_SIZE(test_partial_clear_depth) },
+        { test_partial_clear_stencil, ARRAY_SIZE(test_partial_clear_stencil) },
+        { test_partial_discard_depth, ARRAY_SIZE(test_partial_discard_depth) },
+        { test_partial_discard_stencil, ARRAY_SIZE(test_partial_discard_stencil) },
+        { test_decay, ARRAY_SIZE(test_decay) },
+        { test_decay_depth, ARRAY_SIZE(test_decay_depth) },
+        { test_decay_stencil, ARRAY_SIZE(test_decay_stencil) },
+        { test_sub_clear_no_render_pass, ARRAY_SIZE(test_sub_clear_no_render_pass) },
+        { test_sub_clear_separate_no_render_pass, ARRAY_SIZE(test_sub_clear_separate_no_render_pass) },
+        { test_sub_clear_after_discard, ARRAY_SIZE(test_sub_clear_after_discard) },
+        { test_sub_clear_separate_after_discard, ARRAY_SIZE(test_sub_clear_separate_after_discard) },
+        { test_clear_in_render_pass, ARRAY_SIZE(test_clear_in_render_pass) },
+        { test_clear_in_render_pass_promote, ARRAY_SIZE(test_clear_in_render_pass_promote) },
+        { test_partial_clear_in_render_pass_promote, ARRAY_SIZE(test_partial_clear_in_render_pass_promote) },
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    init_depth_stencil(&ds, context.device, 1024, 1024, 1, 1,
+            DXGI_FORMAT_R32G8X24_TYPELESS, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, NULL);
+    rs = create_32bit_constants_root_signature(context.device, 0, 1, D3D12_SHADER_VISIBILITY_VERTEX);
+
+    init_pipeline_state_desc(&pso_desc, rs, 0, &vs, &ps, NULL);
+
+    pso_desc.NumRenderTargets = 0;
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+
+    for (i = 0; i < ARRAY_SIZE(psos); i++)
+    {
+        pso_desc.DepthStencilState.StencilEnable = TRUE;
+        pso_desc.DepthStencilState.DepthEnable = TRUE;
+        pso_desc.DepthStencilState.StencilReadMask = 0xFF;
+
+        if (i >= 2)
+        {
+            pso_desc.DepthStencilState.StencilWriteMask = 0xFF;
+            pso_desc.DepthStencilState.FrontFace.StencilFailOp = D3D12_STENCIL_OP_REPLACE;
+            pso_desc.DepthStencilState.FrontFace.StencilDepthFailOp = D3D12_STENCIL_OP_REPLACE;
+            pso_desc.DepthStencilState.FrontFace.StencilPassOp = D3D12_STENCIL_OP_REPLACE;
+        }
+        else
+        {
+            pso_desc.DepthStencilState.StencilWriteMask = 0x00;
+            pso_desc.DepthStencilState.FrontFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;
+            pso_desc.DepthStencilState.FrontFace.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
+            pso_desc.DepthStencilState.FrontFace.StencilPassOp = D3D12_STENCIL_OP_KEEP;
+        }
+
+        pso_desc.DepthStencilState.FrontFace.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+        pso_desc.DepthStencilState.BackFace = pso_desc.DepthStencilState.FrontFace;
+
+        pso_desc.DepthStencilState.DepthWriteMask = (i & 1) ? D3D12_DEPTH_WRITE_MASK_ALL : D3D12_DEPTH_WRITE_MASK_ZERO;
+        pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+
+        hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+                &IID_ID3D12PipelineState, (void **)&psos[i]);
+        ok(SUCCEEDED(hr), "Failed to create graphics pipeline state, hr %#x.\n", hr);
+    }
+
+    /* In the tests, begin command lists from a clean slate.
+     * Implementation must assume the depth-stencil image is in read-only state until proven otherwise. */
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        const D3D12_VIEWPORT vp = { 0, 0, 1024, 1024, 0, 1 };
+        D3D12_RESOURCE_STATES stencil_state = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+        D3D12_RESOURCE_STATES depth_state = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+        D3D12_RESOURCE_STATES new_stencil_state;
+        D3D12_RESOURCE_STATES new_depth_state;
+
+        vkd3d_test_set_context("Test %u", i);
+
+        /* Initialize the DS image to a known state. */
+        ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, ds.dsv_handle,
+                D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
+                1.0f, 255, 0, NULL);
+        transition_resource_state(context.list, ds.texture, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_float(ds.texture, 0, context.queue, context.list, 1.0f, 0);
+        reset_command_list(context.list, context.allocator);
+        check_sub_resource_uint8(ds.texture, 1, context.queue, context.list, 255, 0);
+        reset_command_list(context.list, context.allocator);
+        transition_resource_state(context.list, ds.texture, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        ID3D12GraphicsCommandList_Close(context.list);
+        exec_command_list(context.queue, context.list);
+        wait_queue_idle(context.device, context.queue);
+        reset_command_list(context.list, context.allocator);
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 0, NULL, FALSE, &ds.dsv_handle);
+        ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, rs);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        for (j = 0; j < tests[i].draw_count; j++)
+        {
+            switch (tests[i].draws[j].type)
+            {
+                case DRAW_TYPE_DRAW:
+                    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &tests[i].draws[j].rect);
+                    ID3D12GraphicsCommandList_SetPipelineState(context.list, psos[tests[i].draws[j].depth_write + tests[i].draws[j].stencil_write * 2]);
+                    ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(context.list, 0, 1, &tests[i].draws[j].z, 0);
+                    ID3D12GraphicsCommandList_OMSetStencilRef(context.list, tests[i].draws[j].stencil);
+                    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+                    break;
+
+                case DRAW_TYPE_TRANSITION:
+                    new_depth_state = tests[i].draws[j].depth_write ? D3D12_RESOURCE_STATE_DEPTH_WRITE :
+                            (D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                    new_stencil_state = tests[i].draws[j].stencil_write ? D3D12_RESOURCE_STATE_DEPTH_WRITE :
+                            (D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
+                    if (new_depth_state != depth_state)
+                    {
+                        transition_sub_resource_state(context.list, ds.texture, 0, depth_state, new_depth_state);
+                        depth_state = new_depth_state;
+                    }
+
+                    if (new_stencil_state != stencil_state)
+                    {
+                        transition_sub_resource_state(context.list, ds.texture, 1, stencil_state, new_stencil_state);
+                        stencil_state = new_stencil_state;
+                    }
+                    break;
+
+                case DRAW_TYPE_CLEAR:
+                    ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, ds.dsv_handle,
+                            (tests[i].draws[j].depth_write ? D3D12_CLEAR_FLAG_DEPTH : 0) |
+                            (tests[i].draws[j].stencil_write ? D3D12_CLEAR_FLAG_STENCIL : 0),
+                            tests[i].draws[j].z, tests[i].draws[j].stencil, 1, &tests[i].draws[j].rect);
+                    break;
+
+                case DRAW_TYPE_DISCARD:
+                    region.NumRects = 0;
+                    region.pRects = NULL;
+
+                    if (tests[i].draws[j].depth_write && tests[i].draws[j].stencil_write)
+                    {
+                        region.FirstSubresource = 0;
+                        region.NumSubresources = 2;
+                    }
+                    else if (tests[i].draws[j].depth_write)
+                    {
+                        region.FirstSubresource = 0;
+                        region.NumSubresources = 1;
+                    }
+                    else
+                    {
+                        region.FirstSubresource = 1;
+                        region.NumSubresources = 1;
+                    }
+
+                    ID3D12GraphicsCommandList_DiscardResource(context.list, ds.texture, &region);
+                    break;
+            }
+        }
+
+        /* Normalize the resource state back to DEPTH_WRITE. */
+        if (depth_state != D3D12_RESOURCE_STATE_DEPTH_WRITE)
+            transition_sub_resource_state(context.list, ds.texture, 0, depth_state, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        if (stencil_state != D3D12_RESOURCE_STATE_DEPTH_WRITE)
+            transition_sub_resource_state(context.list, ds.texture, 1, stencil_state, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+
+        transition_resource_state(context.list, ds.texture, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_float(ds.texture, 0, context.queue, context.list, 0.0f, 0);
+        reset_command_list(context.list, context.allocator);
+        check_sub_resource_uint8(ds.texture, 1, context.queue, context.list, 0, 0);
+        reset_command_list(context.list, context.allocator);
+        transition_resource_state(context.list, ds.texture, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        ID3D12GraphicsCommandList_Close(context.list);
+        exec_command_list(context.queue, context.list);
+        wait_queue_idle(context.device, context.queue);
+        reset_command_list(context.list, context.allocator);
+    }
+    vkd3d_test_set_context(NULL);
+
+    transition_resource_state(context.list, ds.texture, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_float(ds.texture, 0, context.queue, context.list, 0.0f, 0);
+    reset_command_list(context.list, context.allocator);
+    check_sub_resource_uint8(ds.texture, 1, context.queue, context.list, 0, 0);
+    reset_command_list(context.list, context.allocator);
+
+    ID3D12RootSignature_Release(rs);
+    for (i = 0; i < ARRAY_SIZE(psos); i++)
+        ID3D12PipelineState_Release(psos[i]);
+    destroy_depth_stencil(&ds);
+    destroy_test_context(&context);
+}
