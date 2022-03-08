@@ -34,6 +34,10 @@ struct vkd3d_cached_pipeline_data
     const void *blob;
     size_t blob_length;
     size_t is_new; /* Avoid padding issues. */
+    /* Need to internally hold a PSO and hand out the same one on subsequent LoadLibrary.
+     * This is a good performance boost for applications which load PSOs from library directly
+     * multiple times throughout the lifetime of an application. */
+    struct d3d12_pipeline_state *state;
 };
 
 struct vkd3d_cached_pipeline_entry
@@ -642,6 +646,7 @@ static void vkd3d_shader_code_serialize_referenced(struct d3d12_pipeline_library
         entry.key.name_length = 0;
         entry.key.name = NULL;
         entry.data.is_new = 1;
+        entry.data.state = NULL;
 
         wrapped_varint_size = sizeof(struct vkd3d_pipeline_blob_chunk_spirv) + varint_size;
         entry.data.blob_length = sizeof(*internal) + wrapped_varint_size;
@@ -750,6 +755,7 @@ static VkResult vkd3d_serialize_pipeline_state_referenced(struct d3d12_pipeline_
     entry.key.name_length = 0;
     entry.key.name = NULL;
     entry.data.is_new = 1;
+    entry.data.state = NULL;
 
     if (state->vk_pso_cache)
     {
@@ -1041,10 +1047,16 @@ static void d3d12_pipeline_library_cleanup_map(struct hash_map *map)
     {
         struct vkd3d_cached_pipeline_entry *e = (struct vkd3d_cached_pipeline_entry*)hash_map_get_entry(map, i);
 
-        if ((e->entry.flags & HASH_MAP_ENTRY_OCCUPIED) && e->data.is_new)
+        if (e->entry.flags & HASH_MAP_ENTRY_OCCUPIED)
         {
-            vkd3d_free((void*)e->key.name);
-            vkd3d_free((void*)e->data.blob);
+            if (e->data.is_new)
+            {
+                vkd3d_free((void*)e->key.name);
+                vkd3d_free((void*)e->data.blob);
+            }
+
+            if (e->data.state)
+                d3d12_pipeline_state_dec_ref(e->data.state);
         }
     }
 
@@ -1218,6 +1230,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_StorePipeline(d3d12_pipe
 
     entry.data.blob = new_blob;
     entry.data.is_new = 1;
+    entry.data.state = pipeline_state;
 
     if (!d3d12_pipeline_library_insert_hash_map_blob(pipeline_library, &pipeline_library->pso_map, &entry))
     {
@@ -1227,6 +1240,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_StorePipeline(d3d12_pipe
         return E_OUTOFMEMORY;
     }
 
+    /* If we get a subsequent LoadLibrary, we have to hand it back out again.
+     * API tests inform us that we need internal ref-count here. */
+    d3d12_pipeline_state_inc_ref(pipeline_state);
+
     rwlock_unlock_write(&pipeline_library->mutex);
     return S_OK;
 }
@@ -1234,8 +1251,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_StorePipeline(d3d12_pipe
 static HRESULT d3d12_pipeline_library_load_pipeline(struct d3d12_pipeline_library *pipeline_library, LPCWSTR name,
         VkPipelineBindPoint bind_point, struct d3d12_pipeline_state_desc *desc, struct d3d12_pipeline_state **state)
 {
+    struct vkd3d_pipeline_cache_compatibility pipeline_cache_compat;
     const struct vkd3d_cached_pipeline_entry *e;
+    struct d3d12_pipeline_state *existing_state;
+    struct d3d12_root_signature *root_signature;
+    struct d3d12_pipeline_state *cached_state;
     struct vkd3d_cached_pipeline_key key;
+    HRESULT hr;
     int rc;
 
     if ((rc = rwlock_lock_read(&pipeline_library->mutex)))
@@ -1254,12 +1276,82 @@ static HRESULT d3d12_pipeline_library_load_pipeline(struct d3d12_pipeline_librar
         return E_INVALIDARG;
     }
 
-    desc->cached_pso.blob.CachedBlobSizeInBytes = e->data.blob_length;
-    desc->cached_pso.blob.pCachedBlob = e->data.blob;
-    desc->cached_pso.library = pipeline_library;
-    rwlock_unlock_read(&pipeline_library->mutex);
+    /* Docs say that applications have to consider thread safety here:
+     * https://docs.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12device1-createpipelinelibrary#thread-safety.
+     * However, it seems questionable to rely on that, so just do cmpxchg replacements. */
+    cached_state = vkd3d_atomic_ptr_load_explicit(&e->data.state, vkd3d_memory_order_acquire);
 
-    return d3d12_pipeline_state_create(pipeline_library->device, bind_point, desc, state);
+    if (cached_state)
+    {
+        rwlock_unlock_read(&pipeline_library->mutex);
+
+        /* If we have handed out the PSO once, just need to do a quick validation. */
+        memset(&pipeline_cache_compat, 0, sizeof(pipeline_cache_compat));
+        vkd3d_pipeline_cache_compat_from_state_desc(&pipeline_cache_compat, desc);
+
+        if (desc->root_signature)
+        {
+            root_signature = impl_from_ID3D12RootSignature(desc->root_signature);
+            if (root_signature)
+                pipeline_cache_compat.root_signature_compat_hash = root_signature->compatibility_hash;
+        }
+        else if (!cached_state->private_root_signature)
+        {
+            /* If we have no explicit root signature and the existing PSO didn't either,
+             * just inherit the compat hash from PSO to avoid comparing them. */
+            pipeline_cache_compat.root_signature_compat_hash = cached_state->pipeline_cache_compat.root_signature_compat_hash;
+        }
+
+        if (memcmp(&pipeline_cache_compat, &cached_state->pipeline_cache_compat, sizeof(pipeline_cache_compat)) != 0)
+        {
+            if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+                INFO("Attempt to load existing PSO from library, but failed argument validation.\n");
+            return E_INVALIDARG;
+        }
+
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+            INFO("Handing out existing pipeline state object.\n");
+
+        *state = cached_state;
+        d3d12_pipeline_state_inc_public_ref(cached_state);
+        return S_OK;
+    }
+    else
+    {
+        desc->cached_pso.blob.CachedBlobSizeInBytes = e->data.blob_length;
+        desc->cached_pso.blob.pCachedBlob = e->data.blob;
+        desc->cached_pso.library = pipeline_library;
+        rwlock_unlock_read(&pipeline_library->mutex);
+
+        /* Don't hold locks while creating pipeline, it takes *some* time to validate and decompress stuff,
+         * and in heavily multi-threaded scenarios we want to go as wide as we can. */
+        if (FAILED(hr = d3d12_pipeline_state_create(pipeline_library->device, bind_point, desc, &cached_state)))
+            return hr;
+
+        /* These really should not fail ... */
+        rwlock_lock_read(&pipeline_library->mutex);
+        e = (const struct vkd3d_cached_pipeline_entry*)hash_map_find(&pipeline_library->pso_map, &key);
+        existing_state = vkd3d_atomic_ptr_compare_exchange(&e->data.state, NULL, cached_state,
+                vkd3d_memory_order_acq_rel, vkd3d_memory_order_acquire);
+        rwlock_unlock_read(&pipeline_library->mutex);
+
+        if (!existing_state)
+        {
+            /* Successfully replaced. */
+            d3d12_pipeline_state_inc_ref(cached_state);
+            *state = cached_state;
+        }
+        else
+        {
+            /* Other thread ended up winning while we were creating the PSO.
+             * This shouldn't be legal D3D12 API usage according to docs, but be safe ... */
+            WARN("Race condition detected.\n");
+            d3d12_pipeline_state_dec_ref(cached_state);
+            d3d12_pipeline_state_inc_public_ref(existing_state);
+            *state = existing_state;
+        }
+        return S_OK;
+    }
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_LoadGraphicsPipeline(d3d12_pipeline_library_iface *iface,
@@ -1557,6 +1649,7 @@ static HRESULT d3d12_pipeline_library_unserialize_hash_map(
         entry.data.blob_length = toc_entry->blob_length;
         entry.data.blob = serialized_data_base + toc_entry->blob_offset;
         entry.data.is_new = 0;
+        entry.data.state = NULL;
 
         if (!d3d12_pipeline_library_insert_hash_map_blob(pipeline_library, map, &entry))
             return E_OUTOFMEMORY;

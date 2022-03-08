@@ -1745,16 +1745,23 @@ void d3d12_pipeline_state_inc_ref(struct d3d12_pipeline_state *state)
     InterlockedIncrement(&state->internal_refcount);
 }
 
+ULONG d3d12_pipeline_state_inc_public_ref(struct d3d12_pipeline_state *state)
+{
+    ULONG refcount = InterlockedIncrement(&state->refcount);
+    if (refcount == 1)
+    {
+        d3d12_pipeline_state_inc_ref(state);
+        /* Bring device reference back to life. */
+        d3d12_device_add_ref(state->device);
+    }
+    TRACE("%p increasing refcount to %u.\n", state, refcount);
+    return refcount;
+}
+
 static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_AddRef(ID3D12PipelineState *iface)
 {
     struct d3d12_pipeline_state *state = impl_from_ID3D12PipelineState(iface);
-    ULONG refcount = InterlockedIncrement(&state->refcount);
-    if (refcount == 1)
-        d3d12_pipeline_state_inc_ref(state);
-
-    TRACE("%p increasing refcount to %u.\n", state, refcount);
-
-    return refcount;
+    return d3d12_pipeline_state_inc_public_ref(state);
 }
 
 static HRESULT d3d12_pipeline_state_create_shader_module(struct d3d12_device *device,
@@ -1874,20 +1881,23 @@ void d3d12_pipeline_state_dec_ref(struct d3d12_pipeline_state *state)
             ID3D12RootSignature_Release(state->private_root_signature);
 
         vkd3d_free(state);
-
-        d3d12_device_release(device);
     }
 }
 
 static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_Release(ID3D12PipelineState *iface)
 {
     struct d3d12_pipeline_state *state = impl_from_ID3D12PipelineState(iface);
+    struct d3d12_device *device = state->device;
     ULONG refcount = InterlockedDecrement(&state->refcount);
 
     TRACE("%p decreasing refcount to %u.\n", state, refcount);
 
     if (!refcount)
+    {
         d3d12_pipeline_state_dec_ref(state);
+        /* When public ref-count hits zero, we have to release the device too. */
+        d3d12_device_release(device);
+    }
 
     return refcount;
 }
