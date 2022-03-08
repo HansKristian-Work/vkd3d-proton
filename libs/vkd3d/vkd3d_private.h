@@ -1559,6 +1559,7 @@ static inline bool d3d12_graphics_pipeline_state_has_unknown_dsv_format(
 }
 
 /* Private ref counts, for pipeline library. */
+ULONG d3d12_pipeline_state_inc_public_ref(struct d3d12_pipeline_state *state);
 void d3d12_pipeline_state_inc_ref(struct d3d12_pipeline_state *state);
 void d3d12_pipeline_state_dec_ref(struct d3d12_pipeline_state *state);
 
