@@ -1524,6 +1524,7 @@ struct d3d12_pipeline_state
 {
     ID3D12PipelineState ID3D12PipelineState_iface;
     LONG refcount;
+    LONG internal_refcount;
 
     union
     {
@@ -1556,6 +1557,10 @@ static inline bool d3d12_graphics_pipeline_state_has_unknown_dsv_format(
 {
     return graphics->null_attachment_mask & dsv_attachment_mask(graphics);
 }
+
+/* Private ref counts, for pipeline library. */
+void d3d12_pipeline_state_inc_ref(struct d3d12_pipeline_state *state);
+void d3d12_pipeline_state_dec_ref(struct d3d12_pipeline_state *state);
 
 struct d3d12_cached_pipeline_state
 {
