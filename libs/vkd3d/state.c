@@ -1740,10 +1740,17 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_QueryInterface(ID3D12Pipel
     return E_NOINTERFACE;
 }
 
+void d3d12_pipeline_state_inc_ref(struct d3d12_pipeline_state *state)
+{
+    InterlockedIncrement(&state->internal_refcount);
+}
+
 static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_AddRef(ID3D12PipelineState *iface)
 {
     struct d3d12_pipeline_state *state = impl_from_ID3D12PipelineState(iface);
     ULONG refcount = InterlockedIncrement(&state->refcount);
+    if (refcount == 1)
+        d3d12_pipeline_state_inc_ref(state);
 
     TRACE("%p increasing refcount to %u.\n", state, refcount);
 
@@ -1845,18 +1852,14 @@ static void d3d12_pipeline_state_set_name(struct d3d12_pipeline_state *state, co
     }
 }
 
-static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_Release(ID3D12PipelineState *iface)
+void d3d12_pipeline_state_dec_ref(struct d3d12_pipeline_state *state)
 {
-    struct d3d12_pipeline_state *state = impl_from_ID3D12PipelineState(iface);
-    ULONG refcount = InterlockedDecrement(&state->refcount);
-
-    TRACE("%p decreasing refcount to %u.\n", state, refcount);
+    struct d3d12_device *device = state->device;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    ULONG refcount = InterlockedDecrement(&state->internal_refcount);
 
     if (!refcount)
     {
-        struct d3d12_device *device = state->device;
-        const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-
         vkd3d_private_store_destroy(&state->private_store);
 
         d3d12_pipeline_state_free_spirv_code(state);
@@ -1874,6 +1877,17 @@ static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_Release(ID3D12PipelineState 
 
         d3d12_device_release(device);
     }
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_Release(ID3D12PipelineState *iface)
+{
+    struct d3d12_pipeline_state *state = impl_from_ID3D12PipelineState(iface);
+    ULONG refcount = InterlockedDecrement(&state->refcount);
+
+    TRACE("%p decreasing refcount to %u.\n", state, refcount);
+
+    if (!refcount)
+        d3d12_pipeline_state_dec_ref(state);
 
     return refcount;
 }
@@ -2230,8 +2244,6 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     const struct d3d12_root_signature *root_signature;
     HRESULT hr;
 
-    state->ID3D12PipelineState_iface.lpVtbl = &d3d12_pipeline_state_vtbl;
-    state->refcount = 1;
     state->vk_bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
 
     if (desc->root_signature)
@@ -2949,8 +2961,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         {VK_SHADER_STAGE_FRAGMENT_BIT,                offsetof(struct d3d12_pipeline_state_desc, ps)},
     };
 
-    state->ID3D12PipelineState_iface.lpVtbl = &d3d12_pipeline_state_vtbl;
-    state->refcount = 1;
     state->vk_bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
 
     graphics->stage_count = 0;
@@ -3624,6 +3634,10 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
             return hr;
         }
     }
+
+    object->ID3D12PipelineState_iface.lpVtbl = &d3d12_pipeline_state_vtbl;
+    object->refcount = 1;
+    object->internal_refcount = 1;
 
     switch (bind_point)
     {
