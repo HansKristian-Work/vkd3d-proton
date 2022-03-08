@@ -120,7 +120,6 @@ struct vkd3d_vulkan_info
     bool KHR_spirv_1_4;
     bool KHR_shader_float_controls;
     bool KHR_fragment_shading_rate;
-    bool KHR_create_renderpass2;
     bool KHR_sampler_mirror_clamp_to_edge;
     bool KHR_separate_depth_stencil_layouts;
     bool KHR_shader_integer_dot_product;
@@ -323,17 +322,6 @@ struct vkd3d_gpu_va_slab
 {
     size_t size;
     void *ptr;
-};
-
-enum vkd3d_render_pass_key_flag
-{
-    VKD3D_RENDER_PASS_KEY_DEPTH_ENABLE   = (1u << 0),
-    VKD3D_RENDER_PASS_KEY_STENCIL_ENABLE = (1u << 1),
-    VKD3D_RENDER_PASS_KEY_DEPTH_WRITE    = (1u << 2),
-    VKD3D_RENDER_PASS_KEY_STENCIL_WRITE  = (1u << 3),
-
-    VKD3D_RENDER_PASS_KEY_DEPTH_STENCIL_ENABLE = (VKD3D_RENDER_PASS_KEY_DEPTH_ENABLE | VKD3D_RENDER_PASS_KEY_STENCIL_ENABLE),
-    VKD3D_RENDER_PASS_KEY_DEPTH_STENCIL_WRITE  = (VKD3D_RENDER_PASS_KEY_DEPTH_WRITE  | VKD3D_RENDER_PASS_KEY_STENCIL_WRITE),
 };
 
 struct vkd3d_private_store
