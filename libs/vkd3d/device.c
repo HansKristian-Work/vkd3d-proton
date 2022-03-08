@@ -641,6 +641,10 @@ static void vkd3d_config_flags_init_once(void)
     vkd3d_config_flags |= VKD3D_CONFIG_FLAG_DEBUG_UTILS;
 #endif
 
+    /* If we're going to use vk_debug, make sure we can get debug callbacks. */
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_VULKAN_DEBUG)
+        vkd3d_config_flags |= VKD3D_CONFIG_FLAG_DEBUG_UTILS;
+
     if (vkd3d_config_flags)
         INFO("VKD3D_CONFIG='%s'.\n", config ? config : "");
 }
@@ -790,7 +794,10 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
         }
 
         if (instance_info.enabledLayerCount == 0)
-            ERR("Failed to enumerate instance layers, will not use VK_LAYER_KHRONOS_validation!\n");
+        {
+            ERR("Failed to enumerate instance layers, will not use VK_LAYER_KHRONOS_validation directly.\n"
+                "Use VKD3D_CONFIG=vk_debug VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation instead!\n");
+        }
         vkd3d_free(layers);
     }
 
@@ -826,7 +833,6 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     instance->vk_debug_callback = VK_NULL_HANDLE;
     if (instance->vk_info.EXT_debug_utils && (vkd3d_config_flags & VKD3D_CONFIG_FLAG_VULKAN_DEBUG))
         vkd3d_init_debug_messenger_callback(instance);
-
 
 #ifdef VKD3D_ENABLE_RENDERDOC
     /* Need to init this sometime after creating the instance so that the layer has loaded. */
