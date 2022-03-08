@@ -2278,17 +2278,52 @@ CONST_VTBL struct ID3D12PipelineStateVtbl d3d12_pipeline_state_vtbl =
     d3d12_pipeline_state_GetCachedBlob,
 };
 
-static HRESULT create_shader_stage(struct d3d12_device *device,
+static HRESULT vkd3d_load_spirv_from_cached_state(struct d3d12_device *device,
+        const struct d3d12_cached_pipeline_state *cached_state,
+        VkShaderStageFlagBits stage, struct vkd3d_shader_code *spirv_code)
+{
+    HRESULT hr;
+
+    if (!cached_state->blob.CachedBlobSizeInBytes)
+    {
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+            INFO("SPIR-V chunk was not found due to no Cached PSO state being provided.\n");
+        return E_FAIL;
+    }
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_IGNORE_SPIRV)
+        return E_FAIL;
+
+    hr = vkd3d_get_cached_spirv_code_from_d3d12_desc(cached_state, stage, spirv_code);
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+    {
+        if (SUCCEEDED(hr))
+        {
+            INFO("SPIR-V (stage: %x) for blob hash %016"PRIx64" received from cached pipeline state.\n",
+                    stage, spirv_code->meta.hash);
+        }
+        else if (hr == E_FAIL)
+            INFO("SPIR-V chunk was not found in cached PSO state.\n");
+        else if (hr == E_INVALIDARG)
+            INFO("Pipeline could not be created to mismatch in either root signature or DXBC blobs.\n");
+        else
+            INFO("Unexpected error when unserializing SPIR-V (hr %x).\n", hr);
+    }
+
+    return hr;
+}
+
+static HRESULT vkd3d_create_shader_stage(struct d3d12_device *device,
         VkPipelineShaderStageCreateInfo *stage_desc, VkShaderStageFlagBits stage,
         VkPipelineShaderStageRequiredSubgroupSizeCreateInfoEXT *required_subgroup_size_info,
-        const D3D12_SHADER_BYTECODE *code, const struct d3d12_cached_pipeline_state *cached_state,
+        const D3D12_SHADER_BYTECODE *code,
         const struct vkd3d_shader_interface_info *shader_interface,
         const struct vkd3d_shader_compile_arguments *compile_args, struct vkd3d_shader_code *spirv_code)
 {
     struct vkd3d_shader_code dxbc = {code->pShaderBytecode, code->BytecodeLength};
     vkd3d_shader_hash_t recovered_hash = 0;
     vkd3d_shader_hash_t compiled_hash = 0;
-    HRESULT hr;
     int ret;
 
     stage_desc->sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -2298,45 +2333,14 @@ static HRESULT create_shader_stage(struct d3d12_device *device,
     stage_desc->pName = "main";
     stage_desc->pSpecializationInfo = NULL;
 
-    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_IGNORE_SPIRV))
+    if (spirv_code->code && (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_SANITIZE_SPIRV))
     {
-        hr = vkd3d_get_cached_spirv_code_from_d3d12_desc(cached_state, stage, spirv_code);
-
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
-        {
-            if (SUCCEEDED(hr))
-            {
-                INFO("SPIR-V (stage: %x) for blob hash %016"PRIx64" received from cached pipeline state.\n",
-                        stage, spirv_code->meta.hash);
-            }
-            else if (hr == E_FAIL)
-            {
-                if (cached_state->blob.CachedBlobSizeInBytes)
-                    INFO("SPIR-V chunk was not found in cached PSO state.\n");
-                else
-                    INFO("SPIR-V chunk was not found due to no Cached PSO state being provided.\n");
-            }
-            else if (hr == E_INVALIDARG)
-                INFO("Pipeline could not be created to mismatch in either root signature or DXBC blobs.\n");
-            else
-                INFO("Unexpected error when unserializing SPIR-V (hr %x).\n", hr);
-        }
-
-        /* For debug/dev purposes. */
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_SANITIZE_SPIRV)
-        {
-            if (SUCCEEDED(hr))
-            {
-                recovered_hash = vkd3d_shader_hash(spirv_code);
-                vkd3d_shader_free_shader_code(spirv_code);
-            }
-            hr = E_FAIL;
-        }
+        recovered_hash = vkd3d_shader_hash(spirv_code);
+        vkd3d_shader_free_shader_code(spirv_code);
+        memset(spirv_code, 0, sizeof(*spirv_code));
     }
-    else
-        hr = E_FAIL;
 
-    if (FAILED(hr))
+    if (!spirv_code->code)
     {
         TRACE("Calling vkd3d_shader_compile_dxbc.\n");
         if ((ret = vkd3d_shader_compile_dxbc(&dxbc, spirv_code, 0, shader_interface, compile_args)) < 0)
@@ -2449,7 +2453,7 @@ static void vkd3d_report_pipeline_creation_feedback_results(const VkPipelineCrea
 }
 
 static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
-        const D3D12_SHADER_BYTECODE *code, const struct d3d12_cached_pipeline_state *cached_state,
+        const D3D12_SHADER_BYTECODE *code,
         const struct vkd3d_shader_interface_info *shader_interface,
         VkPipelineLayout vk_pipeline_layout, VkPipelineCache vk_cache, VkPipeline *vk_pipeline,
         struct vkd3d_shader_code *spirv_code)
@@ -2474,10 +2478,10 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
     pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     pipeline_info.pNext = NULL;
     pipeline_info.flags = 0;
-    if (FAILED(hr = create_shader_stage(device,
+    if (FAILED(hr = vkd3d_create_shader_stage(device,
             &pipeline_info.stage,
             VK_SHADER_STAGE_COMPUTE_BIT, &required_subgroup_size_info,
-            code, cached_state, shader_interface, &compile_args, spirv_code)))
+            code, shader_interface, &compile_args, spirv_code)))
         return hr;
     pipeline_info.layout = vk_pipeline_layout;
     pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
@@ -2564,8 +2568,11 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
         }
     }
 
+    vkd3d_load_spirv_from_cached_state(device, &desc->cached_pso,
+            VK_SHADER_STAGE_COMPUTE_BIT, &state->compute.code);
+
     hr = vkd3d_create_compute_pipeline(device,
-            &desc->cs, &desc->cached_pso, &shader_interface,
+            &desc->cs, &shader_interface,
             root_signature->compute.vk_pipeline_layout,
             state->vk_pso_cache ? state->vk_pso_cache : device->global_pipeline_cache,
             &state->compute.vk_pipeline,
@@ -3325,9 +3332,9 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     VkShaderStageFlagBits xfb_stage = 0;
     VkSampleCountFlagBits sample_count;
     const struct vkd3d_format *format;
+    unsigned int i, j, stage_count;
     unsigned int instance_divisor;
     VkVertexInputRate input_rate;
-    unsigned int i, j;
     size_t rt_count;
     uint32_t mask;
     HRESULT hr;
@@ -3643,28 +3650,68 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
                 goto fail;
         }
 
+        ++graphics->stage_count;
+    }
+
+    /* We only accept SPIR-V from cache if we can successfully load all shaders.
+     * We cannot partially fall back since we cannot handle any situation where we need inter-stage code-gen fixups.
+     * In this situation, just generate full SPIR-V from scratch.
+     * This really shouldn't happen unless we have corrupt cache entries. */
+    stage_count = 0;
+    for (i = 0; i < ARRAY_SIZE(shader_stages); i++)
+    {
+        const D3D12_SHADER_BYTECODE *b = (const void *)((uintptr_t)desc + shader_stages[i].offset);
+        if (!b->pShaderBytecode)
+            continue;
+
+        if (FAILED(vkd3d_load_spirv_from_cached_state(device, &desc->cached_pso,
+                shader_stages[i].stage, &graphics->code[stage_count])))
+        {
+            for (j = 0; j < stage_count; j++)
+            {
+                if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+                    INFO("Discarding cached SPIR-V for stage #%x.\n", shader_stages[i].stage);
+                vkd3d_shader_free_shader_code(&graphics->code[j]);
+                memset(&graphics->code[j], 0, sizeof(graphics->code[j]));
+            }
+            break;
+        }
+
+        ++stage_count;
+    }
+
+    /* Now create the actual shader modules. If we managed to load SPIR-V from cache, use that directly.
+     * Make sure we don't reset graphics->stage_count since that is a potential memory leak if
+     * we fail to create shader module for whatever reason. */
+    stage_count = 0;
+    for (i = 0; i < ARRAY_SIZE(shader_stages); i++)
+    {
+        const D3D12_SHADER_BYTECODE *b = (const void *)((uintptr_t)desc + shader_stages[i].offset);
+        if (!b->pShaderBytecode)
+            continue;
+
         shader_interface.xfb_info = shader_stages[i].stage == xfb_stage ? &xfb_info : NULL;
         shader_interface.stage = shader_stages[i].stage;
-        if (FAILED(hr = create_shader_stage(device,
-                &graphics->stages[graphics->stage_count],
-                shader_stages[i].stage, NULL, b, &desc->cached_pso, &shader_interface,
+        if (FAILED(hr = vkd3d_create_shader_stage(device,
+                &graphics->stages[stage_count],
+                shader_stages[i].stage, NULL, b, &shader_interface,
                 shader_stages[i].stage == VK_SHADER_STAGE_FRAGMENT_BIT ? &ps_compile_args : &compile_args,
-                &graphics->code[graphics->stage_count])))
+                &graphics->code[stage_count])))
             goto fail;
 
         if (shader_stages[i].stage == VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT)
-            graphics->patch_vertex_count = graphics->code[graphics->stage_count].meta.patch_vertex_count;
+            graphics->patch_vertex_count = graphics->code[stage_count].meta.patch_vertex_count;
 
-        if ((graphics->code[graphics->stage_count].meta.flags & VKD3D_SHADER_META_FLAG_REPLACED) &&
+        if ((graphics->code[stage_count].meta.flags & VKD3D_SHADER_META_FLAG_REPLACED) &&
                 device->debug_ring.active)
         {
             vkd3d_shader_debug_ring_init_spec_constant(device,
-                    &graphics->spec_info[graphics->stage_count],
-                    graphics->code[graphics->stage_count].meta.hash);
-            graphics->stages[graphics->stage_count].pSpecializationInfo = &graphics->spec_info[graphics->stage_count].spec_info;
+                    &graphics->spec_info[stage_count],
+                    graphics->code[stage_count].meta.hash);
+            graphics->stages[stage_count].pSpecializationInfo = &graphics->spec_info[stage_count].spec_info;
         }
 
-        ++graphics->stage_count;
+        ++stage_count;
     }
 
     graphics->attribute_count = desc->input_layout.NumElements;
