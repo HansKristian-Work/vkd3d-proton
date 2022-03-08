@@ -125,11 +125,15 @@ void test_pipeline_library(void)
     ID3D12PipelineLibrary *pipeline_library;
     ID3D12RootSignature *root_signature;
     struct test_context context;
+    ID3D12PipelineState *state3;
+    ID3D12PipelineState *state2;
     ID3D12PipelineState *state;
+    ULONG reference_refcount;
     size_t serialized_size;
     ID3D12Device1 *device1;
     void *serialized_data;
     ID3D12Device *device;
+    ID3D12Fence *fence;
     HRESULT hr;
 
 #if 0
@@ -242,11 +246,20 @@ void test_pipeline_library(void)
     ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
 
     hr = ID3D12PipelineLibrary_StorePipeline(pipeline_library, graphics_name, state);
-    ok(hr == S_OK, "Failed to store compute pipeline, hr %x.\n", hr);
+    ok(hr == S_OK, "Failed to store graphics pipeline, hr %x.\n", hr);
+
+    /* Try to load PSO after a Store. Verify that we have a ref-count. */
+    hr = ID3D12PipelineLibrary_LoadGraphicsPipeline(pipeline_library, graphics_name, &graphics_desc,
+            &IID_ID3D12PipelineState, (void**)&state2);
+    ok(hr == S_OK, "Failed to load graphics pipeline, hr %x.\n", hr);
+    ok(state == state2, "Resulting PSOs must point to same object.\n");
+    ok(get_refcount(state2) == 2, "Refcount %u != 2.\n", get_refcount(state2));
+
     hr = ID3D12PipelineLibrary_StorePipeline(pipeline_library, compute_name, state);
     ok(hr == E_INVALIDARG, "Storing pipeline with already existing name succeeded, hr %x.\n", hr);
 
     ID3D12PipelineState_Release(state);
+    ID3D12PipelineState_Release(state2);
 
     /* Test looking up pipelines in a new pipeline library */
     hr = ID3D12PipelineLibrary_LoadComputePipeline(pipeline_library,
@@ -283,15 +296,66 @@ void test_pipeline_library(void)
             serialized_size, &IID_ID3D12PipelineLibrary, (void**)&pipeline_library);
     ok(hr == S_OK, "Failed to create pipeline library, hr %#x.\n");
 
+    /* Verify that PSO library must internally ref-count a unique PSO. */
     hr = ID3D12PipelineLibrary_LoadGraphicsPipeline(pipeline_library,
             graphics_name, &graphics_desc, &IID_ID3D12PipelineState, (void**)&state);
     ok(hr == S_OK, "Failed to load graphics pipeline from pipeline library, hr %#x.\n", hr);
-    ID3D12PipelineState_Release(state);
+    hr = ID3D12PipelineLibrary_LoadGraphicsPipeline(pipeline_library,
+            graphics_name, &graphics_desc, &IID_ID3D12PipelineState, (void**)&state2);
+    ok(hr == S_OK, "Failed to load graphics pipeline from pipeline library, hr %#x.\n", hr);
+    hr = ID3D12PipelineLibrary_LoadGraphicsPipeline(pipeline_library,
+            graphics_name, &graphics_desc, &IID_ID3D12PipelineState, (void**)&state3);
+    ok(hr == S_OK, "Failed to load graphics pipeline from pipeline library, hr %#x.\n", hr);
 
+    ok(state == state2 && state == state3, "Resulting PSOs must point to same object.\n");
+    ok(get_refcount(state) == 3, "Refcount %u != 3.\n", get_refcount(state));
+    ok(get_refcount(state2) == 3, "Refcount %u != 3.\n", get_refcount(state2));
+    ok(get_refcount(state3) == 3, "Refcount %u != 3.\n", get_refcount(state3));
+    ID3D12PipelineState_Release(state);
+    ID3D12PipelineState_Release(state2);
+    ID3D12PipelineState_Release(state3);
+
+    reference_refcount = get_refcount(context.device);
+
+    /* Verify that PSO library must internally ref-count a unique PSO. */
     hr = ID3D12PipelineLibrary_LoadComputePipeline(pipeline_library,
             compute_name, &compute_desc, &IID_ID3D12PipelineState, (void**)&state);
     ok(hr == S_OK, "Failed to load compute pipeline from pipeline library, hr %#x.\n", hr);
+    hr = ID3D12PipelineLibrary_LoadComputePipeline(pipeline_library,
+            compute_name, &compute_desc, &IID_ID3D12PipelineState, (void**)&state2);
+    ok(hr == S_OK, "Failed to load compute pipeline from pipeline library, hr %#x.\n", hr);
+    hr = ID3D12PipelineLibrary_LoadComputePipeline(pipeline_library,
+            compute_name, &compute_desc, &IID_ID3D12PipelineState, (void**)&state3);
+    ok(hr == S_OK, "Failed to load compute pipeline from pipeline library, hr %#x.\n", hr);
+
+    ok(get_refcount(context.device) == reference_refcount + 1, "Refcount %u != %u\n", get_refcount(context.device), reference_refcount + 1);
+    ID3D12Device_CreateFence(context.device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void**)&fence);
+    ok(get_refcount(context.device) == reference_refcount + 2, "Refcount %u != %u\n", get_refcount(context.device), reference_refcount + 2);
+
+    ID3D12PipelineState_SetPrivateDataInterface(state, &IID_ID3D12Fence, (const IUnknown *)fence);
+    ok(get_refcount(fence) == 2, "Refcount %u != 2.\n", get_refcount(fence));
+
+    ok(state == state2 && state == state3, "Resulting PSOs must point to same object.\n");
+    ok(state && get_refcount(state) == 3, "Refcount %u != 3.\n", get_refcount(state));
+    ok(state2 && get_refcount(state2) == 3, "Refcount %u != 3.\n", get_refcount(state2));
+    ok(state3 && get_refcount(state3) == 3, "Refcount %u != 3.\n", get_refcount(state3));
     ID3D12PipelineState_Release(state);
+    ID3D12PipelineState_Release(state2);
+    ok(get_refcount(fence) == 2, "Refcount %u != 2.\n", get_refcount(fence));
+    ok(get_refcount(context.device) == reference_refcount + 2, "Refcount %u != %u\n", get_refcount(context.device), reference_refcount + 2);
+    ok(ID3D12PipelineState_Release(state3) == 0, "Refcount did not hit 0.\n");
+    /* Releasing the last public reference does not release private data. */
+    ok(get_refcount(fence) == 2, "Refcount %u != 2.\n", get_refcount(fence));
+    /* Device ref count does release however ... */
+    ok(get_refcount(context.device) == reference_refcount + 1, "Refcount %u != %u\n", get_refcount(context.device), reference_refcount + 1);
+
+    hr = ID3D12PipelineLibrary_LoadComputePipeline(pipeline_library,
+        compute_name, &compute_desc, &IID_ID3D12PipelineState, (void**)&state2);
+    /* Device ref count increases here again. */
+    ok(get_refcount(context.device) == reference_refcount + 2, "Refcount %u != %u\n", get_refcount(context.device), reference_refcount + 2);
+    ok(hr == S_OK, "Failed to load compute pipeline from pipeline library, hr %#x.\n", hr);
+    ok(state == state2, "Reloading dead PSO must point to same object.\n");
+    ID3D12PipelineState_Release(state2);
 
     hr = ID3D12PipelineLibrary_LoadComputePipeline(pipeline_library,
             graphics_name, &compute_desc, &IID_ID3D12PipelineState, (void**)&state);
@@ -301,6 +365,9 @@ void test_pipeline_library(void)
         ID3D12PipelineState_Release(state);
 
     ID3D12PipelineLibrary_Release(pipeline_library);
+    /* This should release the fence reference. */
+    ok(get_refcount(fence) == 1, "Refcount %u != 1.\n", get_refcount(fence));
+    ID3D12Fence_Release(fence);
 
     free(serialized_data);
     ID3D12RootSignature_Release(root_signature);
