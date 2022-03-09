@@ -2265,6 +2265,9 @@ static VkImageLayout dsv_plane_optimal_mask_to_layout(uint32_t plane_optimal_mas
         VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
     };
 
+    if (plane_optimal_mask & VKD3D_DEPTH_STENCIL_PLANE_GENERAL)
+        return VK_IMAGE_LAYOUT_GENERAL;
+
     if (image_aspects != (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
     {
         /* If aspects is only DEPTH or only STENCIL, we should use the OPTIMAL or READ_ONLY layout.
@@ -2327,8 +2330,9 @@ static uint32_t d3d12_command_list_notify_decay_dsv_resource(struct d3d12_comman
     uint32_t decay_aspects;
     size_t i, n;
 
-    /* No point in adding these since they are always deduced to be optimal. */
-    if (resource->desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE)
+    /* No point in adding these since they are always deduced to be optimal or general. */
+    if ((resource->desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) ||
+            resource->common_layout == VK_IMAGE_LAYOUT_GENERAL)
         return 0;
 
     for (i = 0, n = list->dsv_resource_tracking_count; i < n; i++)
@@ -2353,6 +2357,8 @@ static uint32_t d3d12_command_list_promote_dsv_resource(struct d3d12_command_lis
     /* No point in adding these since they are always deduced to be optimal. */
     if (resource->desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE)
         return VKD3D_DEPTH_PLANE_OPTIMAL | VKD3D_STENCIL_PLANE_OPTIMAL;
+    else if (resource->common_layout == VK_IMAGE_LAYOUT_GENERAL)
+        return VKD3D_DEPTH_STENCIL_PLANE_GENERAL;
 
     /* For single aspect images, mirror the optimal mask in the unused aspect. This avoids some
      * extra checks elsewhere (particularly graphics pipeline setup and compat render passes)
@@ -2382,6 +2388,9 @@ static uint32_t d3d12_command_list_promote_dsv_resource(struct d3d12_command_lis
 static uint32_t d3d12_command_list_notify_dsv_writes(struct d3d12_command_list *list,
         struct d3d12_resource *resource, const struct vkd3d_view *view, uint32_t plane_write_mask)
 {
+    if (plane_write_mask & VKD3D_DEPTH_STENCIL_PLANE_GENERAL)
+        return VKD3D_DEPTH_STENCIL_PLANE_GENERAL;
+
     assert(!(plane_write_mask & ~(VKD3D_DEPTH_PLANE_OPTIMAL | VKD3D_STENCIL_PLANE_OPTIMAL)));
 
     /* If we cover the entire resource, we can promote it to our target layout. */
@@ -2502,6 +2511,12 @@ static VkImageLayout d3d12_command_list_get_depth_stencil_resource_layout(const 
             *plane_optimal_mask = VKD3D_DEPTH_PLANE_OPTIMAL | VKD3D_STENCIL_PLANE_OPTIMAL;
         return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     }
+    else if (resource->common_layout == VK_IMAGE_LAYOUT_GENERAL)
+    {
+        if (plane_optimal_mask)
+            *plane_optimal_mask = VKD3D_DEPTH_STENCIL_PLANE_GENERAL;
+        return VK_IMAGE_LAYOUT_GENERAL;
+    }
 
     for (i = 0, n = list->dsv_resource_tracking_count; i < n; i++)
     {
@@ -2521,16 +2536,30 @@ static VkImageLayout d3d12_command_list_get_depth_stencil_resource_layout(const 
 
 static VkImageLayout vk_separate_depth_layout(VkImageLayout combined_layout)
 {
-    return (combined_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
-            combined_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL) ?
-            VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
+    if (combined_layout == VK_IMAGE_LAYOUT_GENERAL)
+    {
+        return combined_layout;
+    }
+    else
+    {
+        return (combined_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
+                combined_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL) ?
+                VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
+    }
 }
 
 static VkImageLayout vk_separate_stencil_layout(VkImageLayout combined_layout)
 {
-    return (combined_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
-            combined_layout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL) ?
-            VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL;
+    if (combined_layout == VK_IMAGE_LAYOUT_GENERAL)
+    {
+        return combined_layout;
+    }
+    else
+    {
+        return (combined_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
+                combined_layout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL) ?
+                VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL;
+    }
 }
 
 static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *list, struct d3d12_resource *resource,

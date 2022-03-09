@@ -299,13 +299,51 @@ static bool vkd3d_is_linear_tiling_supported(const struct d3d12_device *device, 
     return supported;
 }
 
-static VkImageLayout vk_common_image_layout_from_d3d12_desc(const D3D12_RESOURCE_DESC1 *desc)
+static bool d3d12_device_prefers_general_depth_stencil(const struct d3d12_device *device)
+{
+    if (device->vk_info.KHR_driver_properties)
+    {
+        if (device->device_info.driver_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
+        {
+            /* NVIDIA doesn't really care about layouts for the most part. */
+            return true;
+        }
+        else if (device->device_info.driver_properties.driverID == VK_DRIVER_ID_MESA_RADV)
+        {
+            /* RADV can use TC-compat HTILE without too much issues on Polaris and later.
+             * Use GENERAL for these GPUs.
+             * Pre-Polaris we run into issues where even read-only depth requires decompress
+             * so using GENERAL shouldn't really make things worse, it's going to run pretty bad
+             * either way. */
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static VkImageLayout vk_common_image_layout_from_d3d12_desc(const struct d3d12_device *device,
+        const D3D12_RESOURCE_DESC1 *desc)
 {
     /* We need aggressive decay and promotion into anything. */
     if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS)
         return VK_IMAGE_LAYOUT_GENERAL;
     if (desc->Layout == D3D12_TEXTURE_LAYOUT_ROW_MAJOR)
         return VK_IMAGE_LAYOUT_GENERAL;
+
+    /* This is counter-intuitive, but using GENERAL layout for depth-stencils works around
+     * having to perform DSV plane tracking all the time, since we don't necessarily know at recording time
+     * if a DSV image is OPTIMAL or READ_ONLY.
+     * This saves us many redundant barriers while rendering, especially since games tend
+     * to split their rendering across many command lists in parallel.
+     * On several implementations, GENERAL is a perfectly fine layout to use,
+     * on others it is a disaster since compression is disabled :') */
+    if (((desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL | D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE)) ==
+            D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) &&
+            d3d12_device_prefers_general_depth_stencil(device))
+    {
+        return VK_IMAGE_LAYOUT_GENERAL;
+    }
 
     /* DENY_SHADER_RESOURCE only allowed with ALLOW_DEPTH_STENCIL */
     if (desc->Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE)
@@ -708,7 +746,7 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
             resource->common_layout = VK_IMAGE_LAYOUT_GENERAL;
         }
         else
-            resource->common_layout = vk_common_image_layout_from_d3d12_desc(desc);
+            resource->common_layout = vk_common_image_layout_from_d3d12_desc(device, desc);
 
         if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS)
             resource->flags |= VKD3D_RESOURCE_SIMULTANEOUS_ACCESS;
@@ -2952,7 +2990,7 @@ VKD3D_EXPORT HRESULT vkd3d_create_image_resource(ID3D12Device *device,
     object->flags = create_info->flags;
     object->flags |= VKD3D_RESOURCE_EXTERNAL;
     object->initial_layout_transition = 1;
-    object->common_layout = vk_common_image_layout_from_d3d12_desc(&object->desc);
+    object->common_layout = vk_common_image_layout_from_d3d12_desc(d3d12_device, &object->desc);
 
     memset(&object->sparse, 0, sizeof(object->sparse));
 
