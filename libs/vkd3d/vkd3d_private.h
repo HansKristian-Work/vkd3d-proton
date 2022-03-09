@@ -1445,11 +1445,11 @@ struct vkd3d_shader_debug_ring_spec_info
     VkSpecializationInfo spec_info;
 };
 
-/* One render pass for each plane optimal mask. */
 enum vkd3d_plane_optimal_flag
 {
     VKD3D_DEPTH_PLANE_OPTIMAL = (1 << 0),
     VKD3D_STENCIL_PLANE_OPTIMAL = (1 << 1),
+    VKD3D_DEPTH_STENCIL_PLANE_GENERAL = (1 << 2),
 };
 
 struct d3d12_graphics_pipeline_state
