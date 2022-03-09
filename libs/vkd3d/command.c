@@ -2562,6 +2562,19 @@ static VkImageLayout vk_separate_stencil_layout(VkImageLayout combined_layout)
     }
 }
 
+static bool d3d12_resource_may_alias_other_resources(struct d3d12_resource *resource)
+{
+    /* Treat a NULL resource as "all" resources. */
+    if (!resource)
+        return true;
+
+    /* Cannot alias if the resource is allocated in a dedicated heap. */
+    if (resource->flags & VKD3D_RESOURCE_ALLOCATION)
+        return false;
+
+    return true;
+}
+
 static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *list, struct d3d12_resource *resource,
         struct vkd3d_view *view, VkImageAspectFlags clear_aspects, const VkClearValue *clear_value, UINT rect_count,
         const D3D12_RECT *rects, bool is_bound)
@@ -2572,6 +2585,7 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     uint32_t plane_write_mask, image_barrier_count, i;
     VkImageMemoryBarrier image_barriers[2];
     VkRenderingInfoKHR rendering_info;
+    bool requires_discard_barrier;
     VkPipelineStageFlags stages;
     bool separate_ds_layouts;
     VkAccessFlags access;
@@ -2664,8 +2678,22 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
             stencil_attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 
         /* Ignore 3D images as re-initializing those may cause us to
-         * discard the entire image, not just the layers to clear. */
-        if (resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+         * discard the entire image, not just the layers to clear.
+         * Also, no need to perform extra transition barriers from UNDEFINED for committed resources.
+         * The initial transition is handled by Clear*View().
+         * Discarding with UNDEFINED is required to handle placed resources, however.
+         * Also, if we're going to perform layout transitions anyways (for DSV),
+         * might as well discard. */
+        requires_discard_barrier = d3d12_resource_may_alias_other_resources(resource);
+        if (separate_ds_layouts)
+        {
+            if (initial_layouts[0] != final_layouts[0] || initial_layouts[1] != final_layouts[1])
+                requires_discard_barrier = true;
+        }
+        else if (initial_layouts[0] != final_layouts[0])
+            requires_discard_barrier = true;
+
+        if (resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D && requires_discard_barrier)
         {
             if (separate_ds_layouts)
             {
@@ -6883,19 +6911,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
         else
             list->active_bind_point = VK_PIPELINE_BIND_POINT_MAX_ENUM;
     }
-}
-
-static bool d3d12_resource_may_alias_other_resources(struct d3d12_resource *resource)
-{
-    /* Treat a NULL resource as "all" resources. */
-    if (!resource)
-        return true;
-
-    /* Cannot alias if the resource is allocated in a dedicated heap. */
-    if (resource->flags & VKD3D_RESOURCE_ALLOCATION)
-        return false;
-
-    return true;
 }
 
 static VkImageLayout vk_image_layout_from_d3d12_resource_state(
