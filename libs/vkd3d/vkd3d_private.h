@@ -120,6 +120,7 @@ struct vkd3d_vulkan_info
     bool KHR_spirv_1_4;
     bool KHR_shader_float_controls;
     bool KHR_fragment_shading_rate;
+    bool KHR_create_renderpass2;
     bool KHR_sampler_mirror_clamp_to_edge;
     bool KHR_separate_depth_stencil_layouts;
     bool KHR_shader_integer_dot_product;
