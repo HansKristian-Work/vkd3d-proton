@@ -129,6 +129,7 @@ struct vkd3d_vulkan_info
     bool KHR_bind_memory2;
     bool KHR_copy_commands2;
     bool KHR_dynamic_rendering;
+    bool KHR_driver_properties;
     /* EXT device extensions */
     bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;
@@ -2765,6 +2766,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceFragmentShadingRatePropertiesKHR fragment_shading_rate_properties;
     VkPhysicalDeviceConservativeRasterizationPropertiesEXT conservative_rasterization_properties;
     VkPhysicalDeviceShaderIntegerDotProductPropertiesKHR shader_integer_dot_product_properties;
+    VkPhysicalDeviceDriverPropertiesKHR driver_properties;
 
     VkPhysicalDeviceProperties2KHR properties2;
 
