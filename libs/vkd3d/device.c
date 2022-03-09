@@ -82,6 +82,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_BIND_MEMORY_2, KHR_bind_memory2),
     VK_EXTENSION(KHR_COPY_COMMANDS_2, KHR_copy_commands2),
     VK_EXTENSION(KHR_DYNAMIC_RENDERING, KHR_dynamic_rendering),
+    VK_EXTENSION(KHR_DRIVER_PROPERTIES, KHR_driver_properties),
     /* EXT extensions */
     VK_EXTENSION(EXT_CALIBRATED_TIMESTAMPS, EXT_calibrated_timestamps),
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
@@ -1388,6 +1389,13 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->descriptor_set_host_mapping_features.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_SET_HOST_MAPPING_FEATURES_VALVE;
         vk_prepend_struct(&info->features2, &info->descriptor_set_host_mapping_features);
+    }
+
+    if (vulkan_info->KHR_driver_properties)
+    {
+        info->driver_properties.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES_KHR;
+        vk_prepend_struct(&info->properties2, &info->driver_properties);
     }
 
     /* Core in Vulkan 1.1. */
