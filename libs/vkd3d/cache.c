@@ -1138,31 +1138,53 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_QueryInterface(d3d12_pip
     return E_NOINTERFACE;
 }
 
+void d3d12_pipeline_library_inc_ref(struct d3d12_pipeline_library *pipeline_library)
+{
+    InterlockedIncrement(&pipeline_library->internal_refcount);
+}
+
+void d3d12_pipeline_library_dec_ref(struct d3d12_pipeline_library *pipeline_library)
+{
+    ULONG refcount = InterlockedDecrement(&pipeline_library->internal_refcount);
+    if (!refcount)
+    {
+        d3d12_pipeline_library_cleanup(pipeline_library, pipeline_library->device);
+        vkd3d_free(pipeline_library);
+    }
+}
+
+ULONG d3d12_pipeline_library_inc_public_ref(struct d3d12_pipeline_library *pipeline_library)
+{
+    ULONG refcount = InterlockedIncrement(&pipeline_library->refcount);
+    if (refcount == 1)
+        d3d12_device_add_ref(pipeline_library->device);
+    TRACE("%p increasing refcount to %u.\n", pipeline_library, refcount);
+    return refcount;
+}
+
+ULONG d3d12_pipeline_library_dec_public_ref(struct d3d12_pipeline_library *pipeline_library)
+{
+    struct d3d12_device *device = pipeline_library->device;
+    ULONG refcount = InterlockedDecrement(&pipeline_library->refcount);
+    TRACE("%p decreasing refcount to %u.\n", pipeline_library, refcount);
+    if (!refcount)
+    {
+        d3d12_pipeline_library_dec_ref(pipeline_library);
+        d3d12_device_release(device);
+    }
+    return refcount;
+}
+
 static ULONG STDMETHODCALLTYPE d3d12_pipeline_library_AddRef(d3d12_pipeline_library_iface *iface)
 {
     struct d3d12_pipeline_library *pipeline_library = impl_from_ID3D12PipelineLibrary(iface);
-    ULONG refcount = InterlockedIncrement(&pipeline_library->refcount);
-
-    TRACE("%p increasing refcount to %u.\n", pipeline_library, refcount);
-
-    return refcount;
+    return d3d12_pipeline_library_inc_public_ref(pipeline_library);
 }
 
 static ULONG STDMETHODCALLTYPE d3d12_pipeline_library_Release(d3d12_pipeline_library_iface *iface)
 {
     struct d3d12_pipeline_library *pipeline_library = impl_from_ID3D12PipelineLibrary(iface);
-    ULONG refcount = InterlockedDecrement(&pipeline_library->refcount);
-
-    TRACE("%p decreasing refcount to %u.\n", pipeline_library, refcount);
-
-    if (!refcount)
-    {
-        d3d12_pipeline_library_cleanup(pipeline_library, pipeline_library->device);
-        d3d12_device_release(pipeline_library->device);
-        vkd3d_free(pipeline_library);
-    }
-
-    return refcount;
+    return d3d12_pipeline_library_dec_public_ref(pipeline_library);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_GetPrivateData(d3d12_pipeline_library_iface *iface,
@@ -1864,6 +1886,7 @@ static HRESULT d3d12_pipeline_library_init(struct d3d12_pipeline_library *pipeli
     memset(pipeline_library, 0, sizeof(*pipeline_library));
     pipeline_library->ID3D12PipelineLibrary_iface.lpVtbl = &d3d12_pipeline_library_vtbl;
     pipeline_library->refcount = 1;
+    pipeline_library->internal_refcount = 1;
 
     if (!blob_length && blob)
         return E_INVALIDARG;

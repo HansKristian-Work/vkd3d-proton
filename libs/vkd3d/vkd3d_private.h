@@ -1647,6 +1647,7 @@ struct d3d12_pipeline_library
 {
     d3d12_pipeline_library_iface ID3D12PipelineLibrary_iface;
     LONG refcount;
+    LONG internal_refcount;
 
     struct d3d12_device *device;
 
@@ -1683,6 +1684,11 @@ HRESULT d3d12_cached_pipeline_state_validate(struct d3d12_device *device,
         const struct vkd3d_pipeline_cache_compatibility *compat);
 void vkd3d_pipeline_cache_compat_from_state_desc(struct vkd3d_pipeline_cache_compatibility *compat,
         const struct d3d12_pipeline_state_desc *desc);
+
+ULONG d3d12_pipeline_library_inc_public_ref(struct d3d12_pipeline_library *state);
+ULONG d3d12_pipeline_library_dec_public_ref(struct d3d12_pipeline_library *state);
+void d3d12_pipeline_library_inc_ref(struct d3d12_pipeline_library *state);
+void d3d12_pipeline_library_dec_ref(struct d3d12_pipeline_library *state);
 
 struct vkd3d_buffer
 {
