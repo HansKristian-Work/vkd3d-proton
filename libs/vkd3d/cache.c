@@ -299,8 +299,8 @@ static bool vkd3d_serialized_pipeline_stream_entry_validate(const uint8_t *data,
     return checksum == entry->checksum;
 }
 
-static const struct vkd3d_pipeline_blob_chunk *find_blob_chunk(const struct vkd3d_pipeline_blob_chunk *chunk,
-        size_t size, uint32_t type)
+static const struct vkd3d_pipeline_blob_chunk *find_blob_chunk_masked(const struct vkd3d_pipeline_blob_chunk *chunk,
+        size_t size, uint32_t type, uint32_t mask)
 {
     uint32_t aligned_chunk_size;
 
@@ -310,7 +310,7 @@ static const struct vkd3d_pipeline_blob_chunk *find_blob_chunk(const struct vkd3
                 VKD3D_PIPELINE_BLOB_CHUNK_ALIGN);
         if (aligned_chunk_size > size)
             return NULL;
-        if (chunk->type == type)
+        if ((chunk->type & mask) == type)
             return chunk;
 
         chunk = (const struct vkd3d_pipeline_blob_chunk *)&chunk->data[align(chunk->size, VKD3D_PIPELINE_BLOB_CHUNK_ALIGN)];
@@ -318,6 +318,12 @@ static const struct vkd3d_pipeline_blob_chunk *find_blob_chunk(const struct vkd3
     }
 
     return NULL;
+}
+
+static const struct vkd3d_pipeline_blob_chunk *find_blob_chunk(const struct vkd3d_pipeline_blob_chunk *chunk,
+        size_t size, uint32_t type)
+{
+    return find_blob_chunk_masked(chunk, size, type, ~0u);
 }
 
 static uint32_t d3d12_cached_pipeline_state_to_flags(const struct d3d12_cached_pipeline_state *state)
@@ -433,6 +439,41 @@ HRESULT d3d12_cached_pipeline_state_validate(struct d3d12_device *device,
     }
 
     return S_OK;
+}
+
+bool d3d12_cached_pipeline_state_is_dummy(const struct d3d12_cached_pipeline_state *state)
+{
+    const struct vkd3d_pipeline_blob *blob = state->blob.pCachedBlob;
+    const struct vkd3d_pipeline_blob_chunk *chunk;
+    size_t payload_size;
+
+    if (!state->blob.CachedBlobSizeInBytes)
+        return true;
+
+    if (state->blob.CachedBlobSizeInBytes < sizeof(*blob) || blob->version != VKD3D_CACHE_BLOB_VERSION)
+        return true;
+    payload_size = state->blob.CachedBlobSizeInBytes - offsetof(struct vkd3d_pipeline_blob, data);
+
+    chunk = CONST_CAST_CHUNK_BASE(blob);
+
+    /* Try to find any PSO cache or SPIR-V entry. If they exist, this is not a dummy blob. */
+    if (find_blob_chunk(chunk, payload_size, VKD3D_PIPELINE_BLOB_CHUNK_TYPE_PIPELINE_CACHE))
+        return false;
+
+    if (find_blob_chunk(chunk, payload_size, VKD3D_PIPELINE_BLOB_CHUNK_TYPE_PIPELINE_CACHE_LINK))
+        return false;
+
+    if (find_blob_chunk_masked(chunk, payload_size,
+            VKD3D_PIPELINE_BLOB_CHUNK_TYPE_VARINT_SPIRV,
+            VKD3D_PIPELINE_BLOB_CHUNK_TYPE_MASK))
+        return false;
+
+    if (find_blob_chunk_masked(chunk, payload_size,
+            VKD3D_PIPELINE_BLOB_CHUNK_TYPE_VARINT_SPIRV_LINK,
+            VKD3D_PIPELINE_BLOB_CHUNK_TYPE_MASK))
+        return false;
+
+    return true;
 }
 
 static struct vkd3d_pipeline_blob_chunk *finish_and_iterate_blob_chunk(struct vkd3d_pipeline_blob_chunk *chunk)

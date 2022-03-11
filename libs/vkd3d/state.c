@@ -3694,7 +3694,17 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
             return hr;
         }
     }
-    else if (device->disk_cache.library)
+
+    /* If we rely on internal shader cache, the PSO blob app provides us might be a pure metadata blob,
+     * and therefore kinda useless. Try to use disk cache blob instead.
+     * Also, consider that we might have to serialize this pipeline if we don't find anything in disk cache. */
+    if (d3d12_cached_pipeline_state_is_dummy(&desc->cached_pso))
+    {
+        memset(&cached_pso, 0, sizeof(cached_pso));
+        desc_cached_pso = &cached_pso;
+    }
+
+    if (desc_cached_pso->blob.CachedBlobSizeInBytes == 0 && device->disk_cache.library)
     {
         if (SUCCEEDED(vkd3d_pipeline_library_find_cached_blob_from_disk_cache(&device->disk_cache,
                 &object->pipeline_cache_compat, &cached_pso)))
@@ -3704,7 +3714,14 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
              * However, unlike app-proved blob, it's not fatal if we fail, so just fall back. */
             if (SUCCEEDED(hr = d3d12_cached_pipeline_state_validate(device, &cached_pso,
                     &object->pipeline_cache_compat)))
+            {
+                if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG) &&
+                        desc->cached_pso.blob.CachedBlobSizeInBytes)
+                {
+                    INFO("Application provided cached PSO blob, but we opted for disk cache blob instead.\n");
+                }
                 desc_cached_pso = &cached_pso;
+            }
             else
                 FIXME("Failed to validate internal pipeline which was fetched from disk cache. This should not happen.\n");
         }
