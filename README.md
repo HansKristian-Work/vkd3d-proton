@@ -28,12 +28,12 @@ There are some hard requirements on drivers to be able to implement D3D12 in a r
 - `VK_KHR_bind_memory2`
 - `VK_KHR_copy_commands2`
 - `VK_KHR_dynamic_rendering`
+- `VK_EXT_extended_dynamic_state`
 
 Some notable extensions that **should** be supported for optimal or correct behavior.
 These extensions will likely become mandatory later.
 
 - `VK_KHR_buffer_device_address`
-- `VK_EXT_extended_dynamic_state`
 - `VK_EXT_image_view_min_lod`
 
 `VK_VALVE_mutable_descriptor_type` is also highly recommended, but not mandatory.

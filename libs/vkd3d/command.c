@@ -5205,26 +5205,16 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
 
     if (dyn_state->viewport_count)
     {
-        if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT_COUNT)
+        if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT)
         {
             VK_CALL(vkCmdSetViewportWithCountEXT(list->vk_command_buffer,
                     dyn_state->viewport_count, dyn_state->viewports));
         }
-        else if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT)
-        {
-            VK_CALL(vkCmdSetViewport(list->vk_command_buffer,
-                    0, dyn_state->viewport_count, dyn_state->viewports));
-        }
 
-        if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR_COUNT)
+        if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR)
         {
             VK_CALL(vkCmdSetScissorWithCountEXT(list->vk_command_buffer,
                     dyn_state->viewport_count, dyn_state->scissors));
-        }
-        else if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR)
-        {
-            VK_CALL(vkCmdSetScissor(list->vk_command_buffer,
-                    0, dyn_state->viewport_count, dyn_state->scissors));
         }
     }
     else
@@ -5234,15 +5224,10 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
         static const VkViewport dummy_vp = { 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f };
         static const VkRect2D dummy_rect = { { 0, 0 }, { 0, 0 } };
 
-        if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT_COUNT)
+        if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT)
             VK_CALL(vkCmdSetViewportWithCountEXT(list->vk_command_buffer, 1, &dummy_vp));
-        else if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT)
-            VK_CALL(vkCmdSetViewport(list->vk_command_buffer, 0, 1, &dummy_vp));
-
-        if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR_COUNT)
+        if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR)
             VK_CALL(vkCmdSetScissorWithCountEXT(list->vk_command_buffer, 1, &dummy_rect));
-        else if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR)
-            VK_CALL(vkCmdSetScissor(list->vk_command_buffer, 0, 1, &dummy_rect));
     }
 
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS)
@@ -5335,39 +5320,26 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
                     dyn_state->vertex_offsets[i + range.offset] &= ~(VkDeviceSize)stride_align_masks[i + range.offset];
                 }
 
-                if (list->device->device_info.extended_dynamic_state_features.extendedDynamicState)
+                if (dyn_state->vertex_strides[i + range.offset] & stride_align_masks[i + range.offset])
                 {
-                    if (dyn_state->vertex_strides[i + range.offset] & stride_align_masks[i + range.offset])
-                    {
-                        FIXME("Binding VBO with stride %"PRIu64", but required alignment is %u.\n",
-                              dyn_state->vertex_strides[i + range.offset],
-                              stride_align_masks[i + range.offset] + 1);
+                    FIXME("Binding VBO with stride %"PRIu64", but required alignment is %u.\n",
+                            dyn_state->vertex_strides[i + range.offset],
+                            stride_align_masks[i + range.offset] + 1);
 
-                        /* This modifies global state, but if app hits this, it's already buggy.
-                         * Round up, so that we don't hit offset > size case with dynamic strides. */
-                        dyn_state->vertex_strides[i + range.offset] =
-                                (dyn_state->vertex_strides[i + range.offset] + stride_align_masks[i + range.offset]) &
-                                ~(VkDeviceSize)stride_align_masks[i + range.offset];
-                    }
+                    /* This modifies global state, but if app hits this, it's already buggy.
+                     * Round up, so that we don't hit offset > size case with dynamic strides. */
+                    dyn_state->vertex_strides[i + range.offset] =
+                            (dyn_state->vertex_strides[i + range.offset] + stride_align_masks[i + range.offset]) &
+                                    ~(VkDeviceSize)stride_align_masks[i + range.offset];
                 }
             }
 
-            if (list->device->device_info.extended_dynamic_state_features.extendedDynamicState)
-            {
-                VK_CALL(vkCmdBindVertexBuffers2EXT(list->vk_command_buffer,
-                        range.offset, range.count,
-                        dyn_state->vertex_buffers + range.offset,
-                        dyn_state->vertex_offsets + range.offset,
-                        dyn_state->vertex_sizes + range.offset,
-                        NULL));
-            }
-            else
-            {
-                VK_CALL(vkCmdBindVertexBuffers(list->vk_command_buffer,
-                        range.offset, range.count,
-                        dyn_state->vertex_buffers + range.offset,
-                        dyn_state->vertex_offsets + range.offset));
-            }
+            VK_CALL(vkCmdBindVertexBuffers2EXT(list->vk_command_buffer,
+                    range.offset, range.count,
+                    dyn_state->vertex_buffers + range.offset,
+                    dyn_state->vertex_offsets + range.offset,
+                    dyn_state->vertex_sizes + range.offset,
+                    NULL));
         }
     }
 
@@ -6857,11 +6829,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetViewports(d3d12_command_li
     if (dyn_state->viewport_count != viewport_count)
     {
         dyn_state->viewport_count = viewport_count;
-        dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_SCISSOR | VKD3D_DYNAMIC_STATE_SCISSOR_COUNT;
+        dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_SCISSOR;
         d3d12_command_list_invalidate_current_pipeline(list, false);
     }
 
-    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_VIEWPORT | VKD3D_DYNAMIC_STATE_VIEWPORT_COUNT;
+    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_VIEWPORT;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetScissorRects(d3d12_command_list_iface *iface,
@@ -6888,7 +6860,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetScissorRects(d3d12_command
         vk_rect->extent.height = rects[i].bottom - rects[i].top;
     }
 
-    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_SCISSOR | VKD3D_DYNAMIC_STATE_SCISSOR_COUNT;
+    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_SCISSOR;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_OMSetBlendFactor(d3d12_command_list_iface *iface,

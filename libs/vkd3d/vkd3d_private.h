@@ -1426,10 +1426,8 @@ enum vkd3d_dynamic_state_flag
     VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS          = (1 << 4),
     VKD3D_DYNAMIC_STATE_TOPOLOGY              = (1 << 5),
     VKD3D_DYNAMIC_STATE_VERTEX_BUFFER         = (1 << 6),
-    VKD3D_DYNAMIC_STATE_VIEWPORT_COUNT        = (1 << 7),
-    VKD3D_DYNAMIC_STATE_SCISSOR_COUNT         = (1 << 8),
-    VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE  = (1 << 9),
-    VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE = (1 << 10),
+    VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE  = (1 << 7),
+    VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE = (1 << 8),
 };
 
 struct vkd3d_shader_debug_ring_spec_constants
@@ -1616,7 +1614,6 @@ struct vkd3d_pipeline_key
     VkFormat dsv_format;
 
     bool dynamic_stride;
-    bool dynamic_viewport;
     bool dynamic_topology;
 };
 

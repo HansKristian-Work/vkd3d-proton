@@ -1985,6 +1985,12 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         return E_INVALIDARG;
     }
 
+    if (!physical_device_info->extended_dynamic_state_features.extendedDynamicState)
+    {
+        ERR("EXT_extended_dynamic_state is not supported by this implementation. This is required for correct operation.\n");
+        return E_INVALIDARG;
+    }
+
     return S_OK;
 }
 
