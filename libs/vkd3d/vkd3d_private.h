@@ -1330,6 +1330,7 @@ struct d3d12_root_signature
 {
     ID3D12RootSignature ID3D12RootSignature_iface;
     LONG refcount;
+    LONG internal_refcount;
 
     vkd3d_shader_hash_t compatibility_hash;
 
@@ -1389,6 +1390,9 @@ struct d3d12_root_signature
 
 HRESULT d3d12_root_signature_create(struct d3d12_device *device, const void *bytecode,
         size_t bytecode_length, struct d3d12_root_signature **root_signature);
+/* Private ref counts, for pipeline library. */
+void d3d12_root_signature_inc_ref(struct d3d12_root_signature *state);
+void d3d12_root_signature_dec_ref(struct d3d12_root_signature *state);
 
 static inline struct d3d12_root_signature *impl_from_ID3D12RootSignature(ID3D12RootSignature *iface)
 {
@@ -1539,7 +1543,7 @@ struct d3d12_pipeline_state
     spinlock_t lock;
 
     struct vkd3d_pipeline_cache_compatibility pipeline_cache_compat;
-    ID3D12RootSignature *private_root_signature;
+    struct d3d12_root_signature *private_root_signature;
     struct d3d12_device *device;
 
     struct vkd3d_private_store private_store;
