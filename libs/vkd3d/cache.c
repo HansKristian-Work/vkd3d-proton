@@ -233,7 +233,7 @@ struct vkd3d_pipeline_blob
     uint64_t vkd3d_build;
     uint64_t vkd3d_shader_interface_key;
     uint8_t cache_uuid[VK_UUID_SIZE];
-    uint8_t data[]; /* vkd3d_pipeline_blob_chunks laid out one after the other with u32 alignment. */
+    uint8_t data[]; /* vkd3d_pipeline_blob_chunks laid out one after the other with u64 alignment. */
 };
 
 /* Used for de-duplicated pipeline cache and SPIR-V hashmaps. */
