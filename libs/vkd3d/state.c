@@ -53,6 +53,12 @@ static ULONG STDMETHODCALLTYPE d3d12_root_signature_AddRef(ID3D12RootSignature *
 
     TRACE("%p increasing refcount to %u.\n", root_signature, refcount);
 
+    if (refcount == 1)
+    {
+        d3d12_root_signature_inc_ref(root_signature);
+        d3d12_device_add_ref(root_signature->device);
+    }
+
     return refcount;
 }
 
@@ -77,19 +83,35 @@ static void d3d12_root_signature_cleanup(struct d3d12_root_signature *root_signa
     vkd3d_free(root_signature->static_samplers_desc);
 }
 
+void d3d12_root_signature_inc_ref(struct d3d12_root_signature *root_signature)
+{
+    InterlockedIncrement(&root_signature->internal_refcount);
+}
+
+void d3d12_root_signature_dec_ref(struct d3d12_root_signature *root_signature)
+{
+    struct d3d12_device *device = root_signature->device;
+    ULONG refcount = InterlockedDecrement(&root_signature->internal_refcount);
+
+    if (refcount == 0)
+    {
+        vkd3d_private_store_destroy(&root_signature->private_store);
+        d3d12_root_signature_cleanup(root_signature, device);
+        vkd3d_free(root_signature);
+    }
+}
+
 static ULONG STDMETHODCALLTYPE d3d12_root_signature_Release(ID3D12RootSignature *iface)
 {
     struct d3d12_root_signature *root_signature = impl_from_ID3D12RootSignature(iface);
+    struct d3d12_device *device = root_signature->device;
     ULONG refcount = InterlockedDecrement(&root_signature->refcount);
 
     TRACE("%p decreasing refcount to %u.\n", root_signature, refcount);
 
     if (!refcount)
     {
-        struct d3d12_device *device = root_signature->device;
-        vkd3d_private_store_destroy(&root_signature->private_store);
-        d3d12_root_signature_cleanup(root_signature, device);
-        vkd3d_free(root_signature);
+        d3d12_root_signature_dec_ref(root_signature);
         d3d12_device_release(device);
     }
 
@@ -1420,6 +1442,7 @@ static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signa
     memset(root_signature, 0, sizeof(*root_signature));
     root_signature->ID3D12RootSignature_iface.lpVtbl = &d3d12_root_signature_vtbl;
     root_signature->refcount = 1;
+    root_signature->internal_refcount = 1;
 
     root_signature->d3d12_flags = desc->Flags;
     /* needed by some methods, increment ref count later */
@@ -1878,7 +1901,7 @@ void d3d12_pipeline_state_dec_ref(struct d3d12_pipeline_state *state)
         VK_CALL(vkDestroyPipelineCache(device->vk_device, state->vk_pso_cache, NULL));
 
         if (state->private_root_signature)
-            ID3D12RootSignature_Release(state->private_root_signature);
+            d3d12_root_signature_dec_ref(state->private_root_signature);
 
         vkd3d_free(state);
     }
@@ -2259,7 +2282,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     if (desc->root_signature)
         root_signature = impl_from_ID3D12RootSignature(desc->root_signature);
     else
-        root_signature = impl_from_ID3D12RootSignature(state->private_root_signature);
+        root_signature = state->private_root_signature;
 
     shader_interface.flags = d3d12_root_signature_get_shader_interface_flags(root_signature);
     shader_interface.min_ssbo_alignment = d3d12_device_get_ssbo_alignment(device);
@@ -3020,7 +3043,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     if (desc->root_signature)
         root_signature = impl_from_ID3D12RootSignature(desc->root_signature);
     else
-        root_signature = impl_from_ID3D12RootSignature(state->private_root_signature);
+        root_signature = state->private_root_signature;
 
     sample_count = vk_samples_from_dxgi_sample_desc(&desc->sample_desc);
     if (desc->sample_desc.Count != 1 && desc->sample_desc.Quality)
@@ -3603,15 +3626,24 @@ bool d3d12_pipeline_state_has_replaced_shaders(struct d3d12_pipeline_state *stat
 
 static HRESULT d3d12_pipeline_create_private_root_signature(struct d3d12_device *device,
         VkPipelineBindPoint bind_point, const struct d3d12_pipeline_state_desc *desc,
-        ID3D12RootSignature **root_signature)
+        struct d3d12_root_signature **root_signature)
 {
     const struct D3D12_SHADER_BYTECODE *bytecode = bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS ? &desc->vs : &desc->cs;
+    ID3D12RootSignature *object = NULL;
+    HRESULT hr;
 
     if (!bytecode->BytecodeLength)
         return E_INVALIDARG;
 
-    return ID3D12Device_CreateRootSignature(&device->ID3D12Device_iface, 0,
-            bytecode->pShaderBytecode, bytecode->BytecodeLength, &IID_ID3D12RootSignature, (void**)root_signature);
+    if (FAILED(hr = ID3D12Device_CreateRootSignature(&device->ID3D12Device_iface, 0,
+            bytecode->pShaderBytecode, bytecode->BytecodeLength,
+            &IID_ID3D12RootSignature, (void**)&object)))
+        return hr;
+
+    *root_signature = impl_from_ID3D12RootSignature(object);
+    d3d12_root_signature_inc_ref(*root_signature);
+    ID3D12RootSignature_Release(object);
+    return hr;
 }
 
 HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindPoint bind_point,
@@ -3636,7 +3668,7 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
             vkd3d_free(object);
             return hr;
         }
-        root_signature = impl_from_ID3D12RootSignature(object->private_root_signature);
+        root_signature = object->private_root_signature;
     }
     else
         root_signature = impl_from_ID3D12RootSignature(desc->root_signature);
@@ -3651,7 +3683,7 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
                 &object->pipeline_cache_compat)))
         {
             if (object->private_root_signature)
-                ID3D12RootSignature_Release(object->private_root_signature);
+                d3d12_root_signature_dec_ref(object->private_root_signature);
             vkd3d_free(object);
             return hr;
         }
@@ -3679,7 +3711,7 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
     if (FAILED(hr))
     {
         if (object->private_root_signature)
-            ID3D12RootSignature_Release(object->private_root_signature);
+            d3d12_root_signature_dec_ref(object->private_root_signature);
         d3d12_pipeline_state_free_spirv_code(object);
         d3d12_pipeline_state_destroy_shader_modules(object, device);
         VK_CALL(vkDestroyPipelineCache(device->vk_device, object->vk_pso_cache, NULL));
