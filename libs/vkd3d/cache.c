@@ -2893,11 +2893,21 @@ out_cancellation:
 
 static void vkd3d_pipeline_library_disk_cache_initial_setup(struct vkd3d_pipeline_library_disk_cache *cache)
 {
+    uint64_t begin_ts;
+    uint64_t end_ts;
     HRESULT hr;
+
+    begin_ts = vkd3d_get_current_time_ns();
 
     /* Fairly complex operation. Ideally, Steam handles this.
      * After this operation, only read_path should remain, and write_path (and temporary merge path) is deleted. */
     vkd3d_pipeline_library_disk_cache_merge(cache, cache->read_path, cache->write_path);
+
+    end_ts = vkd3d_get_current_time_ns();
+
+    INFO("Merging pipeline libraries took %.3f ms.\n", 1e-6 * (double)(end_ts - begin_ts));
+
+    begin_ts = vkd3d_get_current_time_ns();
 
     if (!vkd3d_file_map_read_only(cache->read_path, &cache->mapped_file))
     {
@@ -2905,8 +2915,14 @@ static void vkd3d_pipeline_library_disk_cache_initial_setup(struct vkd3d_pipelin
     }
     else
     {
+        end_ts = vkd3d_get_current_time_ns();
+        INFO("Mapping read-only cache took %.3f ms.\n", 1e-6 * (double)(end_ts - begin_ts));
+
+        begin_ts = vkd3d_get_current_time_ns();
         hr = d3d12_pipeline_library_read_blob_stream_format(cache->library, cache->library->device,
                 cache->mapped_file.mapped, cache->mapped_file.mapped_size);
+        end_ts = vkd3d_get_current_time_ns();
+        INFO("Parsing stream archive took %.3f ms.\n", 1e-6 * (double)(end_ts - begin_ts));
 
         if (hr == D3D12_ERROR_DRIVER_VERSION_MISMATCH)
             INFO("Cannot load existing on-disk cache due to driver version mismatch.\n");
