@@ -3709,21 +3709,14 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
         if (SUCCEEDED(vkd3d_pipeline_library_find_cached_blob_from_disk_cache(&device->disk_cache,
                 &object->pipeline_cache_compat, &cached_pso)))
         {
-            /* Validation is somewhat redundant, but we need to be very careful about potential corruption.
-             * It should never fail in normal operation, but ...
-             * However, unlike app-proved blob, it's not fatal if we fail, so just fall back. */
-            if (SUCCEEDED(hr = d3d12_cached_pipeline_state_validate(device, &cached_pso,
-                    &object->pipeline_cache_compat)))
+            /* Validation is redundant. We only accept disk cache entries if checksum of disk blob passes.
+             * The key is also entirely based on the PSO desc itself. */
+            if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG) &&
+                    desc->cached_pso.blob.CachedBlobSizeInBytes)
             {
-                if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG) &&
-                        desc->cached_pso.blob.CachedBlobSizeInBytes)
-                {
-                    INFO("Application provided cached PSO blob, but we opted for disk cache blob instead.\n");
-                }
-                desc_cached_pso = &cached_pso;
+                INFO("Application provided cached PSO blob, but we opted for disk cache blob instead.\n");
             }
-            else
-                FIXME("Failed to validate internal pipeline which was fetched from disk cache. This should not happen.\n");
+            desc_cached_pso = &cached_pso;
         }
     }
 
