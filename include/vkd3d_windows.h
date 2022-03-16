@@ -88,6 +88,9 @@ typedef void *HANDLE;
 
 typedef const WCHAR* LPCWSTR;
 
+#define _fseeki64(a, b, c) fseeko64(a, b, c)
+#define _ftelli64(a) ftello64(a)
+
 /* GUID */
 # ifdef __WIDL__
 typedef struct
