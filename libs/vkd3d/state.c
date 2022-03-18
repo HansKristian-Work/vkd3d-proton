@@ -2442,9 +2442,7 @@ static void vkd3d_report_pipeline_creation_feedback_results(const VkPipelineCrea
 
 static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
         struct d3d12_device *device,
-        const D3D12_SHADER_BYTECODE *code,
-        VkPipelineLayout vk_pipeline_layout, VkPipelineCache vk_cache, VkPipeline *vk_pipeline,
-        struct vkd3d_shader_code *spirv_code)
+        const D3D12_SHADER_BYTECODE *code)
 {
     VkPipelineShaderStageRequiredSubgroupSizeCreateInfoEXT required_subgroup_size_info;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -2453,8 +2451,13 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
     VkPipelineCreationFeedbackEXT feedbacks[1];
     VkComputePipelineCreateInfo pipeline_info;
     VkPipelineCreationFeedbackEXT feedback;
+    struct vkd3d_shader_code *spirv_code;
+    VkPipelineCache vk_cache;
     VkResult vr;
     HRESULT hr;
+
+    vk_cache = state->vk_pso_cache;
+    spirv_code = &state->compute.code;
 
     pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     pipeline_info.pNext = NULL;
@@ -2464,7 +2467,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
             VK_SHADER_STAGE_COMPUTE_BIT, &required_subgroup_size_info,
             code, spirv_code)))
         return hr;
-    pipeline_info.layout = vk_pipeline_layout;
+    pipeline_info.layout = state->root_signature->compute.vk_pipeline_layout;
     pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_info.basePipelineIndex = -1;
 
@@ -2490,7 +2493,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
         feedback_info.pipelineStageCreationFeedbackCount = 0;
 
     vr = VK_CALL(vkCreateComputePipelines(device->vk_device,
-            vk_cache, 1, &pipeline_info, NULL, vk_pipeline));
+            vk_cache, 1, &pipeline_info, NULL, &state->compute.vk_pipeline));
 
     TRACE("Called vkCreateComputePipelines.\n");
     VK_CALL(vkDestroyShaderModule(device->vk_device, pipeline_info.stage.module, NULL));
@@ -2530,12 +2533,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     vkd3d_load_spirv_from_cached_state(device, cached_pso,
             VK_SHADER_STAGE_COMPUTE_BIT, &state->compute.code);
 
-    hr = vkd3d_create_compute_pipeline(state, device,
-            &desc->cs,
-            state->root_signature->compute.vk_pipeline_layout,
-            state->vk_pso_cache,
-            &state->compute.vk_pipeline,
-            &state->compute.code);
+    hr = vkd3d_create_compute_pipeline(state, device, &desc->cs);
 
     if (FAILED(hr))
     {
