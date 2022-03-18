@@ -2020,8 +2020,8 @@ void d3d12_pipeline_state_dec_ref(struct d3d12_pipeline_state *state)
 
         VK_CALL(vkDestroyPipelineCache(device->vk_device, state->vk_pso_cache, NULL));
 
-        if (state->private_root_signature)
-            d3d12_root_signature_dec_ref(state->private_root_signature);
+        if (state->root_signature)
+            d3d12_root_signature_dec_ref(state->root_signature);
 
         vkd3d_free(state);
     }
@@ -2399,11 +2399,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     HRESULT hr;
 
     state->pipeline_type = VKD3D_PIPELINE_TYPE_COMPUTE;
-
-    if (desc->root_signature)
-        root_signature = impl_from_ID3D12RootSignature(desc->root_signature);
-    else
-        root_signature = state->private_root_signature;
+    root_signature = state->root_signature;
 
     memset(&shader_interface, 0, sizeof(shader_interface));
     shader_interface.flags = d3d12_root_signature_get_shader_interface_flags(root_signature);
@@ -3172,10 +3168,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         }
     }
 
-    if (desc->root_signature)
-        root_signature = impl_from_ID3D12RootSignature(desc->root_signature);
-    else
-        root_signature = state->private_root_signature;
+    root_signature = state->root_signature;
 
     sample_count = vk_samples_from_dxgi_sample_desc(&desc->sample_desc);
     if (desc->sample_desc.Count != 1 && desc->sample_desc.Quality)
@@ -3824,7 +3817,6 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     const struct d3d12_cached_pipeline_state *desc_cached_pso;
     struct d3d12_cached_pipeline_state cached_pso;
-    struct d3d12_root_signature *root_signature;
     struct d3d12_pipeline_state *object;
     HRESULT hr;
 
@@ -3836,20 +3828,24 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
     if (!desc->root_signature)
     {
         if (FAILED(hr = d3d12_pipeline_create_private_root_signature(device,
-                bind_point, desc, &object->private_root_signature)))
+                bind_point, desc, &object->root_signature)))
         {
             ERR("No root signature for pipeline.\n");
             vkd3d_free(object);
             return hr;
         }
-        root_signature = object->private_root_signature;
+        object->root_signature_compat_hash_is_dxbc_derived = true;
     }
     else
-        root_signature = impl_from_ID3D12RootSignature(desc->root_signature);
+    {
+        object->root_signature = impl_from_ID3D12RootSignature(desc->root_signature);
+        /* Hold a private reference on this root signature in case we have to create fallback PSOs. */
+        d3d12_root_signature_inc_ref(object->root_signature);
+    }
 
     vkd3d_pipeline_cache_compat_from_state_desc(&object->pipeline_cache_compat, desc);
-    if (root_signature)
-        object->pipeline_cache_compat.root_signature_compat_hash = root_signature->compatibility_hash;
+    if (object->root_signature)
+        object->pipeline_cache_compat.root_signature_compat_hash = object->root_signature->compatibility_hash;
 
     desc_cached_pso = &desc->cached_pso;
 
@@ -3858,8 +3854,8 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
         if (FAILED(hr = d3d12_cached_pipeline_state_validate(device, &desc->cached_pso,
                 &object->pipeline_cache_compat)))
         {
-            if (object->private_root_signature)
-                d3d12_root_signature_dec_ref(object->private_root_signature);
+            if (object->root_signature)
+                d3d12_root_signature_dec_ref(object->root_signature);
             vkd3d_free(object);
             return hr;
         }
@@ -3911,8 +3907,8 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
 
     if (FAILED(hr))
     {
-        if (object->private_root_signature)
-            d3d12_root_signature_dec_ref(object->private_root_signature);
+        if (object->root_signature)
+            d3d12_root_signature_dec_ref(object->root_signature);
         d3d12_pipeline_state_free_spirv_code(object);
         d3d12_pipeline_state_destroy_shader_modules(object, device);
         VK_CALL(vkDestroyPipelineCache(device->vk_device, object->vk_pso_cache, NULL));
