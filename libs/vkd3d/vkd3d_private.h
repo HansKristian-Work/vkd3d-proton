@@ -1589,6 +1589,8 @@ struct d3d12_graphics_pipeline_state_cached_desc
     unsigned int ps_output_swizzle[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct vkd3d_shader_parameter ps_shader_parameters[1];
     bool is_dual_source_blending;
+    VkShaderStageFlagBits xfb_stage;
+    struct vkd3d_shader_transform_feedback_info *xfb_info;
 };
 
 struct d3d12_graphics_pipeline_state
