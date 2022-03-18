@@ -1583,6 +1583,14 @@ enum vkd3d_plane_optimal_flag
     VKD3D_DEPTH_STENCIL_PLANE_GENERAL = (1 << 2),
 };
 
+struct d3d12_graphics_pipeline_state_cached_desc
+{
+    /* Information needed to compile to SPIR-V. */
+    unsigned int ps_output_swizzle[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
+    struct vkd3d_shader_parameter ps_shader_parameters[1];
+    bool is_dual_source_blending;
+};
+
 struct d3d12_graphics_pipeline_state
 {
     struct vkd3d_shader_debug_ring_spec_info spec_info[VKD3D_MAX_SHADER_STAGES];
@@ -1590,6 +1598,8 @@ struct d3d12_graphics_pipeline_state
     struct vkd3d_shader_code code[VKD3D_MAX_SHADER_STAGES];
     VkShaderStageFlags stage_flags;
     size_t stage_count;
+
+    struct d3d12_graphics_pipeline_state_cached_desc cached_desc;
 
     VkVertexInputAttributeDescription attributes[D3D12_VS_INPUT_REGISTER_COUNT];
     VkVertexInputRate input_rates[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
