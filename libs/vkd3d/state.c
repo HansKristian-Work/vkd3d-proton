@@ -3018,7 +3018,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     uint32_t instance_divisors[D3D12_VS_INPUT_REGISTER_COUNT];
     uint32_t aligned_offsets[D3D12_VS_INPUT_REGISTER_COUNT];
     struct vkd3d_shader_transform_feedback_info xfb_info;
-    struct vkd3d_shader_interface_info shader_interface;
     bool have_attachment, can_compile_pipeline_early;
     struct vkd3d_shader_signature output_signature;
     struct vkd3d_shader_signature input_signature;
@@ -3251,9 +3250,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             xfb_stage = VK_SHADER_STAGE_VERTEX_BIT;
     }
 
-    /* Stage / XFB info are overridden later. */
-    d3d12_pipeline_state_init_shader_interface(state, device, VK_SHADER_STAGE_ALL, &shader_interface);
-
     graphics->patch_vertex_count = 0;
 
     for (i = 0; i < ARRAY_SIZE(shader_stages); ++i)
@@ -3340,14 +3336,15 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     for (i = 0; i < ARRAY_SIZE(shader_stages); i++)
     {
         const D3D12_SHADER_BYTECODE *b = (const void *)((uintptr_t)desc + shader_stages[i].offset);
+        struct vkd3d_shader_interface_info shader_interface;
         struct vkd3d_shader_compile_arguments compile_args;
 
         if (!b->pShaderBytecode)
             continue;
 
+        /* TODO: Move this to vkd3d_create_shader_stage itself. */
+        d3d12_pipeline_state_init_shader_interface(state, device, shader_stages[i].stage, &shader_interface);
         shader_interface.xfb_info = shader_stages[i].stage == xfb_stage ? &xfb_info : NULL;
-        shader_interface.stage = shader_stages[i].stage;
-
         d3d12_pipeline_state_init_compile_arguments(state, device, shader_interface.stage, &compile_args);
 
         if (FAILED(hr = vkd3d_create_shader_stage(device,
