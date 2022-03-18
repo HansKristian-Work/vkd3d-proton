@@ -1386,10 +1386,11 @@ static HRESULT d3d12_pipeline_library_load_pipeline(struct d3d12_pipeline_librar
             if (root_signature)
                 pipeline_cache_compat.root_signature_compat_hash = root_signature->compatibility_hash;
         }
-        else if (!cached_state->private_root_signature)
+        else if (cached_state->root_signature_compat_hash_is_dxbc_derived)
         {
             /* If we have no explicit root signature and the existing PSO didn't either,
-             * just inherit the compat hash from PSO to avoid comparing them. */
+             * just inherit the compat hash from PSO to avoid comparing them.
+             * The hash depends entirely on the DXBC blob either way. */
             pipeline_cache_compat.root_signature_compat_hash = cached_state->pipeline_cache_compat.root_signature_compat_hash;
         }
 
