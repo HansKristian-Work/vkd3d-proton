@@ -1670,8 +1670,9 @@ struct d3d12_pipeline_state
     spinlock_t lock;
 
     struct vkd3d_pipeline_cache_compatibility pipeline_cache_compat;
-    struct d3d12_root_signature *private_root_signature;
+    struct d3d12_root_signature *root_signature;
     struct d3d12_device *device;
+    bool root_signature_compat_hash_is_dxbc_derived;
 
     struct vkd3d_private_store private_store;
 };
