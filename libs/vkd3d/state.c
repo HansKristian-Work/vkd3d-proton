@@ -2266,33 +2266,41 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
     return S_OK;
 }
 
+static void d3d12_pipeline_state_init_shader_interface(struct d3d12_pipeline_state *state,
+        struct d3d12_device *device,
+        VkShaderStageFlagBits stage,
+        struct vkd3d_shader_interface_info *shader_interface)
+{
+    const struct d3d12_root_signature *root_signature = state->root_signature;
+    shader_interface->flags = d3d12_root_signature_get_shader_interface_flags(root_signature);
+    shader_interface->min_ssbo_alignment = d3d12_device_get_ssbo_alignment(device);
+    shader_interface->descriptor_tables.offset = root_signature->descriptor_table_offset;
+    shader_interface->descriptor_tables.count = root_signature->descriptor_table_count;
+    shader_interface->bindings = root_signature->bindings;
+    shader_interface->binding_count = root_signature->binding_count;
+    shader_interface->push_constant_buffers = root_signature->root_constants;
+    shader_interface->push_constant_buffer_count = root_signature->root_constant_count;
+    shader_interface->push_constant_ubo_binding = &root_signature->push_constant_ubo_binding;
+    shader_interface->offset_buffer_binding = &root_signature->offset_buffer_binding;
+    shader_interface->stage = stage;
+    shader_interface->xfb_info = NULL;
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    shader_interface->descriptor_qa_global_binding = &root_signature->descriptor_qa_global_info;
+    shader_interface->descriptor_qa_heap_binding = &root_signature->descriptor_qa_heap_binding;
+#endif
+}
+
 static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_shader_interface_info shader_interface;
-    const struct d3d12_root_signature *root_signature;
     HRESULT hr;
 
     state->vk_bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
-    root_signature = state->root_signature;
 
-    shader_interface.flags = d3d12_root_signature_get_shader_interface_flags(root_signature);
-    shader_interface.min_ssbo_alignment = d3d12_device_get_ssbo_alignment(device);
-    shader_interface.descriptor_tables.offset = root_signature->descriptor_table_offset;
-    shader_interface.descriptor_tables.count = root_signature->descriptor_table_count;
-    shader_interface.bindings = root_signature->bindings;
-    shader_interface.binding_count = root_signature->binding_count;
-    shader_interface.push_constant_buffers = root_signature->root_constants;
-    shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
-    shader_interface.push_constant_ubo_binding = &root_signature->push_constant_ubo_binding;
-    shader_interface.offset_buffer_binding = &root_signature->offset_buffer_binding;
-    shader_interface.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    shader_interface.xfb_info = NULL;
-#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-    shader_interface.descriptor_qa_global_binding = &root_signature->descriptor_qa_global_info;
-    shader_interface.descriptor_qa_heap_binding = &root_signature->descriptor_qa_heap_binding;
-#endif
+    d3d12_pipeline_state_init_shader_interface(state, device,
+            VK_SHADER_STAGE_COMPUTE_BIT, &shader_interface);
 
     if (!device->global_pipeline_cache)
     {
@@ -2308,7 +2316,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
 
     hr = vkd3d_create_compute_pipeline(device,
             &desc->cs, &shader_interface,
-            root_signature->compute.vk_pipeline_layout,
+            state->root_signature->compute.vk_pipeline_layout,
             state->vk_pso_cache ? state->vk_pso_cache : device->global_pipeline_cache,
             &state->compute.vk_pipeline,
             &state->compute.code);
@@ -2954,7 +2962,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     struct vkd3d_shader_parameter ps_shader_parameters[1];
     struct vkd3d_shader_transform_feedback_info xfb_info;
     struct vkd3d_shader_interface_info shader_interface;
-    const struct d3d12_root_signature *root_signature;
     struct vkd3d_shader_signature output_signature;
     struct vkd3d_shader_signature input_signature;
     VkShaderStageFlagBits xfb_stage = 0;
@@ -2998,8 +3005,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             return E_INVALIDARG;
         }
     }
-
-    root_signature = state->root_signature;
 
     sample_count = vk_samples_from_dxgi_sample_desc(&desc->sample_desc);
     if (desc->sample_desc.Count != 1 && desc->sample_desc.Quality)
@@ -3180,7 +3185,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     graphics->xfb_enabled = false;
     if (so_desc->NumEntries)
     {
-        if (!(root_signature->d3d12_flags & D3D12_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT))
+        if (!(state->root_signature->d3d12_flags & D3D12_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT))
         {
             WARN("Stream output is used without D3D12_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT.\n");
             hr = E_INVALIDARG;
@@ -3209,20 +3214,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             xfb_stage = VK_SHADER_STAGE_VERTEX_BIT;
     }
 
-    shader_interface.flags = d3d12_root_signature_get_shader_interface_flags(root_signature);
-    shader_interface.min_ssbo_alignment = d3d12_device_get_ssbo_alignment(device);
-    shader_interface.descriptor_tables.offset = root_signature->descriptor_table_offset;
-    shader_interface.descriptor_tables.count = root_signature->descriptor_table_count;
-    shader_interface.bindings = root_signature->bindings;
-    shader_interface.binding_count = root_signature->binding_count;
-    shader_interface.push_constant_buffers = root_signature->root_constants;
-    shader_interface.push_constant_buffer_count = root_signature->root_constant_count;
-    shader_interface.push_constant_ubo_binding = &root_signature->push_constant_ubo_binding;
-    shader_interface.offset_buffer_binding = &root_signature->offset_buffer_binding;
-#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-    shader_interface.descriptor_qa_global_binding = &root_signature->descriptor_qa_global_info;
-    shader_interface.descriptor_qa_heap_binding = &root_signature->descriptor_qa_heap_binding;
-#endif
+    /* Stage / XFB info are overridden later. */
+    d3d12_pipeline_state_init_shader_interface(state, device, VK_SHADER_STAGE_ALL, &shader_interface);
 
     graphics->patch_vertex_count = 0;
 
@@ -3346,7 +3339,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     }
 
     if (graphics->attribute_count
-            && !(root_signature->d3d12_flags & D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT))
+            && !(state->root_signature->d3d12_flags & D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT))
     {
         WARN("Input layout is used without D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT.\n");
         hr = E_INVALIDARG;
@@ -3541,7 +3534,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             (desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH || graphics->patch_vertex_count != 0) &&
             desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
 
-    graphics->pipeline_layout = root_signature->graphics.vk_pipeline_layout;
+    graphics->pipeline_layout = state->root_signature->graphics.vk_pipeline_layout;
     graphics->pipeline = VK_NULL_HANDLE;
     state->device = device;
 
