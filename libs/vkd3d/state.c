@@ -2200,7 +2200,29 @@ static void vkd3d_report_pipeline_creation_feedback_results(const VkPipelineCrea
     }
 }
 
-static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
+static void d3d12_pipeline_state_init_compile_arguments(struct d3d12_pipeline_state *state,
+        struct d3d12_device *device, VkShaderStageFlagBits stage,
+        struct vkd3d_shader_compile_arguments *compile_arguments)
+{
+    memset(compile_arguments, 0, sizeof(*compile_arguments));
+    compile_arguments->target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
+    compile_arguments->target_extension_count = device->vk_info.shader_extension_count;
+    compile_arguments->target_extensions = device->vk_info.shader_extensions;
+    compile_arguments->quirks = &vkd3d_shader_quirk_info;
+
+    if (stage == VK_SHADER_STAGE_FRAGMENT_BIT)
+    {
+        /* Options which are exclusive to PS. Especially output swizzles must only be used in PS. */
+        compile_arguments->parameter_count = ARRAY_SIZE(state->graphics.cached_desc.ps_shader_parameters);
+        compile_arguments->parameters = state->graphics.cached_desc.ps_shader_parameters;
+        compile_arguments->dual_source_blending = state->graphics.cached_desc.is_dual_source_blending;
+        compile_arguments->output_swizzles = state->graphics.cached_desc.ps_output_swizzle;
+        compile_arguments->output_swizzle_count = state->graphics.rt_count;
+    }
+}
+
+static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
+        struct d3d12_device *device,
         const D3D12_SHADER_BYTECODE *code,
         const struct vkd3d_shader_interface_info *shader_interface,
         VkPipelineLayout vk_pipeline_layout, VkPipelineCache vk_cache, VkPipeline *vk_pipeline,
@@ -2217,11 +2239,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_device *device,
     VkResult vr;
     HRESULT hr;
 
-    memset(&compile_args, 0, sizeof(compile_args));
-    compile_args.target_extensions = device->vk_info.shader_extensions;
-    compile_args.target_extension_count = device->vk_info.shader_extension_count;
-    compile_args.target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
-    compile_args.quirks = &vkd3d_shader_quirk_info;
+    d3d12_pipeline_state_init_compile_arguments(state, device, VK_SHADER_STAGE_COMPUTE_BIT, &compile_args);
 
     pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     pipeline_info.pNext = NULL;
@@ -2322,7 +2340,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     vkd3d_load_spirv_from_cached_state(device, cached_pso,
             VK_SHADER_STAGE_COMPUTE_BIT, &state->compute.code);
 
-    hr = vkd3d_create_compute_pipeline(device,
+    hr = vkd3d_create_compute_pipeline(state, device,
             &desc->cs, &shader_interface,
             state->root_signature->compute.vk_pipeline_layout,
             state->vk_pso_cache,
@@ -2993,15 +3011,12 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         const struct d3d12_cached_pipeline_state *cached_pso)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
-    unsigned int ps_output_swizzle[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
-    struct vkd3d_shader_compile_arguments compile_args, ps_compile_args;
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     const D3D12_STREAM_OUTPUT_DESC *so_desc = &desc->stream_output;
     VkVertexInputBindingDivisorDescriptionEXT *binding_divisor;
     const struct vkd3d_vulkan_info *vk_info = &device->vk_info;
     uint32_t instance_divisors[D3D12_VS_INPUT_REGISTER_COUNT];
     uint32_t aligned_offsets[D3D12_VS_INPUT_REGISTER_COUNT];
-    struct vkd3d_shader_parameter ps_shader_parameters[1];
     struct vkd3d_shader_transform_feedback_info xfb_info;
     struct vkd3d_shader_interface_info shader_interface;
     bool have_attachment, can_compile_pipeline_early;
@@ -3060,6 +3075,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
                 rt_count, ARRAY_SIZE(graphics->blend_attachments));
         rt_count = ARRAY_SIZE(graphics->blend_attachments);
     }
+    graphics->rt_count = rt_count;
 
     if (!desc->ps.pShaderBytecode || !desc->ps.BytecodeLength)
     {
@@ -3078,12 +3094,12 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         if (desc->rtv_formats.RTFormats[i] == DXGI_FORMAT_UNKNOWN)
         {
             graphics->null_attachment_mask |= 1u << i;
-            ps_output_swizzle[i] = VKD3D_NO_SWIZZLE;
+            graphics->cached_desc.ps_output_swizzle[i] = VKD3D_NO_SWIZZLE;
             graphics->rtv_formats[i] = VK_FORMAT_UNDEFINED;
         }
         else if ((format = vkd3d_get_format(device, desc->rtv_formats.RTFormats[i], false)))
         {
-            ps_output_swizzle[i] = vkd3d_get_rt_format_swizzle(format);
+            graphics->cached_desc.ps_output_swizzle[i] = vkd3d_get_rt_format_swizzle(format);
             graphics->rtv_formats[i] = format->vk_format;
             graphics->rtv_active_mask |= 1u << i;
         }
@@ -3116,7 +3132,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
     for (i = rt_count; i < ARRAY_SIZE(graphics->rtv_formats); ++i)
         graphics->rtv_formats[i] = VK_FORMAT_UNDEFINED;
-    graphics->rt_count = rt_count;
 
     blend_desc_from_d3d12(&graphics->blend_desc, &desc->blend_state,
             graphics->rt_count, graphics->blend_attachments);
@@ -3187,26 +3202,13 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         }
     }
 
-    ps_shader_parameters[0].name = VKD3D_SHADER_PARAMETER_NAME_RASTERIZER_SAMPLE_COUNT;
-    ps_shader_parameters[0].type = VKD3D_SHADER_PARAMETER_TYPE_IMMEDIATE_CONSTANT;
-    ps_shader_parameters[0].data_type = VKD3D_SHADER_PARAMETER_DATA_TYPE_UINT32;
-    ps_shader_parameters[0].immediate_constant.u32 = sample_count;
+    graphics->cached_desc.ps_shader_parameters[0].name = VKD3D_SHADER_PARAMETER_NAME_RASTERIZER_SAMPLE_COUNT;
+    graphics->cached_desc.ps_shader_parameters[0].type = VKD3D_SHADER_PARAMETER_TYPE_IMMEDIATE_CONSTANT;
+    graphics->cached_desc.ps_shader_parameters[0].data_type = VKD3D_SHADER_PARAMETER_DATA_TYPE_UINT32;
+    graphics->cached_desc.ps_shader_parameters[0].immediate_constant.u32 = sample_count;
+    graphics->cached_desc.is_dual_source_blending = is_dual_source_blending(&desc->blend_state.RenderTarget[0]);
 
-    memset(&compile_args, 0, sizeof(compile_args));
-    compile_args.target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
-    compile_args.target_extension_count = vk_info->shader_extension_count;
-    compile_args.target_extensions = vk_info->shader_extensions;
-    compile_args.quirks = &vkd3d_shader_quirk_info;
-
-    /* Options which are exclusive to PS. Especially output swizzles must only be used in PS. */
-    ps_compile_args = compile_args;
-    ps_compile_args.parameter_count = ARRAY_SIZE(ps_shader_parameters);
-    ps_compile_args.parameters = ps_shader_parameters;
-    ps_compile_args.dual_source_blending = is_dual_source_blending(&desc->blend_state.RenderTarget[0]);
-    ps_compile_args.output_swizzles = ps_output_swizzle;
-    ps_compile_args.output_swizzle_count = rt_count;
-
-    if (ps_compile_args.dual_source_blending)
+    if (graphics->cached_desc.is_dual_source_blending)
     {
         /* If we're using dual source blending, we can only safely write to MRT 0.
          * Be defensive about programs which do not do this for us. */
@@ -3338,15 +3340,20 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     for (i = 0; i < ARRAY_SIZE(shader_stages); i++)
     {
         const D3D12_SHADER_BYTECODE *b = (const void *)((uintptr_t)desc + shader_stages[i].offset);
+        struct vkd3d_shader_compile_arguments compile_args;
+
         if (!b->pShaderBytecode)
             continue;
 
         shader_interface.xfb_info = shader_stages[i].stage == xfb_stage ? &xfb_info : NULL;
         shader_interface.stage = shader_stages[i].stage;
+
+        d3d12_pipeline_state_init_compile_arguments(state, device, shader_interface.stage, &compile_args);
+
         if (FAILED(hr = vkd3d_create_shader_stage(device,
                 &graphics->stages[stage_count],
                 shader_stages[i].stage, NULL, b, &shader_interface,
-                shader_stages[i].stage == VK_SHADER_STAGE_FRAGMENT_BIT ? &ps_compile_args : &compile_args,
+                &compile_args,
                 &graphics->code[stage_count])))
             goto fail;
 
