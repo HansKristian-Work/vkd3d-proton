@@ -1879,6 +1879,63 @@ static void d3d12_pipeline_state_set_name(struct d3d12_pipeline_state *state, co
     }
 }
 
+static void vkd3d_shader_transform_feedback_info_free(struct vkd3d_shader_transform_feedback_info *xfb_info)
+{
+    unsigned int i;
+
+    if (!xfb_info)
+        return;
+
+    for (i = 0; i < xfb_info->element_count; i++)
+        vkd3d_free((void*)xfb_info->elements[i].semantic_name);
+    vkd3d_free((void*)xfb_info->elements);
+    vkd3d_free((void*)xfb_info->buffer_strides);
+    vkd3d_free(xfb_info);
+}
+
+static struct vkd3d_shader_transform_feedback_info *vkd3d_shader_transform_feedback_info_dup(
+        const D3D12_STREAM_OUTPUT_DESC *so_desc)
+{
+    struct vkd3d_shader_transform_feedback_element *new_entries = NULL;
+    struct vkd3d_shader_transform_feedback_info *xfb_info;
+    unsigned int *new_buffer_strides = NULL;
+    unsigned int num_duped = 0;
+    unsigned int i;
+
+    xfb_info = vkd3d_calloc(1, sizeof(*xfb_info));
+    if (!xfb_info)
+        return NULL;
+
+    new_buffer_strides = malloc(so_desc->NumStrides * sizeof(*new_buffer_strides));
+    if (!new_buffer_strides)
+        goto fail;
+    memcpy(new_buffer_strides, so_desc->pBufferStrides, so_desc->NumStrides * sizeof(*new_buffer_strides));
+    xfb_info->buffer_strides = new_buffer_strides;
+
+    new_entries = malloc(so_desc->NumEntries * sizeof(*new_entries));
+    if (!new_entries)
+        goto fail;
+    memcpy(new_entries, so_desc->pSODeclaration, so_desc->NumEntries * sizeof(*new_entries));
+    xfb_info->elements = new_entries;
+
+    for (i = 0; i < so_desc->NumEntries; i++, num_duped++)
+        if (!(new_entries[i].semantic_name = vkd3d_strdup(new_entries[i].semantic_name)))
+            goto fail;
+
+    xfb_info->buffer_stride_count = so_desc->NumStrides;
+    xfb_info->element_count = so_desc->NumEntries;
+
+    return xfb_info;
+
+fail:
+    for (i = 0; i < num_duped; i++)
+        vkd3d_free((void*)new_entries[i].semantic_name);
+    vkd3d_free(new_buffer_strides);
+    vkd3d_free(new_entries);
+    vkd3d_free(xfb_info);
+    return NULL;
+}
+
 void d3d12_pipeline_state_dec_ref(struct d3d12_pipeline_state *state)
 {
     struct d3d12_device *device = state->device;
@@ -1900,6 +1957,8 @@ void d3d12_pipeline_state_dec_ref(struct d3d12_pipeline_state *state)
         if (state->root_signature)
             d3d12_root_signature_dec_ref(state->root_signature);
 
+        if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS)
+            vkd3d_shader_transform_feedback_info_free(state->graphics.cached_desc.xfb_info);
         vkd3d_free(state);
     }
 }
@@ -2975,10 +3034,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     const struct vkd3d_vulkan_info *vk_info = &device->vk_info;
     uint32_t instance_divisors[D3D12_VS_INPUT_REGISTER_COUNT];
     uint32_t aligned_offsets[D3D12_VS_INPUT_REGISTER_COUNT];
-    struct vkd3d_shader_transform_feedback_info xfb_info;
     struct vkd3d_shader_signature output_signature;
     struct vkd3d_shader_signature input_signature;
-    VkShaderStageFlagBits xfb_stage = 0;
     VkSampleCountFlagBits sample_count;
     const struct vkd3d_format *format;
     unsigned int i, j, stage_count;
@@ -3202,18 +3259,20 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         }
 
         graphics->xfb_enabled = true;
+        graphics->cached_desc.xfb_info = vkd3d_shader_transform_feedback_info_dup(so_desc);
 
-        xfb_info.elements = (const struct vkd3d_shader_transform_feedback_element *)so_desc->pSODeclaration;
-        xfb_info.element_count = so_desc->NumEntries;
-        xfb_info.buffer_strides = so_desc->pBufferStrides;
-        xfb_info.buffer_stride_count = so_desc->NumStrides;
+        if (!graphics->cached_desc.xfb_info)
+        {
+            hr = E_OUTOFMEMORY;
+            goto fail;
+        }
 
         if (desc->gs.pShaderBytecode)
-            xfb_stage = VK_SHADER_STAGE_GEOMETRY_BIT;
+            graphics->cached_desc.xfb_stage = VK_SHADER_STAGE_GEOMETRY_BIT;
         else if (desc->ds.pShaderBytecode)
-            xfb_stage = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+            graphics->cached_desc.xfb_stage = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
         else
-            xfb_stage = VK_SHADER_STAGE_VERTEX_BIT;
+            graphics->cached_desc.xfb_stage = VK_SHADER_STAGE_VERTEX_BIT;
     }
 
     graphics->patch_vertex_count = 0;
@@ -3310,7 +3369,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
         /* TODO: Move this to vkd3d_create_shader_stage itself. */
         d3d12_pipeline_state_init_shader_interface(state, device, shader_stages[i].stage, &shader_interface);
-        shader_interface.xfb_info = shader_stages[i].stage == xfb_stage ? &xfb_info : NULL;
+        shader_interface.xfb_info = shader_stages[i].stage == graphics->cached_desc.xfb_stage ?
+                graphics->cached_desc.xfb_info : NULL;
         d3d12_pipeline_state_init_compile_arguments(state, device, shader_interface.stage, &compile_args);
 
         if (FAILED(hr = vkd3d_create_shader_stage(device,
@@ -3688,6 +3748,8 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
             d3d12_root_signature_dec_ref(object->root_signature);
         d3d12_pipeline_state_free_spirv_code(object);
         d3d12_pipeline_state_destroy_shader_modules(object, device);
+        if (object->vk_bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS)
+            vkd3d_shader_transform_feedback_info_free(object->graphics.cached_desc.xfb_info);
         VK_CALL(vkDestroyPipelineCache(device->vk_device, object->vk_pso_cache, NULL));
 
         vkd3d_free(object);
