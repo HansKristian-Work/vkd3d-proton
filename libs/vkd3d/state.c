@@ -2521,15 +2521,6 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     d3d12_pipeline_state_init_shader_interface(state, device,
             VK_SHADER_STAGE_COMPUTE_BIT, &shader_interface);
 
-    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE))
-    {
-        if ((hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, cached_pso, &state->vk_pso_cache)) < 0)
-        {
-            ERR("Failed to create pipeline cache, hr %d.\n", hr);
-            return hr;
-        }
-    }
-
     vkd3d_load_spirv_from_cached_state(device, cached_pso,
             VK_SHADER_STAGE_COMPUTE_BIT, &state->compute.code);
 
@@ -3783,15 +3774,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
     if (can_compile_pipeline_early)
     {
-        if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE))
-        {
-            if ((hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, cached_pso, &state->vk_pso_cache)) < 0)
-            {
-                ERR("Failed to create pipeline cache, hr %d.\n", hr);
-                goto fail;
-            }
-        }
-
         if (!(graphics->pipeline = d3d12_pipeline_state_create_pipeline_variant(state, NULL, graphics->dsv_format,
                 state->vk_pso_cache, &graphics->dynamic_state_flags)))
             goto fail;
@@ -3933,19 +3915,28 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
     object->refcount = 1;
     object->internal_refcount = 1;
 
-    switch (bind_point)
+    hr = S_OK;
+
+    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE))
+        if (FAILED(hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, &desc->cached_pso, &object->vk_pso_cache)))
+            ERR("Failed to create pipeline cache, hr %d.\n", hr);
+
+    if (SUCCEEDED(hr))
     {
-        case VK_PIPELINE_BIND_POINT_COMPUTE:
-            hr = d3d12_pipeline_state_init_compute(object, device, desc, desc_cached_pso);
-            break;
+        switch (bind_point)
+        {
+            case VK_PIPELINE_BIND_POINT_COMPUTE:
+                hr = d3d12_pipeline_state_init_compute(object, device, desc, desc_cached_pso);
+                break;
 
-        case VK_PIPELINE_BIND_POINT_GRAPHICS:
-            hr = d3d12_pipeline_state_init_graphics(object, device, desc, desc_cached_pso);
-            break;
+            case VK_PIPELINE_BIND_POINT_GRAPHICS:
+                hr = d3d12_pipeline_state_init_graphics(object, device, desc, desc_cached_pso);
+                break;
 
-        default:
-            ERR("Invalid pipeline type %u.", bind_point);
-            hr = E_INVALIDARG;
+            default:
+                ERR("Invalid pipeline type %u.", bind_point);
+                hr = E_INVALIDARG;
+        }
     }
 
     if (FAILED(hr))
