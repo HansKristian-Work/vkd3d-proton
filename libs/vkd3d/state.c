@@ -4076,6 +4076,10 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
     {
         VK_CALL(vkDestroyPipelineCache(device->vk_device, object->vk_pso_cache, NULL));
         object->vk_pso_cache = VK_NULL_HANDLE;
+
+        /* Set this explicitly so we avoid attempting to touch code[i] when serializing the PSO blob.
+         * We are at risk of compiling code on the fly in some upcoming situations. */
+        object->pso_is_loaded_from_cached_blob = true;
     }
     else if (device->disk_cache.library)
     {
