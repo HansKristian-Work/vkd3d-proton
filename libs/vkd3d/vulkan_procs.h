@@ -313,6 +313,7 @@ VK_DEVICE_EXT_PFN(vkCmdExecuteGeneratedCommandsNV)
 
 /* VK_EXT_shader_module_identifier */
 VK_DEVICE_EXT_PFN(vkGetShaderModuleIdentifierEXT)
+VK_DEVICE_EXT_PFN(vkGetShaderModuleCreateInfoIdentifierEXT)
 
 #undef VK_INSTANCE_PFN
 #undef VK_INSTANCE_EXT_PFN

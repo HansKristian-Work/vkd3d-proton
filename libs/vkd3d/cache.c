@@ -198,6 +198,8 @@ enum vkd3d_pipeline_blob_chunk_type
     /* VkShaderStage is stored in upper 16 bits. */
     VKD3D_PIPELINE_BLOB_CHUNK_TYPE_SHADER_META = 4,
     VKD3D_PIPELINE_BLOB_CHUNK_TYPE_PSO_COMPAT = 5,
+    /* VkShaderStage is stored in upper 16 bits. */
+    VKD3D_PIPELINE_BLOB_CHUNK_TYPE_SHADER_IDENTIFIER = 6,
     VKD3D_PIPELINE_BLOB_CHUNK_TYPE_MASK = 0xffff,
     VKD3D_PIPELINE_BLOB_CHUNK_INDEX_SHIFT = 16,
 };
@@ -380,6 +382,11 @@ HRESULT d3d12_cached_pipeline_state_validate(struct d3d12_device *device,
         if (memcmp(blob->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE) != 0)
             return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
 
+    if (pipeline_library_flags & VKD3D_PIPELINE_LIBRARY_FLAG_SHADER_IDENTIFIER)
+        if (memcmp(blob->cache_uuid, device->device_info.shader_module_identifier_properties.shaderModuleIdentifierAlgorithmUUID,
+                VK_UUID_SIZE) != 0)
+            return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
+
     /* In stream archives, we perform checksums ahead of time before accepting a stream blob into internal cache.
      * No need to do redundant work. */
     if (!(pipeline_library_flags & VKD3D_PIPELINE_LIBRARY_FLAG_STREAM_ARCHIVE))
@@ -470,6 +477,11 @@ bool d3d12_cached_pipeline_state_is_dummy(const struct d3d12_cached_pipeline_sta
 
     if (find_blob_chunk_masked(chunk, payload_size,
             VKD3D_PIPELINE_BLOB_CHUNK_TYPE_VARINT_SPIRV_LINK,
+            VKD3D_PIPELINE_BLOB_CHUNK_TYPE_MASK))
+        return false;
+
+    if (find_blob_chunk_masked(chunk, payload_size,
+            VKD3D_PIPELINE_BLOB_CHUNK_TYPE_SHADER_IDENTIFIER,
             VKD3D_PIPELINE_BLOB_CHUNK_TYPE_MASK))
         return false;
 
@@ -599,7 +611,8 @@ HRESULT vkd3d_create_pipeline_cache_from_d3d12_desc(struct d3d12_device *device,
 HRESULT vkd3d_get_cached_spirv_code_from_d3d12_desc(
         const struct d3d12_cached_pipeline_state *state,
         VkShaderStageFlagBits stage,
-        struct vkd3d_shader_code *spirv_code)
+        struct vkd3d_shader_code *spirv_code,
+        VkPipelineShaderStageModuleIdentifierCreateInfoEXT *identifier)
 {
     const struct vkd3d_pipeline_blob *blob = state->blob.pCachedBlob;
     const struct vkd3d_pipeline_blob_chunk_shader_meta *meta;
@@ -622,6 +635,22 @@ HRESULT vkd3d_get_cached_spirv_code_from_d3d12_desc(
         return E_FAIL;
     meta = CONST_CAST_CHUNK_DATA(chunk, shader_meta);
     memcpy(&spirv_code->meta, &meta->meta, sizeof(meta->meta));
+
+    if (state->library && (state->library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_SHADER_IDENTIFIER))
+    {
+        /* Only return identifier if we can use it. */
+        chunk = find_blob_chunk(CONST_CAST_CHUNK_BASE(blob), payload_size,
+                VKD3D_PIPELINE_BLOB_CHUNK_TYPE_SHADER_IDENTIFIER | (stage << VKD3D_PIPELINE_BLOB_CHUNK_INDEX_SHIFT));
+
+        if (chunk && chunk->size <= VK_MAX_SHADER_MODULE_IDENTIFIER_SIZE_EXT)
+        {
+            identifier->identifierSize = chunk->size;
+            identifier->pIdentifier = chunk->data;
+            spirv_code->size = 0;
+            spirv_code->code = NULL;
+            return S_OK;
+        }
+    }
 
     /* Aim to pull SPIR-V either from inlined chunk, or a link. */
     chunk = find_blob_chunk(CONST_CAST_CHUNK_BASE(blob), payload_size,
@@ -793,6 +822,33 @@ static void vkd3d_shader_code_serialize_inline(const struct vkd3d_shader_code *c
         meta->meta = code->meta;
         chunk = finish_and_iterate_blob_chunk(chunk);
     }
+
+    *inout_chunk = chunk;
+}
+
+static void vkd3d_shader_code_serialize_identifier(struct d3d12_pipeline_library *pipeline_library,
+        const struct vkd3d_shader_code *code,
+        const VkShaderModuleIdentifierEXT *identifier, VkShaderStageFlagBits stage,
+        struct vkd3d_pipeline_blob_chunk **inout_chunk)
+{
+    struct vkd3d_pipeline_blob_chunk *chunk = *inout_chunk;
+    struct vkd3d_pipeline_blob_chunk_shader_meta *meta;
+
+    if (!identifier->identifierSize)
+        return;
+
+    /* Store identifier. */
+    chunk->type = VKD3D_PIPELINE_BLOB_CHUNK_TYPE_SHADER_IDENTIFIER | (stage << VKD3D_PIPELINE_BLOB_CHUNK_INDEX_SHIFT);
+    chunk->size = identifier->identifierSize;
+    memcpy(chunk->data, identifier->identifier, chunk->size);
+    chunk = finish_and_iterate_blob_chunk(chunk);
+
+    /* Store meta information for SPIR-V. */
+    chunk->type = VKD3D_PIPELINE_BLOB_CHUNK_TYPE_SHADER_META | (stage << VKD3D_PIPELINE_BLOB_CHUNK_INDEX_SHIFT);
+    chunk->size = sizeof(*meta);
+    meta = CAST_CHUNK_DATA(chunk, shader_meta);
+    meta->meta = code->meta;
+    chunk = finish_and_iterate_blob_chunk(chunk);
 
     *inout_chunk = chunk;
 }
@@ -1017,6 +1073,27 @@ static VkResult vkd3d_serialize_pipeline_state_referenced(struct d3d12_pipeline_
         }
     }
 
+    if (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_SHADER_IDENTIFIER)
+    {
+        if (d3d12_pipeline_state_is_graphics(state))
+        {
+            for (i = 0; i < state->graphics.stage_count; i++)
+            {
+                vkd3d_shader_code_serialize_identifier(pipeline_library,
+                        &state->graphics.code[i],
+                        &state->graphics.identifiers[i], state->graphics.stages[i].stage,
+                        &chunk);
+            }
+        }
+        else if (d3d12_pipeline_state_is_compute(state))
+        {
+            vkd3d_shader_code_serialize_identifier(pipeline_library,
+                    &state->compute.code,
+                    &state->compute.identifier, VK_SHADER_STAGE_COMPUTE_BIT,
+                    &chunk);
+        }
+    }
+
     return VK_SUCCESS;
 }
 
@@ -1076,6 +1153,29 @@ VkResult vkd3d_serialize_pipeline_state(struct d3d12_pipeline_library *pipeline_
         }
     }
 
+    if (pipeline_library && (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_SHADER_IDENTIFIER))
+    {
+        if (d3d12_pipeline_state_is_graphics(state))
+        {
+            for (i = 0; i < state->graphics.stage_count; i++)
+            {
+                if (state->graphics.identifiers[i].identifierSize)
+                {
+                    vk_blob_size += VKD3D_PIPELINE_BLOB_CHUNK_SIZE_RAW(state->graphics.identifiers[i].identifierSize);
+                    vk_blob_size += VKD3D_PIPELINE_BLOB_CHUNK_SIZE(shader_meta);
+                }
+            }
+        }
+        else if (d3d12_pipeline_state_is_compute(state))
+        {
+            if (state->compute.identifier.identifierSize)
+            {
+                vk_blob_size += VKD3D_PIPELINE_BLOB_CHUNK_SIZE_RAW(state->compute.identifier.identifierSize);
+                vk_blob_size += VKD3D_PIPELINE_BLOB_CHUNK_SIZE(shader_meta);
+            }
+        }
+    }
+
     total_size += vk_blob_size;
 
     if (blob && *size < total_size)
@@ -1089,7 +1189,13 @@ VkResult vkd3d_serialize_pipeline_state(struct d3d12_pipeline_library *pipeline_
         blob->vkd3d_shader_interface_key = state->device->shader_interface_key;
         blob->vkd3d_build = vkd3d_build;
 
-        if (!pipeline_library || (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_USE_PIPELINE_CACHE_UUID))
+        if (pipeline_library && (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_SHADER_IDENTIFIER))
+        {
+            memcpy(blob->cache_uuid,
+                    pipeline_library->device->device_info.shader_module_identifier_properties.shaderModuleIdentifierAlgorithmUUID,
+                    VK_UUID_SIZE);
+        }
+        else if (!pipeline_library || (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_USE_PIPELINE_CACHE_UUID))
             memcpy(blob->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE);
         else
             memset(blob->cache_uuid, 0, VK_UUID_SIZE);
@@ -1776,7 +1882,14 @@ static void d3d12_pipeline_library_serialize_stream_archive_header(struct d3d12_
     header->reserved = 0;
     header->vkd3d_build = vkd3d_build;
     header->vkd3d_shader_interface_key = pipeline_library->device->shader_interface_key;
-    if (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_USE_PIPELINE_CACHE_UUID)
+
+    if (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_SHADER_IDENTIFIER)
+    {
+        memcpy(header->cache_uuid,
+                pipeline_library->device->device_info.shader_module_identifier_properties.shaderModuleIdentifierAlgorithmUUID,
+                VK_UUID_SIZE);
+    }
+    else if (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_USE_PIPELINE_CACHE_UUID)
         memcpy(header->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE);
     else
         memset(header->cache_uuid, 0, VK_UUID_SIZE);
@@ -1814,7 +1927,13 @@ static HRESULT d3d12_pipeline_library_serialize(struct d3d12_pipeline_library *p
     header->vkd3d_build = vkd3d_build;
     header->vkd3d_shader_interface_key = pipeline_library->device->shader_interface_key;
 
-    if (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_USE_PIPELINE_CACHE_UUID)
+    if (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_SHADER_IDENTIFIER)
+    {
+        memcpy(header->cache_uuid,
+                pipeline_library->device->device_info.shader_module_identifier_properties.shaderModuleIdentifierAlgorithmUUID,
+                VK_UUID_SIZE);
+    }
+    else if (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_USE_PIPELINE_CACHE_UUID)
         memcpy(header->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE);
     else
         memset(header->cache_uuid, 0, VK_UUID_SIZE);
@@ -2016,6 +2135,11 @@ static HRESULT d3d12_pipeline_library_validate_stream_format_header(struct d3d12
         if (memcmp(header->cache_uuid, device_properties->pipelineCacheUUID, VK_UUID_SIZE) != 0)
             return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
 
+    if (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_SHADER_IDENTIFIER)
+        if (memcmp(header->cache_uuid, device->device_info.shader_module_identifier_properties.shaderModuleIdentifierAlgorithmUUID,
+                VK_UUID_SIZE) != 0)
+            return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
+
     return S_OK;
 }
 
@@ -2198,6 +2322,17 @@ static HRESULT d3d12_pipeline_library_read_blob_toc_format(struct d3d12_pipeline
         }
     }
 
+    if (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_SHADER_IDENTIFIER)
+    {
+        if (memcmp(header->cache_uuid, device->device_info.shader_module_identifier_properties.shaderModuleIdentifierAlgorithmUUID,
+                VK_UUID_SIZE) != 0)
+        {
+            if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+                INFO("Rejecting pipeline library due to shaderModuleIdentifierAlgorithmUUID mismatch.\n");
+            return D3D12_ERROR_DRIVER_VERSION_MISMATCH;
+        }
+    }
+
     total_toc_entries = header->pipeline_count + header->spirv_count + header->driver_cache_count;
 
     header_entry_size = offsetof(struct vkd3d_serialized_pipeline_library_toc, entries) +
@@ -2276,6 +2411,11 @@ static HRESULT d3d12_pipeline_library_init(struct d3d12_pipeline_library *pipeli
     pipeline_library->refcount = 1;
     pipeline_library->internal_refcount = 1;
     pipeline_library->flags = flags;
+
+    /* Mutually exclusive features. */
+    if ((flags & VKD3D_PIPELINE_LIBRARY_FLAG_USE_PIPELINE_CACHE_UUID) &&
+            (flags & VKD3D_PIPELINE_LIBRARY_FLAG_SHADER_IDENTIFIER))
+        return E_INVALIDARG;
 
     if (!blob_length && blob)
         return E_INVALIDARG;
@@ -3010,7 +3150,9 @@ HRESULT vkd3d_pipeline_library_init_disk_cache(struct vkd3d_pipeline_library_dis
     if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SHADER_CACHE_SYNC))
         flags |= VKD3D_PIPELINE_LIBRARY_FLAG_STREAM_ARCHIVE_PARSE_ASYNC;
 
-    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_NO_SERIALIZE_SPIRV))
+    if (device->device_info.shader_module_identifier_features.shaderModuleIdentifier)
+        flags |= VKD3D_PIPELINE_LIBRARY_FLAG_SHADER_IDENTIFIER;
+    else if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_NO_SERIALIZE_SPIRV))
         flags |= VKD3D_PIPELINE_LIBRARY_FLAG_SAVE_FULL_SPIRV;
 
     /* For internal caches, we're mostly just concerned with caching SPIR-V.
