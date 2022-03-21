@@ -1686,7 +1686,7 @@ struct d3d12_pipeline_state
 
     enum vkd3d_pipeline_type pipeline_type;
     VkPipelineCache vk_pso_cache;
-    spinlock_t lock;
+    rwlock_t lock;
 
     struct vkd3d_pipeline_cache_compatibility pipeline_cache_compat;
     struct d3d12_root_signature *root_signature;
