@@ -1464,6 +1464,10 @@ struct d3d12_graphics_pipeline_state_cached_desc
     bool is_dual_source_blending;
     VkShaderStageFlagBits xfb_stage;
     struct vkd3d_shader_transform_feedback_info *xfb_info;
+
+    D3D12_SHADER_BYTECODE bytecode[VKD3D_MAX_SHADER_STAGES];
+    VkShaderStageFlagBits bytecode_stages[VKD3D_MAX_SHADER_STAGES];
+    uint32_t bytecode_duped_mask;
 };
 
 struct d3d12_graphics_pipeline_state
