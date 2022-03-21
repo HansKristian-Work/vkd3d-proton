@@ -4377,7 +4377,6 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
     list->fb_width = 0;
     list->fb_height = 0;
     list->fb_layer_count = 0;
-    list->rtv_nonnull_mask = 0;
 
     list->xfb_enabled = false;
 
@@ -4531,25 +4530,22 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
 {
     struct vkd3d_rendering_info *rendering_info = &list->rendering_info;
     struct d3d12_graphics_pipeline_state *graphics;
-    uint32_t rtv_mask;
     unsigned int i;
 
     if (rendering_info->state_flags & VKD3D_RENDERING_CURRENT)
         return true;
 
     graphics = &list->state->graphics;
-    rtv_mask = graphics->rtv_active_mask & list->rtv_nonnull_mask;
-    rendering_info->rtv_mask = rtv_mask;
 
+    rendering_info->rtv_mask = graphics->rtv_active_mask;
     rendering_info->info.colorAttachmentCount = vkd3d_get_color_attachment_count(graphics->rtv_active_mask);
-    rendering_info->rtv_mask = rtv_mask;
 
     /* The pipeline has fallback PSO in case we're attempting to render to unbound RTV. */
     for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
     {
         VkRenderingAttachmentInfoKHR *attachment = &rendering_info->rtv[i];
 
-        if (rtv_mask & (1u << i))
+        if ((graphics->rtv_active_mask & (1u << i)) && list->rtvs[i].view)
         {
             attachment->imageView = list->rtvs[i].view->vk_image_view;
             attachment->imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -4697,11 +4693,11 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
     }
 
     /* Try to grab the pipeline we compiled ahead of time. If we cannot do so, fall back. */
-    if (!(vk_pipeline = d3d12_pipeline_state_get_pipeline(list->state, &list->dynamic_state,
-            list->rtv_nonnull_mask, list->dsv.format, &new_active_flags)))
+    if (!(vk_pipeline = d3d12_pipeline_state_get_pipeline(list->state,
+            &list->dynamic_state, list->dsv.format, &new_active_flags)))
     {
-        if (!(vk_pipeline = d3d12_pipeline_state_get_or_create_pipeline(list->state, &list->dynamic_state,
-                list->rtv_nonnull_mask, list->dsv.format, &new_active_flags)))
+        if (!(vk_pipeline = d3d12_pipeline_state_get_or_create_pipeline(list->state,
+                &list->dynamic_state, list->dsv.format, &new_active_flags)))
             return false;
     }
 
@@ -4718,7 +4714,7 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
     }
 
     /* If we need to bind or unbind certain render targets or if the DSV layout changed, interrupt rendering */
-    if (((list->state->graphics.rtv_active_mask & list->rtv_nonnull_mask) != list->rendering_info.rtv_mask) ||
+    if ((list->state->graphics.rtv_active_mask != list->rendering_info.rtv_mask) ||
             (dsv_layout != list->rendering_info.dsv.imageLayout))
     {
         d3d12_command_list_invalidate_rendering_info(list);
@@ -7989,7 +7985,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
     const struct d3d12_graphics_pipeline_state *graphics;
     VkFormat prev_dsv_format, next_dsv_format;
     const struct d3d12_rtv_desc *rtv_desc;
-    uint32_t prev_rtv_non_null_mask;
     unsigned int i;
 
     TRACE("iface %p, render_target_descriptor_count %u, render_target_descriptors %p, "
@@ -8020,9 +8015,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
     list->dsv_layout = VK_IMAGE_LAYOUT_UNDEFINED;
     list->dsv_plane_optimal_mask = 0;
 
-    prev_rtv_non_null_mask = list->rtv_nonnull_mask;
-    list->rtv_nonnull_mask = 0;
-
     for (i = 0; i < render_target_descriptor_count; ++i)
     {
         if (single_descriptor_handle)
@@ -8044,7 +8036,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
         d3d12_command_list_track_resource_usage(list, rtv_desc->resource, true);
 
         list->rtvs[i] = *rtv_desc;
-        list->rtv_nonnull_mask |= 1u << i;
         list->fb_width = min(list->fb_width, rtv_desc->width);
         list->fb_height = min(list->fb_height, rtv_desc->height);
         list->fb_layer_count = min(list->fb_layer_count, rtv_desc->layer_count);
@@ -8072,11 +8063,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
     if (d3d12_pipeline_state_is_graphics(list->state))
     {
         graphics = &list->state->graphics;
-        if ((prev_dsv_format != next_dsv_format && d3d12_graphics_pipeline_state_is_depth_stencil_sensitive(graphics)) ||
-                ((prev_rtv_non_null_mask ^ list->rtv_nonnull_mask) & graphics->rtv_active_mask))
+
+        if (prev_dsv_format != next_dsv_format && d3d12_graphics_pipeline_state_is_depth_stencil_sensitive(graphics))
         {
-            /* If we change the NULL-ness of any attachments, we are at risk of having to use fallback pipelines.
-             * Invalidate the pipeline since we'll have to refresh the VkRenderPass and VkPipeline. */
+            /* If we change the NULL-ness of the depth-stencil attachment, we are
+             * at risk of having to use fallback pipelines. Invalidate the pipeline
+             * since we'll have to refresh the VkRenderingInfo and VkPipeline. */
             d3d12_command_list_invalidate_current_pipeline(list, false);
         }
     }

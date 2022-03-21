@@ -3873,7 +3873,6 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     VkGraphicsPipelineCreateInfo pipeline_desc;
     VkPipelineViewportStateCreateInfo vp_desc;
     VkPipelineCreationFeedbackEXT feedback;
-    uint32_t rtv_active_mask;
     VkPipeline vk_pipeline;
     unsigned int i;
     VkResult vr;
@@ -3941,10 +3940,9 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     rendering_info.depthAttachmentFormat = dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
     rendering_info.stencilAttachmentFormat = dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
 
-    rtv_active_mask = key ? key->rtv_active_mask : graphics->rtv_active_mask;
     for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
     {
-        if (rtv_active_mask & (1u << i))
+        if (graphics->rtv_active_mask & (1u << i))
             rtv_formats[i] = graphics->rtv_formats[i];
         else
             rtv_formats[i] = VK_FORMAT_UNDEFINED;
@@ -3989,12 +3987,6 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
         fallback_ds_desc.depthBoundsTestEnable = VK_FALSE;
         fallback_ds_desc.stencilTestEnable = VK_FALSE;
         pipeline_desc.pDepthStencilState = &fallback_ds_desc;
-    }
-
-    if (graphics->rtv_active_mask != rtv_active_mask)
-    {
-        TRACE("Compiling %p with fallback RTV write mask (PSO = 0x%x, RT = 0x%x).\n", state,
-                state->graphics.rtv_active_mask, key->rtv_active_mask);
     }
 
     graphics->dsv_plane_optimal_mask = d3d12_graphics_pipeline_state_get_plane_optimal_mask(graphics, dsv_format);
@@ -4092,8 +4084,8 @@ static bool d3d12_pipeline_state_can_use_dynamic_stride(struct d3d12_pipeline_st
 }
 
 VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
-        const struct vkd3d_dynamic_state *dyn_state, uint32_t rtv_nonnull_mask,
-        const struct vkd3d_format *dsv_format, uint32_t *dynamic_state_flags)
+        const struct vkd3d_dynamic_state *dyn_state, const struct vkd3d_format *dsv_format,
+        uint32_t *dynamic_state_flags)
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
 
@@ -4109,15 +4101,6 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
         TRACE("DSV format mismatch, expected %u, got %u, buggy application!\n",
                 graphics->dsv_format ? graphics->dsv_format->vk_format : VK_FORMAT_UNDEFINED,
                 dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED);
-        return VK_NULL_HANDLE;
-    }
-
-    /* Case where we render to null or unbound RTV.
-     * We'll need to nop out the attachments in the render pass / PSO. */
-    if (state->graphics.rtv_active_mask & ~rtv_nonnull_mask)
-    {
-        TRACE("RTV mismatch. Writing to attachment mask 0x%x, but only 0x%x RTVs are bound.\n",
-                state->graphics.rtv_active_mask, rtv_nonnull_mask);
         return VK_NULL_HANDLE;
     }
 
@@ -4145,8 +4128,8 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
 }
 
 VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_state *state,
-        const struct vkd3d_dynamic_state *dyn_state, uint32_t rtv_nonnull_mask,
-        const struct vkd3d_format *dsv_format, uint32_t *dynamic_state_flags)
+        const struct vkd3d_dynamic_state *dyn_state, const struct vkd3d_format *dsv_format,
+        uint32_t *dynamic_state_flags)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &state->device->vk_procs;
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
@@ -4189,7 +4172,6 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     }
 
     pipeline_key.dsv_format = dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
-    pipeline_key.rtv_active_mask = state->graphics.rtv_active_mask & rtv_nonnull_mask;
 
     if ((vk_pipeline = d3d12_pipeline_state_find_compiled_pipeline(state, &pipeline_key, dynamic_state_flags)))
     {
