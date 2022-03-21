@@ -4275,6 +4275,8 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     if (d3d12_graphics_pipeline_state_has_unknown_dsv_format_with_test(graphics) && dsv_format)
         TRACE("Compiling %p with fallback DSV format %#x.\n", state, dsv_format->vk_format);
 
+    /* FIXME: This gets modified on late recompilation, could there be thread safety issues here?
+     * For GENERAL depth-stencil, this mask should not matter at all, but there might be edge cases for tracked DSV. */
     graphics->dsv_plane_optimal_mask = d3d12_graphics_pipeline_state_get_plane_optimal_mask(graphics, dsv_format);
 
     if (key)
