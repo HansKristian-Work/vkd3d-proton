@@ -764,18 +764,21 @@ static VkResult vkd3d_serialize_pipeline_state_inline(const struct d3d12_pipelin
         chunk = finish_and_iterate_blob_chunk(chunk);
     }
 
-    if (d3d12_pipeline_state_is_graphics(state))
+    if (!state->pso_is_loaded_from_cached_blob)
     {
-        for (i = 0; i < state->graphics.stage_count; i++)
+        if (d3d12_pipeline_state_is_graphics(state))
         {
-            vkd3d_shader_code_serialize_inline(&state->graphics.code[i], state->graphics.stages[i].stage,
-                    varint_size[i], &chunk);
+            for (i = 0; i < state->graphics.stage_count; i++)
+            {
+                vkd3d_shader_code_serialize_inline(&state->graphics.code[i], state->graphics.stages[i].stage,
+                        varint_size[i], &chunk);
+            }
         }
-    }
-    else if (d3d12_pipeline_state_is_compute(state))
-    {
-        vkd3d_shader_code_serialize_inline(&state->compute.code, VK_SHADER_STAGE_COMPUTE_BIT,
-                varint_size[0], &chunk);
+        else if (d3d12_pipeline_state_is_compute(state))
+        {
+            vkd3d_shader_code_serialize_inline(&state->compute.code, VK_SHADER_STAGE_COMPUTE_BIT,
+                    varint_size[0], &chunk);
+        }
     }
 
     return VK_SUCCESS;
@@ -843,20 +846,23 @@ static VkResult vkd3d_serialize_pipeline_state_referenced(struct d3d12_pipeline_
         chunk = finish_and_iterate_blob_chunk(chunk);
     }
 
-    if (d3d12_pipeline_state_is_graphics(state))
+    if (!state->pso_is_loaded_from_cached_blob)
     {
-        for (i = 0; i < state->graphics.stage_count; i++)
+        if (d3d12_pipeline_state_is_graphics(state))
+        {
+            for (i = 0; i < state->graphics.stage_count; i++)
+            {
+                vkd3d_shader_code_serialize_referenced(pipeline_library,
+                        &state->graphics.code[i], state->graphics.stages[i].stage,
+                        varint_size[i], &chunk);
+            }
+        }
+        else if (d3d12_pipeline_state_is_compute(state))
         {
             vkd3d_shader_code_serialize_referenced(pipeline_library,
-                    &state->graphics.code[i], state->graphics.stages[i].stage,
-                    varint_size[i], &chunk);
+                    &state->compute.code, VK_SHADER_STAGE_COMPUTE_BIT,
+                    varint_size[0], &chunk);
         }
-    }
-    else if (d3d12_pipeline_state_is_compute(state))
-    {
-        vkd3d_shader_code_serialize_referenced(pipeline_library,
-                &state->compute.code, VK_SHADER_STAGE_COMPUTE_BIT,
-                varint_size[0], &chunk);
     }
 
     return VK_SUCCESS;
@@ -900,18 +906,21 @@ VkResult vkd3d_serialize_pipeline_state(struct d3d12_pipeline_library *pipeline_
             vk_blob_size += VKD3D_PIPELINE_BLOB_CHUNK_SIZE_RAW(vk_blob_size_pipeline_cache);
     }
 
-    if (d3d12_pipeline_state_is_graphics(state))
+    if (!state->pso_is_loaded_from_cached_blob)
     {
-        for (i = 0; i < state->graphics.stage_count; i++)
+        if (d3d12_pipeline_state_is_graphics(state))
         {
-            vk_blob_size += vkd3d_shader_code_compute_serialized_size(&state->graphics.code[i],
-                    need_blob_sizes ? &varint_size[i] : NULL, !pipeline_library);
+            for (i = 0; i < state->graphics.stage_count; i++)
+            {
+                vk_blob_size += vkd3d_shader_code_compute_serialized_size(&state->graphics.code[i],
+                        need_blob_sizes ? &varint_size[i] : NULL, !pipeline_library);
+            }
         }
-    }
-    else if (d3d12_pipeline_state_is_compute(state))
-    {
-        vk_blob_size += vkd3d_shader_code_compute_serialized_size(&state->compute.code,
-                need_blob_sizes ? &varint_size[0] : NULL, !pipeline_library);
+        else if (d3d12_pipeline_state_is_compute(state))
+        {
+            vk_blob_size += vkd3d_shader_code_compute_serialized_size(&state->compute.code,
+                    need_blob_sizes ? &varint_size[0] : NULL, !pipeline_library);
+        }
     }
 
     total_size += vk_blob_size;
