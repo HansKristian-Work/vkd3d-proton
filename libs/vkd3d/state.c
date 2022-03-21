@@ -3663,7 +3663,28 @@ static HRESULT d3d12_pipeline_state_init_static_pipeline(struct d3d12_pipeline_s
 static HRESULT d3d12_pipeline_state_finish_graphics(struct d3d12_pipeline_state *state)
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
+    unsigned int i;
+    void *new_code;
     HRESULT hr;
+
+    /* If we got here successfully without SPIR-V code,
+     * it means we'll need to defer compilation from DXBC -> SPIR-V.
+     * Dupe the DXBC code.
+     * TODO: This codepath is not relevant yet. */
+    for (i = 0; i < graphics->stage_count; i++)
+    {
+        if (graphics->code[i].size || graphics->stages[i].module != VK_NULL_HANDLE ||
+                !graphics->cached_desc.bytecode[i].BytecodeLength)
+            continue;
+
+        new_code = vkd3d_malloc(graphics->cached_desc.bytecode[i].BytecodeLength);
+        if (!new_code)
+            return E_OUTOFMEMORY;
+        memcpy(new_code, graphics->cached_desc.bytecode[i].pShaderBytecode,
+                graphics->cached_desc.bytecode[i].BytecodeLength);
+        graphics->cached_desc.bytecode[i].pShaderBytecode = new_code;
+        graphics->cached_desc.bytecode_duped_mask |= 1u << i;
+    }
 
     list_init(&graphics->compiled_fallback_pipelines);
     if (FAILED(hr = vkd3d_private_store_init(&state->private_store)))
