@@ -2288,6 +2288,67 @@ static HRESULT vkd3d_compile_shader_stage(struct d3d12_pipeline_state *state, st
     return S_OK;
 }
 
+static HRESULT vkd3d_late_compile_shader_stages(struct d3d12_pipeline_state *state)
+{
+    /* We are at risk of having to compile pipelines late if we return from CreatePipelineState without
+     * either code[i] or module being non-null. */
+    struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
+    bool need_compile = false;
+    unsigned int i;
+    HRESULT hr;
+
+    rwlock_lock_read(&state->lock);
+    for (i = 0; i < graphics->stage_count; i++)
+    {
+        if (!graphics->code[i].size && graphics->stages[i].module == VK_NULL_HANDLE &&
+                graphics->cached_desc.bytecode[i].BytecodeLength)
+        {
+            need_compile = true;
+            break;
+        }
+    }
+    rwlock_unlock_read(&state->lock);
+
+    if (!need_compile)
+        return S_OK;
+
+    /* Taking a writer lock here is kinda horrible,
+     * but we really shouldn't hit this path except in extreme circumstances. */
+    hr = S_OK;
+    rwlock_lock_write(&state->lock);
+    for (i = 0; i < graphics->stage_count; i++)
+    {
+        if (graphics->stages[i].module == VK_NULL_HANDLE && !graphics->code[i].size &&
+                graphics->cached_desc.bytecode[i].BytecodeLength)
+        {
+            if (FAILED(hr = vkd3d_compile_shader_stage(state, state->device, graphics->cached_desc.bytecode_stages[i],
+                    &graphics->cached_desc.bytecode[i], &graphics->code[i])))
+                break;
+        }
+
+        if (FAILED(hr = d3d12_pipeline_state_create_shader_module(state->device, &graphics->stages[i].module,
+                &graphics->code[i])))
+            break;
+
+        /* We'll keep the module around here, no need to keep code/size pairs around for this.
+         * If we're in a situation where late compile is relevant, we're using PSO cached blobs,
+         * so we never expect to serialize out SPIR-V either way. */
+        vkd3d_shader_free_shader_code(&graphics->code[i]);
+        graphics->code[i].code = NULL;
+        graphics->code[i].size = 0;
+
+        /* Don't need the DXBC blob anymore either. */
+        if (graphics->cached_desc.bytecode_duped_mask & (1u << i))
+        {
+            vkd3d_free((void*)graphics->cached_desc.bytecode[i].pShaderBytecode);
+            memset(&graphics->cached_desc.bytecode[i], 0, sizeof(graphics->cached_desc.bytecode[i]));
+            graphics->cached_desc.bytecode_duped_mask &= ~(1u << i);
+        }
+    }
+    rwlock_unlock_write(&state->lock);
+    return hr;
+}
+
 static void vkd3d_report_pipeline_creation_feedback_results(const VkPipelineCreationFeedbackCreateInfoEXT *feedback)
 {
     uint32_t i;
