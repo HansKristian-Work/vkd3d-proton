@@ -3151,9 +3151,8 @@ static void d3d12_pipeline_state_graphics_handle_meta(struct d3d12_pipeline_stat
     }
 }
 
-static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *state,
-        struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc,
-        const struct d3d12_cached_pipeline_state *cached_pso)
+static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipeline_state *state,
+        struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
@@ -3162,13 +3161,13 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     const struct vkd3d_vulkan_info *vk_info = &device->vk_info;
     uint32_t instance_divisors[D3D12_VS_INPUT_REGISTER_COUNT];
     uint32_t aligned_offsets[D3D12_VS_INPUT_REGISTER_COUNT];
-    bool have_attachment, can_compile_pipeline_early;
     struct vkd3d_shader_signature output_signature;
     struct vkd3d_shader_signature input_signature;
     VkSampleCountFlagBits sample_count;
     const struct vkd3d_format *format;
     unsigned int instance_divisor;
     VkVertexInputRate input_rate;
+    bool have_attachment;
     unsigned int i, j;
     size_t rt_count;
     uint32_t mask;
@@ -3190,6 +3189,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     };
 
     state->vk_bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    /* Defer taking ref-count until completion. */
+    state->device = device;
 
     graphics->stage_count = 0;
     graphics->primitive_topology_type = desc->primitive_topology_type;
@@ -3650,13 +3651,37 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         goto fail;
     }
 
+    return S_OK;
+
+fail:
+    vkd3d_shader_free_shader_signature(&input_signature);
+    vkd3d_shader_free_shader_signature(&output_signature);
+
+    return hr;
+}
+
+static HRESULT d3d12_pipeline_state_init_graphics_spirv(struct d3d12_pipeline_state *state,
+        const struct d3d12_pipeline_state_desc *desc,
+        const struct d3d12_cached_pipeline_state *cached_pso)
+{
+    struct d3d12_device *device = state->device;
+    HRESULT hr;
+
     d3d12_pipeline_state_graphics_load_spirv_from_cached_state(state, device, desc, cached_pso);
     if (FAILED(hr = d3d12_pipeline_state_graphics_create_shader_stages(state, device, desc)))
-        goto fail;
+        return hr;
 
     /* At this point, we will have valid meta structures set up.
      * Deduce further PSO information from these structs. */
     d3d12_pipeline_state_graphics_handle_meta(state, device);
+    return S_OK;
+}
+
+static HRESULT d3d12_pipeline_state_init_static_pipeline(struct d3d12_pipeline_state *state,
+        const struct d3d12_pipeline_state_desc *desc)
+{
+    struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
+    bool can_compile_pipeline_early;
 
     /* If we don't know vertex count for tessellation shaders, we need to defer compilation, but this should
      * be exceedingly rare. */
@@ -3666,33 +3691,31 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
     graphics->pipeline_layout = state->root_signature->graphics.vk_pipeline_layout;
     graphics->pipeline = VK_NULL_HANDLE;
-    state->device = device;
 
     if (can_compile_pipeline_early)
     {
         if (!(graphics->pipeline = d3d12_pipeline_state_create_pipeline_variant(state, NULL, graphics->dsv_format,
                 state->vk_pso_cache, &graphics->dynamic_state_flags)))
-            goto fail;
+            return E_OUTOFMEMORY;
     }
     else
     {
         graphics->dsv_plane_optimal_mask = d3d12_graphics_pipeline_state_get_plane_optimal_mask(graphics, NULL);
     }
 
-    list_init(&graphics->compiled_fallback_pipelines);
-
-    if (FAILED(hr = vkd3d_private_store_init(&state->private_store)))
-        goto fail;
-
-    d3d12_device_add_ref(state->device);
-
     return S_OK;
+}
 
-fail:
-    vkd3d_shader_free_shader_signature(&input_signature);
-    vkd3d_shader_free_shader_signature(&output_signature);
+static HRESULT d3d12_pipeline_state_finish_graphics(struct d3d12_pipeline_state *state)
+{
+    struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
+    HRESULT hr;
 
-    return hr;
+    list_init(&graphics->compiled_fallback_pipelines);
+    if (FAILED(hr = vkd3d_private_store_init(&state->private_store)))
+        return hr;
+    d3d12_device_add_ref(state->device);
+    return S_OK;
 }
 
 bool d3d12_pipeline_state_has_replaced_shaders(struct d3d12_pipeline_state *state)
@@ -3827,7 +3850,14 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
                 break;
 
             case VK_PIPELINE_BIND_POINT_GRAPHICS:
-                hr = d3d12_pipeline_state_init_graphics(object, device, desc, desc_cached_pso);
+                /* Creating a graphics PSO is more involved ... */
+                hr = d3d12_pipeline_state_init_graphics_create_info(object, device, desc);
+                if (SUCCEEDED(hr))
+                    hr = d3d12_pipeline_state_init_graphics_spirv(object, desc, desc_cached_pso);
+                if (SUCCEEDED(hr))
+                    hr = d3d12_pipeline_state_init_static_pipeline(object, desc);
+                if (SUCCEEDED(hr))
+                    hr = d3d12_pipeline_state_finish_graphics(object);
                 break;
 
             default:
