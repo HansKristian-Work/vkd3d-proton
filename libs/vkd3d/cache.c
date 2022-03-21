@@ -903,18 +903,21 @@ static VkResult vkd3d_serialize_pipeline_state_inline(const struct d3d12_pipelin
         chunk = finish_and_iterate_blob_chunk(chunk);
     }
 
-    if (d3d12_pipeline_state_is_graphics(state))
+    if (!state->pso_is_loaded_from_cached_blob)
     {
-        for (i = 0; i < state->graphics.stage_count; i++)
+        if (d3d12_pipeline_state_is_graphics(state))
         {
-            vkd3d_shader_code_serialize_inline(&state->graphics.code[i], state->graphics.stages[i].stage,
-                    varint_size[i], &chunk);
+            for (i = 0; i < state->graphics.stage_count; i++)
+            {
+                vkd3d_shader_code_serialize_inline(&state->graphics.code[i], state->graphics.stages[i].stage,
+                        varint_size[i], &chunk);
+            }
         }
-    }
-    else if (d3d12_pipeline_state_is_compute(state))
-    {
-        vkd3d_shader_code_serialize_inline(&state->compute.code, VK_SHADER_STAGE_COMPUTE_BIT,
-                varint_size[0], &chunk);
+        else if (d3d12_pipeline_state_is_compute(state))
+        {
+            vkd3d_shader_code_serialize_inline(&state->compute.code, VK_SHADER_STAGE_COMPUTE_BIT,
+                    varint_size[0], &chunk);
+        }
     }
 
     return VK_SUCCESS;
@@ -994,7 +997,8 @@ static VkResult vkd3d_serialize_pipeline_state_referenced(struct d3d12_pipeline_
         chunk = finish_and_iterate_blob_chunk(chunk);
     }
 
-    if (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_SAVE_FULL_SPIRV)
+    if ((pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_SAVE_FULL_SPIRV) &&
+            !state->pso_is_loaded_from_cached_blob)
     {
         if (d3d12_pipeline_state_is_graphics(state))
         {
@@ -1054,7 +1058,8 @@ VkResult vkd3d_serialize_pipeline_state(struct d3d12_pipeline_library *pipeline_
             vk_blob_size += VKD3D_PIPELINE_BLOB_CHUNK_SIZE_RAW(vk_blob_size_pipeline_cache);
     }
 
-    if (!pipeline_library || (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_SAVE_FULL_SPIRV))
+    if ((!pipeline_library || (pipeline_library->flags & VKD3D_PIPELINE_LIBRARY_FLAG_SAVE_FULL_SPIRV)) &&
+            !state->pso_is_loaded_from_cached_blob)
     {
         if (d3d12_pipeline_state_is_graphics(state))
         {
