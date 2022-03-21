@@ -1978,6 +1978,7 @@ void d3d12_pipeline_state_dec_ref(struct d3d12_pipeline_state *state)
 
         if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS)
             d3d12_pipeline_state_free_cached_desc(&state->graphics.cached_desc);
+        rwlock_destroy(&state->lock);
         vkd3d_free(state);
     }
 }
@@ -3807,6 +3808,12 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
 
     memset(object, 0, sizeof(*object));
 
+    if (rwlock_init(&object->lock))
+    {
+        vkd3d_free(object);
+        return E_FAIL;
+    }
+
     if (!desc->root_signature)
     {
         if (FAILED(hr = d3d12_pipeline_create_private_root_signature(device,
@@ -3838,6 +3845,7 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
         {
             if (object->root_signature)
                 d3d12_root_signature_dec_ref(object->root_signature);
+            rwlock_destroy(&object->lock);
             vkd3d_free(object);
             return hr;
         }
@@ -3912,6 +3920,7 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
         if (object->vk_bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS)
             d3d12_pipeline_state_free_cached_desc(&object->graphics.cached_desc);
         VK_CALL(vkDestroyPipelineCache(device->vk_device, object->vk_pso_cache, NULL));
+        rwlock_destroy(&object->lock);
 
         vkd3d_free(object);
         return hr;
@@ -4060,7 +4069,7 @@ static VkPipeline d3d12_pipeline_state_find_compiled_pipeline(struct d3d12_pipel
     struct vkd3d_compiled_pipeline *current;
     VkPipeline vk_pipeline = VK_NULL_HANDLE;
 
-    rw_spinlock_acquire_read(&state->lock);
+    rwlock_lock_read(&state->lock);
     LIST_FOR_EACH_ENTRY(current, &graphics->compiled_fallback_pipelines, struct vkd3d_compiled_pipeline, entry)
     {
         if (!memcmp(&current->key, key, sizeof(*key)))
@@ -4070,7 +4079,7 @@ static VkPipeline d3d12_pipeline_state_find_compiled_pipeline(struct d3d12_pipel
             break;
         }
     }
-    rw_spinlock_release_read(&state->lock);
+    rwlock_unlock_read(&state->lock);
 
     return vk_pipeline;
 }
@@ -4088,7 +4097,7 @@ static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_sta
     compiled_pipeline->vk_pipeline = vk_pipeline;
     compiled_pipeline->dynamic_state_flags = dynamic_state_flags;
 
-    rw_spinlock_acquire_write(&state->lock);
+    rwlock_lock_write(&state->lock);
 
     LIST_FOR_EACH_ENTRY(current, &graphics->compiled_fallback_pipelines, struct vkd3d_compiled_pipeline, entry)
     {
@@ -4103,7 +4112,7 @@ static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_sta
     if (compiled_pipeline)
         list_add_tail(&graphics->compiled_fallback_pipelines, &compiled_pipeline->entry);
 
-    rw_spinlock_release_write(&state->lock);
+    rwlock_unlock_write(&state->lock);
     return compiled_pipeline;
 }
 
