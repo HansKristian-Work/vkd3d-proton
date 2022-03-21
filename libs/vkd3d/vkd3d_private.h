@@ -1575,6 +1575,7 @@ struct d3d12_pipeline_state
     struct d3d12_root_signature *root_signature;
     struct d3d12_device *device;
     bool root_signature_compat_hash_is_dxbc_derived;
+    bool pso_is_loaded_from_cached_blob;
 
     struct vkd3d_private_store private_store;
 };
