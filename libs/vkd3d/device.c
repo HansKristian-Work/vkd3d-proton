@@ -115,6 +115,8 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_SHADER_IMAGE_ATOMIC_INT64, EXT_shader_image_atomic_int64),
     VK_EXTENSION(EXT_SCALAR_BLOCK_LAYOUT, EXT_scalar_block_layout),
     VK_EXTENSION(EXT_PIPELINE_CREATION_FEEDBACK, EXT_pipeline_creation_feedback),
+    VK_EXTENSION(EXT_PIPELINE_CREATION_CACHE_CONTROL, EXT_pipeline_creation_cache_control),
+    VK_EXTENSION(EXT_SHADER_MODULE_IDENTIFIER, EXT_shader_module_identifier),
     /* AMD extensions */
     VK_EXTENSION(AMD_BUFFER_MARKER, AMD_buffer_marker),
     VK_EXTENSION(AMD_DEVICE_COHERENT_MEMORY, AMD_device_coherent_memory),
@@ -1488,6 +1490,23 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->device_coherent_memory_features_amd.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COHERENT_MEMORY_FEATURES_AMD;
         vk_prepend_struct(&info->features2, &info->device_coherent_memory_features_amd);
+    }
+
+    if (vulkan_info->EXT_pipeline_creation_cache_control)
+    {
+        info->pipeline_creation_cache_control_features.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_CREATION_CACHE_CONTROL_FEATURES;
+        vk_prepend_struct(&info->features2, &info->pipeline_creation_cache_control_features);
+    }
+
+    if (vulkan_info->EXT_shader_module_identifier)
+    {
+        info->shader_module_identifier_features.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_MODULE_IDENTIFIER_FEATURES_EXT;
+        info->shader_module_identifier_properties.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_MODULE_IDENTIFIER_PROPERTIES_EXT;
+        vk_prepend_struct(&info->features2, &info->shader_module_identifier_features);
+        vk_prepend_struct(&info->properties2, &info->shader_module_identifier_properties);
     }
 
     /* Core in Vulkan 1.1. */
