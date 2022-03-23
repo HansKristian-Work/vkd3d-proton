@@ -2750,7 +2750,7 @@ static uint32_t d3d12_graphics_pipeline_state_get_plane_optimal_mask(
             dsv_format = graphics->dsv_format->vk_format;
             aspects = graphics->dsv_format->vk_aspect_mask;
         }
-        else if (d3d12_graphics_pipeline_state_has_unknown_dsv_format(graphics))
+        else if (d3d12_graphics_pipeline_state_has_unknown_dsv_format_with_test(graphics))
         {
             dsv_format = dynamic_dsv_format->vk_format;
             aspects = dynamic_dsv_format->vk_aspect_mask;
@@ -3499,7 +3499,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     }
 
     rs_desc_from_d3d12(&graphics->rs_desc, &desc->rasterizer_state);
-    have_attachment = graphics->rt_count || graphics->dsv_format || d3d12_graphics_pipeline_state_has_unknown_dsv_format(graphics);
+    have_attachment = graphics->rt_count || graphics->dsv_format ||
+            d3d12_graphics_pipeline_state_has_unknown_dsv_format_with_test(graphics);
     if ((!have_attachment && !(desc->ps.pShaderBytecode && desc->ps.BytecodeLength))
             || (graphics->xfb_enabled && so_desc->RasterizedStream == D3D12_SO_NO_RASTERIZED_STREAM))
         graphics->rs_desc.rasterizerDiscardEnable = VK_TRUE;
@@ -3984,7 +3985,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
 
     /* A workaround for SottR, which creates pipelines with DSV_UNKNOWN, but still insists on using a depth buffer.
      * If we notice that the base pipeline's DSV format does not match the dynamic DSV format, we fall-back to create a new render pass. */
-    if (d3d12_graphics_pipeline_state_has_unknown_dsv_format(graphics) && dsv_format)
+    if (d3d12_graphics_pipeline_state_has_unknown_dsv_format_with_test(graphics) && dsv_format)
         TRACE("Compiling %p with fallback DSV format %#x.\n", state, dsv_format->vk_format);
 
     graphics->dsv_plane_optimal_mask = d3d12_graphics_pipeline_state_get_plane_optimal_mask(graphics, dsv_format);
@@ -4090,7 +4091,7 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
     if (!graphics->pipeline)
         return VK_NULL_HANDLE;
 
-    if (d3d12_graphics_pipeline_state_has_unknown_dsv_format(graphics) && dsv_format)
+    if (d3d12_graphics_pipeline_state_has_unknown_dsv_format_with_test(graphics) && dsv_format)
     {
         TRACE("Applying unknown DSV workaround with format %u buggy application!\n", dsv_format->vk_format);
         return VK_NULL_HANDLE;
