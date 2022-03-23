@@ -3875,7 +3875,6 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     VkPipelineShaderStageCreateInfo stages[VKD3D_MAX_SHADER_STAGES];
     VkFormat rtv_formats[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     VkPipelineTessellationStateCreateInfo tessellation_info;
-    VkPipelineDepthStencilStateCreateInfo fallback_ds_desc;
     VkPipelineCreationFeedbackCreateInfoEXT feedback_info;
     VkPipelineDynamicStateCreateInfo dynamic_create_info;
     VkPipelineVertexInputStateCreateInfo input_desc;
@@ -3985,21 +3984,8 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
 
     /* A workaround for SottR, which creates pipelines with DSV_UNKNOWN, but still insists on using a depth buffer.
      * If we notice that the base pipeline's DSV format does not match the dynamic DSV format, we fall-back to create a new render pass. */
-    if (graphics->dsv_format != dsv_format && d3d12_graphics_pipeline_state_has_unknown_dsv_format(graphics))
-    {
-        TRACE("Compiling %p with fallback DSV format %#x.\n", state,
-                dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED);
-    }
-    else if (!dsv_format && graphics->dsv_format)
-    {
-        TRACE("Compiling %p with fallback NULL DSV format.\n", state);
-        fallback_ds_desc = graphics->ds_desc;
-        fallback_ds_desc.depthTestEnable = VK_FALSE;
-        fallback_ds_desc.depthWriteEnable = VK_FALSE;
-        fallback_ds_desc.depthBoundsTestEnable = VK_FALSE;
-        fallback_ds_desc.stencilTestEnable = VK_FALSE;
-        pipeline_desc.pDepthStencilState = &fallback_ds_desc;
-    }
+    if (d3d12_graphics_pipeline_state_has_unknown_dsv_format(graphics) && dsv_format)
+        TRACE("Compiling %p with fallback DSV format %#x.\n", state, dsv_format->vk_format);
 
     graphics->dsv_plane_optimal_mask = d3d12_graphics_pipeline_state_get_plane_optimal_mask(graphics, dsv_format);
 
@@ -4104,15 +4090,9 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
     if (!graphics->pipeline)
         return VK_NULL_HANDLE;
 
-    /* Unknown DSV format workaround. */
-    if ((dsv_format != graphics->dsv_format) && (graphics->dsv_format ||
-            state->graphics.ds_desc.depthTestEnable ||
-            state->graphics.ds_desc.stencilTestEnable ||
-            state->graphics.ds_desc.depthBoundsTestEnable))
+    if (d3d12_graphics_pipeline_state_has_unknown_dsv_format(graphics) && dsv_format)
     {
-        TRACE("DSV format mismatch, expected %u, got %u, buggy application!\n",
-                graphics->dsv_format ? graphics->dsv_format->vk_format : VK_FORMAT_UNDEFINED,
-                dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED);
+        TRACE("Applying unknown DSV workaround with format %u buggy application!\n", dsv_format->vk_format);
         return VK_NULL_HANDLE;
     }
 
