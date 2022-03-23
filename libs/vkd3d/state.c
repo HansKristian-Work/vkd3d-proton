@@ -3935,7 +3935,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
     rendering_info.pNext = NULL;
     rendering_info.viewMask = 0;
-    rendering_info.colorAttachmentCount = vkd3d_get_color_attachment_count(graphics->rtv_active_mask);
+    rendering_info.colorAttachmentCount = graphics->rt_count;
     rendering_info.pColorAttachmentFormats = rtv_formats;
     rendering_info.depthAttachmentFormat = dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
     rendering_info.stencilAttachmentFormat = dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;

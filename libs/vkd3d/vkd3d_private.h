@@ -3401,16 +3401,6 @@ static inline const struct vkd3d_format *vkd3d_format_from_d3d12_resource_desc(
             desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
 }
 
-static inline unsigned int vkd3d_get_color_attachment_count(unsigned int attachment_mask)
-{
-    unsigned int count = 0;
-
-    while (attachment_mask >> count)
-        count++;
-
-    return count;
-}
-
 static inline VkImageSubresourceRange vk_subresource_range_from_layers(const VkImageSubresourceLayers *layers)
 {
     VkImageSubresourceRange range;
