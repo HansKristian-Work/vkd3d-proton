@@ -4489,11 +4489,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearState(d3d12_command_list_i
     d3d12_command_list_reset_api_state(list, pipeline_state);
 }
 
-static bool d3d12_graphics_pipeline_state_is_depth_stencil_sensitive(const struct d3d12_graphics_pipeline_state *graphics)
-{
-    return graphics->dsv_format || d3d12_graphics_pipeline_state_has_unknown_dsv_format(graphics);
-}
-
 static bool d3d12_command_list_has_depth_stencil_view(struct d3d12_command_list *list)
 {
     const struct d3d12_graphics_pipeline_state *graphics;
@@ -4559,12 +4554,6 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
 
     if (d3d12_command_list_has_depth_stencil_view(list))
     {
-        if (!list->dsv.view)
-        {
-            FIXME("Invalid DSV.\n");
-            return false;
-        }
-
         rendering_info->dsv.imageView = list->dsv.view->vk_image_view;
         rendering_info->dsv.imageLayout = list->dsv_layout;
     }
@@ -8064,7 +8053,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
     {
         graphics = &list->state->graphics;
 
-        if (prev_dsv_format != next_dsv_format && d3d12_graphics_pipeline_state_is_depth_stencil_sensitive(graphics))
+        if (prev_dsv_format != next_dsv_format && d3d12_graphics_pipeline_state_has_unknown_dsv_format(graphics))
         {
             /* If we change the NULL-ness of the depth-stencil attachment, we are
              * at risk of having to use fallback pipelines. Invalidate the pipeline
