@@ -2750,7 +2750,7 @@ static uint32_t d3d12_graphics_pipeline_state_get_plane_optimal_mask(
             dsv_format = graphics->dsv_format->vk_format;
             aspects = graphics->dsv_format->vk_aspect_mask;
         }
-        else if (graphics->null_attachment_mask & dsv_attachment_mask(graphics))
+        else if (d3d12_graphics_pipeline_state_has_unknown_dsv_format(graphics))
         {
             dsv_format = dynamic_dsv_format->vk_format;
             aspects = dynamic_dsv_format->vk_aspect_mask;
@@ -2956,7 +2956,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
-    bool have_attachment, is_dsv_format_unknown, can_compile_pipeline_early;
     unsigned int ps_output_swizzle[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct vkd3d_shader_compile_arguments compile_args, ps_compile_args;
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
@@ -2969,6 +2968,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     struct vkd3d_shader_transform_feedback_info xfb_info;
     struct vkd3d_shader_interface_info shader_interface;
     const struct d3d12_root_signature *root_signature;
+    bool have_attachment, can_compile_pipeline_early;
     struct vkd3d_shader_signature output_signature;
     struct vkd3d_shader_signature input_signature;
     VkShaderStageFlagBits xfb_stage = 0;
@@ -3498,10 +3498,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             goto fail;
     }
 
-    is_dsv_format_unknown = graphics->null_attachment_mask & dsv_attachment_mask(graphics);
-
     rs_desc_from_d3d12(&graphics->rs_desc, &desc->rasterizer_state);
-    have_attachment = graphics->rt_count || graphics->dsv_format || is_dsv_format_unknown;
+    have_attachment = graphics->rt_count || graphics->dsv_format || d3d12_graphics_pipeline_state_has_unknown_dsv_format(graphics);
     if ((!have_attachment && !(desc->ps.pShaderBytecode && desc->ps.BytecodeLength))
             || (graphics->xfb_enabled && so_desc->RasterizedStream == D3D12_SO_NO_RASTERIZED_STREAM))
         graphics->rs_desc.rasterizerDiscardEnable = VK_TRUE;
@@ -3987,7 +3985,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
 
     /* A workaround for SottR, which creates pipelines with DSV_UNKNOWN, but still insists on using a depth buffer.
      * If we notice that the base pipeline's DSV format does not match the dynamic DSV format, we fall-back to create a new render pass. */
-    if (graphics->dsv_format != dsv_format && (graphics->null_attachment_mask & dsv_attachment_mask(graphics)))
+    if (graphics->dsv_format != dsv_format && d3d12_graphics_pipeline_state_has_unknown_dsv_format(graphics))
     {
         TRACE("Compiling %p with fallback DSV format %#x.\n", state,
                 dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED);
