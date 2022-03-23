@@ -4538,7 +4538,7 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
     graphics = &list->state->graphics;
 
     rendering_info->rtv_mask = graphics->rtv_active_mask;
-    rendering_info->info.colorAttachmentCount = vkd3d_get_color_attachment_count(graphics->rtv_active_mask);
+    rendering_info->info.colorAttachmentCount = graphics->rt_count;
 
     /* The pipeline has fallback PSO in case we're attempting to render to unbound RTV. */
     for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
@@ -4713,8 +4713,10 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
         dsv_layout = VK_IMAGE_LAYOUT_UNDEFINED;
     }
 
-    /* If we need to bind or unbind certain render targets or if the DSV layout changed, interrupt rendering */
+    /* If we need to bind or unbind certain render targets or if the DSV layout changed, interrupt rendering.
+     * It's also possible that rtv_active_mask is constant, but rt_count increases (if last RT format is NULL). */
     if ((list->state->graphics.rtv_active_mask != list->rendering_info.rtv_mask) ||
+            (list->state->graphics.rt_count != list->rendering_info.info.colorAttachmentCount) ||
             (dsv_layout != list->rendering_info.dsv.imageLayout))
     {
         d3d12_command_list_invalidate_rendering_info(list);
