@@ -3173,6 +3173,9 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
          * Be defensive about programs which do not do this for us. */
         memset(graphics->blend_attachments + 1, 0,
                 sizeof(graphics->blend_attachments[0]) * (ARRAY_SIZE(graphics->blend_attachments) - 1));
+
+        /* Only allow RT 0 to be active for dual source blending. */
+        graphics->rtv_active_mask &= 1u << 0;
     }
 
     graphics->xfb_enabled = false;
