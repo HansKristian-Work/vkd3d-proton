@@ -1633,10 +1633,35 @@ static void test_dual_source_blending(bool use_dxil)
         0x62, 0x90, 0x00, 0x20, 0x08, 0x06, 0x49, 0x19, 0x48, 0x60, 0xf0, 0x3d, 0xc2, 0x88, 0x41, 0x02, 0x80, 0x20, 0x18, 0x24, 0x65, 0x20, 0x81, 0xc1, 0xd7, 0x04, 0x18, 0x0e, 0x04, 0x00, 0x05, 0x00,
         0x00, 0x00, 0xc5, 0x01, 0x91, 0x8e, 0xec, 0xb7, 0x38, 0xcc, 0x9e, 0x7f, 0xc7, 0xe2, 0xba, 0xd9, 0x5c, 0x96, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     };
+    static const DWORD ps_code_3rt_dxbc[] =
+    {
+#if 0
+    float4 c0;
+    float4 c1;
+
+    void main(out float4 o0 : SV_Target0, out float4 o1 : SV_Target1, out float4 o2 : SV_Target2)
+    {
+        o0 = c0;
+        o1 = c1;
+        o2 = 1.0.xxxx;
+    }
+#endif
+        0x43425844, 0xe1e2c26b, 0x10d9607c, 0x4a0f0786, 0xc368f603, 0x00000001, 0x0000013c, 0x00000003,
+        0x0000002c, 0x0000003c, 0x000000a0, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000005c, 0x00000003, 0x00000008, 0x00000050, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x00000050, 0x00000001, 0x00000000, 0x00000003, 0x00000001, 0x0000000f, 0x00000050,
+        0x00000002, 0x00000000, 0x00000003, 0x00000002, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074,
+        0x58454853, 0x00000094, 0x00000050, 0x00000025, 0x0100086a, 0x04000059, 0x00208e46, 0x00000000,
+        0x00000002, 0x03000065, 0x001020f2, 0x00000000, 0x03000065, 0x001020f2, 0x00000001, 0x03000065,
+        0x001020f2, 0x00000002, 0x06000036, 0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000,
+        0x06000036, 0x001020f2, 0x00000001, 0x00208e46, 0x00000000, 0x00000001, 0x08000036, 0x001020f2,
+        0x00000002, 0x00004002, 0x3f800000, 0x3f800000, 0x3f800000, 0x3f800000, 0x0100003e,
+    };
     const D3D12_SHADER_BYTECODE ps = {
         use_dxil ? (const void*)ps_code_dxil : (const void*)ps_code_dxbc,
         use_dxil ? sizeof(ps_code_dxil) : sizeof(ps_code_dxbc)
     };
+    static const D3D12_SHADER_BYTECODE ps_3rt = SHADER_BYTECODE(ps_code_3rt_dxbc);
     static const struct
     {
         struct
@@ -1681,6 +1706,7 @@ static void test_dual_source_blending(bool use_dxil)
         init_pipeline_state_desc(&pso_desc, context.root_signature,
                 context.render_target_desc.Format, NULL, &ps, NULL);
     }
+
     pso_desc.BlendState.RenderTarget[0].BlendEnable = true;
     pso_desc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_COLOR;
     pso_desc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_SRC1_COLOR;
@@ -1688,6 +1714,54 @@ static void test_dual_source_blending(bool use_dxil)
     pso_desc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_SRC_ALPHA;
     pso_desc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_SRC1_ALPHA;
     pso_desc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+
+    pso_desc.NumRenderTargets = 2;
+    pso_desc.RTVFormats[1] = pso_desc.RTVFormats[0];
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == E_INVALIDARG, "Unexpected result, hr %#x.\n", hr);
+
+    /* Write mask of 0 is not enough. */
+    pso_desc.BlendState.IndependentBlendEnable = TRUE;
+    pso_desc.BlendState.RenderTarget[1].RenderTargetWriteMask = 0;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+        &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
+    ok(hr == E_INVALIDARG, "Unexpected result, hr %#x.\n", hr);
+
+    /* This appears to be allowed however. */
+    pso_desc.RTVFormats[1] = DXGI_FORMAT_UNKNOWN;
+    pso_desc.BlendState.IndependentBlendEnable = FALSE;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+        &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ID3D12PipelineState_Release(context.pipeline_state);
+
+    /* >2 RTs is also allowed as long as we keep using NULL format. */
+    pso_desc.NumRenderTargets = 3;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+        &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ID3D12PipelineState_Release(context.pipeline_state);
+
+    /* This is still allowed. We need to only consider RTs with IOSIG entry apparently ... */
+    pso_desc.RTVFormats[2] = pso_desc.RTVFormats[0];
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+        &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ID3D12PipelineState_Release(context.pipeline_state);
+
+    if (!use_dxil)
+    {
+        /* If we try to write to o2 however, this must fail. */
+        pso_desc.PS = ps_3rt;
+        hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
+        ok(hr == E_INVALIDARG, "Unexpected result, hr %#x.\n", hr);
+        pso_desc.PS = ps;
+    }
+
+    pso_desc.NumRenderTargets = 1;
+    pso_desc.RTVFormats[2] = DXGI_FORMAT_UNKNOWN;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
     ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
@@ -1727,7 +1801,7 @@ static void test_dual_source_blending(bool use_dxil)
     pso_desc.BlendState.RenderTarget[1] = pso_desc.BlendState.RenderTarget[0];
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
     if (SUCCEEDED(hr))
         ID3D12PipelineState_Release(context.pipeline_state);
     context.pipeline_state = NULL;
@@ -1736,7 +1810,7 @@ static void test_dual_source_blending(bool use_dxil)
     pso_desc.BlendState.RenderTarget[1].DestBlend = D3D12_BLEND_SRC_COLOR;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
     if (SUCCEEDED(hr))
         ID3D12PipelineState_Release(context.pipeline_state);
     context.pipeline_state = NULL;
@@ -1753,7 +1827,7 @@ static void test_dual_source_blending(bool use_dxil)
     pso_desc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
-    todo ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
     if (SUCCEEDED(hr))
         ID3D12PipelineState_Release(context.pipeline_state);
     context.pipeline_state = NULL;
