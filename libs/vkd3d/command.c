@@ -4496,7 +4496,8 @@ static bool d3d12_command_list_has_depth_stencil_view(struct d3d12_command_list 
     assert(d3d12_pipeline_state_is_graphics(list->state));
     graphics = &list->state->graphics;
 
-    return list->dsv.format && (graphics->dsv_format || d3d12_graphics_pipeline_state_has_unknown_dsv_format(graphics));
+    return list->dsv.format && (graphics->dsv_format ||
+            d3d12_graphics_pipeline_state_has_unknown_dsv_format_with_test(graphics));
 }
 
 static void d3d12_command_list_get_fb_extent(struct d3d12_command_list *list,
@@ -8055,7 +8056,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
     {
         graphics = &list->state->graphics;
 
-        if (prev_dsv_format != next_dsv_format && d3d12_graphics_pipeline_state_has_unknown_dsv_format(graphics))
+        if (prev_dsv_format != next_dsv_format &&
+                d3d12_graphics_pipeline_state_has_unknown_dsv_format_with_test(graphics))
         {
             /* If we change the NULL-ness of the depth-stencil attachment, we are
              * at risk of having to use fallback pipelines. Invalidate the pipeline

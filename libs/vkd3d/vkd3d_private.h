@@ -1553,7 +1553,9 @@ static inline bool d3d12_pipeline_state_is_graphics(const struct d3d12_pipeline_
     return state && state->vk_bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS;
 }
 
-static inline bool d3d12_graphics_pipeline_state_has_unknown_dsv_format(
+/* This returns true for invalid D3D12 API usage. Game intends to use depth-stencil tests,
+ * but we don't know the format until bind time. Some games like SottR rely on this to work ... somehow. */
+static inline bool d3d12_graphics_pipeline_state_has_unknown_dsv_format_with_test(
         const struct d3d12_graphics_pipeline_state *graphics)
 {
     return graphics->null_attachment_mask & dsv_attachment_mask(graphics);
