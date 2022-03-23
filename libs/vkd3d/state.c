@@ -2887,7 +2887,37 @@ static HRESULT d3d12_pipeline_state_validate_blend_state(struct d3d12_pipeline_s
         const struct d3d12_pipeline_state_desc *desc, const struct vkd3d_shader_signature *sig)
 {
     const struct vkd3d_format *format;
-    unsigned int i, j;
+    unsigned int i, j, register_index;
+
+    if (is_dual_source_blending(&desc->blend_state.RenderTarget[0]))
+    {
+        /* If we enable dual source blending, we must fail an RT index > 0 which has
+         * an IO-sig entry with non-NULL format. */
+        for (i = 0; i < sig->element_count; i++)
+        {
+            register_index = sig->elements[i].register_index;
+            if (register_index >= ARRAY_SIZE(desc->rtv_formats.RTFormats))
+            {
+                WARN("Register index %u out of bounds.\n", register_index);
+                return E_INVALIDARG;
+            }
+
+            if (register_index > 0)
+            {
+                if (desc->rtv_formats.RTFormats[register_index] != DXGI_FORMAT_UNKNOWN)
+                {
+                    WARN("Cannot enable dual-source blending for active RT %u.\n", register_index);
+                    return E_INVALIDARG;
+                }
+
+                if (desc->blend_state.IndependentBlendEnable && desc->blend_state.RenderTarget[i].BlendEnable)
+                {
+                    WARN("Blend enable cannot be set for render target %u when dual source blending is used.\n", i);
+                    return E_INVALIDARG;
+                }
+            }
+        }
+    }
 
     for (i = 0; i < desc->rtv_formats.NumRenderTargets; i++)
     {
@@ -3143,25 +3173,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
          * Be defensive about programs which do not do this for us. */
         memset(graphics->blend_attachments + 1, 0,
                 sizeof(graphics->blend_attachments[0]) * (ARRAY_SIZE(graphics->blend_attachments) - 1));
-    }
-
-    if (compile_args.dual_source_blending && rt_count > 1)
-    {
-        WARN("Only one render target is allowed when dual source blending is used.\n");
-        hr = E_INVALIDARG;
-        goto fail;
-    }
-    if (compile_args.dual_source_blending && desc->blend_state.IndependentBlendEnable)
-    {
-        for (i = 1; i < ARRAY_SIZE(desc->blend_state.RenderTarget); ++i)
-        {
-            if (desc->blend_state.RenderTarget[i].BlendEnable)
-            {
-                WARN("Blend enable cannot be set for render target %u when dual source blending is used.\n", i);
-                hr = E_INVALIDARG;
-                goto fail;
-            }
-        }
     }
 
     graphics->xfb_enabled = false;
