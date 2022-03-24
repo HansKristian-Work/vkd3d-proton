@@ -3949,8 +3949,13 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     rendering_info.viewMask = 0;
     rendering_info.colorAttachmentCount = graphics->rt_count;
     rendering_info.pColorAttachmentFormats = rtv_formats;
-    rendering_info.depthAttachmentFormat = dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
-    rendering_info.stencilAttachmentFormat = dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
+
+    /* From spec:  If depthAttachmentFormat is not VK_FORMAT_UNDEFINED, it must be a format that includes a depth aspect. */
+    rendering_info.depthAttachmentFormat = dsv_format && (dsv_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT) ?
+            dsv_format->vk_format : VK_FORMAT_UNDEFINED;
+    /* From spec:  If stencilAttachmentFormat is not VK_FORMAT_UNDEFINED, it must be a format that includes a stencil aspect. */
+    rendering_info.stencilAttachmentFormat = dsv_format && (dsv_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT) ?
+            dsv_format->vk_format : VK_FORMAT_UNDEFINED;
 
     for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
     {
