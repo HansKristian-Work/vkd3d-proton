@@ -986,6 +986,7 @@ struct vkd3d_texture_view_desc
     VkImage image;
     VkImageViewType view_type;
     VkImageAspectFlags aspect_mask;
+    VkImageUsageFlags image_usage;
     const struct vkd3d_format *format;
     unsigned int miplevel_idx;
     unsigned int miplevel_count;
