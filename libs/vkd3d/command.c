@@ -4553,10 +4553,20 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
         }
     }
 
+    rendering_info->info.pDepthAttachment = NULL;
+    rendering_info->info.pStencilAttachment = NULL;
+
     if (d3d12_command_list_has_depth_stencil_view(list))
     {
         rendering_info->dsv.imageView = list->dsv.view->vk_image_view;
         rendering_info->dsv.imageLayout = list->dsv_layout;
+
+        /* Spec says that to use pDepthAttachment or pStencilAttachment, with non-NULL image view,
+         * the format must have the aspect mask set. */
+        if (list->dsv.view->format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
+            rendering_info->info.pDepthAttachment = &rendering_info->dsv;
+        if (list->dsv.view->format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT)
+            rendering_info->info.pStencilAttachment = &rendering_info->dsv;
     }
     else
     {
@@ -6033,8 +6043,10 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
 
         if (dst_is_depth_stencil)
         {
-            rendering_info.pDepthAttachment = &attachment_info;
-            rendering_info.pStencilAttachment = &attachment_info;
+            if (dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
+                rendering_info.pDepthAttachment = &attachment_info;
+            if (dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT)
+                rendering_info.pStencilAttachment = &attachment_info;
         }
         else
         {
@@ -10053,8 +10065,6 @@ static void d3d12_command_list_init_rendering_info(struct d3d12_device *device, 
     rendering_info->info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR;
     rendering_info->info.colorAttachmentCount = D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT;
     rendering_info->info.pColorAttachments = rendering_info->rtv;
-    rendering_info->info.pDepthAttachment = &rendering_info->dsv;
-    rendering_info->info.pStencilAttachment = &rendering_info->dsv;
 
     for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
         d3d12_command_list_init_attachment_info(&rendering_info->rtv[i]);

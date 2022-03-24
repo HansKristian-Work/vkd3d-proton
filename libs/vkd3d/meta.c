@@ -138,7 +138,7 @@ static VkResult vkd3d_meta_create_compute_pipeline(struct d3d12_device *device,
 }
 
 static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_ops,
-        VkPipelineLayout layout, VkFormat color_format, VkFormat ds_format,
+        VkPipelineLayout layout, VkFormat color_format, VkFormat ds_format, VkImageAspectFlags vk_aspect_mask,
         VkShaderModule vs_module, VkShaderModule fs_module,
         VkSampleCountFlagBits samples, const VkPipelineDepthStencilStateCreateInfo *ds_state,
         const VkPipelineColorBlendStateCreateInfo *cb_state, const VkSpecializationInfo *spec_info,
@@ -218,10 +218,10 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
     rendering_info.pNext = NULL;
     rendering_info.viewMask = 0;
-    rendering_info.colorAttachmentCount = color_format ? 1 : 0;
+    rendering_info.colorAttachmentCount = color_format && (vk_aspect_mask & VK_IMAGE_ASPECT_COLOR_BIT) ? 1 : 0;
     rendering_info.pColorAttachmentFormats = color_format ? &color_format : NULL;
-    rendering_info.depthAttachmentFormat = ds_format;
-    rendering_info.stencilAttachmentFormat = ds_format;
+    rendering_info.depthAttachmentFormat = (vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT) ? ds_format : VK_FORMAT_UNDEFINED;
+    rendering_info.stencilAttachmentFormat = (vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT) ? ds_format : VK_FORMAT_UNDEFINED;
 
     pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipeline_info.pNext = &rendering_info;
@@ -611,7 +611,7 @@ static HRESULT vkd3d_meta_create_swapchain_pipeline(struct vkd3d_meta_ops *meta_
             VK_COLOR_COMPONENT_A_BIT;
 
     if ((vr = vkd3d_meta_create_graphics_pipeline(meta_ops,
-            meta_swapchain_ops->vk_pipeline_layouts[key->filter], key->format, VK_FORMAT_UNDEFINED,
+            meta_swapchain_ops->vk_pipeline_layouts[key->filter], key->format, VK_FORMAT_UNDEFINED, VK_IMAGE_ASPECT_COLOR_BIT,
             meta_swapchain_ops->vk_vs_module, meta_swapchain_ops->vk_fs_module, 1,
             NULL, &cb_state,
             NULL, &pipeline->vk_pipeline)) < 0)
@@ -731,6 +731,7 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
             meta_copy_image_ops->vk_pipeline_layout,
             has_depth_target ? VK_FORMAT_UNDEFINED : key->format->vk_format,
             has_depth_target ? key->format->vk_format : VK_FORMAT_UNDEFINED,
+            key->format->vk_aspect_mask,
             VK_NULL_HANDLE, vk_module, key->sample_count,
             has_depth_target ? &ds_state : NULL, has_depth_target ? NULL : &cb_state,
             &spec_info, &pipeline->vk_pipeline)) < 0)
