@@ -5986,6 +5986,8 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         dst_view_desc.layer_count = region->dstSubresource.layerCount;
         /* A render pass must cover all depth-stencil aspects. */
         dst_view_desc.aspect_mask = dst_resource->format->vk_aspect_mask;
+        dst_view_desc.image_usage = (pipeline_key.dst_aspect_mask & VK_IMAGE_ASPECT_COLOR_BIT) ?
+                VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT : VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
         dst_view_desc.allowed_swizzle = false;
 
         memset(&src_view_desc, 0, sizeof(src_view_desc));
@@ -5997,6 +5999,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         src_view_desc.layer_idx = region->srcSubresource.baseArrayLayer;
         src_view_desc.layer_count = region->srcSubresource.layerCount;
         src_view_desc.aspect_mask = region->srcSubresource.aspectMask;
+        src_view_desc.image_usage = VK_IMAGE_USAGE_SAMPLED_BIT;
         src_view_desc.allowed_swizzle = false;
 
         if (!vkd3d_create_texture_view(list->device, &dst_view_desc, &dst_view) ||
@@ -8523,6 +8526,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
             view_desc.layer_idx = base_view->info.texture.layer_idx;
             view_desc.layer_count = base_view->info.texture.layer_count;
             view_desc.aspect_mask = view_desc.format->vk_aspect_mask;
+            view_desc.image_usage = VK_IMAGE_USAGE_STORAGE_BIT;
             view_desc.allowed_swizzle = false;
 
             if (!vkd3d_create_texture_view(list->device, &view_desc, &args.u.view))

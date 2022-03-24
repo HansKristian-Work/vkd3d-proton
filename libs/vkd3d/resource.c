@@ -841,6 +841,7 @@ static uint32_t vkd3d_view_entry_hash(const void *key)
             hash = hash_combine(hash, k->u.texture.components.g);
             hash = hash_combine(hash, k->u.texture.components.b);
             hash = hash_combine(hash, k->u.texture.components.a);
+            hash = hash_combine(hash, k->u.texture.image_usage);
             hash = hash_combine(hash, k->u.texture.allowed_swizzle);
             break;
 
@@ -901,6 +902,7 @@ static bool vkd3d_view_entry_compare(const void *key, const struct hash_map_entr
                     k->u.texture.components.g == e->key.u.texture.components.g &&
                     k->u.texture.components.b == e->key.u.texture.components.b &&
                     k->u.texture.components.a == e->key.u.texture.components.a &&
+                    k->u.texture.image_usage == e->key.u.texture.image_usage &&
                     k->u.texture.allowed_swizzle == e->key.u.texture.allowed_swizzle;
 
         case VKD3D_VIEW_TYPE_SAMPLER:
@@ -3649,6 +3651,7 @@ static bool init_default_texture_view_desc(struct vkd3d_texture_view_desc *desc,
     desc->miplevel_clamp = 0.0f;
     desc->layer_idx = 0;
     desc->layer_count = d3d12_resource_desc_get_layer_count(&resource->desc);
+    desc->image_usage = 0;
 
     switch (resource->desc.Dimension)
     {
@@ -3683,6 +3686,7 @@ static bool init_default_texture_view_desc(struct vkd3d_texture_view_desc *desc,
 bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_texture_view_desc *desc, struct vkd3d_view **view)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkImageViewUsageCreateInfo image_usage_create_info;
     const struct vkd3d_format *format = desc->format;
     VkImageViewMinLodCreateInfoEXT min_lod_desc;
     VkImageView vk_view = VK_NULL_HANDLE;
@@ -3732,6 +3736,11 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_t
                 view_desc.subresourceRange.baseMipLevel = clamp_base_level;
             }
         }
+
+        image_usage_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO;
+        image_usage_create_info.pNext = NULL;
+        image_usage_create_info.usage = desc->image_usage;
+        vk_prepend_struct(&view_desc, &image_usage_create_info);
 
         if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, &vk_view))) < 0)
         {
@@ -4230,6 +4239,7 @@ static void vkd3d_create_texture_srv(vkd3d_cpu_descriptor_va_t desc_va,
     key.view_type = VKD3D_VIEW_TYPE_IMAGE;
     key.u.texture.miplevel_count = VK_REMAINING_MIP_LEVELS;
     key.u.texture.allowed_swizzle = true;
+    key.u.texture.image_usage = VK_IMAGE_USAGE_SAMPLED_BIT;
 
     if (desc)
     {
@@ -4623,6 +4633,8 @@ static void vkd3d_create_texture_uav(vkd3d_cpu_descriptor_va_t desc_va,
 
     if (!init_default_texture_view_desc(&key.u.texture, resource, desc ? desc->Format : 0))
         return;
+
+    key.u.texture.image_usage = VK_IMAGE_USAGE_STORAGE_BIT;
 
     if (vkd3d_format_is_compressed(key.u.texture.format))
     {
@@ -5046,6 +5058,7 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
     }
 
     key.view_type = VKD3D_VIEW_TYPE_IMAGE;
+    key.u.texture.image_usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
     if (desc)
     {
@@ -5151,6 +5164,7 @@ void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_dev
     }
 
     key.view_type = VKD3D_VIEW_TYPE_IMAGE;
+    key.u.texture.image_usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
 
     if (desc)
     {
