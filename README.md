@@ -185,6 +185,39 @@ commas or semicolons.
  - `VKD3D_PROFILE_PATH` - If profiling is enabled in the build, a profiling block is
    emitted to `${VKD3D_PROFILE_PATH}.${pid}`.
 
+## Shader cache
+
+By default, vkd3d-proton manages its own driver cache.
+This cache is intended to cache DXBC/DXIL -> SPIR-V conversion.
+This reduces stutter (when pipelines are created last minute and app relies on hot driver cache)
+and load times (when applications do the right thing of loading PSOs up front).
+
+Behavior is designed to be close to DXVK state cache.
+
+#### Default behavior
+
+`vkd3d-proton.cache` (and `vkd3d-proton.cache.write`) are placed in the current working directory.
+Generally, this is the game install folder when running in Steam.
+
+#### Custom directory
+
+`VKD3D_SHADER_CACHE_PATH=/path/to/directory` overrides the directory where `vkd3d-proton.cache` is placed.
+
+#### Disable cache
+
+`VKD3D_SHADER_CACHE_PATH=0` disables the internal cache, and any caching would have to be explicitly managed
+by application.
+
+### Behavior of ID3D12PipelineLibrary
+
+When explicit shader cache is used, the need for application managed pipeline libraries is greatly diminished,
+and the cache applications interact with is a dummy cache.
+If the vkd3d-proton shader cache is disabled, ID3D12PipelineLibrary stores everything relevant for a full cache,
+i.e. SPIR-V and PSO driver cache blob.
+`VKD3D_CONFIG=pipeline_library_app_cache` is an alternative to `VKD3D_SHADER_CACHE_PATH=0` and can be
+automatically enabled based on app-profiles if relevant in the future if applications manage the caches better
+than vkd3d-proton can do automagically.
+
 ## CPU profiling (development)
 
 Pass `-Denable_profiling=true` to Meson to enable a profiled build. With a profiled build, use `VKD3D_PROFILE_PATH` environment variable.
