@@ -41,20 +41,16 @@ These extensions will likely become mandatory later.
 ### AMD (RADV)
 
 For AMD, RADV is the recommended driver and the one that sees most testing on AMD GPUs.
-The recommendation here is to use a driver built from Git.
+The minimum requirement at the moment is Mesa 22.0 since it supports `VK_KHR_dynamic_rendering`.
+
+NOTE: For older Mesa versions, use the v2.6 release.
 
 ### NVIDIA
 
 The [Vulkan beta drivers](https://developer.nvidia.com/vulkan-driver) generally contain the latest
 driver fixes that we identify while getting games to work.
-At least Linux 455.26.01 (2020-10-20) is recommended as it contains fixes for:
-
-> Reduce host memory consumption for descriptor memory when VkDescriptorSetVariableDescriptorCountAllocateInfo is used.
-
-> Fixed a bug in a barrier optimization that allowed some back-to-back copies to run unordered
-
-These fixes should find their way into stable drivers eventually, but if you're having issues, test the latest development drivers,
-as that is what we test against.
+The latest drivers (stable, beta or Vulkan beta tracks) are always preferred.
+If you're having problems, always try the latest drivers.
 
 ### Intel
 
