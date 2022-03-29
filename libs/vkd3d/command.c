@@ -9550,9 +9550,10 @@ static bool vk_pipeline_stage_from_wbi_mode(D3D12_WRITEBUFFERIMMEDIATE_MODE mode
 {
     switch (mode)
     {
-        /* It is not entirely clear what DEFAULT is supposed
-         * to do exactly, so treat it the same way as IN */
         case D3D12_WRITEBUFFERIMMEDIATE_MODE_DEFAULT:
+            *stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            return true;
+
         case D3D12_WRITEBUFFERIMMEDIATE_MODE_MARKER_IN:
             *stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
             return true;
@@ -9571,14 +9572,23 @@ static void STDMETHODCALLTYPE d3d12_command_list_WriteBufferImmediate(d3d12_comm
         const D3D12_WRITEBUFFERIMMEDIATE_MODE *modes)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    VkPipelineStageFlags wait_stage_mask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkPipelineStageFlagBits stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
     const struct vkd3d_unique_resource *resource;
+    D3D12_WRITEBUFFERIMMEDIATE_MODE mode;
+    bool flush_after, flush_before;
+    VkPipelineStageFlagBits stage;
+    uint32_t dword_buffer[64];
+    VkDeviceSize curr_offset;
+    unsigned int dword_count;
+    VkBuffer curr_buffer;
     VkDeviceSize offset;
     unsigned int i;
 
     TRACE("iface %p, count %u, parameters %p, modes %p.\n", iface, count, parameters, modes);
+
+    curr_buffer = VK_NULL_HANDLE;
+    curr_offset = 0;
+    dword_count = 0;
 
     for (i = 0; i < count; ++i)
     {
@@ -9589,31 +9599,65 @@ static void STDMETHODCALLTYPE d3d12_command_list_WriteBufferImmediate(d3d12_comm
         }
 
         offset = parameters[i].Dest - resource->va;
+        mode = modes ? modes[i] : D3D12_WRITEBUFFERIMMEDIATE_MODE_DEFAULT;
 
-        if (modes && !vk_pipeline_stage_from_wbi_mode(modes[i], &stage))
+        if (!vk_pipeline_stage_from_wbi_mode(mode, &stage))
         {
-            d3d12_command_list_mark_as_invalid(list, "Invalid mode %u.\n", modes[i]);
+            d3d12_command_list_mark_as_invalid(list, "Invalid WBI mode %u.\n", mode);
             return;
         }
 
-        if (list->device->vk_info.AMD_buffer_marker)
-        {
-            VK_CALL(vkCmdWriteBufferMarkerAMD(list->vk_command_buffer, stage,
-                    resource->vk_buffer, offset, parameters[i].Value));
-        }
-        else
+        /* MODE_DEFAULT behaves like a normal transfer operation, and some games
+         * use this to update large parts of a buffer, so try to batch consecutive
+         * writes. Ignore marker semantics if AMD_buffer_marker is not supported
+         * since we cannot implement them in a useful way otherwise. */
+        if (mode == D3D12_WRITEBUFFERIMMEDIATE_MODE_DEFAULT || !list->device->vk_info.AMD_buffer_marker)
         {
             d3d12_command_list_end_current_render_pass(list, true);
 
-            if (!(wait_stage_mask & stage))
+            flush_before = resource->vk_buffer != curr_buffer ||
+                    offset != curr_offset + dword_count * sizeof(uint32_t);
+
+            if (flush_before)
             {
-                VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer, stage,
-                        VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 0, NULL));
-                wait_stage_mask |= stage;
+                if (dword_count)
+                {
+                    d3d12_command_list_mark_copy_buffer_write(list, curr_buffer,
+                            curr_offset, dword_count * sizeof(uint32_t), false);
+
+                    VK_CALL(vkCmdUpdateBuffer(list->vk_command_buffer, curr_buffer,
+                            curr_offset, dword_count * sizeof(uint32_t), dword_buffer));
+                }
+
+                curr_buffer = resource->vk_buffer;
+                curr_offset = offset;
+                dword_count = 0;
             }
 
-            VK_CALL(vkCmdUpdateBuffer(list->vk_command_buffer, resource->vk_buffer,
-                    offset, sizeof(parameters[i].Value), &parameters[i].Value));
+            dword_buffer[dword_count++] = parameters[i].Value;
+
+            /* Record batched writes if the buffer is full or if we're at the
+             * end of the list, or if the next write has marker semantics. */
+            flush_after = dword_count == ARRAY_SIZE(dword_buffer) || i + 1 == count ||
+                    (modes && modes[i + 1] != mode && list->device->vk_info.AMD_buffer_marker);
+
+            if (flush_after)
+            {
+                d3d12_command_list_mark_copy_buffer_write(list, curr_buffer,
+                        curr_offset, dword_count * sizeof(uint32_t), false);
+
+                VK_CALL(vkCmdUpdateBuffer(list->vk_command_buffer, curr_buffer,
+                        curr_offset, dword_count * sizeof(uint32_t), dword_buffer));
+
+                curr_buffer = VK_NULL_HANDLE;
+                curr_offset = 0;
+                dword_count = 0;
+            }
+        }
+        else
+        {
+            VK_CALL(vkCmdWriteBufferMarkerAMD(list->vk_command_buffer, stage,
+                    resource->vk_buffer, offset, parameters[i].Value));
         }
     }
 
