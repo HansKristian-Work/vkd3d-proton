@@ -2860,9 +2860,9 @@ void test_conditional_rendering(void)
 
 void test_write_buffer_immediate(void)
 {
-    D3D12_WRITEBUFFERIMMEDIATE_PARAMETER parameters[2];
+    D3D12_WRITEBUFFERIMMEDIATE_PARAMETER parameters[3];
     ID3D12GraphicsCommandList2 *command_list2;
-    D3D12_WRITEBUFFERIMMEDIATE_MODE modes[2];
+    D3D12_WRITEBUFFERIMMEDIATE_MODE modes[3];
     ID3D12GraphicsCommandList *command_list;
     struct resource_readback rb;
     struct test_context context;
@@ -2872,7 +2872,7 @@ void test_write_buffer_immediate(void)
     unsigned int value;
     HRESULT hr;
 
-    static const unsigned int data_values[] = {0xdeadbeef, 0xf00baa};
+    static const unsigned int data_values[] = {0xdeadbeef, 0xf00baa, 0xdeadbeef, 0xf00baa};
 
     if (!init_test_context(&context, NULL))
         return;
@@ -2897,6 +2897,8 @@ void test_write_buffer_immediate(void)
     parameters[0].Value = 0x1020304;
     parameters[1].Dest = parameters[0].Dest + sizeof(data_values[0]);
     parameters[1].Value = 0xc0d0e0f;
+    parameters[2].Dest = parameters[0].Dest + sizeof(data_values[0]) * 3;
+    parameters[2].Value = 0x5060708;
     ID3D12GraphicsCommandList2_WriteBufferImmediate(command_list2, ARRAY_SIZE(parameters), parameters, NULL);
     hr = ID3D12GraphicsCommandList_Close(command_list);
     ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
@@ -2909,13 +2911,19 @@ void test_write_buffer_immediate(void)
     ok(value == parameters[0].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[0].Value);
     value = get_readback_uint(&rb, 1, 0, 0);
     ok(value == parameters[1].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[1].Value);
+    value = get_readback_uint(&rb, 2, 0, 0);
+    ok(value == data_values[2], "Got unexpected value %#x, expected %#x.\n", value, data_values[2]);
+    value = get_readback_uint(&rb, 3, 0, 0);
+    ok(value == parameters[2].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[2].Value);
     release_resource_readback(&rb);
     reset_command_list(command_list, context.allocator);
 
     parameters[0].Value = 0x2030405;
     parameters[1].Value = 0xb0c0d0e;
-    modes[0] = D3D12_WRITEBUFFERIMMEDIATE_MODE_MARKER_IN;
-    modes[1] = D3D12_WRITEBUFFERIMMEDIATE_MODE_MARKER_OUT;
+    parameters[2].Value = 0x708090a;
+    modes[0] = D3D12_WRITEBUFFERIMMEDIATE_MODE_DEFAULT;
+    modes[1] = D3D12_WRITEBUFFERIMMEDIATE_MODE_MARKER_IN;
+    modes[2] = D3D12_WRITEBUFFERIMMEDIATE_MODE_MARKER_OUT;
     ID3D12GraphicsCommandList2_WriteBufferImmediate(command_list2, ARRAY_SIZE(parameters), parameters, modes);
     hr = ID3D12GraphicsCommandList_Close(command_list);
     ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
@@ -2928,6 +2936,8 @@ void test_write_buffer_immediate(void)
     ok(value == parameters[0].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[0].Value);
     value = get_readback_uint(&rb, 1, 0, 0);
     ok(value == parameters[1].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[1].Value);
+    value = get_readback_uint(&rb, 3, 0, 0);
+    ok(value == parameters[2].Value, "Got unexpected value %#x, expected %#x.\n", value, parameters[2].Value);
     release_resource_readback(&rb);
     reset_command_list(command_list, context.allocator);
 
