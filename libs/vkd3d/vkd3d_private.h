@@ -130,6 +130,7 @@ struct vkd3d_vulkan_info
     bool KHR_copy_commands2;
     bool KHR_dynamic_rendering;
     bool KHR_driver_properties;
+    bool KHR_uniform_buffer_standard_layout;
     /* EXT device extensions */
     bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;
@@ -2990,6 +2991,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceShaderAtomicInt64FeaturesKHR shader_atomic_int64_features;
     VkPhysicalDeviceShaderImageAtomicInt64FeaturesEXT shader_image_atomic_int64_features;
     VkPhysicalDeviceScalarBlockLayoutFeaturesEXT scalar_block_layout_features;
+    VkPhysicalDeviceUniformBufferStandardLayoutFeatures uniform_buffer_standard_layout_features;
     VkPhysicalDeviceImageViewMinLodFeaturesEXT image_view_min_lod_features;
     VkPhysicalDeviceDescriptorSetHostMappingFeaturesVALVE descriptor_set_host_mapping_features;
     VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamic_rendering_features;
