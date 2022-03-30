@@ -83,6 +83,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_COPY_COMMANDS_2, KHR_copy_commands2),
     VK_EXTENSION(KHR_DYNAMIC_RENDERING, KHR_dynamic_rendering),
     VK_EXTENSION(KHR_DRIVER_PROPERTIES, KHR_driver_properties),
+    VK_EXTENSION(KHR_UNIFORM_BUFFER_STANDARD_LAYOUT, KHR_uniform_buffer_standard_layout),
     /* EXT extensions */
     VK_EXTENSION(EXT_CALIBRATED_TIMESTAMPS, EXT_calibrated_timestamps),
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
@@ -1385,6 +1386,13 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->scalar_block_layout_features.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES_EXT;
         vk_prepend_struct(&info->features2, &info->scalar_block_layout_features);
+    }
+
+    if (vulkan_info->KHR_uniform_buffer_standard_layout)
+    {
+        info->uniform_buffer_standard_layout_features.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES;
+        vk_prepend_struct(&info->features2, &info->uniform_buffer_standard_layout_features);
     }
 
     if (vulkan_info->KHR_dynamic_rendering)
@@ -5592,6 +5600,7 @@ static void d3d12_device_caps_init_feature_options4(struct d3d12_device *device)
     options4->SharedResourceCompatibilityTier = D3D12_SHARED_RESOURCE_COMPATIBILITY_TIER_0;
     options4->Native16BitShaderOpsSupported = device->device_info.float16_int8_features.shaderFloat16 &&
             device->device_info.features2.features.shaderInt16 &&
+            device->device_info.storage_16bit_features.uniformAndStorageBuffer16BitAccess &&
             device->device_info.subgroup_extended_types_features.shaderSubgroupExtendedTypes;
 }
 
@@ -5735,8 +5744,13 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
             VK_SHADER_STAGE_COMPUTE_BIT |
             VK_SHADER_STAGE_FRAGMENT_BIT;
 
+    /* We need to support modern cbuffer layout in SM 6.0, which is equivalent to array of scalars with
+     * tight packing. Either scalar block layout or the more relaxed UBO standard layout feature exposes this. */
+
     if (device->api_version >= VK_API_VERSION_1_1 &&
         physical_device_info->subgroup_properties.subgroupSize >= 4 &&
+        (physical_device_info->uniform_buffer_standard_layout_features.uniformBufferStandardLayout ||
+         physical_device_info->scalar_block_layout_features.scalarBlockLayout) &&
         (physical_device_info->subgroup_properties.supportedOperations & required) == required &&
         (physical_device_info->subgroup_properties.supportedStages & required_stages) == required_stages)
     {
