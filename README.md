@@ -214,6 +214,17 @@ pass `-Denable_renderdoc=true` to Meson.
  made on first encounter with the target shader.
  If both are set, the capture counter is only incremented and considered when a submission contains the use of the target shader.
 
+### Breadcrumbs debugging
+
+For debugging GPU hangs, it's useful to know where crashes happen.
+If the build has trace enabled (non-release builds), breadcrumbs support is also enabled.
+
+`VKD3D_CONFIG=breadcrumbs` will instrument command lists with `VK_AMD_buffer_marker` or `VK_NV_device_checkpoints`.
+On GPU device lost or timeout, crash dumps are written to the log.
+For best results on RADV, use `RADV_DEBUG=syncshaders`. The logs will print a digested form of the command lists
+which were executing at the time, and attempt to narrow down the possible range of commands which could
+have caused a crash.
+
 ### Shader logging
 
 It is possible to log the output of replaced shaders, essentially a custom shader printf. To enable this feature, `VK_KHR_buffer_device_address` must be supported.
@@ -225,8 +236,11 @@ and avoids any possible accidental hiding of bugs by introducing validation laye
 Using `debugPrintEXT` is also possible if that fits better with your debugging scenario.
 With this shader replacement scheme, we're able to add shader logging as unintrusive as possible.
 
-Replaced shaders will need to include `debug_channel.h` from `include/shader-debug`.
-Use `glslc -I/path/to/vkd3d-proton/include/shader-debug --target-env=vulkan1.1` when compiling replaced shaders.
+```
+# Inside folder full of override shaders, build everything with:
+make -C /path/to/include/shader-debug M=$PWD
+```
+The shader can then include `#include "debug_channel.h"` and use various functions below.
 
 ```
 void DEBUG_CHANNEL_INIT(uvec3 ID);
