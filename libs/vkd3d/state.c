@@ -4574,7 +4574,10 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
     {
         flags |= VKD3D_BINDLESS_RAW_SSBO;
 
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_MUTABLE_SINGLE_SET)
+        /* Intel GPUs have smol descriptor heaps and only way we can fit a D3D12 heap is with
+         * single set mutable. */
+        if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_MUTABLE_SINGLE_SET) ||
+                device_info->properties2.properties.vendorID == VKD3D_VENDOR_ID_INTEL)
         {
             INFO("Enabling single descriptor set path for MUTABLE.\n");
             flags |= VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO;
