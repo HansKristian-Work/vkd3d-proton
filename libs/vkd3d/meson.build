@@ -39,7 +39,6 @@ vkd3d_src = [
   'heap.c',
   'memory.c',
   'meta.c',
-  'platform.c',
   'resource.c',
   'state.c',
   'utils.c',

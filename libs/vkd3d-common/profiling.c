@@ -21,6 +21,7 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 
 #include "vkd3d_profiling.h"
+#include "vkd3d_platform.h"
 #include "vkd3d_threads.h"
 #include "vkd3d_debug.h"
 #include <stdlib.h>
@@ -124,8 +125,10 @@ static void vkd3d_init_profiling_path(const char *path)
 
 static void vkd3d_init_profiling_once(void)
 {
-    const char *path = getenv("VKD3D_PROFILE_PATH");
-    if (path)
+    char path[VKD3D_PATH_MAX];
+
+    vkd3d_get_env_var("VKD3D_PROFILE_PATH", path, sizeof(path));
+    if (strlen(path) > 0)
         vkd3d_init_profiling_path(path);
 }
 

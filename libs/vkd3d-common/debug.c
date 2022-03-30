@@ -20,6 +20,8 @@
 #include "vkd3d_debug.h"
 #include "vkd3d_threads.h"
 
+#include "vkd3d_platform.h"
+
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
@@ -58,13 +60,13 @@ static FILE *vkd3d_log_file;
 
 static void vkd3d_dbg_init_once(void)
 {
-    const char *vkd3d_debug;
+    char vkd3d_debug[VKD3D_PATH_MAX];
     unsigned int channel, i;
 
     for (channel = 0; channel < VKD3D_DBG_CHANNEL_COUNT; channel++)
     {
-        if (!(vkd3d_debug = getenv(env_for_channel[channel])))
-            vkd3d_debug = "";
+        if (!vkd3d_get_env_var(env_for_channel[channel], vkd3d_debug, sizeof(vkd3d_debug)))
+            strncpy(vkd3d_debug, "", VKD3D_PATH_MAX);
 
         for (i = 1; i < ARRAY_SIZE(debug_level_names); ++i)
             if (!strcmp(debug_level_names[i], vkd3d_debug))
@@ -75,7 +77,7 @@ static void vkd3d_dbg_init_once(void)
             vkd3d_dbg_level[channel] = VKD3D_DBG_LEVEL_FIXME;
     }
 
-    if ((vkd3d_debug = getenv("VKD3D_LOG_FILE")))
+    if (vkd3d_get_env_var("VKD3D_LOG_FILE", vkd3d_debug, sizeof(vkd3d_debug)))
     {
         vkd3d_log_file = fopen(vkd3d_debug, "w");
         if (!vkd3d_log_file)
@@ -281,11 +283,11 @@ const char *debugstr_w(const WCHAR *wstr)
 
 unsigned int vkd3d_env_var_as_uint(const char *name, unsigned int default_value)
 {
-    const char *value = getenv(name);
+    char value[VKD3D_PATH_MAX];
     unsigned long r;
     char *end_ptr;
 
-    if (value)
+    if (vkd3d_get_env_var(name, value, sizeof(value)) && strlen(value) > 0)
     {
         errno = 0;
         r = strtoul(value, &end_ptr, 0);
