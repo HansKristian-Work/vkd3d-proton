@@ -2255,7 +2255,7 @@ static void d3d12_command_list_mark_copy_buffer_write(struct d3d12_command_list 
         VkDeviceSize offset, VkDeviceSize size, bool sparse)
 {
     struct d3d12_buffer_copy_tracked_buffer *tracked_buffer;
-    VkDeviceSize range_end = offset + size;
+    VkDeviceSize range_end;
     unsigned int i;
 
     if (sparse)
@@ -2264,6 +2264,8 @@ static void d3d12_command_list_mark_copy_buffer_write(struct d3d12_command_list 
         offset = 0;
         size = VK_WHOLE_SIZE;
     }
+
+    range_end = offset + size;
 
     for (i = 0; i < list->tracked_copy_buffer_count; i++)
     {
