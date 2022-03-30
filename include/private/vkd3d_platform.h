@@ -37,6 +37,8 @@ int vkd3d_dlclose(vkd3d_module_t handle);
 
 const char *vkd3d_dlerror(void);
 
+bool vkd3d_get_env_var(const char *name, char *value, size_t value_size);
+
 bool vkd3d_get_program_name(char program_name[VKD3D_PATH_MAX]);
 
 #endif

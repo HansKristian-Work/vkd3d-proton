@@ -21,6 +21,7 @@
 #include "vkd3d_private.h"
 #include "vkd3d_debug.h"
 #include "vkd3d_common.h"
+#include "vkd3d_platform.h"
 #include <stdio.h>
 
 void vkd3d_shader_debug_ring_init_spec_constant(struct d3d12_device *device,
@@ -259,10 +260,11 @@ HRESULT vkd3d_shader_debug_ring_init(struct vkd3d_shader_debug_ring *ring,
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_RESOURCE_DESC1 resource_desc;
     VkMemoryPropertyFlags memory_props;
-    const char *env;
+    char env[VKD3D_PATH_MAX];
 
     memset(ring, 0, sizeof(*ring));
-    if (!(env = getenv("VKD3D_SHADER_DEBUG_RING_SIZE_LOG2")))
+
+    if (!vkd3d_get_env_var("VKD3D_SHADER_DEBUG_RING_SIZE_LOG2", env, sizeof(env)))
         return S_OK;
 
     ring->active = true;

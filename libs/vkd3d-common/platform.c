@@ -18,6 +18,8 @@
 
 #include "vkd3d_platform.h"
 
+#include <assert.h>
+
 #if defined(__linux__)
 
 # include <dlfcn.h>
@@ -149,6 +151,46 @@ const char *vkd3d_dlerror(void)
 bool vkd3d_get_program_name(char program_name[VKD3D_PATH_MAX])
 {
     *program_name = '\0';
+    return false;
+}
+
+#endif
+
+#if defined(_WIN32)
+
+bool vkd3d_get_env_var(const char *name, char *value, size_t value_size)
+{
+    DWORD len;
+    
+    assert(value);
+    assert(value_size > 0);
+
+    len = GetEnvironmentVariableA(name, value, value_size);
+    if (len > 0 && len <= value_size)
+    {
+        return true;
+    }
+
+    value[0] = '\0';
+    return false;
+}
+
+#else
+
+bool vkd3d_get_env_var(const char *name, char *value, size_t value_size)
+{
+    const char *env_value;
+
+    assert(value);
+    assert(value_size > 0);
+
+    if ((env_value = getenv(name)))
+    {
+        snprintf(value, value_size, "%s", env_value);
+        return true;
+    }
+
+    value[0] = '\0';
     return false;
 }
 
