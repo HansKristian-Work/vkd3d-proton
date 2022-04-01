@@ -1418,8 +1418,6 @@ HRESULT vkd3d_create_descriptor_set_layout(struct d3d12_device *device,
         VkDescriptorSetLayoutCreateFlags flags, unsigned int binding_count,
         const VkDescriptorSetLayoutBinding *bindings, VkDescriptorSetLayout *set_layout);
 
-#define VKD3D_MAX_DYNAMIC_STATE_COUNT (8)
-
 enum vkd3d_dynamic_state_flag
 {
     VKD3D_DYNAMIC_STATE_VIEWPORT              = (1 << 0),

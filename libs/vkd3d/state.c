@@ -2799,6 +2799,24 @@ static bool vk_blend_attachment_needs_blend_constants(const VkPipelineColorBlend
             vk_blend_factor_needs_blend_constants(attachment->dstAlphaBlendFactor));
 }
 
+static const struct
+{
+    enum vkd3d_dynamic_state_flag flag;
+    VkDynamicState vk_state;
+}
+vkd3d_dynamic_state_list[] =
+{
+    { VKD3D_DYNAMIC_STATE_VIEWPORT,              VK_DYNAMIC_STATE_VIEWPORT_WITH_COUNT_EXT },
+    { VKD3D_DYNAMIC_STATE_SCISSOR,               VK_DYNAMIC_STATE_SCISSOR_WITH_COUNT_EXT },
+    { VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS,       VK_DYNAMIC_STATE_BLEND_CONSTANTS },
+    { VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE,     VK_DYNAMIC_STATE_STENCIL_REFERENCE },
+    { VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS,          VK_DYNAMIC_STATE_DEPTH_BOUNDS },
+    { VKD3D_DYNAMIC_STATE_TOPOLOGY,              VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY_EXT },
+    { VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE,  VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE_EXT },
+    { VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE, VK_DYNAMIC_STATE_FRAGMENT_SHADING_RATE_KHR },
+    { VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART,     VK_DYNAMIC_STATE_PRIMITIVE_RESTART_ENABLE_EXT },
+};
+
 static uint32_t d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_pipeline_state *state,
         VkPipelineDynamicStateCreateInfo *dynamic_desc, VkDynamicState *dynamic_state_buffer,
         const struct vkd3d_pipeline_key *key)
@@ -2806,24 +2824,6 @@ static uint32_t d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_pi
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     uint32_t dynamic_state_flags;
     unsigned int i, count;
-
-    static const struct
-    {
-        enum vkd3d_dynamic_state_flag flag;
-        VkDynamicState vk_state;
-    }
-    dynamic_state_list[] =
-    {
-        { VKD3D_DYNAMIC_STATE_VIEWPORT,              VK_DYNAMIC_STATE_VIEWPORT_WITH_COUNT_EXT },
-        { VKD3D_DYNAMIC_STATE_SCISSOR,               VK_DYNAMIC_STATE_SCISSOR_WITH_COUNT_EXT },
-        { VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS,       VK_DYNAMIC_STATE_BLEND_CONSTANTS },
-        { VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE,     VK_DYNAMIC_STATE_STENCIL_REFERENCE },
-        { VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS,          VK_DYNAMIC_STATE_DEPTH_BOUNDS },
-        { VKD3D_DYNAMIC_STATE_TOPOLOGY,              VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY_EXT },
-        { VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE,  VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE_EXT },
-        { VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE, VK_DYNAMIC_STATE_FRAGMENT_SHADING_RATE_KHR },
-        { VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART,     VK_DYNAMIC_STATE_PRIMITIVE_RESTART_ENABLE_EXT },
-    };
 
     dynamic_state_flags = 0;
 
@@ -2871,10 +2871,10 @@ static uint32_t d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_pi
         dynamic_state_flags |= VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART;
 
     /* Build dynamic state create info */
-    for (i = 0, count = 0; i < ARRAY_SIZE(dynamic_state_list); i++)
+    for (i = 0, count = 0; i < ARRAY_SIZE(vkd3d_dynamic_state_list); i++)
     {
-        if (dynamic_state_flags & dynamic_state_list[i].flag)
-            dynamic_state_buffer[count++] = dynamic_state_list[i].vk_state;
+        if (dynamic_state_flags & vkd3d_dynamic_state_list[i].flag)
+            dynamic_state_buffer[count++] = vkd3d_dynamic_state_list[i].vk_state;
     }
 
     dynamic_desc->sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
@@ -3873,7 +3873,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
 {
     VkVertexInputBindingDescription bindings[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     const struct vkd3d_vk_device_procs *vk_procs = &state->device->vk_procs;
-    VkDynamicState dynamic_state_buffer[VKD3D_MAX_DYNAMIC_STATE_COUNT];
+    VkDynamicState dynamic_state_buffer[ARRAY_SIZE(vkd3d_dynamic_state_list)];
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     VkPipelineVertexInputDivisorStateCreateInfoEXT input_divisor_info;
     VkPipelineCreationFeedbackEXT feedbacks[VKD3D_MAX_SHADER_STAGES];
