@@ -504,6 +504,9 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "eldenring.exe",
             VKD3D_CONFIG_FLAG_MEMORY_ALLOCATOR_SKIP_CLEAR | VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_IGNORE_MISMATCH_DRIVER |
             VKD3D_CONFIG_FLAG_RECYCLE_COMMAND_POOLS, 0 },
+    /* Serious Sam 4 (257420).
+     * Invariant workarounds cause graphical glitches when rendering foliage on NV. */
+    { VKD3D_STRING_COMPARE_EXACT, "Sam4.exe", VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION, 0 },
     { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
 };
 
