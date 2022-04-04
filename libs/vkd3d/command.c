@@ -8305,6 +8305,133 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     }
 }
 
+static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *list,
+        const struct d3d12_desc_split *d, struct d3d12_resource *resource,
+        const struct vkd3d_clear_uav_info *args, uint32_t clear_value,
+        UINT rect_count, const D3D12_RECT *rects)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    unsigned int miplevel_idx, layer_count, i, j;
+    struct vkd3d_scratch_allocation scratch;
+    VkCopyBufferToImageInfo2KHR copy_info;
+    VkBufferImageCopy2KHR copy_region;
+    VkDeviceSize scratch_buffer_size;
+    D3D12_RECT curr_rect, full_rect;
+    VkMemoryBarrier barrier;
+
+    d3d12_command_list_track_resource_usage(list, resource, true);
+    d3d12_command_list_end_current_render_pass(list, false);
+
+    assert(args->has_view);
+    assert(d3d12_resource_is_texture(resource));
+
+    miplevel_idx = args->u.view->info.texture.miplevel_idx;
+
+    full_rect.left = 0;
+    full_rect.right = d3d12_resource_desc_get_width(&resource->desc, miplevel_idx);
+    full_rect.top = 0;
+    full_rect.bottom = d3d12_resource_desc_get_height(&resource->desc, miplevel_idx);
+
+    if (rect_count)
+    {
+        scratch_buffer_size = 0;
+
+        for (i = 0; i < rect_count; i++)
+        {
+            if (rects[i].right > rects[i].left && rects[i].bottom > rects[i].top)
+            {
+                unsigned int w = rects[i].right - rects[i].left;
+                unsigned int h = rects[i].bottom - rects[i].top;
+                scratch_buffer_size = max(scratch_buffer_size, w * h * sizeof(uint32_t));
+            }
+        }
+    }
+    else
+    {
+        scratch_buffer_size = full_rect.right * full_rect.bottom * sizeof(uint32_t);
+    }
+
+    scratch_buffer_size *= d3d12_resource_desc_get_depth(&resource->desc, miplevel_idx);
+
+    if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+            scratch_buffer_size, sizeof(uint32_t), &scratch))
+    {
+        ERR("Failed to allocate scratch memory for UAV clear");
+        return;
+    }
+
+    VK_CALL(vkCmdFillBuffer(list->vk_command_buffer, scratch.buffer,
+            scratch.offset, scratch_buffer_size, clear_value));
+
+    /* Insert barrier to make the buffer clear visible, but also to make the
+     * image safely accessible by the transfer stage. This fallback is so rare
+     * that we should not pessimize regular UAV barriers. */
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    barrier.pNext = NULL;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_TRANSFER_BIT | vk_queue_shader_stages(list->vk_queue_flags),
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, 1, &barrier, 0, NULL, 0, NULL));
+
+    copy_region.sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2_KHR;
+    copy_region.pNext = NULL;
+    copy_region.bufferOffset = scratch.offset;
+    copy_region.bufferRowLength = 0;
+    copy_region.bufferImageHeight = 0;
+    copy_region.imageOffset.z = 0;
+    copy_region.imageExtent.depth = d3d12_resource_desc_get_depth(&resource->desc, miplevel_idx);
+    copy_region.imageSubresource = vk_subresource_layers_from_view(args->u.view);
+    layer_count = copy_region.imageSubresource.layerCount;
+
+    copy_info.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2_KHR;
+    copy_info.pNext = NULL;
+    copy_info.srcBuffer = scratch.buffer;
+    copy_info.dstImage = resource->res.vk_image;
+    copy_info.dstImageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    copy_info.regionCount = 1;
+    copy_info.pRegions = &copy_region;
+
+    curr_rect = full_rect;
+
+    for (i = 0; i < rect_count || !i; i++)
+    {
+        if (rect_count)
+        {
+            /* clamp to actual resource region and skip empty rects */
+            curr_rect.left = max(rects[i].left, full_rect.left);
+            curr_rect.top = max(rects[i].top, full_rect.top);
+            curr_rect.right = min(rects[i].right, full_rect.right);
+            curr_rect.bottom = min(rects[i].bottom, full_rect.bottom);
+
+            if (curr_rect.left >= curr_rect.right || curr_rect.top >= curr_rect.bottom)
+                continue;
+        }
+
+        copy_region.imageOffset.x = curr_rect.left;
+        copy_region.imageOffset.y = curr_rect.top;
+        copy_region.imageExtent.width = curr_rect.right - curr_rect.left;
+        copy_region.imageExtent.height = curr_rect.bottom - curr_rect.top;
+
+        for (j = 0; j < layer_count; j++)
+        {
+            copy_region.imageSubresource.baseArrayLayer = j;
+            copy_region.imageSubresource.layerCount = 1;
+            VK_CALL(vkCmdCopyBufferToImage2KHR(list->vk_command_buffer, &copy_info));
+        }
+    }
+
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            vk_queue_shader_stages(list->vk_queue_flags),
+            0, 1, &barrier, 0, NULL, 0, NULL));
+}
+
 static VkClearColorValue vkd3d_fixup_clear_uav_swizzle(struct d3d12_device *device,
         DXGI_FORMAT dxgi_format, VkClearColorValue color)
 {
@@ -8324,7 +8451,7 @@ static VkClearColorValue vkd3d_fixup_clear_uav_swizzle(struct d3d12_device *devi
 static VkClearColorValue vkd3d_fixup_clear_uav_uint_color(struct d3d12_device *device,
         DXGI_FORMAT dxgi_format, VkClearColorValue color)
 {
-    VkClearColorValue result;
+    VkClearColorValue result = {0};
 
     switch (dxgi_format)
     {
@@ -8345,6 +8472,13 @@ static VkClearColorValue vkd3d_fixup_clear_uav_uint_color(struct d3d12_device *d
         default:
             return color;
     }
+}
+
+static bool vkd3d_clear_uav_uint_use_copy(DXGI_FORMAT dxgi_format)
+{
+    /* ClearUAV assumes that any format here is 32-bit with float
+     * components, adjustments need to be made if that changes */
+    return dxgi_format == DXGI_FORMAT_R11G11B10_FLOAT;
 }
 
 static const struct vkd3d_format *vkd3d_clear_uav_find_uint_format(struct d3d12_device *device, DXGI_FORMAT dxgi_format)
@@ -8441,43 +8575,61 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
     {
         const struct vkd3d_view *base_view = d.view->info.view;
         uint_format = vkd3d_clear_uav_find_uint_format(list->device, base_view->format->dxgi_format);
+        color = vkd3d_fixup_clear_uav_uint_color(list->device, base_view->format->dxgi_format, color);
 
-        if (!uint_format)
+        if (uint_format)
+            vkd3d_mask_uint_clear_color(color.uint32, uint_format->vk_format);
+        else if (!vkd3d_clear_uav_uint_use_copy(base_view->format->dxgi_format))
         {
             ERR("Unhandled format %d.\n", base_view->format->dxgi_format);
             return;
         }
 
-        color = vkd3d_fixup_clear_uav_uint_color(list->device, base_view->format->dxgi_format, color);
-        vkd3d_mask_uint_clear_color(color.uint32, uint_format->vk_format);
-
         if (d3d12_resource_is_texture(resource_impl))
         {
-            struct vkd3d_texture_view_desc view_desc;
-            memset(&view_desc, 0, sizeof(view_desc));
-
-            view_desc.image = resource_impl->res.vk_image;
-            view_desc.view_type = base_view->info.texture.vk_view_type;
-            view_desc.format = uint_format;
-            view_desc.miplevel_idx = base_view->info.texture.miplevel_idx;
-            view_desc.miplevel_count = 1;
-            view_desc.layer_idx = base_view->info.texture.layer_idx;
-            view_desc.layer_count = base_view->info.texture.layer_count;
-            view_desc.aspect_mask = view_desc.format->vk_aspect_mask;
-            view_desc.image_usage = VK_IMAGE_USAGE_STORAGE_BIT;
-            view_desc.allowed_swizzle = false;
-
-            if (!vkd3d_create_texture_view(list->device, &view_desc, &args.u.view))
+            if (uint_format)
             {
-                ERR("Failed to create image view.\n");
-                return;
-            }
+                struct vkd3d_texture_view_desc view_desc;
+                memset(&view_desc, 0, sizeof(view_desc));
 
-            inline_view = args.u.view;
+                view_desc.image = resource_impl->res.vk_image;
+                view_desc.view_type = base_view->info.texture.vk_view_type;
+                view_desc.format = uint_format;
+                view_desc.miplevel_idx = base_view->info.texture.miplevel_idx;
+                view_desc.miplevel_count = 1;
+                view_desc.layer_idx = base_view->info.texture.layer_idx;
+                view_desc.layer_count = base_view->info.texture.layer_count;
+                view_desc.aspect_mask = view_desc.format->vk_aspect_mask;
+                view_desc.image_usage = VK_IMAGE_USAGE_STORAGE_BIT;
+                view_desc.allowed_swizzle = false;
+
+                if (!vkd3d_create_texture_view(list->device, &view_desc, &args.u.view))
+                {
+                    ERR("Failed to create image view.\n");
+                    return;
+                }
+
+                inline_view = args.u.view;
+            }
+            else
+            {
+                /* If the clear color is 0, we can safely use the existing view to perform the
+                 * clear since the bit pattern will not change. Otherwise, fill a scratch buffer
+                 * with the packed clear value and perform a buffer to image copy. */
+                if (color.uint32[0])
+                {
+                    d3d12_command_list_clear_uav_with_copy(list, &d, resource_impl, &args, color.uint32[0], rect_count, rects);
+                    return;
+                }
+            }
         }
         else
         {
             struct vkd3d_buffer_view_desc view_desc;
+
+            if (!uint_format)
+                uint_format = vkd3d_get_format(list->device, DXGI_FORMAT_R32_UINT, false);
+
             view_desc.buffer = resource_impl->res.vk_buffer;
             view_desc.format = uint_format;
             view_desc.offset = base_view->info.buffer.offset;
