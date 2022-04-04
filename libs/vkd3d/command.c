@@ -3653,74 +3653,6 @@ static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_l
     }
 }
 
-static VkAccessFlags vk_access_flags_all_possible_for_buffer(const struct d3d12_device *device,
-        VkQueueFlags vk_queue_flags, bool consider_reads)
-{
-    /* FIXME: Should use MEMORY_READ/WRITE_BIT here, but older RADV is buggy,
-     * and does not consider these access flags at all.
-     * Exhaustively enumerate all relevant access flags ...
-     * TODO: Should be replaced with MEMORY_READ/WRITE_BIT eventually when
-     * we're confident we don't care about older drivers.
-     * Driver was fixed around 2020-07-08. */
-
-    VkAccessFlags access = VK_ACCESS_TRANSFER_WRITE_BIT;
-    if (consider_reads)
-        access |= VK_ACCESS_TRANSFER_READ_BIT;
-
-    if (vk_queue_flags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
-    {
-        access |= VK_ACCESS_SHADER_WRITE_BIT;
-        if (consider_reads)
-            access |= VK_ACCESS_SHADER_READ_BIT;
-    }
-
-    if ((vk_queue_flags & VK_QUEUE_GRAPHICS_BIT) && device->vk_info.EXT_transform_feedback)
-    {
-        access |= VK_ACCESS_TRANSFORM_FEEDBACK_COUNTER_WRITE_BIT_EXT |
-                  VK_ACCESS_TRANSFORM_FEEDBACK_WRITE_BIT_EXT;
-        if (consider_reads)
-            access |= VK_ACCESS_TRANSFORM_FEEDBACK_COUNTER_READ_BIT_EXT;
-    }
-
-    if (consider_reads && (vk_queue_flags & VK_QUEUE_GRAPHICS_BIT) &&
-            device->device_info.conditional_rendering_features.conditionalRendering)
-        access |= VK_ACCESS_CONDITIONAL_RENDERING_READ_BIT_EXT;
-
-    if (consider_reads && (vk_queue_flags & VK_QUEUE_GRAPHICS_BIT))
-    {
-        access |= VK_ACCESS_UNIFORM_READ_BIT |
-                  VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT |
-                  VK_ACCESS_INDEX_READ_BIT |
-                  VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
-    }
-
-    return access;
-}
-
-static VkAccessFlags vk_access_flags_all_possible_for_image(const struct d3d12_device *device,
-        D3D12_RESOURCE_FLAGS flags, VkQueueFlags vk_queue_flags, bool consider_reads)
-{
-    /* Should use MEMORY_READ/WRITE_BIT here, but current RADV is buggy,
-     * and does not consider these access flags at all.
-     * Exhaustively enumerate all relevant access flags ... */
-
-    VkAccessFlags access = 0;
-    if (flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
-    {
-        access |= VK_ACCESS_SHADER_WRITE_BIT;
-        if (consider_reads)
-            access |= VK_ACCESS_SHADER_READ_BIT;
-    }
-
-    if (consider_reads && !(flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))
-        access |= VK_ACCESS_SHADER_READ_BIT;
-
-    /* Copies, render targets and resolve related operations are handled specifically on images elsewhere.
-     * The only possible access flags for images in common layouts are SHADER_READ/WRITE. */
-
-    return access;
-}
-
 static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d12_command_list *list,
         const struct d3d12_resource *resource, uint32_t state_mask, VkQueueFlags vk_queue_flags,
         VkPipelineStageFlags *stages, VkAccessFlags *access)
@@ -3734,11 +3666,7 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
     if (state_mask == D3D12_RESOURCE_STATE_COMMON)
     {
         *stages |= VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-        if (d3d12_resource_is_buffer(resource))
-            *access |= vk_access_flags_all_possible_for_buffer(device, vk_queue_flags, true);
-        else
-            *access |= vk_access_flags_all_possible_for_image(device, resource->desc.Flags, vk_queue_flags, true);
-        return;
+        *access |= VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
     }
 
     while (state_mask)
@@ -7353,19 +7281,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                      * quite weird. We cannot perform UNDEFINED transitions here, even if that is what makes sense.
                      * UNDEFINED transitions are deferred to their required "activation" command, which is a full-subresource
                      * command that writes every pixel. We detect those cases and perform a transition away from UNDEFINED. */
-                    if (before && d3d12_resource_is_texture(before))
-                    {
-                        alias_src_access = vk_access_flags_all_possible_for_image(list->device,
-                                before->desc.Flags,
-                                list->vk_queue_flags,
-                                false);
-                    }
-                    else
-                    {
-                        alias_src_access = vk_access_flags_all_possible_for_buffer(list->device,
-                                list->vk_queue_flags,
-                                false);
-                    }
+                    alias_src_access = VK_ACCESS_MEMORY_WRITE_BIT;
 
                     if (after && d3d12_resource_is_texture(after))
                     {
@@ -7378,8 +7294,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                     }
                     else
                     {
-                        alias_dst_access = vk_access_flags_all_possible_for_buffer(list->device,
-                                list->vk_queue_flags, true);
+                        alias_dst_access = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
                     }
 
                     batch.src_stage_mask |= VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
