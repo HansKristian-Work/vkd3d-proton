@@ -123,6 +123,7 @@ static void vkd3d_init_profiling_path(const char *path)
 }
 #endif
 
+#ifndef TRACY_ENABLE
 static void vkd3d_init_profiling_once(void)
 {
     char path[VKD3D_PATH_MAX];
@@ -131,16 +132,57 @@ static void vkd3d_init_profiling_once(void)
     if (strlen(path) > 0)
         vkd3d_init_profiling_path(path);
 }
+#else
+#include "vkd3d_platform.h"
+
+#ifdef DYNAMIC_TRACY
+
+static void (*pfn_tracy_set_thread_name)( const char* name );
+static void (*pfn_tracy_emit_frame_mark)( const char* name );
+static TracyCZoneCtx (*pfn_tracy_emit_zone_begin)( const struct ___tracy_source_location_data* srcloc, int active );
+static void (*pfn_tracy_emit_zone_end)( TracyCZoneCtx ctx );
+
+static void vkd3d_init_profiling_once(void)
+{
+#if defined(_WIN32)
+#define SONAME_TRACY "tracy.dll"
+#else
+#error "Unrecognized platform."
+#endif
+
+    vkd3d_module_t tracy = vkd3d_dlopen(SONAME_TRACY);
+    if(tracy)
+    {
+        pfn_tracy_set_thread_name = vkd3d_dlsym(tracy, "___tracy_set_thread_name");
+        pfn_tracy_emit_frame_mark = vkd3d_dlsym(tracy, "___tracy_emit_frame_mark");
+        pfn_tracy_emit_zone_begin = vkd3d_dlsym(tracy, "___tracy_emit_zone_begin");
+        pfn_tracy_emit_zone_end = vkd3d_dlsym(tracy, "___tracy_emit_zone_end");
+    }
+}
+#else
+static void vkd3d_init_profiling_once(void)
+{
+}
+#endif /* DYNAMIC_TRACY */
+
+#endif /* TRACY_ENABLE */
 
 void vkd3d_init_profiling(void)
 {
     pthread_once(&profiling_block_once, vkd3d_init_profiling_once);
 }
 
+#ifndef TRACY_ENABLE
 bool vkd3d_uses_profiling(void)
 {
     return mapped_blocks != NULL;
 }
+#else
+bool vkd3d_uses_profiling(void)
+{
+    return true;
+}
+#endif /* TRACY_ENABLE */
 
 unsigned int vkd3d_profiling_register_region(const char *name, spinlock_t *lock, uint32_t *latch)
 {
@@ -194,5 +236,61 @@ void vkd3d_profiling_notify_work(unsigned int index,
     block->ticks_total += end_ticks - start_ticks;
     spinlock_release(lock);
 }
+
+#ifdef TRACY_ENABLE
+
+#ifdef DYNAMIC_TRACY
+
+void tracy_set_thread_name(const char *name)
+{
+    if(pfn_tracy_set_thread_name)
+        pfn_tracy_set_thread_name(name);
+}
+
+void tracy_emit_frame_mark()
+{
+    if(pfn_tracy_emit_frame_mark)
+        pfn_tracy_emit_frame_mark(0);
+}
+
+TracyCZoneCtx tracy_emit_zone_begin(const struct ___tracy_source_location_data *srcloc, int active)
+{
+    TracyCZoneCtx ctx;
+    if(pfn_tracy_emit_zone_begin)
+        ctx = pfn_tracy_emit_zone_begin(srcloc, active);
+    return ctx;
+}
+
+void tracy_emit_zone_end(TracyCZoneCtx ctx)
+{
+    if(pfn_tracy_emit_zone_end)
+        pfn_tracy_emit_zone_end(ctx);
+}
+
+#else
+
+void tracy_set_thread_name(const char *name)
+{
+    ___tracy_set_thread_name(name);
+}
+
+void tracy_emit_frame_mark()
+{
+    ___tracy_emit_frame_mark(0);
+}
+
+TracyCZoneCtx tracy_emit_zone_begin(const struct ___tracy_source_location_data *srcloc, int active)
+{
+    return ___tracy_emit_zone_begin(srcloc, active);
+}
+
+void tracy_emit_zone_end(TracyCZoneCtx ctx)
+{
+    ___tracy_emit_zone_end(ctx);
+}
+
+#endif /* DYNAMIC_TRACY */
+
+#endif /* TRACY_ENABLE */
 
 #endif /* VKD3D_ENABLE_PROFILING */

@@ -1903,7 +1903,9 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
     present_info.waitSemaphoreCount = 1;
     present_info.pWaitSemaphores = &swapchain->vk_present_semaphores[swapchain->vk_image_index];
 
-    if ((vr = VK_CALL(vkQueuePresentKHR(vk_queue, &present_info))) >= 0)
+    vr = VK_CALL(vkQueuePresentKHR(vk_queue, &present_info));
+    VKD3D_PROFILE_FRAME();
+    if (vr >= 0)
     {
         swapchain->frame_id = (swapchain->frame_id + 1) % swapchain->buffer_count;
         swapchain->vk_image_index = INVALID_VK_IMAGE_INDEX;
