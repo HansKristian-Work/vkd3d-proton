@@ -223,6 +223,12 @@ VK_DEVICE_EXT_PFN(vkGetDeviceBufferMemoryRequirementsKHR)
 VK_DEVICE_EXT_PFN(vkGetDeviceImageMemoryRequirementsKHR)
 VK_DEVICE_EXT_PFN(vkGetDeviceImageSparseMemoryRequirementsKHR)
 
+#ifdef VK_KHR_external_memory_win32
+/* VK_KHR_external_memory_win32 */
+VK_DEVICE_EXT_PFN(vkGetMemoryWin32HandleKHR)
+VK_DEVICE_EXT_PFN(vkGetMemoryWin32HandlePropertiesKHR)
+#endif
+
 /* VK_EXT_calibrated_timestamps */
 VK_DEVICE_EXT_PFN(vkGetCalibratedTimestampsEXT)
 VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceCalibrateableTimeDomainsEXT)

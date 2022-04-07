@@ -959,7 +959,7 @@ static HRESULT d3d12_swapchain_create_user_buffers(struct d3d12_swapchain *swapc
         {
             if (FAILED(hr = d3d12_resource_create_committed(d3d12_swapchain_device(swapchain),
                     &resource_desc, &heap_properties, D3D12_HEAP_FLAG_NONE,
-                    D3D12_RESOURCE_STATE_PRESENT, NULL, &object)))
+                    D3D12_RESOURCE_STATE_PRESENT, NULL, NULL, &object)))
             {
                 ERR("Failed to create image for swapchain buffer");
                 return hr;

@@ -67,6 +67,10 @@ if enable_breadcrumbs
   vkd3d_src += ['breadcrumbs.c']
 endif
 
+if vkd3d_platform == 'windows'
+  vkd3d_src += ['shared_metadata.c']
+endif
+
 if not enable_d3d12
   vkd3d_lib = shared_library('vkd3d-proton', vkd3d_src, glsl_generator.process(vkd3d_shaders), vkd3d_build, vkd3d_version,
     dependencies        : [ vkd3d_common_dep, vkd3d_shader_dep ] + vkd3d_extra_libs,
