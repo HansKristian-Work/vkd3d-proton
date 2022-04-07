@@ -135,6 +135,7 @@ struct vkd3d_vulkan_info
     bool KHR_maintenance4;
     bool KHR_ray_tracing_maintenance1;
     bool KHR_fragment_shader_barycentric;
+    bool KHR_external_memory_win32;
     /* EXT device extensions */
     bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;
@@ -908,7 +909,7 @@ VkImageSubresource vk_image_subresource_from_d3d12(
 
 HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12_RESOURCE_DESC1 *desc,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, D3D12_RESOURCE_STATES initial_state,
-        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource);
+        const D3D12_CLEAR_VALUE *optimized_clear_value, HANDLE shared_handle, struct d3d12_resource **resource);
 HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RESOURCE_DESC1 *desc,
         struct d3d12_heap *heap, uint64_t heap_offset, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource);
@@ -3913,6 +3914,74 @@ void vkd3d_acceleration_structure_copy(
         struct d3d12_command_list *list,
         D3D12_GPU_VIRTUAL_ADDRESS dst, D3D12_GPU_VIRTUAL_ADDRESS src,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode);
+
+typedef enum D3D11_USAGE
+{
+    D3D11_USAGE_DEFAULT,
+    D3D11_USAGE_IMMUTABLE,
+    D3D11_USAGE_DYNAMIC,
+    D3D11_USAGE_STAGING,
+} D3D11_USAGE;
+
+typedef enum D3D11_BIND_FLAG
+{
+    D3D11_BIND_VERTEX_BUFFER    = 0x0001,
+    D3D11_BIND_INDEX_BUFFER     = 0x0002,
+    D3D11_BIND_CONSTANT_BUFFER  = 0x0004,
+    D3D11_BIND_SHADER_RESOURCE  = 0x0008,
+    D3D11_BIND_STREAM_OUTPUT    = 0x0010,
+    D3D11_BIND_RENDER_TARGET    = 0x0020,
+    D3D11_BIND_DEPTH_STENCIL    = 0x0040,
+    D3D11_BIND_UNORDERED_ACCESS = 0x0080,
+    D3D11_BIND_DECODER          = 0x0200,
+    D3D11_BIND_VIDEO_ENCODER    = 0x0400
+} D3D11_BIND_FLAG;
+
+typedef enum D3D11_TEXTURE_LAYOUT
+{
+    D3D11_TEXTURE_LAYOUT_UNDEFINED = 0x0,
+    D3D11_TEXTURE_LAYOUT_ROW_MAJOR = 0x1,
+    D3D11_TEXTURE_LAYOUT_64K_STANDARD_SWIZZLE = 0x2,
+} D3D11_TEXTURE_LAYOUT;
+
+typedef enum D3D11_RESOURCE_MISC_FLAG
+{
+    D3D11_RESOURCE_MISC_GENERATE_MIPS                    = 0x1,
+    D3D11_RESOURCE_MISC_SHARED                           = 0x2,
+    D3D11_RESOURCE_MISC_TEXTURECUBE                      = 0x4,
+    D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS                = 0x10,
+    D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS           = 0x20,
+    D3D11_RESOURCE_MISC_BUFFER_STRUCTURED                = 0x40,
+    D3D11_RESOURCE_MISC_RESOURCE_CLAMP                   = 0x80,
+    D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX                = 0x100,
+    D3D11_RESOURCE_MISC_GDI_COMPATIBLE                   = 0x200,
+    D3D11_RESOURCE_MISC_SHARED_NTHANDLE                  = 0x800,
+    D3D11_RESOURCE_MISC_RESTRICTED_CONTENT               = 0x1000,
+    D3D11_RESOURCE_MISC_RESTRICT_SHARED_RESOURCE         = 0x2000,
+    D3D11_RESOURCE_MISC_RESTRICT_SHARED_RESOURCE_DRIVER  = 0x4000,
+    D3D11_RESOURCE_MISC_GUARDED                          = 0x8000,
+    D3D11_RESOURCE_MISC_TILE_POOL                        = 0x20000,
+    D3D11_RESOURCE_MISC_TILED                            = 0x40000,
+    D3D11_RESOURCE_MISC_HW_PROTECTED                     = 0x80000,
+} D3D11_RESOURCE_MISC_FLAG;
+
+struct DxvkSharedTextureMetadata {
+    UINT             Width;
+    UINT             Height;
+    UINT             MipLevels;
+    UINT             ArraySize;
+    DXGI_FORMAT      Format;
+    DXGI_SAMPLE_DESC SampleDesc;
+    D3D11_USAGE      Usage;
+    UINT             BindFlags;
+    UINT             CPUAccessFlags;
+    UINT             MiscFlags;
+    D3D11_TEXTURE_LAYOUT TextureLayout;
+};
+
+bool vkd3d_set_shared_metadata(HANDLE handle, void *buf, uint32_t buf_size);
+bool vkd3d_get_shared_metadata(HANDLE handle, void *buf, uint32_t buf_size, uint32_t *metadata_size);
+HANDLE vkd3d_open_kmt_handle(HANDLE kmt_handle);
 
 #define VKD3D_VENDOR_ID_NVIDIA 0x10DE
 #define VKD3D_VENDOR_ID_AMD 0x1002

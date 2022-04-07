@@ -488,6 +488,7 @@ static bool vkd3d_format_check_usage_support(struct d3d12_device *device, VkForm
 struct vkd3d_image_create_info
 {
     struct vkd3d_format_compatibility_list format_compat_list;
+    VkExternalMemoryImageCreateInfo external_info;
     VkImageFormatListCreateInfoKHR format_list;
     VkImageCreateInfo image_info;
 };
@@ -498,6 +499,7 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         struct vkd3d_image_create_info *create_info)
 {
     struct vkd3d_format_compatibility_list *compat_list = &create_info->format_compat_list;
+    VkExternalMemoryImageCreateInfo *external_info = &create_info->external_info;
     VkImageFormatListCreateInfoKHR *format_list = &create_info->format_list;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkImageCreateInfo *image_info = &create_info->image_info;
@@ -522,12 +524,22 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
     image_info->sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info->pNext = NULL;
     image_info->flags = 0;
+
+    if (resource && (resource->heap_flags & D3D12_HEAP_FLAG_SHARED))
+    {
+        external_info->sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
+        external_info->pNext = NULL;
+        external_info->handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+
+        image_info->pNext = external_info;
+    }
+
     if (!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
     {
         if (vkd3d_get_format_compatibility_list(device, desc, compat_list))
         {
             format_list->sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO_KHR;
-            format_list->pNext = NULL;
+            format_list->pNext = image_info->pNext;
             format_list->viewFormatCount = compat_list->format_count;
             format_list->pViewFormats = compat_list->vk_formats;
 
@@ -2701,7 +2713,7 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
 
 HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12_RESOURCE_DESC1 *desc,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, D3D12_RESOURCE_STATES initial_state,
-        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
+        const D3D12_CLEAR_VALUE *optimized_clear_value, HANDLE shared_handle, struct d3d12_resource **resource)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct d3d12_resource *object;
@@ -2718,9 +2730,14 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         VkMemoryDedicatedAllocateInfo dedicated_info;
         VkImageMemoryRequirementsInfo2 image_info;
         VkMemoryRequirements2 memory_requirements;
+        VkExportMemoryAllocateInfo export_info;
         VkBindImageMemoryInfo bind_info;
         bool use_dedicated_allocation;
         VkResult vr;
+
+#ifdef _WIN32
+        VkImportMemoryWin32HandleInfoKHR import_info;
+#endif
 
         if (FAILED(hr = d3d12_resource_create_vk_resource(object, device)))
             goto fail;
@@ -2754,10 +2771,36 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         else
             allocate_info.heap_flags |= D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
 
+        if (heap_flags & D3D12_HEAP_FLAG_SHARED)
+        {
+#ifdef _WIN32
+            use_dedicated_allocation = true;
+
+            if (shared_handle && shared_handle != INVALID_HANDLE_VALUE)
+            {
+                import_info.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR;
+                import_info.pNext = allocate_info.pNext;
+                import_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+                import_info.handle = shared_handle;
+                import_info.name = NULL;
+                allocate_info.pNext = &import_info;
+            }
+            else
+            {
+                export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO;
+                export_info.pNext = allocate_info.pNext;
+                export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+                allocate_info.pNext = &export_info;
+            }
+#else
+            FIXME("D3D12_HEAP_FLAG_SHARED can only be implemented in native Win32.\n");
+#endif
+        }
+
         if (use_dedicated_allocation)
         {
             dedicated_info.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
-            dedicated_info.pNext = NULL;
+            dedicated_info.pNext = allocate_info.pNext;
             dedicated_info.image = object->res.vk_image;
             dedicated_info.buffer = VK_NULL_HANDLE;
             allocate_info.pNext = &dedicated_info;
@@ -2886,7 +2929,7 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
                 heap->desc.Flags & ~(D3D12_HEAP_FLAG_DENY_BUFFERS |
                         D3D12_HEAP_FLAG_DENY_NON_RT_DS_TEXTURES |
                         D3D12_HEAP_FLAG_DENY_RT_DS_TEXTURES),
-                initial_state, optimized_clear_value, resource)))
+                initial_state, optimized_clear_value, NULL, resource)))
         {
             ERR("Failed to create fallback committed resource.\n");
         }
