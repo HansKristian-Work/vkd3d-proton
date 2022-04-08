@@ -3059,6 +3059,12 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         rt_count = ARRAY_SIZE(graphics->blend_attachments);
     }
 
+    if ((!desc->ps.pShaderBytecode || !desc->ps.BytecodeLength) && rt_count)
+    {
+        WARN("Using %u render targets with disabled PS. Forcing rt_count = 0.\n", rt_count);
+        rt_count = 0;
+    }
+
     graphics->null_attachment_mask = 0;
     graphics->rtv_active_mask = 0;
     for (i = 0; i < rt_count; ++i)
