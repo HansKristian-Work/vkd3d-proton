@@ -3059,6 +3059,14 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         rt_count = ARRAY_SIZE(graphics->blend_attachments);
     }
 
+    if (!desc->ps.pShaderBytecode || !desc->ps.BytecodeLength)
+    {
+        /* Avoids validation errors where app might bind bogus RTV format which does not match the PSO.
+         * D3D12 validation does not complain about this when PS is NULL since RTVs are not accessed to begin with.
+         * We can just pretend we have no render targets in this case, which is fine. */
+        rt_count = 0;
+    }
+
     graphics->null_attachment_mask = 0;
     graphics->rtv_active_mask = 0;
     for (i = 0; i < rt_count; ++i)
