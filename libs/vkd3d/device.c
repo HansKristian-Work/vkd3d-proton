@@ -574,9 +574,9 @@ static void vkd3d_instance_deduce_config_flags_from_environment(void)
 {
     const char *env;
 
-    if (getenv("VKD3D_SHADER_OVERRIDE"))
+    if (getenv("VKD3D_SHADER_OVERRIDE") || getenv("VKD3D_SHADER_DUMP_PATH"))
     {
-        INFO("VKD3D_SHADER_OVERRIDE is used, pipeline_library_ignore_spirv option is enforced.\n");
+        INFO("VKD3D_SHADER_OVERRIDE or VKD3D_SHADER_DUMP_PATH is used, pipeline_library_ignore_spirv option is enforced.\n");
         vkd3d_config_flags |= VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_IGNORE_SPIRV;
     }
 
