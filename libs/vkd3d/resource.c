@@ -224,12 +224,6 @@ static bool vkd3d_get_format_compatibility_list(const struct d3d12_device *devic
 
     if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
     {
-        const struct vkd3d_format *uint_format = vkd3d_get_format(device, list.uint_format, false);
-
-        /* Format used for ClearUnorderedAccessViewUint */
-        if (uint_format)
-            vkd3d_format_compatibility_list_add_format(&list, uint_format->vk_format);
-
         /* Legacy D3D11 compatibility rule that allows typed UAV loads on FL11.0 hardware */
         if (format->byte_count == 4 && format->type == VKD3D_FORMAT_TYPE_TYPELESS)
         {
