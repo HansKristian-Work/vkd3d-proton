@@ -8533,13 +8533,6 @@ static VkClearColorValue vkd3d_fixup_clear_uav_uint_color(struct d3d12_device *d
     }
 }
 
-static bool vkd3d_clear_uav_uint_use_copy(DXGI_FORMAT dxgi_format)
-{
-    /* ClearUAV assumes that any format here is 32-bit with float
-     * components, adjustments need to be made if that changes */
-    return dxgi_format == DXGI_FORMAT_R11G11B10_FLOAT;
-}
-
 static const struct vkd3d_format *vkd3d_clear_uav_find_uint_format(struct d3d12_device *device, DXGI_FORMAT dxgi_format)
 {
     DXGI_FORMAT uint_format = DXGI_FORMAT_UNKNOWN;
@@ -8548,6 +8541,25 @@ static const struct vkd3d_format *vkd3d_clear_uav_find_uint_format(struct d3d12_
         uint_format = device->format_compatibility_lists[dxgi_format].uint_format;
 
     return vkd3d_get_format(device, uint_format, false);
+}
+
+static bool vkd3d_clear_uav_check_uint_format_compatibility(struct d3d12_device *device, const struct vkd3d_format *resource_format, const struct vkd3d_format *uint_format)
+{
+    const struct vkd3d_format_compatibility_list *compat;
+    unsigned int i;
+
+    if (resource_format->vk_format == uint_format->vk_format)
+        return true;
+
+    compat = &device->format_compatibility_lists[resource_format->dxgi_format];
+
+    for (i = 0; i < compat->format_count; i++)
+    {
+        if (compat->vk_formats[i] == uint_format->vk_format)
+            return true;
+    }
+
+    return false;
 }
 
 static inline bool vkd3d_clear_uav_info_from_desc(struct vkd3d_clear_uav_info *args, const struct d3d12_desc_split *d)
@@ -8662,17 +8674,17 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
         uint_format = vkd3d_clear_uav_find_uint_format(list->device, base_view->format->dxgi_format);
         color = vkd3d_fixup_clear_uav_uint_color(list->device, base_view->format->dxgi_format, color);
 
-        if (uint_format)
-            vkd3d_mask_uint_clear_color(color.uint32, uint_format->vk_format);
-        else if (!vkd3d_clear_uav_uint_use_copy(base_view->format->dxgi_format))
+        if (!uint_format)
         {
             ERR("Unhandled format %d.\n", base_view->format->dxgi_format);
             return;
         }
 
+        vkd3d_mask_uint_clear_color(color.uint32, uint_format->vk_format);
+
         if (d3d12_resource_is_texture(resource_impl))
         {
-            if (uint_format)
+            if (vkd3d_clear_uav_check_uint_format_compatibility(list->device, resource_impl->format, uint_format))
             {
                 struct vkd3d_texture_view_desc view_desc;
                 memset(&view_desc, 0, sizeof(view_desc));
@@ -8701,7 +8713,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
                 /* If the clear color is 0, we can safely use the existing view to perform the
                  * clear since the bit pattern will not change. Otherwise, fill a scratch buffer
                  * with the packed clear value and perform a buffer to image copy. */
-                if (color.uint32[0])
+                if (color.uint32[0] || color.uint32[1] || color.uint32[2] || color.uint32[3])
                 {
                     d3d12_command_list_clear_uav_with_copy(list, &d, resource_impl,
                             &args, &color, uint_format, rect_count, rects);
