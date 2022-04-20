@@ -8307,20 +8307,29 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
 
 static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *list,
         const struct d3d12_desc_split *d, struct d3d12_resource *resource,
-        const struct vkd3d_clear_uav_info *args, uint32_t clear_value,
-        UINT rect_count, const D3D12_RECT *rects)
+        const struct vkd3d_clear_uav_info *args, const VkClearColorValue *clear_value,
+        const struct vkd3d_format *format, UINT rect_count, const D3D12_RECT *rects)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     unsigned int miplevel_idx, layer_count, i, j;
+    struct vkd3d_clear_uav_pipeline pipeline;
     struct vkd3d_scratch_allocation scratch;
+    struct vkd3d_clear_uav_args clear_args;
     VkCopyBufferToImageInfo2KHR copy_info;
     VkBufferImageCopy2KHR copy_region;
     VkDeviceSize scratch_buffer_size;
     D3D12_RECT curr_rect, full_rect;
+    VkWriteDescriptorSet write_set;
+    VkBufferView vk_buffer_view;
+    VkExtent3D workgroup_size;
     VkMemoryBarrier barrier;
+    uint32_t element_count;
 
     d3d12_command_list_track_resource_usage(list, resource, true);
     d3d12_command_list_end_current_render_pass(list, false);
+
+    d3d12_command_list_invalidate_current_pipeline(list, true);
+    d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_COMPUTE, true);
 
     assert(args->has_view);
     assert(d3d12_resource_is_texture(resource));
@@ -8334,7 +8343,7 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
 
     if (rect_count)
     {
-        scratch_buffer_size = 0;
+        element_count = 0;
 
         for (i = 0; i < rect_count; i++)
         {
@@ -8342,37 +8351,86 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
             {
                 unsigned int w = rects[i].right - rects[i].left;
                 unsigned int h = rects[i].bottom - rects[i].top;
-                scratch_buffer_size = max(scratch_buffer_size, w * h * sizeof(uint32_t));
+                element_count = max(element_count, w * h);
             }
         }
     }
     else
     {
-        scratch_buffer_size = full_rect.right * full_rect.bottom * sizeof(uint32_t);
+        element_count = full_rect.right * full_rect.bottom;
     }
 
-    scratch_buffer_size *= d3d12_resource_desc_get_depth(&resource->desc, miplevel_idx);
+    element_count *= d3d12_resource_desc_get_depth(&resource->desc, miplevel_idx);
+    scratch_buffer_size = element_count * format->byte_count;
 
     if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
-            scratch_buffer_size, sizeof(uint32_t), &scratch))
+            scratch_buffer_size, 16, &scratch))
     {
-        ERR("Failed to allocate scratch memory for UAV clear");
+        ERR("Failed to allocate scratch memory for UAV clear.\n");
         return;
     }
 
-    VK_CALL(vkCmdFillBuffer(list->vk_command_buffer, scratch.buffer,
-            scratch.offset, scratch_buffer_size, clear_value));
+    pipeline = vkd3d_meta_get_clear_buffer_uav_pipeline(&list->device->meta_ops, true, false);
+    workgroup_size = vkd3d_meta_get_clear_buffer_uav_workgroup_size();
+
+    if (!vkd3d_create_vk_buffer_view(list->device, scratch.buffer, format, scratch.offset, scratch_buffer_size, &vk_buffer_view))
+    {
+        ERR("Failed to create buffer view for UAV clear.\n");
+        return;
+    }
+
+    if (!(d3d12_command_allocator_add_buffer_view(list->allocator, vk_buffer_view)))
+    {
+        ERR("Failed to add buffer view.\n");
+        VK_CALL(vkDestroyBufferView(list->device->vk_device, vk_buffer_view, NULL));
+        return;
+    }
+
+    memset(&write_set, 0, sizeof(write_set));
+    write_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write_set.descriptorCount = 1;
+    write_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+    write_set.pTexelBufferView = &vk_buffer_view;
+
+    if (!(write_set.dstSet = d3d12_command_allocator_allocate_descriptor_set(
+            list->allocator, pipeline.vk_set_layout, VKD3D_DESCRIPTOR_POOL_TYPE_STATIC)))
+    {
+        ERR("Failed to allocate descriptor set for UAV clear.\n");
+        return;
+    }
+
+    VK_CALL(vkUpdateDescriptorSets(list->device->vk_device, 1, &write_set, 0, NULL));
+
+    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer,
+            VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.vk_pipeline));
+
+    VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer,
+            VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.vk_pipeline_layout,
+            0, 1, &write_set.dstSet, 0, NULL));
+
+    clear_args.clear_color = *clear_value;
+    clear_args.offset.x = 0;
+    clear_args.offset.y = 0;
+    clear_args.extent.width = element_count;
+    clear_args.extent.height = 1;
+
+    VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+            pipeline.vk_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+            0, sizeof(clear_args), &clear_args));
+
+    VK_CALL(vkCmdDispatch(list->vk_command_buffer,
+            vkd3d_compute_workgroup_count(element_count, workgroup_size.width), 1, 1));
 
     /* Insert barrier to make the buffer clear visible, but also to make the
      * image safely accessible by the transfer stage. This fallback is so rare
      * that we should not pessimize regular UAV barriers. */
     barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
     barrier.pNext = NULL;
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT;
 
     VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-            VK_PIPELINE_STAGE_TRANSFER_BIT | vk_queue_shader_stages(list->vk_queue_flags),
+            vk_queue_shader_stages(list->vk_queue_flags),
             VK_PIPELINE_STAGE_TRANSFER_BIT,
             0, 1, &barrier, 0, NULL, 0, NULL));
 
@@ -8515,7 +8573,33 @@ static inline bool vkd3d_clear_uav_info_from_desc(struct vkd3d_clear_uav_info *a
 
 static void vkd3d_mask_uint_clear_color(uint32_t color[4], VkFormat vk_format)
 {
-    unsigned int i;
+    unsigned int component_count, i;
+
+    switch (vk_format)
+    {
+        case VK_FORMAT_R8_UINT:
+        case VK_FORMAT_R16_UINT:
+        case VK_FORMAT_R32_UINT:
+            component_count = 1;
+            break;
+
+        case VK_FORMAT_R8G8_UINT:
+        case VK_FORMAT_R16G16_UINT:
+        case VK_FORMAT_R32G32_UINT:
+            component_count = 2;
+            break;
+
+        case VK_FORMAT_R32G32B32_UINT:
+            component_count = 3;
+            break;
+
+        default:
+            component_count = 4;
+            break;
+    }
+
+    for (i = component_count; i < 4; i++)
+        color[i] = 0x0;
 
     /* Need to mask the clear value, since apparently driver can saturate the clear value instead. */
     switch (vk_format)
@@ -8618,7 +8702,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
                  * with the packed clear value and perform a buffer to image copy. */
                 if (color.uint32[0])
                 {
-                    d3d12_command_list_clear_uav_with_copy(list, &d, resource_impl, &args, color.uint32[0], rect_count, rects);
+                    d3d12_command_list_clear_uav_with_copy(list, &d, resource_impl,
+                            &args, &color, uint_format, rect_count, rects);
                     return;
                 }
             }

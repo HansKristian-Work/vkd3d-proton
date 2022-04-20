@@ -3351,7 +3351,7 @@ bool vkd3d_create_raw_r32ui_vk_buffer_view(struct d3d12_device *device,
     return vr == VK_SUCCESS;
 }
 
-static bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
+bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
         VkBuffer vk_buffer, const struct vkd3d_format *format,
         VkDeviceSize offset, VkDeviceSize range, VkBufferView *vk_view)
 {
