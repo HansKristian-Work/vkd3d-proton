@@ -8311,7 +8311,7 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
         const struct vkd3d_format *format, UINT rect_count, const D3D12_RECT *rects)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    unsigned int miplevel_idx, layer_count, i, j;
+    unsigned int miplevel_idx, base_layer, layer_count, i, j;
     struct vkd3d_clear_uav_pipeline pipeline;
     struct vkd3d_scratch_allocation scratch;
     struct vkd3d_clear_uav_args clear_args;
@@ -8442,6 +8442,7 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     copy_region.imageOffset.z = 0;
     copy_region.imageExtent.depth = d3d12_resource_desc_get_depth(&resource->desc, miplevel_idx);
     copy_region.imageSubresource = vk_subresource_layers_from_view(args->u.view);
+    base_layer = copy_region.imageSubresource.baseArrayLayer;
     layer_count = copy_region.imageSubresource.layerCount;
 
     copy_info.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2_KHR;
@@ -8475,7 +8476,7 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
 
         for (j = 0; j < layer_count; j++)
         {
-            copy_region.imageSubresource.baseArrayLayer = j;
+            copy_region.imageSubresource.baseArrayLayer = base_layer + j;
             copy_region.imageSubresource.layerCount = 1;
             VK_CALL(vkCmdCopyBufferToImage2KHR(list->vk_command_buffer, &copy_info));
         }
