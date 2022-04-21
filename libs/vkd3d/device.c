@@ -84,6 +84,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_DYNAMIC_RENDERING, KHR_dynamic_rendering),
     VK_EXTENSION(KHR_DRIVER_PROPERTIES, KHR_driver_properties),
     VK_EXTENSION(KHR_UNIFORM_BUFFER_STANDARD_LAYOUT, KHR_uniform_buffer_standard_layout),
+    VK_EXTENSION(KHR_MAINTENANCE_4, KHR_maintenance4),
     /* EXT extensions */
     VK_EXTENSION(EXT_CALIBRATED_TIMESTAMPS, EXT_calibrated_timestamps),
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
@@ -1172,6 +1173,14 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->subgroup_extended_types_features);
     }
 
+    if (vulkan_info->KHR_maintenance4)
+    {
+        info->maintenance4_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_PROPERTIES;
+        vk_prepend_struct(&info->properties2, &info->maintenance4_properties);
+        info->maintenance4_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES;
+        vk_prepend_struct(&info->features2, &info->maintenance4_features);
+    }
+
     if (vulkan_info->EXT_calibrated_timestamps)
         info->time_domains = vkd3d_physical_device_get_time_domains(device);
 
@@ -2033,6 +2042,12 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     if (!physical_device_info->extended_dynamic_state2_features.extendedDynamicState2)
     {
         ERR("EXT_extended_dynamic_state2 is not supported by this implementation. This is required for correct operation.\n");
+        return E_INVALIDARG;
+    }
+
+    if (!physical_device_info->maintenance4_features.maintenance4)
+    {
+        ERR("KHR_maintenance4 is not supported by this implementation. This is required for correct operation.\n");
         return E_INVALIDARG;
     }
 

@@ -132,6 +132,7 @@ struct vkd3d_vulkan_info
     bool KHR_dynamic_rendering;
     bool KHR_driver_properties;
     bool KHR_uniform_buffer_standard_layout;
+    bool KHR_maintenance4;
     /* EXT device extensions */
     bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;
@@ -3029,6 +3030,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceConservativeRasterizationPropertiesEXT conservative_rasterization_properties;
     VkPhysicalDeviceShaderIntegerDotProductPropertiesKHR shader_integer_dot_product_properties;
     VkPhysicalDeviceDriverPropertiesKHR driver_properties;
+    VkPhysicalDeviceMaintenance4PropertiesKHR maintenance4_properties;
 
     VkPhysicalDeviceProperties2KHR properties2;
 
@@ -3070,6 +3072,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceDescriptorSetHostMappingFeaturesVALVE descriptor_set_host_mapping_features;
     VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamic_rendering_features;
     VkPhysicalDeviceCoherentMemoryFeaturesAMD device_coherent_memory_features_amd;
+    VkPhysicalDeviceMaintenance4FeaturesKHR maintenance4_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
