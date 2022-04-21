@@ -6442,7 +6442,9 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
         struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkMemoryRequirements memory_requirements;
+    VkDeviceBufferMemoryRequirementsKHR buffer_requirement_info;
+    VkDeviceImageMemoryRequirementsKHR image_requirement_info;
+    VkMemoryRequirements2 memory_requirements;
     struct vkd3d_memory_topology topology;
     VkBufferCreateInfo buffer_info;
     uint32_t sampled_type_mask_cpu;
@@ -6452,9 +6454,6 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     uint32_t host_visible_mask;
     uint32_t buffer_type_mask;
     uint32_t rt_ds_type_mask;
-    VkBuffer buffer;
-    VkImage image;
-    VkResult vr;
     uint32_t i;
 
     vkd3d_memory_info_get_topology(&topology, device);
@@ -6463,6 +6462,18 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
 
     if (pthread_mutex_init(&info->budget_lock, NULL) != 0)
         return E_OUTOFMEMORY;
+
+    buffer_requirement_info.sType = VK_STRUCTURE_TYPE_DEVICE_BUFFER_MEMORY_REQUIREMENTS_KHR;
+    buffer_requirement_info.pNext = NULL;
+    buffer_requirement_info.pCreateInfo = &buffer_info;
+
+    image_requirement_info.sType = VK_STRUCTURE_TYPE_DEVICE_IMAGE_MEMORY_REQUIREMENTS_KHR;
+    image_requirement_info.pNext = NULL;
+    image_requirement_info.pCreateInfo = &image_info;
+    image_requirement_info.planeAspect = 0;
+
+    memory_requirements.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
+    memory_requirements.pNext = NULL;
 
     memset(&buffer_info, 0, sizeof(buffer_info));
     buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -6486,15 +6497,8 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
                 VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
     }
 
-    if ((vr = VK_CALL(vkCreateBuffer(device->vk_device, &buffer_info, NULL, &buffer))) < 0)
-    {
-        ERR("Failed to create dummy buffer");
-        return hresult_from_vk_result(vr);
-    }
-
-    VK_CALL(vkGetBufferMemoryRequirements(device->vk_device, buffer, &memory_requirements));
-    VK_CALL(vkDestroyBuffer(device->vk_device, buffer, NULL));
-    buffer_type_mask = memory_requirements.memoryTypeBits;
+    VK_CALL(vkGetDeviceBufferMemoryRequirementsKHR(device->vk_device, &buffer_requirement_info, &memory_requirements));
+    buffer_type_mask = memory_requirements.memoryRequirements.memoryTypeBits;
 
     memset(&image_info, 0, sizeof(image_info));
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -6514,15 +6518,8 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, &image))) < 0)
-    {
-        ERR("Failed to create dummy sampled image");
-        return hresult_from_vk_result(vr);
-    }
-
-    VK_CALL(vkGetImageMemoryRequirements(device->vk_device, image, &memory_requirements));
-    VK_CALL(vkDestroyImage(device->vk_device, image, NULL));
-    sampled_type_mask = memory_requirements.memoryTypeBits;
+    VK_CALL(vkGetDeviceImageMemoryRequirementsKHR(device->vk_device, &image_requirement_info, &memory_requirements));
+    sampled_type_mask = memory_requirements.memoryRequirements.memoryTypeBits;
 
     /* CPU accessible images are always LINEAR.
      * If we ever get a way to write to OPTIMAL-ly tiled images, we can drop this and just
@@ -6537,12 +6534,8 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     sampled_type_mask_cpu = 0;
     if (vkd3d_is_linear_tiling_supported(device, &image_info))
     {
-        if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, &image))) == VK_SUCCESS)
-        {
-            VK_CALL(vkGetImageMemoryRequirements(device->vk_device, image, &memory_requirements));
-            VK_CALL(vkDestroyImage(device->vk_device, image, NULL));
-            sampled_type_mask_cpu = memory_requirements.memoryTypeBits;
-        }
+        VK_CALL(vkGetDeviceImageMemoryRequirementsKHR(device->vk_device, &image_requirement_info, &memory_requirements));
+        sampled_type_mask_cpu = memory_requirements.memoryRequirements.memoryTypeBits;
     }
     image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -6554,27 +6547,16 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
             VK_IMAGE_USAGE_SAMPLED_BIT |
             VK_IMAGE_USAGE_STORAGE_BIT;
 
-    if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, &image))) < 0)
-    {
-        ERR("Failed to create dummy color image");
-        return hresult_from_vk_result(vr);
-    }
-
-    VK_CALL(vkGetImageMemoryRequirements(device->vk_device, image, &memory_requirements));
-    VK_CALL(vkDestroyImage(device->vk_device, image, NULL));
-    rt_ds_type_mask = memory_requirements.memoryTypeBits;
+    VK_CALL(vkGetDeviceImageMemoryRequirementsKHR(device->vk_device, &image_requirement_info, &memory_requirements));
+    rt_ds_type_mask = memory_requirements.memoryRequirements.memoryTypeBits;
 
     image_info.tiling = VK_IMAGE_TILING_LINEAR;
     image_info.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
     rt_ds_type_mask_cpu = 0;
     if (vkd3d_is_linear_tiling_supported(device, &image_info))
     {
-        if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, &image))) == VK_SUCCESS)
-        {
-            VK_CALL(vkGetImageMemoryRequirements(device->vk_device, image, &memory_requirements));
-            VK_CALL(vkDestroyImage(device->vk_device, image, NULL));
-            rt_ds_type_mask_cpu = memory_requirements.memoryTypeBits;
-        }
+        VK_CALL(vkGetDeviceImageMemoryRequirementsKHR(device->vk_device, &image_requirement_info, &memory_requirements));
+        rt_ds_type_mask_cpu = memory_requirements.memoryRequirements.memoryTypeBits;
     }
     image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -6585,15 +6567,8 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
             VK_IMAGE_USAGE_SAMPLED_BIT;
 
-    if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, &image))) < 0)
-    {
-        ERR("Failed to create dummy depth-stencil image");
-        return hresult_from_vk_result(vr);
-    }
-
-    VK_CALL(vkGetImageMemoryRequirements(device->vk_device, image, &memory_requirements));
-    VK_CALL(vkDestroyImage(device->vk_device, image, NULL));
-    rt_ds_type_mask &= memory_requirements.memoryTypeBits;
+    VK_CALL(vkGetDeviceImageMemoryRequirementsKHR(device->vk_device, &image_requirement_info, &memory_requirements));
+    rt_ds_type_mask &= memory_requirements.memoryRequirements.memoryTypeBits;
 
     /* Unsure if we can have host visible depth-stencil.
      * On AMD, we can get linear RT, but not linear DS, so for now, just don't check for that.
