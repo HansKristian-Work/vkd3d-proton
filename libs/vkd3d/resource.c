@@ -484,19 +484,26 @@ static bool vkd3d_format_check_usage_support(struct d3d12_device *device, VkForm
     return (supported_flags & required_flags) == required_flags;
 }
 
-static HRESULT vkd3d_create_image(struct d3d12_device *device,
-        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        const D3D12_RESOURCE_DESC1 *desc, struct d3d12_resource *resource, VkImage *vk_image)
+struct vkd3d_image_create_info
 {
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    struct vkd3d_format_compatibility_list compat_list;
-    const bool sparse_resource = !heap_properties;
+    struct vkd3d_format_compatibility_list format_compat_list;
     VkImageFormatListCreateInfoKHR format_list;
-    const struct vkd3d_format *format;
     VkImageCreateInfo image_info;
+};
+
+static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        const D3D12_RESOURCE_DESC1 *desc, struct d3d12_resource *resource,
+        struct vkd3d_image_create_info *create_info)
+{
+    struct vkd3d_format_compatibility_list *compat_list = &create_info->format_compat_list;
+    VkImageFormatListCreateInfoKHR *format_list = &create_info->format_list;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkImageCreateInfo *image_info = &create_info->image_info;
+    const bool sparse_resource = !heap_properties;
+    const struct vkd3d_format *format;
     bool use_concurrent;
     unsigned int i;
-    VkResult vr;
 
     if (!resource)
     {
@@ -511,32 +518,32 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
         format = resource->format;
     }
 
-    image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    image_info.pNext = NULL;
-    image_info.flags = 0;
+    image_info->sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    image_info->pNext = NULL;
+    image_info->flags = 0;
     if (!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
     {
-        if (vkd3d_get_format_compatibility_list(device, desc, &compat_list))
+        if (vkd3d_get_format_compatibility_list(device, desc, compat_list))
         {
-            format_list.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO_KHR;
-            format_list.pNext = NULL;
-            format_list.viewFormatCount = compat_list.format_count;
-            format_list.pViewFormats = compat_list.vk_formats;
+            format_list->sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO_KHR;
+            format_list->pNext = NULL;
+            format_list->viewFormatCount = compat_list->format_count;
+            format_list->pViewFormats = compat_list->vk_formats;
 
-            image_info.pNext = &format_list;
-            image_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+            image_info->pNext = format_list;
+            image_info->flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
         }
     }
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D
             && desc->Width == desc->Height && desc->DepthOrArraySize >= 6
             && desc->SampleDesc.Count == 1)
-        image_info.flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+        image_info->flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
-        image_info.flags |= VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT_KHR;
+        image_info->flags |= VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT_KHR;
 
     if (sparse_resource)
     {
-        image_info.flags |= VK_IMAGE_CREATE_SPARSE_BINDING_BIT |
+        image_info->flags |= VK_IMAGE_CREATE_SPARSE_BINDING_BIT |
                 VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT |
                 VK_IMAGE_CREATE_SPARSE_ALIASED_BIT;
 
@@ -560,24 +567,24 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
         }
     }
 
-    image_info.imageType = vk_image_type_from_d3d12_resource_dimension(desc->Dimension);
-    image_info.format = format->vk_format;
-    image_info.extent.width = desc->Width;
-    image_info.extent.height = desc->Height;
+    image_info->imageType = vk_image_type_from_d3d12_resource_dimension(desc->Dimension);
+    image_info->format = format->vk_format;
+    image_info->extent.width = desc->Width;
+    image_info->extent.height = desc->Height;
 
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
     {
-        image_info.extent.depth = desc->DepthOrArraySize;
-        image_info.arrayLayers = 1;
+        image_info->extent.depth = desc->DepthOrArraySize;
+        image_info->arrayLayers = 1;
     }
     else
     {
-        image_info.extent.depth = 1;
-        image_info.arrayLayers = desc->DepthOrArraySize;
+        image_info->extent.depth = 1;
+        image_info->arrayLayers = desc->DepthOrArraySize;
     }
 
-    image_info.mipLevels = min(desc->MipLevels, max_miplevel_count(desc));
-    image_info.samples = vk_samples_from_dxgi_sample_desc(&desc->SampleDesc);
+    image_info->mipLevels = min(desc->MipLevels, max_miplevel_count(desc));
+    image_info->samples = vk_samples_from_dxgi_sample_desc(&desc->SampleDesc);
 
     if (sparse_resource)
     {
@@ -587,15 +594,15 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
             return E_INVALIDARG;
         }
 
-        image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+        image_info->tiling = VK_IMAGE_TILING_OPTIMAL;
     }
     else if (desc->Layout == D3D12_TEXTURE_LAYOUT_UNKNOWN || desc->Layout == D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE)
     {
-        image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+        image_info->tiling = VK_IMAGE_TILING_OPTIMAL;
     }
     else if (desc->Layout == D3D12_TEXTURE_LAYOUT_ROW_MAJOR)
     {
-        image_info.tiling = VK_IMAGE_TILING_LINEAR;
+        image_info->tiling = VK_IMAGE_TILING_LINEAR;
     }
     else
     {
@@ -603,26 +610,26 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
         return E_NOTIMPL;
     }
 
-    image_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    image_info->usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)
-        image_info.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        image_info->usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
-        image_info.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        image_info->usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
     if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
-        image_info.usage |= VK_IMAGE_USAGE_STORAGE_BIT;
+        image_info->usage |= VK_IMAGE_USAGE_STORAGE_BIT;
     if (!(desc->Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))
-        image_info.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
+        image_info->usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
 
     /* Additional usage flags for shader-based copies */
     if (vkd3d_format_allows_shader_copies(format->dxgi_format))
     {
-        image_info.usage |= (format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
+        image_info->usage |= (format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
                 ? VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
                 : VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     }
 
     if (vkd3d_resource_can_be_vrs(device, heap_properties, desc))
-        image_info.usage |= VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
+        image_info->usage |= VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
 
     use_concurrent = !!(device->unique_queue_mask & (device->unique_queue_mask - 1));
 
@@ -642,61 +649,61 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     {
         /* For multi-queue, we have to use CONCURRENT since D3D does
          * not give us enough information to do ownership transfers. */
-        image_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
-        image_info.queueFamilyIndexCount = device->queue_family_count;
-        image_info.pQueueFamilyIndices = device->queue_family_indices;
+        image_info->sharingMode = VK_SHARING_MODE_CONCURRENT;
+        image_info->queueFamilyIndexCount = device->queue_family_count;
+        image_info->pQueueFamilyIndices = device->queue_family_indices;
     }
     else
     {
-        image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        image_info.queueFamilyIndexCount = 0;
-        image_info.pQueueFamilyIndices = NULL;
+        image_info->sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        image_info->queueFamilyIndexCount = 0;
+        image_info->pQueueFamilyIndices = NULL;
     }
 
     if (heap_properties && is_cpu_accessible_heap(heap_properties))
     {
-        image_info.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+        image_info->initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
         /* Required for ReadFromSubresource(). */
-        image_info.tiling = VK_IMAGE_TILING_LINEAR;
+        image_info->tiling = VK_IMAGE_TILING_LINEAR;
 
         if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_IGNORE_RTV_HOST_VISIBLE) &&
-                (image_info.usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT))
+                (image_info->usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT))
         {
             WARN("Workaround applied. Ignoring RTV on linear resources.\n");
-            image_info.usage &= ~VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+            image_info->usage &= ~VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
             if (resource)
                 resource->desc.Flags &= ~D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
         }
     }
     else
     {
-        image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        image_info->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     }
 
-    if ((image_info.flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) &&
-            !vkd3d_format_check_usage_support(device, format->vk_format, image_info.usage, image_info.tiling))
-        image_info.flags |= VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
+    if ((image_info->flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) &&
+            !vkd3d_format_check_usage_support(device, format->vk_format, image_info->usage, image_info->tiling))
+        image_info->flags |= VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
 
-    if (image_info.tiling == VK_IMAGE_TILING_LINEAR)
+    if (image_info->tiling == VK_IMAGE_TILING_LINEAR)
     {
-        bool supported = vkd3d_is_linear_tiling_supported(device, &image_info);
+        bool supported = vkd3d_is_linear_tiling_supported(device, image_info);
 
         /* Apparently NV drivers do not support EXTENDED_USAGE_BIT on linear images? */
-        if (!supported && (image_info.flags & VK_IMAGE_CREATE_EXTENDED_USAGE_BIT))
+        if (!supported && (image_info->flags & VK_IMAGE_CREATE_EXTENDED_USAGE_BIT))
         {
             WARN("Linear image not supported, attempting without EXTENDED_USAGE as a workaround ...\n");
-            image_info.flags &= ~VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
-            supported = vkd3d_is_linear_tiling_supported(device, &image_info);
+            image_info->flags &= ~VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
+            supported = vkd3d_is_linear_tiling_supported(device, image_info);
         }
 
         if (!supported)
         {
             WARN("Linear image not supported, forcing OPTIMAL tiling ...\n");
-            image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+            image_info->tiling = VK_IMAGE_TILING_OPTIMAL;
 
-            if ((image_info.flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) &&
-                    !vkd3d_format_check_usage_support(device, format->vk_format, image_info.usage, image_info.tiling))
-                image_info.flags |= VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
+            if ((image_info->flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) &&
+                    !vkd3d_format_check_usage_support(device, format->vk_format, image_info->usage, image_info->tiling))
+                image_info->flags |= VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
         }
     }
 
@@ -708,14 +715,14 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
         // D3D12 only allows sparse images with one aspect, so we can only
         // get one struct for metadata aspect and one for the data aspect
         VK_CALL(vkGetPhysicalDeviceSparseImageFormatProperties(
-                device->vk_physical_device, image_info.format,
-                image_info.imageType, image_info.samples, image_info.usage,
-                image_info.tiling, &sparse_info_count, sparse_infos));
+                device->vk_physical_device, image_info->format,
+                image_info->imageType, image_info->samples, image_info->usage,
+                image_info->tiling, &sparse_info_count, sparse_infos));
 
         if (!sparse_info_count)
         {
             ERR("Sparse images not supported with format %u, type %u, samples %u, usage %#x, tiling %u.\n",
-                    image_info.format, image_info.imageType, image_info.samples, image_info.usage, image_info.tiling);
+                    image_info->format, image_info->imageType, image_info->samples, image_info->usage, image_info->tiling);
             return E_INVALIDARG;
         }
 
@@ -734,7 +741,7 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
 
     if (resource)
     {
-        if (image_info.tiling == VK_IMAGE_TILING_LINEAR)
+        if (image_info->tiling == VK_IMAGE_TILING_LINEAR)
         {
             resource->flags |= VKD3D_RESOURCE_LINEAR_TILING;
             resource->common_layout = VK_IMAGE_LAYOUT_GENERAL;
@@ -746,7 +753,23 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
             resource->flags |= VKD3D_RESOURCE_SIMULTANEOUS_ACCESS;
     }
 
-    if ((vr = VK_CALL(vkCreateImage(device->vk_device, &image_info, NULL, vk_image))) < 0)
+    return S_OK;
+}
+
+static HRESULT vkd3d_create_image(struct d3d12_device *device,
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        const D3D12_RESOURCE_DESC1 *desc, struct d3d12_resource *resource, VkImage *vk_image)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_image_create_info create_info;
+    VkResult vr;
+    HRESULT hr;
+
+    if (FAILED(hr = vkd3d_get_image_create_info(device, heap_properties,
+            heap_flags, desc, resource, &create_info)))
+        return hr;
+
+    if ((vr = VK_CALL(vkCreateImage(device->vk_device, &create_info.image_info, NULL, vk_image))) < 0)
         WARN("Failed to create Vulkan image, vr %d.\n", vr);
 
     return hresult_from_vk_result(vr);
@@ -757,10 +780,11 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
 {
     static const D3D12_HEAP_PROPERTIES heap_properties = {D3D12_HEAP_TYPE_DEFAULT};
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkDeviceImageMemoryRequirementsKHR requirement_info;
+    struct vkd3d_image_create_info create_info;
     D3D12_RESOURCE_DESC1 validated_desc;
-    VkMemoryRequirements requirements;
+    VkMemoryRequirements2 requirements;
     VkDeviceSize target_alignment;
-    VkImage vk_image;
     HRESULT hr;
 
     assert(desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER);
@@ -773,15 +797,21 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
         desc = &validated_desc;
     }
 
-    /* XXX: We have to create an image to get its memory requirements. */
-    if (FAILED(hr = vkd3d_create_image(device, &heap_properties, 0, desc, NULL, &vk_image)))
+    if (FAILED(hr = vkd3d_get_image_create_info(device, &heap_properties, 0, desc, NULL, &create_info)))
         return hr;
 
-    VK_CALL(vkGetImageMemoryRequirements(device->vk_device, vk_image, &requirements));
-    VK_CALL(vkDestroyImage(device->vk_device, vk_image, NULL));
+    requirement_info.sType = VK_STRUCTURE_TYPE_DEVICE_IMAGE_MEMORY_REQUIREMENTS_KHR;
+    requirement_info.pNext = NULL;
+    requirement_info.pCreateInfo = &create_info.image_info;
+    requirement_info.planeAspect = 0; /* irrelevant for us */
 
-    allocation_info->SizeInBytes = requirements.size;
-    allocation_info->Alignment = requirements.alignment;
+    requirements.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
+    requirements.pNext = NULL;
+
+    VK_CALL(vkGetDeviceImageMemoryRequirementsKHR(device->vk_device, &requirement_info, &requirements));
+
+    allocation_info->SizeInBytes = requirements.memoryRequirements.size;
+    allocation_info->Alignment = requirements.memoryRequirements.alignment;
 
     /* Do not report alignments greater than DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT
      * since that might confuse apps. Instead, pad the allocation so that we can
