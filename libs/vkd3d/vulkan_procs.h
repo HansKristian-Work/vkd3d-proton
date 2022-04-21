@@ -218,6 +218,11 @@ VK_DEVICE_EXT_PFN(vkCmdCopyImage2KHR)
 VK_DEVICE_EXT_PFN(vkCmdCopyImageToBuffer2KHR)
 VK_DEVICE_EXT_PFN(vkCmdResolveImage2KHR)
 
+/* VK_KHR_maintenance4 */
+VK_DEVICE_EXT_PFN(vkGetDeviceBufferMemoryRequirementsKHR)
+VK_DEVICE_EXT_PFN(vkGetDeviceImageMemoryRequirementsKHR)
+VK_DEVICE_EXT_PFN(vkGetDeviceImageSparseMemoryRequirementsKHR)
+
 /* VK_EXT_calibrated_timestamps */
 VK_DEVICE_EXT_PFN(vkGetCalibratedTimestampsEXT)
 VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceCalibrateableTimeDomainsEXT)
