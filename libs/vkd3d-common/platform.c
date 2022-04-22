@@ -19,6 +19,7 @@
 #include "vkd3d_platform.h"
 
 #include <assert.h>
+#include <stdio.h>
 
 #if defined(__linux__)
 
