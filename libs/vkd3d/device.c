@@ -2193,6 +2193,9 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
     {
         struct vkd3d_queue_family_info *info;
 
+        if (queue_info->family_index[i] == VK_QUEUE_FAMILY_IGNORED)
+            continue;
+
         for (j = 0; j < i; j++)
         {
             if (queue_info->family_index[i] == queue_info->family_index[j])
@@ -2208,22 +2211,19 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
             goto out_destroy_queues;
         }
 
-        if (queue_info->family_index[i] != VK_QUEUE_FAMILY_IGNORED)
+        info->queue_count = queue_info->vk_queue_create_info[k++].queueCount;
+
+        if (!(info->queues = vkd3d_calloc(info->queue_count, sizeof(*info->queues))))
         {
-            info->queue_count = queue_info->vk_queue_create_info[k++].queueCount;
+            hr = E_OUTOFMEMORY;
+            goto out_destroy_queues;
+        }
 
-            if (!(info->queues = vkd3d_calloc(info->queue_count, sizeof(*info->queues))))
-            {
-                hr = E_OUTOFMEMORY;
+        for (j = 0; j < info->queue_count; j++)
+        {
+            if (FAILED((hr = vkd3d_queue_create(device, queue_info->family_index[i],
+                    j, &queue_info->vk_properties[i], &info->queues[j]))))
                 goto out_destroy_queues;
-            }
-
-            for (j = 0; j < info->queue_count; j++)
-            {
-                if (FAILED((hr = vkd3d_queue_create(device, queue_info->family_index[i],
-                        j, &queue_info->vk_properties[i], &info->queues[j]))))
-                    goto out_destroy_queues;
-            }
         }
 
         info->vk_family_index = queue_info->family_index[i];
@@ -5357,6 +5357,7 @@ static D3D12_TILED_RESOURCES_TIER d3d12_device_determine_tiled_resources_tier(st
     if (!features->sparseBinding || !features->sparseResidencyAliased ||
             !features->sparseResidencyBuffer || !features->sparseResidencyImage2D ||
             !sparse_properties->residencyStandard2DBlockShape ||
+            !device->queue_families[VKD3D_QUEUE_FAMILY_SPARSE_BINDING] ||
             !device->queue_families[VKD3D_QUEUE_FAMILY_SPARSE_BINDING]->queue_count)
         return D3D12_TILED_RESOURCES_TIER_NOT_SUPPORTED;
 
