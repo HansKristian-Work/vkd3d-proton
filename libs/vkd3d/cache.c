@@ -2979,7 +2979,7 @@ HRESULT vkd3d_pipeline_library_init_disk_cache(struct vkd3d_pipeline_library_dis
     else if (path)
         snprintf(cache->read_path, sizeof(cache->read_path), "%s%svkd3d-proton.cache", path, separator);
     else
-        snprintf(cache->read_path, sizeof(cache->read_path), "vkd3d-proton.cache", path);
+        strcpy(cache->read_path, "vkd3d-proton.cache");
 
     for (i = 0, n = strlen(cache->read_path); i < n; i++)
         if (cache->read_path[i] == '/')
