@@ -574,15 +574,17 @@ static void vkd3d_instance_apply_application_workarounds(void)
 
 static void vkd3d_instance_deduce_config_flags_from_environment(void)
 {
-    const char *env;
+    char env[VKD3D_PATH_MAX];
 
-    if (getenv("VKD3D_SHADER_OVERRIDE") || getenv("VKD3D_SHADER_DUMP_PATH"))
+    if (vkd3d_get_env_var("VKD3D_SHADER_OVERRIDE", env, sizeof(env)) ||
+            vkd3d_get_env_var("VKD3D_SHADER_DUMP_PATH", env, sizeof(env)))
     {
         INFO("VKD3D_SHADER_OVERRIDE or VKD3D_SHADER_DUMP_PATH is used, pipeline_library_ignore_spirv option is enforced.\n");
         vkd3d_config_flags |= VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_IGNORE_SPIRV;
     }
 
-    if ((env = getenv("VKD3D_SHADER_CACHE_PATH")) && strcmp(env, "0") == 0)
+    vkd3d_get_env_var("VKD3D_SHADER_CACHE_PATH", env, sizeof(env));
+    if (strcmp(env, "0") == 0)
     {
         INFO("Shader cache is explicitly disabled, relying solely on application caches.\n");
         vkd3d_config_flags |= VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_APP_CACHE_ONLY;

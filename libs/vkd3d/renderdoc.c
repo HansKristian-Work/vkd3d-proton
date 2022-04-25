@@ -100,9 +100,9 @@ static bool vkd3d_renderdoc_enable_submit_counter(uint32_t counter)
 
 static void vkd3d_renderdoc_init_once(void)
 {
+    char counts[VKD3D_PATH_MAX];
     pRENDERDOC_GetAPI get_api;
-    const char *counts;
-    const char *env;
+    char env[VKD3D_PATH_MAX];
 
 #ifdef _WIN32
     HMODULE renderdoc;
@@ -112,19 +112,19 @@ static void vkd3d_renderdoc_init_once(void)
     void *fn_ptr;
 #endif
 
-    env = getenv("VKD3D_AUTO_CAPTURE_SHADER");
-    counts = getenv("VKD3D_AUTO_CAPTURE_COUNTS");
+    vkd3d_get_env_var("VKD3D_AUTO_CAPTURE_SHADER", env, sizeof(env));
+    vkd3d_get_env_var("VKD3D_AUTO_CAPTURE_COUNTS", counts, sizeof(counts));
 
-    if (!env && !counts)
+    if (strlen(env) == 0 && strlen(counts) == 0)
     {
         WARN("VKD3D_AUTO_CAPTURE_SHADER or VKD3D_AUTO_CAPTURE_COUNTS is not set, RenderDoc auto capture will not be enabled.\n");
         return;
     }
 
-    if (!counts)
+    if (strlen(counts) == 0)
         WARN("VKD3D_AUTO_CAPTURE_COUNTS is not set, will assume that only the first submission is captured.\n");
 
-    if (env)
+    if (strlen(env) > 0)
         renderdoc_capture_shader_hash = strtoull(env, NULL, 16);
 
     if (renderdoc_capture_shader_hash)
@@ -132,7 +132,7 @@ static void vkd3d_renderdoc_init_once(void)
     else
         INFO("Enabling RenderDoc capture for all shaders.\n");
 
-    if (counts)
+    if (strlen(counts) > 0)
         vkd3d_renderdoc_init_capture_count_list(counts);
     else
     {
