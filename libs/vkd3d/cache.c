@@ -2941,6 +2941,7 @@ static void vkd3d_pipeline_library_disk_cache_initial_setup(struct vkd3d_pipelin
 HRESULT vkd3d_pipeline_library_init_disk_cache(struct vkd3d_pipeline_library_disk_cache *cache,
         struct d3d12_device *device)
 {
+    char path_buf[VKD3D_PATH_MAX];
     VKD3D_UNUSED size_t i, n;
     const char *separator;
     const char *path;
@@ -2955,9 +2956,8 @@ HRESULT vkd3d_pipeline_library_init_disk_cache(struct vkd3d_pipeline_library_dis
 
     /* Match DXVK style here. The environment variable is a directory.
      * If not set, it is in current working directory. */
-    path = getenv("VKD3D_SHADER_CACHE_PATH");
-    if (path && *path == '\0')
-        path = NULL;
+    vkd3d_get_env_var("VKD3D_SHADER_CACHE_PATH", path_buf, sizeof(path_buf));
+    path = *path_buf != '\0' ? path_buf : NULL;
 
     if (path)
     {

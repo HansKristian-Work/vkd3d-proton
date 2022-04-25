@@ -76,10 +76,10 @@ static const char *debug_descriptor_type(vkd3d_descriptor_qa_flags type_flags)
 
 static void vkd3d_descriptor_debug_init_once(void)
 {
-    const char *env;
+    char env[VKD3D_PATH_MAX];
+    vkd3d_get_env_var("VKD3D_DESCRIPTOR_QA_LOG", env, sizeof(env));
 
-    env = getenv("VKD3D_DESCRIPTOR_QA_LOG");
-    if (env)
+    if (strlen(env) > 0)
     {
         INFO("Enabling VKD3D_DESCRIPTOR_QA_LOG\n");
         descriptor_debug_file = fopen(env, "w");
