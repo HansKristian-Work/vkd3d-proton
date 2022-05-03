@@ -126,6 +126,7 @@ static void d3d12_state_object_cleanup(struct d3d12_state_object *object)
         d3d12_root_signature_dec_ref(object->global_root_signature);
 
     VK_CALL(vkDestroyPipeline(object->device->vk_device, object->pipeline, NULL));
+    VK_CALL(vkDestroyPipeline(object->device->vk_device, object->pipeline_library, NULL));
 
     VK_CALL(vkDestroyPipelineLayout(object->device->vk_device,
             object->local_static_sampler.pipeline_layout, NULL));
@@ -240,6 +241,7 @@ static void * STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderIdentifie
         LPCWSTR export_name)
 {
     struct d3d12_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
+    struct d3d12_state_object_identifier *export;
     const WCHAR *subtype = NULL;
     uint32_t index;
 
@@ -250,7 +252,14 @@ static void * STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderIdentifie
     /* Cannot query shader identifier for non-group names. */
     if (!subtype && index != UINT32_MAX)
     {
-        return object->exports[index].identifier;
+        export = &object->exports[index];
+        /* Need to return the parent SBT pointer if it exists */
+        while (export->inherited_collection_index >= 0)
+        {
+            object = object->collections[export->inherited_collection_index];
+            export = &object->exports[export->inherited_collection_export_index];
+        }
+        return export->identifier;
     }
     else
     {
@@ -426,10 +435,78 @@ static void d3d12_state_object_pipeline_data_cleanup(struct d3d12_state_object_p
     vkd3d_free(data->vk_libraries);
 }
 
+static HRESULT d3d12_state_object_add_collection(
+        struct d3d12_state_object *collection,
+        struct d3d12_state_object_pipeline_data *data,
+        const D3D12_EXPORT_DESC *exports, unsigned int num_exports)
+{
+    if (!vkd3d_array_reserve((void **)&data->collections, &data->collections_size,
+            data->collections_count + 1, sizeof(*data->collections)))
+        return E_OUTOFMEMORY;
+
+    /* If a PSO only declares collections, but no pipelines, just inherit various state.
+     * Also, validates that we have a match across different PSOs. */
+    if (data->global_root_signature)
+    {
+        if (!collection->global_root_signature ||
+                data->global_root_signature->compatibility_hash != collection->global_root_signature->compatibility_hash)
+        {
+            FIXME("Mismatch in global root signature state for PSO and collection.\n");
+            return E_INVALIDARG;
+        }
+    }
+    else
+        data->global_root_signature = collection->global_root_signature;
+
+    if (data->has_pipeline_config)
+    {
+        if (memcmp(&data->pipeline_config, &collection->pipeline_config, sizeof(data->pipeline_config)) != 0)
+        {
+            FIXME("Mismatch in pipeline config state for collection and PSO.\n");
+            return E_INVALIDARG;
+        }
+    }
+    else
+    {
+        data->pipeline_config = collection->pipeline_config;
+        data->has_pipeline_config = true;
+    }
+
+    if (data->shader_config)
+    {
+        if (memcmp(data->shader_config, &collection->shader_config, sizeof(*data->shader_config)) != 0)
+        {
+            FIXME("Mismatch in shader config state for collection and PSO.\n");
+            return E_INVALIDARG;
+        }
+    }
+    else
+        data->shader_config = &collection->shader_config;
+
+    data->collections[data->collections_count].object = collection;
+    data->collections[data->collections_count].num_exports = num_exports;
+    data->collections[data->collections_count].exports = exports;
+
+    vkd3d_array_reserve((void **)&data->vk_libraries, &data->vk_libraries_size,
+            data->vk_libraries_count + 1, sizeof(*data->vk_libraries));
+    data->vk_libraries[data->vk_libraries_count] =
+            data->collections[data->collections_count].object->pipeline_library;
+
+    data->collections_count += 1;
+    data->vk_libraries_count += 1;
+    return S_OK;
+}
+
 static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *object,
-        const D3D12_STATE_OBJECT_DESC *desc, struct d3d12_state_object_pipeline_data *data)
+        const D3D12_STATE_OBJECT_DESC *desc,
+        struct d3d12_state_object *parent,
+        struct d3d12_state_object_pipeline_data *data)
 {
     unsigned int i, j;
+    HRESULT hr;
+
+    if (parent && FAILED(hr = d3d12_state_object_add_collection(parent, data, NULL, 0)))
+        return hr;
 
     for (i = 0; i < desc->NumSubobjects; i++)
     {
@@ -438,9 +515,12 @@ static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *ob
         {
             case D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG:
             {
+                const uint32_t supported_flags =
+                        D3D12_STATE_OBJECT_FLAG_ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL_DEFINITIONS |
+                        D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS;
                 const D3D12_STATE_OBJECT_CONFIG *object_config = obj->pDesc;
                 object->flags = object_config->Flags;
-                if (object->flags & ~D3D12_STATE_OBJECT_FLAG_ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL_DEFINITIONS)
+                if (object->flags & ~supported_flags)
                 {
                     FIXME("Object config flag #%x is not supported.\n", object->flags);
                     return E_INVALIDARG;
@@ -601,19 +681,13 @@ static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *ob
             case D3D12_STATE_SUBOBJECT_TYPE_EXISTING_COLLECTION:
             {
                 const D3D12_EXISTING_COLLECTION_DESC *collection = obj->pDesc;
-                vkd3d_array_reserve((void **)&data->collections, &data->collections_size,
-                        data->collections_count + 1, sizeof(*data->collections));
-
-                data->collections[data->collections_count].object = impl_from_ID3D12StateObject(collection->pExistingCollection);
-                data->collections[data->collections_count].num_exports = collection->NumExports;
-                data->collections[data->collections_count].exports = collection->pExports;
-
-                vkd3d_array_reserve((void **)&data->vk_libraries, &data->vk_libraries_size,
-                        data->vk_libraries_count + 1, sizeof(*data->vk_libraries));
-                data->vk_libraries[data->vk_libraries_count] = data->collections[data->collections_count].object->pipeline;
-
-                data->collections_count += 1;
-                data->vk_libraries_count += 1;
+                struct d3d12_state_object *library_state;
+                library_state = impl_from_ID3D12StateObject(collection->pExistingCollection);
+                if (FAILED(hr = d3d12_state_object_add_collection(library_state, data,
+                        collection->pExports, collection->NumExports)))
+                {
+                    return hr;
+                }
                 break;
             }
 
@@ -676,7 +750,8 @@ static uint32_t d3d12_state_object_pipeline_data_find_entry(
 
     offset += data->stages_count;
 
-    /* Try to look in collections. */
+    /* Try to look in collections. We'll only find something in the ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL
+     * situation. Otherwise entry_points will be NULL. */
     for (i = 0; i < data->collections_count; i++)
     {
         index = d3d12_state_object_pipeline_data_find_entry_inner(data->collections[i].object->entry_points,
@@ -863,6 +938,8 @@ static HRESULT d3d12_state_object_get_group_handles(struct d3d12_state_object *o
         const struct d3d12_state_object_pipeline_data *data)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &object->device->vk_procs;
+    uint32_t collection_export;
+    int collection_index;
     uint32_t group_index;
     VkResult vr;
     size_t i;
@@ -877,6 +954,27 @@ static HRESULT d3d12_state_object_get_group_handles(struct d3d12_state_object *o
                 data->exports[i].identifier));
         if (vr)
             return hresult_from_vk_result(vr);
+
+        collection_export = data->exports[i].inherited_collection_export_index;
+        collection_index = data->exports[i].inherited_collection_index;
+
+        if (collection_index >= 0)
+        {
+            const uint8_t *parent_identifier;
+            const uint8_t *child_identifier;
+
+            parent_identifier = data->collections[collection_index].object->exports[collection_export].identifier;
+            child_identifier = data->exports[i].identifier;
+
+            /* Validate that we get an exact match for SBT handle.
+             * It appears to work just fine on NV. */
+            if (memcmp(parent_identifier, child_identifier, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES) != 0)
+            {
+                FIXME("SBT identifiers do not match for parent and child pipelines. "
+                      "Vulkan does not guarantee this, but DXR 1.1 requires this. Cannot use pipeline.\n");
+                return E_NOTIMPL;
+            }
+        }
 
         data->exports[i].stack_size_general = UINT32_MAX;
         data->exports[i].stack_size_any = UINT32_MAX;
@@ -1099,6 +1197,8 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
             export->closest_stage_index = VK_SHADER_UNUSED_KHR;
             export->anyhit_stage_index = VK_SHADER_UNUSED_KHR;
             export->intersection_stage_index = VK_SHADER_UNUSED_KHR;
+            export->inherited_collection_index = -1;
+            export->inherited_collection_export_index = 0;
             export->general_stage = entry->stage;
             entry->mangled_entry_point = NULL;
             entry->plain_entry_point = NULL;
@@ -1198,6 +1298,8 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
                         VK_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP_KHR,
                 export);
 
+        export->inherited_collection_index = -1;
+        export->inherited_collection_export_index = 0;
         data->exports_count += 1;
         data->groups_count += 1;
     }
@@ -1280,6 +1382,16 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
             if (export->intersection_stage_index != VK_SHADER_UNUSED_KHR)
                 export->intersection_stage_index += pstage_offset;
 
+            /* If we inherited from a real pipeline, we must observe the rules of AddToStateObject().
+             * SBT pointer must be invariant as well as its contents.
+             * Vulkan does not guarantee this, but we can validate and accept the pipeline if
+             * implementation happens to satisfy this rule. */
+            if (collection->object->type == D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE)
+                export->inherited_collection_index = (int)i;
+            else
+                export->inherited_collection_index = -1;
+            export->inherited_collection_export_index = input_export->group_index;
+
             data->exports_count += 1;
         }
 
@@ -1319,7 +1431,12 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
 
     pipeline_create_info.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR;
     pipeline_create_info.pNext = NULL;
-    pipeline_create_info.flags = object->type == D3D12_STATE_OBJECT_TYPE_COLLECTION ?
+
+    /* If we allow state object additions, we must first lower this pipeline to a library, and
+     * then link it to itself so we can use it a library in subsequent PSO creations, but we
+     * must also be able to trace rays from the library. */
+    pipeline_create_info.flags = (object->type == D3D12_STATE_OBJECT_TYPE_COLLECTION ||
+            (object->flags & D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS)) ?
             VK_PIPELINE_CREATE_LIBRARY_BIT_KHR : 0;
 
     /* FIXME: What if we have no global root signature? */
@@ -1379,7 +1496,27 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     dynamic_state.pDynamicStates = dynamic_states;
 
     vr = VK_CALL(vkCreateRayTracingPipelinesKHR(object->device->vk_device, VK_NULL_HANDLE,
-            VK_NULL_HANDLE, 1, &pipeline_create_info, NULL, &object->pipeline));
+            VK_NULL_HANDLE, 1, &pipeline_create_info, NULL,
+            (pipeline_create_info.flags & VK_PIPELINE_CREATE_LIBRARY_BIT_KHR) ?
+                    &object->pipeline_library : &object->pipeline));
+
+    if (vr == VK_SUCCESS && (object->flags & D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS) &&
+            object->type == D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE)
+    {
+        /* TODO: Is it actually valid to inherit other pipeline libraries while creating a pipeline library? */
+        pipeline_create_info.flags &= ~VK_PIPELINE_CREATE_LIBRARY_BIT_KHR;
+        pipeline_create_info.pStages = NULL;
+        pipeline_create_info.pGroups = NULL;
+        pipeline_create_info.stageCount = 0;
+        pipeline_create_info.groupCount = 0;
+        library_info.libraryCount = 1;
+        library_info.pLibraries = &object->pipeline_library;
+
+        /* Self-link the pipeline library. */
+        vr = VK_CALL(vkCreateRayTracingPipelinesKHR(object->device->vk_device, VK_NULL_HANDLE,
+                VK_NULL_HANDLE, 1, &pipeline_create_info, NULL, &object->pipeline));
+    }
+
     if (vr)
         return hresult_from_vk_result(vr);
 
@@ -1404,6 +1541,9 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     data->exports_count = 0;
 
     d3d12_root_signature_inc_ref(object->global_root_signature = global_signature);
+
+    object->shader_config = *data->shader_config;
+    object->pipeline_config = data->pipeline_config;
 
     /* Spec says we need to hold a reference to the collection object, but it doesn't show up in API,
      * so we must assume private reference. */
@@ -1435,7 +1575,8 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
 
 static HRESULT d3d12_state_object_init(struct d3d12_state_object *object,
         struct d3d12_device *device,
-        const D3D12_STATE_OBJECT_DESC *desc)
+        const D3D12_STATE_OBJECT_DESC *desc,
+        struct d3d12_state_object *parent)
 {
     struct d3d12_state_object_pipeline_data data;
     HRESULT hr = S_OK;
@@ -1447,7 +1588,7 @@ static HRESULT d3d12_state_object_init(struct d3d12_state_object *object,
     object->type = desc->Type;
     memset(&data, 0, sizeof(data));
 
-    if (FAILED(hr = d3d12_state_object_parse_subobjects(object, desc, &data)))
+    if (FAILED(hr = d3d12_state_object_parse_subobjects(object, desc, parent, &data)))
         goto fail;
 
     if (FAILED(hr = d3d12_state_object_compile_pipeline(object, &data)))
@@ -1467,6 +1608,7 @@ fail:
 }
 
 HRESULT d3d12_state_object_create(struct d3d12_device *device, const D3D12_STATE_OBJECT_DESC *desc,
+        struct d3d12_state_object *parent,
         struct d3d12_state_object **state_object)
 {
     struct d3d12_state_object *object;
@@ -1475,7 +1617,7 @@ HRESULT d3d12_state_object_create(struct d3d12_device *device, const D3D12_STATE
     if (!(object = vkd3d_calloc(1, sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    hr = d3d12_state_object_init(object, device, desc);
+    hr = d3d12_state_object_init(object, device, desc, parent);
     if (FAILED(hr))
     {
         vkd3d_free(object);
@@ -1484,4 +1626,35 @@ HRESULT d3d12_state_object_create(struct d3d12_device *device, const D3D12_STATE
 
     *state_object = object;
     return S_OK;
+}
+
+HRESULT d3d12_state_object_add(struct d3d12_device *device, const D3D12_STATE_OBJECT_DESC *desc,
+        struct d3d12_state_object *parent, struct d3d12_state_object **state_object)
+{
+    unsigned int i;
+    HRESULT hr;
+
+    if (!parent)
+        return E_INVALIDARG;
+    if (!(parent->flags & D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS))
+        return E_INVALIDARG;
+    if (desc->Type != D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE)
+        return E_INVALIDARG;
+
+    /* Addition must also allow this scenario. */
+    for (i = 0; i < desc->NumSubobjects; i++)
+    {
+        if (desc->pSubobjects[i].Type == D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG)
+        {
+            const D3D12_STATE_OBJECT_CONFIG *config = desc->pSubobjects[i].pDesc;
+            if (config->Flags & D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS)
+                break;
+        }
+    }
+
+    if (i == desc->NumSubobjects)
+        return E_INVALIDARG;
+
+    hr = d3d12_state_object_create(device, desc, parent, state_object);
+    return hr;
 }
