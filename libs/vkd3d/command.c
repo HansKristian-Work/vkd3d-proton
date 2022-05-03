@@ -6810,14 +6810,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetBlendFactor(d3d12_command_
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct vkd3d_dynamic_state *dyn_state = &list->dynamic_state;
-    unsigned int i;
 
     TRACE("iface %p, blend_factor %p.\n", iface, blend_factor);
 
-    for (i = 0; i < 4; i++)
-        dyn_state->blend_constants[i] = blend_factor[i];
-
-    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS;
+    if (memcmp(dyn_state->blend_constants, blend_factor, sizeof(dyn_state->blend_constants)) != 0)
+    {
+        memcpy(dyn_state->blend_constants, blend_factor, sizeof(dyn_state->blend_constants));
+        dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS;
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_OMSetStencilRef(d3d12_command_list_iface *iface,
@@ -6828,8 +6828,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetStencilRef(d3d12_command_l
 
     TRACE("iface %p, stencil_ref %u.\n", iface, stencil_ref);
 
-    dyn_state->stencil_reference = stencil_ref;
-    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE;
+    if (dyn_state->stencil_reference != stencil_ref)
+    {
+        dyn_state->stencil_reference = stencil_ref;
+        dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE;
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_list_iface *iface,
@@ -9596,10 +9599,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetDepthBounds(d3d12_command_
 
     TRACE("iface %p, min %.8e, max %.8e.\n", iface, min, max);
 
-    dyn_state->min_depth_bounds = min;
-    dyn_state->max_depth_bounds = max;
-
-    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS;
+    if (dyn_state->min_depth_bounds != min || dyn_state->max_depth_bounds != max)
+    {
+        dyn_state->min_depth_bounds = min;
+        dyn_state->max_depth_bounds = max;
+        dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS;
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetSamplePositions(d3d12_command_list_iface *iface,
@@ -10103,22 +10108,31 @@ static uint32_t vk_fragment_size_from_d3d12(D3D12_AXIS_SHADING_RATE axis_rate)
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRate(d3d12_command_list_iface *iface,
         D3D12_SHADING_RATE base, const D3D12_SHADING_RATE_COMBINER *combiners)
 {
+    VkFragmentShadingRateCombinerOpKHR combiner_ops[D3D12_RS_SET_SHADING_RATE_COMBINER_COUNT];
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct vkd3d_dynamic_state *dyn_state = &list->dynamic_state;
+    VkExtent2D fragment_size;
+    uint32_t i;
 
     TRACE("iface %p, base %#x, combiners %p\n", iface, base, combiners);
 
-    dyn_state->fragment_shading_rate.fragment_size = (VkExtent2D) {
-        vk_fragment_size_from_d3d12(D3D12_GET_COARSE_SHADING_RATE_X_AXIS(base)),
-        vk_fragment_size_from_d3d12(D3D12_GET_COARSE_SHADING_RATE_Y_AXIS(base))
-    };
+    fragment_size.width = vk_fragment_size_from_d3d12(D3D12_GET_COARSE_SHADING_RATE_X_AXIS(base));
+    fragment_size.height = vk_fragment_size_from_d3d12(D3D12_GET_COARSE_SHADING_RATE_Y_AXIS(base));
 
-    for (uint32_t i = 0; i < D3D12_RS_SET_SHADING_RATE_COMBINER_COUNT; i++)
-        dyn_state->fragment_shading_rate.combiner_ops[i] = combiners
-            ? vk_shading_rate_combiner_from_d3d12(combiners[i])
-            : VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR;
-    
-    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE;
+    for (i = 0; i < D3D12_RS_SET_SHADING_RATE_COMBINER_COUNT; i++)
+    {
+        combiner_ops[i] = combiners ?
+                vk_shading_rate_combiner_from_d3d12(combiners[i]) :
+                VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR;
+    }
+
+    if (memcmp(&fragment_size, &dyn_state->fragment_shading_rate.fragment_size, sizeof(fragment_size)) != 0 ||
+            memcmp(combiner_ops, dyn_state->fragment_shading_rate.combiner_ops, sizeof(combiner_ops)) != 0)
+    {
+        dyn_state->fragment_shading_rate.fragment_size = fragment_size;
+        memcpy(dyn_state->fragment_shading_rate.combiner_ops, combiner_ops, sizeof(combiner_ops));
+        dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE;
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRateImage(d3d12_command_list_iface *iface,
