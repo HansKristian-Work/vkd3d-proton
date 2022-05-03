@@ -1448,12 +1448,13 @@ static ID3D12StateObject *rt_pso_factory_compile(struct raytracing_test_context 
     return rt_pso;
 }
 
-static ID3D12StateObject *rt_pso_add_to_state_object(ID3D12Device5 *device, ID3D12StateObject *parent, ID3D12StateObject *addition)
+static ID3D12StateObject *rt_pso_add_to_state_object(ID3D12Device5 *device, ID3D12StateObject *parent, ID3D12StateObject *addition,
+        const D3D12_HIT_GROUP_DESC *hit_group)
 {
     D3D12_EXISTING_COLLECTION_DESC existing;
     ID3D12StateObject *new_state_object;
     D3D12_STATE_OBJECT_CONFIG config;
-    D3D12_STATE_SUBOBJECT subobj[2];
+    D3D12_STATE_SUBOBJECT subobj[3];
     D3D12_STATE_OBJECT_DESC desc;
     ID3D12Device7 *device7;
     HRESULT hr;
@@ -1467,6 +1468,13 @@ static ID3D12StateObject *rt_pso_add_to_state_object(ID3D12Device5 *device, ID3D
     existing.pExports = NULL;
     existing.pExistingCollection = addition;
 
+    if (hit_group)
+    {
+        subobj[desc.NumSubobjects].Type = D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP;
+        subobj[desc.NumSubobjects].pDesc = hit_group;
+        desc.NumSubobjects++;
+    }
+
     if (FAILED(ID3D12Device5_QueryInterface(device, &IID_ID3D12Device7, (void**)&device7)))
     {
         skip("Failed to query ID3D12Device7.\n");
@@ -1478,9 +1486,9 @@ static ID3D12StateObject *rt_pso_add_to_state_object(ID3D12Device5 *device, ID3D
     ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", hr);
 
     config.Flags = D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS;
-    subobj[1].Type = D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG;
-    subobj[1].pDesc = &config;
-    desc.NumSubobjects = 2;
+    subobj[desc.NumSubobjects].Type = D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG;
+    subobj[desc.NumSubobjects].pDesc = &config;
+    desc.NumSubobjects++;
 
     /* Type must be RAYTRACING_PIPELINE. */
     desc.Type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
@@ -1793,27 +1801,28 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
         rt_pso_factory_add_subobject_to_exports_association(&factory,
                 local_rs_index, 0, NULL);
 
-        rt_pso_factory_add_existing_collection(&factory, rt_object_library_tri, 0, NULL);
-
         /* Defer this. */
         if (mode != TEST_MODE_PSO_ADD_TO_STATE_OBJECT)
+        {
+            rt_pso_factory_add_existing_collection(&factory, rt_object_library_tri, 0, NULL);
             rt_pso_factory_add_existing_collection(&factory, rt_object_library_aabb, 0, NULL);
 
-        memset(&hit_group, 0, sizeof(hit_group));
-        hit_group.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
-        hit_group.ClosestHitShaderImport = u"XRayClosest";
-        hit_group.HitGroupExport = u"XRayHit2";
-        rt_pso_factory_add_hit_group(&factory, &hit_group);
+            memset(&hit_group, 0, sizeof(hit_group));
+            hit_group.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
+            hit_group.ClosestHitShaderImport = u"XRayClosest";
+            hit_group.HitGroupExport = u"XRayHit2";
+            rt_pso_factory_add_hit_group(&factory, &hit_group);
+        }
 
         rt_pso = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
 
-        /* Docs say there should be ref-count of the collection, but apparently, that refcount is private. */
-        ref_count = ID3D12StateObject_AddRef(rt_object_library_tri);
-        ok(ref_count == 2, "Collection ref count is %u.\n", ref_count);
-        ID3D12StateObject_Release(rt_object_library_tri);
-
         if (mode != TEST_MODE_PSO_ADD_TO_STATE_OBJECT)
         {
+            /* Docs say there should be ref-count of the collection, but apparently, that refcount is private. */
+            ref_count = ID3D12StateObject_AddRef(rt_object_library_tri);
+            ok(ref_count == 2, "Collection ref count is %u.\n", ref_count);
+            ID3D12StateObject_Release(rt_object_library_tri);
+
             ref_count = ID3D12StateObject_AddRef(rt_object_library_aabb);
             ok(ref_count == 2, "Collection ref count is %u.\n", ref_count);
             ID3D12StateObject_Release(rt_object_library_aabb);
@@ -1821,6 +1830,24 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
     }
     else
         rt_pso = NULL;
+
+    /* Add two iterations of AddToStateObject so we have test coverage of that scenario. */
+    if (mode == TEST_MODE_PSO_ADD_TO_STATE_OBJECT && rt_pso)
+    {
+        D3D12_HIT_GROUP_DESC hit_group;
+
+        memset(&hit_group, 0, sizeof(hit_group));
+        hit_group.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
+        hit_group.ClosestHitShaderImport = u"XRayClosest";
+        hit_group.HitGroupExport = u"XRayHit2";
+
+        rt_pso_added = rt_pso_add_to_state_object(context.device5, rt_pso, rt_object_library_tri, &hit_group);
+        ID3D12StateObject_Release(rt_pso);
+        rt_pso = rt_pso_added;
+        ref_count = ID3D12StateObject_AddRef(rt_object_library_tri);
+        ok(ref_count == 2, "Collection ref count is %u.\n", ref_count);
+        ID3D12StateObject_Release(rt_object_library_tri);
+    }
 
     if (mode == TEST_MODE_PSO_ADD_TO_STATE_OBJECT && rt_pso)
     {
@@ -1855,7 +1882,7 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
         memcpy(pre_ray_gen_data, pre_ray_gen, sizeof(pre_ray_gen_data));
         memcpy(pre_hit_data, pre_hit, sizeof(pre_hit_data));
 
-        rt_pso_added = rt_pso_add_to_state_object(context.device5, rt_pso, rt_object_library_aabb);
+        rt_pso_added = rt_pso_add_to_state_object(context.device5, rt_pso, rt_object_library_aabb, NULL);
         ID3D12StateObject_QueryInterface(rt_pso, &IID_ID3D12StateObjectProperties, (void**)&post_props);
         ID3D12StateObject_QueryInterface(rt_pso_added, &IID_ID3D12StateObjectProperties, (void**)&combined_props);
 
