@@ -3406,6 +3406,14 @@ struct d3d12_state_object_identifier
 
     /* The index into vkGetShaderStackSize and friends for pGroups[]. */
     uint32_t group_index;
+
+    /* For AddToStateObject(). We need to return the identifier pointer
+     * for the parent, not the child. This makes it easy to validate that
+     * we observe the same SBT handles as specified by DXR 1.1. */
+
+    /* If -1, ignore, otherwise, redirect. */
+    int inherited_collection_index;
+    uint32_t inherited_collection_export_index;
 };
 
 struct d3d12_state_object_stack_info
@@ -3439,7 +3447,14 @@ struct d3d12_state_object
     /* Normally stages_count == entry_points_count, but entry_points is the entry points we
      * export externally, and stages_count matches pStages[] size for purposes of index fixups. */
 
+    /* Can be bound. */
     VkPipeline pipeline;
+    /* Can be used as a library. */
+    VkPipeline pipeline_library;
+
+    /* Can be inherited by AddToStateObject(). */
+    D3D12_RAYTRACING_PIPELINE_CONFIG1 pipeline_config;
+    D3D12_RAYTRACING_SHADER_CONFIG shader_config;
 
     struct
     {
@@ -3462,6 +3477,10 @@ struct d3d12_state_object
 };
 
 HRESULT d3d12_state_object_create(struct d3d12_device *device, const D3D12_STATE_OBJECT_DESC *desc,
+        struct d3d12_state_object *parent,
+        struct d3d12_state_object **object);
+HRESULT d3d12_state_object_add(struct d3d12_device *device, const D3D12_STATE_OBJECT_DESC *desc,
+        struct d3d12_state_object *parent,
         struct d3d12_state_object **object);
 
 static inline struct d3d12_state_object *impl_from_ID3D12StateObject(ID3D12StateObject *iface)
