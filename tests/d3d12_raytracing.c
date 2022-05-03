@@ -1448,6 +1448,54 @@ static ID3D12StateObject *rt_pso_factory_compile(struct raytracing_test_context 
     return rt_pso;
 }
 
+static ID3D12StateObject *rt_pso_add_to_state_object(ID3D12Device5 *device, ID3D12StateObject *parent, ID3D12StateObject *addition)
+{
+    D3D12_EXISTING_COLLECTION_DESC existing;
+    ID3D12StateObject *new_state_object;
+    D3D12_STATE_OBJECT_CONFIG config;
+    D3D12_STATE_SUBOBJECT subobj[2];
+    D3D12_STATE_OBJECT_DESC desc;
+    ID3D12Device7 *device7;
+    HRESULT hr;
+
+    desc.NumSubobjects = 1;
+    desc.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
+    desc.pSubobjects = subobj;
+    subobj[0].Type = D3D12_STATE_SUBOBJECT_TYPE_EXISTING_COLLECTION;
+    subobj[0].pDesc = &existing;
+    existing.NumExports = 0;
+    existing.pExports = NULL;
+    existing.pExistingCollection = addition;
+
+    if (FAILED(ID3D12Device5_QueryInterface(device, &IID_ID3D12Device7, (void**)&device7)))
+    {
+        skip("Failed to query ID3D12Device7.\n");
+        return NULL;
+    }
+
+    /* Have to add ALLOW_STATE_OBJECT_ADDITIONS for both parent and addition. */
+    hr = ID3D12Device7_AddToStateObject(device7, &desc, parent, &IID_ID3D12StateObject, (void**)&new_state_object);
+    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", hr);
+
+    config.Flags = D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS;
+    subobj[1].Type = D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG;
+    subobj[1].pDesc = &config;
+    desc.NumSubobjects = 2;
+
+    /* Type must be RAYTRACING_PIPELINE. */
+    desc.Type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
+    hr = ID3D12Device7_AddToStateObject(device7, &desc, parent, &IID_ID3D12StateObject, (void**)&new_state_object);
+    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", hr);
+    desc.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
+
+    hr = ID3D12Device7_AddToStateObject(device7, &desc, parent, &IID_ID3D12StateObject, (void**)&new_state_object);
+    ok(SUCCEEDED(hr), "Failed to AddToStateObject, hr #%x.\n", hr);
+    if (FAILED(hr))
+        new_state_object = NULL;
+    ID3D12Device7_Release(device7);
+    return new_state_object;
+}
+
 enum rt_test_mode
 {
     TEST_MODE_PLAIN,
@@ -1457,6 +1505,7 @@ enum rt_test_mode
     TEST_MODE_TRACE_RAY_SKIP_AABBS,
     TEST_MODE_PSO_SKIP_TRIANGLES,
     TEST_MODE_PSO_SKIP_AABBS,
+    TEST_MODE_PSO_ADD_TO_STATE_OBJECT,
 };
 
 static ID3D12StateObject *create_rt_collection(struct raytracing_test_context *context,
@@ -1471,8 +1520,17 @@ static ID3D12StateObject *create_rt_collection(struct raytracing_test_context *c
 
     rt_pso_factory_add_default_node_mask(&factory);
 
-    rt_pso_factory_add_state_object_config(&factory,
+    if (test_mode == TEST_MODE_PSO_ADD_TO_STATE_OBJECT)
+    {
+        rt_pso_factory_add_state_object_config(&factory,
+            D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS |
             D3D12_STATE_OBJECT_FLAG_ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL_DEFINITIONS);
+    }
+    else
+    {
+        rt_pso_factory_add_state_object_config(&factory,
+            D3D12_STATE_OBJECT_FLAG_ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL_DEFINITIONS);
+    }
 
     if (test_mode == TEST_MODE_PSO_SKIP_TRIANGLES)
         rt_pso_factory_add_pipeline_config1(&factory, 1, D3D12_RAYTRACING_PIPELINE_FLAG_SKIP_TRIANGLES);
@@ -1544,6 +1602,7 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
     ID3D12Resource *sbt_colors_buffer;
     ID3D12Resource *postbuild_buffer;
     unsigned int i, descriptor_size;
+    ID3D12StateObject *rt_pso_added;
     ID3D12RootSignature *global_rs;
     struct test_geometry test_geom;
     ID3D12RootSignature *local_rs;
@@ -1705,7 +1764,11 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
 
         rt_pso_factory_init(&factory);
         rt_pso_factory_add_default_node_mask(&factory);
-        rt_pso_factory_add_state_object_config(&factory, D3D12_STATE_OBJECT_FLAG_NONE);
+
+        if (mode == TEST_MODE_PSO_ADD_TO_STATE_OBJECT)
+            rt_pso_factory_add_state_object_config(&factory, D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS);
+        else
+            rt_pso_factory_add_state_object_config(&factory, D3D12_STATE_OBJECT_FLAG_NONE);
         rt_pso_factory_add_global_root_signature(&factory, global_rs);
 
         if (mode == TEST_MODE_PSO_SKIP_TRIANGLES)
@@ -1728,7 +1791,10 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
                 local_rs_index, 0, NULL);
 
         rt_pso_factory_add_existing_collection(&factory, rt_object_library_tri, 0, NULL);
-        rt_pso_factory_add_existing_collection(&factory, rt_object_library_aabb, 0, NULL);
+
+        /* Defer this. */
+        if (mode != TEST_MODE_PSO_ADD_TO_STATE_OBJECT)
+            rt_pso_factory_add_existing_collection(&factory, rt_object_library_aabb, 0, NULL);
 
         memset(&hit_group, 0, sizeof(hit_group));
         hit_group.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
@@ -1742,12 +1808,91 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
         ref_count = ID3D12StateObject_AddRef(rt_object_library_tri);
         ok(ref_count == 2, "Collection ref count is %u.\n", ref_count);
         ID3D12StateObject_Release(rt_object_library_tri);
-        ref_count = ID3D12StateObject_AddRef(rt_object_library_aabb);
-        ok(ref_count == 2, "Collection ref count is %u.\n", ref_count);
-        ID3D12StateObject_Release(rt_object_library_aabb);
+
+        if (mode != TEST_MODE_PSO_ADD_TO_STATE_OBJECT)
+        {
+            ref_count = ID3D12StateObject_AddRef(rt_object_library_aabb);
+            ok(ref_count == 2, "Collection ref count is %u.\n", ref_count);
+            ID3D12StateObject_Release(rt_object_library_aabb);
+        }
     }
     else
         rt_pso = NULL;
+
+    if (mode == TEST_MODE_PSO_ADD_TO_STATE_OBJECT && rt_pso)
+    {
+        uint8_t pre_ray_miss_data[D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES];
+        uint8_t pre_ray_gen_data[D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES];
+        uint8_t pre_hit_data[D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES];
+        ID3D12StateObjectProperties *combined_props;
+        static const WCHAR ray_miss[] = u"XRayMiss";
+        static const WCHAR ray_hit2[] = u"XRayHit2";
+        static const WCHAR ray_gen[] = u"XRayGen";
+        ID3D12StateObjectProperties *post_props;
+        ID3D12StateObjectProperties *pre_props;
+
+        uint8_t *combined_ray_miss;
+        uint8_t *combined_ray_gen;
+        uint8_t *combined_hit;
+
+        uint8_t *post_ray_miss;
+        uint8_t *post_ray_gen;
+        uint8_t *post_hit;
+
+        uint8_t *pre_ray_miss;
+        uint8_t *pre_ray_gen;
+        uint8_t *pre_hit;
+
+        ID3D12StateObject_QueryInterface(rt_pso, &IID_ID3D12StateObjectProperties, (void**)&pre_props);
+
+        pre_ray_gen = ID3D12StateObjectProperties_GetShaderIdentifier(pre_props, ray_gen);
+        pre_hit = ID3D12StateObjectProperties_GetShaderIdentifier(pre_props, ray_hit2);
+        pre_ray_miss = ID3D12StateObjectProperties_GetShaderIdentifier(pre_props, ray_miss);
+        memcpy(pre_ray_miss_data, pre_ray_miss, sizeof(pre_ray_miss_data));
+        memcpy(pre_ray_gen_data, pre_ray_gen, sizeof(pre_ray_gen_data));
+        memcpy(pre_hit_data, pre_hit, sizeof(pre_hit_data));
+
+        rt_pso_added = rt_pso_add_to_state_object(context.device5, rt_pso, rt_object_library_aabb);
+        ID3D12StateObject_QueryInterface(rt_pso, &IID_ID3D12StateObjectProperties, (void**)&post_props);
+        ID3D12StateObject_QueryInterface(rt_pso_added, &IID_ID3D12StateObjectProperties, (void**)&combined_props);
+
+        post_ray_gen = ID3D12StateObjectProperties_GetShaderIdentifier(post_props, ray_gen);
+        post_hit = ID3D12StateObjectProperties_GetShaderIdentifier(post_props, ray_hit2);
+        post_ray_miss = ID3D12StateObjectProperties_GetShaderIdentifier(post_props, ray_miss);
+
+        combined_ray_gen = ID3D12StateObjectProperties_GetShaderIdentifier(combined_props, ray_gen);
+        combined_hit = ID3D12StateObjectProperties_GetShaderIdentifier(combined_props, ray_hit2);
+        combined_ray_miss = ID3D12StateObjectProperties_GetShaderIdentifier(combined_props, ray_miss);
+
+        /* The docs do talk about taking some weird internal locks to deal with AddToStateObject(), so verify
+         * that we don't have to return the parent property pointer here. */
+        ok(pre_props == post_props, "Unexpected result in interface check.\n");
+        ok(combined_props != post_props, "Unexpected result in interface check.\n");
+
+        ok(pre_ray_gen == post_ray_gen, "Unexpected SBT pointers.\n");
+        ok(pre_hit == post_hit, "Unexpected SBT pointers.\n");
+        ok(pre_ray_miss == post_ray_miss, "Unexpected SBT pointers.\n");
+
+        /* Apparently, we have to inherit the pointer to the SBT directly. */
+        ok(combined_ray_gen == post_ray_gen, "Unexpected SBT pointers.\n");
+        ok(combined_hit == post_hit, "Unexpected SBT pointers.\n");
+        ok(combined_ray_miss == post_ray_miss, "Unexpected SBT pointers.\n");
+
+        /* Verify that we cannot modify the SBT data in place. */
+        ok(memcmp(combined_hit, pre_hit_data, sizeof(pre_hit_data)) == 0, "Detected variance for existing SBT entries.\n");
+        ok(memcmp(combined_ray_gen, pre_ray_gen_data, sizeof(pre_ray_gen_data)) == 0, "Detected variance for existing SBT entries.\n");
+        ok(memcmp(combined_ray_miss, pre_ray_miss_data, sizeof(pre_ray_miss_data)) == 0, "Detected variance for existing SBT entries.\n");
+
+        ID3D12StateObject_Release(rt_pso);
+        rt_pso = rt_pso_added;
+        ref_count = ID3D12StateObject_AddRef(rt_object_library_aabb);
+        ok(ref_count == 2, "Collection ref count is %u.\n", ref_count);
+        ID3D12StateObject_Release(rt_object_library_aabb);
+
+        ID3D12StateObjectProperties_Release(pre_props);
+        ID3D12StateObjectProperties_Release(post_props);
+        ID3D12StateObjectProperties_Release(combined_props);
+    }
 
     /* Docs say that refcount should be held by RTPSO, but apparently it doesn't on native drivers. */
     ID3D12RootSignature_AddRef(global_rs);
@@ -2214,6 +2359,7 @@ void test_raytracing(void)
         { TEST_MODE_TRACE_RAY_SKIP_AABBS, D3D12_RAYTRACING_TIER_1_1, "TraceRaySkipAABBs" },
         { TEST_MODE_PSO_SKIP_TRIANGLES, D3D12_RAYTRACING_TIER_1_1, "PSOSkipTriangles" },
         { TEST_MODE_PSO_SKIP_AABBS, D3D12_RAYTRACING_TIER_1_1, "PSOSkipAABBs" },
+        { TEST_MODE_PSO_ADD_TO_STATE_OBJECT, D3D12_RAYTRACING_TIER_1_1, "AddToStateObject" },
     };
 
     unsigned int i;
