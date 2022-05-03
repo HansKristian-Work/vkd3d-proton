@@ -1395,6 +1395,21 @@ static unsigned int rt_pso_factory_add_existing_collection(struct rt_pso_factory
     return rt_pso_factory_add_subobject(factory, &desc);
 }
 
+static unsigned int rt_pso_factory_add_default_node_mask(struct rt_pso_factory* factory)
+{
+    D3D12_STATE_SUBOBJECT desc;
+    D3D12_NODE_MASK *mask;
+
+    mask = rt_pso_factory_calloc(factory, 1, sizeof(*mask));
+    /* This node mask is weird and some runtimes have bugs. We'll just ignore it anyways in vkd3d-proton.
+     * https://docs.microsoft.com/en-us/windows/win32/api/d3d12/ne-d3d12-d3d12_state_subobject_type */
+    mask->NodeMask = 1;
+
+    desc.Type = D3D12_STATE_SUBOBJECT_TYPE_NODE_MASK;
+    desc.pDesc = mask;
+    return rt_pso_factory_add_subobject(factory, &desc);
+}
+
 static ID3D12StateObject *rt_pso_factory_compile(struct raytracing_test_context *context,
         struct rt_pso_factory *factory,
         D3D12_STATE_OBJECT_TYPE type)
@@ -1454,6 +1469,8 @@ static ID3D12StateObject *create_rt_collection(struct raytracing_test_context *c
     struct rt_pso_factory factory;
 
     rt_pso_factory_init(&factory);
+
+    rt_pso_factory_add_default_node_mask(&factory);
 
     rt_pso_factory_add_state_object_config(&factory,
             D3D12_STATE_OBJECT_FLAG_ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL_DEFINITIONS);
@@ -1690,7 +1707,7 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
         unsigned int local_rs_index;
 
         rt_pso_factory_init(&factory);
-
+        rt_pso_factory_add_default_node_mask(&factory);
         rt_pso_factory_add_state_object_config(&factory, D3D12_STATE_OBJECT_FLAG_NONE);
         rt_pso_factory_add_global_root_signature(&factory, global_rs);
 
