@@ -4889,7 +4889,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateStateObject(d3d12_device_ifa
     TRACE("iface %p, desc %p, iid %s, state_object %p!\n",
             iface, desc, debugstr_guid(iid), state_object);
 
-    if (FAILED(hr = d3d12_state_object_create(device, desc, &state)))
+    if (FAILED(hr = d3d12_state_object_create(device, desc, NULL, &state)))
         return hr;
 
     return return_interface(&state->ID3D12StateObject_iface, &IID_ID3D12StateObject, iid, state_object);
@@ -4957,13 +4957,23 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_SetBackgroundProcessingMode(d3d12_
     return E_NOTIMPL;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_device_AddToStateObject(d3d12_device_iface *iface, const D3D12_STATE_OBJECT_DESC *addition,
-        ID3D12StateObject *state_object, REFIID riid, void **new_state_object)
+static HRESULT STDMETHODCALLTYPE d3d12_device_AddToStateObject(d3d12_device_iface *iface,
+        const D3D12_STATE_OBJECT_DESC *addition,
+        ID3D12StateObject *parent_state, REFIID riid, void **new_state_object)
 {
-    FIXME("iface %p, addition %p, state_object %p, riid %s, new_state_object %p stub!\n",
-            iface, addition, state_object, debugstr_guid(riid), new_state_object);
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_state_object *parent;
+    struct d3d12_state_object *state;
+    HRESULT hr;
 
-    return E_NOTIMPL;
+    TRACE("iface %p, addition %p, state_object %p, riid %s, new_state_object %p stub!\n",
+            iface, addition, parent_state, debugstr_guid(riid), new_state_object);
+
+    parent = impl_from_ID3D12StateObject(parent_state);
+    if (FAILED(hr = d3d12_state_object_add(device, addition, parent, &state)))
+        return hr;
+
+    return return_interface(&state->ID3D12StateObject_iface, &IID_ID3D12StateObject, riid, new_state_object);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateProtectedResourceSession1(d3d12_device_iface *iface,
