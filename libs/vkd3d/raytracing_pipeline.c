@@ -605,6 +605,10 @@ static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *ob
                 break;
             }
 
+            case D3D12_STATE_SUBOBJECT_TYPE_NODE_MASK:
+                /* Just ignore this. It's irrelevant for us. */
+                break;
+
             default:
                 FIXME("Unrecognized subobject type: %u.\n", obj->Type);
                 return E_INVALIDARG;
