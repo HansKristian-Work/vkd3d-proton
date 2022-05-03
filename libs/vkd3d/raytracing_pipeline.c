@@ -448,13 +448,21 @@ static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *ob
             case D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE:
             {
                 const D3D12_GLOBAL_ROOT_SIGNATURE *rs = obj->pDesc;
-                if (data->global_root_signature)
+                struct d3d12_root_signature *new_rs;
+                struct d3d12_root_signature *old_rs;
+
+                new_rs = impl_from_ID3D12RootSignature(rs->pGlobalRootSignature);
+                old_rs = impl_from_ID3D12RootSignature(data->global_root_signature);
+
+                if (new_rs && old_rs && new_rs->compatibility_hash != old_rs->compatibility_hash)
                 {
                     /* Simplicity for now. */
-                    FIXME("More than one global root signature is used.\n");
+                    FIXME("More than one unique global root signature is used.\n");
                     return E_INVALIDARG;
                 }
-                data->global_root_signature = rs->pGlobalRootSignature;
+
+                if (!data->global_root_signature)
+                    data->global_root_signature = rs->pGlobalRootSignature;
                 break;
             }
 
