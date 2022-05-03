@@ -77,7 +77,7 @@ static HRESULT vkd3d_select_memory_flags(struct d3d12_device *device, const D3D1
             *type_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
             if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED)
                 *type_flags |= VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
-            else if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV))
+            else if (!(vkd3d_config_flags & (VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV | VKD3D_CONFIG_FLAG_DESCRIPTOR_ONLY_HVV)))
                 *type_flags |= VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
             break;
 

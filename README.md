@@ -159,6 +159,9 @@ commas or semicolons.
       May free up vital VRAM in certain critical situations, at cost of lower GPU performance.
       A fraction of VRAM is reserved for resizable BAR allocations either way,
       so it should not be a real issue even on lower VRAM cards.
+    - `descriptor_only_hvv` - Same as `no_upload_hvv`, except it allows vkd3d's internal descriptors heaps to be placed
+      on HVV. Useful for small BAR systems (systems without resizable BAR) to prevent UPLOAD heaps from evicting the
+      frequently read descriptor heap.
     - `force_host_cached` - Forces all host visible allocations to be CACHED, which greatly accelerates captures.
     - `no_invariant_position` - Avoids workarounds for invariant position. The workaround is enabled by default.
  - `VKD3D_DEBUG` - controls the debug level for log messages produced by

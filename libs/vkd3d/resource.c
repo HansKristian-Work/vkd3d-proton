@@ -6342,7 +6342,7 @@ static uint32_t vkd3d_memory_info_find_global_mask(const struct vkd3d_memory_top
     uint32_t heap_index;
     uint32_t i, mask;
 
-    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV))
+    if (!(vkd3d_config_flags & (VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV | VKD3D_CONFIG_FLAG_DESCRIPTOR_ONLY_HVV)))
         return UINT32_MAX;
 
     /* If we only have one device local heap, or no host-only heaps, there is nothing to do. */
