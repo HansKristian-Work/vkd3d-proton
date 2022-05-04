@@ -122,6 +122,9 @@ static void d3d12_state_object_cleanup(struct d3d12_state_object *object)
         d3d12_state_object_dec_ref(object->collections[i]);
     vkd3d_free(object->collections);
 
+    if (object->global_root_signature)
+        d3d12_root_signature_dec_ref(object->global_root_signature);
+
     VK_CALL(vkDestroyPipeline(object->device->vk_device, object->pipeline, NULL));
 
     VK_CALL(vkDestroyPipelineLayout(object->device->vk_device,
@@ -350,9 +353,9 @@ struct d3d12_state_object_pipeline_data
     bool has_pipeline_config;
 
     const D3D12_RAYTRACING_SHADER_CONFIG *shader_config;
-    ID3D12RootSignature *global_root_signature;
-    ID3D12RootSignature *high_priority_local_root_signature;
-    ID3D12RootSignature *low_priority_local_root_signature;
+    struct d3d12_root_signature *global_root_signature;
+    struct d3d12_root_signature *high_priority_local_root_signature;
+    struct d3d12_root_signature *low_priority_local_root_signature;
 
     /* Map 1:1 with VkShaderModule. */
     struct vkd3d_shader_library_entry_point *entry_points;
@@ -452,7 +455,7 @@ static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *ob
                 struct d3d12_root_signature *old_rs;
 
                 new_rs = impl_from_ID3D12RootSignature(rs->pGlobalRootSignature);
-                old_rs = impl_from_ID3D12RootSignature(data->global_root_signature);
+                old_rs = data->global_root_signature;
 
                 if (new_rs && old_rs && new_rs->compatibility_hash != old_rs->compatibility_hash)
                 {
@@ -462,7 +465,7 @@ static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *ob
                 }
 
                 if (!data->global_root_signature)
-                    data->global_root_signature = rs->pGlobalRootSignature;
+                    data->global_root_signature = new_rs;
                 break;
             }
 
@@ -473,7 +476,7 @@ static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *ob
                  * Conflicting definitions seem to cause runtime to choose something
                  * arbitrary. Just override the low priority default.
                  * A high priority default association takes precedence if it exists. */
-                data->low_priority_local_root_signature = rs->pLocalRootSignature;
+                data->low_priority_local_root_signature = impl_from_ID3D12RootSignature(rs->pLocalRootSignature);
                 break;
             }
 
@@ -582,7 +585,8 @@ static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *ob
                         else
                         {
                             /* Local root signatures being exported to NULL takes priority as the default local RS. */
-                            data->high_priority_local_root_signature = local_rs->pLocalRootSignature;
+                            data->high_priority_local_root_signature =
+                                    impl_from_ID3D12RootSignature(local_rs->pLocalRootSignature);
                         }
                         break;
                     }
@@ -845,9 +849,9 @@ static struct d3d12_root_signature *d3d12_state_object_pipeline_data_get_local_r
     if (!rs)
     {
         if (data->high_priority_local_root_signature)
-            rs = impl_from_ID3D12RootSignature(data->high_priority_local_root_signature);
+            rs = data->high_priority_local_root_signature;
         else if (data->low_priority_local_root_signature)
-            rs = impl_from_ID3D12RootSignature(data->low_priority_local_root_signature);
+            rs = data->low_priority_local_root_signature;
         else
             rs = NULL;
     }
@@ -1010,7 +1014,7 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     shader_interface_info.stage = VK_SHADER_STAGE_ALL;
     shader_interface_info.xfb_info = NULL;
 
-    global_signature = impl_from_ID3D12RootSignature(data->global_root_signature);
+    global_signature = data->global_root_signature;
 
     if (global_signature)
     {
@@ -1398,6 +1402,8 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     data->exports = NULL;
     data->exports_size = 0;
     data->exports_count = 0;
+
+    d3d12_root_signature_inc_ref(object->global_root_signature = global_signature);
 
     /* Spec says we need to hold a reference to the collection object, but it doesn't show up in API,
      * so we must assume private reference. */

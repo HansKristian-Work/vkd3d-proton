@@ -3551,6 +3551,8 @@ struct d3d12_state_object
     struct d3d12_state_object **collections;
     size_t collections_count;
 
+    struct d3d12_root_signature *global_root_signature;
+
     struct vkd3d_private_store private_store;
 };
 
