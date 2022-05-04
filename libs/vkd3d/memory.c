@@ -592,8 +592,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
                 0, VK_WHOLE_SIZE, 0, &allocation->cpu_address))))
         {
             ERR("Failed to map memory, vr %d.\n", vr);
-            vkd3d_memory_allocation_free(allocation, device, allocator);
-            return hresult_from_vk_result(vr);
+            goto out_free_allocation;
         }
     }
 
@@ -609,18 +608,14 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
         if ((vr = VK_CALL(vkBindBufferMemory2KHR(device->vk_device, 1, &bind_info))) < 0)
         {
             ERR("Failed to bind buffer memory, vr %d.\n", vr);
-            vkd3d_memory_allocation_free(allocation, device, allocator);
-            return hresult_from_vk_result(vr);
+            goto out_free_allocation;
         }
 
         /* Assign GPU address as necessary. */
         if (allocation->flags & VKD3D_ALLOCATION_FLAG_GPU_ADDRESS)
         {
             if (FAILED(hr = vkd3d_allocation_assign_gpu_address(allocation, device, allocator)))
-            {
-                vkd3d_memory_allocation_free(allocation, device, allocator);
-                return hresult_from_vk_result(vr);
-            }
+                goto out_free_allocation;
         }
     }
 
@@ -631,6 +626,11 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     TRACE("Created allocation %p on memory type %u (%"PRIu64" bytes).\n",
             allocation, allocation->device_allocation.vk_memory_type, allocation->resource.size);
     return S_OK;
+
+out_free_allocation:
+    vkd3d_memory_allocation_free(allocation, device, allocator);
+    memset(allocation, 0, sizeof(*allocation));
+    return hresult_from_vk_result(vr);
 }
 
 static void vkd3d_memory_chunk_insert_range(struct vkd3d_memory_chunk *chunk,
