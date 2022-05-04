@@ -2778,7 +2778,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
 
         if (!(use_dedicated_allocation = dedicated_requirements.prefersDedicatedAllocation))
         {
-            const uint32_t type_mask = memory_requirements.memoryRequirements.memoryTypeBits & device->memory_info.global_mask;
+            const uint32_t type_mask = memory_requirements.memoryRequirements.memoryTypeBits;
             const struct vkd3d_memory_info_domain *domain = d3d12_device_get_memory_info_domain(device, heap_properties);
             use_dedicated_allocation = (type_mask & domain->buffer_type_mask) != type_mask;
         }
@@ -6438,49 +6438,6 @@ static void vkd3d_memory_info_get_topology(struct vkd3d_memory_topology *topolog
     }
 }
 
-static uint32_t vkd3d_memory_info_find_global_mask(const struct vkd3d_memory_topology *topology, struct d3d12_device *device)
-{
-    /* Never allow memory types from any PCI-pinned heap.
-     * If we allow it, it might end up being used as a fallback memory type, which will cause severe instabilities.
-     * These types should only be used in a controlled fashion. */
-    VkMemoryPropertyFlags flags;
-    uint32_t heap_index;
-    uint32_t i, mask;
-
-    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV))
-        return UINT32_MAX;
-
-    /* If we only have one device local heap, or no host-only heaps, there is nothing to do. */
-    if (topology->device_local_heap_count <= 1 || topology->host_only_heap_count == 0)
-        return UINT32_MAX;
-
-    /* Verify that there exists a DEVICE_LOCAL type that is not HOST_VISIBLE on this device
-     * which maps to the largest device local heap. That way, it is safe to mask out all memory types which are
-     * DEVICE_LOCAL | HOST_VISIBLE.
-     * Similarly, there must exist a host-only type. */
-    if (!topology->exists_device_only_type || !topology->exists_host_only_type)
-        return UINT32_MAX;
-
-    /* Mask out any memory types which are deemed problematic. */
-    for (i = 0, mask = 0; i < device->memory_properties.memoryTypeCount; i++)
-    {
-        const VkMemoryPropertyFlags pinned_mask = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-        flags = device->memory_properties.memoryTypes[i].propertyFlags;
-        heap_index = device->memory_properties.memoryTypes[i].heapIndex;
-
-        if (heap_index != topology->largest_device_local_heap_index &&
-            heap_index != topology->largest_host_only_heap_index &&
-            (flags & pinned_mask) == pinned_mask)
-        {
-            mask |= 1u << i;
-            WARN("Blocking memory type %u for use (PCI-pinned memory).\n", i);
-        }
-    }
-
-    return ~mask;
-}
-
 static bool vkd3d_memory_topology_is_uma_like(const struct vkd3d_memory_topology *topology)
 {
     if (topology->device_local_heap_count == 0 || topology->host_only_heap_count == 0)
@@ -6639,7 +6596,6 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     uint32_t i;
 
     vkd3d_memory_info_get_topology(&topology, device);
-    info->global_mask = vkd3d_memory_info_find_global_mask(&topology, device);
     info->upload_heap_memory_properties =
             vkd3d_memory_info_upload_hvv_memory_properties(&topology, device);
     info->descriptor_heap_memory_properties =
@@ -6759,12 +6715,6 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     /* Unsure if we can have host visible depth-stencil.
      * On AMD, we can get linear RT, but not linear DS, so for now, just don't check for that.
      * We will fail in resource creation instead. */
-
-    buffer_type_mask &= info->global_mask;
-    sampled_type_mask &= info->global_mask;
-    rt_ds_type_mask &= info->global_mask;
-    sampled_type_mask_cpu &= info->global_mask;
-    rt_ds_type_mask_cpu &= info->global_mask;
 
     info->non_cpu_accessible_domain.buffer_type_mask = buffer_type_mask;
     info->non_cpu_accessible_domain.sampled_type_mask = sampled_type_mask;
