@@ -177,7 +177,6 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
         void *pNext, struct vkd3d_device_memory_allocation *allocation)
 {
     const VkPhysicalDeviceMemoryProperties *memory_props = &device->memory_properties;
-    const VkMemoryPropertyFlags optional_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_memory_info *memory_info = &device->memory_info;
     VkMemoryAllocateInfo allocate_info;
@@ -186,87 +185,87 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
     bool budget_sensitive;
     VkResult vr;
 
-    /* buffer_mask / sampled_mask etc will generally take care of this,
-     * but for certain fallback scenarios where we select other memory
-     * types, we need to mask here as well. */
-    type_mask &= device->memory_info.global_mask;
-
     allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocate_info.pNext = pNext;
     allocate_info.allocationSize = size;
+    allocate_info.memoryTypeIndex = UINT32_MAX;
 
     while (type_mask)
     {
         uint32_t type_index = vkd3d_bitmask_iter32(&type_mask);
-
-        if ((memory_props->memoryTypes[type_index].propertyFlags & type_flags) != type_flags)
-            continue;
-
-        allocate_info.memoryTypeIndex = type_index;
-
-        budget_sensitive = !!(device->memory_info.budget_sensitive_mask & (1u << type_index));
-        if (budget_sensitive)
+        if ((memory_props->memoryTypes[type_index].propertyFlags & type_flags) == type_flags)
         {
-            type_budget = &memory_info->type_budget[type_index];
-            type_current = &memory_info->type_current[type_index];
-            pthread_mutex_lock(&memory_info->budget_lock);
-            if (*type_current + size > *type_budget)
-            {
-                if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
-                {
-                    INFO("Attempting to allocate from memory type %u, but exceeding fixed budget: %"PRIu64" + %"PRIu64" > %"PRIu64".\n",
-                            type_index, *type_current, size, *type_budget);
-                }
-                pthread_mutex_unlock(&memory_info->budget_lock);
-
-                /* If we're out of DEVICE budget, don't try other types. */
-                if (type_flags & optional_flags)
-                    return E_OUTOFMEMORY;
-                else
-                    continue;
-            }
+            allocate_info.memoryTypeIndex = type_index;
+            break;
         }
+    }
 
-        vr = VK_CALL(vkAllocateMemory(device->vk_device, &allocate_info, NULL, &allocation->vk_memory));
+    if (allocate_info.memoryTypeIndex == UINT32_MAX)
+    {
+        FIXME("Found no suitable memory type for requested type_flags #%x.\n", type_flags);
+        return E_OUTOFMEMORY;
+    }
 
-        if (budget_sensitive)
+    /* Once we have found a suitable memory type, only attempt to allocate that memory type.
+     * This avoids some problems by design:
+     * - If we want to allocate DEVICE_LOCAL memory, we don't try to fallback to PCI-e BAR memory by mistake.
+     * - If we want to allocate system memory, we don't try to fallback to PCI-e BAR memory by mistake.
+     * - There is no reasonable scenario where we can expect one memory type to fail, and another memory type
+     *   with more memory property bits set to pass. This makes use of the rule where memory types which are a super-set
+     *   of another must have a larger type index.
+     * - We will only attempt to allocate PCI-e BAR memory if DEVICE_LOCAL | HOST_VISIBLE is set, otherwise we
+     *   will find a candidate memory type which is either DEVICE_LOCAL or HOST_VISIBLE before we find a PCI-e BAR type.
+     * - For iGPU where everything is DEVICE_LOCAL | HOST_VISIBLE, we will just find that memory type first anyways,
+     *   but there we don't have anything to worry about w.r.t. PCI-e BAR.
+     */
+
+    /* Budgets only really apply to PCI-e BAR or other "special" types which always have a fallback. */
+    budget_sensitive = !!(device->memory_info.budget_sensitive_mask & (1u << allocate_info.memoryTypeIndex));
+    if (budget_sensitive)
+    {
+        type_budget = &memory_info->type_budget[allocate_info.memoryTypeIndex];
+        type_current = &memory_info->type_current[allocate_info.memoryTypeIndex];
+        pthread_mutex_lock(&memory_info->budget_lock);
+        if (*type_current + size > *type_budget)
         {
-            if (vr == VK_SUCCESS)
+            if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
             {
-                *type_current += size;
-                if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
-                {
-                    INFO("Allocated memory of type %u, new total allocated size %"PRIu64" MiB.\n",
-                            type_index, *type_current / (1024 * 1024));
-                }
+                INFO("Attempting to allocate from memory type %u, but exceeding fixed budget: %"PRIu64" + %"PRIu64" > %"PRIu64".\n",
+                        allocate_info.memoryTypeIndex, *type_current, size, *type_budget);
             }
             pthread_mutex_unlock(&memory_info->budget_lock);
-        }
-        else if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
-        {
-            INFO("%s memory of type #%u, size %"PRIu64" KiB.\n",
-                    (vr == VK_SUCCESS ? "Allocated" : "Failed to allocate"),
-                    type_index, allocate_info.allocationSize / 1024);
-        }
-
-        if (vr == VK_SUCCESS)
-        {
-            allocation->vk_memory_type = type_index;
-            allocation->size = size;
-            return S_OK;
-        }
-        else if (type_flags & optional_flags)
-        {
-            /* If we fail to allocate DEVICE_LOCAL memory, immediately fail the call.
-             * This way we avoid any attempt to fall back to PCI-e BAR memory types
-             * which are also DEVICE_LOCAL.
-             * After failure, the calling code removes the DEVICE_LOCAL_BIT flag and tries again,
-             * where we will fall back to system memory instead. */
             return E_OUTOFMEMORY;
         }
     }
 
-    return E_OUTOFMEMORY;
+    vr = VK_CALL(vkAllocateMemory(device->vk_device, &allocate_info, NULL, &allocation->vk_memory));
+
+    if (budget_sensitive)
+    {
+        if (vr == VK_SUCCESS)
+        {
+            *type_current += size;
+            if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
+            {
+                INFO("Allocated memory of type %u, new total allocated size %"PRIu64" MiB.\n",
+                        allocate_info.memoryTypeIndex, *type_current / (1024 * 1024));
+            }
+        }
+        pthread_mutex_unlock(&memory_info->budget_lock);
+    }
+    else if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
+    {
+        INFO("%s memory of type #%u, size %"PRIu64" KiB.\n",
+                (vr == VK_SUCCESS ? "Allocated" : "Failed to allocate"),
+                allocate_info.memoryTypeIndex, allocate_info.allocationSize / 1024);
+    }
+
+    if (vr != VK_SUCCESS)
+        return E_OUTOFMEMORY;
+
+    allocation->vk_memory_type = allocate_info.memoryTypeIndex;
+    allocation->size = size;
+    return S_OK;
 }
 
 static bool vkd3d_memory_info_type_mask_covers_multiple_memory_heaps(
@@ -520,9 +519,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
      * we must not look at heap_flags, since we might end up noping out
      * the memory types we want to allocate with. */
     type_mask = memory_requirements.memoryTypeBits;
-    if (info->flags & VKD3D_ALLOCATION_FLAG_DEDICATED)
-        type_mask &= device->memory_info.global_mask;
-    else
+    if (!(info->flags & VKD3D_ALLOCATION_FLAG_DEDICATED))
         type_mask &= vkd3d_select_memory_types(device, &info->heap_properties, info->heap_flags);
 
     /* Allocate actual backing storage */
@@ -1306,7 +1303,6 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
     HRESULT hr;
     size_t i;
 
-    type_mask &= device->memory_info.global_mask;
     type_mask &= memory_requirements->memoryTypeBits;
 
     for (i = 0; i < allocator->chunks_count; i++)
