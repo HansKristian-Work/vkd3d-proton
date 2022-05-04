@@ -2976,7 +2976,6 @@ struct vkd3d_memory_info_domain
 
 struct vkd3d_memory_info
 {
-    uint32_t global_mask;
     /* Includes normal system memory, but also resizable BAR memory.
      * Only types which have HOST_VISIBLE_BIT can be in this domain.
      * For images, we only include memory types which are LINEAR tiled. */
