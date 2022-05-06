@@ -307,3 +307,6 @@ decl_test(test_shader_waveop_maximal_convergence);
 decl_test(test_uav_3d_sliced_view);
 decl_test(test_pipeline_no_ps_nonzero_rts);
 decl_test(test_root_descriptor_offset_sign);
+decl_test(test_raytracing_no_global_root_signature);
+decl_test(test_raytracing_missing_required_objects);
+decl_test(test_raytracing_reject_duplicate_objects);
