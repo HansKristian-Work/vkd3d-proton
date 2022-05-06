@@ -310,3 +310,4 @@ decl_test(test_root_descriptor_offset_sign);
 decl_test(test_raytracing_no_global_root_signature);
 decl_test(test_raytracing_missing_required_objects);
 decl_test(test_raytracing_reject_duplicate_objects);
+decl_test(test_raytracing_embedded_subobjects);
