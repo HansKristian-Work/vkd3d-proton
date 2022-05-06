@@ -1403,6 +1403,8 @@ struct d3d12_root_signature
 
 HRESULT d3d12_root_signature_create(struct d3d12_device *device, const void *bytecode,
         size_t bytecode_length, struct d3d12_root_signature **root_signature);
+HRESULT d3d12_root_signature_create_empty(struct d3d12_device *device,
+        struct d3d12_root_signature **root_signature);
 /* Private ref counts, for pipeline library. */
 void d3d12_root_signature_inc_ref(struct d3d12_root_signature *state);
 void d3d12_root_signature_dec_ref(struct d3d12_root_signature *state);
