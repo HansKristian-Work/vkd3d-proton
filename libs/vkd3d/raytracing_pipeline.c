@@ -1073,6 +1073,7 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     struct vkd3d_shader_interface_local_info shader_interface_local_info;
     VkRayTracingPipelineInterfaceCreateInfoKHR interface_create_info;
     VkDescriptorSetLayoutBinding *local_static_sampler_bindings;
+    struct d3d12_root_signature *default_global_root_signature;
     struct vkd3d_shader_interface_info shader_interface_info;
     VkRayTracingPipelineCreateInfoKHR pipeline_create_info;
     struct vkd3d_shader_resource_binding *local_bindings;
@@ -1129,6 +1130,19 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
         shader_interface_info.descriptor_qa_global_binding = &global_signature->descriptor_qa_global_info;
         shader_interface_info.descriptor_qa_heap_binding = &global_signature->descriptor_qa_heap_binding;
 #endif
+        d3d12_root_signature_inc_ref(object->global_root_signature = global_signature);
+    }
+    else
+    {
+        /* We have to create a dummy root signature in this scenario.
+         * Add a special entry point for this since otherwise we have to serialize root signatures
+         * to dummy blobs and stuff which is only defined in d3d12.dll and the outer modules that
+         * we shouldn't have access to. */
+        if (FAILED(hr = d3d12_root_signature_create_empty(object->device, &default_global_root_signature)))
+            return E_OUTOFMEMORY;
+        global_signature = default_global_root_signature;
+        d3d12_root_signature_inc_ref(object->global_root_signature = global_signature);
+        ID3D12RootSignature_Release(&default_global_root_signature->ID3D12RootSignature_iface);
     }
 
     shader_interface_local_info.descriptor_size = VKD3D_RESOURCE_DESC_INCREMENT;
@@ -1439,13 +1453,6 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
             (object->flags & D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS)) ?
             VK_PIPELINE_CREATE_LIBRARY_BIT_KHR : 0;
 
-    /* FIXME: What if we have no global root signature? */
-    if (!global_signature)
-    {
-        FIXME("No global root signature was found. Is this allowed?\n");
-        return E_INVALIDARG;
-    }
-
     /* TODO: What happens here if we have local static samplers with COLLECTIONS? :| */
     if (object->local_static_sampler.pipeline_layout)
         pipeline_create_info.layout = object->local_static_sampler.pipeline_layout;
@@ -1539,8 +1546,6 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     data->exports = NULL;
     data->exports_size = 0;
     data->exports_count = 0;
-
-    d3d12_root_signature_inc_ref(object->global_root_signature = global_signature);
 
     object->shader_config = *data->shader_config;
     object->pipeline_config = data->pipeline_config;

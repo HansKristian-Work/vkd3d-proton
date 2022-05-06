@@ -1469,6 +1469,33 @@ fail:
     return hr;
 }
 
+HRESULT d3d12_root_signature_create_empty(struct d3d12_device *device,
+        struct d3d12_root_signature **root_signature)
+{
+    struct d3d12_root_signature *object;
+    D3D12_ROOT_SIGNATURE_DESC1 desc;
+    HRESULT hr;
+
+    if (!(object = vkd3d_malloc(sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    memset(&desc, 0, sizeof(desc));
+    hr = d3d12_root_signature_init(object, device, &desc);
+
+    /* For pipeline libraries, (and later DXR to some degree), we need a way to
+     * compare root signature objects. */
+    object->compatibility_hash = 0;
+
+    if (FAILED(hr))
+    {
+        vkd3d_free(object);
+        return hr;
+    }
+
+    *root_signature = object;
+    return S_OK;
+}
+
 HRESULT d3d12_root_signature_create(struct d3d12_device *device,
         const void *bytecode, size_t bytecode_length, struct d3d12_root_signature **root_signature)
 {
