@@ -3297,6 +3297,63 @@ void test_raytracing_no_global_root_signature(void)
     destroy_raytracing_test_context(&context);
 }
 
+void test_raytracing_default_association_tiebreak(void)
+{
+    struct raytracing_test_context context;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    ID3D12RootSignature *local_rs0;
+    ID3D12RootSignature *local_rs1;
+    struct rt_pso_factory factory;
+    D3D12_ROOT_PARAMETER param;
+    ID3D12StateObject *object;
+    unsigned int rs_index0;
+    unsigned int rs_index1;
+    ID3D12Device *device;
+    unsigned int i;
+
+    if (!init_raytracing_test_context(&context, D3D12_RAYTRACING_TIER_1_0))
+        return;
+
+    ID3D12Device5_QueryInterface(context.device5, &IID_ID3D12Device, (void **)&device);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE;
+    rs_desc.NumParameters = 1;
+    rs_desc.pParameters = &param;
+    memset(&param, 0, sizeof(param));
+    param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    create_root_signature(device, &rs_desc, &local_rs0);
+    param.Descriptor.RegisterSpace = 1;
+    create_root_signature(device, &rs_desc, &local_rs1);
+
+    /* If we declare a local root signature without association and one with explicit NULL, they are both default,
+     * but the NULL association should win. */
+    for (i = 0; i < 2; i++)
+    {
+        rt_pso_factory_init(&factory);
+        rt_pso_factory_add_dxil_library(&factory, get_dummy_raygen_rt_lib(), 0, NULL);
+        rt_pso_factory_add_state_object_config(&factory, D3D12_STATE_OBJECT_FLAG_NONE);
+        rt_pso_factory_add_pipeline_config(&factory, 1);
+        rt_pso_factory_add_shader_config(&factory, 8, 4);
+        rs_index0 = rt_pso_factory_add_local_root_signature(&factory, local_rs0);
+        rs_index1 = rt_pso_factory_add_local_root_signature(&factory, local_rs1);
+        rt_pso_factory_add_subobject_to_exports_association(&factory, i ? rs_index1 : rs_index0, 0, NULL);
+        object = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
+        if (i == 0)
+            ok(!!object, "Failed to create RTPSO object.\n");
+        else
+            ok(!object, "Unexpected success.\n");
+
+        if (object)
+            ID3D12StateObject_Release(object);
+    }
+
+    ID3D12RootSignature_Release(local_rs0);
+    ID3D12RootSignature_Release(local_rs1);
+    ID3D12Device_Release(device);
+    destroy_raytracing_test_context(&context);
+}
+
 void test_raytracing_missing_required_objects(void)
 {
     struct raytracing_test_context context;
