@@ -311,3 +311,4 @@ decl_test(test_raytracing_no_global_root_signature);
 decl_test(test_raytracing_missing_required_objects);
 decl_test(test_raytracing_reject_duplicate_objects);
 decl_test(test_raytracing_embedded_subobjects);
+decl_test(test_raytracing_default_association_tiebreak);
