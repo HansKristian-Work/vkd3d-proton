@@ -753,6 +753,8 @@ void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *code);
 
 int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *root_signature);
+int vkd3d_shader_parse_root_signature_raw(const char *data, unsigned int data_size,
+        struct vkd3d_versioned_root_signature_desc *desc);
 void vkd3d_shader_free_root_signature(struct vkd3d_versioned_root_signature_desc *root_signature);
 
 /* FIXME: Add support for returning error messages (ID3DBlob). */
