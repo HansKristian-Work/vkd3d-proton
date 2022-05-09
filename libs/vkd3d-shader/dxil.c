@@ -1352,6 +1352,31 @@ void vkd3d_shader_dxil_free_library_entry_points(struct vkd3d_shader_library_ent
     vkd3d_free(entry_points);
 }
 
+void vkd3d_shader_dxil_free_library_subobjects(struct vkd3d_shader_library_subobject *subobjects, size_t count)
+{
+    size_t i, j;
+
+    for (i = 0; i < count; i++)
+    {
+        if (subobjects[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_SUBOBJECT_TO_EXPORTS_ASSOCIATION)
+        {
+            for (j = 0; j < subobjects[i].data.association.NumExports; j++)
+                vkd3d_free((void*)subobjects[i].data.association.pExports[j]);
+            vkd3d_free((void*)subobjects[i].data.association.pExports);
+            vkd3d_free((void*)subobjects[i].data.association.SubobjectToAssociate);
+        }
+        else if (subobjects[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_HIT_GROUP)
+        {
+            vkd3d_free((void*)subobjects[i].data.hit_group.HitGroupExport);
+            vkd3d_free((void*)subobjects[i].data.hit_group.AnyHitShaderImport);
+            vkd3d_free((void*)subobjects[i].data.hit_group.ClosestHitShaderImport);
+            vkd3d_free((void*)subobjects[i].data.hit_group.IntersectionShaderImport);
+        }
+    }
+
+    vkd3d_free(subobjects);
+}
+
 static VkShaderStageFlagBits convert_stage(dxil_spv_shader_stage stage)
 {
     /* Only interested in RT entry_points. There is no way yet to use lib_6_3+ for non-RT. */
@@ -1396,20 +1421,95 @@ static bool vkd3d_dxil_build_entry(struct vkd3d_shader_library_entry_point *entr
     return true;
 }
 
-int vkd3d_shader_dxil_append_library_entry_points(
+static void vkd3d_shader_dxil_copy_subobject(unsigned int identifier,
+        struct vkd3d_shader_library_subobject *subobject,
+        const dxil_spv_rdat_subobject *dxil_subobject)
+{
+    unsigned int i;
+
+    /* Reuse same enums as DXIL. */
+    subobject->kind = (enum vkd3d_shader_subobject_kind)dxil_subobject->kind;
+    subobject->name = dxil_subobject->subobject_name;
+    subobject->dxil_identifier = identifier;
+
+    switch (dxil_subobject->kind)
+    {
+        case DXIL_SPV_RDAT_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE:
+        case DXIL_SPV_RDAT_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE:
+            subobject->data.payload.data = dxil_subobject->payload;
+            subobject->data.payload.size = dxil_subobject->payload_size;
+            break;
+
+        case DXIL_SPV_RDAT_SUBOBJECT_KIND_RAYTRACING_PIPELINE_CONFIG:
+            /* Normalize the kind. */
+            subobject->kind = VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_PIPELINE_CONFIG1;
+            subobject->data.pipeline_config.MaxTraceRecursionDepth = dxil_subobject->args[0];
+            subobject->data.pipeline_config.Flags = 0;
+            break;
+
+        case DXIL_SPV_RDAT_SUBOBJECT_KIND_RAYTRACING_PIPELINE_CONFIG1:
+            subobject->kind = VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_PIPELINE_CONFIG1;
+            subobject->data.pipeline_config.MaxTraceRecursionDepth = dxil_subobject->args[0];
+            subobject->data.pipeline_config.Flags = dxil_subobject->args[1];
+            break;
+
+        case DXIL_SPV_RDAT_SUBOBJECT_KIND_RAYTRACING_SHADER_CONFIG:
+            subobject->data.shader_config.MaxPayloadSizeInBytes = dxil_subobject->args[0];
+            subobject->data.shader_config.MaxAttributeSizeInBytes = dxil_subobject->args[1];
+            break;
+
+        case DXIL_SPV_RDAT_SUBOBJECT_KIND_HIT_GROUP:
+            /* Enum aliases. */
+            subobject->data.hit_group.Type = (D3D12_HIT_GROUP_TYPE)dxil_subobject->hit_group_type;
+            assert(dxil_subobject->num_exports == 3);
+            /* Implementation simplifies a lot if we can reuse the D3D12 type here. */
+            subobject->data.hit_group.HitGroupExport = vkd3d_dup_entry_point(dxil_subobject->subobject_name);
+            subobject->data.hit_group.AnyHitShaderImport = dxil_subobject->exports[0] && *dxil_subobject->exports[0] != '\0' ?
+                    vkd3d_dup_entry_point(dxil_subobject->exports[0]) : NULL;
+            subobject->data.hit_group.ClosestHitShaderImport = dxil_subobject->exports[1] && *dxil_subobject->exports[1] != '\0' ?
+                    vkd3d_dup_entry_point(dxil_subobject->exports[1]) : NULL;
+            subobject->data.hit_group.IntersectionShaderImport = dxil_subobject->exports[2] && *dxil_subobject->exports[2] != '\0' ?
+                    vkd3d_dup_entry_point(dxil_subobject->exports[2]) : NULL;
+            break;
+
+        case DXIL_SPV_RDAT_SUBOBJECT_KIND_STATE_OBJECT_CONFIG:
+            subobject->data.object_config.Flags = dxil_subobject->args[0];
+            break;
+
+        case DXIL_SPV_RDAT_SUBOBJECT_KIND_SUBOBJECT_TO_EXPORTS_ASSOCIATION:
+            assert(dxil_subobject->num_exports >= 1);
+            subobject->data.association.SubobjectToAssociate = vkd3d_dup_entry_point(dxil_subobject->exports[0]);
+            subobject->data.association.pExports = vkd3d_malloc((dxil_subobject->num_exports - 1) * sizeof(LPCWSTR));
+            subobject->data.association.NumExports = dxil_subobject->num_exports - 1;
+            for (i = 1; i < dxil_subobject->num_exports; i++)
+                subobject->data.association.pExports[i - 1] = vkd3d_dup_entry_point(dxil_subobject->exports[i]);
+            break;
+
+        default:
+            FIXME("Unrecognized RDAT subobject type: %u.\n", dxil_subobject->kind);
+            break;
+    }
+}
+
+int vkd3d_shader_dxil_append_library_entry_points_and_subobjects(
         const D3D12_DXIL_LIBRARY_DESC *library_desc,
         unsigned int identifier,
         struct vkd3d_shader_library_entry_point **entry_points,
-        size_t *entry_point_size, size_t *entry_point_count)
+        size_t *entry_point_size, size_t *entry_point_count,
+        struct vkd3d_shader_library_subobject **subobjects,
+        size_t *subobjects_size, size_t *subobjects_count)
 {
     struct vkd3d_shader_library_entry_point new_entry;
+    struct vkd3d_shader_library_subobject *subobject;
     dxil_spv_parsed_blob blob = NULL;
     struct vkd3d_shader_code code;
+    dxil_spv_rdat_subobject sub;
     dxil_spv_shader_stage stage;
     const char *mangled_entry;
     char *ascii_entry = NULL;
     vkd3d_shader_hash_t hash;
-    unsigned int count, i;
+    unsigned int count, i, j;
+    unsigned int rdat_count;
     int ret = VKD3D_OK;
 
     memset(&new_entry, 0, sizeof(new_entry));
@@ -1430,6 +1530,8 @@ int vkd3d_shader_dxil_append_library_entry_points(
         goto end;
     }
 
+    rdat_count = dxil_spv_parsed_blob_get_num_rdat_subobjects(blob);
+
     if (library_desc->NumExports)
     {
         for (i = 0; i < library_desc->NumExports; i++)
@@ -1439,24 +1541,44 @@ int vkd3d_shader_dxil_append_library_entry_points(
             else
                 ascii_entry = vkd3d_strdup_w_utf8(library_desc->pExports[i].Name, 0);
 
-            stage = dxil_spv_parsed_blob_get_shader_stage_for_entry(blob, ascii_entry);
-            if (stage == DXIL_SPV_STAGE_UNKNOWN)
+            /* An export can point to a subobject or an entry point. */
+            for (j = 0; j < rdat_count; j++)
             {
-                ret = VKD3D_ERROR_INVALID_ARGUMENT;
-                goto end;
+                dxil_spv_parsed_blob_get_rdat_subobject(blob, j, &sub);
+                /* Subobject names are not mangled. */
+                if (strcmp(sub.subobject_name, ascii_entry) == 0)
+                    break;
             }
 
-            new_entry.real_entry_point = ascii_entry;
-            new_entry.plain_entry_point = vkd3d_wstrdup(library_desc->pExports[i].Name);
-            new_entry.mangled_entry_point = NULL;
-            new_entry.identifier = identifier;
-            new_entry.stage = convert_stage(stage);
-            ascii_entry = NULL;
+            if (j < rdat_count)
+            {
+                vkd3d_array_reserve((void**)subobjects, subobjects_size,
+                        *subobjects_count + 1, sizeof(**subobjects));
+                subobject = &(*subobjects)[*subobjects_count];
+                vkd3d_shader_dxil_copy_subobject(identifier, subobject, &sub);
+                *subobjects_count += 1;
+            }
+            else
+            {
+                stage = dxil_spv_parsed_blob_get_shader_stage_for_entry(blob, ascii_entry);
+                if (stage == DXIL_SPV_STAGE_UNKNOWN)
+                {
+                    ret = VKD3D_ERROR_INVALID_ARGUMENT;
+                    goto end;
+                }
 
-            vkd3d_array_reserve((void**)entry_points, entry_point_size,
-                    *entry_point_count + 1, sizeof(new_entry));
-            (*entry_points)[(*entry_point_count)++] = new_entry;
-            memset(&new_entry, 0, sizeof(new_entry));
+                new_entry.real_entry_point = ascii_entry;
+                new_entry.plain_entry_point = vkd3d_wstrdup(library_desc->pExports[i].Name);
+                new_entry.mangled_entry_point = NULL;
+                new_entry.identifier = identifier;
+                new_entry.stage = convert_stage(stage);
+                ascii_entry = NULL;
+
+                vkd3d_array_reserve((void**)entry_points, entry_point_size,
+                        *entry_point_count + 1, sizeof(new_entry));
+                (*entry_points)[(*entry_point_count)++] = new_entry;
+                memset(&new_entry, 0, sizeof(new_entry));
+            }
         }
     }
     else
@@ -1488,6 +1610,21 @@ int vkd3d_shader_dxil_append_library_entry_points(
                     *entry_point_count + 1, sizeof(new_entry));
             (*entry_points)[(*entry_point_count)++] = new_entry;
             memset(&new_entry, 0, sizeof(new_entry));
+        }
+
+        if (rdat_count)
+        {
+            /* All subobjects are also exported. */
+            vkd3d_array_reserve((void**)subobjects, subobjects_size,
+                    *subobjects_count + rdat_count, sizeof(**subobjects));
+
+            for (i = 0; i < rdat_count; i++)
+            {
+                dxil_spv_parsed_blob_get_rdat_subobject(blob, i, &sub);
+                subobject = &(*subobjects)[*subobjects_count];
+                vkd3d_shader_dxil_copy_subobject(identifier, subobject, &sub);
+                *subobjects_count += 1;
+            }
         }
     }
 

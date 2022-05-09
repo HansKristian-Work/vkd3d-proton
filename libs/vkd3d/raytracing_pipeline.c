@@ -371,6 +371,10 @@ struct d3d12_state_object_pipeline_data
     size_t entry_points_size;
     size_t entry_points_count;
 
+    struct vkd3d_shader_library_subobject *subobjects;
+    size_t subobjects_size;
+    size_t subobjects_count;
+
     /* Resolve these to group + export name later. */
     const struct D3D12_HIT_GROUP_DESC **hit_groups;
     size_t hit_groups_size;
@@ -415,6 +419,7 @@ static void d3d12_state_object_pipeline_data_cleanup(struct d3d12_state_object_p
     unsigned int i;
 
     vkd3d_shader_dxil_free_library_entry_points(data->entry_points, data->entry_points_count);
+    vkd3d_shader_dxil_free_library_subobjects(data->subobjects, data->subobjects_count);
     vkd3d_free((void*)data->hit_groups);
     vkd3d_free((void*)data->dxil_libraries);
 
@@ -563,9 +568,11 @@ static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *ob
             case D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY:
             {
                 const D3D12_DXIL_LIBRARY_DESC *lib = obj->pDesc;
-                if (vkd3d_shader_dxil_append_library_entry_points(lib, data->dxil_libraries_count,
+                if (vkd3d_shader_dxil_append_library_entry_points_and_subobjects(lib, data->dxil_libraries_count,
                         &data->entry_points, &data->entry_points_size,
-                        &data->entry_points_count) != VKD3D_OK)
+                        &data->entry_points_count,
+                        &data->subobjects, &data->subobjects_size,
+                        &data->subobjects_count) != VKD3D_OK)
                 {
                     ERR("Failed to parse DXIL library.\n");
                     return E_OUTOFMEMORY;
