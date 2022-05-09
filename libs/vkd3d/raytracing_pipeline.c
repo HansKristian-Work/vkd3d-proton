@@ -343,9 +343,17 @@ static CONST_VTBL struct ID3D12StateObjectPropertiesVtbl d3d12_state_object_prop
     d3d12_state_object_properties_SetPipelineStackSize,
 };
 
-struct d3d12_state_object_root_signature_association
+struct d3d12_state_object_association
 {
-    struct d3d12_root_signature *root_signature;
+    enum vkd3d_shader_subobject_kind kind;
+    unsigned int priority; /* Different priorities can tie-break. */
+    union
+    {
+        struct d3d12_root_signature *root_signature;
+        D3D12_STATE_OBJECT_CONFIG object_config;
+        D3D12_RAYTRACING_PIPELINE_CONFIG1 pipeline_config;
+        D3D12_RAYTRACING_SHADER_CONFIG shader_config;
+    };
     const WCHAR *export;
 };
 
@@ -358,14 +366,6 @@ struct d3d12_state_object_collection
 
 struct d3d12_state_object_pipeline_data
 {
-    D3D12_RAYTRACING_PIPELINE_CONFIG1 pipeline_config;
-    bool has_pipeline_config;
-
-    const D3D12_RAYTRACING_SHADER_CONFIG *shader_config;
-    struct d3d12_root_signature *global_root_signature;
-    struct d3d12_root_signature *high_priority_local_root_signature;
-    struct d3d12_root_signature *low_priority_local_root_signature;
-
     /* Map 1:1 with VkShaderModule. */
     struct vkd3d_shader_library_entry_point *entry_points;
     size_t entry_points_size;
@@ -374,6 +374,10 @@ struct d3d12_state_object_pipeline_data
     struct vkd3d_shader_library_subobject *subobjects;
     size_t subobjects_size;
     size_t subobjects_count;
+
+    struct d3d12_root_signature **subobject_root_signatures;
+    size_t subobject_root_signatures_size;
+    size_t subobject_root_signatures_count;
 
     /* Resolve these to group + export name later. */
     const struct D3D12_HIT_GROUP_DESC **hit_groups;
@@ -395,7 +399,7 @@ struct d3d12_state_object_pipeline_data
     size_t groups_size;
     size_t groups_count;
 
-    struct d3d12_state_object_root_signature_association *associations;
+    struct d3d12_state_object_association *associations;
     size_t associations_size;
     size_t associations_count;
 
@@ -423,6 +427,10 @@ static void d3d12_state_object_pipeline_data_cleanup(struct d3d12_state_object_p
     vkd3d_free((void*)data->hit_groups);
     vkd3d_free((void*)data->dxil_libraries);
 
+    for (i = 0; i < data->subobject_root_signatures_count; i++)
+        d3d12_root_signature_dec_ref(data->subobject_root_signatures[i]);
+    vkd3d_free(data->subobject_root_signatures);
+
     for (i = 0; i < data->exports_count; i++)
     {
         vkd3d_free(data->exports[i].mangled_export);
@@ -440,6 +448,14 @@ static void d3d12_state_object_pipeline_data_cleanup(struct d3d12_state_object_p
     vkd3d_free(data->vk_libraries);
 }
 
+#define VKD3D_ASSOCIATION_PRIORITY_INHERITED_COLLECTION 0
+#define VKD3D_ASSOCIATION_PRIORITY_DXIL_SUBOBJECT 1
+#define VKD3D_ASSOCIATION_PRIORITY_DXIL_SUBOBJECT_ASSIGNMENT_DEFAULT 2
+#define VKD3D_ASSOCIATION_PRIORITY_DXIL_SUBOBJECT_ASSIGNMENT_EXPLICIT 3
+#define VKD3D_ASSOCIATION_PRIORITY_DECLARED_STATE_OBJECT 4
+#define VKD3D_ASSOCIATION_PRIORITY_EXPLICIT_DEFAULT 5
+#define VKD3D_ASSOCIATION_PRIORITY_EXPLICIT 6
+
 static HRESULT d3d12_state_object_add_collection(
         struct d3d12_state_object *collection,
         struct d3d12_state_object_pipeline_data *data,
@@ -449,44 +465,29 @@ static HRESULT d3d12_state_object_add_collection(
             data->collections_count + 1, sizeof(*data->collections)))
         return E_OUTOFMEMORY;
 
+    if (!vkd3d_array_reserve((void **)&data->associations, &data->associations_size,
+            data->associations_count + 3, sizeof(*data->associations)))
+        return E_OUTOFMEMORY;
+
     /* If a PSO only declares collections, but no pipelines, just inherit various state.
-     * Also, validates that we have a match across different PSOs. */
-    if (data->global_root_signature)
-    {
-        if (!collection->global_root_signature ||
-                data->global_root_signature->compatibility_hash != collection->global_root_signature->compatibility_hash)
-        {
-            FIXME("Mismatch in global root signature state for PSO and collection.\n");
-            return E_INVALIDARG;
-        }
-    }
-    else
-        data->global_root_signature = collection->global_root_signature;
+     * Also, validates later that we have a match across different PSOs if we end up with mismatches. */
+    data->associations[data->associations_count].kind = VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE;
+    data->associations[data->associations_count].root_signature = collection->global_root_signature;
+    data->associations[data->associations_count].priority = VKD3D_ASSOCIATION_PRIORITY_INHERITED_COLLECTION;
+    data->associations[data->associations_count].export = NULL;
+    data->associations_count++;
 
-    if (data->has_pipeline_config)
-    {
-        if (memcmp(&data->pipeline_config, &collection->pipeline_config, sizeof(data->pipeline_config)) != 0)
-        {
-            FIXME("Mismatch in pipeline config state for collection and PSO.\n");
-            return E_INVALIDARG;
-        }
-    }
-    else
-    {
-        data->pipeline_config = collection->pipeline_config;
-        data->has_pipeline_config = true;
-    }
+    data->associations[data->associations_count].kind = VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_PIPELINE_CONFIG1;
+    data->associations[data->associations_count].pipeline_config = collection->pipeline_config;
+    data->associations[data->associations_count].priority = VKD3D_ASSOCIATION_PRIORITY_INHERITED_COLLECTION;
+    data->associations[data->associations_count].export = NULL;
+    data->associations_count++;
 
-    if (data->shader_config)
-    {
-        if (memcmp(data->shader_config, &collection->shader_config, sizeof(*data->shader_config)) != 0)
-        {
-            FIXME("Mismatch in shader config state for collection and PSO.\n");
-            return E_INVALIDARG;
-        }
-    }
-    else
-        data->shader_config = &collection->shader_config;
+    data->associations[data->associations_count].kind = VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_SHADER_CONFIG;
+    data->associations[data->associations_count].shader_config = collection->shader_config;
+    data->associations[data->associations_count].priority = VKD3D_ASSOCIATION_PRIORITY_INHERITED_COLLECTION;
+    data->associations[data->associations_count].export = NULL;
+    data->associations_count++;
 
     data->collections[data->collections_count].object = collection;
     data->collections[data->collections_count].num_exports = num_exports;
@@ -502,222 +503,449 @@ static HRESULT d3d12_state_object_add_collection(
     return S_OK;
 }
 
+static void d3d12_state_object_set_association_data(struct d3d12_state_object_association *association,
+        const D3D12_STATE_SUBOBJECT *object)
+{
+    union
+    {
+        const D3D12_RAYTRACING_PIPELINE_CONFIG1 *pipeline_config1;
+        const D3D12_GLOBAL_ROOT_SIGNATURE *global_root_signature;
+        const D3D12_RAYTRACING_PIPELINE_CONFIG *pipeline_config;
+        const D3D12_LOCAL_ROOT_SIGNATURE *local_root_signature;
+        const D3D12_RAYTRACING_SHADER_CONFIG *shader_config;
+    } types;
+
+    switch (object->Type)
+    {
+        case D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE:
+            association->kind = VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE;
+            types.global_root_signature = object->pDesc;
+            association->root_signature =
+                    impl_from_ID3D12RootSignature(types.global_root_signature->pGlobalRootSignature);
+            break;
+
+        case D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE:
+            association->kind = VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE;
+            types.local_root_signature = object->pDesc;
+            association->root_signature =
+                    impl_from_ID3D12RootSignature(types.local_root_signature->pLocalRootSignature);
+            break;
+
+        case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG:
+            association->kind = VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_SHADER_CONFIG;
+            types.shader_config = object->pDesc;
+            association->shader_config = *types.shader_config;
+            break;
+
+        case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG1:
+            association->kind = VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_PIPELINE_CONFIG1;
+            types.pipeline_config1 = object->pDesc;
+            association->pipeline_config = *types.pipeline_config1;
+            break;
+
+        case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG:
+            association->kind = VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_PIPELINE_CONFIG1;
+            types.pipeline_config = object->pDesc;
+            association->pipeline_config.MaxTraceRecursionDepth = types.pipeline_config->MaxTraceRecursionDepth;
+            association->pipeline_config.Flags = 0;
+            break;
+
+        default:
+            assert(0 && "Unreachable.");
+            break;
+    }
+}
+
+static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *object,
+        const D3D12_STATE_SUBOBJECT *obj,
+        struct d3d12_state_object_pipeline_data *data,
+        unsigned int association_priority)
+{
+    unsigned int i;
+    HRESULT hr;
+
+    switch (obj->Type)
+    {
+        case D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG:
+        {
+            /* TODO: We might have to do global object assignment similar to SHADER_CONFIG / PIPELINE_CONFIG,
+             * but STATE_OBJECT_CONFIG doesn't change any functionality or compatibility rules really,
+             * so just append flags. */
+            const uint32_t supported_flags =
+                    D3D12_STATE_OBJECT_FLAG_ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL_DEFINITIONS |
+                    D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS;
+            const D3D12_STATE_OBJECT_CONFIG *object_config = obj->pDesc;
+            object->flags |= object_config->Flags;
+            if (object->flags & ~supported_flags)
+            {
+                FIXME("Object config flag #%x is not supported.\n", object->flags);
+                return E_INVALIDARG;
+            }
+            break;
+        }
+
+        case D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE:
+        case D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE:
+        {
+            /* LOCAL_ROOT_SIGNATURE and GLOBAL_ROOT_SIGNATURE alias. */
+            const D3D12_LOCAL_ROOT_SIGNATURE *rs = obj->pDesc;
+
+            /* This is only chosen as default if there is nothing else.
+             * Conflicting definitions seem to cause runtime to choose something
+             * arbitrary. Just override the low priority default.
+             * A high priority default association takes precedence if it exists. */
+            vkd3d_array_reserve((void **)&data->associations, &data->associations_size,
+                    data->associations_count + 1,
+                    sizeof(*data->associations));
+
+            /* Root signatures being exported to NULL takes priority as the default local RS.
+             * They do however, take precedence over DXIL exported subobjects ... */
+            data->associations[data->associations_count].export = NULL;
+            data->associations[data->associations_count].kind =
+                    obj->Type == D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE ?
+                            VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE :
+                            VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE;
+            data->associations[data->associations_count].root_signature =
+                    impl_from_ID3D12RootSignature(rs->pLocalRootSignature);
+            data->associations[data->associations_count].priority = association_priority;
+            data->associations_count++;
+            break;
+        }
+
+        case D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY:
+        {
+            const D3D12_DXIL_LIBRARY_DESC *lib = obj->pDesc;
+            if (vkd3d_shader_dxil_append_library_entry_points_and_subobjects(lib, data->dxil_libraries_count,
+                    &data->entry_points, &data->entry_points_size,
+                    &data->entry_points_count,
+                    &data->subobjects, &data->subobjects_size,
+                    &data->subobjects_count) != VKD3D_OK)
+            {
+                ERR("Failed to parse DXIL library.\n");
+                return E_OUTOFMEMORY;
+            }
+            vkd3d_array_reserve((void**)&data->dxil_libraries, &data->dxil_libraries_size,
+                    data->dxil_libraries_count + 1, sizeof(*data->dxil_libraries));
+            data->dxil_libraries[data->dxil_libraries_count++] = lib;
+            break;
+        }
+
+        case D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP:
+        {
+            const D3D12_HIT_GROUP_DESC *group = obj->pDesc;
+            vkd3d_array_reserve((void**)&data->hit_groups, &data->hit_groups_size,
+                    data->hit_groups_count + 1, sizeof(*data->hit_groups));
+            data->hit_groups[data->hit_groups_count++] = group;
+            break;
+        }
+
+        case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG:
+        {
+            const D3D12_RAYTRACING_SHADER_CONFIG *config = obj->pDesc;
+
+            vkd3d_array_reserve((void **)&data->associations, &data->associations_size,
+                    data->associations_count + 1,
+                    sizeof(*data->associations));
+
+            data->associations[data->associations_count].kind = VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_SHADER_CONFIG;
+            data->associations[data->associations_count].priority = association_priority;
+            data->associations[data->associations_count].shader_config = *config;
+            data->associations[data->associations_count].export = NULL;
+            data->associations_count++;
+            break;
+        }
+
+        case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG:
+        {
+            const D3D12_RAYTRACING_PIPELINE_CONFIG *pipeline_config = obj->pDesc;
+
+            vkd3d_array_reserve((void **)&data->associations, &data->associations_size,
+                    data->associations_count + 1,
+                    sizeof(*data->associations));
+
+            data->associations[data->associations_count].kind = VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_PIPELINE_CONFIG1;
+            data->associations[data->associations_count].priority = association_priority;
+            data->associations[data->associations_count].pipeline_config.MaxTraceRecursionDepth =
+                    pipeline_config->MaxTraceRecursionDepth;
+            data->associations[data->associations_count].pipeline_config.Flags = 0;
+            data->associations[data->associations_count].export = NULL;
+            data->associations_count++;
+            break;
+        }
+
+        case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG1:
+        {
+            const D3D12_RAYTRACING_PIPELINE_CONFIG1 *pipeline_config = obj->pDesc;
+
+            vkd3d_array_reserve((void **)&data->associations, &data->associations_size,
+                    data->associations_count + 1,
+                    sizeof(*data->associations));
+
+            data->associations[data->associations_count].kind = VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_PIPELINE_CONFIG1;
+            data->associations[data->associations_count].priority = association_priority;
+            data->associations[data->associations_count].pipeline_config = *pipeline_config;
+            data->associations[data->associations_count].export = NULL;
+            data->associations_count++;
+            break;
+        }
+
+        case D3D12_STATE_SUBOBJECT_TYPE_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION:
+        {
+            const D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION *association = obj->pDesc;
+            unsigned int num_associations = max(association->NumExports, 1);
+            const struct vkd3d_shader_library_subobject *subobject;
+            unsigned int root_signature_index = 0;
+
+            for (i = 0; i < data->subobjects_count; i++)
+            {
+                if (vkd3d_export_strequal_mixed(association->SubobjectToAssociate, data->subobjects[i].name))
+                    break;
+
+                if (data->subobjects[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE ||
+                        data->subobjects[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE)
+                {
+                    root_signature_index++;
+                }
+            }
+
+            if (i == data->subobjects_count)
+            {
+                ERR("Cannot find subobject %s.\n", debugstr_w(association->SubobjectToAssociate));
+                return E_INVALIDARG;
+            }
+
+            subobject = &data->subobjects[i];
+
+            vkd3d_array_reserve((void **)&data->associations, &data->associations_size,
+                    data->associations_count + num_associations,
+                    sizeof(*data->associations));
+
+            for (i = 0; i < num_associations; i++)
+            {
+                switch (subobject->kind)
+                {
+                    case VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE:
+                    case VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE:
+                        data->associations[data->associations_count].root_signature =
+                                data->subobject_root_signatures[root_signature_index];
+                        break;
+
+                    case VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_PIPELINE_CONFIG1:
+                        data->associations[data->associations_count].pipeline_config = subobject->data.pipeline_config;
+                        break;
+
+                    case VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_SHADER_CONFIG:
+                        data->associations[data->associations_count].shader_config = subobject->data.shader_config;
+                        break;
+
+                    default:
+                        ERR("Unexpected type %u for DXIL -> object association.\n", subobject->kind);
+                        return E_INVALIDARG;
+                }
+
+                data->associations[data->associations_count].kind = subobject->kind;
+                data->associations[data->associations_count].export =
+                        association->NumExports ? association->pExports[i] : NULL;
+
+                if (association_priority == VKD3D_ASSOCIATION_PRIORITY_DECLARED_STATE_OBJECT &&
+                        association->NumExports)
+                {
+                    data->associations[data->associations_count].priority = VKD3D_ASSOCIATION_PRIORITY_EXPLICIT;
+                }
+                else if (association_priority == VKD3D_ASSOCIATION_PRIORITY_DECLARED_STATE_OBJECT)
+                {
+                    data->associations[data->associations_count].priority = VKD3D_ASSOCIATION_PRIORITY_EXPLICIT_DEFAULT;
+                }
+                else if (association->NumExports)
+                {
+                    data->associations[data->associations_count].priority =
+                            VKD3D_ASSOCIATION_PRIORITY_DXIL_SUBOBJECT_ASSIGNMENT_EXPLICIT;
+                }
+                else
+                {
+                    data->associations[data->associations_count].priority =
+                            VKD3D_ASSOCIATION_PRIORITY_DXIL_SUBOBJECT_ASSIGNMENT_DEFAULT;
+                }
+
+                data->associations_count++;
+            }
+
+            break;
+        }
+
+        case D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION:
+        {
+            const D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION *association = obj->pDesc;
+            unsigned int num_associations = max(association->NumExports, 1);
+
+            vkd3d_array_reserve((void **)&data->associations, &data->associations_size,
+                    data->associations_count + num_associations,
+                    sizeof(*data->associations));
+
+            switch (association->pSubobjectToAssociate->Type)
+            {
+                case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG:
+                case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG:
+                case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG1:
+                case D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE:
+                case D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE:
+                {
+                    for (i = 0; i < num_associations; i++)
+                    {
+                        data->associations[data->associations_count].export =
+                                association->NumExports ? association->pExports[i] : NULL;
+                        d3d12_state_object_set_association_data(&data->associations[data->associations_count],
+                                association->pSubobjectToAssociate);
+                        data->associations[data->associations_count].priority = association->NumExports ?
+                                VKD3D_ASSOCIATION_PRIORITY_EXPLICIT :
+                                VKD3D_ASSOCIATION_PRIORITY_EXPLICIT_DEFAULT;
+                        data->associations_count++;
+                    }
+                    break;
+                }
+
+                default:
+                    FIXME("Got unsupported subobject association type %u.\n", association->pSubobjectToAssociate->Type);
+                    return E_INVALIDARG;
+            }
+            break;
+        }
+
+        case D3D12_STATE_SUBOBJECT_TYPE_EXISTING_COLLECTION:
+        {
+            const D3D12_EXISTING_COLLECTION_DESC *collection = obj->pDesc;
+            struct d3d12_state_object *library_state;
+            library_state = impl_from_ID3D12StateObject(collection->pExistingCollection);
+            if (FAILED(hr = d3d12_state_object_add_collection(library_state, data,
+                    collection->pExports, collection->NumExports)))
+            {
+                return hr;
+            }
+            break;
+        }
+
+        case D3D12_STATE_SUBOBJECT_TYPE_NODE_MASK:
+            /* Just ignore this. It's irrelevant for us. */
+            break;
+
+        default:
+            FIXME("Unrecognized subobject type: %u.\n", obj->Type);
+            return E_INVALIDARG;
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *object,
         const D3D12_STATE_OBJECT_DESC *desc,
         struct d3d12_state_object *parent,
         struct d3d12_state_object_pipeline_data *data)
 {
-    unsigned int i, j;
+    struct d3d12_root_signature *root_signature;
+    unsigned int i;
     HRESULT hr;
 
     if (parent && FAILED(hr = d3d12_state_object_add_collection(parent, data, NULL, 0)))
         return hr;
 
+    /* Make sure all state has been parsed. Ignore DXIL subobject associations for now.
+     * We'll have to parse subobjects first. */
     for (i = 0; i < desc->NumSubobjects; i++)
     {
         const D3D12_STATE_SUBOBJECT *obj = &desc->pSubobjects[i];
-        switch (obj->Type)
+        if (obj->Type != D3D12_STATE_SUBOBJECT_TYPE_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION &&
+                obj->Type != D3D12_STATE_SUBOBJECT_TYPE_NODE_MASK)
         {
-            case D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG:
-            {
-                const uint32_t supported_flags =
-                        D3D12_STATE_OBJECT_FLAG_ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL_DEFINITIONS |
-                        D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS;
-                const D3D12_STATE_OBJECT_CONFIG *object_config = obj->pDesc;
-                object->flags = object_config->Flags;
-                if (object->flags & ~supported_flags)
-                {
-                    FIXME("Object config flag #%x is not supported.\n", object->flags);
-                    return E_INVALIDARG;
-                }
-                break;
-            }
-
-            case D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE:
-            {
-                const D3D12_GLOBAL_ROOT_SIGNATURE *rs = obj->pDesc;
-                struct d3d12_root_signature *new_rs;
-                struct d3d12_root_signature *old_rs;
-
-                new_rs = impl_from_ID3D12RootSignature(rs->pGlobalRootSignature);
-                old_rs = data->global_root_signature;
-
-                if (new_rs && old_rs && new_rs->compatibility_hash != old_rs->compatibility_hash)
-                {
-                    /* Simplicity for now. */
-                    FIXME("More than one unique global root signature is used.\n");
-                    return E_INVALIDARG;
-                }
-
-                if (!data->global_root_signature)
-                    data->global_root_signature = new_rs;
-                break;
-            }
-
-            case D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE:
-            {
-                const D3D12_LOCAL_ROOT_SIGNATURE *rs = obj->pDesc;
-                /* This is only chosen as default if there is nothing else.
-                 * Conflicting definitions seem to cause runtime to choose something
-                 * arbitrary. Just override the low priority default.
-                 * A high priority default association takes precedence if it exists. */
-                data->low_priority_local_root_signature = impl_from_ID3D12RootSignature(rs->pLocalRootSignature);
-                break;
-            }
-
-            case D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY:
-            {
-                const D3D12_DXIL_LIBRARY_DESC *lib = obj->pDesc;
-                if (vkd3d_shader_dxil_append_library_entry_points_and_subobjects(lib, data->dxil_libraries_count,
-                        &data->entry_points, &data->entry_points_size,
-                        &data->entry_points_count,
-                        &data->subobjects, &data->subobjects_size,
-                        &data->subobjects_count) != VKD3D_OK)
-                {
-                    ERR("Failed to parse DXIL library.\n");
-                    return E_OUTOFMEMORY;
-                }
-                vkd3d_array_reserve((void**)&data->dxil_libraries, &data->dxil_libraries_size,
-                        data->dxil_libraries_count + 1, sizeof(*data->dxil_libraries));
-                data->dxil_libraries[data->dxil_libraries_count++] = lib;
-                break;
-            }
-
-            case D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP:
-            {
-                const D3D12_HIT_GROUP_DESC *group = obj->pDesc;
-                vkd3d_array_reserve((void**)&data->hit_groups, &data->hit_groups_size,
-                        data->hit_groups_count + 1, sizeof(*data->hit_groups));
-                data->hit_groups[data->hit_groups_count++] = group;
-                break;
-            }
-
-            case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG:
-            {
-                if (data->shader_config && memcmp(data->shader_config, obj->pDesc, sizeof(*data->shader_config)) != 0)
-                {
-                    ERR("RAYTRACING_SHADER_CONFIG must match if multiple objects are present.\n");
-                    return E_INVALIDARG;
-                }
-                data->shader_config = obj->pDesc;
-                break;
-            }
-
-            case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG:
-            {
-                const D3D12_RAYTRACING_PIPELINE_CONFIG *pipeline_config;
-                D3D12_RAYTRACING_PIPELINE_CONFIG1 config1;
-
-                pipeline_config = obj->pDesc;
-                config1.Flags = 0;
-                config1.MaxTraceRecursionDepth = pipeline_config->MaxTraceRecursionDepth;
-
-                if (data->has_pipeline_config &&
-                        memcmp(&data->pipeline_config, &config1, sizeof(config1)) != 0)
-                {
-                    ERR("RAYTRACING_PIPELINE_CONFIG must match if multiple objects are present.\n");
-                    return E_INVALIDARG;
-                }
-                data->has_pipeline_config = true;
-                data->pipeline_config = config1;
-                break;
-            }
-
-            case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG1:
-            {
-                const D3D12_RAYTRACING_PIPELINE_CONFIG1 *pipeline_config = obj->pDesc;
-                if (data->has_pipeline_config &&
-                        memcmp(&data->pipeline_config, pipeline_config, sizeof(*pipeline_config)) != 0)
-                {
-                    ERR("RAYTRACING_PIPELINE_CONFIG1 must match if multiple objects are present.\n");
-                    return E_INVALIDARG;
-                }
-                data->has_pipeline_config = true;
-                data->pipeline_config = *pipeline_config;
-                break;
-            }
-
-            case D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION:
-            {
-                const D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION *association = obj->pDesc;
-                const D3D12_LOCAL_ROOT_SIGNATURE *local_rs;
-
-                switch (association->pSubobjectToAssociate->Type)
-                {
-                    /* These are irrelevant. There can only be one unique config,
-                     * and what can happen here is that app redundantly assigns the same config.
-                     * The associated object must be part of the PSO anyways, so it should be safe to ignore
-                     * here. */
-                    case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG:
-                    case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG:
-                    case D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE:
-                        break;
-
-                    case D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE:
-                    {
-                        local_rs = association->pSubobjectToAssociate->pDesc;
-                        if (association->NumExports)
-                        {
-                            vkd3d_array_reserve((void **) &data->associations, &data->associations_size,
-                                    data->associations_count + association->NumExports,
-                                    sizeof(*data->associations));
-                            for (j = 0; j < association->NumExports; j++)
-                            {
-                                data->associations[data->associations_count].export = association->pExports[j];
-                                data->associations[data->associations_count].root_signature =
-                                        impl_from_ID3D12RootSignature(local_rs->pLocalRootSignature);
-                                data->associations_count++;
-                            }
-                        }
-                        else
-                        {
-                            /* Local root signatures being exported to NULL takes priority as the default local RS. */
-                            data->high_priority_local_root_signature =
-                                    impl_from_ID3D12RootSignature(local_rs->pLocalRootSignature);
-                        }
-                        break;
-                    }
-
-                    default:
-                        FIXME("Got unsupported subobject association type %u.\n", association->pSubobjectToAssociate->Type);
-                        return E_INVALIDARG;
-                }
-                break;
-            }
-
-            case D3D12_STATE_SUBOBJECT_TYPE_EXISTING_COLLECTION:
-            {
-                const D3D12_EXISTING_COLLECTION_DESC *collection = obj->pDesc;
-                struct d3d12_state_object *library_state;
-                library_state = impl_from_ID3D12StateObject(collection->pExistingCollection);
-                if (FAILED(hr = d3d12_state_object_add_collection(library_state, data,
-                        collection->pExports, collection->NumExports)))
-                {
-                    return hr;
-                }
-                break;
-            }
-
-            case D3D12_STATE_SUBOBJECT_TYPE_NODE_MASK:
-                /* Just ignore this. It's irrelevant for us. */
-                break;
-
-            default:
-                FIXME("Unrecognized subobject type: %u.\n", obj->Type);
-                return E_INVALIDARG;
+            if (FAILED(hr = d3d12_state_object_parse_subobject(object, obj, data,
+                    VKD3D_ASSOCIATION_PRIORITY_DECLARED_STATE_OBJECT)))
+                return hr;
         }
     }
 
-    if (!data->has_pipeline_config)
+    /* Make sure all child state has been parsed. */
+    for (i = 0; i < data->subobjects_count; i++)
     {
-        ERR("Must have pipeline config.\n");
-        return E_INVALIDARG;
+        D3D12_GLOBAL_ROOT_SIGNATURE obj_root_signature;
+        D3D12_STATE_SUBOBJECT obj;
+        obj.pDesc = NULL;
+
+        switch (data->subobjects[i].kind)
+        {
+            case VKD3D_SHADER_SUBOBJECT_KIND_STATE_OBJECT_CONFIG:
+                obj.Type = D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG;
+                obj.pDesc = &data->subobjects[i].data.object_config;
+                break;
+
+            case VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_SHADER_CONFIG:
+                obj.Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG;
+                obj.pDesc = &data->subobjects[i].data.shader_config;
+                break;
+
+            case VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_PIPELINE_CONFIG1:
+                obj.Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG1;
+                obj.pDesc = &data->subobjects[i].data.pipeline_config;
+                break;
+
+            case VKD3D_SHADER_SUBOBJECT_KIND_HIT_GROUP:
+                obj.Type = D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP;
+                obj.pDesc = &data->subobjects[i].data.hit_group;
+                break;
+
+            case VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE:
+            case VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE:
+                /* No DXBC header here, just raw root signature binary. */
+                if (FAILED(hr = d3d12_root_signature_create_raw(object->device,
+                        data->subobjects[i].data.payload.data,
+                        data->subobjects[i].data.payload.size, &root_signature)))
+                    return hr;
+
+                d3d12_root_signature_inc_ref(root_signature);
+                ID3D12RootSignature_Release(&root_signature->ID3D12RootSignature_iface);
+
+                obj_root_signature.pGlobalRootSignature = &root_signature->ID3D12RootSignature_iface;
+                obj.Type = data->subobjects[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE ?
+                        D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE :
+                        D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE;
+                obj.pDesc = &obj_root_signature;
+
+                vkd3d_array_reserve((void**)&data->subobject_root_signatures, &data->subobject_root_signatures_size,
+                        data->subobject_root_signatures_count + 1, sizeof(*data->subobject_root_signatures));
+                data->subobject_root_signatures[data->subobject_root_signatures_count++] = root_signature;
+                break;
+
+            default:
+                break;
+        }
+
+        if (obj.pDesc && FAILED(hr = d3d12_state_object_parse_subobject(
+                object, &obj, data, VKD3D_ASSOCIATION_PRIORITY_DXIL_SUBOBJECT)))
+            return hr;
     }
 
-    if (!data->shader_config)
+    for (i = 0; i < desc->NumSubobjects; i++)
     {
-        ERR("Must have shader config.\n");
-        return E_INVALIDARG;
+        const D3D12_STATE_SUBOBJECT *obj = &desc->pSubobjects[i];
+        /* Now we can parse DXIL subobject -> export associations. */
+        if (obj->Type == D3D12_STATE_SUBOBJECT_TYPE_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION)
+        {
+            if (FAILED(hr = d3d12_state_object_parse_subobject(object, obj, data,
+                    VKD3D_ASSOCIATION_PRIORITY_DECLARED_STATE_OBJECT)))
+                return hr;
+        }
+    }
+
+    /* Finally, parse subobject version of DXIL subobject to export. */
+    for (i = 0; i < data->subobjects_count; i++)
+    {
+        if (data->subobjects[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_SUBOBJECT_TO_EXPORTS_ASSOCIATION)
+        {
+            D3D12_STATE_SUBOBJECT obj;
+            obj.Type = D3D12_STATE_SUBOBJECT_TYPE_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION;
+            obj.pDesc = &data->subobjects[i].data.association;
+            if (FAILED(hr = d3d12_state_object_parse_subobject(object, &obj, data,
+                    VKD3D_ASSOCIATION_PRIORITY_DXIL_SUBOBJECT)))
+                return hr;
+        }
     }
 
     return S_OK;
@@ -882,63 +1110,149 @@ static VkDeviceSize d3d12_state_object_pipeline_data_compute_default_stack_size(
     return pipeline_stack_size;
 }
 
-static struct d3d12_root_signature *d3d12_state_object_find_associated_root_signature_entry(
-        struct d3d12_state_object_pipeline_data *data,
-        const struct vkd3d_shader_library_entry_point *entry)
+static bool d3d12_state_object_association_data_equal(const struct d3d12_state_object_association *a,
+        const struct d3d12_state_object_association *b)
 {
-    size_t i;
-    for (i = 0; i < data->associations_count; i++)
-        if (vkd3d_export_equal(data->associations[i].export, entry))
-            return data->associations[i].root_signature;
-    return NULL;
-}
-
-static struct d3d12_root_signature *d3d12_state_object_find_associated_root_signature_export(
-        struct d3d12_state_object_pipeline_data *data, LPCWSTR export)
-{
-    size_t i;
-    for (i = 0; i < data->associations_count; i++)
-        if (vkd3d_export_strequal(data->associations[i].export, export))
-            return data->associations[i].root_signature;
-    return NULL;
-}
-
-static struct d3d12_root_signature *d3d12_state_object_pipeline_data_get_local_root_signature(
-        struct d3d12_state_object_pipeline_data *data,
-        const struct vkd3d_shader_library_entry_point *entry)
-{
-    const D3D12_HIT_GROUP_DESC *hit_group;
-    struct d3d12_root_signature *rs;
-    size_t i;
-
-    rs = d3d12_state_object_find_associated_root_signature_entry(data, entry);
-
-    /* If we didn't find an association for this entry point, we might have an association
-     * in a hit group export.
-     * FIXME: Is it possible to have multiple hit groups, all referring to same entry point, while using
-     * different root signatures for the different instances of the entry point? :| */
-    for (i = 0; i < data->hit_groups_count && !rs; i++)
+    /* Normalize dummy root signatures. */
+    if (a && (a->kind == VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE ||
+              a->kind == VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE))
     {
-        hit_group = data->hit_groups[i];
-        if (vkd3d_export_equal(hit_group->ClosestHitShaderImport, entry) ||
-                vkd3d_export_equal(hit_group->AnyHitShaderImport, entry) ||
-                vkd3d_export_equal(hit_group->IntersectionShaderImport, entry))
+        if (!a->root_signature || a->root_signature->compatibility_hash == 0)
+            a = NULL;
+    }
+
+    if (b && (b->kind == VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE ||
+              b->kind == VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE))
+    {
+        if (!b->root_signature || b->root_signature->compatibility_hash == 0)
+            b = NULL;
+    }
+
+    if (!a && !b)
+        return true;
+    if ((!!a) != (!!b))
+        return false;
+    if (a->kind != b->kind)
+        return false;
+
+    switch (a->kind)
+    {
+        case VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_PIPELINE_CONFIG1:
+            return memcmp(&a->pipeline_config, &b->pipeline_config, sizeof(a->pipeline_config)) == 0;
+        case VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_SHADER_CONFIG:
+            return memcmp(&a->shader_config, &b->shader_config, sizeof(a->shader_config)) == 0;
+        case VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE:
+        case VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE:
+            if (!a->root_signature && !b->root_signature)
+                return true;
+            if ((!!a->root_signature) != (!!b->root_signature))
+                return false;
+            return a->root_signature->compatibility_hash == b->root_signature->compatibility_hash;
+
+        default:
+            break;
+    }
+
+    return false;
+}
+
+static struct d3d12_state_object_association *d3d12_state_object_find_association(
+        enum vkd3d_shader_subobject_kind kind,
+        struct d3d12_state_object_pipeline_data *data,
+        const struct vkd3d_shader_library_entry_point *entry,
+        LPCWSTR export)
+{
+    struct d3d12_state_object_association *hit_group_association = NULL;
+    struct d3d12_state_object_association *association = NULL;
+    const D3D12_HIT_GROUP_DESC *hit_group;
+    bool conflict = false;
+    bool match;
+    size_t i;
+
+    for (i = 0; i < data->associations_count; i++)
+    {
+        if (data->associations[i].kind != kind)
+            continue;
+        if (association && data->associations[i].priority < association->priority)
+            continue;
+
+        if (data->associations[i].export)
         {
-            rs = d3d12_state_object_find_associated_root_signature_export(data, hit_group->HitGroupExport);
+            if (entry)
+                match = vkd3d_export_equal(data->associations[i].export, entry);
+            else
+                match = vkd3d_export_strequal(data->associations[i].export, export);
+        }
+        else
+            match = true;
+
+        if (match)
+        {
+            if (!association || data->associations[i].priority > association->priority)
+            {
+                association = &data->associations[i];
+                conflict = false;
+            }
+            else if (!d3d12_state_object_association_data_equal(association, &data->associations[i]))
+            {
+                /* We might get a higher priority match later that makes this conflict irrelevant. */
+                conflict = true;
+            }
         }
     }
 
-    if (!rs)
+    hit_group_association = NULL;
+
+    /* If we didn't find an association for this entry point, we might have an association
+     * in a hit group export. Alternatively, we might have a higher priority association which is only
+     * set for the hit group.
+     * FIXME: Is it possible to have multiple hit groups, all referring to same entry point, while using
+     * different root signatures for the different instances of the entry point? :| */
+    if (entry && (entry->stage == VK_SHADER_STAGE_ANY_HIT_BIT_KHR ||
+            entry->stage == VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR ||
+            entry->stage == VK_SHADER_STAGE_INTERSECTION_BIT_KHR))
     {
-        if (data->high_priority_local_root_signature)
-            rs = data->high_priority_local_root_signature;
-        else if (data->low_priority_local_root_signature)
-            rs = data->low_priority_local_root_signature;
-        else
-            rs = NULL;
+        for (i = 0; i < data->hit_groups_count; i++)
+        {
+            hit_group = data->hit_groups[i];
+
+            match = vkd3d_export_equal(hit_group->ClosestHitShaderImport, entry) ||
+                    vkd3d_export_equal(hit_group->AnyHitShaderImport, entry) ||
+                    vkd3d_export_equal(hit_group->IntersectionShaderImport, entry);
+
+            if (match)
+            {
+                hit_group_association = d3d12_state_object_find_association(
+                        kind, data, NULL, hit_group->HitGroupExport);
+
+                /* Accept hit group association if it has a higher priority, otherwise tie-break to the export itself. */
+                if (hit_group_association && hit_group_association->priority > association->priority)
+                {
+                    association = hit_group_association;
+                    conflict = false;
+                    break;
+                }
+            }
+        }
     }
 
-    return rs;
+    if (conflict)
+    {
+        ERR("Conflicting root signatures defined for same export.\n");
+        return NULL;
+    }
+
+    return association;
+}
+
+static struct d3d12_root_signature *d3d12_state_object_pipeline_data_get_root_signature(
+        enum vkd3d_shader_subobject_kind kind,
+        struct d3d12_state_object_pipeline_data *data,
+        const struct vkd3d_shader_library_entry_point *entry)
+{
+    struct d3d12_state_object_association *association;
+    association = d3d12_state_object_find_association(kind, data, entry, NULL);
+    return association ? association->root_signature : NULL;
 }
 
 static HRESULT d3d12_state_object_get_group_handles(struct d3d12_state_object *object,
@@ -1073,6 +1387,98 @@ static void d3d12_state_object_append_local_static_samplers(
     *out_vk_bindings_count = vk_bindings_count;
 }
 
+static bool d3d12_state_object_pipeline_data_find_global_state_object(
+        struct d3d12_state_object_pipeline_data *data,
+        enum vkd3d_shader_subobject_kind kind,
+        const struct d3d12_state_object_association **out_association)
+{
+    const struct d3d12_state_object_association *association = NULL;
+    const struct d3d12_state_object_association *candidate;
+    size_t i;
+
+    /* All inherited associations have to agree. */
+    for (i = 0; i < data->associations_count; i++)
+    {
+        if (data->associations[i].kind == kind &&
+                data->associations[i].priority == VKD3D_ASSOCIATION_PRIORITY_INHERITED_COLLECTION)
+        {
+            if (!association)
+                association = &data->associations[i];
+            else if (!d3d12_state_object_association_data_equal(association, &data->associations[i]))
+            {
+                ERR("Mismatch in inherited associations for kind %u.\n", kind);
+                return false;
+            }
+        }
+    }
+
+    for (i = 0; i < data->entry_points_count; i++)
+    {
+        candidate = d3d12_state_object_find_association(kind, data, &data->entry_points[i], NULL);
+
+        if (!association)
+        {
+            association = candidate;
+        }
+        else if (!d3d12_state_object_association_data_equal(association, candidate))
+        {
+            /* To hypothetically support this for global root signatures,
+             * we'd have to partition any RTPSO into N VkPipelines and select
+             * the appropriate pipeline at DispatchRays() time based on the currently bound root signature ...
+             * Leave this as a TODO until we observe that applications rely on this esoteric behavior. */
+            if (kind == VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE)
+                FIXME("Two entry points declare different global root signatures. This is currently unsupported.\n");
+            else
+                ERR("Mismatch in inherited associations for kind %u.\n", kind);
+            return false;
+        }
+    }
+
+    *out_association = association;
+    return true;
+}
+
+static bool d3d12_state_object_pipeline_data_find_global_state_objects(
+        struct d3d12_state_object_pipeline_data *data, struct d3d12_root_signature **out_root_signature,
+        D3D12_RAYTRACING_SHADER_CONFIG *out_shader_config,
+        D3D12_RAYTRACING_PIPELINE_CONFIG1 *out_pipeline_config)
+{
+    const struct d3d12_state_object_association *pipeline_config = NULL;
+    const struct d3d12_state_object_association *root_signature = NULL;
+    const struct d3d12_state_object_association *shader_config = NULL;
+
+    if (!d3d12_state_object_pipeline_data_find_global_state_object(data,
+            VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE, &root_signature))
+        return false;
+
+    if (!d3d12_state_object_pipeline_data_find_global_state_object(data,
+            VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_PIPELINE_CONFIG1, &pipeline_config))
+        return false;
+
+    if (!d3d12_state_object_pipeline_data_find_global_state_object(data,
+            VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_SHADER_CONFIG, &shader_config))
+        return false;
+
+    if (!pipeline_config)
+    {
+        ERR("No pipeline config was declared or inherited. This is required state.\n");
+        return false;
+    }
+
+    if (!shader_config)
+    {
+        ERR("No shader config was declared or inherited. This is required state.\n");
+        return false;
+    }
+
+    /* If every entry point declares no root signature, this is still okay. */
+    *out_root_signature = root_signature ? root_signature->root_signature : NULL;
+    *out_pipeline_config = pipeline_config->pipeline_config;
+    *out_shader_config = shader_config->shader_config;
+
+    return true;
+}
+
 static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *object,
         struct d3d12_state_object_pipeline_data *data)
 {
@@ -1085,11 +1491,13 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     VkRayTracingPipelineCreateInfoKHR pipeline_create_info;
     struct vkd3d_shader_resource_binding *local_bindings;
     struct vkd3d_shader_compile_arguments compile_args;
+    D3D12_RAYTRACING_PIPELINE_CONFIG1 pipeline_config;
     struct d3d12_state_object_collection *collection;
     VkPipelineDynamicStateCreateInfo dynamic_state;
     struct vkd3d_shader_library_entry_point *entry;
     struct d3d12_root_signature *global_signature;
     struct d3d12_root_signature *local_signature;
+    D3D12_RAYTRACING_SHADER_CONFIG shader_config;
     const struct D3D12_HIT_GROUP_DESC *hit_group;
     struct d3d12_state_object_identifier *export;
     VkPipelineLibraryCreateInfoKHR library_info;
@@ -1120,7 +1528,9 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     shader_interface_info.stage = VK_SHADER_STAGE_ALL;
     shader_interface_info.xfb_info = NULL;
 
-    global_signature = data->global_root_signature;
+    if (!d3d12_state_object_pipeline_data_find_global_state_objects(data,
+            &global_signature, &shader_config, &pipeline_config))
+        return E_INVALIDARG;
 
     if (global_signature)
     {
@@ -1163,7 +1573,8 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     {
         entry = &data->entry_points[i];
 
-        local_signature = d3d12_state_object_pipeline_data_get_local_root_signature(data, entry);
+        local_signature = d3d12_state_object_pipeline_data_get_root_signature(
+                VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE, data, entry);
         local_bindings = NULL;
 
         if (local_signature)
@@ -1475,11 +1886,11 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     pipeline_create_info.pLibraryInfo = &library_info;
     pipeline_create_info.pLibraryInterface = &interface_create_info;
     pipeline_create_info.pDynamicState = &dynamic_state;
-    pipeline_create_info.maxPipelineRayRecursionDepth = data->pipeline_config.MaxTraceRecursionDepth;
+    pipeline_create_info.maxPipelineRayRecursionDepth = pipeline_config.MaxTraceRecursionDepth;
 
-    if (data->pipeline_config.Flags & D3D12_RAYTRACING_PIPELINE_FLAG_SKIP_TRIANGLES)
+    if (pipeline_config.Flags & D3D12_RAYTRACING_PIPELINE_FLAG_SKIP_TRIANGLES)
         pipeline_create_info.flags |= VK_PIPELINE_CREATE_RAY_TRACING_SKIP_TRIANGLES_BIT_KHR;
-    if (data->pipeline_config.Flags & D3D12_RAYTRACING_PIPELINE_FLAG_SKIP_PROCEDURAL_PRIMITIVES)
+    if (pipeline_config.Flags & D3D12_RAYTRACING_PIPELINE_FLAG_SKIP_PROCEDURAL_PRIMITIVES)
         pipeline_create_info.flags |= VK_PIPELINE_CREATE_RAY_TRACING_SKIP_AABBS_BIT_KHR;
 
     library_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LIBRARY_CREATE_INFO_KHR;
@@ -1489,16 +1900,16 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
 
     interface_create_info.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_INTERFACE_CREATE_INFO_KHR;
     interface_create_info.pNext = NULL;
-    interface_create_info.maxPipelineRayPayloadSize = data->shader_config->MaxPayloadSizeInBytes;
-    interface_create_info.maxPipelineRayHitAttributeSize = data->shader_config->MaxAttributeSizeInBytes;
+    interface_create_info.maxPipelineRayPayloadSize = shader_config.MaxPayloadSizeInBytes;
+    interface_create_info.maxPipelineRayHitAttributeSize = shader_config.MaxAttributeSizeInBytes;
 
-    if (data->pipeline_config.MaxTraceRecursionDepth >
+    if (pipeline_config.MaxTraceRecursionDepth >
             object->device->device_info.ray_tracing_pipeline_properties.maxRayRecursionDepth)
     {
         /* We cannot do anything about this, since we let sub-minspec devices through,
          * and this content actually tries to use recursion. */
         ERR("MaxTraceRecursionDepth %u exceeds device limit of %u.\n",
-                data->pipeline_config.MaxTraceRecursionDepth,
+                pipeline_config.MaxTraceRecursionDepth,
                 object->device->device_info.ray_tracing_pipeline_properties.maxRayRecursionDepth);
         return E_INVALIDARG;
     }
@@ -1554,8 +1965,8 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     data->exports_size = 0;
     data->exports_count = 0;
 
-    object->shader_config = *data->shader_config;
-    object->pipeline_config = data->pipeline_config;
+    object->shader_config = shader_config;
+    object->pipeline_config = pipeline_config;
 
     /* Spec says we need to hold a reference to the collection object, but it doesn't show up in API,
      * so we must assume private reference. */
