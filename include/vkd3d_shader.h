@@ -787,13 +787,59 @@ struct vkd3d_shader_library_entry_point
     VkShaderStageFlagBits stage;
 };
 
-int vkd3d_shader_dxil_append_library_entry_points(
+enum vkd3d_shader_subobject_kind
+{
+    /* Matches DXIL for simplicity. */
+    VKD3D_SHADER_SUBOBJECT_KIND_STATE_OBJECT_CONFIG = 0,
+    VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE = 1,
+    VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE = 2,
+    VKD3D_SHADER_SUBOBJECT_KIND_SUBOBJECT_TO_EXPORTS_ASSOCIATION = 8,
+    VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_SHADER_CONFIG = 9,
+    VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_PIPELINE_CONFIG = 10,
+    VKD3D_SHADER_SUBOBJECT_KIND_HIT_GROUP = 11,
+    VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_PIPELINE_CONFIG1 = 12,
+};
+
+struct vkd3d_shader_library_subobject
+{
+    enum vkd3d_shader_subobject_kind kind;
+    unsigned int dxil_identifier;
+
+    /* All const pointers here point directly to the DXBC blob,
+     * so they do not need to be freed.
+     * Fortunately for us, the C strings are zero-terminated in the blob itself. */
+
+    /* In the blob, ASCII is used as identifier, where API uses wide strings, sigh ... */
+    const char *name;
+
+    union
+    {
+        D3D12_RAYTRACING_PIPELINE_CONFIG1 pipeline_config;
+        D3D12_RAYTRACING_SHADER_CONFIG shader_config;
+        D3D12_STATE_OBJECT_CONFIG object_config;
+
+        /* Duped strings because API wants wide strings for no good reason. */
+        D3D12_HIT_GROUP_DESC hit_group;
+        D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION association;
+
+        struct
+        {
+            const void *data;
+            size_t size;
+        } payload;
+    } data;
+};
+
+int vkd3d_shader_dxil_append_library_entry_points_and_subobjects(
         const D3D12_DXIL_LIBRARY_DESC *library_desc,
         unsigned int identifier,
         struct vkd3d_shader_library_entry_point **entry_points,
-        size_t *entry_point_size, size_t *entry_point_count);
+        size_t *entry_point_size, size_t *entry_point_count,
+        struct vkd3d_shader_library_subobject **subobjects,
+        size_t *subobjects_size, size_t *subobjects_count);
 
 void vkd3d_shader_dxil_free_library_entry_points(struct vkd3d_shader_library_entry_point *entry_points, size_t count);
+void vkd3d_shader_dxil_free_library_subobjects(struct vkd3d_shader_library_subobject *subobjects, size_t count);
 
 int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         const char *export,
