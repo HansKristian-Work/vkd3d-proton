@@ -1500,8 +1500,9 @@ HRESULT d3d12_root_signature_create_empty(struct d3d12_device *device,
     return S_OK;
 }
 
-HRESULT d3d12_root_signature_create(struct d3d12_device *device,
-        const void *bytecode, size_t bytecode_length, struct d3d12_root_signature **root_signature)
+static HRESULT d3d12_root_signature_create_from_blob(struct d3d12_device *device,
+        const void *bytecode, size_t bytecode_length, bool raw_payload,
+        struct d3d12_root_signature **root_signature)
 {
     const struct vkd3d_shader_code dxbc = {bytecode, bytecode_length};
     union
@@ -1513,10 +1514,21 @@ HRESULT d3d12_root_signature_create(struct d3d12_device *device,
     HRESULT hr;
     int ret;
 
-    if ((ret = vkd3d_parse_root_signature_v_1_1(&dxbc, &root_signature_desc.vkd3d)) < 0)
+    if (raw_payload)
     {
-        WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
-        return hresult_from_vkd3d_result(ret);
+        if ((ret = vkd3d_parse_root_signature_v_1_1_from_raw_payload(&dxbc, &root_signature_desc.vkd3d)))
+        {
+            WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
+            return hresult_from_vkd3d_result(ret);
+        }
+    }
+    else
+    {
+        if ((ret = vkd3d_parse_root_signature_v_1_1(&dxbc, &root_signature_desc.vkd3d)) < 0)
+        {
+            WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
+            return hresult_from_vkd3d_result(ret);
+        }
     }
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
@@ -1543,6 +1555,20 @@ HRESULT d3d12_root_signature_create(struct d3d12_device *device,
     *root_signature = object;
 
     return S_OK;
+}
+
+HRESULT d3d12_root_signature_create(struct d3d12_device *device,
+        const void *bytecode, size_t bytecode_length,
+        struct d3d12_root_signature **root_signature)
+{
+    return d3d12_root_signature_create_from_blob(device, bytecode, bytecode_length, false, root_signature);
+}
+
+HRESULT d3d12_root_signature_create_raw(struct d3d12_device *device,
+        const void *payload, size_t payload_length,
+        struct d3d12_root_signature **root_signature)
+{
+    return d3d12_root_signature_create_from_blob(device, payload, payload_length, true, root_signature);
 }
 
 unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_root_signature *root_signature)
