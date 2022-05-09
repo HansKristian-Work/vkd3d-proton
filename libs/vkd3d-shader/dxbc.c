@@ -2755,7 +2755,7 @@ static int shader_parse_static_samplers(struct root_signature_parser_context *co
     return VKD3D_OK;
 }
 
-static int shader_parse_root_signature(const char *data, unsigned int data_size,
+int vkd3d_shader_parse_root_signature_raw(const char *data, unsigned int data_size,
         struct vkd3d_versioned_root_signature_desc *desc)
 {
     struct vkd3d_root_signature_desc *v_1_0 = &desc->v_1_0;
@@ -2763,6 +2763,8 @@ static int shader_parse_root_signature(const char *data, unsigned int data_size,
     unsigned int count, offset, version;
     const char *ptr = data;
     int ret;
+
+    memset(desc, 0, sizeof(*desc));
 
     context.data = data;
     context.data_size = data_size;
@@ -2845,7 +2847,7 @@ static int rts0_handler(const char *data, DWORD data_size, DWORD tag, void *cont
     if (tag != TAG_RTS0)
         return VKD3D_OK;
 
-    return shader_parse_root_signature(data, data_size, desc);
+    return vkd3d_shader_parse_root_signature_raw(data, data_size, desc);
 }
 
 int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
@@ -2855,7 +2857,6 @@ int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
 
     TRACE("dxbc {%p, %zu}, root_signature %p.\n", dxbc->code, dxbc->size, root_signature);
 
-    memset(root_signature, 0, sizeof(*root_signature));
     if ((ret = parse_dxbc(dxbc->code, dxbc->size, rts0_handler, root_signature)) < 0)
     {
         vkd3d_shader_free_root_signature(root_signature);
