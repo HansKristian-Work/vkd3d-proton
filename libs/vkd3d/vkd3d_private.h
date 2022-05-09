@@ -1397,6 +1397,8 @@ struct d3d12_root_signature
 
 HRESULT d3d12_root_signature_create(struct d3d12_device *device, const void *bytecode,
         size_t bytecode_length, struct d3d12_root_signature **root_signature);
+HRESULT d3d12_root_signature_create_raw(struct d3d12_device *device, const void *payload,
+        size_t payload_size, struct d3d12_root_signature **root_signature);
 HRESULT d3d12_root_signature_create_empty(struct d3d12_device *device,
         struct d3d12_root_signature **root_signature);
 /* Private ref counts, for pipeline library. */
@@ -1423,6 +1425,8 @@ HRESULT vkd3d_create_pipeline_layout(struct d3d12_device *device,
 int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *desc);
 int vkd3d_parse_root_signature_v_1_1(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_versioned_root_signature_desc *desc);
+int vkd3d_parse_root_signature_v_1_1_from_raw_payload(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *desc);
 
 VkShaderStageFlags vkd3d_vk_stage_flags_from_visibility(D3D12_SHADER_VISIBILITY visibility);
