@@ -82,6 +82,21 @@ bool vkd3d_export_strequal(const WCHAR *a, const WCHAR *b)
     return *a == *b;
 }
 
+bool vkd3d_export_strequal_mixed(const WCHAR *a, const char *b)
+{
+    if (!a || !b)
+        return false;
+
+    while (*a != '\0' && *b != '\0')
+    {
+        if (*a != *b)
+            return false;
+        a++;
+        b++;
+    }
+    return *a == *b;
+}
+
 bool vkd3d_export_strequal_substr(const WCHAR *a, size_t expected_n, const WCHAR *b)
 {
     size_t n = 0;
