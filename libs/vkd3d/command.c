@@ -10566,6 +10566,21 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchRays(d3d12_command_list
             &raygen_table, &miss_table, &hit_table, &callable_table,
             desc->Width, desc->Height, desc->Depth));
 
+    VKD3D_BREADCRUMB_AUX32(desc->Width);
+    VKD3D_BREADCRUMB_AUX32(desc->Height);
+    VKD3D_BREADCRUMB_AUX32(desc->Depth);
+    VKD3D_BREADCRUMB_AUX64(raygen_table.deviceAddress);
+    VKD3D_BREADCRUMB_AUX64(raygen_table.size);
+    VKD3D_BREADCRUMB_AUX32(raygen_table.stride);
+    VKD3D_BREADCRUMB_AUX64(miss_table.deviceAddress);
+    VKD3D_BREADCRUMB_AUX64(miss_table.size);
+    VKD3D_BREADCRUMB_AUX32(miss_table.stride);
+    VKD3D_BREADCRUMB_AUX64(hit_table.deviceAddress);
+    VKD3D_BREADCRUMB_AUX64(hit_table.size);
+    VKD3D_BREADCRUMB_AUX32(hit_table.stride);
+    VKD3D_BREADCRUMB_AUX64(callable_table.deviceAddress);
+    VKD3D_BREADCRUMB_AUX64(callable_table.size);
+    VKD3D_BREADCRUMB_AUX32(callable_table.stride);
     VKD3D_BREADCRUMB_COMMAND(TRACE_RAYS);
 }
 
