@@ -781,10 +781,10 @@ void vkd3d_shader_free_shader_signature(struct vkd3d_shader_signature *signature
 struct vkd3d_shader_library_entry_point
 {
     unsigned int identifier;
+    VkShaderStageFlagBits stage;
     WCHAR *mangled_entry_point;
     WCHAR *plain_entry_point;
     char *real_entry_point;
-    VkShaderStageFlagBits stage;
 };
 
 enum vkd3d_shader_subobject_kind
