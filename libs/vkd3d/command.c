@@ -9414,6 +9414,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndEvent(d3d12_command_list_ifa
 STATIC_ASSERT(sizeof(VkDispatchIndirectCommand) == sizeof(D3D12_DISPATCH_ARGUMENTS));
 STATIC_ASSERT(sizeof(VkDrawIndexedIndirectCommand) == sizeof(D3D12_DRAW_INDEXED_ARGUMENTS));
 STATIC_ASSERT(sizeof(VkDrawIndirectCommand) == sizeof(D3D12_DRAW_ARGUMENTS));
+STATIC_ASSERT(offsetof(VkTraceRaysIndirectCommand2KHR, depth) == offsetof(D3D12_DISPATCH_RAYS_DESC, Depth));
 
 static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_list_iface *iface,
         ID3D12CommandSignature *command_signature, UINT max_command_count, ID3D12Resource *arg_buffer,
@@ -9483,11 +9484,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
         {
             scratch.buffer = count_impl->res.vk_buffer;
             scratch.offset = count_impl->mem.offset + count_buffer_offset;
+            scratch.va = d3d12_resource_get_va(count_impl, count_buffer_offset);
         }
         else
         {
             scratch.buffer = arg_impl->res.vk_buffer;
             scratch.offset = arg_impl->mem.offset + arg_buffer_offset;
+            scratch.va = d3d12_resource_get_va(arg_impl, arg_buffer_offset);
         }
 
         switch (arg_desc->Type)
@@ -9554,6 +9557,28 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                 }
 
                 VK_CALL(vkCmdDispatchIndirect(list->vk_command_buffer, scratch.buffer, scratch.offset));
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS:
+                if (max_command_count != 1)
+                    FIXME("Ignoring command count %u.\n", max_command_count);
+
+                if (count_buffer)
+                    FIXME_ONCE("Count buffers not supported for indirect ray dispatch.\n");
+
+                if (!d3d12_command_list_update_raygen_state(list))
+                {
+                    WARN("Failed to update raygen state, ignoring ray dispatch.\n");
+                    return;
+                }
+
+                if (!list->device->device_info.ray_tracing_maintenance1_features.rayTracingPipelineTraceRaysIndirect2)
+                {
+                    WARN("TraceRaysIndirect2 is not supported, ignoring ray dispatch.\n");
+                    break;
+                }
+
+                VK_CALL(vkCmdTraceRaysIndirect2KHR(list->vk_command_buffer, scratch.va));
                 break;
 
             default:
@@ -12261,6 +12286,7 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, const D3D12_
             case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW:
             case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED:
             case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS:
                 if (i != desc->NumArgumentDescs - 1)
                 {
                     WARN("Draw/dispatch must be the last element of a command signature.\n");

@@ -5477,12 +5477,11 @@ static D3D12_RAYTRACING_TIER d3d12_device_determine_ray_tracing_tier(struct d3d1
     }
 
     if (tier == D3D12_RAYTRACING_TIER_1_0 && info->ray_query_features.rayQuery &&
-            info->ray_tracing_pipeline_features.rayTraversalPrimitiveCulling &&
-            info->ray_tracing_pipeline_features.rayTracingPipelineTraceRaysIndirect)
+            info->ray_tracing_pipeline_features.rayTraversalPrimitiveCulling)
     {
-        /* Try to enable DXR 1.1. We can support everything from 1.1 with existing spec,
-         * except ExecuteIndirect DispatchRays().
-         * Hide this support behind a CONFIG flag for time being. */
+        /* Try to enable DXR 1.1.
+         * Hide this support behind a CONFIG flag for time being.
+         * TODO: require VK_KHR_ray_tracing_maintenance1. */
         supports_vbo_formats = d3d12_device_supports_rtas_formats(device,
                 required_vbo_formats_tier_11, ARRAY_SIZE(required_vbo_formats_tier_11));
 
