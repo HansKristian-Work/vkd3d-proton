@@ -3435,6 +3435,15 @@ struct d3d12_state_object_stack_info
     uint32_t max_closest;
 };
 
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+struct d3d12_state_object_breadcrumb_shader
+{
+    vkd3d_shader_hash_t hash;
+    VkShaderStageFlagBits stage;
+    char name[64];
+};
+#endif
+
 struct d3d12_state_object
 {
     d3d12_state_object_iface ID3D12StateObject_iface;
@@ -3481,6 +3490,13 @@ struct d3d12_state_object
     size_t collections_count;
 
     struct d3d12_root_signature *global_root_signature;
+
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    /* For breadcrumbs. */
+    struct d3d12_state_object_breadcrumb_shader *breadcrumb_shaders;
+    size_t breadcrumb_shaders_size;
+    size_t breadcrumb_shaders_count;
+#endif
 
     struct vkd3d_private_store private_store;
 };

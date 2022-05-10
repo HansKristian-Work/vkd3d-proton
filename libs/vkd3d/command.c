@@ -10186,10 +10186,19 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState1(d3d12_command
     if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) && state)
     {
         struct vkd3d_breadcrumb_command cmd;
-        cmd.type = VKD3D_BREADCRUMB_COMMAND_SET_SHADER_HASH;
-        cmd.shader.stage = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
-        cmd.shader.hash = 0;
-        vkd3d_breadcrumb_tracer_add_command(list, &cmd);
+        size_t i;
+
+        for (i = 0; i < state->breadcrumb_shaders_count; i++)
+        {
+            cmd.type = VKD3D_BREADCRUMB_COMMAND_SET_SHADER_HASH;
+            cmd.shader.stage = state->breadcrumb_shaders[i].stage;
+            cmd.shader.hash = state->breadcrumb_shaders[i].hash;
+            vkd3d_breadcrumb_tracer_add_command(list, &cmd);
+
+            cmd.type = VKD3D_BREADCRUMB_COMMAND_TAG;
+            cmd.tag = state->breadcrumb_shaders[i].name;
+            vkd3d_breadcrumb_tracer_add_command(list, &cmd);
+        }
     }
 #endif
 }
