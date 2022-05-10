@@ -82,6 +82,8 @@ static const char *vkd3d_breadcrumb_command_type_to_str(enum vkd3d_breadcrumb_co
             return "root_desc";
         case VKD3D_BREADCRUMB_COMMAND_ROOT_CONST:
             return "root_const";
+        case VKD3D_BREADCRUMB_COMMAND_TAG:
+            return "tag";
 
         default:
             return "?";
@@ -305,6 +307,10 @@ static void vkd3d_breadcrumb_tracer_report_command_list(
         else if (cmd->type == VKD3D_BREADCRUMB_COMMAND_AUX64)
         {
             ERR(" Set arg: %"PRIu64" (#%"PRIx64")\n", cmd->word_64bit, cmd->word_64bit);
+        }
+        else if (cmd->type == VKD3D_BREADCRUMB_COMMAND_TAG)
+        {
+            ERR("     Tag: %s\n", cmd->tag);
         }
         else
         {

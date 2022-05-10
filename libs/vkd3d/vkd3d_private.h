@@ -2507,6 +2507,7 @@ enum vkd3d_breadcrumb_command_type
     VKD3D_BREADCRUMB_COMMAND_IBO,
     VKD3D_BREADCRUMB_COMMAND_ROOT_DESC,
     VKD3D_BREADCRUMB_COMMAND_ROOT_CONST,
+    VKD3D_BREADCRUMB_COMMAND_TAG,
 };
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
@@ -2530,6 +2531,8 @@ struct vkd3d_breadcrumb_command
         uint32_t word_32bit;
         uint64_t word_64bit;
         uint32_t count;
+        /* Pointer must remain alive. */
+        const char *tag;
     };
 };
 
