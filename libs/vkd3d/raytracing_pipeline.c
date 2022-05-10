@@ -20,6 +20,8 @@
 #include "vkd3d_private.h"
 #include "vkd3d_string.h"
 
+#define RT_TRACE TRACE
+
 static inline struct d3d12_state_object *impl_from_ID3D12StateObjectProperties(ID3D12StateObjectProperties *iface)
 {
     return CONTAINING_RECORD(iface, struct d3d12_state_object, ID3D12StateObjectProperties_iface);
@@ -465,6 +467,8 @@ static HRESULT d3d12_state_object_add_collection(
         struct d3d12_state_object_pipeline_data *data,
         const D3D12_EXPORT_DESC *exports, unsigned int num_exports)
 {
+    VKD3D_UNUSED size_t i;
+
     if (!vkd3d_array_reserve((void **)&data->collections, &data->collections_size,
             data->collections_count + 1, sizeof(*data->collections)))
         return E_OUTOFMEMORY;
@@ -472,6 +476,17 @@ static HRESULT d3d12_state_object_add_collection(
     if (!vkd3d_array_reserve((void **)&data->associations, &data->associations_size,
             data->associations_count + 3, sizeof(*data->associations)))
         return E_OUTOFMEMORY;
+
+    RT_TRACE("EXISTING_COLLECTION:\n");
+    for (i = 0; i < collection->exports_count; i++)
+    {
+        if (collection->exports[i].plain_export)
+            RT_TRACE("  Plain export: %s\n", debugstr_w(collection->exports[i].plain_export));
+        if (collection->exports[i].mangled_export)
+            RT_TRACE("  Mangled export: %s\n", debugstr_w(collection->exports[i].mangled_export));
+    }
+    RT_TRACE("  Global Root Signature compat hash: %016"PRIx64".\n",
+            collection->global_root_signature->compatibility_hash);
 
     /* If a PSO only declares collections, but no pipelines, just inherit various state.
      * Also, validates later that we have a match across different PSOs if we end up with mismatches. */
@@ -585,6 +600,8 @@ static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *obj
                 FIXME("Object config flag #%x is not supported.\n", object->flags);
                 return E_INVALIDARG;
             }
+
+            RT_TRACE("%p || STATE_OBJECT_CONFIG: #%x.\n", obj->pDesc, object_config->Flags);
             break;
         }
 
@@ -612,6 +629,14 @@ static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *obj
             data->associations[data->associations_count].root_signature =
                     impl_from_ID3D12RootSignature(rs->pLocalRootSignature);
             data->associations[data->associations_count].priority = association_priority;
+
+            RT_TRACE("%p || %s (compat hash %016"PRIx64") (prio %u).\n",
+                    obj->pDesc,
+                    obj->Type == D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE ?
+                            "GLOBAL_ROOT_SIGNATURE" : "LOCAL_ROOT_SIGNATURE",
+                    data->associations[data->associations_count].root_signature->compatibility_hash,
+                    association_priority);
+
             data->associations_count++;
             break;
         }
@@ -619,6 +644,11 @@ static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *obj
         case D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY:
         {
             const D3D12_DXIL_LIBRARY_DESC *lib = obj->pDesc;
+            VKD3D_UNUSED size_t old_obj_count, old_count, j;
+
+            old_count = data->entry_points_count;
+            old_obj_count = data->subobjects_count;
+
             if (vkd3d_shader_dxil_append_library_entry_points_and_subobjects(lib, data->dxil_libraries_count,
                     &data->entry_points, &data->entry_points_size,
                     &data->entry_points_count,
@@ -631,6 +661,16 @@ static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *obj
             vkd3d_array_reserve((void**)&data->dxil_libraries, &data->dxil_libraries_size,
                     data->dxil_libraries_count + 1, sizeof(*data->dxil_libraries));
             data->dxil_libraries[data->dxil_libraries_count++] = lib;
+
+            RT_TRACE("Adding DXIL library:\n");
+            for (j = old_count; j < data->entry_points_count; j++)
+            {
+                RT_TRACE("  Entry point: %s (stage #%x).\n",
+                        data->entry_points[j].real_entry_point, data->entry_points[j].stage);
+            }
+
+            for (j = old_obj_count; j < data->subobjects_count; j++)
+                RT_TRACE("  RDAT subobject: %s (type #%x).\n", data->subobjects[j].name, data->subobjects[j].kind);
             break;
         }
 
@@ -640,6 +680,12 @@ static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *obj
             vkd3d_array_reserve((void**)&data->hit_groups, &data->hit_groups_size,
                     data->hit_groups_count + 1, sizeof(*data->hit_groups));
             data->hit_groups[data->hit_groups_count++] = group;
+            RT_TRACE("Adding HIT_GROUP:\n");
+            RT_TRACE("  Type: %s\n", group->Type == D3D12_HIT_GROUP_TYPE_TRIANGLES ? "Triangle" : "Procedural");
+            RT_TRACE("  Name: %s\n", debugstr_w(group->HitGroupExport));
+            RT_TRACE("  AnyHit: %s\n", debugstr_w(group->AnyHitShaderImport));
+            RT_TRACE("  ClosestHit: %s\n", debugstr_w(group->ClosestHitShaderImport));
+            RT_TRACE("  Intersection: %s\n", debugstr_w(group->IntersectionShaderImport));
             break;
         }
 
@@ -655,6 +701,9 @@ static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *obj
             data->associations[data->associations_count].priority = association_priority;
             data->associations[data->associations_count].shader_config = *config;
             data->associations[data->associations_count].export = NULL;
+            RT_TRACE("%p || Adding SHADER_CONFIG: MaxPayloadSize = %u, MaxAttributeSize = %u\n",
+                    obj->pDesc,
+                    config->MaxPayloadSizeInBytes, config->MaxAttributeSizeInBytes);
             data->associations_count++;
             break;
         }
@@ -673,6 +722,7 @@ static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *obj
                     pipeline_config->MaxTraceRecursionDepth;
             data->associations[data->associations_count].pipeline_config.Flags = 0;
             data->associations[data->associations_count].export = NULL;
+            RT_TRACE("%p || Adding PIPELINE_CONFIG: MaxRecursion = %u\n", obj->pDesc, pipeline_config->MaxTraceRecursionDepth);
             data->associations_count++;
             break;
         }
@@ -689,6 +739,9 @@ static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *obj
             data->associations[data->associations_count].priority = association_priority;
             data->associations[data->associations_count].pipeline_config = *pipeline_config;
             data->associations[data->associations_count].export = NULL;
+            RT_TRACE("%p || Adding PIPELINE_CONFIG1: MaxRecursion = %u, Flags = #%x\n",
+                    obj->pDesc,
+                    pipeline_config->MaxTraceRecursionDepth, pipeline_config->Flags);
             data->associations_count++;
             break;
         }
@@ -699,6 +752,8 @@ static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *obj
             unsigned int num_associations = max(association->NumExports, 1);
             const struct vkd3d_shader_library_subobject *subobject;
             unsigned int root_signature_index = 0;
+
+            RT_TRACE("Adding DXIL_SUBOBJECT_TO_EXPORTS: %s\n", debugstr_w(association->SubobjectToAssociate));
 
             for (i = 0; i < data->subobjects_count; i++)
             {
@@ -771,6 +826,10 @@ static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *obj
                             VKD3D_ASSOCIATION_PRIORITY_DXIL_SUBOBJECT_ASSIGNMENT_DEFAULT;
                 }
 
+                RT_TRACE("  Export: %s (prio %u)\n",
+                        association->NumExports ? debugstr_w(association->pExports[i]) : "NULL",
+                        data->associations[data->associations_count].priority);
+
                 data->associations_count++;
             }
 
@@ -785,6 +844,10 @@ static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *obj
             vkd3d_array_reserve((void **)&data->associations, &data->associations_size,
                     data->associations_count + num_associations,
                     sizeof(*data->associations));
+
+            RT_TRACE("SUBOBJECT_TO_EXPORTS: %p (type %u):\n",
+                    association->pSubobjectToAssociate->pDesc,
+                    association->pSubobjectToAssociate->Type);
 
             switch (association->pSubobjectToAssociate->Type)
             {
@@ -803,6 +866,11 @@ static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *obj
                         data->associations[data->associations_count].priority = association->NumExports ?
                                 VKD3D_ASSOCIATION_PRIORITY_EXPLICIT :
                                 VKD3D_ASSOCIATION_PRIORITY_EXPLICIT_DEFAULT;
+
+                        RT_TRACE("  Export: %s (priority %u):\n",
+                                association->NumExports ? debugstr_w(association->pExports[i]) : "NULL",
+                                data->associations[data->associations_count].priority);
+
                         data->associations_count++;
                     }
                     break;
@@ -1566,6 +1634,9 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
         ID3D12RootSignature_Release(&default_global_root_signature->ID3D12RootSignature_iface);
     }
 
+    RT_TRACE("Selecting Global Root Signature compat hash %016"PRIx64".\n",
+            global_signature->compatibility_hash);
+
     shader_interface_local_info.descriptor_size = VKD3D_RESOURCE_DESC_INCREMENT;
 
     local_static_sampler_bindings = NULL;
@@ -1577,12 +1648,16 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     {
         entry = &data->entry_points[i];
 
+        RT_TRACE("Compiling entry point: %s (stage = #%x).\n", debugstr_w(entry->plain_entry_point), entry->stage);
+
         local_signature = d3d12_state_object_pipeline_data_get_root_signature(
                 VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE, data, entry);
         local_bindings = NULL;
 
         if (local_signature)
         {
+            RT_TRACE("  Local root signature: %016"PRIx64".\n", local_signature->compatibility_hash);
+
             shader_interface_local_info.local_root_parameters = local_signature->parameters;
             shader_interface_local_info.local_root_parameter_count = local_signature->parameter_count;
             shader_interface_local_info.shader_record_constant_buffers = local_signature->root_constants;
@@ -1617,7 +1692,10 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
                 shader_interface_info.offset_buffer_binding = &local_signature->offset_buffer_binding;
         }
         else
+        {
+            RT_TRACE("  Local root signature: N/A\n");
             memset(&shader_interface_local_info, 0, sizeof(shader_interface_local_info));
+        }
 
         if (vkd3d_stage_is_global_group(entry->stage))
         {
@@ -1676,6 +1754,8 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
             vkd3d_free(local_bindings);
             return E_OUTOFMEMORY;
         }
+
+        RT_TRACE("  DXIL hash: %016"PRIx64".\n", spirv.meta.hash);
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
         vkd3d_array_reserve((void**)&object->breadcrumb_shaders, &object->breadcrumb_shaders_size,
@@ -2065,7 +2145,11 @@ HRESULT d3d12_state_object_create(struct d3d12_device *device, const D3D12_STATE
     if (!(object = vkd3d_calloc(1, sizeof(*object))))
         return E_OUTOFMEMORY;
 
+    RT_TRACE("==== Create %s ====\n",
+            desc->Type == D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE ? "RTPSO" : "Collection");
     hr = d3d12_state_object_init(object, device, desc, parent);
+    RT_TRACE("==== Done (hr = #%x) ====\n", hr);
+
     if (FAILED(hr))
     {
         vkd3d_free(object);
