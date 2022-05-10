@@ -280,6 +280,9 @@ VK_DEVICE_EXT_PFN(vkQueuePresentKHR)
 VK_DEVICE_EXT_PFN(vkCmdBeginRenderingKHR)
 VK_DEVICE_EXT_PFN(vkCmdEndRenderingKHR)
 
+/* VK_KHR_ray_tracing_maintenance1 */
+VK_DEVICE_EXT_PFN(vkCmdTraceRaysIndirect2KHR)
+
 /* VK_AMD_buffer_marker */
 VK_DEVICE_EXT_PFN(vkCmdWriteBufferMarkerAMD)
 
