@@ -137,6 +137,10 @@ static void d3d12_state_object_cleanup(struct d3d12_state_object *object)
         vkd3d_sampler_state_free_descriptor_set(&object->device->sampler_state, object->device,
                 object->local_static_sampler.desc_set, object->local_static_sampler.desc_pool);
     }
+
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    vkd3d_free(object->breadcrumb_shaders);
+#endif
 }
 
 static ULONG d3d12_state_object_release(struct d3d12_state_object *state_object)
@@ -1673,6 +1677,17 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
             return E_OUTOFMEMORY;
         }
 
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+        vkd3d_array_reserve((void**)&object->breadcrumb_shaders, &object->breadcrumb_shaders_size,
+                object->breadcrumb_shaders_count + 1, sizeof(*object->breadcrumb_shaders));
+        object->breadcrumb_shaders[object->breadcrumb_shaders_count].hash = spirv.meta.hash;
+        object->breadcrumb_shaders[object->breadcrumb_shaders_count].stage = entry->stage;
+        snprintf(object->breadcrumb_shaders[object->breadcrumb_shaders_count].name,
+                sizeof(object->breadcrumb_shaders[object->breadcrumb_shaders_count].name),
+                "%s", entry->real_entry_point);
+        object->breadcrumb_shaders_count++;
+#endif
+
         vkd3d_free(local_bindings);
         if (!d3d12_device_validate_shader_meta(object->device, &spirv.meta))
             return E_INVALIDARG;
@@ -1978,6 +1993,16 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
         {
             object->collections[i] = data->collections[i].object;
             d3d12_state_object_inc_ref(object->collections[i]);
+
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+            vkd3d_array_reserve((void**)&object->breadcrumb_shaders, &object->breadcrumb_shaders_size,
+                    object->breadcrumb_shaders_count + object->collections[i]->breadcrumb_shaders_count,
+                    sizeof(*object->breadcrumb_shaders));
+            memcpy(object->breadcrumb_shaders + object->breadcrumb_shaders_count,
+                    object->collections[i]->breadcrumb_shaders,
+                    object->collections[i]->breadcrumb_shaders_count * sizeof(*object->breadcrumb_shaders));
+            object->breadcrumb_shaders_count += object->collections[i]->breadcrumb_shaders_count;
+#endif
         }
     }
 
