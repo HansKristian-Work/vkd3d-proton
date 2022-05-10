@@ -1510,13 +1510,14 @@ static HRESULT d3d12_root_signature_create_from_blob(struct d3d12_device *device
         D3D12_VERSIONED_ROOT_SIGNATURE_DESC d3d12;
         struct vkd3d_versioned_root_signature_desc vkd3d;
     } root_signature_desc;
+    vkd3d_shader_hash_t compatibility_hash;
     struct d3d12_root_signature *object;
     HRESULT hr;
     int ret;
 
     if (raw_payload)
     {
-        if ((ret = vkd3d_parse_root_signature_v_1_1_from_raw_payload(&dxbc, &root_signature_desc.vkd3d)))
+        if ((ret = vkd3d_parse_root_signature_v_1_1_from_raw_payload(&dxbc, &root_signature_desc.vkd3d, &compatibility_hash)))
         {
             WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
             return hresult_from_vkd3d_result(ret);
@@ -1524,7 +1525,7 @@ static HRESULT d3d12_root_signature_create_from_blob(struct d3d12_device *device
     }
     else
     {
-        if ((ret = vkd3d_parse_root_signature_v_1_1(&dxbc, &root_signature_desc.vkd3d)) < 0)
+        if ((ret = vkd3d_parse_root_signature_v_1_1(&dxbc, &root_signature_desc.vkd3d, &compatibility_hash)) < 0)
         {
             WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
             return hresult_from_vkd3d_result(ret);
@@ -1541,7 +1542,7 @@ static HRESULT d3d12_root_signature_create_from_blob(struct d3d12_device *device
 
     /* For pipeline libraries, (and later DXR to some degree), we need a way to
      * compare root signature objects. */
-    object->compatibility_hash = vkd3d_shader_hash(&dxbc);
+    object->compatibility_hash = compatibility_hash;
 
     vkd3d_shader_free_root_signature(&root_signature_desc.vkd3d);
     if (FAILED(hr))

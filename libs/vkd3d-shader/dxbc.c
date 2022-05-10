@@ -2756,7 +2756,8 @@ static int shader_parse_static_samplers(struct root_signature_parser_context *co
 }
 
 int vkd3d_shader_parse_root_signature_raw(const char *data, unsigned int data_size,
-        struct vkd3d_versioned_root_signature_desc *desc)
+        struct vkd3d_versioned_root_signature_desc *desc,
+        vkd3d_shader_hash_t *compatibility_hash)
 {
     struct vkd3d_root_signature_desc *v_1_0 = &desc->v_1_0;
     struct root_signature_parser_context context;
@@ -2837,27 +2838,46 @@ int vkd3d_shader_parse_root_signature_raw(const char *data, unsigned int data_si
     read_uint32(&ptr, &v_1_0->flags);
     TRACE("Flags %#x.\n", v_1_0->flags);
 
+    if (compatibility_hash)
+    {
+        struct vkd3d_shader_code code = { data, data_size };
+        *compatibility_hash = vkd3d_shader_hash(&code);
+    }
+
     return VKD3D_OK;
 }
 
 static int rts0_handler(const char *data, DWORD data_size, DWORD tag, void *context)
 {
-    struct vkd3d_versioned_root_signature_desc *desc = context;
+    struct vkd3d_shader_code *payload = context;
 
     if (tag != TAG_RTS0)
         return VKD3D_OK;
 
-    return vkd3d_shader_parse_root_signature_raw(data, data_size, desc);
+    payload->code = data;
+    payload->size = data_size;
+    return VKD3D_OK;
 }
 
 int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_versioned_root_signature_desc *root_signature)
+        struct vkd3d_versioned_root_signature_desc *root_signature,
+        vkd3d_shader_hash_t *compatibility_hash)
 {
+    struct vkd3d_shader_code raw_payload;
     int ret;
 
     TRACE("dxbc {%p, %zu}, root_signature %p.\n", dxbc->code, dxbc->size, root_signature);
 
-    if ((ret = parse_dxbc(dxbc->code, dxbc->size, rts0_handler, root_signature)) < 0)
+    memset(&raw_payload, 0, sizeof(raw_payload));
+
+    if ((ret = parse_dxbc(dxbc->code, dxbc->size, rts0_handler, &raw_payload)) < 0)
+        return ret;
+
+    if (!raw_payload.code)
+        return VKD3D_OK;
+
+    if ((ret = vkd3d_shader_parse_root_signature_raw(raw_payload.code, raw_payload.size,
+            root_signature, compatibility_hash)) < 0)
     {
         vkd3d_shader_free_root_signature(root_signature);
         return ret;

@@ -166,14 +166,15 @@ static CONST_VTBL struct ID3D12RootSignatureDeserializerVtbl d3d12_root_signatur
 static int vkd3d_parse_root_signature_for_version(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *out_desc,
         enum vkd3d_root_signature_version target_version,
-        bool raw_payload)
+        bool raw_payload,
+        vkd3d_shader_hash_t *compatibility_hash)
 {
     struct vkd3d_versioned_root_signature_desc desc, converted_desc;
     int ret;
 
     if (raw_payload)
     {
-        if ((ret = vkd3d_shader_parse_root_signature_raw(dxbc->code, dxbc->size, &desc)) < 0)
+        if ((ret = vkd3d_shader_parse_root_signature_raw(dxbc->code, dxbc->size, &desc, compatibility_hash)) < 0)
         {
             WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
             return ret;
@@ -181,7 +182,7 @@ static int vkd3d_parse_root_signature_for_version(const struct vkd3d_shader_code
     }
     else
     {
-        if ((ret = vkd3d_shader_parse_root_signature(dxbc, &desc)) < 0)
+        if ((ret = vkd3d_shader_parse_root_signature(dxbc, &desc, compatibility_hash)) < 0)
         {
             WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
             return ret;
@@ -209,21 +210,27 @@ static int vkd3d_parse_root_signature_for_version(const struct vkd3d_shader_code
 }
 
 int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_versioned_root_signature_desc *out_desc)
+        struct vkd3d_versioned_root_signature_desc *out_desc,
+        vkd3d_shader_hash_t *compatibility_hash)
 {
-    return vkd3d_parse_root_signature_for_version(dxbc, out_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_0, false);
+    return vkd3d_parse_root_signature_for_version(dxbc, out_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_0, false,
+            compatibility_hash);
 }
 
 int vkd3d_parse_root_signature_v_1_1(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_versioned_root_signature_desc *out_desc)
+        struct vkd3d_versioned_root_signature_desc *out_desc,
+        vkd3d_shader_hash_t *compatibility_hash)
 {
-    return vkd3d_parse_root_signature_for_version(dxbc, out_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_1, false);
+    return vkd3d_parse_root_signature_for_version(dxbc, out_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_1, false,
+            compatibility_hash);
 }
 
 int vkd3d_parse_root_signature_v_1_1_from_raw_payload(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_versioned_root_signature_desc *out_desc)
+        struct vkd3d_versioned_root_signature_desc *out_desc,
+        vkd3d_shader_hash_t *compatibility_hash)
 {
-    return vkd3d_parse_root_signature_for_version(dxbc, out_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_1, true);
+    return vkd3d_parse_root_signature_for_version(dxbc, out_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_1, true,
+            compatibility_hash);
 }
 
 static HRESULT d3d12_root_signature_deserializer_init(struct d3d12_root_signature_deserializer *deserializer,
@@ -234,7 +241,7 @@ static HRESULT d3d12_root_signature_deserializer_init(struct d3d12_root_signatur
     deserializer->ID3D12RootSignatureDeserializer_iface.lpVtbl = &d3d12_root_signature_deserializer_vtbl;
     deserializer->refcount = 1;
 
-    if ((ret = vkd3d_parse_root_signature_v_1_0(dxbc, &deserializer->desc.vkd3d)) < 0)
+    if ((ret = vkd3d_parse_root_signature_v_1_0(dxbc, &deserializer->desc.vkd3d, NULL)) < 0)
         return hresult_from_vkd3d_result(ret);
 
     return S_OK;
@@ -412,7 +419,7 @@ static HRESULT d3d12_versioned_root_signature_deserializer_init(struct d3d12_ver
     deserializer->ID3D12VersionedRootSignatureDeserializer_iface.lpVtbl = &d3d12_versioned_root_signature_deserializer_vtbl;
     deserializer->refcount = 1;
 
-    if ((ret = vkd3d_shader_parse_root_signature(dxbc, &deserializer->desc.vkd3d)) < 0)
+    if ((ret = vkd3d_shader_parse_root_signature(dxbc, &deserializer->desc.vkd3d, NULL)) < 0)
     {
         WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
         return hresult_from_vkd3d_result(ret);
