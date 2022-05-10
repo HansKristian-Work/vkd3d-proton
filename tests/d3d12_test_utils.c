@@ -842,6 +842,9 @@ ID3D12CommandSignature *create_command_signature_(unsigned int line,
         case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
             signature_desc.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS);
             break;
+        case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS:
+            signature_desc.ByteStride = sizeof(D3D12_DISPATCH_RAYS_DESC);
+            break;
         default:
             return NULL;
     }

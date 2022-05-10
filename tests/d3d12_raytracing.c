@@ -1442,6 +1442,7 @@ enum rt_test_mode
     TEST_MODE_TRACE_RAY_SKIP_AABBS,
     TEST_MODE_PSO_SKIP_TRIANGLES,
     TEST_MODE_PSO_SKIP_AABBS,
+    TEST_MODE_INDIRECT,
 };
 
 static ID3D12StateObject *create_rt_collection(struct raytracing_test_context *context,
@@ -1512,6 +1513,7 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_DESCRIPTOR_RANGE descriptor_ranges[2];
     ID3D12GraphicsCommandList4 *command_list4;
+    ID3D12CommandSignature *command_signature;
     ID3D12StateObject *rt_object_library_aabb;
     ID3D12StateObject *rt_object_library_tri;
     D3D12_ROOT_PARAMETER root_parameters[2];
@@ -1526,6 +1528,7 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
     ID3D12Resource *postbuild_readback;
     ID3D12Resource *sbt_colors_buffer;
     ID3D12Resource *postbuild_buffer;
+    ID3D12Resource *indirect_buffer;
     unsigned int i, descriptor_size;
     ID3D12RootSignature *global_rs;
     struct test_geometry test_geom;
@@ -2002,6 +2005,13 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
         cpu_handle.ptr += descriptor_size;
     }
 
+    indirect_buffer = NULL;
+    command_signature = NULL;
+    if (mode == TEST_MODE_INDIRECT)
+    {
+        command_signature = create_command_signature(device, D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS);
+    }
+
     ID3D12GraphicsCommandList4_SetComputeRootSignature(command_list4, global_rs);
     ID3D12GraphicsCommandList4_SetPipelineState1(command_list4, rt_pso);
     ID3D12GraphicsCommandList4_SetDescriptorHeaps(command_list4, 1, &descriptor_heap);
@@ -2030,7 +2040,16 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
 
         flags = test_mode_to_trace_flags(mode);
         ID3D12GraphicsCommandList4_SetComputeRoot32BitConstant(command_list4, 1, flags, 0);
-        ID3D12GraphicsCommandList4_DispatchRays(command_list4, &desc);
+
+        if (mode != TEST_MODE_INDIRECT)
+        {
+            ID3D12GraphicsCommandList4_DispatchRays(command_list4, &desc);
+        }
+        else
+        {
+            indirect_buffer = create_upload_buffer(device, sizeof(D3D12_DISPATCH_RAYS_DESC), &desc);
+            ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature, 1, indirect_buffer, 0, NULL, 0);
+        }
     }
 
     transition_resource_state(command_list, ray_colors, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -2176,6 +2195,10 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
         ID3D12Resource_Release(sbt);
     ID3D12Resource_Release(postbuild_readback);
     ID3D12Resource_Release(postbuild_buffer);
+    if (command_signature)
+        ID3D12CommandSignature_Release(command_signature);
+    if (indirect_buffer)
+        ID3D12Resource_Release(indirect_buffer);
 
     destroy_raytracing_test_context(&context);
 }
@@ -2197,6 +2220,7 @@ void test_raytracing(void)
         { TEST_MODE_TRACE_RAY_SKIP_AABBS, D3D12_RAYTRACING_TIER_1_1, "TraceRaySkipAABBs" },
         { TEST_MODE_PSO_SKIP_TRIANGLES, D3D12_RAYTRACING_TIER_1_1, "PSOSkipTriangles" },
         { TEST_MODE_PSO_SKIP_AABBS, D3D12_RAYTRACING_TIER_1_1, "PSOSkipAABBs" },
+        { TEST_MODE_INDIRECT, D3D12_RAYTRACING_TIER_1_1, "Indirect" },
     };
 
     unsigned int i;
