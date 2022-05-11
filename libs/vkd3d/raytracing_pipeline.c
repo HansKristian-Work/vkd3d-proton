@@ -251,7 +251,13 @@ static void * STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderIdentifie
     const WCHAR *subtype = NULL;
     uint32_t index;
 
-    TRACE("iface %p, export_name %p.\n", iface, export_name);
+    RT_TRACE("iface %p, export_name %s.\n", iface, debugstr_w(export_name));
+
+    if (object->type == D3D12_STATE_OBJECT_TYPE_COLLECTION)
+    {
+        FIXME("Cannot query identifiers from COLLECTIONs.\n");
+        return NULL;
+    }
 
     index = d3d12_state_object_get_export_index(object, export_name, &subtype);
 
