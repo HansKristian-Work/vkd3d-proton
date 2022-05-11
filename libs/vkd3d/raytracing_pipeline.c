@@ -420,6 +420,8 @@ struct d3d12_state_object_pipeline_data
     VkPipeline *vk_libraries;
     size_t vk_libraries_size;
     size_t vk_libraries_count;
+
+    struct vkd3d_shader_debug_ring_spec_info *spec_info_buffer;
 };
 
 static void d3d12_state_object_pipeline_data_cleanup(struct d3d12_state_object_pipeline_data *data,
@@ -452,6 +454,7 @@ static void d3d12_state_object_pipeline_data_cleanup(struct d3d12_state_object_p
     vkd3d_free(data->associations);
     vkd3d_free(data->collections);
     vkd3d_free(data->vk_libraries);
+    vkd3d_free(data->spec_info_buffer);
 }
 
 #define VKD3D_ASSOCIATION_PRIORITY_INHERITED_COLLECTION 0
@@ -1644,6 +1647,9 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     local_static_sampler_bindings_size = 0;
     object->local_static_sampler.set_index = global_signature ? global_signature->num_set_layouts : 0;
 
+    if (object->device->debug_ring.active)
+        data->spec_info_buffer = vkd3d_calloc(data->entry_points_count, sizeof(*data->spec_info_buffer));
+
     for (i = 0; i < data->entry_points_count; i++)
     {
         entry = &data->entry_points[i];
@@ -1753,6 +1759,12 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
             ERR("Failed to convert DXIL export: %s\n", entry->real_entry_point);
             vkd3d_free(local_bindings);
             return E_OUTOFMEMORY;
+        }
+
+        if ((spirv.meta.flags & VKD3D_SHADER_META_FLAG_REPLACED) && data->spec_info_buffer)
+        {
+            vkd3d_shader_debug_ring_init_spec_constant(object->device, &data->spec_info_buffer[i], spirv.meta.hash);
+            stage->pSpecializationInfo = &data->spec_info_buffer[i].spec_info;
         }
 
         RT_TRACE("  DXIL hash: %016"PRIx64".\n", spirv.meta.hash);
