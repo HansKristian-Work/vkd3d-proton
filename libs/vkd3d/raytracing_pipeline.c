@@ -262,9 +262,13 @@ static void * STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderIdentifie
         /* Need to return the parent SBT pointer if it exists */
         while (export->inherited_collection_index >= 0)
         {
+            RT_TRACE("  chaining into collection %d.\n", export->inherited_collection_index);
             object = object->collections[export->inherited_collection_index];
             export = &object->exports[export->inherited_collection_export_index];
         }
+        RT_TRACE("  identifier { %016"PRIx64", %016"PRIx64", %016"PRIx64", %016"PRIx64 " }\n",
+                *(const uint64_t*)(export->identifier + 0), *(const uint64_t*)(export->identifier + 8),
+                *(const uint64_t*)(export->identifier + 16), *(const uint64_t*)(export->identifier + 24));
         return export->identifier;
     }
     else
@@ -1350,6 +1354,13 @@ static HRESULT d3d12_state_object_get_group_handles(struct d3d12_state_object *o
                 data->exports[i].identifier));
         if (vr)
             return hresult_from_vk_result(vr);
+
+        RT_TRACE("Queried export %zu, group handle %u -> { %016"PRIx64", %016"PRIx64", %016"PRIx64", %016"PRIx64" }\n",
+                i, group_index,
+                *(const uint64_t *)(data->exports[i].identifier + 0),
+                *(const uint64_t *)(data->exports[i].identifier + 8),
+                *(const uint64_t *)(data->exports[i].identifier + 16),
+                *(const uint64_t *)(data->exports[i].identifier + 24));
 
         collection_export = data->exports[i].inherited_collection_export_index;
         collection_index = data->exports[i].inherited_collection_index;
