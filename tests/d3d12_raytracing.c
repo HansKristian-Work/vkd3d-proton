@@ -2155,19 +2155,19 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
             ok(top[0].compacted.CompactedSizeInBytes > 0, "Compacted size for top acceleration structure is %u.\n", (unsigned int)top[0].compacted.CompactedSizeInBytes);
             /* CURRENT_SIZE cannot be queried in Vulkan directly. It should be possible to emulate it with a side buffer which we update on RTAS build,
              * but ignore it for the time being, since it's only really relevant for tools. */
-            todo ok(bottom[0].current.CurrentSizeInBytes > 0, "Current size for bottom acceleration structure is %u.\n", (unsigned int)bottom[0].current.CurrentSizeInBytes);
-            todo ok(top[0].current.CurrentSizeInBytes > 0, "Current size for top acceleration structure is %u.\n", (unsigned int)top[0].current.CurrentSizeInBytes);
+            ok(bottom[0].current.CurrentSizeInBytes > 0, "Current size for bottom acceleration structure is %u.\n", (unsigned int)bottom[0].current.CurrentSizeInBytes);
+            ok(top[0].current.CurrentSizeInBytes > 0, "Current size for top acceleration structure is %u.\n", (unsigned int)top[0].current.CurrentSizeInBytes);
 
             /* Compacted size must be less-or-equal to current size. Cannot pass since we don't have current size. */
-            todo ok(bottom[0].compacted.CompactedSizeInBytes <= bottom[0].current.CurrentSizeInBytes,
+            ok(bottom[0].compacted.CompactedSizeInBytes <= bottom[0].current.CurrentSizeInBytes,
                     "Compacted size %u > Current size %u\n", (unsigned int)bottom[0].compacted.CompactedSizeInBytes, (unsigned int)bottom[0].current.CurrentSizeInBytes);
-            todo ok(top[0].compacted.CompactedSizeInBytes <= top[0].current.CurrentSizeInBytes,
+            ok(top[0].compacted.CompactedSizeInBytes <= top[0].current.CurrentSizeInBytes,
                     "Compacted size %u > Current size %u\n", (unsigned int)top[0].compacted.CompactedSizeInBytes, (unsigned int)top[0].current.CurrentSizeInBytes);
 
             ok(bottom[0].serialize.SerializedSizeInBytes > 0, "Serialized size for bottom acceleration structure is %u.\n", (unsigned int)bottom[0].serialize.SerializedSizeInBytes);
             ok(bottom[0].serialize.NumBottomLevelAccelerationStructurePointers == 0, "NumBottomLevel pointers is %u.\n", (unsigned int)bottom[0].serialize.NumBottomLevelAccelerationStructurePointers);
             ok(top[0].serialize.SerializedSizeInBytes > 0, "Serialized size for top acceleration structure is %u.\n", (unsigned int)top[0].serialize.SerializedSizeInBytes);
-            todo ok(top[0].serialize.NumBottomLevelAccelerationStructurePointers == NUM_UNMASKED_INSTANCES + 1,
+            ok(top[0].serialize.NumBottomLevelAccelerationStructurePointers == NUM_UNMASKED_INSTANCES + 1,
                     "NumBottomLevel pointers is %u.\n", (unsigned int)top[0].serialize.NumBottomLevelAccelerationStructurePointers);
 
             ID3D12Resource_Unmap(postbuild_readback, 0, NULL);
