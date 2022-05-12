@@ -656,6 +656,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"breadcrumbs", VKD3D_CONFIG_FLAG_BREADCRUMBS},
     {"pipeline_library_app_cache", VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_APP_CACHE_ONLY},
     {"shader_cache_sync", VKD3D_CONFIG_FLAG_SHADER_CACHE_SYNC},
+    {"allow_sbt_collection", VKD3D_CONFIG_FLAG_ALLOW_SBT_COLLECTION},
 };
 
 static void vkd3d_config_flags_init_once(void)
