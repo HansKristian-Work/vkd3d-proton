@@ -3579,6 +3579,8 @@ struct d3d12_state_object
         VkDescriptorSet desc_set;
         VkDescriptorPool desc_pool;
         uint32_t set_index;
+        uint64_t compatibility_hash;
+        bool owned_handles;
     } local_static_sampler;
 
     UINT64 pipeline_stack_size;
