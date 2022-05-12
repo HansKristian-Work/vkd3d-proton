@@ -130,14 +130,17 @@ static void d3d12_state_object_cleanup(struct d3d12_state_object *object)
     VK_CALL(vkDestroyPipeline(object->device->vk_device, object->pipeline, NULL));
     VK_CALL(vkDestroyPipeline(object->device->vk_device, object->pipeline_library, NULL));
 
-    VK_CALL(vkDestroyPipelineLayout(object->device->vk_device,
-            object->local_static_sampler.pipeline_layout, NULL));
-    VK_CALL(vkDestroyDescriptorSetLayout(object->device->vk_device,
-            object->local_static_sampler.set_layout, NULL));
-    if (object->local_static_sampler.desc_set)
+    if (object->local_static_sampler.owned_handles)
     {
-        vkd3d_sampler_state_free_descriptor_set(&object->device->sampler_state, object->device,
-                object->local_static_sampler.desc_set, object->local_static_sampler.desc_pool);
+        VK_CALL(vkDestroyPipelineLayout(object->device->vk_device,
+                object->local_static_sampler.pipeline_layout, NULL));
+        VK_CALL(vkDestroyDescriptorSetLayout(object->device->vk_device,
+                object->local_static_sampler.set_layout, NULL));
+        if (object->local_static_sampler.desc_set)
+        {
+            vkd3d_sampler_state_free_descriptor_set(&object->device->sampler_state, object->device,
+                    object->local_static_sampler.desc_set, object->local_static_sampler.desc_pool);
+        }
     }
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
@@ -1957,6 +1960,19 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
 
     if (local_static_sampler_bindings_count)
     {
+        uint64_t hash = hash_fnv1_init();
+        hash = hash_fnv1_iterate_u32(hash, local_static_sampler_bindings_count);
+        for (i = 0; i < local_static_sampler_bindings_count; i++)
+        {
+            /* Immutable samplers are deduplicated, so this is fine. */
+            hash = hash_fnv1_iterate_u64(hash, (uint64_t)local_static_sampler_bindings[i].pImmutableSamplers[0]);
+            hash = hash_fnv1_iterate_u32(hash, local_static_sampler_bindings[i].binding);
+            hash = hash_fnv1_iterate_u32(hash, local_static_sampler_bindings[i].stageFlags);
+        }
+
+        object->local_static_sampler.compatibility_hash = hash;
+        object->local_static_sampler.owned_handles = true;
+
         if (FAILED(hr = vkd3d_create_descriptor_set_layout(object->device, 0, local_static_sampler_bindings_count,
                 local_static_sampler_bindings, &object->local_static_sampler.set_layout)))
         {
@@ -1985,6 +2001,33 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
             return hr;
     }
 
+    /* If we have collections, we need to make sure that every pipeline layout is compatible.
+     * We validate that global root signature is compatible, so we only need to ensure the
+     * local root signature is either unused (compatible with appended local sampler sets)
+     * or the same compat hash. */
+    for (i = 0; i < data->collections_count; i++)
+    {
+        struct d3d12_state_object *child = data->collections[i].object;
+
+        if (child->local_static_sampler.pipeline_layout && !object->local_static_sampler.pipeline_layout)
+        {
+            /* Borrow these handles. */
+            object->local_static_sampler.pipeline_layout = child->local_static_sampler.pipeline_layout;
+            object->local_static_sampler.desc_set = child->local_static_sampler.desc_set;
+            object->local_static_sampler.compatibility_hash = child->local_static_sampler.compatibility_hash;
+        }
+
+        if (child->local_static_sampler.pipeline_layout)
+        {
+            if (child->local_static_sampler.compatibility_hash != object->local_static_sampler.compatibility_hash)
+            {
+                FIXME("COLLECTION and RTPSO declares local static sampler set layouts with different definitions. "
+                      "This is unsupported.\n");
+                return E_NOTIMPL;
+            }
+        }
+    }
+
     pipeline_create_info.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR;
     pipeline_create_info.pNext = NULL;
 
@@ -1995,7 +2038,6 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
             (object->flags & D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS)) ?
             VK_PIPELINE_CREATE_LIBRARY_BIT_KHR : 0;
 
-    /* TODO: What happens here if we have local static samplers with COLLECTIONS? :| */
     if (object->local_static_sampler.pipeline_layout)
         pipeline_create_info.layout = object->local_static_sampler.pipeline_layout;
     else
