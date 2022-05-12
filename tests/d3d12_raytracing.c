@@ -2979,7 +2979,7 @@ void test_rayquery(void)
     vkd3d_test_set_context(NULL);
 }
 
-void test_raytracing_local_rs_static_sampler(void)
+static void test_raytracing_local_rs_static_sampler_inner(bool use_libraries)
 {
     ID3D12GraphicsCommandList4 *command_list4;
     ID3D12GraphicsCommandList *command_list;
@@ -3070,6 +3070,86 @@ void test_raytracing_local_rs_static_sampler(void)
     }
 
     /* Create PSO. */
+    if (use_libraries)
+    {
+        /* Test that we can deal with local samplers in collections.
+         * We can only deal with this as long as the collections are compatible,
+         * but at least do what we can. */
+        D3D12_EXPORT_DESC collection_export_descs[2] = { { u"RayClosest1" }, { u"RayClosest2" } };
+        D3D12_EXPORT_DESC export_descs[2] = { { u"RayGen" }, { u"RayMiss" } };
+        ID3D12StateObject *collections[2];
+        D3D12_HIT_GROUP_DESC hit_group[2];
+        struct rt_pso_factory factory;
+        unsigned local_index[2];
+        unsigned int i;
+
+        memset(hit_group, 0, sizeof(hit_group));
+        hit_group[0].Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
+        hit_group[0].HitGroupExport = u"RayHit1";
+        hit_group[0].ClosestHitShaderImport = u"RayClosest1";
+        hit_group[1].Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
+        hit_group[1].HitGroupExport = u"RayHit2";
+        hit_group[1].ClosestHitShaderImport = u"RayClosest2";
+
+        for (i = 0; i < 2; i++)
+        {
+            rt_pso_factory_init(&factory);
+            rt_pso_factory_add_dxil_library(&factory, get_static_sampler_rt_lib(), 1, &collection_export_descs[i]);
+            rt_pso_factory_add_state_object_config(&factory, D3D12_STATE_OBJECT_FLAG_NONE);
+            rt_pso_factory_add_pipeline_config(&factory, 1);
+            rt_pso_factory_add_shader_config(&factory, 8, 4);
+            rt_pso_factory_add_global_root_signature(&factory, global_rs);
+            rt_pso_factory_add_local_root_signature(&factory, local_rs[i]);
+            rt_pso_factory_add_hit_group(&factory, &hit_group[i]);
+            collections[i] = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_COLLECTION);
+        }
+
+        rt_pso_factory_init(&factory);
+        for (i = 0; i < 2; i++)
+            rt_pso_factory_add_existing_collection(&factory, collections[i], 0, NULL);
+        rt_pso_factory_add_state_object_config(&factory, D3D12_STATE_OBJECT_FLAG_NONE);
+        rt_pso_factory_add_pipeline_config(&factory, 1);
+        rt_pso_factory_add_shader_config(&factory, 8, 4);
+        rt_pso_factory_add_global_root_signature(&factory, global_rs);
+        rt_pso_factory_add_dxil_library(&factory, get_static_sampler_rt_lib(), ARRAY_SIZE(export_descs), export_descs);
+        rt_pso = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
+        /* Currently, we expect this to fail on vkd3d-proton since the local sampler sets definitions diverge
+         * in the different collections. */
+        todo ok(!!rt_pso, "Failed to compile RTPSO.\n");
+        for (i = 0; i < 2; i++)
+            ID3D12StateObject_Release(collections[i]);
+
+        if (!rt_pso)
+        {
+            /* Try again, but now with both local sets in one collection, which we can make work. */
+            rt_pso_factory_init(&factory);
+            rt_pso_factory_add_dxil_library(&factory, get_static_sampler_rt_lib(),
+                    ARRAY_SIZE(collection_export_descs), collection_export_descs);
+            rt_pso_factory_add_state_object_config(&factory, D3D12_STATE_OBJECT_FLAG_NONE);
+            rt_pso_factory_add_pipeline_config(&factory, 1);
+            rt_pso_factory_add_shader_config(&factory, 8, 4);
+            rt_pso_factory_add_global_root_signature(&factory, global_rs);
+            for (i = 0; i < 2; i++)
+            {
+                rt_pso_factory_add_hit_group(&factory, &hit_group[i]);
+                local_index[i] = rt_pso_factory_add_local_root_signature(&factory, local_rs[i]);
+                rt_pso_factory_add_subobject_to_exports_association(&factory, local_index[i], 1, &hit_group[i].HitGroupExport);
+            }
+            collections[0] = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_COLLECTION);
+
+            rt_pso_factory_init(&factory);
+            rt_pso_factory_add_existing_collection(&factory, collections[0], 0, NULL);
+            rt_pso_factory_add_state_object_config(&factory, D3D12_STATE_OBJECT_FLAG_NONE);
+            rt_pso_factory_add_pipeline_config(&factory, 1);
+            rt_pso_factory_add_shader_config(&factory, 8, 4);
+            rt_pso_factory_add_global_root_signature(&factory, global_rs);
+            rt_pso_factory_add_dxil_library(&factory, get_static_sampler_rt_lib(), ARRAY_SIZE(export_descs), export_descs);
+            rt_pso = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
+            ok(!!rt_pso, "Failed to compile RTPSO.\n");
+            ID3D12StateObject_Release(collections[0]);
+        }
+    }
+    else
     {
         D3D12_HIT_GROUP_DESC hit_group[2];
         struct rt_pso_factory factory;
@@ -3251,6 +3331,16 @@ void test_raytracing_local_rs_static_sampler(void)
         ID3D12StateObject_Release(rt_pso);
 
     destroy_raytracing_test_context(&context);
+}
+
+void test_raytracing_local_rs_static_sampler(void)
+{
+    test_raytracing_local_rs_static_sampler_inner(false);
+}
+
+void test_raytracing_local_rs_static_sampler_collection(void)
+{
+    test_raytracing_local_rs_static_sampler_inner(true);
 }
 
 void test_raytracing_no_global_root_signature(void)
