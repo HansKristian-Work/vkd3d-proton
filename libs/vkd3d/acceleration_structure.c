@@ -262,12 +262,18 @@ static void vkd3d_acceleration_structure_write_postbuild_info(
         type_index = VKD3D_QUERY_TYPE_INDEX_RT_COMPACTED_SIZE;
         stride = sizeof(uint64_t);
     }
+    else if (desc->InfoType == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE &&
+            list->device->device_info.ray_tracing_maintenance1_features.rayTracingMaintenance1)
+    {
+        vk_query_type = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SIZE_KHR;
+        type_index = VKD3D_QUERY_TYPE_INDEX_RT_CURRENT_SIZE;
+        stride = sizeof(uint64_t);
+    }
     else if (desc->InfoType == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION)
     {
         vk_query_type = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR;
         type_index = VKD3D_QUERY_TYPE_INDEX_RT_SERIALIZE_SIZE;
         stride = sizeof(uint64_t);
-        FIXME("NumBottomLevelPointers will always return 0.\n");
     }
     else
     {
@@ -298,9 +304,31 @@ static void vkd3d_acceleration_structure_write_postbuild_info(
 
     if (desc->InfoType == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION)
     {
-        /* TODO: We'll need some way to store these values for later use and copy them here instead. */
-        VK_CALL(vkCmdFillBuffer(list->vk_command_buffer, vk_buffer, offset + sizeof(uint64_t),
-                sizeof(uint64_t), 0));
+        if (list->device->device_info.ray_tracing_maintenance1_features.rayTracingMaintenance1)
+        {
+            type_index = VKD3D_QUERY_TYPE_INDEX_RT_SERIALIZE_SIZE_BOTTOM_LEVEL_POINTERS;
+            if (!d3d12_command_allocator_allocate_query_from_type_index(list->allocator,
+                    type_index, &vk_query_pool, &vk_query_index))
+            {
+                ERR("Failed to allocate query.\n");
+                return;
+            }
+
+            d3d12_command_list_reset_query(list, vk_query_pool, vk_query_index);
+
+            VK_CALL(vkCmdWriteAccelerationStructuresPropertiesKHR(list->vk_command_buffer,
+                    1, &vk_acceleration_structure, vk_query_type, vk_query_pool, vk_query_index));
+            VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer,
+                    vk_query_pool, vk_query_index, 1,
+                    vk_buffer, offset + sizeof(uint64_t), stride,
+                    VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
+        }
+        else
+        {
+            FIXME("NumBottomLevelPointers will always return 0.\n");
+            VK_CALL(vkCmdFillBuffer(list->vk_command_buffer, vk_buffer, offset + sizeof(uint64_t),
+                    sizeof(uint64_t), 0));
+        }
     }
 }
 
