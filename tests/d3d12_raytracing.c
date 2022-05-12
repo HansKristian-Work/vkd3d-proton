@@ -3673,3 +3673,73 @@ void test_raytracing_embedded_subobjects(void)
     ID3D12Device_Release(device);
     destroy_raytracing_test_context(&context);
 }
+
+void test_raytracing_collection_identifiers(void)
+{
+    uint8_t collection_identifier[D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES] = { 0 };
+    uint8_t rtpso_identifier[D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES] = { 0 };
+    struct raytracing_test_context context;
+    ID3D12RootSignature *root_signature;
+    ID3D12StateObjectProperties *props;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    ID3D12StateObject *full_object;
+    struct rt_pso_factory factory;
+    D3D12_ROOT_PARAMETER param;
+    ID3D12StateObject *object;
+    ID3D12Device *device;
+    const void *ident;
+    HRESULT hr;
+
+    if (!init_raytracing_test_context(&context, D3D12_RAYTRACING_TIER_1_0))
+        return;
+
+    ID3D12Device5_QueryInterface(context.device5, &IID_ID3D12Device, (void **)&device);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.pParameters = &param;
+    rs_desc.NumParameters = 1;
+    memset(&param, 0, sizeof(param));
+    param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    param.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    create_root_signature(device, &rs_desc, &root_signature);
+
+    rt_pso_factory_init(&factory);
+    rt_pso_factory_add_dxil_library(&factory, get_dummy_raygen_rt_lib(), 0, NULL);
+    rt_pso_factory_add_pipeline_config(&factory, 1);
+    rt_pso_factory_add_shader_config(&factory, 8, 4);
+    rt_pso_factory_add_global_root_signature(&factory, root_signature);
+    object = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_COLLECTION);
+    ok(!!object, "Failed to create collection.\n");
+
+    hr = ID3D12StateObject_QueryInterface(object, &IID_ID3D12StateObjectProperties, (void **)&props);
+    ok(SUCCEEDED(hr), "Failed to query props interface, hr #%x.\n", hr);
+    ident = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"main");
+    todo ok(!!ident, "Failed to query identifier for COLLECTION.\n");
+    if (ident)
+        memcpy(collection_identifier, ident, sizeof(collection_identifier));
+    ID3D12StateObjectProperties_Release(props);
+
+    rt_pso_factory_init(&factory);
+    rt_pso_factory_add_existing_collection(&factory, object, 0, NULL);
+    rt_pso_factory_add_pipeline_config(&factory, 1);
+    rt_pso_factory_add_shader_config(&factory, 8, 4);
+    full_object = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
+    ok(!!full_object, "Failed to create RTPSO.\n");
+
+    hr = ID3D12StateObject_QueryInterface(full_object, &IID_ID3D12StateObjectProperties, (void **)&props);
+    ident = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"main");
+    ok(!!ident, "Failed to query identifier for COLLECTION.\n");
+    if (ident)
+        memcpy(rtpso_identifier, ident, sizeof(collection_identifier));
+    ID3D12StateObjectProperties_Release(props);
+
+    todo ok(memcmp(collection_identifier, rtpso_identifier, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES) == 0, "COLLECTION identifier does not match RTPSO identifier.\n");
+
+    if (object)
+        ID3D12StateObject_Release(object);
+    if (full_object)
+        ID3D12StateObject_Release(full_object);
+    ID3D12RootSignature_Release(root_signature);
+    ID3D12Device_Release(device);
+    destroy_raytracing_test_context(&context);
+}
