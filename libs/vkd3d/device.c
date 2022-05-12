@@ -2670,8 +2670,18 @@ static HRESULT d3d12_device_create_query_pool(struct d3d12_device *device, uint3
             pool_info.queryCount = 128;
             break;
 
+        case VKD3D_QUERY_TYPE_INDEX_RT_CURRENT_SIZE:
+            pool_info.queryType = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SIZE_KHR;
+            pool_info.queryCount = 128;
+            break;
+
         case VKD3D_QUERY_TYPE_INDEX_RT_SERIALIZE_SIZE:
             pool_info.queryType = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR;
+            pool_info.queryCount = 128;
+            break;
+
+        case VKD3D_QUERY_TYPE_INDEX_RT_SERIALIZE_SIZE_BOTTOM_LEVEL_POINTERS:
+            pool_info.queryType = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_BOTTOM_LEVEL_POINTERS_KHR;
             pool_info.queryCount = 128;
             break;
 
