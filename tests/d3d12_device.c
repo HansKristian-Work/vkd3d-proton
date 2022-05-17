@@ -1074,10 +1074,10 @@ void test_reset_command_allocator(void)
                 command_allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&command_list2);
         ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
 
-        ID3D12CommandAllocator_Release(command_allocator);
-        ID3D12CommandAllocator_Release(command_allocator2);
         ID3D12GraphicsCommandList_Release(command_list);
         ID3D12GraphicsCommandList_Release(command_list2);
+        ID3D12CommandAllocator_Release(command_allocator);
+        ID3D12CommandAllocator_Release(command_allocator2);
     }
 
     refcount = ID3D12Device_Release(device);

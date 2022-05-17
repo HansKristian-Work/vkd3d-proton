@@ -1159,8 +1159,8 @@ void test_bundle_state_inheritance(void)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
     check_sub_resource_uint(context.render_target, 0, queue, command_list, 0xff00ff00, 0);
 
-    ID3D12CommandAllocator_Release(bundle_allocator);
     ID3D12GraphicsCommandList_Release(bundle);
+    ID3D12CommandAllocator_Release(bundle_allocator);
     destroy_test_context(&context);
 }
 
