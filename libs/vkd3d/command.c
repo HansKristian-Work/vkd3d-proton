@@ -65,6 +65,8 @@ static VkImageLayout d3d12_command_list_get_depth_stencil_resource_layout(const 
 static void d3d12_command_list_decay_optimal_dsv_resource(struct d3d12_command_list *list,
         const struct d3d12_resource *resource, uint32_t plane_optimal_mask,
         struct d3d12_command_list_barrier_batch *batch);
+static void d3d12_command_list_end_transfer_batch(struct d3d12_command_list *list);
+static inline void d3d12_command_list_ensure_transfer_batch(struct d3d12_command_list *list, enum vkd3d_batch_type type);
 
 static HRESULT vkd3d_create_binary_semaphore(struct d3d12_device *device, VkSemaphore *vk_semaphore)
 {
@@ -4091,6 +4093,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
     }
 
     d3d12_command_list_end_current_render_pass(list, false);
+    d3d12_command_list_end_transfer_batch(list);
 
     if (list->predicate_enabled)
         VK_CALL(vkCmdEndConditionalRenderingEXT(list->vk_command_buffer));
@@ -5326,6 +5329,8 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
         return true;
     }
 
+    d3d12_command_list_end_transfer_batch(list);
+
     if (!(list->rendering_info.state_flags & VKD3D_RENDERING_SUSPENDED))
         d3d12_command_list_emit_render_pass_transition(list, VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN);
 
@@ -5546,6 +5551,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(d3d12_command_list_ifa
             return;
     }
 
+    d3d12_command_list_end_transfer_batch(list);
+
     if (!d3d12_command_list_update_compute_state(list))
     {
         WARN("Failed to update compute state, ignoring dispatch.\n");
@@ -5587,6 +5594,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_
     d3d12_command_list_track_resource_usage(list, src_resource, true);
 
     d3d12_command_list_end_current_render_pass(list, true);
+    d3d12_command_list_end_transfer_batch(list);
 
     buffer_copy.sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2_KHR;
     buffer_copy.pNext = NULL;
@@ -6134,6 +6142,7 @@ static bool d3d12_command_list_init_copy_texture_region(struct d3d12_command_lis
         out->copy.buffer_image.bufferOffset += dst_resource->mem.offset;
 
         out->src_layout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        out->batch_type = VKD3D_BATCH_TYPE_COPY_IMAGE_TO_BUFFER;
     }
     else if (src->Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT && dst->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
     {
@@ -6160,6 +6169,7 @@ static bool d3d12_command_list_init_copy_texture_region(struct d3d12_command_lis
         out->dst_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         out->writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
                 &out->copy.buffer_image.imageExtent, &out->copy.buffer_image.imageSubresource);
+        out->batch_type = VKD3D_BATCH_TYPE_COPY_BUFFER_TO_IMAGE;
     }
     else if (src->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX && dst->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
     {
@@ -6189,6 +6199,7 @@ static bool d3d12_command_list_init_copy_texture_region(struct d3d12_command_lis
         out->writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
                 &out->copy.image.extent,
                 &out->copy.image.dstSubresource);
+        out->batch_type = VKD3D_BATCH_TYPE_COPY_IMAGE;
     }
     else
     {
@@ -6209,7 +6220,7 @@ static void d3d12_command_list_before_copy_texture_region(struct d3d12_command_l
 
     d3d12_command_list_track_resource_usage(list, src_resource, true);
 
-    if (info->src.Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX && info->dst.Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT)
+    if (info->batch_type == VKD3D_BATCH_TYPE_COPY_IMAGE_TO_BUFFER)
     {
         d3d12_command_list_track_resource_usage(list, dst_resource, true);
 
@@ -6224,7 +6235,7 @@ static void d3d12_command_list_before_copy_texture_region(struct d3d12_command_l
                 src_resource->common_layout, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT,
                 info->src_layout, global_transfer_access, global_transfer_access);
     }
-    else if (info->src.Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT && info->dst.Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
+    else if (info->batch_type == VKD3D_BATCH_TYPE_COPY_BUFFER_TO_IMAGE)
     {
         d3d12_command_list_track_resource_usage(list, dst_resource, !info->writes_full_subresource);
 
@@ -6233,7 +6244,7 @@ static void d3d12_command_list_before_copy_texture_region(struct d3d12_command_l
                 info->writes_full_subresource ? VK_IMAGE_LAYOUT_UNDEFINED : dst_resource->common_layout,
                 VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, info->dst_layout);
     }
-    else if (info->src.Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX && info->dst.Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
+    else if (info->batch_type == VKD3D_BATCH_TYPE_COPY_IMAGE)
     {
         d3d12_command_list_track_resource_usage(list, dst_resource, !info->writes_full_subresource);
     }
@@ -6251,7 +6262,7 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
     dst_resource = impl_from_ID3D12Resource(info->dst.pResource);
     src_resource = impl_from_ID3D12Resource(info->src.pResource);
 
-    if (info->src.Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX && info->dst.Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT)
+    if (info->batch_type == VKD3D_BATCH_TYPE_COPY_IMAGE_TO_BUFFER)
     {
         VkCopyImageToBufferInfo2KHR copy_info;
 
@@ -6272,7 +6283,7 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
                 info->src_layout, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, src_resource->common_layout,
                 global_transfer_access, global_transfer_access);
     }
-    else if (info->src.Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT && info->dst.Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
+    else if (info->batch_type == VKD3D_BATCH_TYPE_COPY_BUFFER_TO_IMAGE)
     {
         VkCopyBufferToImageInfo2KHR copy_info;
 
@@ -6291,7 +6302,7 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
                 VK_ACCESS_TRANSFER_WRITE_BIT, info->dst_layout, VK_PIPELINE_STAGE_TRANSFER_BIT,
                 0, dst_resource->common_layout);
     }
-    else if (info->src.Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX && info->dst.Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
+    else if (info->batch_type == VKD3D_BATCH_TYPE_COPY_IMAGE)
     {
         d3d12_command_list_copy_image(list, dst_resource, info->dst_format,
                 src_resource, info->src_format, &info->copy.image, info->writes_full_subresource, false);
@@ -6314,12 +6325,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
         return;
     }
 
-    d3d12_command_list_end_current_render_pass(list, false);
-
     if (!d3d12_command_list_init_copy_texture_region(list, dst, dst_x, dst_y, dst_z, src, src_box, &copy_info))
         return;
-    d3d12_command_list_before_copy_texture_region(list, &copy_info);
-    d3d12_command_list_copy_texture_region(list, &copy_info);
+
+    d3d12_command_list_ensure_transfer_batch(list, copy_info.batch_type);
+    list->transfer_batch.batch[list->transfer_batch.batch_len++] = copy_info;
 
     VKD3D_BREADCRUMB_COMMAND(COPY);
 }
@@ -6347,6 +6357,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
     d3d12_command_list_track_resource_usage(list, src_resource, true);
 
     d3d12_command_list_end_current_render_pass(list, false);
+    d3d12_command_list_end_transfer_batch(list);
 
     if (d3d12_resource_is_buffer(dst_resource))
     {
@@ -6397,6 +6408,40 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
     VKD3D_BREADCRUMB_COMMAND(COPY);
 }
 
+static void d3d12_command_list_end_transfer_batch(struct d3d12_command_list *list)
+{
+    size_t i;
+    switch (list->transfer_batch.batch_type)
+    {
+        case VKD3D_BATCH_TYPE_NONE:
+            return;
+        case VKD3D_BATCH_TYPE_COPY_BUFFER_TO_IMAGE:
+        case VKD3D_BATCH_TYPE_COPY_IMAGE_TO_BUFFER:
+        case VKD3D_BATCH_TYPE_COPY_IMAGE:
+            d3d12_command_list_end_current_render_pass(list, false);
+            /* TODO: once we check for aliasing and it's safe to batch things, transpose the loop. */
+            for (i = 0; i < list->transfer_batch.batch_len; i++)
+            {
+                d3d12_command_list_before_copy_texture_region(list, &list->transfer_batch.batch[i]);
+                d3d12_command_list_copy_texture_region(list, &list->transfer_batch.batch[i]);
+            }
+            list->transfer_batch.batch_len = 0;
+            break;
+        default:
+            break;
+    }
+    list->transfer_batch.batch_type = VKD3D_BATCH_TYPE_NONE;
+}
+
+static void d3d12_command_list_ensure_transfer_batch(struct d3d12_command_list *list, enum vkd3d_batch_type type)
+{
+    if (list->transfer_batch.batch_type != type || list->transfer_batch.batch_len == ARRAY_SIZE(list->transfer_batch.batch))
+    {
+        d3d12_command_list_end_transfer_batch(list);
+        list->transfer_batch.batch_type = type;
+    }
+}
+
 static unsigned int vkd3d_get_tile_index_from_region(const struct d3d12_sparse_info *sparse,
         const D3D12_TILED_RESOURCE_COORDINATE *coord, const D3D12_TILE_REGION_SIZE *size,
         unsigned int tile_index_in_region);
@@ -6424,6 +6469,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
             buffer, buffer_offset, flags);
 
     d3d12_command_list_end_current_render_pass(list, true);
+    d3d12_command_list_end_transfer_batch(list);
 
     tiled_res = impl_from_ID3D12Resource(tiled_resource);
     linear_res = impl_from_ID3D12Resource(buffer);
@@ -6603,6 +6649,7 @@ static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *li
     device = list->device;
     vk_procs = &device->vk_procs;
     d3d12_command_list_end_current_render_pass(list, false);
+    d3d12_command_list_end_transfer_batch(list);
 
     if (dst_resource->format->type == VKD3D_FORMAT_TYPE_TYPELESS || src_resource->format->type == VKD3D_FORMAT_TYPE_TYPELESS)
     {
@@ -7138,6 +7185,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
     TRACE("iface %p, barrier_count %u, barriers %p.\n", iface, barrier_count, barriers);
 
     d3d12_command_list_end_current_render_pass(list, false);
+    d3d12_command_list_end_transfer_batch(list);
     d3d12_command_list_barrier_batch_init(&batch);
 
     for (i = 0; i < barrier_count; ++i)
@@ -9503,6 +9551,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
             scratch.va = d3d12_resource_get_va(arg_impl, arg_buffer_offset);
         }
 
+        d3d12_command_list_end_transfer_batch(list);
         switch (arg_desc->Type)
         {
             case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW:
