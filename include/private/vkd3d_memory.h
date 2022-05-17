@@ -23,6 +23,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
+#include "vkd3d_common.h"
 #include "vkd3d_debug.h"
 
 static inline void *vkd3d_malloc(size_t size)
@@ -57,12 +58,12 @@ static inline void vkd3d_free(void *ptr)
 bool vkd3d_array_reserve(void **elements, size_t *capacity,
         size_t element_count, size_t element_size);
 
-static inline void *vkd3d_malloc_aligned(size_t size, size_t align)
+static inline void *vkd3d_malloc_aligned(size_t size, size_t alignment)
 {
 #ifdef _WIN32
-    return _aligned_malloc(size, align);
+    return _aligned_malloc(size, alignment);
 #else
-    return aligned_alloc(align, size);
+    return aligned_alloc(alignment, align(size, alignment));
 #endif
 }
 
