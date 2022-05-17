@@ -2052,10 +2052,19 @@ struct d3d12_buffer_copy_tracked_buffer
     VkDeviceSize hazard_end;
 };
 
+enum vkd3d_batch_type
+{
+    VKD3D_BATCH_TYPE_NONE,
+    VKD3D_BATCH_TYPE_COPY_BUFFER_TO_IMAGE,
+    VKD3D_BATCH_TYPE_COPY_IMAGE_TO_BUFFER,
+    VKD3D_BATCH_TYPE_COPY_IMAGE,
+};
+
 struct vkd3d_image_copy_info
 {
     D3D12_TEXTURE_COPY_LOCATION src, dst;
     const struct vkd3d_format *src_format, *dst_format;
+    enum vkd3d_batch_type batch_type;
     union
     {
         VkBufferImageCopy2KHR buffer_image;
@@ -2065,6 +2074,15 @@ struct vkd3d_image_copy_info
     bool writes_full_subresource;
     VkImageLayout src_layout;
     VkImageLayout dst_layout;
+};
+
+#define VKD3D_COPY_TEXTURE_REGION_MAX_BATCH_SIZE 16
+
+struct d3d12_transfer_batch_state
+{
+    enum vkd3d_batch_type batch_type;
+    struct vkd3d_image_copy_info batch[VKD3D_COPY_TEXTURE_REGION_MAX_BATCH_SIZE];
+    size_t batch_len;
 };
 
 struct d3d12_command_list
@@ -2152,6 +2170,8 @@ struct d3d12_command_list
 
     struct d3d12_buffer_copy_tracked_buffer tracked_copy_buffers[VKD3D_BUFFER_COPY_TRACKING_BUFFER_COUNT];
     unsigned int tracked_copy_buffer_count;
+
+    struct d3d12_transfer_batch_state transfer_batch;
 
     struct vkd3d_private_store private_store;
 
