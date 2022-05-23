@@ -804,9 +804,14 @@ static BOOL d3d12_swapchain_is_present_mode_supported(struct d3d12_swapchain *sw
     return supported;
 }
 
-static BOOL d3d12_swapchain_has_user_images(struct d3d12_swapchain *swapchain)
+static bool d3d12_swapchain_has_user_images(struct d3d12_swapchain *swapchain)
 {
     return !!swapchain->vk_images[0];
+}
+
+static bool d3d12_swapchain_has_user_descriptors(struct d3d12_swapchain *swapchain)
+{
+    return swapchain->descriptors.pool != VK_NULL_HANDLE;
 }
 
 static HRESULT d3d12_swapchain_get_user_graphics_pipeline(struct d3d12_swapchain *swapchain, VkFormat format)
@@ -929,9 +934,6 @@ static HRESULT d3d12_swapchain_create_user_buffers(struct d3d12_swapchain *swapc
     HRESULT hr;
     UINT i;
 
-    if (d3d12_swapchain_has_user_images(swapchain))
-        return S_OK;
-
     heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
     heap_properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
     heap_properties.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
@@ -951,31 +953,38 @@ static HRESULT d3d12_swapchain_create_user_buffers(struct d3d12_swapchain *swapc
     resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
 
-    for (i = 0; i < swapchain->desc.BufferCount; i++)
+    if (!d3d12_swapchain_has_user_images(swapchain))
     {
-        if (FAILED(hr = d3d12_resource_create_committed(d3d12_swapchain_device(swapchain),
-                &resource_desc, &heap_properties, D3D12_HEAP_FLAG_NONE,
-                D3D12_RESOURCE_STATE_PRESENT, NULL, &object)))
+        for (i = 0; i < swapchain->desc.BufferCount; i++)
         {
-            ERR("Failed to create image for swapchain buffer");
-            return hr;
+            if (FAILED(hr = d3d12_resource_create_committed(d3d12_swapchain_device(swapchain),
+                    &resource_desc, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                    D3D12_RESOURCE_STATE_PRESENT, NULL, &object)))
+            {
+                ERR("Failed to create image for swapchain buffer");
+                return hr;
+            }
+
+            swapchain->vk_images[i] = object->res.vk_image;
+            swapchain->buffers[i] = (ID3D12Resource *)&object->ID3D12Resource_iface;
+
+            vkd3d_resource_incref(swapchain->buffers[i]);
+            ID3D12Resource_Release(swapchain->buffers[i]);
+
+            /* It is technically possible to just start presenting images without rendering to them.
+             * The initial resource state for swapchain images is PRESENT.
+             * Since presentable images are dedicated allocations, we can safely queue a transition into common state
+             * right away. We will also drain the queue when we release the images, so there is no risk of early delete. */
+            vkd3d_enqueue_initial_transition(&swapchain->command_queue->ID3D12CommandQueue_iface, swapchain->buffers[i]);
         }
-
-        swapchain->vk_images[i] = object->res.vk_image;
-        swapchain->buffers[i] = (ID3D12Resource *)&object->ID3D12Resource_iface;
-
-        vkd3d_resource_incref(swapchain->buffers[i]);
-        ID3D12Resource_Release(swapchain->buffers[i]);
-
-        /* It is technically possible to just start presenting images without rendering to them.
-         * The initial resource state for swapchain images is PRESENT.
-         * Since presentable images are dedicated allocations, we can safely queue a transition into common state
-         * right away. We will also drain the queue when we release the images, so there is no risk of early delete. */
-        vkd3d_enqueue_initial_transition(&swapchain->command_queue->ID3D12CommandQueue_iface, swapchain->buffers[i]);
     }
 
-    if (FAILED(hr = d3d12_swapchain_create_user_descriptors(swapchain, vk_format)))
-        return hr;
+    /* If we don't have a swapchain pipeline layout yet (0x0 surface on first frame),
+     * we cannot allocate any descriptors yet. We'll create the descriptors eventually
+     * when we get a proper swapchain working. */
+    if (!d3d12_swapchain_has_user_descriptors(swapchain) && swapchain->pipeline.vk_set_layout)
+        if (FAILED(hr = d3d12_swapchain_create_user_descriptors(swapchain, vk_format)))
+            return hr;
 
     return S_OK;
 }
