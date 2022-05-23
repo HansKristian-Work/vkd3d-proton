@@ -1797,6 +1797,11 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
     if (swapchain->vk_swapchain == VK_NULL_HANDLE)
         return VK_SUCCESS;
 
+    /* If we know we're already suboptimal, e.g. observed in present or acquire after present,
+     * just recreate the swapchain right away. */
+    if (swapchain->is_suboptimal)
+        return VK_ERROR_OUT_OF_DATE_KHR;
+
     if (swapchain->vk_image_index == INVALID_VK_IMAGE_INDEX)
     {
         /* If we hit SUBOPTIMAL path last AcquireNextImageKHR, we will have a pending acquire we did not
@@ -1817,8 +1822,8 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
             swapchain->vk_acquire_semaphores_signaled[swapchain->frame_id] = true;
             /* If we have observed suboptimal once, guarantees that we keep observing it
              * until we have recreated the swapchain. */
-            if (swapchain->is_suboptimal)
-                vr = VK_SUBOPTIMAL_KHR;
+            if (vr == VK_SUBOPTIMAL_KHR)
+                swapchain->is_suboptimal = true;
         }
 
         if (vr == VK_SUBOPTIMAL_KHR)
@@ -1894,12 +1899,11 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
         swapchain->frame_id = (swapchain->frame_id + 1) % swapchain->buffer_count;
         swapchain->vk_image_index = INVALID_VK_IMAGE_INDEX;
 
-        if (vr == VK_SUBOPTIMAL_KHR)
-            swapchain->is_suboptimal = true;
-
         /* If we have observed suboptimal once, guarantees that we keep observing it
          * until we have recreated the swapchain. */
-        if (swapchain->is_suboptimal)
+        if (vr == VK_SUBOPTIMAL_KHR)
+            swapchain->is_suboptimal = true;
+        else if (swapchain->is_suboptimal)
             vr = VK_SUBOPTIMAL_KHR;
 
         /* Could get SUBOPTIMAL here. Defer acquiring if we hit that path.
@@ -1932,6 +1936,8 @@ static VkResult d3d12_swapchain_queue_present(struct d3d12_swapchain *swapchain,
                 swapchain->vk_image_index = INVALID_VK_IMAGE_INDEX;
             }
         }
+
+        /* Not being able to successfully acquire here is okay, we'll defer the acquire to next frame. */
         vr = VK_SUCCESS;
     }
 
@@ -1975,6 +1981,7 @@ static HRESULT d3d12_swapchain_present(struct d3d12_swapchain *swapchain,
         return E_FAIL;
     }
 
+    /* We must have some kind of forward progress here. Keep trying until we exhaust all possible avenues. */
     vr = d3d12_swapchain_queue_present(swapchain, vk_queue);
     if (vr < 0)
     {
@@ -1994,7 +2001,22 @@ static HRESULT d3d12_swapchain_present(struct d3d12_swapchain *swapchain,
         }
 
         if ((vr = d3d12_swapchain_queue_present(swapchain, vk_queue)) < 0)
-            ERR("Failed to present after recreating swapchain, vr %d.\n", vr);
+        {
+            ERR("Failed to present after recreating swapchain, vr %d. Attempting fallback swapchain.\n", vr);
+            vkd3d_release_vk_queue(d3d12_swapchain_queue_iface(swapchain));
+            d3d12_swapchain_destroy_resources(swapchain, false);
+            if (FAILED(hr = d3d12_swapchain_create_vulkan_swapchain(swapchain, true)))
+                return hr;
+
+            if (!(vk_queue = vkd3d_acquire_vk_queue(d3d12_swapchain_queue_iface(swapchain))))
+            {
+                ERR("Failed to acquire Vulkan queue.\n");
+                return E_FAIL;
+            }
+
+            if ((vr = d3d12_swapchain_queue_present(swapchain, vk_queue)) < 0)
+                ERR("Failed to present even after creating dummy swapchain, vr %d. This should not be possible.\n", vr);
+        }
     }
 
     vkd3d_release_vk_queue(d3d12_swapchain_queue_iface(swapchain));
