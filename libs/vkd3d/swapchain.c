@@ -1226,8 +1226,6 @@ static HRESULT d3d12_swapchain_create_buffers(struct d3d12_swapchain *swapchain,
     VkResult vr;
     HRESULT hr;
 
-    d3d12_swapchain_destroy_views(swapchain);
-
     if ((vr = VK_CALL(vkGetSwapchainImagesKHR(vk_device, vk_swapchain, &image_count, NULL))) < 0)
     {
         WARN("Failed to get Vulkan swapchain images, vr %d.\n", vr);
@@ -1320,7 +1318,7 @@ end:
     return vr;
 }
 
-static void d3d12_swapchain_destroy_buffers(struct d3d12_swapchain *swapchain, BOOL destroy_user_buffers)
+static void d3d12_swapchain_destroy_resources(struct d3d12_swapchain *swapchain, bool destroy_user_buffers)
 {
     const struct vkd3d_vk_device_procs *vk_procs = d3d12_swapchain_procs(swapchain);
     VkQueue vk_queue;
@@ -1349,18 +1347,20 @@ static void d3d12_swapchain_destroy_buffers(struct d3d12_swapchain *swapchain, B
         }
     }
 
-    for (i = 0; i < swapchain->desc.BufferCount; ++i)
-    {
-        if (swapchain->buffers[i] && destroy_user_buffers)
-        {
-            vkd3d_resource_decref(swapchain->buffers[i]);
-            swapchain->buffers[i] = NULL;
-            swapchain->vk_images[i] = VK_NULL_HANDLE;
-        }
-    }
-
     if (destroy_user_buffers)
+    {
+        for (i = 0; i < swapchain->desc.BufferCount; ++i)
+        {
+            if (swapchain->buffers[i])
+            {
+                vkd3d_resource_decref(swapchain->buffers[i]);
+                swapchain->buffers[i] = NULL;
+                swapchain->vk_images[i] = VK_NULL_HANDLE;
+            }
+        }
+
         d3d12_swapchain_destroy_user_descriptors(swapchain);
+    }
 
     if (swapchain->command_queue && swapchain->command_queue->device->vk_device)
     {
@@ -1379,6 +1379,8 @@ static void d3d12_swapchain_destroy_buffers(struct d3d12_swapchain *swapchain, B
         VK_CALL(vkDestroyCommandPool(swapchain->command_queue->device->vk_device, swapchain->vk_cmd_pool, NULL));
         swapchain->vk_cmd_pool = VK_NULL_HANDLE;
     }
+
+    d3d12_swapchain_destroy_views(swapchain);
 }
 
 static bool d3d12_swapchain_has_nonzero_surface_size(struct d3d12_swapchain *swapchain)
@@ -1581,8 +1583,7 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
         if (FAILED(hr = d3d12_swapchain_create_user_buffers(swapchain, vk_format)))
             return hr;
 
-        d3d12_swapchain_destroy_buffers(swapchain, FALSE);
-        d3d12_swapchain_destroy_views(swapchain);
+        d3d12_swapchain_destroy_resources(swapchain, false);
         swapchain->buffer_count = 0;
         return S_OK;
     }
@@ -1643,8 +1644,7 @@ static void d3d12_swapchain_destroy(struct d3d12_swapchain *swapchain)
 {
     const struct vkd3d_vk_device_procs *vk_procs = d3d12_swapchain_procs(swapchain);
 
-    d3d12_swapchain_destroy_buffers(swapchain, TRUE);
-    d3d12_swapchain_destroy_views(swapchain);
+    d3d12_swapchain_destroy_resources(swapchain, true);
 
     if (swapchain->frame_latency_event)
         CloseHandle(swapchain->frame_latency_event);
@@ -1776,7 +1776,7 @@ static HRESULT d3d12_swapchain_set_sync_interval(struct d3d12_swapchain *swapcha
         return S_OK;
     }
 
-    d3d12_swapchain_destroy_buffers(swapchain, FALSE);
+    d3d12_swapchain_destroy_resources(swapchain, false);
     swapchain->present_mode = present_mode;
     return d3d12_swapchain_recreate_vulkan_swapchain(swapchain);
 }
@@ -1981,7 +1981,8 @@ static HRESULT d3d12_swapchain_present(struct d3d12_swapchain *swapchain,
 
         TRACE("Recreating Vulkan swapchain.\n");
 
-        d3d12_swapchain_destroy_buffers(swapchain, FALSE);
+        d3d12_swapchain_destroy_resources(swapchain, false);
+
         if (FAILED(hr = d3d12_swapchain_recreate_vulkan_swapchain(swapchain)))
             return hr;
 
@@ -2272,7 +2273,7 @@ static HRESULT d3d12_swapchain_resize_buffers(struct d3d12_swapchain *swapchain,
             && desc->Format == new_desc.Format && desc->BufferCount == new_desc.BufferCount)
         return S_OK;
 
-    d3d12_swapchain_destroy_buffers(swapchain, TRUE);
+    d3d12_swapchain_destroy_resources(swapchain, true);
     swapchain->desc = new_desc;
     return d3d12_swapchain_recreate_vulkan_swapchain(swapchain);
 }
