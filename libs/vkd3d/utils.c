@@ -1018,6 +1018,16 @@ HRESULT hresult_from_errno(int rc)
 
 HRESULT hresult_from_vk_result(VkResult vr)
 {
+    /* Wine tends to dispatch Vulkan calls to their own syscall stack.
+     * Crashes are captured and return this magic VkResult.
+     * Report it explicitly here so it's easier to debug when it happens. */
+    if (vr == -1073741819)
+    {
+        ERR("Detected segfault in Wine syscall handler.\n");
+        /* HACK: For ad-hoc debugging can also trigger backtrace printing here. */
+        return E_POINTER;
+    }
+
     switch (vr)
     {
         case VK_SUCCESS:
