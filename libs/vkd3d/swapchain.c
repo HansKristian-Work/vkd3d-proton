@@ -1976,7 +1976,7 @@ static HRESULT d3d12_swapchain_present(struct d3d12_swapchain *swapchain,
     }
 
     vr = d3d12_swapchain_queue_present(swapchain, vk_queue);
-    if (vr == VK_ERROR_OUT_OF_DATE_KHR)
+    if (vr < 0)
     {
         vkd3d_release_vk_queue(d3d12_swapchain_queue_iface(swapchain));
 
