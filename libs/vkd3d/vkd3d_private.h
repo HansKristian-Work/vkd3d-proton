@@ -50,7 +50,6 @@
 #define MAKE_MAGIC(a,b,c,d) (((uint32_t)a) | (((uint32_t)b) << 8) | (((uint32_t)c) << 16) | (((uint32_t)d) << 24))
 
 #define VKD3D_MAX_COMPATIBLE_FORMAT_COUNT 10u
-#define VKD3D_MAX_SHADER_EXTENSIONS       6u
 #define VKD3D_MAX_SHADER_STAGES           5u
 #define VKD3D_MAX_VK_SYNC_OBJECTS         4u
 
@@ -134,6 +133,7 @@ struct vkd3d_vulkan_info
     bool KHR_uniform_buffer_standard_layout;
     bool KHR_maintenance4;
     bool KHR_ray_tracing_maintenance1;
+    bool KHR_fragment_shader_barycentric;
     /* EXT device extensions */
     bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;
@@ -187,7 +187,7 @@ struct vkd3d_vulkan_info
     VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT texel_buffer_alignment_properties;
 
     unsigned int shader_extension_count;
-    enum vkd3d_shader_target_extension shader_extensions[VKD3D_MAX_SHADER_EXTENSIONS];
+    enum vkd3d_shader_target_extension shader_extensions[VKD3D_SHADER_TARGET_EXTENSION_COUNT];
 };
 
 struct vkd3d_instance
@@ -3057,6 +3057,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR separate_depth_stencil_layout_features;
     VkPhysicalDeviceShaderIntegerDotProductFeaturesKHR shader_integer_dot_product_features;
     VkPhysicalDeviceFragmentShaderBarycentricFeaturesNV barycentric_features_nv;
+    VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR barycentric_features_khr;
     VkPhysicalDeviceRayQueryFeaturesKHR ray_query_features;
     VkPhysicalDeviceComputeShaderDerivativesFeaturesNV compute_shader_derivatives_features_nv;
     VkPhysicalDeviceShaderAtomicInt64FeaturesKHR shader_atomic_int64_features;
