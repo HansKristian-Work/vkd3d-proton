@@ -87,6 +87,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_DRIVER_PROPERTIES, KHR_driver_properties),
     VK_EXTENSION(KHR_UNIFORM_BUFFER_STANDARD_LAYOUT, KHR_uniform_buffer_standard_layout),
     VK_EXTENSION(KHR_MAINTENANCE_4, KHR_maintenance4),
+    VK_EXTENSION(KHR_FRAGMENT_SHADER_BARYCENTRIC, KHR_fragment_shader_barycentric),
     /* EXT extensions */
     VK_EXTENSION(EXT_CALIBRATED_TIMESTAMPS, EXT_calibrated_timestamps),
     VK_EXTENSION(EXT_CONDITIONAL_RENDERING, EXT_conditional_rendering),
@@ -1392,11 +1393,18 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->properties2, &info->shader_integer_dot_product_properties);
     }
 
-    if (vulkan_info->NV_fragment_shader_barycentric)
+    if (vulkan_info->NV_fragment_shader_barycentric && !vulkan_info->KHR_fragment_shader_barycentric)
     {
         info->barycentric_features_nv.sType =
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_NV;
         vk_prepend_struct(&info->features2, &info->barycentric_features_nv);
+    }
+
+    if (vulkan_info->KHR_fragment_shader_barycentric)
+    {
+        info->barycentric_features_khr.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->barycentric_features_khr);
     }
 
     if (vulkan_info->NV_compute_shader_derivatives)
@@ -5664,7 +5672,9 @@ static void d3d12_device_caps_init_feature_options3(struct d3d12_device *device)
             D3D12_COMMAND_LIST_SUPPORT_FLAG_BUNDLE;
     /* Currently not supported */
     options3->ViewInstancingTier = D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED;
-    options3->BarycentricsSupported = device->device_info.barycentric_features_nv.fragmentShaderBarycentric;
+    options3->BarycentricsSupported =
+            device->device_info.barycentric_features_nv.fragmentShaderBarycentric ||
+            device->device_info.barycentric_features_khr.fragmentShaderBarycentric;
 }
 
 static void d3d12_device_caps_init_feature_options4(struct d3d12_device *device)
@@ -6067,6 +6077,12 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
             device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                     VKD3D_SHADER_TARGET_EXTENSION_ASSUME_PER_COMPONENT_SSBO_ROBUSTNESS;
         }
+    }
+
+    if (device->device_info.barycentric_features_khr.fragmentShaderBarycentric)
+    {
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_BARYCENTRIC_KHR;
     }
 }
 

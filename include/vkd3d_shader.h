@@ -308,6 +308,8 @@ enum vkd3d_shader_target_extension
      * all in range, or all out of range. We can implement structured buffer vectorization of vec3,
      * but not byte address buffer. */
     VKD3D_SHADER_TARGET_EXTENSION_ASSUME_PER_COMPONENT_SSBO_ROBUSTNESS,
+    VKD3D_SHADER_TARGET_EXTENSION_BARYCENTRIC_KHR,
+    VKD3D_SHADER_TARGET_EXTENSION_COUNT,
 };
 
 enum vkd3d_shader_quirk
