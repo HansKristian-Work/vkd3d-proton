@@ -4877,3 +4877,245 @@ void test_typed_srv_cast_clear(void)
     ID3D12DescriptorHeap_Release(heap);
     destroy_test_context(&context);
 }
+
+void test_uav_3d_sliced_view(void)
+{
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER root_params[2];
+    ID3D12PipelineState *pso_poison;
+    ID3D12PipelineState *pso_actual;
+    struct resource_readback rb[2];
+    D3D12_DESCRIPTOR_RANGE range;
+    D3D12_GPU_DESCRIPTOR_HANDLE h;
+    uint32_t reference[16][4][4];
+    struct test_context context;
+    ID3D12DescriptorHeap *heap;
+    ID3D12Resource *resource;
+    unsigned int x, y, z;
+    unsigned int i;
+
+    static const DWORD cs_actual_dxbc[] =
+    {
+#if 0
+    cbuffer C : register(b0) { uint value; }
+    RWTexture3D<uint> T : register(u0);
+
+    [numthreads(4, 4, 16)]
+    void main(uint3 thr : SV_DispatchThreadID)
+    {
+        uint w, h, d;
+        T.GetDimensions(w, h, d);
+        if (thr.z < d)
+            T[thr] = value | (w << 8) | (h << 16) | (d << 24);
+    }
+#endif
+        0x43425844, 0xf1736792, 0x8492219a, 0x6751cced, 0xf0219682, 0x00000001, 0x00000188, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000134, 0x00050050, 0x0000004d, 0x0100086a,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0400289c, 0x0011e000, 0x00000000, 0x00004444,
+        0x0200005f, 0x00020072, 0x02000068, 0x00000001, 0x0400009b, 0x00000004, 0x00000004, 0x00000010,
+        0x8900103d, 0x80000142, 0x00111103, 0x00100072, 0x00000000, 0x00004001, 0x00000000, 0x0011ee46,
+        0x00000000, 0x0600004f, 0x00100082, 0x00000000, 0x0002002a, 0x0010002a, 0x00000000, 0x0304001f,
+        0x0010003a, 0x00000000, 0x0a000029, 0x00100072, 0x00000000, 0x00100246, 0x00000000, 0x00004002,
+        0x00000008, 0x00000010, 0x00000018, 0x00000000, 0x0800003c, 0x00100012, 0x00000000, 0x0010000a,
+        0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0700003c, 0x00100012, 0x00000000, 0x0010001a,
+        0x00000000, 0x0010000a, 0x00000000, 0x0700003c, 0x00100012, 0x00000000, 0x0010002a, 0x00000000,
+        0x0010000a, 0x00000000, 0x060000a4, 0x0011e0f2, 0x00000000, 0x00020a46, 0x00100006, 0x00000000,
+        0x01000015, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE cs_actual = SHADER_BYTECODE(cs_actual_dxbc);
+
+    static const DWORD cs_poison_dxbc[] =
+    {
+#if 0
+    cbuffer C : register(b0) { uint value; }
+    RWTexture3D<uint> T : register(u0);
+
+    [numthreads(4, 4, 16)]
+    void main(uint3 thr : SV_DispatchThreadID)
+    {
+            T[thr] = 0xdeadca7;
+    }
+#endif
+        0x43425844, 0x4c99e486, 0x7707bd40, 0xceb3b496, 0xe22f4397, 0x00000001, 0x000000b0, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x0000005c, 0x00050050, 0x00000017, 0x0100086a,
+        0x0400289c, 0x0011e000, 0x00000000, 0x00004444, 0x0200005f, 0x00020072, 0x0400009b, 0x00000004,
+        0x00000004, 0x00000010, 0x090000a4, 0x0011e0f2, 0x00000000, 0x00020a46, 0x00004002, 0x0deadca7,
+        0x0deadca7, 0x0deadca7, 0x0deadca7, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE cs_poison = SHADER_BYTECODE(cs_poison_dxbc);
+
+    static const D3D12_TEX3D_UAV slices[] =
+    {
+        /* Just to clear everything */
+        { 0, 0, -1u }, /* -1 means all remaining slices. */
+        { 1, 0, -1u },
+        /* ... */
+
+        { 0, 0, 2 },
+        { 0, 5, 3 },
+        { 0, 9, 1 },
+        { 0, 12, 4 },
+        { 0, 10, 5 },
+        { 1, 0, 2 },
+        { 1, 4, 3 },
+        { 0, 15, -1u },
+        /* WSize = 0 is not allowed. Trips DEVICE_LOST. */
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(root_params, 0, sizeof(root_params));
+    memset(&range, 0, sizeof(range));
+
+    rs_desc.NumParameters = ARRAY_SIZE(root_params);
+    rs_desc.pParameters = root_params;
+
+    root_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_params[0].DescriptorTable.NumDescriptorRanges = 1;
+    root_params[0].DescriptorTable.pDescriptorRanges = &range;
+    range.NumDescriptors = 1;
+    range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+
+    root_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_params[1].Constants.Num32BitValues = 1;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    pso_actual = create_compute_pipeline_state(context.device, context.root_signature, cs_actual);
+    pso_poison = create_compute_pipeline_state(context.device, context.root_signature, cs_poison);
+
+    resource = create_default_texture3d(context.device, 4, 4, 16, 2, DXGI_FORMAT_R32_UINT,
+        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    memset(&uav, 0, sizeof(uav));
+    uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE3D;
+    uav.Format = DXGI_FORMAT_R32_UINT;
+
+    heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, ARRAY_SIZE(slices));
+
+    for (i = 0; i < ARRAY_SIZE(slices); i++)
+    {
+        D3D12_CPU_DESCRIPTOR_HANDLE h = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+        h.ptr += i * ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        uav.Texture3D = slices[i];
+        ID3D12Device_CreateUnorderedAccessView(context.device, resource, NULL, &uav, h);
+    }
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &heap);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+
+    h = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap);
+
+    for (i = 0; i < ARRAY_SIZE(slices); i++)
+    {
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, h);
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(context.list, 1, i + 1, 0);
+        /* First, attempt to flood the descriptor with writes. Validates robustness. */
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, pso_poison);
+        ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+        uav_barrier(context.list, resource);
+        /* Now, only write in bounds. Makes sure FirstWSlice offset works. */
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, pso_actual);
+        ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+        uav_barrier(context.list, resource);
+
+        h.ptr += ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    }
+
+    transition_resource_state(context.list, resource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(resource, 0, &rb[0], context.queue, context.list);
+
+    for (i = 0; i < ARRAY_SIZE(slices); i++)
+    {
+        unsigned int num_slices;
+
+        if (slices[i].MipSlice != 0)
+            continue;
+
+        num_slices = min(16 - slices[i].FirstWSlice, slices[i].WSize);
+
+        for (z = 0; z < num_slices; z++)
+        {
+            for (y = 0; y < 4; y++)
+            {
+                for (x = 0; x < 4; x++)
+                {
+                    uint32_t *ref = &reference[z + slices[i].FirstWSlice][y][x];
+                    *ref = i + 1;
+                    *ref |= 4 << 8;
+                    *ref |= 4 << 16;
+                    *ref |= num_slices << 24;
+                }
+            }
+        }
+    }
+
+    for (z = 0; z < 16; z++)
+    {
+        for (y = 0; y < 4; y++)
+        {
+            for (x = 0; x < 4; x++)
+            {
+                uint32_t value;
+                value = get_readback_uint(&rb[0], x, y, z);
+                todo ok(value == reference[z][y][x], "Error for mip 0 at %u, %u, %u. Got %x, expected %x.\n", x, y, z, value, reference[z][y][x]);
+            }
+        }
+    }
+
+    reset_command_list(context.list, context.allocator);
+    get_texture_readback_with_command_list(resource, 1, &rb[1], context.queue, context.list);
+
+    for (i = 0; i < ARRAY_SIZE(slices); i++)
+    {
+        unsigned int num_slices;
+
+        if (slices[i].MipSlice != 1)
+            continue;
+
+        num_slices = min(8 - slices[i].FirstWSlice, slices[i].WSize);
+
+        for (z = 0; z < num_slices; z++)
+        {
+            for (y = 0; y < 2; y++)
+            {
+                for (x = 0; x < 2; x++)
+                {
+                    uint32_t *ref = &reference[z + slices[i].FirstWSlice][y][x];
+                    *ref = i + 1;
+                    *ref |= 2 << 8;
+                    *ref |= 2 << 16;
+                    *ref |= num_slices << 24;
+                }
+            }
+        }
+    }
+
+    for (z = 0; z < 8; z++)
+    {
+        for (y = 0; y < 2; y++)
+        {
+            for (x = 0; x < 2; x++)
+            {
+                uint32_t value;
+                value = get_readback_uint(&rb[1], x, y, z);
+                todo ok(value == reference[z][y][x], "Error for mip 1 at %u, %u, %u. Got %x, expected %x.\n", x, y, z, value, reference[z][y][x]);
+            }
+        }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(rb); i++)
+        release_resource_readback(&rb[i]);
+    ID3D12Resource_Release(resource);
+    ID3D12PipelineState_Release(pso_actual);
+    ID3D12PipelineState_Release(pso_poison);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
