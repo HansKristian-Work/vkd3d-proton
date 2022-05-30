@@ -1616,9 +1616,11 @@ static bool shader_sm4_read_param(struct vkd3d_sm4_data *priv, const DWORD **ptr
         }
 
         if (m & 0x20000)
-            param->modifier = VKD3DSPRM_NONUNIFORM;
+            param->modifier |= VKD3DSPRM_NONUNIFORM;
+        if (m & 0x4000)
+            param->modifier |= VKD3DSPRM_RELAXED_PRECISION;
 
-        if ((m &= ~(0x200c1)))
+        if ((m &= ~(0x240c1)))
             FIXME("Skipping modifier 0x%08x.\n", m);
     }
     else

@@ -5563,8 +5563,7 @@ static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
 
     options->DoublePrecisionFloatShaderOps = features->shaderFloat64;
     options->OutputMergerLogicOp = features->logicOp;
-    /* Currently not supported */
-    options->MinPrecisionSupport = D3D12_SHADER_MIN_PRECISION_SUPPORT_NONE;
+    options->MinPrecisionSupport = D3D12_SHADER_MIN_PRECISION_SUPPORT_16_BIT;
     options->TiledResourcesTier = d3d12_device_determine_tiled_resources_tier(device);
     options->ResourceBindingTier = d3d12_device_determine_resource_binding_tier(device);
     options->PSSpecifiedStencilRefSupported = vk_info->EXT_shader_stencil_export;
