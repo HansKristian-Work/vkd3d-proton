@@ -2301,3 +2301,119 @@ void test_mismatching_pso_stages(void)
     destroy_test_context(&context);
 }
 
+void test_pipeline_no_ps_nonzero_rts(void)
+{
+    const FLOAT white[] = { 100.0f, 100.0f, 100.0f, 100.0f };
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso;
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    struct depth_stencil_resource ds;
+    D3D12_INPUT_LAYOUT_DESC layout;
+    D3D12_INPUT_ELEMENT_DESC elem;
+    struct test_context_desc desc;
+    D3D12_VERTEX_BUFFER_VIEW vbv;
+    struct test_context context;
+    ID3D12DescriptorHeap *rtv;
+    ID3D12Resource *vbo;
+    ID3D12Resource *rt;
+    D3D12_VIEWPORT vp;
+    D3D12_RECT sci;
+
+    static const FLOAT vbo_data[] =
+    {
+        -1.0f, -1.0f, 0.5f, 1.0f,
+        +3.0f, -1.0f, 0.5f, 1.0f,
+        -1.0f, +3.0f, 0.5f, 1.0f,
+    };
+
+    static const DWORD vs_code[] =
+    {
+#if 0
+        float4 main(float4 a : A) : SV_Position
+        {
+                return a;
+        }
+#endif
+        0x43425844, 0xecd820c8, 0x89ee4b40, 0xb73efa73, 0x4ed91573, 0x00000001, 0x000000d4, 0x00000003,
+        0x0000002c, 0x00000058, 0x0000008c, 0x4e475349, 0x00000024, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x00000f0f, 0xabab0041, 0x4e47534f, 0x0000002c,
+        0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f,
+        0x505f5653, 0x7469736f, 0x006e6f69, 0x58454853, 0x00000040, 0x00010050, 0x00000010, 0x0100086a,
+        0x0300005f, 0x001010f2, 0x00000000, 0x04000067, 0x001020f2, 0x00000000, 0x00000001, 0x05000036,
+        0x001020f2, 0x00000000, 0x00101e46, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE vs = SHADER_BYTECODE(vs_code);
+
+    layout.NumElements = 1;
+    layout.pInputElementDescs = &elem;
+    memset(&elem, 0, sizeof(elem));
+    elem.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    elem.InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
+    elem.SemanticName = "A";
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_root_signature = true;
+    desc.no_render_target = true;
+
+    if (!init_test_context(&context, &desc))
+        return;
+
+    init_depth_stencil(&ds, context.device, 1, 1, 1, 1, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D32_FLOAT, NULL);
+    rt = create_default_texture2d(context.device, 1, 1, 1, 1, DXGI_FORMAT_R32_FLOAT,
+            D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+            D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    rtv = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    init_pipeline_state_desc(&pso, context.root_signature, DXGI_FORMAT_R8G8B8A8_UNORM, &vs, NULL, &layout);
+    pso.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    pso.DepthStencilState.DepthEnable = TRUE;
+    pso.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    pso.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+    pso.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    pso.PS.BytecodeLength = 0;
+    pso.PS.pShaderBytecode = NULL;
+
+    rtv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv);
+
+    ID3D12Device_CreateGraphicsPipelineState(context.device, &pso, &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
+    ID3D12Device_CreateRenderTargetView(context.device, rt, NULL, rtv_handle);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, rtv_handle, white, 0, NULL);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, ds.dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, NULL);
+
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    set_viewport(&vp, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+    set_rect(&sci, 0, 0, 1, 1);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &sci);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &rtv_handle, TRUE, &ds.dsv_handle);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    vbo = create_upload_buffer(context.device, sizeof(vbo_data), vbo_data);
+    vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vbo);
+    vbv.SizeInBytes = sizeof(vbo_data);
+    vbv.StrideInBytes = 16;
+    ID3D12GraphicsCommandList_IASetVertexBuffers(context.list, 0, 1, &vbv);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(context.list, ds.texture, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    /* Verify depth buffer was written to. */
+    check_sub_resource_float(ds.texture, 0, context.queue, context.list, 0.5f, 0);
+    reset_command_list(context.list, context.allocator);
+    /* Verify that the invalid R32_FLOAT RTV was just ignored. */
+    check_sub_resource_float(rt, 0, context.queue, context.list, 100.0f, 0);
+
+    ID3D12Resource_Release(rt);
+    ID3D12Resource_Release(vbo);
+    ID3D12DescriptorHeap_Release(rtv);
+    destroy_depth_stencil(&ds);
+    destroy_test_context(&context);
+}

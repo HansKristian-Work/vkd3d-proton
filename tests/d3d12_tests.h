@@ -305,3 +305,4 @@ decl_test(test_amplification_shader);
 decl_test(test_advanced_cbv_layout);
 decl_test(test_shader_waveop_maximal_convergence);
 decl_test(test_uav_3d_sliced_view);
+decl_test(test_pipeline_no_ps_nonzero_rts);
