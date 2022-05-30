@@ -853,6 +853,13 @@ static void vkd3d_spirv_build_op_decorate(struct vkd3d_spirv_builder *builder,
             SpvOpDecorate, target_id, decoration, literals, literal_count);
 }
 
+static void vkd3d_dxbc_compiler_emit_relaxed_precision(struct vkd3d_spirv_builder *builder,
+        const struct vkd3d_shader_dst_param *dst, uint32_t val_id)
+{
+    if (dst->reg.modifier & VKD3DSPRM_RELAXED_PRECISION)
+        vkd3d_spirv_build_op_decorate(builder, val_id, SpvDecorationRelaxedPrecision, NULL, 0);
+}
+
 static void vkd3d_spirv_build_op_decorate1(struct vkd3d_spirv_builder *builder,
         uint32_t target_id, SpvDecoration decoration, uint32_t operand0)
 {
@@ -3807,7 +3814,10 @@ static void vkd3d_dxbc_compiler_emit_store_dst(struct vkd3d_dxbc_compiler *compi
 {
     assert(!(dst->modifiers & ~VKD3DSPDM_SATURATE));
     if (dst->modifiers & VKD3DSPDM_SATURATE)
+    {
         val_id = vkd3d_dxbc_compiler_emit_sat(compiler, &dst->reg, dst->write_mask, val_id);
+        vkd3d_dxbc_compiler_emit_relaxed_precision(&compiler->spirv_builder, dst, val_id);
+    }
 
     vkd3d_dxbc_compiler_emit_store_reg(compiler, &dst->reg, dst->write_mask, val_id);
 }
@@ -7663,13 +7673,6 @@ static bool vkd3d_spirv_inst_can_relax_precision(SpvOp op)
         default:
             return false;
     }
-}
-
-static void vkd3d_dxbc_compiler_emit_relaxed_precision(struct vkd3d_spirv_builder *builder,
-        const struct vkd3d_shader_dst_param *dst, uint32_t val_id)
-{
-    if (dst->reg.modifier & VKD3DSPRM_RELAXED_PRECISION)
-        vkd3d_spirv_build_op_decorate(builder, val_id, SpvDecorationRelaxedPrecision, NULL, 0);
 }
 
 static void vkd3d_dxbc_compiler_emit_alu_instruction(struct vkd3d_dxbc_compiler *compiler,
