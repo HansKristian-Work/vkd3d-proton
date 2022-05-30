@@ -65,6 +65,16 @@ void test_get_resource_tiling(void)
         /* Test buffers */
         { D3D12_RESOURCE_DIMENSION_BUFFER,    DXGI_FORMAT_UNKNOWN,            1024,    1,  1,  1,  1,  1,  0, 65536,   1,   1, D3D12_TILED_RESOURCES_TIER_1 },
         { D3D12_RESOURCE_DIMENSION_BUFFER,    DXGI_FORMAT_UNKNOWN,        16*65536,    1,  1,  1, 16,  1,  0, 65536,   1,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        /* Test small resource behavior */
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8_UNORM,              1,    1,  1,  1,  1,  1,  0,   256, 256,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8_UNORM,              2,    2,  1,  2,  1,  2,  0,   256, 256,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8_UNORM,              4,    4,  1,  3,  1,  3,  0,   256, 256,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8_UNORM,              8,    8,  1,  4,  1,  4,  0,   256, 256,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8_UNORM,             16,   16,  1,  5,  1,  5,  0,   256, 256,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8_UNORM,             32,   32,  1,  6,  1,  6,  0,   256, 256,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8_UNORM,             64,   64,  1,  7,  1,  7,  0,   256, 256,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8_UNORM,            128,  128,  1,  8,  1,  8,  0,   256, 256,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8_UNORM,            256,  256,  1,  9,  2,  9,  1,   256, 256,   1, D3D12_TILED_RESOURCES_TIER_1 },
         /* Test various image formats */
         { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8_UNORM,	           512,  512,  1,  1,  4,  1,  1,   256, 256,   1, D3D12_TILED_RESOURCES_TIER_1 },
         { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8_UNORM,          512,  512,  1,  1,  8,  1,  1,   256, 128,   1, D3D12_TILED_RESOURCES_TIER_1 },
@@ -86,7 +96,7 @@ void test_get_resource_tiling(void)
         { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8B8A8_UNORM,      128,  128,  1,  8,  1,  8,  1,   128, 128,   1, D3D12_TILED_RESOURCES_TIER_1 },
         { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8B8A8_UNORM,      512,  512,  1, 10, 21, 10,  3,   128, 128,   1, D3D12_TILED_RESOURCES_TIER_1 },
         { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8B8A8_UNORM,      512,  512,  4,  3, 84, 12,  3,   128, 128,   1, D3D12_TILED_RESOURCES_TIER_1 },
-        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8B8A8_UNORM,       64,   64,  1,  1,  0,  1,  0,   128, 128,   1, D3D12_TILED_RESOURCES_TIER_1 },
+        { D3D12_RESOURCE_DIMENSION_TEXTURE2D, DXGI_FORMAT_R8G8B8A8_UNORM,       64,   64,  1,  1,  1,  1,  0,   128, 128,   1, D3D12_TILED_RESOURCES_TIER_1 },
         /* Test 3D textures */
         { D3D12_RESOURCE_DIMENSION_TEXTURE3D, DXGI_FORMAT_R8_UNORM,             64,   64, 64,  1,  4,  1,  1,    64,  32,  32, D3D12_TILED_RESOURCES_TIER_3 },
         { D3D12_RESOURCE_DIMENSION_TEXTURE3D, DXGI_FORMAT_R8G8_UNORM,           64,   64, 64,  1,  8,  1,  1,    32,  32,  32, D3D12_TILED_RESOURCES_TIER_3 },
@@ -213,18 +223,10 @@ void test_get_resource_tiling(void)
         ok((packed_mip_info.NumTilesForPackedMips == 0) == (packed_mip_info.NumPackedMips == 0),
                 "Unexpected packed tile count %u.\n", packed_mip_info.NumTilesForPackedMips);
 
-        if (packed_mip_info.NumStandardMips || !packed_mip_info.NumPackedMips)
-        {
-            ok(tile_shape.WidthInTexels == tests[i].tile_shape_w, "Unexpected tile width %u.\n", tile_shape.WidthInTexels);
-            ok(tile_shape.HeightInTexels == tests[i].tile_shape_h, "Unexpected tile height %u.\n", tile_shape.HeightInTexels);
-            ok(tile_shape.DepthInTexels == tests[i].tile_shape_d, "Unexpected tile depth %u.\n", tile_shape.DepthInTexels);
-        }
-        else
-        {
-            ok(!tile_shape.WidthInTexels && !tile_shape.HeightInTexels && !tile_shape.DepthInTexels,
-                    "Unexpected tile shape (%u,%u,%u) for packed resource.\n",
-                    tile_shape.WidthInTexels, tile_shape.HeightInTexels, tile_shape.DepthInTexels);
-        }
+        /* Docs say that tile shape should be cleared to zero if there is no standard mip, but drivers don't seem to care about this. */
+        ok(tile_shape.WidthInTexels == tests[i].tile_shape_w, "Unexpected tile width %u.\n", tile_shape.WidthInTexels);
+        ok(tile_shape.HeightInTexels == tests[i].tile_shape_h, "Unexpected tile height %u.\n", tile_shape.HeightInTexels);
+        ok(tile_shape.DepthInTexels == tests[i].tile_shape_d, "Unexpected tile depth %u.\n", tile_shape.DepthInTexels);
 
         for (j = 0; j < tests[i].expected_tiling_count; j++)
         {
