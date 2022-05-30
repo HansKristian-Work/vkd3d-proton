@@ -1389,18 +1389,12 @@ static void d3d12_resource_get_tiling(struct d3d12_device *device, struct d3d12_
 
         tile_count += packed_tiles;
 
-        if (standard_mips)
-        {
-            tile_shape->WidthInTexels = block_extent.width;
-            tile_shape->HeightInTexels = block_extent.height;
-            tile_shape->DepthInTexels = block_extent.depth;
-        }
-        else
-        {
-            tile_shape->WidthInTexels = 0;
-            tile_shape->HeightInTexels = 0;
-            tile_shape->DepthInTexels = 0;
-        }
+        /* Docs say that we should clear tile_shape to zero if there are no standard mips,
+         * but this conflicts with all native drivers, so the docs are likely lying here.
+         * See test_get_resource_tiling() for info. */
+        tile_shape->WidthInTexels = block_extent.width;
+        tile_shape->HeightInTexels = block_extent.height;
+        tile_shape->DepthInTexels = block_extent.depth;
 
         *total_tile_count = tile_count;
     }
