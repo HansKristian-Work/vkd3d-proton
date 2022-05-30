@@ -5823,7 +5823,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_global_flags(struct vkd3d_dxbc_compiler
         flags &= ~(VKD3DSGF_ENABLE_DOUBLE_PRECISION_FLOAT_OPS | VKD3DSGF_ENABLE_11_1_DOUBLE_EXTENSIONS);
     }
 
-    if (flags & ~(VKD3DSGF_REFACTORING_ALLOWED | VKD3DSGF_ENABLE_RAW_AND_STRUCTURED_BUFFERS))
+    if (flags & ~(VKD3DSGF_REFACTORING_ALLOWED | VKD3DSGF_ENABLE_MINIMUM_PRECISION | VKD3DSGF_ENABLE_RAW_AND_STRUCTURED_BUFFERS))
         FIXME("Unhandled global flags %#x.\n", flags);
     else
         WARN("Unhandled global flags %#x.\n", flags);
