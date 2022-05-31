@@ -2138,14 +2138,6 @@ struct d3d12_command_list
     struct d3d12_buffer_copy_tracked_buffer tracked_copy_buffers[VKD3D_BUFFER_COPY_TRACKING_BUFFER_COUNT];
     unsigned int tracked_copy_buffer_count;
 
-    /* Hackery needed for game workarounds. */
-    struct
-    {
-        /* Used to keep track of COLOR write -> COMPUTE where game forget to insert barrier
-         * before the dispatch. */
-        bool has_pending_color_write;
-    } workaround_state;
-
     struct vkd3d_private_store private_store;
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
