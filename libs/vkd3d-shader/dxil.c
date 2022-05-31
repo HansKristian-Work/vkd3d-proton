@@ -776,6 +776,18 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
                     goto end;
                 }
             }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_MIN_PRECISION_IS_NATIVE_16BIT)
+            {
+                static const dxil_spv_option_min_precision_native_16bit helper =
+                        { { DXIL_SPV_OPTION_MIN_PRECISION_NATIVE_16BIT }, DXIL_SPV_TRUE };
+
+                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support MIN_PRECISION_NATIVE_16BIT.\n");
+                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+                    goto end;
+                }
+            }
         }
 
         if (compiler_args->dual_source_blending)
@@ -1258,6 +1270,18 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
                 if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
                 {
                     ERR("dxil-spirv does not support RAY_TRACING_PRIMITIVE_CULLING.\n");
+                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+                    goto end;
+                }
+            }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_MIN_PRECISION_IS_NATIVE_16BIT)
+            {
+                static const dxil_spv_option_min_precision_native_16bit helper =
+                        { { DXIL_SPV_OPTION_MIN_PRECISION_NATIVE_16BIT }, DXIL_SPV_TRUE };
+
+                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support MIN_PRECISION_NATIVE_16BIT.\n");
                     ret = VKD3D_ERROR_NOT_IMPLEMENTED;
                     goto end;
                 }
