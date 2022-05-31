@@ -3024,8 +3024,6 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
             stage_mask |= new_stages;
             j++;
         }
-
-        list->workaround_state.has_pending_color_write = true;
     }
 
     dsv = &list->dsv;
@@ -4348,8 +4346,6 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
     list->cbv_srv_uav_descriptors_view = NULL;
     list->vrs_image = NULL;
 
-    list->workaround_state.has_pending_color_write = false;
-
     ID3D12GraphicsCommandList_SetPipelineState(iface, initial_pipeline_state);
 }
 
@@ -5527,31 +5523,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(d3d12_comm
     VKD3D_BREADCRUMB_COMMAND(DRAW_INDEXED);
 }
 
-static void d3d12_command_list_workaround_handle_missing_color_compute_barriers(struct d3d12_command_list *list)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkMemoryBarrier barrier;
-
-    if (list->workaround_state.has_pending_color_write &&
-            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_WORKAROUND_MISSING_COLOR_COMPUTE_BARRIERS))
-    {
-        /* Very specifically, every render pass which writes color sets
-         * has_pending_color_write = true.
-         * If we observe a StateBefore == RENDER_TARGET, clear the flag.
-         * If we come to a plain dispatch with this flag set,
-         * insert a simple memory barrier. The image will still have wrong layout,
-         * but this is good enough to workaround the game bug. */
-        barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-        barrier.pNext = NULL;
-        barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier, 0, NULL, 0, NULL));
-        list->workaround_state.has_pending_color_write = false;
-        WARN("Injecting workaround barrier!\n");
-    }
-}
-
 static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(d3d12_command_list_iface *iface,
         UINT x, UINT y, UINT z)
 {
@@ -5577,8 +5548,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(d3d12_command_list_ifa
         WARN("Failed to update compute state, ignoring dispatch.\n");
         return;
     }
-
-    d3d12_command_list_workaround_handle_missing_color_compute_barriers(list);
 
     if (!list->predicate_va)
         VK_CALL(vkCmdDispatch(list->vk_command_buffer, x, y, z));
@@ -7150,9 +7119,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                 VkImageLayout old_layout = VK_IMAGE_LAYOUT_UNDEFINED;
                 VkImageLayout new_layout = VK_IMAGE_LAYOUT_UNDEFINED;
                 uint32_t dsv_decay_mask = 0;
-
-                if (transition->StateBefore == D3D12_RESOURCE_STATE_RENDER_TARGET)
-                    list->workaround_state.has_pending_color_write = false;
 
                 if (!is_valid_resource_state(transition->StateBefore))
                 {
