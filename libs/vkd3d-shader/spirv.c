@@ -3512,8 +3512,17 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_constant_buffer(struct vkd3d_dxbc_
             }
         }
 
-        ptr_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
-                base_id, indexes, last_index + 1);
+        if (access_mask == SpvMemoryAccessAlignedMask)
+        {
+            /* For physical pointers, prefer InBounds for optimal codegen. */
+            ptr_id = vkd3d_spirv_build_op_in_bounds_access_chain(builder, ptr_type_id,
+                    base_id, indexes, last_index + 1);
+        }
+        else
+        {
+            ptr_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
+                    base_id, indexes, last_index + 1);
+        }
 
         if (reg->modifier == VKD3DSPRM_NONUNIFORM)
             vkd3d_dxbc_compiler_decorate_nonuniform(compiler, ptr_id);
@@ -6434,8 +6443,13 @@ static void vkd3d_dxbc_compiler_emit_dcl_constant_buffer(struct vkd3d_dxbc_compi
     else if (binding && (binding->flags & VKD3D_SHADER_BINDING_FLAG_RAW_VA))
     {
         storage_class = SpvStorageClassPhysicalStorageBuffer;
+        /* Could use cb->size here, but we will use InBounds access chains
+         * which could confuse a compiler if we tried
+         * to access an array out of bounds. Robustness on descriptors depends on the descriptor, not the
+         * declaration, and it's possible to declare a CBV with fewer array elements than you access.
+         * In this case, we pretend to have a 64 KiB descriptor. */
         type_id = vkd3d_dxbc_compiler_get_buffer_reference_type(compiler,
-                VKD3D_DATA_FLOAT, 4, cb->size, 0)->type_id;
+                VKD3D_DATA_FLOAT, 4, 4 * 1024, 0)->type_id;
         var_id = compiler->root_parameter_var_id;
     }
     else
@@ -9678,7 +9692,19 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc
             uint32_t indices[2];
             indices[0] = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0);
             indices[1] = coordinate_id;
-            ptr_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id, image.id, indices, ARRAY_SIZE(indices));
+
+            if (access_mask == SpvMemoryAccessAlignedMask)
+            {
+                /* For physical pointers, prefer InBounds for optimal codegen. */
+                ptr_id = vkd3d_spirv_build_op_in_bounds_access_chain(builder, ptr_type_id,
+                        image.id, indices, ARRAY_SIZE(indices));
+            }
+            else
+            {
+                ptr_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
+                        image.id, indices, ARRAY_SIZE(indices));
+            }
+
             constituents[j++] = vkd3d_spirv_build_op_loadv(builder, type_id, ptr_id, access_mask, &alignment, 1);
 
             if (resource->reg.modifier == VKD3DSPRM_NONUNIFORM)
@@ -9818,7 +9844,17 @@ static void vkd3d_dxbc_compiler_emit_store_uav_raw_structured(struct vkd3d_dxbc_
             if (component_count > 1)
                 texel_id = vkd3d_spirv_build_op_composite_extract1(builder, type_id, texel_id, component_idx);
 
-            ptr_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id, image.id, indices, ARRAY_SIZE(indices));
+            if (access_mask == SpvMemoryAccessAlignedMask)
+            {
+                ptr_id = vkd3d_spirv_build_op_in_bounds_access_chain(builder, ptr_type_id,
+                        image.id, indices, ARRAY_SIZE(indices));
+            }
+            else
+            {
+                ptr_id = vkd3d_spirv_build_op_access_chain(builder, ptr_type_id,
+                        image.id, indices, ARRAY_SIZE(indices));
+            }
+
             vkd3d_spirv_build_op_storev(builder, ptr_id, texel_id, access_mask, &alignment, 1);
 
             if (dst->reg.modifier == VKD3DSPRM_NONUNIFORM)
