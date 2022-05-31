@@ -6040,9 +6040,7 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
                 VKD3D_SHADER_TARGET_EXTENSION_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION;
     }
 
-    if (device->device_info.shader_integer_dot_product_features.shaderIntegerDotProduct &&
-            device->device_info.shader_integer_dot_product_properties.integerDotProduct4x8BitPackedSignedAccelerated &&
-            device->device_info.shader_integer_dot_product_properties.integerDotProduct4x8BitPackedUnsignedAccelerated)
+    if (device->device_info.shader_integer_dot_product_features.shaderIntegerDotProduct)
     {
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                 VKD3D_SHADER_TARGET_EXTENSION_SPV_KHR_INTEGER_DOT_PRODUCT;
