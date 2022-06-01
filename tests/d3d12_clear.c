@@ -325,7 +325,7 @@ void test_clear_render_target_view(void)
 
         ID3D12Device_CreateRenderTargetView(device, resource, &rtv_desc, rtv_handle);
 
-        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, &array_colors[i].x, 0, NULL);
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, (float *)&array_colors[i], 0, NULL);
     }
 
     transition_resource_state(command_list, resource,
@@ -356,7 +356,7 @@ void test_clear_render_target_view(void)
 
         ID3D12Device_CreateRenderTargetView(device, resource, &rtv_desc, rtv_handle);
 
-        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, &array_colors[i].x, 0, NULL);
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, (float *)&array_colors[i], 0, NULL);
     }
 
     transition_resource_state(command_list, resource,
