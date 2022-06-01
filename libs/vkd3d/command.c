@@ -9556,9 +9556,9 @@ static void d3d12_command_list_execute_indirect_state_template(
     else
     {
         vk_patch_cmd_buffer = list->vk_command_buffer;
+        d3d12_command_list_end_current_render_pass(list, true);
         VK_CALL(vkCmdPipelineBarrier(vk_patch_cmd_buffer, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier, 0, NULL, 0, NULL));
-        d3d12_command_list_end_current_render_pass(list, true);
         d3d12_command_list_invalidate_current_pipeline(list, true);
     }
 
