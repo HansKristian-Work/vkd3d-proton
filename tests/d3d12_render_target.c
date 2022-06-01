@@ -24,8 +24,8 @@
 
 void test_unbound_rtv_rendering(void)
 {
-    static const struct vec4 white = { 1.0f, 1.0f, 1.0f, 1.0f };
     static const struct vec4 red = { 1.0f, 0.0f, 0.0f, 1.0f };
+    static const float white[] = { 1.0f, 1.0f, 1.0f, 1.0f };
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12GraphicsCommandList *command_list;
     D3D12_CPU_DESCRIPTOR_HANDLE rt_handle;
@@ -91,8 +91,8 @@ void test_unbound_rtv_rendering(void)
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
     ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
 
-    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, &white.x, 0, NULL);
-    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rt_handle, &white.x, 0, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rt_handle, white, 0, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -185,7 +185,7 @@ void test_unknown_rtv_format(void)
     create_render_target(&context, &desc, &render_targets[1], &rtvs[2]);
 
     for (i = 0; i < ARRAY_SIZE(rtvs); ++i)
-        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtvs[i], &white.x, 0, NULL);
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtvs[i], (float *)&white, 0, NULL);
 
     /* NULL RTV */
     memset(&rtv_desc, 0, sizeof(rtv_desc));
