@@ -6081,8 +6081,10 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
                 VKD3D_SHADER_TARGET_EXTENSION_BARYCENTRIC_KHR;
     }
 
-    if (device->d3d12_caps.options4.Native16BitShaderOpsSupported)
+    if (device->d3d12_caps.options4.Native16BitShaderOpsSupported &&
+            device->device_info.driver_properties.driverID == VK_DRIVER_ID_MESA_RADV)
     {
+        /* Native FP16 is buggy on NV for now. */
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                 VKD3D_SHADER_TARGET_EXTENSION_MIN_PRECISION_IS_NATIVE_16BIT;
     }
