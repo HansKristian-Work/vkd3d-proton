@@ -27,6 +27,10 @@ PFN_D3D12_GET_DEBUG_INTERFACE pfn_D3D12GetDebugInterface;
 const char *vkd3d_test_platform = "other";
 struct vkd3d_test_state_context vkd3d_test_state;
 
+#ifdef _WIN32
+RENDERDOC_API_1_0_0 *renderdoc_api;
+#endif
+
 bool compare_float(float f, float g, int ulps)
 {
     int x, y;
@@ -861,6 +865,7 @@ ID3D12CommandSignature *create_command_signature_(unsigned int line,
 
 bool init_compute_test_context_(unsigned int line, struct test_context *context)
 {
+    D3D12_COMMAND_LIST_TYPE command_list_type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
     ID3D12Device *device;
     HRESULT hr;
 
@@ -873,14 +878,21 @@ bool init_compute_test_context_(unsigned int line, struct test_context *context)
     }
     device = context->device;
 
-    context->queue = create_command_queue_(line, device,
-            D3D12_COMMAND_LIST_TYPE_COMPUTE, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
+#ifdef _WIN32
+    begin_renderdoc_capturing(device);
+    /* Workaround RenderDoc bug. It expects a DIRECT command queue to exist. */
+    if (renderdoc_api)
+        command_list_type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+#endif
 
-    hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_COMPUTE,
+    context->queue = create_command_queue_(line, device,
+            command_list_type, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
+
+    hr = ID3D12Device_CreateCommandAllocator(device, command_list_type,
             &IID_ID3D12CommandAllocator, (void **)&context->allocator);
     ok_(line)(hr == S_OK, "Failed to create command allocator, hr %#x.\n", hr);
 
-    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_COMPUTE,
+    hr = ID3D12Device_CreateCommandList(device, 0, command_list_type,
             context->allocator, NULL, &IID_ID3D12GraphicsCommandList, (void **)&context->list);
     ok_(line)(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
 
