@@ -19,6 +19,10 @@
 #ifndef __VKD3D_D3D12_TEST_UTILS_H
 #define __VKD3D_D3D12_TEST_UTILS_H
 
+#ifdef _WIN32
+#include "renderdoc_app.h"
+#endif
+
 #define SHADER_BYTECODE(code) {code,sizeof(code)}
 
 #define wait_queue_idle(a, b) wait_queue_idle_(__LINE__, a, b)
@@ -1049,6 +1053,45 @@ static inline void create_render_target_(unsigned int line, struct test_context 
         ID3D12Device_CreateRenderTargetView(context->device, *render_target, NULL, *rtv);
 }
 
+/* Utility code for capturing native D3D12 tests, which is why this only covers Win32.
+ * Launch the d3d12.exe test binary from RenderDoc UI.
+ * For Vulkan capturing, use VKD3D_AUTO_CAPTURE_COUNTS and friends instead. */
+#ifdef _WIN32
+extern RENDERDOC_API_1_0_0 *renderdoc_api;
+
+static inline void begin_renderdoc_capturing(ID3D12Device *device)
+{
+    pRENDERDOC_GetAPI get_api;
+    HANDLE renderdoc;
+    FARPROC fn_ptr;
+
+    if (!renderdoc_api)
+    {
+        renderdoc = GetModuleHandleA("renderdoc.dll");
+        if (renderdoc)
+        {
+            fn_ptr = GetProcAddress(renderdoc, "RENDERDOC_GetAPI");
+            if (fn_ptr)
+            {
+                /* Workaround compiler warnings about casting to function pointer. */
+                memcpy(&get_api, &fn_ptr, sizeof(fn_ptr));
+                if (!get_api(eRENDERDOC_API_Version_1_0_0, (void **)&renderdoc_api))
+                    renderdoc_api = NULL;
+            }
+        }
+    }
+
+    if (renderdoc_api)
+        renderdoc_api->StartFrameCapture(device, NULL);
+}
+
+static inline void end_renderdoc_capturing(ID3D12Device *device)
+{
+    if (renderdoc_api)
+        renderdoc_api->EndFrameCapture(device, NULL);
+}
+#endif
+
 #define init_test_context(context, desc) init_test_context_(__LINE__, context, desc)
 static inline bool init_test_context_(unsigned int line, struct test_context *context,
         const struct test_context_desc *desc)
@@ -1065,6 +1108,10 @@ static inline bool init_test_context_(unsigned int line, struct test_context *co
         return false;
     }
     device = context->device;
+
+#ifdef _WIN32
+    begin_renderdoc_capturing(device);
+#endif
 
     context->queue = create_command_queue_(line, device, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
 
@@ -1116,6 +1163,10 @@ static inline bool init_test_context_(unsigned int line, struct test_context *co
 static inline void destroy_test_context_(unsigned int line, struct test_context *context)
 {
     ULONG refcount;
+
+#ifdef _WIN32
+    end_renderdoc_capturing(context->device);
+#endif
 
     if (context->pipeline_state)
         ID3D12PipelineState_Release(context->pipeline_state);
