@@ -4552,31 +4552,41 @@ void test_typed_srv_uav_cast(void)
         { DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R16_FLOAT, false, false },
         { DXGI_FORMAT_R16_SINT, DXGI_FORMAT_R16_FLOAT, false, false },
 
-        /* Special D3D11 magic. For UAVs, we can reinterpret formats as the "always supported" types R32{U,I,F}.
-         * If typeless, we can cast to any R32U/I/F format.
-         * If not typeless, we follow float <-> non-float ban. */
-        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R32_UINT, false, true },
-        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R32_SINT, false, true },
-        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R32_FLOAT, false, false },
-        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R32_UINT, false, true },
-        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R32_SINT, false, true },
-        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R32_FLOAT, false, false },
+        /* 5.3.9.5 from D3D11 functional spec. 32-bit typeless formats
+         * can be viewed as R32{U,I,F}. The D3D12 validation runtime appears to be buggy
+         * and also allows fully typed views even if bits per component don't match.
+         * This feature is derived from legacy D3D11 jank, so assume the validation layers are
+         * just buggy. */
+
         { DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R32_UINT, false, true },
         { DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R32_SINT, false, true },
         { DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R32_FLOAT, false, true },
-
-        { DXGI_FORMAT_R16G16_UNORM, DXGI_FORMAT_R32_UINT, false, true },
-        { DXGI_FORMAT_R16G16_UNORM, DXGI_FORMAT_R32_SINT, false, true },
-        { DXGI_FORMAT_R16G16_UNORM, DXGI_FORMAT_R32_FLOAT, false, false },
-        { DXGI_FORMAT_R16G16_UINT, DXGI_FORMAT_R32_UINT, false, true },
-        { DXGI_FORMAT_R16G16_UINT, DXGI_FORMAT_R32_SINT, false, true },
-        { DXGI_FORMAT_R16G16_UINT, DXGI_FORMAT_R32_FLOAT, false, false },
-        { DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R32_UINT, false, false },
-        { DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R32_SINT, false, false },
-        { DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R32_FLOAT, false, true },
         { DXGI_FORMAT_R16G16_TYPELESS, DXGI_FORMAT_R32_UINT, false, true },
         { DXGI_FORMAT_R16G16_TYPELESS, DXGI_FORMAT_R32_SINT, false, true },
         { DXGI_FORMAT_R16G16_TYPELESS, DXGI_FORMAT_R32_FLOAT, false, true },
+
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R32_FLOAT, false, false },
+        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R32_FLOAT, false, false },
+        { DXGI_FORMAT_R16G16_UNORM, DXGI_FORMAT_R32_FLOAT, false, false },
+        { DXGI_FORMAT_R16G16_UINT, DXGI_FORMAT_R32_FLOAT, false, false },
+        { DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R32_UINT, false, false },
+        { DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R32_SINT, false, false },
+
+        /* D3D12 validation does not complain about these, but it should according to D3D11 functional spec.
+         * No docs for D3D12 say otherwise.
+         * These tests can trip assertions in drivers since we will not emit MUTABLE at all
+         * for some of these tests. */
+#if 0
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R32_UINT, false, true },
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R32_SINT, false, true },
+        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R32_UINT, false, true },
+        { DXGI_FORMAT_R8G8B8A8_UINT, DXGI_FORMAT_R32_SINT, false, true },
+        { DXGI_FORMAT_R16G16_UNORM, DXGI_FORMAT_R32_UINT, false, true },
+        { DXGI_FORMAT_R16G16_UNORM, DXGI_FORMAT_R32_SINT, false, true },
+        { DXGI_FORMAT_R16G16_UINT, DXGI_FORMAT_R32_UINT, false, true },
+        { DXGI_FORMAT_R16G16_UINT, DXGI_FORMAT_R32_SINT, false, true },
+        { DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R32_FLOAT, false, true },
+#endif
     };
 
     if (!init_compute_test_context(&context))
