@@ -224,7 +224,8 @@ static bool vkd3d_get_format_compatibility_list(const struct d3d12_device *devic
 
     if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
     {
-        /* Legacy D3D11 compatibility rule that allows typed UAV loads on FL11.0 hardware */
+        /* Legacy D3D11 compatibility rule that allows typed UAV loads on FL11.0 hardware.
+         * 5.3.9.5 from D3D11 functional spec. 32-bit typeless formats can be viewed as R32{U,I,F}.*/
         if (format->byte_count == 4 && format->type == VKD3D_FORMAT_TYPE_TYPELESS)
         {
             for (i = 0; i < ARRAY_SIZE(r32_uav_formats); i++)
