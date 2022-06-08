@@ -12676,6 +12676,7 @@ static HRESULT d3d12_command_signature_allocate_preprocess_memory_for_list(
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkGeneratedCommandsMemoryRequirementsInfoNV info;
     VkMemoryRequirements2 memory_info;
+    uint32_t alignment;
 
     memory_info.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
     memory_info.pNext = NULL;
@@ -12697,10 +12698,13 @@ static HRESULT d3d12_command_signature_allocate_preprocess_memory_for_list(
 
     VK_CALL(vkGetGeneratedCommandsMemoryRequirementsNV(list->device->vk_device, &info, &memory_info));
 
+    alignment = max(memory_info.memoryRequirements.alignment,
+            list->device->device_info.device_generated_commands_properties_nv.minIndirectCommandsBufferOffsetAlignment);
+
     if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
             VKD3D_SCRATCH_POOL_KIND_INDIRECT_PREPROCESS,
             memory_info.memoryRequirements.size,
-            list->device->device_info.device_generated_commands_properties_nv.minIndirectCommandsBufferOffsetAlignment,
+            alignment,
             memory_info.memoryRequirements.memoryTypeBits, allocation))
         return E_OUTOFMEMORY;
 
