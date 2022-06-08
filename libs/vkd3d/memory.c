@@ -349,12 +349,15 @@ static HRESULT vkd3d_import_host_memory(struct d3d12_device *device, void *host_
     return hr;
 }
 
-static HRESULT vkd3d_allocation_assign_gpu_address(struct vkd3d_memory_allocation *allocation, struct d3d12_device *device, struct vkd3d_memory_allocator *allocator)
+static HRESULT vkd3d_allocation_assign_gpu_address(struct vkd3d_memory_allocation *allocation,
+        struct d3d12_device *device, struct vkd3d_memory_allocator *allocator)
 {
     if (device->device_info.buffer_device_address_features.bufferDeviceAddress)
         allocation->resource.va = vkd3d_get_buffer_device_address(device, allocation->resource.vk_buffer);
-    else
+    else if (!(allocation->flags & VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH))
         allocation->resource.va = vkd3d_va_map_alloc_fake_va(&allocator->va_map, allocation->resource.size);
+    else
+        allocation->resource.va = 0xdeadbeef;
 
     if (!allocation->resource.va)
     {
@@ -362,7 +365,9 @@ static HRESULT vkd3d_allocation_assign_gpu_address(struct vkd3d_memory_allocatio
         return E_OUTOFMEMORY;
     }
 
-    vkd3d_va_map_insert(&allocator->va_map, &allocation->resource);
+    /* Internal scratch buffers are not visible to application so we never have to map it back to VkBuffer. */
+    if (!(allocation->flags & VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH))
+        vkd3d_va_map_insert(&allocator->va_map, &allocation->resource);
     return S_OK;
 }
 
@@ -446,10 +451,12 @@ static void vkd3d_memory_allocation_free(const struct vkd3d_memory_allocation *a
 
     if ((allocation->flags & VKD3D_ALLOCATION_FLAG_GPU_ADDRESS) && allocation->resource.va)
     {
-        vkd3d_va_map_remove(&allocator->va_map, &allocation->resource);
-
-        if (!device->device_info.buffer_device_address_features.bufferDeviceAddress)
-            vkd3d_va_map_free_fake_va(&allocator->va_map, allocation->resource.va, allocation->resource.size);
+        if (!(allocation->flags & VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH))
+        {
+            vkd3d_va_map_remove(&allocator->va_map, &allocation->resource);
+            if (!device->device_info.buffer_device_address_features.bufferDeviceAddress)
+                vkd3d_va_map_free_fake_va(&allocator->va_map, allocation->resource.va, allocation->resource.size);
+        }
     }
 
     if (allocation->resource.view_map)
@@ -1398,7 +1405,8 @@ HRESULT vkd3d_allocate_memory(struct d3d12_device *device, struct vkd3d_memory_a
     HRESULT hr;
 
     if (!info->pNext && !info->host_ptr && info->memory_requirements.size < VKD3D_VA_BLOCK_SIZE &&
-            !(info->heap_flags & (D3D12_HEAP_FLAG_DENY_BUFFERS | D3D12_HEAP_FLAG_ALLOW_WRITE_WATCH)))
+            !(info->heap_flags & (D3D12_HEAP_FLAG_DENY_BUFFERS | D3D12_HEAP_FLAG_ALLOW_WRITE_WATCH)) &&
+            !(info->flags & VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH))
         hr = vkd3d_suballocate_memory(device, allocator, info, allocation);
     else
         hr = vkd3d_memory_allocation_init(allocation, device, allocator, info);
@@ -1447,6 +1455,7 @@ HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_mem
     alloc_info.heap_flags = info->heap_desc.Flags;
     alloc_info.host_ptr = info->host_ptr;
 
+    alloc_info.flags |= info->extra_allocation_flags;
     if (!(info->heap_desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
         alloc_info.flags |= VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER;
 

@@ -586,6 +586,10 @@ enum vkd3d_allocation_flag
     VKD3D_ALLOCATION_FLAG_ALLOW_WRITE_WATCH = (1u << 3),
     VKD3D_ALLOCATION_FLAG_NO_FALLBACK       = (1u << 4),
     VKD3D_ALLOCATION_FLAG_DEDICATED         = (1u << 5),
+    /* Intended for internal allocation of scratch buffers.
+     * They are never suballocated since we do that ourselves,
+     * and we do not consume space in the VA map. */
+    VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH  = (1u << 6),
 };
 
 #define VKD3D_MEMORY_CHUNK_SIZE (VKD3D_VA_BLOCK_SIZE * 8)
@@ -607,6 +611,7 @@ struct vkd3d_allocate_heap_memory_info
 {
     D3D12_HEAP_DESC heap_desc;
     void *host_ptr;
+    uint32_t extra_allocation_flags;
 };
 
 struct vkd3d_allocate_resource_memory_info
