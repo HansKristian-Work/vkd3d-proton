@@ -2551,6 +2551,7 @@ static HRESULT d3d12_device_create_scratch_buffer(struct d3d12_device *device, V
     alloc_info.heap_desc.SizeInBytes = size;
     alloc_info.heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     alloc_info.heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+    alloc_info.extra_allocation_flags = VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH;
 
     if (FAILED(hr = vkd3d_allocate_heap_memory(device, &device->memory_allocator,
             &alloc_info, &scratch->allocation)))
