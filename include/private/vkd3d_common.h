@@ -27,6 +27,7 @@
 #include <stdint.h>
 #include <limits.h>
 #include <stdbool.h>
+#include <assert.h>
 
 #ifdef _MSC_VER
 #include <intrin.h>
@@ -46,11 +47,13 @@
 
 static inline uint64_t align64(uint64_t addr, uint64_t alignment)
 {
+    assert(alignment > 0 && (alignment & (alignment - 1)) == 0);
     return (addr + (alignment - 1)) & ~(alignment - 1);
 }
 
 static inline size_t align(size_t addr, size_t alignment)
 {
+    assert(alignment > 0 && (alignment & (alignment - 1)) == 0);
     return (addr + (alignment - 1)) & ~(alignment - 1);
 }
 
