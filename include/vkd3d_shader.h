@@ -333,6 +333,9 @@ enum vkd3d_shader_quirk
     /* For Position builtins in Output storage class, emit Invariant decoration.
      * Normally, games have to emit Precise math for position, but if they forget ... */
     VKD3D_SHADER_QUIRK_INVARIANT_POSITION = (1 << 2),
+
+    /* For raw VA CBVs, range check every access. */
+    VKD3D_SHADER_QUIRK_FORCE_ROBUST_PHYSICAL_CBV = (1 << 3),
 };
 
 struct vkd3d_shader_quirk_hash

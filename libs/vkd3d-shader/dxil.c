@@ -846,6 +846,18 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         }
     }
 
+    if (quirks & VKD3D_SHADER_QUIRK_FORCE_ROBUST_PHYSICAL_CBV)
+    {
+        const dxil_spv_option_robust_physical_cbv_load robust_cbv =
+                { { DXIL_SPV_OPTION_ROBUST_PHYSICAL_CBV_LOAD }, DXIL_SPV_TRUE };
+        if (dxil_spv_converter_add_option(converter, &robust_cbv.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support ROBUST_PHYSICAL_CBV_LOAD.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
     remap_userdata.shader_interface_info = shader_interface_info;
     remap_userdata.shader_interface_local_info = NULL;
     remap_userdata.num_root_descriptors = num_root_descriptors;
@@ -925,6 +937,7 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     vkd3d_shader_hash_t hash;
     char *demangled_export;
     int ret = VKD3D_OK;
+    uint32_t quirks;
     void *code;
 
     dxil_spv_set_thread_log_callback(vkd3d_dxil_log_callback, NULL);
@@ -942,6 +955,8 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
             return ret;
         }
     }
+
+    quirks = vkd3d_shader_compile_arguments_select_quirks(compiler_args, hash);
 
     dxil_spv_begin_thread_allocator_context();
 
@@ -1211,6 +1226,18 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         snprintf(buffer, sizeof(buffer), "%016"PRIx64".%s.dxil", spirv->meta.hash, export);
         if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
             WARN("dxil-spirv does not support SHADER_SOURCE_FILE.\n");
+    }
+
+    if (quirks & VKD3D_SHADER_QUIRK_FORCE_ROBUST_PHYSICAL_CBV)
+    {
+        const dxil_spv_option_robust_physical_cbv_load robust_cbv =
+                { { DXIL_SPV_OPTION_ROBUST_PHYSICAL_CBV_LOAD }, DXIL_SPV_TRUE };
+        if (dxil_spv_converter_add_option(converter, &robust_cbv.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support ROBUST_PHYSICAL_CBV_LOAD.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
     }
 
     if (compiler_args)

@@ -617,6 +617,7 @@ static void vkd3d_instance_apply_global_shader_quirks(void)
     static const struct override overrides[] =
     {
         { VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION, VKD3D_SHADER_QUIRK_INVARIANT_POSITION, true },
+        { VKD3D_CONFIG_FLAG_FORCE_ROBUST_PHYSICAL_CBV, VKD3D_SHADER_QUIRK_FORCE_ROBUST_PHYSICAL_CBV, false },
     };
     uint64_t eq_test;
     unsigned int i;
@@ -660,6 +661,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"pipeline_library_app_cache", VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_APP_CACHE_ONLY},
     {"shader_cache_sync", VKD3D_CONFIG_FLAG_SHADER_CACHE_SYNC},
     {"force_raw_va_cbv", VKD3D_CONFIG_FLAG_FORCE_RAW_VA_CBV},
+    {"force_robust_physical_cbv", VKD3D_CONFIG_FLAG_FORCE_ROBUST_PHYSICAL_CBV},
 };
 
 static void vkd3d_config_flags_init_once(void)
