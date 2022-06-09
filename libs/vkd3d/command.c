@@ -4084,9 +4084,9 @@ static HRESULT d3d12_command_list_build_init_commands(struct d3d12_command_list 
         barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
         barrier.pNext = NULL;
         barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_COMMAND_PREPROCESS_READ_BIT_NV | VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
         VK_CALL(vkCmdPipelineBarrier(list->vk_init_commands, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_COMMAND_PREPROCESS_BIT_NV,
+                VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
                 0, 1, &barrier, 0, NULL, 0, NULL));
     }
 
@@ -9575,9 +9575,9 @@ static void d3d12_command_list_execute_indirect_state_template(
     if (vk_patch_cmd_buffer == list->vk_command_buffer)
     {
         barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_COMMAND_PREPROCESS_READ_BIT_NV | VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
         VK_CALL(vkCmdPipelineBarrier(vk_patch_cmd_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_COMMAND_PREPROCESS_BIT_NV,
+                VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
                 0, 1, &barrier, 0, NULL, 0, NULL));
         /* The barrier is deferred if we moved the dispatch to init command buffer. */
     }
