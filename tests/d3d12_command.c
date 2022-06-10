@@ -1467,7 +1467,6 @@ void test_execute_indirect_state(void)
     D3D12_VERTEX_BUFFER_VIEW vbvs[2];
     ID3D12Resource *argument_buffer;
     struct test_context_desc desc;
-    ID3D12Resource *count_buffer;
     ID3D12PipelineState *psos[2];
     struct test_context context;
     struct resource_readback rb;
@@ -1988,14 +1987,20 @@ void test_execute_indirect_state(void)
         argument_buffer = create_upload_buffer(context.device, 256 * 1024, NULL);
         argument_buffer_late = create_default_buffer(context.device, 256 * 1024,
                 D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+
+#define UNALIGNED_ARGUMENT_BUFFER_OFFSET (64 * 1024 + 4)
+#define UNALIGNED_COUNT_BUFFER_OFFSET (128 * 1024 + 4)
+#define ALIGNED_COUNT_BUFFER_OFFSET (128 * 1024 + 4 * 1024)
         {
-            void *ptr;
-            ID3D12Resource_Map(argument_buffer, 0, NULL, &ptr);
+            uint8_t *ptr;
+            ID3D12Resource_Map(argument_buffer, 0, NULL, (void**)&ptr);
             memcpy(ptr, tests[i].argument_buffer_data, tests[i].argument_buffer_size);
+            memcpy(ptr + UNALIGNED_ARGUMENT_BUFFER_OFFSET, tests[i].argument_buffer_data, tests[i].argument_buffer_size);
+            memcpy(ptr + UNALIGNED_COUNT_BUFFER_OFFSET, &tests[i].api_max_count, sizeof(tests[i].api_max_count));
+            memcpy(ptr + ALIGNED_COUNT_BUFFER_OFFSET, &tests[i].api_max_count, sizeof(tests[i].api_max_count));
             ID3D12Resource_Unmap(argument_buffer, 0, NULL);
         }
 
-        count_buffer = create_upload_buffer(context.device, sizeof(tests[i].api_max_count), &tests[i].api_max_count);
         streamout_buffer = create_default_buffer(context.device, 64 * 1024,
                 D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_STREAM_OUT);
 
@@ -2034,13 +2039,14 @@ void test_execute_indirect_state(void)
                 argument_buffer, 0, NULL, 0);
         /* Test equivalent call with indirect count. */
         ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature, 1024,
-                argument_buffer, 0, count_buffer, 0);
+                argument_buffer, UNALIGNED_ARGUMENT_BUFFER_OFFSET,
+                argument_buffer, UNALIGNED_COUNT_BUFFER_OFFSET);
         /* Test equivalent, but now with late transition to INDIRECT. */
         ID3D12GraphicsCommandList_CopyResource(command_list, argument_buffer_late, argument_buffer);
         transition_resource_state(command_list, argument_buffer_late, D3D12_RESOURCE_STATE_COPY_DEST,
                 D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
         ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature, 1024,
-                argument_buffer_late, 0, count_buffer, 0);
+                argument_buffer_late, 0, argument_buffer_late, ALIGNED_COUNT_BUFFER_OFFSET);
 
         /* Root descriptors which are part of the state block are cleared to NULL. Recover them here
          * since attempting to draw next test will crash GPU. */
@@ -2118,7 +2124,6 @@ void test_execute_indirect_state(void)
         ID3D12CommandSignature_Release(command_signature);
         ID3D12Resource_Release(argument_buffer);
         ID3D12Resource_Release(argument_buffer_late);
-        ID3D12Resource_Release(count_buffer);
         ID3D12Resource_Release(streamout_buffer);
         release_resource_readback(&rb);
     }
