@@ -12722,9 +12722,11 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
     const struct vkd3d_shader_root_constant *root_constant;
     struct vkd3d_patch_command *patch_commands = NULL;
     VkIndirectCommandsLayoutTokenNV *tokens = NULL;
+    uint32_t required_stride_alignment = 0;
     VkIndirectCommandsLayoutTokenNV token;
     uint32_t generic_u32_copy_count;
     size_t patch_commands_count = 0;
+    uint32_t required_alignment = 0;
     size_t patch_commands_size = 0;
     uint32_t root_parameter_index;
     uint32_t src_word_offset = 0;
@@ -12801,8 +12803,9 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
                 token.pushconstantSize = argument_desc->Constant.Num32BitValuesToSet;
                 token.pushconstantOffset *= sizeof(uint32_t);
                 token.pushconstantSize *= sizeof(uint32_t);
+                required_alignment = sizeof(uint32_t);
 
-                stream_stride = align(stream_stride, sizeof(uint32_t));
+                stream_stride = align(stream_stride, required_alignment);
                 token.offset = stream_stride;
                 stream_stride += token.pushconstantSize;
                 dst_word_offset = token.offset / sizeof(uint32_t);
@@ -12829,8 +12832,9 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
                 token.pushconstantShaderStageFlags = root_signature->graphics.vk_push_stages;
                 token.pushconstantOffset = root_parameter->descriptor.raw_va_root_descriptor_index * sizeof(VkDeviceAddress);
                 token.pushconstantSize = sizeof(VkDeviceAddress);
+                required_alignment = sizeof(uint32_t);
 
-                stream_stride = align(stream_stride, sizeof(uint32_t));
+                stream_stride = align(stream_stride, required_alignment);
                 token.offset = stream_stride;
                 stream_stride += token.pushconstantSize;
                 dst_word_offset = token.offset / sizeof(uint32_t);
@@ -12845,7 +12849,13 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
                 token.vertexBindingUnit = argument_desc->VertexBuffer.Slot;
                 token.vertexDynamicStride = VK_TRUE;
 
-                stream_stride = align(stream_stride, sizeof(VkDeviceAddress));
+                /* If device exposes 4 byte alignment of the indirect command buffer, it implies we can
+                 * pack VA at sub-scalar alignment. Probably not completely within spec, but hey ... */
+                required_alignment = min(
+                        device->device_info.device_generated_commands_properties_nv.minIndirectCommandsBufferOffsetAlignment,
+                        sizeof(VkDeviceAddress));
+
+                stream_stride = align(stream_stride, required_alignment);
                 token.offset = stream_stride;
                 stream_stride += sizeof(VkBindVertexBufferIndirectCommandNV);
                 dst_word_offset = token.offset / sizeof(uint32_t);
@@ -12857,7 +12867,14 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW:
                 token.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_INDEX_BUFFER_NV;
-                stream_stride = align(stream_stride, sizeof(VkDeviceAddress));
+
+                /* If device exposes 4 byte alignment of the indirect command buffer, it implies we can
+                 * pack VA at sub-scalar alignment. Probably not completely within spec, but hey ... */
+                required_alignment = min(
+                        device->device_info.device_generated_commands_properties_nv.minIndirectCommandsBufferOffsetAlignment,
+                        sizeof(VkDeviceAddress));
+
+                stream_stride = align(stream_stride, required_alignment);
                 token.offset = stream_stride;
                 stream_stride += sizeof(VkBindVertexBufferIndirectCommandNV);
                 dst_word_offset = token.offset / sizeof(uint32_t);
@@ -12879,7 +12896,8 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW:
                 token.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_DRAW_NV;
-                stream_stride = align(stream_stride, sizeof(uint32_t));
+                required_alignment = sizeof(uint32_t);
+                stream_stride = align(stream_stride, required_alignment);
                 token.offset = stream_stride;
                 stream_stride += sizeof(VkDrawIndirectCommand);
                 dst_word_offset = token.offset / sizeof(uint32_t);
@@ -12889,7 +12907,8 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED:
                 token.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_DRAW_INDEXED_NV;
-                stream_stride = align(stream_stride, sizeof(uint32_t));
+                required_alignment = sizeof(uint32_t);
+                stream_stride = align(stream_stride, required_alignment);
                 token.offset = stream_stride;
                 stream_stride += sizeof(VkDrawIndexedIndirectCommand);
                 dst_word_offset = token.offset / sizeof(uint32_t);
@@ -12921,9 +12940,11 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
                 patch_commands[patch_commands_count].dst_offset = dst_word_offset++;
             }
         }
+
+        required_stride_alignment = max(required_stride_alignment, required_alignment);
     }
 
-    stream_stride = align(stream_stride, sizeof(VkDeviceAddress));
+    stream_stride = align(stream_stride, required_stride_alignment);
 
     if (FAILED(hr = d3d12_command_signature_init_patch_commands_buffer(signature, device, patch_commands, patch_commands_count)))
         goto end;
