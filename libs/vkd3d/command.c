@@ -9647,6 +9647,7 @@ static void d3d12_command_list_execute_indirect_state_template(
         struct d3d12_resource *count_buffer, UINT64 count_buffer_offset)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const VkPhysicalDeviceDeviceGeneratedCommandsPropertiesNV *props;
     struct vkd3d_scratch_allocation preprocess_allocation;
     struct vkd3d_scratch_allocation stream_allocation;
     struct vkd3d_scratch_allocation count_allocation;
@@ -9657,6 +9658,8 @@ static void d3d12_command_list_execute_indirect_state_template(
     VkDeviceSize preprocess_size;
     VkPipeline current_pipeline;
     VkMemoryBarrier barrier;
+    bool require_ibo_update;
+    bool require_patch;
     unsigned int i;
     HRESULT hr;
 
@@ -9672,6 +9675,8 @@ static void d3d12_command_list_execute_indirect_state_template(
     current_pipeline = list->current_pipeline;
 
     memset(&patch_args, 0, sizeof(patch_args));
+    patch_args.debug_tag = 0; /* Modify to non-zero value as desired when debugging. */
+
     if (FAILED(hr = d3d12_command_signature_allocate_preprocess_memory_for_list(
             list, signature, current_pipeline,
             max_command_count, &preprocess_allocation, &preprocess_size)))
@@ -9680,87 +9685,120 @@ static void d3d12_command_list_execute_indirect_state_template(
         return;
     }
 
-    if (FAILED(hr = d3d12_command_signature_allocate_stream_memory_for_list(
-            list, signature, max_command_count, &stream_allocation)))
+    /* If everything regarding alignment works out, we can just reuse the app indirect buffer instead. */
+    require_ibo_update = false;
+    require_patch = false;
+
+    /* Bind IBO. If we always update the IBO indirectly, do not validate the index buffer here.
+     * We can render fine even with a NULL IBO bound. */
+    for (i = 0; i < signature->desc.NumArgumentDescs; i++)
     {
-        WARN("Failed to allocate stream memory.\n");
-        return;
+        if (signature->desc.pArgumentDescs[i].Type == D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW)
+        {
+            require_ibo_update = true;
+            break;
+        }
     }
 
-    if (count_buffer)
+    /* - Stride can mismatch, i.e. we need internal alignment of arguments.
+     * - Min required alignment on the indirect buffer itself might be too strict.
+     * - Min required alignment on count buffer might be too strict.
+     * - We require debugging.
+     * - Temporary: IBO type rewrite is required. TODO: Use index type LUT feature. */
+    props = &list->device->device_info.device_generated_commands_properties_nv;
+
+    if ((signature->state_template.stride != signature->desc.ByteStride && max_command_count > 1) ||
+            (arg_buffer_offset & (props->minIndirectCommandsBufferOffsetAlignment - 1)) ||
+            (count_buffer && (count_buffer_offset & (props->minSequencesCountBufferOffsetAlignment - 1))) ||
+            patch_args.debug_tag ||
+            require_ibo_update)
     {
-        if (FAILED(hr = d3d12_command_allocator_allocate_scratch_memory(list->allocator,
-                VKD3D_SCRATCH_POOL_KIND_DEVICE_STORAGE,
-                sizeof(uint32_t),
-                list->device->device_info.device_generated_commands_properties_nv.minSequencesCountBufferOffsetAlignment,
-                ~0u, &count_allocation)))
+        require_patch = true;
+    }
+
+    if (require_patch)
+    {
+        if (FAILED(hr = d3d12_command_signature_allocate_stream_memory_for_list(
+                list, signature, max_command_count, &stream_allocation)))
         {
-            WARN("Failed to allocate count memory.\n");
+            WARN("Failed to allocate stream memory.\n");
             return;
         }
-    }
 
-    patch_args.template_va = signature->state_template.buffer_va;
-    patch_args.api_buffer_va = d3d12_resource_get_va(arg_buffer, arg_buffer_offset);
-    patch_args.device_generated_commands_va = stream_allocation.va;
-    patch_args.indirect_count_va = count_buffer ? d3d12_resource_get_va(count_buffer, count_buffer_offset) : 0;
-    patch_args.dst_indirect_count_va = count_buffer ? count_allocation.va : 0;
-    patch_args.api_buffer_word_stride = signature->desc.ByteStride / sizeof(uint32_t);
-    patch_args.device_generated_commands_word_stride = signature->state_template.stride / sizeof(uint32_t);
-    patch_args.debug_tag = 0; /* Modify to non-zero value as desired when debugging. */
-
-    if (patch_args.debug_tag != 0)
-    {
-        /* Makes log easier to understand since a sorted log will appear in-order. */
-        static uint32_t vkd3d_implicit_instance_count;
-        patch_args.implicit_instance = vkd3d_atomic_uint32_increment(
-                &vkd3d_implicit_instance_count, vkd3d_memory_order_relaxed) - 1;
-    }
-
-    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    barrier.pNext = NULL;
-    barrier.srcAccessMask = 0;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-    if (!list->execute_indirect.has_observed_transition_to_indirect)
-    {
-        /* Fast path, throw the template resolve to the init command buffer. */
-        d3d12_command_allocator_allocate_init_command_buffer(list->allocator, list);
-        vk_patch_cmd_buffer = list->vk_init_commands;
-        if (!list->execute_indirect.has_emitted_indirect_to_compute_barrier)
+        if (count_buffer)
         {
+            if (FAILED(hr = d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+                    VKD3D_SCRATCH_POOL_KIND_DEVICE_STORAGE,
+                    sizeof(uint32_t),
+                    props->minSequencesCountBufferOffsetAlignment,
+                    ~0u, &count_allocation)))
+            {
+                WARN("Failed to allocate count memory.\n");
+                return;
+            }
+        }
+
+        patch_args.template_va = signature->state_template.buffer_va;
+        patch_args.api_buffer_va = d3d12_resource_get_va(arg_buffer, arg_buffer_offset);
+        patch_args.device_generated_commands_va = stream_allocation.va;
+        patch_args.indirect_count_va = count_buffer ? d3d12_resource_get_va(count_buffer, count_buffer_offset) : 0;
+        patch_args.dst_indirect_count_va = count_buffer ? count_allocation.va : 0;
+        patch_args.api_buffer_word_stride = signature->desc.ByteStride / sizeof(uint32_t);
+        patch_args.device_generated_commands_word_stride = signature->state_template.stride / sizeof(uint32_t);
+
+        if (patch_args.debug_tag != 0)
+        {
+            /* Makes log easier to understand since a sorted log will appear in-order. */
+            static uint32_t vkd3d_implicit_instance_count;
+            patch_args.implicit_instance = vkd3d_atomic_uint32_increment(
+                    &vkd3d_implicit_instance_count, vkd3d_memory_order_relaxed) - 1;
+        }
+
+        barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        barrier.pNext = NULL;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        if (!list->execute_indirect.has_observed_transition_to_indirect)
+        {
+            /* Fast path, throw the template resolve to the init command buffer. */
+            d3d12_command_allocator_allocate_init_command_buffer(list->allocator, list);
+            vk_patch_cmd_buffer = list->vk_init_commands;
+            if (!list->execute_indirect.has_emitted_indirect_to_compute_barrier)
+            {
+                VK_CALL(vkCmdPipelineBarrier(vk_patch_cmd_buffer, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier, 0, NULL, 0, NULL));
+                list->execute_indirect.has_emitted_indirect_to_compute_barrier = true;
+            }
+        }
+        else
+        {
+            vk_patch_cmd_buffer = list->vk_command_buffer;
+            d3d12_command_list_end_current_render_pass(list, true);
             VK_CALL(vkCmdPipelineBarrier(vk_patch_cmd_buffer, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier, 0, NULL, 0, NULL));
-            list->execute_indirect.has_emitted_indirect_to_compute_barrier = true;
+            d3d12_command_list_invalidate_current_pipeline(list, true);
         }
-    }
-    else
-    {
-        vk_patch_cmd_buffer = list->vk_command_buffer;
-        d3d12_command_list_end_current_render_pass(list, true);
-        VK_CALL(vkCmdPipelineBarrier(vk_patch_cmd_buffer, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier, 0, NULL, 0, NULL));
-        d3d12_command_list_invalidate_current_pipeline(list, true);
-    }
 
-    VK_CALL(vkCmdPushConstants(vk_patch_cmd_buffer, signature->state_template.pipeline.vk_pipeline_layout,
-            VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(patch_args), &patch_args));
-    VK_CALL(vkCmdBindPipeline(vk_patch_cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-            signature->state_template.pipeline.vk_pipeline));
+        VK_CALL(vkCmdPushConstants(vk_patch_cmd_buffer, signature->state_template.pipeline.vk_pipeline_layout,
+                VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(patch_args), &patch_args));
+        VK_CALL(vkCmdBindPipeline(vk_patch_cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                signature->state_template.pipeline.vk_pipeline));
 
-    /* One workgroup processes the patching for one draw. We could potentially use indirect dispatch
-     * to restrict the patching work to just the indirect count, but meh, just more barriers.
-     * We'll nop out the workgroup early based on direct count, and the number of threads should be trivial either way. */
-    VK_CALL(vkCmdDispatch(vk_patch_cmd_buffer, max_command_count, 1, 1));
+        /* One workgroup processes the patching for one draw. We could potentially use indirect dispatch
+         * to restrict the patching work to just the indirect count, but meh, just more barriers.
+         * We'll nop out the workgroup early based on direct count, and the number of threads should be trivial either way. */
+        VK_CALL(vkCmdDispatch(vk_patch_cmd_buffer, max_command_count, 1, 1));
 
-    if (vk_patch_cmd_buffer == list->vk_command_buffer)
-    {
-        barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
-        VK_CALL(vkCmdPipelineBarrier(vk_patch_cmd_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-                0, 1, &barrier, 0, NULL, 0, NULL));
-        /* The barrier is deferred if we moved the dispatch to init command buffer. */
+        if (vk_patch_cmd_buffer == list->vk_command_buffer)
+        {
+            barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+            VK_CALL(vkCmdPipelineBarrier(vk_patch_cmd_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                    VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+                    0, 1, &barrier, 0, NULL, 0, NULL));
+            /* The barrier is deferred if we moved the dispatch to init command buffer. */
+        }
     }
 
     if (!d3d12_command_list_begin_render_pass(list))
@@ -9769,13 +9807,7 @@ static void d3d12_command_list_execute_indirect_state_template(
         return;
     }
 
-    /* Bind IBO. If we always update the IBO indirectly, do not validate the index buffer here.
-     * We can render fine even with a NULL IBO bound. */
-    for (i = 0; i < signature->desc.NumArgumentDescs; i++)
-        if (signature->desc.pArgumentDescs[i].Type == D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW)
-            break;
-
-    if (i == signature->desc.NumArgumentDescs &&
+    if (!require_ibo_update &&
             signature->desc.pArgumentDescs[signature->desc.NumArgumentDescs - 1].Type ==
                     D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED &&
             !d3d12_command_list_update_index_buffer(list))
@@ -9799,8 +9831,16 @@ static void d3d12_command_list_execute_indirect_state_template(
 
     if (count_buffer)
     {
-        generated.sequencesCountBuffer = count_allocation.buffer;
-        generated.sequencesCountOffset = count_allocation.offset;
+        if (require_patch)
+        {
+            generated.sequencesCountBuffer = count_allocation.buffer;
+            generated.sequencesCountOffset = count_allocation.offset;
+        }
+        else
+        {
+            generated.sequencesCountBuffer = count_buffer->res.vk_buffer;
+            generated.sequencesCountOffset = count_buffer->mem.offset + count_buffer_offset;
+        }
     }
     else
     {
@@ -9808,8 +9848,19 @@ static void d3d12_command_list_execute_indirect_state_template(
         generated.sequencesCountOffset = 0;
     }
 
-    stream.buffer = stream_allocation.buffer;
-    stream.offset = stream_allocation.offset;
+    if (require_patch)
+    {
+        stream.buffer = stream_allocation.buffer;
+        stream.offset = stream_allocation.offset;
+    }
+    else
+    {
+        stream.buffer = arg_buffer->res.vk_buffer;
+        stream.offset = arg_buffer->mem.offset + arg_buffer_offset;
+    }
+
+    if (require_patch)
+        WARN("Template requires patching :(\n");
 
     VK_CALL(vkCmdExecuteGeneratedCommandsNV(list->vk_command_buffer, VK_FALSE, &generated));
 
@@ -13156,6 +13207,7 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
         required_stride_alignment = max(required_stride_alignment, required_alignment);
     }
 
+    stream_stride = max(stream_stride, desc->ByteStride);
     stream_stride = align(stream_stride, required_stride_alignment);
 
     if (FAILED(hr = d3d12_command_signature_init_patch_commands_buffer(signature, device, patch_commands, patch_commands_count)))
