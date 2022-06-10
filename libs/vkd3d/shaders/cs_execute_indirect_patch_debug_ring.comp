@@ -13,11 +13,6 @@ struct Command
 	uint dst_offset;
 };
 
-const int COMMAND_TYPE_COPY_INDEX_TYPE = 4;
-const int DXGI_FORMAT_R32_UINT = 0x2a;
-const int VK_INDEX_TYPE_UINT16 = 0;
-const int VK_INDEX_TYPE_UINT32 = 1;
-
 layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer Commands
 {
 	Command commands[];
@@ -79,8 +74,6 @@ void main()
         uint dst_offset = dst_stride * draw_id + cmd.dst_offset;
 
         uint src_value = src_buffer_va.values[src_offset];
-        if (cmd.type == COMMAND_TYPE_COPY_INDEX_TYPE)
-            src_value = src_value == DXGI_FORMAT_R32_UINT ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16;
 
         if (debug_tag != 0u)
             DEBUG_CHANNEL_MSG(cmd.type, dst_offset, src_offset, src_value);

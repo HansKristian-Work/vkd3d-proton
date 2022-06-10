@@ -9522,15 +9522,13 @@ static void d3d12_command_list_execute_indirect_state_template(
     /* - Stride can mismatch, i.e. we need internal alignment of arguments.
      * - Min required alignment on the indirect buffer itself might be too strict.
      * - Min required alignment on count buffer might be too strict.
-     * - We require debugging.
-     * - Temporary: IBO type rewrite is required. TODO: Use index type LUT feature. */
+     * - We require debugging. */
     props = &list->device->device_info.device_generated_commands_properties_nv;
 
     if ((signature->state_template.stride != signature->desc.ByteStride && max_command_count > 1) ||
             (arg_buffer_offset & (props->minIndirectCommandsBufferOffsetAlignment - 1)) ||
             (count_buffer && (count_buffer_offset & (props->minSequencesCountBufferOffsetAlignment - 1))) ||
-            patch_args.debug_tag ||
-            require_ibo_update)
+            patch_args.debug_tag)
     {
         require_patch = true;
     }
@@ -12830,6 +12828,9 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
         VKD3D_PATCH_COMMAND_TOKEN_COPY_ROOT_VA_HI,
     };
 
+    static const VkIndexType vk_index_types[] = { VK_INDEX_TYPE_UINT32, VK_INDEX_TYPE_UINT16 };
+    static const uint32_t d3d_index_types[] = { DXGI_FORMAT_R32_UINT, DXGI_FORMAT_R16_UINT };
+
     if (!device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
     {
         WARN("Device generated commands not supported, indirect state commands will be ignored.\n");
@@ -12920,6 +12921,9 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW:
                 token.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_INDEX_BUFFER_NV;
+                token.indexTypeCount = ARRAY_SIZE(vk_index_types);
+                token.pIndexTypeValues = d3d_index_types;
+                token.pIndexTypes = vk_index_types;
 
                 /* If device exposes 4 byte alignment of the indirect command buffer, it implies we can
                  * pack VA at sub-scalar alignment. Probably not completely within spec, but hey ... */
@@ -12997,6 +13001,7 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
         required_stride_alignment = max(required_stride_alignment, required_alignment);
     }
 
+    stream_stride = max(stream_stride, desc->ByteStride);
     stream_stride = align(stream_stride, required_stride_alignment);
 
     if (FAILED(hr = d3d12_command_signature_init_patch_commands_buffer(signature, device, patch_commands, patch_commands_count)))
