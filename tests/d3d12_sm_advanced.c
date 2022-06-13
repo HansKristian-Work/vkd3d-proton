@@ -2131,8 +2131,8 @@ void test_sv_barycentric(void)
 #define BARY_RES 128
 
     static const D3D12_VIEWPORT vp = { 0, 0, BARY_RES, BARY_RES, 0, 1 };
-    static const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
     static const D3D12_RECT sci = { 0, 0, BARY_RES, BARY_RES };
+    static const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
     static const uint8_t provoking_lut[] = {
         192, 212, 224, 244,
         128, 144, 160, 176,
@@ -4834,7 +4834,7 @@ void test_shader_sm66_is_helper_lane(void)
 {
     /* Oh, hi there. */
     static const float alpha_keys[4] = { 0.75f, 2.25f, 3.25f, 3.75f };
-    static const struct vec4 white = { 1.0f, 1.0f, 1.0f, 1.0f };
+    static const float white[] = { 1.0f, 1.0f, 1.0f, 1.0f };
     D3D12_FEATURE_DATA_SHADER_MODEL shader_model;
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
@@ -5041,7 +5041,7 @@ void test_shader_sm66_is_helper_lane(void)
     ID3D12Device_CreateUnorderedAccessView(context.device, atomic_buffer, NULL, &uav_desc, cpu_handle);
 
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, &heap);
-    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, &white.x, 0, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
@@ -5088,7 +5088,7 @@ void test_shader_sm66_is_helper_lane(void)
                 expected.w = 8881.0f;
             }
             else
-                expected = white;
+                memcpy(&expected, white, sizeof(white));
 
             ok(compare_vec4(value, &expected, 0), "Mismatch pixel %u, %u, (%f %f %f %f) != (%f %f %f %f).\n",
                     x, y, expected.x, expected.y, expected.z, expected.w,

@@ -120,7 +120,8 @@ void test_unbound_rtv_rendering(void)
 
 void test_unknown_rtv_format(void)
 {
-    static const struct vec4 white = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const struct vec4 vec4_white = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     struct vec4 expected_vec4 = {0.0f, 0.0f, 0.0f, 1.0f};
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
     ID3D12GraphicsCommandList *command_list;
@@ -185,7 +186,7 @@ void test_unknown_rtv_format(void)
     create_render_target(&context, &desc, &render_targets[1], &rtvs[2]);
 
     for (i = 0; i < ARRAY_SIZE(rtvs); ++i)
-        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtvs[i], (float *)&white, 0, NULL);
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtvs[i], white, 0, NULL);
 
     /* NULL RTV */
     memset(&rtv_desc, 0, sizeof(rtv_desc));
@@ -212,7 +213,7 @@ void test_unknown_rtv_format(void)
     transition_resource_state(command_list, render_targets[1],
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
-    check_sub_resource_vec4(context.render_target, 0, queue, command_list, &white, 0);
+    check_sub_resource_vec4(context.render_target, 0, queue, command_list, &vec4_white, 0);
     reset_command_list(command_list, context.allocator);
     expected_vec4.x = 2.0f;
     check_sub_resource_vec4(render_targets[0], 0, queue, command_list, &expected_vec4, 0);
