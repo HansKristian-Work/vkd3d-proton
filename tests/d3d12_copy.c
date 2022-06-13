@@ -554,9 +554,9 @@ void test_copy_texture_buffer(void)
 
 void test_copy_buffer_to_depth_stencil(void)
 {
+    ID3D12Resource *src_buffer_stencil = NULL;
     ID3D12GraphicsCommandList *command_list;
     struct resource_readback rb_stencil;
-    ID3D12Resource *src_buffer_stencil;
     struct resource_readback rb_depth;
     ID3D12Resource *src_buffer_depth;
     struct test_context_desc desc;
