@@ -9391,9 +9391,9 @@ static void vkd3d_dxbc_compiler_emit_gather4(struct vkd3d_dxbc_compiler *compile
     unsigned int image_flags = VKD3D_IMAGE_FLAG_SAMPLED;
     SpvImageOperandsMask operands_mask = 0;
     unsigned int image_operand_count = 0;
+    uint32_t image_operands[1] = { 0 };
     struct vkd3d_shader_image image;
     unsigned int component_idx;
-    uint32_t image_operands[1];
     DWORD coordinate_mask;
     bool extended_offset;
     bool is_sparse_op;
