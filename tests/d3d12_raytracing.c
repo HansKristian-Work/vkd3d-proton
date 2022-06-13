@@ -1509,7 +1509,7 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
 #define INSTANCE_GEOM_SCALE (0.5f)
 
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC postbuild_desc[3];
-    float sbt_colors[NUM_GEOM_DESC * NUM_UNMASKED_INSTANCES + 1][2];
+    float sbt_colors[NUM_GEOM_DESC * NUM_UNMASKED_INSTANCES + 1][2] = {{0}};
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_DESCRIPTOR_RANGE descriptor_ranges[2];
     ID3D12GraphicsCommandList4 *command_list4;

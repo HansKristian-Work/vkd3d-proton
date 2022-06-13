@@ -6281,7 +6281,7 @@ void test_multisample_array_texture(void)
     };
     static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
-    static const struct vec4 colors[] =
+    static const float colors[][4] =
     {
         {1.0f, 0.0f, 0.0f, 1.0f},
         {0.0f, 1.0f, 0.0f, 1.0f},
@@ -6386,8 +6386,7 @@ void test_multisample_array_texture(void)
         rtv_desc.Texture2DMSArray.FirstArraySlice = i;
         rtv_desc.Texture2DMSArray.ArraySize = 1;
         ID3D12Device_CreateRenderTargetView(device, texture, &rtv_desc, cpu_handle);
-
-        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, cpu_handle, (float *)&colors[i], 0, NULL);
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, cpu_handle, colors[i], 0, NULL);
     }
 
     transition_resource_state(command_list, texture,

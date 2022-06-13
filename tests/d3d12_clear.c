@@ -141,7 +141,7 @@ void test_clear_depth_stencil_view(void)
 void test_clear_render_target_view(void)
 {
     static const unsigned int array_expected_colors[] = {0xff00ff00, 0xff0000ff, 0xffff0000};
-    static const struct vec4 array_colors[] =
+    static const float array_colors[][4] =
     {
         {0.0f, 1.0f, 0.0f, 1.0f},
         {1.0f, 0.0f, 0.0f, 1.0f},
@@ -324,8 +324,7 @@ void test_clear_render_target_view(void)
         rtv_desc.Texture2DArray.ArraySize = 1;
 
         ID3D12Device_CreateRenderTargetView(device, resource, &rtv_desc, rtv_handle);
-
-        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, (float *)&array_colors[i], 0, NULL);
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, array_colors[i], 0, NULL);
     }
 
     transition_resource_state(command_list, resource,
@@ -355,8 +354,7 @@ void test_clear_render_target_view(void)
         rtv_desc.Texture2DMSArray.ArraySize = 1;
 
         ID3D12Device_CreateRenderTargetView(device, resource, &rtv_desc, rtv_handle);
-
-        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, (float *)&array_colors[i], 0, NULL);
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, array_colors[i], 0, NULL);
     }
 
     transition_resource_state(command_list, resource,
