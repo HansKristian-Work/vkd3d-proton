@@ -6092,19 +6092,218 @@ static void d3d12_command_list_transition_image_layout(struct d3d12_command_list
             0, 0);
 }
 
+static bool d3d12_command_list_init_copy_texture_region(struct d3d12_command_list *list,
+        const D3D12_TEXTURE_COPY_LOCATION *dst,
+        UINT dst_x, UINT dst_y, UINT dst_z,
+        const D3D12_TEXTURE_COPY_LOCATION *src,
+        const D3D12_BOX *src_box,
+        struct vkd3d_image_copy_info *out)
+{
+    struct d3d12_resource *dst_resource, *src_resource;
+    memset(out, 0, sizeof(*out));
+
+    out->src = *src;
+    out->dst = *dst;
+
+    dst_resource = impl_from_ID3D12Resource(dst->pResource);
+    src_resource = impl_from_ID3D12Resource(src->pResource);
+
+    out->copy.buffer_image.sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2_KHR;
+    out->copy.buffer_image.pNext = NULL;
+
+    if (src->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX && dst->Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT)
+    {
+        assert(d3d12_resource_is_buffer(dst_resource));
+        assert(d3d12_resource_is_texture(src_resource));
+
+        if (!(out->src_format = vkd3d_format_from_d3d12_resource_desc(list->device, &src_resource->desc,
+                DXGI_FORMAT_UNKNOWN)))
+        {
+            WARN("Invalid format %#x.\n", dst->PlacedFootprint.Footprint.Format);
+            return false;
+        }
+
+        if (!(out->dst_format = vkd3d_get_format(list->device, dst->PlacedFootprint.Footprint.Format, true)))
+        {
+            WARN("Invalid format %#x.\n", dst->PlacedFootprint.Footprint.Format);
+            return false;
+        }
+
+        vk_image_buffer_copy_from_d3d12(&out->copy.buffer_image, &dst->PlacedFootprint, src->SubresourceIndex,
+                &src_resource->desc, out->src_format, out->dst_format, src_box, dst_x, dst_y, dst_z);
+        out->copy.buffer_image.bufferOffset += dst_resource->mem.offset;
+
+        out->src_layout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    }
+    else if (src->Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT && dst->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
+    {
+        assert(d3d12_resource_is_texture(dst_resource));
+        assert(d3d12_resource_is_buffer(src_resource));
+
+        if (!(out->dst_format = vkd3d_format_from_d3d12_resource_desc(list->device, &dst_resource->desc,
+                DXGI_FORMAT_UNKNOWN)))
+        {
+            WARN("Invalid format %#x.\n", dst_resource->desc.Format);
+            return false;
+        }
+
+        if (!(out->src_format = vkd3d_get_format(list->device, src->PlacedFootprint.Footprint.Format, true)))
+        {
+            WARN("Invalid format %#x.\n", src->PlacedFootprint.Footprint.Format);
+            return false;
+        }
+
+        vk_buffer_image_copy_from_d3d12(&out->copy.buffer_image, &src->PlacedFootprint, dst->SubresourceIndex,
+                &dst_resource->desc, out->src_format, out->dst_format, src_box, dst_x, dst_y, dst_z);
+        out->copy.buffer_image.bufferOffset += src_resource->mem.offset;
+
+        out->dst_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        out->writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
+                &out->copy.buffer_image.imageExtent, &out->copy.buffer_image.imageSubresource);
+    }
+    else if (src->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX && dst->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
+    {
+        assert(d3d12_resource_is_texture(dst_resource));
+        assert(d3d12_resource_is_texture(src_resource));
+
+        out->dst_format = dst_resource->format;
+        out->src_format = src_resource->format;
+
+        vk_image_copy_from_d3d12(&out->copy.image, src->SubresourceIndex, dst->SubresourceIndex,
+                &src_resource->desc, &dst_resource->desc, out->src_format, out->dst_format,
+                src_box, dst_x, dst_y, dst_z);
+
+        /* If aspect masks do not match, we have to use fallback copies with a render pass, and there
+         * is no standard way to write to stencil without fallbacks.
+         * Checking aspect masks here is equivalent to checking formats. vkCmdCopyImage can only be
+         * used for compatible formats and depth stencil formats are only compatible with themselves. */
+        if (out->dst_format->vk_aspect_mask != out->src_format->vk_aspect_mask &&
+                (out->copy.image.dstSubresource.aspectMask & VK_IMAGE_ASPECT_STENCIL_BIT) &&
+                !list->device->vk_info.EXT_shader_stencil_export)
+        {
+            FIXME("Destination depth-stencil format %#x is not supported for STENCIL dst copy with render pass fallback.\n",
+                    out->dst_format->dxgi_format);
+            return false;
+        }
+
+        out->writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
+                &out->copy.image.extent,
+                &out->copy.image.dstSubresource);
+    }
+    else
+    {
+        FIXME("Copy type %#x -> %#x not implemented.\n", src->Type, dst->Type);
+        return false;
+    }
+    return true;
+}
+
+static void d3d12_command_list_before_copy_texture_region(struct d3d12_command_list *list,
+        struct vkd3d_image_copy_info *info)
+{
+    VkAccessFlags global_transfer_access;
+    struct d3d12_resource *dst_resource, *src_resource;
+
+    dst_resource = impl_from_ID3D12Resource(info->dst.pResource);
+    src_resource = impl_from_ID3D12Resource(info->src.pResource);
+
+    d3d12_command_list_track_resource_usage(list, src_resource, true);
+
+    if (info->src.Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX && info->dst.Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT)
+    {
+        d3d12_command_list_track_resource_usage(list, dst_resource, true);
+
+        /* We're going to do an image layout transition, so we can handle pending buffer barriers while we're at it.
+         * After that barrier completes, we implicitly synchronize any outstanding copies, so we can drop the tracking.
+         * This also avoids having to compute the destination damage region. */
+        global_transfer_access = list->tracked_copy_buffer_count ? VK_ACCESS_TRANSFER_WRITE_BIT : 0;
+        d3d12_command_list_reset_buffer_copy_tracking(list);
+
+        d3d12_command_list_transition_image_layout_with_global_memory_barrier(list, src_resource->res.vk_image,
+                &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                src_resource->common_layout, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+                info->src_layout, global_transfer_access, global_transfer_access);
+    }
+    else if (info->src.Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT && info->dst.Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
+    {
+        d3d12_command_list_track_resource_usage(list, dst_resource, !info->writes_full_subresource);
+
+        d3d12_command_list_transition_image_layout(list, dst_resource->res.vk_image,
+                &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                info->writes_full_subresource ? VK_IMAGE_LAYOUT_UNDEFINED : dst_resource->common_layout,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, info->dst_layout);
+    }
+    else if (info->src.Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX && info->dst.Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
+    {
+        d3d12_command_list_track_resource_usage(list, dst_resource, !info->writes_full_subresource);
+    }
+}
+
+static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *list,
+        struct vkd3d_image_copy_info *info)
+{
+    struct d3d12_resource *dst_resource, *src_resource;
+    const struct vkd3d_vk_device_procs *vk_procs;
+    VkAccessFlags global_transfer_access;
+
+    vk_procs = &list->device->vk_procs;
+
+    dst_resource = impl_from_ID3D12Resource(info->dst.pResource);
+    src_resource = impl_from_ID3D12Resource(info->src.pResource);
+
+    if (info->src.Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX && info->dst.Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT)
+    {
+        VkCopyImageToBufferInfo2KHR copy_info;
+
+        global_transfer_access = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+        copy_info.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_BUFFER_INFO_2_KHR;
+        copy_info.pNext = NULL;
+        copy_info.srcImage = src_resource->res.vk_image;
+        copy_info.srcImageLayout = info->src_layout;
+        copy_info.dstBuffer = dst_resource->res.vk_buffer;
+        copy_info.regionCount = 1;
+        copy_info.pRegions = &info->copy.buffer_image;
+
+        VK_CALL(vkCmdCopyImageToBuffer2KHR(list->vk_command_buffer, &copy_info));
+
+        d3d12_command_list_transition_image_layout_with_global_memory_barrier(list, src_resource->res.vk_image,
+                &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                info->src_layout, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, src_resource->common_layout,
+                global_transfer_access, global_transfer_access);
+    }
+    else if (info->src.Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT && info->dst.Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
+    {
+        VkCopyBufferToImageInfo2KHR copy_info;
+
+        copy_info.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2_KHR;
+        copy_info.pNext = NULL;
+        copy_info.srcBuffer = src_resource->res.vk_buffer;
+        copy_info.dstImage = dst_resource->res.vk_image;
+        copy_info.dstImageLayout = info->dst_layout;
+        copy_info.regionCount = 1;
+        copy_info.pRegions = &info->copy.buffer_image;
+
+        VK_CALL(vkCmdCopyBufferToImage2KHR(list->vk_command_buffer, &copy_info));
+
+        d3d12_command_list_transition_image_layout(list, dst_resource->res.vk_image,
+                &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_ACCESS_TRANSFER_WRITE_BIT, info->dst_layout, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                0, dst_resource->common_layout);
+    }
+    else if (info->src.Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX && info->dst.Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
+    {
+        d3d12_command_list_copy_image(list, dst_resource, info->dst_format,
+                src_resource, info->src_format, &info->copy.image, info->writes_full_subresource, false);
+    }
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command_list_iface *iface,
         const D3D12_TEXTURE_COPY_LOCATION *dst, UINT dst_x, UINT dst_y, UINT dst_z,
         const D3D12_TEXTURE_COPY_LOCATION *src, const D3D12_BOX *src_box)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    struct d3d12_resource *dst_resource, *src_resource;
-    const struct vkd3d_format *src_format, *dst_format;
-    const struct vkd3d_vk_device_procs *vk_procs;
-    VkBufferImageCopy2KHR buffer_image_copy;
-    VkAccessFlags global_transfer_access;
-    bool writes_full_subresource;
-    VkImageCopy2KHR image_copy;
-    VkImageLayout vk_layout;
+    struct vkd3d_image_copy_info copy_info;
 
     TRACE("iface %p, dst %p, dst_x %u, dst_y %u, dst_z %u, src %p, src_box %p.\n",
             iface, dst, dst_x, dst_y, dst_z, src, src_box);
@@ -6115,170 +6314,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
         return;
     }
 
-    vk_procs = &list->device->vk_procs;
-
-    dst_resource = impl_from_ID3D12Resource(dst->pResource);
-    src_resource = impl_from_ID3D12Resource(src->pResource);
-
-    d3d12_command_list_track_resource_usage(list, src_resource, true);
-
     d3d12_command_list_end_current_render_pass(list, false);
 
-    buffer_image_copy.sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2_KHR;
-    buffer_image_copy.pNext = NULL;
-
-    if (src->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX
-            && dst->Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT)
-    {
-        VkCopyImageToBufferInfo2KHR copy_info;
-
-        d3d12_command_list_track_resource_usage(list, dst_resource, true);
-        assert(d3d12_resource_is_buffer(dst_resource));
-        assert(d3d12_resource_is_texture(src_resource));
-
-        if (!(src_format = vkd3d_format_from_d3d12_resource_desc(list->device,
-                &src_resource->desc, DXGI_FORMAT_UNKNOWN)))
-        {
-            WARN("Invalid format %#x.\n", dst->PlacedFootprint.Footprint.Format);
-            return;
-        }
-
-        if (!(dst_format = vkd3d_get_format(list->device, dst->PlacedFootprint.Footprint.Format,
-                true)))
-        {
-            WARN("Invalid format %#x.\n", dst->PlacedFootprint.Footprint.Format);
-            return;
-        }
-
-        vk_image_buffer_copy_from_d3d12(&buffer_image_copy, &dst->PlacedFootprint,
-                src->SubresourceIndex, &src_resource->desc, src_format, dst_format,
-                src_box, dst_x, dst_y, dst_z);
-        buffer_image_copy.bufferOffset += dst_resource->mem.offset;
-
-        vk_layout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-
-        /* We're going to do an image layout transition, so we can handle pending buffer barriers while we're at it.
-         * After that barrier completes, we implicitly synchronize any outstanding copies, so we can drop the tracking.
-         * This also avoids having to compute the destination damage region. */
-        global_transfer_access = list->tracked_copy_buffer_count ? VK_ACCESS_TRANSFER_WRITE_BIT : 0;
-        d3d12_command_list_reset_buffer_copy_tracking(list);
-
-        d3d12_command_list_transition_image_layout_with_global_memory_barrier(list, src_resource->res.vk_image,
-                &buffer_image_copy.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                0, src_resource->common_layout, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                VK_ACCESS_TRANSFER_READ_BIT, vk_layout,
-                global_transfer_access, global_transfer_access);
-
-        global_transfer_access = VK_ACCESS_TRANSFER_WRITE_BIT;
-
-        copy_info.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_BUFFER_INFO_2_KHR;
-        copy_info.pNext = NULL;
-        copy_info.srcImage = src_resource->res.vk_image;
-        copy_info.srcImageLayout = vk_layout;
-        copy_info.dstBuffer = dst_resource->res.vk_buffer;
-        copy_info.regionCount = 1;
-        copy_info.pRegions = &buffer_image_copy;
-
-        VK_CALL(vkCmdCopyImageToBuffer2KHR(list->vk_command_buffer, &copy_info));
-
-        d3d12_command_list_transition_image_layout_with_global_memory_barrier(list, src_resource->res.vk_image,
-                &buffer_image_copy.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
-                vk_layout, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, src_resource->common_layout,
-                global_transfer_access, global_transfer_access);
-    }
-    else if (src->Type == D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT
-            && dst->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
-    {
-        VkCopyBufferToImageInfo2KHR copy_info;
-
-        assert(d3d12_resource_is_texture(dst_resource));
-        assert(d3d12_resource_is_buffer(src_resource));
-
-        if (!(dst_format = vkd3d_format_from_d3d12_resource_desc(list->device,
-                &dst_resource->desc, DXGI_FORMAT_UNKNOWN)))
-        {
-            WARN("Invalid format %#x.\n", dst_resource->desc.Format);
-            return;
-        }
-
-        if (!(src_format = vkd3d_get_format(list->device, src->PlacedFootprint.Footprint.Format,
-                true)))
-        {
-            WARN("Invalid format %#x.\n", src->PlacedFootprint.Footprint.Format);
-            return;
-        }
-
-        vk_buffer_image_copy_from_d3d12(&buffer_image_copy, &src->PlacedFootprint,
-                dst->SubresourceIndex, &dst_resource->desc, src_format, dst_format, src_box, dst_x,
-                dst_y, dst_z);
-        buffer_image_copy.bufferOffset += src_resource->mem.offset;
-
-        vk_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-
-        writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
-                &buffer_image_copy.imageExtent, &buffer_image_copy.imageSubresource);
-
-        d3d12_command_list_track_resource_usage(list, dst_resource, !writes_full_subresource);
-
-        d3d12_command_list_transition_image_layout(list, dst_resource->res.vk_image,
-                &buffer_image_copy.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                0, writes_full_subresource ? VK_IMAGE_LAYOUT_UNDEFINED : dst_resource->common_layout,
-                VK_PIPELINE_STAGE_TRANSFER_BIT,
-                VK_ACCESS_TRANSFER_WRITE_BIT, vk_layout);
-
-        copy_info.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2_KHR;
-        copy_info.pNext = NULL;
-        copy_info.srcBuffer = src_resource->res.vk_buffer;
-        copy_info.dstImage = dst_resource->res.vk_image;
-        copy_info.dstImageLayout = vk_layout;
-        copy_info.regionCount = 1;
-        copy_info.pRegions = &buffer_image_copy;
-
-        VK_CALL(vkCmdCopyBufferToImage2KHR(list->vk_command_buffer, &copy_info));
-
-        d3d12_command_list_transition_image_layout(list, dst_resource->res.vk_image,
-                &buffer_image_copy.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                VK_ACCESS_TRANSFER_WRITE_BIT, vk_layout, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                0, dst_resource->common_layout);
-    }
-    else if (src->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX
-            && dst->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
-    {
-        assert(d3d12_resource_is_texture(dst_resource));
-        assert(d3d12_resource_is_texture(src_resource));
-
-        dst_format = dst_resource->format;
-        src_format = src_resource->format;
-
-        vk_image_copy_from_d3d12(&image_copy, src->SubresourceIndex, dst->SubresourceIndex,
-                 &src_resource->desc, &dst_resource->desc, src_format, dst_format,
-                 src_box, dst_x, dst_y, dst_z);
-
-        /* If aspect masks do not match, we have to use fallback copies with a render pass, and there
-         * is no standard way to write to stencil without fallbacks.
-         * Checking aspect masks here is equivalent to checking formats. vkCmdCopyImage can only be
-         * used for compatible formats and depth stencil formats are only compatible with themselves. */
-        if (dst_format->vk_aspect_mask != src_format->vk_aspect_mask &&
-                (image_copy.dstSubresource.aspectMask & VK_IMAGE_ASPECT_STENCIL_BIT) &&
-                !list->device->vk_info.EXT_shader_stencil_export)
-        {
-            FIXME("Destination depth-stencil format %#x is not supported for STENCIL dst copy with render pass fallback.\n",
-                    dst_format->dxgi_format);
-            return;
-        }
-
-        writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
-                &image_copy.extent, &image_copy.dstSubresource);
-
-        d3d12_command_list_track_resource_usage(list, dst_resource, !writes_full_subresource);
-
-        d3d12_command_list_copy_image(list, dst_resource, dst_format,
-                src_resource, src_format, &image_copy, writes_full_subresource, false);
-    }
-    else
-    {
-        FIXME("Copy type %#x -> %#x not implemented.\n", src->Type, dst->Type);
-    }
+    if (!d3d12_command_list_init_copy_texture_region(list, dst, dst_x, dst_y, dst_z, src, src_box, &copy_info))
+        return;
+    d3d12_command_list_before_copy_texture_region(list, &copy_info);
+    d3d12_command_list_copy_texture_region(list, &copy_info);
 
     VKD3D_BREADCRUMB_COMMAND(COPY);
 }

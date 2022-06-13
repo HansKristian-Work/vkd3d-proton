@@ -2052,6 +2052,21 @@ struct d3d12_buffer_copy_tracked_buffer
     VkDeviceSize hazard_end;
 };
 
+struct vkd3d_image_copy_info
+{
+    D3D12_TEXTURE_COPY_LOCATION src, dst;
+    const struct vkd3d_format *src_format, *dst_format;
+    union
+    {
+        VkBufferImageCopy2KHR buffer_image;
+        VkImageCopy2KHR image;
+    } copy;
+    /* TODO: split d3d12_command_list_copy_image too, so this can be a local variable of before_copy_texture_region. */
+    bool writes_full_subresource;
+    VkImageLayout src_layout;
+    VkImageLayout dst_layout;
+};
+
 struct d3d12_command_list
 {
     d3d12_command_list_iface ID3D12GraphicsCommandList_iface;
