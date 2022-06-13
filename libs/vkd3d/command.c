@@ -3594,6 +3594,8 @@ static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list
 
     if (suspend && (list->rendering_info.state_flags & (VKD3D_RENDERING_ACTIVE)))
         list->rendering_info.state_flags |= VKD3D_RENDERING_SUSPENDED;
+    else if (!suspend)
+        list->rendering_info.state_flags &= ~VKD3D_RENDERING_SUSPENDED;
 
     list->rendering_info.state_flags &= ~VKD3D_RENDERING_ACTIVE;
 
@@ -5330,6 +5332,7 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     VK_CALL(vkCmdBeginRenderingKHR(list->vk_command_buffer, &list->rendering_info.info));
 
     list->rendering_info.state_flags |= VKD3D_RENDERING_ACTIVE;
+    list->rendering_info.state_flags &= ~VKD3D_RENDERING_SUSPENDED;
 
     graphics = &list->state->graphics;
     if (graphics->xfb_enabled)
