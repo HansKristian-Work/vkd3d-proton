@@ -11587,7 +11587,8 @@ static unsigned int vkd3d_get_tile_index_from_region(const struct d3d12_sparse_i
 static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12CommandQueue *iface,
         ID3D12Resource *resource, UINT region_count, const D3D12_TILED_RESOURCE_COORDINATE *region_coords,
         const D3D12_TILE_REGION_SIZE *region_sizes, ID3D12Heap *heap, UINT range_count,
-        const D3D12_TILE_RANGE_FLAGS *range_flags, UINT *heap_range_offsets, UINT *range_tile_counts,
+        const D3D12_TILE_RANGE_FLAGS *range_flags,
+        const UINT *heap_range_offsets, const UINT *range_tile_counts,
         D3D12_TILE_MAPPING_FLAGS flags)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
