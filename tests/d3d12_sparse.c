@@ -3383,3 +3383,127 @@ void test_texture_feedback_instructions_dxil(void)
     test_texture_feedback_instructions(true);
 }
 
+void test_sparse_buffer_memory_lifetime(void)
+{
+    /* Attempt to bind sparse memory, then free the underlying heap, but keep the sparse resource
+     * alive. This should confuse drivers that attempt to track BO lifetimes. */
+    const D3D12_TILE_RANGE_FLAGS range_flag = D3D12_TILE_RANGE_FLAG_NONE;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
+    D3D12_TILE_REGION_SIZE region_size;
+    const UINT ones[] = { 1, 1, 1, 1 };
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12DescriptorHeap *cpu;
+    ID3D12DescriptorHeap *gpu;
+    D3D12_HEAP_DESC heap_desc;
+    D3D12_RESOURCE_DESC desc;
+    ID3D12Resource *sparse;
+    ID3D12Resource *buffer;
+    ID3D12Heap *heap_live;
+    ID3D12Heap *heap;
+    unsigned int i;
+    HRESULT hr;
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
+    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", hr);
+
+    if (options.TiledResourcesTier < D3D12_TILED_RESOURCES_TIER_1)
+    {
+        skip("Tiled resources Tier 1 not supported by device.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.SizeInBytes = 4 * 1024 * 1024;
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+    hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void**)&heap);
+    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n", hr);
+    hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void**)&heap_live);
+    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n", hr);
+
+    memset(&desc, 0, sizeof(desc));
+    desc.Width = 64 * 1024 * 1024;
+    desc.Height = 1;
+    desc.DepthOrArraySize = 1;
+    desc.SampleDesc.Count = 1;
+    desc.Format = DXGI_FORMAT_UNKNOWN;
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    desc.MipLevels = 1;
+    desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    hr = ID3D12Device_CreateReservedResource(context.device, &desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            NULL, &IID_ID3D12Resource, (void**)&sparse);
+    ok(SUCCEEDED(hr), "Failed to create reserved resource, hr #%x.\n", hr);
+
+    region_size.UseBox = FALSE;
+    region_size.NumTiles = 1;
+    for (i = 0; i < 2; i++)
+    {
+        const D3D12_TILED_RESOURCE_COORDINATE region_start_coordinate = { i, 0, 0, 0 };
+        const UINT offset = i;
+        const UINT count = 1;
+
+        ID3D12CommandQueue_UpdateTileMappings(context.queue, sparse, 1, &region_start_coordinate, &region_size,
+                i == 0 ? heap : heap_live, 1, &range_flag, &offset, &count, D3D12_TILE_MAPPING_FLAG_NONE);
+    }
+    wait_queue_idle(context.device, context.queue);
+
+    buffer = create_default_buffer(context.device, 128 * 1024,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+    cpu = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    gpu = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    memset(&uav_desc, 0, sizeof(uav_desc));
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    uav_desc.Format = DXGI_FORMAT_R32_UINT;
+    uav_desc.Buffer.NumElements = 128 * 1024 / 4;
+    uav_desc.Buffer.FirstElement = 0;
+    ID3D12Device_CreateUnorderedAccessView(context.device, sparse, NULL, &uav_desc,
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu));
+    ID3D12Device_CreateUnorderedAccessView(context.device, sparse, NULL, &uav_desc,
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(gpu));
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &gpu);
+    ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(context.list,
+            ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(gpu),
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu), sparse, ones, 0, NULL);
+    transition_resource_state(context.list, sparse,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    ID3D12GraphicsCommandList_CopyBufferRegion(context.list, buffer, 0, sparse, 0, 128 * 1024);
+    transition_resource_state(context.list, buffer,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_UINT,
+            &rb, context.queue, context.list);
+    reset_command_list(context.list, context.allocator);
+    ok(get_readback_uint(&rb, 0, 0, 0) == 1, "Got #%x, expected 1.\n", get_readback_uint(&rb, 0, 0, 0));
+    ok(get_readback_uint(&rb, 64 * 1024 / 4, 0, 0) == 1, "Got #%x, expected 1.\n", get_readback_uint(&rb, 64 * 1024 / 4, 0, 0));
+    release_resource_readback(&rb);
+
+    ID3D12Heap_Release(heap);
+
+    /* Access a resource where we can hypothetically access the freed heap memory. */
+    /* On AMD Windows native at least, if we read the freed region, we read garbage, which proves it's not required to unbind explicitly.
+     * We'd read 0 in that case. */
+    ID3D12GraphicsCommandList_CopyBufferRegion(context.list, buffer, 0, sparse, 64 * 1024, 64 * 1024);
+    transition_resource_state(context.list, buffer,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32_UINT,
+            &rb, context.queue, context.list);
+
+    ok(get_readback_uint(&rb, 64 * 1024 / 4, 0, 0) == 1, "Got #%x, expected 1.\n", get_readback_uint(&rb, 64 * 1024 / 4, 0, 0));
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(buffer);
+    ID3D12Resource_Release(sparse);
+    ID3D12DescriptorHeap_Release(cpu);
+    ID3D12DescriptorHeap_Release(gpu);
+    ID3D12Heap_Release(heap_live);
+    destroy_test_context(&context);
+}
+

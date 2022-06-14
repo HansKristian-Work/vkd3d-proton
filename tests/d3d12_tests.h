@@ -308,3 +308,4 @@ decl_test(test_shader_waveop_maximal_convergence);
 decl_test(test_uav_3d_sliced_view);
 decl_test(test_pipeline_no_ps_nonzero_rts);
 decl_test(test_root_descriptor_offset_sign);
+decl_test(test_sparse_buffer_memory_lifetime);
