@@ -9677,9 +9677,9 @@ static void d3d12_command_list_execute_indirect_state_template(
     }
 
     if (require_patch)
-        INFO("Template requires patching :(\n");
+        TRACE("Template requires patching :(\n");
     else
-        INFO("Template skips patching :)\n");
+        TRACE("Template skips patching :)\n");
 
     VK_CALL(vkCmdExecuteGeneratedCommandsNV(list->vk_command_buffer, VK_FALSE, &generated));
 
