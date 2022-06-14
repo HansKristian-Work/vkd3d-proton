@@ -3644,8 +3644,8 @@ interface ID3D12CommandQueue : ID3D12Pageable
             ID3D12Heap *heap,
             UINT range_count,
             const D3D12_TILE_RANGE_FLAGS *range_flags,
-            UINT *heap_range_offsets,
-            UINT *range_tile_counts,
+            const UINT *heap_range_offsets,
+            const UINT *range_tile_counts,
             D3D12_TILE_MAPPING_FLAGS flags);
 
     void CopyTileMappings(ID3D12Resource *dst_resource,
