@@ -2638,7 +2638,8 @@ void test_stress_suballocation_thread(void *userdata)
         {
             /* Randomly allocate heaps and place a buffer on top of it. */
             alloc_heap = rand_r(&seed) % 2 == 0;
-            alloc_size = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT * (1 + rand_r(&seed) % 20);
+            /* Ensures we sometimes hit dedicated allocation paths. (2 MiB limit). */
+            alloc_size = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT * (1 + rand_r(&seed) % 40);
             keep_alive = rand_r(&seed) % 2 == 0;
 
             if (buffers[i] && keep_alive)
