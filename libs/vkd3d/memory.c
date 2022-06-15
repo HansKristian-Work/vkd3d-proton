@@ -1392,13 +1392,34 @@ static HRESULT vkd3d_suballocate_memory(struct d3d12_device *device, struct vkd3
     return hr;
 }
 
+static inline bool vkd3d_driver_implicitly_clears(VkDriverId driver_id)
+{
+    switch (driver_id)
+    {
+        /* Known to pass test_stress_suballocation which hits this path. */
+        case VK_DRIVER_ID_MESA_RADV:
+        case VK_DRIVER_ID_NVIDIA_PROPRIETARY:
+        case VK_DRIVER_ID_INTEL_OPEN_SOURCE_MESA:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
 HRESULT vkd3d_allocate_memory(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
         const struct vkd3d_allocate_memory_info *info, struct vkd3d_memory_allocation *allocation)
 {
+    bool implementation_implicitly_clears;
+    bool needs_clear;
+    bool suballocate;
     HRESULT hr;
 
-    if (!info->pNext && !info->host_ptr && info->memory_requirements.size < VKD3D_VA_BLOCK_SIZE &&
-            !(info->heap_flags & (D3D12_HEAP_FLAG_DENY_BUFFERS | D3D12_HEAP_FLAG_ALLOW_WRITE_WATCH)))
+    suballocate = !info->pNext && !info->host_ptr &&
+            info->memory_requirements.size < VKD3D_VA_BLOCK_SIZE &&
+            !(info->heap_flags & (D3D12_HEAP_FLAG_DENY_BUFFERS | D3D12_HEAP_FLAG_ALLOW_WRITE_WATCH));
+
+    if (suballocate)
         hr = vkd3d_suballocate_memory(device, allocator, info, allocation);
     else
         hr = vkd3d_memory_allocation_init(allocation, device, allocator, info);
@@ -1406,8 +1427,20 @@ HRESULT vkd3d_allocate_memory(struct d3d12_device *device, struct vkd3d_memory_a
     if (FAILED(hr))
         return hr;
 
-    if (!(info->heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED) &&
-            !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_MEMORY_ALLOCATOR_SKIP_CLEAR))
+    /* If we're allocating Vulkan memory directly,
+     * we can rely on the driver doing this for us.
+     * This is relying on implementation details.
+     * RADV definitely does this, and it seems like NV also does it.
+     * TODO: an extension for this would be nice. */
+    implementation_implicitly_clears =
+            vkd3d_driver_implicitly_clears(device->device_info.driver_properties.driverID) &&
+            !suballocate;
+
+    needs_clear = !implementation_implicitly_clears &&
+            !(info->heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED) &&
+            !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_MEMORY_ALLOCATOR_SKIP_CLEAR);
+
+    if (needs_clear)
         vkd3d_memory_allocator_clear_allocation(allocator, device, allocation);
 
     return hr;
