@@ -84,6 +84,8 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_BIND_MEMORY_2, KHR_bind_memory2),
     VK_EXTENSION(KHR_COPY_COMMANDS_2, KHR_copy_commands2),
     VK_EXTENSION(KHR_DYNAMIC_RENDERING, KHR_dynamic_rendering),
+    /* Only required to silence validation errors. */
+    VK_EXTENSION(KHR_DEPTH_STENCIL_RESOLVE, KHR_depth_stencil_resolve),
     VK_EXTENSION(KHR_DRIVER_PROPERTIES, KHR_driver_properties),
     VK_EXTENSION(KHR_UNIFORM_BUFFER_STANDARD_LAYOUT, KHR_uniform_buffer_standard_layout),
     VK_EXTENSION(KHR_MAINTENANCE_4, KHR_maintenance4),
