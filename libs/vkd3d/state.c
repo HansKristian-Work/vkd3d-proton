@@ -2302,7 +2302,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     shader_interface.descriptor_qa_heap_binding = &root_signature->descriptor_qa_heap_binding;
 #endif
 
-    if (!device->global_pipeline_cache)
+    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE))
     {
         if ((hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, cached_pso, &state->vk_pso_cache)) < 0)
         {
@@ -2317,7 +2317,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     hr = vkd3d_create_compute_pipeline(device,
             &desc->cs, &shader_interface,
             root_signature->compute.vk_pipeline_layout,
-            state->vk_pso_cache ? state->vk_pso_cache : device->global_pipeline_cache,
+            state->vk_pso_cache,
             &state->compute.vk_pipeline,
             &state->compute.code);
 
@@ -3584,7 +3584,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
     if (can_compile_pipeline_early)
     {
-        if (!device->global_pipeline_cache)
+        if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE))
         {
             if ((hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, cached_pso, &state->vk_pso_cache)) < 0)
             {
@@ -3594,7 +3594,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         }
 
         if (!(graphics->pipeline = d3d12_pipeline_state_create_pipeline_variant(state, NULL, graphics->dsv_format,
-                state->vk_pso_cache ? state->vk_pso_cache : device->global_pipeline_cache, &graphics->dynamic_state_flags)))
+                state->vk_pso_cache, &graphics->dynamic_state_flags)))
             goto fail;
     }
     else
