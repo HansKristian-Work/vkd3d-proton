@@ -527,6 +527,9 @@ static const struct vkd3d_instance_application_meta application_override[] = {
      * Likely used as a proxy for Turing+ to avoid potential software fallbacks on Pascal. */
     { VKD3D_STRING_COMPARE_EXACT, "re8.exe",
             VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
+    /* Resident Evil 2 remake (883710). Same as RE: Village. */
+    { VKD3D_STRING_COMPARE_EXACT, "re2.exe",
+            VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
     { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
 };
 
