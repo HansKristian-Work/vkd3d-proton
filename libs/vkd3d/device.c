@@ -483,6 +483,14 @@ static void vkd3d_init_debug_messenger_callback(struct vkd3d_instance *instance)
     instance->vk_debug_callback = callback;
 }
 
+/* Could be a flag style enum if needed. */
+enum vkd3d_application_feature_override
+{
+    VKD3D_APPLICATION_FEATURE_OVERRIDE_NONE = 0,
+    VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE,
+};
+
+static enum vkd3d_application_feature_override vkd3d_application_feature_override;
 uint64_t vkd3d_config_flags;
 struct vkd3d_shader_quirk_info vkd3d_shader_quirk_info;
 
@@ -492,6 +500,7 @@ struct vkd3d_instance_application_meta
     const char *name;
     uint64_t global_flags_add;
     uint64_t global_flags_remove;
+    enum vkd3d_application_feature_override override;
 };
 static const struct vkd3d_instance_application_meta application_override[] = {
     /* MSVC fails to compile empty array. */
@@ -520,6 +529,10 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Sam4.exe", VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION, 0 },
     /* Cyberpunk 2077 (1091500). */
     { VKD3D_STRING_COMPARE_EXACT, "Cyberpunk2077.exe", VKD3D_CONFIG_FLAG_ALLOW_SBT_COLLECTION, 0 },
+    /* Resident Evil: Village (1196590).
+     * Game relies on mesh + sampler feedback to be exposed to use DXR.
+     * Likely used as a proxy for Turing+ to avoid potential software fallbacks on Pascal. */
+    { VKD3D_STRING_COMPARE_EXACT, "re8.exe", 0, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
     { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
 };
 
@@ -570,6 +583,7 @@ static void vkd3d_instance_apply_application_workarounds(void)
             vkd3d_config_flags &= ~application_override[i].global_flags_remove;
             INFO("Detected game %s, adding config 0x%"PRIx64", removing masks 0x%"PRIx64".\n",
                  app, application_override[i].global_flags_add, application_override[i].global_flags_remove);
+            vkd3d_application_feature_override = application_override[i].override;
             break;
         }
     }
@@ -5973,6 +5987,27 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
     }
 }
 
+static void d3d12_device_caps_override_application(struct d3d12_device *device)
+{
+    /* Some games rely on certain features to be exposed before they let the primary feature
+     * be exposed. */
+    switch (vkd3d_application_feature_override)
+    {
+        case VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE:
+            if (device->d3d12_caps.options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_0)
+            {
+                device->d3d12_caps.options7.MeshShaderTier = D3D12_MESH_SHADER_TIER_1;
+                device->d3d12_caps.options7.SamplerFeedbackTier = D3D12_SAMPLER_FEEDBACK_TIER_1_0;
+                INFO("DXR enabled. Application also requires Mesh/Sampler feedback to be exposed (but unused). "
+                     "Enabling these features automatically.\n");
+            }
+            break;
+
+        default:
+            break;
+    }
+}
+
 static void d3d12_device_caps_override(struct d3d12_device *device)
 {
     D3D_FEATURE_LEVEL fl_override = (D3D_FEATURE_LEVEL)0;
@@ -6063,6 +6098,7 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
     d3d12_device_caps_init_feature_level(device);
 
     d3d12_device_caps_override(device);
+    d3d12_device_caps_override_application(device);
 }
 
 static void vkd3d_init_shader_extensions(struct d3d12_device *device)
