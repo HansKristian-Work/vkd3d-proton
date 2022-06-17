@@ -28,40 +28,40 @@ SPV_OBJECTS := \
 			   $(RCALL_SOURCES:.rcall=.spv)
 
 %.spv: %.vert
-	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1
+	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1 $(GLSLC_FLAGS)
 
 %.spv: %.frag
-	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1 -DDEBUG_CHANNEL_HELPER_LANES
+	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1 -DDEBUG_CHANNEL_HELPER_LANES $(GLSLC_FLAGS)
 
 %.spv: %.comp
-	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1
+	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1 $(GLSLC_FLAGS)
 
 %.spv: %.geom
-	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1
+	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1 $(GLSLC_FLAGS)
 
 %.spv: %.tesc
-	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1
+	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1 $(GLSLC_FLAGS)
 
 %.spv: %.tese
-	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1
+	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1 $(GLSLC_FLAGS)
 
 %.spv: %.rgen
-	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1 --target-spv=spv1.4
+	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1 --target-spv=spv1.4 $(GLSLC_FLAGS)
 
 %.spv: %.rint
-	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1 --target-spv=spv1.4
+	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1 --target-spv=spv1.4 $(GLSLC_FLAGS)
 
 %.spv: %.rahit
-	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1 --target-spv=spv1.4
+	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1 --target-spv=spv1.4 $(GLSLC_FLAGS)
 
 %.spv: %.rchit
-	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1 --target-spv=spv1.4
+	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1 --target-spv=spv1.4 $(GLSLC_FLAGS)
 
 %.spv: %.rmiss
-	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1 --target-spv=spv1.4
+	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1 --target-spv=spv1.4 $(GLSLC_FLAGS)
 
 %.spv: %.rcall
-	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1 --target-spv=spv1.4
+	glslc -o $@ $< -I$(INCLUDE_DIR) --target-env=vulkan1.1 --target-spv=spv1.4 $(GLSLC_FLAGS)
 
 all: $(SPV_OBJECTS)
 
