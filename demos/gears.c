@@ -456,13 +456,8 @@ static void cxg_mesh_create(ID3D12Device *device, float inner_radius, float oute
     float r0, r1, r2;
     float angle, da;
 
-    if (!(vertices = calloc(tooth_count, 12 * sizeof(*vertices))))
-        return;
-    if (!(faces = calloc(tooth_count, 20 * sizeof(*faces))))
-    {
-        free(vertices);
-        return;
-    }
+    vertices = calloc(tooth_count, 12 * sizeof(*vertices));
+    faces = calloc(tooth_count, 20 * sizeof(*faces));
 
     r0 = inner_radius;
     r1 = outer_radius - tooth_depth / 2.0f;
