@@ -88,6 +88,7 @@ extern "C" {
 #define VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_APP_CACHE_ONLY (1ull << 26)
 #define VKD3D_CONFIG_FLAG_SHADER_CACHE_SYNC (1ull << 27)
 #define VKD3D_CONFIG_FLAG_ALLOW_SBT_COLLECTION (1ull << 28)
+#define VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16 (1ull << 29)
 
 typedef HRESULT (*PFN_vkd3d_signal_event)(HANDLE event);
 

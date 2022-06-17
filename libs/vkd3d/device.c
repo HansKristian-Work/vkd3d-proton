@@ -525,7 +525,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     /* Resident Evil: Village (1196590).
      * Game relies on mesh + sampler feedback to be exposed to use DXR.
      * Likely used as a proxy for Turing+ to avoid potential software fallbacks on Pascal. */
-    { VKD3D_STRING_COMPARE_EXACT, "re8.exe", 0, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
+    { VKD3D_STRING_COMPARE_EXACT, "re8.exe",
+            VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
     { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
 };
 
@@ -6090,7 +6091,8 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
     }
 
     if (device->d3d12_caps.options4.Native16BitShaderOpsSupported &&
-            device->device_info.driver_properties.driverID == VK_DRIVER_ID_MESA_RADV)
+            (device->device_info.driver_properties.driverID == VK_DRIVER_ID_MESA_RADV ||
+                    (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16)))
     {
         /* Native FP16 is buggy on NV for now. */
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
