@@ -1931,12 +1931,12 @@ vkd3d_spirv_resource_type_table[] =
     {VKD3D_SHADER_RESOURCE_TEXTURE_2DMS,      SpvDim2D,     0, 1, 2, 2},
     {VKD3D_SHADER_RESOURCE_TEXTURE_2D,        SpvDim2D,     0, 0, 2, 2},
     {VKD3D_SHADER_RESOURCE_TEXTURE_3D,        SpvDim3D,     0, 0, 3, 3},
-    {VKD3D_SHADER_RESOURCE_TEXTURE_CUBE,      SpvDimCube,   0, 0, 3, 0},
+    {VKD3D_SHADER_RESOURCE_TEXTURE_CUBE,      SpvDimCube,   0, 0, 3, 3},
     {VKD3D_SHADER_RESOURCE_TEXTURE_1DARRAY,   SpvDim1D,     1, 0, 2, 1,
             SpvCapabilitySampled1D, SpvCapabilityImage1D},
     {VKD3D_SHADER_RESOURCE_TEXTURE_2DARRAY,   SpvDim2D,     1, 0, 3, 2},
     {VKD3D_SHADER_RESOURCE_TEXTURE_2DMSARRAY, SpvDim2D,     1, 1, 3, 2},
-    {VKD3D_SHADER_RESOURCE_TEXTURE_CUBEARRAY, SpvDimCube,   1, 0, 4, 0,
+    {VKD3D_SHADER_RESOURCE_TEXTURE_CUBEARRAY, SpvDimCube,   1, 0, 4, 3,
             SpvCapabilitySampledCubeArray, SpvCapabilityImageCubeArray},
 };
 
