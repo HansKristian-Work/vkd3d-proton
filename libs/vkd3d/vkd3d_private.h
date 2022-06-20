@@ -561,7 +561,7 @@ struct d3d12_fence
 
 static inline struct d3d12_fence *impl_from_ID3D12Fence1(ID3D12Fence1 *iface)
 {
-    extern CONST_VTBL struct ID3D12Fence1Vtbl d3d12_fence_vtbl;
+    VKD3D_UNUSED extern CONST_VTBL struct ID3D12Fence1Vtbl d3d12_fence_vtbl;
     if (!iface)
         return NULL;
     assert(iface->lpVtbl == &d3d12_fence_vtbl);
@@ -753,7 +753,7 @@ HRESULT d3d12_device_validate_custom_heap_type(struct d3d12_device *device,
 
 static inline struct d3d12_heap *impl_from_ID3D12Heap1(ID3D12Heap1 *iface)
 {
-    extern CONST_VTBL struct ID3D12Heap1Vtbl d3d12_heap_vtbl;
+    VKD3D_UNUSED extern CONST_VTBL struct ID3D12Heap1Vtbl d3d12_heap_vtbl;
     if (!iface)
         return NULL;
     assert(iface->lpVtbl == &d3d12_heap_vtbl);
@@ -908,7 +908,7 @@ HRESULT d3d12_resource_create_reserved(struct d3d12_device *device,
 
 static inline struct d3d12_resource *impl_from_ID3D12Resource2(ID3D12Resource2 *iface)
 {
-    extern CONST_VTBL struct ID3D12Resource2Vtbl d3d12_resource_vtbl;
+    VKD3D_UNUSED extern CONST_VTBL struct ID3D12Resource2Vtbl d3d12_resource_vtbl;
     if (!iface)
         return NULL;
     assert(iface->lpVtbl == &d3d12_resource_vtbl);
@@ -1198,7 +1198,7 @@ void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap
 
 static inline struct d3d12_descriptor_heap *impl_from_ID3D12DescriptorHeap(ID3D12DescriptorHeap *iface)
 {
-    extern CONST_VTBL struct ID3D12DescriptorHeapVtbl d3d12_descriptor_heap_vtbl;
+    VKD3D_UNUSED extern CONST_VTBL struct ID3D12DescriptorHeapVtbl d3d12_descriptor_heap_vtbl;
     if (!iface)
         return NULL;
     assert(iface->lpVtbl == &d3d12_descriptor_heap_vtbl);
@@ -1272,7 +1272,7 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
 
 static inline struct d3d12_query_heap *impl_from_ID3D12QueryHeap(ID3D12QueryHeap *iface)
 {
-    extern CONST_VTBL struct ID3D12QueryHeapVtbl d3d12_query_heap_vtbl;
+    VKD3D_UNUSED extern CONST_VTBL struct ID3D12QueryHeapVtbl d3d12_query_heap_vtbl;
     if (!iface)
         return NULL;
     assert(iface->lpVtbl == &d3d12_query_heap_vtbl);
@@ -1403,7 +1403,7 @@ void d3d12_root_signature_dec_ref(struct d3d12_root_signature *state);
 
 static inline struct d3d12_root_signature *impl_from_ID3D12RootSignature(ID3D12RootSignature *iface)
 {
-    extern CONST_VTBL struct ID3D12RootSignatureVtbl d3d12_root_signature_vtbl;
+    VKD3D_UNUSED extern CONST_VTBL struct ID3D12RootSignatureVtbl d3d12_root_signature_vtbl;
     if (!iface)
         return NULL;
     assert(iface->lpVtbl == &d3d12_root_signature_vtbl);
@@ -1661,7 +1661,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
 
 static inline struct d3d12_pipeline_state *impl_from_ID3D12PipelineState(ID3D12PipelineState *iface)
 {
-    extern CONST_VTBL struct ID3D12PipelineStateVtbl d3d12_pipeline_state_vtbl;
+    VKD3D_UNUSED extern CONST_VTBL struct ID3D12PipelineStateVtbl d3d12_pipeline_state_vtbl;
     if (!iface)
         return NULL;
     assert(iface->lpVtbl == &d3d12_pipeline_state_vtbl);
@@ -2413,7 +2413,7 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, const D3D12_
 
 static inline struct d3d12_command_signature *impl_from_ID3D12CommandSignature(ID3D12CommandSignature *iface)
 {
-    extern CONST_VTBL struct ID3D12CommandSignatureVtbl d3d12_command_signature_vtbl;
+    VKD3D_UNUSED extern CONST_VTBL struct ID3D12CommandSignatureVtbl d3d12_command_signature_vtbl;
     if (!iface)
         return NULL;
     assert(iface->lpVtbl == &d3d12_command_signature_vtbl);
@@ -3260,9 +3260,9 @@ static inline struct d3d12_device *unsafe_impl_from_ID3D12Device(d3d12_device_if
 
 static inline struct d3d12_device *impl_from_ID3D12Device(d3d12_device_iface *iface)
 {
-    extern CONST_VTBL struct ID3D12Device9Vtbl d3d12_device_vtbl;
+    VKD3D_UNUSED extern CONST_VTBL struct ID3D12Device9Vtbl d3d12_device_vtbl;
 #ifdef VKD3D_ENABLE_PROFILING
-    extern CONST_VTBL struct ID3D12Device9Vtbl d3d12_device_vtbl_profiled;
+    VKD3D_UNUSED extern CONST_VTBL struct ID3D12Device9Vtbl d3d12_device_vtbl_profiled;
 #endif
     if (!iface)
         return NULL;

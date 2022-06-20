@@ -7593,7 +7593,7 @@ static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *l
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
-    const struct vkd3d_shader_descriptor_table *table;
+    VKD3D_UNUSED const struct vkd3d_shader_descriptor_table *table;
 
     table = root_signature_get_descriptor_table(root_signature, index);
 
