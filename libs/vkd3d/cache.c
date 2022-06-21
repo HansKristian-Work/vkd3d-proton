@@ -2873,6 +2873,7 @@ static void vkd3d_pipeline_library_disk_cache_merge(struct vkd3d_pipeline_librar
 
 out:
     /* There shouldn't be any write cache left after merging. */
+    vkd3d_file_unmap(&mapped_write_cache);
     vkd3d_file_delete(write_path);
 
     /* If we have a stale merge file lying around, we might have been killed at some point
@@ -2884,9 +2885,9 @@ out:
     vkd3d_file_delete(merge_path);
 
 out_cancellation:
+    vkd3d_file_unmap(&mapped_write_cache);
     if (merge_file)
         fclose(merge_file);
-    vkd3d_file_unmap(&mapped_write_cache);
     hash_map_clear(&map);
     vkd3d_free(tmp_buffer);
 }
