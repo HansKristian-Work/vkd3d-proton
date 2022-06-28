@@ -2863,15 +2863,25 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
     VkMemoryRequirements memory_requirements;
     VkBindImageMemoryInfo bind_info;
     struct d3d12_resource *object;
+    bool force_committed;
     VkResult vr;
     HRESULT hr;
 
     if (FAILED(hr = d3d12_resource_validate_heap(desc, heap)))
         return hr;
 
-    if (heap->allocation.device_allocation.vk_memory == VK_NULL_HANDLE)
+    /* Placed linear textures are ... problematic
+     * since we have no way of signalling that they have different alignment and size requirements
+     * than optimal textures. GetResourceAllocationInfo() does not take heap property information
+     * and assumes that we are not modifying the tiling mode. */
+    force_committed = desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER &&
+            is_cpu_accessible_heap(&heap->desc.Properties);
+
+    if (force_committed || heap->allocation.device_allocation.vk_memory == VK_NULL_HANDLE)
     {
-        WARN("Placing resource on heap with no memory backing it. Falling back to committed resource.\n");
+        if (!force_committed)
+            WARN("Placing resource on heap with no memory backing it. Falling back to committed resource.\n");
+
         if (FAILED(hr = d3d12_resource_create_committed(device, desc, &heap->desc.Properties,
                 heap->desc.Flags & ~(D3D12_HEAP_FLAG_DENY_BUFFERS |
                         D3D12_HEAP_FLAG_DENY_NON_RT_DS_TEXTURES |

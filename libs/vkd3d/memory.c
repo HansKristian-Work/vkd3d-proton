@@ -1477,6 +1477,7 @@ static bool vkd3d_heap_allocation_accept_deferred_resource_placements(struct d3d
 HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
         const struct vkd3d_allocate_heap_memory_info *info, struct vkd3d_memory_allocation *allocation)
 {
+    struct vkd3d_allocate_heap_memory_info heap_info;
     struct vkd3d_allocate_memory_info alloc_info;
     HRESULT hr;
 
@@ -1491,6 +1492,27 @@ HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_mem
     alloc_info.flags |= info->extra_allocation_flags;
     if (!(info->heap_desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
         alloc_info.flags |= VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER;
+
+    if (is_cpu_accessible_heap(&info->heap_desc.Properties))
+    {
+        if (info->heap_desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS)
+        {
+            /* If the heap was only designed to handle images, the heap is useless,
+             * and we can force everything to go through committed path. */
+            memset(allocation, 0, sizeof(*allocation));
+            return S_OK;
+        }
+        else
+        {
+            /* CPU visible textures are never placed on a heap directly,
+             * since LINEAR images have alignment / size requirements
+             * that are vastly different from OPTIMAL ones.
+             * We can place buffers however. */
+            heap_info = *info;
+            info = &heap_info;
+            heap_info.heap_desc.Flags |= D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+        }
+    }
 
     hr = vkd3d_allocate_memory(device, allocator, &alloc_info, allocation);
     if (hr == E_OUTOFMEMORY && vkd3d_heap_allocation_accept_deferred_resource_placements(device,
