@@ -9979,7 +9979,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED:
                 if (!d3d12_command_list_update_index_buffer(list))
-                    return;
+                    break;
 
                 if (!d3d12_command_list_begin_render_pass(list))
                 {
@@ -10007,12 +10007,15 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                     FIXME("Ignoring command count %u.\n", max_command_count);
 
                 if (count_buffer)
+                {
                     FIXME_ONCE("Count buffers not supported for indirect dispatch.\n");
+                    break;
+                }
 
                 if (!d3d12_command_list_update_compute_state(list))
                 {
                     WARN("Failed to update compute state, ignoring dispatch.\n");
-                    return;
+                    break;
                 }
 
                 VK_CALL(vkCmdDispatchIndirect(list->vk_command_buffer, scratch.buffer, scratch.offset));
@@ -10023,12 +10026,15 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                     FIXME("Ignoring command count %u.\n", max_command_count);
 
                 if (count_buffer)
+                {
                     FIXME_ONCE("Count buffers not supported for indirect ray dispatch.\n");
+                    break;
+                }
 
                 if (!d3d12_command_list_update_raygen_state(list))
                 {
                     WARN("Failed to update raygen state, ignoring ray dispatch.\n");
-                    return;
+                    break;
                 }
 
                 if (!list->device->device_info.ray_tracing_maintenance1_features.rayTracingPipelineTraceRaysIndirect2)
