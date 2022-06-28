@@ -5539,16 +5539,14 @@ static D3D12_RESOURCE_HEAP_TIER d3d12_device_determine_heap_tier(struct d3d12_de
     const VkPhysicalDeviceLimits *limits = &device->device_info.properties2.properties.limits;
     const struct vkd3d_memory_info *mem_info = &device->memory_info;
     const struct vkd3d_memory_info_domain *non_cpu_domain;
-    const struct vkd3d_memory_info_domain *cpu_domain;
 
     non_cpu_domain = &mem_info->non_cpu_accessible_domain;
-    cpu_domain = &mem_info->cpu_accessible_domain;
 
-    // Heap Tier 2 requires us to be able to create a heap that supports all resource
-    // categories at the same time, except RT/DS textures on UPLOAD/READBACK heaps.
+    /* Heap Tier 2 requires us to be able to create a heap that supports all resource
+     * categories at the same time, except RT/DS textures on UPLOAD/READBACK heaps.
+     * Ignore CPU visible heaps since we only place buffers there. Textures are promoted to committed always. */
     if (limits->bufferImageGranularity > D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT ||
-            !(non_cpu_domain->buffer_type_mask & non_cpu_domain->sampled_type_mask & non_cpu_domain->rt_ds_type_mask) ||
-            !(cpu_domain->buffer_type_mask & cpu_domain->sampled_type_mask))
+            !(non_cpu_domain->buffer_type_mask & non_cpu_domain->sampled_type_mask & non_cpu_domain->rt_ds_type_mask))
         return D3D12_RESOURCE_HEAP_TIER_1;
 
     return D3D12_RESOURCE_HEAP_TIER_2;
