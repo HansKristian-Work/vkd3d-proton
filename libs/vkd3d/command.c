@@ -5353,6 +5353,8 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct d3d12_graphics_pipeline_state *graphics;
 
+    d3d12_command_list_end_transfer_batch(list);
+
     d3d12_command_list_promote_dsv_layout(list);
     if (!d3d12_command_list_update_graphics_pipeline(list))
         return false;
@@ -5369,8 +5371,6 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
         d3d12_command_list_handle_active_queries(list, false);
         return true;
     }
-
-    d3d12_command_list_end_transfer_batch(list);
 
     if (!(list->rendering_info.state_flags & VKD3D_RENDERING_SUSPENDED))
         d3d12_command_list_emit_render_pass_transition(list, VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN);
