@@ -780,17 +780,37 @@ HRESULT vkd3d_memory_allocator_flush_clears(struct vkd3d_memory_allocator *alloc
 /* ID3D12Heap */
 typedef ID3D12Heap1 d3d12_heap_iface;
 
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+struct d3d12_heap_resource_placement
+{
+    struct d3d12_resource *resource;
+    VkDeviceSize heap_offset;
+    VkDeviceSize size;
+};
+#endif
+
 struct d3d12_heap
 {
     d3d12_heap_iface ID3D12Heap_iface;
     LONG refcount;
+    LONG internal_refcount;
 
     D3D12_HEAP_DESC desc;
     struct vkd3d_memory_allocation allocation;
 
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    struct d3d12_heap_resource_placement *placements;
+    size_t placements_count;
+    size_t placements_size;
+    pthread_mutex_t placement_lock;
+#endif
+
     struct d3d12_device *device;
     struct vkd3d_private_store private_store;
 };
+
+void d3d12_heap_inc_ref(struct d3d12_heap *heap);
+void d3d12_heap_dec_ref(struct d3d12_heap *heap);
 
 HRESULT d3d12_heap_create(struct d3d12_device *device, const D3D12_HEAP_DESC *desc,
         void *host_address, struct d3d12_heap **heap);
@@ -2804,6 +2824,10 @@ void vkd3d_breadcrumb_tracer_add_command(struct d3d12_command_list *list,
         const struct vkd3d_breadcrumb_command *command);
 void vkd3d_breadcrumb_tracer_signal(struct d3d12_command_list *list);
 void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list);
+
+void vkd3d_breadcrumb_tracer_register_placed_resource(struct d3d12_heap *heap, struct d3d12_resource *resource,
+        VkDeviceSize heap_offset, VkDeviceSize required_size);
+void vkd3d_breadcrumb_tracer_unregister_placed_resource(struct d3d12_heap *heap, struct d3d12_resource *resource);
 
 #define VKD3D_BREADCRUMB_COMMAND(cmd_type) do { \
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \
