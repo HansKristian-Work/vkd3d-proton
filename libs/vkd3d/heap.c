@@ -79,6 +79,13 @@ static void d3d12_heap_destroy(struct d3d12_heap *heap)
 
     d3d_destruction_notifier_free(&heap->destruction_notifier);
 
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    /* Heap is held alive until all placements are released. */
+    assert(heap->placements_count == 0);
+    vkd3d_free(heap->placements);
+    pthread_mutex_destroy(&heap->placement_lock);
+#endif
+
     vkd3d_free_memory(heap->device, &heap->device->memory_allocator, &heap->allocation);
     vkd3d_private_store_destroy(&heap->private_store);
     vkd3d_free(heap);
@@ -374,6 +381,11 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap, struct d3d12_device *dev
             VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_HEAP_ALLOCATION, desc->SizeInBytes);
 
     d3d_destruction_notifier_init(&heap->destruction_notifier, (IUnknown*)&heap->ID3D12Heap_iface);
+
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    pthread_mutex_init(&heap->placement_lock, NULL);
+#endif
+
     d3d12_device_add_ref(heap->device);
     return S_OK;
 }

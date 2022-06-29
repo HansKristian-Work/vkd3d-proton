@@ -967,6 +967,15 @@ typedef struct
     LONG residency_count;
 } priority_info;
 
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+struct d3d12_heap_resource_placement
+{
+    struct d3d12_resource *resource;
+    VkDeviceSize heap_offset;
+    VkDeviceSize size;
+};
+#endif
+
 struct d3d12_heap
 {
     d3d12_heap_iface ID3D12Heap_iface;
@@ -977,6 +986,13 @@ struct d3d12_heap
     struct vkd3d_memory_allocation allocation;
 
     priority_info priority;
+
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    struct d3d12_heap_resource_placement *placements;
+    size_t placements_count;
+    size_t placements_size;
+    pthread_mutex_t placement_lock;
+#endif
 
     struct d3d12_device *device;
     struct vkd3d_private_store private_store;
@@ -3887,6 +3903,10 @@ uint32_t vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(
 /* For heavy debug, replays the trace stream in submission order. */
 void vkd3d_breadcrumb_tracer_dump_command_list(struct vkd3d_breadcrumb_tracer *tracer,
         unsigned int index);
+
+void vkd3d_breadcrumb_tracer_register_placed_resource(struct d3d12_heap *heap, struct d3d12_resource *resource,
+        VkDeviceSize heap_offset, VkDeviceSize required_size);
+void vkd3d_breadcrumb_tracer_unregister_placed_resource(struct d3d12_heap *heap, struct d3d12_resource *resource);
 
 #define VKD3D_BREADCRUMB_COMMAND(cmd_type) do { \
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \

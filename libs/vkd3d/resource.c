@@ -3738,6 +3738,11 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
     if (resource->vrs_view)
         VK_CALL(vkDestroyImageView(device->vk_device, resource->vrs_view, NULL));
 
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) && resource->heap)
+        vkd3d_breadcrumb_tracer_unregister_placed_resource(resource->heap, resource);
+#endif
+
     vkd3d_private_store_destroy(&resource->private_store);
     if (resource->heap)
         d3d12_heap_decref(resource->heap);
@@ -4298,6 +4303,7 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_allocate_memory_info allocate_info;
     VkMemoryRequirements memory_requirements;
+    VKD3D_UNUSED VkDeviceSize required_size;
     VkBindImageMemoryInfo bind_info;
     struct d3d12_resource *object;
     VkResult vr;
@@ -4410,6 +4416,8 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
                 goto fail;
             }
         }
+
+        required_size = memory_requirements.size;
     }
     else
     {
@@ -4420,6 +4428,8 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
             hr = E_INVALIDARG;
             goto fail;
         }
+
+        required_size = desc->Width;
     }
 
     vkd3d_memory_allocation_slice(&object->mem, &heap->allocation, heap_offset, 0);
@@ -4481,6 +4491,11 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
 #endif
         }
     }
+
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
+        vkd3d_breadcrumb_tracer_register_placed_resource(heap, object, heap_offset, required_size);
+#endif
 
     *resource = object;
     return S_OK;
