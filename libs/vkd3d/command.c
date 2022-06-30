@@ -9629,6 +9629,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
                     texture, &vk_subresource_range, !has_unbound_subresource);
         }
     }
+
+    VKD3D_BREADCRUMB_COOKIE(texture->res.cookie);
+    VKD3D_BREADCRUMB_COMMAND(DISCARD);
 }
 
 static inline bool d3d12_query_type_is_scoped(D3D12_QUERY_TYPE type)

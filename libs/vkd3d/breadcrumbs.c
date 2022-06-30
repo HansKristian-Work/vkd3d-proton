@@ -102,6 +102,8 @@ static const char *vkd3d_breadcrumb_command_type_to_str(enum vkd3d_breadcrumb_co
             return "clear_rtv";
         case VKD3D_BREADCRUMB_COMMAND_CLEAR_DSV:
             return "clear_dsv";
+        case VKD3D_BREADCRUMB_COMMAND_DISCARD:
+            return "discard";
 
         default:
             return "?";
