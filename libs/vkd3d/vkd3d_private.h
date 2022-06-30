@@ -2658,6 +2658,12 @@ struct d3d12_command_queue_submission_execute
     struct vkd3d_initial_transition *transitions;
     size_t transition_count;
 
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    /* Replays commands in submission order for heavy debug. */
+    unsigned int *breadcrumb_indices;
+    size_t breadcrumb_indices_count;
+#endif
+
     bool debug_capture;
 };
 
@@ -2983,6 +2989,10 @@ void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list);
         d3d12_command_list_end_transfer_batch(list);          \
     } \
 } while(0)
+
+/* For heavy debug, replays the trace stream in submission order. */
+void vkd3d_breadcrumb_tracer_dump_command_list(struct vkd3d_breadcrumb_tracer *tracer,
+        unsigned int index);
 
 #define VKD3D_BREADCRUMB_COMMAND(cmd_type) do { \
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \
