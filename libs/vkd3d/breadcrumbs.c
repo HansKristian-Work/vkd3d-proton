@@ -295,7 +295,10 @@ static void vkd3d_breadcrumb_tracer_report_command_list(
     const struct vkd3d_breadcrumb_command *cmd;
     bool observed_begin_cmd = false;
     bool observed_end_cmd = false;
+    bool ignore_markers;
     unsigned int i;
+
+    ignore_markers = begin_marker == UINT32_MAX && end_marker == UINT32_MAX;
 
     if (end_marker == 0)
     {
@@ -308,6 +311,12 @@ static void vkd3d_breadcrumb_tracer_report_command_list(
     for (i = 0; i < context->command_count; i++)
     {
         cmd = &context->commands[i];
+
+        if (ignore_markers && (cmd->type == VKD3D_BREADCRUMB_COMMAND_SET_TOP_MARKER ||
+                cmd->type == VKD3D_BREADCRUMB_COMMAND_SET_BOTTOM_MARKER))
+        {
+            continue;
+        }
 
         /* If there is a command which sets TOP_OF_PIPE, but we haven't observed the marker yet,
          * the command processor hasn't gotten there yet (most likely ...), so that should be the
@@ -366,6 +375,13 @@ static void vkd3d_breadcrumb_tracer_report_command_list(
             ERR(" ===== Potential crash region BEGIN (make sure RADV_DEBUG=syncshaders is used for maximum accuracy) =====\n");
         }
     }
+}
+
+void vkd3d_breadcrumb_tracer_dump_command_list(struct vkd3d_breadcrumb_tracer *tracer,
+        unsigned int index)
+{
+    vkd3d_breadcrumb_tracer_report_command_list(&tracer->trace_contexts[index],
+            UINT32_MAX, UINT32_MAX);
 }
 
 static void vkd3d_breadcrumb_tracer_report_command_list_amd(struct vkd3d_breadcrumb_tracer *tracer,

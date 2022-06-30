@@ -11894,6 +11894,9 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     size_t num_transitions, num_command_buffers;
     struct d3d12_command_queue_submission sub;
     struct d3d12_command_list *cmd_list;
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    unsigned int *breadcrumb_indices;
+#endif
     VkCommandBuffer *buffers;
     LONG **outstanding;
     unsigned int i, j;
@@ -11942,6 +11945,19 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         return;
     }
 
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE)
+    {
+        if (!(breadcrumb_indices = vkd3d_malloc(sizeof(unsigned int) * command_list_count)))
+        {
+            vkd3d_free(outstanding);
+            vkd3d_free(buffers);
+        }
+    }
+    else
+        breadcrumb_indices = NULL;
+#endif
+
     sub.execute.debug_capture = false;
 
     num_transitions = 0;
@@ -11956,6 +11972,9 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
                     "Command list %p is in recording state.\n", command_lists[i]);
             vkd3d_free(outstanding);
             vkd3d_free(buffers);
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+            vkd3d_free(breadcrumb_indices);
+#endif
             return;
         }
 
@@ -11969,6 +11988,11 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         buffers[j++] = cmd_list->vk_command_buffer;
         if (cmd_list->debug_capture)
             sub.execute.debug_capture = true;
+
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+        if (breadcrumb_indices)
+            breadcrumb_indices[i] = cmd_list->breadcrumb_context_index;
+#endif
     }
 
     /* Append a full GPU barrier between submissions.
@@ -12009,6 +12033,10 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     sub.execute.cmd_count = num_command_buffers;
     sub.execute.outstanding_submissions_counters = outstanding;
     sub.execute.outstanding_submissions_counter_count = command_list_count;
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    sub.execute.breadcrumb_indices = breadcrumb_indices;
+    sub.execute.breadcrumb_indices_count = breadcrumb_indices ? command_list_count : 0;
+#endif
     d3d12_command_queue_add_submission(command_queue, &sub);
 }
 
@@ -13112,6 +13140,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
     struct d3d12_command_queue *queue = userdata;
     uint64_t transition_timeline_value = 0;
     VkCommandBuffer transition_cmd;
+    VKD3D_UNUSED unsigned int i;
     HRESULT hr;
 
     VKD3D_REGION_DECL(queue_wait);
@@ -13186,6 +13215,18 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
              * On error, the counters are freed early, so there is no risk of leak. */
             vkd3d_free(submission.execute.cmd);
             vkd3d_free(submission.execute.transitions);
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+            for (i = 0; i < submission.execute.breadcrumb_indices_count; i++)
+            {
+                INFO("=== Executing command list context %u on VkQueue %p, queue family %u ===\n",
+                        submission.execute.breadcrumb_indices[i],
+                        (void*)queue->vkd3d_queue->vk_queue, queue->vkd3d_queue->vk_family_index);
+                vkd3d_breadcrumb_tracer_dump_command_list(&queue->device->breadcrumb_tracer,
+                        submission.execute.breadcrumb_indices[i]);
+                INFO("============================\n");
+            }
+            vkd3d_free(submission.execute.breadcrumb_indices);
+#endif
             VKD3D_REGION_END(queue_execute);
             break;
 
