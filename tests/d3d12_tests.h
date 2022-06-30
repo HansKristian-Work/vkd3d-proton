@@ -123,6 +123,8 @@ decl_test(test_tgsm);
 decl_test(test_uav_load);
 decl_test(test_cs_uav_store);
 decl_test(test_uav_counters);
+decl_test(test_uav_counter_null_behavior_dxbc);
+decl_test(test_uav_counter_null_behavior_dxil);
 decl_test(test_decrement_uav_counter);
 decl_test(test_atomic_instructions_dxbc);
 decl_test(test_atomic_instructions_dxil);
