@@ -2753,6 +2753,14 @@ enum vkd3d_breadcrumb_command_type
     VKD3D_BREADCRUMB_COMMAND_ROOT_DESC,
     VKD3D_BREADCRUMB_COMMAND_ROOT_CONST,
     VKD3D_BREADCRUMB_COMMAND_TAG,
+    VKD3D_BREADCRUMB_COMMAND_BIND_RTV,
+    VKD3D_BREADCRUMB_COMMAND_BIND_DSV,
+    VKD3D_BREADCRUMB_COMMAND_COOKIE,
+    VKD3D_BREADCRUMB_COMMAND_CLEAR_UAV_FLOAT,
+    VKD3D_BREADCRUMB_COMMAND_CLEAR_UAV_UINT,
+    VKD3D_BREADCRUMB_COMMAND_CLEAR_UAV_FALLBACK,
+    VKD3D_BREADCRUMB_COMMAND_CLEAR_RTV,
+    VKD3D_BREADCRUMB_COMMAND_CLEAR_DSV,
 };
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
@@ -2865,6 +2873,15 @@ void vkd3d_breadcrumb_tracer_unregister_placed_resource(struct d3d12_heap *heap,
     } \
 } while(0)
 
+#define VKD3D_BREADCRUMB_COOKIE(v) do { \
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \
+        struct vkd3d_breadcrumb_command breadcrumb_cmd; \
+        breadcrumb_cmd.type = VKD3D_BREADCRUMB_COMMAND_COOKIE; \
+        breadcrumb_cmd.word_64bit = v; \
+        vkd3d_breadcrumb_tracer_add_command(list, &breadcrumb_cmd); \
+    } \
+} while(0)
+
 /* Remember to kick debug ring as well. */
 #define VKD3D_DEVICE_REPORT_BREADCRUMB_IF(device, cond) do { \
     if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) && (cond)) { \
@@ -2877,6 +2894,7 @@ void vkd3d_breadcrumb_tracer_unregister_placed_resource(struct d3d12_heap *heap,
 #define VKD3D_BREADCRUMB_COMMAND_STATE(type) ((void)(VKD3D_BREADCRUMB_COMMAND_##type))
 #define VKD3D_BREADCRUMB_AUX32(v) ((void)(v))
 #define VKD3D_BREADCRUMB_AUX64(v) ((void)(v))
+#define VKD3D_BREADCRUMB_COOKIE(v) ((void)(v))
 #define VKD3D_DEVICE_REPORT_BREADCRUMB_IF(device, cond) ((void)(device), (void)(cond))
 #endif /* VKD3D_ENABLE_BREADCRUMBS */
 

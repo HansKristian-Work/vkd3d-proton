@@ -86,6 +86,22 @@ static const char *vkd3d_breadcrumb_command_type_to_str(enum vkd3d_breadcrumb_co
             return "root_const";
         case VKD3D_BREADCRUMB_COMMAND_TAG:
             return "tag";
+        case VKD3D_BREADCRUMB_COMMAND_BIND_RTV:
+            return "bind_rtv";
+        case VKD3D_BREADCRUMB_COMMAND_BIND_DSV:
+            return "bind_dsv";
+        case VKD3D_BREADCRUMB_COMMAND_COOKIE:
+            return "cookie";
+        case VKD3D_BREADCRUMB_COMMAND_CLEAR_UAV_FLOAT:
+            return "clear_uav_float";
+        case VKD3D_BREADCRUMB_COMMAND_CLEAR_UAV_UINT:
+            return "clear_uav_uint";
+        case VKD3D_BREADCRUMB_COMMAND_CLEAR_UAV_FALLBACK:
+            return "clear_uav_fallback";
+        case VKD3D_BREADCRUMB_COMMAND_CLEAR_RTV:
+            return "clear_rtv";
+        case VKD3D_BREADCRUMB_COMMAND_CLEAR_DSV:
+            return "clear_dsv";
 
         default:
             return "?";
@@ -313,6 +329,10 @@ static void vkd3d_breadcrumb_tracer_report_command_list(
         else if (cmd->type == VKD3D_BREADCRUMB_COMMAND_TAG)
         {
             ERR("     Tag: %s\n", cmd->tag);
+        }
+        else if (cmd->type == VKD3D_BREADCRUMB_COMMAND_COOKIE)
+        {
+            ERR(" Set resource cookie: %"PRIu64"\n", cmd->word_64bit);
         }
         else
         {
