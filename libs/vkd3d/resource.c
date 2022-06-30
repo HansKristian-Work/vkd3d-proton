@@ -2947,6 +2947,15 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
             goto fail;
     }
 
+    /* Placed RTV and DSV *must* be explicitly initialized after alias barriers and first use,
+     * so there is no need to do initial layout transition ourselves.
+     * It is extremely dangerous to do so since the initialization will clobber other
+     * aliased buffers when clearing DCC/HTILE state.
+     * For details, see:
+     * https://docs.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12device-createplacedresource#notes-on-the-required-resource-initialization. */
+    if (desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
+        object->initial_layout_transition = 0;
+
     *resource = object;
     return S_OK;
 
