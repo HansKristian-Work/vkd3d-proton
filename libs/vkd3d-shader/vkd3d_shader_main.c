@@ -477,6 +477,7 @@ static void vkd3d_shader_scan_record_uav_counter(struct vkd3d_shader_scan_info *
         const struct vkd3d_shader_register *reg)
 {
     scan_info->has_side_effects = true;
+    scan_info->has_uav_counter = true;
     vkd3d_shader_scan_set_register_flags(scan_info, VKD3DSPR_UAV,
             reg->idx[0].offset, VKD3D_SHADER_UAV_FLAG_ATOMIC_COUNTER);
 }

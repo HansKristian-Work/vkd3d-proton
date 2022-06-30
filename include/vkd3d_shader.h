@@ -660,6 +660,7 @@ struct vkd3d_shader_scan_info
     bool has_side_effects;
     bool needs_late_zs;
     bool discards;
+    bool has_uav_counter;
     unsigned int patch_vertex_count;
 };
 

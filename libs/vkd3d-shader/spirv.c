@@ -1404,6 +1404,13 @@ static uint32_t vkd3d_spirv_build_op_logical_and(struct vkd3d_spirv_builder *bui
             SpvOpLogicalAnd, result_type, operand0, operand1);
 }
 
+static uint32_t vkd3d_spirv_build_op_any(struct vkd3d_spirv_builder *builder,
+        uint32_t result_type, uint32_t operand0)
+{
+    return vkd3d_spirv_build_op_tr1(builder, &builder->function_stream,
+            SpvOpAny, result_type, operand0);
+}
+
 static uint32_t vkd3d_spirv_build_op_iequal(struct vkd3d_spirv_builder *builder,
         uint32_t result_type, uint32_t operand0, uint32_t operand1)
 {
@@ -2322,6 +2329,8 @@ struct vkd3d_dxbc_compiler
     uint32_t descriptor_qa_instruction_count;
     vkd3d_shader_hash_t descriptor_qa_shader_hash;
 #endif
+
+    uint32_t robust_physical_counter_func_id;
 
     int compiler_error;
 };
@@ -5522,31 +5531,22 @@ static const struct vkd3d_shader_global_binding *vkd3d_dxbc_compiler_get_global_
         {
             if (binding->flags & VKD3D_SHADER_BINDING_FLAG_RAW_VA)
             {
-                uint32_t counter_struct_id, pointer_struct_id, array_type_id;
+                uint32_t struct_id, array_type_id;
 
-                counter_struct_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
-                counter_struct_id = vkd3d_spirv_build_op_type_struct(builder, &counter_struct_id, 1);
-
-                vkd3d_spirv_build_op_member_decorate1(builder, counter_struct_id, 0, SpvDecorationOffset, 0);
-                vkd3d_spirv_build_op_decorate(builder, counter_struct_id, SpvDecorationBlock, NULL, 0);
-                vkd3d_spirv_build_op_name(builder, counter_struct_id, "uav_ctr_t");
-
-                type_id = vkd3d_spirv_build_op_type_pointer(builder, SpvStorageClassPhysicalStorageBuffer, counter_struct_id);
-
+                type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 2);
                 array_type_id = vkd3d_spirv_build_op_type_runtime_array(builder, type_id);
                 vkd3d_spirv_build_op_decorate1(builder, array_type_id, SpvDecorationArrayStride, sizeof(uint64_t));
+                struct_id = vkd3d_spirv_build_op_type_struct(builder, &array_type_id, 1);
 
-                pointer_struct_id = vkd3d_spirv_build_op_type_struct(builder, &array_type_id, 1);
-
-                vkd3d_spirv_build_op_member_decorate1(builder, pointer_struct_id, 0, SpvDecorationOffset, 0);
-                vkd3d_spirv_build_op_decorate(builder, pointer_struct_id, SpvDecorationBufferBlock, NULL, 0);
-                vkd3d_spirv_build_op_name(builder, pointer_struct_id, "uav_ctrs_t");
+                vkd3d_spirv_build_op_member_decorate1(builder, struct_id, 0, SpvDecorationOffset, 0);
+                vkd3d_spirv_build_op_member_decorate(builder, struct_id, 0, SpvDecorationNonWritable, NULL, 0);
+                vkd3d_spirv_build_op_decorate(builder, struct_id, SpvDecorationBufferBlock, NULL, 0);
+                vkd3d_spirv_build_op_name(builder, struct_id, "uav_ctrs_t");
 
                 var_id = vkd3d_spirv_build_op_variable(builder, &builder->global_stream,
-                        vkd3d_spirv_get_op_type_pointer(builder, storage_class, pointer_struct_id),
+                        vkd3d_spirv_get_op_type_pointer(builder, storage_class, struct_id),
                         storage_class, 0);
 
-                vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationAliasedPointer, NULL, 0);
                 vkd3d_spirv_enable_capability(builder, SpvCapabilityPhysicalStorageBufferAddresses);
             }
             else
@@ -5719,10 +5719,116 @@ static const struct vkd3d_shader_buffer_reference_type *vkd3d_dxbc_compiler_get_
 static void vkd3d_dxbc_compiler_emit_descriptor_qa_checks(struct vkd3d_dxbc_compiler *compiler);
 #endif
 
+static void vkd3d_dxbc_compiler_emit_robust_physical_counter_func(struct vkd3d_dxbc_compiler *compiler)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t not_equal_vec_id, not_equal_id;
+    uint32_t merge_label_id, body_label_id;
+    uint32_t ptr_type_id, ptr_id;
+    uint32_t parameter_types[3];
+    uint32_t parameter_ids[3];
+    uint32_t phi_arguments[4];
+    uint32_t atomic_args[4];
+    uint32_t func_type_id;
+    uint32_t phi_result_id;
+    uint32_t uvec2_type;
+    uint32_t bvec2_type;
+    uint32_t result_id;
+    uint32_t bool_type;
+    uint32_t u32_type;
+    uint32_t label_id;
+    uint32_t zero_id;
+    unsigned int i;
+
+    bool_type = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_BOOL, 1);
+    bvec2_type = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_BOOL, 2);
+    u32_type = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+    uvec2_type = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 2);
+
+    for (i = 0; i < ARRAY_SIZE(parameter_types); i++)
+        parameter_types[i] = i == 0 ? uvec2_type : u32_type;
+
+    func_type_id = vkd3d_spirv_get_op_type_function(builder, u32_type,
+            parameter_types, ARRAY_SIZE(parameter_types));
+    compiler->robust_physical_counter_func_id = vkd3d_spirv_alloc_id(builder);
+    vkd3d_spirv_build_op_name(builder, compiler->robust_physical_counter_func_id, "robust_physical_counter_op");
+    vkd3d_spirv_build_op_function(builder, u32_type, compiler->robust_physical_counter_func_id,
+            SpvFunctionControlMaskNone, func_type_id);
+
+    for (i = 0; i < ARRAY_SIZE(parameter_ids); i++)
+        parameter_ids[i] = vkd3d_spirv_build_op_function_parameter(builder, i == 0 ? uvec2_type : u32_type);
+
+    vkd3d_spirv_build_op_name(builder, parameter_ids[0], "bda");
+    vkd3d_spirv_build_op_name(builder, parameter_ids[1], "direction");
+    vkd3d_spirv_build_op_name(builder, parameter_ids[2], "fixup");
+
+    label_id = vkd3d_spirv_alloc_id(builder);
+    merge_label_id = vkd3d_spirv_alloc_id(builder);
+    body_label_id = vkd3d_spirv_alloc_id(builder);
+    zero_id = vkd3d_dxbc_compiler_get_constant_uint_vector(compiler, 0, 2);
+
+    vkd3d_spirv_build_op_label(builder, label_id);
+    not_equal_vec_id = vkd3d_spirv_build_op_inotequal(builder, bvec2_type,
+            parameter_ids[0], zero_id);
+    not_equal_id = vkd3d_spirv_build_op_any(builder, bool_type, not_equal_vec_id);
+
+    vkd3d_spirv_build_op_selection_merge(builder, merge_label_id, SpvSelectionControlMaskNone);
+    vkd3d_spirv_build_op_branch_conditional(builder, not_equal_id, body_label_id, merge_label_id);
+
+    phi_arguments[1] = body_label_id;
+    phi_arguments[2] = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0);
+    phi_arguments[3] = label_id;
+
+    {
+        vkd3d_spirv_build_op_label(builder, body_label_id);
+        ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassPhysicalStorageBuffer, u32_type);
+        ptr_id = vkd3d_spirv_build_op_bitcast(builder, ptr_type_id, parameter_ids[0]);
+
+        atomic_args[0] = ptr_id;
+        atomic_args[1] = vkd3d_dxbc_compiler_get_constant_uint(compiler, SpvScopeDevice);
+        atomic_args[2] = vkd3d_dxbc_compiler_get_constant_uint(compiler, SpvMemoryAccessMaskNone);
+        atomic_args[3] = parameter_ids[1];
+
+        result_id = vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
+                SpvOpAtomicIAdd, u32_type,
+                atomic_args, ARRAY_SIZE(atomic_args));
+        phi_arguments[0] = vkd3d_spirv_build_op_iadd(builder, u32_type,
+                result_id, parameter_ids[2]);
+
+        vkd3d_spirv_build_op_branch(builder, merge_label_id);
+    }
+
+    vkd3d_spirv_build_op_label(builder, merge_label_id);
+    phi_result_id = vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
+            SpvOpPhi, u32_type,
+            phi_arguments, ARRAY_SIZE(phi_arguments));
+    vkd3d_spirv_build_op_return_value(builder, phi_result_id);
+    vkd3d_spirv_build_op_function_end(builder);
+    vkd3d_spirv_enable_capability(builder, SpvCapabilityPhysicalStorageBufferAddresses);
+}
+
+static uint32_t vkd3d_dxbc_compiler_emit_robust_physical_counter(struct vkd3d_dxbc_compiler *compiler,
+        uint32_t bda_id, bool increment)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t u32_type;
+    uint32_t args[3];
+
+    u32_type = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
+    args[0] = bda_id;
+    args[1] = vkd3d_dxbc_compiler_get_constant_uint(compiler, increment ? 1u : -1u);
+    args[2] = vkd3d_dxbc_compiler_get_constant_uint(compiler, increment ? 0u : -1u);
+
+    return vkd3d_spirv_build_op_function_call(builder, u32_type,
+            compiler->robust_physical_counter_func_id,
+            args, ARRAY_SIZE(args));
+}
+
 static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_compiler *compiler)
 {
     const struct vkd3d_shader_transform_feedback_info *xfb_info = compiler->shader_interface.xfb_info;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    unsigned int i;
 
     switch (compiler->shader_type)
     {
@@ -5771,6 +5877,19 @@ static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_comp
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     vkd3d_dxbc_compiler_emit_descriptor_qa_checks(compiler);
 #endif
+
+    if (compiler->scan_info->has_uav_counter)
+    {
+        /* Check if we're expected to deal with RAW VAs. In this case we will enable BDA. */
+        for (i = 0; i < compiler->shader_interface.binding_count; i++)
+        {
+            if (compiler->shader_interface.bindings[i].flags & VKD3D_SHADER_BINDING_FLAG_RAW_VA)
+            {
+                vkd3d_dxbc_compiler_emit_robust_physical_counter_func(compiler);
+                break;
+            }
+        }
+    }
 
     if (compiler->shader_type != VKD3D_SHADER_TYPE_HULL)
     {
@@ -10019,6 +10138,7 @@ static void vkd3d_dxbc_compiler_emit_uav_counter_instruction(struct vkd3d_dxbc_c
     const struct vkd3d_shader_resource_binding *binding;
     uint32_t type_id, result_id, pointer_id, zero_id;
     const struct vkd3d_symbol *resource_symbol;
+    bool check_post_decrement;
     uint32_t operands[3];
     SpvOp op;
 
@@ -10034,7 +10154,6 @@ static void vkd3d_dxbc_compiler_emit_uav_counter_instruction(struct vkd3d_dxbc_c
 
     if (binding && (binding->flags & VKD3D_SHADER_BINDING_FLAG_RAW_VA))
     {
-        uint32_t ctr_ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassPhysicalStorageBuffer, type_id);
         uint32_t buf_ptr_type_id = vkd3d_spirv_get_op_type_pointer(builder, SpvStorageClassUniform, resource_symbol->info.resource.uav_counter_type_id);
         uint32_t indices[2];
 
@@ -10049,8 +10168,10 @@ static void vkd3d_dxbc_compiler_emit_uav_counter_instruction(struct vkd3d_dxbc_c
                 resource_symbol->info.resource.uav_counter_type_id,
                 pointer_id, SpvMemoryAccessMaskNone);
 
-        pointer_id = vkd3d_spirv_build_op_access_chain1(builder,
-                ctr_ptr_type_id, pointer_id, zero_id);
+        result_id = vkd3d_dxbc_compiler_emit_robust_physical_counter(compiler, pointer_id,
+                instruction->handler_idx == VKD3DSIH_IMM_ATOMIC_ALLOC);
+
+        check_post_decrement = false;
     }
     else if (binding && (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS))
     {
@@ -10070,6 +10191,8 @@ static void vkd3d_dxbc_compiler_emit_uav_counter_instruction(struct vkd3d_dxbc_c
         /* Need to mark the pointer argument itself as non-uniform. */
         if (src->reg.modifier == VKD3DSPRM_NONUNIFORM)
             vkd3d_dxbc_compiler_decorate_nonuniform(compiler, pointer_id);
+
+        check_post_decrement = true;
     }
     else
     {
@@ -10077,19 +10200,25 @@ static void vkd3d_dxbc_compiler_emit_uav_counter_instruction(struct vkd3d_dxbc_c
 
         pointer_id = vkd3d_spirv_build_op_image_texel_pointer(builder, ptr_type_id,
             resource_symbol->info.resource.uav_counter_id, zero_id, zero_id);
+
+        check_post_decrement = true;
     }
 
-    operands[0] = pointer_id;
-    operands[1] = vkd3d_dxbc_compiler_get_constant_uint(compiler, SpvScopeDevice);
-    operands[2] = vkd3d_dxbc_compiler_get_constant_uint(compiler, memory_semantics);
-    result_id = vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
-            op, type_id, operands, ARRAY_SIZE(operands));
-    if (op == SpvOpAtomicIDecrement)
+    if (check_post_decrement)
     {
-        /* SpvOpAtomicIDecrement returns the original value. */
-        result_id = vkd3d_spirv_build_op_isub(builder, type_id, result_id,
-                vkd3d_dxbc_compiler_get_constant_uint(compiler, 1));
+        operands[0] = pointer_id;
+        operands[1] = vkd3d_dxbc_compiler_get_constant_uint(compiler, SpvScopeDevice);
+        operands[2] = vkd3d_dxbc_compiler_get_constant_uint(compiler, memory_semantics);
+        result_id = vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
+                op, type_id, operands, ARRAY_SIZE(operands));
+        if (op == SpvOpAtomicIDecrement)
+        {
+            /* SpvOpAtomicIDecrement returns the original value. */
+            result_id = vkd3d_spirv_build_op_isub(builder, type_id, result_id,
+                    vkd3d_dxbc_compiler_get_constant_uint(compiler, 1));
+        }
     }
+
     vkd3d_dxbc_compiler_emit_store_dst(compiler, dst, result_id);
 }
 
