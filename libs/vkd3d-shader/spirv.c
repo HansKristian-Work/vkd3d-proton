@@ -2586,8 +2586,8 @@ static struct vkd3d_shader_descriptor_binding vkd3d_dxbc_compiler_get_descriptor
         struct vkd3d_dxbc_compiler *compiler, const struct vkd3d_shader_register *reg,
         enum vkd3d_shader_resource_type resource_type, bool is_uav_counter, bool raw_ssbo)
 {
+    VKD3D_UNUSED enum vkd3d_shader_descriptor_type descriptor_type;
     const struct vkd3d_shader_resource_binding *resource = NULL;
-    enum vkd3d_shader_descriptor_type descriptor_type;
     struct vkd3d_shader_descriptor_binding binding;
     uint32_t binding_flags;
 

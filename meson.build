@@ -1,5 +1,5 @@
 project('vkd3d-proton', ['c'], version : '2.6', meson_version : '>= 0.49', default_options : [
-  'warning_level=2',
+  'warning_level=2', 'b_ndebug=if-release',
 ])
 
 cpu_family = target_machine.cpu_family()
