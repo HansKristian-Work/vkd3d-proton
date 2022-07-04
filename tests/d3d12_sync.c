@@ -1187,3 +1187,243 @@ void test_create_fence(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+void test_fence_wait_robustness_inner(bool shared_handles)
+{
+    VKD3D_UNUSED HANDLE shared_signal = NULL;
+    VKD3D_UNUSED HANDLE shared_drain = NULL;
+    VKD3D_UNUSED HANDLE shared_wait = NULL;
+    ID3D12CommandAllocator *allocator[2];
+    ID3D12Fence *signal_fence_dup = NULL;
+    D3D12_COMMAND_QUEUE_DESC queue_desc;
+    ID3D12Fence *drain_fence_dup = NULL;
+    ID3D12Fence *wait_fence_dup = NULL;
+    ID3D12GraphicsCommandList *list[2];
+    ID3D12CommandQueue *compute_queue;
+    struct test_context context;
+    ID3D12Fence *signal_fence;
+    ID3D12Fence *drain_fence;
+    ID3D12Fence *wait_fence;
+    ID3D12Resource *src;
+    ID3D12Resource *dst;
+    unsigned int i;
+    HANDLE event;
+    UINT value;
+    HRESULT hr;
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    hr = ID3D12Device_CreateFence(context.device, 0,
+            shared_handles ? D3D12_FENCE_FLAG_SHARED : D3D12_FENCE_FLAG_NONE,
+            &IID_ID3D12Fence, (void**)&signal_fence);
+    todo_if(shared_handles) ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", hr);
+
+    if (FAILED(hr))
+    {
+        skip("Failed to create fence, skipping test ...\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    hr = ID3D12Device_CreateFence(context.device, 0,
+            shared_handles ? D3D12_FENCE_FLAG_SHARED : D3D12_FENCE_FLAG_NONE,
+            &IID_ID3D12Fence, (void**)&wait_fence);
+    ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", hr);
+
+    if (FAILED(hr))
+    {
+        skip("Failed to create fence, skipping test ...\n");
+        ID3D12Fence_Release(signal_fence);
+        destroy_test_context(&context);
+        return;
+    }
+
+    hr = ID3D12Device_CreateFence(context.device, 0,
+            shared_handles ? D3D12_FENCE_FLAG_SHARED : D3D12_FENCE_FLAG_NONE,
+            &IID_ID3D12Fence, (void**)&drain_fence);
+    ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", hr);
+
+    if (FAILED(hr))
+    {
+        skip("Failed to create fence, skipping test ...\n");
+        ID3D12Fence_Release(signal_fence);
+        ID3D12Fence_Release(wait_fence);
+        destroy_test_context(&context);
+        return;
+    }
+
+#ifdef _WIN32
+    if (shared_handles)
+    {
+        hr = ID3D12Device_CreateSharedHandle(context.device, (ID3D12DeviceChild*)signal_fence,
+                NULL, GENERIC_ALL, NULL, &shared_signal);
+        ok(SUCCEEDED(hr), "Failed to create shared handle, hr #%x.\n", hr);
+        hr = ID3D12Device_CreateSharedHandle(context.device, (ID3D12DeviceChild*)wait_fence,
+                NULL, GENERIC_ALL, NULL, &shared_wait);
+        ok(SUCCEEDED(hr), "Failed to create shared handle, hr #%x.\n", hr);
+        hr = ID3D12Device_CreateSharedHandle(context.device, (ID3D12DeviceChild*)drain_fence,
+                NULL, GENERIC_ALL, NULL, &shared_drain);
+        ok(SUCCEEDED(hr), "Failed to create shared handle, hr #%x.\n", hr);
+
+        ID3D12Fence_Release(signal_fence);
+        ID3D12Fence_Release(wait_fence);
+        ID3D12Fence_Release(drain_fence);
+
+        hr = ID3D12Device_OpenSharedHandle(context.device, shared_signal, &IID_ID3D12Fence, (void**)&signal_fence);
+        ok(SUCCEEDED(hr), "Failed to open shared handle, hr #%x.\n", hr);
+        hr = ID3D12Device_OpenSharedHandle(context.device, shared_wait, &IID_ID3D12Fence, (void**)&wait_fence);
+        ok(SUCCEEDED(hr), "Failed to open shared handle, hr #%x.\n", hr);
+        hr = ID3D12Device_OpenSharedHandle(context.device, shared_drain, &IID_ID3D12Fence, (void**)&drain_fence);
+        ok(SUCCEEDED(hr), "Failed to open shared handle, hr #%x.\n", hr);
+
+        /* OpenSharedHandle takes a kernel level reference on the HANDLE. */
+        hr = ID3D12Device_OpenSharedHandle(context.device, shared_signal, &IID_ID3D12Fence, (void**)&signal_fence_dup);
+        ok(SUCCEEDED(hr), "Failed to open shared handle, hr #%x.\n", hr);
+        hr = ID3D12Device_OpenSharedHandle(context.device, shared_wait, &IID_ID3D12Fence, (void**)&wait_fence_dup);
+        ok(SUCCEEDED(hr), "Failed to open shared handle, hr #%x.\n", hr);
+        hr = ID3D12Device_OpenSharedHandle(context.device, shared_drain, &IID_ID3D12Fence, (void**)&drain_fence_dup);
+        ok(SUCCEEDED(hr), "Failed to open shared handle, hr #%x.\n", hr);
+
+        /* Observed behavior: Closing the last reference to the kernel HANDLE object unblocks all waiters.
+         * This isn't really implementable in Wine as it stands since applications are free to share
+         * the HANDLE and Dupe it arbitrarily.
+         * For now, assume this is not a thing, we can report TDR-like situations if this comes up in practice. */
+        if (shared_signal)
+            CloseHandle(shared_signal);
+        if (shared_wait)
+            CloseHandle(shared_wait);
+        if (shared_drain)
+            CloseHandle(shared_drain);
+    }
+#endif
+
+    memset(&queue_desc, 0, sizeof(queue_desc));
+    queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+    queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+    queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+
+    src = create_default_buffer(context.device, 256 * 1024 * 1024, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    dst = create_default_buffer(context.device, 256 * 1024 * 1024, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    ID3D12Device_CreateCommandQueue(context.device, &queue_desc, &IID_ID3D12CommandQueue, (void**)&compute_queue);
+
+    for (i = 0; i < 2; i++)
+    {
+        ID3D12Device_CreateCommandAllocator(context.device, D3D12_COMMAND_LIST_TYPE_COMPUTE,
+                &IID_ID3D12CommandAllocator, (void**)&allocator[i]);
+        ID3D12Device_CreateCommandList(context.device, 0, D3D12_COMMAND_LIST_TYPE_COMPUTE, allocator[i], NULL,
+                &IID_ID3D12GraphicsCommandList, (void**)&list[i]);
+    }
+
+    /* Heavy copy action. */
+    for (i = 0; i < 128; i++)
+    {
+        ID3D12GraphicsCommandList_CopyResource(list[0], dst, src);
+        ID3D12GraphicsCommandList_CopyResource(list[1], src, dst);
+    }
+
+    ID3D12GraphicsCommandList_Close(list[0]);
+    ID3D12GraphicsCommandList_Close(list[1]);
+
+    /* Note on ref-count checks: The debug layers can take transient public ref-counts it seems. */
+
+    ID3D12CommandQueue_ExecuteCommandLists(context.queue, 1, (ID3D12CommandList * const *)&list[0]);
+    ID3D12CommandQueue_Signal(context.queue, signal_fence, 1);
+    /* Validate that signal/wait does not take public ref-counts. */
+    value = get_refcount(signal_fence);
+    ok(value == 1, "Unexpected ref-count %u\n", value);
+
+    /* The GPU copy is 32 GB worth of BW. There is literally zero chance it would have completed in this amount of time. */
+    value = (UINT)ID3D12Fence_GetCompletedValue(signal_fence);
+    ok(value == 0, "Unexpected signal event %u.\n", value);
+
+    /* Try waiting for a signal that never comes. We'll be able to unblock this wait
+     * when we fully release the fence. */
+    ID3D12CommandQueue_Wait(compute_queue, signal_fence, UINT64_MAX);
+    value = get_refcount(signal_fence);
+    ok(value == 1, "Unexpected ref-count %u\n", value);
+
+    ID3D12CommandQueue_Signal(compute_queue, wait_fence, 1);
+    value = get_refcount(wait_fence);
+    ok(value == 1, "Unexpected ref-count %u\n", value);
+
+    /* The GPU copy is 32 GB worth of BW. There is literally zero chance it would have completed in this amount of time. */
+    value = (UINT)ID3D12Fence_GetCompletedValue(wait_fence);
+    ok(value == 0, "Unexpected signal event %u.\n", value);
+    value = (UINT)ID3D12Fence_GetCompletedValue(signal_fence);
+    ok(value == 0, "Unexpected signal event %u.\n", value);
+
+    ID3D12CommandQueue_Wait(compute_queue, wait_fence, 1);
+    value = get_refcount(wait_fence);
+    ok(value == 1, "Unexpected ref-count %u\n", value);
+
+    /* Check that we can queue up event completion.
+     * Again, verify that releasing the fence unblocks all waiters ... */
+    event = create_event();
+    ID3D12Fence_SetEventOnCompletion(signal_fence, UINT64_MAX, event);
+
+    if (signal_fence_dup)
+        ID3D12Fence_Release(signal_fence_dup);
+    if (wait_fence_dup)
+        ID3D12Fence_Release(wait_fence_dup);
+
+    /* The GPU copy is 32 GB worth of BW. There is literally zero chance it would have completed in this amount of time.
+     * Makes sure that the fences aren't signalled when we try to free them.
+     * (Sure, there is a theoretical race condition if GPU completes between this check and the release, but seriously ...). */
+    value = (UINT)ID3D12Fence_GetCompletedValue(signal_fence);
+    ok(value == 0, "Unexpected signal event %u.\n", value);
+    value = (UINT)ID3D12Fence_GetCompletedValue(wait_fence);
+    ok(value == 0, "Unexpected signal event %u.\n", value);
+
+    /* Test that it's valid to release fence while it's in flight.
+     * If we don't cause device lost and drain_fence is waited on successfully we pass the test. */
+    value = ID3D12Fence_Release(signal_fence);
+    ok(value == 0, "Unexpected fence ref-count %u.\n", value);
+    value = ID3D12Fence_Release(wait_fence);
+    ok(value == 0, "Unexpected fence ref-count %u.\n", value);
+
+    ID3D12CommandQueue_ExecuteCommandLists(compute_queue, 1, (ID3D12CommandList * const *)&list[1]);
+    ID3D12CommandQueue_Signal(compute_queue, drain_fence, 1);
+
+    wait_event(event, INFINITE);
+    destroy_event(event);
+    ID3D12Fence_SetEventOnCompletion(drain_fence, 1, NULL);
+    value = (UINT)ID3D12Fence_GetCompletedValue(drain_fence);
+    ok(value == 1, "Expected fence wait value 1, but got %u.\n", value);
+
+    if (drain_fence_dup)
+    {
+        /* Check we observe the counter in sibling fences as well. */
+        value = (UINT)ID3D12Fence_GetCompletedValue(drain_fence_dup);
+        ok(value == 1, "Expected fence wait value 1, but got %u.\n", value);
+        ID3D12Fence_Release(drain_fence_dup);
+    }
+
+    value = ID3D12Fence_Release(drain_fence);
+    ok(value == 0, "Unexpected fence ref-count %u.\n", value);
+
+    ID3D12CommandQueue_Release(compute_queue);
+    for (i = 0; i < 2; i++)
+    {
+        ID3D12CommandAllocator_Release(allocator[i]);
+        ID3D12GraphicsCommandList_Release(list[i]);
+    }
+    ID3D12Resource_Release(dst);
+    ID3D12Resource_Release(src);
+
+    destroy_test_context(&context);
+}
+
+void test_fence_wait_robustness(void)
+{
+    test_fence_wait_robustness_inner(false);
+}
+
+void test_fence_wait_robustness_shared(void)
+{
+#ifdef _WIN32
+    test_fence_wait_robustness_inner(true);
+#else
+    skip("Shared fences not supported on native Linux build.\n");
+#endif
+}
