@@ -227,7 +227,11 @@ HRESULT vkd3d_join_thread(struct vkd3d_instance *instance, union vkd3d_thread_ha
 struct vkd3d_waiting_fence
 {
     struct d3d12_fence *fence;
+    VkSemaphore submission_timeline;
     uint64_t value;
+    LONG **submission_counters;
+    size_t num_submission_counts;
+    bool signal;
 };
 
 struct vkd3d_fence_worker
@@ -2287,6 +2291,8 @@ struct vkd3d_queue
     VkCommandPool barrier_pool;
     VkCommandBuffer barrier_command_buffer;
     VkSemaphore serializing_binary_semaphore;
+    VkSemaphore submission_timeline;
+    uint64_t submission_timeline_count;
 
     uint32_t vk_family_index;
     VkQueueFlags vk_queue_flags;
@@ -2299,6 +2305,8 @@ struct vkd3d_queue
     size_t wait_values_size;
     VkPipelineStageFlags *wait_stages;
     size_t wait_stages_size;
+    struct d3d12_fence **wait_fences;
+    size_t wait_fences_size;
     uint32_t wait_count;
 };
 
@@ -2307,7 +2315,7 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device, uint32_t family_index, u
         const VkQueueFamilyProperties *properties, struct vkd3d_queue **queue);
 void vkd3d_queue_destroy(struct vkd3d_queue *queue, struct d3d12_device *device);
 void vkd3d_queue_release(struct vkd3d_queue *queue);
-void vkd3d_queue_add_wait(struct vkd3d_queue *queue, VkSemaphore semaphore, uint64_t value);
+void vkd3d_queue_add_wait(struct vkd3d_queue *queue, struct d3d12_fence *waiter, VkSemaphore semaphore, uint64_t value);
 
 enum vkd3d_submission_type
 {
