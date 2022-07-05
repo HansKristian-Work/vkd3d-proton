@@ -838,6 +838,17 @@ static ULONG STDMETHODCALLTYPE d3d12_fence_Release(d3d12_fence_iface *iface)
     if (!refcount)
     {
         struct d3d12_device *device = fence->device;
+
+        /* When a fence's public ref-count hits zero, all waiters must be released.
+         * NOTE: For shared fences later,
+         * we cannot signal here since we cannot know if there are other fences.
+         * According to our tests, the fence unblocks all waiters when the last reference
+         * to the shared HANDLE is released. This is completely outside the scope of what we can
+         * reasonably implement ourselves. For now, the plan is to wait with timeout
+         * and mark "TDR" if that ever happens in real world usage. */
+        if (!(fence->d3d12_flags & D3D12_FENCE_FLAG_SHARED))
+            d3d12_fence_signal_cpu_timeline_semaphore(fence, UINT64_MAX);
+
         d3d12_fence_dec_ref(fence);
         d3d12_device_release(device);
     }
