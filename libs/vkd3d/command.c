@@ -1700,6 +1700,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
     struct d3d12_command_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
     ULONG refcount = InterlockedDecrement(&allocator->refcount);
     unsigned int i, j;
+    LONG pending;
 
     TRACE("%p decreasing refcount to %u.\n", allocator, refcount);
 
@@ -1709,6 +1710,13 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
         const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
         vkd3d_private_store_destroy(&allocator->private_store);
+
+        if ((pending = vkd3d_atomic_uint32_load_explicit(&allocator->outstanding_submissions_count, vkd3d_memory_order_acquire)) != 0)
+        {
+            /* Nothing we can do about this other than report the error. Might find some game bugs! */
+            ERR("Attempting to free command allocator, but there are still %u pending submissions!\n",
+                    (unsigned int)allocator->outstanding_submissions_count);
+        }
 
         if (allocator->current_command_list)
             d3d12_command_list_allocator_destroyed(allocator->current_command_list);
@@ -1856,11 +1864,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
          * however, this is enough to workaround SotTR which resets the command list right
          * after calling ID3D12CommandQueue::ExecuteCommandLists().
          * Only happens once or twice on bootup and doesn't cause memory leaks over time
-         * since the command pool is eventually reset.
-         * Game does not seem to care if E_FAIL is returned, which is the correct thing to do here. */
+         * since the command pool is eventually reset. */
+
+        /* Runtime appears to detect this case, but does not return E_FAIL for whatever reason anymore. */
         ERR("There are still %u pending command lists awaiting execution from command allocator iface %p!\n",
             (unsigned int)pending, iface);
-        return E_FAIL;
+        return S_OK;
     }
 
     device = allocator->device;
