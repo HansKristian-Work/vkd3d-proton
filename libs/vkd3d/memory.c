@@ -1155,6 +1155,7 @@ static HRESULT vkd3d_memory_allocator_flush_clears_locked(struct vkd3d_memory_al
         for (i = 0; i < queue_family->queue_count; i++)
         {
             vkd3d_queue_add_wait(queue_family->queues[i],
+                    NULL,
                     clear_queue->vk_semaphore,
                     clear_queue->next_signal_value);
         }
