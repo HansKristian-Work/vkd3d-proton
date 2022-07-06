@@ -25,13 +25,6 @@
 
 #ifdef VKD3D_ENABLE_PROFILING
 
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#else
-#include <time.h>
-#endif
-
 void vkd3d_init_profiling(void);
 bool vkd3d_uses_profiling(void);
 unsigned int vkd3d_profiling_register_region(const char *name, spinlock_t *lock, uint32_t *latch);
@@ -48,12 +41,12 @@ void vkd3d_profiling_notify_work(unsigned int index, uint64_t start_ticks, uint6
     do { \
         if (!(_vkd3d_region_index_##name = vkd3d_atomic_uint32_load_explicit(&_vkd3d_region_latch_##name, vkd3d_memory_order_acquire))) \
             _vkd3d_region_index_##name = vkd3d_profiling_register_region(#name, &_vkd3d_region_lock_##name, &_vkd3d_region_latch_##name); \
-        _vkd3d_region_begin_tick_##name = vkd3d_get_current_time_ns(); \
+        _vkd3d_region_begin_tick_##name = vkd3d_get_current_time_ticks(); \
     } while(0)
 
 #define VKD3D_REGION_END_ITERATIONS(name, iter) \
     do { \
-        _vkd3d_region_end_tick_##name = vkd3d_get_current_time_ns(); \
+        _vkd3d_region_end_tick_##name = vkd3d_get_current_time_ticks(); \
         vkd3d_profiling_notify_work(_vkd3d_region_index_##name, _vkd3d_region_begin_tick_##name, _vkd3d_region_end_tick_##name, iter); \
     } while(0)
 
