@@ -75,17 +75,35 @@ def main():
     parser.add_argument('--per-iteration', action = 'store_true', help = 'Represent ticks in terms of ticks / iteration. Cannot be used with --divider.')
     parser.add_argument('--name', nargs = '+', type = str, help = 'Only display data for certain counters.')
     parser.add_argument('--sort', type = str, default = 'none', help = 'Sorts input data according to "iterations" or "ticks".')
+    parser.add_argument('--delta', type = str, help = 'Subtract iterations and timing from other profile blob.')
     parser.add_argument('profile', help = 'The profile binary blob.')
 
     args = parser.parse_args()
     if not args.profile:
         raise AssertionError('Need profile folder.')
 
+    delta_map = {}
+    if args.delta is not None:
+        with open(args.delta, 'rb') as f:
+            for block in iter(lambda: f.read(64), b''):
+                if is_valid_block(block):
+                    b = parse_block(block)
+                    delta_map[b.name] = b
+
     blocks = []
     with open(args.profile, 'rb') as f:
         for block in iter(lambda: f.read(64), b''):
             if is_valid_block(block):
-                blocks.append(parse_block(block))
+                b = parse_block(block)
+                if b.name in delta_map:
+                    d = delta_map[b.name]
+                    b = ProfileCase(ticks = b.ticks - d.ticks,
+                            iterations = b.iterations - d.iterations,
+                            name = b.name)
+                    if b.iterations < 0 or b.ticks < 0:
+                        raise AssertionError('After subtracting, iterations or ticks became negative.')
+                if b.iterations > 0:
+                    blocks.append(b)
 
     if args.divider is not None:
         if args.per_iteration:
