@@ -311,4 +311,19 @@ static inline uint64_t vkd3d_get_current_time_ns(void)
 #endif
 }
 
+#ifdef _MSC_VER
+#pragma intrinsic(__rdtsc)
+#endif
+
+static inline uint64_t vkd3d_get_current_time_ticks(void)
+{
+#ifdef _MSC_VER
+    return __rdtsc();
+#elif defined(__i386__) || defined(__x86_64__)
+    return __builtin_ia32_rdtsc();
+#else
+    return vkd3d_get_current_time_ns();
+#endif
+}
+
 #endif  /* __VKD3D_COMMON_H */
