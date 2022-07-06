@@ -114,11 +114,11 @@ def main():
                 print('    Iterations:', block.iterations)
 
             if args.divider is not None:
-                print('    Time spent per iteration of {}: {:.3f}'.format(args.divider, block.ticks / 1000.0), "us")
+                print('    Time spent per iteration of {}: {:.3f}'.format(args.divider, block.ticks / 1000.0), "Kcycles")
             elif args.per_iteration:
-                print('    Time spent per iteration: {:.3f}'.format(block.ticks / 1000.0), "us")
+                print('    Time spent per iteration: {:.3f}'.format(block.ticks / 1000.0), "Kcycles")
             else:
-                print('    Total time spent: {:.3f}'.format(block.ticks / 1000.0), "us")
+                print('    Total time spent: {:.3f}'.format(block.ticks / 1000.0), "Kcycles")
 
 if __name__ == '__main__':
     main()
