@@ -190,6 +190,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaSurfaceObject(ID3
        return E_INVALIDARG;
 
     device = d3d12_device_from_ID3D12DeviceExt(iface);
+
+    if (uav_handle.ptr & VKD3D_RESOURCE_DESC_DEFER_COPY_MASK)
+    {
+        INFO("Flushing copy queue in place due to weird GetCudaSurfaceObject call!\n");
+        vkd3d_descriptor_update_ring_flush(&device->descriptor_update_ring, device);
+    }
+
     uav_desc = d3d12_desc_decode_va(uav_handle.ptr);
 
     imageViewHandleInfo.imageView = uav_desc.view->info.view->vk_image_view;
