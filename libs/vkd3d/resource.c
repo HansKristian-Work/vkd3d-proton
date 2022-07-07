@@ -5295,6 +5295,22 @@ static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_AddRef(ID3D12DescriptorHeap
     return refcount;
 }
 
+void d3d12_descriptor_heap_inc_ref(struct d3d12_descriptor_heap *heap)
+{
+    InterlockedIncrement(&heap->internal_refcount);
+}
+
+void d3d12_descriptor_heap_dec_ref(struct d3d12_descriptor_heap *heap)
+{
+    ULONG refcount = InterlockedDecrement(&heap->internal_refcount);
+
+    if (!refcount)
+    {
+        d3d12_descriptor_heap_cleanup(heap);
+        vkd3d_free_aligned(heap);
+    }
+}
+
 static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_Release(ID3D12DescriptorHeap *iface)
 {
     struct d3d12_descriptor_heap *heap = impl_from_ID3D12DescriptorHeap(iface);
@@ -5305,11 +5321,12 @@ static ULONG STDMETHODCALLTYPE d3d12_descriptor_heap_Release(ID3D12DescriptorHea
     if (!refcount)
     {
         struct d3d12_device *device = heap->device;
-
-        d3d12_descriptor_heap_cleanup(heap);
+        /* There might be pending descriptor copies from our heap, so keep it alive
+         * until we have observed that all possible copies have completed using the current
+         * write_count timestamp. */
+        vkd3d_descriptor_update_ring_mark_heap_destruction(&device->descriptor_update_ring, heap);
         vkd3d_private_store_destroy(&heap->private_store);
-        vkd3d_free_aligned(heap);
-
+        d3d12_descriptor_heap_dec_ref(heap);
         d3d12_device_release(device);
     }
 
@@ -5853,6 +5870,7 @@ static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descript
     memset(descriptor_heap, 0, sizeof(*descriptor_heap));
     descriptor_heap->ID3D12DescriptorHeap_iface.lpVtbl = &d3d12_descriptor_heap_vtbl;
     descriptor_heap->refcount = 1;
+    descriptor_heap->internal_refcount = 1;
     descriptor_heap->device = device;
     descriptor_heap->desc = *desc;
 
@@ -6005,6 +6023,18 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
     {
         /* See comments above on how this is supposed to work */
         object->cpu_va.ptr = (SIZE_T)object + num_descriptor_bits;
+
+        /* FIXME: This is gross. We need to repurpose some of the lower order bits to make this robust. */
+        if (object->cpu_va.ptr & VKD3D_RESOURCE_DESC_DEFER_COPY_MASK)
+        {
+            FIXME("High bit in CPU va is set ...\n");
+            vkd3d_free_aligned(object);
+            return E_OUTOFMEMORY;
+        }
+
+        if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV &&
+                (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE))
+            object->cpu_va.ptr |= VKD3D_RESOURCE_DESC_DEFER_COPY_MASK;
     }
     else
     {
@@ -6042,6 +6072,172 @@ void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap
     VK_CALL(vkDestroyDescriptorPool(device->vk_device, descriptor_heap->vk_descriptor_pool, NULL));
 
     vkd3d_descriptor_debug_unregister_heap(descriptor_heap->cookie);
+}
+
+HRESULT vkd3d_descriptor_update_ring_init(struct vkd3d_descriptor_update_ring *ring,
+        struct d3d12_device *device)
+{
+    D3D12_DESCRIPTOR_HEAP_DESC desc;
+    HRESULT hr;
+
+    desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    desc.NumDescriptors = VKD3D_DESCRIPTOR_UPDATE_RING_SIZE;
+    desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    desc.NodeMask = 0;
+
+    if (FAILED(hr = d3d12_descriptor_heap_create(device, &desc, &ring->staging)))
+        return hr;
+
+    /* Hold private reference. */
+    d3d12_descriptor_heap_inc_ref(ring->staging);
+    d3d12_descriptor_heap_Release(&ring->staging->ID3D12DescriptorHeap_iface);
+
+    ring->staging_base = ring->staging->cpu_va.ptr;
+    ring->cbv_srv_uav_copies = vkd3d_calloc(VKD3D_DESCRIPTOR_UPDATE_RING_SIZE, sizeof(*ring->cbv_srv_uav_copies));
+
+    pthread_mutex_init(&ring->submission_lock, NULL);
+    return S_OK;
+}
+
+void vkd3d_descriptor_update_ring_cleanup(struct vkd3d_descriptor_update_ring *ring,
+        struct d3d12_device *device)
+{
+    size_t i;
+
+    d3d12_descriptor_heap_dec_ref(ring->staging);
+    pthread_mutex_destroy(&ring->submission_lock);
+    vkd3d_free(ring->cbv_srv_uav_copies);
+
+    for (i = 0; i < ring->deferred_release_count; i++)
+        d3d12_descriptor_heap_dec_ref(ring->deferred_releases[i].heap);
+    vkd3d_free(ring->deferred_releases);
+}
+
+vkd3d_cpu_descriptor_va_t vkd3d_descriptor_update_ring_allocate_scratch(struct vkd3d_descriptor_update_ring *ring)
+{
+    /* FIXME: This can in theory overflow before we've read all entries. If we start to fill the buffer,
+     * we can do an emergency stall, but it should basically never happen unless application
+     * is specifically trying to break us. We can read the read_count. */
+    uint32_t offset = vkd3d_atomic_uint32_increment(&ring->staging_write_count, vkd3d_memory_order_relaxed) - 1;
+    offset &= VKD3D_DESCRIPTOR_UPDATE_RING_MASK;
+    return ring->staging_base + offset * VKD3D_RESOURCE_DESC_INCREMENT;
+}
+
+void vkd3d_descriptor_update_ring_push_copy(struct vkd3d_descriptor_update_ring *ring,
+        struct d3d12_device *device,
+        vkd3d_cpu_descriptor_va_t src_, vkd3d_cpu_descriptor_va_t dst_)
+{
+    /* FIXME: Have to handle the case where we're overflowing the buffers. */
+    struct vkd3d_descriptor_update_ring_copy *copy;
+    void *src = (void*)src_;
+    void *dst = (void*)dst_;
+    uint32_t write_count;
+    uint32_t read_count;
+    uint32_t offset;
+
+    /* Detect internal overflow. When we've filled half the buffer it's getting spicy,
+     * so perform an emergency flush.
+     * This should only happen in code that tries hard to break us. */
+    write_count = vkd3d_atomic_uint32_load_explicit(&ring->write_count, vkd3d_memory_order_relaxed);
+    read_count = vkd3d_atomic_uint32_load_explicit(&ring->read_count, vkd3d_memory_order_relaxed);
+    if ((write_count - read_count) > VKD3D_DESCRIPTOR_UPDATE_RING_SIZE / 2)
+    {
+        INFO("Emergency descriptor update ring flush in render threads!\n");
+        vkd3d_descriptor_update_ring_flush(ring, device);
+    }
+
+    write_count = vkd3d_atomic_uint32_increment(&ring->write_count, vkd3d_memory_order_relaxed) - 1;
+    offset = write_count & VKD3D_DESCRIPTOR_UPDATE_RING_MASK;
+    copy = &ring->cbv_srv_uav_copies[offset];
+
+    /* There is a race here where submission threads may observe that the write count has increased, but application
+     * has not completely written the descriptor copy write yet.
+     * Submission will stop processing in this case. Next iteration, the read count will start working on the first failed descriptor.
+     * All descriptor updates which happened before the ExecuteCommandLists
+     * is guaranteed to be completely written, so the only edge case occurs if ExecuteCommandLists is called
+     * concurrently with descriptor updates, but it's not guaranteed that ExecuteCommandLists would observe those descriptors
+     * in the first place. The only real memory order we need to consider is release semantic on the dst write.
+     * Submission thread will read dst first with acquire order, then src. */
+    vkd3d_atomic_ptr_store_explicit(&copy->src, src, vkd3d_memory_order_relaxed);
+    vkd3d_atomic_ptr_store_explicit(&copy->dst, dst, vkd3d_memory_order_release);
+}
+
+void vkd3d_descriptor_update_ring_mark_heap_destruction(struct vkd3d_descriptor_update_ring *ring,
+        struct d3d12_descriptor_heap *heap)
+{
+    uint32_t write_count;
+
+    if (heap->desc.Type != D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+        return;
+
+    write_count = vkd3d_atomic_uint32_load_explicit(&ring->write_count, vkd3d_memory_order_relaxed);
+    d3d12_descriptor_heap_inc_ref(heap);
+
+    pthread_mutex_lock(&ring->submission_lock);
+    vkd3d_array_reserve((void**)&ring->deferred_releases, &ring->deferred_release_size,
+            ring->deferred_release_count + 1, sizeof(*ring->deferred_releases));
+    ring->deferred_releases[ring->deferred_release_count].heap = heap;
+    ring->deferred_releases[ring->deferred_release_count].write_count = write_count;
+    ring->deferred_release_count++;
+    pthread_mutex_unlock(&ring->submission_lock);
+}
+
+void vkd3d_descriptor_update_ring_flush(struct vkd3d_descriptor_update_ring *ring,
+        struct d3d12_device *device)
+{
+    /* This is called from submission threads and perform the main "meat" of the descriptor management. */
+
+    uint32_t write_count = vkd3d_atomic_uint32_load_explicit(&ring->write_count, vkd3d_memory_order_acquire);
+    struct vkd3d_descriptor_update_ring_copy *copy;
+    vkd3d_cpu_descriptor_va_t src, dst;
+    uint32_t read_count;
+    size_t i, j;
+
+    pthread_mutex_lock(&ring->submission_lock);
+
+    read_count = ring->read_count;
+
+    /* Wrap arithmetic, so != check is appropriate. */
+    while (read_count != write_count)
+    {
+        copy = &ring->cbv_srv_uav_copies[read_count & VKD3D_DESCRIPTOR_UPDATE_RING_MASK];
+        dst = (vkd3d_cpu_descriptor_va_t)vkd3d_atomic_ptr_load_explicit(&copy->dst, vkd3d_memory_order_acquire);
+
+        if (dst)
+        {
+            src = (vkd3d_cpu_descriptor_va_t) vkd3d_atomic_ptr_load_explicit(&copy->src, vkd3d_memory_order_relaxed);
+            d3d12_desc_copy_single(dst, src, device);
+
+            /* Consume the descriptor. */
+            vkd3d_atomic_ptr_store_explicit(&copy->dst, NULL, vkd3d_memory_order_release);
+            vkd3d_atomic_ptr_store_explicit(&copy->src, NULL, vkd3d_memory_order_release);
+        }
+        else
+        {
+            /* Race condition, but it's okay. We'll stop here and pick it up later.
+             * The write to dst will come in finite time. */
+            break;
+        }
+
+        read_count++;
+    }
+
+    vkd3d_atomic_uint32_store_explicit(&ring->read_count, read_count, vkd3d_memory_order_release);
+
+    /* If we're done copying descriptors from a heap, we can now release it safely. */
+    for (i = 0, j = 0; i < ring->deferred_release_count; i++)
+    {
+        /* With wrap arithmetic, test that read_count is positive. In the case where read counter hasn't caught up,
+         * the wrapped value will be close-ish to UINT_MAX instead. */
+        if ((read_count - ring->deferred_releases[i].write_count) <= VKD3D_DESCRIPTOR_UPDATE_RING_SIZE)
+            d3d12_descriptor_heap_dec_ref(ring->deferred_releases[i].heap);
+        else
+            ring->deferred_releases[j++] = ring->deferred_releases[i];
+    }
+
+    ring->deferred_release_count = j;
+
+    pthread_mutex_unlock(&ring->submission_lock);
 }
 
 static void d3d12_query_heap_set_name(struct d3d12_query_heap *heap, const char *name)

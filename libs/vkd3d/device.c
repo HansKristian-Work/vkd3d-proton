@@ -2875,6 +2875,8 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     size_t i, j;
 
+    vkd3d_descriptor_update_ring_cleanup(&device->descriptor_update_ring, device);
+
     for (i = 0; i < VKD3D_SCRATCH_POOL_KIND_COUNT; i++)
         for (j = 0; j < device->scratch_pools[i].scratch_buffer_count; j++)
             d3d12_device_destroy_scratch_buffer(device, &device->scratch_pools[i].scratch_buffers[j]);
@@ -4008,10 +4010,20 @@ static void STDMETHODCALLTYPE d3d12_device_CreateConstantBufferView(d3d12_device
         const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    vkd3d_cpu_descriptor_va_t src = 0, dst = 0;
 
     TRACE("iface %p, desc %p, descriptor %#lx.\n", iface, desc, descriptor.ptr);
 
+    if (descriptor.ptr & VKD3D_RESOURCE_DESC_DEFER_COPY_MASK)
+    {
+        dst = descriptor.ptr;
+        descriptor.ptr = src = vkd3d_descriptor_update_ring_allocate_scratch(&device->descriptor_update_ring);
+    }
+
     d3d12_desc_create_cbv(descriptor.ptr, device, desc);
+
+    if (dst)
+        vkd3d_descriptor_update_ring_push_copy(&device->descriptor_update_ring, device, src, dst);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateShaderResourceView(d3d12_device_iface *iface,
@@ -4019,11 +4031,21 @@ static void STDMETHODCALLTYPE d3d12_device_CreateShaderResourceView(d3d12_device
         D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    vkd3d_cpu_descriptor_va_t src = 0, dst = 0;
 
     TRACE("iface %p, resource %p, desc %p, descriptor %#lx.\n",
             iface, resource, desc, descriptor.ptr);
 
+    if (descriptor.ptr & VKD3D_RESOURCE_DESC_DEFER_COPY_MASK)
+    {
+        dst = descriptor.ptr;
+        descriptor.ptr = src = vkd3d_descriptor_update_ring_allocate_scratch(&device->descriptor_update_ring);
+    }
+
     d3d12_desc_create_srv(descriptor.ptr, device, impl_from_ID3D12Resource(resource), desc);
+
+    if (dst)
+        vkd3d_descriptor_update_ring_push_copy(&device->descriptor_update_ring, device, src, dst);
 }
 
 VKD3D_THREAD_LOCAL struct D3D12_UAV_INFO *d3d12_uav_info = NULL;
@@ -4035,11 +4057,18 @@ static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView(d3d12_devic
     VkImageViewAddressPropertiesNVX out_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_ADDRESS_PROPERTIES_NVX };
     VkImageViewHandleInfoNVX imageViewHandleInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_HANDLE_INFO_NVX };
     const struct vkd3d_vk_device_procs *vk_procs;
+    vkd3d_cpu_descriptor_va_t src = 0, dst = 0;
     VkResult vr;
     struct d3d12_resource *d3d12_resource_ = impl_from_ID3D12Resource(resource);
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
     TRACE("iface %p, resource %p, counter_resource %p, desc %p, descriptor %#lx.\n",
             iface, resource, counter_resource, desc, descriptor.ptr);
+
+    if (descriptor.ptr & VKD3D_RESOURCE_DESC_DEFER_COPY_MASK)
+    {
+        dst = descriptor.ptr;
+        descriptor.ptr = src = vkd3d_descriptor_update_ring_allocate_scratch(&device->descriptor_update_ring);
+    }
 
     d3d12_desc_create_uav(descriptor.ptr,
             device, d3d12_resource_,
@@ -4067,6 +4096,9 @@ static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView(d3d12_devic
         /* Set this to null so that subsequent calls to this API wont update the previous pointer. */
         d3d12_uav_info = NULL;
     }
+
+    if (dst)
+        vkd3d_descriptor_update_ring_push_copy(&device->descriptor_update_ring, device, src, dst);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateRenderTargetView(d3d12_device_iface *iface,
@@ -4216,7 +4248,10 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptorsSimple(d3d12_device_if
         const D3D12_CPU_DESCRIPTOR_HANDLE src_descriptor_range_offset,
         D3D12_DESCRIPTOR_HEAP_TYPE descriptor_heap_type)
 {
+    vkd3d_cpu_descriptor_va_t src, dst;
     struct d3d12_device *device;
+    UINT i;
+
     TRACE("iface %p, descriptor_count %u, dst_descriptor_range_offset %#lx, "
             "src_descriptor_range_offset %#lx, descriptor_heap_type %#x.\n",
             iface, descriptor_count, dst_descriptor_range_offset.ptr, src_descriptor_range_offset.ptr,
@@ -4224,7 +4259,21 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptorsSimple(d3d12_device_if
 
     device = unsafe_impl_from_ID3D12Device(iface);
 
-    if (descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV ||
+    if (descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV &&
+            (dst_descriptor_range_offset.ptr & VKD3D_RESOURCE_DESC_DEFER_COPY_MASK))
+    {
+        src = src_descriptor_range_offset.ptr;
+        dst = dst_descriptor_range_offset.ptr;
+        for (i = 0; i < descriptor_count; i++)
+        {
+            vkd3d_descriptor_update_ring_push_copy(&device->descriptor_update_ring,
+                    device, src, dst);
+
+            src += VKD3D_RESOURCE_DESC_INCREMENT;
+            dst += VKD3D_RESOURCE_DESC_INCREMENT;
+        }
+    }
+    else if (descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV ||
             descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
     {
         /* Fast and hot path. */
@@ -6229,10 +6278,13 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if (FAILED(hr = vkd3d_shader_debug_ring_init(&device->debug_ring, device)))
         goto out_cleanup_meta_ops;
 
+    if (FAILED(hr = vkd3d_descriptor_update_ring_init(&device->descriptor_update_ring, device)))
+        goto out_cleanup_debug_ring;
+
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
         if (FAILED(hr = vkd3d_breadcrumb_tracer_init(&device->breadcrumb_tracer, device)))
-            goto out_cleanup_debug_ring;
+            goto out_cleanup_update_ring;
 #endif
 
     if (vkd3d_descriptor_debug_active_qa_checks())
@@ -6267,8 +6319,10 @@ out_cleanup_breadcrumb_tracer:
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
         vkd3d_breadcrumb_tracer_cleanup(&device->breadcrumb_tracer, device);
-out_cleanup_debug_ring:
+out_cleanup_update_ring:
 #endif
+    vkd3d_descriptor_update_ring_cleanup(&device->descriptor_update_ring, device);
+out_cleanup_debug_ring:
     vkd3d_shader_debug_ring_cleanup(&device->debug_ring, device);
 out_cleanup_meta_ops:
     vkd3d_meta_ops_cleanup(&device->meta_ops, device);

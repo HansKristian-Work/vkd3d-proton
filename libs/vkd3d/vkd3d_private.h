@@ -1037,6 +1037,9 @@ struct vkd3d_descriptor_binding
 #define VKD3D_RESOURCE_DESC_INCREMENT_LOG2 5
 #define VKD3D_RESOURCE_DESC_INCREMENT (1u << VKD3D_RESOURCE_DESC_INCREMENT_LOG2)
 
+/* FIXME: Gross hack for now. */
+#define VKD3D_RESOURCE_DESC_DEFER_COPY_MASK ((uintptr_t)INTPTR_MIN)
+
 /* Arrange data so that it can pack as tightly as possible.
  * When we copy descriptors, we must copy both structures.
  * In copy_desc_range we scan through the entire metadata_binding, so
@@ -1167,6 +1170,7 @@ struct d3d12_descriptor_heap
 {
     ID3D12DescriptorHeap ID3D12DescriptorHeap_iface;
     LONG refcount;
+    LONG internal_refcount;
 
     uint64_t gpu_va;
     D3D12_DESCRIPTOR_HEAP_DESC desc;
@@ -1200,6 +1204,8 @@ struct d3d12_descriptor_heap
 
 HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
         const D3D12_DESCRIPTOR_HEAP_DESC *desc, struct d3d12_descriptor_heap **descriptor_heap);
+void d3d12_descriptor_heap_dec_ref(struct d3d12_descriptor_heap *heap);
+void d3d12_descriptor_heap_inc_ref(struct d3d12_descriptor_heap *heap);
 void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap);
 
 static inline struct d3d12_descriptor_heap *impl_from_ID3D12DescriptorHeap(ID3D12DescriptorHeap *iface)
@@ -1235,6 +1241,8 @@ static inline struct d3d12_desc_split d3d12_desc_decode_va(vkd3d_cpu_descriptor_
      * Above that, we have the d3d12_descriptor_heap, which is allocated with enough alignment
      * to contain these twiddle bits. */
 
+    va &= ~VKD3D_RESOURCE_DESC_DEFER_COPY_MASK;
+
     num_bits_descriptors = va & (VKD3D_RESOURCE_DESC_INCREMENT - 1);
     heap_offset = (va >> VKD3D_RESOURCE_DESC_INCREMENT_LOG2) & (((size_t)1 << num_bits_descriptors) - 1);
     split.offset = (uint32_t)heap_offset;
@@ -1255,6 +1263,54 @@ static inline uint32_t d3d12_desc_heap_offset_from_gpu_handle(D3D12_GPU_DESCRIPT
 {
     return (uint32_t)handle.ptr / VKD3D_RESOURCE_DESC_INCREMENT;
 }
+
+struct vkd3d_descriptor_update_ring_copy
+{
+    void *src;
+    void *dst;
+};
+
+struct vkd3d_descriptor_update_deferred_release
+{
+    struct d3d12_descriptor_heap *heap;
+    uint32_t write_count;
+};
+
+#define VKD3D_DESCRIPTOR_UPDATE_RING_SIZE (256 * 1024)
+#define VKD3D_DESCRIPTOR_UPDATE_RING_MASK (VKD3D_DESCRIPTOR_UPDATE_RING_SIZE - 1)
+
+struct vkd3d_descriptor_update_ring
+{
+    struct vkd3d_descriptor_update_ring_copy *cbv_srv_uav_copies;
+    uint32_t write_count;
+    uint32_t read_count;
+
+    vkd3d_cpu_descriptor_va_t staging_base;
+    struct d3d12_descriptor_heap *staging;
+    uint32_t staging_write_count;
+
+    struct vkd3d_descriptor_update_deferred_release *deferred_releases;
+    size_t deferred_release_count;
+    size_t deferred_release_size;
+
+    pthread_mutex_t submission_lock;
+};
+
+/* When writing shader visible descriptors, defer the write and perform the work
+ * last minute in submission queues. */
+HRESULT vkd3d_descriptor_update_ring_init(struct vkd3d_descriptor_update_ring *ring,
+        struct d3d12_device *device);
+void vkd3d_descriptor_update_ring_cleanup(struct vkd3d_descriptor_update_ring *ring,
+        struct d3d12_device *device);
+void vkd3d_descriptor_update_ring_flush(struct vkd3d_descriptor_update_ring *ring,
+        struct d3d12_device *device);
+
+vkd3d_cpu_descriptor_va_t vkd3d_descriptor_update_ring_allocate_scratch(struct vkd3d_descriptor_update_ring *ring);
+void vkd3d_descriptor_update_ring_push_copy(struct vkd3d_descriptor_update_ring *ring,
+        struct d3d12_device *device,
+        vkd3d_cpu_descriptor_va_t src, vkd3d_cpu_descriptor_va_t dst);
+void vkd3d_descriptor_update_ring_mark_heap_destruction(struct vkd3d_descriptor_update_ring *ring,
+        struct d3d12_descriptor_heap *heap);
 
 /* ID3D12QueryHeap */
 struct d3d12_query_heap
@@ -3325,6 +3381,7 @@ struct d3d12_device
     struct vkd3d_sampler_state sampler_state;
     struct vkd3d_shader_debug_ring debug_ring;
     struct vkd3d_pipeline_library_disk_cache disk_cache;
+    struct vkd3d_descriptor_update_ring descriptor_update_ring;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     struct vkd3d_breadcrumb_tracer breadcrumb_tracer;
 #endif

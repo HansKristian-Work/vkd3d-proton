@@ -12413,6 +12413,8 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
         memmove(queue->submissions, queue->submissions + 1, queue->submissions_count * sizeof(submission));
         pthread_mutex_unlock(&queue->queue_lock);
 
+        vkd3d_descriptor_update_ring_flush(&queue->device->descriptor_update_ring, queue->device);
+
         switch (submission.type)
         {
         case VKD3D_SUBMISSION_STOP:
