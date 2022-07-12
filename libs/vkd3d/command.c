@@ -9663,12 +9663,6 @@ static void d3d12_command_list_execute_indirect_state_template(
     unsigned int i;
     HRESULT hr;
 
-    if (!list->device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
-    {
-        WARN("Ignoring unsupported state template execute indirect.\n");
-        return;
-    }
-
     /* To build device generated commands, we need to know the pipeline we're going to render with. */
     if (!d3d12_command_list_update_graphics_pipeline(list))
         return;
@@ -13368,20 +13362,19 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
             desc->NumArgumentDescs * sizeof(*desc->pArgumentDescs));
 
     if (FAILED(hr = vkd3d_private_store_init(&object->private_store)))
-    {
-        vkd3d_free((void *)object->desc.pArgumentDescs);
-        vkd3d_free(object);
-        return hr;
-    }
+        goto err;
 
     if ((object->requires_state_template = requires_state_template))
     {
-        if (FAILED(hr = d3d12_command_signature_init_state_template(object, desc, root_signature, device)))
+        if (!device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
         {
-            vkd3d_free((void *)object->desc.pArgumentDescs);
-            vkd3d_free(object);
-            return hr;
+            FIXME("VK_NV_device_generated_commands is not supported by implementation.\n");
+            hr = E_NOTIMPL;
+            goto err;
         }
+
+        if (FAILED(hr = d3d12_command_signature_init_state_template(object, desc, root_signature, device)))
+            goto err;
     }
     else
         object->argument_buffer_offset = argument_buffer_offset;
@@ -13393,4 +13386,9 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
     *signature = object;
 
     return S_OK;
+
+err:
+    vkd3d_free((void *)object->desc.pArgumentDescs);
+    vkd3d_free(object);
+    return hr;
 }
