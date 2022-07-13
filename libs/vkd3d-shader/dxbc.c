@@ -2874,7 +2874,7 @@ int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
         return ret;
 
     if (!raw_payload.code)
-        return VKD3D_OK;
+        return VKD3D_ERROR;
 
     if ((ret = vkd3d_shader_parse_root_signature_raw(raw_payload.code, raw_payload.size,
             root_signature, compatibility_hash)) < 0)
