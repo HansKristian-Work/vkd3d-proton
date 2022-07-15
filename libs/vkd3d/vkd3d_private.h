@@ -61,6 +61,8 @@
 
 #define VKD3D_TILE_SIZE 65536
 
+typedef ID3D12Fence1 d3d12_fence_iface;
+
 struct d3d12_command_list;
 struct d3d12_device;
 struct d3d12_resource;
@@ -136,6 +138,7 @@ struct vkd3d_vulkan_info
     bool KHR_ray_tracing_maintenance1;
     bool KHR_fragment_shader_barycentric;
     bool KHR_external_memory_win32;
+    bool KHR_external_semaphore_win32;
     /* EXT device extensions */
     bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;
@@ -227,7 +230,7 @@ HRESULT vkd3d_join_thread(struct vkd3d_instance *instance, union vkd3d_thread_ha
 
 struct vkd3d_waiting_fence
 {
-    struct d3d12_fence *fence;
+    d3d12_fence_iface *fence;
     VkSemaphore submission_timeline;
     uint64_t value;
     LONG **submission_counters;
@@ -513,8 +516,6 @@ static inline HRESULT vkd3d_set_private_data_interface(struct vkd3d_private_stor
 HRESULT STDMETHODCALLTYPE d3d12_object_SetName(ID3D12Object *iface, const WCHAR *name);
 
 /* ID3D12Fence */
-typedef ID3D12Fence1 d3d12_fence_iface;
-
 struct d3d12_fence_value
 {
     uint64_t virtual_value;
@@ -583,6 +584,52 @@ HRESULT d3d12_fence_create(struct d3d12_device *device,
         uint64_t initial_value, D3D12_FENCE_FLAGS flags, struct d3d12_fence **fence);
 HRESULT d3d12_fence_set_event_on_completion(struct d3d12_fence *fence,
         UINT64 value, HANDLE event, enum vkd3d_waiting_event_type type);
+
+struct d3d12_shared_fence
+{
+    d3d12_fence_iface ID3D12Fence_iface;
+    LONG refcount_internal;
+    LONG refcount;
+
+    D3D12_FENCE_FLAGS d3d12_flags;
+
+    VkSemaphore timeline_semaphore;
+
+    struct d3d12_device *device;
+
+    struct vkd3d_private_store private_store;
+};
+
+static inline struct d3d12_shared_fence *shared_impl_from_ID3D12Fence1(ID3D12Fence1 *iface)
+{
+    extern CONST_VTBL struct ID3D12Fence1Vtbl d3d12_shared_fence_vtbl;
+    if (!iface)
+        return NULL;
+    assert(iface->lpVtbl == &d3d12_shared_fence_vtbl);
+    return CONTAINING_RECORD(iface, struct d3d12_shared_fence, ID3D12Fence_iface);
+}
+
+static inline struct d3d12_shared_fence *shared_impl_from_ID3D12Fence(ID3D12Fence *iface)
+{
+    return shared_impl_from_ID3D12Fence1((ID3D12Fence1 *)iface);
+}
+
+HRESULT d3d12_shared_fence_create(struct d3d12_device *device,
+        uint64_t initial_value, D3D12_FENCE_FLAGS flags, struct d3d12_shared_fence **fence);
+
+static inline bool is_shared_ID3D12Fence1(ID3D12Fence1 *iface)
+{
+    extern CONST_VTBL struct ID3D12Fence1Vtbl d3d12_shared_fence_vtbl;
+    extern CONST_VTBL struct ID3D12Fence1Vtbl d3d12_fence_vtbl;
+    assert(iface->lpVtbl ==  &d3d12_shared_fence_vtbl || iface->lpVtbl == &d3d12_fence_vtbl);
+
+    return iface->lpVtbl ==  &d3d12_shared_fence_vtbl;
+}
+
+static inline bool is_shared_ID3D12Fence(ID3D12Fence *iface)
+{
+    return is_shared_ID3D12Fence1((ID3D12Fence1 *)iface);
+}
 
 enum vkd3d_allocation_flag
 {
@@ -2306,7 +2353,7 @@ struct vkd3d_queue
     size_t wait_values_size;
     VkPipelineStageFlags *wait_stages;
     size_t wait_stages_size;
-    struct d3d12_fence **wait_fences;
+    d3d12_fence_iface **wait_fences;
     size_t wait_fences_size;
     uint32_t wait_count;
 };
@@ -2316,7 +2363,7 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device, uint32_t family_index, u
         const VkQueueFamilyProperties *properties, struct vkd3d_queue **queue);
 void vkd3d_queue_destroy(struct vkd3d_queue *queue, struct d3d12_device *device);
 void vkd3d_queue_release(struct vkd3d_queue *queue);
-void vkd3d_queue_add_wait(struct vkd3d_queue *queue, struct d3d12_fence *waiter, VkSemaphore semaphore, uint64_t value);
+void vkd3d_queue_add_wait(struct vkd3d_queue *queue, d3d12_fence_iface *waiter, VkSemaphore semaphore, uint64_t value);
 
 enum vkd3d_submission_type
 {
@@ -2352,13 +2399,13 @@ struct vkd3d_sparse_memory_bind_range
 
 struct d3d12_command_queue_submission_wait
 {
-    struct d3d12_fence *fence;
+    d3d12_fence_iface *fence;
     UINT64 value;
 };
 
 struct d3d12_command_queue_submission_signal
 {
-    struct d3d12_fence *fence;
+    d3d12_fence_iface *fence;
     UINT64 value;
 };
 

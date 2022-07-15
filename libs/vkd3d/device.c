@@ -92,6 +92,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_FRAGMENT_SHADER_BARYCENTRIC, KHR_fragment_shader_barycentric),
 #ifdef _WIN32
     VK_EXTENSION(KHR_EXTERNAL_MEMORY_WIN32, KHR_external_memory_win32),
+    VK_EXTENSION(KHR_EXTERNAL_SEMAPHORE_WIN32, KHR_external_semaphore_win32),
 #endif
     /* EXT extensions */
     VK_EXTENSION(EXT_CALIBRATED_TIMESTAMPS, EXT_calibrated_timestamps),
@@ -4409,6 +4410,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateSharedHandle(d3d12_device_if
     const struct vkd3d_vk_device_procs *vk_procs;
     struct DxvkSharedTextureMetadata metadata;
     ID3D12Resource *resource_iface;
+    ID3D12Fence *fence_iface;
 
     vk_procs = &device->vk_procs;
 
@@ -4478,6 +4480,38 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateSharedHandle(d3d12_device_if
         return vr ? E_FAIL : S_OK;
     }
 
+    if (SUCCEEDED(ID3D12DeviceChild_QueryInterface(object, &IID_ID3D12Fence, (void**)&fence_iface)))
+    {
+        VkSemaphoreGetWin32HandleInfoKHR win32_handle_info;
+        struct d3d12_shared_fence *fence;
+        VkResult vr;
+
+        if (!is_shared_ID3D12Fence(fence_iface))
+        {
+            ID3D12Fence_Release(fence_iface);
+            return DXGI_ERROR_INVALID_CALL;
+        }
+
+        fence = shared_impl_from_ID3D12Fence(fence_iface);
+
+        if (attributes)
+            FIXME("attributes %p not handled\n", attributes);
+        if (access)
+            FIXME("access %#x not handled\n", access);
+        if (name)
+            FIXME("name %s not handled\n", debugstr_w(name));
+
+        win32_handle_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR;
+        win32_handle_info.pNext = NULL;
+        win32_handle_info.semaphore = fence->timeline_semaphore;
+        win32_handle_info.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT;
+
+        vr = VK_CALL(vkGetSemaphoreWin32HandleKHR(device->vk_device, &win32_handle_info, handle));
+
+        ID3D12Fence_Release(fence_iface);
+        return vr ? E_FAIL : S_OK;
+    }
+
     FIXME("Creating shared handle for type of object %p unsupported.\n", object);
     return E_NOTIMPL;
 #else
@@ -4496,7 +4530,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenSharedHandle(d3d12_device_ifac
 {
 #ifdef _WIN32
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    const struct vkd3d_vk_device_procs *vk_procs;
     HRESULT hr;
+
+    vk_procs = &device->vk_procs;
 
     TRACE("iface %p, handle %p, riid %s, object %p\n",
             iface, handle, debugstr_guid(riid), object);
@@ -4581,6 +4618,42 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenSharedHandle(d3d12_device_ifac
         return return_interface(&resource->ID3D12Resource_iface, &IID_ID3D12Resource, riid, object);
     }
 
+    if (IsEqualGUID(riid, &IID_ID3D12Fence))
+    {
+        VkImportSemaphoreWin32HandleInfoKHR import_info;
+        struct d3d12_shared_fence *fence;
+        VkResult vr;
+
+        hr = d3d12_shared_fence_create(device, 0, D3D12_FENCE_FLAG_SHARED, &fence);
+
+        if (FAILED(hr))
+        {
+            WARN("Failed to create object for imported ID3D12Fence, hr %#x.\n", hr);
+            *object = NULL;
+            return hr;
+        }
+
+        import_info.sType = VK_STRUCTURE_TYPE_IMPORT_SEMAPHORE_WIN32_HANDLE_INFO_KHR;
+        import_info.pNext = NULL;
+        import_info.semaphore = fence->timeline_semaphore;
+        import_info.flags = 0;
+        import_info.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT;
+        import_info.handle = handle;
+        import_info.name = NULL;
+
+        vr = VK_CALL(vkImportSemaphoreWin32HandleKHR(device->vk_device, &import_info));
+
+        if (vr != VK_SUCCESS)
+        {
+            WARN("Failed to open shared ID3D12Fence, vr %d.\n", vr);
+            ID3D12Fence1_Release(&fence->ID3D12Fence_iface);
+            *object = NULL;
+            return E_FAIL;
+        }
+
+        return return_interface(&fence->ID3D12Fence_iface, &IID_ID3D12Fence, riid, object);
+    }
+
     FIXME("Opening shared handle type %s unsupported\n", debugstr_guid(riid));
     return E_NOTIMPL;
 #else
@@ -4620,16 +4693,27 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateFence(d3d12_device_iface *if
         UINT64 initial_value, D3D12_FENCE_FLAGS flags, REFIID riid, void **fence)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_shared_fence *shared_object;
     struct d3d12_fence *object;
     HRESULT hr;
 
     TRACE("iface %p, intial_value %#"PRIx64", flags %#x, riid %s, fence %p.\n",
             iface, initial_value, flags, debugstr_guid(riid), fence);
 
-    if (FAILED(hr = d3d12_fence_create(device, initial_value, flags, &object)))
-        return hr;
+    if (!(flags & D3D12_FENCE_FLAG_SHARED))
+    {
+        if (FAILED(hr = d3d12_fence_create(device, initial_value, flags, &object)))
+            return hr;
 
-    return return_interface(&object->ID3D12Fence_iface, &IID_ID3D12Fence, riid, fence);
+        return return_interface(&object->ID3D12Fence_iface, &IID_ID3D12Fence, riid, fence);
+    }
+    else
+    {
+        if (FAILED(hr = d3d12_shared_fence_create(device, initial_value, flags, &shared_object)))
+            return hr;
+
+        return return_interface(&shared_object->ID3D12Fence_iface, &IID_ID3D12Fence, riid, fence);
+    }
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_GetDeviceRemovedReason(d3d12_device_iface *iface)
