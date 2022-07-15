@@ -327,23 +327,25 @@ static HRESULT vkd3d_import_host_memory(struct d3d12_device *device, void *host_
         void *pNext, struct vkd3d_device_memory_allocation *allocation)
 {
     VkImportMemoryHostPointerInfoEXT import_info;
-    HRESULT hr;
+    HRESULT hr = S_OK;
 
     import_info.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_HOST_POINTER_INFO_EXT;
     import_info.pNext = pNext;
     import_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT;
     import_info.pHostPointer = host_address;
 
-    if (FAILED(hr = vkd3d_try_allocate_device_memory(device, size,
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_USE_HOST_IMPORT_FALLBACK) ||
+        FAILED(hr = vkd3d_try_allocate_device_memory(device, size,
             type_flags, type_mask, &import_info, allocation)))
     {
-        WARN("Failed to import host memory, hr %#x.\n", hr);
+        if (FAILED(hr))
+            WARN("Failed to import host memory, hr %#x.\n", hr);
         /* If we failed, fall back to a host-visible allocation. Generally
          * the app will access the memory thorugh the main host pointer,
          * so it's fine. */
         hr = vkd3d_try_allocate_device_memory(device, size,
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                type_mask, &import_info, allocation);
+                type_mask, pNext, allocation);
     }
 
     return hr;
