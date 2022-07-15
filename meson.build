@@ -35,6 +35,12 @@ else
   enable_trace = enable_trace == 'true'
 endif
 
+# Please see https://github.com/wolfpld/tracy/pull/428.
+# Wine probably does not support the required features for Tracy.
+if host_machine.system() != 'windows' and enable_tracy
+  error('Tracy is supported only when building on Windows.')
+endif
+
 if vkd3d_platform != 'windows' and enable_d3d12
   error('Standalone D3D12 is only supported on Windows.')
 endif
