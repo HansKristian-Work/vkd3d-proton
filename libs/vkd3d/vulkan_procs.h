@@ -49,6 +49,7 @@ VK_INSTANCE_PFN(vkGetPhysicalDeviceQueueFamilyProperties)
 VK_INSTANCE_PFN(vkGetPhysicalDeviceSparseImageFormatProperties)
 VK_INSTANCE_PFN(vkGetPhysicalDeviceFeatures2)
 VK_INSTANCE_PFN(vkGetPhysicalDeviceProperties2)
+VK_INSTANCE_PFN(vkGetPhysicalDeviceExternalSemaphoreProperties)
 
 /* VK_EXT_debug_utils */
 VK_INSTANCE_EXT_PFN(vkCreateDebugUtilsMessengerEXT)
@@ -227,6 +228,12 @@ VK_DEVICE_EXT_PFN(vkGetDeviceImageSparseMemoryRequirementsKHR)
 /* VK_KHR_external_memory_win32 */
 VK_DEVICE_EXT_PFN(vkGetMemoryWin32HandleKHR)
 VK_DEVICE_EXT_PFN(vkGetMemoryWin32HandlePropertiesKHR)
+#endif
+
+#ifdef VK_KHR_external_semaphore_win32
+/* VK_KHR_external_semaphore_win32 */
+VK_DEVICE_EXT_PFN(vkGetSemaphoreWin32HandleKHR)
+VK_DEVICE_EXT_PFN(vkImportSemaphoreWin32HandleKHR)
 #endif
 
 /* VK_EXT_calibrated_timestamps */
