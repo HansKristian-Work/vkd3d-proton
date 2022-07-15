@@ -1467,3 +1467,36 @@ void test_missing_bindings_root_signature(void)
     destroy_test_context(&context);
 }
 
+void test_root_signature_empty_blob(void)
+{
+    ID3D12RootSignature *root_signature;
+    struct test_context context;
+    HRESULT hr;
+
+    static const DWORD cs_code[] =
+    {
+#if 0
+    RWStructuredBuffer<uint> RWBuf;
+
+    [numthreads(1, 1, 1)]
+    void main(int wg : SV_GroupID)
+    {
+            RWBuf[wg] = wg;
+    }
+#endif
+        0x43425844, 0x81a88c98, 0x1ab24abd, 0xfdb8fb1f, 0x7e9cb035, 0x00000001, 0x000000a8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000054, 0x00050050, 0x00000015, 0x0100086a,
+        0x0400009e, 0x0011e000, 0x00000000, 0x00000004, 0x0200005f, 0x00021012, 0x0400009b, 0x00000001,
+        0x00000001, 0x00000001, 0x070000a8, 0x0011e012, 0x00000000, 0x0002100a, 0x00004001, 0x00000000,
+        0x0002100a, 0x0100003e,
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    hr = ID3D12Device_CreateRootSignature(context.device, 0, cs_code, sizeof(cs_code), &IID_ID3D12RootSignature, (void **)&root_signature);
+    /* Has to be E_FAIL, not E_INVALIDARG, oddly enough. */
+    ok(hr == E_FAIL, "Unexpected hr #%x.\n", hr);
+    destroy_test_context(&context);
+}
