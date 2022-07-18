@@ -180,8 +180,11 @@ bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *devi
                     triangles = &info->geometries[i].geometry.triangles;
                     triangles->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
                     triangles->indexData.deviceAddress = geom_desc->Triangles.IndexBuffer;
-                    if (geom_desc->Triangles.IndexBuffer)
+                    if (geom_desc->Triangles.IndexFormat != DXGI_FORMAT_UNKNOWN)
                     {
+                        if (!geom_desc->Triangles.IndexBuffer)
+                            WARN("Application is using IndexBuffer = 0 and IndexFormat != UNKNOWN. Likely application bug.\n");
+
                         triangles->indexType =
                                 geom_desc->Triangles.IndexFormat == DXGI_FORMAT_R16_UINT ?
                                         VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
