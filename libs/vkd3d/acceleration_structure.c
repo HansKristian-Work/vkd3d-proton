@@ -19,6 +19,8 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 #include "vkd3d_private.h"
 
+#define RT_TRACE TRACE
+
 void vkd3d_acceleration_structure_build_info_cleanup(
         struct vkd3d_acceleration_structure_build_info *info)
 {
@@ -74,19 +76,31 @@ bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *devi
     bool have_triangles, have_aabbs;
     unsigned int i;
 
+    RT_TRACE("Converting inputs.\n");
+    RT_TRACE("=====================\n");
+
     build_info = &info->build_info;
     memset(build_info, 0, sizeof(*build_info));
     build_info->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
 
     if (desc->Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL)
+    {
         build_info->type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+        RT_TRACE("Top level build.\n");
+    }
     else
+    {
         build_info->type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+        RT_TRACE("Bottom level build.\n");
+    }
 
     build_info->flags = d3d12_build_flags_to_vk(desc->Flags);
 
     if (desc->Flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE)
+    {
+        RT_TRACE("BUILD_FLAG_PERFORM_UPDATE.\n");
         build_info->mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR;
+    }
     else
         build_info->mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
 
@@ -109,6 +123,9 @@ bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *devi
         info->primitive_counts = info->primitive_counts_stack;
         info->primitive_counts[0] = desc->NumDescs;
         build_info->geometryCount = 1;
+        RT_TRACE("  ArrayOfPointers: %u.\n",
+                desc->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS ? 1 : 0);
+        RT_TRACE("  NumDescs: %u.\n", info->primitive_counts[0]);
     }
     else
     {
@@ -132,13 +149,21 @@ bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *devi
         for (i = 0; i < desc->NumDescs; i++)
         {
             info->geometries[i].sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+            RT_TRACE(" Geom %u:\n", i);
 
             if (desc->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS)
+            {
                 geom_desc = desc->ppGeometryDescs[i];
+                RT_TRACE("  ArrayOfPointers\n");
+            }
             else
+            {
                 geom_desc = &desc->pGeometryDescs[i];
+                RT_TRACE("  PointerToArray\n");
+            }
 
             info->geometries[i].flags = d3d12_geometry_flags_to_vk(geom_desc->Flags);
+            RT_TRACE("  Flags = #%x\n", geom_desc->Flags);
 
             switch (geom_desc->Type)
             {
@@ -161,11 +186,17 @@ bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *devi
                                 geom_desc->Triangles.IndexFormat == DXGI_FORMAT_R16_UINT ?
                                         VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
                         info->primitive_counts[i] = geom_desc->Triangles.IndexCount / 3;
+                        RT_TRACE("  Indexed : Index count = %u (%u bits)\n",
+                                geom_desc->Triangles.IndexCount,
+                                triangles->indexType == VK_INDEX_TYPE_UINT16 ? 16 : 32);
+                        RT_TRACE("  Vertex count: %u\n", geom_desc->Triangles.VertexCount);
+                        RT_TRACE("  IBO VA: %"PRIx64".\n", geom_desc->Triangles.IndexBuffer);
                     }
                     else
                     {
                         info->primitive_counts[i] = geom_desc->Triangles.VertexCount / 3;
                         triangles->indexType = VK_INDEX_TYPE_NONE_KHR;
+                        RT_TRACE("  Triangle list : Vertex count: %u\n", geom_desc->Triangles.VertexCount);
                     }
 
                     triangles->maxVertex = max(1, geom_desc->Triangles.VertexCount) - 1;
@@ -173,6 +204,11 @@ bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *devi
                     triangles->vertexFormat = vkd3d_internal_get_vk_format(device, geom_desc->Triangles.VertexFormat);
                     triangles->vertexData.deviceAddress = geom_desc->Triangles.VertexBuffer.StartAddress;
                     triangles->transformData.deviceAddress = geom_desc->Triangles.Transform3x4;
+
+                    RT_TRACE("  Transform3x4: %s\n", geom_desc->Triangles.Transform3x4 ? "on" : "off");
+                    RT_TRACE("  Vertex format: %s\n", debug_dxgi_format(geom_desc->Triangles.VertexFormat));
+                    RT_TRACE("  VBO VA: %"PRIx64"\n", geom_desc->Triangles.VertexBuffer.StartAddress);
+                    RT_TRACE("  Vertex stride: %"PRIu64" bytes\n", geom_desc->Triangles.VertexBuffer.StrideInBytes);
                     break;
 
                 case D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS:
@@ -190,12 +226,15 @@ bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *devi
                     aabbs->stride = geom_desc->AABBs.AABBs.StrideInBytes;
                     aabbs->data.deviceAddress = geom_desc->AABBs.AABBs.StartAddress;
                     info->primitive_counts[i] = geom_desc->AABBs.AABBCount;
+                    RT_TRACE("  AABB stride: %"PRIu64" bytes\n", geom_desc->AABBs.AABBs.StrideInBytes);
                     break;
 
                 default:
                     FIXME("Unsupported geometry type %u.\n", geom_desc->Type);
                     return false;
             }
+
+            RT_TRACE("  Primitive count %u.\n", info->primitive_counts[i]);
         }
     }
 
@@ -209,6 +248,8 @@ bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *devi
     }
 
     build_info->pGeometries = info->geometries;
+
+    RT_TRACE("=====================\n");
     return true;
 }
 
