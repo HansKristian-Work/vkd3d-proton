@@ -12322,7 +12322,6 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
 {
     const VkPipelineStageFlags wait_stages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
     struct vkd3d_sparse_memory_bind_range *bind_ranges = NULL;
-    VkTimelineSemaphoreSubmitInfoKHR timeline_submit_info;
     unsigned int first_packed_tile, processed_tiles;
     VkSparseImageOpaqueMemoryBindInfo opaque_info;
     const struct vkd3d_vk_device_procs *vk_procs;
@@ -12513,6 +12512,9 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
     else
         queue_sparse = queue;
 
+    /* If there are pending waiters, we have to handle that since the signal must come after waiters. */
+    vkd3d_queue_flush_waiters(queue, &command_queue->fence_worker, &command_queue->device->vk_procs);
+
     if (!(vk_queue = vkd3d_queue_acquire(queue)))
     {
         ERR("Failed to acquire queue %p.\n", queue);
@@ -12529,36 +12531,12 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
     submit_info.pWaitDstStageMask = NULL;
     submit_info.pWaitSemaphores = NULL;
 
-    /* If there are pending waiters, we have to handle that since the signal must come after waiters. */
-    if (queue->wait_count)
-    {
-        memset(&timeline_submit_info, 0, sizeof(timeline_submit_info));
-        timeline_submit_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR;
-        submit_info.pNext = &timeline_submit_info;
-
-        submit_info.waitSemaphoreCount = queue->wait_count;
-        submit_info.pWaitSemaphores = queue->wait_semaphores;
-        submit_info.pWaitDstStageMask = queue->wait_stages;
-        timeline_submit_info.waitSemaphoreValueCount = queue->wait_count;
-        timeline_submit_info.pWaitSemaphoreValues = queue->wait_values;
-
-        queue->submission_timeline_count++;
-        submit_info.signalSemaphoreCount = 1;
-        timeline_submit_info.signalSemaphoreValueCount = 1;
-        submit_info.pSignalSemaphores = &queue->submission_timeline;
-        timeline_submit_info.pSignalSemaphoreValues = &queue->submission_timeline_count;
-    }
-
     /* We need to serialize sparse bind operations.
      * Create a roundtrip with binary semaphores. */
     if ((vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, VK_NULL_HANDLE))) < 0)
         ERR("Failed to submit signal, vr %d.\n", vr);
 
     VKD3D_DEVICE_REPORT_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
-
-    vkd3d_queue_push_waiters_to_worker_locked(queue, &command_queue->fence_worker,
-            queue->submission_timeline, queue->submission_timeline_count);
-    vkd3d_queue_reset_wait_count_locked(queue);
 
     if (queue != queue_sparse)
     {
