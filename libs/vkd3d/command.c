@@ -11854,23 +11854,11 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
         return;
     }
 
-    /* If there are pending waiters, we have to handle that since the signal must come after waiters. */
-    submit_info.waitSemaphoreCount = vkd3d_queue->wait_count;
-    submit_info.pWaitSemaphores = vkd3d_queue->wait_semaphores;
-    submit_info.pWaitDstStageMask = vkd3d_queue->wait_stages;
-    timeline_submit_info.waitSemaphoreValueCount = vkd3d_queue->wait_count;
-    timeline_submit_info.pWaitSemaphoreValues = vkd3d_queue->wait_values;
-
     vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
 
     if (vr == VK_SUCCESS)
         d3d12_fence_update_pending_value_locked(fence);
     d3d12_fence_unlock(fence);
-
-    vkd3d_queue_push_waiters_to_worker_locked(vkd3d_queue,
-            &command_queue->fence_worker,
-            fence->timeline_semaphore, physical_value);
-    vkd3d_queue_reset_wait_count_locked(vkd3d_queue);
 
     vkd3d_queue_release(vkd3d_queue);
 
@@ -12193,13 +12181,6 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         return;
     }
 
-    submit_desc[0].waitSemaphoreCount = vkd3d_queue->wait_count;
-    submit_desc[0].pWaitSemaphores = vkd3d_queue->wait_semaphores;
-    submit_desc[0].pWaitDstStageMask = vkd3d_queue->wait_stages;
-
-    timeline_submit_info[0].waitSemaphoreValueCount = vkd3d_queue->wait_count;
-    timeline_submit_info[0].pWaitSemaphoreValues = vkd3d_queue->wait_values;
-
     submit_desc[num_submits - 1].commandBufferCount = count;
     submit_desc[num_submits - 1].pCommandBuffers = cmd;
 
@@ -12237,6 +12218,13 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
 
     VKD3D_DEVICE_REPORT_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
 
+#ifdef VKD3D_ENABLE_RENDERDOC
+    if (debug_capture)
+        vkd3d_renderdoc_command_queue_end_capture(command_queue);
+#endif
+
+    vkd3d_queue_release(vkd3d_queue);
+
     /* After a proper submit we have to queue up some work which is tied to this submission:
      * - After the submit completes, we know it's safe to release private reference on any queue waits.
      *   D3D12 allows fences to be released at any time.
@@ -12244,32 +12232,16 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
      *   If there are pending submissions waiting, we are expected to ignore the reset.
      *   We will report a failure in this case. Some games run into this.
      */
-    if (vr == VK_SUCCESS)
+    if (vr == VK_SUCCESS && num_submission_counters)
     {
-        if (num_submission_counters)
+        if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker,
+                NULL, vkd3d_queue->submission_timeline,
+                submission_timeline_count, false,
+                submission_counters, num_submission_counters)))
         {
-            if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker,
-                    NULL, vkd3d_queue->submission_timeline,
-                    submission_timeline_count, false,
-                    submission_counters, num_submission_counters)))
-            {
-                ERR("Failed to enqueue timeline semaphore.\n");
-            }
+            ERR("Failed to enqueue timeline semaphore.\n");
         }
-
-        vkd3d_queue_push_waiters_to_worker_locked(vkd3d_queue,
-                &command_queue->fence_worker,
-                vkd3d_queue->submission_timeline, submission_timeline_count);
     }
-
-    vkd3d_queue_reset_wait_count_locked(vkd3d_queue);
-
-#ifdef VKD3D_ENABLE_RENDERDOC
-    if (debug_capture)
-        vkd3d_renderdoc_command_queue_end_capture(command_queue);
-#endif
-
-    vkd3d_queue_release(vkd3d_queue);
 }
 
 static unsigned int vkd3d_compact_sparse_bind_ranges(const struct d3d12_resource *src_resource,
@@ -12512,9 +12484,6 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
     else
         queue_sparse = queue;
 
-    /* If there are pending waiters, we have to handle that since the signal must come after waiters. */
-    vkd3d_queue_flush_waiters(queue, &command_queue->fence_worker, &command_queue->device->vk_procs);
-
     if (!(vk_queue = vkd3d_queue_acquire(queue)))
     {
         ERR("Failed to acquire queue %p.\n", queue);
@@ -12655,6 +12624,12 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
         memmove(queue->submissions, queue->submissions + 1, queue->submissions_count * sizeof(submission));
         pthread_mutex_unlock(&queue->queue_lock);
 
+        if (submission.type != VKD3D_SUBMISSION_WAIT)
+        {
+            vkd3d_queue_flush_waiters(queue->vkd3d_queue,
+                    &queue->fence_worker, &queue->device->vk_procs);
+        }
+
         switch (submission.type)
         {
         case VKD3D_SUBMISSION_STOP:
@@ -12664,6 +12639,10 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             VKD3D_REGION_BEGIN(queue_wait);
             d3d12_command_queue_wait(queue, submission.wait.fence, submission.wait.value);
             d3d12_fence_dec_ref(submission.wait.fence);
+            /* Flush eagerly. For unknown reasons, we observe some issues when trying to fuse this flush
+             * with normal SUBMISSION_EXECUTE. */
+            vkd3d_queue_flush_waiters(queue->vkd3d_queue,
+                    &queue->fence_worker, &queue->device->vk_procs);
             VKD3D_REGION_END(queue_wait);
             break;
 
@@ -12703,8 +12682,6 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
 
         case VKD3D_SUBMISSION_DRAIN:
         {
-            vkd3d_queue_flush_waiters(queue->vkd3d_queue,
-                    &queue->fence_worker, &queue->device->vk_procs);
             pthread_mutex_lock(&queue->queue_lock);
             queue->queue_drain_count++;
             pthread_cond_signal(&queue->queue_cond);
