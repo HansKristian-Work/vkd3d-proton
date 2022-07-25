@@ -1402,6 +1402,10 @@ void test_fence_wait_robustness_inner(bool shared_handles)
     value = ID3D12Fence_Release(drain_fence);
     ok(value == 0, "Unexpected fence ref-count %u.\n", value);
 
+    /* Early freeing of fences might signal the drain fence too early, causing GPU hang. */
+    wait_queue_idle(context.device, context.queue);
+    wait_queue_idle(context.device, compute_queue);
+
     ID3D12CommandQueue_Release(compute_queue);
     for (i = 0; i < 2; i++)
     {
