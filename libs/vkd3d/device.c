@@ -4702,20 +4702,21 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateFence(d3d12_device_iface *if
     TRACE("iface %p, intial_value %#"PRIx64", flags %#x, riid %s, fence %p.\n",
             iface, initial_value, flags, debugstr_guid(riid), fence);
 
-    if (!(flags & D3D12_FENCE_FLAG_SHARED))
+    if (flags & D3D12_FENCE_FLAG_SHARED)
     {
-        if (FAILED(hr = d3d12_fence_create(device, initial_value, flags, &object)))
+        if (SUCCEEDED(hr = d3d12_shared_fence_create(device, initial_value, flags, &shared_object)))
+            return return_interface(&shared_object->ID3D12Fence_iface, &IID_ID3D12Fence, riid, fence);
+
+        if (hr != E_NOTIMPL)
             return hr;
 
-        return return_interface(&object->ID3D12Fence_iface, &IID_ID3D12Fence, riid, fence);
+        FIXME("Shared fences not supported by Vulkan host, returning regular fence.\n");
     }
-    else
-    {
-        if (FAILED(hr = d3d12_shared_fence_create(device, initial_value, flags, &shared_object)))
-            return hr;
 
-        return return_interface(&shared_object->ID3D12Fence_iface, &IID_ID3D12Fence, riid, fence);
-    }
+    if (FAILED(hr = d3d12_fence_create(device, initial_value, flags, &object)))
+        return hr;
+
+    return return_interface(&object->ID3D12Fence_iface, &IID_ID3D12Fence, riid, fence);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_GetDeviceRemovedReason(d3d12_device_iface *iface)
