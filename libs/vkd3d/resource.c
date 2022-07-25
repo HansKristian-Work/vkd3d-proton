@@ -2730,13 +2730,13 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         VkMemoryDedicatedAllocateInfo dedicated_info;
         VkImageMemoryRequirementsInfo2 image_info;
         VkMemoryRequirements2 memory_requirements;
-        VkExportMemoryAllocateInfo export_info;
         VkBindImageMemoryInfo bind_info;
         bool use_dedicated_allocation;
         VkResult vr;
 
 #ifdef _WIN32
         VkImportMemoryWin32HandleInfoKHR import_info;
+        VkExportMemoryAllocateInfo export_info;
 #endif
 
         if (FAILED(hr = d3d12_resource_create_vk_resource(object, device)))

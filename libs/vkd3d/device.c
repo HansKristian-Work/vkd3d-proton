@@ -4520,10 +4520,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateSharedHandle(d3d12_device_if
 #endif
 }
 
+#ifdef _WIN32
 static inline bool handle_is_kmt_style(HANDLE handle)
 {
     return ((ULONG_PTR)handle & 0x40000000) && ((ULONG_PTR)handle - 2) % 4 == 0;
 }
+#endif
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_OpenSharedHandle(d3d12_device_iface *iface,
         HANDLE handle, REFIID riid, void **object)
