@@ -19,7 +19,6 @@ jobs:
       with:
         command: |
           export VERSION_NAME="${GITHUB_REF##*/}-${GITHUB_SHA##*/}"
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           ./package-release.sh ${VERSION_NAME} build --no-package
           echo "VERSION_NAME=${VERSION_NAME}" >> $GITHUB_ENV
 
