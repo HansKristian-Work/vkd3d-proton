@@ -546,6 +546,10 @@ static const struct vkd3d_instance_application_meta application_override[] = {
             VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
     { VKD3D_STRING_COMPARE_EXACT, "re7.exe",
             VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
+    /* Control (870780).
+     * Control.exe is the launcher - it doesn't dispaly anything and defaults to DX11 if DXR is not supported. */
+    { VKD3D_STRING_COMPARE_EXACT, "Control.exe", VKD3D_CONFIG_FLAG_DXR, 0 },
+    { VKD3D_STRING_COMPARE_EXACT, "Control_DX12.exe", VKD3D_CONFIG_FLAG_DXR, 0 },
     { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
 };
 
