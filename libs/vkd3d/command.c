@@ -6492,17 +6492,19 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         rendering_info.renderArea.extent.height = region->extent.height;
         rendering_info.layerCount = dst_view_desc.layer_count;
 
-        if (dst_is_depth_stencil)
-        {
-            if (dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
-                rendering_info.pDepthAttachment = &attachment_info;
-            if (dst_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT)
-                rendering_info.pStencilAttachment = &attachment_info;
-        }
-        else
+        if (region->dstSubresource.aspectMask & VK_IMAGE_ASPECT_COLOR_BIT)
         {
             rendering_info.colorAttachmentCount = 1;
             rendering_info.pColorAttachments = &attachment_info;
+        }
+        else
+        {
+            /* It is valid to not render to DS aspects we don't want to touch.
+             * Otherwise, we will falsely discard aspects with LOAD_OP_DONT_CARE. */
+            if (region->dstSubresource.aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT)
+                rendering_info.pDepthAttachment = &attachment_info;
+            if (region->dstSubresource.aspectMask & VK_IMAGE_ASPECT_STENCIL_BIT)
+                rendering_info.pStencilAttachment = &attachment_info;
         }
 
         viewport.x = (float)region->dstOffset.x;
