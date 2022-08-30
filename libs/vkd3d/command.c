@@ -9988,6 +9988,72 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
     }
 }
 
+/* *PIXEvent* enum values and consts are from PIXEventsCommon.h of winpixeventruntime package  */
+
+static char *decode_pix_blob(const void *data, size_t size)
+{
+    static const UINT64 PIXEventsStringIsANSIReadMask = 0x0040000000000000;
+    static const UINT64 PIXEventsTypeReadMask = 0x00000000000FFC00;
+    static const UINT64 PIXEventsTypeBitShift = 10;
+    UINT64 *data_uint64_aligned = (UINT64*)(data);
+    size_t label_str_length;
+    char *label_str = NULL;
+    bool is_ansi;
+    UINT64 type;
+
+    enum PIXEventType
+    {
+        ePIXEvent_EndEvent = 0x000,
+        ePIXEvent_BeginEvent_VarArgs = 0x001,
+        ePIXEvent_BeginEvent_NoArgs = 0x002,
+        ePIXEvent_SetMarker_VarArgs = 0x007,
+        ePIXEvent_SetMarker_NoArgs = 0x008,
+
+        ePIXEvent_EndEvent_OnContext = 0x010,
+        ePIXEvent_BeginEvent_OnContext_VarArgs = 0x011,
+        ePIXEvent_BeginEvent_OnContext_NoArgs = 0x012,
+        ePIXEvent_SetMarker_OnContext_VarArgs = 0x017,
+        ePIXEvent_SetMarker_OnContext_NoArgs = 0x018,
+    };
+
+    type = (*data_uint64_aligned & PIXEventsTypeReadMask) >> PIXEventsTypeBitShift;
+
+    if (type == ePIXEvent_SetMarker_NoArgs)
+        type = ePIXEvent_BeginEvent_NoArgs;
+
+    if (type == ePIXEvent_SetMarker_VarArgs)
+        type = ePIXEvent_BeginEvent_VarArgs;
+
+    /* ePIXEvent_*_VarArgs is commonly used without actual parameters 
+       String fromatting will overcomplicate things and skipped for now */
+    if ((type != ePIXEvent_BeginEvent_NoArgs) && (type != ePIXEvent_BeginEvent_VarArgs))
+    {
+        WARN("Unexpected/unsupported PIX3Event");
+        return NULL;
+    }
+
+    /* skip Color */
+    data_uint64_aligned++;
+    data_uint64_aligned++;
+
+    is_ansi = *data_uint64_aligned & PIXEventsStringIsANSIReadMask;
+
+    data_uint64_aligned++;
+    
+    if (is_ansi)
+    {
+        label_str_length = (size - 24);
+        label_str = vkd3d_strdup_n((const char*)data_uint64_aligned, label_str_length);
+    }
+    else
+    {
+        label_str_length = (size - 24) / 2;
+        label_str = vkd3d_strdup_w_utf8((const WCHAR*)data_uint64_aligned, label_str_length);
+    }
+
+    return label_str;
+}
+
 static char *decode_pix_string(UINT metadata, const void *data, size_t size)
 {
     char *label_str;
@@ -10013,8 +10079,10 @@ static char *decode_pix_string(UINT metadata, const void *data, size_t size)
         break;
 
     case PIX_EVENT_PIX3BLOB_VERSION:
-        FIXME("PIX3BLOB event format not supported.\n");
-        return NULL;
+        label_str = decode_pix_blob(data, size);
+        if (!label_str)
+            return NULL;
+        break;
 
     default:
         FIXME("Unrecognized metadata format %u for BeginEvent.\n", metadata);
