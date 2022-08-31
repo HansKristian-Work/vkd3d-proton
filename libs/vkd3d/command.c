@@ -3343,13 +3343,15 @@ static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_l
     VkImageLayout layout;
 
     /* Ignore read access bits since reads will be undefined anyway */
-    if (resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)
+    if ((list->type == D3D12_COMMAND_LIST_TYPE_DIRECT) &&
+            (resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET))
     {
         stages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
         access = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
         layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     }
-    else if (resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
+    else if ((list->type == D3D12_COMMAND_LIST_TYPE_DIRECT) &&
+            (resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
     {
         stages = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
         access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
