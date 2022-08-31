@@ -2573,13 +2573,17 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_GetMaximumFrameLatency(dxgi_swa
 static HANDLE STDMETHODCALLTYPE d3d12_swapchain_GetFrameLatencyWaitableObject(dxgi_swapchain_iface *iface)
 {
     struct d3d12_swapchain *swapchain = d3d12_swapchain_from_IDXGISwapChain(iface);
+    HANDLE duplicated_handle;
 
     TRACE("iface %p.\n", iface);
 
     if (!(swapchain->desc.Flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT))
         return NULL;
 
-    return swapchain->frame_latency_event;
+    DuplicateHandle(GetCurrentProcess(), swapchain->frame_latency_event, GetCurrentProcess(), &duplicated_handle, 
+        0, FALSE, DUPLICATE_SAME_ACCESS);
+
+    return duplicated_handle;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_swapchain_SetMatrixTransform(dxgi_swapchain_iface *iface,
