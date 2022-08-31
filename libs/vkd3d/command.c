@@ -2646,9 +2646,15 @@ static int d3d12_command_list_find_attachment_view(struct d3d12_command_list *li
 {
     unsigned int i;
 
+    if (!(list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE))
+        return -1;
+
     if (list->dsv.resource == resource)
     {
         const struct vkd3d_view *dsv = list->dsv.view;
+
+        if (!list->rendering_info.dsv.imageView)
+            return -1;
 
         if (dsv->info.texture.miplevel_idx == subresource->mipLevel &&
                 dsv->info.texture.layer_idx == subresource->baseArrayLayer &&
@@ -2660,6 +2666,9 @@ static int d3d12_command_list_find_attachment_view(struct d3d12_command_list *li
         for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
         {
             const struct vkd3d_view *rtv = list->rtvs[i].view;
+
+            if (!(list->rendering_info.rtv_mask & (1u << i)))
+                continue;
 
             if (list->rtvs[i].resource != resource)
                 continue;
@@ -8726,10 +8735,10 @@ static void d3d12_command_list_clear_attachment(struct d3d12_command_list *list,
 
     attachment_idx = d3d12_command_list_find_attachment(list, resource, view);
 
-    if (attachment_idx == D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT && (list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE))
+    if (attachment_idx == D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT)
         writable = (vk_writable_aspects_from_image_layout(list->dsv_layout) & clear_aspects) == clear_aspects;
 
-    if (attachment_idx < 0 || !(list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE) || !writable)
+    if (attachment_idx < 0 || !writable)
     {
         /* View currently not bound as a render target, or bound but
          * the render pass isn't active and we're only going to clear
