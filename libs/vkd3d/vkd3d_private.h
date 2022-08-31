@@ -3765,6 +3765,17 @@ static inline const struct vkd3d_format *vkd3d_format_from_d3d12_resource_desc(
             desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
 }
 
+static inline VkImageSubresourceRange vk_subresource_range_from_subresource(const VkImageSubresource *subresource)
+{
+    VkImageSubresourceRange range;
+    range.aspectMask = subresource->aspectMask;
+    range.baseMipLevel = subresource->mipLevel;
+    range.levelCount = 1;
+    range.baseArrayLayer = subresource->arrayLayer;
+    range.layerCount = 1;
+    return range;
+}
+
 static inline VkImageSubresourceRange vk_subresource_range_from_layers(const VkImageSubresourceLayers *layers)
 {
     VkImageSubresourceRange range;

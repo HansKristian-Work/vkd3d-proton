@@ -9473,6 +9473,42 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d
     d3d12_command_list_clear_uav(list, &d, resource_impl, &args, &color, rect_count, rects);
 }
 
+static bool d3d12_command_list_is_subresource_bound_as_rtv_dsv(struct d3d12_command_list *list,
+        struct d3d12_resource *resource, const VkImageSubresource *subresource)
+{
+    unsigned int i;
+
+    if (!(list->rendering_info.state_flags & (VKD3D_RENDERING_ACTIVE | VKD3D_RENDERING_SUSPENDED)))
+        return false;
+
+    if (list->dsv.resource == resource)
+    {
+        const struct vkd3d_view *dsv = list->dsv.view;
+
+        if (subresource->mipLevel == dsv->info.texture.miplevel_idx &&
+                subresource->arrayLayer >= dsv->info.texture.layer_idx &&
+                subresource->arrayLayer < dsv->info.texture.layer_idx + dsv->info.texture.layer_count)
+            return true;
+    }
+    else
+    {
+        for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+        {
+            const struct vkd3d_view *rtv = list->rtvs[i].view;
+
+            if (list->rtvs[i].resource != resource)
+                continue;
+
+            if (subresource->mipLevel == rtv->info.texture.miplevel_idx &&
+                    subresource->arrayLayer >= rtv->info.texture.layer_idx &&
+                    subresource->arrayLayer < rtv->info.texture.layer_idx + rtv->info.texture.layer_count)
+                return true;
+        }
+    }
+
+    return false;
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_list_iface *iface,
         ID3D12Resource *resource, const D3D12_DISCARD_REGION *region)
 {
@@ -9480,14 +9516,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
     struct d3d12_resource *texture = impl_from_ID3D12Resource(resource);
     unsigned int i, first_subresource, subresource_count;
     bool has_bound_subresource, has_unbound_subresource;
-    VkImageSubresourceLayers vk_subresource_layers;
     VkImageSubresourceRange vk_subresource_range;
     unsigned int resource_subresource_count;
     VkImageSubresource vk_subresource;
     bool all_subresource_full_discard;
-    bool full_discard, is_bound;
     D3D12_RECT full_rect;
-    int attachment_idx;
+    bool full_discard;
 
     TRACE("iface %p, resource %p, region %p.\n", iface, resource, region);
 
@@ -9559,28 +9593,25 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
     all_subresource_full_discard = first_subresource == 0 && subresource_count == resource_subresource_count;
     d3d12_command_list_track_resource_usage(list, texture, !all_subresource_full_discard);
 
-    if (all_subresource_full_discard)
+    has_bound_subresource = false;
+    has_unbound_subresource = false;
+
+    /* If we're discarding all subresources, we can only safely discard with one barrier
+      * if is_bound state is the same for all subresources. */
+    for (i = first_subresource; i < first_subresource + subresource_count; i++)
     {
-        has_bound_subresource = false;
-        has_unbound_subresource = false;
+        vk_subresource = d3d12_resource_get_vk_subresource(texture, i, false);
 
-        /* If we're discarding all subresources, we can only safely discard with one barrier
-         * if is_bound state is the same for all subresources. */
-        for (i = first_subresource; i < first_subresource + subresource_count; i++)
-        {
-            vk_subresource = d3d12_resource_get_vk_subresource(texture, i, false);
-            vk_subresource_layers = vk_subresource_layers_from_subresource(&vk_subresource);
-            attachment_idx = d3d12_command_list_find_attachment_view(list, texture, &vk_subresource_layers);
-
-            is_bound = attachment_idx >= 0 && (list->rendering_info.state_flags & (VKD3D_RENDERING_ACTIVE | VKD3D_RENDERING_SUSPENDED));
-            if (is_bound)
-                has_bound_subresource = true;
-            else
-                has_unbound_subresource = true;
-        }
-
-        all_subresource_full_discard = !has_bound_subresource || !has_unbound_subresource;
+        if (d3d12_command_list_is_subresource_bound_as_rtv_dsv(list, texture, &vk_subresource))
+            has_bound_subresource = true;
+        else
+            has_unbound_subresource = true;
     }
+
+    if (all_subresource_full_discard)
+        all_subresource_full_discard = !has_bound_subresource || !has_unbound_subresource;
+
+    d3d12_command_list_end_current_render_pass(list, !has_unbound_subresource);
 
     if (all_subresource_full_discard)
     {
@@ -9589,22 +9620,19 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
         vk_subresource_range.levelCount = VK_REMAINING_MIP_LEVELS;
         vk_subresource_range.layerCount = VK_REMAINING_ARRAY_LAYERS;
         vk_subresource_range.aspectMask = texture->format->vk_aspect_mask;
-        is_bound = has_bound_subresource;
-        d3d12_command_list_end_current_render_pass(list, is_bound);
-        d3d12_command_list_discard_attachment_barrier(list, texture, &vk_subresource_range, is_bound);
+
+        d3d12_command_list_discard_attachment_barrier(list,
+                texture, &vk_subresource_range, !has_unbound_subresource);
     }
     else
     {
         for (i = first_subresource; i < first_subresource + subresource_count; i++)
         {
             vk_subresource = d3d12_resource_get_vk_subresource(texture, i, false);
-            vk_subresource_layers = vk_subresource_layers_from_subresource(&vk_subresource);
-            attachment_idx = d3d12_command_list_find_attachment_view(list, texture, &vk_subresource_layers);
+            vk_subresource_range = vk_subresource_range_from_subresource(&vk_subresource);
 
-            is_bound = attachment_idx >= 0 && (list->rendering_info.state_flags & (VKD3D_RENDERING_ACTIVE | VKD3D_RENDERING_SUSPENDED));
-            d3d12_command_list_end_current_render_pass(list, is_bound);
-            vk_subresource_range = vk_subresource_range_from_layers(&vk_subresource_layers);
-            d3d12_command_list_discard_attachment_barrier(list, texture, &vk_subresource_range, is_bound);
+            d3d12_command_list_discard_attachment_barrier(list,
+                    texture, &vk_subresource_range, !has_unbound_subresource);
         }
     }
 }
@@ -11197,12 +11225,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetShadingRateImage(d3d12_com
     if (vrs_image == list->vrs_image)
         return;
 
-    d3d12_command_list_invalidate_rendering_info(list);
-
     /* Need to end the renderpass if we have one to make
      * way for the new VRS attachment */
-    if (list->rendering_info.state_flags & (VKD3D_RENDERING_ACTIVE | VKD3D_RENDERING_SUSPENDED))
-        d3d12_command_list_end_current_render_pass(list, false);
+    d3d12_command_list_invalidate_rendering_info(list);
+    d3d12_command_list_end_current_render_pass(list, false);
 
     if (vrs_image)
         d3d12_command_list_track_resource_usage(list, vrs_image, true);
