@@ -4206,14 +4206,12 @@ static bool d3d12_pipeline_state_can_use_dynamic_stride(struct d3d12_pipeline_st
          * This is somewhat awkward, since D3D12 does not have this restriction, although the validation layers do warn about this.
          * There might also be similar fallback paths on certain native drivers, who knows ... */
 
-        /* HACK: Not technically in spec, but allow stride == 0 to pass through.
+        /* Allow stride == 0 to pass through. This is allowed by the specification.
          * The stride >= offset + sizeof(format) rule is for AMD and OOB checks, since
          * we need compiler to adjust vtx index and offset in this scenario since checks are against vtx index
          * not byte address, but this path is irrelevant for stride == 0.
          * This is fairly common to see in games. Scarlet Nexus hits it pretty hard, and
-         * we really should try to avoid late pipeline compiles here.
-         * Ideally, we should aim to clarify the Vulkan spec here to allow this case,
-         * since it's the canonical way to feed a constant attribute. */
+         * we really should try to avoid late pipeline compiles here. */
         if (dyn_state->vertex_strides[slot] &&
                 dyn_state->vertex_strides[slot] < graphics->minimum_vertex_buffer_dynamic_stride[slot])
         {
