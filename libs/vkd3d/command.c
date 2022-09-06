@@ -5552,10 +5552,9 @@ static void d3d12_command_list_update_hoisted_descriptors(struct d3d12_command_l
     bindings->dirty_flags &= ~VKD3D_PIPELINE_DIRTY_HOISTED_DESCRIPTORS;
 }
 
-static void d3d12_command_list_update_descriptors(struct d3d12_command_list *list,
-        VkPipelineBindPoint bind_point)
+static void d3d12_command_list_update_descriptors(struct d3d12_command_list *list)
 {
-    struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
+    struct vkd3d_pipeline_bindings *bindings = d3d12_command_list_get_bindings(list, list->active_pipeline_type);
     const struct d3d12_root_signature *rs = bindings->root_signature;
     const struct d3d12_bind_point_layout *bind_point_layout;
     VkPipelineBindPoint vk_bind_point;
@@ -5608,7 +5607,7 @@ static bool d3d12_command_list_update_compute_state(struct d3d12_command_list *l
     if (!d3d12_command_list_update_compute_pipeline(list))
         return false;
 
-    d3d12_command_list_update_descriptors(list, VK_PIPELINE_BIND_POINT_COMPUTE);
+    d3d12_command_list_update_descriptors(list);
 
     return true;
 }
@@ -5623,7 +5622,7 @@ static bool d3d12_command_list_update_raygen_state(struct d3d12_command_list *li
 
     /* DXR uses compute bind point for descriptors, we will redirect internally to
      * raygen bind point in Vulkan. */
-    d3d12_command_list_update_descriptors(list, VK_PIPELINE_BIND_POINT_COMPUTE);
+    d3d12_command_list_update_descriptors(list);
 
     /* If we have a static sampler set for local root signatures, bind it now.
      * Don't bother with dirty tracking of this for time being.
@@ -5843,7 +5842,7 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     if (list->dynamic_state.dirty_flags)
         d3d12_command_list_update_dynamic_state(list);
 
-    d3d12_command_list_update_descriptors(list, VK_PIPELINE_BIND_POINT_GRAPHICS);
+    d3d12_command_list_update_descriptors(list);
 
     if (list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE)
     {
