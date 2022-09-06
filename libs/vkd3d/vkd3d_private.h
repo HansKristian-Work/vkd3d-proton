@@ -2036,8 +2036,6 @@ struct vkd3d_root_descriptor_info
 struct vkd3d_pipeline_bindings
 {
     const struct d3d12_root_signature *root_signature;
-    /* RT in DXR happens in COMPUTE bind point. */
-    struct d3d12_bind_point_layout layout, rt_layout;
 
     VkDescriptorSet static_sampler_set;
     uint32_t dirty_flags; /* vkd3d_pipeline_dirty_flags */
