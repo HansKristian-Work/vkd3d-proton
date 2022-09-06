@@ -4348,7 +4348,8 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
         return VK_NULL_HANDLE;
     }
 
-    if (!d3d12_pipeline_state_can_use_dynamic_stride(state, dyn_state))
+    if (!(graphics->stage_flags & VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT) &&
+            !d3d12_pipeline_state_can_use_dynamic_stride(state, dyn_state))
     {
         TRACE("Cannot use dynamic stride, falling back ...\n");
         return VK_NULL_HANDLE;
