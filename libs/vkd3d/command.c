@@ -5480,7 +5480,7 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
 
         descriptor_write_count += 1;
     }
-    else if (va_count && bindings->layout.vk_push_stages)
+    else if (va_count && push_stages)
     {
         VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
                 layout, push_stages,
@@ -5560,6 +5560,7 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
 {
     struct vkd3d_pipeline_bindings *bindings = &list->pipeline_bindings[bind_point];
     const struct d3d12_root_signature *rs = bindings->root_signature;
+    const struct d3d12_bind_point_layout *bind_point_layout;
     VkPipelineBindPoint vk_bind_point;
     VkShaderStageFlags push_stages;
     VkPipelineLayout layout;
@@ -5567,18 +5568,9 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
     if (!rs)
         return;
 
-    if (list->active_pipeline_type == VKD3D_PIPELINE_TYPE_RAY_TRACING)
-    {
-        /* We might have to emit to RT bind point,
-         * but we pretend we're in compute bind point. */
-        layout = bindings->rt_layout.vk_pipeline_layout;
-        push_stages = bindings->rt_layout.vk_push_stages;
-    }
-    else
-    {
-        layout = bindings->layout.vk_pipeline_layout;
-        push_stages = bindings->layout.vk_push_stages;
-    }
+    bind_point_layout = d3d12_root_signature_get_layout(rs, list->active_pipeline_type);
+    layout = bind_point_layout->vk_pipeline_layout;
+    push_stages = bind_point_layout->vk_push_stages;
 
     vk_bind_point = vk_bind_point_from_pipeline_type(list->active_pipeline_type);
 
@@ -8097,21 +8089,6 @@ static void d3d12_command_list_set_root_signature(struct d3d12_command_list *lis
 
     bindings->root_signature = root_signature;
     bindings->static_sampler_set = VK_NULL_HANDLE;
-
-    switch (bind_point)
-    {
-        case VK_PIPELINE_BIND_POINT_GRAPHICS:
-            bindings->layout = root_signature->graphics;
-            break;
-
-        case VK_PIPELINE_BIND_POINT_COMPUTE:
-            bindings->layout = root_signature->compute;
-            bindings->rt_layout = root_signature->raygen;
-            break;
-
-        default:
-            break;
-    }
 
     if (root_signature && root_signature->vk_sampler_set)
         bindings->static_sampler_set = root_signature->vk_sampler_set;
