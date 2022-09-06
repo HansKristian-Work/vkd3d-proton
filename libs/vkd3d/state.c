@@ -2336,7 +2336,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
     const struct d3d12_root_signature *root_signature;
     HRESULT hr;
 
-    state->vk_bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
+    state->pipeline_type = VKD3D_PIPELINE_TYPE_COMPUTE;
 
     if (desc->root_signature)
         root_signature = impl_from_ID3D12RootSignature(desc->root_signature);
@@ -3083,7 +3083,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         {VK_SHADER_STAGE_FRAGMENT_BIT,                offsetof(struct d3d12_pipeline_state_desc, ps)},
     };
 
-    state->vk_bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    state->pipeline_type = VKD3D_PIPELINE_TYPE_GRAPHICS;
 
     graphics->stage_count = 0;
     graphics->primitive_topology_type = desc->primitive_topology_type;
@@ -3679,9 +3679,9 @@ fail:
 bool d3d12_pipeline_state_has_replaced_shaders(struct d3d12_pipeline_state *state)
 {
     unsigned int i;
-    if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_COMPUTE)
+    if (state->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
         return !!(state->compute.code.meta.flags & VKD3D_SHADER_META_FLAG_REPLACED);
-    else if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS)
+    else if (state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS)
     {
         for (i = 0; i < state->graphics.stage_count; i++)
             if (state->graphics.code[i].meta.flags & VKD3D_SHADER_META_FLAG_REPLACED)
