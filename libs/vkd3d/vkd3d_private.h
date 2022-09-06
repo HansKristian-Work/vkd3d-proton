@@ -1370,6 +1370,31 @@ enum vkd3d_root_signature_flag
     VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER    = 0x00000010u,
 };
 
+enum vkd3d_pipeline_type
+{
+    VKD3D_PIPELINE_TYPE_NONE,
+    VKD3D_PIPELINE_TYPE_GRAPHICS,
+    VKD3D_PIPELINE_TYPE_COMPUTE,
+    VKD3D_PIPELINE_TYPE_RAY_TRACING,
+};
+
+static inline VkPipelineBindPoint vk_bind_point_from_pipeline_type(enum vkd3d_pipeline_type pipeline_type)
+{
+    switch (pipeline_type)
+    {
+        case VKD3D_PIPELINE_TYPE_NONE:
+          break;
+        case VKD3D_PIPELINE_TYPE_GRAPHICS:
+            return VK_PIPELINE_BIND_POINT_GRAPHICS;
+        case VKD3D_PIPELINE_TYPE_COMPUTE:
+            return VK_PIPELINE_BIND_POINT_COMPUTE;
+        case VKD3D_PIPELINE_TYPE_RAY_TRACING:
+            return VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR;
+    }
+
+    return VK_PIPELINE_BIND_POINT_MAX_ENUM;
+}
+
 /* ID3D12RootSignature */
 struct d3d12_bind_point_layout
 {
@@ -1495,6 +1520,27 @@ enum vkd3d_shader_visibility vkd3d_shader_visibility_from_d3d12(D3D12_SHADER_VIS
 HRESULT vkd3d_create_descriptor_set_layout(struct d3d12_device *device,
         VkDescriptorSetLayoutCreateFlags flags, unsigned int binding_count,
         const VkDescriptorSetLayoutBinding *bindings, VkDescriptorSetLayout *set_layout);
+
+static inline const struct d3d12_bind_point_layout *d3d12_root_signature_get_layout(
+        const struct d3d12_root_signature *root_signature, enum vkd3d_pipeline_type pipeline_type)
+{
+    switch (pipeline_type)
+    {
+        case VKD3D_PIPELINE_TYPE_NONE:
+            return NULL;
+
+        case VKD3D_PIPELINE_TYPE_GRAPHICS:
+            return &root_signature->graphics;
+
+        case VKD3D_PIPELINE_TYPE_COMPUTE:
+            return &root_signature->compute;
+
+        case VKD3D_PIPELINE_TYPE_RAY_TRACING:
+            return &root_signature->raygen;
+    }
+
+    return NULL;
+}
 
 enum vkd3d_dynamic_state_flag
 {
@@ -2278,6 +2324,25 @@ HRESULT d3d12_command_list_create(struct d3d12_device *device,
         UINT node_mask, D3D12_COMMAND_LIST_TYPE type, struct d3d12_command_list **list);
 bool d3d12_command_list_reset_query(struct d3d12_command_list *list,
         VkQueryPool vk_pool, uint32_t index);
+
+static inline struct vkd3d_pipeline_bindings *d3d12_command_list_get_bindings(
+        struct d3d12_command_list *list, enum vkd3d_pipeline_type pipeline_type)
+{
+    switch (pipeline_type)
+    {
+        case VKD3D_PIPELINE_TYPE_NONE:
+            break;
+
+        case VKD3D_PIPELINE_TYPE_GRAPHICS:
+            return &list->pipeline_bindings[VK_PIPELINE_BIND_POINT_GRAPHICS];
+
+        case VKD3D_PIPELINE_TYPE_COMPUTE:
+        case VKD3D_PIPELINE_TYPE_RAY_TRACING:
+            return &list->pipeline_bindings[VK_PIPELINE_BIND_POINT_COMPUTE];
+    }
+
+    return NULL;
+}
 
 #define VKD3D_BUNDLE_CHUNK_SIZE (256 << 10)
 #define VKD3D_BUNDLE_COMMAND_ALIGNMENT (sizeof(UINT64))
