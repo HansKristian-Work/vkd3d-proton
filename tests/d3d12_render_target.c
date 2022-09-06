@@ -868,3 +868,152 @@ void test_multisample_rendering(void)
     destroy_test_context(&context);
 }
 
+void test_rendering_no_attachments_layers(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER root_param;
+    struct test_context_desc desc;
+    struct test_context context;
+    struct resource_readback rb;
+    unsigned int layer, x, y;
+    ID3D12Resource *buffer;
+    const struct vec4 *val;
+    D3D12_VIEWPORT vp;
+    D3D12_RECT sci;
+    HRESULT hr;
+
+#if 0
+    struct VOut
+    {
+        float4 pos : SV_Position;
+        uint layer : SV_RenderTargetArrayIndex;
+    };
+
+    VOut vs_main(uint vid : SV_VertexID, uint iid : SV_InstanceID)
+    {
+        VOut v;
+        if (vid == 0)
+            v.pos = float4(-1, -1, 0, 1);
+        else if (vid == 1)
+            v.pos = float4(-1, +3, 0, 1);
+        else
+            v.pos = float4(+3, -1, 0, 1);
+        v.layer = iid;
+        return v;
+    }
+
+    RWStructuredBuffer<float4> RWBuf : register(u0);
+    void ps_main(VOut pin)
+    {
+        int2 coord = int2(pin.pos.xy) - int2(10000, 12000);
+        int write_coord = 16 * pin.layer + coord.y * 4 + coord.x;
+        float4 write_value = float4(pin.pos.xy, pin.layer, 0.0);
+        RWBuf[write_coord] = write_value;
+    }
+#endif
+    static const DWORD vs_code[] =
+    {
+        0x43425844, 0xcfb38ed1, 0xef3799fa, 0xf3032807, 0xf1c98b47, 0x00000001, 0x00000200, 0x00000004,
+        0x00000030, 0x0000008c, 0x000000f4, 0x000001f0, 0x4e475349, 0x00000054, 0x00000002, 0x00000008,
+        0x00000038, 0x00000000, 0x00000006, 0x00000001, 0x00000000, 0x00000101, 0x00000044, 0x00000000,
+        0x00000008, 0x00000001, 0x00000001, 0x00000101, 0x565f5653, 0x65747265, 0x00444978, 0x495f5653,
+        0x6174736e, 0x4965636e, 0xabab0044, 0x4e47534f, 0x00000060, 0x00000002, 0x00000008, 0x00000038,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f, 0x00000044, 0x00000000, 0x00000004,
+        0x00000001, 0x00000001, 0x00000e01, 0x505f5653, 0x7469736f, 0x006e6f69, 0x525f5653, 0x65646e65,
+        0x72615472, 0x41746567, 0x79617272, 0x65646e49, 0xabab0078, 0x58454853, 0x000000f4, 0x00010050,
+        0x0000003d, 0x0100086a, 0x04000060, 0x00101012, 0x00000000, 0x00000006, 0x04000060, 0x00101012,
+        0x00000001, 0x00000008, 0x04000067, 0x001020f2, 0x00000000, 0x00000001, 0x04000067, 0x00102012,
+        0x00000001, 0x00000004, 0x02000068, 0x00000001, 0x07000020, 0x00100012, 0x00000000, 0x0010100a,
+        0x00000000, 0x00004001, 0x00000001, 0x0f000037, 0x001000f2, 0x00000000, 0x00100006, 0x00000000,
+        0x00004002, 0xbf800000, 0x40400000, 0x00000000, 0x3f800000, 0x00004002, 0x40400000, 0xbf800000,
+        0x00000000, 0x3f800000, 0x0c000037, 0x001020f2, 0x00000000, 0x00101006, 0x00000000, 0x00100e46,
+        0x00000000, 0x00004002, 0xbf800000, 0xbf800000, 0x00000000, 0x3f800000, 0x05000036, 0x00102012,
+        0x00000001, 0x0010100a, 0x00000001, 0x0100003e, 0x30494653, 0x00000008, 0x00002000, 0x00000000,
+    };
+
+    static const DWORD ps_code[] =
+    {
+        0x43425844, 0x8e7429f9, 0xd132da4b, 0x63385208, 0x474ae15d, 0x00000001, 0x00000200, 0x00000003,
+        0x0000002c, 0x00000094, 0x000000a4, 0x4e475349, 0x00000060, 0x00000002, 0x00000008, 0x00000038,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x00000044, 0x00000000, 0x00000004,
+        0x00000001, 0x00000001, 0x00000101, 0x505f5653, 0x7469736f, 0x006e6f69, 0x525f5653, 0x65646e65,
+        0x72615472, 0x41746567, 0x79617272, 0x65646e49, 0xabab0078, 0x4e47534f, 0x00000008, 0x00000000,
+        0x00000008, 0x58454853, 0x00000154, 0x00000050, 0x00000055, 0x0100086a, 0x0400009e, 0x0011e000,
+        0x00000000, 0x00000010, 0x04002064, 0x00101032, 0x00000000, 0x00000001, 0x04000864, 0x00101012,
+        0x00000001, 0x00000004, 0x02000068, 0x00000002, 0x07000029, 0x00100012, 0x00000000, 0x0010100a,
+        0x00000001, 0x00004001, 0x00000004, 0x0500001b, 0x00100062, 0x00000000, 0x00101106, 0x00000000,
+        0x0a00001e, 0x00100062, 0x00000000, 0x00100656, 0x00000000, 0x00004002, 0x00000000, 0xffffd8f0,
+        0xffffd120, 0x00000000, 0x07000029, 0x00100042, 0x00000000, 0x0010002a, 0x00000000, 0x00004001,
+        0x00000002, 0x0700001e, 0x00100012, 0x00000000, 0x0010002a, 0x00000000, 0x0010000a, 0x00000000,
+        0x0700001e, 0x00100012, 0x00000000, 0x0010001a, 0x00000000, 0x0010000a, 0x00000000, 0x05000056,
+        0x00100042, 0x00000001, 0x0010100a, 0x00000001, 0x05000036, 0x00100032, 0x00000001, 0x00101046,
+        0x00000000, 0x05000036, 0x00100082, 0x00000001, 0x00004001, 0x00000000, 0x090000a8, 0x0011e0f2,
+        0x00000000, 0x0010000a, 0x00000000, 0x00004001, 0x00000000, 0x00100e46, 0x00000001, 0x0100003e,
+    };
+
+    static const D3D12_SHADER_BYTECODE vs = SHADER_BYTECODE(vs_code);
+    static const D3D12_SHADER_BYTECODE ps = SHADER_BYTECODE(ps_code);
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    desc.no_pipeline = true;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&root_param, 0, sizeof(root_param));
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = 1;
+    rs_desc.pParameters = &root_param;
+    root_param.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    root_param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    buffer = create_default_buffer(context.device, 64 * 1024,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature, DXGI_FORMAT_UNKNOWN,
+            &vs, &ps, NULL);
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 0, NULL, FALSE, NULL);
+
+    set_viewport(&vp, 10000.0f, 12000.0f, 4.0f, 4.0f, 0.0f, 1.0f);
+    set_rect(&sci, 10000, 12000, 10004, 12004);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &sci);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(buffer));
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 16, 0, 0);
+
+    transition_resource_state(context.list, buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(buffer, DXGI_FORMAT_R32G32B32A32_FLOAT, &rb, context.queue, context.list);
+
+    for (layer = 0; layer < 16; layer++)
+    {
+        for (y = 0; y < 4; y++)
+        {
+            for (x = 0; x < 4; x++)
+            {
+                val = get_readback_vec4(&rb, layer * 16 + y * 4 + x, 0);
+                ok(val->x == 10000.5f + (float)x, "%u, %u, %u: Unexpected value (x) = %f.\n", x, y, layer, val->x);
+                ok(val->y == 12000.5f + (float)y, "%u, %u, %u: Unexpected value (y) = %f.\n", x, y, layer, val->y);
+                ok(val->z == (float)layer, "%u, %u, %u: Unexpected value (z) = %f.\n", x, y, layer, val->z);
+                ok(val->w == 0.0f, "%u, %u, %u: Unexpected value (w) = %f.\n", x, y, layer, val->w);
+            }
+        }
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(buffer);
+    destroy_test_context(&context);
+}
+
