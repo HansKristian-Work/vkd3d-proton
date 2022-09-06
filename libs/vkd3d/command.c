@@ -4857,7 +4857,7 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
 
     list->state = NULL;
     list->rt_state = NULL;
-    list->active_bind_point = VK_PIPELINE_BIND_POINT_MAX_ENUM;
+    list->active_pipeline_type = VKD3D_PIPELINE_TYPE_NONE;
 
     memset(list->so_counter_buffers, 0, sizeof(list->so_counter_buffers));
     memset(list->so_counter_buffer_offsets, 0, sizeof(list->so_counter_buffer_offsets));
@@ -5064,7 +5064,8 @@ static bool d3d12_command_list_update_compute_pipeline(struct d3d12_command_list
 
     if (list->command_buffer_pipeline != list->state->compute.vk_pipeline)
     {
-        VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, list->state->vk_bind_point,
+        VK_CALL(vkCmdBindPipeline(list->vk_command_buffer,
+                vk_bind_point_from_pipeline_type(list->state->pipeline_type),
                 list->state->compute.vk_pipeline));
         list->command_buffer_pipeline = list->state->compute.vk_pipeline;
     }
@@ -5184,7 +5185,9 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
 
     if (list->command_buffer_pipeline != vk_pipeline)
     {
-        VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, list->state->vk_bind_point, vk_pipeline));
+        VK_CALL(vkCmdBindPipeline(list->vk_command_buffer,
+                vk_bind_point_from_pipeline_type(list->state->pipeline_type),
+                vk_pipeline));
 
         /* If we bind a new pipeline, make sure that we end up binding VBOs that are aligned.
          * It is fine to do it here, since we are binding a pipeline right before we perform
@@ -5561,7 +5564,7 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
     if (!rs)
         return;
 
-    if (list->active_bind_point == VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR)
+    if (list->active_pipeline_type == VKD3D_PIPELINE_TYPE_RAY_TRACING)
     {
         /* We might have to emit to RT bind point,
          * but we pretend we're in compute bind point. */
@@ -5574,7 +5577,7 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
         push_stages = bindings->layout.vk_push_stages;
     }
 
-    vk_bind_point = list->active_bind_point;
+    vk_bind_point = vk_bind_point_from_pipeline_type(list->active_pipeline_type);
 
     if (bindings->descriptor_heap_dirty_mask)
         d3d12_command_list_update_descriptor_heaps(list, bindings, vk_bind_point, layout);
@@ -7505,11 +7508,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
             list->has_replaced_shaders = true;
         }
 
-        if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_COMPUTE)
+        if (state->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
         {
             TRACE("Binding compute module with hash: %016"PRIx64".\n", state->compute.code.meta.hash);
         }
-        else if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS)
+        else if (state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS)
         {
             for (i = 0; i < state->graphics.stage_count; i++)
             {
@@ -7526,13 +7529,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
         struct vkd3d_breadcrumb_command cmd;
         cmd.type = VKD3D_BREADCRUMB_COMMAND_SET_SHADER_HASH;
 
-        if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_COMPUTE)
+        if (state->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
         {
             cmd.shader.hash = state->compute.code.meta.hash;
             cmd.shader.stage = VK_SHADER_STAGE_COMPUTE_BIT;
             vkd3d_breadcrumb_tracer_add_command(list, &cmd);
         }
-        else if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS)
+        else if (state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS)
         {
             for (i = 0; i < state->graphics.stage_count; i++)
             {
@@ -7556,9 +7559,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
     list->state = state;
     list->rt_state = NULL;
 
-    if (!state || list->active_bind_point != state->vk_bind_point)
+    if (!state || list->active_pipeline_type != state->pipeline_type)
     {
-        if (list->active_bind_point == VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR)
+        if (list->active_pipeline_type == VKD3D_PIPELINE_TYPE_RAY_TRACING)
         {
             /* DXR uses compute bind points for descriptors. When binding an RTPSO, invalidate all compute state
              * to make sure we broadcast state correctly to COMPUTE or RT bind points in Vulkan. */
@@ -7567,7 +7570,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
 
         if (state)
         {
-            bindings = &list->pipeline_bindings[state->vk_bind_point];
+            bindings = d3d12_command_list_get_bindings(list, state->pipeline_type);
             if (bindings->root_signature)
             {
                 /* We might have clobbered push constants in the new bind point,
@@ -7575,10 +7578,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
                 d3d12_command_list_invalidate_push_constants(bindings);
             }
 
-            list->active_bind_point = state->vk_bind_point;
+            list->active_pipeline_type = state->pipeline_type;
         }
         else
-            list->active_bind_point = VK_PIPELINE_BIND_POINT_MAX_ENUM;
+            list->active_pipeline_type = VKD3D_PIPELINE_TYPE_NONE;
     }
 }
 
@@ -11128,9 +11131,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState1(d3d12_command
 
     /* DXR uses compute bind points for descriptors. When binding an RTPSO, invalidate all state
      * to make sure we broadcast state correctly to COMPUTE or RT bind points in Vulkan. */
-    if (list->active_bind_point != VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR)
+    if (list->active_pipeline_type != VKD3D_PIPELINE_TYPE_RAY_TRACING)
     {
-        list->active_bind_point = VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR;
+        list->active_pipeline_type = VKD3D_PIPELINE_TYPE_RAY_TRACING;
         d3d12_command_list_invalidate_root_parameters(list, VK_PIPELINE_BIND_POINT_COMPUTE, true);
     }
 

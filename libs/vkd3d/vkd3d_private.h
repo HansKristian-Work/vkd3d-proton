@@ -1659,7 +1659,8 @@ struct d3d12_pipeline_state
         struct d3d12_graphics_pipeline_state graphics;
         struct d3d12_compute_pipeline_state compute;
     };
-    VkPipelineBindPoint vk_bind_point;
+
+    enum vkd3d_pipeline_type pipeline_type;
     VkPipelineCache vk_pso_cache;
     spinlock_t lock;
 
@@ -1672,12 +1673,12 @@ struct d3d12_pipeline_state
 
 static inline bool d3d12_pipeline_state_is_compute(const struct d3d12_pipeline_state *state)
 {
-    return state && state->vk_bind_point == VK_PIPELINE_BIND_POINT_COMPUTE;
+    return state && state->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE;
 }
 
 static inline bool d3d12_pipeline_state_is_graphics(const struct d3d12_pipeline_state *state)
 {
-    return state && state->vk_bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS;
+    return state && state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS;
 }
 
 /* This returns true for invalid D3D12 API usage. Game intends to use depth-stencil tests,
@@ -2268,7 +2269,7 @@ struct d3d12_command_list
     struct vkd3d_rendering_info rendering_info;
     struct vkd3d_dynamic_state dynamic_state;
     struct vkd3d_pipeline_bindings pipeline_bindings[VKD3D_PIPELINE_BIND_POINT_COUNT];
-    VkPipelineBindPoint active_bind_point;
+    enum vkd3d_pipeline_type active_pipeline_type;
 
     VkDescriptorSet descriptor_heaps[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
 
