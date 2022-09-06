@@ -321,3 +321,4 @@ decl_test(test_fence_wait_robustness);
 decl_test(test_fence_wait_robustness_shared);
 decl_test(test_root_signature_empty_blob);
 decl_test(test_sparse_buffer_memory_lifetime);
+decl_test(test_rendering_no_attachments_layers);
