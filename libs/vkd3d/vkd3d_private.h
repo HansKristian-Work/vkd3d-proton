@@ -57,8 +57,6 @@
 #define VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS 8u
 #define VKD3D_MAX_MUTABLE_DESCRIPTOR_TYPES 6u
 
-#define VKD3D_PIPELINE_BIND_POINT_COUNT 2u
-
 #define VKD3D_TILE_SIZE 65536
 
 typedef ID3D12Fence1 d3d12_fence_iface;
@@ -2266,7 +2264,8 @@ struct d3d12_command_list
 
     struct vkd3d_rendering_info rendering_info;
     struct vkd3d_dynamic_state dynamic_state;
-    struct vkd3d_pipeline_bindings pipeline_bindings[VKD3D_PIPELINE_BIND_POINT_COUNT];
+    struct vkd3d_pipeline_bindings graphics_bindings;
+    struct vkd3d_pipeline_bindings compute_bindings;
     enum vkd3d_pipeline_type active_pipeline_type;
 
     VkDescriptorSet descriptor_heaps[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
@@ -2333,11 +2332,11 @@ static inline struct vkd3d_pipeline_bindings *d3d12_command_list_get_bindings(
             break;
 
         case VKD3D_PIPELINE_TYPE_GRAPHICS:
-            return &list->pipeline_bindings[VK_PIPELINE_BIND_POINT_GRAPHICS];
+            return &list->graphics_bindings;
 
         case VKD3D_PIPELINE_TYPE_COMPUTE:
         case VKD3D_PIPELINE_TYPE_RAY_TRACING:
-            return &list->pipeline_bindings[VK_PIPELINE_BIND_POINT_COMPUTE];
+            return &list->compute_bindings;
     }
 
     return NULL;
