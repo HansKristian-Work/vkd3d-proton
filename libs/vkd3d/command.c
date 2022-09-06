@@ -4974,7 +4974,10 @@ static void d3d12_command_list_get_fb_extent(struct d3d12_command_list *list,
         *width = device->vk_info.device_limits.maxFramebufferWidth;
         *height = device->vk_info.device_limits.maxFramebufferHeight;
         if (layer_count)
-            *layer_count = 1;
+        {
+            /* Layered rendering works with no attachments. */
+            *layer_count = device->vk_info.device_limits.maxFramebufferLayers;
+        }
     }
 }
 
