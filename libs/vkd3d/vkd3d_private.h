@@ -1373,6 +1373,7 @@ enum vkd3d_pipeline_type
 {
     VKD3D_PIPELINE_TYPE_NONE,
     VKD3D_PIPELINE_TYPE_GRAPHICS,
+    VKD3D_PIPELINE_TYPE_MESH_GRAPHICS,
     VKD3D_PIPELINE_TYPE_COMPUTE,
     VKD3D_PIPELINE_TYPE_RAY_TRACING,
 };
@@ -1384,6 +1385,7 @@ static inline VkPipelineBindPoint vk_bind_point_from_pipeline_type(enum vkd3d_pi
         case VKD3D_PIPELINE_TYPE_NONE:
           break;
         case VKD3D_PIPELINE_TYPE_GRAPHICS:
+        case VKD3D_PIPELINE_TYPE_MESH_GRAPHICS:
             return VK_PIPELINE_BIND_POINT_GRAPHICS;
         case VKD3D_PIPELINE_TYPE_COMPUTE:
             return VK_PIPELINE_BIND_POINT_COMPUTE;
@@ -1531,6 +1533,9 @@ static inline const struct d3d12_bind_point_layout *d3d12_root_signature_get_lay
         case VKD3D_PIPELINE_TYPE_GRAPHICS:
             return &root_signature->graphics;
 
+        case VKD3D_PIPELINE_TYPE_MESH_GRAPHICS:
+            return &root_signature->mesh;
+
         case VKD3D_PIPELINE_TYPE_COMPUTE:
             return &root_signature->compute;
 
@@ -1677,7 +1682,8 @@ static inline bool d3d12_pipeline_state_is_compute(const struct d3d12_pipeline_s
 
 static inline bool d3d12_pipeline_state_is_graphics(const struct d3d12_pipeline_state *state)
 {
-    return state && state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS;
+    return state && (state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS ||
+            state->pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS);
 }
 
 /* This returns true for invalid D3D12 API usage. Game intends to use depth-stencil tests,
@@ -2333,6 +2339,7 @@ static inline struct vkd3d_pipeline_bindings *d3d12_command_list_get_bindings(
             break;
 
         case VKD3D_PIPELINE_TYPE_GRAPHICS:
+        case VKD3D_PIPELINE_TYPE_MESH_GRAPHICS:
             return &list->graphics_bindings;
 
         case VKD3D_PIPELINE_TYPE_COMPUTE:

@@ -7512,7 +7512,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
         {
             TRACE("Binding compute module with hash: %016"PRIx64".\n", state->compute.code.meta.hash);
         }
-        else if (state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS)
+        else if (state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS ||
+                state->pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS)
         {
             for (i = 0; i < state->graphics.stage_count; i++)
             {
@@ -7535,7 +7536,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
             cmd.shader.stage = VK_SHADER_STAGE_COMPUTE_BIT;
             vkd3d_breadcrumb_tracer_add_command(list, &cmd);
         }
-        else if (state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS)
+        else if (state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS ||
+                state->pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS)
         {
             for (i = 0; i < state->graphics.stage_count; i++)
             {

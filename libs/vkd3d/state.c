@@ -3700,7 +3700,8 @@ bool d3d12_pipeline_state_has_replaced_shaders(struct d3d12_pipeline_state *stat
     unsigned int i;
     if (state->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
         return !!(state->compute.code.meta.flags & VKD3D_SHADER_META_FLAG_REPLACED);
-    else if (state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS)
+    else if (state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS ||
+            state->pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS)
     {
         for (i = 0; i < state->graphics.stage_count; i++)
             if (state->graphics.code[i].meta.flags & VKD3D_SHADER_META_FLAG_REPLACED)
