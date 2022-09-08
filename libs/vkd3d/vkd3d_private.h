@@ -2615,6 +2615,7 @@ struct d3d12_command_signature
         struct vkd3d_execute_indirect_info pipeline;
     } state_template;
     bool requires_state_template;
+    enum vkd3d_pipeline_type pipeline_type;
 
     struct d3d12_device *device;
 
