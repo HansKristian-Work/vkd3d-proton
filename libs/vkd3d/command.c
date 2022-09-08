@@ -5141,7 +5141,8 @@ static void d3d12_command_list_check_vbo_alignment(struct d3d12_command_list *li
     }
 }
 
-static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_list *list)
+static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_list *list,
+        enum vkd3d_pipeline_type pipeline_type)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     uint32_t dsv_plane_optimal_mask;
@@ -5152,9 +5153,16 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
     if (list->current_pipeline != VK_NULL_HANDLE)
         return true;
 
-    if (!d3d12_pipeline_state_is_graphics(list->state))
+    if (!list->state)
     {
-        WARN("Pipeline state %p is not a graphics pipeline.\n", list->state);
+        WARN("No graphics pipeline bound, skipping draw.\n");
+        return false;
+    }
+
+    if (list->state->pipeline_type != pipeline_type)
+    {
+        WARN("Pipeline state %p is is of type %u, expected type %u.\n",
+                list->state, list->state->pipeline_type, pipeline_type);
         return false;
     }
 
@@ -5835,7 +5843,8 @@ static void d3d12_command_list_promote_dsv_layout(struct d3d12_command_list *lis
     }
 }
 
-static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list)
+static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list,
+        enum vkd3d_pipeline_type pipeline_type)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct d3d12_graphics_pipeline_state *graphics;
@@ -5843,7 +5852,7 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     d3d12_command_list_end_transfer_batch(list);
 
     d3d12_command_list_promote_dsv_layout(list);
-    if (!d3d12_command_list_update_graphics_pipeline(list))
+    if (!d3d12_command_list_update_graphics_pipeline(list, pipeline_type))
         return false;
     if (!d3d12_command_list_update_rendering_info(list))
         return false;
@@ -5980,7 +5989,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawInstanced(d3d12_command_lis
             return;
     }
 
-    if (!d3d12_command_list_begin_render_pass(list))
+    if (!d3d12_command_list_begin_render_pass(list, VKD3D_PIPELINE_TYPE_GRAPHICS))
     {
         WARN("Failed to begin render pass, ignoring draw call.\n");
         return;
@@ -6055,7 +6064,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(d3d12_comm
             return;
     }
 
-    if (!d3d12_command_list_begin_render_pass(list))
+    if (!d3d12_command_list_begin_render_pass(list, VKD3D_PIPELINE_TYPE_GRAPHICS))
     {
         WARN("Failed to begin render pass, ignoring draw call.\n");
         return;
@@ -10232,7 +10241,7 @@ static void d3d12_command_list_execute_indirect_state_template(
     HRESULT hr;
 
     /* To build device generated commands, we need to know the pipeline we're going to render with. */
-    if (!d3d12_command_list_update_graphics_pipeline(list))
+    if (!d3d12_command_list_update_graphics_pipeline(list, signature->pipeline_type))
         return;
     current_pipeline = list->current_pipeline;
 
@@ -10361,7 +10370,7 @@ static void d3d12_command_list_execute_indirect_state_template(
         }
     }
 
-    if (!d3d12_command_list_begin_render_pass(list))
+    if (!d3d12_command_list_begin_render_pass(list, signature->pipeline_type))
     {
         WARN("Failed to begin render pass, ignoring draw.\n");
         return;
@@ -10580,7 +10589,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
         switch (arg_desc->Type)
         {
             case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW:
-                if (!d3d12_command_list_begin_render_pass(list))
+                if (!d3d12_command_list_begin_render_pass(list, VKD3D_PIPELINE_TYPE_GRAPHICS))
                 {
                     WARN("Failed to begin render pass, ignoring draw.\n");
                     break;
@@ -10603,7 +10612,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                 if (!d3d12_command_list_update_index_buffer(list))
                     break;
 
-                if (!d3d12_command_list_begin_render_pass(list))
+                if (!d3d12_command_list_begin_render_pass(list, VKD3D_PIPELINE_TYPE_GRAPHICS))
                 {
                     WARN("Failed to begin render pass, ignoring draw.\n");
                     break;
@@ -10625,7 +10634,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH:
-                if (!d3d12_command_list_begin_render_pass(list))
+                if (!d3d12_command_list_begin_render_pass(list, VKD3D_PIPELINE_TYPE_MESH_GRAPHICS))
                 {
                     WARN("Failed to begin render pass, ignoring draw.\n");
                     break;
@@ -11339,7 +11348,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchMesh(d3d12_command_list
             return;
     }
 
-    if (!d3d12_command_list_begin_render_pass(list))
+    if (!d3d12_command_list_begin_render_pass(list, VKD3D_PIPELINE_TYPE_MESH_GRAPHICS))
     {
         WARN("Failed to begin render pass, ignoring draw call.\n");
         return;
@@ -13916,6 +13925,7 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
         struct d3d12_command_signature **signature)
 {
     struct d3d12_command_signature *object;
+    enum vkd3d_pipeline_type pipeline_type;
     bool requires_root_signature = false;
     bool requires_state_template = false;
     uint32_t argument_buffer_offset = 0;
@@ -13925,6 +13935,8 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
     bool is_action;
     HRESULT hr;
 
+    pipeline_type = VKD3D_PIPELINE_TYPE_NONE;
+
     for (i = 0; i < desc->NumArgumentDescs; ++i)
     {
         const D3D12_INDIRECT_ARGUMENT_DESC *argument_desc = &desc->pArgumentDescs[i];
@@ -13933,30 +13945,35 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
         switch (argument_desc->Type)
         {
             case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW:
+                pipeline_type = VKD3D_PIPELINE_TYPE_GRAPHICS;
                 argument_buffer_offset = signature_size;
                 signature_size += sizeof(D3D12_DRAW_ARGUMENTS);
                 is_action = true;
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED:
+                pipeline_type = VKD3D_PIPELINE_TYPE_GRAPHICS;
                 argument_buffer_offset = signature_size;
                 signature_size += sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
                 is_action = true;
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
+                pipeline_type = VKD3D_PIPELINE_TYPE_COMPUTE;
                 argument_buffer_offset = signature_size;
                 signature_size += sizeof(D3D12_DISPATCH_ARGUMENTS);
                 is_action = true;
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS:
+                pipeline_type = VKD3D_PIPELINE_TYPE_RAY_TRACING;
                 argument_buffer_offset = signature_size;
                 signature_size += sizeof(D3D12_DISPATCH_RAYS_DESC);
                 is_action = true;
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH:
+                pipeline_type = VKD3D_PIPELINE_TYPE_MESH_GRAPHICS;
                 argument_buffer_offset = signature_size;
                 signature_size += sizeof(D3D12_DISPATCH_MESH_ARGUMENTS);
                 is_action = true;
@@ -14068,6 +14085,8 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
     }
     else
         object->argument_buffer_offset = argument_buffer_offset;
+
+    object->pipeline_type = pipeline_type;
 
     d3d12_device_add_ref(object->device = device);
 
