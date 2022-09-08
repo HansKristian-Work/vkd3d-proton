@@ -640,6 +640,15 @@ static void vkd3d_instance_deduce_config_flags_from_environment(void)
         INFO("shader_cache is used, global_pipeline_cache is enforced.\n");
         vkd3d_config_flags |= VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE;
     }
+
+    /* Normally, we would use VK_EXT_tooling_info for this, but we don't observe layers across the winevulkan layer.
+     * The global env-var on the other hand, does ... */
+    if (vkd3d_get_env_var("ENABLE_VULKAN_RENDERDOC_CAPTURE", env, sizeof(env)) &&
+            strcmp(env, "1") == 0)
+    {
+        INFO("RenderDoc capture is enabled. Forcing HOST CACHED memory types.\n");
+        vkd3d_config_flags |= VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED;
+    }
 }
 
 static void vkd3d_instance_apply_global_shader_quirks(void)
