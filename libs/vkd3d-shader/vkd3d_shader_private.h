@@ -435,6 +435,8 @@ enum vkd3d_shader_sync_flags
 {
     VKD3DSSF_THREAD_GROUP        = 0x1,
     VKD3DSSF_GROUP_SHARED_MEMORY = 0x2,
+    VKD3DSSF_UAV_MEMORY_LOCAL    = 0x4,
+    VKD3DSSF_UAV_MEMORY_GLOBAL   = 0x8,
 };
 
 enum vkd3d_shader_uav_flags

@@ -460,6 +460,13 @@ static void vkd3d_shader_scan_record_uav_read(struct vkd3d_shader_scan_info *sca
             reg->idx[0].offset, VKD3D_SHADER_UAV_FLAG_READ_ACCESS);
 }
 
+static void vkd3d_shader_scan_record_uav_write(struct vkd3d_shader_scan_info *scan_info,
+        const struct vkd3d_shader_register *reg)
+{
+    vkd3d_shader_scan_set_register_flags(scan_info, VKD3DSPR_UAV,
+            reg->idx[0].offset, VKD3D_SHADER_UAV_FLAG_WRITE_ACCESS);
+}
+
 static void vkd3d_shader_scan_record_uav_atomic(struct vkd3d_shader_scan_info *scan_info,
         const struct vkd3d_shader_register *reg)
 {
@@ -534,6 +541,18 @@ static void vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_info *scan_in
         case VKD3DSIH_DCL_INPUT_CONTROL_POINT_COUNT:
             scan_info->patch_vertex_count = instruction->declaration.count;
             break;
+        case VKD3DSIH_DCL_UAV_RAW:
+        case VKD3DSIH_DCL_UAV_STRUCTURED:
+        case VKD3DSIH_DCL_UAV_TYPED:
+            /* See test_memory_model_uav_coherent_thread_group() for details. */
+            if (instruction->flags & VKD3DSUF_GLOBALLY_COHERENT)
+                scan_info->declares_globally_coherent_uav = true;
+            break;
+        case VKD3DSIH_SYNC:
+            /* See test_memory_model_uav_coherent_thread_group() for details. */
+            if (instruction->flags & (VKD3DSSF_UAV_MEMORY_LOCAL | VKD3DSSF_UAV_MEMORY_GLOBAL))
+                scan_info->requires_thread_group_uav_coherency = true;
+            break;
         default:
             break;
     }
@@ -563,7 +582,12 @@ static void vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_info *scan_in
     }
 
     if (vkd3d_shader_instruction_is_uav_write(instruction))
+    {
         scan_info->has_side_effects = true;
+        for (i = 0; i < instruction->dst_count; ++i)
+            if (instruction->dst[i].reg.type == VKD3DSPR_UAV)
+                vkd3d_shader_scan_record_uav_write(scan_info, &instruction->dst[i].reg);
+    }
 
     if (vkd3d_shader_instruction_is_uav_counter(instruction))
         vkd3d_shader_scan_record_uav_counter(scan_info, &instruction->src[0].reg);

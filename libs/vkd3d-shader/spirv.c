@@ -6802,6 +6802,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     struct vkd3d_symbol resource_symbol;
     unsigned int uav_flags;
     bool is_uav, use_ssbo;
+    bool promote_coherent;
 
     if (instruction->flags & ~VKD3DSUF_GLOBALLY_COHERENT)
         FIXME("Unhandled instruction flags %#x.\n", instruction->flags);
@@ -6828,9 +6829,20 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     if (is_uav)
     {
         uav_flags = vkd3d_shader_scan_get_register_flags(scan_info, VKD3DSPR_UAV, reg->idx[0].offset);
+
+        /* If shader is using device level memory barriers, applications can rely on coherency between threads
+         * in the workgroup. In Vulkan (glsl450 memory model), we do not get this guarantee.
+         * Only promote resources that both read and write.
+         * See test_memory_model_uav_coherent_thread_group() for details. */
+        promote_coherent = (uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS) &&
+                (uav_flags & VKD3D_SHADER_UAV_FLAG_WRITE_ACCESS) &&
+                scan_info->requires_thread_group_uav_coherency;
     }
     else
+    {
         uav_flags = 0;
+        promote_coherent = false;
+    }
 
     if (binding && (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS))
     {
@@ -6859,7 +6871,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
             if (!(uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS))
                 flags |= VKD3D_SHADER_GLOBAL_BINDING_WRITE_ONLY;
 
-            if (instruction->flags & VKD3DSUF_GLOBALLY_COHERENT)
+            if ((instruction->flags & VKD3DSUF_GLOBALLY_COHERENT) || promote_coherent)
                 flags |= VKD3D_SHADER_GLOBAL_BINDING_COHERENT;
         }
 
@@ -6882,7 +6894,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
             if (!(uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS))
                 flags |= VKD3D_SHADER_GLOBAL_BINDING_WRITE_ONLY;
 
-            if (instruction->flags & VKD3DSUF_GLOBALLY_COHERENT)
+            if ((instruction->flags & VKD3DSUF_GLOBALLY_COHERENT) || promote_coherent)
                 flags |= VKD3D_SHADER_GLOBAL_BINDING_COHERENT;
         }
 
@@ -6924,7 +6936,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
             if (!use_ssbo && !(uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS))
                 vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationNonReadable, NULL, 0);
 
-            if (instruction->flags & VKD3DSUF_GLOBALLY_COHERENT)
+            if ((instruction->flags & VKD3DSUF_GLOBALLY_COHERENT) || promote_coherent)
                 vkd3d_spirv_build_op_decorate(builder, var_id, SpvDecorationCoherent, NULL, 0);
         }
 
@@ -10746,35 +10758,16 @@ static void vkd3d_dxbc_compiler_emit_sync(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
     unsigned int memory_semantics = SpvMemorySemanticsAcquireReleaseMask;
+    SpvScope execution_scope = SpvScopeWorkgroup;
+    SpvScope memory_scope = SpvScopeWorkgroup;
     unsigned int flags = instruction->flags;
-    SpvScope execution_scope = SpvScopeMax;
-    SpvScope memory_scope = SpvScopeDevice;
 
     if (flags & VKD3DSSF_GROUP_SHARED_MEMORY)
-    {
-        memory_scope = SpvScopeWorkgroup;
         memory_semantics |= SpvMemorySemanticsWorkgroupMemoryMask;
-        flags &= ~VKD3DSSF_GROUP_SHARED_MEMORY;
-    }
-
-    if (flags & VKD3DSSF_THREAD_GROUP)
-    {
-        execution_scope = SpvScopeWorkgroup;
-        flags &= ~VKD3DSSF_THREAD_GROUP;
-    }
-
-    if (flags)
-    {
-        FIXME("Unhandled sync flags %#x.\n", flags);
+    if (flags & (VKD3DSSF_UAV_MEMORY_LOCAL | VKD3DSSF_UAV_MEMORY_GLOBAL))
+        memory_semantics |= SpvMemorySemanticsUniformMemoryMask | SpvMemorySemanticsImageMemoryMask;
+    if ((flags & VKD3DSSF_UAV_MEMORY_GLOBAL) && compiler->scan_info->declares_globally_coherent_uav)
         memory_scope = SpvScopeDevice;
-        execution_scope = SpvScopeWorkgroup;
-        memory_semantics |= SpvMemorySemanticsUniformMemoryMask
-                | SpvMemorySemanticsSubgroupMemoryMask
-                | SpvMemorySemanticsWorkgroupMemoryMask
-                | SpvMemorySemanticsCrossWorkgroupMemoryMask
-                | SpvMemorySemanticsAtomicCounterMemoryMask
-                | SpvMemorySemanticsImageMemoryMask;
-    }
 
     vkd3d_dxbc_compiler_emit_barrier(compiler, execution_scope, memory_scope, memory_semantics);
 }
