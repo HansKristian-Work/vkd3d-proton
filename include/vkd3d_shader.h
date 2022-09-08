@@ -674,6 +674,7 @@ enum vkd3d_shader_uav_flag
     VKD3D_SHADER_UAV_FLAG_READ_ACCESS     = 0x00000001,
     VKD3D_SHADER_UAV_FLAG_ATOMIC_COUNTER  = 0x00000002,
     VKD3D_SHADER_UAV_FLAG_ATOMIC_ACCESS   = 0x00000004,
+    VKD3D_SHADER_UAV_FLAG_WRITE_ACCESS    = 0x00000008,
 };
 
 struct vkd3d_shader_scan_info
@@ -686,6 +687,8 @@ struct vkd3d_shader_scan_info
     bool needs_late_zs;
     bool discards;
     bool has_uav_counter;
+    bool declares_globally_coherent_uav;
+    bool requires_thread_group_uav_coherency;
     unsigned int patch_vertex_count;
 };
 
