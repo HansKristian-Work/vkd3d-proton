@@ -222,6 +222,7 @@ struct d3d12_swapchain
 
     DXGI_HDR_METADATA_TYPE hdr_metadata_type;
     VkHdrMetadataEXT hdr_metadata;
+    VkColorSpaceKHR vk_color_space;
 };
 
 static inline const struct vkd3d_vk_device_procs* d3d12_swapchain_procs(struct d3d12_swapchain* swapchain)
@@ -700,7 +701,8 @@ static VkFormat get_swapchain_fallback_format(VkFormat vk_format)
 static HRESULT select_vk_format(const struct d3d12_device *device,
         const struct vkd3d_vk_device_procs *vk_procs,
         VkPhysicalDevice vk_physical_device, VkSurfaceKHR vk_surface,
-        const DXGI_SWAP_CHAIN_DESC1 *swapchain_desc, VkFormat *vk_format)
+        const DXGI_SWAP_CHAIN_DESC1 *swapchain_desc, VkColorSpaceKHR color_space,
+        VkFormat *vk_format)
 {
     VkSurfaceFormatKHR *formats;
     uint32_t format_count;
@@ -732,7 +734,7 @@ static HRESULT select_vk_format(const struct d3d12_device *device,
 
     for (i = 0; i < format_count; ++i)
     {
-        if (formats[i].format == format && formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+        if (formats[i].format == format && formats[i].colorSpace == color_space)
             break;
     }
     if (i == format_count)
@@ -742,7 +744,7 @@ static HRESULT select_vk_format(const struct d3d12_device *device,
         WARN("Failed to find Vulkan swapchain format for %s.\n", debug_dxgi_format(swapchain_desc->Format));
         for (i = 0; i < format_count; ++i)
         {
-            if (formats[i].format == format && formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+            if (formats[i].format == format && formats[i].colorSpace == color_space)
             {
                 format = formats[i].format;
                 break;
@@ -1448,22 +1450,31 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
         return DXGI_ERROR_INVALID_CALL;
     }
 
+    vr = VK_SUCCESS;
     if (FAILED(hr = select_vk_format(device, vk_procs, vk_physical_device,
-            swapchain->vk_surface, &swapchain->desc, &vk_swapchain_format)))
-        return hr;
-
-    if (force_surface_lost)
+            swapchain->vk_surface, &swapchain->desc, swapchain->vk_color_space, &vk_swapchain_format)))
     {
-        /* If we cannot successfully present after 2 attempts, we must assume the swapchain
-         * is in an unstable state with many resizes happening async. Until things stabilize,
-         * force a dummy swapchain for now so that we can make forward progress.
-         * When we don't have a proper swapchain, we will attempt again next present. */
+        /* An app could be attempting to change surface formats here,
+         * but not specified a valid color space for the format currently,
+         * so just make the swapchain un-usable for now. */
         vr = VK_ERROR_SURFACE_LOST_KHR;
     }
-    else
+
+    if (vr != VK_ERROR_SURFACE_LOST_KHR)
     {
-        vr = VK_CALL(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device,
-                swapchain->vk_surface, &surface_caps));
+        if (force_surface_lost)
+        {
+            /* If we cannot successfully present after 2 attempts, we must assume the swapchain
+             * is in an unstable state with many resizes happening async. Until things stabilize,
+             * force a dummy swapchain for now so that we can make forward progress.
+             * When we don't have a proper swapchain, we will attempt again next present. */
+            vr = VK_ERROR_SURFACE_LOST_KHR;
+        }
+        else
+        {
+            vr = VK_CALL(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device,
+                    swapchain->vk_surface, &surface_caps));
+        }
     }
 
     if (vr == VK_ERROR_SURFACE_LOST_KHR)
@@ -1574,7 +1585,7 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
         vk_swapchain_desc.surface = swapchain->vk_surface;
         vk_swapchain_desc.minImageCount = image_count;
         vk_swapchain_desc.imageFormat = vk_swapchain_format;
-        vk_swapchain_desc.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+        vk_swapchain_desc.imageColorSpace = swapchain->vk_color_space;
         vk_swapchain_desc.imageExtent.width = width;
         vk_swapchain_desc.imageExtent.height = height;
         vk_swapchain_desc.imageArrayLayers = 1;
@@ -2698,13 +2709,28 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_CheckColorSpaceSupport(dxgi_swa
 static HRESULT STDMETHODCALLTYPE d3d12_swapchain_SetColorSpace1(dxgi_swapchain_iface *iface,
         DXGI_COLOR_SPACE_TYPE colour_space)
 {
-    FIXME("iface %p, colour_space %#x semi-stub!\n", iface, colour_space);
+    struct d3d12_swapchain *swapchain = d3d12_swapchain_from_IDXGISwapChain(iface);
+    UINT colour_space_support;
+    HRESULT hr;
 
-    if (colour_space != DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709)
+    if (FAILED(hr = d3d12_swapchain_CheckColorSpaceSupport(iface, colour_space, &colour_space_support)))
+        return hr;
+
+    if (!(colour_space_support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT))
     {
         WARN("Colour space %u not supported.\n", colour_space);
         return E_INVALIDARG;
     }
+
+    EnterCriticalSection(&swapchain->mutex);
+
+    swapchain->vk_color_space = convert_color_space(colour_space);
+
+    /* Re-create swapchain with new color space. */
+    d3d12_swapchain_destroy_resources(swapchain, false);
+    d3d12_swapchain_create_vulkan_swapchain(swapchain, false);
+
+    LeaveCriticalSection(&swapchain->mutex);
 
     return S_OK;
 }
