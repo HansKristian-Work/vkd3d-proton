@@ -219,6 +219,9 @@ struct d3d12_swapchain
     uint64_t frame_number;
     uint32_t frame_latency;
     uint32_t frame_id;
+
+    DXGI_HDR_METADATA_TYPE hdr_metadata_type;
+    VkHdrMetadataEXT hdr_metadata;
 };
 
 static inline const struct vkd3d_vk_device_procs* d3d12_swapchain_procs(struct d3d12_swapchain* swapchain)
@@ -1409,6 +1412,19 @@ static bool d3d12_swapchain_has_nonzero_surface_size(struct d3d12_swapchain *swa
     return surface_caps.maxImageExtent.width != 0 && surface_caps.maxImageExtent.height != 0;
 }
 
+static void d3d12_swapchain_set_hdr_metadata(struct d3d12_swapchain *swapchain)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = d3d12_swapchain_procs(swapchain);
+
+    if (!swapchain->command_queue->device->vk_info.EXT_hdr_metadata)
+        return;
+
+    if (swapchain->hdr_metadata_type == DXGI_HDR_METADATA_TYPE_NONE)
+        return;
+
+    VK_CALL(vkSetHdrMetadataEXT(swapchain->command_queue->device->vk_device, 1, &swapchain->vk_swapchain, &swapchain->hdr_metadata));
+}
+
 static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *swapchain, bool force_surface_lost)
 {
     VkPhysicalDevice vk_physical_device = d3d12_swapchain_device(swapchain)->vk_physical_device;
@@ -1595,6 +1611,7 @@ static HRESULT d3d12_swapchain_create_vulkan_swapchain(struct d3d12_swapchain *s
             return hr;
         }
 
+        d3d12_swapchain_set_hdr_metadata(swapchain);
         return d3d12_swapchain_create_buffers(swapchain, vk_swapchain_format, vk_format);
     }
     else
@@ -2686,28 +2703,114 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_ResizeBuffers1(dxgi_swapchain_i
     return hr;
 }
 
+static void d3d12_swapchain_update_hdr_metadata(struct d3d12_swapchain *swapchain, DXGI_HDR_METADATA_TYPE metadata_type, VkHdrMetadataEXT *metadata)
+{
+    if (swapchain->hdr_metadata_type == metadata_type)
+        return;
+
+    swapchain->hdr_metadata_type = metadata_type;
+
+    if (!swapchain->command_queue->device->vk_info.EXT_hdr_metadata)
+        return;
+
+    if (metadata)
+    {
+        assert(metadata_type == DXGI_HDR_METADATA_TYPE_HDR10);
+
+        swapchain->hdr_metadata = *metadata;
+        d3d12_swapchain_set_hdr_metadata(swapchain);
+    }
+    else
+    {
+        assert(metadata_type == DXGI_HDR_METADATA_TYPE_NONE);
+
+        /* If we are DXGI_HDR_METADATA_TYPE_NONE, we must clear the metadata.
+         * The D3D docs do not mention this, but the sample does!
+         * We have no way of doing this easily in Vulkan, aside from just
+         * re-creating the swapchain. */
+        d3d12_swapchain_destroy_resources(swapchain, false);
+        d3d12_swapchain_create_vulkan_swapchain(swapchain, false);
+    }
+}
+
+static VkXYColorEXT convert_xy_color(UINT16 *dxgi_color)
+{
+    return (VkXYColorEXT){ dxgi_color[0] / 50000.0f, dxgi_color[1] / 50000.0f };
+}
+
+static float convert_max_luminance(UINT dxgi_luminance)
+{
+    /* The documentation says this is in *whole* nits, but this
+     * contradicts the HEVC standard it claims to mirror,
+     * and the sample's behaviour.
+     * We should come back and validate this once
+     * https://github.com/microsoft/DirectX-Graphics-Samples/issues/796
+     * has an answer. */
+    return (float)dxgi_luminance;
+}
+
+static float convert_min_luminance(UINT dxgi_luminance)
+{
+    return dxgi_luminance / 0.0001f;
+}
+
+static float convert_level(UINT16 dxgi_level)
+{
+    return (float)dxgi_level;
+}
+
+static VkHdrMetadataEXT convert_hdr_metadata_hdr10(DXGI_HDR_METADATA_HDR10 *dxgi_metadata)
+{
+    VkHdrMetadataEXT vulkan_metadata = { VK_STRUCTURE_TYPE_HDR_METADATA_EXT };
+    vulkan_metadata.displayPrimaryRed = convert_xy_color(dxgi_metadata->RedPrimary);
+    vulkan_metadata.displayPrimaryGreen = convert_xy_color(dxgi_metadata->GreenPrimary);
+    vulkan_metadata.displayPrimaryBlue = convert_xy_color(dxgi_metadata->BluePrimary);
+    vulkan_metadata.whitePoint = convert_xy_color(dxgi_metadata->WhitePoint);
+    vulkan_metadata.maxLuminance = convert_max_luminance(dxgi_metadata->MaxMasteringLuminance);
+    vulkan_metadata.minLuminance = convert_min_luminance(dxgi_metadata->MinMasteringLuminance);
+    vulkan_metadata.maxContentLightLevel = convert_level(dxgi_metadata->MaxContentLightLevel);
+    vulkan_metadata.maxFrameAverageLightLevel = convert_level(dxgi_metadata->MaxFrameAverageLightLevel);
+    return vulkan_metadata;
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_swapchain_SetHDRMetaData(dxgi_swapchain_iface *iface,
         DXGI_HDR_METADATA_TYPE type, UINT size, void *metadata)
 {
+    struct d3d12_swapchain *swapchain = d3d12_swapchain_from_IDXGISwapChain(iface);
+    VkHdrMetadataEXT vulkan_metadata;
+
     FIXME("iface %p, type %u, size %u, metadata %p semi-stub!", iface, type, size, metadata);
 
     if (size && !metadata)
       return E_INVALIDARG;
 
+    EnterCriticalSection(&swapchain->mutex);
+
     switch (type)
     {
         case DXGI_HDR_METADATA_TYPE_NONE:
+            d3d12_swapchain_update_hdr_metadata(swapchain, type, NULL);
+            LeaveCriticalSection(&swapchain->mutex);
             return S_OK;
 
         case DXGI_HDR_METADATA_TYPE_HDR10:
             if (size != sizeof(DXGI_HDR_METADATA_HDR10))
                 return E_INVALIDARG;
 
+            vulkan_metadata = convert_hdr_metadata_hdr10((DXGI_HDR_METADATA_HDR10 *)metadata);
+            d3d12_swapchain_update_hdr_metadata(swapchain, type, &vulkan_metadata);
+
             /* For some reason this always seems to succeed on Windows */
+            LeaveCriticalSection(&swapchain->mutex);
             return S_OK;
 
         default:
             FIXME("Unsupported HDR metadata type %u.\n", type);
+
+            /* Specify this as as call to NONE for now, as it isn't implemented.
+             * This has the least chance of breaking things. */
+            d3d12_swapchain_update_hdr_metadata(swapchain, DXGI_HDR_METADATA_TYPE_NONE, NULL);
+            LeaveCriticalSection(&swapchain->mutex);
             return E_INVALIDARG;
     }
 }
