@@ -274,6 +274,9 @@ VK_DEVICE_EXT_PFN(vkCmdDrawMeshTasksEXT)
 VK_DEVICE_EXT_PFN(vkCmdDrawMeshTasksIndirectEXT)
 VK_DEVICE_EXT_PFN(vkCmdDrawMeshTasksIndirectCountEXT)
 
+/* VK_EXT_hdr_metadata */
+VK_DEVICE_EXT_PFN(vkSetHdrMetadataEXT)
+
 /* VK_KHR_surface */
 VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceSurfacePresentModesKHR)
 VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceSurfaceSupportKHR)
