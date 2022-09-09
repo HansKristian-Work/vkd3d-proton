@@ -2636,19 +2636,60 @@ static UINT STDMETHODCALLTYPE d3d12_swapchain_GetCurrentBackBufferIndex(dxgi_swa
     return index;
 }
 
+static VkColorSpaceKHR convert_color_space(DXGI_COLOR_SPACE_TYPE dxgi_color_space)
+{
+    switch (dxgi_color_space)
+    {
+        case DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709:
+            return VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+        case DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020:
+            return VK_COLOR_SPACE_HDR10_ST2084_EXT;
+        case DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709:
+            return VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT;
+        default:
+            WARN("Unhandled color space %#x. Falling back to sRGB.\n", dxgi_color_space);
+            return VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+    }
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_swapchain_CheckColorSpaceSupport(dxgi_swapchain_iface *iface,
         DXGI_COLOR_SPACE_TYPE colour_space, UINT *colour_space_support)
 {
+    struct d3d12_swapchain *swapchain = d3d12_swapchain_from_IDXGISwapChain(iface);
+    const struct d3d12_device* device = d3d12_swapchain_device(swapchain);
+    VkColorSpaceKHR vk_color_space = convert_color_space(colour_space);
+    const struct vkd3d_vk_device_procs* vk_procs = &device->vk_procs;
+    VkSurfaceFormatKHR* formats;
+    uint32_t i, format_count;
     UINT support_flags = 0;
-
-    FIXME("iface %p, colour_space %#x, colour_space_support %p semi-stub!\n",
-            iface, colour_space, colour_space_support);
+    VkResult vr;
 
     if (!colour_space_support)
         return E_INVALIDARG;
 
-    if (colour_space == DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709)
-      support_flags |= DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT;
+    vr = VK_CALL(vkGetPhysicalDeviceSurfaceFormatsKHR(device->vk_physical_device, swapchain->vk_surface, &format_count, NULL));
+    if (vr < 0 || !format_count)
+    {
+        WARN("Failed to get supported surface formats, vr %d.\n", vr);
+        return DXGI_ERROR_INVALID_CALL;
+    }
+
+    if (!(formats = vkd3d_calloc(format_count, sizeof(*formats))))
+        return E_OUTOFMEMORY;
+
+    if ((vr = VK_CALL(vkGetPhysicalDeviceSurfaceFormatsKHR(device->vk_physical_device, swapchain->vk_surface, &format_count, formats))) < 0)
+    {
+        WARN("Failed to enumerate supported surface formats, vr %d.\n", vr);
+        vkd3d_free(formats);
+        return hresult_from_vk_result(vr);
+    }
+
+    for (i = 0; i < format_count; i++)
+    {
+        if (formats[i].colorSpace == vk_color_space)
+            support_flags |= DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT;
+    }
+    vkd3d_free(formats);
 
     *colour_space_support = support_flags;
     return S_OK;
