@@ -236,7 +236,7 @@ void vkd3d_renderdoc_command_list_check_capture(struct d3d12_command_list *list,
 
     if (vkd3d_renderdoc_active() && state)
     {
-        if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_COMPUTE)
+        if (state->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
         {
             if (vkd3d_renderdoc_should_capture_shader_hash(state->compute.code.meta.hash))
             {
@@ -244,7 +244,8 @@ void vkd3d_renderdoc_command_list_check_capture(struct d3d12_command_list *list,
                 list->debug_capture = true;
             }
         }
-        else if (state->vk_bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS)
+        else if (state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS ||
+                state->pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS)
         {
             for (i = 0; i < state->graphics.stage_count; i++)
             {
