@@ -2410,6 +2410,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
 static void d3d12_pipeline_state_init_shader_interface(struct d3d12_pipeline_state *state,
         struct d3d12_device *device,
         VkShaderStageFlagBits stage,
+        struct vkd3d_shader_stage_io_map *stage_io_map_ms_ps,
         struct vkd3d_shader_interface_info *shader_interface)
 {
     const struct d3d12_root_signature *root_signature = state->root_signature;
@@ -2425,6 +2426,17 @@ static void d3d12_pipeline_state_init_shader_interface(struct d3d12_pipeline_sta
     shader_interface->push_constant_ubo_binding = &root_signature->push_constant_ubo_binding;
     shader_interface->offset_buffer_binding = &root_signature->offset_buffer_binding;
     shader_interface->stage = stage;
+
+    if (stage == VK_SHADER_STAGE_MESH_BIT_EXT)
+    {
+        shader_interface->stage_output_map = stage_io_map_ms_ps;
+    }
+    else if ((stage == VK_SHADER_STAGE_FRAGMENT_BIT) &&
+            (state->graphics.stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT))
+    {
+        shader_interface->stage_input_map = stage_io_map_ms_ps;
+    }
+
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     shader_interface->descriptor_qa_global_binding = &root_signature->descriptor_qa_global_info;
     shader_interface->descriptor_qa_heap_binding = &root_signature->descriptor_qa_heap_binding;
@@ -2441,7 +2453,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
 
     state->pipeline_type = VKD3D_PIPELINE_TYPE_COMPUTE;
     d3d12_pipeline_state_init_shader_interface(state, device,
-            VK_SHADER_STAGE_COMPUTE_BIT, &shader_interface);
+            VK_SHADER_STAGE_COMPUTE_BIT, NULL, &shader_interface);
 
     if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE))
     {
@@ -3469,24 +3481,8 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             continue;
 
         /* TODO: Move this to vkd3d_create_shader_stage itself. */
-        d3d12_pipeline_state_init_shader_interface(state, device, shader_stages[i].stage, &shader_interface);
-
-        if (shader_stages[i].stage == VK_SHADER_STAGE_MESH_BIT_EXT)
-        {
-            shader_interface.stage_output_map = &ms_ps_interface;
-            shader_interface.stage_input_map = NULL;
-        }
-        else if ((shader_stages[i].stage == VK_SHADER_STAGE_FRAGMENT_BIT) &&
-                (graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT))
-        {
-            shader_interface.stage_output_map = NULL;
-            shader_interface.stage_input_map = &ms_ps_interface;
-        }
-        else
-        {
-            shader_interface.stage_output_map = NULL;
-            shader_interface.stage_input_map = NULL;
-        }
+        d3d12_pipeline_state_init_shader_interface(state, device, shader_stages[i].stage,
+                &ms_ps_interface, &shader_interface);
 
         shader_interface.xfb_info = shader_stages[i].stage == xfb_stage ? &xfb_info : NULL;
         d3d12_pipeline_state_init_compile_arguments(state, device, shader_interface.stage, &compile_args);
