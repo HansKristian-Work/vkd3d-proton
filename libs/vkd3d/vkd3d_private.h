@@ -721,6 +721,8 @@ struct vkd3d_memory_chunk
 
 struct vkd3d_memory_transfer_queue
 {
+    struct vkd3d_queue *vkd3d_queue;
+
     pthread_mutex_t mutex;
 
     VkCommandBuffer vk_command_buffers[VKD3D_MEMORY_TRANSFER_COMMAND_BUFFER_COUNT];
@@ -738,6 +740,8 @@ struct vkd3d_memory_transfer_queue
     size_t allocations_count;
 };
 
+HRESULT vkd3d_memory_transfer_queue_flush(struct vkd3d_memory_transfer_queue *queue, struct d3d12_device *device);
+
 struct vkd3d_memory_allocator
 {
     pthread_mutex_t mutex;
@@ -748,7 +752,6 @@ struct vkd3d_memory_allocator
 
     struct vkd3d_va_map va_map;
 
-    struct vkd3d_queue *vkd3d_queue;
     struct vkd3d_memory_transfer_queue clear_queue;
 };
 
@@ -761,7 +764,6 @@ HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_mem
 
 HRESULT vkd3d_memory_allocator_init(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device);
 void vkd3d_memory_allocator_cleanup(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device);
-HRESULT vkd3d_memory_allocator_flush_clears(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device);
 
 /* ID3D12Heap */
 typedef ID3D12Heap1 d3d12_heap_iface;
