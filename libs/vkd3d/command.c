@@ -11737,8 +11737,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     if (!command_list_count)
         return;
 
-    if (FAILED(hr = vkd3d_memory_allocator_flush_clears(
-            &command_queue->device->memory_allocator, command_queue->device)))
+    if (FAILED(hr = vkd3d_memory_transfer_queue_flush(
+            &command_queue->device->memory_allocator.clear_queue, command_queue->device)))
     {
         d3d12_device_mark_as_removed(command_queue->device, hr,
                 "Failed to execute pending memory clears.\n");
