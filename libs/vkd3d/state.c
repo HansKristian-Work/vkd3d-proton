@@ -3918,7 +3918,7 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
     hr = S_OK;
 
     if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE))
-        if (FAILED(hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, &desc->cached_pso, &object->vk_pso_cache)))
+        if (FAILED(hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, desc_cached_pso, &object->vk_pso_cache)))
             ERR("Failed to create pipeline cache, hr %d.\n", hr);
 
     if (SUCCEEDED(hr))
