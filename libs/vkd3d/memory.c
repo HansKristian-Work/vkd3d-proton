@@ -885,7 +885,7 @@ static void vkd3d_memory_allocator_remove_chunk(struct vkd3d_memory_allocator *a
 
 static void vkd3d_memory_allocator_cleanup_clear_queue(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device)
 {
-    struct vkd3d_memory_clear_queue *clear_queue = &allocator->clear_queue;
+    struct vkd3d_memory_transfer_queue *clear_queue = &allocator->clear_queue;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
     VK_CALL(vkDestroyCommandPool(device->vk_device, clear_queue->vk_command_pool, NULL));
@@ -897,7 +897,7 @@ static void vkd3d_memory_allocator_cleanup_clear_queue(struct vkd3d_memory_alloc
 
 static HRESULT vkd3d_memory_allocator_init_clear_queue(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device)
 {
-    struct vkd3d_memory_clear_queue *clear_queue = &allocator->clear_queue;
+    struct vkd3d_memory_transfer_queue *clear_queue = &allocator->clear_queue;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkSemaphoreTypeCreateInfoKHR semaphore_type_info;
     VkCommandBufferAllocateInfo command_buffer_info;
@@ -909,8 +909,8 @@ static HRESULT vkd3d_memory_allocator_init_clear_queue(struct vkd3d_memory_alloc
 
     /* vkd3d_memory_allocator_init will memset the entire
      * clear_queue struct to zero prior to calling this */
-    clear_queue->last_known_value = VKD3D_MEMORY_CLEAR_COMMAND_BUFFER_COUNT;
-    clear_queue->next_signal_value = VKD3D_MEMORY_CLEAR_COMMAND_BUFFER_COUNT + 1;
+    clear_queue->last_known_value = VKD3D_MEMORY_TRANSFER_COMMAND_BUFFER_COUNT;
+    clear_queue->next_signal_value = VKD3D_MEMORY_TRANSFER_COMMAND_BUFFER_COUNT + 1;
 
     if ((rc = pthread_mutex_init(&allocator->mutex, NULL)))
         return hresult_from_errno(rc);
@@ -932,7 +932,7 @@ static HRESULT vkd3d_memory_allocator_init_clear_queue(struct vkd3d_memory_alloc
     command_buffer_info.pNext = NULL;
     command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     command_buffer_info.commandPool = clear_queue->vk_command_pool;
-    command_buffer_info.commandBufferCount = VKD3D_MEMORY_CLEAR_COMMAND_BUFFER_COUNT;
+    command_buffer_info.commandBufferCount = VKD3D_MEMORY_TRANSFER_COMMAND_BUFFER_COUNT;
 
     if ((vr = VK_CALL(vkAllocateCommandBuffers(device->vk_device,
             &command_buffer_info, clear_queue->vk_command_buffers))) < 0)
@@ -945,7 +945,7 @@ static HRESULT vkd3d_memory_allocator_init_clear_queue(struct vkd3d_memory_alloc
     semaphore_type_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO_KHR;
     semaphore_type_info.pNext = NULL;
     semaphore_type_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE_KHR;
-    semaphore_type_info.initialValue = VKD3D_MEMORY_CLEAR_COMMAND_BUFFER_COUNT;
+    semaphore_type_info.initialValue = VKD3D_MEMORY_TRANSFER_COMMAND_BUFFER_COUNT;
 
     semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     semaphore_info.pNext = &semaphore_type_info;
@@ -1005,7 +1005,7 @@ void vkd3d_memory_allocator_cleanup(struct vkd3d_memory_allocator *allocator, st
 static bool vkd3d_memory_allocator_wait_clear_semaphore(struct vkd3d_memory_allocator *allocator,
         struct d3d12_device *device, uint64_t wait_value, uint64_t timeout)
 {
-    struct vkd3d_memory_clear_queue *clear_queue = &allocator->clear_queue;
+    struct vkd3d_memory_transfer_queue *clear_queue = &allocator->clear_queue;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkSemaphoreWaitInfo wait_info;
     uint64_t old_value, new_value;
@@ -1058,7 +1058,7 @@ static HRESULT vkd3d_memory_allocator_flush_clears_locked(struct vkd3d_memory_al
         struct d3d12_device *device)
 {
     const VkPipelineStageFlags vk_stage_mask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-    struct vkd3d_memory_clear_queue *clear_queue = &allocator->clear_queue;
+    struct vkd3d_memory_transfer_queue *clear_queue = &allocator->clear_queue;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkTimelineSemaphoreSubmitInfoKHR timeline_info;
     struct vkd3d_queue_family_info *queue_family;
@@ -1086,7 +1086,7 @@ static HRESULT vkd3d_memory_allocator_flush_clears_locked(struct vkd3d_memory_al
     }
 
     vkd3d_memory_allocator_wait_clear_semaphore(allocator, device,
-            clear_queue->next_signal_value - VKD3D_MEMORY_CLEAR_COMMAND_BUFFER_COUNT, UINT64_MAX);
+            clear_queue->next_signal_value - VKD3D_MEMORY_TRANSFER_COMMAND_BUFFER_COUNT, UINT64_MAX);
 
     if ((vr = VK_CALL(vkResetCommandBuffer(vk_cmd_buffer, 0))))
     {
@@ -1181,13 +1181,13 @@ static HRESULT vkd3d_memory_allocator_flush_clears_locked(struct vkd3d_memory_al
     clear_queue->num_bytes_pending = 0;
     clear_queue->allocations_count = 0;
     clear_queue->command_buffer_index += 1;
-    clear_queue->command_buffer_index %= VKD3D_MEMORY_CLEAR_COMMAND_BUFFER_COUNT;
+    clear_queue->command_buffer_index %= VKD3D_MEMORY_TRANSFER_COMMAND_BUFFER_COUNT;
     return S_OK;
 }
 
 HRESULT vkd3d_memory_allocator_flush_clears(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device)
 {
-    struct vkd3d_memory_clear_queue *clear_queue = &allocator->clear_queue;
+    struct vkd3d_memory_transfer_queue *clear_queue = &allocator->clear_queue;
     HRESULT hr;
 
     pthread_mutex_lock(&clear_queue->mutex);
@@ -1196,12 +1196,12 @@ HRESULT vkd3d_memory_allocator_flush_clears(struct vkd3d_memory_allocator *alloc
     return hr;
 }
 
-#define VKD3D_MEMORY_CLEAR_QUEUE_MAX_PENDING_BYTES (256ull << 20) /* 256 MiB */
+#define VKD3D_MEMORY_TRANSFER_QUEUE_MAX_PENDING_BYTES (256ull << 20) /* 256 MiB */
 
 static void vkd3d_memory_allocator_clear_allocation(struct vkd3d_memory_allocator *allocator,
         struct d3d12_device *device, struct vkd3d_memory_allocation *allocation)
 {
-    struct vkd3d_memory_clear_queue *clear_queue = &allocator->clear_queue;
+    struct vkd3d_memory_transfer_queue *clear_queue = &allocator->clear_queue;
 
     if (allocation->cpu_address)
     {
@@ -1229,7 +1229,7 @@ static void vkd3d_memory_allocator_clear_allocation(struct vkd3d_memory_allocato
         clear_queue->allocations[clear_queue->allocations_count++] = allocation;
         clear_queue->num_bytes_pending += allocation->resource.size;
 
-        if (clear_queue->num_bytes_pending >= VKD3D_MEMORY_CLEAR_QUEUE_MAX_PENDING_BYTES)
+        if (clear_queue->num_bytes_pending >= VKD3D_MEMORY_TRANSFER_QUEUE_MAX_PENDING_BYTES)
             vkd3d_memory_allocator_flush_clears_locked(allocator, device);
 
         pthread_mutex_unlock(&clear_queue->mutex);
@@ -1239,7 +1239,7 @@ static void vkd3d_memory_allocator_clear_allocation(struct vkd3d_memory_allocato
 static void vkd3d_memory_allocator_wait_allocation(struct vkd3d_memory_allocator *allocator,
         struct d3d12_device *device, const struct vkd3d_memory_allocation *allocation)
 {
-    struct vkd3d_memory_clear_queue *clear_queue = &allocator->clear_queue;
+    struct vkd3d_memory_transfer_queue *clear_queue = &allocator->clear_queue;
     uint64_t wait_value = allocation->clear_semaphore_value;
     size_t i;
 

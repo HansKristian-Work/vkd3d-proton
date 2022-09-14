@@ -717,13 +717,13 @@ struct vkd3d_memory_chunk
     size_t free_ranges_count;
 };
 
-#define VKD3D_MEMORY_CLEAR_COMMAND_BUFFER_COUNT (16u)
+#define VKD3D_MEMORY_TRANSFER_COMMAND_BUFFER_COUNT (16u)
 
-struct vkd3d_memory_clear_queue
+struct vkd3d_memory_transfer_queue
 {
     pthread_mutex_t mutex;
 
-    VkCommandBuffer vk_command_buffers[VKD3D_MEMORY_CLEAR_COMMAND_BUFFER_COUNT];
+    VkCommandBuffer vk_command_buffers[VKD3D_MEMORY_TRANSFER_COMMAND_BUFFER_COUNT];
     VkCommandPool vk_command_pool;
     VkSemaphore vk_semaphore;
 
@@ -749,7 +749,7 @@ struct vkd3d_memory_allocator
     struct vkd3d_va_map va_map;
 
     struct vkd3d_queue *vkd3d_queue;
-    struct vkd3d_memory_clear_queue clear_queue;
+    struct vkd3d_memory_transfer_queue clear_queue;
 };
 
 void vkd3d_free_memory(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
