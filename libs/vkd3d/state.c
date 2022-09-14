@@ -2082,6 +2082,8 @@ void d3d12_pipeline_state_dec_ref(struct d3d12_pipeline_state *state)
 
         if (state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS)
             vkd3d_shader_transform_feedback_info_free(state->graphics.cached_desc.xfb_info);
+        else if (state->pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS)
+            vkd3d_shader_stage_io_map_free(&state->graphics.cached_desc.stage_io_map_ms_ps);
         vkd3d_free(state);
     }
 }
@@ -2469,7 +2471,6 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
 static void d3d12_pipeline_state_init_shader_interface(struct d3d12_pipeline_state *state,
         struct d3d12_device *device,
         VkShaderStageFlagBits stage,
-        struct vkd3d_shader_stage_io_map *stage_io_map_ms_ps,
         struct vkd3d_shader_interface_info *shader_interface)
 {
     const struct d3d12_root_signature *root_signature = state->root_signature;
@@ -2488,12 +2489,12 @@ static void d3d12_pipeline_state_init_shader_interface(struct d3d12_pipeline_sta
 
     if (stage == VK_SHADER_STAGE_MESH_BIT_EXT)
     {
-        shader_interface->stage_output_map = stage_io_map_ms_ps;
+        shader_interface->stage_output_map = &state->graphics.cached_desc.stage_io_map_ms_ps;
     }
     else if ((stage == VK_SHADER_STAGE_FRAGMENT_BIT) &&
             (state->graphics.stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT))
     {
-        shader_interface->stage_input_map = stage_io_map_ms_ps;
+        shader_interface->stage_input_map = &state->graphics.cached_desc.stage_io_map_ms_ps;
     }
 
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
@@ -2512,7 +2513,7 @@ static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *st
 
     state->pipeline_type = VKD3D_PIPELINE_TYPE_COMPUTE;
     d3d12_pipeline_state_init_shader_interface(state, device,
-            VK_SHADER_STAGE_COMPUTE_BIT, NULL, &shader_interface);
+            VK_SHADER_STAGE_COMPUTE_BIT, &shader_interface);
 
     if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE))
     {
@@ -3207,7 +3208,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
     uint32_t instance_divisors[D3D12_VS_INPUT_REGISTER_COUNT];
     uint32_t aligned_offsets[D3D12_VS_INPUT_REGISTER_COUNT];
     bool have_attachment, can_compile_pipeline_early;
-    struct vkd3d_shader_stage_io_map ms_ps_interface;
     struct vkd3d_shader_signature output_signature;
     struct vkd3d_shader_signature input_signature;
     VkSampleCountFlagBits sample_count;
@@ -3244,7 +3244,6 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             ? VKD3D_PIPELINE_TYPE_MESH_GRAPHICS
             : VKD3D_PIPELINE_TYPE_GRAPHICS;
 
-    memset(&ms_ps_interface, 0, sizeof(ms_ps_interface));
     memset(&input_signature, 0, sizeof(input_signature));
     memset(&output_signature, 0, sizeof(output_signature));
 
@@ -3541,7 +3540,7 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
 
         /* TODO: Move this to vkd3d_create_shader_stage itself. */
         d3d12_pipeline_state_init_shader_interface(state, device, shader_stages[i].stage,
-                &ms_ps_interface, &shader_interface);
+                &shader_interface);
         shader_interface.xfb_info = shader_stages[i].stage == graphics->cached_desc.xfb_stage ?
                 graphics->cached_desc.xfb_info : NULL;
         d3d12_pipeline_state_init_compile_arguments(state, device, shader_interface.stage, &compile_args);
@@ -3554,7 +3553,14 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
             goto fail;
 
         if (shader_stages[i].stage == VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT)
+        {
             graphics->patch_vertex_count = graphics->code[stage_count].meta.patch_vertex_count;
+        }
+        else if (shader_stages[i].stage == VK_SHADER_STAGE_FRAGMENT_BIT)
+        {
+            /* We have consumed the MS/PS map at this point. */
+            vkd3d_shader_stage_io_map_free(&state->graphics.cached_desc.stage_io_map_ms_ps);
+        }
 
         if ((graphics->code[stage_count].meta.flags & VKD3D_SHADER_META_FLAG_REPLACED) &&
                 device->debug_ring.active)
@@ -3810,15 +3816,11 @@ static HRESULT d3d12_pipeline_state_init_graphics(struct d3d12_pipeline_state *s
         goto fail;
 
     d3d12_device_add_ref(state->device);
-
-    vkd3d_shader_stage_io_map_free(&ms_ps_interface);
     return S_OK;
 
 fail:
     vkd3d_shader_free_shader_signature(&input_signature);
     vkd3d_shader_free_shader_signature(&output_signature);
-
-    vkd3d_shader_stage_io_map_free(&ms_ps_interface);
     return hr;
 }
 
@@ -3963,6 +3965,8 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
         d3d12_pipeline_state_destroy_shader_modules(object, device);
         if (object->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS)
             vkd3d_shader_transform_feedback_info_free(object->graphics.cached_desc.xfb_info);
+        else if (object->pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS)
+            vkd3d_shader_stage_io_map_free(&object->graphics.cached_desc.stage_io_map_ms_ps);
         VK_CALL(vkDestroyPipelineCache(device->vk_device, object->vk_pso_cache, NULL));
 
         vkd3d_free(object);
