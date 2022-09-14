@@ -816,4 +816,5 @@ void vkd3d_shader_stage_io_map_free(struct vkd3d_shader_stage_io_map *map)
         vkd3d_free((void *)map->entries[i].semantic_name);
 
     vkd3d_free(map->entries);
+    memset(map, 0, sizeof(*map));
 }
