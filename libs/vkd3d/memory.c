@@ -21,7 +21,7 @@
 #include "vkd3d_private.h"
 #include "vkd3d_descriptor_debug.h"
 
-static void vkd3d_memory_transfer_queue_cleanup(struct vkd3d_memory_transfer_queue *queue, struct d3d12_device *device)
+void vkd3d_memory_transfer_queue_cleanup(struct vkd3d_memory_transfer_queue *queue, struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
@@ -32,7 +32,7 @@ static void vkd3d_memory_transfer_queue_cleanup(struct vkd3d_memory_transfer_que
     pthread_mutex_destroy(&queue->mutex);
 }
 
-static HRESULT vkd3d_memory_transfer_queue_init(struct vkd3d_memory_transfer_queue *queue, struct d3d12_device *device)
+HRESULT vkd3d_memory_transfer_queue_init(struct vkd3d_memory_transfer_queue *queue, struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkSemaphoreTypeCreateInfoKHR semaphore_type_info;
@@ -1217,7 +1217,7 @@ static void vkd3d_memory_chunk_destroy(struct vkd3d_memory_chunk *chunk, struct 
     TRACE("chunk %p, device %p, allocator %p.\n", chunk, device, allocator);
 
     if (chunk->allocation.clear_semaphore_value)
-        vkd3d_memory_transfer_queue_wait_allocation(&allocator->clear_queue, device, &chunk->allocation);
+        vkd3d_memory_transfer_queue_wait_allocation(&device->memory_transfers, device, &chunk->allocation);
 
     vkd3d_memory_allocation_free(&chunk->allocation, device, allocator);
     vkd3d_free(chunk->free_ranges);
@@ -1242,19 +1242,12 @@ static void vkd3d_memory_allocator_remove_chunk(struct vkd3d_memory_allocator *a
 
 HRESULT vkd3d_memory_allocator_init(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device)
 {
-    HRESULT hr;
     int rc;
 
     memset(allocator, 0, sizeof(*allocator));
 
     if ((rc = pthread_mutex_init(&allocator->mutex, NULL)))
         return hresult_from_errno(rc);
-
-    if (FAILED(hr = vkd3d_memory_transfer_queue_init(&allocator->clear_queue, device)))
-    {
-        pthread_mutex_destroy(&allocator->mutex);
-        return hr;
-    }
 
     vkd3d_va_map_init(&allocator->va_map);
     return S_OK;
@@ -1269,7 +1262,6 @@ void vkd3d_memory_allocator_cleanup(struct vkd3d_memory_allocator *allocator, st
 
     vkd3d_free(allocator->chunks);
     vkd3d_va_map_cleanup(&allocator->va_map);
-    vkd3d_memory_transfer_queue_cleanup(&allocator->clear_queue, device);
     pthread_mutex_destroy(&allocator->mutex);
 }
 
@@ -1354,7 +1346,7 @@ void vkd3d_free_memory(struct d3d12_device *device, struct vkd3d_memory_allocato
         return;
 
     if (allocation->clear_semaphore_value)
-        vkd3d_memory_transfer_queue_wait_allocation(&allocator->clear_queue, device, allocation);
+        vkd3d_memory_transfer_queue_wait_allocation(&device->memory_transfers, device, allocation);
 
     if (allocation->chunk)
     {
@@ -1453,7 +1445,7 @@ HRESULT vkd3d_allocate_memory(struct d3d12_device *device, struct vkd3d_memory_a
             !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_MEMORY_ALLOCATOR_SKIP_CLEAR);
 
     if (needs_clear)
-        vkd3d_memory_transfer_queue_clear_allocation(&allocator->clear_queue, device, allocation);
+        vkd3d_memory_transfer_queue_clear_allocation(&device->memory_transfers, device, allocation);
 
     return hr;
 }

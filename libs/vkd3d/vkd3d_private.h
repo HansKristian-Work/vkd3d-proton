@@ -740,6 +740,8 @@ struct vkd3d_memory_transfer_queue
     size_t allocations_count;
 };
 
+void vkd3d_memory_transfer_queue_cleanup(struct vkd3d_memory_transfer_queue *queue, struct d3d12_device *device);
+HRESULT vkd3d_memory_transfer_queue_init(struct vkd3d_memory_transfer_queue *queue, struct d3d12_device *device);
 HRESULT vkd3d_memory_transfer_queue_flush(struct vkd3d_memory_transfer_queue *queue, struct d3d12_device *device);
 
 struct vkd3d_memory_allocator
@@ -751,8 +753,6 @@ struct vkd3d_memory_allocator
     size_t chunks_count;
 
     struct vkd3d_va_map va_map;
-
-    struct vkd3d_memory_transfer_queue clear_queue;
 };
 
 void vkd3d_free_memory(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
@@ -3509,6 +3509,7 @@ struct d3d12_device
     struct vkd3d_private_store private_store;
     struct d3d12_caps d3d12_caps;
 
+    struct vkd3d_memory_transfer_queue memory_transfers;
     struct vkd3d_memory_allocator memory_allocator;
 
     struct d3d12_device_scratch_pool scratch_pools[VKD3D_SCRATCH_POOL_KIND_COUNT];
