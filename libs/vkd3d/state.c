@@ -2242,11 +2242,61 @@ static HRESULT vkd3d_load_spirv_from_cached_state(struct d3d12_device *device,
 static void d3d12_pipeline_state_init_shader_interface(struct d3d12_pipeline_state *state,
         struct d3d12_device *device,
         VkShaderStageFlagBits stage,
-        struct vkd3d_shader_interface_info *shader_interface);
+        struct vkd3d_shader_interface_info *shader_interface)
+{
+    const struct d3d12_root_signature *root_signature = state->root_signature;
+    memset(shader_interface, 0, sizeof(*shader_interface));
+    shader_interface->flags = d3d12_root_signature_get_shader_interface_flags(root_signature);
+    shader_interface->min_ssbo_alignment = d3d12_device_get_ssbo_alignment(device);
+    shader_interface->descriptor_tables.offset = root_signature->descriptor_table_offset;
+    shader_interface->descriptor_tables.count = root_signature->descriptor_table_count;
+    shader_interface->bindings = root_signature->bindings;
+    shader_interface->binding_count = root_signature->binding_count;
+    shader_interface->push_constant_buffers = root_signature->root_constants;
+    shader_interface->push_constant_buffer_count = root_signature->root_constant_count;
+    shader_interface->push_constant_ubo_binding = &root_signature->push_constant_ubo_binding;
+    shader_interface->offset_buffer_binding = &root_signature->offset_buffer_binding;
+    shader_interface->stage = stage;
+    shader_interface->xfb_info = state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS &&
+            stage == state->graphics.cached_desc.xfb_stage ?
+            state->graphics.cached_desc.xfb_info : NULL;
+
+    if (stage == VK_SHADER_STAGE_MESH_BIT_EXT)
+    {
+        shader_interface->stage_output_map = &state->graphics.cached_desc.stage_io_map_ms_ps;
+    }
+    else if ((stage == VK_SHADER_STAGE_FRAGMENT_BIT) &&
+            (state->graphics.stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT))
+    {
+        shader_interface->stage_input_map = &state->graphics.cached_desc.stage_io_map_ms_ps;
+    }
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    shader_interface->descriptor_qa_global_binding = &root_signature->descriptor_qa_global_info;
+    shader_interface->descriptor_qa_heap_binding = &root_signature->descriptor_qa_heap_binding;
+#endif
+}
 
 static void d3d12_pipeline_state_init_compile_arguments(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, VkShaderStageFlagBits stage,
-        struct vkd3d_shader_compile_arguments *compile_arguments);
+        struct vkd3d_shader_compile_arguments *compile_arguments)
+{
+    memset(compile_arguments, 0, sizeof(*compile_arguments));
+    compile_arguments->target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
+    compile_arguments->target_extension_count = device->vk_info.shader_extension_count;
+    compile_arguments->target_extensions = device->vk_info.shader_extensions;
+    compile_arguments->quirks = &vkd3d_shader_quirk_info;
+
+    if (stage == VK_SHADER_STAGE_FRAGMENT_BIT)
+    {
+        /* Options which are exclusive to PS. Especially output swizzles must only be used in PS. */
+        compile_arguments->parameter_count = ARRAY_SIZE(state->graphics.cached_desc.ps_shader_parameters);
+        compile_arguments->parameters = state->graphics.cached_desc.ps_shader_parameters;
+        compile_arguments->dual_source_blending = state->graphics.cached_desc.is_dual_source_blending;
+        compile_arguments->output_swizzles = state->graphics.cached_desc.ps_output_swizzle;
+        compile_arguments->output_swizzle_count = state->graphics.rt_count;
+    }
+}
 
 static HRESULT vkd3d_create_shader_stage(struct d3d12_pipeline_state *state, struct d3d12_device *device,
         VkPipelineShaderStageCreateInfo *stage_desc, VkShaderStageFlagBits stage,
@@ -2390,27 +2440,6 @@ static void vkd3d_report_pipeline_creation_feedback_results(const VkPipelineCrea
     }
 }
 
-static void d3d12_pipeline_state_init_compile_arguments(struct d3d12_pipeline_state *state,
-        struct d3d12_device *device, VkShaderStageFlagBits stage,
-        struct vkd3d_shader_compile_arguments *compile_arguments)
-{
-    memset(compile_arguments, 0, sizeof(*compile_arguments));
-    compile_arguments->target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
-    compile_arguments->target_extension_count = device->vk_info.shader_extension_count;
-    compile_arguments->target_extensions = device->vk_info.shader_extensions;
-    compile_arguments->quirks = &vkd3d_shader_quirk_info;
-
-    if (stage == VK_SHADER_STAGE_FRAGMENT_BIT)
-    {
-        /* Options which are exclusive to PS. Especially output swizzles must only be used in PS. */
-        compile_arguments->parameter_count = ARRAY_SIZE(state->graphics.cached_desc.ps_shader_parameters);
-        compile_arguments->parameters = state->graphics.cached_desc.ps_shader_parameters;
-        compile_arguments->dual_source_blending = state->graphics.cached_desc.is_dual_source_blending;
-        compile_arguments->output_swizzles = state->graphics.cached_desc.ps_output_swizzle;
-        compile_arguments->output_swizzle_count = state->graphics.rt_count;
-    }
-}
-
 static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
         struct d3d12_device *device,
         const D3D12_SHADER_BYTECODE *code,
@@ -2475,44 +2504,6 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
         vkd3d_report_pipeline_creation_feedback_results(&feedback_info);
 
     return S_OK;
-}
-
-static void d3d12_pipeline_state_init_shader_interface(struct d3d12_pipeline_state *state,
-        struct d3d12_device *device,
-        VkShaderStageFlagBits stage,
-        struct vkd3d_shader_interface_info *shader_interface)
-{
-    const struct d3d12_root_signature *root_signature = state->root_signature;
-    memset(shader_interface, 0, sizeof(*shader_interface));
-    shader_interface->flags = d3d12_root_signature_get_shader_interface_flags(root_signature);
-    shader_interface->min_ssbo_alignment = d3d12_device_get_ssbo_alignment(device);
-    shader_interface->descriptor_tables.offset = root_signature->descriptor_table_offset;
-    shader_interface->descriptor_tables.count = root_signature->descriptor_table_count;
-    shader_interface->bindings = root_signature->bindings;
-    shader_interface->binding_count = root_signature->binding_count;
-    shader_interface->push_constant_buffers = root_signature->root_constants;
-    shader_interface->push_constant_buffer_count = root_signature->root_constant_count;
-    shader_interface->push_constant_ubo_binding = &root_signature->push_constant_ubo_binding;
-    shader_interface->offset_buffer_binding = &root_signature->offset_buffer_binding;
-    shader_interface->stage = stage;
-    shader_interface->xfb_info = state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS &&
-            stage == state->graphics.cached_desc.xfb_stage ?
-            state->graphics.cached_desc.xfb_info : NULL;
-
-    if (stage == VK_SHADER_STAGE_MESH_BIT_EXT)
-    {
-        shader_interface->stage_output_map = &state->graphics.cached_desc.stage_io_map_ms_ps;
-    }
-    else if ((stage == VK_SHADER_STAGE_FRAGMENT_BIT) &&
-            (state->graphics.stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT))
-    {
-        shader_interface->stage_input_map = &state->graphics.cached_desc.stage_io_map_ms_ps;
-    }
-
-#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-    shader_interface->descriptor_qa_global_binding = &root_signature->descriptor_qa_global_info;
-    shader_interface->descriptor_qa_heap_binding = &root_signature->descriptor_qa_heap_binding;
-#endif
 }
 
 static HRESULT d3d12_pipeline_state_init_compute(struct d3d12_pipeline_state *state,
