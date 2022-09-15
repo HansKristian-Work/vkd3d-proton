@@ -2226,6 +2226,7 @@ struct vkd3d_image_copy_info
     } copy;
     /* TODO: split d3d12_command_list_copy_image too, so this can be a local variable of before_copy_texture_region. */
     bool writes_full_subresource;
+    bool writes_full_resource;
     VkImageLayout src_layout;
     VkImageLayout dst_layout;
 };
