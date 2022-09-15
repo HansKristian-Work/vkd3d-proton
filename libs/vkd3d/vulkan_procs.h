@@ -332,6 +332,9 @@ VK_DEVICE_EXT_PFN(vkDestroyIndirectCommandsLayoutNV)
 VK_DEVICE_EXT_PFN(vkGetGeneratedCommandsMemoryRequirementsNV)
 VK_DEVICE_EXT_PFN(vkCmdExecuteGeneratedCommandsNV)
 
+/* VK_EXT_shader_module_identifier */
+VK_DEVICE_EXT_PFN(vkGetShaderModuleIdentifierEXT)
+
 #undef VK_INSTANCE_PFN
 #undef VK_INSTANCE_EXT_PFN
 #undef VK_DEVICE_PFN
