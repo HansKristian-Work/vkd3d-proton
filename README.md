@@ -37,7 +37,7 @@ These extensions will likely become mandatory later.
 - `VK_KHR_buffer_device_address`
 - `VK_EXT_image_view_min_lod`
 
-`VK_VALVE_mutable_descriptor_type` is also highly recommended, but not mandatory.
+`VK_EXT_mutable_descriptor_type` (or the vendor `VALVE` alias) is also highly recommended, but not mandatory.
 
 ### AMD (RADV)
 

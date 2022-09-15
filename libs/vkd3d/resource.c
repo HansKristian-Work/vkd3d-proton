@@ -3907,7 +3907,7 @@ static void d3d12_descriptor_heap_write_null_descriptor_template(vkd3d_cpu_descr
     for (i = 0; i < num_writes; i++)
     {
         writes[i] = desc.heap->null_descriptor_template.writes[i];
-        if (writes[i].descriptorType == VK_DESCRIPTOR_TYPE_MUTABLE_VALVE)
+        if (writes[i].descriptorType == VK_DESCRIPTOR_TYPE_MUTABLE_EXT)
             writes[i].descriptorType = vk_mutable_descriptor_type;
         writes[i].dstArrayElement = offset;
     }
@@ -5520,7 +5520,7 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_pool(struct d3d12_descrip
     vk_pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT_EXT;
     if (!(descriptor_heap->desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE) &&
             (descriptor_heap->device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_TYPE))
-        vk_pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_HOST_ONLY_BIT_VALVE;
+        vk_pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_HOST_ONLY_BIT_EXT;
 
     vk_pool_info.maxSets = pool_count;
     vk_pool_info.poolSizeCount = pool_count;
@@ -5550,7 +5550,7 @@ static void d3d12_descriptor_heap_zero_initialize(struct d3d12_descriptor_heap *
 
     /* Clear out descriptor heap with the largest possible descriptor type we know of when using mutable descriptor type.
      * Purely for defensive purposes. */
-    if (vk_descriptor_type == VK_DESCRIPTOR_TYPE_MUTABLE_VALVE)
+    if (vk_descriptor_type == VK_DESCRIPTOR_TYPE_MUTABLE_EXT)
         vk_descriptor_type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
 
     write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -5890,7 +5890,7 @@ static void d3d12_descriptor_heap_add_null_descriptor_template(
         descriptor_heap->null_descriptor_template.image.imageView = VK_NULL_HANDLE;
         descriptor_heap->null_descriptor_template.buffer_view = VK_NULL_HANDLE;
         descriptor_heap->null_descriptor_template.has_mutable_descriptors =
-                descriptor_heap->device->vk_info.VALVE_mutable_descriptor_type;
+                descriptor_heap->device->device_info.mutable_descriptor_features.mutableDescriptorType;
     }
 
     descriptor_heap->null_descriptor_template.num_writes++;
