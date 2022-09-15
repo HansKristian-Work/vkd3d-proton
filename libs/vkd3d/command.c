@@ -6723,6 +6723,9 @@ static bool d3d12_command_list_init_copy_texture_region(struct d3d12_command_lis
         out->writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
                 &out->copy.buffer_image.imageExtent, &out->copy.buffer_image.imageSubresource);
         out->batch_type = VKD3D_BATCH_TYPE_COPY_BUFFER_TO_IMAGE;
+
+        out->writes_full_resource =
+                out->writes_full_subresource && d3d12_resource_get_sub_resource_count(dst_resource) == 1;
     }
     else if (src->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX && dst->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
     {
@@ -6753,6 +6756,9 @@ static bool d3d12_command_list_init_copy_texture_region(struct d3d12_command_lis
                 &out->copy.image.extent,
                 &out->copy.image.dstSubresource);
         out->batch_type = VKD3D_BATCH_TYPE_COPY_IMAGE;
+
+        out->writes_full_resource =
+                out->writes_full_subresource && d3d12_resource_get_sub_resource_count(dst_resource) == 1;
     }
     else
     {
@@ -6791,7 +6797,7 @@ static void d3d12_command_list_before_copy_texture_region(struct d3d12_command_l
     }
     else if (info->batch_type == VKD3D_BATCH_TYPE_COPY_BUFFER_TO_IMAGE)
     {
-        d3d12_command_list_track_resource_usage(list, dst_resource, !info->writes_full_subresource);
+        d3d12_command_list_track_resource_usage(list, dst_resource, !info->writes_full_resource);
 
         d3d12_command_list_transition_image_layout(list, batch, dst_resource->res.vk_image,
                 &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
@@ -6800,7 +6806,7 @@ static void d3d12_command_list_before_copy_texture_region(struct d3d12_command_l
     }
     else if (info->batch_type == VKD3D_BATCH_TYPE_COPY_IMAGE)
     {
-        d3d12_command_list_track_resource_usage(list, dst_resource, !info->writes_full_subresource);
+        d3d12_command_list_track_resource_usage(list, dst_resource, !info->writes_full_resource);
     }
 }
 
@@ -7236,6 +7242,7 @@ static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *li
     VkResolveImageInfo2KHR resolve_info;
     const struct d3d12_device *device;
     bool writes_full_subresource;
+    bool writes_full_resource;
     unsigned int i;
 
     if (mode != D3D12_RESOLVE_MODE_AVERAGE)
@@ -7291,7 +7298,9 @@ static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *li
     writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
             &resolve->extent, &resolve->dstSubresource);
 
-    d3d12_command_list_track_resource_usage(list, dst_resource, !writes_full_subresource);
+    writes_full_resource = writes_full_subresource && d3d12_resource_get_sub_resource_count(dst_resource) == 1;
+
+    d3d12_command_list_track_resource_usage(list, dst_resource, !writes_full_resource);
     d3d12_command_list_track_resource_usage(list, src_resource, true);
 
     vk_image_barriers[0].srcAccessMask = 0;
@@ -10829,6 +10838,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(d3d12_
         bool writes_full_subresource;
         bool overlapping_subresource;
         VkImageCopy2KHR image_copy;
+        bool writes_full_resource;
 
         overlapping_subresource = dst_resource == src_resource && dst_sub_resource_idx == src_sub_resource_idx;
 
@@ -10841,8 +10851,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(d3d12_
                 d3d12_image_copy_writes_full_subresource(dst_resource,
                         &extent, &dst_subresource);
 
+        writes_full_resource = writes_full_subresource && d3d12_resource_get_sub_resource_count(dst_resource) == 1;
+
         d3d12_command_list_track_resource_usage(list, src_resource, true);
-        d3d12_command_list_track_resource_usage(list, dst_resource, !writes_full_subresource);
+        d3d12_command_list_track_resource_usage(list, dst_resource, !writes_full_resource);
 
         image_copy.sType = VK_STRUCTURE_TYPE_IMAGE_COPY_2_KHR;
         image_copy.pNext = NULL;
