@@ -163,6 +163,7 @@ struct vkd3d_vulkan_info
     bool EXT_scalar_block_layout;
     bool EXT_pipeline_creation_feedback;
     bool EXT_mesh_shader;
+    bool EXT_mutable_descriptor_type; /* EXT promotion of VALVE one. */
     /* AMD device extensions */
     bool AMD_buffer_marker;
     bool AMD_device_coherent_memory;
@@ -3363,7 +3364,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceRobustness2FeaturesEXT robustness2_features;
     VkPhysicalDeviceExtendedDynamicStateFeaturesEXT extended_dynamic_state_features;
     VkPhysicalDeviceExtendedDynamicState2FeaturesEXT extended_dynamic_state2_features;
-    VkPhysicalDeviceMutableDescriptorTypeFeaturesVALVE mutable_descriptor_features;
+    VkPhysicalDeviceMutableDescriptorTypeFeaturesEXT mutable_descriptor_features;
     VkPhysicalDeviceRayTracingPipelineFeaturesKHR ray_tracing_pipeline_features;
     VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features;
     VkPhysicalDeviceFragmentShadingRateFeaturesKHR fragment_shading_rate_features;

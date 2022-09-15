@@ -4730,7 +4730,7 @@ static pfn_vkd3d_host_mapping_copy_template_single vkd3d_bindless_find_copy_temp
 static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bindless_state,
         struct d3d12_device *device, uint32_t flags, VkDescriptorType vk_descriptor_type)
 {
-    VkMutableDescriptorTypeListVALVE mutable_descriptor_list[VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS + 1];
+    VkMutableDescriptorTypeListEXT mutable_descriptor_list[VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS + 1];
     struct vkd3d_bindless_set_info *set_info = &bindless_state->set_info[bindless_state->set_count++];
     VkDescriptorSetLayoutBinding vk_binding_info[VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS + 1];
     VkDescriptorBindingFlagsEXT vk_binding_flags[VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS + 1];
@@ -4739,8 +4739,8 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkDescriptorSetLayoutHostMappingInfoVALVE mapping_info;
     VkDescriptorSetBindingReferenceVALVE binding_reference;
-    VkMutableDescriptorTypeCreateInfoVALVE mutable_info;
     VkDescriptorSetLayoutCreateInfo vk_set_layout_info;
+    VkMutableDescriptorTypeCreateInfoEXT mutable_info;
     VkDescriptorSetLayoutBinding *vk_binding;
     unsigned int i;
     VkResult vr;
@@ -4792,11 +4792,11 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
     vk_set_layout_info.bindingCount = set_info->binding_index + 1;
     vk_set_layout_info.pBindings = vk_binding_info;
 
-    if (vk_descriptor_type == VK_DESCRIPTOR_TYPE_MUTABLE_VALVE)
+    if (vk_descriptor_type == VK_DESCRIPTOR_TYPE_MUTABLE_EXT)
     {
         vk_binding_flags_info.pNext = &mutable_info;
 
-        mutable_info.sType = VK_STRUCTURE_TYPE_MUTABLE_DESCRIPTOR_TYPE_CREATE_INFO_VALVE;
+        mutable_info.sType = VK_STRUCTURE_TYPE_MUTABLE_DESCRIPTOR_TYPE_CREATE_INFO_EXT;
         mutable_info.pNext = NULL;
         mutable_info.pMutableDescriptorTypeLists = mutable_descriptor_list;
         mutable_info.mutableDescriptorTypeListCount = set_info->binding_index + 1;
@@ -4852,7 +4852,7 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
         /* If we have mutable descriptor extension, we will allocate these descriptors with
          * HOST_BIT and not UPDATE_AFTER_BIND, since that is enough to get threading guarantees. */
         vk_binding_flags[set_info->binding_index] = VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT_EXT;
-        vk_set_layout_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_HOST_ONLY_POOL_BIT_VALVE;
+        vk_set_layout_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_HOST_ONLY_POOL_BIT_EXT;
     }
 
     if ((vr = VK_CALL(vkCreateDescriptorSetLayout(device->vk_device,
@@ -4867,7 +4867,7 @@ static bool vkd3d_bindless_supports_mutable_type(struct d3d12_device *device, ui
     VkDescriptorType descriptor_types[VKD3D_MAX_MUTABLE_DESCRIPTOR_TYPES];
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkDescriptorSetLayoutBindingFlagsCreateInfoEXT binding_flags;
-    VkMutableDescriptorTypeCreateInfoVALVE mutable_info;
+    VkMutableDescriptorTypeCreateInfoEXT mutable_info;
     VkDescriptorSetLayoutCreateInfo set_layout_info;
     VkMutableDescriptorTypeListVALVE mutable_list;
     VkDescriptorSetLayoutSupport supported;
@@ -4882,7 +4882,7 @@ static bool vkd3d_bindless_supports_mutable_type(struct d3d12_device *device, ui
     if (!device->device_info.mutable_descriptor_features.mutableDescriptorType)
         return false;
 
-    mutable_info.sType = VK_STRUCTURE_TYPE_MUTABLE_DESCRIPTOR_TYPE_CREATE_INFO_VALVE;
+    mutable_info.sType = VK_STRUCTURE_TYPE_MUTABLE_DESCRIPTOR_TYPE_CREATE_INFO_EXT;
     mutable_info.pNext = NULL;
     mutable_info.pMutableDescriptorTypeLists = &mutable_list;
     mutable_info.mutableDescriptorTypeListCount = 1;
@@ -4891,7 +4891,7 @@ static bool vkd3d_bindless_supports_mutable_type(struct d3d12_device *device, ui
     mutable_list.pDescriptorTypes = descriptor_types;
 
     binding.binding = 0;
-    binding.descriptorType = VK_DESCRIPTOR_TYPE_MUTABLE_VALVE;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_MUTABLE_EXT;
     binding.descriptorCount = d3d12_max_descriptor_count_from_heap_type(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     binding.pImmutableSamplers = NULL;
     binding.stageFlags = VK_SHADER_STAGE_ALL;
@@ -4913,7 +4913,7 @@ static bool vkd3d_bindless_supports_mutable_type(struct d3d12_device *device, ui
     if (!supported.supported)
         return false;
 
-    set_layout_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_HOST_ONLY_POOL_BIT_VALVE;
+    set_layout_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_HOST_ONLY_POOL_BIT_EXT;
     binding_flag = VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT_EXT;
     VK_CALL(vkGetDescriptorSetLayoutSupport(device->vk_device, &set_layout_info, &supported));
     return supported.supported == VK_TRUE;
@@ -5008,12 +5008,13 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
 
     if (vkd3d_bindless_supports_mutable_type(device, flags))
     {
-        INFO("Device supports VK_VALVE_mutable_descriptor_type.\n");
+        INFO("Device supports VK_%s_mutable_descriptor_type.\n",
+                device->vk_info.EXT_mutable_descriptor_type ? "EXT" : "VALVE");
         flags |= VKD3D_BINDLESS_MUTABLE_TYPE;
     }
     else
     {
-        INFO("Device does not support VK_VALVE_mutable_descriptor_type.\n");
+        INFO("Device does not support VK_EXT_mutable_descriptor_type (or VALVE).\n");
         flags &= ~VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO;
     }
 
@@ -5067,7 +5068,7 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
                 VKD3D_BINDLESS_SET_BUFFER | VKD3D_BINDLESS_SET_IMAGE |
                 (use_raw_ssbo_binding ? VKD3D_BINDLESS_SET_RAW_SSBO : 0) |
                 VKD3D_BINDLESS_SET_MUTABLE | extra_bindings,
-                VK_DESCRIPTOR_TYPE_MUTABLE_VALVE)))
+                VK_DESCRIPTOR_TYPE_MUTABLE_EXT)))
             goto fail;
 
         use_raw_ssbo_binding = !use_raw_ssbo_binding && (bindless_state->flags & VKD3D_BINDLESS_RAW_SSBO);

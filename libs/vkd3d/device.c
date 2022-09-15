@@ -120,6 +120,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_SCALAR_BLOCK_LAYOUT, EXT_scalar_block_layout),
     VK_EXTENSION(EXT_PIPELINE_CREATION_FEEDBACK, EXT_pipeline_creation_feedback),
     VK_EXTENSION(EXT_MESH_SHADER, EXT_mesh_shader),
+    VK_EXTENSION(EXT_MUTABLE_DESCRIPTOR_TYPE, EXT_mutable_descriptor_type),
     /* AMD extensions */
     VK_EXTENSION(AMD_BUFFER_MARKER, AMD_buffer_marker),
     VK_EXTENSION(AMD_DEVICE_COHERENT_MEMORY, AMD_device_coherent_memory),
@@ -1380,9 +1381,9 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->properties2, &info->shader_sm_builtins_properties);
     }
 
-    if (vulkan_info->VALVE_mutable_descriptor_type)
+    if (vulkan_info->VALVE_mutable_descriptor_type || vulkan_info->EXT_mutable_descriptor_type)
     {
-        info->mutable_descriptor_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MUTABLE_DESCRIPTOR_TYPE_FEATURES_VALVE;
+        info->mutable_descriptor_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MUTABLE_DESCRIPTOR_TYPE_FEATURES_EXT;
         vk_prepend_struct(&info->features2, &info->mutable_descriptor_features);
     }
 
