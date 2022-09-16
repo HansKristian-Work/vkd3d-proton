@@ -2282,6 +2282,19 @@ static HRESULT d3d12_resource_validate_create_info(const D3D12_RESOURCE_DESC1 *d
     if (FAILED(hr = d3d12_resource_validate_desc(desc, device)))
         return hr;
 
+    if (initial_state == D3D12_RESOURCE_STATE_RENDER_TARGET && !(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET))
+    {
+        WARN("Creating resource in render target state, but ALLOW_RENDER_TARGET flag is not set.\n");
+        return E_INVALIDARG;
+    }
+
+    if ((initial_state == D3D12_RESOURCE_STATE_DEPTH_WRITE || initial_state == D3D12_RESOURCE_STATE_DEPTH_READ) &&
+            !(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
+    {
+        WARN("Creating resource in depth-stencil state, but ALLOW_DEPTH_STENCIL flag is not set.\n");
+        return E_INVALIDARG;
+    }
+
     if (heap_properties)
     {
         if (FAILED(hr = d3d12_resource_validate_heap_properties(desc, heap_properties, initial_state)))
