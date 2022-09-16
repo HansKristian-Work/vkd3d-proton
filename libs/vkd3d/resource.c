@@ -2083,14 +2083,6 @@ static bool d3d12_resource_validate_texture_format(const D3D12_RESOURCE_DESC1 *d
         return false;
     }
 
-    if (align(desc->Width, format->block_width) != desc->Width
-            || align(desc->Height, format->block_height) != desc->Height)
-    {
-        WARN("Invalid size %"PRIu64"x%u for block compressed format %#x.\n",
-                desc->Width, desc->Height, desc->Format);
-        return false;
-    }
-
     return true;
 }
 
