@@ -2226,14 +2226,24 @@ static HRESULT d3d12_resource_validate_heap_properties(const D3D12_RESOURCE_DESC
         }
     }
 
-    if (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD && initial_state != D3D12_RESOURCE_STATE_GENERIC_READ)
+    if (heap_properties->Type == D3D12_HEAP_TYPE_UPLOAD &&
+            (initial_state & ~D3D12_RESOURCE_STATE_GENERIC_READ))
     {
-        WARN("For D3D12_HEAP_TYPE_UPLOAD the state must be D3D12_RESOURCE_STATE_GENERIC_READ.\n");
+        /* AgilitySDK 606 suddenly started allowing COMMON state in UPLOAD heaps.
+         * This is not publicly documented, but it's not a big problem to allow it either.
+         * It also allows any state which is read-only. */
+        WARN("For D3D12_HEAP_TYPE_UPLOAD the state must be part of the D3D12_RESOURCE_STATE_GENERIC_READ bitmask (or COMMON).\n");
         return E_INVALIDARG;
     }
-    if (heap_properties->Type == D3D12_HEAP_TYPE_READBACK && initial_state != D3D12_RESOURCE_STATE_COPY_DEST)
+
+    if (heap_properties->Type == D3D12_HEAP_TYPE_READBACK &&
+            initial_state != D3D12_RESOURCE_STATE_COPY_DEST &&
+            initial_state != D3D12_RESOURCE_STATE_COMMON)
     {
-        WARN("For D3D12_HEAP_TYPE_READBACK the state must be D3D12_RESOURCE_STATE_COPY_DEST.\n");
+        /* AgilitySDK 606 suddenly started allowing COMMON state in READBACK heaps.
+         * This is not publicly documented, but it's not a big problem to allow it either.
+         * F1 22 hits this case. */
+        WARN("For D3D12_HEAP_TYPE_READBACK the state must be D3D12_RESOURCE_STATE_COPY_DEST (or COMMON).\n");
         return E_INVALIDARG;
     }
 
