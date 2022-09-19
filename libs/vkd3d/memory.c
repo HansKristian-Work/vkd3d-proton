@@ -28,7 +28,7 @@ void vkd3d_memory_transfer_queue_cleanup(struct vkd3d_memory_transfer_queue *que
     VK_CALL(vkDestroyCommandPool(queue->device->vk_device, queue->vk_command_pool, NULL));
     VK_CALL(vkDestroySemaphore(queue->device->vk_device, queue->vk_semaphore, NULL));
 
-    vkd3d_free(queue->allocations);
+    vkd3d_free(queue->transfers);
     pthread_mutex_destroy(&queue->mutex);
 }
 
@@ -171,7 +171,7 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
     VkResult vr;
     size_t i;
 
-    if (!queue->allocations_count)
+    if (!queue->transfer_count)
         return S_OK;
 
     /* Record commands late so that we can simply remove allocations from
@@ -182,8 +182,11 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
     {
         INFO("Submitting clear command list.\n");
-        for (i = 0; i < queue->allocations_count; i++)
-            INFO("Clearing allocation %zu: %"PRIu64".\n", i, queue->allocations[i]->resource.size);
+        for (i = 0; i < queue->transfer_count; i++)
+        {
+            if (queue->transfers[i].op == VKD3D_MEMORY_TRANSFER_OP_CLEAR_ALLOCATION)
+                INFO("Clearing allocation %zu: %"PRIu64".\n", i, queue->transfers[i].allocation->resource.size);
+        }
     }
 
     vkd3d_memory_transfer_queue_wait_semaphore(queue,
@@ -206,12 +209,19 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
         return hresult_from_vk_result(vr);
     }
 
-    for (i = 0; i < queue->allocations_count; i++)
+    for (i = 0; i < queue->transfer_count; i++)
     {
-        const struct vkd3d_memory_allocation *allocation = queue->allocations[i];
+        const struct vkd3d_memory_transfer_info *transfer = &queue->transfers[i];
 
-        VK_CALL(vkCmdFillBuffer(vk_cmd_buffer, allocation->resource.vk_buffer,
-                allocation->offset, allocation->resource.size, 0));
+        switch (transfer->op)
+        {
+            case VKD3D_MEMORY_TRANSFER_OP_CLEAR_ALLOCATION:
+                VK_CALL(vkCmdFillBuffer(vk_cmd_buffer,
+                        transfer->allocation->resource.vk_buffer,
+                        transfer->allocation->offset,
+                        transfer->allocation->resource.size, 0));
+                break;
+        }
     }
 
     if ((vr = VK_CALL(vkEndCommandBuffer(vk_cmd_buffer))) < 0)
@@ -280,7 +290,7 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
     /* Keep next_signal always one ahead of the last signaled value */
     queue->next_signal_value += 1;
     queue->num_bytes_pending = 0;
-    queue->allocations_count = 0;
+    queue->transfer_count = 0;
     queue->command_buffer_index += 1;
     queue->command_buffer_index %= VKD3D_MEMORY_TRANSFER_COMMAND_BUFFER_COUNT;
     return S_OK;
@@ -301,6 +311,8 @@ HRESULT vkd3d_memory_transfer_queue_flush(struct vkd3d_memory_transfer_queue *qu
 static void vkd3d_memory_transfer_queue_clear_allocation(struct vkd3d_memory_transfer_queue *queue,
         struct vkd3d_memory_allocation *allocation)
 {
+    struct vkd3d_memory_transfer_info *transfer;
+
     if (allocation->cpu_address)
     {
         /* Probably faster than doing this on the GPU
@@ -311,8 +323,8 @@ static void vkd3d_memory_transfer_queue_clear_allocation(struct vkd3d_memory_tra
     {
         pthread_mutex_lock(&queue->mutex);
 
-        if (!vkd3d_array_reserve((void**)&queue->allocations, &queue->allocations_size,
-                queue->allocations_count + 1, sizeof(*queue->allocations)))
+        if (!vkd3d_array_reserve((void**)&queue->transfers, &queue->transfer_size,
+                queue->transfer_count + 1, sizeof(*queue->transfers)))
         {
             ERR("Failed to insert free range.\n");
             pthread_mutex_unlock(&queue->mutex);
@@ -324,7 +336,12 @@ static void vkd3d_memory_transfer_queue_clear_allocation(struct vkd3d_memory_tra
         if (allocation->chunk)
             allocation->chunk->allocation.clear_semaphore_value = queue->next_signal_value;
 
-        queue->allocations[queue->allocations_count++] = allocation;
+        transfer = &queue->transfers[queue->transfer_count++];
+
+        memset(transfer, 0, sizeof(*transfer));
+        transfer->op = VKD3D_MEMORY_TRANSFER_OP_CLEAR_ALLOCATION;
+        transfer->allocation = allocation;
+
         queue->num_bytes_pending += allocation->resource.size;
 
         if (queue->num_bytes_pending >= VKD3D_MEMORY_TRANSFER_QUEUE_MAX_PENDING_BYTES)
@@ -350,11 +367,12 @@ static void vkd3d_memory_transfer_queue_wait_allocation(struct vkd3d_memory_tran
      * using it yet so we can remove it from the queue and exit. */
     pthread_mutex_lock(&queue->mutex);
 
-    for (i = 0; i < queue->allocations_count; i++)
+    for (i = 0; i < queue->transfer_count; i++)
     {
-        if (queue->allocations[i] == allocation)
+        if (queue->transfers[i].op == VKD3D_MEMORY_TRANSFER_OP_CLEAR_ALLOCATION &&
+                queue->transfers[i].allocation == allocation)
         {
-            queue->allocations[i] = queue->allocations[--queue->allocations_count];
+            queue->transfers[i] = queue->transfers[--queue->transfer_count];
             queue->num_bytes_pending -= allocation->resource.size;
             pthread_mutex_unlock(&queue->mutex);
             return;
