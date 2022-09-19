@@ -617,9 +617,14 @@ enum vkd3d_allocation_flag
      * They are never suballocated since we do that ourselves,
      * and we do not consume space in the VA map. */
     VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH  = (1u << 6),
+    /* Intended for internal staging buffer allocations. These
+     * are suballocated from a large host-visible memory chunk
+     * if possible to reduce the number of (de-)allocations. */
+    VKD3D_ALLOCATION_FLAG_INTERNAL_STAGING  = (1u << 7),
 };
 
 #define VKD3D_MEMORY_CHUNK_SIZE (VKD3D_VA_BLOCK_SIZE * 8)
+#define VKD3D_MEMORY_STAGING_CHUNK_SIZE (VKD3D_VA_BLOCK_SIZE * 32)
 
 struct vkd3d_memory_chunk;
 

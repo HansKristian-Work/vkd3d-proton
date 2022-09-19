@@ -1267,7 +1267,7 @@ void vkd3d_memory_allocator_cleanup(struct vkd3d_memory_allocator *allocator, st
 
 static HRESULT vkd3d_memory_allocator_try_add_chunk(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, uint32_t type_mask,
-        VkMemoryPropertyFlags optional_properties, struct vkd3d_memory_chunk **chunk)
+        VkMemoryPropertyFlags optional_properties, uint32_t allocation_flags, struct vkd3d_memory_chunk **chunk)
 {
     struct vkd3d_allocate_memory_info alloc_info;
     struct vkd3d_memory_chunk *object;
@@ -1281,6 +1281,12 @@ static HRESULT vkd3d_memory_allocator_try_add_chunk(struct vkd3d_memory_allocato
     alloc_info.heap_flags = heap_flags;
     alloc_info.flags = VKD3D_ALLOCATION_FLAG_NO_FALLBACK;
     alloc_info.optional_memory_properties = optional_properties;
+
+    if (allocation_flags & VKD3D_ALLOCATION_FLAG_INTERNAL_STAGING)
+    {
+        alloc_info.memory_requirements.size = VKD3D_MEMORY_STAGING_CHUNK_SIZE;
+        alloc_info.flags |= VKD3D_ALLOCATION_FLAG_INTERNAL_STAGING;
+    }
 
     if (!(heap_flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
         alloc_info.flags |= VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER;
@@ -1301,11 +1307,11 @@ static HRESULT vkd3d_memory_allocator_try_add_chunk(struct vkd3d_memory_allocato
 
 static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory_allocator *allocator,
         struct d3d12_device *device, const VkMemoryRequirements *memory_requirements, uint32_t type_mask,
-        VkMemoryPropertyFlags optional_properties,
-        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        struct vkd3d_memory_allocation *allocation)
+        VkMemoryPropertyFlags optional_properties, const D3D12_HEAP_PROPERTIES *heap_properties,
+        D3D12_HEAP_FLAGS heap_flags, uint32_t allocation_flags, struct vkd3d_memory_allocation *allocation)
 {
     const D3D12_HEAP_FLAGS heap_flag_mask = ~(D3D12_HEAP_FLAG_CREATE_NOT_ZEROED | D3D12_HEAP_FLAG_CREATE_NOT_RESIDENT);
+    const uint32_t allocation_flag_mask = VKD3D_ALLOCATION_FLAG_INTERNAL_STAGING;
     struct vkd3d_memory_chunk *chunk;
     HRESULT hr;
     size_t i;
@@ -1326,6 +1332,11 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
         if (!(type_mask & (1u << chunk->allocation.device_allocation.vk_memory_type)))
             continue;
 
+        /* Ensure that staging chunks are only used with
+         * staging allocations and vice versa */
+        if ((chunk->allocation.flags ^ allocation_flags) & allocation_flag_mask)
+            continue;
+
         if (SUCCEEDED(hr = vkd3d_memory_chunk_allocate_range(chunk, memory_requirements, allocation)))
             return hr;
     }
@@ -1333,7 +1344,7 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
     /* Try allocating a new chunk on one of the supported memory type
      * before the caller falls back to potentially slower memory */
     if (FAILED(hr = vkd3d_memory_allocator_try_add_chunk(allocator, device, heap_properties,
-            heap_flags & heap_flag_mask, type_mask, optional_properties, &chunk)))
+            heap_flags & heap_flag_mask, type_mask, optional_properties, allocation_flags, &chunk)))
         return hr;
 
     return vkd3d_memory_chunk_allocate_range(chunk, memory_requirements, allocation);
@@ -1381,14 +1392,13 @@ static HRESULT vkd3d_suballocate_memory(struct d3d12_device *device, struct vkd3
 
     hr = vkd3d_memory_allocator_try_suballocate_memory(allocator, device,
             &memory_requirements, optional_mask, 0, &info->heap_properties,
-            info->heap_flags, allocation);
+            info->heap_flags, info->flags, allocation);
 
     if (FAILED(hr) && (required_mask & ~optional_mask))
     {
         hr = vkd3d_memory_allocator_try_suballocate_memory(allocator, device,
-                &memory_requirements, required_mask & ~optional_mask,
-                optional_flags,
-                &info->heap_properties, info->heap_flags, allocation);
+                &memory_requirements, required_mask & ~optional_mask, optional_flags,
+                &info->heap_properties, info->heap_flags, info->flags, allocation);
     }
 
     pthread_mutex_unlock(&allocator->mutex);
@@ -1414,12 +1424,17 @@ HRESULT vkd3d_allocate_memory(struct d3d12_device *device, struct vkd3d_memory_a
         const struct vkd3d_allocate_memory_info *info, struct vkd3d_memory_allocation *allocation)
 {
     bool implementation_implicitly_clears;
+    VkDeviceSize max_suballocation_size;
     bool needs_clear;
     bool suballocate;
     HRESULT hr;
 
+    max_suballocation_size = (info->flags & VKD3D_ALLOCATION_FLAG_INTERNAL_STAGING)
+            ? VKD3D_MEMORY_STAGING_CHUNK_SIZE
+            : VKD3D_VA_BLOCK_SIZE;
+
     suballocate = !info->pNext && !info->host_ptr &&
-            info->memory_requirements.size < VKD3D_VA_BLOCK_SIZE &&
+            info->memory_requirements.size <= max_suballocation_size &&
             !(info->heap_flags & (D3D12_HEAP_FLAG_DENY_BUFFERS | D3D12_HEAP_FLAG_ALLOW_WRITE_WATCH)) &&
             !(info->flags & VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH);
 
