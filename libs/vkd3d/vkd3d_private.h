@@ -751,6 +751,17 @@ struct vkd3d_memory_chunk
 
 #define VKD3D_MEMORY_TRANSFER_COMMAND_BUFFER_COUNT (16u)
 
+enum vkd3d_memory_transfer_op
+{
+    VKD3D_MEMORY_TRANSFER_OP_CLEAR_ALLOCATION,
+};
+
+struct vkd3d_memory_transfer_info
+{
+    enum vkd3d_memory_transfer_op op;
+    struct vkd3d_memory_allocation *allocation;
+};
+
 struct vkd3d_memory_transfer_queue
 {
     struct d3d12_device *device;
@@ -768,9 +779,9 @@ struct vkd3d_memory_transfer_queue
     VkDeviceSize num_bytes_pending;
     uint32_t command_buffer_index;
 
-    struct vkd3d_memory_allocation **allocations;
-    size_t allocations_size;
-    size_t allocations_count;
+    struct vkd3d_memory_transfer_info *transfers;
+    size_t transfer_size;
+    size_t transfer_count;
 };
 
 void vkd3d_memory_transfer_queue_cleanup(struct vkd3d_memory_transfer_queue *queue);
