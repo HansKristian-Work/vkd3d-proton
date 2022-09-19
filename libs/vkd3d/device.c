@@ -651,8 +651,12 @@ static void vkd3d_instance_deduce_config_flags_from_environment(void)
     if (vkd3d_get_env_var("ENABLE_VULKAN_RENDERDOC_CAPTURE", env, sizeof(env)) &&
             strcmp(env, "1") == 0)
     {
-        INFO("RenderDoc capture is enabled. Forcing HOST CACHED memory types.\n");
-        vkd3d_config_flags |= VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED;
+        INFO("RenderDoc capture is enabled. Forcing HOST CACHED memory types and disabling pipeline caching completely.\n");
+        vkd3d_config_flags |= VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED |
+                VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_APP_CACHE_ONLY |
+                VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE |
+                VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_NO_SERIALIZE_SPIRV |
+                VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_IGNORE_SPIRV;
     }
 }
 
