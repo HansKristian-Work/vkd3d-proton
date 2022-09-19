@@ -5992,6 +5992,26 @@ static void d3d12_descriptor_heap_init_descriptors(struct d3d12_descriptor_heap 
     }
 }
 
+#ifndef VKD3D_NO_TRACE_MESSAGES
+static void d3d12_descriptor_heap_report_allocation(const D3D12_DESCRIPTOR_HEAP_DESC *desc)
+{
+    if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+    {
+        if (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
+            TRACE("  %u GPU visible CBV_SRV_UAV descriptors.\n", desc->NumDescriptors);
+        else
+            TRACE("  %u host visible CBV_SRV_UAV descriptors.\n", desc->NumDescriptors);
+    }
+    else if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
+    {
+        if (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
+            TRACE("  %u GPU visible sampler descriptors.\n", desc->NumDescriptors);
+        else
+            TRACE("  %u host visible sampler descriptors.\n", desc->NumDescriptors);
+    }
+}
+#endif
+
 HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
         const D3D12_DESCRIPTOR_HEAP_DESC *desc, struct d3d12_descriptor_heap **descriptor_heap)
 {
@@ -6002,6 +6022,15 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
     size_t required_size;
     size_t alignment;
     HRESULT hr;
+
+#ifndef VKD3D_NO_TRACE_MESSAGES
+    if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV ||
+            desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
+    {
+        TRACE("Allocating descriptor heap:\n");
+        d3d12_descriptor_heap_report_allocation(desc);
+    }
+#endif
 
     if (!(descriptor_size = d3d12_device_get_descriptor_handle_increment_size(desc->Type)))
     {
@@ -6097,6 +6126,15 @@ void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap
 {
     const struct vkd3d_vk_device_procs *vk_procs = &descriptor_heap->device->vk_procs;
     struct d3d12_device *device = descriptor_heap->device;
+
+#ifndef VKD3D_NO_TRACE_MESSAGES
+    if (descriptor_heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV ||
+            descriptor_heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
+    {
+        TRACE("Freeing descriptor heap:\n");
+        d3d12_descriptor_heap_report_allocation(&descriptor_heap->desc);
+    }
+#endif
 
     if (!descriptor_heap->device_allocation.vk_memory)
         vkd3d_free(descriptor_heap->host_memory);
