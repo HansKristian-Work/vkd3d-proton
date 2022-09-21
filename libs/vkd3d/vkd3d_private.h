@@ -721,6 +721,7 @@ struct vkd3d_memory_chunk
 
 struct vkd3d_memory_transfer_queue
 {
+    struct d3d12_device *device;
     struct vkd3d_queue *vkd3d_queue;
 
     pthread_mutex_t mutex;
@@ -740,9 +741,9 @@ struct vkd3d_memory_transfer_queue
     size_t allocations_count;
 };
 
-void vkd3d_memory_transfer_queue_cleanup(struct vkd3d_memory_transfer_queue *queue, struct d3d12_device *device);
+void vkd3d_memory_transfer_queue_cleanup(struct vkd3d_memory_transfer_queue *queue);
 HRESULT vkd3d_memory_transfer_queue_init(struct vkd3d_memory_transfer_queue *queue, struct d3d12_device *device);
-HRESULT vkd3d_memory_transfer_queue_flush(struct vkd3d_memory_transfer_queue *queue, struct d3d12_device *device);
+HRESULT vkd3d_memory_transfer_queue_flush(struct vkd3d_memory_transfer_queue *queue);
 
 struct vkd3d_memory_allocator
 {

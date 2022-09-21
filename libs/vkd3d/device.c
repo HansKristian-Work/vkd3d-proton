@@ -3031,7 +3031,7 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     vkd3d_bindless_state_cleanup(&device->bindless_state, device);
     d3d12_device_destroy_vkd3d_queues(device);
     vkd3d_memory_allocator_cleanup(&device->memory_allocator, device);
-    vkd3d_memory_transfer_queue_cleanup(&device->memory_transfers, device);
+    vkd3d_memory_transfer_queue_cleanup(&device->memory_transfers);
     /* Tear down descriptor global info late, so we catch last minute faults after we drain the queues. */
     vkd3d_descriptor_debug_free_global_info(device->descriptor_qa_global_info, device);
 
@@ -6719,7 +6719,7 @@ out_cleanup_format_info:
 out_free_memory_allocator:
     vkd3d_memory_allocator_cleanup(&device->memory_allocator, device);
 out_free_memory_transfers:
-    vkd3d_memory_transfer_queue_cleanup(&device->memory_transfers, device);
+    vkd3d_memory_transfer_queue_cleanup(&device->memory_transfers);
 out_free_private_store:
     vkd3d_private_store_destroy(&device->private_store);
 out_free_vk_resources:
