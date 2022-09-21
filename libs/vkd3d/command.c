@@ -1794,6 +1794,7 @@ static VkDescriptorPool d3d12_command_allocator_allocate_descriptor_pool(
         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1024},
         {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1024},
         {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1024},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1024},
         {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1024},
         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1024},
         /* must be last in the array */
