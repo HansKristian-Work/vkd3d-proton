@@ -1797,13 +1797,10 @@ static VkDescriptorPool d3d12_command_allocator_allocate_descriptor_pool(
         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1024},
         {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1024},
         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1024},
-        /* must be last in the array */
-        {VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT, 65536}
     };
     struct d3d12_descriptor_pool_cache *cache = &allocator->descriptor_pool_caches[pool_type];
     struct d3d12_device *device = allocator->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkDescriptorPoolInlineUniformBlockCreateInfoEXT inline_uniform_desc;
     VkDescriptorPoolCreateInfo pool_desc;
     VkDevice vk_device = device->vk_device;
     VkDescriptorPool vk_pool;
@@ -1817,23 +1814,12 @@ static VkDescriptorPool d3d12_command_allocator_allocate_descriptor_pool(
     }
     else
     {
-        inline_uniform_desc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_INLINE_UNIFORM_BLOCK_CREATE_INFO_EXT;
-        inline_uniform_desc.pNext = NULL;
-        inline_uniform_desc.maxInlineUniformBlockBindings = 256;
-
         pool_desc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        pool_desc.pNext = &inline_uniform_desc;
+        pool_desc.pNext = NULL;
         pool_desc.flags = 0;
         pool_desc.maxSets = 512;
         pool_desc.poolSizeCount = ARRAY_SIZE(pool_sizes);
         pool_desc.pPoolSizes = pool_sizes;
-
-        if (!device->vk_info.EXT_inline_uniform_block ||
-                device->vk_info.device_limits.maxPushConstantsSize >= (D3D12_MAX_ROOT_COST * sizeof(uint32_t)))
-        {
-            pool_desc.pNext = NULL;
-            pool_desc.poolSizeCount -= 1;
-        }
 
         if ((vr = VK_CALL(vkCreateDescriptorPool(vk_device, &pool_desc, NULL, &vk_pool))) < 0)
         {
@@ -5279,27 +5265,25 @@ static void vk_write_descriptor_set_from_root_descriptor(struct d3d12_command_li
     vk_descriptor_write->pTexelBufferView = &descriptor->info.buffer_view;
 }
 
-static bool vk_write_descriptor_set_and_inline_uniform_block(VkWriteDescriptorSet *vk_descriptor_write,
-        VkWriteDescriptorSetInlineUniformBlockEXT *vk_inline_uniform_block_write,
-        VkDescriptorSet vk_descriptor_set, const struct d3d12_root_signature *root_signature,
-        const void* data)
+static void vk_write_descriptor_set_from_scratch_push_ubo(VkWriteDescriptorSet *vk_descriptor_write,
+        VkDescriptorBufferInfo *vk_buffer_info,
+        const struct vkd3d_scratch_allocation *alloc,
+        VkDeviceSize size, uint32_t vk_binding)
 {
-    vk_inline_uniform_block_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_INLINE_UNIFORM_BLOCK_EXT;
-    vk_inline_uniform_block_write->pNext = NULL;
-    vk_inline_uniform_block_write->dataSize = root_signature->push_constant_range.size;
-    vk_inline_uniform_block_write->pData = data;
-
     vk_descriptor_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    vk_descriptor_write->pNext = vk_inline_uniform_block_write;
-    vk_descriptor_write->dstSet = vk_descriptor_set;
-    vk_descriptor_write->dstBinding = root_signature->push_constant_ubo_binding.binding;
+    vk_descriptor_write->pNext = NULL;
+    vk_descriptor_write->dstSet = VK_NULL_HANDLE;
+    vk_descriptor_write->descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     vk_descriptor_write->dstArrayElement = 0;
-    vk_descriptor_write->descriptorCount = root_signature->push_constant_range.size;
-    vk_descriptor_write->descriptorType = VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT;
+    vk_descriptor_write->dstBinding = vk_binding;
+    vk_descriptor_write->descriptorCount = 1;
+    vk_descriptor_write->pBufferInfo = vk_buffer_info;
     vk_descriptor_write->pImageInfo = NULL;
-    vk_descriptor_write->pBufferInfo = NULL;
     vk_descriptor_write->pTexelBufferView = NULL;
-    return true;
+
+    vk_buffer_info->buffer = alloc->buffer;
+    vk_buffer_info->offset = alloc->offset;
+    vk_buffer_info->range = size;
 }
 
 static void d3d12_command_list_update_descriptor_heaps(struct d3d12_command_list *list,
@@ -5435,26 +5419,15 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
 {
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkWriteDescriptorSetInlineUniformBlockEXT inline_uniform_block_write;
-    VkWriteDescriptorSet descriptor_writes[D3D12_MAX_ROOT_COST / 2 + 2];
+    VkWriteDescriptorSet descriptor_writes[D3D12_MAX_ROOT_COST / 2];
     const struct vkd3d_shader_root_parameter *root_parameter;
-    VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
     union root_parameter_data root_parameter_data;
     unsigned int descriptor_write_count = 0;
+    struct vkd3d_scratch_allocation alloc;
+    VkDescriptorBufferInfo buffer_info;
     unsigned int root_parameter_index;
     unsigned int va_count = 0;
     uint64_t dirty_push_mask;
-
-    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_ROOT_DESCRIPTOR_SET)
-    {
-        /* Ensure that we populate all descriptors if push descriptors cannot be used */
-        bindings->root_descriptor_dirty_mask |=
-                bindings->root_descriptor_active_mask &
-                (root_signature->root_descriptor_raw_va_mask | root_signature->root_descriptor_push_mask);
-
-        descriptor_set = d3d12_command_allocator_allocate_descriptor_set(
-                list->allocator, root_signature->vk_root_descriptor_layout, VKD3D_DESCRIPTOR_POOL_TYPE_STATIC);
-    }
 
     if (bindings->root_descriptor_dirty_mask)
     {
@@ -5475,7 +5448,7 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
 
             vk_write_descriptor_set_from_root_descriptor(list,
                     &descriptor_writes[descriptor_write_count], root_parameter,
-                    descriptor_set, &bindings->root_descriptors[root_parameter_index]);
+                    VK_NULL_HANDLE, &bindings->root_descriptors[root_parameter_index]);
 
             descriptor_write_count += 1;
         }
@@ -5483,12 +5456,16 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
         bindings->root_descriptor_dirty_mask = 0;
     }
 
-    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK)
+    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
     {
-        d3d12_command_list_fetch_inline_uniform_block_data(list, bindings, &root_parameter_data);
+        d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+                VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD, sizeof(root_parameter_data),
+                D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, ~0u, &alloc);
+        d3d12_command_list_fetch_inline_uniform_block_data(list, bindings, alloc.host_ptr);
 
-        vk_write_descriptor_set_and_inline_uniform_block(&descriptor_writes[descriptor_write_count],
-                &inline_uniform_block_write, descriptor_set, root_signature, &root_parameter_data);
+        vk_write_descriptor_set_from_scratch_push_ubo(&descriptor_writes[descriptor_write_count],
+                &buffer_info, &alloc, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT,
+                root_signature->push_constant_ubo_binding.binding);
 
         descriptor_write_count += 1;
     }
@@ -5500,18 +5477,7 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
                 root_parameter_data.root_descriptor_vas));
     }
 
-    if (!descriptor_write_count)
-        return;
-
-    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_ROOT_DESCRIPTOR_SET)
-    {
-        VK_CALL(vkUpdateDescriptorSets(list->device->vk_device,
-                descriptor_write_count, descriptor_writes, 0, NULL));
-        VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, vk_bind_point,
-                layout, root_signature->root_descriptor_set,
-                1, &descriptor_set, 0, NULL));
-    }
-    else
+    if (descriptor_write_count)
     {
         VK_CALL(vkCmdPushDescriptorSetKHR(list->vk_command_buffer, vk_bind_point,
                 layout, root_signature->root_descriptor_set,
@@ -5595,7 +5561,7 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
     if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_HOISTED_DESCRIPTORS)
         d3d12_command_list_update_hoisted_descriptors(list, bindings);
 
-    if (rs->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK)
+    if (rs->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
     {
         /* Root constants and descriptor table offsets are part of the root descriptor set */
         if (bindings->root_descriptor_dirty_mask || bindings->root_constant_dirty_mask
