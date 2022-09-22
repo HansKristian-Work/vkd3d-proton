@@ -2433,6 +2433,7 @@ struct vkd3d_scratch_allocation
     VkBuffer buffer;
     VkDeviceSize offset;
     VkDeviceAddress va;
+    void *host_ptr;
 };
 
 static bool d3d12_command_allocator_allocate_scratch_memory(struct d3d12_command_allocator *allocator,
@@ -2489,6 +2490,10 @@ static bool d3d12_command_allocator_allocate_scratch_memory(struct d3d12_command
     allocation->buffer = scratch->allocation.resource.vk_buffer;
     allocation->offset = scratch->allocation.offset;
     allocation->va = scratch->allocation.resource.va;
+    if (scratch->allocation.cpu_address)
+        allocation->host_ptr = void_ptr_offset(scratch->allocation.cpu_address, scratch->allocation.offset);
+    else
+        allocation->host_ptr = NULL;
     return true;
 }
 
