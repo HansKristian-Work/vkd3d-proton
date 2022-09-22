@@ -354,12 +354,7 @@ static HRESULT vkd3d_import_host_memory(struct d3d12_device *device, void *host_
 static HRESULT vkd3d_allocation_assign_gpu_address(struct vkd3d_memory_allocation *allocation,
         struct d3d12_device *device, struct vkd3d_memory_allocator *allocator)
 {
-    if (device->device_info.buffer_device_address_features.bufferDeviceAddress)
-        allocation->resource.va = vkd3d_get_buffer_device_address(device, allocation->resource.vk_buffer);
-    else if (!(allocation->flags & VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH))
-        allocation->resource.va = vkd3d_va_map_alloc_fake_va(&allocator->va_map, allocation->resource.size);
-    else
-        allocation->resource.va = 0xdeadbeef;
+    allocation->resource.va = vkd3d_get_buffer_device_address(device, allocation->resource.vk_buffer);
 
     if (!allocation->resource.va)
     {
@@ -451,14 +446,10 @@ static void vkd3d_memory_allocation_free(const struct vkd3d_memory_allocation *a
     if (allocation->flags & VKD3D_ALLOCATION_FLAG_ALLOW_WRITE_WATCH)
         vkd3d_free_write_watch_pointer(allocation->cpu_address);
 
-    if ((allocation->flags & VKD3D_ALLOCATION_FLAG_GPU_ADDRESS) && allocation->resource.va)
+    if ((allocation->flags & VKD3D_ALLOCATION_FLAG_GPU_ADDRESS) && allocation->resource.va &&
+            !(allocation->flags & VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH))
     {
-        if (!(allocation->flags & VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH))
-        {
-            vkd3d_va_map_remove(&allocator->va_map, &allocation->resource);
-            if (!device->device_info.buffer_device_address_features.bufferDeviceAddress)
-                vkd3d_va_map_free_fake_va(&allocator->va_map, allocation->resource.va, allocation->resource.size);
-        }
+        vkd3d_va_map_remove(&allocator->va_map, &allocation->resource);
     }
 
     if (allocation->resource.view_map)
@@ -542,9 +533,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     if (allocation->resource.vk_buffer)
     {
         allocation->flags |= VKD3D_ALLOCATION_FLAG_GPU_ADDRESS;
-
-        if (device->device_info.buffer_device_address_features.bufferDeviceAddress)
-            flags_info.flags |= VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR;
+        flags_info.flags |= VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR;
     }
 
     allocation->resource.size = info->memory_requirements.size;
@@ -1543,10 +1532,7 @@ HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_bu
 
     flags_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
     flags_info.pNext = NULL;
-    flags_info.flags = 0;
-
-    if (device->device_info.buffer_device_address_features.bufferDeviceAddress)
-        flags_info.flags |= VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR;
+    flags_info.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR;
 
     VK_CALL(vkGetBufferMemoryRequirements(device->vk_device, vk_buffer, &memory_requirements));
 

@@ -299,21 +299,9 @@ struct vkd3d_va_range
     VkDeviceSize size;
 };
 
-struct vkd3d_va_allocator
-{
-    pthread_mutex_t mutex;
-
-    struct vkd3d_va_range *free_ranges;
-    size_t free_ranges_size;
-    size_t free_range_count;
-
-    VkDeviceAddress next_va;
-};
-
 struct vkd3d_va_map
 {
     struct vkd3d_va_tree va_tree;
-    struct vkd3d_va_allocator va_allocator;
 
     pthread_mutex_t mutex;
 
@@ -328,8 +316,6 @@ const struct vkd3d_unique_resource *vkd3d_va_map_deref(struct vkd3d_va_map *va_m
 VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3d_va_map *va_map,
         struct d3d12_device *device,
         VkDeviceAddress va);
-VkDeviceAddress vkd3d_va_map_alloc_fake_va(struct vkd3d_va_map *va_map, VkDeviceSize size);
-void vkd3d_va_map_free_fake_va(struct vkd3d_va_map *va_map, VkDeviceAddress va, VkDeviceSize size);
 void vkd3d_va_map_init(struct vkd3d_va_map *va_map);
 void vkd3d_va_map_cleanup(struct vkd3d_va_map *va_map);
 
