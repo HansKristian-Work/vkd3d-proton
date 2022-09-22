@@ -77,6 +77,9 @@ vkd3d_external_includes = include_directories(vkd3d_external_includes)
 vkd3d_public_includes   = include_directories(vkd3d_public_includes)
 vkd3d_private_includes  = include_directories(vkd3d_private_includes)
 
+vkd3d_shader_private_includes = [ './libs/vkd3d-shader' ]
+vkd3d_shader_private_includes = include_directories(vkd3d_shader_private_includes)
+
 idl_compiler  = find_program('widl')
 idl_generator = generator(idl_compiler,
   output    : [ '@BASENAME@.h' ],
