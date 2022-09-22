@@ -16,6 +16,9 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
+#define INITGUID
+#define VKD3D_TEST_DECLARE_MAIN
 #include "vkd3d_test.h"
 #include <vkd3d_shader.h>
 
@@ -65,6 +68,7 @@ static void test_vkd3d_shader_pfns(void)
     PFN_vkd3d_shader_free_shader_code pfn_vkd3d_shader_free_shader_code;
     PFN_vkd3d_shader_compile_dxbc pfn_vkd3d_shader_compile_dxbc;
     PFN_vkd3d_shader_scan_dxbc pfn_vkd3d_shader_scan_dxbc;
+    vkd3d_shader_hash_t compat_hash;
 
     struct vkd3d_versioned_root_signature_desc root_signature_desc;
     struct vkd3d_shader_signature_element *element;
@@ -107,7 +111,7 @@ static void test_vkd3d_shader_pfns(void)
 
     rc = pfn_vkd3d_shader_serialize_root_signature(&empty_rs_desc, &dxbc);
     ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
-    rc = pfn_vkd3d_shader_parse_root_signature(&dxbc, &root_signature_desc);
+    rc = pfn_vkd3d_shader_parse_root_signature(&dxbc, &root_signature_desc, &compat_hash);
     ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
     pfn_vkd3d_shader_free_root_signature(&root_signature_desc);
     pfn_vkd3d_shader_free_shader_code(&dxbc);
