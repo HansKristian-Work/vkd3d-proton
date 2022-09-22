@@ -145,7 +145,6 @@ struct vkd3d_vulkan_info
     bool EXT_depth_clip_enable;
     bool EXT_descriptor_indexing;
     bool EXT_image_view_min_lod;
-    bool EXT_inline_uniform_block;
     bool EXT_robustness2;
     bool EXT_sampler_filter_minmax;
     bool EXT_shader_demote_to_helper_invocation;
@@ -1355,11 +1354,10 @@ static inline bool d3d12_query_heap_type_is_inline(D3D12_QUERY_HEAP_TYPE heap_ty
 
 enum vkd3d_root_signature_flag
 {
-    VKD3D_ROOT_SIGNATURE_USE_ROOT_DESCRIPTOR_SET    = 0x00000001u,
-    VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK   = 0x00000002u,
-    VKD3D_ROOT_SIGNATURE_USE_RAW_VA_AUX_BUFFER      = 0x00000004u,
-    VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER     = 0x00000008u,
-    VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER    = 0x00000010u,
+    VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK = 0x00000001u,
+    VKD3D_ROOT_SIGNATURE_USE_RAW_VA_AUX_BUFFER           = 0x00000002u,
+    VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER          = 0x00000004u,
+    VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER         = 0x00000008u,
 };
 
 enum vkd3d_pipeline_type
@@ -3316,7 +3314,6 @@ struct vkd3d_physical_device_info
 {
     /* properties */
     VkPhysicalDeviceDescriptorIndexingPropertiesEXT descriptor_indexing_properties;
-    VkPhysicalDeviceInlineUniformBlockPropertiesEXT inline_uniform_block_properties;
     VkPhysicalDevicePushDescriptorPropertiesKHR push_descriptor_properties;
     VkPhysicalDeviceMaintenance3Properties maintenance3_properties;
     VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT texel_buffer_alignment_properties;
@@ -3352,7 +3349,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceDepthClipEnableFeaturesEXT depth_clip_features;
     VkPhysicalDeviceDescriptorIndexingFeaturesEXT descriptor_indexing_features;
     VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT demote_features;
-    VkPhysicalDeviceInlineUniformBlockFeaturesEXT inline_uniform_block_features;
     VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT texel_buffer_alignment_features;
     VkPhysicalDeviceTransformFeedbackFeaturesEXT xfb_features;
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT vertex_divisor_features;

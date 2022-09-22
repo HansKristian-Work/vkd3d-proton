@@ -526,9 +526,16 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
 
     if (!local_root_signature)
     {
-        info->push_descriptor_count += info->hoist_descriptor_count;
+        /* Make sure that we won't exceed device limits.
+         * Minimum spec for push descriptors is 32 descriptors, which fits exactly what we need for D3D12.
+         * Worst case scenarios:
+         * - 32 root CBVs -> all 32 push descriptors are used. No push constants.
+         * - Root constants > 128 bytes, 15 root CBVs. 1 push descriptor for push UBO. Can hoist 16 other descriptors.
+         * Just base the amount of descriptors we can hoist on the root signature cost. This is simple and is trivially correct. */
         info->hoist_descriptor_count = min(info->hoist_descriptor_count, VKD3D_MAX_HOISTED_DESCRIPTORS);
-        info->hoist_descriptor_count = min(info->hoist_descriptor_count, D3D12_MAX_ROOT_COST - desc->NumParameters);
+        info->hoist_descriptor_count = min(info->hoist_descriptor_count, (D3D12_MAX_ROOT_COST - info->cost) / 2);
+
+        info->push_descriptor_count += info->hoist_descriptor_count;
         info->binding_count += info->hoist_descriptor_count;
         info->binding_count += desc->NumStaticSamplers;
     }
@@ -952,7 +959,6 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
     VkDescriptorSetLayoutBinding *vk_binding, *vk_binding_info = NULL;
     struct vkd3d_descriptor_hoist_desc *hoist_desc;
     struct vkd3d_shader_resource_binding *binding;
-    VkDescriptorSetLayoutCreateFlags vk_flags;
     struct vkd3d_shader_root_parameter *param;
     uint32_t raw_va_root_descriptor_count = 0;
     unsigned int hoisted_parameter_index;
@@ -960,7 +966,7 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
     unsigned int i, j, k;
     HRESULT hr = S_OK;
 
-    if (info->push_descriptor_count || (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK))
+    if (info->push_descriptor_count || (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK))
     {
         if (!(vk_binding_info = vkd3d_malloc(sizeof(*vk_binding_info) * (info->push_descriptor_count + 1))))
             return E_OUTOFMEMORY;
@@ -1081,12 +1087,12 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
             context->vk_binding += 1;
     }
 
-    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK)
+    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
     {
         vk_binding = &vk_binding_info[j++];
         vk_binding->binding = context->vk_binding;
-        vk_binding->descriptorType = VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT;
-        vk_binding->descriptorCount = push_constant_range->size;
+        vk_binding->descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        vk_binding->descriptorCount = 1;
         vk_binding->stageFlags = VK_SHADER_STAGE_ALL;
         vk_binding->pImmutableSamplers = NULL;
 
@@ -1096,12 +1102,19 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
         context->vk_binding += 1;
     }
 
+    /* This should never happen. Min requirement for push descriptors is 32 and we can always fit into that limit. */
+    if (j > root_signature->device->device_info.push_descriptor_properties.maxPushDescriptors)
+    {
+        ERR("Number of descriptors %u exceeds push descriptor limit of %u.\n",
+                j, root_signature->device->device_info.push_descriptor_properties.maxPushDescriptors);
+        vkd3d_free(vk_binding_info);
+        return E_OUTOFMEMORY;
+    }
+
     if (j)
     {
-        vk_flags = root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_ROOT_DESCRIPTOR_SET
-                ? 0 : VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
-
-        hr = vkd3d_create_descriptor_set_layout(root_signature->device, vk_flags,
+        hr = vkd3d_create_descriptor_set_layout(root_signature->device,
+                VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
                 j, vk_binding_info, vk_set_layout);
     }
 
@@ -1333,24 +1346,9 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
             &root_signature->push_constant_range)))
         return hr;
 
-    if (root_signature->push_constant_range.size <= vk_device_properties->limits.maxPushConstantsSize)
-    {
-        if (info.push_descriptor_count > device->device_info.push_descriptor_properties.maxPushDescriptors)
-            root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_ROOT_DESCRIPTOR_SET;
-    }
-    else if (device->device_info.inline_uniform_block_features.inlineUniformBlock)
-    {
-        /* Stores push constant data with the root descriptor set,
-         * so we can't use push descriptors in this case. */
-        root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK |
-                VKD3D_ROOT_SIGNATURE_USE_ROOT_DESCRIPTOR_SET;
-    }
-    else
-    {
-        ERR("Root signature requires %d bytes of push constant space, but device only supports %d bytes.\n",
-                root_signature->push_constant_range.size, vk_device_properties->limits.maxPushConstantsSize);
-        return hr;
-    }
+    /* If we cannot contain the push constants, fall back to push UBO. */
+    if (root_signature->push_constant_range.size > vk_device_properties->limits.maxPushConstantsSize)
+        root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK;
 
     d3d12_root_signature_init_extra_bindings(root_signature, &info);
 
@@ -1372,8 +1370,11 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
     if (FAILED(hr = d3d12_root_signature_init_root_descriptor_tables(root_signature, desc, &info, &context)))
         return hr;
 
-    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK)
+    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
+    {
         root_signature->push_constant_range.stageFlags = 0;
+        root_signature->push_constant_range.size = 0;
+    }
 
     /* If we need to use restricted entry_points in vkCmdPushConstants,
      * we are unfortunately required to do it like this
@@ -1599,7 +1600,7 @@ unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_
 {
     unsigned int flags = 0;
 
-    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK)
+    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
         flags |= VKD3D_SHADER_INTERFACE_PUSH_CONSTANTS_AS_UNIFORM_BUFFER;
 
     if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER)
