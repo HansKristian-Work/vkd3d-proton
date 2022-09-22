@@ -4,6 +4,7 @@ vkd3d_shader_src = [
   'dxbc.c',
   'spirv.c',
   'vkd3d_shader_main.c',
+  '3rdparty/md5/md5.c',
 ]
 
 vkd3d_shader_lib = static_library('vkd3d-shader', vkd3d_shader_src,
