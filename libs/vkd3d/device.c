@@ -2181,6 +2181,12 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         return E_INVALIDARG;
     }
 
+    if (!physical_device_info->buffer_device_address_features.bufferDeviceAddress)
+    {
+        ERR("Buffer device address is not supported by this implementation. This is required for correct operation.\n");
+        return E_INVALIDARG;
+    }
+
     return S_OK;
 }
 

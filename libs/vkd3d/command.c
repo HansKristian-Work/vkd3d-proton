@@ -4296,16 +4296,8 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
                 *access |= VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
 
                 /* D3D12_RESOURCE_STATE_PREDICATION */
-                if (device->device_info.buffer_device_address_features.bufferDeviceAddress)
-                {
-                    *stages |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-                    *access |= VK_ACCESS_SHADER_READ_BIT;
-                }
-                else
-                {
-                    *stages |= VK_PIPELINE_STAGE_TRANSFER_BIT;
-                    *access |= VK_ACCESS_TRANSFER_READ_BIT;
-                }
+                *stages |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+                *access |= VK_ACCESS_SHADER_READ_BIT;
                 break;
 
             case D3D12_RESOURCE_STATE_COPY_DEST:
@@ -9940,8 +9932,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
     VkPipelineStageFlags dst_stages, src_stages;
     struct vkd3d_scratch_allocation scratch;
     VkAccessFlags dst_access, src_access;
-    VkCopyBufferInfo2KHR copy_info;
-    VkBufferCopy2KHR copy_region;
     VkMemoryBarrier vk_barrier;
 
     TRACE("iface %p, buffer %p, aligned_buffer_offset %#"PRIx64", operation %#x.\n",
@@ -9951,13 +9941,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
 
     if (resource && (aligned_buffer_offset & 0x7))
         return;
-
-    if (!list->device->device_info.buffer_device_address_features.bufferDeviceAddress &&
-            !list->device->device_info.conditional_rendering_features.conditionalRendering)
-    {
-        FIXME_ONCE("Conditional rendering not supported by device.\n");
-        return;
-    }
 
     if (list->predicate_enabled)
         VK_CALL(vkCmdEndConditionalRenderingEXT(list->vk_command_buffer));
@@ -9975,52 +9958,24 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
         begin_info.offset = scratch.offset;
         begin_info.flags = 0;
 
-        if (list->device->device_info.buffer_device_address_features.bufferDeviceAddress)
-        {
-            /* Resolve 64-bit predicate into a 32-bit location so that this works with
-             * VK_EXT_conditional_rendering. We'll handle the predicate operation here
-             * so setting VK_CONDITIONAL_RENDERING_INVERTED_BIT_EXT is not necessary. */
-            d3d12_command_list_invalidate_current_pipeline(list, true);
-            d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
+        /* Resolve 64-bit predicate into a 32-bit location so that this works with
+         * VK_EXT_conditional_rendering. We'll handle the predicate operation here
+         * so setting VK_CONDITIONAL_RENDERING_INVERTED_BIT_EXT is not necessary. */
+        d3d12_command_list_invalidate_current_pipeline(list, true);
+        d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
 
-            resolve_args.src_va = d3d12_resource_get_va(resource, aligned_buffer_offset);
-            resolve_args.dst_va = scratch.va;
-            resolve_args.invert = operation != D3D12_PREDICATION_OP_EQUAL_ZERO;
+        resolve_args.src_va = d3d12_resource_get_va(resource, aligned_buffer_offset);
+        resolve_args.dst_va = scratch.va;
+        resolve_args.invert = operation != D3D12_PREDICATION_OP_EQUAL_ZERO;
 
-            VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                    predicate_ops->vk_resolve_pipeline));
-            VK_CALL(vkCmdPushConstants(list->vk_command_buffer, predicate_ops->vk_resolve_pipeline_layout,
-                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(resolve_args), &resolve_args));
-            VK_CALL(vkCmdDispatch(list->vk_command_buffer, 1, 1, 1));
+        VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                predicate_ops->vk_resolve_pipeline));
+        VK_CALL(vkCmdPushConstants(list->vk_command_buffer, predicate_ops->vk_resolve_pipeline_layout,
+                VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(resolve_args), &resolve_args));
+        VK_CALL(vkCmdDispatch(list->vk_command_buffer, 1, 1, 1));
 
-            src_stages = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-            src_access = VK_ACCESS_SHADER_WRITE_BIT;
-        }
-        else
-        {
-            FIXME_ONCE("64-bit predicates not supported.\n");
-
-            copy_region.sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2_KHR;
-            copy_region.pNext = NULL;
-            copy_region.srcOffset = resource->mem.offset + aligned_buffer_offset;
-            copy_region.dstOffset = scratch.offset;
-            copy_region.size = sizeof(uint32_t);
-
-            copy_info.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2_KHR;
-            copy_info.pNext = NULL;
-            copy_info.srcBuffer = resource->res.vk_buffer;
-            copy_info.dstBuffer = scratch.buffer;
-            copy_info.regionCount = 1;
-            copy_info.pRegions = &copy_region;
-
-            VK_CALL(vkCmdCopyBuffer2KHR(list->vk_command_buffer, &copy_info));
-
-            src_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
-            src_access = VK_ACCESS_TRANSFER_WRITE_BIT;
-
-            if (operation != D3D12_PREDICATION_OP_EQUAL_ZERO)
-                begin_info.flags = VK_CONDITIONAL_RENDERING_INVERTED_BIT_EXT;
-        }
+        src_stages = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+        src_access = VK_ACCESS_SHADER_WRITE_BIT;
 
         if (list->device->device_info.conditional_rendering_features.conditionalRendering)
         {

@@ -5218,22 +5218,19 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
     /* Always use a typed offset buffer. Otherwise, we risk ending up with unbounded size on view maps. */
     flags |= VKD3D_TYPED_OFFSET_BUFFER;
 
-    if (device_info->buffer_device_address_features.bufferDeviceAddress && (flags & VKD3D_BINDLESS_UAV))
+    if (flags & VKD3D_BINDLESS_UAV)
         flags |= VKD3D_RAW_VA_AUX_BUFFER;
 
     /* We must use root SRV and UAV due to alignment requirements for 16-bit storage,
      * but root CBV is more lax. */
-    if (device_info->buffer_device_address_features.bufferDeviceAddress)
-    {
-        flags |= VKD3D_RAW_VA_ROOT_DESCRIPTOR_SRV_UAV;
-        /* CBV's really require push descriptors on NVIDIA to get maximum performance.
-         * The difference in performance is profound (~15% in some cases).
-         * On ACO, BDA with NonWritable can be promoted directly to scalar loads,
-         * which is great. */
-        if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_RAW_VA_CBV) ||
-                device_info->properties2.properties.vendorID != VKD3D_VENDOR_ID_NVIDIA)
-            flags |= VKD3D_RAW_VA_ROOT_DESCRIPTOR_CBV;
-    }
+    flags |= VKD3D_RAW_VA_ROOT_DESCRIPTOR_SRV_UAV;
+    /* CBV's really require push descriptors on NVIDIA to get maximum performance.
+     * The difference in performance is profound (~15% in some cases).
+     * On ACO, BDA with NonWritable can be promoted directly to scalar loads,
+     * which is great. */
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_RAW_VA_CBV) ||
+            device_info->properties2.properties.vendorID != VKD3D_VENDOR_ID_NVIDIA)
+        flags |= VKD3D_RAW_VA_ROOT_DESCRIPTOR_CBV;
 
     if (device_info->properties2.properties.vendorID == VKD3D_VENDOR_ID_NVIDIA &&
             !(flags & VKD3D_RAW_VA_ROOT_DESCRIPTOR_CBV))

@@ -162,8 +162,7 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     }
 
-    if (device->device_info.buffer_device_address_features.bufferDeviceAddress)
-        buffer_info.usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR;
+    buffer_info.usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR;
 
     if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
         buffer_info.usage |= VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT;
@@ -2614,12 +2613,7 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
         vkd3d_free(resource->sparse.tilings);
 
         if (resource->res.va)
-        {
             vkd3d_va_map_remove(&device->memory_allocator.va_map, &resource->res);
-
-            if (!device->device_info.buffer_device_address_features.bufferDeviceAddress)
-                vkd3d_va_map_free_fake_va(&device->memory_allocator.va_map, resource->res.va, resource->res.size);
-        }
     }
 
     if (d3d12_resource_is_texture(resource))
@@ -3062,11 +3056,7 @@ HRESULT d3d12_resource_create_reserved(struct d3d12_device *device,
     if (d3d12_resource_is_buffer(object))
     {
         object->res.size = object->desc.Width;
-
-        if (device->device_info.buffer_device_address_features.bufferDeviceAddress)
-            object->res.va = vkd3d_get_buffer_device_address(device, object->res.vk_buffer);
-        else
-            object->res.va = vkd3d_va_map_alloc_fake_va(&device->memory_allocator.va_map, object->res.size);
+        object->res.va = vkd3d_get_buffer_device_address(device, object->res.vk_buffer);
 
         if (!object->res.va)
         {
