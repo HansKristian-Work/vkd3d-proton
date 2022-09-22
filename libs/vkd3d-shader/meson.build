@@ -3,7 +3,6 @@ vkd3d_shader_src = [
   'dxil.c',
   'dxbc.c',
   'spirv.c',
-  'trace.c',
   'vkd3d_shader_main.c',
 ]
 
