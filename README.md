@@ -31,6 +31,7 @@ There are some hard requirements on drivers to be able to implement D3D12 in a r
 - `VK_EXT_extended_dynamic_state`
 - `VK_EXT_extended_dynamic_state2`
 - `VK_KHR_buffer_device_address`
+- `VK_KHR_push_descriptor`
 
 Some notable extensions that **should** be supported for optimal or correct behavior.
 These extensions will likely become mandatory later.
