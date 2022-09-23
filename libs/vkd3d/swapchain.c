@@ -194,8 +194,6 @@ struct d3d12_swapchain
 
     struct
     {
-        VkDescriptorPool pool;
-        VkDescriptorSet sets[DXGI_MAX_SWAP_CHAIN_BUFFERS];
         VkImageView vk_image_views[DXGI_MAX_SWAP_CHAIN_BUFFERS];
     } descriptors;
 
@@ -816,7 +814,7 @@ static bool d3d12_swapchain_has_user_images(struct d3d12_swapchain *swapchain)
 
 static bool d3d12_swapchain_has_user_descriptors(struct d3d12_swapchain *swapchain)
 {
-    return swapchain->descriptors.pool != VK_NULL_HANDLE;
+    return swapchain->descriptors.vk_image_views[0] != VK_NULL_HANDLE;
 }
 
 static HRESULT d3d12_swapchain_get_user_graphics_pipeline(struct d3d12_swapchain *swapchain, VkFormat format)
@@ -845,21 +843,13 @@ static void d3d12_swapchain_destroy_user_descriptors(struct d3d12_swapchain *swa
         VK_CALL(vkDestroyImageView(device->vk_device, swapchain->descriptors.vk_image_views[i], NULL));
         swapchain->descriptors.vk_image_views[i] = VK_NULL_HANDLE;
     }
-
-    VK_CALL(vkDestroyDescriptorPool(device->vk_device, swapchain->descriptors.pool, NULL));
-    swapchain->descriptors.pool = VK_NULL_HANDLE;
 }
 
 static HRESULT d3d12_swapchain_create_user_descriptors(struct d3d12_swapchain *swapchain, VkFormat vk_format)
 {
     struct d3d12_device *device = d3d12_swapchain_device(swapchain);
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkDescriptorPoolCreateInfo pool_create_info;
-    VkDescriptorSetAllocateInfo allocate_info;
     VkImageViewCreateInfo image_view_info;
-    VkDescriptorImageInfo image_info;
-    VkWriteDescriptorSet write_info;
-    VkDescriptorPoolSize pool_sizes;
     VkResult vr;
     UINT i;
 
@@ -883,49 +873,6 @@ static HRESULT d3d12_swapchain_create_user_descriptors(struct d3d12_swapchain *s
         image_view_info.image = swapchain->vk_images[i];
         if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &image_view_info, NULL, &swapchain->descriptors.vk_image_views[i]))))
             return hresult_from_vk_result(vr);
-    }
-
-    pool_sizes.descriptorCount = swapchain->desc.BufferCount;
-    pool_sizes.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-
-    pool_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_create_info.pNext = NULL;
-    pool_create_info.flags = 0;
-    pool_create_info.poolSizeCount = 1;
-    pool_create_info.pPoolSizes = &pool_sizes;
-    pool_create_info.maxSets = swapchain->desc.BufferCount;
-    if ((vr = VK_CALL(vkCreateDescriptorPool(device->vk_device, &pool_create_info, NULL, &swapchain->descriptors.pool))))
-        return hresult_from_vk_result(vr);
-
-    allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocate_info.pNext = NULL;
-    allocate_info.descriptorPool = swapchain->descriptors.pool;
-    allocate_info.descriptorSetCount = 1;
-    allocate_info.pSetLayouts = &swapchain->pipeline.vk_set_layout;
-
-    for (i = 0; i < swapchain->desc.BufferCount; i++)
-    {
-        if ((vr = VK_CALL(vkAllocateDescriptorSets(device->vk_device, &allocate_info, &swapchain->descriptors.sets[i]))))
-            return hresult_from_vk_result(vr);
-    }
-
-    write_info.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write_info.pNext = NULL;
-    write_info.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    write_info.pBufferInfo = NULL;
-    write_info.pTexelBufferView = NULL;
-    write_info.pImageInfo = &image_info;
-    write_info.dstBinding = 0;
-    write_info.dstArrayElement = 0;
-    write_info.descriptorCount = 1;
-    image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    image_info.sampler = VK_NULL_HANDLE;
-
-    for (i = 0; i < swapchain->desc.BufferCount; i++)
-    {
-        write_info.dstSet = swapchain->descriptors.sets[i];
-        image_info.imageView = swapchain->descriptors.vk_image_views[i];
-        VK_CALL(vkUpdateDescriptorSets(device->vk_device, 1, &write_info, 0, NULL));
     }
 
     return S_OK;
@@ -1002,6 +949,8 @@ static VkResult d3d12_swapchain_record_swapchain_blit(struct d3d12_swapchain *sw
     VkCommandBufferBeginInfo begin_info;
     VkImageMemoryBarrier image_barrier;
     VkRenderingInfoKHR rendering_info;
+    VkDescriptorImageInfo image_info;
+    VkWriteDescriptorSet write_info;
     VkViewport viewport;
     VkResult vr;
 
@@ -1076,9 +1025,24 @@ static VkResult d3d12_swapchain_record_swapchain_blit(struct d3d12_swapchain *sw
     VK_CALL(vkCmdSetViewport(vk_cmd_buffer, 0, 1, &viewport));
     VK_CALL(vkCmdSetScissor(vk_cmd_buffer, 0, 1, &rendering_info.renderArea));
     VK_CALL(vkCmdBindPipeline(vk_cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, swapchain->pipeline.vk_pipeline));
-    VK_CALL(vkCmdBindDescriptorSets(vk_cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-            swapchain->pipeline.vk_pipeline_layout, 0, 1, &swapchain->descriptors.sets[src_index],
-            0, NULL));
+
+    write_info.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write_info.pNext = NULL;
+    write_info.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write_info.pBufferInfo = NULL;
+    write_info.dstSet = VK_NULL_HANDLE;
+    write_info.pTexelBufferView = NULL;
+    write_info.pImageInfo = &image_info;
+    write_info.dstBinding = 0;
+    write_info.dstArrayElement = 0;
+    write_info.descriptorCount = 1;
+    image_info.imageView = swapchain->descriptors.vk_image_views[src_index];
+    image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    image_info.sampler = VK_NULL_HANDLE;
+
+    VK_CALL(vkCmdPushDescriptorSetKHR(vk_cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            swapchain->pipeline.vk_pipeline_layout, 0, 1, &write_info));
+
     VK_CALL(vkCmdDraw(vk_cmd_buffer, 3, 1, 0, 0));
     VK_CALL(vkCmdEndRenderingKHR(vk_cmd_buffer));
 
