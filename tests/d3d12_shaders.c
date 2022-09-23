@@ -7736,6 +7736,8 @@ void test_tgsm(void)
             get_cpu_descriptor_handle(&context, cpu_descriptor_heap, 1),
             buffer2, zero, 0, NULL);
 
+    uav_barrier(command_list, NULL);
+
     gpu_descriptor_handle = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(descriptor_heap);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
     ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, context.root_signature);
