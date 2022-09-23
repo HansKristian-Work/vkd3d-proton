@@ -46,7 +46,7 @@ static VkResult vkd3d_meta_create_descriptor_set_layout(struct d3d12_device *dev
 
     set_layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     set_layout_info.pNext = NULL;
-    set_layout_info.flags = 0;
+    set_layout_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
     set_layout_info.bindingCount = binding_count;
     set_layout_info.pBindings = bindings;
 

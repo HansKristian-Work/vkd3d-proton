@@ -1943,12 +1943,6 @@ struct d3d12_descriptor_pool_cache
     size_t descriptor_pool_count;
 };
 
-enum vkd3d_descriptor_pool_types
-{
-    VKD3D_DESCRIPTOR_POOL_TYPE_STATIC = 0,
-    VKD3D_DESCRIPTOR_POOL_TYPE_COUNT
-};
-
 #define VKD3D_SCRATCH_BUFFER_SIZE (1ull << 20)
 #define VKD3D_SCRATCH_BUFFER_COUNT (32u)
 
@@ -2002,8 +1996,6 @@ struct d3d12_command_allocator
     uint32_t vk_family_index;
 
     VkCommandPool vk_command_pool;
-
-    struct d3d12_descriptor_pool_cache descriptor_pool_caches[VKD3D_DESCRIPTOR_POOL_TYPE_COUNT];
 
     struct vkd3d_view **views;
     size_t views_size;
