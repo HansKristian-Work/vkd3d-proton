@@ -2880,9 +2880,8 @@ enum vkd3d_bindless_set_flag
     VKD3D_BINDLESS_SET_UAV        = (1u << 3),
     VKD3D_BINDLESS_SET_IMAGE      = (1u << 4),
     VKD3D_BINDLESS_SET_BUFFER     = (1u << 5),
-    VKD3D_BINDLESS_SET_AUX_BUFFER = (1u << 6),
-    VKD3D_BINDLESS_SET_RAW_SSBO   = (1u << 7),
-    VKD3D_BINDLESS_SET_MUTABLE    = (1u << 8),
+    VKD3D_BINDLESS_SET_RAW_SSBO   = (1u << 6),
+    VKD3D_BINDLESS_SET_MUTABLE    = (1u << 7),
 
     VKD3D_BINDLESS_SET_EXTRA_RAW_VA_AUX_BUFFER           = (1u << 24),
     VKD3D_BINDLESS_SET_EXTRA_OFFSET_BUFFER               = (1u << 25),
