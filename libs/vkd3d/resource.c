@@ -3275,28 +3275,9 @@ void d3d12_desc_copy_single(vkd3d_cpu_descriptor_va_t dst_va, vkd3d_cpu_descript
 
     if (flags & VKD3D_DESCRIPTOR_FLAG_RAW_VA_AUX_BUFFER)
     {
-        if (dst.heap->raw_va_aux_buffer.host_ptr)
-        {
-            const VkDeviceAddress *src_vas = src.heap->raw_va_aux_buffer.host_ptr;
-            VkDeviceAddress *dst_vas = dst.heap->raw_va_aux_buffer.host_ptr;
-            dst_vas[dst.offset] = src_vas[src.offset];
-        }
-        else
-        {
-            binding = vkd3d_bindless_state_find_set(
-                    &device->bindless_state, VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_AUX_BUFFER);
-
-            vk_copy = &vk_copies[copy_count++];
-            vk_copy->sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
-            vk_copy->pNext = NULL;
-            vk_copy->srcSet = src.heap->sets[binding.set].vk_descriptor_set;
-            vk_copy->srcBinding = binding.binding;
-            vk_copy->srcArrayElement = src.offset;
-            vk_copy->dstSet = dst.heap->sets[binding.set].vk_descriptor_set;
-            vk_copy->dstBinding = binding.binding;
-            vk_copy->dstArrayElement = dst.offset;
-            vk_copy->descriptorCount = 1;
-        }
+        const VkDeviceAddress *src_vas = src.heap->raw_va_aux_buffer.host_ptr;
+        VkDeviceAddress *dst_vas = dst.heap->raw_va_aux_buffer.host_ptr;
+        dst_vas[dst.offset] = src_vas[src.offset];
     }
 
     if (copy_count)
