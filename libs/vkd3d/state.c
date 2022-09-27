@@ -361,7 +361,6 @@ struct d3d12_root_signature_info
     uint32_t push_descriptor_count;
     uint32_t root_constant_count;
     uint32_t hoist_descriptor_count;
-    bool has_raw_va_aux_buffer;
     bool has_ssbo_offset_buffer;
     bool has_typed_offset_buffer;
 
@@ -399,8 +398,6 @@ static void d3d12_root_signature_info_count_srv_uav_table(struct d3d12_root_sign
     if (device->bindless_state.flags & VKD3D_BINDLESS_RAW_SSBO)
         info->binding_count += 1;
 
-    if (device->bindless_state.flags & VKD3D_RAW_VA_AUX_BUFFER)
-        info->has_raw_va_aux_buffer = true;
     if (device->bindless_state.flags & VKD3D_SSBO_OFFSET_BUFFER)
         info->has_ssbo_offset_buffer = true;
     if (device->bindless_state.flags & VKD3D_TYPED_OFFSET_BUFFER)
@@ -695,29 +692,13 @@ static void d3d12_root_signature_init_srv_uav_binding(struct d3d12_root_signatur
 {
     struct vkd3d_bindless_state *bindless_state = &root_signature->device->bindless_state;
     enum vkd3d_bindless_set_flag range_flag;
-    bool has_aux_buffer;
 
     range_flag = vkd3d_bindless_set_flag_from_descriptor_range_type(range_type);
     binding->flags = VKD3D_SHADER_BINDING_FLAG_BINDLESS | VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER;
-    has_aux_buffer = false;
 
-    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_RAW_VA_AUX_BUFFER)
-    {
-        binding->flags |= VKD3D_SHADER_BINDING_FLAG_RAW_VA;
-        binding->binding = root_signature->raw_va_aux_buffer_binding;
-        has_aux_buffer = true;
-    }
-    else if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV)
-    {
-        /* There is no fallback heap for RTAS (SRV), this is only relevant for UAV counters. */
-        if (vkd3d_bindless_state_find_binding(bindless_state, range_flag | VKD3D_BINDLESS_SET_AUX_BUFFER, &binding->binding))
-            has_aux_buffer = true;
-        else
-            ERR("Failed to find aux buffer binding.\n");
-    }
-
-    if (has_aux_buffer)
-        out_bindings_base[(*out_index)++] = *binding;
+    binding->flags |= VKD3D_SHADER_BINDING_FLAG_RAW_VA;
+    binding->binding = root_signature->raw_va_aux_buffer_binding;
+    out_bindings_base[(*out_index)++] = *binding;
 
     if (vkd3d_bindless_state_find_binding(bindless_state, range_flag | VKD3D_BINDLESS_SET_BUFFER, &binding->binding))
     {
@@ -872,14 +853,9 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
 static void d3d12_root_signature_init_extra_bindings(struct d3d12_root_signature *root_signature,
         const struct d3d12_root_signature_info *info)
 {
-    if (info->has_raw_va_aux_buffer)
-    {
-        root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_RAW_VA_AUX_BUFFER;
-
-        vkd3d_bindless_state_find_binding(&root_signature->device->bindless_state,
-                VKD3D_BINDLESS_SET_EXTRA_RAW_VA_AUX_BUFFER,
-                &root_signature->raw_va_aux_buffer_binding);
-    }
+    vkd3d_bindless_state_find_binding(&root_signature->device->bindless_state,
+            VKD3D_BINDLESS_SET_EXTRA_RAW_VA_AUX_BUFFER,
+            &root_signature->raw_va_aux_buffer_binding);
 
     if (info->has_ssbo_offset_buffer || info->has_typed_offset_buffer)
     {
@@ -5208,9 +5184,6 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
     /* Always use a typed offset buffer. Otherwise, we risk ending up with unbounded size on view maps. */
     flags |= VKD3D_TYPED_OFFSET_BUFFER;
 
-    if (flags & VKD3D_BINDLESS_UAV)
-        flags |= VKD3D_RAW_VA_AUX_BUFFER;
-
     /* We must use root SRV and UAV due to alignment requirements for 16-bit storage,
      * but root CBV is more lax. */
     flags |= VKD3D_RAW_VA_ROOT_DESCRIPTOR_SRV_UAV;
@@ -5264,9 +5237,7 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
         goto fail;
     }
 
-    if (bindless_state->flags & VKD3D_RAW_VA_AUX_BUFFER)
-        extra_bindings |= VKD3D_BINDLESS_SET_EXTRA_RAW_VA_AUX_BUFFER;
-
+    extra_bindings |= VKD3D_BINDLESS_SET_EXTRA_RAW_VA_AUX_BUFFER;
     if (bindless_state->flags & (VKD3D_SSBO_OFFSET_BUFFER | VKD3D_TYPED_OFFSET_BUFFER))
         extra_bindings |= VKD3D_BINDLESS_SET_EXTRA_OFFSET_BUFFER;
 
@@ -5330,14 +5301,6 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
                 VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_SRV |
                 VKD3D_BINDLESS_SET_RAW_SSBO,
                 VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)))
-            goto fail;
-    }
-
-    if (!(bindless_state->flags & VKD3D_RAW_VA_AUX_BUFFER))
-    {
-        if (FAILED(hr = vkd3d_bindless_state_add_binding(bindless_state, device,
-                VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_AUX_BUFFER,
-                VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)))
             goto fail;
     }
 

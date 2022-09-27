@@ -3367,27 +3367,9 @@ void d3d12_desc_copy_range(vkd3d_cpu_descriptor_va_t dst_va, vkd3d_cpu_descripto
 
     if (heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
     {
-        if (device->bindless_state.flags & VKD3D_RAW_VA_AUX_BUFFER)
-        {
-            const VkDeviceAddress *src_vas = src.heap->raw_va_aux_buffer.host_ptr;
-            VkDeviceAddress *dst_vas = dst.heap->raw_va_aux_buffer.host_ptr;
-            memcpy(dst_vas + dst.offset, src_vas + src.offset, sizeof(*dst_vas) * count);
-        }
-        else
-        {
-            binding = vkd3d_bindless_state_find_set(&device->bindless_state, VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_AUX_BUFFER);
-
-            vk_copy = &vk_copies[copy_count++];
-            vk_copy->sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
-            vk_copy->pNext = NULL;
-            vk_copy->srcSet = src.heap->sets[binding.set].vk_descriptor_set;
-            vk_copy->srcBinding = binding.binding;
-            vk_copy->srcArrayElement = src.offset;
-            vk_copy->dstSet = dst.heap->sets[binding.set].vk_descriptor_set;
-            vk_copy->dstBinding = binding.binding;
-            vk_copy->dstArrayElement = dst.offset;
-            vk_copy->descriptorCount = count;
-        }
+        const VkDeviceAddress *src_vas = src.heap->raw_va_aux_buffer.host_ptr;
+        VkDeviceAddress *dst_vas = dst.heap->raw_va_aux_buffer.host_ptr;
+        memcpy(dst_vas + dst.offset, src_vas + src.offset, sizeof(*dst_vas) * count);
 
         if (device->bindless_state.flags & (VKD3D_TYPED_OFFSET_BUFFER | VKD3D_SSBO_OFFSET_BUFFER))
         {
@@ -4558,10 +4540,12 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
     bool mutable_uses_single_descriptor;
     VkDescriptorType vk_descriptor_type;
     VkDeviceAddress uav_counter_address;
+    VkDeviceAddress *counter_addresses;
     VkWriteDescriptorSet vk_write[3];
     struct vkd3d_view *view = NULL;
-    VkBufferView uav_counter_view;
     struct d3d12_desc_split d;
+    uint32_t descriptor_index;
+    VkDeviceAddress address;
     uint32_t info_index;
     bool desc_is_raw;
     bool emit_typed;
@@ -4686,7 +4670,6 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
         d.types->flags |= VKD3D_DESCRIPTOR_FLAG_SINGLE_DESCRIPTOR;
 
     /* Handle UAV counter */
-    uav_counter_view = VK_NULL_HANDLE;
     uav_counter_address = 0;
 
     if (resource && counter_resource)
@@ -4694,43 +4677,16 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
         assert(d3d12_resource_is_buffer(counter_resource));
         assert(desc->Buffer.StructureByteStride);
 
-        if (device->bindless_state.flags & VKD3D_RAW_VA_AUX_BUFFER)
-        {
-            VkDeviceAddress address = vkd3d_get_buffer_device_address(device, counter_resource->res.vk_buffer);
-            uav_counter_address = address + counter_resource->mem.offset + desc->Buffer.CounterOffsetInBytes;
-        }
-        else
-        {
-            struct vkd3d_view *view;
-
-            if (!vkd3d_create_buffer_view_for_resource(device, counter_resource, DXGI_FORMAT_R32_UINT,
-                    desc->Buffer.CounterOffsetInBytes / sizeof(uint32_t), 1, 0, 0, &view))
-                return;
-
-            uav_counter_view = view->vk_buffer_view;
-        }
+        address = vkd3d_get_buffer_device_address(device, counter_resource->res.vk_buffer);
+        uav_counter_address = address + counter_resource->mem.offset + desc->Buffer.CounterOffsetInBytes;
 
         /* This is used to denote that a counter descriptor is present, irrespective of underlying descriptor type. */
         descriptor_qa_flags |= VKD3D_DESCRIPTOR_QA_TYPE_RAW_VA_BIT;
     }
 
-    if (device->bindless_state.flags & VKD3D_RAW_VA_AUX_BUFFER)
-    {
-        VkDeviceAddress *counter_addresses = d.heap->raw_va_aux_buffer.host_ptr;
-        uint32_t descriptor_index = d.offset;
-        counter_addresses[descriptor_index] = uav_counter_address;
-    }
-    else
-    {
-        struct vkd3d_descriptor_binding binding = vkd3d_bindless_state_find_set(
-                &device->bindless_state, VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_AUX_BUFFER);
-
-        descriptor_info[vk_write_count].buffer_view = uav_counter_view;
-        vkd3d_init_write_descriptor_set(&vk_write[vk_write_count], &d,
-                binding,
-                VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, &descriptor_info[vk_write_count]);
-        vk_write_count++;
-    }
+    counter_addresses = d.heap->raw_va_aux_buffer.host_ptr;
+    descriptor_index = d.offset;
+    counter_addresses[descriptor_index] = uav_counter_address;
 
     vkd3d_descriptor_debug_write_descriptor(d.heap->descriptor_heap_info.host_ptr,
             d.heap->cookie, d.offset,
@@ -5743,12 +5699,9 @@ static HRESULT d3d12_descriptor_heap_init_data_buffer(struct d3d12_descriptor_he
 
     if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
     {
-        if (device->bindless_state.flags & VKD3D_RAW_VA_AUX_BUFFER)
-        {
-            raw_va_buffer_size = align(desc->NumDescriptors * sizeof(VkDeviceAddress), alignment);
-            if (vkd3d_descriptor_debug_active_qa_checks())
-                raw_va_buffer_size += align(VKD3D_DESCRIPTOR_DEBUG_NUM_PAD_DESCRIPTORS * sizeof(VkDeviceAddress), alignment);
-        }
+        raw_va_buffer_size = align(desc->NumDescriptors * sizeof(VkDeviceAddress), alignment);
+        if (vkd3d_descriptor_debug_active_qa_checks())
+            raw_va_buffer_size += align(VKD3D_DESCRIPTOR_DEBUG_NUM_PAD_DESCRIPTORS * sizeof(VkDeviceAddress), alignment);
 
         if (device->bindless_state.flags & (VKD3D_SSBO_OFFSET_BUFFER | VKD3D_TYPED_OFFSET_BUFFER))
             offset_buffer_size = align(desc->NumDescriptors * sizeof(struct vkd3d_bound_buffer_range), alignment);
