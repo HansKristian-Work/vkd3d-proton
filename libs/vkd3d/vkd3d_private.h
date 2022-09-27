@@ -53,8 +53,10 @@
 #define VKD3D_MAX_SHADER_STAGES           5u
 #define VKD3D_MAX_VK_SYNC_OBJECTS         4u
 
-#define VKD3D_MAX_DESCRIPTOR_SETS 11u
-#define VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS 8u
+/* 6 types for CBV_SRV_UAV and 1 for sampler. */
+#define VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS 7u
+/* The above plus one push descriptor set + static sampler set + static sampler set for local root signatures. */
+#define VKD3D_MAX_DESCRIPTOR_SETS (VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS + 3u)
 #define VKD3D_MAX_MUTABLE_DESCRIPTOR_TYPES 6u
 
 #define VKD3D_TILE_SIZE 65536
@@ -1355,9 +1357,8 @@ static inline bool d3d12_query_heap_type_is_inline(D3D12_QUERY_HEAP_TYPE heap_ty
 enum vkd3d_root_signature_flag
 {
     VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK = 0x00000001u,
-    VKD3D_ROOT_SIGNATURE_USE_RAW_VA_AUX_BUFFER           = 0x00000002u,
-    VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER          = 0x00000004u,
-    VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER         = 0x00000008u,
+    VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER          = 0x00000002u,
+    VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER         = 0x00000004u,
 };
 
 enum vkd3d_pipeline_type
@@ -2858,16 +2859,15 @@ enum vkd3d_bindless_flags
     VKD3D_BINDLESS_CBV                   = (1u << 1),
     VKD3D_BINDLESS_SRV                   = (1u << 2),
     VKD3D_BINDLESS_UAV                   = (1u << 3),
-    VKD3D_RAW_VA_AUX_BUFFER              = (1u << 4),
-    VKD3D_BINDLESS_CBV_AS_SSBO           = (1u << 5),
-    VKD3D_BINDLESS_RAW_SSBO              = (1u << 6),
-    VKD3D_SSBO_OFFSET_BUFFER             = (1u << 7),
-    VKD3D_TYPED_OFFSET_BUFFER            = (1u << 8),
-    VKD3D_RAW_VA_ROOT_DESCRIPTOR_CBV     = (1u << 9),
-    VKD3D_RAW_VA_ROOT_DESCRIPTOR_SRV_UAV = (1u << 10),
-    VKD3D_BINDLESS_MUTABLE_TYPE          = (1u << 11),
-    VKD3D_HOIST_STATIC_TABLE_CBV         = (1u << 12),
-    VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO = (1u << 13),
+    VKD3D_BINDLESS_CBV_AS_SSBO           = (1u << 4),
+    VKD3D_BINDLESS_RAW_SSBO              = (1u << 5),
+    VKD3D_SSBO_OFFSET_BUFFER             = (1u << 6),
+    VKD3D_TYPED_OFFSET_BUFFER            = (1u << 7),
+    VKD3D_RAW_VA_ROOT_DESCRIPTOR_CBV     = (1u << 8),
+    VKD3D_RAW_VA_ROOT_DESCRIPTOR_SRV_UAV = (1u << 9),
+    VKD3D_BINDLESS_MUTABLE_TYPE          = (1u << 10),
+    VKD3D_HOIST_STATIC_TABLE_CBV         = (1u << 11),
+    VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO = (1u << 12),
 };
 
 #define VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS 8
