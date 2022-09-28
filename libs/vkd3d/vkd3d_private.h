@@ -1047,10 +1047,10 @@ bool vkd3d_create_texture_view(struct d3d12_device *device,
 
 enum vkd3d_descriptor_flag
 {
-    VKD3D_DESCRIPTOR_FLAG_VIEW              = (1 << 0),
+    VKD3D_DESCRIPTOR_FLAG_IMAGE_VIEW        = (1 << 0),
     VKD3D_DESCRIPTOR_FLAG_RAW_VA_AUX_BUFFER = (1 << 1),
     VKD3D_DESCRIPTOR_FLAG_BUFFER_OFFSET     = (1 << 2),
-    VKD3D_DESCRIPTOR_FLAG_OFFSET_RANGE      = (1 << 3),
+    VKD3D_DESCRIPTOR_FLAG_BUFFER_VA_RANGE   = (1 << 3),
     VKD3D_DESCRIPTOR_FLAG_NON_NULL          = (1 << 4),
     VKD3D_DESCRIPTOR_FLAG_SINGLE_DESCRIPTOR = (1 << 5),
 };
@@ -1081,6 +1081,16 @@ STATIC_ASSERT(sizeof(struct vkd3d_descriptor_metadata_types) == 8);
 /* Our use of 8-bit mask relies on MAX_BINDLESS_DESCRIPTOR_SETS fitting. */
 STATIC_ASSERT(VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS <= 8);
 
+struct vkd3d_descriptor_metadata_buffer_view
+{
+    VkDeviceAddress va;
+    /* Allows tighter packing. 64-bit view range is not supported in D3D12. */
+    uint32_t range;
+    /* Format used if used in a formatted context such as UAV clears.
+     * If UNKNOWN, denotes a raw buffer. R32_UINT can be used in place of it. */
+    DXGI_FORMAT dxgi_format;
+};
+
 struct vkd3d_descriptor_metadata_view
 {
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
@@ -1088,20 +1098,20 @@ struct vkd3d_descriptor_metadata_view
 #endif
     union
     {
-        VkDescriptorBufferInfo buffer;
+        struct vkd3d_descriptor_metadata_buffer_view buffer;
         struct vkd3d_view *view;
     } info;
 };
 
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-STATIC_ASSERT(sizeof(struct vkd3d_descriptor_metadata_view) == 32);
+STATIC_ASSERT(sizeof(struct vkd3d_descriptor_metadata_view) == 24);
 static inline void vkd3d_descriptor_metadata_view_set_qa_cookie(
         struct vkd3d_descriptor_metadata_view *view, uint64_t cookie)
 {
     view->qa_cookie = cookie;
 }
 #else
-STATIC_ASSERT(sizeof(struct vkd3d_descriptor_metadata_view) == 24);
+STATIC_ASSERT(sizeof(struct vkd3d_descriptor_metadata_view) == 16);
 #define vkd3d_descriptor_metadata_view_set_qa_cookie(view, cookie) ((void)0)
 #endif
 
