@@ -1101,14 +1101,27 @@ STATIC_ASSERT(VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS <= 8);
 
 struct vkd3d_descriptor_metadata_view
 {
-    uint64_t cookie;
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    uint64_t qa_cookie;
+#endif
     union
     {
         VkDescriptorBufferInfo buffer;
         struct vkd3d_view *view;
     } info;
 };
+
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
 STATIC_ASSERT(sizeof(struct vkd3d_descriptor_metadata_view) == 32);
+static inline void vkd3d_descriptor_metadata_view_set_qa_cookie(
+        struct vkd3d_descriptor_metadata_view *view, uint64_t cookie)
+{
+    view->qa_cookie = cookie;
+}
+#else
+STATIC_ASSERT(sizeof(struct vkd3d_descriptor_metadata_view) == 24);
+#define vkd3d_descriptor_metadata_view_set_qa_cookie(view, cookie) ((void)0)
+#endif
 
 typedef uintptr_t vkd3d_cpu_descriptor_va_t;
 
