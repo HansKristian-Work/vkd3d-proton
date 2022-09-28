@@ -3523,6 +3523,26 @@ bool vkd3d_create_acceleration_structure_view(struct d3d12_device *device, const
 
 #define VKD3D_VIEW_RAW_BUFFER 0x1
 
+static void vkd3d_get_metadata_buffer_view_for_resource(struct d3d12_device *device,
+        struct d3d12_resource *resource, DXGI_FORMAT view_format,
+        unsigned int offset, unsigned int size, unsigned int structure_stride,
+        struct vkd3d_descriptor_metadata_buffer_view *view)
+{
+    VkDeviceSize element_size;
+
+    element_size = view_format == DXGI_FORMAT_UNKNOWN
+            ? structure_stride : vkd3d_get_format(device, view_format, false)->byte_count;
+
+    view->va = resource->res.va + offset * element_size;
+    view->range = size * element_size;
+    view->dxgi_format = view_format;
+
+    /* If we would need an SSBO offset buffer for whatever reason, just fallback to a typed view instead. */
+    if (view_format == DXGI_FORMAT_UNKNOWN)
+        if (view->va & (device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment - 1))
+            view->dxgi_format = DXGI_FORMAT_R32_UINT;
+}
+
 static bool vkd3d_create_buffer_view_for_resource(struct d3d12_device *device,
         struct d3d12_resource *resource, DXGI_FORMAT view_format,
         unsigned int offset, unsigned int size, unsigned int structure_stride,
@@ -3966,10 +3986,12 @@ void d3d12_desc_create_cbv(vkd3d_cpu_descriptor_va_t desc_va,
     binding = vkd3d_bindless_state_binding_from_info_index(&device->bindless_state, info_index);
 
     d.types->set_info_mask = 1u << info_index;
-    d.types->flags = VKD3D_DESCRIPTOR_FLAG_OFFSET_RANGE | VKD3D_DESCRIPTOR_FLAG_NON_NULL |
+    d.types->flags = VKD3D_DESCRIPTOR_FLAG_BUFFER_VA_RANGE | VKD3D_DESCRIPTOR_FLAG_NON_NULL |
             VKD3D_DESCRIPTOR_FLAG_SINGLE_DESCRIPTOR;
     d.types->single_binding = binding;
-    d.view->info.buffer = descriptor_info.buffer;
+    d.view->info.buffer.va = desc->BufferLocation;
+    d.view->info.buffer.range = desc->SizeInBytes;
+    d.view->info.buffer.dxgi_format = DXGI_FORMAT_UNKNOWN;
 
     vkd3d_init_write_descriptor_set(&vk_write, &d, binding, vk_descriptor_type, &descriptor_info);
 
@@ -4198,7 +4220,12 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
     }
 
     d.types->set_info_mask = 0;
-    d.types->flags = 0;
+    d.types->flags = VKD3D_DESCRIPTOR_FLAG_BUFFER_VA_RANGE |
+            VKD3D_DESCRIPTOR_FLAG_NON_NULL;
+
+    vkd3d_get_metadata_buffer_view_for_resource(device, resource,
+            desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
+            desc->Buffer.StructureByteStride, &d.view->info.buffer);
 
     if (d3d12_device_use_ssbo_raw_buffer(device) && emit_ssbo)
     {
@@ -4214,12 +4241,8 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
                 VKD3D_BINDLESS_SET_SRV | VKD3D_BINDLESS_SET_RAW_SSBO);
         binding = vkd3d_bindless_state_binding_from_info_index(&device->bindless_state, info_index);
 
-        d.view->info.buffer = descriptor_info[vk_write_count].buffer;
-        vkd3d_descriptor_metadata_view_set_qa_cookie(d.view, resource ? resource->res.cookie : 0);
         d.types->set_info_mask |= 1u << info_index;
 
-        d.types->flags |= VKD3D_DESCRIPTOR_FLAG_OFFSET_RANGE |
-                VKD3D_DESCRIPTOR_FLAG_NON_NULL;
         if (device->bindless_state.flags & VKD3D_SSBO_OFFSET_BUFFER)
             d.types->flags |= VKD3D_DESCRIPTOR_FLAG_BUFFER_OFFSET;
         d.types->single_binding = binding;
@@ -4245,14 +4268,8 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
                 VKD3D_BINDLESS_SET_SRV | VKD3D_BINDLESS_SET_BUFFER);
         binding = vkd3d_bindless_state_binding_from_info_index(&device->bindless_state, info_index);
 
-        d.view->info.view = view;
-        /* Typed cookie takes precedence over raw cookie.
-         * The typed cookie is more unique than raw cookie,
-         * since raw cookie is just the ID3D12Resource. */
-        vkd3d_descriptor_metadata_view_set_qa_cookie(d.view, view ? view->cookie : 0);
         d.types->set_info_mask |= 1u << info_index;
 
-        d.types->flags |= VKD3D_DESCRIPTOR_FLAG_VIEW | VKD3D_DESCRIPTOR_FLAG_NON_NULL;
         if (device->bindless_state.flags & VKD3D_TYPED_OFFSET_BUFFER)
             d.types->flags |= VKD3D_DESCRIPTOR_FLAG_BUFFER_OFFSET;
         d.types->single_binding = binding;
@@ -4274,6 +4291,7 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
     if (mutable_uses_single_descriptor)
         d.types->flags |= VKD3D_DESCRIPTOR_FLAG_SINGLE_DESCRIPTOR;
 
+    vkd3d_descriptor_metadata_view_set_qa_cookie(d.view, resource ? resource->res.cookie : 0);
     vkd3d_descriptor_debug_write_descriptor(d.heap->descriptor_heap_info.host_ptr,
             d.heap->cookie, d.offset, descriptor_qa_flags, d.view->qa_cookie);
 
@@ -4431,7 +4449,7 @@ static void vkd3d_create_texture_srv(vkd3d_cpu_descriptor_va_t desc_va,
 
     d.view->info.view = view;
     d.types->set_info_mask = 1u << info_index;
-    d.types->flags = VKD3D_DESCRIPTOR_FLAG_VIEW | VKD3D_DESCRIPTOR_FLAG_NON_NULL |
+    d.types->flags = VKD3D_DESCRIPTOR_FLAG_IMAGE_VIEW | VKD3D_DESCRIPTOR_FLAG_NON_NULL |
             VKD3D_DESCRIPTOR_FLAG_SINGLE_DESCRIPTOR;
     d.types->single_binding = binding;
 
@@ -4570,7 +4588,12 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
     /* Handle UAV itself */
     d.types->set_info_mask = 0;
     d.types->flags = VKD3D_DESCRIPTOR_FLAG_RAW_VA_AUX_BUFFER |
-            VKD3D_DESCRIPTOR_FLAG_NON_NULL;
+            VKD3D_DESCRIPTOR_FLAG_NON_NULL |
+            VKD3D_DESCRIPTOR_FLAG_BUFFER_VA_RANGE;
+
+    vkd3d_get_metadata_buffer_view_for_resource(device, resource,
+            desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
+            desc->Buffer.StructureByteStride, &d.view->info.buffer);
 
     if (d3d12_device_use_ssbo_raw_buffer(device) && emit_ssbo)
     {
@@ -4588,10 +4611,8 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
                 VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_RAW_SSBO);
         binding = vkd3d_bindless_state_binding_from_info_index(&device->bindless_state, info_index);
 
-        d.view->info.buffer = *buffer_info;
         d.types->set_info_mask |= 1u << info_index;
 
-        d.types->flags |= VKD3D_DESCRIPTOR_FLAG_OFFSET_RANGE;
         if (device->bindless_state.flags & VKD3D_SSBO_OFFSET_BUFFER)
             d.types->flags |= VKD3D_DESCRIPTOR_FLAG_BUFFER_OFFSET;
         d.types->single_binding = binding;
@@ -4599,7 +4620,6 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
         vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         descriptor_qa_flags |= VKD3D_DESCRIPTOR_QA_TYPE_STORAGE_BUFFER_BIT;
 
-        vkd3d_descriptor_metadata_view_set_qa_cookie(d.view, resource ? resource->res.cookie : 0);
         vkd3d_init_write_descriptor_set(&vk_write[vk_write_count], &d, binding,
                 vk_descriptor_type, &descriptor_info[vk_write_count]);
         vk_write_count++;
@@ -4618,14 +4638,8 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
                 VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_BUFFER);
         binding = vkd3d_bindless_state_binding_from_info_index(&device->bindless_state, info_index);
 
-        d.view->info.view = view;
-        /* Typed cookie takes precedence over raw cookie.
-         * The typed cookie is more unique than raw cookie,
-         * since raw cookie is just the ID3D12Resource. */
-        vkd3d_descriptor_metadata_view_set_qa_cookie(d.view, view ? view->cookie : 0);
         d.types->set_info_mask |= 1u << info_index;
 
-        d.types->flags |= VKD3D_DESCRIPTOR_FLAG_VIEW;
         if (device->bindless_state.flags & VKD3D_TYPED_OFFSET_BUFFER)
             d.types->flags |= VKD3D_DESCRIPTOR_FLAG_BUFFER_OFFSET;
         d.types->single_binding = binding;
@@ -4668,6 +4682,7 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
     descriptor_index = d.offset;
     counter_addresses[descriptor_index] = uav_counter_address;
 
+    vkd3d_descriptor_metadata_view_set_qa_cookie(d.view, resource ? resource->res.cookie : 0);
     vkd3d_descriptor_debug_write_descriptor(d.heap->descriptor_heap_info.host_ptr,
             d.heap->cookie, d.offset,
             descriptor_qa_flags, d.view->qa_cookie);
@@ -4766,7 +4781,7 @@ static void vkd3d_create_texture_uav(vkd3d_cpu_descriptor_va_t desc_va,
 
     d.view->info.view = view;
     d.types->set_info_mask = 1u << info_index;
-    d.types->flags = VKD3D_DESCRIPTOR_FLAG_VIEW | VKD3D_DESCRIPTOR_FLAG_NON_NULL |
+    d.types->flags = VKD3D_DESCRIPTOR_FLAG_IMAGE_VIEW | VKD3D_DESCRIPTOR_FLAG_NON_NULL |
             VKD3D_DESCRIPTOR_FLAG_SINGLE_DESCRIPTOR;
     d.types->single_binding = binding;
 
@@ -5077,7 +5092,9 @@ void d3d12_desc_create_sampler(vkd3d_cpu_descriptor_va_t desc_va,
 
     d.view->info.view = view;
     d.types->set_info_mask = 1u << info_index;
-    d.types->flags = VKD3D_DESCRIPTOR_FLAG_VIEW | VKD3D_DESCRIPTOR_FLAG_NON_NULL | VKD3D_DESCRIPTOR_FLAG_SINGLE_DESCRIPTOR;
+    d.types->flags = VKD3D_DESCRIPTOR_FLAG_IMAGE_VIEW |
+            VKD3D_DESCRIPTOR_FLAG_NON_NULL |
+            VKD3D_DESCRIPTOR_FLAG_SINGLE_DESCRIPTOR;
     d.types->single_binding = binding;
 
     descriptor_info.image.sampler = view->vk_sampler;
