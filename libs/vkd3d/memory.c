@@ -177,6 +177,9 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
         void *pNext, struct vkd3d_device_memory_allocation *allocation)
 {
     const VkPhysicalDeviceMemoryProperties *memory_props = &device->memory_properties;
+    /* We consider CACHED optional here if we cannot find a memory type that supports it.
+     * Failing to allocate CACHED is not a scenario where we would fall back. */
+    const VkMemoryPropertyFlags optional_flags_host = VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
     const VkMemoryPropertyFlags optional_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_memory_info *memory_info = &device->memory_info;
@@ -274,10 +277,11 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
      * another allocation if it can identify at least 2 GPU heaps, but in this case, the calling code
      * might infer that we failed to allocate from a single supported GPU heap, and therefore there is no need
      * to try more. We still have not actually tried anything, so query the memory types again. */
-    if (type_flags & optional_flags)
+    if (type_flags & (optional_flags | optional_flags_host))
     {
         return vkd3d_try_allocate_device_memory(device, size,
-                type_flags & ~optional_flags, base_type_mask, pNext, allocation);
+                type_flags & ~(optional_flags | optional_flags_host),
+                base_type_mask, pNext, allocation);
     }
     else
         return E_OUTOFMEMORY;
