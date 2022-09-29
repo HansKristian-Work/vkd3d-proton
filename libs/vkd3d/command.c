@@ -9579,7 +9579,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
     }
 
     if (!full_discard)
+    {
+        VKD3D_BREADCRUMB_COOKIE(texture->res.cookie);
+        VKD3D_BREADCRUMB_COMMAND_STATE(DISCARD_PARTIAL);
         return;
+    }
 
     /* Resource tracking. If we do a full discard, there is no need to do initial layout transitions.
      * Partial discards on first resource use needs to be handles however,
