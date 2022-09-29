@@ -173,7 +173,7 @@ void vkd3d_free_device_memory(struct d3d12_device *device, const struct vkd3d_de
 }
 
 static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
-        VkDeviceSize size, VkMemoryPropertyFlags type_flags, uint32_t type_mask,
+        VkDeviceSize size, VkMemoryPropertyFlags type_flags, uint32_t base_type_mask,
         void *pNext, struct vkd3d_device_memory_allocation *allocation)
 {
     const VkPhysicalDeviceMemoryProperties *memory_props = &device->memory_properties;
@@ -184,12 +184,13 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
     VkDeviceSize *type_current;
     VkDeviceSize *type_budget;
     bool budget_sensitive;
+    uint32_t type_mask;
     VkResult vr;
 
     /* buffer_mask / sampled_mask etc will generally take care of this,
      * but for certain fallback scenarios where we select other memory
      * types, we need to mask here as well. */
-    type_mask &= device->memory_info.global_mask;
+    type_mask = base_type_mask & device->memory_info.global_mask;
 
     allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocate_info.pNext = pNext;
@@ -266,7 +267,20 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
         }
     }
 
-    return E_OUTOFMEMORY;
+    /* If we got here it means the requested type simply does not exist.
+     * This can happen if we request PCI-e BAR,
+     * but the driver somehow refuses to allow DEVICE | HOST_VISIBLE for a particular resource.
+     * The fallback logic assumes that we attempted to allocate memory from a particular heap, and it will try
+     * another allocation if it can identify at least 2 GPU heaps, but in this case, the calling code
+     * might infer that we failed to allocate from a single supported GPU heap, and therefore there is no need
+     * to try more. We still have not actually tried anything, so query the memory types again. */
+    if (type_flags & optional_flags)
+    {
+        return vkd3d_try_allocate_device_memory(device, size,
+                type_flags & ~optional_flags, base_type_mask, pNext, allocation);
+    }
+    else
+        return E_OUTOFMEMORY;
 }
 
 static bool vkd3d_memory_info_type_mask_covers_multiple_memory_heaps(
