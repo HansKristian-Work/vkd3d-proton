@@ -909,6 +909,9 @@ struct d3d12_resource
     VkImageLayout common_layout;
     D3D12_RESOURCE_STATES initial_state;
     uint32_t initial_layout_transition;
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    bool initial_layout_transition_validate_only;
+#endif
 
     struct d3d12_sparse_info sparse;
     struct vkd3d_view_map view_map;
