@@ -3511,6 +3511,9 @@ static VkPipelineStageFlags vk_render_pass_barrier_from_view(struct d3d12_comman
     return stages;
 }
 
+static void d3d12_command_list_track_resource_usage(struct d3d12_command_list *list,
+        struct d3d12_resource *resource, bool perform_initial_transition);
+
 static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_list *list,
         enum vkd3d_render_pass_transition_mode mode)
 {
@@ -3527,6 +3530,9 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
 
         if (!rtv->view)
             continue;
+
+        if (mode == VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN)
+            d3d12_command_list_track_resource_usage(list, rtv->resource, true);
 
         if ((new_stages = vk_render_pass_barrier_from_view(list, rtv->view, rtv->resource,
                 mode, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, &vk_image_barriers[j])))
@@ -3551,7 +3557,10 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
 
         /* We know for sure we will write something to these attachments now, so try to promote. */
         if (mode == VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN)
+        {
+            d3d12_command_list_track_resource_usage(list, dsv->resource, true);
             d3d12_command_list_notify_dsv_writes(list, dsv->resource, dsv->view, list->dsv_plane_optimal_mask);
+        }
     }
 
     /* Need to deduce DSV layouts again before we start a new render pass. */
@@ -8670,8 +8679,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
             continue;
         }
 
-        d3d12_command_list_track_resource_usage(list, rtv_desc->resource, true);
-
         list->rtvs[i] = *rtv_desc;
         list->fb_width = min(list->fb_width, rtv_desc->width);
         list->fb_height = min(list->fb_height, rtv_desc->height);
@@ -8683,8 +8690,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
         if ((rtv_desc = d3d12_rtv_desc_from_cpu_handle(*depth_stencil_descriptor))
                 && rtv_desc->resource)
         {
-            d3d12_command_list_track_resource_usage(list, rtv_desc->resource, true);
-
             list->dsv = *rtv_desc;
             list->fb_width = min(list->fb_width, rtv_desc->width);
             list->fb_height = min(list->fb_height, rtv_desc->height);
