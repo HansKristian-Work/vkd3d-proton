@@ -3225,9 +3225,7 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
         if (clear_aspects & (VK_IMAGE_ASPECT_STENCIL_BIT))
             stencil_attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 
-        /* Ignore 3D images as re-initializing those may cause us to
-         * discard the entire image, not just the layers to clear.
-         * Also, no need to perform extra transition barriers from UNDEFINED for committed resources.
+        /* No need to perform extra transition barriers from UNDEFINED for committed resources.
          * The initial transition is handled by Clear*View().
          * Discarding with UNDEFINED is required to handle placed resources, however.
          * Also, if we're going to perform layout transitions anyways (for DSV),
@@ -3241,7 +3239,13 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
         else if (initial_layouts[0] != final_layouts[0])
             requires_discard_barrier = true;
 
-        if (resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D && requires_discard_barrier)
+        /* Can only discard 3D images if we cover all layers at once.
+         * > check takes care of REMAINING_LAYERS. */
+        if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+            if (view->info.texture.layer_idx != 0 || view->info.texture.layer_count < resource->desc.DepthOrArraySize)
+                requires_discard_barrier = false;
+
+        if (requires_discard_barrier)
         {
             if (separate_ds_layouts)
             {
@@ -8723,11 +8727,22 @@ static bool d3d12_rect_fully_covers_region(const D3D12_RECT *a, const D3D12_RECT
             a->left <= b->left && a->right >= b->right;
 }
 
+static bool vkd3d_rtv_and_aspects_fully_cover_resource(const struct d3d12_resource *resource,
+        const struct vkd3d_view *view, VkImageAspectFlags clear_aspects)
+{
+    /* Check that we're clearing all aspects. */
+    return view->format->vk_aspect_mask == clear_aspects &&
+            resource->desc.MipLevels == 1 &&
+            view->info.texture.layer_idx == 0 &&
+            view->info.texture.layer_count >= resource->desc.DepthOrArraySize; /* takes care of REMAINING_LAYERS as well. */
+}
+
 static void d3d12_command_list_clear_attachment(struct d3d12_command_list *list, struct d3d12_resource *resource,
         struct vkd3d_view *view, VkImageAspectFlags clear_aspects, const VkClearValue *clear_value, UINT rect_count,
         const D3D12_RECT *rects)
 {
     bool full_clear, writable = true;
+    bool full_resource_clear;
     D3D12_RECT full_rect;
     int attachment_idx;
     unsigned int i;
@@ -8742,6 +8757,11 @@ static void d3d12_command_list_clear_attachment(struct d3d12_command_list *list,
 
     if (full_clear)
         rect_count = 0;
+
+    full_resource_clear = full_clear && vkd3d_rtv_and_aspects_fully_cover_resource(resource, view, clear_aspects);
+    /* For committed (non-aliased) resources, we don't transition away from UNDEFINED, so we must do the initial transition. */
+    d3d12_command_list_track_resource_usage(list, resource, !full_resource_clear ||
+            !d3d12_resource_may_alias_other_resources(resource));
 
     attachment_idx = d3d12_command_list_find_attachment(list, resource, view);
 
@@ -8779,8 +8799,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(d3d12_com
     TRACE("iface %p, dsv %#lx, flags %#x, depth %.8e, stencil 0x%02x, rect_count %u, rects %p.\n",
             iface, dsv.ptr, flags, depth, stencil, rect_count, rects);
 
-    d3d12_command_list_track_resource_usage(list, dsv_desc->resource, true);
-
     if (flags & D3D12_CLEAR_FLAG_DEPTH)
         clear_aspects |= VK_IMAGE_ASPECT_DEPTH_BIT;
 
@@ -8808,8 +8826,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(d3d12_com
 
     TRACE("iface %p, rtv %#lx, color %p, rect_count %u, rects %p.\n",
             iface, rtv.ptr, color, rect_count, rects);
-
-    d3d12_command_list_track_resource_usage(list, rtv_desc->resource, true);
 
     if (rtv_desc->format->type == VKD3D_FORMAT_TYPE_UINT)
     {
