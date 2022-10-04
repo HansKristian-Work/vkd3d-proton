@@ -3023,7 +3023,13 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
      * For details, see:
      * https://docs.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12device-createplacedresource#notes-on-the-required-resource-initialization. */
     if (desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
+    {
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+        object->initial_layout_transition_validate_only = true;
+#else
         object->initial_layout_transition = 0;
+#endif
+    }
 
     *resource = object;
     return S_OK;

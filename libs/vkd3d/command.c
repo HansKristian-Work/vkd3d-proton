@@ -12543,6 +12543,26 @@ static void d3d12_command_queue_transition_pool_add_barrier(struct d3d12_command
     VkImageMemoryBarrier *barrier;
     assert(d3d12_resource_is_texture(resource));
 
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    if (resource->initial_layout_transition_validate_only)
+    {
+        if (d3d12_resource_get_sub_resource_count(resource) == 1)
+        {
+            ERR("Application uses placed resource (1 subresource) (cookie %"PRIu64", fmt: %s, flags: #%x)"
+                    " that must be initialized explicitly.\n",
+                    resource->res.cookie, debug_dxgi_format(resource->desc.Format), resource->desc.Flags);
+        }
+        else
+        {
+            WARN("Application uses placed resource (>1 subresources) (cookie %"PRIu64", fmt: %s, flags: #%x)"
+                    " that must be initialized explicitly. "
+                    "This warning may be a false positive due to lack of sub-resource level tracking.\n",
+                    resource->res.cookie, debug_dxgi_format(resource->desc.Format), resource->desc.Flags);
+        }
+        return;
+    }
+#endif
+
     if (!vkd3d_array_reserve((void**)&pool->barriers, &pool->barriers_size,
             pool->barriers_count + 1, sizeof(*pool->barriers)))
     {
