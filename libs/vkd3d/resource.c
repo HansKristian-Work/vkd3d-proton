@@ -20,6 +20,7 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 
 #include <float.h>
+#include <math.h>
 
 #include "vkd3d_private.h"
 #include "vkd3d_rw_spinlock.h"
@@ -4431,6 +4432,30 @@ static void vkd3d_create_texture_srv(vkd3d_cpu_descriptor_va_t desc_va,
 
     if (key.u.texture.miplevel_count == VK_REMAINING_MIP_LEVELS)
         key.u.texture.miplevel_count = resource->desc.MipLevels - key.u.texture.miplevel_idx;
+
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_PREALLOCATE_SRV_MIP_CLAMPS) &&
+        desc->ViewDimension != D3D12_SRV_DIMENSION_TEXTURE2DMS &&
+        desc->ViewDimension != D3D12_SRV_DIMENSION_TEXTURE2DMSARRAY)
+    {
+        key.u.texture.miplevel_clamp = floor(key.u.texture.miplevel_clamp);
+
+        if (!hash_map_find(&resource->view_map.map, &key))
+        {
+            uint32_t starting_mip = key.u.texture.miplevel_idx;
+            uint32_t mip_count = key.u.texture.miplevel_count != UINT32_MAX ?
+                key.u.texture.miplevel_count :
+                resource->desc.MipLevels - starting_mip;
+            uint32_t i;
+
+            struct vkd3d_view_key preallocate_key = key;
+
+            for (i = starting_mip; i < mip_count; i++)
+            {
+                preallocate_key.u.texture.miplevel_clamp = (float)(i);
+                vkd3d_view_map_create_view(&resource->view_map, device, &preallocate_key);
+            }
+        }
+    }
 
     if (!(view = vkd3d_view_map_create_view(&resource->view_map, device, &key)))
         return;
