@@ -7873,11 +7873,11 @@ static enum GLSLstd450 vkd3d_dxbc_compiler_map_ext_glsl_instruction(
 static void vkd3d_dxbc_compiler_emit_ext_glsl_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
+    uint32_t instr_set_id, type_id, val_id, sub_id, bool_id, cmp_id;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
     uint32_t src_id[VKD3D_DXBC_MAX_SOURCE_COUNT];
-    uint32_t instr_set_id, type_id, val_id;
     enum GLSLstd450 glsl_inst;
     unsigned int i;
 
@@ -7904,11 +7904,23 @@ static void vkd3d_dxbc_compiler_emit_ext_glsl_instruction(struct vkd3d_dxbc_comp
     if (instruction->handler_idx == VKD3DSIH_FIRSTBIT_HI
             || instruction->handler_idx == VKD3DSIH_FIRSTBIT_SHI)
     {
-        /* In D3D bits are numbered from the most significant bit. */
-        val_id = vkd3d_spirv_build_op_isub(builder, type_id,
-                vkd3d_dxbc_compiler_get_constant_uint_vector(compiler, 31,
+        /* In dxbc bits are numbered from the most significant bit.
+         * Emit (findMSB(x) == -1) ? findMSB(x) : 31 - findMSB(x)
+         * because the result needs to stay -1 if it was -1.
+         */
+        sub_id = vkd3d_spirv_build_op_isub(builder, type_id,
+                    vkd3d_dxbc_compiler_get_constant_uint_vector(compiler, 31,
                         vkd3d_write_mask_component_count(dst->write_mask)),
-                val_id);
+                    val_id);
+
+        bool_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_BOOL,
+                    vkd3d_write_mask_component_count(dst->write_mask));
+
+        cmp_id = vkd3d_spirv_build_op_iequal(builder, bool_id, val_id,
+                    vkd3d_dxbc_compiler_get_constant_uint_vector(compiler,
+                        -1, vkd3d_write_mask_component_count(dst->write_mask)));
+
+        val_id = vkd3d_spirv_build_op_select(builder, type_id, cmp_id, val_id, sub_id);
     }
 
     if (glsl_inst == GLSLstd450Fma && (instruction->flags & VKD3DSI_PRECISE_XYZW))
