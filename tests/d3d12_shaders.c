@@ -2677,7 +2677,7 @@ void test_shader_instructions(void)
         {&ps_bfrev, {{{0xffff0000}}}, {{0x0000ffff, 0xffff0000, 0x00000000, 0xffff0000}}},
         {&ps_bfrev, {{{0xffffffff}}}, {{0xffffffff, 0xffffffff, 0xffff0000, 0xffff0000}}},
 
-        {&ps_bits, {{{         0,          0}}}, {{ 0, ~0u, ~0u, ~0u}}, false, false, true},
+        {&ps_bits, {{{         0,          0}}}, {{ 0, ~0u, ~0u, ~0u}}},
         {&ps_bits, {{{       ~0u,        ~0u}}}, {{32,   0,   0, ~0u}}},
         {&ps_bits, {{{0x7fffffff, 0x7fffffff}}}, {{31,   0,   1,  30}}},
         {&ps_bits, {{{0x80000000, 0x80000000}}}, {{ 1,  31,   0,  30}}},
