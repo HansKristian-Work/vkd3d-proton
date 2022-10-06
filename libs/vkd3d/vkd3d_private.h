@@ -727,12 +727,19 @@ struct vkd3d_memory_chunk
 enum vkd3d_memory_transfer_op
 {
     VKD3D_MEMORY_TRANSFER_OP_CLEAR_ALLOCATION,
+    VKD3D_MEMORY_TRANSFER_OP_WRITE_TO_SUBRESOURCE,
+    VKD3D_MEMORY_TRANSFER_OP_READ_FROM_SUBRESOURCE,
 };
 
 struct vkd3d_memory_transfer_info
 {
     enum vkd3d_memory_transfer_op op;
     struct vkd3d_memory_allocation *allocation;
+
+    struct d3d12_resource *resource;
+    VkImageSubresource subresource;
+    VkOffset3D offset;
+    VkExtent3D extent;
 };
 
 struct vkd3d_memory_transfer_queue
@@ -760,6 +767,14 @@ struct vkd3d_memory_transfer_queue
 void vkd3d_memory_transfer_queue_cleanup(struct vkd3d_memory_transfer_queue *queue);
 HRESULT vkd3d_memory_transfer_queue_init(struct vkd3d_memory_transfer_queue *queue, struct d3d12_device *device);
 HRESULT vkd3d_memory_transfer_queue_flush(struct vkd3d_memory_transfer_queue *queue);
+
+HRESULT vkd3d_memory_transfer_queue_write_to_subresource(struct vkd3d_memory_transfer_queue *queue,
+        const void *src_data, size_t row_pitch, size_t depth_pitch, struct d3d12_resource *resource,
+        uint32_t subresource_idx, VkOffset3D offset, VkExtent3D extent);
+
+HRESULT vkd3d_memory_transfer_queue_read_from_subresource(struct vkd3d_memory_transfer_queue *queue,
+        void *dst_data, size_t row_pitch, size_t depth_pitch, struct d3d12_resource *resource,
+        uint32_t subresource_idx, VkOffset3D offset, VkExtent3D extent);
 
 struct vkd3d_memory_allocator
 {

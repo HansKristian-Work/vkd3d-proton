@@ -162,11 +162,16 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
     const VkPipelineStageFlags vk_stage_mask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
     const struct vkd3d_vk_device_procs *vk_procs = &queue->device->vk_procs;
     VkTimelineSemaphoreSubmitInfoKHR timeline_info;
+    VkCopyBufferToImageInfo2 buffer_to_image_copy;
+    VkCopyImageToBufferInfo2 image_to_buffer_copy;
     struct vkd3d_queue_family_info *queue_family;
     VkCommandBufferBeginInfo begin_info;
+    VkImageMemoryBarrier image_barrier;
     uint32_t queue_mask, queue_index;
+    VkBufferImageCopy2 copy_region;
     VkCommandBuffer vk_cmd_buffer;
     VkSubmitInfo submit_info;
+    bool need_transition;
     VkQueue vk_queue;
     VkResult vr;
     size_t i;
@@ -213,6 +218,37 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
     {
         const struct vkd3d_memory_transfer_info *transfer = &queue->transfers[i];
 
+        if (transfer->op == VKD3D_MEMORY_TRANSFER_OP_READ_FROM_SUBRESOURCE ||
+                transfer->op == VKD3D_MEMORY_TRANSFER_OP_WRITE_TO_SUBRESOURCE)
+        {
+            copy_region.sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2;
+            copy_region.pNext = NULL;
+            copy_region.bufferOffset = transfer->allocation->offset;
+            copy_region.bufferRowLength = 0;
+            copy_region.bufferImageHeight = 0;
+            copy_region.imageSubresource = vk_subresource_layers_from_subresource(&transfer->subresource);
+            copy_region.imageOffset = transfer->offset;
+            copy_region.imageExtent = transfer->extent;
+
+            /* This will be executed before any other command buffer that could
+             * potentially initialize the resource on the GPU timeline */
+            need_transition = vkd3d_atomic_uint32_load_explicit(&transfer->resource->initial_layout_transition, vkd3d_memory_order_relaxed) &&
+                    vkd3d_atomic_uint32_exchange_explicit(&transfer->resource->initial_layout_transition, 0, vkd3d_memory_order_relaxed);
+
+            if (need_transition && vk_image_memory_barrier_for_initial_transition(transfer->resource, &image_barrier))
+            {
+                if (transfer->op == VKD3D_MEMORY_TRANSFER_OP_READ_FROM_SUBRESOURCE)
+                    image_barrier.dstAccessMask |= VK_ACCESS_TRANSFER_READ_BIT;
+                else
+                    image_barrier.dstAccessMask |= VK_ACCESS_TRANSFER_WRITE_BIT;
+
+                VK_CALL(vkCmdPipelineBarrier(vk_cmd_buffer,
+                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                        VK_PIPELINE_STAGE_TRANSFER_BIT,
+                        0, 0, NULL, 0, NULL, 1, &image_barrier));
+            }
+        }
+
         switch (transfer->op)
         {
             case VKD3D_MEMORY_TRANSFER_OP_CLEAR_ALLOCATION:
@@ -220,6 +256,30 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
                         transfer->allocation->resource.vk_buffer,
                         transfer->allocation->offset,
                         transfer->allocation->resource.size, 0));
+                break;
+
+            case VKD3D_MEMORY_TRANSFER_OP_WRITE_TO_SUBRESOURCE:
+                buffer_to_image_copy.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2;
+                buffer_to_image_copy.pNext = NULL;
+                buffer_to_image_copy.srcBuffer = transfer->allocation->resource.vk_buffer;
+                buffer_to_image_copy.dstImage = transfer->resource->res.vk_image;
+                buffer_to_image_copy.dstImageLayout = VK_IMAGE_LAYOUT_GENERAL;
+                buffer_to_image_copy.regionCount = 1;
+                buffer_to_image_copy.pRegions = &copy_region;
+
+                VK_CALL(vkCmdCopyBufferToImage2KHR(vk_cmd_buffer, &buffer_to_image_copy));
+                break;
+
+            case VKD3D_MEMORY_TRANSFER_OP_READ_FROM_SUBRESOURCE:
+                image_to_buffer_copy.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_BUFFER_INFO_2;
+                image_to_buffer_copy.pNext = NULL;
+                image_to_buffer_copy.srcImage = transfer->resource->res.vk_image;
+                image_to_buffer_copy.srcImageLayout = VK_IMAGE_LAYOUT_GENERAL;
+                image_to_buffer_copy.dstBuffer = transfer->allocation->resource.vk_buffer;
+                image_to_buffer_copy.regionCount = 1;
+                image_to_buffer_copy.pRegions = &copy_region;
+
+                VK_CALL(vkCmdCopyImageToBuffer2KHR(vk_cmd_buffer, &image_to_buffer_copy));
                 break;
         }
     }
@@ -308,10 +368,39 @@ HRESULT vkd3d_memory_transfer_queue_flush(struct vkd3d_memory_transfer_queue *qu
 
 #define VKD3D_MEMORY_TRANSFER_QUEUE_MAX_PENDING_BYTES (256ull << 20) /* 256 MiB */
 
+static void vkd3d_memory_transfer_queue_execute_transfer(struct vkd3d_memory_transfer_queue *queue,
+        struct vkd3d_memory_transfer_info *transfer, bool do_wait)
+{
+    uint64_t wait_value = queue->next_signal_value;
+
+    pthread_mutex_lock(&queue->mutex);
+
+    if (!vkd3d_array_reserve((void**)&queue->transfers, &queue->transfer_size,
+            queue->transfer_count + 1, sizeof(*queue->transfers)))
+    {
+        ERR("Failed to insert free range.\n");
+        pthread_mutex_unlock(&queue->mutex);
+        return;
+    }
+
+    memcpy(&queue->transfers[queue->transfer_count++], transfer, sizeof(*transfer));
+
+    if (transfer->allocation)
+        queue->num_bytes_pending += transfer->allocation->resource.size;
+
+    if (queue->num_bytes_pending >= VKD3D_MEMORY_TRANSFER_QUEUE_MAX_PENDING_BYTES || do_wait)
+        vkd3d_memory_transfer_queue_flush_locked(queue);
+
+    pthread_mutex_unlock(&queue->mutex);
+
+    if (do_wait)
+        vkd3d_memory_transfer_queue_wait_semaphore(queue, wait_value, UINT64_MAX);
+}
+
 static void vkd3d_memory_transfer_queue_clear_allocation(struct vkd3d_memory_transfer_queue *queue,
         struct vkd3d_memory_allocation *allocation)
 {
-    struct vkd3d_memory_transfer_info *transfer;
+    struct vkd3d_memory_transfer_info transfer;
 
     if (allocation->cpu_address)
     {
@@ -321,34 +410,146 @@ static void vkd3d_memory_transfer_queue_clear_allocation(struct vkd3d_memory_tra
     }
     else if (allocation->resource.vk_buffer)
     {
-        pthread_mutex_lock(&queue->mutex);
-
-        if (!vkd3d_array_reserve((void**)&queue->transfers, &queue->transfer_size,
-                queue->transfer_count + 1, sizeof(*queue->transfers)))
-        {
-            ERR("Failed to insert free range.\n");
-            pthread_mutex_unlock(&queue->mutex);
-            return;
-        }
-
         allocation->clear_semaphore_value = queue->next_signal_value;
 
         if (allocation->chunk)
             allocation->chunk->allocation.clear_semaphore_value = queue->next_signal_value;
 
-        transfer = &queue->transfers[queue->transfer_count++];
+        memset(&transfer, 0, sizeof(transfer));
+        transfer.op = VKD3D_MEMORY_TRANSFER_OP_CLEAR_ALLOCATION;
+        transfer.allocation = allocation;
 
-        memset(transfer, 0, sizeof(*transfer));
-        transfer->op = VKD3D_MEMORY_TRANSFER_OP_CLEAR_ALLOCATION;
-        transfer->allocation = allocation;
-
-        queue->num_bytes_pending += allocation->resource.size;
-
-        if (queue->num_bytes_pending >= VKD3D_MEMORY_TRANSFER_QUEUE_MAX_PENDING_BYTES)
-            vkd3d_memory_transfer_queue_flush_locked(queue);
-
-        pthread_mutex_unlock(&queue->mutex);
+        vkd3d_memory_transfer_queue_execute_transfer(queue, &transfer, false);
     }
+}
+
+static HRESULT vkd3d_memory_transfer_queue_allocate_memory(struct vkd3d_memory_transfer_queue *queue,
+        struct d3d12_resource *resource, size_t size, struct vkd3d_memory_allocation *allocation)
+{
+    struct vkd3d_allocate_memory_info memory_info;
+
+    memset(&memory_info, 0, sizeof(memory_info));
+    memory_info.memory_requirements.size = align(size, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
+    memory_info.memory_requirements.alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    memory_info.memory_requirements.memoryTypeBits = ~0u;
+    memory_info.heap_properties.Type = D3D12_HEAP_TYPE_CUSTOM;
+    memory_info.heap_properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
+    memory_info.heap_properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+    memory_info.heap_flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS | D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
+    memory_info.flags = VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER |
+            VKD3D_ALLOCATION_FLAG_CPU_ACCESS |
+            VKD3D_ALLOCATION_FLAG_INTERNAL_STAGING;
+
+    return vkd3d_allocate_memory(queue->device, &queue->device->memory_allocator, &memory_info, allocation);
+}
+
+static void vkd3d_copy_subresource_data(void *dst_data, size_t dst_row_pitch, size_t dst_depth_pitch,
+        const void *src_data, size_t src_row_pitch, size_t src_depth_pitch, VkExtent3D block_count, size_t block_size_in_bytes)
+{
+    const char *src_base = src_data;
+    char *dst_base = dst_data;
+    unsigned int y, z;
+
+    for (z = 0; z < block_count.depth; z++)
+    {
+        for (y = 0; y < block_count.height; y++)
+        {
+            memcpy(dst_base + dst_depth_pitch * z + dst_row_pitch * y,
+                    src_base + src_depth_pitch * z + src_row_pitch * y,
+                    block_count.width * block_size_in_bytes);
+        }
+    }
+}
+
+HRESULT vkd3d_memory_transfer_queue_write_to_subresource(struct vkd3d_memory_transfer_queue *queue,
+        const void *src_data, size_t row_pitch, size_t depth_pitch, struct d3d12_resource *resource,
+        uint32_t subresource_idx, VkOffset3D offset, VkExtent3D extent)
+{
+    struct vkd3d_format_footprint format_footprint;
+    struct vkd3d_memory_transfer_info transfer;
+    struct vkd3d_memory_allocation allocation;
+    size_t dst_row_pitch, dst_depth_pitch;
+    VkExtent3D block_count;
+    uint32_t plane_idx;
+    HRESULT hr;
+
+    plane_idx = subresource_idx / d3d12_resource_desc_get_sub_resource_count_per_plane(&resource->desc);
+    format_footprint = vkd3d_format_footprint_for_plane(resource->format, plane_idx);
+
+    block_count = extent;
+    block_count.width >>= format_footprint.subsample_x_log2;
+    block_count.height >>= format_footprint.subsample_y_log2;
+
+    hr = vkd3d_memory_transfer_queue_allocate_memory(queue, resource,
+            block_count.width * block_count.height * block_count.depth * format_footprint.block_byte_count,
+            &allocation);
+
+    if (FAILED(hr))
+        return hr;
+
+    dst_row_pitch = block_count.width * format_footprint.block_byte_count;
+    dst_depth_pitch = block_count.height * dst_row_pitch;
+
+    vkd3d_copy_subresource_data(allocation.cpu_address, dst_row_pitch, dst_depth_pitch,
+            src_data, row_pitch, depth_pitch, block_count, format_footprint.block_byte_count);
+
+    transfer.op = VKD3D_MEMORY_TRANSFER_OP_WRITE_TO_SUBRESOURCE;
+    transfer.allocation = &allocation;
+    transfer.resource = resource;
+    transfer.subresource = d3d12_resource_get_vk_subresource(resource, subresource_idx, false);
+    transfer.offset = offset;
+    transfer.extent = extent;
+
+    /* TODO Do this asynchronously, so we don't have to stall. */
+    vkd3d_memory_transfer_queue_execute_transfer(queue, &transfer, true);
+
+    vkd3d_free_memory(queue->device, &queue->device->memory_allocator, &allocation);
+    return S_OK;
+}
+
+HRESULT vkd3d_memory_transfer_queue_read_from_subresource(struct vkd3d_memory_transfer_queue *queue,
+        void *dst_data, size_t row_pitch, size_t depth_pitch, struct d3d12_resource *resource,
+        uint32_t subresource_idx, VkOffset3D offset, VkExtent3D extent)
+{
+    struct vkd3d_format_footprint format_footprint;
+    struct vkd3d_memory_transfer_info transfer;
+    struct vkd3d_memory_allocation allocation;
+    size_t src_row_pitch, src_depth_pitch;
+    VkExtent3D block_count;
+    uint32_t plane_idx;
+    HRESULT hr;
+
+    plane_idx = subresource_idx / d3d12_resource_desc_get_sub_resource_count_per_plane(&resource->desc);
+    format_footprint = vkd3d_format_footprint_for_plane(resource->format, plane_idx);
+
+    block_count = extent;
+    block_count.width >>= format_footprint.subsample_x_log2;
+    block_count.height >>= format_footprint.subsample_y_log2;
+
+    hr = vkd3d_memory_transfer_queue_allocate_memory(queue, resource,
+            block_count.width * block_count.height * block_count.depth * format_footprint.block_byte_count,
+            &allocation);
+
+    if (FAILED(hr))
+        return hr;
+
+    transfer.op = VKD3D_MEMORY_TRANSFER_OP_READ_FROM_SUBRESOURCE;
+    transfer.allocation = &allocation;
+    transfer.resource = resource;
+    transfer.subresource = d3d12_resource_get_vk_subresource(resource, subresource_idx, false);
+    transfer.offset = offset;
+    transfer.extent = extent;
+
+    vkd3d_memory_transfer_queue_execute_transfer(queue, &transfer, true);
+
+    src_row_pitch = block_count.width * format_footprint.block_byte_count;
+    src_depth_pitch = block_count.height * src_row_pitch;
+
+    vkd3d_copy_subresource_data(dst_data, row_pitch, depth_pitch, allocation.cpu_address,
+            src_row_pitch, src_depth_pitch, block_count, format_footprint.block_byte_count);
+
+    vkd3d_free_memory(queue->device, &queue->device->memory_allocator, &allocation);
+    return S_OK;
 }
 
 static void vkd3d_memory_transfer_queue_wait_allocation(struct vkd3d_memory_transfer_queue *queue,
