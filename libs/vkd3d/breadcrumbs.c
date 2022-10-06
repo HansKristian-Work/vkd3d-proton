@@ -86,6 +86,26 @@ static const char *vkd3d_breadcrumb_command_type_to_str(enum vkd3d_breadcrumb_co
             return "root_const";
         case VKD3D_BREADCRUMB_COMMAND_TAG:
             return "tag";
+        case VKD3D_BREADCRUMB_COMMAND_BIND_RTV:
+            return "bind_rtv";
+        case VKD3D_BREADCRUMB_COMMAND_BIND_DSV:
+            return "bind_dsv";
+        case VKD3D_BREADCRUMB_COMMAND_COOKIE:
+            return "cookie";
+        case VKD3D_BREADCRUMB_COMMAND_CLEAR_UAV_FLOAT:
+            return "clear_uav_float";
+        case VKD3D_BREADCRUMB_COMMAND_CLEAR_UAV_UINT:
+            return "clear_uav_uint";
+        case VKD3D_BREADCRUMB_COMMAND_CLEAR_UAV_FALLBACK:
+            return "clear_uav_fallback";
+        case VKD3D_BREADCRUMB_COMMAND_CLEAR_RTV:
+            return "clear_rtv";
+        case VKD3D_BREADCRUMB_COMMAND_CLEAR_DSV:
+            return "clear_dsv";
+        case VKD3D_BREADCRUMB_COMMAND_DISCARD:
+            return "discard";
+        case VKD3D_BREADCRUMB_COMMAND_DISCARD_PARTIAL:
+            return "discard_partial";
 
         default:
             return "?";
@@ -277,7 +297,10 @@ static void vkd3d_breadcrumb_tracer_report_command_list(
     const struct vkd3d_breadcrumb_command *cmd;
     bool observed_begin_cmd = false;
     bool observed_end_cmd = false;
+    bool ignore_markers;
     unsigned int i;
+
+    ignore_markers = begin_marker == UINT32_MAX && end_marker == UINT32_MAX;
 
     if (end_marker == 0)
     {
@@ -290,6 +313,12 @@ static void vkd3d_breadcrumb_tracer_report_command_list(
     for (i = 0; i < context->command_count; i++)
     {
         cmd = &context->commands[i];
+
+        if (ignore_markers && (cmd->type == VKD3D_BREADCRUMB_COMMAND_SET_TOP_MARKER ||
+                cmd->type == VKD3D_BREADCRUMB_COMMAND_SET_BOTTOM_MARKER))
+        {
+            continue;
+        }
 
         /* If there is a command which sets TOP_OF_PIPE, but we haven't observed the marker yet,
          * the command processor hasn't gotten there yet (most likely ...), so that should be the
@@ -313,6 +342,10 @@ static void vkd3d_breadcrumb_tracer_report_command_list(
         else if (cmd->type == VKD3D_BREADCRUMB_COMMAND_TAG)
         {
             ERR("     Tag: %s\n", cmd->tag);
+        }
+        else if (cmd->type == VKD3D_BREADCRUMB_COMMAND_COOKIE)
+        {
+            ERR(" Set resource cookie: %"PRIu64"\n", cmd->word_64bit);
         }
         else
         {
@@ -344,6 +377,13 @@ static void vkd3d_breadcrumb_tracer_report_command_list(
             ERR(" ===== Potential crash region BEGIN (make sure RADV_DEBUG=syncshaders is used for maximum accuracy) =====\n");
         }
     }
+}
+
+void vkd3d_breadcrumb_tracer_dump_command_list(struct vkd3d_breadcrumb_tracer *tracer,
+        unsigned int index)
+{
+    vkd3d_breadcrumb_tracer_report_command_list(&tracer->trace_contexts[index],
+            UINT32_MAX, UINT32_MAX);
 }
 
 static void vkd3d_breadcrumb_tracer_report_command_list_amd(struct vkd3d_breadcrumb_tracer *tracer,
@@ -652,4 +692,129 @@ void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list)
     vkd3d_breadcrumb_tracer_add_command(list, &cmd);
     cmd.type = VKD3D_BREADCRUMB_COMMAND_SET_BOTTOM_MARKER;
     vkd3d_breadcrumb_tracer_add_command(list, &cmd);
+}
+
+/* There is no obvious home for this code. It could be in heap.c, but this kind of
+ * debug is only really useful when doing crash debugging, i.e. breadcrumbs,
+ * so might as well have it here. */
+
+static bool d3d12_resource_is_linear_placement(const struct d3d12_resource *resource)
+{
+    return (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
+            !(resource->flags & VKD3D_RESOURCE_ACCELERATION_STRUCTURE)) ||
+            (resource->flags & VKD3D_RESOURCE_LINEAR_TILING);
+}
+
+static void d3d12_resource_report_parameters(char *buf, size_t buf_size, const struct d3d12_resource *resource)
+{
+    if (resource->desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
+    {
+        snprintf(buf, buf_size,
+                "IMAGE: format = %s, width = %"PRIu64", height = %u, depth/layers = %u, levels = %u, flags = #%x",
+                debug_dxgi_format(resource->desc.Format),
+                resource->desc.Width,
+                resource->desc.Height,
+                resource->desc.DepthOrArraySize,
+                resource->desc.MipLevels,
+                resource->desc.Flags);
+    }
+    else if (resource->flags & VKD3D_RESOURCE_ACCELERATION_STRUCTURE)
+        snprintf(buf, buf_size, "RTAS");
+    else
+        snprintf(buf, buf_size, "BUFFER");
+}
+
+void vkd3d_breadcrumb_tracer_register_placed_resource(struct d3d12_heap *heap,
+        struct d3d12_resource *resource,
+        VkDeviceSize heap_offset, VkDeviceSize required_size)
+{
+    const struct d3d12_heap_resource_placement *placement;
+    bool candidate_resource_is_linear;
+    bool placed_resource_is_linear;
+    VkDeviceSize begin_overlap;
+    VkDeviceSize end_overlap;
+    char report_buffer[1024];
+    bool has_alias = false;
+    const char *msg;
+    size_t i;
+
+    /* Linear aliasing with other linear resources is fine.
+     * Image <-> Image, and Image <-> Buffer is far more dangerous however. */
+    placed_resource_is_linear = d3d12_resource_is_linear_placement(resource);
+
+    pthread_mutex_lock(&heap->placement_lock);
+
+    for (i = 0; i < heap->placements_count; i++)
+    {
+        placement = &heap->placements[i];
+        candidate_resource_is_linear = d3d12_resource_is_linear_placement(placement->resource);
+
+        begin_overlap = max(placement->heap_offset, heap_offset);
+        end_overlap = min(placement->heap_offset + placement->size, heap_offset + required_size);
+
+        /* Linear alias is trivial and not worth reporting on. */
+        if (begin_overlap < end_overlap && (!candidate_resource_is_linear || !placed_resource_is_linear))
+        {
+            /* Overlap. */
+            /* Potentially problematic scenario, report this. */
+            if (!has_alias)
+            {
+                if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+                    msg = "Attempting to place linear buffer resource on heap, placement aliases with non-linear layout.";
+                else
+                    msg = "Attempting to place opaque resource on heap, placement aliases with other resources.";
+
+                d3d12_resource_report_parameters(report_buffer, sizeof(report_buffer), resource);
+                INFO("\n%s (heap %p)\n  New placement: resource cookie = %"PRIu64", offset = %"PRIu64", size = %"PRIu64", VA = %"PRIx64"\n\t%s\n",
+                        msg, heap,
+                        resource->res.cookie,
+                        heap_offset, required_size, resource->res.va,
+                        report_buffer);
+
+                has_alias = true;
+            }
+
+            d3d12_resource_report_parameters(report_buffer, sizeof(report_buffer), placement->resource);
+            INFO("\n   Existing aliasing resource : cookie = %"PRIu64", offset = %"PRIu64", size = %"PRIu64".\n\t\t%s\n",
+                    placement->resource->res.cookie, placement->heap_offset, placement->size,
+                    report_buffer);
+        }
+    }
+
+    if (!has_alias)
+    {
+        d3d12_resource_report_parameters(report_buffer, sizeof(report_buffer), resource);
+        msg = "Placing non-aliased resource";
+        INFO("\nPlacing non-aliased resource (heap %p)\n New placement: resource cookie = %"PRIu64", offset = %"PRIu64", size = %"PRIu64", VA = %"PRIx64"\n\t%s\n",
+                heap,
+                resource->res.cookie,
+                heap_offset, required_size, resource->res.va,
+                report_buffer);
+    }
+
+    vkd3d_array_reserve((void**)&heap->placements, &heap->placements_size,
+            heap->placements_count + 1, sizeof(*heap->placements));
+
+    heap->placements[heap->placements_count].resource = resource;
+    heap->placements[heap->placements_count].heap_offset = heap_offset;
+    heap->placements[heap->placements_count].size = required_size;
+    heap->placements_count++;
+
+    pthread_mutex_unlock(&heap->placement_lock);
+}
+
+void vkd3d_breadcrumb_tracer_unregister_placed_resource(struct d3d12_heap *heap, struct d3d12_resource *resource)
+{
+    size_t i;
+
+    pthread_mutex_lock(&heap->placement_lock);
+    for (i = 0; i < heap->placements_count; i++)
+    {
+        if (heap->placements[i].resource == resource)
+        {
+            heap->placements[i] = heap->placements[--heap->placements_count];
+            break;
+        }
+    }
+    pthread_mutex_unlock(&heap->placement_lock);
 }

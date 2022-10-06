@@ -92,6 +92,7 @@ extern "C" {
 #define VKD3D_CONFIG_FLAG_ALLOW_SBT_COLLECTION (1ull << 30)
 #define VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16 (1ull << 31)
 #define VKD3D_CONFIG_FLAG_USE_HOST_IMPORT_FALLBACK (1ull << 32)
+#define VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE (1ull << 33)
 
 typedef HRESULT (*PFN_vkd3d_signal_event)(HANDLE event);
 

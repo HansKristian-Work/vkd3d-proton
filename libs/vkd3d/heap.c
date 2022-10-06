@@ -59,9 +59,13 @@ static void d3d12_heap_destroy(struct d3d12_heap *heap)
 {
     TRACE("Destroying heap %p.\n", heap);
 
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    vkd3d_free(heap->placements);
+    pthread_mutex_destroy(&heap->placement_lock);
+#endif
+
     vkd3d_free_memory(heap->device, &heap->device->memory_allocator, &heap->allocation);
     vkd3d_private_store_destroy(&heap->private_store);
-    d3d12_device_release(heap->device);
     vkd3d_free(heap);
 }
 
@@ -72,6 +76,18 @@ static void d3d12_heap_set_name(struct d3d12_heap *heap, const char *name)
                 VK_OBJECT_TYPE_DEVICE_MEMORY, name);
 }
 
+void d3d12_heap_dec_ref(struct d3d12_heap *heap)
+{
+    ULONG refcount = InterlockedDecrement(&heap->internal_refcount);
+    if (!refcount)
+        d3d12_heap_destroy(heap);
+}
+
+void d3d12_heap_inc_ref(struct d3d12_heap *heap)
+{
+    InterlockedIncrement(&heap->internal_refcount);
+}
+
 static ULONG STDMETHODCALLTYPE d3d12_heap_Release(d3d12_heap_iface *iface)
 {
     struct d3d12_heap *heap = impl_from_ID3D12Heap1(iface);
@@ -80,7 +96,11 @@ static ULONG STDMETHODCALLTYPE d3d12_heap_Release(d3d12_heap_iface *iface)
     TRACE("%p decreasing refcount to %u.\n", heap, refcount);
 
     if (!refcount)
-        d3d12_heap_destroy(heap);
+    {
+        struct d3d12_device *device = heap->device;
+        d3d12_heap_dec_ref(heap);
+        d3d12_device_release(device);
+    }
 
     return refcount;
 }
@@ -225,6 +245,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap, struct d3d12_device *dev
     memset(heap, 0, sizeof(*heap));
     heap->ID3D12Heap_iface.lpVtbl = &d3d12_heap_vtbl;
     heap->refcount = 1;
+    heap->internal_refcount = 1;
     heap->desc = *desc;
     heap->device = device;
 
@@ -251,6 +272,10 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap, struct d3d12_device *dev
         vkd3d_private_store_destroy(&heap->private_store);
         return hr;
     }
+
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    pthread_mutex_init(&heap->placement_lock, NULL);
+#endif
 
     d3d12_device_add_ref(heap->device);
     return S_OK;

@@ -145,7 +145,6 @@ struct vkd3d_vulkan_info
     bool EXT_depth_clip_enable;
     bool EXT_descriptor_indexing;
     bool EXT_image_view_min_lod;
-    bool EXT_inline_uniform_block;
     bool EXT_robustness2;
     bool EXT_sampler_filter_minmax;
     bool EXT_shader_demote_to_helper_invocation;
@@ -299,21 +298,9 @@ struct vkd3d_va_range
     VkDeviceSize size;
 };
 
-struct vkd3d_va_allocator
-{
-    pthread_mutex_t mutex;
-
-    struct vkd3d_va_range *free_ranges;
-    size_t free_ranges_size;
-    size_t free_range_count;
-
-    VkDeviceAddress next_va;
-};
-
 struct vkd3d_va_map
 {
     struct vkd3d_va_tree va_tree;
-    struct vkd3d_va_allocator va_allocator;
 
     pthread_mutex_t mutex;
 
@@ -328,8 +315,6 @@ const struct vkd3d_unique_resource *vkd3d_va_map_deref(struct vkd3d_va_map *va_m
 VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3d_va_map *va_map,
         struct d3d12_device *device,
         VkDeviceAddress va);
-VkDeviceAddress vkd3d_va_map_alloc_fake_va(struct vkd3d_va_map *va_map, VkDeviceSize size);
-void vkd3d_va_map_free_fake_va(struct vkd3d_va_map *va_map, VkDeviceAddress va, VkDeviceSize size);
 void vkd3d_va_map_init(struct vkd3d_va_map *va_map);
 void vkd3d_va_map_cleanup(struct vkd3d_va_map *va_map);
 
@@ -795,17 +780,37 @@ HRESULT vkd3d_memory_allocator_flush_clears(struct vkd3d_memory_allocator *alloc
 /* ID3D12Heap */
 typedef ID3D12Heap1 d3d12_heap_iface;
 
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+struct d3d12_heap_resource_placement
+{
+    struct d3d12_resource *resource;
+    VkDeviceSize heap_offset;
+    VkDeviceSize size;
+};
+#endif
+
 struct d3d12_heap
 {
     d3d12_heap_iface ID3D12Heap_iface;
     LONG refcount;
+    LONG internal_refcount;
 
     D3D12_HEAP_DESC desc;
     struct vkd3d_memory_allocation allocation;
 
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    struct d3d12_heap_resource_placement *placements;
+    size_t placements_count;
+    size_t placements_size;
+    pthread_mutex_t placement_lock;
+#endif
+
     struct d3d12_device *device;
     struct vkd3d_private_store private_store;
 };
+
+void d3d12_heap_inc_ref(struct d3d12_heap *heap);
+void d3d12_heap_dec_ref(struct d3d12_heap *heap);
 
 HRESULT d3d12_heap_create(struct d3d12_device *device, const D3D12_HEAP_DESC *desc,
         void *host_address, struct d3d12_heap **heap);
@@ -1366,11 +1371,10 @@ static inline bool d3d12_query_heap_type_is_inline(D3D12_QUERY_HEAP_TYPE heap_ty
 
 enum vkd3d_root_signature_flag
 {
-    VKD3D_ROOT_SIGNATURE_USE_ROOT_DESCRIPTOR_SET    = 0x00000001u,
-    VKD3D_ROOT_SIGNATURE_USE_INLINE_UNIFORM_BLOCK   = 0x00000002u,
-    VKD3D_ROOT_SIGNATURE_USE_RAW_VA_AUX_BUFFER      = 0x00000004u,
-    VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER     = 0x00000008u,
-    VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER    = 0x00000010u,
+    VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK = 0x00000001u,
+    VKD3D_ROOT_SIGNATURE_USE_RAW_VA_AUX_BUFFER           = 0x00000002u,
+    VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER          = 0x00000004u,
+    VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER         = 0x00000008u,
 };
 
 enum vkd3d_pipeline_type
@@ -2000,6 +2004,7 @@ enum vkd3d_scratch_pool_kind
 {
     VKD3D_SCRATCH_POOL_KIND_DEVICE_STORAGE = 0,
     VKD3D_SCRATCH_POOL_KIND_INDIRECT_PREPROCESS,
+    VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD,
     VKD3D_SCRATCH_POOL_KIND_COUNT
 };
 
@@ -2523,6 +2528,12 @@ struct d3d12_command_queue_submission_execute
     struct vkd3d_initial_transition *transitions;
     size_t transition_count;
 
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    /* Replays commands in submission order for heavy debug. */
+    unsigned int *breadcrumb_indices;
+    size_t breadcrumb_indices_count;
+#endif
+
     bool debug_capture;
 };
 
@@ -2748,6 +2759,16 @@ enum vkd3d_breadcrumb_command_type
     VKD3D_BREADCRUMB_COMMAND_ROOT_DESC,
     VKD3D_BREADCRUMB_COMMAND_ROOT_CONST,
     VKD3D_BREADCRUMB_COMMAND_TAG,
+    VKD3D_BREADCRUMB_COMMAND_BIND_RTV,
+    VKD3D_BREADCRUMB_COMMAND_BIND_DSV,
+    VKD3D_BREADCRUMB_COMMAND_COOKIE,
+    VKD3D_BREADCRUMB_COMMAND_CLEAR_UAV_FLOAT,
+    VKD3D_BREADCRUMB_COMMAND_CLEAR_UAV_UINT,
+    VKD3D_BREADCRUMB_COMMAND_CLEAR_UAV_FALLBACK,
+    VKD3D_BREADCRUMB_COMMAND_CLEAR_RTV,
+    VKD3D_BREADCRUMB_COMMAND_CLEAR_DSV,
+    VKD3D_BREADCRUMB_COMMAND_DISCARD,
+    VKD3D_BREADCRUMB_COMMAND_DISCARD_PARTIAL,
 };
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
@@ -2820,6 +2841,14 @@ void vkd3d_breadcrumb_tracer_add_command(struct d3d12_command_list *list,
 void vkd3d_breadcrumb_tracer_signal(struct d3d12_command_list *list);
 void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list);
 
+void vkd3d_breadcrumb_tracer_register_placed_resource(struct d3d12_heap *heap, struct d3d12_resource *resource,
+        VkDeviceSize heap_offset, VkDeviceSize required_size);
+void vkd3d_breadcrumb_tracer_unregister_placed_resource(struct d3d12_heap *heap, struct d3d12_resource *resource);
+
+/* For heavy debug, replays the trace stream in submission order. */
+void vkd3d_breadcrumb_tracer_dump_command_list(struct vkd3d_breadcrumb_tracer *tracer,
+        unsigned int index);
+
 #define VKD3D_BREADCRUMB_COMMAND(cmd_type) do { \
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \
         struct vkd3d_breadcrumb_command breadcrumb_cmd; \
@@ -2856,6 +2885,15 @@ void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list);
     } \
 } while(0)
 
+#define VKD3D_BREADCRUMB_COOKIE(v) do { \
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \
+        struct vkd3d_breadcrumb_command breadcrumb_cmd; \
+        breadcrumb_cmd.type = VKD3D_BREADCRUMB_COMMAND_COOKIE; \
+        breadcrumb_cmd.word_64bit = v; \
+        vkd3d_breadcrumb_tracer_add_command(list, &breadcrumb_cmd); \
+    } \
+} while(0)
+
 /* Remember to kick debug ring as well. */
 #define VKD3D_DEVICE_REPORT_BREADCRUMB_IF(device, cond) do { \
     if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) && (cond)) { \
@@ -2868,6 +2906,7 @@ void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list);
 #define VKD3D_BREADCRUMB_COMMAND_STATE(type) ((void)(VKD3D_BREADCRUMB_COMMAND_##type))
 #define VKD3D_BREADCRUMB_AUX32(v) ((void)(v))
 #define VKD3D_BREADCRUMB_AUX64(v) ((void)(v))
+#define VKD3D_BREADCRUMB_COOKIE(v) ((void)(v))
 #define VKD3D_DEVICE_REPORT_BREADCRUMB_IF(device, cond) ((void)(device), (void)(cond))
 #endif /* VKD3D_ENABLE_BREADCRUMBS */
 
@@ -3326,7 +3365,6 @@ struct vkd3d_physical_device_info
 {
     /* properties */
     VkPhysicalDeviceDescriptorIndexingPropertiesEXT descriptor_indexing_properties;
-    VkPhysicalDeviceInlineUniformBlockPropertiesEXT inline_uniform_block_properties;
     VkPhysicalDevicePushDescriptorPropertiesKHR push_descriptor_properties;
     VkPhysicalDeviceMaintenance3Properties maintenance3_properties;
     VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT texel_buffer_alignment_properties;
@@ -3362,7 +3400,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceDepthClipEnableFeaturesEXT depth_clip_features;
     VkPhysicalDeviceDescriptorIndexingFeaturesEXT descriptor_indexing_features;
     VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT demote_features;
-    VkPhysicalDeviceInlineUniformBlockFeaturesEXT inline_uniform_block_features;
     VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT texel_buffer_alignment_features;
     VkPhysicalDeviceTransformFeedbackFeaturesEXT xfb_features;
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT vertex_divisor_features;

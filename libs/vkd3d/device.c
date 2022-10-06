@@ -102,7 +102,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_DEPTH_CLIP_ENABLE, EXT_depth_clip_enable),
     VK_EXTENSION(EXT_DESCRIPTOR_INDEXING, EXT_descriptor_indexing),
     VK_EXTENSION(EXT_IMAGE_VIEW_MIN_LOD, EXT_image_view_min_lod),
-    VK_EXTENSION(EXT_INLINE_UNIFORM_BLOCK, EXT_inline_uniform_block),
     VK_EXTENSION(EXT_ROBUSTNESS_2, EXT_robustness2),
     VK_EXTENSION(EXT_SAMPLER_FILTER_MINMAX, EXT_sampler_filter_minmax),
     VK_EXTENSION(EXT_SHADER_DEMOTE_TO_HELPER_INVOCATION, EXT_shader_demote_to_helper_invocation),
@@ -719,6 +718,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"force_raw_va_cbv", VKD3D_CONFIG_FLAG_FORCE_RAW_VA_CBV},
     {"allow_sbt_collection", VKD3D_CONFIG_FLAG_ALLOW_SBT_COLLECTION},
     {"host_import_fallback", VKD3D_CONFIG_FLAG_USE_HOST_IMPORT_FALLBACK},
+    {"breadcrumbs_trace", VKD3D_CONFIG_FLAG_BREADCRUMBS | VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -1286,14 +1286,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->descriptor_indexing_features);
         info->descriptor_indexing_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES_EXT;
         vk_prepend_struct(&info->properties2, &info->descriptor_indexing_properties);
-    }
-
-    if (vulkan_info->EXT_inline_uniform_block)
-    {
-        info->inline_uniform_block_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES_EXT;
-        vk_prepend_struct(&info->features2, &info->inline_uniform_block_features);
-        info->inline_uniform_block_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_PROPERTIES_EXT;
-        vk_prepend_struct(&info->properties2, &info->inline_uniform_block_properties);
     }
 
     if (vulkan_info->EXT_robustness2)
@@ -2175,6 +2167,18 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         return E_INVALIDARG;
     }
 
+    if (!physical_device_info->buffer_device_address_features.bufferDeviceAddress)
+    {
+        ERR("Buffer device address is not supported by this implementation. This is required for correct operation.\n");
+        return E_INVALIDARG;
+    }
+
+    if (!vulkan_info->KHR_push_descriptor)
+    {
+        ERR("Push descriptors are not supported by this implementation. This is required for correct operation.\n");
+        return E_INVALIDARG;
+    }
+
     return S_OK;
 }
 
@@ -2681,6 +2685,24 @@ static HRESULT d3d12_device_create_scratch_buffer(struct d3d12_device *device, e
         alloc_info.flags = VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER | VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH;
 
         if (FAILED(hr = vkd3d_allocate_memory(device, &device->memory_allocator,
+                &alloc_info, &scratch->allocation)))
+            return hr;
+    }
+    else if (kind == VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD)
+    {
+        struct vkd3d_allocate_heap_memory_info alloc_info;
+
+        /* We only care about memory types for INDIRECT_PREPROCESS. */
+        assert(memory_types == ~0u);
+
+        memset(&alloc_info, 0, sizeof(alloc_info));
+        alloc_info.heap_desc.Properties.Type = D3D12_HEAP_TYPE_UPLOAD;
+        alloc_info.heap_desc.SizeInBytes = size;
+        alloc_info.heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+        alloc_info.heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS | D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
+        alloc_info.extra_allocation_flags = VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH;
+
+        if (FAILED(hr = vkd3d_allocate_heap_memory(device, &device->memory_allocator,
                 &alloc_info, &scratch->allocation)))
             return hr;
     }
