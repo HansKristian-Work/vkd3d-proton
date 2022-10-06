@@ -931,12 +931,9 @@ static HRESULT d3d12_swapchain_create_user_buffers(struct d3d12_swapchain *swapc
         }
     }
 
-    /* If we don't have a swapchain pipeline layout yet (0x0 surface on first frame),
-     * we cannot allocate any descriptors yet. We'll create the descriptors eventually
-     * when we get a proper swapchain working. */
-    if (!d3d12_swapchain_has_user_descriptors(swapchain) && swapchain->pipeline.vk_set_layout)
-        if (FAILED(hr = d3d12_swapchain_create_user_descriptors(swapchain, vk_format)))
-            return hr;
+    if (!d3d12_swapchain_has_user_descriptors(swapchain) &&
+            FAILED(hr = d3d12_swapchain_create_user_descriptors(swapchain, vk_format)))
+        return hr;
 
     return S_OK;
 }
