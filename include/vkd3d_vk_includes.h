@@ -21,15 +21,19 @@
 #if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__) ) || defined(_M_X64) || defined(__ia64) || defined (_M_IA64) || defined(__aarch64__) || defined(__powerpc64__)
     typedef struct VkCuFunctionNVX_T *VkCuFunctionNVX;
     typedef struct VkCuModuleNVX_T *VkCuModuleNVX;
+    typedef struct VkSurfaceKHR_T *VkSurfaceKHR;
 #else
     typedef UINT64 VkCuFunctionNVX;
     typedef UINT64 VkCuModuleNVX;
+    typedef UINT64 VkSurfaceKHR;
 #endif 
 
 typedef struct VkPhysicalDevice_T *VkPhysicalDevice;
 typedef struct VkCommandBuffer_T *VkCommandBuffer;
 typedef struct VkInstance_T *VkInstance;
 typedef struct VkDevice_T *VkDevice;
+
+typedef enum VkResult VkResult;
 
 typedef enum D3D12_VK_EXTENSION
 {
