@@ -517,7 +517,6 @@ struct vkd3d_instance_application_meta
 static const struct vkd3d_instance_application_meta application_override[] = {
     /* MSVC fails to compile empty array. */
     { VKD3D_STRING_COMPARE_EXACT, "GravityMark.exe", VKD3D_CONFIG_FLAG_FORCE_MINIMUM_SUBGROUP_SIZE, 0 },
-    { VKD3D_STRING_COMPARE_EXACT, "Deathloop.exe", VKD3D_CONFIG_FLAG_IGNORE_RTV_HOST_VISIBLE, 0 },
     /* Halo Infinite (1240440).
      * Game relies on NON_ZEROED committed UAVs to be cleared to zero on allocation.
      * This works okay with zerovram on first game boot, but not later, since this memory is guaranteed to be recycled.

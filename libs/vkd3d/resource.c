@@ -6773,13 +6773,6 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     info->cpu_accessible_domain.sampled_type_mask = buffer_type_mask & host_visible_mask;
     info->cpu_accessible_domain.rt_ds_type_mask = buffer_type_mask & host_visible_mask;
 
-    /* If we cannot support linear render targets, this is fine.
-     * If we don't fix this up here, we will fail to create a host visible TIER_2 heap.
-     * Ignore any requirements for color attachments since we're never going to use it anyways. */
-    if (info->cpu_accessible_domain.rt_ds_type_mask == 0 ||
-            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_IGNORE_RTV_HOST_VISIBLE))
-        info->cpu_accessible_domain.rt_ds_type_mask = info->cpu_accessible_domain.sampled_type_mask;
-
     TRACE("Device supports buffers on memory types 0x%#x.\n", buffer_type_mask);
     TRACE("Device supports textures on memory types 0x%#x.\n", sampled_type_mask);
     TRACE("Device supports render targets on memory types 0x%#x.\n", rt_ds_type_mask);
