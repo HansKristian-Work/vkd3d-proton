@@ -19,7 +19,8 @@
 
 import "vkd3d_windows.h";
 import "vkd3d_dxgibase.idl";
-import "vkd3d_dxgi1_2.idl";
+import "vkd3d_dxgi1_5.idl";
+import "vkd3d_vk_includes.h";
 
 [
     object,
@@ -37,3 +38,95 @@ interface IWineDXGISwapChainFactory : IUnknown
         [out] IDXGISwapChain1 **ppSwapChain
     );
 }
+
+typedef struct DXGI_VK_HDR_METADATA
+{
+    DXGI_HDR_METADATA_TYPE Type;
+    union
+    {
+        DXGI_HDR_METADATA_HDR10 HDR10;
+    };
+} DXGI_VK_HDR_METADATA;
+
+[
+    object,
+    local,
+    uuid(1e7895a1-1bc3-4f9c-a670-290a4bc9581a)
+]
+interface IDXGIVkSurfaceFactory : IUnknown {
+    VkResult CreateSurface(
+        VkInstance instance,
+        VkPhysicalDevice adapter,
+        VkSurfaceKHR *pSurface);
+};
+
+[
+    object,
+    local,
+    uuid(e4a9059e-b569-46ab-8de7-501bd2bc7f7a)
+]
+interface IDXGIVkSwapChain : IUnknown {
+    HRESULT GetDesc(
+            DXGI_SWAP_CHAIN_DESC1*    pDesc);
+
+    HRESULT GetAdapter(
+            REFIID                    riid,
+            void**                    ppvObject);
+
+    HRESULT GetDevice(
+            REFIID                    riid,
+            void**                    ppDevice);
+
+    HRESULT GetImage(
+            UINT                      BufferId,
+            REFIID                    riid,
+            void**                    ppBuffer);
+
+    UINT GetImageIndex();
+
+    UINT GetFrameLatency();
+
+    HANDLE GetFrameLatencyEvent();
+
+    HRESULT ChangeProperties(
+      const DXGI_SWAP_CHAIN_DESC1*    pDesc,
+      const UINT*                     pNodeMasks,
+            IUnknown* const*          ppPresentQueues);
+
+    HRESULT SetPresentRegion(
+      const RECT*                     pRegion);
+
+    HRESULT SetGammaControl(
+            UINT                      NumControlPoints,
+      const DXGI_RGB*                 pControlPoints);
+
+    HRESULT SetFrameLatency(
+            UINT                      MaxLatency);
+
+    HRESULT Present(
+            UINT                      SyncInterval,
+            UINT                      PresentFlags,
+      const DXGI_PRESENT_PARAMETERS*  pPresentParameters);
+
+    UINT CheckColorSpaceSupport(
+            DXGI_COLOR_SPACE_TYPE     ColorSpace);
+
+    HRESULT SetColorSpace(
+            DXGI_COLOR_SPACE_TYPE     ColorSpace);
+
+    HRESULT SetHDRMetaData(
+      const DXGI_VK_HDR_METADATA*     pMetaData);
+}
+
+[
+    object,
+    local,
+    uuid(e7d6c3ca-23a0-4e08-9f2f-ea5231df6633)
+]
+interface IDXGIVkSwapChainFactory : IUnknown {
+  HRESULT CreateSwapChain(
+    IDXGIVkSurfaceFactory*          pSurfaceFactory,
+    const DXGI_SWAP_CHAIN_DESC1*    pDesc,
+          IDXGIVkSwapChain**        ppSwapChain);
+}
+
