@@ -596,6 +596,8 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
 
     image_info->mipLevels = min(desc->MipLevels, max_miplevel_count(desc));
     image_info->samples = vk_samples_from_dxgi_sample_desc(&desc->SampleDesc);
+    image_info->tiling = VK_IMAGE_TILING_OPTIMAL;
+    image_info->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     if (sparse_resource)
     {
@@ -604,19 +606,10 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
             WARN("D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE must be used for reserved texture.\n");
             return E_INVALIDARG;
         }
-
-        image_info->tiling = VK_IMAGE_TILING_OPTIMAL;
     }
-    else if (desc->Layout == D3D12_TEXTURE_LAYOUT_UNKNOWN || desc->Layout == D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE)
+    else if (desc->Layout != D3D12_TEXTURE_LAYOUT_UNKNOWN && desc->Layout != D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE)
     {
-        image_info->tiling = VK_IMAGE_TILING_OPTIMAL;
-    }
-    else if (desc->Layout == D3D12_TEXTURE_LAYOUT_ROW_MAJOR)
-    {
-        image_info->tiling = VK_IMAGE_TILING_LINEAR;
-    }
-    else
-    {
+        /* ROW_MAJOR is only supported for cross-adapter sharing, which we don't support */
         FIXME("Unsupported layout %#x.\n", desc->Layout);
         return E_NOTIMPL;
     }
@@ -647,6 +640,9 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
             (image_info->usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT))
         image_info->flags |= VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT;
 
+    if (heap_properties && is_cpu_accessible_heap(heap_properties))
+        use_concurrent = true;
+
     use_concurrent = !!(device->unique_queue_mask & (device->unique_queue_mask - 1));
 
     if (!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS))
@@ -676,52 +672,9 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         image_info->pQueueFamilyIndices = NULL;
     }
 
-    if (heap_properties && is_cpu_accessible_heap(heap_properties))
-    {
-        image_info->initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
-        /* Required for ReadFromSubresource(). */
-        image_info->tiling = VK_IMAGE_TILING_LINEAR;
-
-        if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_IGNORE_RTV_HOST_VISIBLE) &&
-                (image_info->usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT))
-        {
-            WARN("Workaround applied. Ignoring RTV on linear resources.\n");
-            image_info->usage &= ~VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-            if (resource)
-                resource->desc.Flags &= ~D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-        }
-    }
-    else
-    {
-        image_info->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    }
-
     if ((image_info->flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) &&
             !vkd3d_format_check_usage_support(device, format->vk_format, image_info->usage, image_info->tiling))
         image_info->flags |= VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
-
-    if (image_info->tiling == VK_IMAGE_TILING_LINEAR)
-    {
-        bool supported = vkd3d_is_linear_tiling_supported(device, image_info);
-
-        /* Apparently NV drivers do not support EXTENDED_USAGE_BIT on linear images? */
-        if (!supported && (image_info->flags & VK_IMAGE_CREATE_EXTENDED_USAGE_BIT))
-        {
-            WARN("Linear image not supported, attempting without EXTENDED_USAGE as a workaround ...\n");
-            image_info->flags &= ~VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
-            supported = vkd3d_is_linear_tiling_supported(device, image_info);
-        }
-
-        if (!supported)
-        {
-            WARN("Linear image not supported, forcing OPTIMAL tiling ...\n");
-            image_info->tiling = VK_IMAGE_TILING_OPTIMAL;
-
-            if ((image_info->flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) &&
-                    !vkd3d_format_check_usage_support(device, format->vk_format, image_info->usage, image_info->tiling))
-                image_info->flags |= VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
-        }
-    }
 
     if (sparse_resource)
     {
@@ -757,9 +710,10 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
 
     if (resource)
     {
-        if (image_info->tiling == VK_IMAGE_TILING_LINEAR)
+        if (heap_properties && is_cpu_accessible_heap(heap_properties))
         {
-            resource->flags |= VKD3D_RESOURCE_LINEAR_TILING;
+            /* Required for ReadFrom/WriteToSubresource */
+            resource->flags |= VKD3D_RESOURCE_SIMULTANEOUS_ACCESS;
             resource->common_layout = VK_IMAGE_LAYOUT_GENERAL;
         }
         else

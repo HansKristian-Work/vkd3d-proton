@@ -13921,8 +13921,7 @@ bool vk_image_memory_barrier_for_initial_transition(const struct d3d12_resource 
     barrier->pNext = NULL;
     barrier->srcAccessMask = 0;
     barrier->dstAccessMask = 0;
-    barrier->oldLayout = d3d12_resource_is_cpu_accessible(resource)
-                        ? VK_IMAGE_LAYOUT_PREINITIALIZED : VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier->oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     barrier->newLayout = vk_image_layout_from_d3d12_resource_state(NULL, resource, resource->initial_state);
     barrier->srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier->dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
