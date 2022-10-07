@@ -258,42 +258,6 @@ static bool vkd3d_get_format_compatibility_list(const struct d3d12_device *devic
     return true;
 }
 
-static bool vkd3d_is_linear_tiling_supported(const struct d3d12_device *device, VkImageCreateInfo *image_info)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkImageFormatProperties properties;
-    bool supported;
-    VkResult vr;
-
-    if ((vr = VK_CALL(vkGetPhysicalDeviceImageFormatProperties(device->vk_physical_device, image_info->format,
-            image_info->imageType, VK_IMAGE_TILING_LINEAR, image_info->usage, image_info->flags, &properties))) < 0)
-    {
-        if (vr != VK_ERROR_FORMAT_NOT_SUPPORTED)
-            WARN("Failed to get device image format properties, vr %d.\n", vr);
-        else
-        {
-            WARN("Attempting to create linear image, but not supported.\n"
-                  "usage: %#x, flags: %#x, fmt: %u, image_type: %u\n",
-                  image_info->usage, image_info->flags, image_info->format, image_info->imageType);
-        }
-
-        return false;
-    }
-
-    supported = image_info->extent.depth <= properties.maxExtent.depth
-            && image_info->mipLevels <= properties.maxMipLevels
-            && image_info->arrayLayers <= properties.maxArrayLayers
-            && (image_info->samples & properties.sampleCounts);
-
-    if (!supported)
-    {
-        WARN("Linear tiling not supported for mipLevels = %u, arrayLayers = %u, sampes = %u, depth = %u.\n",
-                image_info->mipLevels, image_info->arrayLayers, image_info->samples, image_info->extent.depth);
-    }
-
-    return supported;
-}
-
 static bool d3d12_device_prefers_general_depth_stencil(const struct d3d12_device *device)
 {
     if (device->vk_info.KHR_driver_properties)
@@ -6515,9 +6479,7 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     VkMemoryRequirements2 memory_requirements;
     struct vkd3d_memory_topology topology;
     VkBufferCreateInfo buffer_info;
-    uint32_t sampled_type_mask_cpu;
     VkImageCreateInfo image_info;
-    uint32_t rt_ds_type_mask_cpu;
     uint32_t sampled_type_mask;
     uint32_t host_visible_mask;
     uint32_t buffer_type_mask;
@@ -6592,25 +6554,6 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     VK_CALL(vkGetDeviceImageMemoryRequirementsKHR(device->vk_device, &image_requirement_info, &memory_requirements));
     sampled_type_mask = memory_requirements.memoryRequirements.memoryTypeBits;
 
-    /* CPU accessible images are always LINEAR.
-     * If we ever get a way to write to OPTIMAL-ly tiled images, we can drop this and just
-     * do sampled_type_mask_cpu & host_visible_set. */
-    image_info.tiling = VK_IMAGE_TILING_LINEAR;
-    image_info.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
-    image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-            VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-            VK_IMAGE_USAGE_SAMPLED_BIT;
-    /* Deliberately omit STORAGE_BIT here, since it's not supported at all on NV with HOST_VISIBLE.
-     * Probably not 100% correct, but we can fix this if we get host visible OPTIMAL at some point. */
-    sampled_type_mask_cpu = 0;
-    if (vkd3d_is_linear_tiling_supported(device, &image_info))
-    {
-        VK_CALL(vkGetDeviceImageMemoryRequirementsKHR(device->vk_device, &image_requirement_info, &memory_requirements));
-        sampled_type_mask_cpu = memory_requirements.memoryRequirements.memoryTypeBits;
-    }
-    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
     image_info.format = VK_FORMAT_R8G8B8A8_UNORM;
     image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
             VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
@@ -6621,17 +6564,6 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     VK_CALL(vkGetDeviceImageMemoryRequirementsKHR(device->vk_device, &image_requirement_info, &memory_requirements));
     rt_ds_type_mask = memory_requirements.memoryRequirements.memoryTypeBits;
 
-    image_info.tiling = VK_IMAGE_TILING_LINEAR;
-    image_info.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
-    rt_ds_type_mask_cpu = 0;
-    if (vkd3d_is_linear_tiling_supported(device, &image_info))
-    {
-        VK_CALL(vkGetDeviceImageMemoryRequirementsKHR(device->vk_device, &image_requirement_info, &memory_requirements));
-        rt_ds_type_mask_cpu = memory_requirements.memoryRequirements.memoryTypeBits;
-    }
-    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
     image_info.format = VK_FORMAT_D32_SFLOAT_S8_UINT;
     image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
             VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
@@ -6640,10 +6572,6 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
 
     VK_CALL(vkGetDeviceImageMemoryRequirementsKHR(device->vk_device, &image_requirement_info, &memory_requirements));
     rt_ds_type_mask &= memory_requirements.memoryRequirements.memoryTypeBits;
-
-    /* Unsure if we can have host visible depth-stencil.
-     * On AMD, we can get linear RT, but not linear DS, so for now, just don't check for that.
-     * We will fail in resource creation instead. */
 
     info->non_cpu_accessible_domain.buffer_type_mask = buffer_type_mask;
     info->non_cpu_accessible_domain.sampled_type_mask = sampled_type_mask;
@@ -6655,8 +6583,8 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
             host_visible_mask |= 1u << i;
 
     info->cpu_accessible_domain.buffer_type_mask = buffer_type_mask & host_visible_mask;
-    info->cpu_accessible_domain.sampled_type_mask = sampled_type_mask_cpu & host_visible_mask;
-    info->cpu_accessible_domain.rt_ds_type_mask = rt_ds_type_mask_cpu & host_visible_mask;
+    info->cpu_accessible_domain.sampled_type_mask = sampled_type_mask & host_visible_mask;
+    info->cpu_accessible_domain.rt_ds_type_mask = rt_ds_type_mask & host_visible_mask;
 
     /* If we cannot support linear render targets, this is fine.
      * If we don't fix this up here, we will fail to create a host visible TIER_2 heap.
