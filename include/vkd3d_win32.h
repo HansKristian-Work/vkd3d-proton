@@ -67,6 +67,7 @@
 #define __vkd3d_dxgi1_2_h__
 #define __vkd3d_dxgi1_3_h__
 #define __vkd3d_dxgi1_4_h__
+#define __vkd3d_dxgi1_5_h__
 
 #include <vkd3d_swapchain_factory.h>
 #include <vkd3d_command_list_vkd3d_ext.h>

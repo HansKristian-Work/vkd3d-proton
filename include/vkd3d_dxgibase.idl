@@ -26,9 +26,22 @@ cpp_quote("#endif")
 cpp_quote("#ifndef DXGI_ERROR_DEVICE_REMOVED")
 cpp_quote("#define DXGI_ERROR_DEVICE_REMOVED _HRESULT_TYPEDEF_(0x887a0005)")
 cpp_quote("#endif")
+cpp_quote("#ifndef DXGI_ERROR_SDK_COMPONENT_MISSING")
+cpp_quote("#define DXGI_ERROR_SDK_COMPONENT_MISSING _HRESULT_TYPEDEF_(0x887a002d)")
+cpp_quote("#endif")
+cpp_quote("#ifndef DXGI_STATUS_OCCLUDED")
+cpp_quote("#define DXGI_STATUS_OCCLUDED _HRESULT_TYPEDEF_(0x087a0001)")
+cpp_quote("#endif")
 
 typedef struct DXGI_SAMPLE_DESC
 {
     UINT Count;
     UINT Quality;
 } DXGI_SAMPLE_DESC;
+
+typedef struct DXGI_RGB
+{
+    float Red;
+    float Green;
+    float Blue;
+} DXGI_RGB;
