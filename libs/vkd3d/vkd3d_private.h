@@ -993,7 +993,7 @@ static inline bool d3d12_resource_is_texture(const struct d3d12_resource *resour
 
 static inline VkImageLayout d3d12_resource_pick_layout(const struct d3d12_resource *resource, VkImageLayout layout)
 {
-    return resource->flags & (VKD3D_RESOURCE_LINEAR_TILING | VKD3D_RESOURCE_SIMULTANEOUS_ACCESS) ?
+    return resource->flags & (VKD3D_RESOURCE_LINEAR_STAGING_COPY | VKD3D_RESOURCE_SIMULTANEOUS_ACCESS) ?
             resource->common_layout : layout;
 }
 
