@@ -1764,11 +1764,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(d3d12_resourc
         UINT src_row_pitch, UINT src_slice_pitch)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource2(iface);
-    const struct vkd3d_vk_device_procs *vk_procs;
-    VkImageSubresource vk_sub_resource;
-    VkSubresourceLayout vk_layout;
-    struct d3d12_device *device;
-    uint8_t *dst_data;
+    struct d3d12_device *device = resource->device;
+    uint32_t mip_level;
+    VkOffset3D offset;
+    VkExtent3D extent;
     D3D12_BOX box;
 
     TRACE("iface %p, src_data %p, src_row_pitch %u, src_slice_pitch %u, "
@@ -1781,33 +1780,31 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(d3d12_resourc
         return E_INVALIDARG;
     }
 
-    device = resource->device;
-    vk_procs = &device->vk_procs;
-
-    if (resource->format->vk_aspect_mask != VK_IMAGE_ASPECT_COLOR_BIT)
+    if (resource->format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
     {
         FIXME("Not supported for format %#x.\n", resource->format->dxgi_format);
         return E_NOTIMPL;
     }
 
-    vk_sub_resource.arrayLayer = dst_sub_resource / resource->desc.MipLevels;
-    vk_sub_resource.mipLevel = dst_sub_resource % resource->desc.MipLevels;
-    vk_sub_resource.aspectMask = resource->format->vk_aspect_mask;
+    if (dst_box)
+    {
+        if (!d3d12_resource_validate_box(resource, dst_sub_resource, dst_box))
+        {
+            WARN("Invalid box %s.\n", debug_d3d12_box(dst_box));
+            return E_INVALIDARG;
+        }
 
-    if (!dst_box)
-    {
-        d3d12_resource_get_level_box(resource, vk_sub_resource.mipLevel, &box);
-        dst_box = &box;
+        box = *dst_box;
     }
-    else if (!d3d12_resource_validate_box(resource, dst_sub_resource, dst_box))
+    else
     {
-        WARN("Invalid box %s.\n", debug_d3d12_box(dst_box));
-        return E_INVALIDARG;
+        mip_level = dst_sub_resource % resource->desc.MipLevels;
+        d3d12_resource_get_level_box(resource, mip_level, &box);
     }
 
-    if (d3d12_box_is_empty(dst_box))
+    if (d3d12_box_is_empty(&box))
     {
-        WARN("Empty box %s.\n", debug_d3d12_box(dst_box));
+        WARN("Empty box %s.\n", debug_d3d12_box(&box));
         return S_OK;
     }
 
@@ -1816,26 +1813,11 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(d3d12_resourc
         FIXME_ONCE("Not implemented for this resource type.\n");
         return E_NOTIMPL;
     }
-    if (!(resource->flags & VKD3D_RESOURCE_LINEAR_TILING))
-    {
-        FIXME_ONCE("Not implemented for image tiling other than VK_IMAGE_TILING_LINEAR.\n");
-        return E_NOTIMPL;
-    }
 
-    VK_CALL(vkGetImageSubresourceLayout(device->vk_device, resource->res.vk_image, &vk_sub_resource, &vk_layout));
-    TRACE("Offset %#"PRIx64", size %#"PRIx64", row pitch %#"PRIx64", depth pitch %#"PRIx64".\n",
-            vk_layout.offset, vk_layout.size, vk_layout.rowPitch, vk_layout.depthPitch);
+    vk_offset_extent_from_d3d12_box(&box, &offset, &extent);
 
-    d3d12_resource_get_map_ptr(resource, (void **)&dst_data);
-
-    dst_data += vk_layout.offset + vkd3d_format_get_data_offset(resource->format, vk_layout.rowPitch,
-            vk_layout.depthPitch, dst_box->left, dst_box->top, dst_box->front);
-
-    vkd3d_format_copy_data(resource->format, src_data, src_row_pitch, src_slice_pitch,
-            dst_data, vk_layout.rowPitch, vk_layout.depthPitch, dst_box->right - dst_box->left,
-            dst_box->bottom - dst_box->top, dst_box->back - dst_box->front);
-
-    return S_OK;
+    return vkd3d_memory_transfer_queue_write_to_subresource(&device->memory_transfers,
+            src_data, src_row_pitch, src_slice_pitch, resource, dst_sub_resource, offset, extent);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(d3d12_resource_iface *iface,
@@ -1843,11 +1825,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(d3d12_resour
         UINT src_sub_resource, const D3D12_BOX *src_box)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource2(iface);
-    const struct vkd3d_vk_device_procs *vk_procs;
-    VkImageSubresource vk_sub_resource;
-    VkSubresourceLayout vk_layout;
-    struct d3d12_device *device;
-    uint8_t *src_data;
+    struct d3d12_device *device = resource->device;
+    uint32_t mip_level;
+    VkOffset3D offset;
+    VkExtent3D extent;
     D3D12_BOX box;
 
     TRACE("iface %p, dst_data %p, dst_row_pitch %u, dst_slice_pitch %u, "
@@ -1860,33 +1841,31 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(d3d12_resour
         return E_INVALIDARG;
     }
 
-    device = resource->device;
-    vk_procs = &device->vk_procs;
-
-    if (resource->format->vk_aspect_mask != VK_IMAGE_ASPECT_COLOR_BIT)
+    if (resource->format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
     {
         FIXME("Not supported for format %#x.\n", resource->format->dxgi_format);
         return E_NOTIMPL;
     }
 
-    vk_sub_resource.arrayLayer = src_sub_resource / resource->desc.MipLevels;
-    vk_sub_resource.mipLevel = src_sub_resource % resource->desc.MipLevels;
-    vk_sub_resource.aspectMask = resource->format->vk_aspect_mask;
+    if (src_box)
+    {
+        if (!d3d12_resource_validate_box(resource, src_sub_resource, src_box))
+        {
+            WARN("Invalid box %s.\n", debug_d3d12_box(src_box));
+            return E_INVALIDARG;
+        }
 
-    if (!src_box)
-    {
-        d3d12_resource_get_level_box(resource, vk_sub_resource.mipLevel, &box);
-        src_box = &box;
+        box = *src_box;
     }
-    else if (!d3d12_resource_validate_box(resource, src_sub_resource, src_box))
+    else
     {
-        WARN("Invalid box %s.\n", debug_d3d12_box(src_box));
-        return E_INVALIDARG;
+        mip_level = src_sub_resource % resource->desc.MipLevels;
+        d3d12_resource_get_level_box(resource, mip_level, &box);
     }
 
-    if (d3d12_box_is_empty(src_box))
+    if (d3d12_box_is_empty(&box))
     {
-        WARN("Empty box %s.\n", debug_d3d12_box(src_box));
+        WARN("Empty box %s.\n", debug_d3d12_box(&box));
         return S_OK;
     }
 
@@ -1895,26 +1874,11 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(d3d12_resour
         FIXME_ONCE("Not implemented for this resource type.\n");
         return E_NOTIMPL;
     }
-    if (!(resource->flags & VKD3D_RESOURCE_LINEAR_TILING))
-    {
-        FIXME_ONCE("Not implemented for image tiling other than VK_IMAGE_TILING_LINEAR.\n");
-        return E_NOTIMPL;
-    }
 
-    VK_CALL(vkGetImageSubresourceLayout(device->vk_device, resource->res.vk_image, &vk_sub_resource, &vk_layout));
-    TRACE("Offset %#"PRIx64", size %#"PRIx64", row pitch %#"PRIx64", depth pitch %#"PRIx64".\n",
-            vk_layout.offset, vk_layout.size, vk_layout.rowPitch, vk_layout.depthPitch);
+    vk_offset_extent_from_d3d12_box(&box, &offset, &extent);
 
-    d3d12_resource_get_map_ptr(resource, (void **)&src_data);
-
-    src_data += vk_layout.offset + vkd3d_format_get_data_offset(resource->format, vk_layout.rowPitch,
-            vk_layout.depthPitch, src_box->left, src_box->top, src_box->front);
-
-    vkd3d_format_copy_data(resource->format, src_data, vk_layout.rowPitch, vk_layout.depthPitch,
-            dst_data, dst_row_pitch, dst_slice_pitch, src_box->right - src_box->left,
-            src_box->bottom - src_box->top, src_box->back - src_box->front);
-
-    return S_OK;
+    return vkd3d_memory_transfer_queue_read_from_subresource(&device->memory_transfers,
+            dst_data, dst_row_pitch, dst_slice_pitch, resource, src_sub_resource, offset, extent);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_resource_GetHeapProperties(d3d12_resource_iface *iface,

@@ -3964,6 +3964,17 @@ static inline VkImageSubresourceRange vk_subresource_range_from_view(const struc
     return vk_subresource_range_from_layers(&layers);
 }
 
+static inline void vk_offset_extent_from_d3d12_box(const D3D12_BOX *box, VkOffset3D *offset, VkExtent3D *extent)
+{
+    offset->x = box->left;
+    offset->y = box->top;
+    offset->z = box->front;
+
+    extent->width = (uint32_t)(box->right - box->left);
+    extent->height = (uint32_t)(box->bottom - box->top);
+    extent->depth = (uint32_t)(box->back - box->front);
+}
+
 static inline bool d3d12_box_is_empty(const D3D12_BOX *box)
 {
     return box->right <= box->left || box->bottom <= box->top || box->back <= box->front;
