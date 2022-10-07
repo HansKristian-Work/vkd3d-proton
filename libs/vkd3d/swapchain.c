@@ -2304,7 +2304,16 @@ static HRESULT d3d12_swapchain_resize_buffers(struct d3d12_swapchain *swapchain,
     new_desc = swapchain->desc;
 
     if (buffer_count)
+    {
+        if (swapchain->current_buffer_index >= buffer_count)
+        {
+            /* Current buffer index may overflow here, so reset it. */
+            swapchain->current_buffer_index = 0;
+            WARN("Resetting current buffer index due to future overflow.\n");
+        }
         new_desc.BufferCount = buffer_count;
+    }
+
     if (!width || !height)
     {
         RECT client_rect;
