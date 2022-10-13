@@ -1570,7 +1570,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_StorePipeline(d3d12_pipe
     }
 
     /* We need to allocate persistent storage for the name */
-    if (!(new_name = malloc(entry.key.name_length)))
+    if (!(new_name = vkd3d_malloc(entry.key.name_length)))
     {
         rwlock_unlock_read(&pipeline_library->mutex);
         return E_OUTOFMEMORY;
@@ -1586,7 +1586,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_StorePipeline(d3d12_pipe
         return hresult_from_vk_result(vr);
     }
 
-    if (!(new_blob = malloc(entry.data.blob_length)))
+    if (!(new_blob = vkd3d_malloc(entry.data.blob_length)))
     {
         vkd3d_free(new_name);
         rwlock_unlock_read(&pipeline_library->mutex);
@@ -2710,7 +2710,7 @@ static HRESULT vkd3d_pipeline_library_disk_cache_save_pipeline_state(struct vkd3
         return hresult_from_vk_result(vr);
     }
 
-    if (!(new_blob = malloc(entry.data.blob_length)))
+    if (!(new_blob = vkd3d_malloc(entry.data.blob_length)))
     {
         rwlock_unlock_read(&library->mutex);
         return E_OUTOFMEMORY;
