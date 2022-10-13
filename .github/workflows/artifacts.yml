@@ -24,7 +24,7 @@ jobs:
 
     - name: Upload artifacts
       id: upload-artifacts
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: vkd3d-proton-${{ env.VERSION_NAME }}
         path: build/vkd3d-proton-${{ env.VERSION_NAME }}
