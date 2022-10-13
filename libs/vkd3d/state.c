@@ -1142,7 +1142,7 @@ static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signa
     if (!desc->NumStaticSamplers)
         return S_OK;
 
-    if (!(vk_binding_info = malloc(desc->NumStaticSamplers * sizeof(*vk_binding_info))))
+    if (!(vk_binding_info = vkd3d_malloc(desc->NumStaticSamplers * sizeof(*vk_binding_info))))
         return E_OUTOFMEMORY;
 
     for (i = 0; i < desc->NumStaticSamplers; ++i)
@@ -2037,13 +2037,13 @@ static struct vkd3d_shader_transform_feedback_info *vkd3d_shader_transform_feedb
     if (!xfb_info)
         return NULL;
 
-    new_buffer_strides = malloc(so_desc->NumStrides * sizeof(*new_buffer_strides));
+    new_buffer_strides = vkd3d_malloc(so_desc->NumStrides * sizeof(*new_buffer_strides));
     if (!new_buffer_strides)
         goto fail;
     memcpy(new_buffer_strides, so_desc->pBufferStrides, so_desc->NumStrides * sizeof(*new_buffer_strides));
     xfb_info->buffer_strides = new_buffer_strides;
 
-    new_entries = malloc(so_desc->NumEntries * sizeof(*new_entries));
+    new_entries = vkd3d_malloc(so_desc->NumEntries * sizeof(*new_entries));
     if (!new_entries)
         goto fail;
     memcpy(new_entries, so_desc->pSODeclaration, so_desc->NumEntries * sizeof(*new_entries));
@@ -2170,7 +2170,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_GetCachedBlob(ID3D12Pipeli
     if ((vr = vkd3d_serialize_pipeline_state(NULL, state, &cache_size, NULL)))
         return hresult_from_vk_result(vr);
 
-    if (!(cache_data = malloc(cache_size)))
+    if (!(cache_data = vkd3d_malloc(cache_size)))
         return E_OUTOFMEMORY;
 
     if ((vr = vkd3d_serialize_pipeline_state(NULL, state, &cache_size, cache_data)))
