@@ -14,7 +14,7 @@ jobs:
         submodules: recursive
 
     - name: Setup problem matcher
-      uses: Joshua-Ashton/gcc-problem-matcher@v1
+      uses: Joshua-Ashton/gcc-problem-matcher@v2
 
     - name: Build MinGW x86
       id: build-mingw-x86
