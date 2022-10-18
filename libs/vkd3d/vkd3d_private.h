@@ -140,6 +140,8 @@ struct vkd3d_vulkan_info
     bool KHR_fragment_shader_barycentric;
     bool KHR_external_memory_win32;
     bool KHR_external_semaphore_win32;
+    bool KHR_present_wait;
+    bool KHR_present_id;
     /* EXT device extensions */
     bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;
@@ -3393,6 +3395,8 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceMeshShaderFeaturesEXT mesh_shader_features;
     VkPhysicalDevicePipelineCreationCacheControlFeaturesEXT pipeline_creation_cache_control_features;
     VkPhysicalDeviceShaderModuleIdentifierFeaturesEXT shader_module_identifier_features;
+    VkPhysicalDevicePresentIdFeaturesKHR present_id_features;
+    VkPhysicalDevicePresentWaitFeaturesKHR present_wait_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
