@@ -335,6 +335,9 @@ VK_DEVICE_EXT_PFN(vkCmdExecuteGeneratedCommandsNV)
 /* VK_EXT_shader_module_identifier */
 VK_DEVICE_EXT_PFN(vkGetShaderModuleIdentifierEXT)
 
+/* VK_KHR_present_wait */
+VK_DEVICE_EXT_PFN(vkWaitForPresentKHR)
+
 #undef VK_INSTANCE_PFN
 #undef VK_INSTANCE_EXT_PFN
 #undef VK_DEVICE_PFN
