@@ -2556,7 +2556,15 @@ struct d3d12_swapchain_factory
     struct d3d12_command_queue *queue;
 };
 
+/* IDXGIVkSwapChainFactory */
+struct dxgi_vk_swap_chain_factory
+{
+    IDXGIVkSwapChainFactory IDXGIVkSwapChainFactory_iface;
+    struct d3d12_command_queue *queue;
+};
+
 HRESULT d3d12_swapchain_factory_init(struct d3d12_command_queue *queue, struct d3d12_swapchain_factory *factory);
+HRESULT dxgi_vk_swap_chain_factory_init(struct d3d12_command_queue *queue, struct dxgi_vk_swap_chain_factory *chain);
 
 /* ID3D12CommandQueue */
 struct d3d12_command_queue
@@ -2586,6 +2594,7 @@ struct d3d12_command_queue
 #ifdef VKD3D_BUILD_STANDALONE_D3D12
     struct d3d12_swapchain_factory swapchain_factory;
 #endif
+    struct dxgi_vk_swap_chain_factory vk_swap_chain_factory;
 };
 
 HRESULT d3d12_command_queue_create(struct d3d12_device *device,
