@@ -12907,6 +12907,15 @@ void d3d12_command_queue_submit_stop(struct d3d12_command_queue *queue)
     d3d12_command_queue_add_submission(queue, &sub);
 }
 
+void d3d12_command_queue_enqueue_callback(struct d3d12_command_queue *queue, void (*callback)(void *), void *userdata)
+{
+    struct d3d12_command_queue_submission sub;
+    sub.type = VKD3D_SUBMISSION_CALLBACK;
+    sub.callback.callback = callback;
+    sub.callback.userdata = userdata;
+    d3d12_command_queue_add_submission(queue, &sub);
+}
+
 static void d3d12_command_queue_add_submission_locked(struct d3d12_command_queue *queue,
                                                       const struct d3d12_command_queue_submission *sub)
 {
@@ -12945,6 +12954,14 @@ static void d3d12_command_queue_acquire_serialized(struct d3d12_command_queue *q
 static void d3d12_command_queue_release_serialized(struct d3d12_command_queue *queue)
 {
     pthread_mutex_unlock(&queue->queue_lock);
+}
+
+void d3d12_command_queue_signal_inline(struct d3d12_command_queue *queue, d3d12_fence_iface *fence, uint64_t value)
+{
+    if (is_shared_ID3D12Fence1(fence))
+        d3d12_command_queue_signal_shared(queue, shared_impl_from_ID3D12Fence1(fence), value);
+    else
+        d3d12_command_queue_signal(queue, impl_from_ID3D12Fence1(fence), value);
 }
 
 static void *d3d12_command_queue_submission_worker_main(void *userdata)
@@ -13003,10 +13020,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
 
         case VKD3D_SUBMISSION_SIGNAL:
             VKD3D_REGION_BEGIN(queue_signal);
-            if (is_shared_ID3D12Fence1(submission.signal.fence))
-                d3d12_command_queue_signal_shared(queue, shared_impl_from_ID3D12Fence1(submission.signal.fence), submission.signal.value);
-            else
-                d3d12_command_queue_signal(queue, impl_from_ID3D12Fence1(submission.signal.fence), submission.signal.value);
+            d3d12_command_queue_signal_inline(queue, submission.signal.fence, submission.signal.value);
             d3d12_fence_iface_dec_ref(submission.signal.fence);
             VKD3D_REGION_END(queue_signal);
             break;
@@ -13046,6 +13060,10 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             pthread_mutex_unlock(&queue->queue_lock);
             break;
         }
+
+        case VKD3D_SUBMISSION_CALLBACK:
+            submission.callback.callback(submission.callback.userdata);
+            break;
 
         default:
             ERR("Unrecognized submission type %u.\n", submission.type);
