@@ -46,12 +46,19 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_factory_QueryInterface(IDXGI
 
 struct dxgi_vk_swap_chain_present_request
 {
+    uint64_t begin_frame_time_ns;
     uint32_t user_index;
     DXGI_FORMAT dxgi_format;
     DXGI_COLOR_SPACE_TYPE dxgi_color_space_type;
     DXGI_VK_HDR_METADATA dxgi_hdr_metadata;
     uint32_t swap_interval;
     bool modifies_hdr_metadata;
+};
+
+struct present_wait_entry
+{
+    uint64_t id;
+    uint64_t begin_frame_time_ns;
 };
 
 struct dxgi_vk_swap_chain
@@ -65,6 +72,8 @@ struct dxgi_vk_swap_chain
     HANDLE frame_latency_event;
     UINT frame_latency;
     VkSurfaceKHR vk_surface;
+
+    bool debug_latency;
 
     struct
     {
@@ -125,6 +134,7 @@ struct dxgi_vk_swap_chain
         DXGI_COLOR_SPACE_TYPE dxgi_color_space_type;
         DXGI_VK_HDR_METADATA dxgi_hdr_metadata;
         bool modifies_hdr_metadata;
+        uint64_t begin_frame_time_ns;
     } user;
 
     struct
@@ -137,7 +147,7 @@ struct dxgi_vk_swap_chain
     struct
     {
         pthread_t thread;
-        uint64_t *wait_queue;
+        struct present_wait_entry *wait_queue;
         size_t wait_queue_size;
         size_t wait_queue_count;
         pthread_cond_t cond;
@@ -179,12 +189,15 @@ static void dxgi_vk_swap_chain_drain_user_images(struct dxgi_vk_swap_chain *chai
         ERR("Failed to wait for present semaphore, vr %d.\n", vr);
 }
 
-static void dxgi_vk_swap_chain_push_present_id(struct dxgi_vk_swap_chain *chain, uint64_t present_id)
+static void dxgi_vk_swap_chain_push_present_id(struct dxgi_vk_swap_chain *chain, uint64_t present_id, uint64_t begin_frame_time_ns)
 {
+    struct present_wait_entry *entry;
     pthread_mutex_lock(&chain->wait_thread.lock);
     vkd3d_array_reserve((void **)&chain->wait_thread.wait_queue, &chain->wait_thread.wait_queue_size,
             chain->wait_thread.wait_queue_count + 1, sizeof(*chain->wait_thread.wait_queue));
-    chain->wait_thread.wait_queue[chain->wait_thread.wait_queue_count++] = present_id;
+    entry = &chain->wait_thread.wait_queue[chain->wait_thread.wait_queue_count++];
+    entry->id = present_id;
+    entry->begin_frame_time_ns = begin_frame_time_ns;
     pthread_cond_signal(&chain->wait_thread.cond);
     pthread_mutex_unlock(&chain->wait_thread.lock);
 }
@@ -196,7 +209,7 @@ static void dxgi_vk_swap_chain_cleanup(struct dxgi_vk_swap_chain *chain)
 
     if (chain->wait_thread.active)
     {
-        dxgi_vk_swap_chain_push_present_id(chain, 0);
+        dxgi_vk_swap_chain_push_present_id(chain, 0, 0);
         pthread_join(chain->wait_thread.thread, NULL);
         pthread_mutex_destroy(&chain->wait_thread.lock);
         pthread_cond_destroy(&chain->wait_thread.cond);
@@ -626,6 +639,7 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain *if
     request->dxgi_color_space_type = chain->user.dxgi_color_space_type;
     request->dxgi_hdr_metadata = chain->user.dxgi_hdr_metadata;
     request->modifies_hdr_metadata = chain->user.modifies_hdr_metadata;
+    request->begin_frame_time_ns = chain->user.begin_frame_time_ns;
     chain->user.modifies_hdr_metadata = false;
 
     /* Need to process this task in queue thread to deal with wait-before-signal.
@@ -636,6 +650,11 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain *if
     if (!(chain->desc.Flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT))
         WaitForSingleObject(chain->frame_latency_event, INFINITE);
     chain->user.index = (chain->user.index + 1) % chain->desc.BufferCount;
+
+    /* For latency debug purposes. Consider a frame to begin when we return from Present() with the next user index set. */
+    if (chain->debug_latency)
+        chain->user.begin_frame_time_ns = vkd3d_get_current_time_ns();
+
     return S_OK;
 }
 
@@ -1404,11 +1423,7 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     if (vr == VK_SUCCESS && vk_result != VK_SUCCESS)
         vr = vk_result;
 
-    /* Only use the present wait mechanism for FIFO present mode.
-     * For IMMEDIATE or MAILBOX, I have observed iffy behavior on NVIDIA in the past,
-     * and accurate frame latency isn't really a concern with these modes anyways.
-     * When swap interval >= 1, make sure we signal after the first present iteration goes on screen. */
-    if (present_info.pNext && vr >= 0 && chain->request.swap_interval >= 1)
+    if (present_info.pNext && vr >= 0)
         chain->present.present_id_valid = true;
 
     /* Handle any errors and retry as needed. If we cannot make meaningful forward progress, just give up and retry later. */
@@ -1435,7 +1450,7 @@ static void dxgi_vk_swap_chain_signal_waitable_handle(struct dxgi_vk_swap_chain 
 
     if (chain->present.present_id_valid)
     {
-        dxgi_vk_swap_chain_push_present_id(chain, chain->present.present_id);
+        dxgi_vk_swap_chain_push_present_id(chain, chain->present.present_id, chain->request.begin_frame_time_ns);
     }
     else
     {
@@ -1497,7 +1512,9 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
     struct dxgi_vk_swap_chain *chain = chain_;
 
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
-    uint64_t next_wait_id;
+    uint64_t begin_frame_time_ns = 0;
+    uint64_t end_frame_time_ns = 0;
+    uint64_t next_wait_id = 0;
 
     vkd3d_set_thread_name("vkd3d-swapchain-sync");
 
@@ -1506,7 +1523,8 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
         pthread_mutex_lock(&chain->wait_thread.lock);
         while (!chain->wait_thread.wait_queue_count)
             pthread_cond_wait(&chain->wait_thread.cond, &chain->wait_thread.lock);
-        next_wait_id = chain->wait_thread.wait_queue[0];
+        next_wait_id = chain->wait_thread.wait_queue[0].id;
+        begin_frame_time_ns = chain->wait_thread.wait_queue[0].begin_frame_time_ns;
         pthread_mutex_unlock(&chain->wait_thread.lock);
 
         /* Sentinel for swapchain teardown. */
@@ -1516,13 +1534,18 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
         /* We don't really care if we observed OUT_OF_DATE or something here. */
         VK_CALL(vkWaitForPresentKHR(chain->queue->device->vk_device, chain->present.vk_swapchain,
                     next_wait_id, UINT64_MAX));
+        if (begin_frame_time_ns)
+            end_frame_time_ns = vkd3d_get_current_time_ns();
         ReleaseSemaphore(chain->frame_latency_event, 1, NULL);
+
+        if (begin_frame_time_ns)
+            INFO("vkWaitForPresentKHR frame latency: %.3f ms.\n", 1e-6 * (end_frame_time_ns - begin_frame_time_ns));
 
         /* Need to let present tasks know when it's safe to destroy a swapchain.
          * We must have completed all outstanding waits touching VkSwapchainKHR. */
         pthread_mutex_lock(&chain->wait_thread.lock);
         chain->wait_thread.wait_queue_count -= 1;
-        memmove(chain->wait_thread.wait_queue, chain->wait_thread.wait_queue + 1, chain->wait_thread.wait_queue_count * sizeof(uint64_t));
+        memmove(chain->wait_thread.wait_queue, chain->wait_thread.wait_queue + 1, chain->wait_thread.wait_queue_count * sizeof(*chain->wait_thread.wait_queue));
         if (chain->wait_thread.wait_queue_count == 0)
             pthread_cond_signal(&chain->wait_thread.cond);
         pthread_mutex_unlock(&chain->wait_thread.lock);
@@ -1533,6 +1556,8 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
 
 static HRESULT dxgi_vk_swap_chain_init_waiter_thread(struct dxgi_vk_swap_chain *chain)
 {
+    char env[8];
+
     if (!chain->queue->device->device_info.present_wait_features.presentWait)
         return S_OK;
 
@@ -1549,6 +1574,9 @@ static HRESULT dxgi_vk_swap_chain_init_waiter_thread(struct dxgi_vk_swap_chain *
         pthread_cond_destroy(&chain->wait_thread.cond);
         return E_OUTOFMEMORY;
     }
+
+    if (vkd3d_get_env_var("VKD3D_SWAPCHAIN_DEBUG_LATENCY", env, sizeof(env)) && strcmp(env, "1") == 0)
+        chain->debug_latency = true;
 
     INFO("Enabling present wait path for frame latency.\n");
     chain->wait_thread.active = true;
