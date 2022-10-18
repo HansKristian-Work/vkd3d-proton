@@ -171,6 +171,18 @@ static void dxgi_vk_swap_chain_drain_queue(struct dxgi_vk_swap_chain *chain)
     }
     else
         ERR("Failed to acquire queue.\n");
+
+    /* Ensures that all pending ReleaseSemaphore() calls are also made.
+     * This happens on the fence waiter queues, so it's not enough to call vkQueueWaitIdle to be 100% sure.
+     * The fence waiter thread processes requests in-order,
+     * so if we observe that an EVENT has been signalled,
+     * we know all pending semaphore signals have happened as well. */
+
+    /* This is safe since we have drained all outstanding CPU work on the queue after calling vkd3d_acquire_vk_queue(). */
+    chain->present.frame_latency_count += 1;
+    d3d12_command_queue_signal_inline(chain->queue, chain->present.frame_latency_fence, chain->present.frame_latency_count);
+    d3d12_fence_set_event_on_completion(impl_from_ID3D12Fence1(chain->present.frame_latency_fence),
+            chain->present.frame_latency_count, NULL, VKD3D_WAITING_EVENT_TYPE_EVENT);
 }
 
 static void dxgi_vk_swap_chain_drain_user_images(struct dxgi_vk_swap_chain *chain)
