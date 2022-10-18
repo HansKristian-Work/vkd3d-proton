@@ -2462,6 +2462,7 @@ enum vkd3d_submission_type
     VKD3D_SUBMISSION_EXECUTE,
     VKD3D_SUBMISSION_BIND_SPARSE,
     VKD3D_SUBMISSION_STOP,
+    VKD3D_SUBMISSION_CALLBACK,
     VKD3D_SUBMISSION_DRAIN
 };
 
@@ -2521,6 +2522,12 @@ struct d3d12_command_queue_submission_bind_sparse
     struct d3d12_resource *src_resource;
 };
 
+struct d3d12_command_queue_submission_callback
+{
+    void (*callback)(void *);
+    void *userdata;
+};
+
 struct d3d12_command_queue_submission
 {
     enum vkd3d_submission_type type;
@@ -2530,6 +2537,7 @@ struct d3d12_command_queue_submission
         struct d3d12_command_queue_submission_signal signal;
         struct d3d12_command_queue_submission_execute execute;
         struct d3d12_command_queue_submission_bind_sparse bind_sparse;
+        struct d3d12_command_queue_submission_callback callback;
     };
 };
 
@@ -2581,6 +2589,8 @@ struct d3d12_command_queue
 HRESULT d3d12_command_queue_create(struct d3d12_device *device,
         const D3D12_COMMAND_QUEUE_DESC *desc, struct d3d12_command_queue **queue);
 void d3d12_command_queue_submit_stop(struct d3d12_command_queue *queue);
+void d3d12_command_queue_signal_inline(struct d3d12_command_queue *queue, d3d12_fence_iface *fence, uint64_t value);
+void d3d12_command_queue_enqueue_callback(struct d3d12_command_queue *queue, void (*callback)(void *), void *userdata);
 
 struct vkd3d_execute_indirect_info
 {
