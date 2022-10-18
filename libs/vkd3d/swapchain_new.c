@@ -957,7 +957,9 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
     VkSurfaceFormatKHR surface_format;
     VkImageViewCreateInfo view_info;
     VkPresentModeKHR present_mode;
+    uint32_t override_image_count;
     bool new_occlusion_state;
+    char count_env[16];
     VkResult vr;
     uint32_t i;
 
@@ -1014,6 +1016,14 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
     /* We don't block directly on Present(), so there's no reason to use more than 3 images if even application requests more.
      * We could get away with 2 if we used WSI acquire semaphore and async acquire was supported, but e.g. Mesa does not support that. */
     swapchain_create_info.minImageCount = max(3u, surface_caps.minImageCount);
+
+    vkd3d_get_env_var("VKD3D_SWAPCHAIN_IMAGES", count_env, sizeof(count_env));
+    if (strlen(count_env) > 0)
+    {
+        override_image_count = strtoul(count_env, NULL, 0);
+        swapchain_create_info.minImageCount = max(surface_caps.minImageCount, override_image_count);
+        INFO("Overriding swapchain images to %u.\n", swapchain_create_info.minImageCount);
+    }
 
     swapchain_create_info.imageExtent = surface_caps.currentExtent;
     swapchain_create_info.imageExtent.width = max(swapchain_create_info.imageExtent.width, surface_caps.minImageExtent.width);
