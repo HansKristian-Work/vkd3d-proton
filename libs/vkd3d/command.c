@@ -11397,9 +11397,19 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_QueryInterface(ID3D12Comman
         struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
         IWineDXGISwapChainFactory_AddRef(&command_queue->swapchain_factory.IWineDXGISwapChainFactory_iface);
         *object = &command_queue->swapchain_factory;
+        INFO("Exposing legacy swapchain interface. Either legacy swapchain was forced, or DXVK < 2.0 is used.\n");
         return S_OK;
     }
 #endif
+
+    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SWAPCHAIN_LEGACY) &&
+            IsEqualGUID(riid, &IID_IDXGIVkSwapChainFactory))
+    {
+        struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
+        IDXGIVkSwapChainFactory_AddRef(&command_queue->vk_swap_chain_factory.IDXGIVkSwapChainFactory_iface);
+        *object = &command_queue->vk_swap_chain_factory;
+        return S_OK;
+    }
 
     WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(riid));
 
@@ -13121,6 +13131,8 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
     if (FAILED(hr = vkd3d_private_store_init(&queue->private_store)))
         goto fail_private_store;
 
+    if (FAILED(hr = dxgi_vk_swap_chain_factory_init(queue, &queue->vk_swap_chain_factory)))
+        goto fail_swapchain_factory;
 #ifdef VKD3D_BUILD_STANDALONE_D3D12
     if (FAILED(hr = d3d12_swapchain_factory_init(queue, &queue->swapchain_factory)))
         goto fail_swapchain_factory;
@@ -13143,10 +13155,8 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
 fail_pthread_create:
     vkd3d_fence_worker_stop(&queue->fence_worker, device);
 fail_fence_worker_start:;
-#ifdef VKD3D_BUILD_STANDALONE_D3D12
 fail_swapchain_factory:
     vkd3d_private_store_destroy(&queue->private_store);
-#endif
 fail_private_store:
     pthread_cond_destroy(&queue->queue_cond);
 fail_pthread_cond:
