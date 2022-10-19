@@ -360,9 +360,11 @@ static HANDLE STDMETHODCALLTYPE dxgi_vk_swap_chain_GetFrameLatencyEvent(IDXGIVkS
     if (!swapchain->frame_latency_event)
         return INVALID_HANDLE_VALUE;
 
+    /* Based on observation, this handle can be waited on, but ReleaseSemaphore() is not allowed.
+     * Verified that NtQueryObject returns 0x100000 access mask (SYNCHRONIZE only). */
     if (!DuplicateHandle(GetCurrentProcess(), swapchain->frame_latency_event,
             GetCurrentProcess(), &duplicated_handle,
-            0, FALSE, DUPLICATE_SAME_ACCESS))
+            SYNCHRONIZE, FALSE, 0))
     {
         ERR("Failed to duplicate waitable handle.\n");
         return INVALID_HANDLE_VALUE;
