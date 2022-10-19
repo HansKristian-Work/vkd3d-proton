@@ -185,21 +185,29 @@ static void dxgi_vk_swap_chain_drain_queue(struct dxgi_vk_swap_chain *chain)
             chain->present.frame_latency_count, NULL, VKD3D_WAITING_EVENT_TYPE_EVENT);
 }
 
-static void dxgi_vk_swap_chain_drain_user_images(struct dxgi_vk_swap_chain *chain)
+static void dxgi_vk_swap_chain_drain_blit_semaphore(struct dxgi_vk_swap_chain *chain, uint64_t value)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     VkSemaphoreWaitInfoKHR wait_info;
     VkResult vr;
 
+    if (!value)
+        return;
+
     wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO_KHR;
     wait_info.pNext = NULL;
     wait_info.flags = 0;
     wait_info.pSemaphores = &chain->present.vk_blit_semaphore;
-    wait_info.pValues = &chain->user.blit_count;
+    wait_info.pValues = &value;
     wait_info.semaphoreCount = 1;
     vr = VK_CALL(vkWaitSemaphoresKHR(chain->queue->device->vk_device, &wait_info, UINT64_MAX));
     if (vr)
         ERR("Failed to wait for present semaphore, vr %d.\n", vr);
+}
+
+static void dxgi_vk_swap_chain_drain_user_images(struct dxgi_vk_swap_chain *chain)
+{
+    dxgi_vk_swap_chain_drain_blit_semaphore(chain, chain->user.blit_count);
 }
 
 static void dxgi_vk_swap_chain_push_present_id(struct dxgi_vk_swap_chain *chain, uint64_t present_id, uint64_t begin_frame_time_ns)
