@@ -128,6 +128,7 @@ struct dxgi_vk_swap_chain
     {
         struct d3d12_resource *backbuffers[DXGI_MAX_SWAP_CHAIN_BUFFERS];
         VkImageView vk_image_views[DXGI_MAX_SWAP_CHAIN_BUFFERS];
+        uint64_t blit_timeline[DXGI_MAX_SWAP_CHAIN_BUFFERS];
         uint64_t blit_count;
         uint32_t present_count;
         UINT index;
@@ -673,10 +674,18 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain *if
     chain->user.blit_count += 1;
     d3d12_command_queue_enqueue_callback(chain->queue, dxgi_vk_swap_chain_present_callback, chain);
 
+    chain->user.index = (chain->user.index + 1) % chain->desc.BufferCount;
+
+    /* Safeguard against a situation where we acquire a backbuffer image but it's still in a queue being blitted to.
+     * It is unclear if implementation just has to "make it work" w.r.t. implicit sync should the backbuffer
+     * image be used on a different queue.
+     * This also has useful latency limiting properties. */
+    dxgi_vk_swap_chain_drain_blit_semaphore(chain, chain->user.blit_timeline[chain->user.index]);
+    chain->user.blit_timeline[chain->user.index] = chain->user.blit_count;
+
+    /* Relevant if application does not use latency fence, or we force a lower latency through VKD3D_SWAPCHAIN_FRAME_LATENCY overrides. */
     if (chain->frame_latency_event_internal)
         WaitForSingleObject(chain->frame_latency_event_internal, INFINITE);
-
-    chain->user.index = (chain->user.index + 1) % chain->desc.BufferCount;
 
     /* For latency debug purposes. Consider a frame to begin when we return from Present() with the next user index set. */
     if (chain->debug_latency)
