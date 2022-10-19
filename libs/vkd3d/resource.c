@@ -1534,12 +1534,18 @@ static ULONG STDMETHODCALLTYPE d3d12_resource_AddRef(d3d12_resource_iface *iface
 static ULONG STDMETHODCALLTYPE d3d12_resource_Release(d3d12_resource_iface *iface)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource2(iface);
-    ULONG refcount = InterlockedDecrement(&resource->refcount);
+    struct d3d12_device *device = resource->device;
+    ULONG refcount;
+
+    refcount = InterlockedDecrement(&resource->refcount);
 
     TRACE("%p decreasing refcount to %u.\n", resource, refcount);
 
     if (!refcount)
+    {
         d3d12_resource_decref(resource);
+        d3d12_device_release(device);
+    }
 
     return refcount;
 }
@@ -2628,8 +2634,14 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
         VK_CALL(vkDestroyImageView(device->vk_device, resource->vrs_view, NULL));
 
     vkd3d_private_store_destroy(&resource->private_store);
-    d3d12_device_release(resource->device);
     vkd3d_free(resource);
+}
+
+static void d3d12_resource_destroy_and_release_device(struct d3d12_resource *resource,
+        struct d3d12_device *device)
+{
+    d3d12_resource_destroy(resource, device);
+    d3d12_device_release(device);
 }
 
 static HRESULT d3d12_resource_create_vk_resource(struct d3d12_resource *resource, struct d3d12_device *device)
@@ -2877,7 +2889,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
     return S_OK;
 
 fail:
-    d3d12_resource_destroy(object, device);
+    d3d12_resource_destroy_and_release_device(object, device);
     return hr;
 }
 
@@ -3032,7 +3044,7 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
     return S_OK;
 
 fail:
-    d3d12_resource_destroy(object, device);
+    d3d12_resource_destroy_and_release_device(object, device);
     return hr;
 }
 
@@ -3071,7 +3083,7 @@ HRESULT d3d12_resource_create_reserved(struct d3d12_device *device,
     return S_OK;
 
 fail:
-    d3d12_resource_destroy(object, device);
+    d3d12_resource_destroy_and_release_device(object, device);
     return hr;
 }
 
