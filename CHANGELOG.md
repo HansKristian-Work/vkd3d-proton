@@ -1,5 +1,119 @@
 # Change Log
 
+## 2.7
+
+This release rolls up a massive amount of work since the Steam Deck launch in late February
+with mostly features and fixes.
+
+### Heightened driver requirements
+
+Newer extensions are now required.
+
+- `VK_KHR_dynamic_rendering`
+- `VK_EXT_extended_dynamic_state`
+- `VK_EXT_extended_dynamic_state2` (no optional features required)
+- `VK_KHR_maintenance4`
+
+`KHR_dynamic_rendering` in particular requires Mesa 22.0 or NVIDIA 510 series, which should have
+propagated to distributions a long time ago at this point.
+
+NOTE: Proton 7.0 stable series will stick to v2.6 to avoid the hard driver requirement bump.
+Proton Experimental and any future stable beyond 7.0 will stick to v2.7 and later.
+
+`KHR_dynamic_rendering` fixes many previously unsolvable issues, but it required a rewrite,
+and it was deemed impractical to support both legacy and modern paths.
+
+### Improved pipeline cache
+
+v2.6 introduced support for pipeline libraries, but only for games which made correct use of the D3D12 API.
+To improve the situation across the board,
+vkd3d-proton now implements an internal "magic" disk cache to enable SPIR-V caching for all games.
+It is possible to disable the magic cache and let applications manage the ID3D12PipelineLibrary itself if desired.
+
+To further reduce on-disk footprint of the magic cache, we also make use of `VK_EXT_shader_module_identifier`
+to reduce the vkd3d-proton cache by >95%, since there is no need to store actual SPIR-V data on-disk.
+
+### Optimizations
+
+Mostly a lot of minor things this release.
+
+- Slightly improve GPU performance for depth render passes.
+- Improve GPU performance for certain floating-point images where UAV usage was enabled.
+- Improve GPU performance for certain use cases of WriteBufferImmediate().
+- Improve GPU performance for certain access patterns of root descriptors.
+- Improve GPU performance for back-to-back buffer-image copies.
+- Improve GPU performance when allocating large zero-cleared resources and heaps.
+- Misc things here and there to reduce overhead.
+
+### New D3D12 features
+
+#### Mesh shaders
+
+`VK_EXT_mesh_shader` is required for this. Directly compatible with D3D12.
+
+#### Advanced ExecuteIndirect
+
+Uses `VK_NV_device_generated_commands`. Supported by both RADV and NVIDIA. Allows Halo Infinite to run.
+
+#### DXR 1.1
+
+Implement some missing features from DXR 1.1:
+
+- AddToStateObject()
+- ExecuteIndirect trace rays
+- Various complex RTPSO features
+- DXIL subobject parsing
+- Misc query features
+
+With these fixes in place, e.g. Cyberpunk 2077 DXR works. `VK_KHR_raytracing_maintenance1` is required for some features.
+
+NOTE: `VKD3D_CONFIG=dxr11` is required to enable DXR 1.1 for now.
+
+#### Shared resources
+
+Basic shared resources and fences are now supported when running on Proton. Allows interop with DXVK.
+Special thanks to Derek Lesho (@Guy1524) for implementation.
+
+#### SV_Barycentrics
+
+SM 6.1 barycentrics are now exposed through `VK_KHR_fragment_shader_barycentric`.
+
+#### Preliminary HDR support
+
+vkd3d-proton can take advantage of HDR now, assuming the system itself supports it.
+
+### Game fixes and workarounds
+
+- Fix random GPU hangs in Hitman 3.
+- Fix crash in Redout 2.
+- Fix random GPU hang in F1 2021.
+- Fix random flicker in Guardians of the Galaxy.
+- Update some API checks required by latest AgilitySDK runtime features. Fix crash in F1 2022.
+- Add various workarounds for game bugs in Halo Infinite.
+- Add workaround for amdgpu kernel issue for certain games using imported host memory and multiple Vulkan devices.
+- Workaround glitched rendering in F1 2020 due to game bug.
+- Workaround certain games that violate placed resource API w.r.t. subresource initialization.
+  Spiderman Remastered and Lost Judgment are affected. More games will likely surface.
+
+### DXIL support
+
+Countless bug fixes for games released since last release. Too many to enumerate individually.
+
+### Misc
+
+- Improve compatibility with Intel ANV driver.
+- Improve correctness of GetFrameLatencyWaitableObject().
+- Add BLOB PIX decoding.
+- Improve stability when minimizing and alt-tabbing in and out of fullscreen in some games.
+- Preparation for MIT re-license is underway.
+
+### Stronger debugging facilities
+
+- For developers and power users, a breadcrumbs functionality is added to greatly aid GPU hang debugging.
+  Requires either `VK_AMD_buffer_marker` or `VK_NV_device_diagnostic_checkpoints`.
+- When capturing with RenderDoc, cached host memory is enabled by default to speed up capture and improve stability.
+- Improve shader replacement system ease-of-use.
+
 ## 2.6
 
 It has been a long while since 2.5, and this release rolls up a lot of fixes, features and optimizations.
