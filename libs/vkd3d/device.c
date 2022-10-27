@@ -532,12 +532,10 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "SOTTR.exe", VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION, 0 },
     /* Elden Ring (1245620).
      * Game is really churny on committed memory allocations, and does not use NOT_ZEROED. Clearing works causes bubbles.
-     * It seems to work just fine however to skip the clears.
-     * No upload HVV works around disasterous CPU performance during skeleton animations, reported by multiple users.
-     * No obvious benefit for ReBAR in this title anyways. */
+     * It seems to work just fine however to skip the clears. */
     { VKD3D_STRING_COMPARE_EXACT, "eldenring.exe",
             VKD3D_CONFIG_FLAG_MEMORY_ALLOCATOR_SKIP_CLEAR | VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_IGNORE_MISMATCH_DRIVER |
-            VKD3D_CONFIG_FLAG_RECYCLE_COMMAND_POOLS | VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0 },
+            VKD3D_CONFIG_FLAG_RECYCLE_COMMAND_POOLS, 0 },
     /* Serious Sam 4 (257420).
      * Invariant workarounds cause graphical glitches when rendering foliage on NV. */
     { VKD3D_STRING_COMPARE_EXACT, "Sam4.exe", VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION, 0 },
