@@ -22,6 +22,158 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 #include "d3d12_crosstest.h"
 
+void test_placed_dsv_uninitialized(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsv;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    struct test_context_desc desc;
+    D3D12_CPU_DESCRIPTOR_HANDLE h;
+    ID3D12DescriptorHeap *descs;
+    struct test_context context;
+    struct resource_readback rb;
+    D3D12_HEAP_DESC heap_desc;
+    uint16_t value, expected;
+    ID3D12Resource *resource;
+    ID3D12PipelineState *pso;
+    ID3D12RootSignature *rs;
+    unsigned int x, y;
+    D3D12_VIEWPORT vp;
+    ID3D12Heap *heap;
+    D3D12_RECT sci;
+    HRESULT hr;
+
+    static const DWORD vs_code_dxbc[] =
+    {
+#if 0
+    float4 main(uint vid : SV_VertexID) : SV_Position
+    {
+            if (vid == 0)
+                    return float4(-1.0, -1.0, 0.0, 1.0);
+            else if (vid == 1)
+                    return float4(-1.0, +3.0, 0.0, 1.0);
+            else
+                    return float4(+3.0, -1.0, 0.0, 1.0);
+    }
+#endif
+        0x43425844, 0xd430068b, 0x697cfea1, 0x8c7a8daf, 0x5071ba18, 0x00000001, 0x00000184, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000006, 0x00000001, 0x00000000, 0x00000101, 0x565f5653, 0x65747265, 0x00444978,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x505f5653, 0x7469736f, 0x006e6f69, 0x58454853, 0x000000e8, 0x00010050,
+        0x0000003a, 0x0100086a, 0x04000060, 0x00101012, 0x00000000, 0x00000006, 0x04000067, 0x001020f2,
+        0x00000000, 0x00000001, 0x02000068, 0x00000001, 0x0300001f, 0x0010100a, 0x00000000, 0x08000036,
+        0x001020f2, 0x00000000, 0x00004002, 0xbf800000, 0xbf800000, 0x00000000, 0x3f800000, 0x0100003e,
+        0x01000012, 0x07000020, 0x00100012, 0x00000000, 0x0010100a, 0x00000000, 0x00004001, 0x00000001,
+        0x0304001f, 0x0010000a, 0x00000000, 0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0xbf800000,
+        0x40400000, 0x00000000, 0x3f800000, 0x0100003e, 0x01000012, 0x08000036, 0x001020f2, 0x00000000,
+        0x00004002, 0x40400000, 0xbf800000, 0x00000000, 0x3f800000, 0x0100003e, 0x01000015, 0x01000015,
+        0x0100003e,
+    };
+
+    static const DWORD ps_code_dxbc[] =
+    {
+#if 0
+    float main() : SV_Depth
+    {
+        return float(10000) / float(0xffff);
+    }
+#endif
+        0x43425844, 0xf2c7f235, 0x0a5da98b, 0x45aea323, 0x4c27eb2c, 0x00000001, 0x000000a0, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0xffffffff,
+        0x00000e01, 0x445f5653, 0x68747065, 0xababab00, 0x58454853, 0x00000028, 0x00000050, 0x0000000a,
+        0x0100086a, 0x02000065, 0x0000c001, 0x04000036, 0x0000c001, 0x00004001, 0x3e1c409c, 0x0100003e,
+    };
+
+    static const D3D12_SHADER_BYTECODE vs_code = SHADER_BYTECODE(vs_code_dxbc);
+    static const D3D12_SHADER_BYTECODE ps_code = SHADER_BYTECODE(ps_code_dxbc);
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_render_target = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    memset(&resource_desc, 0, sizeof(resource_desc));
+
+    resource_desc.Width = 2048;
+    resource_desc.Height = 2048;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.Format = DXGI_FORMAT_R16_TYPELESS;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.MipLevels = 1;
+    resource_desc.SampleDesc.Count = 1;
+
+    heap_desc.SizeInBytes = 64 * 1024 * 1024;
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
+    ok(SUCCEEDED(hr), "Failed to create heap, hr #x.\n", hr);
+    hr = ID3D12Device_CreatePlacedResource(context.device, heap, 0,
+            &resource_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE, NULL,
+            &IID_ID3D12Resource, (void **)&resource);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #x.\n", hr);
+
+    descs = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    create_root_signature(context.device, &rs_desc, &rs);
+
+    memset(&dsv, 0, sizeof(dsv));
+    dsv.Format = DXGI_FORMAT_D16_UNORM;
+    dsv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+    ID3D12Device_CreateDepthStencilView(context.device, resource, &dsv, ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descs));
+
+    init_pipeline_state_desc(&pso_desc, rs, DXGI_FORMAT_UNKNOWN, &vs_code, &ps_code, NULL);
+    pso_desc.DSVFormat = DXGI_FORMAT_D16_UNORM;
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_GREATER;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+
+    h = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(descs);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 0, NULL, FALSE, &h);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, rs);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, pso);
+    set_viewport(&vp, 5, 6, 2, 3, 0, 1);
+    set_rect(&sci, 5, 6, 7, 9);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &sci);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    /* This is UB. Placed DSV resources must be initialized, but D3D12 validation does not complain. */
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, resource, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(resource, 0, &rb, context.queue, context.list);
+
+    for (y = 0; y < 2048; y++)
+    {
+        for (x = 0; x < 2048; x++)
+        {
+            value = get_readback_uint16(&rb, x, y);
+            expected = x >= 5 && x < 7 && y >= 6 && y < 9 ? 10000 : 0;
+            ok(value == expected, "For (%u, %u) Expected %u, got %u.\n", x, y, expected, value);
+        }
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(resource);
+    ID3D12Heap_Release(heap);
+    ID3D12DescriptorHeap_Release(descs);
+    ID3D12RootSignature_Release(rs);
+    ID3D12PipelineState_Release(pso);
+    destroy_test_context(&context);
+}
+
 void test_unbound_rtv_rendering(void)
 {
     static const struct vec4 red = { 1.0f, 0.0f, 0.0f, 1.0f };

@@ -332,6 +332,7 @@ static inline unsigned int format_size(DXGI_FORMAT format)
         case DXGI_FORMAT_R16_FLOAT:
         case DXGI_FORMAT_R16_UNORM:
         case DXGI_FORMAT_R16_UINT:
+        case DXGI_FORMAT_R16_TYPELESS:
             return 2;
         case DXGI_FORMAT_UNKNOWN:
         case DXGI_FORMAT_A8_UNORM:
