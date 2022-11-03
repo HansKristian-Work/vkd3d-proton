@@ -342,13 +342,18 @@ void vkd3d_descriptor_debug_register_heap(
         struct vkd3d_descriptor_qa_heap_buffer_data *heap, uint64_t cookie,
         const D3D12_DESCRIPTOR_HEAP_DESC *desc)
 {
+    unsigned int i;
     DECL_BUFFER();
 
     if (heap)
     {
         heap->num_descriptors = desc->NumDescriptors;
         heap->heap_index = cookie <= UINT32_MAX ? (uint32_t)cookie : 0u;
-        memset(heap->desc, 0, desc->NumDescriptors * sizeof(*heap->desc));
+        for (i = 0; i < desc->NumDescriptors; i++)
+        {
+            heap->desc[i].cookie = 0;
+            heap->desc[i].descriptor_type = ~0u;
+        }
     }
 
     if (!vkd3d_descriptor_debug_active_log())
