@@ -45,6 +45,10 @@ static bool dxil_match_shader_visibility(enum vkd3d_shader_visibility visibility
             return visibility == VKD3D_SHADER_VISIBILITY_PIXEL;
         case DXIL_SPV_STAGE_COMPUTE:
             return visibility == VKD3D_SHADER_VISIBILITY_COMPUTE;
+        case DXIL_SPV_STAGE_AMPLIFICATION:
+            return visibility == VKD3D_SHADER_VISIBILITY_AMPLIFICATION;
+        case DXIL_SPV_STAGE_MESH:
+            return visibility == VKD3D_SHADER_VISIBILITY_MESH;
         default:
             return false;
     }
