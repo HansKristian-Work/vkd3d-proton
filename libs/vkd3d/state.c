@@ -4081,9 +4081,16 @@ static HRESULT d3d12_pipeline_create_private_root_signature(struct d3d12_device 
         VkPipelineBindPoint bind_point, const struct d3d12_pipeline_state_desc *desc,
         struct d3d12_root_signature **root_signature)
 {
-    const struct D3D12_SHADER_BYTECODE *bytecode = bind_point == VK_PIPELINE_BIND_POINT_GRAPHICS ? &desc->vs : &desc->cs;
+    const struct D3D12_SHADER_BYTECODE *bytecode;
     ID3D12RootSignature *object = NULL;
     HRESULT hr;
+
+    if (bind_point == VK_PIPELINE_BIND_POINT_COMPUTE)
+        bytecode = &desc->cs;
+    else if (desc->ms.BytecodeLength)
+        bytecode = &desc->ms;
+    else
+        bytecode = &desc->vs;
 
     if (!bytecode->BytecodeLength)
         return E_INVALIDARG;
