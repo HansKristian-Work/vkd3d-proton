@@ -217,6 +217,10 @@ enum vkd3d_shader_visibility vkd3d_shader_visibility_from_d3d12(D3D12_SHADER_VIS
             return VKD3D_SHADER_VISIBILITY_GEOMETRY;
         case D3D12_SHADER_VISIBILITY_PIXEL:
             return VKD3D_SHADER_VISIBILITY_PIXEL;
+        case D3D12_SHADER_VISIBILITY_AMPLIFICATION:
+            return VKD3D_SHADER_VISIBILITY_AMPLIFICATION;
+        case D3D12_SHADER_VISIBILITY_MESH:
+            return VKD3D_SHADER_VISIBILITY_MESH;
         default:
             FIXME("Unhandled visibility %#x.\n", visibility);
             return VKD3D_SHADER_VISIBILITY_ALL;
