@@ -1985,6 +1985,7 @@ struct vkd3d_symbol_register_data
     unsigned int structure_stride;
     bool is_aggregate; /* An aggregate, i.e. a structure or an array. */
     bool is_dynamically_indexed; /* If member_idx is a variable ID instead of a constant. */
+    uint16_t indexable_count; /* x#[] registers. For robustness checking. Must be <= 4096. */
     uint32_t va_type_id;
     const struct vkd3d_shader_resource_binding *cbv_binding;
 };
@@ -2099,6 +2100,7 @@ static void vkd3d_symbol_set_register_info(struct vkd3d_symbol *symbol,
     symbol->info.reg.is_dynamically_indexed = false;
     symbol->info.reg.va_type_id = 0;
     symbol->info.reg.cbv_binding = NULL;
+    symbol->info.reg.indexable_count = 0;
 }
 
 static void vkd3d_symbol_make_resource(struct vkd3d_symbol *symbol,
@@ -3059,6 +3061,7 @@ struct vkd3d_shader_register_info
     unsigned int structure_stride;
     bool is_aggregate;
     bool is_dynamically_indexed;
+    uint16_t indexable_count;
     uint32_t va_type_id;
     const struct vkd3d_shader_resource_binding *cbv_binding;
 };
@@ -3103,6 +3106,7 @@ static bool vkd3d_dxbc_compiler_find_register_info(const struct vkd3d_dxbc_compi
     register_info->structure_stride = symbol->info.reg.structure_stride;
     register_info->is_aggregate = symbol->info.reg.is_aggregate;
     register_info->is_dynamically_indexed = symbol->info.reg.is_dynamically_indexed;
+    register_info->indexable_count = symbol->info.reg.indexable_count;
     register_info->va_type_id = symbol->info.reg.va_type_id;
     register_info->cbv_binding = symbol->info.reg.cbv_binding;
 
@@ -3546,9 +3550,100 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_constant_buffer(struct vkd3d_dxbc_
     return val_id;
 }
 
+struct vkd3d_spirv_builder_robust_register_info
+{
+    uint32_t header_label;
+    uint32_t true_label;
+    uint32_t merge_label;
+    bool robustness;
+};
+
+static void vkd3d_dxbc_compiler_begin_robust_indexed_temporary(
+        struct vkd3d_dxbc_compiler *compiler,
+        struct vkd3d_spirv_builder_robust_register_info *info,
+        const struct vkd3d_shader_register *reg,
+        const struct vkd3d_shader_register_info *reg_info,
+        bool need_postmerge_phi)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    uint32_t bool_type_id;
+    uint32_t idx_temp_id;
+    uint32_t cmp_id;
+
+    info->robustness = false;
+
+    if (reg->type != VKD3DSPR_IDXTEMP)
+        return;
+
+    /* If we access by constant offset, robustness is somewhat meaningless.
+     * If by some chance we perform a static offset that is out of bounds,
+     * enable bounds checking. */
+    if (!reg->idx[1].rel_addr && reg->idx[1].offset < reg_info->indexable_count)
+        return;
+
+    info->merge_label = vkd3d_spirv_alloc_id(builder);
+    info->true_label = vkd3d_spirv_alloc_id(builder);
+
+    if (need_postmerge_phi)
+    {
+        /* Need to know the header ID to use PHI.
+         * We don't have proper tracking to let us know which label we're currently emitting,
+         * so just begin a new BB. */
+        info->header_label = vkd3d_spirv_alloc_id(builder);
+        vkd3d_spirv_build_op_branch(builder, info->header_label);
+        vkd3d_spirv_build_op_label(builder, info->header_label);
+    }
+    else
+        info->header_label = 0;
+
+    idx_temp_id = vkd3d_dxbc_compiler_emit_register_addressing(compiler, &reg->idx[1]);
+    bool_type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_BOOL, 1);
+    cmp_id = vkd3d_spirv_build_op_uless_than(builder, bool_type_id, idx_temp_id,
+            vkd3d_dxbc_compiler_get_constant_uint(compiler, reg_info->indexable_count));
+
+    vkd3d_spirv_build_op_selection_merge(builder, info->merge_label, SpvSelectionControlMaskNone);
+    vkd3d_spirv_build_op_branch_conditional(builder, cmp_id, info->true_label, info->merge_label);
+    vkd3d_spirv_build_op_label(builder, info->true_label);
+    info->robustness = true;
+}
+
+static uint32_t vkd3d_dxbc_compiler_end_robust_indexed_temporary(struct vkd3d_dxbc_compiler *compiler,
+        struct vkd3d_spirv_builder_robust_register_info *info,
+        enum vkd3d_component_type component_type,
+        unsigned int component_count, uint32_t value_id)
+{
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    const uint32_t zeroes[4] = {0};
+    uint32_t phi_arguments[4];
+    uint32_t type_id;
+
+    if (!info->robustness)
+        return value_id;
+
+    vkd3d_spirv_build_op_branch(builder, info->merge_label);
+    vkd3d_spirv_build_op_label(builder, info->merge_label);
+
+    if (value_id)
+    {
+        type_id = vkd3d_spirv_get_type_id(builder, component_type, component_count);
+
+        phi_arguments[0] = value_id;
+        phi_arguments[1] = info->true_label;
+        phi_arguments[2] = vkd3d_dxbc_compiler_get_constant(compiler, component_type,
+                component_count, zeroes);
+        phi_arguments[3] = info->header_label;
+        value_id = vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
+                SpvOpPhi, type_id,
+                phi_arguments, ARRAY_SIZE(phi_arguments));
+    }
+
+    return value_id;
+}
+
 static uint32_t vkd3d_dxbc_compiler_emit_load_reg(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, DWORD swizzle, DWORD write_mask)
 {
+    struct vkd3d_spirv_builder_robust_register_info robustness_info;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     struct vkd3d_shader_register_info reg_info;
     enum vkd3d_component_type component_type;
@@ -3575,6 +3670,9 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_reg(struct vkd3d_dxbc_compiler *co
     }
     else
     {
+        vkd3d_dxbc_compiler_begin_robust_indexed_temporary(
+                compiler, &robustness_info, reg, &reg_info, true);
+
         vkd3d_dxbc_compiler_emit_dereference_register(compiler, reg, &reg_info);
 
         /* Intermediate value (no storage class). */
@@ -3599,6 +3697,9 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_reg(struct vkd3d_dxbc_compiler *co
             val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
                     val_id, reg_info.write_mask, reg_info.component_type, swizzle, write_mask);
         }
+
+        val_id = vkd3d_dxbc_compiler_end_robust_indexed_temporary(
+                compiler, &robustness_info, reg_info.component_type, component_count, val_id);
     }
 
     if (component_type != reg_info.component_type)
@@ -3766,6 +3867,7 @@ static void vkd3d_dxbc_compiler_emit_store(struct vkd3d_dxbc_compiler *compiler,
 static void vkd3d_dxbc_compiler_emit_store_reg(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_register *reg, unsigned int write_mask, uint32_t val_id)
 {
+    struct vkd3d_spirv_builder_robust_register_info robustness_info;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     struct vkd3d_shader_register_info reg_info;
     enum vkd3d_component_type component_type;
@@ -3775,6 +3877,10 @@ static void vkd3d_dxbc_compiler_emit_store_reg(struct vkd3d_dxbc_compiler *compi
 
     if (!vkd3d_dxbc_compiler_get_register_info(compiler, reg, &reg_info))
         return;
+
+    vkd3d_dxbc_compiler_begin_robust_indexed_temporary(
+            compiler, &robustness_info, reg, &reg_info, false);
+
     vkd3d_dxbc_compiler_emit_dereference_register(compiler, reg, &reg_info);
 
     component_type = vkd3d_component_type_from_data_type(reg->data_type);
@@ -3788,6 +3894,9 @@ static void vkd3d_dxbc_compiler_emit_store_reg(struct vkd3d_dxbc_compiler *compi
 
     vkd3d_dxbc_compiler_emit_store(compiler,
             reg_info.id, reg_info.write_mask, component_type, reg_info.storage_class, write_mask, val_id);
+
+    vkd3d_dxbc_compiler_end_robust_indexed_temporary(compiler, &robustness_info,
+            VKD3D_TYPE_VOID /* ignored */, 0, 0);
 }
 
 static uint32_t vkd3d_dxbc_compiler_emit_sat(struct vkd3d_dxbc_compiler *compiler,
@@ -5971,6 +6080,8 @@ static void vkd3d_dxbc_compiler_emit_dcl_indexable_temp(struct vkd3d_dxbc_compil
 
     if (temp->component_count != 4)
         FIXME("Unhandled component count %u.\n", temp->component_count);
+    if (temp->register_size > 4096)
+        ERR("Indexable temp register size is larger than 4096.\n");
 
     memset(&reg, 0, sizeof(reg));
     reg.type = VKD3DSPR_IDXTEMP;
@@ -5990,6 +6101,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_indexable_temp(struct vkd3d_dxbc_compil
     vkd3d_symbol_make_register(&reg_symbol, &reg);
     vkd3d_symbol_set_register_info(&reg_symbol, id,
             SpvStorageClassFunction, VKD3D_TYPE_FLOAT, VKD3DSP_WRITEMASK_ALL);
+    reg_symbol.info.reg.indexable_count = temp->register_size;
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
 
