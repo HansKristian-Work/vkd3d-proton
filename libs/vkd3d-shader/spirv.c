@@ -3373,7 +3373,6 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_scalar(struct vkd3d_dxbc_compiler 
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     uint32_t type_id, ptr_type_id, index, reg_id, val_id;
     unsigned int component_idx, reg_component_count;
-    enum vkd3d_component_type component_type;
     unsigned int skipped_component_mask;
 
     assert(reg->type != VKD3DSPR_IMMCONST && reg->type != VKD3DSPR_IMMCONST64);
@@ -3384,7 +3383,6 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_scalar(struct vkd3d_dxbc_compiler 
     skipped_component_mask = ~reg_info->write_mask & ((VKD3DSP_WRITEMASK_0 << component_idx) - 1);
     if (skipped_component_mask)
         component_idx -= vkd3d_write_mask_component_count(skipped_component_mask);
-    component_type = vkd3d_component_type_from_data_type(reg->data_type);
 
     reg_component_count = vkd3d_write_mask_component_count(reg_info->write_mask);
 
@@ -3404,13 +3402,6 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_scalar(struct vkd3d_dxbc_compiler 
     }
 
     val_id = vkd3d_spirv_build_op_load(builder, type_id, reg_id, SpvMemoryAccessMaskNone);
-
-    if (component_type != reg_info->component_type)
-    {
-        type_id = vkd3d_spirv_get_type_id(builder, component_type, 1);
-        val_id = vkd3d_spirv_build_op_bitcast(builder, type_id, val_id);
-    }
-
     return val_id;
 }
 
@@ -3593,7 +3584,7 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_reg(struct vkd3d_dxbc_compiler *co
         }
         else if (component_count == 1)
         {
-            return vkd3d_dxbc_compiler_emit_load_scalar(compiler, reg, swizzle, write_mask, &reg_info);
+            val_id = vkd3d_dxbc_compiler_emit_load_scalar(compiler, reg, swizzle, write_mask, &reg_info);
         }
         else
         {
@@ -3602,8 +3593,12 @@ static uint32_t vkd3d_dxbc_compiler_emit_load_reg(struct vkd3d_dxbc_compiler *co
             val_id = vkd3d_spirv_build_op_load(builder, type_id, reg_info.id, SpvMemoryAccessMaskNone);
         }
 
-        val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
-                val_id, reg_info.write_mask, reg_info.component_type, swizzle, write_mask);
+        if (component_count != 1)
+        {
+            /* Swizzle is already performed in load_scalar. */
+            val_id = vkd3d_dxbc_compiler_emit_swizzle(compiler,
+                    val_id, reg_info.write_mask, reg_info.component_type, swizzle, write_mask);
+        }
     }
 
     if (component_type != reg_info.component_type)
