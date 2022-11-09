@@ -239,6 +239,7 @@ struct vkd3d_shader_scan_entry
     struct hash_map_entry entry;
     struct vkd3d_shader_scan_key key;
     unsigned int flags;
+    unsigned required_components;
 };
 
 static uint32_t vkd3d_shader_scan_entry_hash(const void *key)
@@ -267,6 +268,19 @@ unsigned int vkd3d_shader_scan_get_register_flags(const struct vkd3d_shader_scan
     return e ? e->flags : 0u;
 }
 
+unsigned int vkd3d_shader_scan_get_idxtemp_components(const struct vkd3d_shader_scan_info *scan_info,
+        const struct vkd3d_shader_register *reg)
+{
+    const struct vkd3d_shader_scan_entry *e;
+    struct vkd3d_shader_scan_key key;
+
+    key.register_type = reg->type;
+    key.register_id = reg->idx[0].offset;
+
+    e = (const struct vkd3d_shader_scan_entry *)hash_map_find(&scan_info->register_map, &key);
+    return e ? e->required_components : 4u;
+}
+
 static void vkd3d_shader_scan_set_register_flags(struct vkd3d_shader_scan_info *scan_info,
         enum vkd3d_shader_register_type type, unsigned int id, unsigned int flags)
 {
@@ -285,6 +299,30 @@ static void vkd3d_shader_scan_set_register_flags(struct vkd3d_shader_scan_info *
     {
         entry.key = key;
         entry.flags = flags;
+        entry.required_components = 0;
+        hash_map_insert(&scan_info->register_map, &key, &entry.entry);
+    }
+}
+
+static void vkd3d_shader_scan_record_idxtemp_components(struct vkd3d_shader_scan_info *scan_info,
+        const struct vkd3d_shader_register *reg, unsigned int required_components)
+{
+    struct vkd3d_shader_scan_entry entry;
+    struct vkd3d_shader_scan_entry *e;
+    struct vkd3d_shader_scan_key key;
+
+    key.register_type = reg->type;
+    key.register_id = reg->idx[0].offset;
+
+    if ((e = (struct vkd3d_shader_scan_entry *)hash_map_find(&scan_info->register_map, &key)))
+    {
+        e->required_components = max(required_components, e->required_components);
+    }
+    else
+    {
+        entry.key = key;
+        entry.flags = 0;
+        entry.required_components = required_components;
         hash_map_insert(&scan_info->register_map, &key, &entry.entry);
     }
 }
@@ -554,6 +592,24 @@ static void vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_info *scan_in
             break;
         default:
             break;
+    }
+
+    /* If we do nothing, we will have to assume that IDXTEMP is an array of vec4.
+     * This is problematic for performance if shader only accesses the first 1, 2 or 3 components.
+     * The dcl_indexableTemp instruction specifies number of components but FXC does not seem to
+     * care, so we have to analyze write masks instead. */
+    for (i = 0; i < instruction->dst_count; ++i)
+    {
+        if (instruction->dst[i].reg.type == VKD3DSPR_IDXTEMP)
+        {
+            unsigned int write_mask, required_components;
+            write_mask = instruction->dst[i].write_mask;
+            write_mask |= write_mask >> 2;
+            write_mask |= write_mask >> 1;
+            required_components = vkd3d_write_mask_component_count(write_mask);
+            vkd3d_shader_scan_record_idxtemp_components(scan_info,
+                    &instruction->dst[i].reg, required_components);
+        }
     }
 
     if (vkd3d_shader_instruction_is_uav_read(instruction))

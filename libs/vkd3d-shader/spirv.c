@@ -6075,6 +6075,7 @@ static void vkd3d_dxbc_compiler_emit_dcl_indexable_temp(struct vkd3d_dxbc_compil
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     struct vkd3d_shader_register reg;
     struct vkd3d_symbol reg_symbol;
+    unsigned int component_count;
     size_t function_location;
     uint32_t id;
 
@@ -6088,11 +6089,13 @@ static void vkd3d_dxbc_compiler_emit_dcl_indexable_temp(struct vkd3d_dxbc_compil
     reg.idx[0].offset = temp->register_idx;
     reg.idx[1].offset = ~0u;
 
+    component_count = vkd3d_shader_scan_get_idxtemp_components(compiler->scan_info, &reg);
+
     function_location = vkd3d_dxbc_compiler_get_current_function_location(compiler);
     vkd3d_spirv_begin_function_stream_insertion(builder, function_location);
 
     id = vkd3d_dxbc_compiler_emit_array_variable(compiler, &builder->function_stream,
-            SpvStorageClassFunction, VKD3D_TYPE_FLOAT, VKD3D_VEC4_SIZE, temp->register_size);
+            SpvStorageClassFunction, VKD3D_TYPE_FLOAT, component_count, temp->register_size);
 
     vkd3d_dxbc_compiler_emit_register_debug_name(builder, id, &reg);
 
@@ -6100,7 +6103,8 @@ static void vkd3d_dxbc_compiler_emit_dcl_indexable_temp(struct vkd3d_dxbc_compil
 
     vkd3d_symbol_make_register(&reg_symbol, &reg);
     vkd3d_symbol_set_register_info(&reg_symbol, id,
-            SpvStorageClassFunction, VKD3D_TYPE_FLOAT, VKD3DSP_WRITEMASK_ALL);
+            SpvStorageClassFunction, VKD3D_TYPE_FLOAT,
+            vkd3d_write_mask_from_component_count(component_count));
     reg_symbol.info.reg.indexable_count = temp->register_size;
     vkd3d_dxbc_compiler_put_symbol(compiler, &reg_symbol);
 }
