@@ -912,6 +912,8 @@ static inline unsigned int vkd3d_compact_swizzle(unsigned int swizzle, unsigned 
 
 unsigned int vkd3d_shader_scan_get_register_flags(const struct vkd3d_shader_scan_info *scan_info,
         enum vkd3d_shader_register_type type, unsigned int id);
+unsigned int vkd3d_shader_scan_get_idxtemp_components(const struct vkd3d_shader_scan_info *scan_info,
+        const struct vkd3d_shader_register *reg);
 
 /* DXIL support */
 int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
