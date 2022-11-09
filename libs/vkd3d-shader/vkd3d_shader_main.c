@@ -257,13 +257,13 @@ static bool vkd3d_shader_scan_entry_compare(const void *key, const struct hash_m
 unsigned int vkd3d_shader_scan_get_register_flags(const struct vkd3d_shader_scan_info *scan_info,
         enum vkd3d_shader_register_type type, unsigned int id)
 {
+    const struct vkd3d_shader_scan_entry *e;
     struct vkd3d_shader_scan_key key;
-    struct hash_map_entry *e;
 
     key.register_type = type;
     key.register_id = id;
 
-    e = hash_map_find(&scan_info->register_map, &key);
+    e = (const struct vkd3d_shader_scan_entry *)hash_map_find(&scan_info->register_map, &key);
     return e ? e->flags : 0u;
 }
 
@@ -271,14 +271,16 @@ static void vkd3d_shader_scan_set_register_flags(struct vkd3d_shader_scan_info *
         enum vkd3d_shader_register_type type, unsigned int id, unsigned int flags)
 {
     struct vkd3d_shader_scan_entry entry;
+    struct vkd3d_shader_scan_entry *e;
     struct vkd3d_shader_scan_key key;
-    struct hash_map_entry *e;
 
     key.register_type = type;
     key.register_id = id;
 
-    if ((e = hash_map_find(&scan_info->register_map, &key)))
+    if ((e = (struct vkd3d_shader_scan_entry *)hash_map_find(&scan_info->register_map, &key)))
+    {
         e->flags |= flags;
+    }
     else
     {
         entry.key = key;
