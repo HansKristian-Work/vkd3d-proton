@@ -5213,7 +5213,7 @@ static unsigned int d3d12_command_list_fetch_root_descriptor_vas(struct d3d12_co
     return va_idx;
 }
 
-static void d3d12_command_list_fetch_inline_uniform_block_data(struct d3d12_command_list *list,
+static void d3d12_command_list_fetch_root_parameter_uniform_block_data(struct d3d12_command_list *list,
         struct vkd3d_pipeline_bindings *bindings, union root_parameter_data *dst_data)
 {
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
@@ -5309,7 +5309,7 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
 
     if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
     {
-        d3d12_command_list_fetch_inline_uniform_block_data(list, bindings, ptr_root_parameter_data);
+        d3d12_command_list_fetch_root_parameter_uniform_block_data(list, bindings, ptr_root_parameter_data);
         vk_write_descriptor_set_from_scratch_push_ubo(&descriptor_writes[descriptor_write_count],
                 &buffer_info, &alloc, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT,
                 root_signature->push_constant_ubo_binding.binding);
