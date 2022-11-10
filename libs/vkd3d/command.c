@@ -3846,6 +3846,7 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
         vk_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         vk_writes[i].pImageInfo = NULL;
         vk_writes[i].pTexelBufferView = NULL;
+        vk_writes[i].dstSet = VK_NULL_HANDLE;
     }
 
     vk_writes[0].pBufferInfo = &dst_buffer;
@@ -3874,9 +3875,6 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
         map_buffer.buffer = entry_buffer.buffer;
         map_buffer.offset = entry_buffer.offset;
         map_buffer.range = entry_buffer_size;
-
-        for (j = 0; j < ARRAY_SIZE(vk_writes); j++)
-            vk_writes[j].dstSet = VK_NULL_HANDLE;
 
         VK_CALL(vkCmdPushDescriptorSetKHR(list->vk_command_buffer,
                 VK_PIPELINE_BIND_POINT_COMPUTE, gather_pipeline.vk_pipeline_layout,
