@@ -56,7 +56,7 @@ function build_arch {
 
   cd "$VKD3D_SRC_DIR"
 
-  meson "$@"                           \
+  meson setup "$@"                     \
         --buildtype "${opt_buildtype}" \
         --prefix "$VKD3D_BUILD_DIR"    \
         $opt_strip                     \

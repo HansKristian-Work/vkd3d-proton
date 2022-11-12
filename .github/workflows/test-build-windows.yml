@@ -40,7 +40,7 @@ jobs:
         & "${Env:COMSPEC}" /s /c "`"${Env:VSDEVCMD}`" -arch=x86 -host_arch=x64 -no_logo && set" `
           | % { , ($_ -Split '=', 2) } `
           | % { [System.Environment]::SetEnvironmentVariable($_[0], $_[1]) }
-        meson -Denable_tests=True -Denable_extras=True --buildtype release --backend vs2022 build-msvc-x86
+        meson setup -Denable_tests=True -Denable_extras=True --buildtype release --backend vs2022 build-msvc-x86
         msbuild -m build-msvc-x86/vkd3d-proton.sln
 
     - name: Build MSVC x64
@@ -49,5 +49,5 @@ jobs:
         & "${Env:COMSPEC}" /s /c "`"${Env:VSDEVCMD}`" -arch=x64 -host_arch=x64 -no_logo && set" `
           | % { , ($_ -Split '=', 2) } `
           | % { [System.Environment]::SetEnvironmentVariable($_[0], $_[1]) }
-        meson -Denable_tests=True -Denable_extras=True --buildtype release --backend vs2022 build-msvc-x64
+        meson setup -Denable_tests=True -Denable_extras=True --buildtype release --backend vs2022 build-msvc-x64
         msbuild -m build-msvc-x64/vkd3d-proton.sln
