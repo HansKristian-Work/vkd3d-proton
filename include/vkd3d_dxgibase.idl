@@ -26,6 +26,9 @@ cpp_quote("#endif")
 cpp_quote("#ifndef DXGI_ERROR_DEVICE_REMOVED")
 cpp_quote("#define DXGI_ERROR_DEVICE_REMOVED _HRESULT_TYPEDEF_(0x887a0005)")
 cpp_quote("#endif")
+cpp_quote("#ifndef DXGI_STATUS_OCCLUDED")
+cpp_quote("#define DXGI_STATUS_OCCLUDED _HRESULT_TYPEDEF_(0x087a0001)")
+cpp_quote("#endif")
 
 typedef struct DXGI_SAMPLE_DESC
 {
