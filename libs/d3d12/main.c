@@ -71,59 +71,6 @@ HRESULT WINAPI DLLEXPORT D3D12EnableExperimentalFeatures(UINT feature_count,
     return E_NOINTERFACE;
 }
 
-static HRESULT d3d12_signal_event(HANDLE event)
-{
-    return SetEvent(event) ? S_OK : E_FAIL;
-}
-
-struct d3d12_thread_data
-{
-    PFN_vkd3d_thread main_pfn;
-    void *data;
-};
-
-static DWORD WINAPI d3d12_thread_main(void *data)
-{
-    struct d3d12_thread_data *thread_data = data;
-
-    thread_data->main_pfn(thread_data->data);
-    free(thread_data);
-    return 0;
-}
-
-static void *d3d12_create_thread(PFN_vkd3d_thread main_pfn, void *data)
-{
-    struct d3d12_thread_data *thread_data;
-    HANDLE thread;
-
-    if (!(thread_data = malloc(sizeof(*thread_data))))
-    {
-        ERR("Failed to allocate thread data.\n");
-        return NULL;
-    }
-
-    thread_data->main_pfn = main_pfn;
-    thread_data->data = data;
-
-    if (!(thread = CreateThread(NULL, 0, d3d12_thread_main, thread_data, 0, NULL)))
-        free(thread_data);
-
-    return thread;
-}
-
-static HRESULT d3d12_join_thread(void *handle)
-{
-    HANDLE thread = handle;
-    DWORD ret;
-
-    if ((ret = WaitForSingleObject(thread, INFINITE)) != WAIT_OBJECT_0)
-    {
-        ERR("Failed to wait for thread, ret %#x.\n", ret);
-    }
-    CloseHandle(thread);
-    return ret == WAIT_OBJECT_0 ? S_OK : E_FAIL;
-}
-
 static HRESULT d3d12_get_adapter(IDXGIAdapter **dxgi_adapter, IUnknown *adapter)
 {
     IDXGIFactory4 *factory = NULL;
@@ -293,9 +240,6 @@ HRESULT WINAPI DLLEXPORT D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL 
         goto done;
     }
 
-    instance_create_info.pfn_signal_event = d3d12_signal_event;
-    instance_create_info.pfn_create_thread = d3d12_create_thread;
-    instance_create_info.pfn_join_thread = d3d12_join_thread;
     instance_create_info.pfn_vkGetInstanceProcAddr = pfn_vkGetInstanceProcAddr;
     instance_create_info.instance_extensions = instance_extensions;
     instance_create_info.instance_extension_count = ARRAYSIZE(instance_extensions);

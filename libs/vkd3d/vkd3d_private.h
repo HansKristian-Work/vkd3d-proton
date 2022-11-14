@@ -40,6 +40,7 @@
 #include "vkd3d_device_vkd3d_ext.h"
 #include "vkd3d_string.h"
 #include "vkd3d_file_utils.h"
+#include "vkd3d_native_sync_handle.h"
 #include <assert.h>
 #include <inttypes.h>
 #include <limits.h>
@@ -206,10 +207,6 @@ struct vkd3d_instance
     uint32_t instance_version;
     struct vkd3d_vk_instance_procs vk_procs;
 
-    PFN_vkd3d_signal_event signal_event;
-    PFN_vkd3d_create_thread create_thread;
-    PFN_vkd3d_join_thread join_thread;
-
     struct vkd3d_vulkan_info vk_info;
     struct vkd3d_vk_global_procs vk_global_procs;
     void *libvulkan;
@@ -221,16 +218,6 @@ struct vkd3d_instance
 
 extern uint64_t vkd3d_config_flags;
 extern struct vkd3d_shader_quirk_info vkd3d_shader_quirk_info;
-
-union vkd3d_thread_handle
-{
-    pthread_t pthread;
-    void *handle;
-};
-
-HRESULT vkd3d_create_thread(struct vkd3d_instance *instance,
-        PFN_vkd3d_thread thread_main, void *data, union vkd3d_thread_handle *thread);
-HRESULT vkd3d_join_thread(struct vkd3d_instance *instance, union vkd3d_thread_handle *thread);
 
 struct vkd3d_waiting_fence
 {
@@ -244,7 +231,7 @@ struct vkd3d_waiting_fence
 
 struct vkd3d_fence_worker
 {
-    union vkd3d_thread_handle thread;
+    pthread_t thread;
     pthread_mutex_t mutex;
     pthread_cond_t cond;
     bool should_exit;
@@ -513,12 +500,6 @@ struct d3d12_fence_value
     const struct vkd3d_queue *signalling_queue;
 };
 
-enum vkd3d_waiting_event_type
-{
-    VKD3D_WAITING_EVENT_TYPE_EVENT,
-    VKD3D_WAITING_EVENT_TYPE_SEMAPHORE,
-};
-
 struct d3d12_fence
 {
     d3d12_fence_iface ID3D12Fence_iface;
@@ -544,8 +525,7 @@ struct d3d12_fence
     struct vkd3d_waiting_event
     {
         uint64_t value;
-        HANDLE event;
-        enum vkd3d_waiting_event_type type;
+        vkd3d_native_sync_handle handle;
         bool *latch;
     } *events;
     size_t events_size;
@@ -573,7 +553,9 @@ static inline struct d3d12_fence *impl_from_ID3D12Fence(ID3D12Fence *iface)
 HRESULT d3d12_fence_create(struct d3d12_device *device,
         uint64_t initial_value, D3D12_FENCE_FLAGS flags, struct d3d12_fence **fence);
 HRESULT d3d12_fence_set_event_on_completion(struct d3d12_fence *fence,
-        UINT64 value, HANDLE event, enum vkd3d_waiting_event_type type);
+        UINT64 value, HANDLE event);
+HRESULT d3d12_fence_set_native_sync_handle_on_completion(struct d3d12_fence *fence,
+        UINT64 value, vkd3d_native_sync_handle handle);
 
 struct d3d12_shared_fence
 {
@@ -3482,7 +3464,6 @@ struct d3d12_device
     uint32_t api_version;
     VkPhysicalDevice vk_physical_device;
     struct vkd3d_vk_device_procs vk_procs;
-    PFN_vkd3d_signal_event signal_event;
 
     pthread_mutex_t mutex;
 

@@ -596,15 +596,15 @@ static inline void demo_swapchain_destroy(struct demo_swapchain *swapchain)
 
 static inline HANDLE demo_create_event(void)
 {
-    return vkd3d_create_event();
+    return vkd3d_create_eventfd();
 }
 
 static inline unsigned int demo_wait_event(HANDLE event, unsigned int ms)
 {
-    return vkd3d_wait_event(event, ms);
+    return vkd3d_wait_eventfd(event, ms);
 }
 
 static inline void demo_destroy_event(HANDLE event)
 {
-    vkd3d_destroy_event(event);
+    vkd3d_destroy_eventfd(event);
 }

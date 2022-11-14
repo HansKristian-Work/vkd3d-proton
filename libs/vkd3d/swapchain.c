@@ -2034,8 +2034,9 @@ static HRESULT d3d12_swapchain_present(struct d3d12_swapchain *swapchain,
         return hr;
     }
 
-    if (FAILED(hr = d3d12_fence_set_event_on_completion(impl_from_ID3D12Fence(swapchain->frame_latency_fence),
-            swapchain->frame_number, swapchain->frame_latency_event, VKD3D_WAITING_EVENT_TYPE_SEMAPHORE)))
+    if (FAILED(hr = d3d12_fence_set_native_sync_handle_on_completion(impl_from_ID3D12Fence(swapchain->frame_latency_fence),
+            swapchain->frame_number,
+            vkd3d_native_sync_handle_wrap(swapchain->frame_latency_event, VKD3D_NATIVE_SYNC_HANDLE_TYPE_SEMAPHORE))))
     {
         ERR("Failed to enqueue frame latency event, hr %#x.\n", hr);
         return hr;

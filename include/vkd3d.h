@@ -95,21 +95,10 @@ extern "C" {
 #define VKD3D_CONFIG_FLAG_PREALLOCATE_SRV_MIP_CLAMPS (1ull << 33)
 #define VKD3D_CONFIG_FLAG_FORCE_INITIAL_TRANSITION (1ull << 34)
 
-typedef HRESULT (*PFN_vkd3d_signal_event)(HANDLE event);
-
-typedef void * (*PFN_vkd3d_thread)(void *data);
-
-typedef void * (*PFN_vkd3d_create_thread)(PFN_vkd3d_thread thread_main, void *data);
-typedef HRESULT (*PFN_vkd3d_join_thread)(void *thread);
-
 struct vkd3d_instance;
 
 struct vkd3d_instance_create_info
 {
-    PFN_vkd3d_signal_event pfn_signal_event;
-    PFN_vkd3d_create_thread pfn_create_thread;
-    PFN_vkd3d_join_thread pfn_join_thread;
-
     /* If set to NULL, libvkd3d loads libvulkan. */
     PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr;
 
