@@ -18,7 +18,9 @@
 
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 
+#ifdef _WIN32
 #include "vkd3d_win32.h"
+#endif
 #include "vkd3d_private.h"
 
 static inline struct dxgi_vk_swap_chain_factory *impl_from_IDXGIVkSwapChainFactory(IDXGIVkSwapChainFactory *iface)
@@ -69,8 +71,9 @@ struct dxgi_vk_swap_chain
     LONG refcount;
     DXGI_SWAP_CHAIN_DESC1 desc;
 
-    HANDLE frame_latency_event;
-    HANDLE frame_latency_event_internal;
+    vkd3d_native_sync_handle frame_latency_event;
+    vkd3d_native_sync_handle frame_latency_event_internal;
+
     UINT frame_latency;
     VkSurfaceKHR vk_surface;
 
@@ -183,7 +186,7 @@ static void dxgi_vk_swap_chain_drain_queue(struct dxgi_vk_swap_chain *chain)
     chain->present.frame_latency_count += 1;
     d3d12_command_queue_signal_inline(chain->queue, chain->present.frame_latency_fence, chain->present.frame_latency_count);
     d3d12_fence_set_event_on_completion(impl_from_ID3D12Fence1(chain->present.frame_latency_fence),
-            chain->present.frame_latency_count, NULL, VKD3D_WAITING_EVENT_TYPE_EVENT);
+            chain->present.frame_latency_count, NULL);
 }
 
 static void dxgi_vk_swap_chain_drain_blit_semaphore(struct dxgi_vk_swap_chain *chain, uint64_t value)
@@ -240,10 +243,9 @@ static void dxgi_vk_swap_chain_cleanup(struct dxgi_vk_swap_chain *chain)
 
     if (chain->present.frame_latency_fence)
         ID3D12Fence1_Release(chain->present.frame_latency_fence);
-    if (chain->frame_latency_event)
-        CloseHandle(chain->frame_latency_event);
-    if (chain->frame_latency_event_internal)
-        CloseHandle(chain->frame_latency_event_internal);
+
+    vkd3d_native_sync_handle_destroy(chain->frame_latency_event);
+    vkd3d_native_sync_handle_destroy(chain->frame_latency_event_internal);
 
     VK_CALL(vkDestroySemaphore(chain->queue->device->vk_device, chain->present.vk_blit_semaphore, NULL));
     VK_CALL(vkDestroyCommandPool(chain->queue->device->vk_device, chain->present.vk_blit_command_pool, NULL));
@@ -354,21 +356,34 @@ static HANDLE STDMETHODCALLTYPE dxgi_vk_swap_chain_GetFrameLatencyEvent(IDXGIVkS
 {
     struct dxgi_vk_swap_chain *swapchain = impl_from_IDXGIVkSwapChain(iface);
     HANDLE duplicated_handle;
+    VKD3D_UNUSED int fd;
 
     TRACE("iface %p.\n", iface);
 
-    if (!swapchain->frame_latency_event)
-        return INVALID_HANDLE_VALUE;
+    if (!vkd3d_native_sync_handle_is_valid(swapchain->frame_latency_event))
+        return NULL;
 
+#ifdef _WIN32
     /* Based on observation, this handle can be waited on, but ReleaseSemaphore() is not allowed.
      * Verified that NtQueryObject returns 0x100000 access mask (SYNCHRONIZE only). */
-    if (!DuplicateHandle(GetCurrentProcess(), swapchain->frame_latency_event,
+    if (!DuplicateHandle(GetCurrentProcess(), swapchain->frame_latency_event.handle,
             GetCurrentProcess(), &duplicated_handle,
             SYNCHRONIZE, FALSE, 0))
     {
         ERR("Failed to duplicate waitable handle.\n");
-        return INVALID_HANDLE_VALUE;
+        return NULL;
     }
+#else
+    /* Ensure that we don't return fd 0 which would confuse the caller. */
+    fd = dup(swapchain->frame_latency_event.fd);
+    if (fd == 0)
+    {
+        fd = dup(fd);
+        close(fd);
+    }
+
+    duplicated_handle = fd >= 0 ? (HANDLE)(intptr_t)fd : NULL;
+#endif
 
     return duplicated_handle;
 }
@@ -548,7 +563,8 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_SetFrameLatency(IDXGIVkSwapC
      * the application's responsibility to reduce the semaphore value
      * in case the latency gets reduced. */
     if (MaxLatency > chain->frame_latency)
-        ReleaseSemaphore(chain->frame_latency_event, MaxLatency - chain->frame_latency, NULL);
+        vkd3d_native_sync_handle_release(chain->frame_latency_event, MaxLatency - chain->frame_latency);
+
     chain->frame_latency = MaxLatency;
     return S_OK;
 }
@@ -686,8 +702,8 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain *if
     chain->user.blit_timeline[chain->user.index] = chain->user.blit_count;
 
     /* Relevant if application does not use latency fence, or we force a lower latency through VKD3D_SWAPCHAIN_FRAME_LATENCY overrides. */
-    if (chain->frame_latency_event_internal)
-        WaitForSingleObject(chain->frame_latency_event_internal, INFINITE);
+    if (vkd3d_native_sync_handle_is_valid(chain->frame_latency_event_internal))
+        vkd3d_native_sync_handle_acquire(chain->frame_latency_event_internal);
 
     /* For latency debug purposes. Consider a frame to begin when we return from Present() with the next user index set. */
     if (chain->debug_latency)
@@ -816,9 +832,10 @@ static HRESULT dxgi_vk_swap_chain_init_sync_objects(struct dxgi_vk_swap_chain *c
     {
         INFO("Enabling frame latency handles.\n");
         chain->frame_latency = 1;
-        if (!(chain->frame_latency_event = CreateSemaphore(NULL, chain->frame_latency, DXGI_MAX_SWAP_CHAIN_BUFFERS, NULL)))
+
+        if (FAILED(hr = vkd3d_native_sync_handle_create(chain->frame_latency,
+                VKD3D_NATIVE_SYNC_HANDLE_TYPE_SEMAPHORE, &chain->frame_latency_event)))
         {
-            hr = HRESULT_FROM_WIN32(GetLastError());
             WARN("Failed to create frame latency semaphore, hr %#x.\n", hr);
             return hr;
         }
@@ -836,7 +853,8 @@ static HRESULT dxgi_vk_swap_chain_init_sync_objects(struct dxgi_vk_swap_chain *c
     {
         latency_frames = strtoul(env, NULL, 0);
     }
-    else if (chain->frame_latency_event && !chain->queue->device->device_info.present_wait_features.presentWait)
+    else if (vkd3d_native_sync_handle_is_valid(chain->frame_latency_event) &&
+            !chain->queue->device->device_info.present_wait_features.presentWait)
     {
         /* If we don't have present_wait and we have app latency object,
          * it's meaningless to add this by default. */
@@ -849,10 +867,9 @@ static HRESULT dxgi_vk_swap_chain_init_sync_objects(struct dxgi_vk_swap_chain *c
 
         /* We consume a count after Present(), i.e. start of next frame,
          * starting with one less takes care of this. */
-        if (!(chain->frame_latency_event_internal = CreateSemaphore(NULL, latency_frames - 1,
-                latency_frames, NULL)))
+        if (FAILED(hr = vkd3d_native_sync_handle_create(latency_frames - 1,
+                VKD3D_NATIVE_SYNC_HANDLE_TYPE_SEMAPHORE, &chain->frame_latency_event_internal)))
         {
-            hr = HRESULT_FROM_WIN32(GetLastError());
             WARN("Failed to create internal frame latency semaphore, hr %#x.\n", hr);
             return hr;
         }
@@ -1528,23 +1545,25 @@ static void dxgi_vk_swap_chain_signal_waitable_handle(struct dxgi_vk_swap_chain 
         chain->present.frame_latency_count += 1;
         d3d12_command_queue_signal_inline(chain->queue, chain->present.frame_latency_fence, chain->present.frame_latency_count);
 
-        if (chain->frame_latency_event)
+        if (vkd3d_native_sync_handle_is_valid(chain->frame_latency_event))
         {
-            if (FAILED(hr = d3d12_fence_set_event_on_completion(impl_from_ID3D12Fence1(chain->present.frame_latency_fence),
-                    chain->present.frame_latency_count, chain->frame_latency_event, VKD3D_WAITING_EVENT_TYPE_SEMAPHORE)))
+            if (FAILED(hr = d3d12_fence_set_native_sync_handle_on_completion(
+                    impl_from_ID3D12Fence1(chain->present.frame_latency_fence),
+                    chain->present.frame_latency_count, chain->frame_latency_event)))
             {
                 ERR("Failed to enqueue frame latency event, hr %#x.\n", hr);
-                ReleaseSemaphore(chain->frame_latency_event, 1, NULL);
+                vkd3d_native_sync_handle_release(chain->frame_latency_event, 1);
             }
         }
 
-        if (chain->frame_latency_event_internal)
+        if (vkd3d_native_sync_handle_is_valid(chain->frame_latency_event_internal))
         {
-            if (FAILED(hr = d3d12_fence_set_event_on_completion(impl_from_ID3D12Fence1(chain->present.frame_latency_fence),
-                    chain->present.frame_latency_count, chain->frame_latency_event_internal, VKD3D_WAITING_EVENT_TYPE_SEMAPHORE)))
+            if (FAILED(hr = d3d12_fence_set_native_sync_handle_on_completion(
+                    impl_from_ID3D12Fence1(chain->present.frame_latency_fence),
+                    chain->present.frame_latency_count, chain->frame_latency_event_internal)))
             {
                 ERR("Failed to enqueue frame latency event, hr %#x.\n", hr);
-                ReleaseSemaphore(chain->frame_latency_event_internal, 1, NULL);
+                vkd3d_native_sync_handle_release(chain->frame_latency_event_internal, 1);
             }
         }
     }
@@ -1599,7 +1618,7 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
     uint64_t begin_frame_time_ns = 0;
     uint64_t end_frame_time_ns = 0;
     uint64_t next_wait_id = 0;
-    LONG previous_semaphore;
+    int previous_semaphore;
 
     vkd3d_set_thread_name("vkd3d-swapchain-sync");
 
@@ -1623,14 +1642,14 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
         if (begin_frame_time_ns)
             end_frame_time_ns = vkd3d_get_current_time_ns();
 
-        if (chain->frame_latency_event)
+        if (vkd3d_native_sync_handle_is_valid(chain->frame_latency_event))
         {
-            if (ReleaseSemaphore(chain->frame_latency_event, 1, &previous_semaphore))
+            if ((previous_semaphore = vkd3d_native_sync_handle_release(chain->frame_latency_event, 1)) >= 0)
             {
-                if (previous_semaphore >= (LONG)chain->frame_latency)
+                if (previous_semaphore >= (int)chain->frame_latency)
                 {
                     WARN("Incrementing frame latency semaphore beyond max latency. "
-                            "Did application forget to acquire? (new count = %ld, max latency = %u)\n",
+                            "Did application forget to acquire? (new count = %d, max latency = %u)\n",
                             previous_semaphore + 1, chain->frame_latency);
                 }
             }
@@ -1638,8 +1657,8 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
                 WARN("Failed to increment swapchain semaphore. Did application forget to acquire?\n");
         }
 
-        if (chain->frame_latency_event_internal)
-            ReleaseSemaphore(chain->frame_latency_event_internal, 1, NULL);
+        if (vkd3d_native_sync_handle_is_valid(chain->frame_latency_event_internal))
+            vkd3d_native_sync_handle_release(chain->frame_latency_event_internal, 1);
 
         if (begin_frame_time_ns)
             INFO("vkWaitForPresentKHR frame latency: %.3f ms.\n", 1e-6 * (end_frame_time_ns - begin_frame_time_ns));
@@ -1672,7 +1691,7 @@ static HRESULT dxgi_vk_swap_chain_init_waiter_thread(struct dxgi_vk_swap_chain *
 
     /* Have to throw a thread under the bus unfortunately.
      * That thread will only wait on present IDs and release HANDLEs as necessary. */
-    if (pthread_create(&chain->wait_thread.thread, NULL, dxgi_vk_swap_chain_wait_worker, chain) < 0)
+    if (pthread_create(&chain->wait_thread.thread, NULL, dxgi_vk_swap_chain_wait_worker, chain))
     {
         pthread_mutex_destroy(&chain->wait_thread.lock);
         pthread_cond_destroy(&chain->wait_thread.cond);
