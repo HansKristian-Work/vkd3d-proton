@@ -21,6 +21,7 @@
 #include <vkd3d.h>
 #include <vkd3d_utils.h>
 #include <vkd3d_sonames.h>
+#include <vkd3d_swapchain_factory.h>
 #include <xcb/xcb_event.h>
 #include <xcb/xcb_icccm.h>
 #include <xcb/xcb_keysyms.h>
@@ -30,23 +31,6 @@
 #include <fcntl.h>
 #include <stdbool.h>
 #include <dlfcn.h>
-
-#define SYMBOL(x) static PFN_vk##x x
-SYMBOL(CreateXcbSurfaceKHR);
-SYMBOL(GetPhysicalDeviceSurfaceSupportKHR);
-SYMBOL(GetPhysicalDeviceSurfaceCapabilitiesKHR);
-SYMBOL(GetPhysicalDeviceSurfaceFormatsKHR);
-SYMBOL(CreateSwapchainKHR);
-SYMBOL(CreateFence);
-SYMBOL(GetSwapchainImagesKHR);
-SYMBOL(AcquireNextImageKHR);
-SYMBOL(WaitForFences);
-SYMBOL(ResetFences);
-SYMBOL(DestroyFence);
-SYMBOL(DestroySurfaceKHR);
-SYMBOL(QueuePresentKHR);
-SYMBOL(DestroySwapchainKHR);
-#undef SYMBOL
 
 struct demo
 {
@@ -75,42 +59,95 @@ struct demo_window
     void (*key_press_func)(struct demo_window *window, demo_key key, void *user_data);
 };
 
-struct demo_swapchain
+struct xcb_surface_factory
 {
-    VkSurfaceKHR vk_surface;
-    VkSwapchainKHR vk_swapchain;
-    VkFence vk_fence;
-
-    VkInstance vk_instance;
-    VkDevice vk_device;
-    ID3D12CommandQueue *command_queue;
-
-    uint32_t current_buffer;
-    unsigned int buffer_count;
-    ID3D12Resource *buffers[1];
+    uint32_t refcount;
+    xcb_connection_t *connection;
+    xcb_window_t window;
+    PFN_vkCreateXcbSurfaceKHR create_surface;
+    IDXGIVkSurfaceFactory IDXGIVkSurfaceFactory_iface;
 };
 
-static inline void init_symbols(VkInstance instance)
+struct demo_swapchain
 {
-    PFN_vkGetInstanceProcAddr gpa;
-    void *handle = dlopen(SONAME_LIBVULKAN, RTLD_LAZY);
-    gpa = (PFN_vkGetInstanceProcAddr)dlsym(handle, "vkGetInstanceProcAddr");
-#define SYMBOL(x) x = (PFN_vk##x)gpa(instance, "vk" #x)
-    SYMBOL(CreateXcbSurfaceKHR);
-    SYMBOL(GetPhysicalDeviceSurfaceSupportKHR);
-    SYMBOL(GetPhysicalDeviceSurfaceCapabilitiesKHR);
-    SYMBOL(GetPhysicalDeviceSurfaceFormatsKHR);
-    SYMBOL(CreateSwapchainKHR);
-    SYMBOL(CreateFence);
-    SYMBOL(GetSwapchainImagesKHR);
-    SYMBOL(AcquireNextImageKHR);
-    SYMBOL(WaitForFences);
-    SYMBOL(ResetFences);
-    SYMBOL(DestroySurfaceKHR);
-    SYMBOL(DestroyFence);
-    SYMBOL(QueuePresentKHR);
-    SYMBOL(DestroySwapchainKHR);
-#undef SYMBOL
+    IDXGIVkSwapChain *swapchain;
+    IDXGIVkSurfaceFactory *surface_factory;
+};
+
+static HRESULT STDMETHODCALLTYPE xcb_surface_factory_QueryInterface(IDXGIVkSurfaceFactory *iface, REFIID riid, void **object)
+{
+    struct xcb_surface_factory *factory = CONTAINING_RECORD(iface, struct xcb_surface_factory, IDXGIVkSurfaceFactory_iface);
+    if (IsEqualGUID(riid, &IID_IUnknown) || IsEqualGUID(riid, &IID_IDXGIVkSurfaceFactory))
+    {
+        factory->refcount++;
+        *object = iface;
+        return S_OK;
+    }
+    return E_NOINTERFACE;
+}
+
+static ULONG STDMETHODCALLTYPE xcb_surface_factory_AddRef(IDXGIVkSurfaceFactory *iface)
+{
+    struct xcb_surface_factory *factory = CONTAINING_RECORD(iface, struct xcb_surface_factory, IDXGIVkSurfaceFactory_iface);
+    return ++factory->refcount;
+}
+
+static ULONG STDMETHODCALLTYPE xcb_surface_factory_Release(IDXGIVkSurfaceFactory *iface)
+{
+    struct xcb_surface_factory *factory = CONTAINING_RECORD(iface, struct xcb_surface_factory, IDXGIVkSurfaceFactory_iface);
+    uint32_t refcount;
+
+    refcount = --factory->refcount;
+    if (!refcount)
+        free(factory);
+    return refcount;
+}
+
+static VkResult STDMETHODCALLTYPE xcb_surface_factory_CreateSurface(IDXGIVkSurfaceFactory *iface,
+        VkInstance vk_instance, VkPhysicalDevice vk_physical_device, VkSurfaceKHR *vk_surface)
+{
+    struct xcb_surface_factory *factory = CONTAINING_RECORD(iface, struct xcb_surface_factory, IDXGIVkSurfaceFactory_iface);
+    VkXcbSurfaceCreateInfoKHR create_info;
+
+    create_info.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
+    create_info.pNext = NULL;
+    create_info.flags = 0;
+    create_info.window = factory->window;
+    create_info.connection = factory->connection;
+    return factory->create_surface(vk_instance, &create_info, NULL, vk_surface);
+}
+
+static CONST_VTBL struct IDXGIVkSurfaceFactoryVtbl xcb_surface_factory_vtbl =
+{
+    xcb_surface_factory_QueryInterface,
+    xcb_surface_factory_AddRef,
+    xcb_surface_factory_Release,
+    xcb_surface_factory_CreateSurface,
+};
+
+static HRESULT xcb_surface_factory_create(xcb_connection_t *connection, xcb_window_t window,
+        IDXGIVkSurfaceFactory **out_factory)
+{
+    PFN_vkCreateXcbSurfaceKHR create_surface;
+    struct xcb_surface_factory *factory;
+    void *libvulkan;
+
+    libvulkan = dlopen(SONAME_LIBVULKAN, RTLD_LAZY);
+    if (!libvulkan)
+        return E_NOTIMPL;
+
+    create_surface = (PFN_vkCreateXcbSurfaceKHR)dlsym(libvulkan, "vkCreateXcbSurfaceKHR");
+    if (!create_surface)
+        return E_NOTIMPL;
+
+    factory = calloc(1, sizeof(*factory));
+    factory->IDXGIVkSurfaceFactory_iface.lpVtbl = &xcb_surface_factory_vtbl;
+    factory->connection = connection;
+    factory->window = window;
+    factory->create_surface = create_surface;
+    factory->refcount = 1;
+    *out_factory = &factory->IDXGIVkSurfaceFactory_iface;
+    return S_OK;
 }
 
 static inline xcb_atom_t demo_get_atom(xcb_connection_t *c, const char *name)
@@ -238,6 +275,13 @@ static inline struct demo_window *demo_window_create(struct demo *demo, const ch
     return window;
 }
 
+static inline void demo_swapchain_destroy(struct demo_swapchain *swapchain)
+{
+    IDXGIVkSwapChain_Release(swapchain->swapchain);
+    IDXGIVkSurfaceFactory_Release(swapchain->surface_factory);
+    free(swapchain);
+}
+
 static inline void demo_window_destroy(struct demo_window *window)
 {
     xcb_destroy_window(window->demo->connection, window->window);
@@ -359,246 +403,59 @@ static inline void demo_set_idle_func(struct demo *demo,
 static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *command_queue,
         struct demo_window *window, const struct demo_swapchain_desc *desc)
 {
-    struct vkd3d_image_resource_create_info resource_create_info;
-    struct VkSwapchainCreateInfoKHR vk_swapchain_desc;
-    struct VkXcbSurfaceCreateInfoKHR surface_desc;
-    VkSwapchainKHR vk_swapchain = VK_NULL_HANDLE;
-    uint32_t format_count, queue_family_index;
-    VkSurfaceCapabilitiesKHR surface_caps;
-    VkPhysicalDevice vk_physical_device;
-    VkFence vk_fence = VK_NULL_HANDLE;
+    IDXGIVkSwapChainFactory *factory = NULL;
     struct demo_swapchain *swapchain;
-    unsigned int image_count, i, j;
-    VkFenceCreateInfo fence_desc;
-    VkSurfaceFormatKHR *formats;
-    ID3D12Device *d3d12_device;
-    VkSurfaceKHR vk_surface;
-    VkInstance vk_instance;
-    VkBool32 supported;
-    VkDevice vk_device;
-    VkImage *vk_images;
-    VkFormat format;
+    DXGI_SWAP_CHAIN_DESC1 swap_desc;
 
-    if ((format = vkd3d_get_vk_format(desc->format)) == VK_FORMAT_UNDEFINED)
-        return NULL;
+    swapchain = calloc(1, sizeof(*swapchain));
 
-    if (FAILED(ID3D12CommandQueue_GetDevice(command_queue, &IID_ID3D12Device, (void **)&d3d12_device)))
-        return NULL;
-
-    vk_instance = vkd3d_instance_get_vk_instance(vkd3d_instance_from_device(d3d12_device));
-    vk_physical_device = vkd3d_get_vk_physical_device(d3d12_device);
-    vk_device = vkd3d_get_vk_device(d3d12_device);
-
-    init_symbols(vk_instance);
-
-    surface_desc.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
-    surface_desc.pNext = NULL;
-    surface_desc.flags = 0;
-    surface_desc.connection = window->demo->connection;
-    surface_desc.window = window->window;
-    if (CreateXcbSurfaceKHR(vk_instance, &surface_desc, NULL, &vk_surface) < 0)
-    {
-        ID3D12Device_Release(d3d12_device);
-        return NULL;
-    }
-
-    queue_family_index = vkd3d_get_vk_queue_family_index(command_queue);
-    if (GetPhysicalDeviceSurfaceSupportKHR(vk_physical_device,
-            queue_family_index, vk_surface, &supported) < 0 || !supported)
+    if (FAILED(ID3D12CommandQueue_QueryInterface(command_queue, &IID_IDXGIVkSwapChainFactory, (void**)&factory)))
+        goto fail;
+    if (FAILED(xcb_surface_factory_create(window->demo->connection, window->window, &swapchain->surface_factory)))
         goto fail;
 
-    if (GetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device, vk_surface, &surface_caps) < 0)
+    memset(&swap_desc, 0, sizeof(swap_desc));
+    swap_desc.Format = desc->format;
+    swap_desc.Width = desc->width;
+    swap_desc.Height = desc->height;
+    swap_desc.BufferCount = desc->buffer_count;
+    swap_desc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+    swap_desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    swap_desc.Scaling = DXGI_SCALING_STRETCH;
+    swap_desc.SampleDesc.Count = 1;
+    swap_desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    if (FAILED(IDXGIVkSwapChainFactory_CreateSwapChain(factory, swapchain->surface_factory, &swap_desc, &swapchain->swapchain)))
         goto fail;
 
-    if ((surface_caps.maxImageCount && desc->buffer_count > surface_caps.maxImageCount)
-            || desc->buffer_count < surface_caps.minImageCount
-            || desc->width > surface_caps.maxImageExtent.width || desc->width < surface_caps.minImageExtent.width
-            || desc->height > surface_caps.maxImageExtent.height || desc->height < surface_caps.minImageExtent.height
-            || !(surface_caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR))
-        goto fail;
-
-    if (GetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, vk_surface, &format_count, NULL) < 0
-            || !format_count || !(formats = calloc(format_count, sizeof(*formats))))
-        goto fail;
-
-    if (GetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, vk_surface, &format_count, formats) < 0)
-    {
-        free(formats);
-        goto fail;
-    }
-
-    if (format_count != 1 || formats->format != VK_FORMAT_UNDEFINED
-            || formats->colorSpace != VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
-    {
-        for (i = 0; i < format_count; ++i)
-        {
-            if (formats[i].format == format && formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
-                break;
-        }
-
-        if (i == format_count)
-        {
-            free(formats);
-            goto fail;
-        }
-    }
-
-    free(formats);
-    formats = NULL;
-
-    vk_swapchain_desc.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    vk_swapchain_desc.pNext = NULL;
-    vk_swapchain_desc.flags = 0;
-    vk_swapchain_desc.surface = vk_surface;
-    vk_swapchain_desc.minImageCount = desc->buffer_count;
-    vk_swapchain_desc.imageFormat = format;
-    vk_swapchain_desc.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-    vk_swapchain_desc.imageExtent.width = desc->width;
-    vk_swapchain_desc.imageExtent.height = desc->height;
-    vk_swapchain_desc.imageArrayLayers = 1;
-    vk_swapchain_desc.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-    vk_swapchain_desc.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    vk_swapchain_desc.queueFamilyIndexCount = 0;
-    vk_swapchain_desc.pQueueFamilyIndices = NULL;
-    vk_swapchain_desc.preTransform = surface_caps.currentTransform;
-    vk_swapchain_desc.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    vk_swapchain_desc.presentMode = VK_PRESENT_MODE_FIFO_KHR;
-    vk_swapchain_desc.clipped = VK_TRUE;
-    vk_swapchain_desc.oldSwapchain = VK_NULL_HANDLE;
-    if (CreateSwapchainKHR(vk_device, &vk_swapchain_desc, NULL, &vk_swapchain) < 0)
-        goto fail;
-
-    fence_desc.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    fence_desc.pNext = NULL;
-    fence_desc.flags = 0;
-    if (CreateFence(vk_device, &fence_desc, NULL, &vk_fence) < 0)
-        goto fail;
-
-    if (GetSwapchainImagesKHR(vk_device, vk_swapchain, &image_count, NULL) < 0
-            || !(vk_images = calloc(image_count, sizeof(*vk_images))))
-        goto fail;
-
-    if (GetSwapchainImagesKHR(vk_device, vk_swapchain, &image_count, vk_images) < 0)
-    {
-        free(vk_images);
-        goto fail;
-    }
-
-    if (!(swapchain = malloc(offsetof(struct demo_swapchain, buffers[image_count]))))
-    {
-        free(vk_images);
-        goto fail;
-    }
-    swapchain->vk_surface = vk_surface;
-    swapchain->vk_swapchain = vk_swapchain;
-    swapchain->vk_fence = vk_fence;
-    swapchain->vk_instance = vk_instance;
-    swapchain->vk_device = vk_device;
-
-    AcquireNextImageKHR(vk_device, vk_swapchain, UINT64_MAX,
-            VK_NULL_HANDLE, vk_fence, &swapchain->current_buffer);
-    WaitForFences(vk_device, 1, &vk_fence, VK_TRUE, UINT64_MAX);
-    ResetFences(vk_device, 1, &vk_fence);
-
-    resource_create_info.desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-    resource_create_info.desc.Alignment = 0;
-    resource_create_info.desc.Width = desc->width;
-    resource_create_info.desc.Height = desc->height;
-    resource_create_info.desc.DepthOrArraySize = 1;
-    resource_create_info.desc.MipLevels = 1;
-    resource_create_info.desc.Format = desc->format;
-    resource_create_info.desc.SampleDesc.Count = 1;
-    resource_create_info.desc.SampleDesc.Quality = 0;
-    resource_create_info.desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-    resource_create_info.desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-    resource_create_info.flags = 0;
-    resource_create_info.present_state = D3D12_RESOURCE_STATE_PRESENT;
-    for (i = 0; i < image_count; ++i)
-    {
-        resource_create_info.vk_image = vk_images[i];
-        if (FAILED(vkd3d_create_image_resource(d3d12_device, &resource_create_info, &swapchain->buffers[i])))
-        {
-            for (j = 0; j < i; ++j)
-            {
-                ID3D12Resource_Release(swapchain->buffers[j]);
-            }
-            free(swapchain);
-            free(vk_images);
-            goto fail;
-        }
-
-        vkd3d_enqueue_initial_transition(command_queue, swapchain->buffers[i]);
-    }
-    swapchain->buffer_count = image_count;
-    free(vk_images);
-    ID3D12Device_Release(d3d12_device);
-
-    ID3D12CommandQueue_AddRef(swapchain->command_queue = command_queue);
-
+    if (factory)
+        IDXGIVkSwapChainFactory_Release(factory);
     return swapchain;
 
 fail:
-    if (vk_fence != VK_NULL_HANDLE)
-        DestroyFence(vk_device, vk_fence, NULL);
-    if (vk_swapchain != VK_NULL_HANDLE)
-        DestroySwapchainKHR(vk_device, vk_swapchain, NULL);
-    DestroySurfaceKHR(vk_instance, vk_surface, NULL);
-    ID3D12Device_Release(d3d12_device);
+    if (factory)
+        IDXGIVkSwapChainFactory_Release(factory);
+    if (swapchain && swapchain->surface_factory)
+        IDXGIVkSurfaceFactory_Release(swapchain->surface_factory);
+    free(swapchain);
     return NULL;
 }
 
 static inline unsigned int demo_swapchain_get_current_back_buffer_index(struct demo_swapchain *swapchain)
 {
-    return swapchain->current_buffer;
+    return IDXGIVkSwapChain_GetImageIndex(swapchain->swapchain);
 }
 
 static inline ID3D12Resource *demo_swapchain_get_back_buffer(struct demo_swapchain *swapchain, unsigned int index)
 {
-    ID3D12Resource *resource = NULL;
-
-    if (index < swapchain->buffer_count && (resource = swapchain->buffers[index]))
-        ID3D12Resource_AddRef(resource);
-
+    ID3D12Resource *resource;
+    if (FAILED(IDXGIVkSwapChain_GetImage(swapchain->swapchain, index, &IID_ID3D12Resource, (void**)&resource)))
+        resource = NULL;
     return resource;
 }
 
 static inline void demo_swapchain_present(struct demo_swapchain *swapchain)
 {
-    VkPresentInfoKHR present_desc;
-    VkQueue vk_queue;
-
-    present_desc.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    present_desc.pNext = NULL;
-    present_desc.waitSemaphoreCount = 0;
-    present_desc.pWaitSemaphores = NULL;
-    present_desc.swapchainCount = 1;
-    present_desc.pSwapchains = &swapchain->vk_swapchain;
-    present_desc.pImageIndices = &swapchain->current_buffer;
-    present_desc.pResults = NULL;
-
-    vk_queue = vkd3d_acquire_vk_queue(swapchain->command_queue);
-    QueuePresentKHR(vk_queue, &present_desc);
-    vkd3d_release_vk_queue(swapchain->command_queue);
-
-    AcquireNextImageKHR(swapchain->vk_device, swapchain->vk_swapchain, UINT64_MAX,
-            VK_NULL_HANDLE, swapchain->vk_fence, &swapchain->current_buffer);
-    WaitForFences(swapchain->vk_device, 1, &swapchain->vk_fence, VK_TRUE, UINT64_MAX);
-    ResetFences(swapchain->vk_device, 1, &swapchain->vk_fence);
-}
-
-static inline void demo_swapchain_destroy(struct demo_swapchain *swapchain)
-{
-    unsigned int i;
-
-    ID3D12CommandQueue_Release(swapchain->command_queue);
-    for (i = 0; i < swapchain->buffer_count; ++i)
-    {
-        ID3D12Resource_Release(swapchain->buffers[i]);
-    }
-    DestroyFence(swapchain->vk_device, swapchain->vk_fence, NULL);
-    DestroySwapchainKHR(swapchain->vk_device, swapchain->vk_swapchain, NULL);
-    DestroySurfaceKHR(swapchain->vk_instance, swapchain->vk_surface, NULL);
-    free(swapchain);
+    IDXGIVkSwapChain_Present(swapchain->swapchain, 1, 0, NULL);
 }
 
 static inline HANDLE demo_create_event(void)
