@@ -31,6 +31,7 @@
 #include <fcntl.h>
 #include <stdbool.h>
 #include <dlfcn.h>
+#include <stdio.h>
 
 struct demo
 {
@@ -72,6 +73,7 @@ struct demo_swapchain
 {
     IDXGIVkSwapChain *swapchain;
     IDXGIVkSurfaceFactory *surface_factory;
+    int fd;
 };
 
 static HRESULT STDMETHODCALLTYPE xcb_surface_factory_QueryInterface(IDXGIVkSurfaceFactory *iface, REFIID riid, void **object)
@@ -279,6 +281,9 @@ static inline void demo_swapchain_destroy(struct demo_swapchain *swapchain)
 {
     IDXGIVkSwapChain_Release(swapchain->swapchain);
     IDXGIVkSurfaceFactory_Release(swapchain->surface_factory);
+    /* FD 0 is never returned as a valid fd. */
+    if (swapchain->fd > 0)
+        close(swapchain->fd);
     free(swapchain);
 }
 
@@ -400,6 +405,13 @@ static inline void demo_set_idle_func(struct demo *demo,
     demo->idle_func = idle_func;
 }
 
+static inline void acquire_eventfd(int fd)
+{
+    uint64_t v;
+    if (read(fd, &v, sizeof(v)) < 0 || v != 1)
+        fprintf(stderr, "Odd eventfd read.\n");
+}
+
 static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *command_queue,
         struct demo_window *window, const struct demo_swapchain_desc *desc)
 {
@@ -424,8 +436,15 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
     swap_desc.Scaling = DXGI_SCALING_STRETCH;
     swap_desc.SampleDesc.Count = 1;
     swap_desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    swap_desc.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
     if (FAILED(IDXGIVkSwapChainFactory_CreateSwapChain(factory, swapchain->surface_factory, &swap_desc, &swapchain->swapchain)))
         goto fail;
+
+    if (FAILED(IDXGIVkSwapChain_SetFrameLatency(swapchain->swapchain, 2)))
+        goto fail;
+
+    swapchain->fd = (int)(intptr_t)IDXGIVkSwapChain_GetFrameLatencyEvent(swapchain->swapchain);
+    acquire_eventfd(swapchain->fd);
 
     if (factory)
         IDXGIVkSwapChainFactory_Release(factory);
@@ -456,6 +475,7 @@ static inline ID3D12Resource *demo_swapchain_get_back_buffer(struct demo_swapcha
 static inline void demo_swapchain_present(struct demo_swapchain *swapchain)
 {
     IDXGIVkSwapChain_Present(swapchain->swapchain, 1, 0, NULL);
+    acquire_eventfd(swapchain->fd);
 }
 
 static inline HANDLE demo_create_event(void)
