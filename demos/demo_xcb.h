@@ -62,7 +62,7 @@ struct demo
 
     void *user_data;
     void (*idle_func)(struct demo *demo, void *user_data);
-
+    bool destroy_request;
 };
 
 struct demo_window
@@ -246,6 +246,11 @@ static inline void demo_window_destroy(struct demo_window *window)
     free(window);
 }
 
+static inline void demo_window_destroy_defer(struct demo_window *window)
+{
+    window->demo->destroy_request = true;
+}
+
 static inline void demo_window_set_key_press_func(struct demo_window *window,
         void (*key_press_func)(struct demo_window *window, demo_key key, void *user_data))
 {
@@ -268,7 +273,7 @@ static inline void demo_process_events(struct demo *demo)
 
     xcb_flush(demo->connection);
 
-    while (demo->window_count)
+    while (demo->window_count && !demo->destroy_request)
     {
         if (!demo->idle_func)
         {
@@ -302,7 +307,7 @@ static inline void demo_process_events(struct demo *demo)
                 if (client_message->type == demo->wm_protocols_atom
                         && client_message->data.data32[0] == demo->wm_delete_window_atom
                         && (window = demo_find_window(demo, client_message->window)))
-                    demo_window_destroy(window);
+                    demo_window_destroy_defer(window);
                 break;
         }
 
@@ -338,6 +343,8 @@ fail:
 
 static inline void demo_cleanup(struct demo *demo)
 {
+    while (demo->window_count)
+        demo_window_destroy(demo->windows[demo->window_count - 1]);
     free(demo->windows);
     xcb_key_symbols_free(demo->xcb_keysyms);
     xcb_disconnect(demo->connection);
