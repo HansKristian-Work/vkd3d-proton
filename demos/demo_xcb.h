@@ -19,7 +19,6 @@
 
 #define VK_USE_PLATFORM_XCB_KHR
 #include <vkd3d.h>
-#include <vkd3d_utils.h>
 #include <vkd3d_sonames.h>
 #include <vkd3d_swapchain_factory.h>
 #include <xcb/xcb_event.h>

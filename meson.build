@@ -15,17 +15,10 @@ vkd3d_debug     = vkd3d_buildtype == 'debug' or vkd3d_buildtype == 'debugoptimiz
 
 enable_tests             = get_option('enable_tests')
 enable_extras            = get_option('enable_extras')
-enable_d3d12             = get_option('enable_d3d12')
 enable_profiling         = get_option('enable_profiling')
 enable_renderdoc         = get_option('enable_renderdoc')
 enable_descriptor_qa     = get_option('enable_descriptor_qa')
 enable_trace             = get_option('enable_trace')
-
-if enable_d3d12 == 'auto'
-  enable_d3d12 = vkd3d_platform == 'windows'
-else
-  enable_d3d12 = enable_d3d12 == 'true'
-endif
 
 if enable_trace == 'auto'
   enable_trace = vkd3d_debug
@@ -33,19 +26,11 @@ else
   enable_trace = enable_trace == 'true'
 endif
 
-if vkd3d_platform != 'windows' and enable_d3d12
-  error('Standalone D3D12 is only supported on Windows.')
-endif
-
 add_project_arguments('-D_GNU_SOURCE',   language : 'c')
 add_project_arguments('-DPACKAGE_VERSION="' + meson.project_version() + '"',   language : 'c')
 
 if vkd3d_platform == 'windows'
   add_project_arguments('-D_WIN32_WINNT=0x600', language : 'c')
-endif
-
-if enable_d3d12
-  add_project_arguments('-DVKD3D_BUILD_STANDALONE_D3D12', language : 'c')
 endif
 
 if enable_profiling
@@ -95,7 +80,6 @@ glsl_generator = generator(glsl_compiler,
   arguments : glsl_args)
 
 threads_dep = dependency('threads')
-lib_d3d12   = vkd3d_compiler.find_library('d3d12', required : false)
 
 if vkd3d_platform == 'linux'
   lib_dl           = vkd3d_compiler.find_library('dl')
@@ -164,23 +148,13 @@ dxil_spirv_dep = dxil_spirv.get_variable('dxil_spirv_dep')
 subdir('include')
 subdir('libs')
 
+lib_d3d12 = d3d12_dep
+
 if vkd3d_platform == 'linux'
   pkg = import('pkgconfig')
-  pkg.generate(vkd3d_lib,       filebase : 'libvkd3d-proton',       subdirs : 'vkd3d-proton', description : 'The VKD3D-Proton 3D Graphics Library')
-  pkg.generate(vkd3d_utils_lib, filebase : 'libvkd3d-proton-utils', subdirs : 'vkd3d-proton', description : 'The VKD3D-Proton 3D Graphics Utility Library')
-
-  install_headers('include/vkd3d.h', 'include/vkd3d_sonames.h', 'include/vkd3d_types.h', 'include/vkd3d_utils.h', 'include/vkd3d_win32.h', 'include/vkd3d_windows.h', subdir : 'vkd3d-proton')
-endif
-
-if vkd3d_platform == 'windows'
-  if enable_d3d12
-    lib_d3d12 = d3d12_dep
-  elif not lib_d3d12.found()
-    lib_d3d12 = vkd3d_utils_dep
-    if enable_extras
-      warning('No d3d12 lib, falling back to vkd3d_utils for extras ...')
-    endif
-  endif
+  pkg.generate(vkd3d_lib, filebase : 'libvkd3d-proton', subdirs : 'vkd3d-proton', description : 'The vkd3d-proton D3D12 implementation')
+  install_headers('include/vkd3d_sonames.h', 'include/vkd3d.h', 'include/vkd3d_types.h', 'include/vkd3d_win32.h', 'include/vkd3d_windows.h', subdir : 'vkd3d-proton')
+  # TODO: Figure out how to export the IDL generated headers as well.
 endif
 
 if enable_tests

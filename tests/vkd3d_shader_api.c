@@ -19,6 +19,7 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 #define INITGUID
 #define VKD3D_TEST_DECLARE_MAIN
+#include "d3d12_crosstest.h"
 #include "vkd3d_test.h"
 #include <vkd3d_shader.h>
 #include "vkd3d_shader_private.h"

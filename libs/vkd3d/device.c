@@ -953,7 +953,7 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     return S_OK;
 }
 
-VKD3D_EXPORT HRESULT vkd3d_create_instance(const struct vkd3d_instance_create_info *create_info,
+HRESULT vkd3d_create_instance(const struct vkd3d_instance_create_info *create_info,
         struct vkd3d_instance **instance)
 {
     struct vkd3d_instance *object;
@@ -998,7 +998,7 @@ static void vkd3d_destroy_instance(struct vkd3d_instance *instance)
     vkd3d_free(instance);
 }
 
-VKD3D_EXPORT ULONG vkd3d_instance_incref(struct vkd3d_instance *instance)
+ULONG vkd3d_instance_incref(struct vkd3d_instance *instance)
 {
     ULONG refcount = InterlockedIncrement(&instance->refcount);
 
@@ -1007,7 +1007,7 @@ VKD3D_EXPORT ULONG vkd3d_instance_incref(struct vkd3d_instance *instance)
     return refcount;
 }
 
-VKD3D_EXPORT ULONG vkd3d_instance_decref(struct vkd3d_instance *instance)
+ULONG vkd3d_instance_decref(struct vkd3d_instance *instance)
 {
     ULONG refcount = InterlockedDecrement(&instance->refcount);
 
@@ -1019,7 +1019,7 @@ VKD3D_EXPORT ULONG vkd3d_instance_decref(struct vkd3d_instance *instance)
     return refcount;
 }
 
-VKD3D_EXPORT VkInstance vkd3d_instance_get_vk_instance(struct vkd3d_instance *instance)
+VkInstance vkd3d_instance_get_vk_instance(struct vkd3d_instance *instance)
 {
     return instance->vk_instance;
 }
@@ -6823,28 +6823,28 @@ void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
     device->removed_reason = reason;
 }
 
-VKD3D_EXPORT IUnknown *vkd3d_get_device_parent(ID3D12Device *device)
+IUnknown *vkd3d_get_device_parent(ID3D12Device *device)
 {
     struct d3d12_device *d3d12_device = impl_from_ID3D12Device((d3d12_device_iface *)device);
 
     return d3d12_device->parent;
 }
 
-VKD3D_EXPORT VkDevice vkd3d_get_vk_device(ID3D12Device *device)
+VkDevice vkd3d_get_vk_device(ID3D12Device *device)
 {
     struct d3d12_device *d3d12_device = impl_from_ID3D12Device((d3d12_device_iface *)device);
 
     return d3d12_device->vk_device;
 }
 
-VKD3D_EXPORT VkPhysicalDevice vkd3d_get_vk_physical_device(ID3D12Device *device)
+VkPhysicalDevice vkd3d_get_vk_physical_device(ID3D12Device *device)
 {
     struct d3d12_device *d3d12_device = impl_from_ID3D12Device((d3d12_device_iface *)device);
 
     return d3d12_device->vk_physical_device;
 }
 
-VKD3D_EXPORT struct vkd3d_instance *vkd3d_instance_from_device(ID3D12Device *device)
+struct vkd3d_instance *vkd3d_instance_from_device(ID3D12Device *device)
 {
     struct d3d12_device *d3d12_device = impl_from_ID3D12Device((d3d12_device_iface *)device);
 

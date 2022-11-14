@@ -11391,7 +11391,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_QueryInterface(ID3D12Comman
         return S_OK;
     }
 
-#ifdef VKD3D_BUILD_STANDALONE_D3D12
+#ifdef _WIN32
     if (IsEqualGUID(riid, &IID_IWineDXGISwapChainFactory))
     {
         struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
@@ -13133,7 +13133,7 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
 
     if (FAILED(hr = dxgi_vk_swap_chain_factory_init(queue, &queue->vk_swap_chain_factory)))
         goto fail_swapchain_factory;
-#ifdef VKD3D_BUILD_STANDALONE_D3D12
+#ifdef _WIN32
     if (FAILED(hr = d3d12_swapchain_factory_init(queue, &queue->swapchain_factory)))
         goto fail_swapchain_factory;
 #endif
@@ -13188,14 +13188,14 @@ HRESULT d3d12_command_queue_create(struct d3d12_device *device,
     return S_OK;
 }
 
-VKD3D_EXPORT uint32_t vkd3d_get_vk_queue_family_index(ID3D12CommandQueue *queue)
+uint32_t vkd3d_get_vk_queue_family_index(ID3D12CommandQueue *queue)
 {
     struct d3d12_command_queue *d3d12_queue = impl_from_ID3D12CommandQueue(queue);
 
     return d3d12_queue->vkd3d_queue->vk_family_index;
 }
 
-VKD3D_EXPORT VkQueue vkd3d_acquire_vk_queue(ID3D12CommandQueue *queue)
+VkQueue vkd3d_acquire_vk_queue(ID3D12CommandQueue *queue)
 {
     struct d3d12_command_queue *d3d12_queue;
     VkQueue vk_queue;
@@ -13212,14 +13212,14 @@ VKD3D_EXPORT VkQueue vkd3d_acquire_vk_queue(ID3D12CommandQueue *queue)
     return vk_queue;
 }
 
-VKD3D_EXPORT void vkd3d_release_vk_queue(ID3D12CommandQueue *queue)
+void vkd3d_release_vk_queue(ID3D12CommandQueue *queue)
 {
     struct d3d12_command_queue *d3d12_queue = impl_from_ID3D12CommandQueue(queue);
     vkd3d_queue_release(d3d12_queue->vkd3d_queue);
     d3d12_command_queue_release_serialized(d3d12_queue);
 }
 
-VKD3D_EXPORT void vkd3d_enqueue_initial_transition(ID3D12CommandQueue *queue, ID3D12Resource *resource)
+void vkd3d_enqueue_initial_transition(ID3D12CommandQueue *queue, ID3D12Resource *resource)
 {
     struct d3d12_command_queue_submission sub;
     struct d3d12_command_queue *d3d12_queue = impl_from_ID3D12CommandQueue(queue);

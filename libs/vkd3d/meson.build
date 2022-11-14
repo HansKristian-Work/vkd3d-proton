@@ -52,7 +52,8 @@ vkd3d_src = [
   'swapchain_new.c'
 ]
 
-if enable_d3d12
+if vkd3d_platform == 'windows'
+  # Legacy swapchain, relies heavily on implementing DXGI APIs and window handling.
   vkd3d_src += 'swapchain.c'
 endif
 
@@ -72,20 +73,10 @@ if vkd3d_platform == 'windows'
   vkd3d_src += ['shared_metadata.c']
 endif
 
-if not enable_d3d12
-  vkd3d_lib = shared_library('vkd3d-proton', vkd3d_src, glsl_generator.process(vkd3d_shaders), vkd3d_build, vkd3d_version,
-    dependencies        : [ vkd3d_common_dep, vkd3d_shader_dep ] + vkd3d_extra_libs,
-    include_directories : vkd3d_private_includes,
-    install             : true,
-    version             : '3.0.0',
-    c_args              : '-DVKD3D_EXPORTS',
-    override_options    : [ 'c_std='+vkd3d_c_std ])
-else
-  vkd3d_lib = static_library('vkd3d-proton', vkd3d_src, glsl_generator.process(vkd3d_shaders), vkd3d_build, vkd3d_version,
-    dependencies        : [ vkd3d_common_dep, vkd3d_shader_dep ] + vkd3d_extra_libs,
-    include_directories : vkd3d_private_includes,
-    override_options    : [ 'c_std='+vkd3d_c_std ])
-endif
+vkd3d_lib = static_library('vkd3d-proton', vkd3d_src, glsl_generator.process(vkd3d_shaders), vkd3d_build, vkd3d_version,
+  dependencies        : [ vkd3d_common_dep, vkd3d_shader_dep ] + vkd3d_extra_libs,
+  include_directories : vkd3d_private_includes,
+  override_options    : [ 'c_std='+vkd3d_c_std ])
 
 vkd3d_dep = declare_dependency(
   link_with           : [ vkd3d_lib, vkd3d_common_lib ],
