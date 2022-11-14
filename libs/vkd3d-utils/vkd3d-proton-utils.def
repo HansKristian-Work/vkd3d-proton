@@ -9,8 +9,3 @@ EXPORTS
     D3D12EnableExperimentalFeatures
     D3D12SerializeRootSignature
     D3D12SerializeVersionedRootSignature
-
-    vkd3d_create_event
-    vkd3d_wait_event
-    vkd3d_signal_event
-    vkd3d_destroy_event

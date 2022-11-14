@@ -28,11 +28,4 @@
 #include "vkd3d_memory.h"
 #include <vkd3d_utils.h>
 
-struct vkd3d_event
-{
-    pthread_mutex_t mutex;
-    pthread_cond_t cond;
-    BOOL is_signaled;
-};
-
 #endif  /* __VKD3D_UTILS_PRIVATE_H */
