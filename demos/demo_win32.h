@@ -313,9 +313,9 @@ static inline HANDLE demo_create_event(void)
     return CreateEventA(NULL, FALSE, FALSE, NULL);
 }
 
-static inline unsigned int demo_wait_event(HANDLE event, unsigned int ms)
+static inline unsigned int demo_wait_event(HANDLE event)
 {
-    return WaitForSingleObject(event, ms);
+    return WaitForSingleObject(event, INFINITE);
 }
 
 static inline void demo_destroy_event(HANDLE event)
