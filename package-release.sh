@@ -71,8 +71,6 @@ function build_arch {
     if [ $opt_native -eq 0 ]; then
         # get rid of some useless .a files
         rm "$VKD3D_BUILD_DIR/x${arch}/"*.!(dll)
-        # get rid of vkd3d-proton-utils.dll
-        rm "$VKD3D_BUILD_DIR/x${arch}/libvkd3d-proton-utils-"*
     fi
     rm -R "$VKD3D_BUILD_DIR/build.${arch}"
   fi

@@ -7,9 +7,7 @@ if vkd3d_platform != 'windows'
     lib_m,
     lib_xcb,
     lib_xcbkeysyms,
-
-    vkd3d_dep,
-    vkd3d_utils_dep,
+    lib_d3d12
   ]
 else
   demo_vkd3d_deps += [

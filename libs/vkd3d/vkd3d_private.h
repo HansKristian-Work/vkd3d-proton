@@ -2588,7 +2588,7 @@ struct d3d12_command_queue
     struct vkd3d_fence_worker fence_worker;
     struct vkd3d_private_store private_store;
 
-#ifdef VKD3D_BUILD_STANDALONE_D3D12
+#ifdef _WIN32
     struct d3d12_swapchain_factory swapchain_factory;
 #endif
     struct dxgi_vk_swap_chain_factory vk_swap_chain_factory;
