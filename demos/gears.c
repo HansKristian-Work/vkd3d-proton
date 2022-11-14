@@ -813,7 +813,7 @@ static void cxg_key_press(struct demo_window *window, demo_key key, void *user_d
             cxg->animate = !cxg->animate;
             break;
         case DEMO_KEY_ESCAPE:
-            demo_window_destroy(window);
+            demo_window_destroy_defer(window);
             break;
         case DEMO_KEY_LEFT:
             cxg->theta += M_PI / 36.0f;

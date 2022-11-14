@@ -93,6 +93,11 @@ static inline void demo_window_destroy(struct demo_window *window)
     DestroyWindow(window->hwnd);
 }
 
+static inline void demo_window_destroy_defer(struct demo_window *window)
+{
+    demo_window_destroy(window);
+}
+
 static inline demo_key demo_key_from_vkey(DWORD vkey)
 {
     static const struct

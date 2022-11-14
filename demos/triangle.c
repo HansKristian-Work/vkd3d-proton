@@ -351,7 +351,7 @@ static void cxt_load_assets(struct cx_triangle *cxt)
 static void cxt_key_press(struct demo_window *window, demo_key key, void *user_data)
 {
     if (key == DEMO_KEY_ESCAPE)
-        demo_window_destroy(window);
+        demo_window_destroy_defer(window);
 }
 
 static int cxt_main(void)
