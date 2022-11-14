@@ -73,6 +73,7 @@ struct dxgi_vk_swap_chain
 
     vkd3d_native_sync_handle frame_latency_event;
     vkd3d_native_sync_handle frame_latency_event_internal;
+    vkd3d_native_sync_handle present_request_done_event;
 
     UINT frame_latency;
     VkSurfaceKHR vk_surface;
@@ -111,10 +112,12 @@ struct dxgi_vk_swap_chain
         /* Since we're presenting in a thread, there's no particular reason to use WSI acquire semaphores.
          * Removes a lot of edge cases. */
         VkFence vk_acquire_fence;
+        uint32_t current_backbuffer_index;
         uint32_t backbuffer_width;
         uint32_t backbuffer_height;
         uint32_t backbuffer_count;
         VkFormat backbuffer_format;
+        bool acquire_fence_pending;
 
         struct vkd3d_swapchain_info pipeline;
 
@@ -227,6 +230,8 @@ static void dxgi_vk_swap_chain_push_present_id(struct dxgi_vk_swap_chain *chain,
     pthread_mutex_unlock(&chain->wait_thread.lock);
 }
 
+static void dxgi_vk_swap_chain_wait_and_reset_acquire_fence(struct dxgi_vk_swap_chain *chain);
+
 static void dxgi_vk_swap_chain_cleanup(struct dxgi_vk_swap_chain *chain)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
@@ -246,6 +251,7 @@ static void dxgi_vk_swap_chain_cleanup(struct dxgi_vk_swap_chain *chain)
 
     vkd3d_native_sync_handle_destroy(chain->frame_latency_event);
     vkd3d_native_sync_handle_destroy(chain->frame_latency_event_internal);
+    vkd3d_native_sync_handle_destroy(chain->present_request_done_event);
 
     VK_CALL(vkDestroySemaphore(chain->queue->device->vk_device, chain->present.vk_blit_semaphore, NULL));
     VK_CALL(vkDestroyCommandPool(chain->queue->device->vk_device, chain->present.vk_blit_command_pool, NULL));
@@ -253,6 +259,8 @@ static void dxgi_vk_swap_chain_cleanup(struct dxgi_vk_swap_chain *chain)
         VK_CALL(vkDestroySemaphore(chain->queue->device->vk_device, chain->present.vk_release_semaphores[i], NULL));
     for (i = 0; i < ARRAY_SIZE(chain->present.vk_backbuffer_image_views); i++)
         VK_CALL(vkDestroyImageView(chain->queue->device->vk_device, chain->present.vk_backbuffer_image_views[i], NULL));
+
+    dxgi_vk_swap_chain_wait_and_reset_acquire_fence(chain);
     VK_CALL(vkDestroyFence(chain->queue->device->vk_device, chain->present.vk_acquire_fence, NULL));
     for (i = 0; i < ARRAY_SIZE(chain->present.vk_blit_fences); i++)
         VK_CALL(vkDestroyFence(chain->queue->device->vk_device, chain->present.vk_blit_fences[i], NULL));
@@ -705,6 +713,20 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain *if
     if (vkd3d_native_sync_handle_is_valid(chain->frame_latency_event_internal))
         vkd3d_native_sync_handle_acquire(chain->frame_latency_event_internal);
 
+    if (vkd3d_native_sync_handle_is_valid(chain->present_request_done_event))
+    {
+        /* For non-present wait path where we are trying to simulate KHR_present_wait in a poor man's way.
+         * Block here until we have processed the present and acquired the next image. This is equivalent
+         * to a frame latency of swapchain.imageCount - 1. (Usually 2).
+         * To combat deadlocks, we can add a small timeout.
+         * Failing the timeout is not severe. It will manifest as stutter, but it is better than spurious deadlock.
+         * When KHR_present_wait is supported, this path is never taken.
+         * If we're heavily GPU bound, we will generally end up blocking on drain_blit_semaphore() instead.
+         * When we are present bound, we will generally always render at > 15 Hz. */
+        if (!vkd3d_native_sync_handle_acquire_timeout(chain->present_request_done_event, 80))
+            WARN("Detected excessively slow Present() processing. Potential causes: resize, wait-before-signal.\n");
+    }
+
     /* For latency debug purposes. Consider a frame to begin when we return from Present() with the next user index set.
      * This isn't necessarily correct if the application does WaitSingleObject() on the latency right after this call.
      * That call can take up a frame, so the real latency will be lower than the one reported.
@@ -880,6 +902,14 @@ static HRESULT dxgi_vk_swap_chain_init_sync_objects(struct dxgi_vk_swap_chain *c
         }
     }
 
+    if (!chain->queue->device->device_info.present_wait_features.presentWait &&
+            FAILED(hr = vkd3d_native_sync_handle_create(0, VKD3D_NATIVE_SYNC_HANDLE_TYPE_EVENT,
+                    &chain->present_request_done_event)))
+    {
+        WARN("Failed to create internal present done event, hr %#x.\n", hr);
+        return hr;
+    }
+
     create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     create_info.pNext = &type_info;
     create_info.flags = 0;
@@ -914,6 +944,25 @@ static void dxgi_vk_swap_chain_drain_waiter(struct dxgi_vk_swap_chain *chain)
     }
 }
 
+static void dxgi_vk_swap_chain_wait_and_reset_acquire_fence(struct dxgi_vk_swap_chain *chain)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
+    VkDevice vk_device = chain->queue->device->vk_device;
+    VkResult vr;
+
+    if (chain->present.acquire_fence_pending)
+    {
+        /* We're doing this in a thread.
+         * There is little reason to add complexity with semaphores since behavior is
+         * implementation defined regarding if AcquireNextImage is synchronous or not. */
+        vr = VK_CALL(vkWaitForFences(vk_device, 1, &chain->present.vk_acquire_fence, VK_TRUE, UINT64_MAX));
+        VKD3D_DEVICE_REPORT_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
+        vr = VK_CALL(vkResetFences(vk_device, 1, &chain->present.vk_acquire_fence));
+        VKD3D_DEVICE_REPORT_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
+        chain->present.acquire_fence_pending = false;
+    }
+}
+
 static void dxgi_vk_swap_chain_destroy_swapchain_in_present_task(struct dxgi_vk_swap_chain *chain)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
@@ -922,6 +971,8 @@ static void dxgi_vk_swap_chain_destroy_swapchain_in_present_task(struct dxgi_vk_
 
     if (!chain->present.vk_swapchain)
         return;
+
+    dxgi_vk_swap_chain_wait_and_reset_acquire_fence(chain);
 
     /* TODO: Can replace this stall with VK_KHR_present_wait,
      * but when destroying vk_release_semaphore we might be in a state where we submitted blit command buffer,
@@ -949,6 +1000,7 @@ static void dxgi_vk_swap_chain_destroy_swapchain_in_present_task(struct dxgi_vk_
     chain->present.force_swapchain_recreation = false;
     chain->present.present_id_valid = false;
     chain->present.present_id = 0;
+    chain->present.current_backbuffer_index = UINT32_MAX;
 }
 
 static VkColorSpaceKHR convert_color_space(DXGI_COLOR_SPACE_TYPE dxgi_color_space)
@@ -1171,6 +1223,7 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
     chain->present.backbuffer_width = swapchain_create_info.imageExtent.width;
     chain->present.backbuffer_height = swapchain_create_info.imageExtent.height;
     chain->present.backbuffer_format = swapchain_create_info.imageFormat;
+    chain->present.current_backbuffer_index = UINT32_MAX;
 
     if (!chain->present.vk_blit_command_pool)
     {
@@ -1223,21 +1276,6 @@ static void dxgi_vk_swap_chain_present_signal_blit_semaphore(struct dxgi_vk_swap
         ERR("Failed to submit present discard, vr = %d.\n", vr);
         VKD3D_DEVICE_REPORT_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
     }
-}
-
-static void dxgi_vk_swap_chain_wait_and_reset_acquire_fence(struct dxgi_vk_swap_chain *chain)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
-    VkDevice vk_device = chain->queue->device->vk_device;
-    VkResult vr;
-
-    /* We're doing this in a thread.
-     * There is little reason to add complexity with semaphores since behavior is
-     * implementation defined regarding if AcquireNextImage is synchronous or not. */
-    vr = VK_CALL(vkWaitForFences(vk_device, 1, &chain->present.vk_acquire_fence, VK_TRUE, UINT64_MAX));
-    VKD3D_DEVICE_REPORT_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
-    vr = VK_CALL(vkResetFences(vk_device, 1, &chain->present.vk_acquire_fence));
-    VKD3D_DEVICE_REPORT_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
 }
 
 static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *chain, VkCommandBuffer vk_cmd, uint32_t swapchain_index)
@@ -1445,10 +1483,33 @@ static void dxgi_vk_swap_chain_present_recreate_swapchain_if_required(struct dxg
         dxgi_vk_swap_chain_recreate_swapchain_in_present_task(chain);
 }
 
-static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chain, unsigned int retry_counter)
+static VkResult dxgi_vk_swap_chain_try_acquire_next_image(struct dxgi_vk_swap_chain *chain)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     VkDevice vk_device = chain->queue->device->vk_device;
+    VkResult vr;
+
+    if (!chain->present.vk_swapchain)
+        return VK_ERROR_OUT_OF_DATE_KHR;
+    if (chain->present.current_backbuffer_index != UINT32_MAX)
+        return VK_SUCCESS;
+
+    assert(!chain->present.acquire_fence_pending);
+    vr = VK_CALL(vkAcquireNextImageKHR(vk_device, chain->present.vk_swapchain, UINT64_MAX,
+            VK_NULL_HANDLE, chain->present.vk_acquire_fence,
+            &chain->present.current_backbuffer_index));
+
+    if (vr < 0)
+        chain->present.current_backbuffer_index = UINT32_MAX;
+    else
+        chain->present.acquire_fence_pending = true;
+
+    return vr;
+}
+
+static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chain, unsigned int retry_counter)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     VkPresentInfoKHR present_info;
     VkPresentIdKHR present_id;
     uint32_t swapchain_index;
@@ -1460,11 +1521,9 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     if (!chain->present.vk_swapchain)
         return;
 
-    vr = VK_CALL(vkAcquireNextImageKHR(vk_device, chain->present.vk_swapchain, UINT64_MAX,
-                VK_NULL_HANDLE, chain->present.vk_acquire_fence, &swapchain_index));
+    vr = dxgi_vk_swap_chain_try_acquire_next_image(chain);
     VKD3D_DEVICE_REPORT_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
-    if (vr >= 0)
-        dxgi_vk_swap_chain_wait_and_reset_acquire_fence(chain);
+    dxgi_vk_swap_chain_wait_and_reset_acquire_fence(chain);
 
     /* Handle any errors and retry as needed. If we cannot make meaningful forward progress, just give up and retry later. */
     if (vr == VK_SUBOPTIMAL_KHR || vr < 0)
@@ -1485,6 +1544,9 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
 
     if (vr < 0)
         return;
+
+    swapchain_index = chain->present.current_backbuffer_index;
+    assert(swapchain_index != UINT32_MAX);
 
     if (!dxgi_vk_swap_chain_submit_blit(chain, swapchain_index))
         return;
@@ -1519,6 +1581,9 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
 
     if (vr == VK_SUCCESS && vk_result != VK_SUCCESS)
         vr = vk_result;
+
+    if (vr >= 0)
+        chain->present.current_backbuffer_index = UINT32_MAX;
 
     if (present_info.pNext && vr >= 0)
         chain->present.present_id_valid = true;
@@ -1599,8 +1664,14 @@ static void dxgi_vk_swap_chain_present_callback(void *chain_)
     chain->present.present_id_valid = false;
 
     /* There is currently no present timing in Vulkan we can rely on, so just duplicate blit them as needed.
-     * This happens on a thread, so the blocking should not be a significant problem. */
+     * This happens on a thread, so the blocking should not be a significant problem.
+     * TODO: Propose VK_EXT_present_interval. */
     present_count = max(1u, chain->request.swap_interval);
+
+    /* If we hit the legacy way of synchronizing with swapchain, blitting multiple times would be horrible. */
+    if (!chain->wait_thread.active)
+        present_count = 1;
+
     for (i = 0; i < present_count; i++)
     {
         /* A present iteration may or may not render to backbuffer. We'll apply best effort here.
@@ -1615,8 +1686,30 @@ static void dxgi_vk_swap_chain_present_callback(void *chain_)
     /* Signal latency fence. */
     dxgi_vk_swap_chain_signal_waitable_handle(chain);
 
-    /* Signal main thread that we are done with all CPU work. No need to signal a condition variable, main thread can poll to deduce. */
+    /* Signal main thread that we are done with all CPU work.
+     * No need to signal a condition variable, main thread can poll to deduce. */
     vkd3d_atomic_uint32_store_explicit(&chain->present.present_count, next_present_count, vkd3d_memory_order_release);
+
+    /* Considerations for implementations without KHR_present_wait which we inherit from the legacy swapchain.
+     * To have any hope of achieving reasonable and bounded latency,
+     * we need to use the method where we eagerly acquire next image right after present.
+     * This avoids any late blocking when presenting, which is a disaster for latency.
+     * The present caller must then block on the queue reaching here.
+     * To avoid hard deadlocks with present wait-before-signal,
+     * a reasonably small timeout is possible.
+     * A deadlock in this scenario has only been observed on NVIDIA, which supports present_wait anyways.
+     *
+     * On implementations with present wait, blocking late is a good idea since it avoids potential
+     * GPU bubbles. While blocking here, we cannot submit more work to the GPU on this queue,
+     * since we're in a queue callback. */
+    if (!chain->wait_thread.active)
+    {
+        dxgi_vk_swap_chain_try_acquire_next_image(chain);
+        /* The old implementation used acquire semaphores, and did not block, so to maintain same behavior,
+         * defer blocking on the VkFence. */
+        if (vkd3d_native_sync_handle_is_valid(chain->present_request_done_event))
+            vkd3d_native_sync_handle_signal(chain->present_request_done_event);
+    }
 }
 
 static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
