@@ -44,6 +44,7 @@ struct demo_window
 struct demo_swapchain
 {
     IDXGISwapChain3 *swapchain;
+    HANDLE handle;
 };
 
 static inline struct demo_window *demo_window_create(struct demo *demo, const char *title,
@@ -255,6 +256,7 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
     swapchain_desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     swapchain_desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     swapchain_desc.SampleDesc.Count = 1;
+    swapchain_desc.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 
     hr = IDXGIFactory2_CreateSwapChainForHwnd(factory, (IUnknown *)command_queue,
             window->hwnd, &swapchain_desc, NULL, NULL, &swapchain1);
@@ -267,6 +269,9 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
     if (FAILED(hr))
         goto fail;
 
+    swapchain->handle = IDXGISwapChain3_GetFrameLatencyWaitableObject(swapchain->swapchain);
+    IDXGISwapChain3_SetMaximumFrameLatency(swapchain->swapchain, 2);
+    WaitForSingleObject(swapchain->handle, INFINITE);
     return swapchain;
 
 fail:
@@ -293,11 +298,13 @@ static inline ID3D12Resource *demo_swapchain_get_back_buffer(struct demo_swapcha
 static inline void demo_swapchain_present(struct demo_swapchain *swapchain)
 {
     IDXGISwapChain3_Present(swapchain->swapchain, 1, 0);
+    WaitForSingleObject(swapchain->handle, INFINITE);
 }
 
 static inline void demo_swapchain_destroy(struct demo_swapchain *swapchain)
 {
     IDXGISwapChain3_Release(swapchain->swapchain);
+    CloseHandle(swapchain->handle);
     free(swapchain);
 }
 
