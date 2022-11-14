@@ -21,6 +21,12 @@
 #include "vkd3d_common.h"
 #include "vkd3d_utils_private.h"
 
+#ifndef _WIN32
+#include <sys/eventfd.h>
+#include <sys/poll.h>
+#include <unistd.h>
+#endif
+
 VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12GetDebugInterface(REFIID iid, void **debug)
 {
     FIXME("iid %s, debug %p stub!\n", debugstr_guid(iid), debug);
@@ -55,7 +61,6 @@ VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
         FIXME("Ignoring adapter %p.\n", adapter);
 
     memset(&instance_create_info, 0, sizeof(instance_create_info));
-    instance_create_info.pfn_signal_event = vkd3d_signal_event;
     instance_create_info.instance_extensions = instance_extensions;
     instance_create_info.instance_extension_count = ARRAY_SIZE(instance_extensions);
     instance_create_info.optional_instance_extensions = optional_instance_extensions;
@@ -113,110 +118,63 @@ VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12SerializeVersionedRootSignature(const D3D
     return vkd3d_serialize_versioned_root_signature(desc, blob, error_blob);
 }
 
+#ifndef _WIN32
 /* Events */
-VKD3D_UTILS_EXPORT HANDLE vkd3d_create_event(void)
+VKD3D_UTILS_EXPORT HANDLE vkd3d_create_eventfd(void)
 {
-    struct vkd3d_event *event;
-    int rc;
+    HANDLE handle;
+    int fd;
 
-    TRACE(".\n");
-
-    if (!(event = vkd3d_malloc(sizeof(*event))))
+    fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+    if (fd < 0)
         return NULL;
 
-    if ((rc = pthread_mutex_init(&event->mutex, NULL)))
+    /* No way this should happen unless stdin is closed for some reason ...
+     * When casting to a HANDLE null will be considered no handle. */
+    if (fd == 0)
     {
-        ERR("Failed to initialize mutex, error %d.\n", rc);
-        vkd3d_free(event);
-        return NULL;
-    }
-    if ((rc = pthread_cond_init(&event->cond, NULL)))
-    {
-        ERR("Failed to initialize condition variable, error %d.\n", rc);
-        pthread_mutex_destroy(&event->mutex);
-        vkd3d_free(event);
-        return NULL;
+        fd = dup(0);
+        close(0);
     }
 
-    event->is_signaled = false;
-
-    TRACE("Created event %p.\n", event);
-
-    return event;
+    handle = (HANDLE)(intptr_t)fd;
+    TRACE("Created event %p.\n", handle);
+    return handle;
 }
 
-VKD3D_UTILS_EXPORT unsigned int vkd3d_wait_event(HANDLE event, unsigned int milliseconds)
+VKD3D_UTILS_EXPORT unsigned int vkd3d_wait_eventfd(HANDLE event, unsigned int milliseconds)
 {
-    struct vkd3d_event *impl = event;
-    int rc;
+    int fd = (int)(intptr_t)event;
+    struct pollfd pfd;
+    uint64_t dummy;
+    int timeout;
 
     TRACE("event %p, milliseconds %u.\n", event, milliseconds);
 
-    if ((rc = pthread_mutex_lock(&impl->mutex)))
-    {
-        ERR("Failed to lock mutex, error %d.\n", rc);
-        return VKD3D_WAIT_FAILED;
-    }
+    pfd.events = POLLIN;
+    pfd.fd = fd;
 
-    if (impl->is_signaled || !milliseconds)
-    {
-        bool is_signaled = impl->is_signaled;
-        impl->is_signaled = false;
-        pthread_mutex_unlock(&impl->mutex);
-        return is_signaled ? VKD3D_WAIT_OBJECT_0 : VKD3D_WAIT_TIMEOUT;
-    }
+    timeout = milliseconds == VKD3D_INFINITE ? -1 : (int)milliseconds;
+    if (poll(&pfd, 1, timeout) <= 0)
+        return VKD3D_WAIT_TIMEOUT;
 
-    if (milliseconds == VKD3D_INFINITE)
-    {
-        do
-        {
-            if ((rc = pthread_cond_wait(&impl->cond, &impl->mutex)))
-            {
-                ERR("Failed to wait on condition variable, error %d.\n", rc);
-                pthread_mutex_unlock(&impl->mutex);
-                return VKD3D_WAIT_FAILED;
-            }
-        } while (!impl->is_signaled);
-
-        impl->is_signaled = false;
-        pthread_mutex_unlock(&impl->mutex);
+    /* Non-blocking reads, if there are two racing threads that wait on a Win32 event,
+     * only one will succeed when auto-reset events are used. */
+    if (read(fd, &dummy, sizeof(dummy)) > 0)
         return VKD3D_WAIT_OBJECT_0;
-    }
-
-    pthread_mutex_unlock(&impl->mutex);
-    FIXME("Timed wait not implemented yet.\n");
-    return VKD3D_WAIT_FAILED;
+    else
+        return VKD3D_WAIT_TIMEOUT;
 }
 
-VKD3D_UTILS_EXPORT HRESULT vkd3d_signal_event(HANDLE event)
+VKD3D_UTILS_EXPORT void vkd3d_signal_eventfd(HANDLE event)
 {
-    struct vkd3d_event *impl = event;
-    int rc;
-
-    TRACE("event %p.\n", event);
-
-    if ((rc = pthread_mutex_lock(&impl->mutex)))
-    {
-        ERR("Failed to lock mutex, error %d.\n", rc);
-        return E_FAIL;
-    }
-    impl->is_signaled = true;
-    pthread_cond_signal(&impl->cond);
-    pthread_mutex_unlock(&impl->mutex);
-
-    return S_OK;
+    int fd = (int)(intptr_t)event;
+    const uint64_t value = 1;
+    write(fd, &value, sizeof(value));
 }
 
-VKD3D_UTILS_EXPORT void vkd3d_destroy_event(HANDLE event)
+VKD3D_UTILS_EXPORT void vkd3d_destroy_eventfd(HANDLE event)
 {
-    struct vkd3d_event *impl = event;
-    int rc;
-
-    TRACE("event %p.\n", event);
-
-    if ((rc = pthread_mutex_destroy(&impl->mutex)))
-        ERR("Failed to destroy mutex, error %d.\n", rc);
-    if ((rc = pthread_cond_destroy(&impl->cond)))
-        ERR("Failed to destroy condition variable, error %d.\n", rc);
-    vkd3d_free(impl);
+    close((int)(intptr_t)event);
 }
+#endif

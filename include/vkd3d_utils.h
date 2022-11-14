@@ -51,10 +51,12 @@ extern "C" {
 #endif
 
 /* 1.0 */
-VKD3D_UTILS_EXPORT HANDLE vkd3d_create_event(void);
-VKD3D_UTILS_EXPORT HRESULT vkd3d_signal_event(HANDLE event);
-VKD3D_UTILS_EXPORT unsigned int vkd3d_wait_event(HANDLE event, unsigned int milliseconds);
-VKD3D_UTILS_EXPORT void vkd3d_destroy_event(HANDLE event);
+#ifndef _WIN32
+VKD3D_UTILS_EXPORT HANDLE vkd3d_create_eventfd(void);
+VKD3D_UTILS_EXPORT unsigned int vkd3d_wait_eventfd(HANDLE event, unsigned int milliseconds);
+VKD3D_UTILS_EXPORT void vkd3d_signal_eventfd(HANDLE event);
+VKD3D_UTILS_EXPORT void vkd3d_destroy_eventfd(HANDLE event);
+#endif
 
 VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL feature_level, REFIID iid, void **device);
 VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12CreateRootSignatureDeserializer(const void *data, SIZE_T data_size, REFIID iid, void **deserializer);

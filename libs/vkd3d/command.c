@@ -609,7 +609,6 @@ static void *vkd3d_fence_worker_main(void *arg)
 HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
         struct d3d12_device *device)
 {
-    HRESULT hr;
     int rc;
 
     TRACE("worker %p.\n", worker);
@@ -634,20 +633,19 @@ HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
         return hresult_from_errno(rc);
     }
 
-    if (FAILED(hr = vkd3d_create_thread(device->vkd3d_instance,
-            vkd3d_fence_worker_main, worker, &worker->thread)))
+    if (pthread_create(&worker->thread, NULL, vkd3d_fence_worker_main, worker))
     {
         pthread_mutex_destroy(&worker->mutex);
         pthread_cond_destroy(&worker->cond);
+        return E_OUTOFMEMORY;
     }
 
-    return hr;
+    return S_OK;
 }
 
 HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
         struct d3d12_device *device)
 {
-    HRESULT hr;
     int rc;
 
     TRACE("worker %p.\n", worker);
@@ -660,11 +658,8 @@ HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
 
     worker->should_exit = true;
     pthread_cond_signal(&worker->cond);
-
     pthread_mutex_unlock(&worker->mutex);
-
-    if (FAILED(hr = vkd3d_join_thread(device->vkd3d_instance, &worker->thread)))
-        return hr;
+    pthread_join(worker->thread, NULL);
 
     pthread_mutex_destroy(&worker->mutex);
     pthread_cond_destroy(&worker->cond);
@@ -747,31 +742,6 @@ static void d3d12_fence_dec_ref(struct d3d12_fence *fence)
     }
 }
 
-HRESULT d3d12_fence_signal_event(struct d3d12_fence *fence, HANDLE event, enum vkd3d_waiting_event_type type)
-{
-    switch (type)
-    {
-        case VKD3D_WAITING_EVENT_TYPE_EVENT:
-            return fence->device->signal_event(event);
-
-        case VKD3D_WAITING_EVENT_TYPE_SEMAPHORE:
-#ifdef _WIN32
-            /* Failing to release semaphore is expected if the counter exceeds the maximum limit.
-             * If the application does not wait for the semaphore once per present, this
-             * will eventually happen. */
-            if (!ReleaseSemaphore(event, 1, NULL))
-                WARN("Failed to release semaphore. Application likely forgot to wait for presentation event.\n");
-            return S_OK;
-#else
-            ERR("Semaphores not supported on this platform.\n");
-            return E_NOTIMPL;
-#endif
-    }
-
-    ERR("Unhandled waiting event type %u.\n", type);
-    return E_INVALIDARG;
-}
-
 static void d3d12_fence_signal_external_events_locked(struct d3d12_fence *fence)
 {
     bool signal_null_event_cond = false;
@@ -784,9 +754,9 @@ static void d3d12_fence_signal_external_events_locked(struct d3d12_fence *fence)
 
         if (current->value <= fence->virtual_value)
         {
-            if (current->event)
+            if (vkd3d_native_sync_handle_is_valid(current->handle))
             {
-                if (FAILED(hr = d3d12_fence_signal_event(fence, current->event, current->type)))
+                if (FAILED(hr = vkd3d_native_sync_handle_signal(current->handle)))
                     ERR("Failed to signal event, hr #%x.\n", hr);
             }
             else
@@ -1088,8 +1058,8 @@ static UINT64 STDMETHODCALLTYPE d3d12_fence_GetCompletedValue(d3d12_fence_iface 
     return completed_value;
 }
 
-HRESULT d3d12_fence_set_event_on_completion(struct d3d12_fence *fence,
-        UINT64 value, HANDLE event, enum vkd3d_waiting_event_type type)
+HRESULT d3d12_fence_set_native_sync_handle_on_completion(struct d3d12_fence *fence,
+        UINT64 value, vkd3d_native_sync_handle handle)
 {
     unsigned int i;
     HRESULT hr;
@@ -1104,9 +1074,9 @@ HRESULT d3d12_fence_set_event_on_completion(struct d3d12_fence *fence,
 
     if (value <= fence->virtual_value)
     {
-        if (event)
+        if (vkd3d_native_sync_handle_is_valid(handle))
         {
-            if (FAILED(hr = d3d12_fence_signal_event(fence, event, type)))
+            if (FAILED(hr = vkd3d_native_sync_handle_signal(handle)))
             {
                 ERR("Failed to signal event, hr #%x.\n", hr);
                 pthread_mutex_unlock(&fence->mutex);
@@ -1121,10 +1091,11 @@ HRESULT d3d12_fence_set_event_on_completion(struct d3d12_fence *fence,
     for (i = 0; i < fence->event_count; ++i)
     {
         struct vkd3d_waiting_event *current = &fence->events[i];
-        if (current->value == value && event && current->event == event)
+        if (current->value == value &&
+                vkd3d_native_sync_handle_is_valid(handle) &&
+                vkd3d_native_sync_handle_eq(current->handle, handle))
         {
-            WARN("Event completion for (%p, %#"PRIx64") is already in the list.\n",
-                    event, value);
+            WARN("Event completion for native sync handle is already in the list.\n");
             pthread_mutex_unlock(&fence->mutex);
             return S_OK;
         }
@@ -1139,8 +1110,7 @@ HRESULT d3d12_fence_set_event_on_completion(struct d3d12_fence *fence,
     }
 
     fence->events[fence->event_count].value = value;
-    fence->events[fence->event_count].event = event;
-    fence->events[fence->event_count].type  = type;
+    fence->events[fence->event_count].handle = handle;
     fence->events[fence->event_count].latch = &latch;
     ++fence->event_count;
 
@@ -1148,7 +1118,7 @@ HRESULT d3d12_fence_set_event_on_completion(struct d3d12_fence *fence,
      * Implement this in a uniform way where we pretend we have a dummy event.
      * A NULL fence->events[].event means that we should set latch to true
      * and signal a condition variable instead of calling external signal_event callback. */
-    if (!event)
+    if (!vkd3d_native_sync_handle_is_valid(handle))
     {
         latch = false;
         while (!latch)
@@ -1159,6 +1129,14 @@ HRESULT d3d12_fence_set_event_on_completion(struct d3d12_fence *fence,
     return S_OK;
 }
 
+HRESULT d3d12_fence_set_event_on_completion(struct d3d12_fence *fence,
+        UINT64 value, HANDLE os_event)
+{
+    vkd3d_native_sync_handle handle = vkd3d_native_sync_handle_wrap(os_event,
+            VKD3D_NATIVE_SYNC_HANDLE_TYPE_EVENT);
+    return d3d12_fence_set_native_sync_handle_on_completion(fence, value, handle);
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_fence_SetEventOnCompletion(d3d12_fence_iface *iface,
         UINT64 value, HANDLE event)
 {
@@ -1166,7 +1144,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_SetEventOnCompletion(d3d12_fence_if
 
     TRACE("iface %p, value %#"PRIx64", event %p.\n", iface, value, event);
 
-    return d3d12_fence_set_event_on_completion(fence, value, event, VKD3D_WAITING_EVENT_TYPE_EVENT);
+    return d3d12_fence_set_event_on_completion(fence, value, event);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_fence_Signal(d3d12_fence_iface *iface, UINT64 value)

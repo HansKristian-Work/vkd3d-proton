@@ -61,26 +61,6 @@ extern PFN_D3D12_CREATE_VERSIONED_ROOT_SIGNATURE_DESERIALIZER pfn_D3D12CreateVer
 extern PFN_D3D12_SERIALIZE_VERSIONED_ROOT_SIGNATURE pfn_D3D12SerializeVersionedRootSignature;
 
 #if defined(_WIN32) && !defined(VKD3D_FORCE_UTILS_WRAPPER)
-static inline HANDLE create_event(void)
-{
-    return CreateEventA(NULL, FALSE, FALSE, NULL);
-}
-
-static inline void signal_event(HANDLE event)
-{
-    SetEvent(event);
-}
-
-static inline unsigned int wait_event(HANDLE event, unsigned int milliseconds)
-{
-    return WaitForSingleObject(event, milliseconds);
-}
-
-static inline void destroy_event(HANDLE event)
-{
-    CloseHandle(event);
-}
-
 #define get_d3d12_pfn(name) get_d3d12_pfn_(#name)
 static inline void *get_d3d12_pfn_(const char *name)
 {
@@ -90,31 +70,53 @@ static inline void *get_d3d12_pfn_(const char *name)
     return GetProcAddress(d3d12_module, name);
 }
 #else
+#define get_d3d12_pfn(name) (name)
+#endif
+
+#if defined(_WIN32)
+static inline HANDLE create_event(void)
+{
+    return CreateEventA(NULL, FALSE, FALSE, NULL);
+}
+
+static inline unsigned int wait_event(HANDLE event, unsigned int milliseconds)
+{
+    return WaitForSingleObject(event, milliseconds);
+}
+
+static inline void signal_event(HANDLE event)
+{
+    SetEvent(event);
+}
+
+static inline void destroy_event(HANDLE event)
+{
+    CloseHandle(event);
+}
+#else
 #define INFINITE VKD3D_INFINITE
 #define WAIT_OBJECT_0 VKD3D_WAIT_OBJECT_0
 #define WAIT_TIMEOUT VKD3D_WAIT_TIMEOUT
 
 static inline HANDLE create_event(void)
 {
-    return vkd3d_create_event();
-}
-
-static inline void signal_event(HANDLE event)
-{
-    vkd3d_signal_event(event);
+    return vkd3d_create_eventfd();
 }
 
 static inline unsigned int wait_event(HANDLE event, unsigned int milliseconds)
 {
-    return vkd3d_wait_event(event, milliseconds);
+    return vkd3d_wait_eventfd(event, milliseconds);
+}
+
+static inline void signal_event(HANDLE event)
+{
+    vkd3d_signal_eventfd(event);
 }
 
 static inline void destroy_event(HANDLE event)
 {
-    vkd3d_destroy_event(event);
+    vkd3d_destroy_eventfd(event);
 }
-
-#define get_d3d12_pfn(name) (name)
 #endif
 
 #if defined(_WIN32)
@@ -521,10 +523,7 @@ static bool check_device_extension(VkInstance instance, VkPhysicalDevice vk_phys
 
 static HRESULT create_vkd3d_instance(struct vkd3d_instance **instance)
 {
-    struct vkd3d_instance_create_info instance_create_info = {
-        .pfn_signal_event = vkd3d_signal_event,
-    };
-
+    struct vkd3d_instance_create_info instance_create_info = {0};
     return vkd3d_create_instance(&instance_create_info, instance);
 }
 

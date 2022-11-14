@@ -797,21 +797,6 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
 
     memset(instance, 0, sizeof(*instance));
 
-    if (!create_info->pfn_signal_event)
-    {
-        ERR("Invalid signal event function pointer.\n");
-        return E_INVALIDARG;
-    }
-    if (!create_info->pfn_create_thread != !create_info->pfn_join_thread)
-    {
-        ERR("Invalid create/join thread function pointers.\n");
-        return E_INVALIDARG;
-    }
-
-    instance->signal_event = create_info->pfn_signal_event;
-    instance->create_thread = create_info->pfn_create_thread;
-    instance->join_thread = create_info->pfn_join_thread;
-
     vkd3d_config_flags_init();
 
     if (FAILED(hr = vkd3d_init_vk_global_procs(instance, create_info->pfn_vkGetInstanceProcAddr)))
@@ -6614,7 +6599,6 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     vkd3d_instance_incref(device->vkd3d_instance = instance);
     device->vk_info = instance->vk_info;
-    device->signal_event = instance->signal_event;
 
     device->adapter_luid = create_info->adapter_luid;
     device->removed_reason = S_OK;
@@ -6822,54 +6806,6 @@ void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
     va_end(args);
 
     device->removed_reason = reason;
-}
-
-HRESULT vkd3d_create_thread(struct vkd3d_instance *instance,
-        PFN_vkd3d_thread thread_main, void *data, union vkd3d_thread_handle *thread)
-{
-    HRESULT hr = S_OK;
-    int rc;
-
-    if (instance->create_thread)
-    {
-        if (!(thread->handle = instance->create_thread(thread_main, data)))
-        {
-            ERR("Failed to create thread.\n");
-            hr = E_FAIL;
-        }
-    }
-    else
-    {
-        if ((rc = pthread_create(&thread->pthread, NULL, thread_main, data)))
-        {
-            ERR("Failed to create thread, error %d.\n", rc);
-            hr = hresult_from_errno(rc);
-        }
-    }
-
-    return hr;
-}
-
-HRESULT vkd3d_join_thread(struct vkd3d_instance *instance, union vkd3d_thread_handle *thread)
-{
-    HRESULT hr = S_OK;
-    int rc;
-
-    if (instance->join_thread)
-    {
-        if (FAILED(hr = instance->join_thread(thread->handle)))
-            ERR("Failed to join thread, hr %#x.\n", hr);
-    }
-    else
-    {
-        if ((rc = pthread_join(thread->pthread, NULL)))
-        {
-            ERR("Failed to join thread, error %d.\n", rc);
-            hr = hresult_from_errno(rc);
-        }
-    }
-
-    return hr;
 }
 
 VKD3D_EXPORT IUnknown *vkd3d_get_device_parent(ID3D12Device *device)
