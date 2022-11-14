@@ -31,6 +31,7 @@
 #include <fcntl.h>
 #include <stdbool.h>
 #include <dlfcn.h>
+#include <sys/eventfd.h>
 #include <stdio.h>
 
 struct demo
@@ -480,15 +481,17 @@ static inline void demo_swapchain_present(struct demo_swapchain *swapchain)
 
 static inline HANDLE demo_create_event(void)
 {
-    return vkd3d_create_eventfd();
+    return (HANDLE)(intptr_t)eventfd(0, EFD_CLOEXEC);
 }
 
-static inline unsigned int demo_wait_event(HANDLE event, unsigned int ms)
+static inline unsigned int demo_wait_event(HANDLE event)
 {
-    return vkd3d_wait_eventfd(event, ms);
+    uint64_t v;
+    read((int)(intptr_t)event, &v, sizeof(v));
+    return 0;
 }
 
 static inline void demo_destroy_event(HANDLE event)
 {
-    vkd3d_destroy_eventfd(event);
+    close((int)(intptr_t)event);
 }

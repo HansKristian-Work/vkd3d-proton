@@ -25,11 +25,6 @@
 extern "C" {
 #endif  /* __cplusplus */
 
-#define VKD3D_WAIT_OBJECT_0 (0)
-#define VKD3D_WAIT_TIMEOUT (1)
-#define VKD3D_WAIT_FAILED (~0u)
-#define VKD3D_INFINITE (~0u)
-
 #ifdef _WIN32
 # ifdef _MSC_VER
 #  define VKD3D_UTILS_EXPORT
@@ -51,13 +46,6 @@ extern "C" {
 #endif
 
 /* 1.0 */
-#ifndef _WIN32
-VKD3D_UTILS_EXPORT HANDLE vkd3d_create_eventfd(void);
-VKD3D_UTILS_EXPORT unsigned int vkd3d_wait_eventfd(HANDLE event, unsigned int milliseconds);
-VKD3D_UTILS_EXPORT void vkd3d_signal_eventfd(HANDLE event);
-VKD3D_UTILS_EXPORT void vkd3d_destroy_eventfd(HANDLE event);
-#endif
-
 VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL feature_level, REFIID iid, void **device);
 VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12CreateRootSignatureDeserializer(const void *data, SIZE_T data_size, REFIID iid, void **deserializer);
 VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12GetDebugInterface(REFIID iid, void **debug);

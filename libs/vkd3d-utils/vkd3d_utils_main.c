@@ -21,12 +21,6 @@
 #include "vkd3d_common.h"
 #include "vkd3d_utils_private.h"
 
-#ifndef _WIN32
-#include <sys/eventfd.h>
-#include <sys/poll.h>
-#include <unistd.h>
-#endif
-
 VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12GetDebugInterface(REFIID iid, void **debug)
 {
     FIXME("iid %s, debug %p stub!\n", debugstr_guid(iid), debug);
@@ -117,64 +111,3 @@ VKD3D_UTILS_EXPORT HRESULT WINAPI D3D12SerializeVersionedRootSignature(const D3D
 
     return vkd3d_serialize_versioned_root_signature(desc, blob, error_blob);
 }
-
-#ifndef _WIN32
-/* Events */
-VKD3D_UTILS_EXPORT HANDLE vkd3d_create_eventfd(void)
-{
-    HANDLE handle;
-    int fd;
-
-    fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
-    if (fd < 0)
-        return NULL;
-
-    /* No way this should happen unless stdin is closed for some reason ...
-     * When casting to a HANDLE null will be considered no handle. */
-    if (fd == 0)
-    {
-        fd = dup(0);
-        close(0);
-    }
-
-    handle = (HANDLE)(intptr_t)fd;
-    TRACE("Created event %p.\n", handle);
-    return handle;
-}
-
-VKD3D_UTILS_EXPORT unsigned int vkd3d_wait_eventfd(HANDLE event, unsigned int milliseconds)
-{
-    int fd = (int)(intptr_t)event;
-    struct pollfd pfd;
-    uint64_t dummy;
-    int timeout;
-
-    TRACE("event %p, milliseconds %u.\n", event, milliseconds);
-
-    pfd.events = POLLIN;
-    pfd.fd = fd;
-
-    timeout = milliseconds == VKD3D_INFINITE ? -1 : (int)milliseconds;
-    if (poll(&pfd, 1, timeout) <= 0)
-        return VKD3D_WAIT_TIMEOUT;
-
-    /* Non-blocking reads, if there are two racing threads that wait on a Win32 event,
-     * only one will succeed when auto-reset events are used. */
-    if (read(fd, &dummy, sizeof(dummy)) > 0)
-        return VKD3D_WAIT_OBJECT_0;
-    else
-        return VKD3D_WAIT_TIMEOUT;
-}
-
-VKD3D_UTILS_EXPORT void vkd3d_signal_eventfd(HANDLE event)
-{
-    int fd = (int)(intptr_t)event;
-    const uint64_t value = 1;
-    write(fd, &value, sizeof(value));
-}
-
-VKD3D_UTILS_EXPORT void vkd3d_destroy_eventfd(HANDLE event)
-{
-    close((int)(intptr_t)event);
-}
-#endif

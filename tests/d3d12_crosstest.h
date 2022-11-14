@@ -50,6 +50,8 @@
 #if !defined(_WIN32)
 #include <dlfcn.h>
 #include <unistd.h>
+#include <sys/poll.h>
+#include <sys/eventfd.h>
 #endif
 
 #include "d3d12_test_utils.h"
@@ -94,28 +96,70 @@ static inline void destroy_event(HANDLE event)
     CloseHandle(event);
 }
 #else
-#define INFINITE VKD3D_INFINITE
-#define WAIT_OBJECT_0 VKD3D_WAIT_OBJECT_0
-#define WAIT_TIMEOUT VKD3D_WAIT_TIMEOUT
+#define INFINITE INT_MAX
+#define WAIT_OBJECT_0 0
+#define WAIT_TIMEOUT 1
+#define WAIT_TIMEOUT 1
 
 static inline HANDLE create_event(void)
 {
-    return vkd3d_create_eventfd();
+    HANDLE handle;
+    int fd;
+
+    fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+    if (fd < 0)
+        return NULL;
+
+    /* No way this should happen unless stdin is closed for some reason ...
+     * When casting to a HANDLE null will be considered no handle. */
+    if (fd == 0)
+    {
+        fd = dup(0);
+        close(0);
+    }
+
+    handle = (HANDLE)(intptr_t)fd;
+    return handle;
 }
 
 static inline unsigned int wait_event(HANDLE event, unsigned int milliseconds)
 {
-    return vkd3d_wait_eventfd(event, milliseconds);
+    int fd = (int)(intptr_t)event;
+    struct pollfd pfd;
+    uint64_t dummy;
+    int timeout;
+
+    TRACE("event %p, milliseconds %u.\n", event, milliseconds);
+
+    pfd.events = POLLIN;
+    pfd.fd = fd;
+
+    timeout = milliseconds == INFINITE ? -1 : (int)milliseconds;
+
+    for (;;)
+    {
+        if (poll(&pfd, 1, timeout) <= 0)
+            return WAIT_TIMEOUT;
+
+        /* Non-blocking reads, if there are two racing threads that wait on a Win32 event,
+         * only one will succeed when auto-reset events are used. */
+        if (read(fd, &dummy, sizeof(dummy)) > 0)
+            return WAIT_OBJECT_0;
+        else if (timeout != INFINITE)
+            return WAIT_TIMEOUT;
+    }
 }
 
 static inline void signal_event(HANDLE event)
 {
-    vkd3d_signal_eventfd(event);
+    int fd = (int)(intptr_t)event;
+    const uint64_t value = 1;
+    write(fd, &value, sizeof(value));
 }
 
 static inline void destroy_event(HANDLE event)
 {
-    vkd3d_destroy_eventfd(event);
+    close((int)(intptr_t)event);
 }
 #endif
 
