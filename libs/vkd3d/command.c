@@ -9178,7 +9178,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
     {
         /* Theoretically possibly for buggy application that tries to clear a buffer view with a texture resource.
          * Safeguard against crash. */
-        ERR("Attempted to clear buffer with image resource.\n");
+        WARN("Attempted to clear buffer with image resource.\n");
         return;
     }
 
@@ -9300,7 +9300,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d
     {
         /* Theoretically possibly for buggy application that tries to clear a buffer view with a texture resource.
          * Safeguard against crash. */
-        ERR("Attempted to clear buffer with image resource.\n");
+        WARN("Attempted to clear buffer with image resource.\n");
         return;
     }
 
