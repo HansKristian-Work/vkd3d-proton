@@ -4033,6 +4033,19 @@ static inline void vk_prepend_struct(void *header, void *structure)
     vk_header->pNext = vk_structure;
 }
 
+static inline void vk_remove_struct(void *header, VkStructureType type)
+{
+    VkBaseInStructure *chain;
+    for (chain = (VkBaseInStructure *)header; chain->pNext; chain = (VkBaseInStructure *)chain->pNext)
+    {
+        if (chain->pNext->sType == type)
+        {
+            chain->pNext = chain->pNext->pNext;
+            break;
+        }
+    }
+}
+
 #define VKD3D_NULL_BUFFER_SIZE 16
 
 struct vkd3d_view_key
