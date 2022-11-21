@@ -2474,6 +2474,11 @@ static HRESULT vkd3d_late_compile_shader_stages(struct d3d12_pipeline_state *sta
             {
                 break;
             }
+
+            /* When a shader module is specified, VkPipelineShaderStageModuleIdentifierCreateInfoEXT must have an
+             * identifierSize of 0 or be absent. */
+            vk_remove_struct(&graphics->stages[i],
+                    VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_MODULE_IDENTIFIER_CREATE_INFO_EXT);
         }
 
         /* We'll keep the module around here, no need to keep code/size pairs around for this.
@@ -2642,6 +2647,11 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
                 &required_subgroup_size_info, NULL,
                 spirv_code)))
             return hr;
+
+        /* When a shader module is specified, VkPipelineShaderStageModuleIdentifierCreateInfoEXT must have an
+         * identifierSize of 0 or be absent. */
+        vk_remove_struct(&pipeline_info.stage,
+                VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_MODULE_IDENTIFIER_CREATE_INFO_EXT);
 
         vr = VK_CALL(vkCreateComputePipelines(device->vk_device,
                 vk_cache, 1, &pipeline_info, NULL, &state->compute.vk_pipeline));
