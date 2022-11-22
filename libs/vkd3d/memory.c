@@ -1566,31 +1566,3 @@ HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_bu
 
     return hr;
 }
-
-HRESULT vkd3d_allocate_image_memory(struct d3d12_device *device, VkImage vk_image,
-        VkMemoryPropertyFlags type_flags,
-        struct vkd3d_device_memory_allocation *allocation)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkMemoryRequirements memory_requirements;
-    VkBindImageMemoryInfo bind_info;
-    VkResult vr;
-    HRESULT hr;
-
-    VK_CALL(vkGetImageMemoryRequirements(device->vk_device, vk_image, &memory_requirements));
-
-    if (FAILED(hr = vkd3d_allocate_device_memory(device, memory_requirements.size,
-            type_flags, memory_requirements.memoryTypeBits, NULL, allocation)))
-        return hr;
-
-    bind_info.sType = VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_INFO;
-    bind_info.pNext = NULL;
-    bind_info.image = vk_image;
-    bind_info.memory = allocation->vk_memory;
-    bind_info.memoryOffset = 0;
-
-    if (FAILED(vr = VK_CALL(vkBindImageMemory2KHR(device->vk_device, 1, &bind_info))))
-        return hresult_from_vk_result(vr);
-
-    return hr;
-}
