@@ -6500,13 +6500,24 @@ static VkMemoryPropertyFlags vkd3d_memory_info_upload_hvv_memory_properties(
     }
     else if (topology->device_local_heap_count <= 1)
     {
-        /* If we only have one device local heap. */
-        INFO("Topology: No more than 1 device local heap, assuming ReBAR-style access. Using DEVICE_LOCAL | HOST_COHERENT for UPLOAD.\n");
-        /* If DEVICE_LOCAL_BIT does not actually exist, that is fine,
-         * we'll fallback to VISIBLE | COHERENT when allocating. */
-        return VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
-                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        VkDeviceSize largest_size = device->memory_properties.memoryHeaps[topology->largest_device_local_heap_index].size;
+        const VkDeviceSize minimum_rebar_size = 5ull * 1000ull * 1000ull * 1000ull;
+
+        if (largest_size < minimum_rebar_size)
+        {
+            INFO("Topology largest device local heap is too small (%"PRIu64" bytes) for effective ReBAR, using HOST_COHERENT for UPLOAD.\n", largest_size);
+            return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        }
+        else
+        {
+            /* If we only have one device local heap. */
+            INFO("Topology: No more than 1 device local heap, assuming ReBAR-style access. Using DEVICE_LOCAL | HOST_COHERENT for UPLOAD.\n");
+            /* If DEVICE_LOCAL_BIT does not actually exist, that is fine,
+             * we'll fallback to VISIBLE | COHERENT when allocating. */
+            return VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        }
     }
     else
     {
