@@ -1534,7 +1534,7 @@ HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_mem
     return hr;
 }
 
-HRESULT vkd3d_allocate_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer,
+HRESULT vkd3d_allocate_internal_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer,
         VkMemoryPropertyFlags type_flags,
         struct vkd3d_device_memory_allocation *allocation)
 {
