@@ -2988,6 +2988,9 @@ struct vkd3d_memory_info
      * For images, we only include memory types which are OPTIMAL tiled. */
     struct vkd3d_memory_info_domain non_cpu_accessible_domain;
 
+    VkMemoryPropertyFlags upload_heap_memory_properties;
+    VkMemoryPropertyFlags descriptor_heap_memory_properties;
+
     uint32_t budget_sensitive_mask;
     VkDeviceSize type_budget[VK_MAX_MEMORY_TYPES];
     VkDeviceSize type_current[VK_MAX_MEMORY_TYPES];

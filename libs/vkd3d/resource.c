@@ -5746,11 +5746,7 @@ static HRESULT d3d12_descriptor_heap_init_data_buffer(struct d3d12_descriptor_he
         if (FAILED(hr = vkd3d_create_buffer(device, &heap_info, heap_flags, &buffer_desc, &descriptor_heap->vk_buffer)))
             return hr;
 
-        property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED)
-            property_flags |= VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
-        else if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV))
-            property_flags |= VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+        property_flags = device->memory_info.descriptor_heap_memory_properties;
 
         if (FAILED(hr = vkd3d_allocate_buffer_memory(device, descriptor_heap->vk_buffer,
                 property_flags, &descriptor_heap->device_allocation)))
@@ -6485,6 +6481,83 @@ static uint32_t vkd3d_memory_info_find_global_mask(const struct vkd3d_memory_top
     return ~mask;
 }
 
+static bool vkd3d_memory_topology_is_uma_like(const struct vkd3d_memory_topology *topology)
+{
+    if (topology->device_local_heap_count == 0 || topology->host_only_heap_count == 0)
+        return true;
+    else if (!topology->exists_device_only_type || !topology->exists_host_only_type)
+        return true;
+    else
+        return false;
+}
+
+static VkMemoryPropertyFlags vkd3d_memory_info_descriptor_heap_memory_properties(
+        VKD3D_UNUSED const struct vkd3d_memory_topology *topology,
+        VKD3D_UNUSED const struct d3d12_device *device)
+{
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED)
+    {
+        return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_CACHED_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    }
+    else
+    {
+        /* There is very little risk in using DEVICE_LOCAL for descriptor memory.
+         * We control all writes to this memory,
+         * and it's fairly small in size compared to random UPLOAD heaps. */
+        return VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    }
+}
+
+static VkMemoryPropertyFlags vkd3d_memory_info_upload_hvv_memory_properties(
+        const struct vkd3d_memory_topology *topology,
+        const struct d3d12_device *device)
+{
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED)
+    {
+        INFO("Topology: Forcing HOST_CACHED | HOST_COHERENT for UPLOAD heap.\n");
+        return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_CACHED_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    }
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV)
+    {
+        INFO("Topology: Forcing HOST_COHERENT for UPLOAD heap.\n");
+        return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    }
+
+    if (vkd3d_memory_topology_is_uma_like(topology))
+    {
+        /* Verify that there exists a DEVICE_LOCAL type that is not HOST_VISIBLE on this device
+         * which maps to the largest device local heap. That way, it is safe to mask out all memory types which are
+         * DEVICE_LOCAL | HOST_VISIBLE.
+         * Similarly, there must exist a host-only type. */
+        INFO("Topology: UMA-like topology. Using DEVICE_LOCAL | HOST_COHERENT for UPLOAD.\n");
+        return VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    }
+    else if (topology->device_local_heap_count <= 1)
+    {
+        /* If we only have one device local heap. */
+        INFO("Topology: No more than 1 device local heap, assuming ReBAR-style access. Using DEVICE_LOCAL | HOST_COHERENT for UPLOAD.\n");
+        /* If DEVICE_LOCAL_BIT does not actually exist, that is fine,
+         * we'll fallback to VISIBLE | COHERENT when allocating. */
+        return VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    }
+    else
+    {
+        INFO("Topology: Device heaps are split. Assuming small BAR situation. Using HOST_COHERENT only.\n");
+        return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    }
+}
+
 static void vkd3d_memory_info_init_budgets(struct vkd3d_memory_info *info,
         const struct vkd3d_memory_topology *topology,
         struct d3d12_device *device)
@@ -6496,10 +6569,12 @@ static void vkd3d_memory_info_init_budgets(struct vkd3d_memory_info *info,
 
     info->budget_sensitive_mask = 0;
 
-    /* Nothing to do if we don't have separate heaps. */
-    if (topology->device_local_heap_count == 0 || topology->host_only_heap_count == 0)
+    /* If we don't attempt to use DEVICE_LOCAL in a ReBAR style, don't even bother. */
+    if (!(info->upload_heap_memory_properties & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
         return;
-    if (!topology->exists_device_only_type || !topology->exists_host_only_type)
+
+    /* Nothing to do on UMA-style implementations. */
+    if (vkd3d_memory_topology_is_uma_like(topology))
         return;
 
     for (i = 0; i < device->memory_properties.memoryTypeCount; i++)
@@ -6565,6 +6640,10 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
 
     vkd3d_memory_info_get_topology(&topology, device);
     info->global_mask = vkd3d_memory_info_find_global_mask(&topology, device);
+    info->upload_heap_memory_properties =
+            vkd3d_memory_info_upload_hvv_memory_properties(&topology, device);
+    info->descriptor_heap_memory_properties =
+            vkd3d_memory_info_descriptor_heap_memory_properties(&topology, device);
     vkd3d_memory_info_init_budgets(info, &topology, device);
 
     if (pthread_mutex_init(&info->budget_lock, NULL) != 0)
