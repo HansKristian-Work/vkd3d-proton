@@ -140,7 +140,7 @@ HRESULT vkd3d_breadcrumb_tracer_init(struct vkd3d_breadcrumb_tracer *tracer, str
                     VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD;
         }
 
-        if (FAILED(hr = vkd3d_allocate_buffer_memory(device, tracer->host_buffer,
+        if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, tracer->host_buffer,
                 memory_props, &tracer->host_buffer_memory)))
         {
             goto err;

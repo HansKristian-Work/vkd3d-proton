@@ -230,7 +230,7 @@ HRESULT vkd3d_descriptor_debug_alloc_global_info(
         return hr;
     }
 
-    if (FAILED(hr = vkd3d_allocate_buffer_memory(device, global_info->vk_buffer,
+    if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, global_info->vk_buffer,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             &global_info->device_allocation)))
     {

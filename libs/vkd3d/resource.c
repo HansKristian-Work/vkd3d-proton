@@ -5748,7 +5748,7 @@ static HRESULT d3d12_descriptor_heap_init_data_buffer(struct d3d12_descriptor_he
 
         property_flags = device->memory_info.descriptor_heap_memory_properties;
 
-        if (FAILED(hr = vkd3d_allocate_buffer_memory(device, descriptor_heap->vk_buffer,
+        if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, descriptor_heap->vk_buffer,
                 property_flags, &descriptor_heap->device_allocation)))
             return hr;
 
@@ -6346,7 +6346,7 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
             return hr;
         }
 
-        if (FAILED(hr = vkd3d_allocate_buffer_memory(device, object->vk_buffer,
+        if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, object->vk_buffer,
                 VK_MEMORY_HEAP_DEVICE_LOCAL_BIT, &object->device_allocation)))
         {
             VK_CALL(vkDestroyBuffer(device->vk_device, object->vk_buffer, NULL));

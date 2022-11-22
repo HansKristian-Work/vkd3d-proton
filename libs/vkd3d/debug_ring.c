@@ -412,7 +412,7 @@ HRESULT vkd3d_shader_debug_ring_init(struct vkd3d_shader_debug_ring *ring,
         }
     }
 
-    if (FAILED(vkd3d_allocate_buffer_memory(device, ring->host_buffer,
+    if (FAILED(vkd3d_allocate_internal_buffer_memory(device, ring->host_buffer,
             memory_props, &ring->host_buffer_memory)))
         goto err_free_buffers;
 
@@ -437,7 +437,7 @@ HRESULT vkd3d_shader_debug_ring_init(struct vkd3d_shader_debug_ring *ring,
             memory_props |= VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD | VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD;
     }
 
-    if (FAILED(vkd3d_allocate_buffer_memory(device, ring->device_atomic_buffer,
+    if (FAILED(vkd3d_allocate_internal_buffer_memory(device, ring->device_atomic_buffer,
             memory_props, &ring->device_atomic_buffer_memory)))
         goto err_free_buffers;
 
