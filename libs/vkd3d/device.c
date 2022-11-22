@@ -586,6 +586,17 @@ static const struct vkd3d_shader_quirk_info f1_2019_2020_quirks = {
     NULL, 0, VKD3D_SHADER_QUIRK_FORCE_TGSM_BARRIERS,
 };
 
+static const struct vkd3d_shader_quirk_hash borderlands3_hashes[] = {
+    /* Shader breaks due to floor(a / exp(x)) being refactored to floor(a * exp(-x))
+     * and shader does not expect this.
+     * See https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/19910. */
+    { 0xbf0af7db6a7fb86bull, VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH },
+};
+
+static const struct vkd3d_shader_quirk_info borderlands3_quirks = {
+    borderlands3_hashes, ARRAY_SIZE(borderlands3_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
@@ -593,6 +604,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
     /* F1 2019 (928600) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2019_dx12.exe", &f1_2019_2020_quirks },
+    /* Borderlands 3 (397540) */
+    { VKD3D_STRING_COMPARE_EXACT, "Borderlands3.exe", &borderlands3_quirks },
     /* MSVC fails to compile empty array. */
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
 };
