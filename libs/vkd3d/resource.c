@@ -2402,7 +2402,7 @@ static HRESULT d3d12_resource_bind_sparse_metadata(struct d3d12_resource *resour
     VK_CALL(vkGetImageMemoryRequirements(device->vk_device, resource->res.vk_image, &memory_requirements));
 
     if ((vr = vkd3d_allocate_device_memory(device, metadata_size, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            memory_requirements.memoryTypeBits, NULL, &sparse->vk_metadata_memory)))
+            memory_requirements.memoryTypeBits, NULL, true, &sparse->vk_metadata_memory)))
     {
         ERR("Failed to allocate device memory for sparse metadata, vr %d.\n", vr);
         hr = hresult_from_vk_result(vr);

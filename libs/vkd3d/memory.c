@@ -170,7 +170,7 @@ void vkd3d_free_device_memory(struct d3d12_device *device, const struct vkd3d_de
 
 static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
         VkDeviceSize size, VkMemoryPropertyFlags type_flags, const uint32_t base_type_mask,
-        void *pNext, struct vkd3d_device_memory_allocation *allocation)
+        void *pNext, bool respect_budget, struct vkd3d_device_memory_allocation *allocation)
 {
     const VkPhysicalDeviceMemoryProperties *memory_props = &device->memory_properties;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -202,8 +202,8 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
     {
         /* We consider CACHED optional here if we cannot find a memory type that supports it.
          * Failing to allocate CACHED is not a scenario where we would fall back. */
-        const VkMemoryPropertyFlags optional_flags_host = VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
-        const VkMemoryPropertyFlags optional_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+        const VkMemoryPropertyFlags optional_flags =
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
 
         /* If we got here it means the requested type simply does not exist.
          * This can happen if we request PCI-e BAR,
@@ -212,11 +212,11 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
          * another allocation if it can identify at least 2 GPU heaps, but in this case, the calling code
          * might infer that we failed to allocate from a single supported GPU heap, and therefore there is no need
          * to try more. We still have not actually tried anything, so query the memory types again. */
-        if (type_flags & (optional_flags | optional_flags_host))
+        if (type_flags & optional_flags)
         {
             return vkd3d_try_allocate_device_memory(device, size,
-                    type_flags & ~(optional_flags | optional_flags_host),
-                    base_type_mask, pNext, allocation);
+                    type_flags & ~optional_flags,
+                    base_type_mask, pNext, respect_budget, allocation);
         }
         else
         {
@@ -244,16 +244,20 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
     {
         type_budget = &memory_info->type_budget[allocate_info.memoryTypeIndex];
         type_current = &memory_info->type_current[allocate_info.memoryTypeIndex];
-        pthread_mutex_lock(&memory_info->budget_lock);
-        if (*type_current + size > *type_budget)
+
+        if (respect_budget)
         {
-            if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
+            pthread_mutex_lock(&memory_info->budget_lock);
+            if (*type_current + size > *type_budget)
             {
-                INFO("Attempting to allocate from memory type %u, but exceeding fixed budget: %"PRIu64" + %"PRIu64" > %"PRIu64".\n",
-                        allocate_info.memoryTypeIndex, *type_current, size, *type_budget);
+                if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
+                {
+                    INFO("Attempting to allocate from memory type %u, but exceeding fixed budget: %"PRIu64" + %"PRIu64" > %"PRIu64".\n",
+                            allocate_info.memoryTypeIndex, *type_current, size, *type_budget);
+                }
+                pthread_mutex_unlock(&memory_info->budget_lock);
+                return E_OUTOFMEMORY;
             }
-            pthread_mutex_unlock(&memory_info->budget_lock);
-            return E_OUTOFMEMORY;
         }
     }
 
@@ -261,12 +265,16 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
 
     if (budget_sensitive)
     {
+        if (!respect_budget)
+            pthread_mutex_lock(&memory_info->budget_lock);
+
         if (vr == VK_SUCCESS)
         {
             *type_current += size;
             if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
             {
-                INFO("Allocated memory of type %u, new total allocated size %"PRIu64" MiB.\n",
+                INFO("Allocated %s memory of type %u, new total allocated size %"PRIu64" MiB.\n",
+                        respect_budget ? "budgeted" : "internal non-budgeted",
                         allocate_info.memoryTypeIndex, *type_current / (1024 * 1024));
             }
         }
@@ -300,13 +308,13 @@ static bool vkd3d_memory_info_type_mask_covers_multiple_memory_heaps(
 
 HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
         VkDeviceSize size, VkMemoryPropertyFlags type_flags, uint32_t type_mask,
-        void *pNext, struct vkd3d_device_memory_allocation *allocation)
+        void *pNext, bool respect_budget, struct vkd3d_device_memory_allocation *allocation)
 {
     const VkMemoryPropertyFlags optional_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     HRESULT hr;
 
     hr = vkd3d_try_allocate_device_memory(device, size, type_flags,
-            type_mask, pNext, allocation);
+            type_mask, pNext, respect_budget, allocation);
 
     if (FAILED(hr) && (type_flags & optional_flags))
     {
@@ -314,7 +322,7 @@ HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
         {
             WARN("Memory allocation failed, falling back to system memory.\n");
             hr = vkd3d_try_allocate_device_memory(device, size,
-                    type_flags & ~optional_flags, type_mask, pNext, allocation);
+                    type_flags & ~optional_flags, type_mask, pNext, respect_budget, allocation);
         }
         else if (device->memory_properties.memoryHeapCount > 1)
         {
@@ -354,7 +362,7 @@ static HRESULT vkd3d_import_host_memory(struct d3d12_device *device, void *host_
 
     if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_USE_HOST_IMPORT_FALLBACK) ||
         FAILED(hr = vkd3d_try_allocate_device_memory(device, size,
-            type_flags, type_mask, &import_info, allocation)))
+            type_flags, type_mask, &import_info, true, allocation)))
     {
         if (FAILED(hr))
             WARN("Failed to import host memory, hr %#x.\n", hr);
@@ -363,7 +371,7 @@ static HRESULT vkd3d_import_host_memory(struct d3d12_device *device, void *host_
          * so it's fine. */
         hr = vkd3d_try_allocate_device_memory(device, size,
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                type_mask, pNext, allocation);
+                type_mask, pNext, true, allocation);
     }
 
     return hr;
@@ -574,12 +582,12 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     else if (info->flags & VKD3D_ALLOCATION_FLAG_NO_FALLBACK)
     {
         hr = vkd3d_try_allocate_device_memory(device, memory_requirements.size, type_flags,
-                type_mask, &flags_info, &allocation->device_allocation);
+                type_mask, &flags_info, true, &allocation->device_allocation);
     }
     else
     {
         hr = vkd3d_allocate_device_memory(device, memory_requirements.size, type_flags,
-                type_mask, &flags_info, &allocation->device_allocation);
+                type_mask, &flags_info, true, &allocation->device_allocation);
     }
 
     if (FAILED(hr))
@@ -1551,8 +1559,10 @@ HRESULT vkd3d_allocate_internal_buffer_memory(struct d3d12_device *device, VkBuf
 
     VK_CALL(vkGetBufferMemoryRequirements(device->vk_device, vk_buffer, &memory_requirements));
 
+    /* Internal buffer allocations should not spuriously fail due to budget.
+     * We really want them to be allocated even if we have exceeded budget. */
     if (FAILED(hr = vkd3d_allocate_device_memory(device, memory_requirements.size,
-            type_flags, memory_requirements.memoryTypeBits, &flags_info, allocation)))
+            type_flags, memory_requirements.memoryTypeBits, &flags_info, false, allocation)))
         return hr;
 
     bind_info.sType = VK_STRUCTURE_TYPE_BIND_BUFFER_MEMORY_INFO;
