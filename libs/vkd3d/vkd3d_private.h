@@ -955,7 +955,7 @@ static inline struct d3d12_resource *impl_from_ID3D12Resource(ID3D12Resource *if
 
 HRESULT vkd3d_allocate_device_memory(struct d3d12_device *device,
         VkDeviceSize size, VkMemoryPropertyFlags type_flags, uint32_t type_mask,
-        void *pNext, struct vkd3d_device_memory_allocation *allocation);
+        void *pNext, bool respect_budget, struct vkd3d_device_memory_allocation *allocation);
 void vkd3d_free_device_memory(struct d3d12_device *device,
         const struct vkd3d_device_memory_allocation *allocation);
 HRESULT vkd3d_allocate_internal_buffer_memory(struct d3d12_device *device, VkBuffer vk_buffer,
