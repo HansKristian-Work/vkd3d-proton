@@ -3379,11 +3379,10 @@ void d3d12_desc_copy_range(vkd3d_cpu_descriptor_va_t dst_va, vkd3d_cpu_descripto
 void d3d12_desc_copy(vkd3d_cpu_descriptor_va_t dst_va, vkd3d_cpu_descriptor_va_t src_va,
         unsigned int count, D3D12_DESCRIPTOR_HEAP_TYPE heap_type, struct d3d12_device *device)
 {
-    unsigned int i;
-
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
     {
         struct d3d12_desc_split dst, src;
+        unsigned int i;
         dst = d3d12_desc_decode_va(dst_va);
         src = d3d12_desc_decode_va(src_va);
 
@@ -3397,18 +3396,7 @@ void d3d12_desc_copy(vkd3d_cpu_descriptor_va_t dst_va, vkd3d_cpu_descriptor_va_t
     }
 #endif
 
-    if (device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_TYPE)
-        d3d12_desc_copy_range(dst_va, src_va, count, heap_type, device);
-    else
-    {
-        /* This path is quite rare. Could potentially amortize d3d12_desc_decode_va(). */
-        for (i = 0; i < count; i++)
-        {
-            d3d12_desc_copy_single(dst_va, src_va, device);
-            dst_va += VKD3D_RESOURCE_DESC_INCREMENT;
-            src_va += VKD3D_RESOURCE_DESC_INCREMENT;
-        }
-    }
+    d3d12_desc_copy_range(dst_va, src_va, count, heap_type, device);
 }
 
 bool vkd3d_create_raw_r32ui_vk_buffer_view(struct d3d12_device *device,
