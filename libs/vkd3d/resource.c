@@ -4200,8 +4200,8 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
     mutable_uses_single_descriptor = !!(device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO);
     desc_is_raw = (desc->Format == DXGI_FORMAT_UNKNOWN && desc->Buffer.StructureByteStride) ||
             (desc->Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW);
-    emit_ssbo = !mutable_uses_single_descriptor || desc_is_raw;
-    emit_typed = !mutable_uses_single_descriptor || !desc_is_raw;
+    emit_ssbo = (!mutable_uses_single_descriptor || desc_is_raw) && d3d12_device_use_ssbo_raw_buffer(device);
+    emit_typed = !mutable_uses_single_descriptor || !desc_is_raw || !emit_ssbo;
 
     if (!resource)
     {
@@ -4227,7 +4227,7 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
             desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
             desc->Buffer.StructureByteStride, &d.view->info.buffer);
 
-    if (d3d12_device_use_ssbo_raw_buffer(device) && emit_ssbo)
+    if (emit_ssbo)
     {
         VkDeviceSize stride = desc->Format == DXGI_FORMAT_UNKNOWN
                 ? desc->Buffer.StructureByteStride :
@@ -4564,8 +4564,8 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
     mutable_uses_single_descriptor = !!(device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO);
     desc_is_raw = (desc->Format == DXGI_FORMAT_UNKNOWN && desc->Buffer.StructureByteStride) ||
             (desc->Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW);
-    emit_ssbo = !mutable_uses_single_descriptor || desc_is_raw;
-    emit_typed = !mutable_uses_single_descriptor || !desc_is_raw;
+    emit_ssbo = (!mutable_uses_single_descriptor || desc_is_raw) && d3d12_device_use_ssbo_raw_buffer(device);
+    emit_typed = !mutable_uses_single_descriptor || !desc_is_raw || !emit_ssbo;
 
     if (!resource)
     {
@@ -4595,7 +4595,7 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
             desc->Format, desc->Buffer.FirstElement, desc->Buffer.NumElements,
             desc->Buffer.StructureByteStride, &d.view->info.buffer);
 
-    if (d3d12_device_use_ssbo_raw_buffer(device) && emit_ssbo)
+    if (emit_ssbo)
     {
         VkDescriptorBufferInfo *buffer_info = &descriptor_info[vk_write_count].buffer;
 
