@@ -6180,8 +6180,10 @@ static void d3d12_device_caps_init_feature_options9(struct d3d12_device *device)
     options9->AtomicInt64OnGroupSharedSupported =
             device->device_info.shader_atomic_int64_features.shaderSharedInt64Atomics;
     /* Unsure if sparse 64-bit image atomics is also required. */
+    /* If we cannot expose AtomicInt64OnDescriptorHeapResourceSupported, we cannot expose this one either. */
     options9->AtomicInt64OnTypedResourceSupported =
-            device->device_info.shader_image_atomic_int64_features.shaderImageInt64Atomics;
+            device->device_info.shader_image_atomic_int64_features.shaderImageInt64Atomics &&
+            device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment <= 16;
     options9->DerivativesInMeshAndAmplificationShadersSupported = FALSE;
     options9->MeshShaderSupportsFullRangeRenderTargetArrayIndex = d3d12_device_determine_mesh_shader_tier(device) &&
             device->device_info.mesh_shader_properties.maxMeshOutputLayers >= device->device_info.properties2.properties.limits.maxFramebufferLayers;
@@ -6204,8 +6206,10 @@ static void d3d12_device_caps_init_feature_options11(struct d3d12_device *device
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS11 *options11 = &device->d3d12_caps.options11;
 
+    /* If we're not using raw SSBOs, we cannot support 64-bit atomics. */
     options11->AtomicInt64OnDescriptorHeapResourceSupported =
-            device->device_info.shader_atomic_int64_features.shaderBufferInt64Atomics;
+            device->device_info.shader_atomic_int64_features.shaderBufferInt64Atomics &&
+            device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment <= 16;
 }
 
 static void d3d12_device_caps_init_feature_level(struct d3d12_device *device)
