@@ -96,6 +96,7 @@ HRESULT WINAPI DLLEXPORT D3D12EnableExperimentalFeatures(UINT feature_count,
 }
 
 #ifdef _WIN32
+/* TODO: We need to attempt to dlopen() native DXVK DXGI. */
 static HRESULT d3d12_get_adapter(IDXGIAdapter **dxgi_adapter, IUnknown *adapter)
 {
     IDXGIFactory4 *factory = NULL;
@@ -247,6 +248,7 @@ HRESULT WINAPI DLLEXPORT D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL 
 #ifdef _WIN32
         VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
 #else
+        /* TODO: We need to attempt to dlopen() native DXVK DXGI and handle this more gracefully. */
         "VK_KHR_xcb_surface",
 #endif
     };
@@ -275,6 +277,7 @@ HRESULT WINAPI DLLEXPORT D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL 
         goto done;
     }
 #else
+    /* TODO: We need to attempt to dlopen() native DXVK DXGI and handle this more gracefully. */
     if (adapter)
         FIXME("Ignoring adapter.\n");
 #endif
