@@ -559,6 +559,13 @@ HRESULT d3d12_fence_set_event_on_completion(struct d3d12_fence *fence,
 HRESULT d3d12_fence_set_native_sync_handle_on_completion(struct d3d12_fence *fence,
         UINT64 value, vkd3d_native_sync_handle handle);
 
+struct vkd3d_shared_fence_waiting_event
+{
+    struct list entry;
+    uint64_t value;
+    vkd3d_native_sync_handle handle;
+};
+
 struct d3d12_shared_fence
 {
     d3d12_fence_iface ID3D12Fence_iface;
@@ -568,6 +575,13 @@ struct d3d12_shared_fence
     D3D12_FENCE_FLAGS d3d12_flags;
 
     VkSemaphore timeline_semaphore;
+
+    pthread_t thread;
+    pthread_mutex_t mutex;
+    pthread_cond_t cond_var;
+    uint32_t is_running;
+
+    struct list events;
 
     struct d3d12_device *device;
 
