@@ -486,6 +486,7 @@ static HRESULT dxgi_vk_swap_chain_reallocate_user_buffers(struct dxgi_vk_swap_ch
         vr = VK_CALL(vkCreateImageView(chain->queue->device->vk_device, &view_info, NULL, &chain->user.vk_image_views[i]));
         if (vr < 0)
         {
+            ERR("Failed to create image view for user image %u.\n", i);
             hr = E_OUTOFMEMORY;
             goto err;
         }
@@ -841,13 +842,23 @@ static HRESULT dxgi_vk_swap_chain_create_surface(struct dxgi_vk_swap_chain *chai
     vr = IDXGIVkSurfaceFactory_CreateSurface(pFactory, vk_instance, vk_physical_device, &chain->vk_surface);
 
     if (vr < 0)
+    {
+        ERR("Failed to create surface, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
+    }
 
     vr = VK_CALL(vkGetPhysicalDeviceSurfaceSupportKHR(vk_physical_device, chain->queue->vkd3d_queue->vk_family_index, chain->vk_surface, &supported));
     if (vr < 0)
+    {
+        ERR("Failed to query for surface support, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
+    }
+
     if (!supported)
+    {
+        ERR("Surface is not supported for presentation.\n");
         return E_INVALIDARG;
+    }
 
     /* Query surface formats up-front. */
     VK_CALL(vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, chain->vk_surface, &chain->properties.format_count, NULL));
@@ -944,14 +955,20 @@ static HRESULT dxgi_vk_swap_chain_init_sync_objects(struct dxgi_vk_swap_chain *c
 
     vr = VK_CALL(vkCreateSemaphore(chain->queue->device->vk_device, &create_info, NULL, &chain->present.vk_blit_semaphore));
     if (vr < 0)
+    {
+        ERR("Failed to create timeline semaphore, vr %d.\n", vr);
         return hresult_from_vkd3d_result(vr);
+    }
 
     fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fence_create_info.pNext = NULL;
     fence_create_info.flags = 0;
     vr = VK_CALL(vkCreateFence(chain->queue->device->vk_device, &fence_create_info, NULL, &chain->present.vk_acquire_fence));
     if (vr < 0)
+    {
+        ERR("Failed to create fence, vr %d\n", vr);
         return hresult_from_vkd3d_result(vr);
+    }
 
     return S_OK;
 }
@@ -980,8 +997,12 @@ static void dxgi_vk_swap_chain_wait_and_reset_acquire_fence(struct dxgi_vk_swap_
          * There is little reason to add complexity with semaphores since behavior is
          * implementation defined regarding if AcquireNextImage is synchronous or not. */
         vr = VK_CALL(vkWaitForFences(vk_device, 1, &chain->present.vk_acquire_fence, VK_TRUE, UINT64_MAX));
+        if (vr < 0)
+            ERR("Failed to wait for fence, vr %d\n", vr);
         VKD3D_DEVICE_REPORT_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
         vr = VK_CALL(vkResetFences(vk_device, 1, &chain->present.vk_acquire_fence));
+        if (vr < 0)
+            ERR("Failed to reset fence, vr %d\n", vr);
         VKD3D_DEVICE_REPORT_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
         chain->present.acquire_fence_pending = false;
     }
@@ -1454,8 +1475,13 @@ static bool dxgi_vk_swap_chain_submit_blit(struct dxgi_vk_swap_chain *chain, uin
         allocate_info.commandBufferCount = 1;
         allocate_info.commandPool = chain->present.vk_blit_command_pool;
         allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        VK_CALL(vkAllocateCommandBuffers(vk_device, &allocate_info,
+        vr = VK_CALL(vkAllocateCommandBuffers(vk_device, &allocate_info,
                     &chain->present.vk_blit_command_buffers[swapchain_index]));
+        if (vr < 0)
+        {
+            ERR("Failed to allocate command buffers, vr %d\n", vr);
+            return false;
+        }
     }
 
     if (chain->present.vk_blit_fences[swapchain_index])
@@ -1463,8 +1489,16 @@ static bool dxgi_vk_swap_chain_submit_blit(struct dxgi_vk_swap_chain *chain, uin
         vr = VK_CALL(vkWaitForFences(vk_device, 1, &chain->present.vk_blit_fences[swapchain_index], VK_TRUE, UINT64_MAX));
         VKD3D_DEVICE_REPORT_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
         if (vr < 0)
+        {
+            ERR("Failed to wait for fence, vr %d\n", vr);
             return false;
-        VK_CALL(vkResetFences(vk_device, 1, &chain->present.vk_blit_fences[swapchain_index]));
+        }
+        vr = VK_CALL(vkResetFences(vk_device, 1, &chain->present.vk_blit_fences[swapchain_index]));
+        if (vr < 0)
+        {
+            ERR("Failed to reset fence, vr %d\n", vr);
+            return false;
+        }
     }
     else
     {
@@ -1473,7 +1507,10 @@ static bool dxgi_vk_swap_chain_submit_blit(struct dxgi_vk_swap_chain *chain, uin
         fence_create_info.flags = 0;
         vr = VK_CALL(vkCreateFence(vk_device, &fence_create_info, NULL, &chain->present.vk_blit_fences[swapchain_index]));
         if (vr < 0)
+        {
+            ERR("Failed to create fence, vr %d.\n", vr);
             return false;
+        }
     }
 
     vk_cmd = chain->present.vk_blit_command_buffers[swapchain_index];
@@ -1497,6 +1534,8 @@ static bool dxgi_vk_swap_chain_submit_blit(struct dxgi_vk_swap_chain *chain, uin
     vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, chain->present.vk_blit_fences[swapchain_index]));
     vkd3d_queue_release(chain->queue->vkd3d_queue);
     VKD3D_DEVICE_REPORT_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
+    if (vr < 0)
+        ERR("Failed to submit swapchain blit, vr %d.\n", vr);
 
     return vr == VK_SUCCESS;
 }
