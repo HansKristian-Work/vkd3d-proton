@@ -1314,10 +1314,34 @@ static void d3d12_shared_fence_inc_ref(struct d3d12_shared_fence *fence)
 static void d3d12_shared_fence_dec_ref(struct d3d12_shared_fence *fence)
 {
     ULONG refcount_internal = InterlockedDecrement(&fence->refcount_internal);
+    struct vkd3d_shared_fence_waiting_event *current, *e;
     const struct vkd3d_vk_device_procs *vk_procs;
+    bool is_running;
 
     if (!refcount_internal)
     {
+        pthread_mutex_lock(&fence->mutex);
+        is_running = fence->is_running;
+        if (is_running)
+        {
+            fence->is_running = false;
+            pthread_cond_signal(&fence->cond_var);
+        }
+        pthread_mutex_unlock(&fence->mutex);
+
+        if (is_running)
+        {
+            pthread_join(fence->thread, NULL);
+        }
+
+        LIST_FOR_EACH_ENTRY_SAFE(current, e, &fence->events, struct vkd3d_shared_fence_waiting_event, entry)
+        {
+            vkd3d_free(current);
+        }
+
+        pthread_mutex_destroy(&fence->mutex);
+        pthread_cond_destroy(&fence->cond_var);
+
         vk_procs = &fence->device->vk_procs;
         VK_CALL(vkDestroySemaphore(fence->device->vk_device, fence->timeline_semaphore, NULL));
 
@@ -1337,6 +1361,7 @@ static ULONG STDMETHODCALLTYPE d3d12_shared_fence_Release(d3d12_fence_iface *ifa
     if (!refcount)
     {
         struct d3d12_device *device = fence->device;
+
         d3d12_shared_fence_dec_ref(fence);
         d3d12_device_release(device);
     }
@@ -1405,36 +1430,149 @@ static UINT64 STDMETHODCALLTYPE d3d12_shared_fence_GetCompletedValue(d3d12_fence
     return completed_value;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_shared_fence_SetEventOnCompletion(d3d12_fence_iface *iface,
-        UINT64 value, HANDLE event)
+static void *vkd3d_shared_fence_worker_main(void *userdata)
 {
-    struct d3d12_shared_fence *fence = shared_impl_from_ID3D12Fence1(iface);
-    const struct vkd3d_vk_device_procs *vk_procs = &fence->device->vk_procs;
+    struct vkd3d_shared_fence_waiting_event *current, *e;
+    const struct vkd3d_vk_device_procs *vk_procs;
+    struct d3d12_shared_fence *fence;
     VkSemaphoreWaitInfo wait_info;
+    uint64_t completed_value;
     VkResult vr;
 
-    TRACE("iface %p, value %#"PRIx64", event %p.\n", iface, value, event);
-
-    if (event)
-    {
-        FIXME("Signaling events on shared fence completion not supported.\n");
-        return E_NOTIMPL;
-    }
+    fence = userdata;
+    vk_procs = &fence->device->vk_procs;
 
     wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
     wait_info.pNext = NULL;
     wait_info.flags = 0;
     wait_info.semaphoreCount = 1;
     wait_info.pSemaphores = &fence->timeline_semaphore;
-    wait_info.pValues = &value;
+    wait_info.pValues = &completed_value;
 
-    if ((vr = VK_CALL(vkWaitSemaphoresKHR(fence->device->vk_device, &wait_info, UINT64_MAX))))
+    while (true)
     {
-        ERR("Failed to wait on shared fence, vr %d.\n", vr);
-        return E_FAIL;
+        pthread_mutex_lock(&fence->mutex);
+        while (fence->is_running && list_empty(&fence->events))
+        {
+            pthread_cond_wait(&fence->cond_var, &fence->mutex);
+        }
+
+        vr = VK_CALL(vkGetSemaphoreCounterValueKHR(fence->device->vk_device, fence->timeline_semaphore, &completed_value));
+        if (vr != VK_SUCCESS)
+        {
+            ERR("Failed to get shared fence counter value, error %d.\n", vr);
+            pthread_mutex_unlock(&fence->mutex);
+            return NULL;
+        }
+
+        LIST_FOR_EACH_ENTRY_SAFE(current, e, &fence->events, struct vkd3d_shared_fence_waiting_event, entry)
+        {
+            if (current->value <= completed_value)
+            {
+                vkd3d_native_sync_handle_signal(current->handle);
+                list_remove(&current->entry);
+                vkd3d_free(current);
+            }
+        }
+
+        if (!fence->is_running)
+        {
+            pthread_mutex_unlock(&fence->mutex);
+            return NULL;
+        }
+
+        if (list_empty(&fence->events))
+        {
+            pthread_mutex_unlock(&fence->mutex);
+            continue;
+        }
+
+        pthread_mutex_unlock(&fence->mutex);
+
+        completed_value++;
+        vr = VK_CALL(vkWaitSemaphoresKHR(fence->device->vk_device, &wait_info, 10000000ull));
+        if (vr != VK_SUCCESS && vr != VK_TIMEOUT)
+        {
+            ERR("Failed to wait for semaphore, error %d.\n", vr);
+            return NULL;
+        }
     }
 
-    return S_OK;
+
+    return NULL;
+}
+
+static HRESULT d3d12_shared_fence_set_native_sync_handle_on_completion(d3d12_fence_iface *iface,
+        UINT64 value, vkd3d_native_sync_handle handle)
+{
+    struct d3d12_shared_fence *fence = shared_impl_from_ID3D12Fence1(iface);
+    const struct vkd3d_vk_device_procs *vk_procs = &fence->device->vk_procs;
+    struct vkd3d_shared_fence_waiting_event *waiting_event;
+    VkSemaphoreWaitInfo wait_info;
+    uint64_t completed_value;
+    VkResult vr;
+
+    TRACE("iface %p, value %#"PRIx64", handle %p.\n", iface, value, handle);
+
+    if (vkd3d_native_sync_handle_is_valid(handle))
+    {
+        completed_value = d3d12_shared_fence_GetCompletedValue(iface);
+        if (completed_value >= value)
+        {
+            vkd3d_native_sync_handle_signal(handle);
+            return S_OK;
+        }
+        else
+        {
+            if (!(waiting_event = vkd3d_malloc(sizeof(*waiting_event))))
+            {
+                ERR("Failed to register device singleton for adapter.");
+                return E_OUTOFMEMORY;
+            }
+            waiting_event->value = value;
+            waiting_event->handle = handle;
+
+            pthread_mutex_lock(&fence->mutex);
+            list_add_head(&fence->events, &waiting_event->entry);
+            if (!fence->is_running)
+            {
+                fence->is_running = true;
+                pthread_create(&fence->thread, NULL, vkd3d_shared_fence_worker_main, fence);
+            }
+            else
+            {
+                pthread_cond_signal(&fence->cond_var);
+            }
+            pthread_mutex_unlock(&fence->mutex);
+
+            return S_OK;
+        }
+    }
+    else
+    {
+        wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+        wait_info.pNext = NULL;
+        wait_info.flags = 0;
+        wait_info.semaphoreCount = 1;
+        wait_info.pSemaphores = &fence->timeline_semaphore;
+        wait_info.pValues = &value;
+
+        if ((vr = VK_CALL(vkWaitSemaphoresKHR(fence->device->vk_device, &wait_info, UINT64_MAX))))
+        {
+            ERR("Failed to wait on shared fence, vr %d.\n", vr);
+            return E_FAIL;
+        }
+
+        return S_OK;
+    }
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_shared_fence_SetEventOnCompletion(d3d12_fence_iface *iface,
+        UINT64 value, HANDLE os_event)
+{
+    vkd3d_native_sync_handle handle = vkd3d_native_sync_handle_wrap(os_event,
+            VKD3D_NATIVE_SYNC_HANDLE_TYPE_EVENT);
+    return d3d12_shared_fence_set_native_sync_handle_on_completion(iface, value, handle);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_shared_fence_Signal(d3d12_fence_iface *iface, UINT64 value)
@@ -1518,6 +1656,11 @@ HRESULT d3d12_shared_fence_create(struct d3d12_device *device,
     }
 
     d3d12_device_add_ref(object->device = device);
+
+    pthread_mutex_init(&object->mutex, NULL);
+    pthread_cond_init(&object->cond_var, NULL);
+    list_init(&object->events);
+    object->is_running = false;
 
     *fence = object;
     return S_OK;
