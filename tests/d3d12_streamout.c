@@ -154,8 +154,12 @@ void test_primitive_restart_list_topology_stream_output(void)
 
     get_buffer_readback_with_command_list(counter_buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
     counter = get_readback_uint(&rb, 0, 0, 0);
+
+    /* RDNA2 hardware bug from what we understand. */
+    bug_if(is_radv_device(context.device))
     ok(counter == sizeof(expected_output), "Got unexpected counter %u, expected %u.\n",
             counter, (unsigned int)sizeof(expected_output));
+
     release_resource_readback(&rb);
     reset_command_list(command_list, context.allocator);
     get_buffer_readback_with_command_list(so_buffer, DXGI_FORMAT_UNKNOWN, &rb, queue, command_list);
@@ -163,6 +167,9 @@ void test_primitive_restart_list_topology_stream_output(void)
     {
         const struct vec4 *expected = &expected_output[i];
         data = get_readback_vec4(&rb, i, 0);
+
+        /* RDNA2 hardware bug from what we understand. */
+        bug_if(is_radv_device(context.device))
         ok(compare_vec4(data, expected, 1),
                 "Got {%.8e, %.8e, %.8e, %.8e}, expected {%.8e, %.8e, %.8e, %.8e}.\n",
                 data->x, data->y, data->z, data->w, expected->x, expected->y, expected->z, expected->w);
