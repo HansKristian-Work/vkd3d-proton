@@ -2167,6 +2167,9 @@ struct vkd3d_initial_transition
     };
 };
 
+bool vk_image_memory_barrier_for_initial_transition(const struct d3d12_resource *resource,
+        VkImageMemoryBarrier *barrier);
+
 enum vkd3d_active_query_state
 {
     VKD3D_ACTIVE_QUERY_RESET,

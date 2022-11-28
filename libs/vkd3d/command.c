@@ -12462,29 +12462,6 @@ static void d3d12_command_queue_transition_pool_deinit(struct d3d12_command_queu
 static void d3d12_command_queue_transition_pool_add_barrier(struct d3d12_command_queue_transition_pool *pool,
             const struct d3d12_resource *resource)
 {
-    VkImageMemoryBarrier *barrier;
-    assert(d3d12_resource_is_texture(resource));
-
-#ifdef VKD3D_ENABLE_BREADCRUMBS
-    if (resource->initial_layout_transition_validate_only)
-    {
-        if (d3d12_resource_get_sub_resource_count(resource) == 1)
-        {
-            ERR("Application uses placed resource (1 subresource) (cookie %"PRIu64", fmt: %s, flags: #%x)"
-                    " that must be initialized explicitly.\n",
-                    resource->res.cookie, debug_dxgi_format(resource->desc.Format), resource->desc.Flags);
-        }
-        else
-        {
-            WARN("Application uses placed resource (>1 subresources) (cookie %"PRIu64", fmt: %s, flags: #%x)"
-                    " that must be initialized explicitly. "
-                    "This warning may be a false positive due to lack of sub-resource level tracking.\n",
-                    resource->res.cookie, debug_dxgi_format(resource->desc.Format), resource->desc.Flags);
-        }
-        return;
-    }
-#endif
-
     if (!vkd3d_array_reserve((void**)&pool->barriers, &pool->barriers_size,
             pool->barriers_count + 1, sizeof(*pool->barriers)))
     {
@@ -12492,28 +12469,8 @@ static void d3d12_command_queue_transition_pool_add_barrier(struct d3d12_command
         return;
     }
 
-    barrier = &pool->barriers[pool->barriers_count++];
-
-    barrier->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier->pNext = NULL;
-    barrier->srcAccessMask = 0;
-    barrier->dstAccessMask = 0;
-    barrier->oldLayout = d3d12_resource_is_cpu_accessible(resource)
-                        ? VK_IMAGE_LAYOUT_PREINITIALIZED : VK_IMAGE_LAYOUT_UNDEFINED;
-    barrier->newLayout = vk_image_layout_from_d3d12_resource_state(NULL, resource, resource->initial_state);
-    barrier->srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier->dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier->image = resource->res.vk_image;
-    barrier->subresourceRange.aspectMask = resource->format->vk_aspect_mask;
-    barrier->subresourceRange.baseMipLevel = 0;
-    barrier->subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
-    barrier->subresourceRange.baseArrayLayer = 0;
-    barrier->subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
-
-    /* srcAccess and dstAccess mask is 0 since we will use the timeline semaphore to synchronize anyways. */
-
-    TRACE("Initial layout transition for resource %p (old layout %#x, new layout %#x).\n",
-          resource, barrier->oldLayout, barrier->newLayout);
+    if (vk_image_memory_barrier_for_initial_transition(resource, &pool->barriers[pool->barriers_count]))
+        pool->barriers_count++;
 }
 
 static void d3d12_command_queue_transition_pool_add_query_heap(struct d3d12_command_queue_transition_pool *pool,
@@ -14094,4 +14051,54 @@ err:
     vkd3d_free((void *)object->desc.pArgumentDescs);
     vkd3d_free(object);
     return hr;
+}
+
+bool vk_image_memory_barrier_for_initial_transition(const struct d3d12_resource *resource,
+        VkImageMemoryBarrier *barrier)
+{
+    assert(d3d12_resource_is_texture(resource));
+
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    if (resource->initial_layout_transition_validate_only)
+    {
+        if (d3d12_resource_get_sub_resource_count(resource) == 1)
+        {
+            ERR("Application uses placed resource (1 subresource) (cookie %"PRIu64", fmt: %s, flags: #%x)"
+                    " that must be initialized explicitly.\n",
+                    resource->res.cookie, debug_dxgi_format(resource->desc.Format), resource->desc.Flags);
+        }
+        else
+        {
+            WARN("Application uses placed resource (>1 subresources) (cookie %"PRIu64", fmt: %s, flags: #%x)"
+                    " that must be initialized explicitly. "
+                    "This warning may be a false positive due to lack of sub-resource level tracking.\n",
+                    resource->res.cookie, debug_dxgi_format(resource->desc.Format), resource->desc.Flags);
+        }
+        return false;
+    }
+#endif
+
+    barrier->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier->pNext = NULL;
+    barrier->srcAccessMask = 0;
+    barrier->dstAccessMask = 0;
+    barrier->oldLayout = d3d12_resource_is_cpu_accessible(resource)
+                        ? VK_IMAGE_LAYOUT_PREINITIALIZED : VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier->newLayout = vk_image_layout_from_d3d12_resource_state(NULL, resource, resource->initial_state);
+    barrier->srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier->dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier->image = resource->res.vk_image;
+    barrier->subresourceRange.aspectMask = resource->format->vk_aspect_mask;
+    barrier->subresourceRange.baseMipLevel = 0;
+    barrier->subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+    barrier->subresourceRange.baseArrayLayer = 0;
+    barrier->subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+
+    /* srcAccess and dstAccess mask is 0, which is fine if we use timeline semaphores
+     * to synchronize. Otherwise, the caller will need to set access masks. */
+
+    TRACE("Initial layout transition for resource %p (old layout %#x, new layout %#x).\n",
+          resource, barrier->oldLayout, barrier->newLayout);
+
+    return true;
 }
