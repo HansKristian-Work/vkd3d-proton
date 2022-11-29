@@ -826,6 +826,9 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     return hresult_from_vk_result(vr);
 }
 
+static size_t vkd3d_compute_resource_layouts_from_desc(struct d3d12_device *device,
+        const D3D12_RESOURCE_DESC1 *desc, struct vkd3d_subresource_layout *layouts);
+
 HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
         const D3D12_RESOURCE_DESC1 *desc, D3D12_RESOURCE_ALLOCATION_INFO *allocation_info)
 {
@@ -2665,6 +2668,14 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
     if ((resource->flags & VKD3D_RESOURCE_ALLOCATION) && resource->mem.device_allocation.vk_memory)
         vkd3d_free_memory(device, &device->memory_allocator, &resource->mem);
 
+    if (resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
+    {
+        if (resource->private_mem.device_allocation.vk_memory)
+            vkd3d_free_memory(device, &device->memory_allocator, &resource->private_mem);
+
+        vkd3d_free(resource->subresource_layouts);
+    }
+
     if (resource->vrs_view)
         VK_CALL(vkDestroyImageView(device->vk_device, resource->vrs_view, NULL));
 
@@ -2706,6 +2717,51 @@ static HRESULT d3d12_resource_create_vk_resource(struct d3d12_resource *resource
     }
 
     return S_OK;
+}
+
+static size_t vkd3d_compute_resource_layouts_from_desc(struct d3d12_device *device,
+        const D3D12_RESOURCE_DESC1 *desc, struct vkd3d_subresource_layout *layouts)
+{
+    struct vkd3d_format_footprint format_footprint;
+    const struct vkd3d_format *format;
+    unsigned int i, subresource_count;
+    uint32_t plane_idx, mip_idx;
+    VkExtent3D block_count;
+    size_t offset = 0;
+
+    subresource_count = d3d12_resource_desc_get_sub_resource_count(device, desc);
+    format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0);
+
+    for (i = 0; i < subresource_count; i++)
+    {
+        plane_idx = i / d3d12_resource_desc_get_sub_resource_count_per_plane(desc);
+        mip_idx = i % desc->MipLevels;
+
+        format_footprint = vkd3d_format_footprint_for_plane(format, plane_idx);
+
+        block_count.width = align(d3d12_resource_desc_get_width(desc, mip_idx + format_footprint.subsample_x_log2), format_footprint.block_width) / format_footprint.block_width;
+        block_count.height = align(d3d12_resource_desc_get_height(desc, mip_idx + format_footprint.subsample_y_log2), format_footprint.block_height) / format_footprint.block_height;
+        block_count.depth = d3d12_resource_desc_get_depth(desc, mip_idx);
+
+        if (layouts)
+        {
+            layouts[i].offset = offset;
+            layouts[i].row_pitch = block_count.width * format_footprint.block_byte_count;
+            layouts[i].depth_pitch = block_count.height * layouts[i].row_pitch;
+        }
+
+        offset += block_count.width * block_count.height * block_count.depth * format_footprint.block_byte_count;
+    }
+
+    return offset;
+}
+
+static size_t d3d12_resource_init_subresource_layouts(struct d3d12_resource *resource, struct d3d12_device *device)
+{
+    unsigned int subresource_count = d3d12_resource_get_sub_resource_count(resource);
+
+    resource->subresource_layouts = vkd3d_calloc(subresource_count, sizeof(*resource->subresource_layouts));
+    return vkd3d_compute_resource_layouts_from_desc(device, &resource->desc, resource->subresource_layouts);
 }
 
 static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags,
@@ -2759,6 +2815,15 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
         object->heap_properties = *heap_properties;
     object->heap_flags = heap_flags;
 
+    /* Compute subresource layouts for CPU-accessible images. CPU-accessible
+     * heaps cannot be shared, so we do not need to consider that possibility. */
+    if (!(flags & VKD3D_RESOURCE_RESERVED) && d3d12_resource_is_texture(object) &&
+            is_cpu_accessible_heap(heap_properties))
+    {
+        object->flags |= VKD3D_RESOURCE_LINEAR_STAGING_COPY;
+        d3d12_resource_init_subresource_layouts(object, device);
+    }
+
     d3d12_device_add_ref(device);
 
     vkd3d_descriptor_debug_register_resource_cookie(device->descriptor_qa_global_info,
@@ -2785,6 +2850,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         VkMemoryDedicatedRequirements dedicated_requirements;
         struct vkd3d_allocate_memory_info allocate_info;
         VkMemoryDedicatedAllocateInfo dedicated_info;
+        struct vkd3d_memory_allocation *allocation;
         VkImageMemoryRequirementsInfo2 image_info;
         VkMemoryRequirements2 memory_requirements;
         VkBindImageMemoryInfo bind_info;
@@ -2811,17 +2877,33 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
 
         VK_CALL(vkGetImageMemoryRequirements2(device->vk_device, &image_info, &memory_requirements));
 
+        memset(&allocate_info, 0, sizeof(allocate_info));
+        allocate_info.memory_requirements = memory_requirements.memoryRequirements;
+        allocate_info.heap_flags = heap_flags;
+
+        if (object->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
+        {
+            assert(!(heap_flags & D3D12_HEAP_FLAG_SHARED));
+            /* For host-visible images, allocate the actual image resource in video memory */
+            allocate_info.heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+            allocation = &object->private_mem;
+
+            /* TODO remove this once the implementation is complete */
+            allocate_info.heap_properties = *heap_properties;
+            allocation = &object->mem;
+        }
+        else
+        {
+            allocate_info.heap_properties = *heap_properties;
+            allocation = &object->mem;
+        }
+
         if (!(use_dedicated_allocation = dedicated_requirements.prefersDedicatedAllocation))
         {
             const uint32_t type_mask = memory_requirements.memoryRequirements.memoryTypeBits;
-            const struct vkd3d_memory_info_domain *domain = d3d12_device_get_memory_info_domain(device, heap_properties);
+            const struct vkd3d_memory_info_domain *domain = d3d12_device_get_memory_info_domain(device, &allocate_info.heap_properties);
             use_dedicated_allocation = (type_mask & domain->buffer_type_mask) != type_mask;
         }
-
-        memset(&allocate_info, 0, sizeof(allocate_info));
-        allocate_info.memory_requirements = memory_requirements.memoryRequirements;
-        allocate_info.heap_properties = *heap_properties;
-        allocate_info.heap_flags = heap_flags;
 
         if (desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
             allocate_info.heap_flags |= D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES;
@@ -2871,14 +2953,14 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
             allocate_info.flags = VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER;
         }
 
-        if (FAILED(hr = vkd3d_allocate_memory(device, &device->memory_allocator, &allocate_info, &object->mem)))
+        if (FAILED(hr = vkd3d_allocate_memory(device, &device->memory_allocator, &allocate_info, allocation)))
             goto fail;
 
         bind_info.sType = VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_INFO;
         bind_info.pNext = NULL;
         bind_info.image = object->res.vk_image;
-        bind_info.memory = object->mem.device_allocation.vk_memory;
-        bind_info.memoryOffset = object->mem.offset;
+        bind_info.memory = allocation->device_allocation.vk_memory;
+        bind_info.memoryOffset = allocation->offset;
 
         if ((vr = VK_CALL(vkBindImageMemory2KHR(device->vk_device, 1, &bind_info))))
         {
@@ -2891,6 +2973,21 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         {
             /* Make the implicit VRS view here... */
             if (FAILED(hr = vkd3d_resource_make_vrs_view(device, object->res.vk_image, &object->vrs_view)))
+                goto fail;
+        }
+
+        if (object->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
+        {
+            memset(&allocate_info, 0, sizeof(allocate_info));
+            allocate_info.memory_requirements.size = vkd3d_compute_resource_layouts_from_desc(device, desc, NULL);
+            allocate_info.memory_requirements.alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+            allocate_info.memory_requirements.memoryTypeBits = ~0u;
+            allocate_info.heap_properties = *heap_properties;
+            allocate_info.heap_flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+            allocate_info.flags = VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER;
+
+            /* TODO change to object->mem once the implementation is complete */
+            if (FAILED(hr = vkd3d_allocate_memory(device, &device->memory_allocator, &allocate_info, &object->private_mem)))
                 goto fail;
         }
     }
@@ -2960,27 +3057,19 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
         const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_allocate_memory_info allocate_info;
     VkMemoryRequirements memory_requirements;
     VkBindImageMemoryInfo bind_info;
     struct d3d12_resource *object;
-    bool force_committed;
     VkResult vr;
     HRESULT hr;
 
     if (FAILED(hr = d3d12_resource_validate_heap(desc, heap)))
         return hr;
 
-    /* Placed linear textures are ... problematic
-     * since we have no way of signalling that they have different alignment and size requirements
-     * than optimal textures. GetResourceAllocationInfo() does not take heap property information
-     * and assumes that we are not modifying the tiling mode. */
-    force_committed = desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER &&
-            is_cpu_accessible_heap(&heap->desc.Properties);
-
-    if (force_committed || heap->allocation.device_allocation.vk_memory == VK_NULL_HANDLE)
+    if (heap->allocation.device_allocation.vk_memory == VK_NULL_HANDLE)
     {
-        if (!force_committed)
-            WARN("Placing resource on heap with no memory backing it. Falling back to committed resource.\n");
+        WARN("Placing resource on heap with no memory backing it. Falling back to committed resource.\n");
 
         if (FAILED(hr = d3d12_resource_create_committed(device, desc, &heap->desc.Properties,
                 heap->desc.Flags & ~(D3D12_HEAP_FLAG_DENY_BUFFERS |
@@ -3015,6 +3104,29 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
             hr = E_INVALIDARG;
             goto fail;
         }
+
+        if (object->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
+        {
+            /* Packed linear size should never be greater than the image size */
+            assert(vkd3d_compute_resource_layouts_from_desc(device, desc, NULL) <= memory_requirements.size);
+
+            /* Allocate video memory for the actual image resource */
+            memset(&allocate_info, 0, sizeof(allocate_info));
+            allocate_info.memory_requirements = memory_requirements;
+            allocate_info.heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+            allocate_info.heap_flags = 0;
+
+            if (desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
+                allocate_info.heap_flags |= D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES;
+            else
+                allocate_info.heap_flags |= D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
+
+            if (FAILED(hr = vkd3d_allocate_memory(device, &device->memory_allocator, &allocate_info, &object->private_mem)))
+            {
+                hr = E_OUTOFMEMORY;
+                goto fail;
+            }
+        }
     }
     else
     {
@@ -3034,8 +3146,21 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
         bind_info.sType = VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_INFO;
         bind_info.pNext = NULL;
         bind_info.image = object->res.vk_image;
-        bind_info.memory = object->mem.device_allocation.vk_memory;
-        bind_info.memoryOffset = object->mem.offset;
+
+        if (object->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
+        {
+            bind_info.memory = object->private_mem.device_allocation.vk_memory;
+            bind_info.memoryOffset = object->private_mem.offset;
+
+            /* TODO remove this once the implementation is complete */
+            bind_info.memory = object->mem.device_allocation.vk_memory;
+            bind_info.memoryOffset = object->mem.offset;
+        }
+        else
+        {
+            bind_info.memory = object->mem.device_allocation.vk_memory;
+            bind_info.memoryOffset = object->mem.offset;
+        }
 
         if ((vr = VK_CALL(vkBindImageMemory2KHR(device->vk_device, 1, &bind_info))) < 0)
         {

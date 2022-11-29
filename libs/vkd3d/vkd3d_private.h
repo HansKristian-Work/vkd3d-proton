@@ -849,10 +849,11 @@ enum vkd3d_resource_flag
     VKD3D_RESOURCE_PLACED                 = (1u << 1),
     VKD3D_RESOURCE_RESERVED               = (1u << 2),
     VKD3D_RESOURCE_ALLOCATION             = (1u << 3),
-    VKD3D_RESOURCE_LINEAR_TILING          = (1u << 4),
-    VKD3D_RESOURCE_EXTERNAL               = (1u << 5),
-    VKD3D_RESOURCE_ACCELERATION_STRUCTURE = (1u << 6),
-    VKD3D_RESOURCE_SIMULTANEOUS_ACCESS    = (1u << 7),
+    VKD3D_RESOURCE_LINEAR_STAGING_COPY    = (1u << 4),
+    VKD3D_RESOURCE_LINEAR_TILING          = (1u << 5),
+    VKD3D_RESOURCE_EXTERNAL               = (1u << 6),
+    VKD3D_RESOURCE_ACCELERATION_STRUCTURE = (1u << 7),
+    VKD3D_RESOURCE_SIMULTANEOUS_ACCESS    = (1u << 8),
 };
 
 struct d3d12_sparse_image_region
@@ -903,6 +904,13 @@ struct vkd3d_view_map
 HRESULT vkd3d_view_map_init(struct vkd3d_view_map *view_map);
 void vkd3d_view_map_destroy(struct vkd3d_view_map *view_map, struct d3d12_device *device);
 
+struct vkd3d_subresource_layout
+{
+    size_t offset;
+    size_t row_pitch;
+    size_t depth_pitch;
+};
+
 /* ID3D12Resource */
 typedef ID3D12Resource2 d3d12_resource_iface;
 
@@ -916,6 +924,7 @@ struct d3d12_resource
     D3D12_HEAP_PROPERTIES heap_properties;
     D3D12_HEAP_FLAGS heap_flags;
     struct vkd3d_memory_allocation mem;
+    struct vkd3d_memory_allocation private_mem;
     struct vkd3d_unique_resource res;
 
     struct d3d12_heap *heap;
@@ -932,6 +941,7 @@ struct d3d12_resource
 
     struct d3d12_sparse_info sparse;
     struct vkd3d_view_map view_map;
+    struct vkd3d_subresource_layout *subresource_layouts;
 
     struct d3d12_device *device;
 
