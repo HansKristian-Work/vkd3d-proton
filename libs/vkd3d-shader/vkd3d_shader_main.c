@@ -396,6 +396,8 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
         return VKD3D_OK;
     }
 
+    vkd3d_shader_dump_shader(hash, dxbc, "dxbc");
+
     vkd3d_shader_scan_init(&scan_info);
 
     if ((ret = vkd3d_shader_scan_dxbc(dxbc, &scan_info)) < 0)
@@ -420,8 +422,6 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
             return ret;
         }
     }
-
-    vkd3d_shader_dump_shader(hash, dxbc, "dxbc");
 
     if (!(spirv_compiler = vkd3d_dxbc_compiler_create(&parser.shader_version,
             &parser.shader_desc, compiler_options, shader_interface_info, compile_args, &scan_info,
