@@ -51,7 +51,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_QueryInterface(ID3D12Dev
 static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetVulkanHandles(ID3D12DeviceExt *iface, VkInstance *vk_instance, VkPhysicalDevice *vk_physical_device, VkDevice *vk_device)
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
-    TRACE("iface %p, vk_instance %p, vk_physical_device %u, vk_device %p \n", iface, vk_instance, vk_physical_device, vk_device);
+    TRACE("iface %p, vk_instance %p, vk_physical_device %p, vk_device %p \n", iface, vk_instance, vk_physical_device, vk_device);
     if (!vk_device || !vk_instance || !vk_physical_device)
         return E_INVALIDARG;
         
