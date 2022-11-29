@@ -1436,7 +1436,7 @@ void *shader_sm4_init(const DWORD *byte_code, size_t byte_code_size,
         return NULL;
     }
 
-    if (!(priv = vkd3d_malloc(sizeof(*priv))))
+    if (!(priv = vkd3d_calloc(1, sizeof(*priv))))
     {
         ERR("Failed to allocate private data\n");
         return NULL;
@@ -1948,6 +1948,8 @@ void shader_sm4_read_instruction(void *data, const DWORD **ptr, struct vkd3d_sha
     ins->src_count = strlen(opcode_info->src_info);
     ins->src = priv->src_param;
     memset(&ins->texel_offset, 0, sizeof(ins->texel_offset));
+    memset(priv->dst_param, 0, sizeof(priv->dst_param[0]) * ins->dst_count);
+    memset(priv->src_param, 0, sizeof(priv->src_param[0]) * ins->src_count);
 
     p = *ptr;
     *ptr += len;
