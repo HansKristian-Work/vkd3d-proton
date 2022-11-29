@@ -1243,7 +1243,7 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
     vr = VK_CALL(vkCreateSwapchainKHR(vk_device, &swapchain_create_info, NULL, &chain->present.vk_swapchain));
     if (vr < 0)
     {
-        ERR("Failed to create swapchain, vr %d.\n");
+        ERR("Failed to create swapchain, vr %d.\n", vr);
         chain->present.vk_swapchain = VK_NULL_HANDLE;
         return;
     }
