@@ -2671,7 +2671,7 @@ static HRESULT d3d12_device_create_scratch_buffer(struct d3d12_device *device, e
 {
     HRESULT hr;
 
-    TRACE("device %p, size %llu, scratch %p.\n", device, size, scratch);
+    TRACE("device %p, size %llu, scratch %p.\n", device, (unsigned long long)size, scratch);
 
     if (kind == VKD3D_SCRATCH_POOL_KIND_DEVICE_STORAGE)
     {
