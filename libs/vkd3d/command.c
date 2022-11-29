@@ -1512,7 +1512,7 @@ static HRESULT d3d12_shared_fence_set_native_sync_handle_on_completion(d3d12_fen
     uint64_t completed_value;
     VkResult vr;
 
-    TRACE("iface %p, value %#"PRIx64", handle %p.\n", iface, value, handle);
+    TRACE("iface %p, value %#"PRIx64".\n", iface, value);
 
     if (vkd3d_native_sync_handle_is_valid(handle))
     {

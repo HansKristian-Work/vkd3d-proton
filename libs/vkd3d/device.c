@@ -5548,7 +5548,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateSamplerFeedbackUnorderedAccessV
         ID3D12Resource *target_resource, ID3D12Resource *feedback_resource, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
     FIXME("iface %p, target_resource %p, feedback_resource %p, descriptor %#lx stub!\n",
-            iface, target_resource, feedback_resource, descriptor);
+            iface, target_resource, feedback_resource, descriptor.ptr);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints1(d3d12_device_iface *iface,
