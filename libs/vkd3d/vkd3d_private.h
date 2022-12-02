@@ -754,12 +754,24 @@ struct vkd3d_memory_chunk
 enum vkd3d_memory_transfer_op
 {
     VKD3D_MEMORY_TRANSFER_OP_CLEAR_ALLOCATION,
+    VKD3D_MEMORY_TRANSFER_OP_WRITE_SUBRESOURCE,
 };
 
 struct vkd3d_memory_transfer_info
 {
     enum vkd3d_memory_transfer_op op;
     struct vkd3d_memory_allocation *allocation;
+
+    struct d3d12_resource *resource;
+    uint32_t subresource_idx;
+    VkOffset3D offset;
+    VkExtent3D extent;
+};
+
+struct vkd3d_memory_transfer_tracked_resource
+{
+    struct d3d12_resource *resource;
+    UINT64 semaphore_value;
 };
 
 struct vkd3d_memory_transfer_queue
@@ -768,6 +780,8 @@ struct vkd3d_memory_transfer_queue
     struct vkd3d_queue *vkd3d_queue;
 
     pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    pthread_t thread;
 
     VkCommandBuffer vk_command_buffers[VKD3D_MEMORY_TRANSFER_COMMAND_BUFFER_COUNT];
     VkCommandPool vk_command_pool;
@@ -782,11 +796,17 @@ struct vkd3d_memory_transfer_queue
     struct vkd3d_memory_transfer_info *transfers;
     size_t transfer_size;
     size_t transfer_count;
+
+    struct vkd3d_memory_transfer_tracked_resource *tracked_resources;
+    size_t tracked_resource_size;
+    size_t tracked_resource_count;
 };
 
 void vkd3d_memory_transfer_queue_cleanup(struct vkd3d_memory_transfer_queue *queue);
 HRESULT vkd3d_memory_transfer_queue_init(struct vkd3d_memory_transfer_queue *queue, struct d3d12_device *device);
 HRESULT vkd3d_memory_transfer_queue_flush(struct vkd3d_memory_transfer_queue *queue);
+HRESULT vkd3d_memory_transfer_queue_write_subresource(struct vkd3d_memory_transfer_queue *queue,
+        struct d3d12_resource *resource, uint32_t subresource_idx, VkOffset3D offset, VkExtent3D extent);
 
 struct vkd3d_memory_allocator
 {

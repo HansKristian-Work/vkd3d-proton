@@ -21,14 +21,118 @@
 #include "vkd3d_private.h"
 #include "vkd3d_descriptor_debug.h"
 
+static bool vkd3d_memory_transfer_queue_wait_semaphore(struct vkd3d_memory_transfer_queue *queue,
+        uint64_t wait_value, uint64_t timeout);
+
+static void vkd3d_acquire_tracked_resource(struct d3d12_resource *resource)
+{
+    d3d12_resource_incref(resource);
+
+    if (resource->heap)
+        d3d12_heap_incref(resource->heap);
+}
+
+static void vkd3d_release_tracked_resource(struct d3d12_resource *resource)
+{
+    if (resource->heap)
+        d3d12_heap_decref(resource->heap);
+
+    d3d12_resource_decref(resource);
+}
+
+static void *vkd3d_memory_transfer_queue_run_thread(void *userdata)
+{
+    struct vkd3d_memory_transfer_tracked_resource *tracked_resources;
+    size_t i, tracked_resource_size, tracked_resource_count;
+    struct vkd3d_memory_transfer_queue *queue = userdata;
+    bool running = true;
+
+    tracked_resources = NULL;
+    tracked_resource_size = 0;
+    tracked_resource_count = 0;
+
+    while (running)
+    {
+        struct vkd3d_memory_transfer_tracked_resource *old_tracked_resources;
+        size_t old_tracked_resource_size;
+
+        pthread_mutex_lock(&queue->mutex);
+
+        while (!queue->tracked_resource_count)
+        {
+            pthread_cond_wait(&queue->cond, &queue->mutex);
+        }
+
+        old_tracked_resources = tracked_resources;
+        old_tracked_resource_size = tracked_resource_size;
+
+        tracked_resources = queue->tracked_resources;
+        tracked_resource_size = queue->tracked_resource_size;
+        tracked_resource_count = queue->tracked_resource_count;
+
+        queue->tracked_resources = old_tracked_resources;
+        queue->tracked_resource_size = old_tracked_resource_size;
+        queue->tracked_resource_count = 0;
+
+        pthread_mutex_unlock(&queue->mutex);
+
+        for (i = 0; i < tracked_resource_count; i++)
+        {
+            const struct vkd3d_memory_transfer_tracked_resource *entry = &tracked_resources[i];
+
+            if (entry->resource)
+            {
+                vkd3d_memory_transfer_queue_wait_semaphore(queue, entry->semaphore_value, UINT64_MAX);
+                vkd3d_release_tracked_resource(entry->resource);
+            }
+            else
+                running = false;
+        }
+    }
+
+    vkd3d_free(tracked_resources);
+    return NULL;
+}
+
+static void vkd3d_memory_transfer_queue_track_resource_locked(struct vkd3d_memory_transfer_queue *queue,
+        struct d3d12_resource *resource, UINT64 semaphore_value)
+{
+    struct vkd3d_memory_transfer_tracked_resource *entry;
+
+    if (!vkd3d_array_reserve((void**)&queue->tracked_resources, &queue->tracked_resource_size,
+            queue->tracked_resource_count + 1, sizeof(*queue->tracked_resources)))
+    {
+        ERR("Failed to track resource.\n");
+        return;
+    }
+
+    if (resource)
+        vkd3d_acquire_tracked_resource(resource);
+
+    entry = &queue->tracked_resources[queue->tracked_resource_count++];
+    entry->resource = resource;
+    entry->semaphore_value = semaphore_value;
+
+    pthread_cond_signal(&queue->cond);
+}
+
 void vkd3d_memory_transfer_queue_cleanup(struct vkd3d_memory_transfer_queue *queue)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &queue->device->vk_procs;
 
+    pthread_mutex_lock(&queue->mutex);
+    vkd3d_memory_transfer_queue_track_resource_locked(queue, NULL, 0);
+    pthread_mutex_unlock(&queue->mutex);
+
+    pthread_join(queue->thread, NULL);
+
     VK_CALL(vkDestroyCommandPool(queue->device->vk_device, queue->vk_command_pool, NULL));
     VK_CALL(vkDestroySemaphore(queue->device->vk_device, queue->vk_semaphore, NULL));
 
+    vkd3d_free(queue->tracked_resources);
     vkd3d_free(queue->transfers);
+
+    pthread_cond_destroy(&queue->cond);
     pthread_mutex_destroy(&queue->mutex);
 }
 
@@ -54,6 +158,20 @@ HRESULT vkd3d_memory_transfer_queue_init(struct vkd3d_memory_transfer_queue *que
 
     if ((rc = pthread_mutex_init(&queue->mutex, NULL)))
         return hresult_from_errno(rc);
+
+    if ((rc = pthread_cond_init(&queue->cond, NULL)))
+    {
+        pthread_mutex_destroy(&queue->mutex);
+        return hresult_from_errno(rc);
+    }
+
+    if ((rc = pthread_create(&queue->thread, NULL,
+            vkd3d_memory_transfer_queue_run_thread, queue)))
+    {
+        pthread_mutex_destroy(&queue->mutex);
+        pthread_cond_destroy(&queue->cond);
+        return hresult_from_errno(rc);
+    }
 
     command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     command_pool_info.pNext = NULL;
@@ -161,12 +279,21 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
 {
     const VkPipelineStageFlags vk_stage_mask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
     const struct vkd3d_vk_device_procs *vk_procs = &queue->device->vk_procs;
+    const struct vkd3d_subresource_layout *subresource_layout;
     VkTimelineSemaphoreSubmitInfoKHR timeline_info;
+    VkCopyBufferToImageInfo2 buffer_to_image_copy;
     struct vkd3d_queue_family_info *queue_family;
+    struct vkd3d_format_footprint footprint;
     VkCommandBufferBeginInfo begin_info;
+    VkImageMemoryBarrier image_barrier;
+    VkImageSubresource vk_subresource;
     uint32_t queue_mask, queue_index;
+    VkBufferImageCopy2 copy_region;
     VkCommandBuffer vk_cmd_buffer;
+    VkDeviceSize buffer_offset;
     VkSubmitInfo submit_info;
+    bool need_transition;
+    uint32_t plane_idx;
     VkQueue vk_queue;
     VkResult vr;
     size_t i;
@@ -220,6 +347,53 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
                         transfer->allocation->resource.vk_buffer,
                         transfer->allocation->offset,
                         transfer->allocation->resource.size, 0));
+                break;
+
+            case VKD3D_MEMORY_TRANSFER_OP_WRITE_SUBRESOURCE:
+                /* This will be executed before any other command buffer that could
+                 * potentially initialize the resource on the GPU timeline */
+                need_transition = vkd3d_atomic_uint32_load_explicit(&transfer->resource->initial_layout_transition, vkd3d_memory_order_relaxed) &&
+                        vkd3d_atomic_uint32_exchange_explicit(&transfer->resource->initial_layout_transition, 0, vkd3d_memory_order_relaxed);
+
+                if (need_transition && vk_image_memory_barrier_for_initial_transition(transfer->resource, &image_barrier))
+                {
+                    image_barrier.dstAccessMask |= VK_ACCESS_TRANSFER_WRITE_BIT;
+
+                    VK_CALL(vkCmdPipelineBarrier(vk_cmd_buffer,
+                            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                            VK_PIPELINE_STAGE_TRANSFER_BIT,
+                            0, 0, NULL, 0, NULL, 1, &image_barrier));
+                }
+
+                vk_subresource = d3d12_resource_get_vk_subresource(transfer->resource, transfer->subresource_idx, false);
+                plane_idx = transfer->subresource_idx / d3d12_resource_desc_get_sub_resource_count_per_plane(&transfer->resource->desc);
+                footprint = vkd3d_format_footprint_for_plane(transfer->resource->format, plane_idx);
+
+                subresource_layout = &transfer->resource->subresource_layouts[transfer->subresource_idx];
+                buffer_offset = subresource_layout->offset + vkd3d_format_get_data_offset(transfer->resource->format,
+                        subresource_layout->row_pitch, subresource_layout->depth_pitch, transfer->offset.x, transfer->offset.y, transfer->offset.z);
+
+                copy_region.sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2;
+                copy_region.pNext = NULL;
+                copy_region.bufferOffset = transfer->resource->mem.offset + buffer_offset;
+                copy_region.bufferRowLength = d3d12_resource_desc_get_width(&transfer->resource->desc, vk_subresource.mipLevel + footprint.subsample_x_log2);
+                copy_region.bufferImageHeight = d3d12_resource_desc_get_height(&transfer->resource->desc, vk_subresource.mipLevel + footprint.subsample_y_log2);
+                copy_region.imageSubresource = vk_subresource_layers_from_subresource(&vk_subresource);
+                copy_region.imageOffset = transfer->offset;
+                copy_region.imageExtent = transfer->extent;
+
+                buffer_to_image_copy.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2;
+                buffer_to_image_copy.pNext = NULL;
+                buffer_to_image_copy.srcBuffer = transfer->resource->mem.resource.vk_buffer;
+                buffer_to_image_copy.dstImage = transfer->resource->res.vk_image;
+                buffer_to_image_copy.dstImageLayout = VK_IMAGE_LAYOUT_GENERAL;
+                buffer_to_image_copy.regionCount = 1;
+                buffer_to_image_copy.pRegions = &copy_region;
+
+                VK_CALL(vkCmdCopyBufferToImage2KHR(vk_cmd_buffer, &buffer_to_image_copy));
+
+                vkd3d_memory_transfer_queue_track_resource_locked(queue,
+                        transfer->resource, queue->next_signal_value);
                 break;
         }
     }
@@ -353,6 +527,24 @@ static void vkd3d_memory_transfer_queue_clear_allocation(struct vkd3d_memory_tra
         vkd3d_memory_transfer_queue_execute_transfer_locked(queue, &transfer);
         pthread_mutex_unlock(&queue->mutex);
     }
+}
+
+HRESULT vkd3d_memory_transfer_queue_write_subresource(struct vkd3d_memory_transfer_queue *queue,
+        struct d3d12_resource *resource, uint32_t subresource_idx, VkOffset3D offset, VkExtent3D extent)
+{
+    struct vkd3d_memory_transfer_info transfer;
+
+    memset(&transfer, 0, sizeof(transfer));
+    transfer.op = VKD3D_MEMORY_TRANSFER_OP_WRITE_SUBRESOURCE;
+    transfer.resource = resource;
+    transfer.subresource_idx = subresource_idx;
+    transfer.offset = offset;
+    transfer.extent = extent;
+
+    pthread_mutex_lock(&queue->mutex);
+    vkd3d_memory_transfer_queue_execute_transfer_locked(queue, &transfer);
+    pthread_mutex_unlock(&queue->mutex);
+    return S_OK;
 }
 
 static void vkd3d_memory_transfer_queue_wait_allocation(struct vkd3d_memory_transfer_queue *queue,
