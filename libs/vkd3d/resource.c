@@ -3389,8 +3389,8 @@ void d3d12_desc_copy(vkd3d_cpu_descriptor_va_t dst_va, vkd3d_cpu_descriptor_va_t
         for (i = 0; i < count; i++)
         {
             vkd3d_descriptor_debug_copy_descriptor(
-                    dst.heap->descriptor_heap_info.host_ptr, dst.heap->cookie, dst.offset,
-                    src.heap->descriptor_heap_info.host_ptr, src.heap->cookie, src.offset,
+                    dst.heap->descriptor_heap_info.host_ptr, dst.heap->cookie, dst.offset + i,
+                    src.heap->descriptor_heap_info.host_ptr, src.heap->cookie, src.offset + i,
                     src.view[i].qa_cookie);
         }
     }
