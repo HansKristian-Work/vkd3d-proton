@@ -39,7 +39,8 @@ static VkResult vkd3d_meta_create_shader_module(struct d3d12_device *device,
 }
 
 static VkResult vkd3d_meta_create_descriptor_set_layout(struct d3d12_device *device,
-        uint32_t binding_count, const VkDescriptorSetLayoutBinding *bindings, VkDescriptorSetLayout *set_layout)
+        uint32_t binding_count, const VkDescriptorSetLayoutBinding *bindings,
+        bool descriptor_buffer_compatible, VkDescriptorSetLayout *set_layout)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkDescriptorSetLayoutCreateInfo set_layout_info;
@@ -49,6 +50,9 @@ static VkResult vkd3d_meta_create_descriptor_set_layout(struct d3d12_device *dev
     set_layout_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
     set_layout_info.bindingCount = binding_count;
     set_layout_info.pBindings = bindings;
+
+    if (d3d12_device_uses_descriptor_buffers(device) && descriptor_buffer_compatible)
+        set_layout_info.flags |= VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
 
     return VK_CALL(vkCreateDescriptorSetLayout(device->vk_device, &set_layout_info, NULL, set_layout));
 }
@@ -108,7 +112,8 @@ static void vkd3d_meta_make_shader_stage(VkPipelineShaderStageCreateInfo *info, 
 
 static VkResult vkd3d_meta_create_compute_pipeline(struct d3d12_device *device,
         size_t code_size, const uint32_t *code, VkPipelineLayout layout,
-        const VkSpecializationInfo *specialization_info, VkPipeline *pipeline)
+        const VkSpecializationInfo *specialization_info,
+        bool descriptor_buffer_compatible, VkPipeline *pipeline)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkComputePipelineCreateInfo pipeline_info;
@@ -128,6 +133,9 @@ static VkResult vkd3d_meta_create_compute_pipeline(struct d3d12_device *device,
     pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_info.basePipelineIndex = -1;
 
+    if (d3d12_device_uses_descriptor_buffers(device) && descriptor_buffer_compatible)
+        pipeline_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+
     vkd3d_meta_make_shader_stage(&pipeline_info.stage,
             VK_SHADER_STAGE_COMPUTE_BIT, module, "main", specialization_info);
 
@@ -142,7 +150,7 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
         VkShaderModule vs_module, VkShaderModule fs_module,
         VkSampleCountFlagBits samples, const VkPipelineDepthStencilStateCreateInfo *ds_state,
         const VkPipelineColorBlendStateCreateInfo *cb_state, const VkSpecializationInfo *spec_info,
-        VkPipeline *vk_pipeline)
+        bool descriptor_buffer_compatible, VkPipeline *vk_pipeline)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &meta_ops->device->vk_procs;
     VkPipelineShaderStageCreateInfo shader_stages[3];
@@ -242,6 +250,9 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
     pipeline_info.subpass = 0;
     pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_info.basePipelineIndex = -1;
+
+    if (d3d12_device_uses_descriptor_buffers(meta_ops->device) && descriptor_buffer_compatible)
+        pipeline_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
 
     vkd3d_meta_make_shader_stage(&shader_stages[pipeline_info.stageCount++],
             VK_SHADER_STAGE_VERTEX_BIT,
@@ -352,7 +363,7 @@ HRESULT vkd3d_clear_uav_ops_init(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
     {
         set_binding.descriptorType = set_layouts[i].descriptor_type;
 
-        vr = vkd3d_meta_create_descriptor_set_layout(device, 1, &set_binding, set_layouts[i].set_layout);
+        vr = vkd3d_meta_create_descriptor_set_layout(device, 1, &set_binding, true, set_layouts[i].set_layout);
 
         if (vr < 0)
         {
@@ -373,7 +384,7 @@ HRESULT vkd3d_clear_uav_ops_init(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
     for (i = 0; i < ARRAY_SIZE(pipelines); i++)
     {
         if ((vr = vkd3d_meta_create_compute_pipeline(device, pipelines[i].code_size, pipelines[i].code,
-                *pipelines[i].pipeline_layout, NULL, pipelines[i].pipeline)) < 0)
+                *pipelines[i].pipeline_layout, NULL, true, pipelines[i].pipeline)) < 0)
         {
             ERR("Failed to create compute pipeline %u, vr %d.", i, vr);
             goto fail;
@@ -519,7 +530,7 @@ HRESULT vkd3d_copy_image_ops_init(struct vkd3d_copy_image_ops *meta_copy_image_o
     set_binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     set_binding.pImmutableSamplers = NULL;
 
-    if ((vr = vkd3d_meta_create_descriptor_set_layout(device, 1, &set_binding, &meta_copy_image_ops->vk_set_layout)) < 0)
+    if ((vr = vkd3d_meta_create_descriptor_set_layout(device, 1, &set_binding, true, &meta_copy_image_ops->vk_set_layout)) < 0)
     {
         ERR("Failed to create descriptor set layout, vr %d.\n", vr);
         goto fail;
@@ -614,7 +625,7 @@ static HRESULT vkd3d_meta_create_swapchain_pipeline(struct vkd3d_meta_ops *meta_
             meta_swapchain_ops->vk_pipeline_layouts[key->filter], key->format, VK_FORMAT_UNDEFINED, VK_IMAGE_ASPECT_COLOR_BIT,
             meta_swapchain_ops->vk_vs_module, meta_swapchain_ops->vk_fs_module, 1,
             NULL, &cb_state,
-            NULL, &pipeline->vk_pipeline)) < 0)
+            NULL, false, &pipeline->vk_pipeline)) < 0)
         return hresult_from_vk_result(vr);
 
     pipeline->key = *key;
@@ -734,7 +745,7 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
             key->format->vk_aspect_mask,
             VK_NULL_HANDLE, vk_module, key->sample_count,
             has_depth_target ? &ds_state : NULL, has_depth_target ? NULL : &cb_state,
-            &spec_info, &pipeline->vk_pipeline)) < 0)
+            &spec_info, true, &pipeline->vk_pipeline)) < 0)
         return hresult_from_vk_result(vr);
 
     pipeline->key = *key;
@@ -904,7 +915,7 @@ HRESULT vkd3d_swapchain_ops_init(struct vkd3d_swapchain_ops *meta_swapchain_ops,
 
         set_binding.pImmutableSamplers = &meta_swapchain_ops->vk_samplers[i];
         if ((vr = vkd3d_meta_create_descriptor_set_layout(device, 1, &set_binding,
-                &meta_swapchain_ops->vk_set_layouts[i])) < 0)
+                false, &meta_swapchain_ops->vk_set_layouts[i])) < 0)
         {
             ERR("Failed to create descriptor set layout, vr %d.\n", vr);
             goto fail;
@@ -1038,7 +1049,7 @@ HRESULT vkd3d_query_ops_init(struct vkd3d_query_ops *meta_query_ops,
 
     if ((vr = vkd3d_meta_create_descriptor_set_layout(device,
             ARRAY_SIZE(gather_bindings), gather_bindings,
-            &meta_query_ops->vk_gather_set_layout)) < 0)
+            true, &meta_query_ops->vk_gather_set_layout)) < 0)
         goto fail;
 
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
@@ -1056,19 +1067,19 @@ HRESULT vkd3d_query_ops_init(struct vkd3d_query_ops *meta_query_ops,
 
     field_count = 1;
     if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_resolve_query), cs_resolve_query,
-            meta_query_ops->vk_gather_pipeline_layout, &spec_info, &meta_query_ops->vk_gather_occlusion_pipeline)) < 0)
+            meta_query_ops->vk_gather_pipeline_layout, &spec_info, true, &meta_query_ops->vk_gather_occlusion_pipeline)) < 0)
         goto fail;
 
     field_count = 2;
     if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_resolve_query), cs_resolve_query,
-            meta_query_ops->vk_gather_pipeline_layout, &spec_info, &meta_query_ops->vk_gather_so_statistics_pipeline)) < 0)
+            meta_query_ops->vk_gather_pipeline_layout, &spec_info, true, &meta_query_ops->vk_gather_so_statistics_pipeline)) < 0)
         goto fail;
 
     push_constant_range.size = sizeof(struct vkd3d_query_resolve_args);
 
     if ((vr = vkd3d_meta_create_descriptor_set_layout(device,
             ARRAY_SIZE(resolve_bindings), resolve_bindings,
-            &meta_query_ops->vk_resolve_set_layout)) < 0)
+            true, &meta_query_ops->vk_resolve_set_layout)) < 0)
         goto fail;
 
     if ((vr = vkd3d_meta_create_pipeline_layout(device, 1, &meta_query_ops->vk_resolve_set_layout,
@@ -1076,7 +1087,7 @@ HRESULT vkd3d_query_ops_init(struct vkd3d_query_ops *meta_query_ops,
         goto fail;
 
     if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_resolve_binary_queries), cs_resolve_binary_queries,
-            meta_query_ops->vk_resolve_pipeline_layout, NULL, &meta_query_ops->vk_resolve_binary_pipeline)) < 0)
+            meta_query_ops->vk_resolve_pipeline_layout, NULL, true, &meta_query_ops->vk_resolve_binary_pipeline)) < 0)
         goto fail;
 
     return S_OK;
@@ -1176,14 +1187,14 @@ HRESULT vkd3d_predicate_ops_init(struct vkd3d_predicate_ops *meta_predicate_ops,
         spec_info.pData = &spec_data[i];
 
         if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_predicate_command), cs_predicate_command,
-                meta_predicate_ops->vk_command_pipeline_layout, &spec_info, &meta_predicate_ops->vk_command_pipelines[i])) < 0)
+                meta_predicate_ops->vk_command_pipeline_layout, &spec_info, true, &meta_predicate_ops->vk_command_pipelines[i])) < 0)
             goto fail;
 
         meta_predicate_ops->data_sizes[i] = spec_data[i].arg_count * sizeof(uint32_t);
     }
 
     if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_resolve_predicate), cs_resolve_predicate,
-            meta_predicate_ops->vk_resolve_pipeline_layout, &spec_info, &meta_predicate_ops->vk_resolve_pipeline)) < 0)
+            meta_predicate_ops->vk_resolve_pipeline_layout, &spec_info, true, &meta_predicate_ops->vk_resolve_pipeline)) < 0)
         goto fail;
 
     return S_OK;
@@ -1326,7 +1337,7 @@ HRESULT vkd3d_meta_get_execute_indirect_pipeline(struct vkd3d_meta_ops *meta_ops
             debug ? sizeof(cs_execute_indirect_patch_debug_ring) : sizeof(cs_execute_indirect_patch),
             debug ? cs_execute_indirect_patch_debug_ring : cs_execute_indirect_patch,
             meta_indirect_ops->vk_pipeline_layout, &spec,
-            &meta_indirect_ops->pipelines[meta_indirect_ops->pipelines_count].vk_pipeline);
+            true, &meta_indirect_ops->pipelines[meta_indirect_ops->pipelines_count].vk_pipeline);
 
     if (vr)
     {
