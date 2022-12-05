@@ -918,33 +918,32 @@ static HRESULT dxgi_vk_swap_chain_init_sync_objects(struct dxgi_vk_swap_chain *c
         chain->frame_latency = latency_frames;
     }
 
-    /* Applications can easily forget to increment their latency handles.
-     * This means we don't keep latency objects in sync anymore. */
-    if (vkd3d_get_env_var("VKD3D_SWAPCHAIN_LATENCY_FRAMES", env, sizeof(env)))
+    if (chain->queue->device->device_info.present_wait_features.presentWait)
     {
-        latency_frames = strtoul(env, NULL, 0);
-    }
-    else if (vkd3d_native_sync_handle_is_valid(chain->frame_latency_event) &&
-            !chain->queue->device->device_info.present_wait_features.presentWait)
-    {
-        /* If we don't have present_wait and we have app latency object,
-         * it's meaningless to add this by default. */
-        latency_frames = 0;
-    }
+        /* Applications can easily forget to increment their latency handles.
+         * This means we don't keep latency objects in sync anymore.
+         * Maintain our own latency fence to keep things under control.
+         * If we don't have present wait, we will sync with present_request_done_event (below) instead.
+         * Adding more sync against internal blit fences is meaningless
+         * and can cause weird pumping issues in some cases since we're simultaneously syncing
+         * against two different timelines. */
+        if (vkd3d_get_env_var("VKD3D_SWAPCHAIN_LATENCY_FRAMES", env, sizeof(env)))
+            latency_frames = strtoul(env, NULL, 0);
 
-    if (latency_frames >= 1 && latency_frames < DXGI_MAX_SWAP_CHAIN_BUFFERS)
-    {
-        INFO("Ensure maximum latency of %u frames.\n", latency_frames);
-
-        /* On the first frame, we are supposed to acquire,
-         * but we only acquire after a Present, so do the implied one here.
-         * We consume a count after Present(), i.e. start of next frame,
-         * starting with one less takes care of this. */
-        if (FAILED(hr = vkd3d_native_sync_handle_create(latency_frames - 1,
-                VKD3D_NATIVE_SYNC_HANDLE_TYPE_SEMAPHORE, &chain->frame_latency_event_internal)))
+        if (latency_frames >= 1 && latency_frames < DXGI_MAX_SWAP_CHAIN_BUFFERS)
         {
-            WARN("Failed to create internal frame latency semaphore, hr %#x.\n", hr);
-            return hr;
+            INFO("Ensure maximum latency of %u frames with KHR_present_wait.\n", latency_frames);
+
+            /* On the first frame, we are supposed to acquire,
+             * but we only acquire after a Present, so do the implied one here.
+             * We consume a count after Present(), i.e. start of next frame,
+             * starting with one less takes care of this. */
+            if (FAILED(hr = vkd3d_native_sync_handle_create(latency_frames - 1,
+                    VKD3D_NATIVE_SYNC_HANDLE_TYPE_SEMAPHORE, &chain->frame_latency_event_internal)))
+            {
+                WARN("Failed to create internal frame latency semaphore, hr %#x.\n", hr);
+                return hr;
+            }
         }
     }
 
