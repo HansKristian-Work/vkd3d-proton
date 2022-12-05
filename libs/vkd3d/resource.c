@@ -87,6 +87,41 @@ VkSampleCountFlagBits vk_samples_from_dxgi_sample_desc(const DXGI_SAMPLE_DESC *d
     return VK_SAMPLE_COUNT_1_BIT;
 }
 
+HRESULT vkd3d_create_buffer_explicit_usage(struct d3d12_device *device,
+        VkBufferUsageFlags vk_usage_flags, VkDeviceSize size, VkBuffer *vk_buffer)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkBufferCreateInfo buffer_info;
+    VkResult vr;
+
+    buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buffer_info.pNext = NULL;
+    buffer_info.flags = 0;
+    buffer_info.size = size;
+    buffer_info.usage = vk_usage_flags;
+
+    if (device->queue_family_count > 1)
+    {
+        buffer_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
+        buffer_info.queueFamilyIndexCount = device->queue_family_count;
+        buffer_info.pQueueFamilyIndices = device->queue_family_indices;
+    }
+    else
+    {
+        buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        buffer_info.queueFamilyIndexCount = 0;
+        buffer_info.pQueueFamilyIndices = NULL;
+    }
+
+    if ((vr = VK_CALL(vkCreateBuffer(device->vk_device, &buffer_info, NULL, vk_buffer))) < 0)
+    {
+        WARN("Failed to create Vulkan buffer, vr %d.\n", vr);
+        *vk_buffer = VK_NULL_HANDLE;
+    }
+
+    return hresult_from_vk_result(vr);
+}
+
 HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC1 *desc, VkBuffer *vk_buffer)
