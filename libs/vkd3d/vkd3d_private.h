@@ -1255,13 +1255,29 @@ union vkd3d_descriptor_info
 /* ID3D12DescriptorHeap */
 struct d3d12_null_descriptor_template
 {
-    struct VkWriteDescriptorSet writes[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
-    VkDescriptorBufferInfo buffer;
-    VkDescriptorImageInfo image;
-    VkBufferView buffer_view;
+    union
+    {
+        struct
+        {
+            uint8_t *dst_base;
+            size_t desc_size;
+            /* If NULL, mutable descriptor type, pull appropriate payload from bindless_state. */
+            const uint8_t *src_payload;
+        } payloads[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+
+        struct
+        {
+            struct VkWriteDescriptorSet writes[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+            VkDescriptorBufferInfo buffer;
+            VkDescriptorImageInfo image;
+            VkBufferView buffer_view;
+        } descriptors;
+    } writes;
+
     unsigned int num_writes;
     unsigned int set_info_mask;
     bool has_mutable_descriptors;
+    bool has_descriptor_buffer;
 };
 
 typedef void (*pfn_vkd3d_host_mapping_copy_template)(void * restrict dst, const void * restrict src,
