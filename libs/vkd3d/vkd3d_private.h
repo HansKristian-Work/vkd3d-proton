@@ -1286,8 +1286,16 @@ struct d3d12_descriptor_heap
     D3D12_DESCRIPTOR_HEAP_DESC desc;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_va;
 
-    VkDescriptorPool vk_descriptor_pool;
+    struct
+    {
+        VkBuffer vk_buffer;
+        VkDeviceAddress va;
+        struct vkd3d_device_memory_allocation device_allocation;
+        uint8_t *host_allocation;
+        VkDeviceSize offsets[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+    } descriptor_buffer;
 
+    VkDescriptorPool vk_descriptor_pool;
     struct d3d12_descriptor_heap_set sets[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
 
     struct vkd3d_device_memory_allocation device_allocation;
@@ -2304,6 +2312,24 @@ struct d3d12_transfer_batch_state
     size_t batch_len;
 };
 
+union vkd3d_descriptor_heap_state
+{
+    struct
+    {
+        VkDeviceAddress heap_va_resource;
+        VkDeviceAddress heap_va_sampler;
+        VkBuffer vk_buffer_resource;
+        bool heap_dirty;
+
+        VkDeviceSize vk_offsets[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+    } buffers;
+
+    struct
+    {
+        VkDescriptorSet vk_sets[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+    } sets;
+};
+
 struct d3d12_command_list
 {
     d3d12_command_list_iface ID3D12GraphicsCommandList_iface;
@@ -2363,7 +2389,7 @@ struct d3d12_command_list
     struct vkd3d_pipeline_bindings compute_bindings;
     enum vkd3d_pipeline_type active_pipeline_type;
 
-    VkDescriptorSet descriptor_heaps[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+    union vkd3d_descriptor_heap_state descriptor_heap;
 
     struct d3d12_pipeline_state *state;
     struct d3d12_state_object *rt_state;
@@ -3021,6 +3047,8 @@ struct vkd3d_bindless_state
 {
     uint32_t flags; /* vkd3d_bindless_flags */
 
+    /* For descriptor buffers, pre-baked array passed directly to vkCmdBindDescriptorBuffersEXT. */
+    uint32_t vk_descriptor_buffer_indices[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
     struct vkd3d_bindless_set_info set_info[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
     unsigned int set_count;
     unsigned int cbv_srv_uav_count;
