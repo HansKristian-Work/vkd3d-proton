@@ -4045,9 +4045,13 @@ void d3d12_desc_create_cbv(vkd3d_cpu_descriptor_va_t desc_va,
     const struct vkd3d_unique_resource *resource = NULL;
     union vkd3d_descriptor_info descriptor_info;
     struct vkd3d_descriptor_binding binding;
+    VkDescriptorAddressInfoEXT addr_info;
     VkDescriptorType vk_descriptor_type;
+    VkDescriptorGetInfoEXT get_info;
     VkWriteDescriptorSet vk_write;
     struct d3d12_desc_split d;
+    void *payload;
+
     uint32_t info_index;
 
     if (!desc)
@@ -4072,11 +4076,6 @@ void d3d12_desc_create_cbv(vkd3d_cpu_descriptor_va_t desc_va,
 
     d = d3d12_desc_decode_va(desc_va);
 
-    resource = vkd3d_va_map_deref(&device->memory_allocator.va_map, desc->BufferLocation);
-    descriptor_info.buffer.buffer = resource->vk_buffer;
-    descriptor_info.buffer.offset = desc->BufferLocation - resource->va;
-    descriptor_info.buffer.range = min(desc->SizeInBytes, resource->size - descriptor_info.buffer.offset);
-
     info_index = vkd3d_bindless_state_find_set_info_index(&device->bindless_state, VKD3D_BINDLESS_SET_CBV);
     binding = vkd3d_bindless_state_binding_from_info_index(&device->bindless_state, info_index);
 
@@ -4088,7 +4087,43 @@ void d3d12_desc_create_cbv(vkd3d_cpu_descriptor_va_t desc_va,
     d.view->info.buffer.range = desc->SizeInBytes;
     d.view->info.buffer.dxgi_format = DXGI_FORMAT_UNKNOWN;
 
-    vkd3d_init_write_descriptor_set(&vk_write, &d, binding, vk_descriptor_type, &descriptor_info);
+    /* De-reffing resource in descriptor buffer path is kinda redundant but there are some scenarios where
+     * it's required:
+     * - Hoisted CBV descriptors. These translate to push descriptors and must be resolved to plain buffers.
+     *   Possible to write the VA instead and de-ref late in theory.
+     * - Descriptor QA. Can be ifdeffed. */
+
+    if (d3d12_device_uses_descriptor_buffers(device))
+    {
+        get_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT;
+        get_info.pNext = NULL;
+        get_info.type = vk_descriptor_type;
+        /* This is a union of pointers and UBOs are always supported here. */
+        get_info.data.pUniformBuffer = &addr_info;
+        addr_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT;
+        addr_info.pNext = NULL;
+        addr_info.format = VK_FORMAT_UNDEFINED;
+        addr_info.address = desc->BufferLocation;
+        addr_info.range = desc->SizeInBytes;
+        payload = d3d12_descriptor_heap_get_mapped_payload(d.heap, binding.set, d.offset);
+        VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
+                device->device_info.descriptor_buffer_properties.robustUniformBufferDescriptorSize,
+                payload));
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+        /* Only used for descriptor QA in this path. */
+        resource = vkd3d_va_map_deref(&device->memory_allocator.va_map, desc->BufferLocation);
+#endif
+    }
+    else
+    {
+        resource = vkd3d_va_map_deref(&device->memory_allocator.va_map, desc->BufferLocation);
+        descriptor_info.buffer.buffer = resource->vk_buffer;
+        descriptor_info.buffer.offset = desc->BufferLocation - resource->va;
+        descriptor_info.buffer.range = min(desc->SizeInBytes, resource->size - descriptor_info.buffer.offset);
+
+        vkd3d_init_write_descriptor_set(&vk_write, &d, binding, vk_descriptor_type, &descriptor_info);
+        VK_CALL(vkUpdateDescriptorSets(device->vk_device, 1, &vk_write, 0, NULL));
+    }
 
     vkd3d_descriptor_metadata_view_set_qa_cookie(d.view, resource ? resource->cookie : 0);
     vkd3d_descriptor_debug_write_descriptor(d.heap->descriptor_heap_info.host_ptr,
@@ -4098,8 +4133,6 @@ void d3d12_desc_create_cbv(vkd3d_cpu_descriptor_va_t desc_va,
                     VKD3D_DESCRIPTOR_QA_TYPE_UNIFORM_BUFFER_BIT :
                     VKD3D_DESCRIPTOR_QA_TYPE_STORAGE_BUFFER_BIT,
             d.view->qa_cookie);
-
-    VK_CALL(vkUpdateDescriptorSets(device->vk_device, 1, &vk_write, 0, NULL));
 }
 
 static unsigned int vkd3d_view_flags_from_d3d12_buffer_srv_flags(D3D12_BUFFER_SRV_FLAGS flags)
@@ -4232,9 +4265,11 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
     struct vkd3d_bound_buffer_range bound_range = { 0, 0, 0, 0 };
     union vkd3d_descriptor_info descriptor_info[2];
     struct vkd3d_descriptor_binding binding;
+    VkDescriptorAddressInfoEXT addr_info;
     VkDescriptorType vk_descriptor_type;
     bool mutable_uses_single_descriptor;
     VkWriteDescriptorSet vk_write[2];
+    VkDescriptorGetInfoEXT get_info;
     struct vkd3d_view *view = NULL;
     uint32_t vk_write_count = 0;
     struct d3d12_desc_split d;
@@ -4243,6 +4278,7 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
     bool desc_is_raw;
     bool emit_typed;
     bool emit_ssbo;
+    void *payload;
 
     if (!desc)
     {
@@ -4324,14 +4360,6 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
 
     if (emit_ssbo)
     {
-        VkDeviceSize stride = desc->Format == DXGI_FORMAT_UNKNOWN
-                ? desc->Buffer.StructureByteStride :
-                vkd3d_get_format(device, desc->Format, false)->byte_count;
-
-        vkd3d_buffer_view_get_bound_range_ssbo(device, resource,
-                desc->Buffer.FirstElement * stride, desc->Buffer.NumElements * stride,
-                &descriptor_info[vk_write_count].buffer, &bound_range);
-
         info_index = vkd3d_bindless_state_find_set_info_index(&device->bindless_state,
                 VKD3D_BINDLESS_SET_SRV | VKD3D_BINDLESS_SET_RAW_SSBO);
         binding = vkd3d_bindless_state_binding_from_info_index(&device->bindless_state, info_index);
@@ -4344,21 +4372,41 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
 
         vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         descriptor_qa_flags |= VKD3D_DESCRIPTOR_QA_TYPE_STORAGE_BUFFER_BIT;
-        vkd3d_init_write_descriptor_set(&vk_write[vk_write_count], &d, binding,
-                vk_descriptor_type, &descriptor_info[vk_write_count]);
-        vk_write_count++;
+
+        if (d3d12_device_uses_descriptor_buffers(device))
+        {
+            get_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT;
+            get_info.pNext = NULL;
+            get_info.type = vk_descriptor_type;
+            get_info.data.pStorageBuffer = &addr_info;
+            addr_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT;
+            addr_info.pNext = NULL;
+            addr_info.address = d.view->info.buffer.va;
+            addr_info.range = d.view->info.buffer.range;
+            addr_info.format = VK_FORMAT_UNDEFINED;
+            payload = d3d12_descriptor_heap_get_mapped_payload(d.heap, binding.set, d.offset);
+            VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
+                    device->device_info.descriptor_buffer_properties.robustStorageBufferDescriptorSize,
+                    payload));
+        }
+        else
+        {
+            VkDeviceSize stride = desc->Format == DXGI_FORMAT_UNKNOWN
+                    ? desc->Buffer.StructureByteStride :
+                    vkd3d_get_format(device, desc->Format, false)->byte_count;
+
+            vkd3d_buffer_view_get_bound_range_ssbo(device, resource,
+                    desc->Buffer.FirstElement * stride, desc->Buffer.NumElements * stride,
+                    &descriptor_info[vk_write_count].buffer, &bound_range);
+
+            vkd3d_init_write_descriptor_set(&vk_write[vk_write_count], &d, binding,
+                    vk_descriptor_type, &descriptor_info[vk_write_count]);
+            vk_write_count++;
+        }
     }
 
     if (emit_typed)
     {
-        vk_flags = vkd3d_view_flags_from_d3d12_buffer_srv_flags(desc->Buffer.Flags);
-        if (!vkd3d_buffer_view_get_aligned_view(device, resource, desc->Format, vk_flags,
-                desc->Buffer.FirstElement, desc->Buffer.NumElements, desc->Buffer.StructureByteStride,
-                &bound_range, &view))
-            return;
-
-        descriptor_info[vk_write_count].buffer_view = view ? view->vk_buffer_view : VK_NULL_HANDLE;
-
         info_index = vkd3d_bindless_state_find_set_info_index(&device->bindless_state,
                 VKD3D_BINDLESS_SET_SRV | VKD3D_BINDLESS_SET_BUFFER);
         binding = vkd3d_bindless_state_binding_from_info_index(&device->bindless_state, info_index);
@@ -4372,9 +4420,38 @@ static void vkd3d_create_buffer_srv(vkd3d_cpu_descriptor_va_t desc_va,
         vk_descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
         descriptor_qa_flags |= VKD3D_DESCRIPTOR_QA_TYPE_UNIFORM_TEXEL_BUFFER_BIT;
 
-        vkd3d_init_write_descriptor_set(&vk_write[vk_write_count], &d, binding,
-                vk_descriptor_type, &descriptor_info[vk_write_count]);
-        vk_write_count++;
+        if (d3d12_device_uses_descriptor_buffers(device))
+        {
+            get_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT;
+            get_info.pNext = NULL;
+            get_info.type = vk_descriptor_type;
+            get_info.data.pUniformTexelBuffer = &addr_info;
+            addr_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT;
+            addr_info.pNext = NULL;
+            addr_info.address = d.view->info.buffer.va;
+            addr_info.range = d.view->info.buffer.range;
+            addr_info.format = vkd3d_internal_get_vk_format(device, d.view->info.buffer.dxgi_format);
+            /* If we really intended to emit raw buffers, the fallback will be inferred as R32_UINT. */
+            if (addr_info.format == VK_FORMAT_UNDEFINED)
+                addr_info.format = VK_FORMAT_R32_UINT;
+            payload = d3d12_descriptor_heap_get_mapped_payload(d.heap, binding.set, d.offset);
+            VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
+                    device->device_info.descriptor_buffer_properties.robustUniformTexelBufferDescriptorSize,
+                    payload));
+        }
+        else
+        {
+            vk_flags = vkd3d_view_flags_from_d3d12_buffer_srv_flags(desc->Buffer.Flags);
+            if (!vkd3d_buffer_view_get_aligned_view(device, resource, desc->Format, vk_flags,
+                    desc->Buffer.FirstElement, desc->Buffer.NumElements, desc->Buffer.StructureByteStride,
+                    &bound_range, &view))
+                return;
+
+            descriptor_info[vk_write_count].buffer_view = view ? view->vk_buffer_view : VK_NULL_HANDLE;
+            vkd3d_init_write_descriptor_set(&vk_write[vk_write_count], &d, binding,
+                    vk_descriptor_type, &descriptor_info[vk_write_count]);
+            vk_write_count++;
+        }
     }
 
     if (d.types->flags & VKD3D_DESCRIPTOR_FLAG_BUFFER_OFFSET)
@@ -4401,11 +4478,13 @@ static void vkd3d_create_texture_srv(vkd3d_cpu_descriptor_va_t desc_va,
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     union vkd3d_descriptor_info descriptor_info;
     struct vkd3d_descriptor_binding binding;
+    VkDescriptorGetInfoEXT get_info;
     struct vkd3d_view *view = NULL;
     VkWriteDescriptorSet vk_write;
     struct vkd3d_view_key key;
     struct d3d12_desc_split d;
     uint32_t info_index;
+    void *payload;
 
     if (!resource)
     {
@@ -4548,15 +4627,28 @@ static void vkd3d_create_texture_srv(vkd3d_cpu_descriptor_va_t desc_va,
             VKD3D_DESCRIPTOR_FLAG_SINGLE_DESCRIPTOR;
     d.types->single_binding = binding;
 
-    vkd3d_init_write_descriptor_set(&vk_write, &d, binding,
-            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &descriptor_info);
+    if (d3d12_device_uses_descriptor_buffers(device))
+    {
+        get_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT;
+        get_info.pNext = NULL;
+        get_info.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        get_info.data.pSampledImage = &descriptor_info.image;
+        payload = d3d12_descriptor_heap_get_mapped_payload(d.heap, binding.set, d.offset);
+        VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
+                device->device_info.descriptor_buffer_properties.sampledImageDescriptorSize,
+                payload));
+    }
+    else
+    {
+        vkd3d_init_write_descriptor_set(&vk_write, &d, binding,
+                VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &descriptor_info);
+        VK_CALL(vkUpdateDescriptorSets(device->vk_device, 1, &vk_write, 0, NULL));
+    }
 
     vkd3d_descriptor_metadata_view_set_qa_cookie(d.view, view ? view->cookie : 0);
     vkd3d_descriptor_debug_write_descriptor(d.heap->descriptor_heap_info.host_ptr,
             d.heap->cookie, d.offset,
             VKD3D_DESCRIPTOR_QA_TYPE_SAMPLED_IMAGE_BIT, d.view->qa_cookie);
-
-    VK_CALL(vkUpdateDescriptorSets(device->vk_device, 1, &vk_write, 0, NULL));
 }
 
 void d3d12_desc_create_srv(vkd3d_cpu_descriptor_va_t desc_va,
@@ -4630,11 +4722,13 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
     union vkd3d_descriptor_info descriptor_info[3];
     struct vkd3d_descriptor_binding binding;
     unsigned int flags, vk_write_count = 0;
+    VkDescriptorAddressInfoEXT addr_info;
     bool mutable_uses_single_descriptor;
     VkDescriptorType vk_descriptor_type;
     VkDeviceAddress uav_counter_address;
     VkDeviceAddress *counter_addresses;
     VkWriteDescriptorSet vk_write[3];
+    VkDescriptorGetInfoEXT get_info;
     struct vkd3d_view *view = NULL;
     struct d3d12_desc_split d;
     uint32_t descriptor_index;
@@ -4643,6 +4737,7 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
     bool desc_is_raw;
     bool emit_typed;
     bool emit_ssbo;
+    void *payload;
 
     if (!desc)
     {
@@ -4692,16 +4787,6 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
 
     if (emit_ssbo)
     {
-        VkDescriptorBufferInfo *buffer_info = &descriptor_info[vk_write_count].buffer;
-
-        VkDeviceSize stride = desc->Format == DXGI_FORMAT_UNKNOWN
-                ? desc->Buffer.StructureByteStride :
-                vkd3d_get_format(device, desc->Format, false)->byte_count;
-
-        vkd3d_buffer_view_get_bound_range_ssbo(device, resource,
-                desc->Buffer.FirstElement * stride, desc->Buffer.NumElements * stride,
-                buffer_info, &bound_range);
-
         info_index = vkd3d_bindless_state_find_set_info_index(&device->bindless_state,
                 VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_RAW_SSBO);
         binding = vkd3d_bindless_state_binding_from_info_index(&device->bindless_state, info_index);
@@ -4715,20 +4800,41 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
         vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         descriptor_qa_flags |= VKD3D_DESCRIPTOR_QA_TYPE_STORAGE_BUFFER_BIT;
 
-        vkd3d_init_write_descriptor_set(&vk_write[vk_write_count], &d, binding,
-                vk_descriptor_type, &descriptor_info[vk_write_count]);
-        vk_write_count++;
+        if (d3d12_device_uses_descriptor_buffers(device))
+        {
+            get_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT;
+            get_info.pNext = NULL;
+            get_info.type = vk_descriptor_type;
+            get_info.data.pStorageBuffer = &addr_info;
+            addr_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT;
+            addr_info.pNext = NULL;
+            addr_info.address = d.view->info.buffer.va;
+            addr_info.range = d.view->info.buffer.range;
+            addr_info.format = VK_FORMAT_UNDEFINED;
+            payload = d3d12_descriptor_heap_get_mapped_payload(d.heap, binding.set, d.offset);
+            VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
+                    device->device_info.descriptor_buffer_properties.robustStorageBufferDescriptorSize,
+                    payload));
+        }
+        else
+        {
+            VkDescriptorBufferInfo *buffer_info = &descriptor_info[vk_write_count].buffer;
+            VkDeviceSize stride = desc->Format == DXGI_FORMAT_UNKNOWN
+                    ? desc->Buffer.StructureByteStride :
+                    vkd3d_get_format(device, desc->Format, false)->byte_count;
+
+            vkd3d_buffer_view_get_bound_range_ssbo(device, resource,
+                    desc->Buffer.FirstElement * stride, desc->Buffer.NumElements * stride,
+                    buffer_info, &bound_range);
+
+            vkd3d_init_write_descriptor_set(&vk_write[vk_write_count], &d, binding,
+                    vk_descriptor_type, &descriptor_info[vk_write_count]);
+            vk_write_count++;
+        }
     }
 
     if (emit_typed)
     {
-        flags = vkd3d_view_flags_from_d3d12_buffer_uav_flags(desc->Buffer.Flags);
-
-        if (!vkd3d_buffer_view_get_aligned_view(device, resource, desc->Format, flags,
-                desc->Buffer.FirstElement, desc->Buffer.NumElements,
-                desc->Buffer.StructureByteStride, &bound_range, &view))
-            return;
-
         info_index = vkd3d_bindless_state_find_set_info_index(&device->bindless_state,
                 VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_BUFFER);
         binding = vkd3d_bindless_state_binding_from_info_index(&device->bindless_state, info_index);
@@ -4739,14 +4845,43 @@ static void vkd3d_create_buffer_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3
             d.types->flags |= VKD3D_DESCRIPTOR_FLAG_BUFFER_OFFSET;
         d.types->single_binding = binding;
 
-        descriptor_info[vk_write_count].buffer_view = view ? view->vk_buffer_view : VK_NULL_HANDLE;
-
         vk_descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
         descriptor_qa_flags |= VKD3D_DESCRIPTOR_QA_TYPE_STORAGE_TEXEL_BUFFER_BIT;
 
-        vkd3d_init_write_descriptor_set(&vk_write[vk_write_count], &d, binding,
-                vk_descriptor_type, &descriptor_info[vk_write_count]);
-        vk_write_count++;
+        if (d3d12_device_uses_descriptor_buffers(device))
+        {
+            get_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT;
+            get_info.pNext = NULL;
+            get_info.type = vk_descriptor_type;
+            get_info.data.pStorageTexelBuffer = &addr_info;
+            addr_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT;
+            addr_info.pNext = NULL;
+            addr_info.address = d.view->info.buffer.va;
+            addr_info.range = d.view->info.buffer.range;
+            addr_info.format = vkd3d_internal_get_vk_format(device, d.view->info.buffer.dxgi_format);
+            /* If we really intended to emit raw buffers, the fallback will be inferred as R32_UINT. */
+            if (addr_info.format == VK_FORMAT_UNDEFINED)
+                addr_info.format = VK_FORMAT_R32_UINT;
+            payload = d3d12_descriptor_heap_get_mapped_payload(d.heap, binding.set, d.offset);
+            VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
+                    device->device_info.descriptor_buffer_properties.robustStorageTexelBufferDescriptorSize,
+                    payload));
+        }
+        else
+        {
+            flags = vkd3d_view_flags_from_d3d12_buffer_uav_flags(desc->Buffer.Flags);
+
+            if (!vkd3d_buffer_view_get_aligned_view(device, resource, desc->Format, flags,
+                    desc->Buffer.FirstElement, desc->Buffer.NumElements,
+                    desc->Buffer.StructureByteStride, &bound_range, &view))
+                return;
+
+            descriptor_info[vk_write_count].buffer_view = view ? view->vk_buffer_view : VK_NULL_HANDLE;
+
+            vkd3d_init_write_descriptor_set(&vk_write[vk_write_count], &d, binding,
+                    vk_descriptor_type, &descriptor_info[vk_write_count]);
+            vk_write_count++;
+        }
     }
 
     if (d.types->flags & VKD3D_DESCRIPTOR_FLAG_BUFFER_OFFSET)
@@ -4792,11 +4927,13 @@ static void vkd3d_create_texture_uav(vkd3d_cpu_descriptor_va_t desc_va,
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     union vkd3d_descriptor_info descriptor_info;
     struct vkd3d_descriptor_binding binding;
+    VkDescriptorGetInfoEXT get_info;
     struct vkd3d_view *view = NULL;
     VkWriteDescriptorSet vk_write;
     struct d3d12_desc_split d;
     struct vkd3d_view_key key;
     uint32_t info_index;
+    void *payload;
 
     if (!resource)
     {
@@ -4880,15 +5017,28 @@ static void vkd3d_create_texture_uav(vkd3d_cpu_descriptor_va_t desc_va,
             VKD3D_DESCRIPTOR_FLAG_SINGLE_DESCRIPTOR;
     d.types->single_binding = binding;
 
-    vkd3d_init_write_descriptor_set(&vk_write, &d, binding,
-            VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, &descriptor_info);
+    if (d3d12_device_uses_descriptor_buffers(device))
+    {
+        get_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT;
+        get_info.pNext = NULL;
+        get_info.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        get_info.data.pSampledImage = &descriptor_info.image;
+        payload = d3d12_descriptor_heap_get_mapped_payload(d.heap, binding.set, d.offset);
+        VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
+                device->device_info.descriptor_buffer_properties.storageImageDescriptorSize,
+                payload));
+    }
+    else
+    {
+        vkd3d_init_write_descriptor_set(&vk_write, &d, binding,
+                VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, &descriptor_info);
+        VK_CALL(vkUpdateDescriptorSets(device->vk_device, 1, &vk_write, 0, NULL));
+    }
 
     vkd3d_descriptor_metadata_view_set_qa_cookie(d.view, view ? view->cookie : 0);
     vkd3d_descriptor_debug_write_descriptor(d.heap->descriptor_heap_info.host_ptr,
             d.heap->cookie, d.offset,
             VKD3D_DESCRIPTOR_QA_TYPE_STORAGE_IMAGE_BIT, d.view->qa_cookie);
-
-    VK_CALL(vkUpdateDescriptorSets(device->vk_device, 1, &vk_write, 0, NULL));
 }
 
 void d3d12_desc_create_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3d12_device *device,
@@ -5166,11 +5316,13 @@ void d3d12_desc_create_sampler(vkd3d_cpu_descriptor_va_t desc_va,
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     union vkd3d_descriptor_info descriptor_info;
     struct vkd3d_descriptor_binding binding;
+    VkDescriptorGetInfoEXT get_info;
     VkWriteDescriptorSet vk_write;
     struct d3d12_desc_split d;
     struct vkd3d_view_key key;
     struct vkd3d_view *view;
     uint32_t info_index;
+    void *payload;
 
     if (!desc)
     {
@@ -5198,18 +5350,31 @@ void d3d12_desc_create_sampler(vkd3d_cpu_descriptor_va_t desc_va,
             VKD3D_DESCRIPTOR_FLAG_SINGLE_DESCRIPTOR;
     d.types->single_binding = binding;
 
-    descriptor_info.image.sampler = view->vk_sampler;
-    descriptor_info.image.imageView = VK_NULL_HANDLE;
-    descriptor_info.image.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (d3d12_device_uses_descriptor_buffers(device))
+    {
+        get_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT;
+        get_info.pNext = NULL;
+        get_info.type = VK_DESCRIPTOR_TYPE_SAMPLER;
+        get_info.data.pSampler = &view->vk_sampler;
+        payload = d3d12_descriptor_heap_get_mapped_payload(d.heap, binding.set, d.offset);
+        VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
+                device->device_info.descriptor_buffer_properties.samplerDescriptorSize,
+                payload));
+    }
+    else
+    {
+        descriptor_info.image.sampler = view->vk_sampler;
+        descriptor_info.image.imageView = VK_NULL_HANDLE;
+        descriptor_info.image.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    vkd3d_init_write_descriptor_set(&vk_write, &d, binding, VK_DESCRIPTOR_TYPE_SAMPLER, &descriptor_info);
+        vkd3d_init_write_descriptor_set(&vk_write, &d, binding, VK_DESCRIPTOR_TYPE_SAMPLER, &descriptor_info);
+        VK_CALL(vkUpdateDescriptorSets(device->vk_device, 1, &vk_write, 0, NULL));
+    }
 
     vkd3d_descriptor_metadata_view_set_qa_cookie(d.view, view->cookie);
     vkd3d_descriptor_debug_write_descriptor(d.heap->descriptor_heap_info.host_ptr,
             d.heap->cookie, d.offset,
             VKD3D_DESCRIPTOR_QA_TYPE_SAMPLER_BIT, d.view->qa_cookie);
-
-    VK_CALL(vkUpdateDescriptorSets(device->vk_device, 1, &vk_write, 0, NULL));
 }
 
 /* RTVs */
