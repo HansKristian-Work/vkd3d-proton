@@ -53,6 +53,7 @@ struct dxgi_vk_swap_chain_present_request
 {
     uint64_t begin_frame_time_ns;
     uint32_t user_index;
+    uint32_t target_min_image_count;
     DXGI_FORMAT dxgi_format;
     DXGI_COLOR_SPACE_TYPE dxgi_color_space_type;
     DXGI_VK_HDR_METADATA dxgi_hdr_metadata;
@@ -728,6 +729,10 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain *if
     request->swap_interval = SyncInterval;
     request->dxgi_format = chain->user.backbuffers[chain->user.index]->desc.Format;
     request->user_index = chain->user.index;
+    /* If we don't have wait thread, BufferCount needs to be tweaked to control latency.
+     * Some games that create BufferCount = 3 swapchains expect us to absorb a lot of latency or we start
+     * starving. If we have waiter thread, we'll block elsewhere. */
+    request->target_min_image_count = chain->wait_thread.active ? 0 : chain->desc.BufferCount + 1;
     request->dxgi_color_space_type = chain->user.dxgi_color_space_type;
     request->dxgi_hdr_metadata = chain->user.dxgi_hdr_metadata;
     request->modifies_hdr_metadata = chain->user.modifies_hdr_metadata;
@@ -1236,8 +1241,11 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
     swapchain_create_info.clipped = VK_TRUE;
 
     /* We don't block directly on Present(), so there's no reason to use more than 3 images if even application requests more.
-     * We could get away with 2 if we used WSI acquire semaphore and async acquire was supported, but e.g. Mesa does not support that. */
-    swapchain_create_info.minImageCount = max(3u, surface_caps.minImageCount);
+     * We could get away with 2 if we used WSI acquire semaphore and async acquire was supported, but e.g. Mesa does not support that.
+     * However, without present-wait, we'll have to inherit quirky behavior from legacy swapchain
+     * and use minImageCount = BufferCount + 1. */
+    swapchain_create_info.minImageCount = max(max(chain->request.target_min_image_count, 3u),
+            surface_caps.minImageCount);
 
     vkd3d_get_env_var("VKD3D_SWAPCHAIN_IMAGES", count_env, sizeof(count_env));
     if (strlen(count_env) > 0)
@@ -1246,6 +1254,9 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
         swapchain_create_info.minImageCount = max(surface_caps.minImageCount, override_image_count);
         INFO("Overriding swapchain images to %u.\n", swapchain_create_info.minImageCount);
     }
+
+    if (surface_caps.maxImageCount && swapchain_create_info.minImageCount > surface_caps.maxImageCount)
+        swapchain_create_info.minImageCount = surface_caps.maxImageCount;
 
     swapchain_create_info.imageExtent = surface_caps.currentExtent;
     swapchain_create_info.imageExtent.width = max(swapchain_create_info.imageExtent.width, surface_caps.minImageExtent.width);
@@ -1263,6 +1274,8 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
 
     chain->present.backbuffer_count = ARRAY_SIZE(chain->present.vk_backbuffer_images);
     VK_CALL(vkGetSwapchainImagesKHR(vk_device, chain->present.vk_swapchain, &chain->present.backbuffer_count, chain->present.vk_backbuffer_images));
+
+    INFO("Got %u swapchain images.\n", chain->present.backbuffer_count);
 
     memset(&view_info, 0, sizeof(view_info));
     view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -1301,6 +1314,7 @@ static bool request_needs_swapchain_recreation(const struct dxgi_vk_swap_chain_p
 {
     return request->dxgi_color_space_type != last_request->dxgi_color_space_type ||
         request->dxgi_format != last_request->dxgi_format ||
+        request->target_min_image_count != last_request->target_min_image_count ||
         (!!request->swap_interval) != (!!last_request->swap_interval);
 }
 
