@@ -1272,6 +1272,7 @@ typedef void (*pfn_vkd3d_host_mapping_copy_template_single)(void * restrict dst,
 struct d3d12_descriptor_heap_set
 {
     VkDescriptorSet vk_descriptor_set;
+    size_t stride;
     void *mapped_set;
     pfn_vkd3d_host_mapping_copy_template copy_template;
     pfn_vkd3d_host_mapping_copy_template_single copy_template_single;
@@ -1376,6 +1377,14 @@ static inline struct d3d12_desc_split d3d12_desc_decode_va(vkd3d_cpu_descriptor_
 static inline uint32_t d3d12_desc_heap_offset_from_gpu_handle(D3D12_GPU_DESCRIPTOR_HANDLE handle)
 {
     return (uint32_t)handle.ptr / VKD3D_RESOURCE_DESC_INCREMENT;
+}
+
+static inline void *d3d12_descriptor_heap_get_mapped_payload(struct d3d12_descriptor_heap *heap,
+        unsigned int set_index, unsigned int desc_index)
+{
+    uint8_t *payload = heap->sets[set_index].mapped_set;
+    payload += desc_index * heap->sets[set_index].stride;
+    return payload;
 }
 
 /* ID3D12QueryHeap */
@@ -3033,13 +3042,14 @@ struct vkd3d_bindless_set_info
     uint32_t set_index;
     uint32_t binding_index;
 
-    /* For VK_VALVE_descriptor_set_host_mapping */
+    /* For VK_EXT_descriptor_buffer (or VK_VALVE_descriptor_set_host_mapping). */
     size_t host_mapping_offset;
     size_t host_mapping_descriptor_size;
     pfn_vkd3d_host_mapping_copy_template host_copy_template;
     pfn_vkd3d_host_mapping_copy_template_single host_copy_template_single;
 
     VkDescriptorSetLayout vk_set_layout;
+    /* Unused for descriptor buffers. */
     VkDescriptorSetLayout vk_host_set_layout;
 };
 

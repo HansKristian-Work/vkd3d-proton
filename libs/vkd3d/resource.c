@@ -5616,6 +5616,146 @@ CONST_VTBL struct ID3D12DescriptorHeapVtbl d3d12_descriptor_heap_vtbl =
     d3d12_descriptor_heap_GetGPUDescriptorHandleForHeapStart,
 };
 
+static HRESULT d3d12_descriptor_heap_create_descriptor_buffer(struct d3d12_descriptor_heap *descriptor_heap)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &descriptor_heap->device->vk_procs;
+    const uint8_t *src_null_payloads[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+    size_t src_null_payload_offsets[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+    size_t src_null_payload_sizes[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+    struct d3d12_device *device = descriptor_heap->device;
+    VkMemoryPropertyFlags property_flags;
+    VkDeviceSize total_alloc_size = 0;
+    VkDeviceSize descriptor_count;
+    unsigned int i, j, set_count;
+    VkBufferUsageFlags usage;
+    VkDeviceSize alloc_size;
+    VkResult vr;
+    HRESULT hr;
+
+    if (descriptor_heap->desc.Type != D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV &&
+            descriptor_heap->desc.Type != D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
+        return S_OK;
+
+    descriptor_count = descriptor_heap->desc.NumDescriptors;
+    if (vkd3d_descriptor_debug_active_qa_checks() &&
+            descriptor_heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+    {
+        descriptor_count += VKD3D_DESCRIPTOR_DEBUG_NUM_PAD_DESCRIPTORS;
+    }
+
+    for (i = 0, set_count = 0; i < device->bindless_state.set_count; i++)
+    {
+        const struct vkd3d_bindless_set_info *set_info = &device->bindless_state.set_info[i];
+        if (set_info->heap_type == descriptor_heap->desc.Type)
+        {
+            /* For VARIABLE_COUNT, the required size needs to be computed based on offset of binding, desired count
+             * and number of descriptors. */
+            alloc_size = set_info->host_mapping_offset;
+            alloc_size += set_info->host_mapping_descriptor_size * descriptor_count;
+
+            /* Align to cache lines to avoid false sharing. */
+            total_alloc_size = align64(total_alloc_size,
+                    max(device->device_info.descriptor_buffer_properties.descriptorBufferOffsetAlignment,
+                            device->device_info.properties2.properties.limits.nonCoherentAtomSize));
+
+            descriptor_heap->descriptor_buffer.offsets[set_count] = total_alloc_size;
+
+            if (set_info->vk_descriptor_type == VK_DESCRIPTOR_TYPE_SAMPLER)
+                src_null_payloads[set_count] = NULL;
+            else
+            {
+                /* Similar rationale as descriptor set implementation, need to pick some descriptor type,
+                 * there is no generic null descriptor. */
+                src_null_payloads[set_count] = vkd3d_bindless_state_get_null_descriptor_payload(
+                        &device->bindless_state,
+                        set_info->vk_descriptor_type == VK_DESCRIPTOR_TYPE_MUTABLE_EXT ?
+                                VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE : set_info->vk_descriptor_type);
+            }
+
+            src_null_payload_sizes[set_count] = set_info->host_mapping_descriptor_size;
+            src_null_payload_offsets[set_count] = set_info->host_mapping_offset + total_alloc_size;
+            total_alloc_size += alloc_size;
+            set_count++;
+        }
+    }
+
+    if (descriptor_heap->desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
+    {
+        usage = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR;
+        if (descriptor_heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+        {
+            usage |= VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT;
+            if (!device->device_info.descriptor_buffer_properties.bufferlessPushDescriptors)
+                usage |= VK_BUFFER_USAGE_PUSH_DESCRIPTORS_DESCRIPTOR_BUFFER_BIT_EXT;
+        }
+        else
+            usage |= VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT;
+
+        if (FAILED(hr = vkd3d_create_buffer_explicit_usage(device, usage, total_alloc_size,
+                &descriptor_heap->descriptor_buffer.vk_buffer)))
+            return hr;
+
+        property_flags = device->memory_info.descriptor_heap_memory_properties;
+
+        if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, descriptor_heap->descriptor_buffer.vk_buffer,
+                property_flags,
+                &descriptor_heap->descriptor_buffer.device_allocation)))
+        {
+            VK_CALL(vkDestroyBuffer(device->vk_device, descriptor_heap->descriptor_buffer.vk_buffer, NULL));
+            descriptor_heap->descriptor_buffer.vk_buffer = VK_NULL_HANDLE;
+            return hr;
+        }
+
+        descriptor_heap->descriptor_buffer.va =
+                vkd3d_get_buffer_device_address(device, descriptor_heap->descriptor_buffer.vk_buffer);
+
+        if ((vr = VK_CALL(vkMapMemory(device->vk_device,
+                descriptor_heap->descriptor_buffer.device_allocation.vk_memory,
+                0, VK_WHOLE_SIZE, 0, (void**)&descriptor_heap->descriptor_buffer.host_allocation))))
+        {
+            ERR("Failed to map descriptor set memory.\n");
+            vkd3d_free_device_memory(device, &descriptor_heap->descriptor_buffer.device_allocation);
+            VK_CALL(vkDestroyBuffer(device->vk_device, descriptor_heap->descriptor_buffer.vk_buffer, NULL));
+            return hresult_from_vk_result(vr);
+        }
+    }
+    else
+    {
+        descriptor_heap->descriptor_buffer.host_allocation = vkd3d_malloc_aligned(total_alloc_size,
+                device->device_info.properties2.properties.limits.nonCoherentAtomSize);
+
+        if (!descriptor_heap->descriptor_buffer.host_allocation)
+        {
+            ERR("Failed to allocate host descriptor buffer.\n");
+            return E_OUTOFMEMORY;
+        }
+    }
+
+    /* Clear all descriptors with NULL descriptors. Ideally we'd just use memset(),
+     * but NULL descriptors might not be all zero in memory sadly. */
+    for (i = 0; i < set_count; i++)
+    {
+        const uint8_t *src;
+        uint8_t *dst;
+        size_t size;
+
+        src = src_null_payloads[i];
+        if (!src)
+            continue;
+
+        dst = descriptor_heap->descriptor_buffer.host_allocation + src_null_payload_offsets[i];
+        size = src_null_payload_sizes[i];
+
+        for (j = 0; j < descriptor_count; j++)
+        {
+            memcpy(dst, src, size);
+            dst += size;
+        }
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d12_descriptor_heap_create_descriptor_pool(struct d3d12_descriptor_heap *descriptor_heap,
         VkDescriptorPool *vk_descriptor_pool)
 {
@@ -5760,12 +5900,21 @@ static void d3d12_descriptor_heap_get_host_mapping(struct d3d12_descriptor_heap 
 
     if (binding->host_copy_template && binding->host_copy_template_single)
     {
-        VK_CALL(vkGetDescriptorSetHostMappingVALVE(descriptor_heap->device->vk_device,
-                descriptor_heap->sets[set_index].vk_descriptor_set, (void**)&mapped_set));
+        if (d3d12_device_uses_descriptor_buffers(descriptor_heap->device))
+        {
+            mapped_set = descriptor_heap->descriptor_buffer.host_allocation +
+                    descriptor_heap->descriptor_buffer.offsets[set_index];
+        }
+        else
+        {
+            VK_CALL(vkGetDescriptorSetHostMappingVALVE(descriptor_heap->device->vk_device,
+                    descriptor_heap->sets[set_index].vk_descriptor_set, (void**)&mapped_set));
+        }
 
         if (mapped_set)
         {
             mapped_set += binding->host_mapping_offset;
+            descriptor_heap->sets[set_index].stride = binding->host_mapping_descriptor_size;
             descriptor_heap->sets[set_index].mapped_set = mapped_set;
             /* Keep a local copy close so we can fetch stuff from same cache line easily. */
             descriptor_heap->sets[set_index].copy_template = binding->host_copy_template;
@@ -5933,7 +6082,19 @@ static void d3d12_descriptor_heap_update_extra_bindings(struct d3d12_descriptor_
     VkWriteDescriptorSet vk_writes[VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS];
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     unsigned int i, binding_index, set_index = 0, write_count = 0;
+    VkDescriptorAddressInfoEXT desc_addr_info;
+    VkDescriptorGetInfoEXT get_info;
+    VkDeviceSize binding_offset;
     uint32_t flags;
+
+    get_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT;
+    get_info.pNext = NULL;
+    get_info.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    get_info.data.pStorageBuffer = &desc_addr_info;
+
+    desc_addr_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT;
+    desc_addr_info.pNext = NULL;
+    desc_addr_info.format = VK_FORMAT_UNDEFINED;
 
     for (i = 0; i < device->bindless_state.set_count; i++)
     {
@@ -5950,6 +6111,18 @@ static void d3d12_descriptor_heap_update_extra_bindings(struct d3d12_descriptor_
             enum vkd3d_bindless_set_flag flag = (enum vkd3d_bindless_set_flag)(flags & -flags);
             VkDescriptorBufferInfo *vk_buffer = &vk_buffer_info[write_count];
             VkWriteDescriptorSet *vk_write = &vk_writes[write_count];
+            uint8_t *host_ptr;
+
+            if (descriptor_heap->descriptor_buffer.host_allocation)
+            {
+                host_ptr = descriptor_heap->descriptor_buffer.host_allocation +
+                        descriptor_heap->descriptor_buffer.offsets[set_index];
+                VK_CALL(vkGetDescriptorSetLayoutBindingOffsetEXT(device->vk_device,
+                        set_info->vk_set_layout, binding_index, &binding_offset));
+                host_ptr += binding_offset;
+            }
+            else
+                host_ptr = NULL;
 
             vk_write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             vk_write->pNext = NULL;
@@ -5987,7 +6160,19 @@ static void d3d12_descriptor_heap_update_extra_bindings(struct d3d12_descriptor_
                     continue;
             }
 
-            write_count += 1;
+            if (host_ptr)
+            {
+                desc_addr_info.address =
+                        vkd3d_get_buffer_device_address(device, vk_buffer->buffer) + vk_buffer->offset;
+                desc_addr_info.range = vk_buffer->range;
+                assert(vk_buffer->range != VK_WHOLE_SIZE);
+                VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
+                        device->device_info.descriptor_buffer_properties.robustStorageBufferDescriptorSize,
+                        host_ptr));
+            }
+            else
+                write_count += 1;
+
             flags -= flag;
         }
 
@@ -6057,9 +6242,17 @@ static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descript
     if (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
         descriptor_heap->gpu_va = d3d12_device_get_descriptor_heap_gpu_va(device);
 
-    if (FAILED(hr = d3d12_descriptor_heap_create_descriptor_pool(descriptor_heap,
-            &descriptor_heap->vk_descriptor_pool)))
-        goto fail;
+    if (d3d12_device_uses_descriptor_buffers(device))
+    {
+        if (FAILED(hr = d3d12_descriptor_heap_create_descriptor_buffer(descriptor_heap)))
+            goto fail;
+    }
+    else
+    {
+        if (FAILED(hr = d3d12_descriptor_heap_create_descriptor_pool(descriptor_heap,
+                &descriptor_heap->vk_descriptor_pool)))
+            goto fail;
+    }
 
     if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV ||
             desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
@@ -6070,9 +6263,12 @@ static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descript
 
             if (set_info->heap_type == desc->Type)
             {
-                if (FAILED(hr = d3d12_descriptor_heap_create_descriptor_set(descriptor_heap,
-                        set_info, &descriptor_heap->sets[set_info->set_index].vk_descriptor_set)))
-                    goto fail;
+                if (!d3d12_device_uses_descriptor_buffers(device))
+                {
+                    if (FAILED(hr = d3d12_descriptor_heap_create_descriptor_set(descriptor_heap,
+                            set_info, &descriptor_heap->sets[set_info->set_index].vk_descriptor_set)))
+                        goto fail;
+                }
 
                 d3d12_descriptor_heap_get_host_mapping(descriptor_heap, set_info, set_info->set_index);
 
@@ -6276,6 +6472,11 @@ void d3d12_descriptor_heap_cleanup(struct d3d12_descriptor_heap *descriptor_heap
     vkd3d_free_device_memory(device, &descriptor_heap->device_allocation);
 
     VK_CALL(vkDestroyDescriptorPool(device->vk_device, descriptor_heap->vk_descriptor_pool, NULL));
+
+    if (!descriptor_heap->descriptor_buffer.device_allocation.vk_memory)
+        vkd3d_free_aligned(descriptor_heap->descriptor_buffer.host_allocation);
+    vkd3d_free_device_memory(device, &descriptor_heap->descriptor_buffer.device_allocation);
+    VK_CALL(vkDestroyBuffer(device->vk_device, descriptor_heap->descriptor_buffer.vk_buffer, NULL));
 
     vkd3d_descriptor_debug_unregister_heap(descriptor_heap->cookie);
 }
