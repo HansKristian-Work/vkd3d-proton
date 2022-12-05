@@ -3006,6 +3006,10 @@ struct vkd3d_bindless_state
     struct vkd3d_bindless_set_info set_info[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
     unsigned int set_count;
     unsigned int cbv_srv_uav_count;
+
+    /* NULL descriptor payloads are not necessarily all zero.
+     * Access the array with vkd3d_bindless_state_get_null_descriptor_payload(). */
+    uint8_t null_descriptor_payloads[6][VKD3D_MAX_DESCRIPTOR_SIZE];
 };
 
 HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
@@ -3032,6 +3036,15 @@ static inline VkDescriptorType vkd3d_bindless_state_get_cbv_descriptor_type(cons
     return bindless_state->flags & VKD3D_BINDLESS_CBV_AS_SSBO
             ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
             : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+}
+
+static inline uint8_t *vkd3d_bindless_state_get_null_descriptor_payload(struct vkd3d_bindless_state *bindless_state,
+        VkDescriptorType type)
+{
+    /* The descriptor types we care about are laid out nicely in enum-space. */
+    int index = type;
+    assert(index >= 2 && index < 8);
+    return bindless_state->null_descriptor_payloads[index - 2];
 }
 
 struct vkd3d_format_compatibility_list
