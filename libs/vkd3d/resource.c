@@ -3948,19 +3948,25 @@ static void d3d12_descriptor_heap_write_null_descriptor_template(vkd3d_cpu_descr
      * so we will need to splat null descriptors over all descriptor sets.
      * For MUTABLE, this would normally just be one descriptor set, but
      * we need MUTABLE + STORAGE_BUFFER, or 6 sets for non-mutable :\ */
+    const struct d3d12_null_descriptor_template *null_descriptor_template;
     VkWriteDescriptorSet writes[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
     const struct vkd3d_vk_device_procs *vk_procs;
+    struct vkd3d_bindless_state *bindless_state;
     struct d3d12_desc_split desc;
     unsigned int num_writes, i;
     unsigned int offset;
     VkDeviceAddress *va;
+    const uint8_t *src;
+    uint8_t *dst;
 
     desc = d3d12_desc_decode_va(desc_va);
+
+    null_descriptor_template = &desc.heap->null_descriptor_template;
 
     /* When mutable descriptors are not supported, set a dummy type.
        This will make those drivers not care about the null type being different between
        null writes. */
-    if (!desc.heap->null_descriptor_template.has_mutable_descriptors)
+    if (!null_descriptor_template->has_mutable_descriptors)
         vk_mutable_descriptor_type = 0;
 
     /* Skip writes with the same null type that are already null. */
@@ -3968,23 +3974,41 @@ static void d3d12_descriptor_heap_write_null_descriptor_template(vkd3d_cpu_descr
             && desc.types->current_null_type == vk_mutable_descriptor_type)
         return;
 
-    num_writes = desc.heap->null_descriptor_template.num_writes;
-    vk_procs = &desc.heap->device->vk_procs;
+    num_writes = null_descriptor_template->num_writes;
     offset = desc.offset;
 
-    for (i = 0; i < num_writes; i++)
+    if (null_descriptor_template->has_descriptor_buffer)
     {
-        writes[i] = desc.heap->null_descriptor_template.writes[i];
-        if (writes[i].descriptorType == VK_DESCRIPTOR_TYPE_MUTABLE_EXT)
-            writes[i].descriptorType = vk_mutable_descriptor_type;
-        writes[i].dstArrayElement = offset;
+        bindless_state = &desc.heap->device->bindless_state;
+
+        for (i = 0; i < num_writes; i++)
+        {
+            dst = desc.heap->sets[i].mapped_set;
+            dst += offset * null_descriptor_template->writes.payloads[i].desc_size;
+            src = null_descriptor_template->writes.payloads[i].src_payload;
+            if (!src)
+                src = vkd3d_bindless_state_get_null_descriptor_payload(bindless_state, vk_mutable_descriptor_type);
+            memcpy(dst, src, null_descriptor_template->writes.payloads[i].desc_size);
+        }
+    }
+    else
+    {
+        vk_procs = &desc.heap->device->vk_procs;
+
+        for (i = 0; i < num_writes; i++)
+        {
+            writes[i] = null_descriptor_template->writes.descriptors.writes[i];
+            if (writes[i].descriptorType == VK_DESCRIPTOR_TYPE_MUTABLE_EXT)
+                writes[i].descriptorType = vk_mutable_descriptor_type;
+            writes[i].dstArrayElement = offset;
+        }
+
+        if (num_writes)
+            VK_CALL(vkUpdateDescriptorSets(desc.heap->device->vk_device, num_writes, writes, 0, NULL));
     }
 
-    if (num_writes)
-        VK_CALL(vkUpdateDescriptorSets(desc.heap->device->vk_device, num_writes, writes, 0, NULL));
-
     desc.types->flags = 0;
-    desc.types->set_info_mask = desc.heap->null_descriptor_template.set_info_mask;
+    desc.types->set_info_mask = null_descriptor_template->set_info_mask;
     desc.types->current_null_type = vk_mutable_descriptor_type;
     memset(desc.view, 0, sizeof(*desc.view));
 
@@ -3993,7 +4017,8 @@ static void d3d12_descriptor_heap_write_null_descriptor_template(vkd3d_cpu_descr
         desc.types->flags |= VKD3D_DESCRIPTOR_FLAG_SINGLE_DESCRIPTOR;
         /* If the template has one descriptor write, this is a single set descriptor heap. */
         desc.types->single_binding.set = 0;
-        desc.types->single_binding.binding = desc.heap->null_descriptor_template.writes[0].dstBinding;
+        /* For descriptor buffer path, the binding is ignored. */
+        desc.types->single_binding.binding = null_descriptor_template->writes.descriptors.writes[0].dstBinding;
     }
 
     va = desc.heap->raw_va_aux_buffer.host_ptr;
@@ -6099,7 +6124,44 @@ static void d3d12_descriptor_heap_update_extra_bindings(struct d3d12_descriptor_
         VK_CALL(vkUpdateDescriptorSets(device->vk_device, write_count, vk_writes, 0, NULL));
 }
 
-static void d3d12_descriptor_heap_add_null_descriptor_template(
+static void d3d12_descriptor_heap_add_null_descriptor_template_buffers(
+        struct d3d12_descriptor_heap *descriptor_heap,
+        const struct vkd3d_bindless_set_info *set_info,
+        unsigned int set_info_index)
+{
+    struct d3d12_null_descriptor_template *null_descriptor_template;
+    unsigned int index;
+
+    null_descriptor_template = &descriptor_heap->null_descriptor_template;
+    index = descriptor_heap->null_descriptor_template.num_writes;
+
+    if (set_info->vk_descriptor_type == VK_DESCRIPTOR_TYPE_MUTABLE_EXT)
+        null_descriptor_template->writes.payloads[index].src_payload = NULL;
+    else
+    {
+        null_descriptor_template->writes.payloads[index].src_payload =
+                vkd3d_bindless_state_get_null_descriptor_payload(
+                        &descriptor_heap->device->bindless_state,
+                        set_info->vk_descriptor_type);
+    }
+
+    null_descriptor_template->writes.payloads[index].dst_base =
+            descriptor_heap->sets[set_info->set_index].mapped_set;
+    null_descriptor_template->writes.payloads[index].desc_size =
+            descriptor_heap->device->bindless_state.set_info[set_info_index].host_mapping_descriptor_size;
+
+    if (index == 0)
+    {
+        null_descriptor_template->has_mutable_descriptors =
+                descriptor_heap->device->device_info.mutable_descriptor_features.mutableDescriptorType;
+        null_descriptor_template->has_descriptor_buffer = true;
+    }
+
+    descriptor_heap->null_descriptor_template.num_writes++;
+    descriptor_heap->null_descriptor_template.set_info_mask |= 1u << set_info_index;
+}
+
+static void d3d12_descriptor_heap_add_null_descriptor_template_descriptors(
         struct d3d12_descriptor_heap *descriptor_heap,
         const struct vkd3d_bindless_set_info *set_info,
         unsigned int set_info_index)
@@ -6109,7 +6171,7 @@ static void d3d12_descriptor_heap_add_null_descriptor_template(
 
     index = descriptor_heap->null_descriptor_template.num_writes;
 
-    write = &descriptor_heap->null_descriptor_template.writes[index];
+    write = &descriptor_heap->null_descriptor_template.writes.descriptors.writes[index];
     write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     write->pNext = NULL;
     write->descriptorCount = 1;
@@ -6122,21 +6184,22 @@ static void d3d12_descriptor_heap_add_null_descriptor_template(
     /* For mutable, will be replaced when instantiating template. */
     write->descriptorType = set_info->vk_descriptor_type;
 
-    write->pBufferInfo = &descriptor_heap->null_descriptor_template.buffer;
-    write->pImageInfo = &descriptor_heap->null_descriptor_template.image;
-    write->pTexelBufferView = &descriptor_heap->null_descriptor_template.buffer_view;
+    write->pBufferInfo = &descriptor_heap->null_descriptor_template.writes.descriptors.buffer;
+    write->pImageInfo = &descriptor_heap->null_descriptor_template.writes.descriptors.image;
+    write->pTexelBufferView = &descriptor_heap->null_descriptor_template.writes.descriptors.buffer_view;
 
     if (index == 0)
     {
-        descriptor_heap->null_descriptor_template.buffer.offset = 0;
-        descriptor_heap->null_descriptor_template.buffer.range = VK_WHOLE_SIZE;
-        descriptor_heap->null_descriptor_template.buffer.buffer = VK_NULL_HANDLE;
-        descriptor_heap->null_descriptor_template.image.sampler = VK_NULL_HANDLE;
-        descriptor_heap->null_descriptor_template.image.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        descriptor_heap->null_descriptor_template.image.imageView = VK_NULL_HANDLE;
-        descriptor_heap->null_descriptor_template.buffer_view = VK_NULL_HANDLE;
+        descriptor_heap->null_descriptor_template.writes.descriptors.buffer.offset = 0;
+        descriptor_heap->null_descriptor_template.writes.descriptors.buffer.range = VK_WHOLE_SIZE;
+        descriptor_heap->null_descriptor_template.writes.descriptors.buffer.buffer = VK_NULL_HANDLE;
+        descriptor_heap->null_descriptor_template.writes.descriptors.image.sampler = VK_NULL_HANDLE;
+        descriptor_heap->null_descriptor_template.writes.descriptors.image.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        descriptor_heap->null_descriptor_template.writes.descriptors.image.imageView = VK_NULL_HANDLE;
+        descriptor_heap->null_descriptor_template.writes.descriptors.buffer_view = VK_NULL_HANDLE;
         descriptor_heap->null_descriptor_template.has_mutable_descriptors =
                 descriptor_heap->device->device_info.mutable_descriptor_features.mutableDescriptorType;
+        descriptor_heap->null_descriptor_template.has_descriptor_buffer = false;
     }
 
     descriptor_heap->null_descriptor_template.num_writes++;
@@ -6189,7 +6252,12 @@ static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descript
                 d3d12_descriptor_heap_get_host_mapping(descriptor_heap, set_info, set_info->set_index);
 
                 if (descriptor_heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
-                    d3d12_descriptor_heap_add_null_descriptor_template(descriptor_heap, set_info, i);
+                {
+                    if (d3d12_device_uses_descriptor_buffers(device))
+                        d3d12_descriptor_heap_add_null_descriptor_template_buffers(descriptor_heap, set_info, i);
+                    else
+                        d3d12_descriptor_heap_add_null_descriptor_template_descriptors(descriptor_heap, set_info, i);
+                }
             }
         }
     }
