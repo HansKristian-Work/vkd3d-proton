@@ -77,6 +77,7 @@ struct dxgi_vk_swap_chain
     vkd3d_native_sync_handle frame_latency_event;
     vkd3d_native_sync_handle frame_latency_event_internal;
     vkd3d_native_sync_handle present_request_done_event;
+    bool outstanding_present_request;
 
     UINT frame_latency;
     VkSurfaceKHR vk_surface;
@@ -253,6 +254,12 @@ static void dxgi_vk_swap_chain_cleanup(struct dxgi_vk_swap_chain *chain)
 
     vkd3d_native_sync_handle_destroy(chain->frame_latency_event);
     vkd3d_native_sync_handle_destroy(chain->frame_latency_event_internal);
+
+    if (chain->outstanding_present_request)
+    {
+        vkd3d_native_sync_handle_acquire(chain->present_request_done_event);
+        chain->outstanding_present_request = false;
+    }
     vkd3d_native_sync_handle_destroy(chain->present_request_done_event);
 
     VK_CALL(vkDestroySemaphore(chain->queue->device->vk_device, chain->present.vk_blit_semaphore, NULL));
@@ -701,6 +708,14 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain *if
     if (PresentFlags & DXGI_PRESENT_TEST)
         return S_OK;
 
+    /* If we missed the event signal last frame, we have to wait for it now.
+     * Otherwise, we end up in a floating state where our waits and thread signals might not stay in sync anymore. */
+    if (chain->outstanding_present_request)
+    {
+        vkd3d_native_sync_handle_acquire(chain->present_request_done_event);
+        chain->outstanding_present_request = false;
+    }
+
     assert(chain->user.index < chain->desc.BufferCount);
 
     /* The present iteration on present thread has a similar counter and it will pick up the request from the ring. */
@@ -738,7 +753,11 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain *if
          * If we're heavily GPU bound, we will generally end up blocking on GPU-completion fences in game code instead.
          * When we are present bound, we will generally always render at > 15 Hz. */
         if (!vkd3d_native_sync_handle_acquire_timeout(chain->present_request_done_event, 80))
+        {
             WARN("Detected excessively slow Present() processing. Potential causes: resize, wait-before-signal.\n");
+            /* Remember to wait for this next present. */
+            chain->outstanding_present_request = true;
+        }
     }
 
     /* For latency debug purposes. Consider a frame to begin when we return from Present() with the next user index set.
