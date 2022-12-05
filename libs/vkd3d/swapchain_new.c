@@ -546,6 +546,9 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_ChangeProperties(IDXGIVkSwap
     /* Waits for any outstanding present event to complete, including the work it takes to blit to screen. */
     dxgi_vk_swap_chain_drain_user_images(chain);
 
+    INFO("Reallocating swapchain (%u x %u), BufferCount = %u.\n",
+            chain->desc.Width, chain->desc.Height, chain->desc.BufferCount);
+
     if (FAILED(hr = dxgi_vk_swap_chain_reallocate_user_buffers(chain)))
     {
         chain->desc = old_desc;
@@ -1890,6 +1893,9 @@ static HRESULT dxgi_vk_swap_chain_init(struct dxgi_vk_swap_chain *chain, IDXGIVk
     chain->refcount = 1;
     chain->queue = queue;
     chain->desc = *pDesc;
+
+    INFO("Creating swapchain (%u x %u), BufferCount = %u.\n",
+            pDesc->Width, pDesc->Height, pDesc->BufferCount);
 
     if (FAILED(hr = dxgi_vk_swap_chain_reallocate_user_buffers(chain)))
         goto err;
