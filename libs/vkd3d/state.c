@@ -1183,9 +1183,15 @@ static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signa
             &root_signature->vk_sampler_descriptor_layout)))
         goto cleanup;
 
-    hr = vkd3d_sampler_state_allocate_descriptor_set(&root_signature->device->sampler_state,
-            root_signature->device, root_signature->vk_sampler_descriptor_layout,
-            &root_signature->vk_sampler_set, &root_signature->vk_sampler_pool);
+    /* With descriptor buffers we can implicitly bind immutable samplers, and no descriptors are necessary. */
+    if (!d3d12_device_uses_descriptor_buffers(root_signature->device))
+    {
+        hr = vkd3d_sampler_state_allocate_descriptor_set(&root_signature->device->sampler_state,
+                root_signature->device, root_signature->vk_sampler_descriptor_layout,
+                &root_signature->vk_sampler_set, &root_signature->vk_sampler_pool);
+    }
+    else
+        hr = S_OK;
 
 cleanup:
     vkd3d_free(vk_binding_info);

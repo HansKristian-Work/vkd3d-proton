@@ -4101,7 +4101,7 @@ static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_l
      * if the new root signature does not use them */
     bindings->dirty_flags = 0;
 
-    if (bindings->static_sampler_set)
+    if (bindings->root_signature->vk_sampler_descriptor_layout)
         bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_STATIC_SAMPLER_SET;
     if (bindings->root_signature->hoist_info.num_desc)
         bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_HOISTED_DESCRIPTORS;
@@ -5273,10 +5273,18 @@ static void d3d12_command_list_update_static_samplers(struct d3d12_command_list 
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
 
-    VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, vk_bind_point,
-            layout,
-            root_signature->sampler_descriptor_set,
-            1, &bindings->static_sampler_set, 0, NULL));
+    if (bindings->static_sampler_set)
+    {
+        VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, vk_bind_point,
+                layout,
+                root_signature->sampler_descriptor_set,
+                1, &bindings->static_sampler_set, 0, NULL));
+    }
+    else if (root_signature->vk_sampler_descriptor_layout)
+    {
+        VK_CALL(vkCmdBindDescriptorBufferEmbeddedSamplersEXT(list->vk_command_buffer, vk_bind_point,
+                layout, root_signature->sampler_descriptor_set));
+    }
 
     bindings->dirty_flags &= ~VKD3D_PIPELINE_DIRTY_STATIC_SAMPLER_SET;
 }
@@ -5589,13 +5597,23 @@ static bool d3d12_command_list_update_raygen_state(struct d3d12_command_list *li
     /* If we have a static sampler set for local root signatures, bind it now.
      * Don't bother with dirty tracking of this for time being.
      * Should be very rare that this path is even hit. */
-    if (list->rt_state->local_static_sampler.desc_set)
+    if (list->rt_state->local_static_sampler.set_layout)
     {
-        VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
-                list->rt_state->local_static_sampler.pipeline_layout,
-                list->rt_state->local_static_sampler.set_index,
-                1, &list->rt_state->local_static_sampler.desc_set,
-                0, NULL));
+        if (list->rt_state->local_static_sampler.desc_set)
+        {
+            VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
+                    list->rt_state->local_static_sampler.pipeline_layout,
+                    list->rt_state->local_static_sampler.set_index,
+                    1, &list->rt_state->local_static_sampler.desc_set,
+                    0, NULL));
+        }
+        else
+        {
+            VK_CALL(vkCmdBindDescriptorBufferEmbeddedSamplersEXT(list->vk_command_buffer,
+                    VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
+                    list->rt_state->local_static_sampler.pipeline_layout,
+                    list->rt_state->local_static_sampler.set_index));
+        }
     }
 
     return true;
@@ -8047,7 +8065,7 @@ static void d3d12_command_list_set_root_signature(struct d3d12_command_list *lis
     bindings->root_signature = root_signature;
     bindings->static_sampler_set = VK_NULL_HANDLE;
 
-    if (root_signature && root_signature->vk_sampler_set)
+    if (root_signature)
         bindings->static_sampler_set = root_signature->vk_sampler_set;
 
     d3d12_command_list_invalidate_root_parameters(list, bindings, true);

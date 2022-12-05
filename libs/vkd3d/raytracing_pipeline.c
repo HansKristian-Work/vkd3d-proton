@@ -1998,10 +1998,14 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
                 return hr;
         }
 
-        if (FAILED(hr = vkd3d_sampler_state_allocate_descriptor_set(&object->device->sampler_state,
-                object->device, object->local_static_sampler.set_layout,
-                &object->local_static_sampler.desc_set, &object->local_static_sampler.desc_pool)))
-            return hr;
+        /* Implicitly allocated and bound if we have descriptor buffer support. */
+        if (!d3d12_device_uses_descriptor_buffers(object->device))
+        {
+            if (FAILED(hr = vkd3d_sampler_state_allocate_descriptor_set(&object->device->sampler_state,
+                    object->device, object->local_static_sampler.set_layout,
+                    &object->local_static_sampler.desc_set, &object->local_static_sampler.desc_pool)))
+                return hr;
+        }
     }
 
     /* If we have collections, we need to make sure that every pipeline layout is compatible.
@@ -2017,6 +2021,7 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
             /* Borrow these handles. */
             object->local_static_sampler.pipeline_layout = child->local_static_sampler.pipeline_layout;
             object->local_static_sampler.desc_set = child->local_static_sampler.desc_set;
+            object->local_static_sampler.set_layout = child->local_static_sampler.set_layout;
             object->local_static_sampler.compatibility_hash = child->local_static_sampler.compatibility_hash;
         }
 
