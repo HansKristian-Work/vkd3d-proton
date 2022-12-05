@@ -4904,16 +4904,20 @@ static inline void vkd3d_descriptor_copy_desc_##bytes##_single(void * restrict d
 { \
     vkd3d_descriptor_copy_desc_##bytes(dst_, src_, dst_index, src_index, 1); \
 }
+VKD3D_DECL_DESCRIPTOR_COPY_SIZE(4)
 VKD3D_DECL_DESCRIPTOR_COPY_SIZE(8)
 VKD3D_DECL_DESCRIPTOR_COPY_SIZE(16)
 VKD3D_DECL_DESCRIPTOR_COPY_SIZE(32)
 VKD3D_DECL_DESCRIPTOR_COPY_SIZE(48)
 VKD3D_DECL_DESCRIPTOR_COPY_SIZE(64)
+VKD3D_DECL_DESCRIPTOR_COPY_SIZE(128)
 
 static pfn_vkd3d_host_mapping_copy_template vkd3d_bindless_find_copy_template(uint32_t descriptor_size)
 {
     switch (descriptor_size)
     {
+        case 4:
+            return vkd3d_descriptor_copy_desc_4;
         case 8:
             return vkd3d_descriptor_copy_desc_8;
         case 16:
@@ -4924,6 +4928,8 @@ static pfn_vkd3d_host_mapping_copy_template vkd3d_bindless_find_copy_template(ui
             return vkd3d_descriptor_copy_desc_48;
         case 64:
             return vkd3d_descriptor_copy_desc_64;
+        case 128:
+            return vkd3d_descriptor_copy_desc_128;
         default:
             break;
     }
@@ -4935,6 +4941,8 @@ static pfn_vkd3d_host_mapping_copy_template_single vkd3d_bindless_find_copy_temp
 {
     switch (descriptor_size)
     {
+        case 4:
+            return vkd3d_descriptor_copy_desc_4_single;
         case 8:
             return vkd3d_descriptor_copy_desc_8_single;
         case 16:
@@ -4945,6 +4953,8 @@ static pfn_vkd3d_host_mapping_copy_template_single vkd3d_bindless_find_copy_temp
             return vkd3d_descriptor_copy_desc_48_single;
         case 64:
             return vkd3d_descriptor_copy_desc_64_single;
+        case 128:
+            return vkd3d_descriptor_copy_desc_128_single;
         default:
             break;
     }
