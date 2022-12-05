@@ -81,6 +81,8 @@ struct dxgi_vk_swap_chain
     bool outstanding_present_request;
 
     UINT frame_latency;
+    UINT frame_latency_internal;
+    bool frame_latency_internal_is_static;
     VkSurfaceKHR vk_surface;
 
     bool debug_latency;
@@ -556,6 +558,26 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_ChangeProperties(IDXGIVkSwap
         return hr;
     }
 
+    /* If BufferCount changes, so does expectations about latency. */
+    if (vkd3d_native_sync_handle_is_valid(chain->frame_latency_event_internal) &&
+            !chain->frame_latency_internal_is_static)
+    {
+        if (chain->desc.BufferCount > chain->frame_latency_internal)
+        {
+            vkd3d_native_sync_handle_release(chain->frame_latency_event_internal,
+                    chain->desc.BufferCount - chain->frame_latency_internal);
+            chain->frame_latency_internal = chain->desc.BufferCount;
+        }
+        else
+        {
+            while (chain->frame_latency_internal > chain->desc.BufferCount)
+            {
+                vkd3d_native_sync_handle_acquire(chain->frame_latency_event_internal);
+                chain->frame_latency_internal--;
+            }
+        }
+    }
+
     if (chain->user.index >= chain->desc.BufferCount)
     {
         /* Need to reset the user index in case the buffer count is lowered.
@@ -893,7 +915,6 @@ static HRESULT dxgi_vk_swap_chain_init_sync_objects(struct dxgi_vk_swap_chain *c
     VkSemaphoreTypeCreateInfoKHR type_info;
     VkFenceCreateInfo fence_create_info;
     VkSemaphoreCreateInfo create_info;
-    uint32_t latency_frames;
     VkResult vr;
     char env[8];
     HRESULT hr;
@@ -905,10 +926,6 @@ static HRESULT dxgi_vk_swap_chain_init_sync_objects(struct dxgi_vk_swap_chain *c
         return hr;
     }
 
-    /* 2 is the reasonable default to use. This latency roughly matches what we have been achieving with 3 swapchain images
-     * in the current implementation. */
-#define DEFAULT_FRAME_LATENCY 2
-    latency_frames = DEFAULT_FRAME_LATENCY;
     if (chain->desc.Flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT)
     {
         INFO("Enabling frame latency handles.\n");
@@ -923,7 +940,9 @@ static HRESULT dxgi_vk_swap_chain_init_sync_objects(struct dxgi_vk_swap_chain *c
     }
     else
     {
-        chain->frame_latency = latency_frames;
+#define DEFAULT_FRAME_LATENCY 3
+        /* 3 frames is the default in the API, so that's what we should report to application if asks. */
+        chain->frame_latency = DEFAULT_FRAME_LATENCY;
     }
 
     if (chain->queue->device->device_info.present_wait_features.presentWait)
@@ -936,17 +955,27 @@ static HRESULT dxgi_vk_swap_chain_init_sync_objects(struct dxgi_vk_swap_chain *c
          * and can cause weird pumping issues in some cases since we're simultaneously syncing
          * against two different timelines. */
         if (vkd3d_get_env_var("VKD3D_SWAPCHAIN_LATENCY_FRAMES", env, sizeof(env)))
-            latency_frames = strtoul(env, NULL, 0);
-
-        if (latency_frames >= 1 && latency_frames < DXGI_MAX_SWAP_CHAIN_BUFFERS)
         {
-            INFO("Ensure maximum latency of %u frames with KHR_present_wait.\n", latency_frames);
+            chain->frame_latency_internal = strtoul(env, NULL, 0);
+            chain->frame_latency_internal_is_static = true;
+        }
+        else
+        {
+            /* If we don't specify an explicit number of latency, we deduce it based
+             * on BufferCount. */
+            chain->frame_latency_internal = chain->desc.BufferCount;
+        }
+
+        if (chain->frame_latency_internal >= 1 && chain->frame_latency_internal < DXGI_MAX_SWAP_CHAIN_BUFFERS)
+        {
+            INFO("Ensure maximum latency of %u frames with KHR_present_wait.\n",
+                    chain->frame_latency_internal);
 
             /* On the first frame, we are supposed to acquire,
              * but we only acquire after a Present, so do the implied one here.
              * We consume a count after Present(), i.e. start of next frame,
              * starting with one less takes care of this. */
-            if (FAILED(hr = vkd3d_native_sync_handle_create(latency_frames - 1,
+            if (FAILED(hr = vkd3d_native_sync_handle_create(chain->frame_latency_internal - 1,
                     VKD3D_NATIVE_SYNC_HANDLE_TYPE_SEMAPHORE, &chain->frame_latency_event_internal)))
             {
                 WARN("Failed to create internal frame latency semaphore, hr %#x.\n", hr);
