@@ -92,6 +92,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_FRAGMENT_SHADER_BARYCENTRIC, KHR_fragment_shader_barycentric),
     VK_EXTENSION(KHR_PRESENT_ID, KHR_present_id),
     VK_EXTENSION(KHR_PRESENT_WAIT, KHR_present_wait),
+    VK_EXTENSION(KHR_SYNCHRONIZATION_2, KHR_synchronization2),
 #ifdef _WIN32
     VK_EXTENSION(KHR_EXTERNAL_MEMORY_WIN32, KHR_external_memory_win32),
     VK_EXTENSION(KHR_EXTERNAL_SEMAPHORE_WIN32, KHR_external_semaphore_win32),
@@ -125,6 +126,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_HDR_METADATA, EXT_hdr_metadata),
     VK_EXTENSION(EXT_PIPELINE_CREATION_CACHE_CONTROL, EXT_pipeline_creation_cache_control),
     VK_EXTENSION(EXT_SHADER_MODULE_IDENTIFIER, EXT_shader_module_identifier),
+    VK_EXTENSION(EXT_DESCRIPTOR_BUFFER, EXT_descriptor_buffer),
     /* AMD extensions */
     VK_EXTENSION(AMD_BUFFER_MARKER, AMD_buffer_marker),
     VK_EXTENSION(AMD_DEVICE_COHERENT_MEMORY, AMD_device_coherent_memory),
@@ -1582,6 +1584,16 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->present_wait_features);
     }
 
+    if (vulkan_info->EXT_descriptor_buffer)
+    {
+        info->descriptor_buffer_features.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_FEATURES_EXT;
+        info->descriptor_buffer_properties.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_PROPERTIES_EXT;
+        vk_prepend_struct(&info->features2, &info->descriptor_buffer_features);
+        vk_prepend_struct(&info->properties2, &info->descriptor_buffer_properties);
+    }
+
     /* Core in Vulkan 1.1. */
     info->shader_draw_parameters_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES;
     vk_prepend_struct(&info->features2, &info->shader_draw_parameters_features);
@@ -2051,6 +2063,7 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     VkPhysicalDeviceAccelerationStructureFeaturesKHR *acceleration_structure;
     VkPhysicalDeviceBufferDeviceAddressFeaturesKHR *buffer_device_address;
     VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing;
+    VkPhysicalDeviceDescriptorBufferFeaturesEXT *descriptor_buffer;
     VkPhysicalDevice physical_device = device->vk_physical_device;
     struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
     VkPhysicalDeviceFeatures *features;
@@ -2092,6 +2105,10 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     buffer_device_address = &physical_device_info->buffer_device_address_features;
     buffer_device_address->bufferDeviceAddressCaptureReplay = VK_FALSE;
     buffer_device_address->bufferDeviceAddressMultiDevice = VK_FALSE;
+
+    descriptor_buffer = &physical_device_info->descriptor_buffer_features;
+    descriptor_buffer->descriptorBufferCaptureReplay = VK_FALSE;
+    descriptor_buffer->descriptorBufferImageLayoutIgnored = VK_FALSE;
 
     descriptor_indexing = &physical_device_info->descriptor_indexing_features;
     descriptor_indexing->shaderInputAttachmentArrayDynamicIndexing = VK_FALSE;
