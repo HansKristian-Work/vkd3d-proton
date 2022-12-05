@@ -4984,6 +4984,67 @@ static pfn_vkd3d_host_mapping_copy_template_single vkd3d_bindless_find_copy_temp
     return NULL;
 }
 
+static uint32_t vkd3d_get_descriptor_size_for_type(struct d3d12_device *device, VkDescriptorType vk_descriptor_type)
+{
+    const VkPhysicalDeviceDescriptorBufferPropertiesEXT *props = &device->device_info.descriptor_buffer_properties;
+    switch (vk_descriptor_type)
+    {
+        case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+            return props->sampledImageDescriptorSize;
+        case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+            return props->storageImageDescriptorSize;
+        case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+            return props->robustUniformBufferDescriptorSize;
+        case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+            return props->robustStorageBufferDescriptorSize;
+        case VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:
+            return props->robustUniformTexelBufferDescriptorSize;
+        case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:
+            return props->robustStorageTexelBufferDescriptorSize;
+        case VK_DESCRIPTOR_TYPE_SAMPLER:
+            return props->samplerDescriptorSize;
+        default:
+            assert(0 && "Invalid descriptor type.");
+            return 0;
+    }
+}
+
+static const void *vk_find_pnext(const void *pnext, VkStructureType sType)
+{
+    const VkBaseInStructure *base_in = pnext;
+    while (base_in && base_in->sType != sType)
+        base_in = base_in->pNext;
+    return base_in;
+}
+
+static uint32_t vkd3d_get_descriptor_size_for_binding(struct d3d12_device *device,
+        const VkDescriptorSetLayoutCreateInfo *set_layout_info, uint32_t binding_index)
+{
+    const VkDescriptorSetLayoutBinding *vk_binding = &set_layout_info->pBindings[binding_index];
+    const VkMutableDescriptorTypeCreateInfoEXT *mutable;
+    const VkMutableDescriptorTypeListEXT *type_list;
+    uint32_t type_size;
+    uint32_t max_size;
+    uint32_t i;
+
+    if (vk_binding->descriptorType != VK_DESCRIPTOR_TYPE_MUTABLE_EXT)
+        max_size = vkd3d_get_descriptor_size_for_type(device, vk_binding->descriptorType);
+    else
+    {
+        mutable = vk_find_pnext(set_layout_info->pNext, VK_STRUCTURE_TYPE_MUTABLE_DESCRIPTOR_TYPE_CREATE_INFO_EXT);
+        type_list = &mutable->pMutableDescriptorTypeLists[binding_index];
+
+        max_size = 0;
+        for (i = 0; i < type_list->descriptorTypeCount; i++)
+        {
+            type_size = vkd3d_get_descriptor_size_for_type(device, type_list->pDescriptorTypes[i]);
+            max_size = max(max_size, type_size);
+        }
+    }
+
+    return max_size;
+}
+
 static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bindless_state,
         struct d3d12_device *device, uint32_t flags, VkDescriptorType vk_descriptor_type)
 {
