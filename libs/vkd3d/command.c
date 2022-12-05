@@ -4761,6 +4761,17 @@ bool d3d12_command_list_reset_query(struct d3d12_command_list *list,
     return true;
 }
 
+static void d3d12_command_list_init_default_descriptor_buffers(struct d3d12_command_list *list)
+{
+    if (d3d12_device_uses_descriptor_buffers(list->device))
+    {
+        list->descriptor_heap.buffers.heap_va_resource = list->device->global_descriptor_buffer.resource.va;
+        list->descriptor_heap.buffers.heap_va_sampler = list->device->global_descriptor_buffer.sampler.va;
+        list->descriptor_heap.buffers.vk_buffer_resource = list->device->global_descriptor_buffer.resource.vk_buffer;
+        list->descriptor_heap.buffers.heap_dirty = true;
+    }
+}
+
 static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
         ID3D12PipelineState *initial_pipeline_state)
 {
@@ -4804,7 +4815,9 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
 
     memset(&list->graphics_bindings, 0, sizeof(list->graphics_bindings));
     memset(&list->compute_bindings, 0, sizeof(list->compute_bindings));
-    memset(list->descriptor_heaps, 0, sizeof(list->descriptor_heaps));
+    memset(&list->descriptor_heap, 0, sizeof(list->descriptor_heap));
+
+    d3d12_command_list_init_default_descriptor_buffers(list);
 
     list->state = NULL;
     list->rt_state = NULL;
@@ -5247,21 +5260,77 @@ static void vk_write_descriptor_set_from_scratch_push_ubo(VkWriteDescriptorSet *
     vk_buffer_info->range = size;
 }
 
+/* This is a big stall on some GPUs so need to track this separately. */
+static void d3d12_command_list_update_descriptor_buffers(struct d3d12_command_list *list)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkDescriptorBufferBindingPushDescriptorBufferHandleEXT buffer_handle;
+    VkDescriptorBufferBindingInfoEXT global_buffers[2];
+
+    if (d3d12_device_uses_descriptor_buffers(list->device) &&
+            list->descriptor_heap.buffers.heap_dirty)
+    {
+        global_buffers[0].sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT;
+        global_buffers[0].pNext = NULL;
+        global_buffers[0].usage = list->device->global_descriptor_buffer.resource.usage;
+        global_buffers[0].address = list->descriptor_heap.buffers.heap_va_resource;
+
+        if (global_buffers[0].usage & VK_BUFFER_USAGE_PUSH_DESCRIPTORS_DESCRIPTOR_BUFFER_BIT_EXT)
+        {
+            global_buffers[0].pNext = &buffer_handle;
+            buffer_handle.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_PUSH_DESCRIPTOR_BUFFER_HANDLE_EXT;
+            buffer_handle.pNext = NULL;
+            buffer_handle.buffer = list->descriptor_heap.buffers.vk_buffer_resource;
+        }
+
+        global_buffers[1].sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT;
+        global_buffers[1].pNext = NULL;
+        global_buffers[1].usage = list->device->global_descriptor_buffer.sampler.usage;
+        global_buffers[1].address = list->descriptor_heap.buffers.heap_va_sampler;
+
+        VK_CALL(vkCmdBindDescriptorBuffersEXT(list->vk_command_buffer,
+                ARRAY_SIZE(global_buffers), global_buffers));
+
+        list->descriptor_heap.buffers.heap_dirty = false;
+    }
+}
+
 static void d3d12_command_list_update_descriptor_heaps(struct d3d12_command_list *list,
         struct vkd3d_pipeline_bindings *bindings, VkPipelineBindPoint vk_bind_point,
         VkPipelineLayout layout)
 {
+    const struct vkd3d_bindless_state *bindless_state = &list->device->bindless_state;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
 
-    while (bindings->descriptor_heap_dirty_mask)
-    {
-        unsigned int heap_index = vkd3d_bitmask_iter64(&bindings->descriptor_heap_dirty_mask);
+    if (!bindings->descriptor_heap_dirty_mask)
+        return;
 
-        if (list->descriptor_heaps[heap_index])
+    if (d3d12_device_uses_descriptor_buffers(list->device))
+    {
+        d3d12_command_list_update_descriptor_buffers(list);
+
+        /* Prefer binding everything in one go. There is no risk of null descriptor sets here. */
+        if (bindings->descriptor_heap_dirty_mask)
         {
-            VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, vk_bind_point,
-                layout, heap_index, 1,
-                &list->descriptor_heaps[heap_index], 0, NULL));
+            VK_CALL(vkCmdSetDescriptorBufferOffsetsEXT(list->vk_command_buffer, vk_bind_point,
+                    layout, 0, bindless_state->set_count,
+                    bindless_state->vk_descriptor_buffer_indices,
+                    list->descriptor_heap.buffers.vk_offsets));
+            bindings->descriptor_heap_dirty_mask = 0;
+        }
+    }
+    else
+    {
+        while (bindings->descriptor_heap_dirty_mask)
+        {
+            unsigned int heap_index = vkd3d_bitmask_iter64(&bindings->descriptor_heap_dirty_mask);
+
+            if (list->descriptor_heap.sets.vk_sets[heap_index])
+            {
+                VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, vk_bind_point,
+                        layout, heap_index, 1,
+                        &list->descriptor_heap.sets.vk_sets[heap_index], 0, NULL));
+            }
         }
     }
 }
@@ -5902,6 +5971,7 @@ static bool d3d12_command_list_emit_predicated_command(struct d3d12_command_list
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
     d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
+    d3d12_command_list_update_descriptor_buffers(list);
 
     args.predicate_va = list->predicate_va;
     args.dst_arg_va = scratch->va;
@@ -6421,6 +6491,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
 
         d3d12_command_list_invalidate_current_pipeline(list, true);
         d3d12_command_list_invalidate_root_parameters(list, &list->graphics_bindings, true);
+        d3d12_command_list_update_descriptor_buffers(list);
 
         memset(&dst_view_desc, 0, sizeof(dst_view_desc));
         dst_view_desc.image = dst_resource->res.vk_image;
@@ -8015,15 +8086,62 @@ static void vkd3d_pipeline_bindings_set_dirty_sets(struct vkd3d_pipeline_binding
     bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_HOISTED_DESCRIPTORS;
 }
 
-static void STDMETHODCALLTYPE d3d12_command_list_SetDescriptorHeaps(d3d12_command_list_iface *iface,
-        UINT heap_count, ID3D12DescriptorHeap *const *heaps)
+static void d3d12_command_list_set_descriptor_heaps_buffers(struct d3d12_command_list *list,
+        unsigned int heap_count, ID3D12DescriptorHeap *const *heaps)
 {
-    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct vkd3d_bindless_state *bindless_state = &list->device->bindless_state;
+    VkDeviceAddress current_resource_va, current_sampler_va;
+    struct d3d12_desc_split d;
+    unsigned int i, j;
+
+    current_resource_va = list->descriptor_heap.buffers.heap_va_resource;
+    current_sampler_va = list->descriptor_heap.buffers.heap_va_sampler;
+
+    for (i = 0; i < heap_count; i++)
+    {
+        struct d3d12_descriptor_heap *heap = impl_from_ID3D12DescriptorHeap(heaps[i]);
+        unsigned int set_index = 0;
+
+        if (!heap)
+            continue;
+
+        if (heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+        {
+            list->descriptor_heap.buffers.heap_va_resource = heap->descriptor_buffer.va;
+            list->descriptor_heap.buffers.vk_buffer_resource = heap->descriptor_buffer.vk_buffer;
+
+            /* In case we need to hoist buffer descriptors. */
+            d = d3d12_desc_decode_va(heap->cpu_va.ptr);
+            list->cbv_srv_uav_descriptors_types = d.types;
+            list->cbv_srv_uav_descriptors_view = d.view;
+        }
+        else if (heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
+        {
+            list->descriptor_heap.buffers.heap_va_sampler = heap->descriptor_buffer.va;
+        }
+
+        for (j = 0; j < bindless_state->set_count; j++)
+            if (bindless_state->set_info[j].heap_type == heap->desc.Type)
+                list->descriptor_heap.buffers.vk_offsets[j] = heap->descriptor_buffer.offsets[set_index++];
+    }
+
+    if (current_resource_va == list->descriptor_heap.buffers.heap_va_resource &&
+            current_sampler_va == list->descriptor_heap.buffers.heap_va_sampler)
+        return;
+
+    list->descriptor_heap.buffers.heap_dirty = true;
+    /* Invalidation is a bit more aggressive for descriptor buffers.
+     * We also need to invalidate any push descriptors. */
+    d3d12_command_list_invalidate_root_parameters(list, &list->graphics_bindings, true);
+    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
+}
+
+static void d3d12_command_list_set_descriptor_heaps_sets(struct d3d12_command_list *list,
+        unsigned int heap_count, ID3D12DescriptorHeap *const *heaps)
+{
     struct vkd3d_bindless_state *bindless_state = &list->device->bindless_state;
     uint64_t dirty_mask = 0;
     unsigned int i, j;
-
-    TRACE("iface %p, heap_count %u, heaps %p.\n", iface, heap_count, heaps);
 
     for (i = 0; i < heap_count; i++)
     {
@@ -8038,7 +8156,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetDescriptorHeaps(d3d12_comman
             if (bindless_state->set_info[j].heap_type != heap->desc.Type)
                 continue;
 
-            list->descriptor_heaps[j] = heap->sets[set_index++].vk_descriptor_set;
+            list->descriptor_heap.sets.vk_sets[j] = heap->sets[set_index++].vk_descriptor_set;
             dirty_mask |= 1ull << j;
         }
 
@@ -8054,6 +8172,19 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetDescriptorHeaps(d3d12_comman
 
     vkd3d_pipeline_bindings_set_dirty_sets(&list->graphics_bindings, dirty_mask);
     vkd3d_pipeline_bindings_set_dirty_sets(&list->compute_bindings, dirty_mask);
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_SetDescriptorHeaps(d3d12_command_list_iface *iface,
+        UINT heap_count, ID3D12DescriptorHeap *const *heaps)
+{
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+
+    TRACE("iface %p, heap_count %u, heaps %p.\n", iface, heap_count, heaps);
+
+    if (d3d12_device_uses_descriptor_buffers(list->device))
+        d3d12_command_list_set_descriptor_heaps_buffers(list, heap_count, heaps);
+    else
+        d3d12_command_list_set_descriptor_heaps_sets(list, heap_count, heaps);
 }
 
 static void d3d12_command_list_set_root_signature(struct d3d12_command_list *list,
@@ -8821,6 +8952,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
     d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
+    d3d12_command_list_update_descriptor_buffers(list);
 
     clear_args.clear_color = *clear_color;
 
@@ -8962,6 +9094,7 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
     d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
+    d3d12_command_list_update_descriptor_buffers(list);
 
     assert(args->has_view);
     assert(d3d12_resource_is_texture(resource));
@@ -9733,6 +9866,7 @@ static void d3d12_command_list_resolve_binary_occlusion_queries(struct d3d12_com
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
     d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
+    d3d12_command_list_update_descriptor_buffers(list);
 
     vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
     vk_barrier.pNext = NULL;
@@ -9826,6 +9960,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
 
     d3d12_command_list_track_query_heap(list, query_heap);
     d3d12_command_list_end_current_render_pass(list, true);
+    d3d12_command_list_update_descriptor_buffers(list);
 
     if (d3d12_query_heap_type_is_inline(query_heap->desc.Type))
     {
@@ -9921,6 +10056,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
          * so setting VK_CONDITIONAL_RENDERING_INVERTED_BIT_EXT is not necessary. */
         d3d12_command_list_invalidate_current_pipeline(list, true);
         d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
+        d3d12_command_list_update_descriptor_buffers(list);
 
         resolve_args.src_va = d3d12_resource_get_va(resource, aligned_buffer_offset);
         resolve_args.dst_va = scratch.va;
