@@ -5403,6 +5403,48 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
     return flags;
 }
 
+static void vkd3d_bindless_state_init_null_descriptor_payloads(struct vkd3d_bindless_state *bindless_state,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkDescriptorGetInfoEXT get_info;
+    uint8_t *payload;
+
+    get_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT;
+    get_info.pNext = NULL;
+    memset(&get_info.data, 0, sizeof(get_info.data));
+
+    get_info.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    payload = vkd3d_bindless_state_get_null_descriptor_payload(bindless_state, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+    VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
+            device->device_info.descriptor_buffer_properties.sampledImageDescriptorSize, payload));
+
+    get_info.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    payload = vkd3d_bindless_state_get_null_descriptor_payload(bindless_state, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+    VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
+            device->device_info.descriptor_buffer_properties.storageImageDescriptorSize, payload));
+
+    get_info.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    payload = vkd3d_bindless_state_get_null_descriptor_payload(bindless_state, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
+            device->device_info.descriptor_buffer_properties.robustUniformBufferDescriptorSize, payload));
+
+    get_info.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    payload = vkd3d_bindless_state_get_null_descriptor_payload(bindless_state, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
+            device->device_info.descriptor_buffer_properties.robustStorageBufferDescriptorSize, payload));
+
+    get_info.type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+    payload = vkd3d_bindless_state_get_null_descriptor_payload(bindless_state, VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER);
+    VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
+            device->device_info.descriptor_buffer_properties.robustUniformTexelBufferDescriptorSize, payload));
+
+    get_info.type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+    payload = vkd3d_bindless_state_get_null_descriptor_payload(bindless_state, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER);
+    VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
+            device->device_info.descriptor_buffer_properties.robustStorageTexelBufferDescriptorSize, payload));
+}
+
 HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
         struct d3d12_device *device)
 {
@@ -5487,6 +5529,9 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
                 VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)))
             goto fail;
     }
+
+    if (d3d12_device_uses_descriptor_buffers(device))
+        vkd3d_bindless_state_init_null_descriptor_payloads(bindless_state, device);
 
     return S_OK;
 
