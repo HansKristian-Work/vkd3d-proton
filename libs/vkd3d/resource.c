@@ -6779,3 +6779,79 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
           info->cpu_accessible_domain.rt_ds_type_mask);
     return S_OK;
 }
+
+HRESULT vkd3d_global_descriptor_buffer_init(struct vkd3d_global_descriptor_buffer *global_descriptor_buffer,
+        struct d3d12_device *device)
+{
+    VkBufferUsageFlags vk_usage_flags;
+    HRESULT hr;
+
+    bool requires_offset_buffer = device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment > 4 &&
+            device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment <= 16;
+
+    /* Don't bother with descriptor buffers if we need to keep offset buffer around. */
+    if (!device->device_info.descriptor_buffer_features.descriptorBuffer ||
+            !device->device_info.descriptor_buffer_features.descriptorBufferPushDescriptors ||
+            requires_offset_buffer)
+        return S_OK;
+
+    vk_usage_flags = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR;
+
+    /* If push descriptors require extra backing storage, we need to let the driver reserve magic push space for it. */
+    if (!device->device_info.descriptor_buffer_properties.bufferlessPushDescriptors)
+        vk_usage_flags |= VK_BUFFER_USAGE_PUSH_DESCRIPTORS_DESCRIPTOR_BUFFER_BIT_EXT;
+
+    /* Creates a default descriptor buffer we can use if the application does not bind anything.
+     * This might happen if a meta shader is used without any prior descriptor heap bound,
+     * and we need to use push descriptors with bufferlessPushDescriptors == VK_FALSE. */
+    if (FAILED(hr = vkd3d_create_buffer_explicit_usage(device, vk_usage_flags,
+            4 * 1024, &global_descriptor_buffer->resource.vk_buffer)))
+    {
+        return hr;
+    }
+
+    if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, global_descriptor_buffer->resource.vk_buffer,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            &global_descriptor_buffer->resource.device_allocation)))
+    {
+        vkd3d_global_descriptor_buffer_cleanup(global_descriptor_buffer, device);
+        return hr;
+    }
+
+    global_descriptor_buffer->resource.va =
+            vkd3d_get_buffer_device_address(device, global_descriptor_buffer->resource.vk_buffer);
+    global_descriptor_buffer->resource.usage = vk_usage_flags;
+
+    vk_usage_flags = VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT |
+            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR;
+    if (FAILED(hr = vkd3d_create_buffer_explicit_usage(device, vk_usage_flags,
+            4 * 1024, &global_descriptor_buffer->sampler.vk_buffer)))
+    {
+        return hr;
+    }
+
+    if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, global_descriptor_buffer->sampler.vk_buffer,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            &global_descriptor_buffer->sampler.device_allocation)))
+    {
+        vkd3d_global_descriptor_buffer_cleanup(global_descriptor_buffer, device);
+        return hr;
+    }
+
+    global_descriptor_buffer->sampler.va =
+            vkd3d_get_buffer_device_address(device, global_descriptor_buffer->sampler.vk_buffer);
+    global_descriptor_buffer->sampler.usage = vk_usage_flags;
+
+    return S_OK;
+}
+
+void vkd3d_global_descriptor_buffer_cleanup(struct vkd3d_global_descriptor_buffer *global_descriptor_buffer,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VK_CALL(vkDestroyBuffer(device->vk_device, global_descriptor_buffer->resource.vk_buffer, NULL));
+    VK_CALL(vkDestroyBuffer(device->vk_device, global_descriptor_buffer->sampler.vk_buffer, NULL));
+    vkd3d_free_device_memory(device, &global_descriptor_buffer->resource.device_allocation);
+    vkd3d_free_device_memory(device, &global_descriptor_buffer->sampler.device_allocation);
+}

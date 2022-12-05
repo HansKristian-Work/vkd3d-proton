@@ -59,6 +59,7 @@
 /* The above plus one push descriptor set + static sampler set + static sampler set for local root signatures. */
 #define VKD3D_MAX_DESCRIPTOR_SETS (VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS + 3u)
 #define VKD3D_MAX_MUTABLE_DESCRIPTOR_TYPES 6u
+#define VKD3D_MAX_DESCRIPTOR_SIZE 128u /* Maximum allowed value in VK_EXT_descriptor_buffer. */
 
 #define VKD3D_TILE_SIZE 65536
 
@@ -2735,6 +2736,22 @@ HRESULT vkd3d_sampler_state_allocate_descriptor_set(struct vkd3d_sampler_state *
 void vkd3d_sampler_state_free_descriptor_set(struct vkd3d_sampler_state *state,
         struct d3d12_device *device, VkDescriptorSet vk_set, VkDescriptorPool vk_pool);
 
+struct vkd3d_global_descriptor_buffer
+{
+    struct
+    {
+        VkBuffer vk_buffer;
+        VkDeviceAddress va;
+        struct vkd3d_device_memory_allocation device_allocation;
+        VkBufferUsageFlags usage;
+    } resource, sampler;
+};
+
+HRESULT vkd3d_global_descriptor_buffer_init(struct vkd3d_global_descriptor_buffer *global_descriptor_buffer,
+        struct d3d12_device *device);
+void vkd3d_global_descriptor_buffer_cleanup(struct vkd3d_global_descriptor_buffer *global_descriptor_buffer,
+        struct d3d12_device *device);
+
 HRESULT vkd3d_shader_debug_ring_init(struct vkd3d_shader_debug_ring *state,
         struct d3d12_device *device);
 void vkd3d_shader_debug_ring_cleanup(struct vkd3d_shader_debug_ring *state,
@@ -3559,6 +3576,7 @@ struct d3d12_device
     struct vkd3d_sampler_state sampler_state;
     struct vkd3d_shader_debug_ring debug_ring;
     struct vkd3d_pipeline_library_disk_cache disk_cache;
+    struct vkd3d_global_descriptor_buffer global_descriptor_buffer;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     struct vkd3d_breadcrumb_tracer breadcrumb_tracer;
 #endif
@@ -3616,6 +3634,11 @@ void d3d12_device_return_query_pool(struct d3d12_device *device, const struct vk
 
 uint64_t d3d12_device_get_descriptor_heap_gpu_va(struct d3d12_device *device);
 void d3d12_device_return_descriptor_heap_gpu_va(struct d3d12_device *device, uint64_t va);
+
+static inline bool d3d12_device_uses_descriptor_buffers(const struct d3d12_device *device)
+{
+    return device->global_descriptor_buffer.resource.va != 0;
+}
 
 static inline bool is_cpu_accessible_heap(const D3D12_HEAP_PROPERTIES *properties)
 {
