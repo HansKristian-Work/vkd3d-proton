@@ -142,6 +142,7 @@ struct vkd3d_vulkan_info
     bool KHR_external_semaphore_win32;
     bool KHR_present_wait;
     bool KHR_present_id;
+    bool KHR_synchronization2;
     /* EXT device extensions */
     bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;
@@ -171,6 +172,7 @@ struct vkd3d_vulkan_info
     bool EXT_hdr_metadata;
     bool EXT_pipeline_creation_cache_control;
     bool EXT_shader_module_identifier;
+    bool EXT_descriptor_buffer;
     /* AMD device extensions */
     bool AMD_buffer_marker;
     bool AMD_device_coherent_memory;
@@ -3373,6 +3375,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceDeviceGeneratedCommandsPropertiesNV device_generated_commands_properties_nv;
     VkPhysicalDeviceMeshShaderPropertiesEXT mesh_shader_properties;
     VkPhysicalDeviceShaderModuleIdentifierPropertiesEXT shader_module_identifier_properties;
+    VkPhysicalDeviceDescriptorBufferPropertiesEXT descriptor_buffer_properties;
 
     VkPhysicalDeviceProperties2KHR properties2;
 
@@ -3422,6 +3425,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceShaderModuleIdentifierFeaturesEXT shader_module_identifier_features;
     VkPhysicalDevicePresentIdFeaturesKHR present_id_features;
     VkPhysicalDevicePresentWaitFeaturesKHR present_wait_features;
+    VkPhysicalDeviceDescriptorBufferFeaturesEXT descriptor_buffer_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
