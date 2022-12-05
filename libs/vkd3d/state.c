@@ -284,7 +284,9 @@ static enum vkd3d_shader_descriptor_type vkd3d_descriptor_type_from_d3d12_root_p
 
 HRESULT vkd3d_create_descriptor_set_layout(struct d3d12_device *device,
         VkDescriptorSetLayoutCreateFlags flags, unsigned int binding_count,
-        const VkDescriptorSetLayoutBinding *bindings, VkDescriptorSetLayout *set_layout)
+        const VkDescriptorSetLayoutBinding *bindings,
+        VkDescriptorSetLayoutCreateFlags descriptor_buffer_flags,
+        VkDescriptorSetLayout *set_layout)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkDescriptorSetLayoutCreateInfo set_desc;
@@ -295,6 +297,9 @@ HRESULT vkd3d_create_descriptor_set_layout(struct d3d12_device *device,
     set_desc.flags = flags;
     set_desc.bindingCount = binding_count;
     set_desc.pBindings = bindings;
+
+    if (d3d12_device_uses_descriptor_buffers(device))
+        set_desc.flags |= descriptor_buffer_flags;
 
     if ((vr = VK_CALL(vkCreateDescriptorSetLayout(device->vk_device, &set_desc, NULL, set_layout))) < 0)
     {
@@ -1091,7 +1096,9 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
     {
         hr = vkd3d_create_descriptor_set_layout(root_signature->device,
                 VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
-                j, vk_binding_info, vk_set_layout);
+                j, vk_binding_info,
+                VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
+                vk_set_layout);
     }
 
     vkd3d_free(vk_binding_info);
@@ -1170,7 +1177,10 @@ static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signa
     }
 
     if (FAILED(hr = vkd3d_create_descriptor_set_layout(root_signature->device, 0,
-            desc->NumStaticSamplers, vk_binding_info, &root_signature->vk_sampler_descriptor_layout)))
+            desc->NumStaticSamplers, vk_binding_info,
+            VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT |
+                    VK_DESCRIPTOR_SET_LAYOUT_CREATE_EMBEDDED_IMMUTABLE_SAMPLERS_BIT_EXT,
+            &root_signature->vk_sampler_descriptor_layout)))
         goto cleanup;
 
     hr = vkd3d_sampler_state_allocate_descriptor_set(&root_signature->device->sampler_state,
@@ -2616,6 +2626,9 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
 
     if (pipeline_info.stage.module == VK_NULL_HANDLE)
         pipeline_info.flags |= VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT_EXT;
+
+    if (d3d12_device_uses_descriptor_buffers(device))
+        pipeline_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
 
     vr = VK_CALL(vkCreateComputePipelines(device->vk_device,
             vk_cache, 1, &pipeline_info, NULL, &state->compute.vk_pipeline));
@@ -4597,6 +4610,9 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     for (i = 0; i < graphics->stage_count; i++)
         if (pipeline_desc.pStages[i].module == VK_NULL_HANDLE)
             pipeline_desc.flags |= VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT_EXT;
+
+    if (d3d12_device_uses_descriptor_buffers(device))
+        pipeline_desc.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
 
     TRACE("Calling vkCreateGraphicsPipelines.\n");
 

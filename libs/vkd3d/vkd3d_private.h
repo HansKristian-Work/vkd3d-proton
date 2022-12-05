@@ -1538,7 +1538,9 @@ VkShaderStageFlags vkd3d_vk_stage_flags_from_visibility(D3D12_SHADER_VISIBILITY 
 enum vkd3d_shader_visibility vkd3d_shader_visibility_from_d3d12(D3D12_SHADER_VISIBILITY visibility);
 HRESULT vkd3d_create_descriptor_set_layout(struct d3d12_device *device,
         VkDescriptorSetLayoutCreateFlags flags, unsigned int binding_count,
-        const VkDescriptorSetLayoutBinding *bindings, VkDescriptorSetLayout *set_layout);
+        const VkDescriptorSetLayoutBinding *bindings,
+        VkDescriptorSetLayoutCreateFlags descriptor_buffer_flags,
+        VkDescriptorSetLayout *set_layout);
 
 static inline const struct d3d12_bind_point_layout *d3d12_root_signature_get_layout(
         const struct d3d12_root_signature *root_signature, enum vkd3d_pipeline_type pipeline_type)
