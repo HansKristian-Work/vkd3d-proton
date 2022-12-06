@@ -51,6 +51,12 @@ static ULONG STDMETHODCALLTYPE d3d12_heap_AddRef(d3d12_heap_iface *iface)
     struct d3d12_heap *heap = impl_from_ID3D12Heap1(iface);
     ULONG refcount = InterlockedIncrement(&heap->refcount);
 
+    if (refcount == 1)
+    {
+        d3d12_device_add_ref(heap->device);
+        d3d12_heap_incref(heap);
+    }
+
     TRACE("%p increasing refcount to %u.\n", heap, refcount);
     return refcount;
 }
@@ -61,7 +67,6 @@ static void d3d12_heap_destroy(struct d3d12_heap *heap)
 
     vkd3d_free_memory(heap->device, &heap->device->memory_allocator, &heap->allocation);
     vkd3d_private_store_destroy(&heap->private_store);
-    d3d12_device_release(heap->device);
     vkd3d_free(heap);
 }
 
@@ -80,7 +85,12 @@ static ULONG STDMETHODCALLTYPE d3d12_heap_Release(d3d12_heap_iface *iface)
     TRACE("%p decreasing refcount to %u.\n", heap, refcount);
 
     if (!refcount)
-        d3d12_heap_destroy(heap);
+    {
+        struct d3d12_device *device = heap->device;
+
+        d3d12_heap_decref(heap);
+        d3d12_device_release(device);
+    }
 
     return refcount;
 }
@@ -143,6 +153,27 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_GetProtectedResourceSession(d3d12_he
     FIXME("iface %p, iid %s, protected_session %p stub!", iface, debugstr_guid(iid), protected_session);
 
     return E_NOTIMPL;
+}
+
+ULONG d3d12_heap_incref(struct d3d12_heap *heap)
+{
+    ULONG refcount = InterlockedIncrement(&heap->internal_refcount);
+
+    TRACE("%p increasing refcount to %u.\n", heap, refcount);
+
+    return refcount;
+}
+
+ULONG d3d12_heap_decref(struct d3d12_heap *heap)
+{
+    ULONG refcount = InterlockedDecrement(&heap->internal_refcount);
+
+    TRACE("%p decreasing refcount to %u.\n", heap, refcount);
+
+    if (!refcount)
+        d3d12_heap_destroy(heap);
+
+    return refcount;
 }
 
 CONST_VTBL struct ID3D12Heap1Vtbl d3d12_heap_vtbl =
@@ -224,6 +255,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap, struct d3d12_device *dev
 
     memset(heap, 0, sizeof(*heap));
     heap->ID3D12Heap_iface.lpVtbl = &d3d12_heap_vtbl;
+    heap->internal_refcount = 1;
     heap->refcount = 1;
     heap->desc = *desc;
     heap->device = device;

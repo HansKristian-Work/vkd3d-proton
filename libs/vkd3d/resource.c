@@ -1453,7 +1453,7 @@ static void d3d12_resource_get_tiling(struct d3d12_device *device, struct d3d12_
 
 static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12_device *device);
 
-static ULONG d3d12_resource_incref(struct d3d12_resource *resource)
+ULONG d3d12_resource_incref(struct d3d12_resource *resource)
 {
     ULONG refcount = InterlockedIncrement(&resource->internal_refcount);
 
@@ -1462,7 +1462,7 @@ static ULONG d3d12_resource_incref(struct d3d12_resource *resource)
     return refcount;
 }
 
-static ULONG d3d12_resource_decref(struct d3d12_resource *resource)
+ULONG d3d12_resource_decref(struct d3d12_resource *resource)
 {
     ULONG refcount = InterlockedDecrement(&resource->internal_refcount);
 
