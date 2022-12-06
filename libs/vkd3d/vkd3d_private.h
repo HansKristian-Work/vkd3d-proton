@@ -815,6 +815,7 @@ typedef ID3D12Heap1 d3d12_heap_iface;
 struct d3d12_heap
 {
     d3d12_heap_iface ID3D12Heap_iface;
+    LONG internal_refcount;
     LONG refcount;
 
     D3D12_HEAP_DESC desc;
@@ -828,6 +829,9 @@ HRESULT d3d12_heap_create(struct d3d12_device *device, const D3D12_HEAP_DESC *de
         void *host_address, struct d3d12_heap **heap);
 HRESULT d3d12_device_validate_custom_heap_type(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties);
+
+ULONG d3d12_heap_incref(struct d3d12_heap *heap);
+ULONG d3d12_heap_decref(struct d3d12_heap *heap);
 
 static inline struct d3d12_heap *impl_from_ID3D12Heap1(ID3D12Heap1 *iface)
 {
@@ -972,6 +976,9 @@ static inline VkImageLayout d3d12_resource_pick_layout(const struct d3d12_resour
     return resource->flags & (VKD3D_RESOURCE_LINEAR_TILING | VKD3D_RESOURCE_SIMULTANEOUS_ACCESS) ?
             resource->common_layout : layout;
 }
+
+ULONG d3d12_resource_incref(struct d3d12_resource *resource);
+ULONG d3d12_resource_decref(struct d3d12_resource *resource);
 
 LONG64 vkd3d_allocate_cookie();
 
