@@ -1189,6 +1189,16 @@ static bool d3d12_device_determine_additional_shading_rates_supported(struct d3d
     return additional_shading_rates_supported == ARRAY_SIZE(additional_shading_rates);
 }
 
+bool d3d12_device_supports_required_subgroup_size_for_stage(
+        struct d3d12_device *device, VkShaderStageFlagBits stage)
+{
+    if (device->device_info.subgroup_size_control_properties.minSubgroupSize ==
+            device->device_info.subgroup_size_control_properties.maxSubgroupSize)
+        return true;
+
+    return (device->device_info.subgroup_size_control_properties.requiredSubgroupSizeStages & stage) != 0;
+}
+
 static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_device_info *info)
 {
     /* A performance workaround for NV.
@@ -6374,6 +6384,7 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
          *   no reason not to require it.
          * - 8-bit integers. Widely supported, even on older targets. Can be emulated if need be.
          * - WaveSize attribute, requiredSubgroupSizeStages + FullSubgroups feature is required.
+         *   If minSize == maxSize, we are trivially guaranteed the desired wave size anyways.
          * - RayPayload attribute (purely metadata in DXIL land, irrelevant for us).
          */
         if (device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_5 &&
@@ -6383,7 +6394,7 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
                 device->device_info.float16_int8_features.shaderInt8 &&
                 device->device_info.subgroup_size_control_features.computeFullSubgroups &&
                 device->device_info.subgroup_size_control_features.subgroupSizeControl &&
-                (device->device_info.subgroup_size_control_properties.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT))
+                d3d12_device_supports_required_subgroup_size_for_stage(device, VK_SHADER_STAGE_COMPUTE_BIT))
         {
             INFO("Enabling support for SM 6.6.\n");
             device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_6;
@@ -6770,9 +6781,10 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
     if (meta->cs_required_wave_size)
     {
         const struct vkd3d_physical_device_info *info = &device->device_info;
+
         if (!info->subgroup_size_control_features.subgroupSizeControl ||
                 !info->subgroup_size_control_features.computeFullSubgroups ||
-                !(info->subgroup_size_control_properties.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT))
+                !d3d12_device_supports_required_subgroup_size_for_stage(device, VK_SHADER_STAGE_COMPUTE_BIT))
         {
             ERR("Required subgroup size control features are not supported for SM 6.6 WaveSize.\n");
             return E_INVALIDARG;

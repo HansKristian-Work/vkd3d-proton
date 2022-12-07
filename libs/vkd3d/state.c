@@ -2344,18 +2344,26 @@ static HRESULT vkd3d_setup_shader_stage(struct d3d12_pipeline_state *state, stru
             {
                 /* [WaveSize(N)] attribute in SM 6.6. */
                 subgroup_size_alignment = spirv_code->meta.cs_required_wave_size;
-                stage_desc->pNext = required_subgroup_size_info;
+
+                /* If min == max, we can still support WaveSize in a dummy kind of way. */
+                if (device->device_info.subgroup_size_control_properties.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT)
+                    stage_desc->pNext = required_subgroup_size_info;
+
                 stage_desc->flags &= ~VK_PIPELINE_SHADER_STAGE_CREATE_ALLOW_VARYING_SUBGROUP_SIZE_BIT_EXT;
             }
             else if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_MINIMUM_SUBGROUP_SIZE) &&
-                    (device->device_info.subgroup_size_control_properties.requiredSubgroupSizeStages & stage))
+                    d3d12_device_supports_required_subgroup_size_for_stage(device, stage))
             {
                 /* GravityMark checks minSubgroupSize and based on that uses a shader variant.
                  * This shader variant unfortunately expects that a subgroup 32 variant will actually use wave32 on AMD.
                  * amdgpu-pro and AMDVLK happens to emit wave32, but RADV will emit wave64 here unless we force it to be wave32.
                  * This is an application bug, since the shader is not guaranteed a specific size, but we can only workaround ... */
                 subgroup_size_alignment = device->device_info.subgroup_size_control_properties.minSubgroupSize;
-                stage_desc->pNext = required_subgroup_size_info;
+
+                /* If min == max, we can still support WaveSize in a dummy kind of way. */
+                if (device->device_info.subgroup_size_control_properties.requiredSubgroupSizeStages & stage)
+                    stage_desc->pNext = required_subgroup_size_info;
+
                 stage_desc->flags &= ~VK_PIPELINE_SHADER_STAGE_CREATE_ALLOW_VARYING_SUBGROUP_SIZE_BIT_EXT;
             }
 
