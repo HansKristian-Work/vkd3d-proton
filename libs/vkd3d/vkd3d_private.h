@@ -3722,6 +3722,8 @@ bool d3d12_device_supports_variable_shading_rate_tier_1(struct d3d12_device *dev
 bool d3d12_device_supports_variable_shading_rate_tier_2(struct d3d12_device *device);
 bool d3d12_device_supports_ray_tracing_tier_1_0(const struct d3d12_device *device);
 UINT d3d12_determine_shading_rate_image_tile_size(struct d3d12_device *device);
+bool d3d12_device_supports_required_subgroup_size_for_stage(
+        struct d3d12_device *device, VkShaderStageFlagBits stage);
 
 /* ID3DBlob */
 struct d3d_blob
