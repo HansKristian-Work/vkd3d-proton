@@ -11431,6 +11431,8 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
     if (!vkd3d_spirv_compile_module(builder, spirv))
         return VKD3D_ERROR;
 
+    vkd3d_shader_extract_feature_meta(spirv);
+
     return VKD3D_OK;
 }
 
@@ -11454,4 +11456,85 @@ void vkd3d_dxbc_compiler_destroy(struct vkd3d_dxbc_compiler *compiler)
     vkd3d_free(compiler->root_descriptor_info);
 
     vkd3d_free(compiler);
+}
+
+void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
+{
+    size_t spirv_words = code->size / sizeof(uint32_t);
+    const uint32_t *spirv = code->code;
+    SpvCapability capability;
+    size_t offset = 5;
+    uint32_t meta = 0;
+
+    while (offset < spirv_words)
+    {
+        unsigned count = (spirv[offset] >> 16) & 0xffff;
+        SpvOp op = spirv[offset] & 0xffff;
+
+        if (count == 0 || offset + count > spirv_words)
+            break;
+
+        if (op == SpvOpCapability && count == 2)
+        {
+            capability = spirv[offset + 1];
+            switch (capability)
+            {
+                case SpvCapabilityShaderViewportIndexLayerEXT:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_SHADER_VIEWPORT_INDEX_LAYER;
+                    break;
+
+                case SpvCapabilitySparseResidency:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_SPARSE_RESIDENCY;
+                    break;
+
+                case SpvCapabilityFragmentFullyCoveredEXT:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_FRAGMENT_FULLY_COVERED;
+                    break;
+
+                case SpvCapabilityInt64:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_INT64;
+                    break;
+
+                case SpvCapabilityStencilExportEXT:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_STENCIL_EXPORT;
+                    break;
+
+                case SpvCapabilityFloat64:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_FP64;
+                    break;
+
+                case SpvCapabilityStorageUniform16:
+                case SpvCapabilityStorageUniformBufferBlock16:
+                case SpvCapabilityStorageInputOutput16:
+                case SpvCapabilityInt16:
+                case SpvCapabilityFloat16:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_NATIVE_16BIT_OPERATIONS;
+                    break;
+
+                case SpvCapabilityInt64Atomics:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_INT64_ATOMICS;
+                    break;
+
+                case SpvCapabilityInt64ImageEXT:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_INT64_ATOMICS_IMAGE;
+                    break;
+
+                case SpvCapabilityFragmentBarycentricKHR:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_FRAGMENT_BARYCENTRIC;
+                    break;
+
+                default:
+                    break;
+            }
+        }
+        else if (op == SpvOpFunction)
+        {
+            /* We're now declaring code, so just stop parsing, there cannot be any capability ops after this. */
+            break;
+        }
+
+        offset += count;
+    }
+
+    code->meta.flags |= meta;
 }
