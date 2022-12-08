@@ -6770,11 +6770,75 @@ out_free_mutex:
 
 bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct vkd3d_shader_meta *meta)
 {
-    /* TODO: Add more as required. */
     if ((meta->flags & VKD3D_SHADER_META_FLAG_USES_NATIVE_16BIT_OPERATIONS) &&
             !device->d3d12_caps.options4.Native16BitShaderOpsSupported)
     {
         WARN("Attempting to use 16-bit operations in shader %016"PRIx64", but this is not supported.", meta->hash);
+        return false;
+    }
+
+    if ((meta->flags & VKD3D_SHADER_META_FLAG_USES_FP64) && !device->d3d12_caps.options.DoublePrecisionFloatShaderOps)
+    {
+        WARN("Attempting to use FP64 operations in shader %016"PRIx64", but this is not supported.", meta->hash);
+        return false;
+    }
+
+    if ((meta->flags & VKD3D_SHADER_META_FLAG_USES_INT64) && !device->d3d12_caps.options1.Int64ShaderOps)
+    {
+        WARN("Attempting to use Int64 operations in shader %016"PRIx64", but this is not supported.", meta->hash);
+        return false;
+    }
+
+    /* This check isn't 100% precise since we cannot distinguish these individual features,
+     * but allow it if one of the 64-bit atomic features is supported. */
+    if ((meta->flags & VKD3D_SHADER_META_FLAG_USES_INT64_ATOMICS) &&
+            !device->d3d12_caps.options9.AtomicInt64OnGroupSharedSupported &&
+            !device->d3d12_caps.options11.AtomicInt64OnDescriptorHeapResourceSupported &&
+            !device->d3d12_caps.options9.AtomicInt64OnTypedResourceSupported)
+    {
+        WARN("Attempting to use Int64Atomic operations in shader %016"PRIx64", but this is not supported.", meta->hash);
+        return false;
+    }
+
+    if ((meta->flags & VKD3D_SHADER_META_FLAG_USES_INT64_ATOMICS_IMAGE) &&
+            !device->device_info.shader_image_atomic_int64_features.shaderImageInt64Atomics)
+    {
+        WARN("Attempting to use typed Int64Atomic operations in shader %016"PRIx64", but this is not supported.", meta->hash);
+        return false;
+    }
+
+    if ((meta->flags & VKD3D_SHADER_META_FLAG_USES_FRAGMENT_BARYCENTRIC) &&
+            !device->d3d12_caps.options3.BarycentricsSupported)
+    {
+        WARN("Attempting to use barycentrics in shader %016"PRIx64", but this is not supported.", meta->hash);
+        return false;
+    }
+
+    if ((meta->flags & VKD3D_SHADER_META_FLAG_USES_STENCIL_EXPORT) &&
+            !device->d3d12_caps.options.PSSpecifiedStencilRefSupported)
+    {
+        WARN("Attempting to use stencil reference in shader %016"PRIx64", but this is not supported.", meta->hash);
+        return false;
+    }
+
+    if ((meta->flags & VKD3D_SHADER_META_FLAG_USES_FRAGMENT_FULLY_COVERED) &&
+            device->d3d12_caps.options.ConservativeRasterizationTier < D3D12_CONSERVATIVE_RASTERIZATION_TIER_3)
+    {
+        WARN("Attempting to use fragment fully covered in shader %016"PRIx64", but this requires conservative raster tier 3.\n", meta->hash);
+        return false;
+    }
+
+    if ((meta->flags & VKD3D_SHADER_META_FLAG_USES_SHADER_VIEWPORT_INDEX_LAYER) &&
+            !device->vk_info.EXT_shader_viewport_index_layer)
+    {
+        WARN("Attempting to use shader viewport index layer in shader %016"PRIx64", but this requires VK_EXT_shader_viewport_index_layer.\n", meta->hash);
+        return false;
+    }
+
+    if ((meta->flags & VKD3D_SHADER_META_FLAG_USES_SPARSE_RESIDENCY) &&
+            device->d3d12_caps.options.TiledResourcesTier < D3D12_TILED_RESOURCES_TIER_2)
+    {
+        WARN("Attempting to use sparse residency query in shader %016"PRIx64", but this requires sparse tier 2.\n", meta->hash);
         return false;
     }
 
