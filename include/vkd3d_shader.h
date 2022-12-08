@@ -61,6 +61,15 @@ enum vkd3d_shader_meta_flags
     VKD3D_SHADER_META_FLAG_REPLACED = 1 << 0,
     VKD3D_SHADER_META_FLAG_USES_SUBGROUP_SIZE = 1 << 1,
     VKD3D_SHADER_META_FLAG_USES_NATIVE_16BIT_OPERATIONS = 1 << 2,
+    VKD3D_SHADER_META_FLAG_USES_FP64 = 1 << 3,
+    VKD3D_SHADER_META_FLAG_USES_INT64 = 1 << 4,
+    VKD3D_SHADER_META_FLAG_USES_STENCIL_EXPORT = 1 << 5,
+    VKD3D_SHADER_META_FLAG_USES_FRAGMENT_FULLY_COVERED = 1 << 6,
+    VKD3D_SHADER_META_FLAG_USES_SHADER_VIEWPORT_INDEX_LAYER = 1 << 7,
+    VKD3D_SHADER_META_FLAG_USES_SPARSE_RESIDENCY = 1 << 8,
+    VKD3D_SHADER_META_FLAG_USES_INT64_ATOMICS = 1 << 9,
+    VKD3D_SHADER_META_FLAG_USES_INT64_ATOMICS_IMAGE = 1 << 10,
+    VKD3D_SHADER_META_FLAG_USES_FRAGMENT_BARYCENTRIC = 1 << 11,
 };
 
 struct vkd3d_shader_meta
@@ -79,6 +88,9 @@ struct vkd3d_shader_code
     size_t size;
     struct vkd3d_shader_meta meta;
 };
+
+/* Scans OpCapabilities. */
+void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code);
 
 vkd3d_shader_hash_t vkd3d_shader_hash(const struct vkd3d_shader_code *shader);
 
