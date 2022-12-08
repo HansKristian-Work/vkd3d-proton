@@ -6787,7 +6787,7 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
                 !d3d12_device_supports_required_subgroup_size_for_stage(device, VK_SHADER_STAGE_COMPUTE_BIT))
         {
             ERR("Required subgroup size control features are not supported for SM 6.6 WaveSize.\n");
-            return E_INVALIDARG;
+            return false;
         }
 
         if (meta->cs_required_wave_size < info->subgroup_size_control_properties.minSubgroupSize ||
@@ -6797,7 +6797,7 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
                     meta->cs_required_wave_size,
                     info->subgroup_size_control_properties.minSubgroupSize,
                     info->subgroup_size_control_properties.maxSubgroupSize);
-            return E_INVALIDARG;
+            return false;
         }
     }
 
