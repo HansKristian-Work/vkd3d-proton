@@ -1235,15 +1235,27 @@ bool d3d12_device_supports_required_subgroup_size_for_stage(
     return (device->device_info.vulkan_1_3_properties.requiredSubgroupSizeStages & stage) != 0;
 }
 
-static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_device_info *info)
+static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_device_info *info,
+        struct d3d12_device *device)
 {
     /* A performance workaround for NV.
      * The 16 byte offset is a lie, as that is only actually required when we
      * use vectorized load-stores. When we emit vectorized load-store ops,
      * the storage buffer must be aligned properly, so this is fine in practice
      * and is a nice speed boost. */
-    if (info->properties2.properties.vendorID == VKD3D_VENDOR_ID_NVIDIA)
+    if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
         info->properties2.properties.limits.minStorageBufferOffsetAlignment = 4;
+
+    /* NV 525.x drivers and 530.x are affected by this bug. Not all users are affected,
+     * but there is no known workaround for this. */
+    if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
+    {
+        WARN("Disabling VK_KHR_present_wait on NV drivers due to spurious failure to create swapchains.\n");
+        device->vk_info.KHR_present_wait = false;
+        device->vk_info.KHR_present_id = false;
+        device->device_info.present_wait_features.presentWait = false;
+        device->device_info.present_id_features.presentId = false;
+    }
 }
 
 static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *info, struct d3d12_device *device)
@@ -2434,7 +2446,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     }
 
     vkd3d_physical_device_info_init(&device->device_info, device);
-    vkd3d_physical_device_info_apply_workarounds(&device->device_info);
+    vkd3d_physical_device_info_apply_workarounds(&device->device_info, device);
 
     if (FAILED(hr = vkd3d_init_device_caps(device, create_info, &device->device_info)))
     {
