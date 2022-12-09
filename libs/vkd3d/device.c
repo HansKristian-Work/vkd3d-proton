@@ -4920,11 +4920,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandSignature(d3d12_devic
 }
 
 static void STDMETHODCALLTYPE d3d12_device_GetResourceTiling(d3d12_device_iface *iface,
-        ID3D12Resource *resource, UINT *tile_count, D3D12_PACKED_MIP_INFO *packed_mip_info,
+        ID3D12Resource *resource_iface, UINT *tile_count, D3D12_PACKED_MIP_INFO *packed_mip_info,
         D3D12_TILE_SHAPE *tile_shape, UINT *tiling_count, UINT first_tiling,
         D3D12_SUBRESOURCE_TILING *tilings)
 {
-    struct d3d12_sparse_info *sparse = &impl_from_ID3D12Resource(resource)->sparse;
+    struct d3d12_resource *resource = impl_from_ID3D12Resource(resource_iface);
+    struct d3d12_sparse_info *sparse = &resource->sparse;
+    const D3D12_RESOURCE_DESC1 *desc = &resource->desc;
+    unsigned int standard_mip_override;
     unsigned int max_tiling_count, i;
 
     TRACE("iface %p, resource %p, tile_count %p, packed_mip_info %p, "
@@ -4932,11 +4935,48 @@ static void STDMETHODCALLTYPE d3d12_device_GetResourceTiling(d3d12_device_iface 
             iface, resource, tile_count, packed_mip_info, tile_shape, tiling_count,
             first_tiling, tilings);
 
+    standard_mip_override = 0;
+
+    /* Attempts to return a standardized layout.
+     * NV and AMD don't agree on when to stop emitting standard mips.
+     * Only do this for textures where a mip level refers to a unique subresource. */
+    if (d3d12_resource_is_texture(resource) &&
+            desc->DepthOrArraySize == 1 &&
+            resource->format->vk_aspect_mask == VK_IMAGE_ASPECT_COLOR_BIT &&
+            sparse->packed_mips.NumStandardMips != desc->MipLevels &&
+            sparse->packed_mips.NumStandardMips != 0)
+    {
+        while (standard_mip_override < sparse->packed_mips.NumStandardMips &&
+                ((desc->Width >> standard_mip_override) & (sparse->tile_shape.WidthInTexels - 1)) == 0 &&
+                ((desc->Height >> standard_mip_override) & (sparse->tile_shape.HeightInTexels - 1)) == 0)
+        {
+            standard_mip_override++;
+        }
+    }
+
+    if (standard_mip_override == 0)
+        standard_mip_override = sparse->packed_mips.NumStandardMips;
+
     if (tile_count)
         *tile_count = sparse->tile_count;
 
     if (packed_mip_info)
-        *packed_mip_info = sparse->packed_mips;
+    {
+        /* This is only safe if there is only one instance of every mip level.
+         * Otherwise, we cannot safely override the miptail begin tile like this. */
+        if (standard_mip_override != sparse->packed_mips.NumStandardMips)
+        {
+            packed_mip_info->StartTileIndexInOverallResource =
+                    sparse->tilings[standard_mip_override].StartTileIndexInOverallResource;
+            packed_mip_info->NumTilesForPackedMips =
+                    sparse->tile_count - packed_mip_info->StartTileIndexInOverallResource;
+
+            packed_mip_info->NumPackedMips = desc->MipLevels - standard_mip_override;
+            packed_mip_info->NumStandardMips = standard_mip_override;
+        }
+        else
+            *packed_mip_info = sparse->packed_mips;
+    }
 
     if (tile_shape)
         *tile_shape = sparse->tile_shape;
@@ -4947,7 +4987,19 @@ static void STDMETHODCALLTYPE d3d12_device_GetResourceTiling(d3d12_device_iface 
         max_tiling_count = min(max_tiling_count, *tiling_count);
 
         for (i = 0; i < max_tiling_count; i++)
+        {
             tilings[i] = sparse->tilings[first_tiling + i];
+
+            /* Pretend this is in the miptail region. */
+            if (standard_mip_override != sparse->packed_mips.NumStandardMips &&
+                    first_tiling + i >= standard_mip_override)
+            {
+                tilings[i].WidthInTiles = 0;
+                tilings[i].HeightInTiles = 0;
+                tilings[i].DepthInTiles = 0;
+                tilings[i].StartTileIndexInOverallResource = ~0u;
+            }
+        }
 
         *tiling_count = max_tiling_count;
     }
