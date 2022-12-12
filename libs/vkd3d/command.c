@@ -3559,11 +3559,134 @@ static VkPipelineStageFlags vk_render_pass_barrier_from_view(struct d3d12_comman
 static void d3d12_command_list_track_resource_usage(struct d3d12_command_list *list,
         struct d3d12_resource *resource, bool perform_initial_transition);
 
+static void d3d12_command_list_update_subresource_data(struct d3d12_command_list *list,
+        struct d3d12_resource *resource, VkImageSubresourceLayers subresource)
+{
+    struct vkd3d_subresource_tracking *entry;
+    VkImageAspectFlags aspect, aspect_mask;
+    uint32_t i;
+    bool skip;
+
+    assert(resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY);
+    aspect_mask = subresource.aspectMask;
+
+    while (aspect_mask)
+    {
+        skip = false;
+
+        aspect = aspect_mask & -aspect_mask;
+        aspect_mask &= aspect_mask - 1;
+
+        for (i = 0; i < list->subresource_tracking_count; )
+        {
+            entry = &list->subresource_tracking[i];
+
+            if (entry->resource == resource && entry->subresource.aspectMask == aspect && entry->subresource.mipLevel == subresource.mipLevel)
+            {
+                if (entry->subresource.baseArrayLayer <= subresource.baseArrayLayer &&
+                        entry->subresource.baseArrayLayer + entry->subresource.layerCount >= subresource.baseArrayLayer + subresource.layerCount)
+                {
+                    skip = true;
+                    break;
+                }
+                else if (entry->subresource.baseArrayLayer <= subresource.baseArrayLayer + subresource.layerCount &&
+                            entry->subresource.baseArrayLayer + entry->subresource.layerCount >= subresource.baseArrayLayer)
+                {
+                    subresource.baseArrayLayer = min(entry->subresource.baseArrayLayer, subresource.baseArrayLayer);
+                    subresource.layerCount = max(entry->subresource.baseArrayLayer + entry->subresource.layerCount,
+                            subresource.baseArrayLayer - subresource.layerCount) - entry->subresource.baseArrayLayer;
+                    *entry = list->subresource_tracking[--list->subresource_tracking_count];
+                    continue;
+                }
+            }
+
+            i++;
+        }
+
+        if (skip)
+            continue;
+
+        if (!vkd3d_array_reserve((void **)&list->subresource_tracking, &list->subresource_tracking_size,
+                list->subresource_tracking_count + 1, sizeof(*list->subresource_tracking)))
+        {
+            ERR("Failed to add subresource update.\n");
+            return;
+        }
+
+        entry = &list->subresource_tracking[list->subresource_tracking_count++];
+        entry->resource = resource;
+        entry->subresource = subresource;
+        entry->subresource.aspectMask = aspect;
+    }
+}
+
+static void d3d12_command_list_flush_subresource_updates(struct d3d12_command_list *list)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct vkd3d_format_footprint footprint;
+    VkCopyImageToBufferInfo2 copy_info;
+    VkBufferImageCopy2 copy_region;
+    VkMemoryBarrier barrier;
+    uint32_t i, plane_idx;
+
+    if (!list->subresource_tracking_count)
+        return;
+
+    /* Images may not be in COMMON state anymore by the time the subresource
+     * updates get resolved, however we should still perform the update. Emit
+     * a full barrier to reduce the amount of tracking needed. */
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    barrier.pNext = NULL;
+    barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, 1, &barrier, 0, NULL, 0, NULL));
+
+    for (i = 0; i < list->subresource_tracking_count; i++)
+    {
+        const struct vkd3d_subresource_tracking *entry = &list->subresource_tracking[i];
+
+        /* Entries will only ever have one aspect set, so this is fine */
+        plane_idx = d3d12_plane_index_from_vk_aspect((VkImageAspectFlagBits)entry->subresource.aspectMask);
+        footprint = vkd3d_format_footprint_for_plane(entry->resource->format, plane_idx);
+
+        memset(&copy_region, 0, sizeof(copy_region));
+        copy_region.sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2;
+        /* TODO change to mem once the implementation is complete */
+        copy_region.bufferOffset = entry->resource->private_mem.offset;
+        copy_region.imageSubresource = entry->subresource;
+        copy_region.imageExtent.width = max(1u, d3d12_resource_desc_get_width(&entry->resource->desc, entry->subresource.mipLevel) >> footprint.subsample_x_log2);
+        copy_region.imageExtent.height = max(1u, d3d12_resource_desc_get_height(&entry->resource->desc, entry->subresource.mipLevel) >> footprint.subsample_y_log2);
+        copy_region.imageExtent.depth = d3d12_resource_desc_get_depth(&entry->resource->desc, entry->subresource.mipLevel);
+
+        memset(&copy_info, 0, sizeof(copy_info));
+        copy_info.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_BUFFER_INFO_2;
+        copy_info.srcImage = entry->resource->res.vk_image;
+        copy_info.srcImageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        /* TODO change to mem once the implementation is complete */
+        copy_info.dstBuffer = entry->resource->private_mem.resource.vk_buffer;
+        copy_info.regionCount = 1;
+        copy_info.pRegions = &copy_region;
+
+        VK_CALL(vkCmdCopyImageToBuffer2KHR(list->vk_command_buffer, &copy_info));
+    }
+
+    list->subresource_tracking_count = 0;
+
+    /* Do not emit another barrier here, let the caller handle that as
+     * necessary. If this is used at the end of a command buffer, no
+     * barrier is necessary as submissions will emit a host barrier. */
+}
+
 static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_list *list,
         enum vkd3d_render_pass_transition_mode mode)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkImageMemoryBarrier vk_image_barriers[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 2];
+    VkImageSubresourceLayers vk_subresource_layers;
     VkPipelineStageFlags stage_mask = 0;
     VkPipelineStageFlags new_stages;
     struct d3d12_rtv_desc *dsv;
@@ -3577,7 +3700,19 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
             continue;
 
         if (mode == VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN)
+        {
             d3d12_command_list_track_resource_usage(list, rtv->resource, true);
+
+            if (rtv->resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
+            {
+                vk_subresource_layers.aspectMask = rtv->format->vk_aspect_mask;
+                vk_subresource_layers.mipLevel = rtv->view->info.texture.miplevel_idx;
+                vk_subresource_layers.baseArrayLayer = rtv->view->info.texture.layer_idx;
+                vk_subresource_layers.layerCount = rtv->view->info.texture.layer_count;
+
+                d3d12_command_list_update_subresource_data(list, rtv->resource, vk_subresource_layers);
+            }
+        }
 
         if ((new_stages = vk_render_pass_barrier_from_view(list, rtv->view, rtv->resource,
                 mode, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, &vk_image_barriers[j])))
@@ -4520,6 +4655,7 @@ ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_iface *ifa
         vkd3d_free(list->active_queries);
         vkd3d_free(list->pending_queries);
         vkd3d_free(list->dsv_resource_tracking);
+        vkd3d_free(list->subresource_tracking);
         vkd3d_free_aligned(list);
 
         d3d12_device_release(device);
@@ -4665,6 +4801,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
 
     /* If we have some pending copy barriers, need to resolve those now, since we cannot track across command lists. */
     d3d12_command_list_resolve_buffer_copy_writes(list);
+
+    /* If there are pending subresource updates, execute them now that all other operations have completed */
+    d3d12_command_list_flush_subresource_updates(list);
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
@@ -4940,6 +5079,7 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     list->active_queries_count = 0;
     list->pending_queries_count = 0;
     list->dsv_resource_tracking_count = 0;
+    list->subresource_tracking_count = 0;
     list->tracked_copy_buffer_count = 0;
 
     list->rendering_info.state_flags = 0;
@@ -6713,6 +6853,9 @@ cleanup:
             src_stages | dst_stages, VK_PIPELINE_STAGE_TRANSFER_BIT,
             0, 0, NULL, 0, NULL, overlapping_subresource ? 1 : ARRAY_SIZE(vk_image_barriers),
             vk_image_barriers));
+
+    if (dst_resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
+        d3d12_command_list_update_subresource_data(list, dst_resource, region->dstSubresource);
 }
 
 static bool validate_d3d12_box(const D3D12_BOX *box)
@@ -6976,6 +7119,9 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
                 &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT,
                 VK_ACCESS_TRANSFER_WRITE_BIT, info->dst_layout, VK_PIPELINE_STAGE_TRANSFER_BIT,
                 0, dst_resource->common_layout);
+
+        if (dst_resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
+            d3d12_command_list_update_subresource_data(list, dst_resource, info->copy.buffer_image.imageSubresource);
     }
     else if (info->batch_type == VKD3D_BATCH_TYPE_COPY_IMAGE)
     {
@@ -7459,6 +7605,9 @@ static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *li
     VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
             VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
             0, 0, NULL, 0, NULL, ARRAY_SIZE(vk_image_barriers), vk_image_barriers));
+
+    if (dst_resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
+        d3d12_command_list_update_subresource_data(list, dst_resource, resolve->dstSubresource);
 
     VKD3D_BREADCRUMB_COMMAND(RESOLVE);
 }
@@ -7945,8 +8094,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_command_list_barrier_batch batch;
     bool have_split_barriers = false;
-
-    unsigned int i;
+    unsigned int i, j;
 
     TRACE("iface %p, barrier_count %u, barriers %p.\n", iface, barrier_count, barriers);
 
@@ -8002,6 +8150,35 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                 {
                     d3d12_command_list_mark_as_invalid(list, "A resource pointer is NULL.");
                     continue;
+                }
+
+                /* If the resource is a host-visible image and has been used as a UAV, schedule a
+                 * subresource update since we cannot know when it is being written in a shader. */
+                if (transition->StateBefore == D3D12_RESOURCE_STATE_UNORDERED_ACCESS &&
+                        (preserve_resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY))
+                {
+                    VkImageSubresourceLayers vk_subresource_layers;
+                    VkImageSubresource vk_subresource;
+
+                    if (transition->Subresource == D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES)
+                    {
+                        vk_subresource_layers.aspectMask = preserve_resource->format->vk_aspect_mask;
+                        vk_subresource_layers.baseArrayLayer = 0;
+                        vk_subresource_layers.layerCount = d3d12_resource_desc_get_layer_count(&preserve_resource->desc);
+
+                        for (j = 0; j < preserve_resource->desc.MipLevels; j++)
+                        {
+                            vk_subresource_layers.mipLevel = j;
+                            d3d12_command_list_update_subresource_data(list, preserve_resource, vk_subresource_layers);
+                        }
+                    }
+                    else
+                    {
+                        vk_subresource = d3d12_resource_get_vk_subresource(preserve_resource, transition->Subresource, false);
+                        vk_subresource_layers = vk_subresource_layers_from_subresource(&vk_subresource);
+                        vk_subresource.aspectMask = preserve_resource->format->vk_aspect_mask;
+                        d3d12_command_list_update_subresource_data(list, preserve_resource, vk_subresource_layers);
+                    }
                 }
 
                 /* If we're going to do transfer barriers and we have
@@ -8135,6 +8312,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                     batch.dst_stage_mask |= VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
                     batch.vk_memory_barrier.srcAccessMask |= alias_src_access;
                     batch.vk_memory_barrier.dstAccessMask |= alias_dst_access;
+
+                    /* Update staging copies of aliased images before the current barrier batch gets submitted */
+                    d3d12_command_list_flush_subresource_updates(list);
                 }
                 break;
             }
@@ -8901,6 +9081,7 @@ static void d3d12_command_list_clear_attachment(struct d3d12_command_list *list,
         struct vkd3d_view *view, VkImageAspectFlags clear_aspects, const VkClearValue *clear_value, UINT rect_count,
         const D3D12_RECT *rects)
 {
+    VkImageSubresourceLayers vk_subresource_layers;
     bool full_clear, writable = true;
     bool full_resource_clear;
     D3D12_RECT full_rect;
@@ -8944,6 +9125,16 @@ static void d3d12_command_list_clear_attachment(struct d3d12_command_list *list,
         d3d12_command_list_clear_attachment_inline(list, resource, view,
                 attachment_idx, clear_aspects, clear_value,
                 rect_count, rects);
+    }
+
+    if (resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
+    {
+        vk_subresource_layers.aspectMask = clear_aspects;
+        vk_subresource_layers.mipLevel = view->info.texture.miplevel_idx;
+        vk_subresource_layers.baseArrayLayer = view->info.texture.layer_idx;
+        vk_subresource_layers.layerCount = view->info.texture.layer_count;
+
+        d3d12_command_list_update_subresource_data(list, resource, vk_subresource_layers);
     }
 }
 

@@ -1013,6 +1013,7 @@ VkImageSubresource vk_image_subresource_from_d3d12(
         const struct vkd3d_format *format, uint32_t subresource_idx,
         unsigned int miplevel_count, unsigned int layer_count,
         bool all_aspects);
+UINT d3d12_plane_index_from_vk_aspect(VkImageAspectFlagBits aspect);
 
 HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12_RESOURCE_DESC1 *desc,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, D3D12_RESOURCE_STATES initial_state,
@@ -2289,6 +2290,12 @@ struct d3d12_resource_tracking
     uint32_t plane_optimal_mask;
 };
 
+struct vkd3d_subresource_tracking
+{
+    struct d3d12_resource *resource;
+    VkImageSubresourceLayers subresource;
+};
+
 #define VKD3D_BUFFER_COPY_TRACKING_BUFFER_COUNT 4
 struct d3d12_buffer_copy_tracked_buffer
 {
@@ -2446,6 +2453,10 @@ struct d3d12_command_list
     struct d3d12_resource_tracking *dsv_resource_tracking;
     size_t dsv_resource_tracking_count;
     size_t dsv_resource_tracking_size;
+
+    struct vkd3d_subresource_tracking *subresource_tracking;
+    size_t subresource_tracking_count;
+    size_t subresource_tracking_size;
 
     struct d3d12_buffer_copy_tracked_buffer tracked_copy_buffers[VKD3D_BUFFER_COPY_TRACKING_BUFFER_COUNT];
     unsigned int tracked_copy_buffer_count;

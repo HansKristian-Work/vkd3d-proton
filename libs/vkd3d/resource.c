@@ -2078,6 +2078,28 @@ VkImageSubresource vk_image_subresource_from_d3d12(
     return subresource;
 }
 
+UINT d3d12_plane_index_from_vk_aspect(VkImageAspectFlagBits aspect)
+{
+    switch (aspect)
+    {
+        case VK_IMAGE_ASPECT_COLOR_BIT:
+        case VK_IMAGE_ASPECT_DEPTH_BIT:
+        case VK_IMAGE_ASPECT_PLANE_0_BIT:
+            return 0;
+
+        case VK_IMAGE_ASPECT_STENCIL_BIT:
+        case VK_IMAGE_ASPECT_PLANE_1_BIT:
+            return 1;
+
+        case VK_IMAGE_ASPECT_PLANE_2_BIT:
+            return 2;
+
+        default:
+            WARN("Unsupported image aspect: %u.\n", aspect);
+            return 0;
+    }
+}
+
 VkImageSubresource d3d12_resource_get_vk_subresource(const struct d3d12_resource *resource,
         uint32_t subresource_idx, bool all_aspects)
 {
