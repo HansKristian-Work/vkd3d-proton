@@ -3655,19 +3655,17 @@ static void d3d12_command_list_flush_subresource_updates(struct d3d12_command_li
 
         memset(&copy_region, 0, sizeof(copy_region));
         copy_region.sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2;
-        /* TODO change to mem once the implementation is complete */
-        copy_region.bufferOffset = entry->resource->private_mem.offset;
+        copy_region.bufferOffset = entry->resource->mem.offset;
         copy_region.imageSubresource = entry->subresource;
-        copy_region.imageExtent.width = max(1u, d3d12_resource_desc_get_width(&entry->resource->desc, entry->subresource.mipLevel) >> footprint.subsample_x_log2);
-        copy_region.imageExtent.height = max(1u, d3d12_resource_desc_get_height(&entry->resource->desc, entry->subresource.mipLevel) >> footprint.subsample_y_log2);
+        copy_region.imageExtent.width = d3d12_resource_desc_get_width(&entry->resource->desc, entry->subresource.mipLevel + footprint.subsample_x_log2);
+        copy_region.imageExtent.height = d3d12_resource_desc_get_height(&entry->resource->desc, entry->subresource.mipLevel + footprint.subsample_y_log2);
         copy_region.imageExtent.depth = d3d12_resource_desc_get_depth(&entry->resource->desc, entry->subresource.mipLevel);
 
         memset(&copy_info, 0, sizeof(copy_info));
         copy_info.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_BUFFER_INFO_2;
         copy_info.srcImage = entry->resource->res.vk_image;
         copy_info.srcImageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        /* TODO change to mem once the implementation is complete */
-        copy_info.dstBuffer = entry->resource->private_mem.resource.vk_buffer;
+        copy_info.dstBuffer = entry->resource->mem.resource.vk_buffer;
         copy_info.regionCount = 1;
         copy_info.pRegions = &copy_region;
 
