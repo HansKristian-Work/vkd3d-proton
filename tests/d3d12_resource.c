@@ -2317,7 +2317,6 @@ void test_read_write_subresource(void)
     ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
     hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, NULL);
-    todo_if(is_nvidia_device(device))
     ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
     /* Empty box */
@@ -2388,14 +2387,12 @@ void test_read_write_subresource(void)
         /* Read region 1 */
         set_box(&box, 0, 0, 0, 2, 2, 2);
         hr = ID3D12Resource_ReadFromSubresource(src_texture, dst_buffer, row_pitch, slice_pitch, 0, &box);
-        todo_if(is_nvidia_device(device))
         ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
         /* Read region 2 */
         set_box(&box, 2, 2, 2, 11, 13, 17);
         hr = ID3D12Resource_ReadFromSubresource(src_texture, &dst_buffer[2 * 128 * 100 + 2 * 128 + 2], row_pitch,
                 slice_pitch, 0, &box);
-        todo_if(is_nvidia_device(device))
         ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
         for (z = 0; z < 64; ++z)
@@ -2421,7 +2418,6 @@ void test_read_write_subresource(void)
             if (got != expected)
                 break;
         }
-        todo_if(is_nvidia_device(device))
         ok(got == expected, "Got unexpected value 0x%08x at (%u, %u, %u), expected 0x%08x.\n", got, x, y, z, expected);
     }
     vkd3d_test_set_context(NULL);
@@ -3079,7 +3075,6 @@ void test_map_texture_validation(void)
     D3D12_HEAP_PROPERTIES heap_props;
     struct test_context context;
     D3D12_HEAP_DESC heap_desc;
-    bool todo_host_visible_rt;
     D3D12_RESOURCE_DESC desc;
     ID3D12Resource *resource;
     ID3D12Device *device;
@@ -3279,9 +3274,7 @@ void test_map_texture_validation(void)
             hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void**)&heap);
 
             /* We cannot successfully create host visible linear RT on all implementations. */
-            todo_host_visible_rt = !(heap_desc.Flags & D3D12_HEAP_FLAG_DENY_RT_DS_TEXTURES) &&
-                    heap_desc.Properties.CPUPageProperty != D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE;
-            todo_if(tests[i].is_todo || todo_host_visible_rt)
+            todo_if(tests[i].is_todo)
             ok(hr == tests[i].heap_creation_hr, "Unexpected hr %#x.\n", hr);
 
             if (SUCCEEDED(hr))
