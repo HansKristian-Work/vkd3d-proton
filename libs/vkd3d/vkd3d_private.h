@@ -874,10 +874,9 @@ enum vkd3d_resource_flag
     VKD3D_RESOURCE_RESERVED               = (1u << 2),
     VKD3D_RESOURCE_ALLOCATION             = (1u << 3),
     VKD3D_RESOURCE_LINEAR_STAGING_COPY    = (1u << 4),
-    VKD3D_RESOURCE_LINEAR_TILING          = (1u << 5),
-    VKD3D_RESOURCE_EXTERNAL               = (1u << 6),
-    VKD3D_RESOURCE_ACCELERATION_STRUCTURE = (1u << 7),
-    VKD3D_RESOURCE_SIMULTANEOUS_ACCESS    = (1u << 8),
+    VKD3D_RESOURCE_EXTERNAL               = (1u << 5),
+    VKD3D_RESOURCE_ACCELERATION_STRUCTURE = (1u << 6),
+    VKD3D_RESOURCE_SIMULTANEOUS_ACCESS    = (1u << 7),
 };
 
 struct d3d12_sparse_image_region
