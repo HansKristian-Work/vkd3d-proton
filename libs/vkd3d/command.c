@@ -742,11 +742,43 @@ static void d3d12_fence_dec_ref(struct d3d12_fence *fence)
     }
 }
 
+static HRESULT vkd3d_waiting_event_signal(const struct vkd3d_waiting_event *event)
+{
+    bool do_signal = false;
+    HRESULT hr;
+
+    switch (event->wait_type)
+    {
+        case VKD3D_WAITING_EVENT_SINGLE:
+            do_signal = true;
+            break;
+
+        default:
+            ERR("Unhandled wait type %u.\n", event->wait_type);
+            return E_INVALIDARG;
+    }
+
+    if (!do_signal)
+        return S_FALSE;
+
+    if (!vkd3d_native_sync_handle_is_valid(event->handle))
+    {
+        *event->latch = true;
+        return S_OK;
+    }
+
+    hr = vkd3d_native_sync_handle_signal(event->handle);
+
+    if (FAILED(hr))
+        ERR("Failed to signal event, hr #%x.\n", hr);
+
+    return hr;
+}
+
 static void d3d12_fence_signal_external_events_locked(struct d3d12_fence *fence)
 {
     bool signal_null_event_cond = false;
     unsigned int i, j;
-    HRESULT hr;
 
     for (i = 0, j = 0; i < fence->event_count; ++i)
     {
@@ -754,16 +786,10 @@ static void d3d12_fence_signal_external_events_locked(struct d3d12_fence *fence)
 
         if (current->value <= fence->virtual_value)
         {
-            if (vkd3d_native_sync_handle_is_valid(current->handle))
-            {
-                if (FAILED(hr = vkd3d_native_sync_handle_signal(current->handle)))
-                    ERR("Failed to signal event, hr #%x.\n", hr);
-            }
-            else
-            {
-                *current->latch = true;
+            vkd3d_waiting_event_signal(current);
+
+            if (!vkd3d_native_sync_handle_is_valid(current->handle))
                 signal_null_event_cond = true;
-            }
         }
         else
         {
@@ -1058,9 +1084,10 @@ static UINT64 STDMETHODCALLTYPE d3d12_fence_GetCompletedValue(d3d12_fence_iface 
     return completed_value;
 }
 
-HRESULT d3d12_fence_set_native_sync_handle_on_completion(struct d3d12_fence *fence,
-        UINT64 value, vkd3d_native_sync_handle handle)
+static HRESULT d3d12_fence_set_native_sync_handle_on_completion_explicit(struct d3d12_fence *fence,
+        enum vkd3d_waiting_event_type wait_type, UINT64 value, vkd3d_native_sync_handle handle)
 {
+    struct vkd3d_waiting_event event;
     unsigned int i;
     HRESULT hr;
     bool latch;
@@ -1072,32 +1099,31 @@ HRESULT d3d12_fence_set_native_sync_handle_on_completion(struct d3d12_fence *fen
         return hresult_from_errno(rc);
     }
 
+    memset(&event, 0, sizeof(event));
+    event.wait_type = wait_type;
+    event.value = value;
+    event.handle = handle;
+    event.latch = &latch;
+
     if (value <= fence->virtual_value)
     {
-        if (vkd3d_native_sync_handle_is_valid(handle))
-        {
-            if (FAILED(hr = vkd3d_native_sync_handle_signal(handle)))
-            {
-                ERR("Failed to signal event, hr #%x.\n", hr);
-                pthread_mutex_unlock(&fence->mutex);
-                return hr;
-            }
-        }
-
+        hr = vkd3d_waiting_event_signal(&event);
         pthread_mutex_unlock(&fence->mutex);
-        return S_OK;
+        return hr;
     }
 
-    for (i = 0; i < fence->event_count; ++i)
+    if (wait_type == VKD3D_WAITING_EVENT_SINGLE && vkd3d_native_sync_handle_is_valid(handle))
     {
-        struct vkd3d_waiting_event *current = &fence->events[i];
-        if (current->value == value &&
-                vkd3d_native_sync_handle_is_valid(handle) &&
-                vkd3d_native_sync_handle_eq(current->handle, handle))
+        for (i = 0; i < fence->event_count; ++i)
         {
-            WARN("Event completion for native sync handle is already in the list.\n");
-            pthread_mutex_unlock(&fence->mutex);
-            return S_OK;
+            struct vkd3d_waiting_event *current = &fence->events[i];
+            if (current->wait_type == VKD3D_WAITING_EVENT_SINGLE && current->value == value &&
+                    vkd3d_native_sync_handle_eq(current->handle, handle))
+            {
+                WARN("Event completion for native sync handle is already in the list.\n");
+                pthread_mutex_unlock(&fence->mutex);
+                return S_OK;
+            }
         }
     }
 
@@ -1109,10 +1135,7 @@ HRESULT d3d12_fence_set_native_sync_handle_on_completion(struct d3d12_fence *fen
         return E_OUTOFMEMORY;
     }
 
-    fence->events[fence->event_count].value = value;
-    fence->events[fence->event_count].handle = handle;
-    fence->events[fence->event_count].latch = &latch;
-    ++fence->event_count;
+    fence->events[fence->event_count++] = event;
 
     /* If event is NULL, we need to block until the fence value completes.
      * Implement this in a uniform way where we pretend we have a dummy event.
@@ -1127,6 +1150,13 @@ HRESULT d3d12_fence_set_native_sync_handle_on_completion(struct d3d12_fence *fen
 
     pthread_mutex_unlock(&fence->mutex);
     return S_OK;
+}
+
+HRESULT d3d12_fence_set_native_sync_handle_on_completion(struct d3d12_fence *fence,
+        UINT64 value, vkd3d_native_sync_handle handle)
+{
+    return d3d12_fence_set_native_sync_handle_on_completion_explicit(fence,
+            VKD3D_WAITING_EVENT_SINGLE, value, handle);
 }
 
 HRESULT d3d12_fence_set_event_on_completion(struct d3d12_fence *fence,

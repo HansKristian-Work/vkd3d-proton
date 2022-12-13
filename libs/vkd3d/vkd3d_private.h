@@ -505,6 +505,21 @@ struct d3d12_fence_value
     const struct vkd3d_queue *signalling_queue;
 };
 
+#define VKD3D_WAITING_EVENT_SIGNAL_BIT (1u << 31)
+
+enum vkd3d_waiting_event_type
+{
+    VKD3D_WAITING_EVENT_SINGLE,
+};
+
+struct vkd3d_waiting_event
+{
+    enum vkd3d_waiting_event_type wait_type;
+    uint64_t value;
+    vkd3d_native_sync_handle handle;
+    bool *latch;
+};
+
 struct d3d12_fence
 {
     d3d12_fence_iface ID3D12Fence_iface;
@@ -527,12 +542,7 @@ struct d3d12_fence
     pthread_cond_t cond;
     pthread_cond_t null_event_cond;
 
-    struct vkd3d_waiting_event
-    {
-        uint64_t value;
-        vkd3d_native_sync_handle handle;
-        bool *latch;
-    } *events;
+    struct vkd3d_waiting_event *events;
     size_t events_size;
     size_t event_count;
 
