@@ -511,6 +511,7 @@ enum vkd3d_waiting_event_type
 {
     VKD3D_WAITING_EVENT_SINGLE,
     VKD3D_WAITING_EVENT_MULTI_ALL,
+    VKD3D_WAITING_EVENT_MULTI_ANY,
 };
 
 struct vkd3d_waiting_event
