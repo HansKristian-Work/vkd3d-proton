@@ -213,8 +213,8 @@ typedef enum
 # define vkd3d_atomic_generic_decrement(target, order)                __atomic_sub_fetch(target, 1, order)
 # define vkd3d_atomic_generic_add(target, value, order)               __atomic_add_fetch(target, value, order)
 # define vkd3d_atomic_generic_sub(target, value, order)               __atomic_sub_fetch(target, value, order)
-# define vkd3d_atomic_generic_and(target, value, order)               __atomic_and_fetch(target, value, order)
-# define vkd3d_atomic_generic_or(target, value, order)                __atomic_or_fetch(target, value, order)
+# define vkd3d_atomic_generic_and(target, value, order)               __atomic_fetch_and(target, value, order)
+# define vkd3d_atomic_generic_or(target, value, order)                __atomic_fetch_or(target, value, order)
 
 # define vkd3d_atomic_uint32_load_explicit(target, order)            vkd3d_atomic_generic_load_explicit(target, order)
 # define vkd3d_atomic_uint32_store_explicit(target, value, order)    vkd3d_atomic_generic_store_explicit(target, value, order)
