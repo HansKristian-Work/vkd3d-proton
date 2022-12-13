@@ -319,6 +319,8 @@ decl_test(test_raytracing_default_association_tiebreak);
 decl_test(test_raytracing_collection_identifiers);
 decl_test(test_fence_wait_robustness);
 decl_test(test_fence_wait_robustness_shared);
+decl_test(test_fence_wait_multiple);
+decl_test(test_fence_wait_multiple_shared);
 decl_test(test_root_signature_empty_blob);
 decl_test(test_sparse_buffer_memory_lifetime);
 decl_test(test_rendering_no_attachments_layers);

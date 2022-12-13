@@ -1431,3 +1431,179 @@ void test_fence_wait_robustness_shared(void)
     skip("Shared fences not supported on native Linux build.\n");
 #endif
 }
+
+void test_fence_wait_multiple_inner(bool shared_handles)
+{
+    ID3D12CommandQueue *queue1, *queue2;
+    struct test_context context;
+    ID3D12Device1 *device1;
+    ID3D12Fence *fences[4];
+    UINT64 values[4];
+    unsigned int i;
+    HANDLE event;
+    HRESULT hr;
+    DWORD ret;
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device1, (void**)&device1))
+    {
+        skip("Failed to query ID3D12Device1 interface, skipping test ...\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(fences, 0, sizeof(fences));
+
+    for (i = 0; i < ARRAY_SIZE(fences); i++)
+    {
+        hr = ID3D12Device1_CreateFence(device1, 0,
+                shared_handles ? D3D12_FENCE_FLAG_SHARED : D3D12_FENCE_FLAG_NONE,
+                &IID_ID3D12Fence, (void**)&fences[i]);
+        todo_if(shared_handles) ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", hr);
+
+        if (FAILED(hr))
+            break;
+    }
+
+    if (FAILED(hr))
+    {
+        skip("Failed to create fence, skipping test ...\n");
+
+        for (i = 0; i < ARRAY_SIZE(fences); i++)
+        {
+            if (fences[i])
+                ID3D12Fence_Release(fences[i]);
+        }
+
+        ID3D12Device1_Release(device1);
+        destroy_test_context(&context);
+        return;
+    }
+
+    queue1 = create_command_queue(context.device, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
+    queue2 = create_command_queue(context.device, D3D12_COMMAND_LIST_TYPE_COMPUTE, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
+
+    event = create_event();
+    ret = wait_event(event, 0);
+    ok(ret == WAIT_TIMEOUT, "Got unexpected return value %u.\n", ret);
+
+    /* Test various invalid parameter combinations that should not crash */
+    hr = ID3D12Device1_SetEventOnMultipleFenceCompletion(device1,
+            NULL, NULL, 0, D3D12_MULTIPLE_FENCE_WAIT_FLAG_ALL, NULL);
+    ok(hr == E_INVALIDARG, "Got unexpected result, hr %#x.\n", hr);
+    hr = ID3D12Device1_SetEventOnMultipleFenceCompletion(device1,
+            fences, values, 0, D3D12_MULTIPLE_FENCE_WAIT_FLAG_ANY, event);
+    ok(hr == E_INVALIDARG, "Got unexpected result, hr %#x.\n", hr);
+    hr = ID3D12Device1_SetEventOnMultipleFenceCompletion(device1,
+            fences, values, 4, 0xFFFFFFFF, event);
+    ok(hr == E_INVALIDARG, "Got unexpected result, hr %#x.\n", hr);
+
+    /* The D3D12 runtime will crash here
+    hr = ID3D12Device1_SetEventOnMultipleFenceCompletion(device1,
+            fences, NULL, 1, D3D12_MULTIPLE_FENCE_WAIT_FLAG_ALL, event);
+    ok(hr == E_INVALIDARG, "Got unexpected result, hr %#x.\n", hr);
+    */
+
+    /* Test simple single-wait scenario */
+    values[0] = 1;
+
+    hr = ID3D12Device1_SetEventOnMultipleFenceCompletion(device1,
+            fences, values, 1, D3D12_MULTIPLE_FENCE_WAIT_FLAG_ALL, event);
+    ok(hr == S_OK, "Failed to set event on multiple fence completion, hr %#x.\n", hr);
+    ret = wait_event(event, 0);
+    ok(ret == WAIT_TIMEOUT, "Got unexpected return value %u.\n", ret);
+
+    ID3D12Fence_Signal(fences[0], 1);
+    ret = wait_event(event, INFINITE);
+    ok(ret == WAIT_OBJECT_0, "Got unexpected return value %u.\n", ret);
+    ret = wait_event(event, 0);
+    ok(ret == WAIT_TIMEOUT, "Got unexpected return value %u.\n", ret);
+
+    /* Test complex multi-wait scenario with WAIT_ALL */
+    values[0] = 2;
+    values[1] = 1;
+    values[2] = 53;
+    values[3] = 11;
+
+    hr = ID3D12Device1_SetEventOnMultipleFenceCompletion(device1,
+            fences, values, 4, D3D12_MULTIPLE_FENCE_WAIT_FLAG_ALL, event);
+    ok(hr == S_OK, "Failed to set event on multiple fence completion, hr %#x.\n", hr);
+    ret = wait_event(event, 0);
+    ok(ret == WAIT_TIMEOUT, "Got unexpected return value %u.\n", ret);
+
+    ID3D12Fence_Signal(fences[1], 4);
+
+    ret = wait_event(event, 100);
+    ok(ret == WAIT_TIMEOUT, "Got unexpected return value %u.\n", ret);
+
+    queue_signal(queue1, fences[0], 2);
+    queue_signal(queue2, fences[3], 14);
+    ID3D12Fence_Signal(fences[2], 53);
+
+    ret = wait_event(event, INFINITE);
+    ok(ret == WAIT_OBJECT_0, "Got unexpected return value %u.\n", ret);
+    ret = wait_event(event, 0);
+    ok(ret == WAIT_TIMEOUT, "Got unexpected return value %u.\n", ret);
+
+    hr = ID3D12Device1_SetEventOnMultipleFenceCompletion(device1,
+            fences, values, 4, D3D12_MULTIPLE_FENCE_WAIT_FLAG_ALL, NULL);
+    ok(hr == S_OK, "Failed to set event on multiple fence completion, hr %#x.\n", hr);
+
+    /* Test complex multi-wait with WAIT_ANY */
+    values[0] = 100;
+    values[1] = 200;
+    values[2] = 300;
+    values[3] = 400;
+
+    hr = ID3D12Device1_SetEventOnMultipleFenceCompletion(device1,
+            fences, values, 4, D3D12_MULTIPLE_FENCE_WAIT_FLAG_ANY, event);
+    ok(hr == S_OK, "Failed to set event on multiple fence completion, hr %#x.\n", hr);
+    ret = wait_event(event, 0);
+    ok(ret == WAIT_TIMEOUT, "Got unexpected return value %u.\n", ret);
+
+    queue_signal(queue1, fences[1], 200);
+    queue_signal(queue2, fences[2], 300);
+    ret = wait_event(event, INFINITE);
+    ok(ret == WAIT_OBJECT_0, "Got unexpected return value %u.\n", ret);
+
+    ID3D12Fence_Signal(fences[0], 100);
+
+    ret = wait_event(event, 100);
+    ok(ret == WAIT_TIMEOUT, "Got unexpected return value %u.\n", ret);
+
+    hr = ID3D12Device1_SetEventOnMultipleFenceCompletion(device1,
+            fences, values, 4, D3D12_MULTIPLE_FENCE_WAIT_FLAG_ANY, NULL);
+    ok(hr == S_OK, "Failed to set event on multiple fence completion, hr %#x.\n", hr);
+
+    hr = ID3D12Device1_SetEventOnMultipleFenceCompletion(device1,
+            fences, values, 4, D3D12_MULTIPLE_FENCE_WAIT_FLAG_ANY, event);
+    ok(hr == S_OK, "Failed to set event on multiple fence completion, hr %#x.\n", hr);
+    ret = wait_event(event, INFINITE);
+    ok(ret == WAIT_OBJECT_0, "Got unexpected return value %u.\n", ret);
+
+    for (i = 0; i < ARRAY_SIZE(fences); i++)
+        ID3D12Fence_Release(fences[i]);
+
+    destroy_event(event);
+
+    ID3D12CommandQueue_Release(queue1);
+    ID3D12CommandQueue_Release(queue2);
+    ID3D12Device1_Release(device1);
+    destroy_test_context(&context);
+}
+
+void test_fence_wait_multiple(void)
+{
+    test_fence_wait_multiple_inner(false);
+}
+
+void test_fence_wait_multiple_shared(void)
+{
+#ifdef _WIN32
+    test_fence_wait_multiple_inner(true);
+#else
+    skip("Shared fences not supported on native Linux build.\n");
+#endif
+}
