@@ -510,6 +510,7 @@ struct d3d12_fence_value
 enum vkd3d_waiting_event_type
 {
     VKD3D_WAITING_EVENT_SINGLE,
+    VKD3D_WAITING_EVENT_MULTI_ALL,
 };
 
 struct vkd3d_waiting_event
@@ -518,6 +519,7 @@ struct vkd3d_waiting_event
     uint64_t value;
     vkd3d_native_sync_handle handle;
     bool *latch;
+    uint32_t *payload;
 };
 
 struct d3d12_fence
