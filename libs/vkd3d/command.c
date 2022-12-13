@@ -745,12 +745,25 @@ static void d3d12_fence_dec_ref(struct d3d12_fence *fence)
 static HRESULT vkd3d_waiting_event_signal(const struct vkd3d_waiting_event *event)
 {
     bool do_signal = false;
+    uint32_t payload;
     HRESULT hr;
 
     switch (event->wait_type)
     {
         case VKD3D_WAITING_EVENT_SINGLE:
             do_signal = true;
+            break;
+
+        case VKD3D_WAITING_EVENT_MULTI_ALL:
+            /* Signal the event once the counter reaches 0. The signal bit may be
+             * cleared if an error happens elsewhere, so check for that too. */
+            payload = vkd3d_atomic_uint32_decrement(event->payload, vkd3d_memory_order_relaxed);
+
+            if (!(payload & (VKD3D_WAITING_EVENT_SIGNAL_BIT - 1)))
+            {
+                do_signal = !!(payload & VKD3D_WAITING_EVENT_SIGNAL_BIT);
+                vkd3d_free(event->payload);
+            }
             break;
 
         default:
@@ -1085,7 +1098,7 @@ static UINT64 STDMETHODCALLTYPE d3d12_fence_GetCompletedValue(d3d12_fence_iface 
 }
 
 static HRESULT d3d12_fence_set_native_sync_handle_on_completion_explicit(struct d3d12_fence *fence,
-        enum vkd3d_waiting_event_type wait_type, UINT64 value, vkd3d_native_sync_handle handle)
+        enum vkd3d_waiting_event_type wait_type, UINT64 value, vkd3d_native_sync_handle handle, uint32_t *payload)
 {
     struct vkd3d_waiting_event event;
     unsigned int i;
@@ -1104,6 +1117,7 @@ static HRESULT d3d12_fence_set_native_sync_handle_on_completion_explicit(struct 
     event.value = value;
     event.handle = handle;
     event.latch = &latch;
+    event.payload = payload;
 
     if (value <= fence->virtual_value)
     {
@@ -1156,7 +1170,7 @@ HRESULT d3d12_fence_set_native_sync_handle_on_completion(struct d3d12_fence *fen
         UINT64 value, vkd3d_native_sync_handle handle)
 {
     return d3d12_fence_set_native_sync_handle_on_completion_explicit(fence,
-            VKD3D_WAITING_EVENT_SINGLE, value, handle);
+            VKD3D_WAITING_EVENT_SINGLE, value, handle, NULL);
 }
 
 HRESULT d3d12_fence_set_event_on_completion(struct d3d12_fence *fence,
