@@ -1773,6 +1773,26 @@ static void d3d12_fence_iface_dec_ref(d3d12_fence_iface *iface)
     }
 }
 
+HRESULT d3d12_fence_iface_set_native_sync_handle_on_completion_explicit(ID3D12Fence *iface,
+        enum vkd3d_waiting_event_type wait_type, UINT64 value, vkd3d_native_sync_handle handle, uint32_t *payload)
+{
+    struct d3d12_shared_fence *shared_fence;
+    struct d3d12_fence *fence;
+
+    if (is_shared_ID3D12Fence(iface))
+    {
+        shared_fence = shared_impl_from_ID3D12Fence(iface);
+        return d3d12_shared_fence_set_native_sync_handle_on_completion_explicit(
+                shared_fence, wait_type, value, handle, payload);
+    }
+    else
+    {
+        fence = impl_from_ID3D12Fence(iface);
+        return d3d12_fence_set_native_sync_handle_on_completion_explicit(
+                fence, wait_type, value, handle, payload);
+    }
+}
+
 /* Command buffers */
 static void d3d12_command_list_mark_as_invalid(struct d3d12_command_list *list,
         const char *message, ...)

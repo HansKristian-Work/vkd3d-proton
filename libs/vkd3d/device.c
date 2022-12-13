@@ -5024,10 +5024,94 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_SetEventOnMultipleFenceCompletion(
         ID3D12Fence *const *fences, const UINT64 *values, UINT fence_count,
         D3D12_MULTIPLE_FENCE_WAIT_FLAGS flags, HANDLE event)
 {
-    FIXME("iface %p, fences %p, values %p, fence_count %u, flags %#x, event %p stub!\n",
+    enum vkd3d_waiting_event_type wait_type;
+    vkd3d_native_sync_handle handle;
+    uint32_t *payload = NULL;
+    unsigned int i;
+    HRESULT hr;
+
+    TRACE("iface %p, fences %p, values %p, fence_count %u, flags %#x, event %p.\n",
             iface, fences, values, fence_count, flags, event);
 
-    return E_NOTIMPL;
+    if (flags && flags != D3D12_MULTIPLE_FENCE_WAIT_FLAG_ANY)
+    {
+        FIXME("Unsupported wait flags %#x.\n", flags);
+        return E_INVALIDARG;
+    }
+
+    if (!fence_count)
+        return E_INVALIDARG;
+
+    if (fence_count == 1)
+        return ID3D12Fence_SetEventOnCompletion(fences[0], values[0], event);
+
+    wait_type = (flags & D3D12_MULTIPLE_FENCE_WAIT_FLAG_ANY)
+            ? VKD3D_WAITING_EVENT_MULTI_ANY : VKD3D_WAITING_EVENT_MULTI_ALL;
+
+    if (!event && wait_type == VKD3D_WAITING_EVENT_MULTI_ANY)
+    {
+        /* We need to stall the calling thread if any fence gets signaled.
+         * Create a temporary event and wait for it later. */
+        hr = vkd3d_native_sync_handle_create(0, VKD3D_NATIVE_SYNC_HANDLE_TYPE_EVENT, &handle);
+
+        if (FAILED(hr))
+        {
+            ERR("Failed to create temporary event, hr %#x.\n", hr);
+            return hr;
+        }
+    }
+    else
+    {
+        handle = vkd3d_native_sync_handle_wrap(event, VKD3D_NATIVE_SYNC_HANDLE_TYPE_EVENT);
+    }
+
+    /* Each fence that processes this wait will decrement the payload
+     * counter by 1, and only signal the event if the signal bit is set */
+    payload = vkd3d_malloc(sizeof(*payload));
+    *payload = fence_count | VKD3D_WAITING_EVENT_SIGNAL_BIT;
+
+    for (i = 0; i < fence_count; i++)
+    {
+        hr = d3d12_fence_iface_set_native_sync_handle_on_completion_explicit(
+                fences[i], wait_type, values[i], handle, payload);
+
+        if (FAILED(hr))
+        {
+            /* Ensure that the event does not get signaled by any fence
+             * that we may already have added it to. */
+            uint32_t payload_value = vkd3d_atomic_uint32_and(payload, ~VKD3D_WAITING_EVENT_SIGNAL_BIT, vkd3d_memory_order_relaxed);
+
+            /* If WAIT_ANY is used, the event may already have been signaled.
+             * Return success in that case since signaling the event on error
+             * would be unexpected. */
+            if (!(payload_value & VKD3D_WAITING_EVENT_SIGNAL_BIT))
+                hr = S_OK;
+
+            if (!vkd3d_atomic_uint32_sub(payload, fence_count - i, vkd3d_memory_order_relaxed))
+                vkd3d_free(payload);
+
+            goto fail;
+        }
+    }
+
+    if (!event && wait_type == VKD3D_WAITING_EVENT_MULTI_ANY)
+    {
+        hr = vkd3d_native_sync_handle_acquire(handle) ? S_OK : E_FAIL;
+        vkd3d_native_sync_handle_destroy(handle);
+
+        if (FAILED(hr))
+            ERR("Failed to wait for temporary event.\n");
+
+        return hr;
+    }
+
+    return S_OK;
+
+fail:
+    if (!event && wait_type == VKD3D_WAITING_EVENT_MULTI_ANY)
+        vkd3d_native_sync_handle_destroy(handle);
+
+    return hr;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_SetResidencyPriority(d3d12_device_iface *iface,

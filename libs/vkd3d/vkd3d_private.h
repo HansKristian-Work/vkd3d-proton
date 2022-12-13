@@ -634,6 +634,9 @@ static inline bool is_shared_ID3D12Fence(ID3D12Fence *iface)
     return is_shared_ID3D12Fence1((ID3D12Fence1 *)iface);
 }
 
+HRESULT d3d12_fence_iface_set_native_sync_handle_on_completion_explicit(ID3D12Fence *iface,
+        enum vkd3d_waiting_event_type wait_type, UINT64 value, vkd3d_native_sync_handle handle, uint32_t *payload);
+
 enum vkd3d_allocation_flag
 {
     VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER     = (1u << 0),
