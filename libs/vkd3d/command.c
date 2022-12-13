@@ -1526,9 +1526,9 @@ static void *vkd3d_shared_fence_worker_main(void *userdata)
 
         LIST_FOR_EACH_ENTRY_SAFE(current, e, &fence->events, struct vkd3d_shared_fence_waiting_event, entry)
         {
-            if (current->value <= completed_value)
+            if (current->wait.value <= completed_value)
             {
-                vkd3d_native_sync_handle_signal(current->handle);
+                vkd3d_waiting_event_signal(&current->wait);
                 list_remove(&current->entry);
                 vkd3d_free(current);
             }
@@ -1561,24 +1561,35 @@ static void *vkd3d_shared_fence_worker_main(void *userdata)
     return NULL;
 }
 
-static HRESULT d3d12_shared_fence_set_native_sync_handle_on_completion(d3d12_fence_iface *iface,
-        UINT64 value, vkd3d_native_sync_handle handle)
+static HRESULT d3d12_shared_fence_set_native_sync_handle_on_completion_explicit(struct d3d12_shared_fence *fence,
+        enum vkd3d_waiting_event_type wait_type, UINT64 value, vkd3d_native_sync_handle handle, uint32_t *payload)
 {
-    struct d3d12_shared_fence *fence = shared_impl_from_ID3D12Fence1(iface);
     const struct vkd3d_vk_device_procs *vk_procs = &fence->device->vk_procs;
     struct vkd3d_shared_fence_waiting_event *waiting_event;
+    struct vkd3d_waiting_event event;
     VkSemaphoreWaitInfo wait_info;
     uint64_t completed_value;
     VkResult vr;
 
-    TRACE("iface %p, value %#"PRIx64".\n", iface, value);
+    TRACE("fence %p, value %#"PRIx64".\n", fence, value);
 
     if (vkd3d_native_sync_handle_is_valid(handle))
     {
-        completed_value = d3d12_shared_fence_GetCompletedValue(iface);
+        memset(&event, 0, sizeof(event));
+        event.wait_type = wait_type;
+        event.value = value;
+        event.handle = handle;
+        event.payload = payload;
+
+        if ((vr = VK_CALL(vkGetSemaphoreCounterValueKHR(fence->device->vk_device, fence->timeline_semaphore, &completed_value))))
+        {
+            ERR("Failed to get current semaphore value, vr %d.\n", vr);
+            return hresult_from_vk_result(vr);
+        }
+
         if (completed_value >= value)
         {
-            vkd3d_native_sync_handle_signal(handle);
+            vkd3d_waiting_event_signal(&event);
             return S_OK;
         }
         else
@@ -1588,8 +1599,8 @@ static HRESULT d3d12_shared_fence_set_native_sync_handle_on_completion(d3d12_fen
                 ERR("Failed to register device singleton for adapter.");
                 return E_OUTOFMEMORY;
             }
-            waiting_event->value = value;
-            waiting_event->handle = handle;
+
+            waiting_event->wait = event;
 
             pthread_mutex_lock(&fence->mutex);
             list_add_head(&fence->events, &waiting_event->entry);
@@ -1629,9 +1640,12 @@ static HRESULT d3d12_shared_fence_set_native_sync_handle_on_completion(d3d12_fen
 static HRESULT STDMETHODCALLTYPE d3d12_shared_fence_SetEventOnCompletion(d3d12_fence_iface *iface,
         UINT64 value, HANDLE os_event)
 {
+    struct d3d12_shared_fence *shared_fence = shared_impl_from_ID3D12Fence1(iface);
+
     vkd3d_native_sync_handle handle = vkd3d_native_sync_handle_wrap(os_event,
             VKD3D_NATIVE_SYNC_HANDLE_TYPE_EVENT);
-    return d3d12_shared_fence_set_native_sync_handle_on_completion(iface, value, handle);
+    return d3d12_shared_fence_set_native_sync_handle_on_completion_explicit(
+            shared_fence, VKD3D_WAITING_EVENT_SINGLE, value, handle, NULL);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_shared_fence_Signal(d3d12_fence_iface *iface, UINT64 value)

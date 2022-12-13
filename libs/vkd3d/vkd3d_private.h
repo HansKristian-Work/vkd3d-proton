@@ -578,8 +578,7 @@ HRESULT d3d12_fence_set_native_sync_handle_on_completion(struct d3d12_fence *fen
 struct vkd3d_shared_fence_waiting_event
 {
     struct list entry;
-    uint64_t value;
-    vkd3d_native_sync_handle handle;
+    struct vkd3d_waiting_event wait;
 };
 
 struct d3d12_shared_fence
