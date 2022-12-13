@@ -766,6 +766,21 @@ static HRESULT vkd3d_waiting_event_signal(const struct vkd3d_waiting_event *even
             }
             break;
 
+        case VKD3D_WAITING_EVENT_MULTI_ANY:
+            /* In this mode, let the first thread that clears the signal bit signal
+             * the event and treat the counter simply as a reference count */
+            payload = vkd3d_atomic_uint32_load_explicit(event->payload, vkd3d_memory_order_relaxed);
+
+            if (payload & VKD3D_WAITING_EVENT_SIGNAL_BIT)
+            {
+                payload = vkd3d_atomic_uint32_and(event->payload, ~VKD3D_WAITING_EVENT_SIGNAL_BIT, vkd3d_memory_order_relaxed);
+                do_signal = !!(payload & VKD3D_WAITING_EVENT_SIGNAL_BIT);
+            }
+
+            if (!vkd3d_atomic_uint32_decrement(event->payload, vkd3d_memory_order_relaxed))
+                vkd3d_free(event->payload);
+            break;
+
         default:
             ERR("Unhandled wait type %u.\n", event->wait_type);
             return E_INVALIDARG;
