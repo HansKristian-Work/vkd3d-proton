@@ -8190,18 +8190,18 @@ static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *l
         struct vkd3d_pipeline_bindings *bindings, unsigned int index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
 {
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
-    const struct vkd3d_shader_descriptor_table *table;
 
-    table = root_signature_get_descriptor_table(root_signature, index);
-
-    assert(table && index < ARRAY_SIZE(bindings->descriptor_tables));
+    assert(index < ARRAY_SIZE(bindings->descriptor_tables));
     bindings->descriptor_tables[index] = d3d12_desc_heap_offset_from_gpu_handle(base_descriptor);
     bindings->descriptor_table_active_mask |= (uint64_t)1 << index;
 
-    if (root_signature->descriptor_table_count)
-        bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS;
-    if (root_signature->hoist_info.num_desc)
-        bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_HOISTED_DESCRIPTORS;
+    if (root_signature)
+    {
+        if (root_signature->descriptor_table_count)
+            bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS;
+        if (root_signature->hoist_info.num_desc)
+            bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_HOISTED_DESCRIPTORS;
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootDescriptorTable(d3d12_command_list_iface *iface,
