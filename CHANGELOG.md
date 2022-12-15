@@ -1,5 +1,75 @@
 # Change Log
 
+## 2.8
+
+This release rolls up some significant new developments before the holidays.
+
+## VK_EXT_descriptor_buffer support
+
+This extension is significant in that it removes a ton of CPU overhead.
+We already had most of this in place on RADV and Steam Deck,
+but this will allow NVIDIA, Intel, Turnip, and other AMD driver implementations to hit the same optimal code paths.
+GPU bound performance increases slightly since we can also remove some shader code that was required to workaround lack of descriptor buffers.
+
+### New extension requirements
+
+To support descriptor buffers in the code base, these features are now required instead of optional.
+Note that these features are widely supported already and is not expected to cause any problems.
+If an implementation could support v2.7, it will support v2.8.
+
+- `VK_KHR_buffer_device_address`
+- `VK_KHR_push_descriptor`
+
+## Rewritten support for host accessible images
+
+The entire API feature was rewritten from scratch to support more implementations and edge cases without
+a lot of per-application hacks and workarounds.
+As the most extreme example of weird API usage, Guardians of the Galaxy should (finally) run well on NVIDIA.
+
+## Rewritten swap chain
+
+To most users, this change should be transparent.
+
+- Allow more precise control on latency and frame pacing with `VK_KHR_present_wait`.
+  - mesa-git supports this along with NVIDIA.
+  - `VKD3D_SWAPCHAIN_LATENCY_FRAMES=n` allows user to force a specific amount of latency.
+  - Implementation of DXGI latency fences is now correct.
+- Reduce CPU overhead on the main thread that presents to swap chain.
+- Fixes a spurious hang in Hitman III where game relies on asynchronous present in order to not lock up.
+- Win32 specific DXGI code is handled by DXVK. A DXVK build from Experimental or later is required for this to work.
+  This allows a native Linux implementation of vkd3d-proton, including swap chain.
+- When `VK_KHR_present_wait` is not supported, behavior should be 1:1 with old implementation.
+
+NOTE: The old swapchain implementation is still in the repository, and is expected to be removed in the next release.
+For now, `VKD3D_CONFIG=swapchain_legacy` can be used to triage any potential issues with the new one.
+
+NOTE: A driver crash was observed on NVIDIA 525.x drivers when running in some PRIME configurations.
+For now, we disable use of present_wait on these drivers.
+
+### Fixes and workarounds
+
+- Workaround GPU hangs in Spiderman Remastered: Miles Morales (same issue as the original).
+- Fix rendering bug with gun damage in Borderlands 3 on RADV.
+- Refactor how resizable BAR is used. GPUs with 4 GiB and lower will no longer attempt to use resizable BAR,
+  which can avoid some out-of-memory situations.
+- Fix GPU hang in Age of Empires IV.
+- Fix some minor issues in mesh shader implementation.
+- Fix some issues preventing RE: Village from booting on Arc.
+- Some last minute frenzied fixes for Witcher 3 next-gen update.
+  - All features except RT appears to work on RADV.
+  - Hairworks is known to crash GPU on NVIDIA. More investigation is needed to root cause.
+  - Some RT effects work on NVIDIA, others don't:
+    - GI is reported to work.
+    - AO crashes GPU. More investigation is needed to root cause.
+
+#### Implement minor missing D3D12 features
+
+An obscure feature was stubbed out and forgotten until now.
+`ID3D12Device1::SetEventOnMultipleFenceCompletion()` is now implemented.
+
+Also, implement SetEventOn(Multiple)FenceCompletion for shared D3D12 fences.
+Fixes a regression in Gears 5 causing lockup on boot.
+
 ## 2.7
 
 This release rolls up a massive amount of work since the Steam Deck launch in late February
