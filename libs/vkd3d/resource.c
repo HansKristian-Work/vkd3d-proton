@@ -173,7 +173,7 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
     if (device->vk_info.EXT_conditional_rendering)
         buffer_info.usage |= VK_BUFFER_USAGE_CONDITIONAL_RENDERING_BIT_EXT;
 
-    if (heap_type == D3D12_HEAP_TYPE_DEFAULT && device->vk_info.EXT_transform_feedback)
+    if (device->vk_info.EXT_transform_feedback)
     {
         buffer_info.usage |= VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_BUFFER_BIT_EXT
                 | VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_COUNTER_BUFFER_BIT_EXT;
