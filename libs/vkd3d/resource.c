@@ -2277,7 +2277,7 @@ static HRESULT d3d12_resource_validate_create_info(const D3D12_RESOURCE_DESC1 *d
             return E_INVALIDARG;
         }
 
-        WARN("Ignoring optimized clear value.\n");
+        TRACE("Ignoring optimized clear value.\n");
     }
 
     if (!is_valid_resource_state(initial_state))
