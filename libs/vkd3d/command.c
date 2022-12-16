@@ -6531,41 +6531,64 @@ static void vk_image_buffer_copy_from_d3d12(VkBufferImageCopy2KHR *copy,
     }
 }
 
-static void vk_image_copy_from_d3d12(VkImageCopy2KHR *image_copy,
+static bool vk_image_copy_from_d3d12(VkImageCopy2KHR *image_copy,
         unsigned int src_sub_resource_idx, unsigned int dst_sub_resource_idx,
         const D3D12_RESOURCE_DESC1 *src_desc, const D3D12_RESOURCE_DESC1 *dst_desc,
         const struct vkd3d_format *src_format, const struct vkd3d_format *dst_format,
         const D3D12_BOX *src_box, unsigned int dst_x, unsigned int dst_y, unsigned int dst_z)
 {
+    VkExtent3D srcExtent, dstExtent;
+
+    vk_extent_3d_from_d3d12_miplevel(&srcExtent, src_desc, image_copy->srcSubresource.mipLevel);
+    vk_extent_3d_from_d3d12_miplevel(&dstExtent, dst_desc, image_copy->dstSubresource.mipLevel);
     vk_image_subresource_layers_from_d3d12(&image_copy->srcSubresource,
             src_format, src_sub_resource_idx, src_desc->MipLevels,
             d3d12_resource_desc_get_layer_count(src_desc));
     image_copy->sType = VK_STRUCTURE_TYPE_IMAGE_COPY_2_KHR;
     image_copy->pNext = NULL;
-    image_copy->srcOffset.x = src_box ? src_box->left : 0;
-    image_copy->srcOffset.y = src_box ? src_box->top : 0;
-    image_copy->srcOffset.z = src_box ? src_box->front : 0;
     vk_image_subresource_layers_from_d3d12(&image_copy->dstSubresource,
             dst_format, dst_sub_resource_idx, dst_desc->MipLevels,
             d3d12_resource_desc_get_layer_count(dst_desc));
-    image_copy->dstOffset.x = dst_x;
-    image_copy->dstOffset.y = dst_y;
-    image_copy->dstOffset.z = dst_z;
+
+    image_copy->dstOffset.x = min(dst_x, dstExtent.width);
+    image_copy->dstOffset.y = min(dst_y, dstExtent.height);
+    image_copy->dstOffset.z = min(dst_z, dstExtent.depth);
+
+    dstExtent.width -= image_copy->dstOffset.x;
+    dstExtent.height -= image_copy->dstOffset.y;
+    dstExtent.depth -= image_copy->dstOffset.z;
+
     if (src_box)
     {
-        image_copy->extent.width = src_box->right - src_box->left;
-        image_copy->extent.height = src_box->bottom - src_box->top;
-        image_copy->extent.depth = src_box->back - src_box->front;
+        image_copy->srcOffset.x = min(src_box->left, srcExtent.width);
+        image_copy->srcOffset.y = min(src_box->top, srcExtent.height);
+        image_copy->srcOffset.z = min(src_box->front, srcExtent.depth);
+
+        srcExtent.width -= image_copy->srcOffset.x;
+        srcExtent.height -= image_copy->srcOffset.y;
+        srcExtent.depth -= image_copy->srcOffset.z;
+
+        srcExtent.width = min(src_box->right - src_box->left, srcExtent.width);
+        srcExtent.height = min(src_box->bottom - src_box->top, srcExtent.height);
+        srcExtent.depth = min(src_box->back - src_box->front, srcExtent.depth);
     }
     else
     {
-        VkExtent3D srcExtent, dstExtent;
-        vk_extent_3d_from_d3d12_miplevel(&srcExtent, src_desc, image_copy->srcSubresource.mipLevel);
-        vk_extent_3d_from_d3d12_miplevel(&dstExtent, dst_desc, image_copy->dstSubresource.mipLevel);
-        image_copy->extent.width = min(dst_x + srcExtent.width, dstExtent.width) - dst_x;
-        image_copy->extent.height = min(dst_y + srcExtent.height, dstExtent.height) - dst_y;
-        image_copy->extent.depth = min(dst_z + srcExtent.depth, dstExtent.depth) - dst_z;
+        image_copy->srcOffset.x = 0;
+        image_copy->srcOffset.y = 0;
+        image_copy->srcOffset.z = 0;
     }
+
+    image_copy->extent.width = min(srcExtent.width, dstExtent.width);
+    image_copy->extent.height = min(srcExtent.height, dstExtent.height);
+    image_copy->extent.depth = min(srcExtent.depth, dstExtent.depth);
+
+    /* Valid usage (06668, 06669, 06670) states that degenerate copy is not allowed.
+     * Can happen if the clipped copy rect is out of bounds.
+     * This is not allowed in D3D12 either, but e.g. Witcher 3 next-gen update can hit invalid scenarios. */
+    return image_copy->extent.width > 0 &&
+            image_copy->extent.height > 0 &&
+            image_copy->extent.depth > 0;
 }
 
 static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
@@ -6990,9 +7013,13 @@ static bool d3d12_command_list_init_copy_texture_region(struct d3d12_command_lis
         out->dst_format = dst_resource->format;
         out->src_format = src_resource->format;
 
-        vk_image_copy_from_d3d12(&out->copy.image, src->SubresourceIndex, dst->SubresourceIndex,
+        if (!vk_image_copy_from_d3d12(&out->copy.image, src->SubresourceIndex, dst->SubresourceIndex,
                 &src_resource->desc, &dst_resource->desc, out->src_format, out->dst_format,
-                src_box, dst_x, dst_y, dst_z);
+                src_box, dst_x, dst_y, dst_z))
+        {
+            WARN("Degenerate copy, skipping.\n");
+            return false;
+        }
 
         /* If aspect masks do not match, we have to use fallback copies with a render pass, and there
          * is no standard way to write to stencil without fallbacks.
@@ -7256,8 +7283,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
 
         for (i = 0; i < dst_resource->desc.MipLevels; ++i)
         {
-            vk_image_copy_from_d3d12(&vk_image_copy, i, i,
-                    &src_resource->desc, &dst_resource->desc, src_resource->format, dst_resource->format, NULL, 0, 0, 0);
+            if (!vk_image_copy_from_d3d12(&vk_image_copy, i, i,
+                    &src_resource->desc, &dst_resource->desc, src_resource->format, dst_resource->format, NULL, 0, 0, 0))
+            {
+                WARN("Degenerate copy for level %u, skipping.\n", i);
+                continue;
+            }
+
             vk_image_copy.dstSubresource.layerCount = layer_count;
             vk_image_copy.srcSubresource.layerCount = layer_count;
             vk_image_copy.dstSubresource.aspectMask = dst_resource->format->vk_aspect_mask;
