@@ -303,9 +303,10 @@ static dxil_spv_bool dxil_output_remap(void *userdata, const dxil_spv_d3d_stream
 {
     const struct vkd3d_shader_transform_feedback_info *xfb_info = userdata;
     const struct vkd3d_shader_transform_feedback_element *xfb_element;
-    unsigned int i, offset, stride;
+    unsigned int buffer_offsets[D3D12_SO_BUFFER_SLOT_COUNT];
+    unsigned int i, stride;
 
-    offset = 0;
+    memset(buffer_offsets, 0, sizeof(buffer_offsets));
     xfb_element = NULL;
 
     for (i = 0; i < xfb_info->element_count; ++i)
@@ -319,7 +320,7 @@ static dxil_spv_bool dxil_output_remap(void *userdata, const dxil_spv_d3d_stream
             break;
         }
 
-        offset += 4 * e->component_count;
+        buffer_offsets[e->output_slot] += 4 * e->component_count;
     }
 
     if (!xfb_element)
@@ -345,7 +346,7 @@ static dxil_spv_bool dxil_output_remap(void *userdata, const dxil_spv_d3d_stream
     }
 
     vk_output->enable = DXIL_SPV_TRUE;
-    vk_output->offset = offset;
+    vk_output->offset = buffer_offsets[xfb_element->output_slot];
     vk_output->stride = stride;
     vk_output->buffer_index = xfb_element->output_slot;
     return DXIL_SPV_TRUE;
