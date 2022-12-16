@@ -8956,7 +8956,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SOSetTargets(d3d12_command_list
             list->so_counter_buffers[start_slot + i] = VK_NULL_HANDLE;
             list->so_counter_buffer_offsets[start_slot + i] = 0;
 
-            WARN("Trying to unbind transform feedback buffer %u. Ignoring.\n", start_slot + i);
+            TRACE("Trying to unbind transform feedback buffer %u. Ignoring.\n", start_slot + i);
         }
     }
 
@@ -9017,7 +9017,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
 
         if (!rtv_desc || !rtv_desc->resource)
         {
-            WARN("RTV descriptor %u is not initialized.\n", i);
+            TRACE("RTV descriptor %u is not initialized.\n", i);
             continue;
         }
 
