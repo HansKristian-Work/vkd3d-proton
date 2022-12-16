@@ -6537,31 +6537,41 @@ static void vk_image_copy_from_d3d12(VkImageCopy2KHR *image_copy,
         const struct vkd3d_format *src_format, const struct vkd3d_format *dst_format,
         const D3D12_BOX *src_box, unsigned int dst_x, unsigned int dst_y, unsigned int dst_z)
 {
+    VkExtent3D srcExtent, dstExtent;
+
+    vk_extent_3d_from_d3d12_miplevel(&srcExtent, src_desc, image_copy->srcSubresource.mipLevel);
+    vk_extent_3d_from_d3d12_miplevel(&dstExtent, dst_desc, image_copy->dstSubresource.mipLevel);
     vk_image_subresource_layers_from_d3d12(&image_copy->srcSubresource,
             src_format, src_sub_resource_idx, src_desc->MipLevels,
             d3d12_resource_desc_get_layer_count(src_desc));
     image_copy->sType = VK_STRUCTURE_TYPE_IMAGE_COPY_2_KHR;
     image_copy->pNext = NULL;
-    image_copy->srcOffset.x = src_box ? src_box->left : 0;
-    image_copy->srcOffset.y = src_box ? src_box->top : 0;
-    image_copy->srcOffset.z = src_box ? src_box->front : 0;
+    image_copy->srcOffset.x = src_box ? min(src_box->left, srcExtent.width) : 0;
+    image_copy->srcOffset.y = src_box ? min(src_box->top, srcExtent.height) : 0;
+    image_copy->srcOffset.z = src_box ? min(src_box->front, srcExtent.depth) : 0;
     vk_image_subresource_layers_from_d3d12(&image_copy->dstSubresource,
             dst_format, dst_sub_resource_idx, dst_desc->MipLevels,
             d3d12_resource_desc_get_layer_count(dst_desc));
-    image_copy->dstOffset.x = dst_x;
-    image_copy->dstOffset.y = dst_y;
-    image_copy->dstOffset.z = dst_z;
+    image_copy->dstOffset.x = min(dst_x, dstExtent.width);
+    image_copy->dstOffset.y = min(dst_y, dstExtent.height);
+    image_copy->dstOffset.z = min(dst_z, dstExtent.depth);
     if (src_box)
     {
-        image_copy->extent.width = src_box->right - src_box->left;
-        image_copy->extent.height = src_box->bottom - src_box->top;
-        image_copy->extent.depth = src_box->back - src_box->front;
+        image_copy->extent.width = min(
+            min(src_box->right, srcExtent.width) - image_copy->srcOffset.x,
+            dstExtent.width - image_copy->dstOffset.x
+        );
+        image_copy->extent.height = min(
+            min(src_box->bottom, srcExtent.height) - image_copy->srcOffset.y,
+            dstExtent.height - image_copy->dstOffset.y
+        );
+        image_copy->extent.depth = min(
+            min(src_box->back, srcExtent.depth) - image_copy->srcOffset.z,
+            dstExtent.depth - image_copy->dstOffset.z
+        );
     }
     else
     {
-        VkExtent3D srcExtent, dstExtent;
-        vk_extent_3d_from_d3d12_miplevel(&srcExtent, src_desc, image_copy->srcSubresource.mipLevel);
-        vk_extent_3d_from_d3d12_miplevel(&dstExtent, dst_desc, image_copy->dstSubresource.mipLevel);
         image_copy->extent.width = min(dst_x + srcExtent.width, dstExtent.width) - dst_x;
         image_copy->extent.height = min(dst_y + srcExtent.height, dstExtent.height) - dst_y;
         image_copy->extent.depth = min(dst_z + srcExtent.depth, dstExtent.depth) - dst_z;
