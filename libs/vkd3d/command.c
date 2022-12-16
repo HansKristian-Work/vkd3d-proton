@@ -7730,10 +7730,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetScissorRects(d3d12_command
     for (i = 0; i < rect_count; ++i)
     {
         VkRect2D *vk_rect = &dyn_state->scissors[i];
-        vk_rect->offset.x = rects[i].left;
-        vk_rect->offset.y = rects[i].top;
-        vk_rect->extent.width = rects[i].right - rects[i].left;
-        vk_rect->extent.height = rects[i].bottom - rects[i].top;
+        vk_rect->offset.x = max(rects[i].left, 0);
+        vk_rect->offset.y = max(rects[i].top, 0);
+        vk_rect->extent.width = max(vk_rect->offset.x, rects[i].right) - vk_rect->offset.x;
+        vk_rect->extent.height = max(vk_rect->offset.y, rects[i].bottom) - vk_rect->offset.y;
     }
 
     dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_SCISSOR;
