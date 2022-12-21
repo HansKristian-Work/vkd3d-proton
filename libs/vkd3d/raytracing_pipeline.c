@@ -1660,8 +1660,6 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     RT_TRACE("Selecting Global Root Signature compat hash %016"PRIx64".\n",
             global_signature->compatibility_hash);
 
-    shader_interface_local_info.descriptor_size = VKD3D_RESOURCE_DESC_INCREMENT;
-
     local_static_sampler_bindings = NULL;
     local_static_sampler_bindings_count = 0;
     local_static_sampler_bindings_size = 0;
@@ -1688,6 +1686,7 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
             shader_interface_local_info.local_root_parameter_count = local_signature->parameter_count;
             shader_interface_local_info.shader_record_constant_buffers = local_signature->root_constants;
             shader_interface_local_info.shader_record_buffer_count = local_signature->root_constant_count;
+            shader_interface_local_info.descriptor_size = VKD3D_RESOURCE_DESC_INCREMENT;
 
             if (local_signature->static_sampler_count)
             {
