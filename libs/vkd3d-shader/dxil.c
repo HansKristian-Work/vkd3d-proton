@@ -467,13 +467,13 @@ static dxil_spv_bool dxil_cbv_remap(void *userdata, const dxil_spv_d3d_binding *
 
     shader_interface_info = remap->shader_interface_info;
 
-    /* Try to map to root constant -> push constant.
-     * Do not consider shader visibility here, as DXBC path does not appear to do it either. */
+    /* Try to map to root constant -> push constant. */
     for (i = 0; i < shader_interface_info->push_constant_buffer_count; i++)
     {
         const struct vkd3d_shader_push_constant_buffer *push = &shader_interface_info->push_constant_buffers[i];
         if (push->register_space == d3d_binding->register_space &&
-            push->register_index == d3d_binding->register_index)
+            push->register_index == d3d_binding->register_index &&
+            dxil_match_shader_visibility(push->shader_visibility, d3d_binding->stage))
         {
             memset(vk_binding, 0, sizeof(*vk_binding));
             vk_binding->push_constant = DXIL_SPV_TRUE;
