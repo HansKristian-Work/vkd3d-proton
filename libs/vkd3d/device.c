@@ -1207,9 +1207,10 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
         info->properties2.properties.limits.minStorageBufferOffsetAlignment = 4;
 
     if (info->driver_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY &&
-            VKD3D_DRIVER_VERSION_MAJOR_NV(info->properties2.properties.driverVersion) == 525)
+            VKD3D_DRIVER_VERSION_MAJOR_NV(info->properties2.properties.driverVersion) == 525 &&
+            VKD3D_DRIVER_VERSION_MINOR_NV(info->properties2.properties.driverVersion) == 60)
     {
-        WARN("Disabling VK_KHR_present_wait on NV 525.x drivers due to GPU hangs on PRIME setups.\n");
+        WARN("Disabling VK_KHR_present_wait on NV 525.60.x drivers due to GPU hangs on PRIME setups.\n");
         device->vk_info.KHR_present_wait = false;
         device->vk_info.KHR_present_id = false;
         device->device_info.present_wait_features.presentWait = false;
