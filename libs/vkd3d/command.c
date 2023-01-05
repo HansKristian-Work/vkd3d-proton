@@ -6539,8 +6539,6 @@ static bool vk_image_copy_from_d3d12(VkImageCopy2KHR *image_copy,
 {
     VkExtent3D srcExtent, dstExtent;
 
-    vk_extent_3d_from_d3d12_miplevel(&srcExtent, src_desc, image_copy->srcSubresource.mipLevel);
-    vk_extent_3d_from_d3d12_miplevel(&dstExtent, dst_desc, image_copy->dstSubresource.mipLevel);
     vk_image_subresource_layers_from_d3d12(&image_copy->srcSubresource,
             src_format, src_sub_resource_idx, src_desc->MipLevels,
             d3d12_resource_desc_get_layer_count(src_desc));
@@ -6549,6 +6547,9 @@ static bool vk_image_copy_from_d3d12(VkImageCopy2KHR *image_copy,
     vk_image_subresource_layers_from_d3d12(&image_copy->dstSubresource,
             dst_format, dst_sub_resource_idx, dst_desc->MipLevels,
             d3d12_resource_desc_get_layer_count(dst_desc));
+
+    vk_extent_3d_from_d3d12_miplevel(&srcExtent, src_desc, image_copy->srcSubresource.mipLevel);
+    vk_extent_3d_from_d3d12_miplevel(&dstExtent, dst_desc, image_copy->dstSubresource.mipLevel);
 
     image_copy->dstOffset.x = min(dst_x, dstExtent.width);
     image_copy->dstOffset.y = min(dst_y, dstExtent.height);
