@@ -2352,6 +2352,16 @@ struct vkd3d_image_copy_info
     VkImageLayout dst_layout;
 };
 
+struct vkd3d_query_resolve_entry
+{
+    D3D12_QUERY_TYPE query_type;
+    struct d3d12_query_heap *query_heap;
+    uint32_t query_index;
+    uint32_t query_count;
+    struct d3d12_resource *dst_buffer;
+    VkDeviceSize dst_offset;
+};
+
 #define VKD3D_COPY_TEXTURE_REGION_MAX_BATCH_SIZE 16
 
 struct d3d12_transfer_batch_state
