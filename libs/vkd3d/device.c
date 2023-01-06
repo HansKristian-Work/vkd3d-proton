@@ -1195,26 +1195,15 @@ bool d3d12_device_supports_required_subgroup_size_for_stage(
     return (device->device_info.subgroup_size_control_properties.requiredSubgroupSizeStages & stage) != 0;
 }
 
-static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_device_info *info,
-        struct d3d12_device *device)
+static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_device_info *info)
 {
     /* A performance workaround for NV.
      * The 16 byte offset is a lie, as that is only actually required when we
      * use vectorized load-stores. When we emit vectorized load-store ops,
      * the storage buffer must be aligned properly, so this is fine in practice
      * and is a nice speed boost. */
-    if (info->driver_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
+    if (info->properties2.properties.vendorID == VKD3D_VENDOR_ID_NVIDIA)
         info->properties2.properties.limits.minStorageBufferOffsetAlignment = 4;
-
-    if (info->driver_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY &&
-            VKD3D_DRIVER_VERSION_MAJOR_NV(info->properties2.properties.driverVersion) == 525)
-    {
-        WARN("Disabling VK_KHR_present_wait on NV 525.x drivers due to GPU hangs on PRIME setups.\n");
-        device->vk_info.KHR_present_wait = false;
-        device->vk_info.KHR_present_id = false;
-        device->device_info.present_wait_features.presentWait = false;
-        device->device_info.present_id_features.presentId = false;
-    }
 }
 
 static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *info, struct d3d12_device *device)
@@ -2578,7 +2567,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     }
 
     vkd3d_physical_device_info_init(&device->device_info, device);
-    vkd3d_physical_device_info_apply_workarounds(&device->device_info, device);
+    vkd3d_physical_device_info_apply_workarounds(&device->device_info);
 
     if (FAILED(hr = vkd3d_init_device_caps(device, create_info, &device->device_info)))
     {
