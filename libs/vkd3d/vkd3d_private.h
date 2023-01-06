@@ -2362,6 +2362,23 @@ struct vkd3d_query_resolve_entry
     VkDeviceSize dst_offset;
 };
 
+#define VKD3D_QUERY_LOOKUP_GRANULARITY_BITS (6u)
+#define VKD3D_QUERY_LOOKUP_GRANULARITY (1u << VKD3D_QUERY_LOOKUP_GRANULARITY_BITS)
+#define VKD3D_QUERY_LOOKUP_INDEX_MASK (VKD3D_QUERY_LOOKUP_GRANULARITY - 1u)
+
+struct vkd3d_query_lookup_key
+{
+    struct d3d12_query_heap *query_heap;
+    uint32_t bucket;
+};
+
+struct vkd3d_query_lookup_entry
+{
+    struct hash_map_entry hash_entry;
+    struct vkd3d_query_lookup_key key;
+    uint64_t query_mask;
+};
+
 #define VKD3D_COPY_TEXTURE_REGION_MAX_BATCH_SIZE 16
 
 struct d3d12_transfer_batch_state
@@ -2500,6 +2517,12 @@ struct d3d12_command_list
     struct vkd3d_subresource_tracking *subresource_tracking;
     size_t subresource_tracking_count;
     size_t subresource_tracking_size;
+
+    struct vkd3d_query_resolve_entry *query_resolves;
+    size_t query_resolve_count;
+    size_t query_resolve_size;
+
+    struct hash_map query_resolve_lut;
 
     struct d3d12_buffer_copy_tracked_buffer tracked_copy_buffers[VKD3D_BUFFER_COPY_TRACKING_BUFFER_COUNT];
     unsigned int tracked_copy_buffer_count;
