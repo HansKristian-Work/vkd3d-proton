@@ -78,6 +78,8 @@ static void d3d12_command_list_end_transfer_batch(struct d3d12_command_list *lis
 static void d3d12_command_list_end_wbi_batch(struct d3d12_command_list *list);
 static inline void d3d12_command_list_ensure_transfer_batch(struct d3d12_command_list *list, enum vkd3d_batch_type type);
 
+static void d3d12_command_list_flush_query_resolves(struct d3d12_command_list *list);
+
 static HRESULT vkd3d_create_binary_semaphore(struct d3d12_device *device, VkSemaphore *vk_semaphore)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -4317,6 +4319,7 @@ static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list
         list->xfb_enabled = false;
     }
 
+    d3d12_command_list_flush_query_resolves(list);
     d3d12_command_list_end_wbi_batch(list);
 }
 
@@ -4668,6 +4671,9 @@ ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_iface *ifa
         vkd3d_free(list->pending_queries);
         vkd3d_free(list->dsv_resource_tracking);
         vkd3d_free(list->subresource_tracking);
+        vkd3d_free(list->query_resolves);
+        hash_map_free(&list->query_resolve_lut);
+
         vkd3d_free_aligned(list);
 
         d3d12_device_release(device);
@@ -5094,6 +5100,7 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     list->subresource_tracking_count = 0;
     list->tracked_copy_buffer_count = 0;
     list->wbi_batch.batch_len = 0;
+    list->query_resolve_count = 0;
 
     list->rendering_info.state_flags = 0;
     list->execute_indirect.has_emitted_indirect_to_compute_barrier = false;
@@ -7176,6 +7183,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
         return;
 
     d3d12_command_list_ensure_transfer_batch(list, copy_info.batch_type);
+
     alias = false;
     for (i = 0; !alias && i < list->transfer_batch.batch_len; i++)
     {
@@ -10170,6 +10178,93 @@ static void d3d12_command_list_resolve_binary_occlusion_queries(struct d3d12_com
         VkBuffer src_buffer, uint32_t src_index, VkBuffer dst_buffer, VkDeviceSize dst_offset,
         VkDeviceSize dst_size, uint32_t dst_index, uint32_t count);
 
+static uint32_t vkd3d_query_lookup_entry_hash(const void *key)
+{
+    const struct vkd3d_query_lookup_key *k = key;
+
+    /* The bucket index is expected to be small and may fit into the
+     * lower bits of the heap address, which are expected to be zero */
+    return ((uintptr_t)k->query_heap) ^ k->bucket;
+}
+
+static bool vkd3d_query_lookup_entry_compare(const void *key, const struct hash_map_entry *entry)
+{
+    const struct vkd3d_query_lookup_key *a = key;
+    const struct vkd3d_query_lookup_key *b = &((const struct vkd3d_query_lookup_entry*)entry)->key;
+
+    return a->query_heap == b->query_heap && a->bucket == b->bucket;
+}
+
+static bool d3d12_command_list_is_query_resolve_pending(struct d3d12_command_list *list,
+        struct d3d12_query_heap *query_heap, uint32_t query_index)
+{
+    struct vkd3d_query_lookup_entry *e;
+    struct vkd3d_query_lookup_key key;
+    uint32_t bit_index;
+
+    key.query_heap = query_heap;
+    key.bucket = query_index >> VKD3D_QUERY_LOOKUP_GRANULARITY_BITS;
+
+    e = (struct vkd3d_query_lookup_entry*)hash_map_find(&list->query_resolve_lut, &key);
+
+    if (!e)
+        return false;
+
+    bit_index = query_index & VKD3D_QUERY_LOOKUP_INDEX_MASK;
+    return !!(e->query_mask & (1ull << bit_index));
+}
+
+static void d3d12_command_list_add_query_lookup_mask(struct d3d12_command_list *list,
+        struct d3d12_query_heap *query_heap, uint32_t bucket, uint64_t query_mask)
+{
+    struct vkd3d_query_lookup_entry entry, *e;
+
+    entry.key.query_heap = query_heap;
+    entry.key.bucket = bucket;
+    entry.query_mask = 0ull;
+
+    e = (struct vkd3d_query_lookup_entry*)hash_map_insert(&list->query_resolve_lut, &entry.key, &entry.hash_entry);
+    e->query_mask |= query_mask;
+}
+
+static void d3d12_command_list_add_query_lookup_range(struct d3d12_command_list *list,
+        const struct vkd3d_query_resolve_entry *entry)
+{
+    uint32_t query_index = entry->query_index;
+    uint32_t query_count = entry->query_count;
+    uint32_t advance, bucket, shift;
+    uint64_t query_mask;
+
+    /* The query lookup table is implemented as a hash map with each
+     * entry ("bucket") storing a bit mask of 64 consecutive queries. */
+    while (query_count)
+    {
+        query_mask = ~0ull;
+        advance = VKD3D_QUERY_LOOKUP_GRANULARITY;
+
+        /* last bucket may not be covered entirely */
+        if (query_count < VKD3D_QUERY_LOOKUP_GRANULARITY)
+            query_mask >>= (VKD3D_QUERY_LOOKUP_GRANULARITY - query_count);
+
+        /* query_index may not be aligned to the first bucket */
+        shift = query_index & VKD3D_QUERY_LOOKUP_INDEX_MASK;
+
+        if (shift)
+        {
+            query_mask <<= shift;
+            advance -= shift;
+        }
+
+        bucket = query_index >> VKD3D_QUERY_LOOKUP_GRANULARITY_BITS;
+        d3d12_command_list_add_query_lookup_mask(list, entry->query_heap, bucket, query_mask);
+
+        advance = min(advance, query_count);
+
+        query_index += advance;
+        query_count -= advance;
+    }
+}
+
 static void d3d12_command_list_execute_query_resolve(struct d3d12_command_list *list,
         const struct vkd3d_query_resolve_entry *entry)
 {
@@ -10214,6 +10309,41 @@ static void d3d12_command_list_execute_query_resolve(struct d3d12_command_list *
     }
 }
 
+static void d3d12_command_list_flush_query_resolves(struct d3d12_command_list *list)
+{
+    unsigned int i;
+
+    if (!list->query_resolve_count)
+        return;
+
+    d3d12_command_list_update_descriptor_buffers(list);
+
+    for (i = 0; i < list->query_resolve_count; i++)
+        d3d12_command_list_execute_query_resolve(list, &list->query_resolves[i]);
+
+    list->query_resolve_count = 0;
+
+    hash_map_clear(&list->query_resolve_lut);
+}
+
+static void d3d12_command_list_add_query_resolve(struct d3d12_command_list *list,
+        const struct vkd3d_query_resolve_entry *entry)
+{
+    /* Ensure that other writes to the buffer execute before the resolve */
+    d3d12_command_list_end_transfer_batch(list);
+
+    if (!vkd3d_array_reserve((void**)&list->query_resolves, &list->query_resolve_size,
+            list->query_resolve_count + 1, sizeof(*list->query_resolves)))
+    {
+        ERR("Failed to allocate query resolve entry.\n");
+        return;
+    }
+
+    list->query_resolves[list->query_resolve_count++] = *entry;
+
+    d3d12_command_list_add_query_lookup_range(list, entry);
+}
+
 static inline bool d3d12_query_type_is_scoped(D3D12_QUERY_TYPE type)
 {
     return type != D3D12_QUERY_TYPE_TIMESTAMP;
@@ -10239,6 +10369,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(d3d12_command_list_i
 
     if (d3d12_query_heap_type_is_inline(query_heap->desc.Type))
     {
+        if (d3d12_command_list_is_query_resolve_pending(list, query_heap, index))
+        {
+            /* Implicitly calls flush_query_resolves */
+            d3d12_command_list_end_current_render_pass(list, true);
+        }
+
         if (!d3d12_command_list_enable_query(list, query_heap, index, type))
             d3d12_command_list_mark_as_invalid(list, "Failed to enable virtual query.\n");
     }
@@ -10411,8 +10547,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
     }
 
     d3d12_command_list_track_query_heap(list, query_heap);
-    d3d12_command_list_end_current_render_pass(list, true);
-    d3d12_command_list_update_descriptor_buffers(list);
 
     if (d3d12_query_heap_type_is_inline(query_heap->desc.Type))
     {
@@ -10423,10 +10557,18 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
         entry.dst_buffer = buffer;
         entry.dst_offset = aligned_dst_buffer_offset;
 
-        d3d12_command_list_execute_query_resolve(list, &entry);
+        if (list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE)
+            d3d12_command_list_add_query_resolve(list, &entry);
+        else
+        {
+            d3d12_command_list_update_descriptor_buffers(list);
+            d3d12_command_list_execute_query_resolve(list, &entry);
+        }
     }
     else
     {
+        d3d12_command_list_end_current_render_pass(list, true);
+
         d3d12_command_list_read_query_range(list, query_heap->vk_query_pool, start_index, query_count);
         d3d12_command_list_mark_copy_buffer_write(list, buffer->res.vk_buffer,
                 buffer->mem.offset + aligned_dst_buffer_offset, sizeof(uint64_t),
@@ -11438,7 +11580,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_WriteBufferImmediate(d3d12_comm
         /* Avoid ending the active render pass instance, if any */
         do_batch = mode == D3D12_WRITEBUFFERIMMEDIATE_MODE_DEFAULT
                 || !list->device->vk_info.AMD_buffer_marker
-                || (list->wbi_batch.batch_len && mode != D3D12_WRITEBUFFERIMMEDIATE_MODE_MARKER_IN);
+                || (list->wbi_batch.batch_len && mode != D3D12_WRITEBUFFERIMMEDIATE_MODE_MARKER_IN)
+                || (list->query_resolve_count);
 
         if (do_batch)
         {
@@ -12028,6 +12171,11 @@ static HRESULT d3d12_command_list_init(struct d3d12_command_list *list, struct d
     list->type = type;
 
     list->ID3D12GraphicsCommandListExt_iface.lpVtbl = &d3d12_command_list_vkd3d_ext_vtbl;
+
+    hash_map_init(&list->query_resolve_lut,
+            vkd3d_query_lookup_entry_hash,
+            vkd3d_query_lookup_entry_compare,
+            sizeof(struct vkd3d_query_lookup_entry));
 
     d3d12_command_list_init_rendering_info(device, &list->rendering_info);
 
