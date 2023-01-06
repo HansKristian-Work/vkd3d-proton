@@ -10166,6 +10166,54 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
     }
 }
 
+static void d3d12_command_list_resolve_binary_occlusion_queries(struct d3d12_command_list *list,
+        VkBuffer src_buffer, uint32_t src_index, VkBuffer dst_buffer, VkDeviceSize dst_offset,
+        VkDeviceSize dst_size, uint32_t dst_index, uint32_t count);
+
+static void d3d12_command_list_execute_query_resolve(struct d3d12_command_list *list,
+        const struct vkd3d_query_resolve_entry *entry)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    size_t stride = d3d12_query_heap_type_get_data_size(entry->query_heap->desc.Type);
+    VkCopyBufferInfo2KHR copy_info;
+    VkBufferCopy2KHR copy_region;
+
+    if (!d3d12_command_list_gather_pending_queries(list))
+    {
+        d3d12_command_list_mark_as_invalid(list, "Failed to gather virtual queries.\n");
+        return;
+    }
+
+    if (entry->query_type != D3D12_QUERY_TYPE_BINARY_OCCLUSION)
+    {
+        copy_region.sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2_KHR;
+        copy_region.pNext = NULL;
+        copy_region.srcOffset = stride * entry->query_index;
+        copy_region.dstOffset = entry->dst_buffer->mem.offset + entry->dst_offset;
+        copy_region.size = stride * entry->query_count;
+
+        copy_info.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2_KHR;
+        copy_info.pNext = NULL;
+        copy_info.srcBuffer = entry->query_heap->vk_buffer;
+        copy_info.dstBuffer = entry->dst_buffer->res.vk_buffer;
+        copy_info.regionCount = 1;
+        copy_info.pRegions = &copy_region;
+
+        d3d12_command_list_mark_copy_buffer_write(list, copy_info.dstBuffer, copy_region.dstOffset, copy_region.size,
+                !!(entry->dst_buffer->flags & VKD3D_RESOURCE_RESERVED));
+        VK_CALL(vkCmdCopyBuffer2KHR(list->vk_command_buffer, &copy_info));
+    }
+    else
+    {
+        uint32_t dst_index = entry->dst_offset / sizeof(uint64_t);
+
+        d3d12_command_list_resolve_binary_occlusion_queries(list,
+                entry->query_heap->vk_buffer, entry->query_index, entry->dst_buffer->res.vk_buffer,
+                entry->dst_buffer->mem.offset, entry->dst_buffer->desc.Width, dst_index,
+                entry->query_count);
+    }
+}
+
 static inline bool d3d12_query_type_is_scoped(D3D12_QUERY_TYPE type)
 {
     return type != D3D12_QUERY_TYPE_TIMESTAMP;
@@ -10344,8 +10392,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
     struct d3d12_resource *buffer = impl_from_ID3D12Resource(dst_buffer);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     size_t stride = d3d12_query_heap_type_get_data_size(query_heap->desc.Type);
-    VkCopyBufferInfo2KHR copy_info;
-    VkBufferCopy2KHR copy_region;
+    struct vkd3d_query_resolve_entry entry;
 
     TRACE("iface %p, heap %p, type %#x, start_index %u, query_count %u, "
             "dst_buffer %p, aligned_dst_buffer_offset %#"PRIx64".\n",
@@ -10369,40 +10416,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
 
     if (d3d12_query_heap_type_is_inline(query_heap->desc.Type))
     {
-        if (!d3d12_command_list_gather_pending_queries(list))
-        {
-            d3d12_command_list_mark_as_invalid(list, "Failed to gather virtual queries.\n");
-            return;
-        }
+        entry.query_type = type;
+        entry.query_heap = query_heap;
+        entry.query_index = start_index;
+        entry.query_count = query_count;
+        entry.dst_buffer = buffer;
+        entry.dst_offset = aligned_dst_buffer_offset;
 
-        if (type != D3D12_QUERY_TYPE_BINARY_OCCLUSION)
-        {
-            copy_region.sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2_KHR;
-            copy_region.pNext = NULL;
-            copy_region.srcOffset = stride * start_index;
-            copy_region.dstOffset = buffer->mem.offset + aligned_dst_buffer_offset;
-            copy_region.size = stride * query_count;
-
-            copy_info.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2_KHR;
-            copy_info.pNext = NULL;
-            copy_info.srcBuffer = query_heap->vk_buffer;
-            copy_info.dstBuffer = buffer->res.vk_buffer;
-            copy_info.regionCount = 1;
-            copy_info.pRegions = &copy_region;
-
-            d3d12_command_list_mark_copy_buffer_write(list, copy_info.dstBuffer, copy_region.dstOffset, copy_region.size,
-                    !!(buffer->flags & VKD3D_RESOURCE_RESERVED));
-            VK_CALL(vkCmdCopyBuffer2KHR(list->vk_command_buffer, &copy_info));
-        }
-        else
-        {
-            uint32_t dst_index = aligned_dst_buffer_offset / sizeof(uint64_t);
-
-            d3d12_command_list_resolve_binary_occlusion_queries(list,
-                    query_heap->vk_buffer, start_index, buffer->res.vk_buffer,
-                    buffer->mem.offset, buffer->desc.Width, dst_index,
-                    query_count);
-        }
+        d3d12_command_list_execute_query_resolve(list, &entry);
     }
     else
     {
