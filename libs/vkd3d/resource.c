@@ -3009,7 +3009,7 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
 
         /* Align manually. This works because we padded the required allocation size reported to the app. */
         VK_CALL(vkGetImageMemoryRequirements(device->vk_device, object->res.vk_image, &memory_requirements));
-        heap_offset = align(heap_offset, memory_requirements.alignment);
+        heap_offset = align(heap->allocation.offset + heap_offset, memory_requirements.alignment) - heap->allocation.offset;
 
         if (heap_offset + memory_requirements.size > heap->allocation.resource.size)
         {
