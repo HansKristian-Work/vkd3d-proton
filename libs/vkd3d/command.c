@@ -12429,8 +12429,9 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         for (i = 0; i < command_list_count; ++i)
         {
             cmd_list = unsafe_impl_from_ID3D12CommandList(command_lists[i]);
-            memcpy(transitions, cmd_list->init_transitions,
-                   cmd_list->init_transitions_count * sizeof(*transitions));
+            if (cmd_list->init_transitions_count)
+                memcpy(transitions, cmd_list->init_transitions,
+                        cmd_list->init_transitions_count * sizeof(*transitions));
             transitions += cmd_list->init_transitions_count;
         }
     }
