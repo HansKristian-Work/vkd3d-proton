@@ -5393,9 +5393,13 @@ static void STDMETHODCALLTYPE d3d12_device_RemoveDevice(d3d12_device_iface *ifac
 static HRESULT STDMETHODCALLTYPE d3d12_device_EnumerateMetaCommands(d3d12_device_iface *iface,
         UINT *count, D3D12_META_COMMAND_DESC *descs)
 {
-    FIXME("iface %p, count %p, descs %p stub!\n", iface, count, descs);
+    TRACE("iface %p, count %p, descs %p.\n", iface, count, descs);
 
-    return E_NOTIMPL;
+    if (!count)
+        return E_INVALIDARG;
+
+    *count = 0;
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_EnumerateMetaCommandParameters(d3d12_device_iface *iface,
