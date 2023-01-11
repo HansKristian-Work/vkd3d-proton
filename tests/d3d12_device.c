@@ -1444,3 +1444,62 @@ void test_device_removed_reason(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+void test_enumerate_meta_commands(void)
+{
+    D3D12_META_COMMAND_DESC dummy_desc, *descs;
+    UINT desc_count, supported_count;
+    ID3D12Device5 *device5;
+    ID3D12Device *device;
+    ULONG refcount;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    hr = ID3D12Device_QueryInterface(device, &IID_ID3D12Device5, (void**)&device5);
+    ID3D12Device_Release(device);
+
+    if (FAILED(hr))
+    {
+        skip("ID3D12Device5 not supported by implementation.\n");
+        return;
+    }
+
+    hr = ID3D12Device5_EnumerateMetaCommands(device5, NULL, NULL);
+    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", hr);
+    hr = ID3D12Device5_EnumerateMetaCommands(device5, NULL, &dummy_desc);
+    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", hr);
+
+    desc_count = 0xdeadbeef;
+    hr = ID3D12Device5_EnumerateMetaCommands(device5, &desc_count, NULL);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    supported_count = desc_count;
+
+    descs = calloc(supported_count, sizeof(*descs));
+    memset(&dummy_desc, 0, sizeof(dummy_desc));
+
+    hr = ID3D12Device5_EnumerateMetaCommands(device5, &desc_count, descs);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    ok(desc_count == supported_count, "Unexpected desc count %u.\n", desc_count);
+
+    if (desc_count)
+    {
+        desc_count -= 1;
+
+        hr = ID3D12Device5_EnumerateMetaCommands(device5, &desc_count, descs);
+        ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+        ok(desc_count == supported_count, "Unexpected desc count %u.\n", desc_count);
+    }
+
+    /* The D3D12 runtime will crash or access random data if given a larger
+     * count than what is supported by the device, so don't test that here. */
+
+    free(descs);
+
+    refcount = ID3D12Device5_Release(device5);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}

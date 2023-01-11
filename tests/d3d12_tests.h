@@ -70,6 +70,7 @@ decl_test(test_draw_depth_only);
 decl_test(test_draw_uav_only);
 decl_test(test_texture_resource_barriers);
 decl_test(test_device_removed_reason);
+decl_test(test_enumerate_meta_commands);
 decl_test(test_map_resource);
 decl_test(test_map_placed_resources);
 decl_test(test_bundle_state_inheritance);
