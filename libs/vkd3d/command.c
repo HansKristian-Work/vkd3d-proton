@@ -11468,6 +11468,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
     build_info.build_info.scratchData.deviceAddress = desc->ScratchAccelerationStructureData;
 
     d3d12_command_list_end_current_render_pass(list, true);
+    d3d12_command_list_end_transfer_batch(list);
+
     VK_CALL(vkCmdBuildAccelerationStructuresKHR(list->vk_command_buffer, 1,
             &build_info.build_info, build_info.build_range_ptrs));
 
@@ -11520,6 +11522,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
     }
 
     d3d12_command_list_end_current_render_pass(list, true);
+    d3d12_command_list_end_transfer_batch(list);
     vkd3d_acceleration_structure_copy(list, dst_data, src_data, mode);
 
     VKD3D_BREADCRUMB_COMMAND(COPY_RTAS);
@@ -11603,6 +11606,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchRays(d3d12_command_list
     miss_table = convert_strided_range(&desc->MissShaderTable);
     hit_table = convert_strided_range(&desc->HitGroupTable);
     callable_table = convert_strided_range(&desc->CallableShaderTable);
+
+    d3d12_command_list_end_transfer_batch(list);
 
     if (!d3d12_command_list_update_raygen_state(list))
     {
