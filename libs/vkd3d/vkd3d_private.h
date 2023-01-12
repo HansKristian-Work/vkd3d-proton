@@ -2487,6 +2487,8 @@ struct d3d12_command_list
 
     struct d3d12_transfer_batch_state transfer_batch;
 
+    bool has_unsynced_accel_struct_build;
+
     struct vkd3d_private_store private_store;
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS

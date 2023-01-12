@@ -4803,6 +4803,18 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
     /* If there are pending subresource updates, execute them now that all other operations have completed */
     d3d12_command_list_flush_subresource_updates(list);
 
+    if (list->has_unsynced_accel_struct_build)
+    {
+        VkMemoryBarrier barrier;
+        barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        barrier.pNext = NULL;
+        barrier.srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+        barrier.dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+        VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0,
+            1, &barrier, 0, NULL, 0, NULL));
+    }
+
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
         vkd3d_breadcrumb_tracer_end_command_list(list);
@@ -5083,6 +5095,7 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     list->rendering_info.state_flags = 0;
     list->execute_indirect.has_emitted_indirect_to_compute_barrier = false;
     list->execute_indirect.has_observed_transition_to_indirect = false;
+    list->has_unsynced_accel_struct_build = false;
 }
 
 static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
@@ -8291,6 +8304,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                 if (!preserve_resource || !d3d12_resource_is_acceleration_structure(preserve_resource))
                     state_mask |= D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
 
+                list->has_unsynced_accel_struct_build = false;
+
                 assert(state_mask);
 
                 vk_access_and_stage_flags_from_d3d12_resource_state(list, preserve_resource,
@@ -11465,6 +11480,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
         }
     }
 
+    list->has_unsynced_accel_struct_build = true;
+
     build_info.build_info.scratchData.deviceAddress = desc->ScratchAccelerationStructureData;
 
     d3d12_command_list_end_current_render_pass(list, true);
@@ -11523,6 +11540,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
 
     d3d12_command_list_end_current_render_pass(list, true);
     d3d12_command_list_end_transfer_batch(list);
+    list->has_unsynced_accel_struct_build = true;
+
     vkd3d_acceleration_structure_copy(list, dst_data, src_data, mode);
 
     VKD3D_BREADCRUMB_COMMAND(COPY_RTAS);
