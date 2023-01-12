@@ -75,6 +75,7 @@ static void d3d12_command_list_decay_optimal_dsv_resource(struct d3d12_command_l
         const struct d3d12_resource *resource, uint32_t plane_optimal_mask,
         struct d3d12_command_list_barrier_batch *batch);
 static void d3d12_command_list_end_transfer_batch(struct d3d12_command_list *list);
+static void d3d12_command_list_end_wbi_batch(struct d3d12_command_list *list);
 static inline void d3d12_command_list_ensure_transfer_batch(struct d3d12_command_list *list, enum vkd3d_batch_type type);
 
 static HRESULT vkd3d_create_binary_semaphore(struct d3d12_device *device, VkSemaphore *vk_semaphore)
@@ -4315,6 +4316,8 @@ static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list
 
         list->xfb_enabled = false;
     }
+
+    d3d12_command_list_end_wbi_batch(list);
 }
 
 static void d3d12_command_list_invalidate_push_constants(struct vkd3d_pipeline_bindings *bindings)
@@ -5090,6 +5093,7 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     list->dsv_resource_tracking_count = 0;
     list->subresource_tracking_count = 0;
     list->tracked_copy_buffer_count = 0;
+    list->wbi_batch.batch_len = 0;
 
     list->rendering_info.state_flags = 0;
     list->execute_indirect.has_emitted_indirect_to_compute_barrier = false;
@@ -7332,6 +7336,50 @@ static void d3d12_command_list_end_transfer_batch(struct d3d12_command_list *lis
             break;
     }
     list->transfer_batch.batch_type = VKD3D_BATCH_TYPE_NONE;
+}
+
+static void d3d12_command_list_end_wbi_batch(struct d3d12_command_list *list)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    size_t i, next, first;
+    bool flush;
+
+    if (!list->wbi_batch.batch_len)
+        return;
+
+    first = 0;
+
+    for (i = 0; i < list->wbi_batch.batch_len; i++)
+    {
+        if (list->wbi_batch.stages[i] == VK_PIPELINE_STAGE_TRANSFER_BIT || !list->device->vk_info.AMD_buffer_marker)
+        {
+            next = i + 1;
+
+            if (!(flush = next == list->wbi_batch.batch_len))
+            {
+                flush = list->wbi_batch.buffers[next] != list->wbi_batch.buffers[i] ||
+                        list->wbi_batch.offsets[next] != list->wbi_batch.offsets[i] + sizeof(uint32_t) ||
+                        (list->wbi_batch.stages[next] != list->wbi_batch.stages[i] && list->device->vk_info.AMD_buffer_marker);
+            }
+
+            if (flush)
+            {
+                VK_CALL(vkCmdUpdateBuffer(list->vk_command_buffer,
+                        list->wbi_batch.buffers[first], list->wbi_batch.offsets[first],
+                        (next - first) * sizeof(uint32_t), &list->wbi_batch.values[first]));
+
+                first = next;
+            }
+        }
+        else
+        {
+            VK_CALL(vkCmdWriteBufferMarkerAMD(list->vk_command_buffer,
+                    list->wbi_batch.stages[i], list->wbi_batch.buffers[i],
+                    list->wbi_batch.offsets[i], list->wbi_batch.values[i]));
+        }
+    }
+
+    list->wbi_batch.batch_len = 0;
 }
 
 static void d3d12_command_list_ensure_transfer_batch(struct d3d12_command_list *list, enum vkd3d_batch_type type)
@@ -11337,20 +11385,17 @@ static void STDMETHODCALLTYPE d3d12_command_list_WriteBufferImmediate(d3d12_comm
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct vkd3d_unique_resource *resource;
     D3D12_WRITEBUFFERIMMEDIATE_MODE mode;
-    bool flush_after, flush_before;
     VkPipelineStageFlagBits stage;
-    uint32_t dword_buffer[64];
-    VkDeviceSize curr_offset;
-    unsigned int dword_count;
-    VkBuffer curr_buffer;
+    bool do_flush, do_batch;
     VkDeviceSize offset;
+    size_t batch_entry;
     unsigned int i;
 
     TRACE("iface %p, count %u, parameters %p, modes %p.\n", iface, count, parameters, modes);
 
-    curr_buffer = VK_NULL_HANDLE;
-    curr_offset = 0;
-    dword_count = 0;
+    /* Always flush WBI batch if we're outside a render pass instance, since
+     * otherwise we're only calling end_wbi_batch in end_current_render_pass. */
+    do_flush = !(list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE);
 
     for (i = 0; i < count; ++i)
     {
@@ -11369,57 +11414,46 @@ static void STDMETHODCALLTYPE d3d12_command_list_WriteBufferImmediate(d3d12_comm
             return;
         }
 
-        /* MODE_DEFAULT behaves like a normal transfer operation, and some games
-         * use this to update large parts of a buffer, so try to batch consecutive
-         * writes. Ignore marker semantics if AMD_buffer_marker is not supported
-         * since we cannot implement them in a useful way otherwise. */
-        if (mode == D3D12_WRITEBUFFERIMMEDIATE_MODE_DEFAULT || !list->device->vk_info.AMD_buffer_marker)
+        /* Avoid ending the active render pass instance, if any */
+        do_batch = mode == D3D12_WRITEBUFFERIMMEDIATE_MODE_DEFAULT
+                || !list->device->vk_info.AMD_buffer_marker
+                || (list->wbi_batch.batch_len && mode != D3D12_WRITEBUFFERIMMEDIATE_MODE_MARKER_IN);
+
+        if (do_batch)
         {
-            d3d12_command_list_end_current_render_pass(list, true);
+            batch_entry = list->wbi_batch.batch_len++;
 
-            flush_before = resource->vk_buffer != curr_buffer ||
-                    offset != curr_offset + dword_count * sizeof(uint32_t);
+            list->wbi_batch.buffers[batch_entry] = resource->vk_buffer;
+            list->wbi_batch.offsets[batch_entry] = offset;
+            list->wbi_batch.stages[batch_entry] = stage;
+            list->wbi_batch.values[batch_entry] = parameters[i].Value;
 
-            if (flush_before)
-            {
-                if (dword_count)
-                {
-                    d3d12_command_list_mark_copy_buffer_write(list, curr_buffer,
-                            curr_offset, dword_count * sizeof(uint32_t), false);
-
-                    VK_CALL(vkCmdUpdateBuffer(list->vk_command_buffer, curr_buffer,
-                            curr_offset, dword_count * sizeof(uint32_t), dword_buffer));
-                }
-
-                curr_buffer = resource->vk_buffer;
-                curr_offset = offset;
-                dword_count = 0;
-            }
-
-            dword_buffer[dword_count++] = parameters[i].Value;
-
-            /* Record batched writes if the buffer is full or if we're at the
-             * end of the list, or if the next write has marker semantics. */
-            flush_after = dword_count == ARRAY_SIZE(dword_buffer) || i + 1 == count ||
-                    (modes && modes[i + 1] != mode && list->device->vk_info.AMD_buffer_marker);
-
-            if (flush_after)
-            {
-                d3d12_command_list_mark_copy_buffer_write(list, curr_buffer,
-                        curr_offset, dword_count * sizeof(uint32_t), false);
-
-                VK_CALL(vkCmdUpdateBuffer(list->vk_command_buffer, curr_buffer,
-                        curr_offset, dword_count * sizeof(uint32_t), dword_buffer));
-
-                curr_buffer = VK_NULL_HANDLE;
-                curr_offset = 0;
-                dword_count = 0;
-            }
+            if (mode == D3D12_WRITEBUFFERIMMEDIATE_MODE_MARKER_IN)
+                do_flush = true;
         }
         else
         {
             VK_CALL(vkCmdWriteBufferMarkerAMD(list->vk_command_buffer, stage,
                     resource->vk_buffer, offset, parameters[i].Value));
+        }
+
+        if ((do_flush && i + 1 == count) || list->wbi_batch.batch_len == VKD3D_MAX_WBI_BATCH_SIZE)
+        {
+            if (list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE)
+            {
+                /* Implicitly calls end_wbi_batch. We cannot have any pending transfers
+                 * while inside a render pass instance that we would have to end. */
+                d3d12_command_list_end_current_render_pass(list, true);
+
+                /* Flush subsequent batches now that the render pass instance has ended */
+                do_flush = true;
+            }
+            else
+            {
+                /* Flush pending transfers first to maintain correct order of operations */
+                d3d12_command_list_end_transfer_batch(list);
+                d3d12_command_list_end_wbi_batch(list);
+            }
         }
     }
 
