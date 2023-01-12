@@ -2361,6 +2361,17 @@ struct d3d12_transfer_batch_state
     size_t batch_len;
 };
 
+#define VKD3D_MAX_WBI_BATCH_SIZE 128
+
+struct d3d12_wbi_batch_state
+{
+    VkBuffer buffers[VKD3D_MAX_WBI_BATCH_SIZE];
+    VkDeviceSize offsets[VKD3D_MAX_WBI_BATCH_SIZE];
+    VkPipelineStageFlags stages[VKD3D_MAX_WBI_BATCH_SIZE];
+    uint32_t values[VKD3D_MAX_WBI_BATCH_SIZE];
+    size_t batch_len;
+};
+
 union vkd3d_descriptor_heap_state
 {
     struct
@@ -2484,6 +2495,7 @@ struct d3d12_command_list
     unsigned int tracked_copy_buffer_count;
 
     struct d3d12_transfer_batch_state transfer_batch;
+    struct d3d12_wbi_batch_state wbi_batch;
 
     struct vkd3d_private_store private_store;
 
