@@ -49,7 +49,7 @@ vkd3d_src = [
   'vkd3d_main.c',
   'raytracing_pipeline.c',
   'acceleration_structure.c',
-  'swapchain_new.c'
+  'swapchain.c'
 ]
 
 if enable_renderdoc
