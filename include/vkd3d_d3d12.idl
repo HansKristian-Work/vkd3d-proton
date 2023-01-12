@@ -485,6 +485,49 @@ typedef struct D3D12_FEATURE_DATA_D3D12_OPTIONS11
     BOOL AtomicInt64OnDescriptorHeapResourceSupported;
 } D3D12_FEATURE_DATA_D3D12_OPTIONS11;
 
+typedef enum D3D12_TRI_STATE
+{
+    D3D12_TRI_STATE_UNKNOWN = -1,
+    D3D12_TRI_STATE_FALSE = 0,
+    D3D12_TRI_STATE_TRUE = 1,
+} D3D12_TRI_STATE;
+
+typedef struct D3D12_FEATURE_DATA_D3D12_OPTIONS12
+{
+    D3D12_TRI_STATE MSPrimitivesPipelineStatisticIncludesCulledPrimitives;
+    BOOL EnhancedBarriersSupported;
+    BOOL RelaxedFormatCastingSupported;
+} D3D12_FEATURE_DATA_D3D12_OPTIONS12;
+
+typedef struct D3D12_FEATURE_DATA_D3D12_OPTIONS13
+{
+    BOOL UnrestrictedBufferTextureCopyPitchSupported;
+    BOOL UnrestrictedVertexElementAlignmentSupported;
+    BOOL InvertedViewportHeightFlipsYSupported;
+    BOOL InvertedViewportDepthFlipsZSupported;
+    BOOL TextureCopyBetweenDimensionsSupported;
+    BOOL AlphaBlendFactorSupported;
+} D3D12_FEATURE_DATA_D3D12_OPTIONS13;
+
+typedef struct D3D12_FEATURE_DATA_D3D12_OPTIONS14
+{
+    BOOL AdvancedTextureOpsSupported;
+    BOOL WriteableMSAATexturesSupported;
+    BOOL IndependentFrontAndBackStencilRefMaskSupported;
+} D3D12_FEATURE_DATA_D3D12_OPTIONS14;
+
+typedef struct D3D12_FEATURE_DATA_D3D12_OPTIONS15
+{
+    BOOL TriangleFanSupported;
+    BOOL DynamicIndexBufferStripCutSupported;
+} D3D12_FEATURE_DATA_D3D12_OPTIONS15;
+
+typedef struct D3D12_FEATURE_DATA_D3D12_OPTIONS16
+{
+    BOOL DynamicDepthBiasSupported;
+    BOOL Reserved;
+} D3D12_FEATURE_DATA_D3D12_OPTIONS16;
+
 typedef struct D3D12_FEATURE_DATA_FORMAT_SUPPORT
 {
     DXGI_FORMAT Format;
@@ -2029,6 +2072,11 @@ typedef enum D3D12_FEATURE
     D3D12_FEATURE_D3D12_OPTIONS9 = 37,
     D3D12_FEATURE_D3D12_OPTIONS10 = 39,
     D3D12_FEATURE_D3D12_OPTIONS11 = 40,
+    D3D12_FEATURE_D3D12_OPTIONS12 = 41,
+    D3D12_FEATURE_D3D12_OPTIONS13 = 42,
+    D3D12_FEATURE_D3D12_OPTIONS14 = 43,
+    D3D12_FEATURE_D3D12_OPTIONS15 = 44,
+    D3D12_FEATURE_D3D12_OPTIONS16 = 45,
 } D3D12_FEATURE;
 
 typedef struct D3D12_MEMCPY_DEST
