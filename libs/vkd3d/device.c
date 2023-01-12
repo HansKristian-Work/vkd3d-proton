@@ -4092,6 +4092,87 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             return S_OK;
         }
 
+        case D3D12_FEATURE_D3D12_OPTIONS12:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS12 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            data->MSPrimitivesPipelineStatisticIncludesCulledPrimitives = D3D12_TRI_STATE_UNKNOWN;
+            data->EnhancedBarriersSupported = FALSE;
+            data->RelaxedFormatCastingSupported = FALSE;
+            return S_OK;
+        }
+
+        case D3D12_FEATURE_D3D12_OPTIONS13:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS13 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            data->UnrestrictedBufferTextureCopyPitchSupported = FALSE;
+            data->UnrestrictedVertexElementAlignmentSupported = FALSE;
+            data->InvertedViewportHeightFlipsYSupported = FALSE;
+            data->InvertedViewportDepthFlipsZSupported = FALSE;
+            data->TextureCopyBetweenDimensionsSupported = FALSE;
+            data->AlphaBlendFactorSupported = FALSE;
+            return S_OK;
+        }
+
+        case D3D12_FEATURE_D3D12_OPTIONS14:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS14 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            data->AdvancedTextureOpsSupported = FALSE;
+            data->WriteableMSAATexturesSupported = FALSE;
+            data->IndependentFrontAndBackStencilRefMaskSupported = FALSE;
+            return S_OK;
+        }
+
+        case D3D12_FEATURE_D3D12_OPTIONS15:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS15 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            data->TriangleFanSupported = FALSE;
+            data->DynamicIndexBufferStripCutSupported = FALSE;
+            return S_OK;
+        }
+
+        case D3D12_FEATURE_D3D12_OPTIONS16:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS16 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            data->DynamicDepthBiasSupported = FALSE;
+            data->Reserved = FALSE;
+            return S_OK;
+        }
+
         case D3D12_FEATURE_QUERY_META_COMMAND:
         {
             D3D12_FEATURE_DATA_QUERY_META_COMMAND *data = feature_data;
