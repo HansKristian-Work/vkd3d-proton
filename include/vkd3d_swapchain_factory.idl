@@ -22,23 +22,6 @@ import "vkd3d_dxgibase.idl";
 import "vkd3d_dxgi1_5.idl";
 import "vkd3d_vk_includes.h";
 
-[
-    object,
-    local,
-    uuid(53cb4ff0-c25a-4164-a891-0e83db0a7aac)
-]
-interface IWineDXGISwapChainFactory : IUnknown
-{
-    HRESULT CreateSwapChainForHwnd(
-        [in] IDXGIFactory *pFactory,
-        [in] HWND hWnd,
-        [in] const DXGI_SWAP_CHAIN_DESC1 *pDesc,
-        [in] const DXGI_SWAP_CHAIN_FULLSCREEN_DESC *pFullscreenDesc,
-        [in] IDXGIOutput *pRestrictToOutput,
-        [out] IDXGISwapChain1 **ppSwapChain
-    );
-}
-
 typedef struct DXGI_VK_HDR_METADATA
 {
     DXGI_HDR_METADATA_TYPE Type;

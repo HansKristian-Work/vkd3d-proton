@@ -2697,13 +2697,6 @@ struct vkd3d_timeline_semaphore
     uint64_t last_signaled;
 };
 
-/* IWineDXGISwapChainFactory */
-struct d3d12_swapchain_factory
-{
-    IWineDXGISwapChainFactory IWineDXGISwapChainFactory_iface;
-    struct d3d12_command_queue *queue;
-};
-
 /* IDXGIVkSwapChainFactory */
 struct dxgi_vk_swap_chain_factory
 {
@@ -2711,7 +2704,6 @@ struct dxgi_vk_swap_chain_factory
     struct d3d12_command_queue *queue;
 };
 
-HRESULT d3d12_swapchain_factory_init(struct d3d12_command_queue *queue, struct d3d12_swapchain_factory *factory);
 HRESULT dxgi_vk_swap_chain_factory_init(struct d3d12_command_queue *queue, struct dxgi_vk_swap_chain_factory *chain);
 
 /* ID3D12CommandQueue */
@@ -2738,10 +2730,6 @@ struct d3d12_command_queue
 
     struct vkd3d_fence_worker fence_worker;
     struct vkd3d_private_store private_store;
-
-#ifdef _WIN32
-    struct d3d12_swapchain_factory swapchain_factory;
-#endif
     struct dxgi_vk_swap_chain_factory vk_swap_chain_factory;
 };
 

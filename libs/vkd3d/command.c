@@ -12003,19 +12003,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_QueryInterface(ID3D12Comman
         return S_OK;
     }
 
-#ifdef _WIN32
-    if (IsEqualGUID(riid, &IID_IWineDXGISwapChainFactory))
-    {
-        struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
-        IWineDXGISwapChainFactory_AddRef(&command_queue->swapchain_factory.IWineDXGISwapChainFactory_iface);
-        *object = &command_queue->swapchain_factory;
-        INFO("Exposing legacy swapchain interface. Either legacy swapchain was forced, or DXVK < 2.0 is used.\n");
-        return S_OK;
-    }
-#endif
-
-    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SWAPCHAIN_LEGACY) &&
-            IsEqualGUID(riid, &IID_IDXGIVkSwapChainFactory))
+    if (IsEqualGUID(riid, &IID_IDXGIVkSwapChainFactory))
     {
         struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
         IDXGIVkSwapChainFactory_AddRef(&command_queue->vk_swap_chain_factory.IDXGIVkSwapChainFactory_iface);
@@ -13701,10 +13689,6 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
 
     if (FAILED(hr = dxgi_vk_swap_chain_factory_init(queue, &queue->vk_swap_chain_factory)))
         goto fail_swapchain_factory;
-#ifdef _WIN32
-    if (FAILED(hr = d3d12_swapchain_factory_init(queue, &queue->swapchain_factory)))
-        goto fail_swapchain_factory;
-#endif
 
     d3d12_device_add_ref(queue->device = device);
 
