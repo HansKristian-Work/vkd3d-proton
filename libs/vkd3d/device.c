@@ -739,7 +739,6 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"host_import_fallback", VKD3D_CONFIG_FLAG_USE_HOST_IMPORT_FALLBACK},
     {"preallocate_srv_mip_clamps", VKD3D_CONFIG_FLAG_PREALLOCATE_SRV_MIP_CLAMPS},
     {"force_initial_transition", VKD3D_CONFIG_FLAG_FORCE_INITIAL_TRANSITION},
-    {"swapchain_legacy", VKD3D_CONFIG_FLAG_SWAPCHAIN_LEGACY},
 };
 
 static void vkd3d_config_flags_init_once(void)

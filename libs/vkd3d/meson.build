@@ -52,11 +52,6 @@ vkd3d_src = [
   'swapchain_new.c'
 ]
 
-if vkd3d_platform == 'windows'
-  # Legacy swapchain, relies heavily on implementing DXGI APIs and window handling.
-  vkd3d_src += 'swapchain.c'
-endif
-
 if enable_renderdoc
   vkd3d_src += ['renderdoc.c']
 endif
