@@ -154,6 +154,7 @@ struct dxgi_vk_swap_chain
     struct
     {
         VkSurfaceFormatKHR *formats;
+		size_t formats_size;
         uint32_t format_count;
     } properties;
 
@@ -870,6 +871,36 @@ static CONST_VTBL struct IDXGIVkSwapChainVtbl dxgi_vk_swap_chain_vtbl =
     dxgi_vk_swap_chain_SetHDRMetaData,
 };
 
+static bool dxgi_vk_swap_chain_update_formats(struct dxgi_vk_swap_chain *chain)
+{
+	const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
+	VkPhysicalDevice vk_physical_device = chain->queue->device->vk_physical_device;
+    VkResult vr;
+
+    if ((vr = VK_CALL(vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, chain->vk_surface,
+            &chain->properties.format_count, NULL))) < 0)
+    {
+        ERR("Failed to query surface formats.\n");
+        return false;
+    }
+
+    if (!vkd3d_array_reserve((void**)&chain->properties.formats, &chain->properties.formats_size,
+            chain->properties.format_count, sizeof(*chain->properties.formats)))
+    {
+        ERR("Failed to allocate memory.\n");
+        return false;
+    }
+
+    if ((vr = VK_CALL(vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, chain->vk_surface,
+            &chain->properties.format_count, chain->properties.formats))) < 0)
+    {
+        ERR("Failed to query surface formats.\n");
+        return false;
+    }
+
+    return true;
+}
+
 static HRESULT dxgi_vk_swap_chain_create_surface(struct dxgi_vk_swap_chain *chain, IDXGIVkSurfaceFactory *pFactory)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
@@ -900,11 +931,6 @@ static HRESULT dxgi_vk_swap_chain_create_surface(struct dxgi_vk_swap_chain *chai
         ERR("Surface is not supported for presentation.\n");
         return E_INVALIDARG;
     }
-
-    /* Query surface formats up-front. */
-    VK_CALL(vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, chain->vk_surface, &chain->properties.format_count, NULL));
-    chain->properties.formats = vkd3d_malloc(chain->properties.format_count * sizeof(*chain->properties.formats));
-    VK_CALL(vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, chain->vk_surface, &chain->properties.format_count, chain->properties.formats));
 
     return S_OK;
 }
@@ -1224,6 +1250,13 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
     /* Don't bother if we've observed ERROR_SURFACE_LOST. */
     if (chain->present.is_surface_lost)
         return;
+
+    /* If we fail to query formats we are hosed, treat it as a SURFACE_LOST scenario. */
+    if (!dxgi_vk_swap_chain_update_formats(chain))
+    {
+        chain->present.is_surface_lost = true;
+        return;
+    }
 
     VK_CALL(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device, chain->vk_surface, &surface_caps));
 
