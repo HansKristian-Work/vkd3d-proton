@@ -3020,6 +3020,15 @@ void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list);
     } \
 } while(0)
 
+#define VKD3D_BREADCRUMB_TAG(tag_static_str) do { \
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \
+        struct vkd3d_breadcrumb_command breadcrumb_cmd; \
+        breadcrumb_cmd.type = VKD3D_BREADCRUMB_COMMAND_TAG; \
+        breadcrumb_cmd.tag = tag_static_str; \
+        vkd3d_breadcrumb_tracer_add_command(list, &breadcrumb_cmd); \
+    } \
+} while(0)
+
 /* Remember to kick debug ring as well. */
 #define VKD3D_DEVICE_REPORT_BREADCRUMB_IF(device, cond) do { \
     if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) && (cond)) { \
@@ -3027,6 +3036,96 @@ void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list);
         vkd3d_shader_debug_ring_kick(&(device)->debug_ring, device, true); \
     } \
 } while(0)
+
+static inline void vkd3d_breadcrumb_image_desc(
+        struct d3d12_command_list *list, const D3D12_RESOURCE_DESC1 *desc)
+{
+    VKD3D_BREADCRUMB_TAG("ImageDesc [DXGI_FORMAT, D3D12_RESOURCE_DIMENSION, width, height, DepthOrArraySize, MipLevels, Flags]");
+    VKD3D_BREADCRUMB_AUX32(desc->Format);
+    VKD3D_BREADCRUMB_AUX32(desc->Dimension);
+    VKD3D_BREADCRUMB_AUX64(desc->Width);
+    VKD3D_BREADCRUMB_AUX32(desc->Height);
+    VKD3D_BREADCRUMB_AUX32(desc->DepthOrArraySize);
+    VKD3D_BREADCRUMB_AUX32(desc->MipLevels);
+    VKD3D_BREADCRUMB_AUX32(desc->Flags);
+}
+
+static inline void vkd3d_breadcrumb_buffer(
+        struct d3d12_command_list *list, const struct d3d12_resource *resource)
+{
+    VKD3D_BREADCRUMB_TAG("BufferDesc [VkBuffer VA, SuballocatedOffset, Cookie, Size, Flags]");
+    VKD3D_BREADCRUMB_AUX64(resource->mem.resource.va);
+    VKD3D_BREADCRUMB_AUX64(resource->mem.offset);
+    VKD3D_BREADCRUMB_AUX32(resource->res.cookie);
+    VKD3D_BREADCRUMB_AUX64(resource->desc.Width);
+    VKD3D_BREADCRUMB_AUX32(resource->desc.Flags);
+}
+
+static inline void vkd3d_breadcrumb_resource(
+        struct d3d12_command_list *list, const struct d3d12_resource *resource)
+{
+    if (d3d12_resource_is_buffer(resource))
+        vkd3d_breadcrumb_buffer(list, resource);
+    else if (d3d12_resource_is_texture(resource))
+        vkd3d_breadcrumb_image_desc(list, &resource->desc);
+}
+
+static inline void vkd3d_breadcrumb_subresource(
+        struct d3d12_command_list *list, const VkImageSubresourceLayers *subresource)
+{
+    VKD3D_BREADCRUMB_TAG("SubresourceLayers [mipLevel, baseArrayLayer, layerCount, aspectMask]");
+    VKD3D_BREADCRUMB_AUX32(subresource->mipLevel);
+    VKD3D_BREADCRUMB_AUX32(subresource->baseArrayLayer);
+    VKD3D_BREADCRUMB_AUX32(subresource->layerCount);
+    VKD3D_BREADCRUMB_AUX32(subresource->aspectMask);
+}
+
+static inline void vkd3d_breadcrumb_buffer_image_copy(
+        struct d3d12_command_list *list, const VkBufferImageCopy2 *buffer_image)
+{
+    vkd3d_breadcrumb_subresource(list, &buffer_image->imageSubresource);
+    VKD3D_BREADCRUMB_TAG("ImageOffsetExtent [offset, extent, bufferOffset, bufferRowLength, bufferImageHeight]");
+    VKD3D_BREADCRUMB_AUX32(buffer_image->imageOffset.x);
+    VKD3D_BREADCRUMB_AUX32(buffer_image->imageOffset.y);
+    VKD3D_BREADCRUMB_AUX32(buffer_image->imageOffset.z);
+    VKD3D_BREADCRUMB_AUX32(buffer_image->imageExtent.width);
+    VKD3D_BREADCRUMB_AUX32(buffer_image->imageExtent.height);
+    VKD3D_BREADCRUMB_AUX32(buffer_image->imageExtent.depth);
+    VKD3D_BREADCRUMB_AUX32(buffer_image->bufferOffset);
+    VKD3D_BREADCRUMB_AUX32(buffer_image->bufferRowLength);
+    VKD3D_BREADCRUMB_AUX32(buffer_image->bufferImageHeight);
+}
+
+static inline void vkd3d_breadcrumb_image_copy(
+        struct d3d12_command_list *list, const VkImageCopy2 *image)
+{
+    vkd3d_breadcrumb_subresource(list, &image->srcSubresource);
+    vkd3d_breadcrumb_subresource(list, &image->dstSubresource);
+    VKD3D_BREADCRUMB_TAG("ImageOffsetExtent [srcOffset, dstOffset, extent]");
+    VKD3D_BREADCRUMB_AUX32(image->srcOffset.x);
+    VKD3D_BREADCRUMB_AUX32(image->srcOffset.y);
+    VKD3D_BREADCRUMB_AUX32(image->srcOffset.z);
+    VKD3D_BREADCRUMB_AUX32(image->dstOffset.x);
+    VKD3D_BREADCRUMB_AUX32(image->dstOffset.y);
+    VKD3D_BREADCRUMB_AUX32(image->dstOffset.z);
+    VKD3D_BREADCRUMB_AUX32(image->extent.width);
+    VKD3D_BREADCRUMB_AUX32(image->extent.height);
+    VKD3D_BREADCRUMB_AUX32(image->extent.depth);
+}
+
+static inline void vkd3d_breadcrumb_buffer_copy(
+        struct d3d12_command_list *list, const VkBufferCopy2 *buffer)
+{
+    VKD3D_BREADCRUMB_TAG("BufferCopy [srcOffset, dstOffset, size]");
+    VKD3D_BREADCRUMB_AUX64(buffer->srcOffset);
+    VKD3D_BREADCRUMB_AUX64(buffer->dstOffset);
+    VKD3D_BREADCRUMB_AUX64(buffer->size);
+}
+
+#define VKD3D_BREADCRUMB_RESOURCE(res) vkd3d_breadcrumb_resource(list, res)
+#define VKD3D_BREADCRUMB_BUFFER_IMAGE_COPY(buffer_image) vkd3d_breadcrumb_buffer_image_copy(list, buffer_image)
+#define VKD3D_BREADCRUMB_IMAGE_COPY(image) vkd3d_breadcrumb_image_copy(list, image)
+#define VKD3D_BREADCRUMB_BUFFER_COPY(buffer) vkd3d_breadcrumb_buffer_copy(list, buffer)
 #else
 #define VKD3D_BREADCRUMB_COMMAND(type) ((void)(VKD3D_BREADCRUMB_COMMAND_##type))
 #define VKD3D_BREADCRUMB_COMMAND_STATE(type) ((void)(VKD3D_BREADCRUMB_COMMAND_##type))
@@ -3034,6 +3133,11 @@ void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list);
 #define VKD3D_BREADCRUMB_AUX64(v) ((void)(v))
 #define VKD3D_DEVICE_REPORT_BREADCRUMB_IF(device, cond) ((void)(device), (void)(cond))
 #define VKD3D_BREADCRUMB_FLUSH_BATCHES(list) ((void)(list))
+#define VKD3D_BREADCRUMB_TAG(tag) ((void)(tag))
+#define VKD3D_BREADCRUMB_RESOURCE(res) ((void)(res))
+#define VKD3D_BREADCRUMB_BUFFER_IMAGE_COPY(buffer_image) ((void)(buffer_image))
+#define VKD3D_BREADCRUMB_IMAGE_COPY(image) ((void)(image))
+#define VKD3D_BREADCRUMB_BUFFER_COPY(buffer) ((void)(buffer))
 #endif /* VKD3D_ENABLE_BREADCRUMBS */
 
 /* Bindless */
