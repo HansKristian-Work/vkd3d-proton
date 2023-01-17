@@ -54,6 +54,8 @@ static const char *vkd3d_breadcrumb_command_type_to_str(enum vkd3d_breadcrumb_co
             return "execute_indirect_template";
         case VKD3D_BREADCRUMB_COMMAND_COPY:
             return "copy";
+        case VKD3D_BREADCRUMB_COMMAND_COPY_TILES:
+            return "copy_tiles";
         case VKD3D_BREADCRUMB_COMMAND_RESOLVE:
             return "resolve";
         case VKD3D_BREADCRUMB_COMMAND_WBI:
