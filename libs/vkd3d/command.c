@@ -7482,6 +7482,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
                 !!((copy_to_buffer ? linear_res : tiled_res)->flags & VKD3D_RESOURCE_RESERVED));
         VK_CALL(vkCmdCopyBuffer2KHR(list->vk_command_buffer, &copy_info));
     }
+
+    VKD3D_BREADCRUMB_COMMAND(COPY_TILES);
 }
 
 static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *list,
