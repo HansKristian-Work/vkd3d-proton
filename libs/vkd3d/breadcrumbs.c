@@ -271,6 +271,8 @@ void vkd3d_breadcrumb_tracer_release_command_lists(struct vkd3d_breadcrumb_trace
     pthread_mutex_unlock(&tracer->lock);
 }
 
+static pthread_mutex_t global_report_lock = PTHREAD_MUTEX_INITIALIZER;
+
 static void vkd3d_breadcrumb_tracer_report_command_list(
         const struct vkd3d_breadcrumb_command_list_trace_context *context,
         uint32_t begin_marker,
@@ -360,8 +362,11 @@ static void vkd3d_breadcrumb_tracer_report_command_list(
 void vkd3d_breadcrumb_tracer_dump_command_list(struct vkd3d_breadcrumb_tracer *tracer,
         unsigned int index)
 {
+    /* Avoid interleaved logs when multiple threads submit. */
+    pthread_mutex_lock(&global_report_lock);
     vkd3d_breadcrumb_tracer_report_command_list(&tracer->trace_contexts[index],
             UINT32_MAX, UINT32_MAX);
+    pthread_mutex_unlock(&global_report_lock);
 }
 
 static void vkd3d_breadcrumb_tracer_report_command_list_amd(struct vkd3d_breadcrumb_tracer *tracer,
@@ -469,8 +474,6 @@ static void vkd3d_breadcrumb_tracer_report_queue_nv(struct vkd3d_breadcrumb_trac
 
     vkd3d_free(checkpoints);
 }
-
-static pthread_mutex_t global_report_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void vkd3d_breadcrumb_tracer_report_device_lost(struct vkd3d_breadcrumb_tracer *tracer,
         struct d3d12_device *device)
