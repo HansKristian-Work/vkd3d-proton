@@ -2977,6 +2977,12 @@ void vkd3d_breadcrumb_tracer_add_command(struct d3d12_command_list *list,
 void vkd3d_breadcrumb_tracer_signal(struct d3d12_command_list *list);
 void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list);
 
+#define VKD3D_BREADCRUMB_FLUSH_BATCHES(list) do { \
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \
+        d3d12_command_list_end_transfer_batch(list);          \
+    } \
+} while(0)
+
 #define VKD3D_BREADCRUMB_COMMAND(cmd_type) do { \
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \
         struct vkd3d_breadcrumb_command breadcrumb_cmd; \
@@ -3026,6 +3032,7 @@ void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list);
 #define VKD3D_BREADCRUMB_AUX32(v) ((void)(v))
 #define VKD3D_BREADCRUMB_AUX64(v) ((void)(v))
 #define VKD3D_DEVICE_REPORT_BREADCRUMB_IF(device, cond) ((void)(device), (void)(cond))
+#define VKD3D_BREADCRUMB_FLUSH_BATCHES(list) ((void)(list))
 #endif /* VKD3D_ENABLE_BREADCRUMBS */
 
 /* Bindless */

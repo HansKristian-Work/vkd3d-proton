@@ -7184,6 +7184,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
 
     list->transfer_batch.batch[list->transfer_batch.batch_len++] = copy_info;
 
+    VKD3D_BREADCRUMB_FLUSH_BATCHES(list);
     VKD3D_BREADCRUMB_COMMAND(COPY);
 }
 
