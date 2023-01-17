@@ -454,6 +454,8 @@ static void vkd3d_breadcrumb_tracer_report_queue_nv(struct vkd3d_breadcrumb_trac
     vkd3d_free(checkpoints);
 }
 
+static pthread_mutex_t global_report_lock = PTHREAD_MUTEX_INITIALIZER;
+
 void vkd3d_breadcrumb_tracer_report_device_lost(struct vkd3d_breadcrumb_tracer *tracer,
         struct d3d12_device *device)
 {
@@ -461,6 +463,8 @@ void vkd3d_breadcrumb_tracer_report_device_lost(struct vkd3d_breadcrumb_tracer *
     VkQueue vk_queue;
     unsigned int i;
 
+    /* Avoid interleaved logs when multiple threads observe device lost. */
+    pthread_mutex_lock(&global_report_lock);
     ERR("Device lost observed, analyzing breadcrumbs ...\n");
 
     if (device->vk_info.AMD_buffer_marker)
@@ -495,6 +499,7 @@ void vkd3d_breadcrumb_tracer_report_device_lost(struct vkd3d_breadcrumb_tracer *
     }
 
     ERR("Done analyzing breadcrumbs ...\n");
+    pthread_mutex_unlock(&global_report_lock);
 }
 
 void vkd3d_breadcrumb_tracer_begin_command_list(struct d3d12_command_list *list)
