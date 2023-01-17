@@ -6389,6 +6389,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_
     copy_info.regionCount = 1;
     copy_info.pRegions = &buffer_copy;
 
+    VKD3D_BREADCRUMB_TAG("Buffer -> Buffer");
+    VKD3D_BREADCRUMB_RESOURCE(src_resource);
+    VKD3D_BREADCRUMB_RESOURCE(dst_resource);
+    VKD3D_BREADCRUMB_BUFFER_COPY(&buffer_copy);
+
     d3d12_command_list_mark_copy_buffer_write(list, copy_info.dstBuffer, buffer_copy.dstOffset, buffer_copy.size,
             !!(dst_resource->flags & VKD3D_RESOURCE_RESERVED));
     VK_CALL(vkCmdCopyBuffer2KHR(list->vk_command_buffer, &copy_info));
@@ -6667,6 +6672,11 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
             0, 0, NULL, 0, NULL, overlapping_subresource ? 1 : ARRAY_SIZE(vk_image_barriers),
             vk_image_barriers));
 
+    VKD3D_BREADCRUMB_TAG("Image -> Image");
+    VKD3D_BREADCRUMB_RESOURCE(src_resource);
+    VKD3D_BREADCRUMB_RESOURCE(dst_resource);
+    VKD3D_BREADCRUMB_IMAGE_COPY(region);
+
     if (use_copy)
     {
         copy_info.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_INFO_2_KHR;
@@ -6682,6 +6692,8 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
     }
     else
     {
+        VKD3D_BREADCRUMB_TAG("CopyWithRenderpass");
+
         dst_view = src_view = NULL;
 
         if (!(dst_format = vkd3d_meta_get_copy_image_attachment_format(&list->device->meta_ops, dst_format, src_format,
@@ -7081,6 +7093,11 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
         copy_info.regionCount = 1;
         copy_info.pRegions = &info->copy.buffer_image;
 
+        VKD3D_BREADCRUMB_TAG("Image -> Buffer");
+        VKD3D_BREADCRUMB_RESOURCE(src_resource);
+        VKD3D_BREADCRUMB_RESOURCE(dst_resource);
+        VKD3D_BREADCRUMB_BUFFER_IMAGE_COPY(&info->copy.buffer_image);
+
         VK_CALL(vkCmdCopyImageToBuffer2KHR(list->vk_command_buffer, &copy_info));
 
         d3d12_command_list_transition_image_layout_with_global_memory_barrier(list, batch, src_resource->res.vk_image,
@@ -7099,6 +7116,11 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
         copy_info.dstImageLayout = info->dst_layout;
         copy_info.regionCount = 1;
         copy_info.pRegions = &info->copy.buffer_image;
+
+        VKD3D_BREADCRUMB_TAG("Buffer -> Image");
+        VKD3D_BREADCRUMB_RESOURCE(src_resource);
+        VKD3D_BREADCRUMB_RESOURCE(dst_resource);
+        VKD3D_BREADCRUMB_BUFFER_IMAGE_COPY(&info->copy.buffer_image);
 
         VK_CALL(vkCmdCopyBufferToImage2KHR(list->vk_command_buffer, &copy_info));
 
@@ -7230,6 +7252,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
         copy_info.dstBuffer = dst_resource->res.vk_buffer;
         copy_info.regionCount = 1;
         copy_info.pRegions = &vk_buffer_copy;
+
+        VKD3D_BREADCRUMB_TAG("Buffer -> Buffer");
+        VKD3D_BREADCRUMB_RESOURCE(src_resource);
+        VKD3D_BREADCRUMB_RESOURCE(dst_resource);
+        VKD3D_BREADCRUMB_BUFFER_COPY(&vk_buffer_copy);
 
         d3d12_command_list_mark_copy_buffer_write(list, copy_info.dstBuffer, vk_buffer_copy.dstOffset, vk_buffer_copy.size,
                 !!(dst_resource->flags & VKD3D_RESOURCE_RESERVED));
@@ -11530,9 +11557,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState1(d3d12_command
             cmd.shader.hash = state->breadcrumb_shaders[i].hash;
             vkd3d_breadcrumb_tracer_add_command(list, &cmd);
 
-            cmd.type = VKD3D_BREADCRUMB_COMMAND_TAG;
-            cmd.tag = state->breadcrumb_shaders[i].name;
-            vkd3d_breadcrumb_tracer_add_command(list, &cmd);
+            VKD3D_BREADCRUMB_TAG(state->breadcrumb_shaders[i].name);
         }
     }
 #endif
