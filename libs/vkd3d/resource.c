@@ -6789,6 +6789,7 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
         switch (desc->Type)
         {
             case D3D12_QUERY_HEAP_TYPE_TIMESTAMP:
+            case D3D12_QUERY_HEAP_TYPE_COPY_QUEUE_TIMESTAMP:
                 pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
                 pool_info.pipelineStatistics = 0;
                 break;
