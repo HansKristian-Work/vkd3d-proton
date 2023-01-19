@@ -873,8 +873,8 @@ static CONST_VTBL struct IDXGIVkSwapChainVtbl dxgi_vk_swap_chain_vtbl =
 
 static bool dxgi_vk_swap_chain_update_formats(struct dxgi_vk_swap_chain *chain)
 {
-	const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
-	VkPhysicalDevice vk_physical_device = chain->queue->device->vk_physical_device;
+    const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
+    VkPhysicalDevice vk_physical_device = chain->queue->device->vk_physical_device;
     VkResult vr;
 
     if ((vr = VK_CALL(vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, chain->vk_surface,
