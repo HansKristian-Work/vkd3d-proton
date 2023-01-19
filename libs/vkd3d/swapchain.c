@@ -802,16 +802,64 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain *if
 }
 
 static VkColorSpaceKHR convert_color_space(DXGI_COLOR_SPACE_TYPE dxgi_color_space);
+static bool dxgi_vk_swap_chain_update_formats(struct dxgi_vk_swap_chain *chain);
 
 static bool dxgi_vk_swap_chain_supports_color_space(struct dxgi_vk_swap_chain *chain, DXGI_COLOR_SPACE_TYPE ColorSpace)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
+    VkPhysicalDevice vk_physical_device = chain->queue->device->vk_physical_device;
+    VkSurfaceFormatKHR *formats = NULL;
     VkColorSpaceKHR vk_color_space;
+    uint32_t format_count;
+    bool ret = false;
+    VkResult vr;
     uint32_t i;
+
     vk_color_space = convert_color_space(ColorSpace);
-    for (i = 0; i < chain->properties.format_count; i++)
-        if (chain->properties.formats[i].colorSpace == vk_color_space)
-            return true;
-    return false;
+
+    if (dxgi_vk_swap_chain_present_task_is_idle(chain))
+    {
+        /* This cannot race, just update the internal array. */
+        dxgi_vk_swap_chain_update_formats(chain);
+        for (i = 0; i < chain->properties.format_count; i++)
+            if (chain->properties.formats[i].colorSpace == vk_color_space)
+                return true;
+    }
+    else
+    {
+        if ((vr = VK_CALL(vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, chain->vk_surface,
+                &format_count, NULL))) < 0)
+        {
+            ERR("Failed to query surface formats, vr %d.\n", vr);
+            goto out;
+        }
+
+        if (!(formats = vkd3d_malloc(format_count * sizeof(*formats))))
+        {
+            ERR("Failed to allocate format list.\n");
+            goto out;
+        }
+
+        if ((vr = VK_CALL(vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, chain->vk_surface,
+                &format_count, formats))) < 0)
+        {
+            ERR("Failed to query surface formats, vr %d.\n", vr);
+            goto out;
+        }
+
+        for (i = 0; i < format_count; i++)
+        {
+            if (formats[i].colorSpace == vk_color_space)
+            {
+                ret = true;
+                break;
+            }
+        }
+    }
+
+out:
+    vkd3d_free(formats);
+    return ret;
 }
 
 static UINT STDMETHODCALLTYPE dxgi_vk_swap_chain_CheckColorSpaceSupport(IDXGIVkSwapChain *iface, DXGI_COLOR_SPACE_TYPE ColorSpace)
