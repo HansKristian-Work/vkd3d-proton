@@ -50,15 +50,41 @@ static HMODULE vulkan_module = NULL;
 #else
 static void *vulkan_module = NULL;
 #endif
+static PFN_vkGetInstanceProcAddr vulkan_vkGetInstanceProcAddr = NULL;
 
 static void load_vulkan_once(void)
 {
     if (!vulkan_module)
     {
 #ifdef _WIN32
-        vulkan_module = LoadLibraryA(SONAME_LIBVULKAN);
+        /* If possible, load winevulkan directly in order to bypass
+         * issues with third-party overlays hooking the Vulkan loader */
+        static const char *vulkan_dllnames[] =
+        {
+            "winevulkan.dll",
+            "vulkan-1.dll",
+        };
+
+        unsigned int i;
+
+        for (i = 0; i < ARRAY_SIZE(vulkan_dllnames); i++)
+        {
+            vulkan_module = LoadLibraryA(vulkan_dllnames[i]);
+
+            if (vulkan_module)
+            {
+                vulkan_vkGetInstanceProcAddr = (void*)GetProcAddress(vulkan_module, "vkGetInstanceProcAddr");
+
+                if (vulkan_vkGetInstanceProcAddr)
+                    break;
+
+                FreeLibrary(vulkan_module);
+                vulkan_module = NULL;
+            }
+        }
 #else
         vulkan_module = dlopen(SONAME_LIBVULKAN, RTLD_LAZY);
+        vulkan_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)dlsym(vulkan_module, "vkGetInstanceProcAddr");
 #endif
     }
 }
@@ -66,16 +92,7 @@ static void load_vulkan_once(void)
 static PFN_vkGetInstanceProcAddr load_vulkan(void)
 {
     pthread_once(&library_once, load_vulkan_once);
-    if (vulkan_module)
-    {
-#ifdef _WIN32
-        return (void *)GetProcAddress(vulkan_module, "vkGetInstanceProcAddr");
-#else
-        return (PFN_vkGetInstanceProcAddr)dlsym(vulkan_module, "vkGetInstanceProcAddr");
-#endif
-    }
-    else
-        return NULL;
+    return vulkan_vkGetInstanceProcAddr;
 }
 
 HRESULT WINAPI DLLEXPORT D3D12GetDebugInterface(REFIID iid, void **debug)
