@@ -912,33 +912,54 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     return S_OK;
 }
 
+static struct vkd3d_instance *instance_singleton;
+static pthread_mutex_t instance_singleton_lock = PTHREAD_MUTEX_INITIALIZER;
+
 HRESULT vkd3d_create_instance(const struct vkd3d_instance_create_info *create_info,
         struct vkd3d_instance **instance)
 {
     struct vkd3d_instance *object;
-    HRESULT hr;
+    HRESULT hr = S_OK;
+
+    /* As long as there are live ID3D12Devices, we should only have one VkInstance that all devices can share. */
+    pthread_mutex_lock(&instance_singleton_lock);
+    if (instance_singleton)
+    {
+        vkd3d_instance_incref(*instance = instance_singleton);
+        TRACE("Handling out global instance singleton.\n");
+        goto out_unlock;
+    }
 
     TRACE("create_info %p, instance %p.\n", create_info, instance);
 
     vkd3d_init_profiling();
 
     if (!create_info || !instance)
-        return E_INVALIDARG;
+    {
+        hr = E_INVALIDARG;
+        goto out_unlock;
+    }
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
-        return E_OUTOFMEMORY;
+    {
+        hr = E_OUTOFMEMORY;
+        goto out_unlock;
+    }
 
     if (FAILED(hr = vkd3d_instance_init(object, create_info)))
     {
         vkd3d_free(object);
-        return hr;
+        goto out_unlock;
     }
 
     TRACE("Created instance %p.\n", object);
 
     *instance = object;
+    instance_singleton = object;
 
-    return S_OK;
+out_unlock:
+    pthread_mutex_unlock(&instance_singleton_lock);
+    return hr;
 }
 
 static void vkd3d_destroy_instance(struct vkd3d_instance *instance)
@@ -965,13 +986,24 @@ ULONG vkd3d_instance_incref(struct vkd3d_instance *instance)
 
 ULONG vkd3d_instance_decref(struct vkd3d_instance *instance)
 {
-    ULONG refcount = InterlockedDecrement(&instance->refcount);
+    ULONG refcount;
+
+    /* The device singleton is more advanced, since it uses a CAS loop.
+     * Device references are lowered constantly, but instance references only release
+     * when the ID3D12Device itself dies, which should be fairly rare, so we should use simpler code. */
+    pthread_mutex_lock(&instance_singleton_lock);
+    refcount = InterlockedDecrement(&instance->refcount);
 
     TRACE("%p decreasing refcount to %u.\n", instance, refcount);
 
     if (!refcount)
+    {
+        assert(instance_singleton == instance);
         vkd3d_destroy_instance(instance);
+        instance_singleton = NULL;
+    }
 
+    pthread_mutex_unlock(&instance_singleton_lock);
     return refcount;
 }
 
