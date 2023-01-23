@@ -89,10 +89,10 @@ static void load_vulkan_once(void)
     }
 }
 
-static PFN_vkGetInstanceProcAddr load_vulkan(void)
+static bool load_vulkan(void)
 {
     pthread_once(&library_once, load_vulkan_once);
-    return vulkan_vkGetInstanceProcAddr;
+    return vulkan_vkGetInstanceProcAddr != NULL;
 }
 
 HRESULT WINAPI DLLEXPORT D3D12GetDebugInterface(REFIID iid, void **debug)
@@ -245,19 +245,10 @@ done:
 }
 #endif
 
-HRESULT WINAPI DLLEXPORT D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL minimum_feature_level,
-        REFIID iid, void **device)
+static HRESULT vkd3d_create_instance_global(struct vkd3d_instance **out_instance)
 {
     struct vkd3d_instance_create_info instance_create_info;
-    PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr;
-    struct vkd3d_device_create_info device_create_info;
-    struct vkd3d_instance *instance;
-    HRESULT hr;
-
-#ifdef _WIN32
-    struct DXGI_ADAPTER_DESC adapter_desc;
-    IDXGIAdapter *dxgi_adapter;
-#endif
+    HRESULT hr = S_OK;
 
     static const char * const instance_extensions[] =
     {
@@ -269,6 +260,38 @@ HRESULT WINAPI DLLEXPORT D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL 
         "VK_KHR_xcb_surface",
 #endif
     };
+
+    if (!load_vulkan())
+    {
+        ERR("Failed to load Vulkan library.\n");
+        return E_FAIL;
+    }
+
+    memset(&instance_create_info, 0, sizeof(instance_create_info));
+    instance_create_info.pfn_vkGetInstanceProcAddr = vulkan_vkGetInstanceProcAddr;
+    instance_create_info.instance_extensions = instance_extensions;
+    instance_create_info.instance_extension_count = ARRAY_SIZE(instance_extensions);
+    instance_create_info.optional_instance_extensions = NULL;
+    instance_create_info.optional_instance_extension_count = 0;
+
+    if (FAILED(hr = vkd3d_create_instance(&instance_create_info, out_instance)))
+        WARN("Failed to create vkd3d instance, hr %#x.\n", hr);
+
+    return hr;
+}
+
+HRESULT WINAPI DLLEXPORT D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL minimum_feature_level,
+        REFIID iid, void **device)
+{
+    struct vkd3d_device_create_info device_create_info;
+    struct vkd3d_instance *instance;
+    HRESULT hr;
+
+#ifdef _WIN32
+    struct DXGI_ADAPTER_DESC adapter_desc;
+    IDXGIAdapter *dxgi_adapter;
+#endif
+
     static const char * const device_extensions[] =
     {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
@@ -278,12 +301,6 @@ HRESULT WINAPI DLLEXPORT D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL 
     TRACE("adapter %p, minimum_feature_level %#x, iid %s, device %p.\n",
             adapter, minimum_feature_level, debugstr_guid(iid), device);
 
-    if (!(pfn_vkGetInstanceProcAddr = load_vulkan()))
-    {
-        ERR("Failed to load Vulkan library.\n");
-        return E_FAIL;
-    }
-
 #ifdef _WIN32
     if (FAILED(hr = d3d12_get_adapter(&dxgi_adapter, adapter)))
         return hr;
@@ -291,7 +308,7 @@ HRESULT WINAPI DLLEXPORT D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL 
     if (FAILED(hr = IDXGIAdapter_GetDesc(dxgi_adapter, &adapter_desc)))
     {
         WARN("Failed to get adapter desc, hr %#x.\n", hr);
-        goto done;
+        goto out_release_adapter;
     }
 #else
     /* TODO: We need to attempt to dlopen() native DXVK DXGI and handle this more gracefully. */
@@ -299,18 +316,8 @@ HRESULT WINAPI DLLEXPORT D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL 
         FIXME("Ignoring adapter.\n");
 #endif
 
-    memset(&instance_create_info, 0, sizeof(instance_create_info));
-    instance_create_info.pfn_vkGetInstanceProcAddr = pfn_vkGetInstanceProcAddr;
-    instance_create_info.instance_extensions = instance_extensions;
-    instance_create_info.instance_extension_count = ARRAY_SIZE(instance_extensions);
-    instance_create_info.optional_instance_extensions = NULL;
-    instance_create_info.optional_instance_extension_count = 0;
-
-    if (FAILED(hr = vkd3d_create_instance(&instance_create_info, &instance)))
-    {
-        WARN("Failed to create vkd3d instance, hr %#x.\n", hr);
-        goto done;
-    }
+    if (FAILED(hr = vkd3d_create_instance_global(&instance)))
+        return hr;
 
     memset(&device_create_info, 0, sizeof(device_create_info));
     device_create_info.minimum_feature_level = minimum_feature_level;
@@ -322,17 +329,16 @@ HRESULT WINAPI DLLEXPORT D3D12CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL 
     device_create_info.optional_device_extension_count = 0;
 
 #ifdef _WIN32
-    device_create_info.vk_physical_device = d3d12_find_physical_device(instance, pfn_vkGetInstanceProcAddr, &adapter_desc);
+    device_create_info.vk_physical_device = d3d12_find_physical_device(instance, vulkan_vkGetInstanceProcAddr, &adapter_desc);
     device_create_info.parent = (IUnknown *)dxgi_adapter;
     memcpy(&device_create_info.adapter_luid, &adapter_desc.AdapterLuid, VK_LUID_SIZE);
 #endif
 
     hr = vkd3d_create_device(&device_create_info, iid, device);
-
     vkd3d_instance_decref(instance);
 
-done:
 #ifdef _WIN32
+out_release_adapter:
     IDXGIAdapter_Release(dxgi_adapter);
 #endif
     return hr;
