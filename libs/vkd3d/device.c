@@ -399,38 +399,10 @@ static HRESULT vkd3d_init_instance_caps(struct vkd3d_instance *instance,
 static HRESULT vkd3d_init_vk_global_procs(struct vkd3d_instance *instance,
         PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr)
 {
-    HRESULT hr;
-
     if (!vkGetInstanceProcAddr)
-    {
-        if (!(instance->libvulkan = vkd3d_dlopen(SONAME_LIBVULKAN)))
-        {
-            ERR("Failed to load libvulkan: %s.\n", vkd3d_dlerror());
-            return E_FAIL;
-        }
+        return E_INVALIDARG;
 
-        if (!(vkGetInstanceProcAddr = vkd3d_dlsym(instance->libvulkan, "vkGetInstanceProcAddr")))
-        {
-            ERR("Could not load function pointer for vkGetInstanceProcAddr().\n");
-            vkd3d_dlclose(instance->libvulkan);
-            instance->libvulkan = NULL;
-            return E_FAIL;
-        }
-    }
-    else
-    {
-        instance->libvulkan = NULL;
-    }
-
-    if (FAILED(hr = vkd3d_load_vk_global_procs(&instance->vk_global_procs, vkGetInstanceProcAddr)))
-    {
-        if (instance->libvulkan)
-            vkd3d_dlclose(instance->libvulkan);
-        instance->libvulkan = NULL;
-        return hr;
-    }
-
-    return S_OK;
+    return vkd3d_load_vk_global_procs(&instance->vk_global_procs, vkGetInstanceProcAddr);
 }
 
 static VkBool32 VKAPI_PTR vkd3d_debug_messenger_callback(
@@ -814,8 +786,6 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     if (FAILED(hr = vkd3d_init_instance_caps(instance, create_info,
             &extension_count, user_extension_supported)))
     {
-        if (instance->libvulkan)
-            vkd3d_dlclose(instance->libvulkan);
         vkd3d_free(user_extension_supported);
         return hr;
     }
@@ -828,8 +798,6 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
         ERR("Vulkan %u.%u not supported by loader.\n",
                 VK_VERSION_MAJOR(VKD3D_MIN_API_VERSION),
                 VK_VERSION_MINOR(VKD3D_MIN_API_VERSION));
-        if (instance->libvulkan)
-            vkd3d_dlclose(instance->libvulkan);
         vkd3d_free(user_extension_supported);
         return E_INVALIDARG;
     }
@@ -855,8 +823,6 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
 
     if (!(extensions = vkd3d_calloc(extension_count, sizeof(*extensions))))
     {
-        if (instance->libvulkan)
-            vkd3d_dlclose(instance->libvulkan);
         vkd3d_free(user_extension_supported);
         return E_OUTOFMEMORY;
     }
@@ -910,8 +876,6 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     if (vr < 0)
     {
         ERR("Failed to create Vulkan instance, vr %d.\n", vr);
-        if (instance->libvulkan)
-            vkd3d_dlclose(instance->libvulkan);
         return hresult_from_vk_result(vr);
     }
 
@@ -920,8 +884,6 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
         ERR("Failed to load instance procs, hr %#x.\n", hr);
         if (instance->vk_procs.vkDestroyInstance)
             instance->vk_procs.vkDestroyInstance(vk_instance, NULL);
-        if (instance->libvulkan)
-            vkd3d_dlclose(instance->libvulkan);
         return hr;
     }
 
@@ -988,9 +950,6 @@ static void vkd3d_destroy_instance(struct vkd3d_instance *instance)
         VK_CALL(vkDestroyDebugUtilsMessengerEXT(vk_instance, instance->vk_debug_callback, NULL));
 
     VK_CALL(vkDestroyInstance(vk_instance, NULL));
-
-    if (instance->libvulkan)
-        vkd3d_dlclose(instance->libvulkan);
 
     vkd3d_free(instance);
 }

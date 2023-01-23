@@ -214,7 +214,6 @@ struct vkd3d_instance
 
     struct vkd3d_vulkan_info vk_info;
     struct vkd3d_vk_global_procs vk_global_procs;
-    void *libvulkan;
 
     VkDebugUtilsMessengerEXT vk_debug_callback;
 
