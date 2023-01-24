@@ -2403,33 +2403,6 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
         }
     }
 
-#ifdef VKD3D_ENABLE_BREADCRUMBS
-    allocator->breadcrumb_context_indices = NULL;
-    allocator->breadcrumb_context_index_count = 0;
-    allocator->breadcrumb_context_index_size = 0;
-#endif
-
-    allocator->views = NULL;
-    allocator->views_size = 0;
-    allocator->view_count = 0;
-
-    allocator->buffer_views = NULL;
-    allocator->buffer_views_size = 0;
-    allocator->buffer_view_count = 0;
-
-    allocator->command_buffers = NULL;
-    allocator->command_buffers_size = 0;
-    allocator->command_buffer_count = 0;
-
-    memset(allocator->scratch_pools, 0, sizeof(allocator->scratch_pools));
-
-    allocator->query_pools = NULL;
-    allocator->query_pools_size = 0;
-    allocator->query_pool_count = 0;
-    memset(&allocator->active_query_pools, 0, sizeof(allocator->active_query_pools));
-
-    allocator->current_command_list = NULL;
-
     d3d12_device_add_ref(allocator->device = device);
 
     return S_OK;
@@ -2447,7 +2420,7 @@ HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
         return E_INVALIDARG;
     }
 
-    if (!(object = vkd3d_malloc(sizeof(*object))))
+    if (!(object = vkd3d_calloc(1, sizeof(*object))))
         return E_OUTOFMEMORY;
 
     if (FAILED(hr = d3d12_command_allocator_init(object, device, type)))
