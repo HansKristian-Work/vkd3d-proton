@@ -7038,7 +7038,7 @@ static void d3d12_command_list_before_copy_texture_region(struct d3d12_command_l
 
     if (info->batch_type == VKD3D_BATCH_TYPE_COPY_IMAGE_TO_BUFFER)
     {
-        d3d12_command_list_track_resource_usage(list, src_resource, true);
+        d3d12_command_list_track_resource_usage(list, dst_resource, true);
 
         /* We're going to do an image layout transition, so we can handle pending buffer barriers while we're at it.
          * After that barrier completes, we implicitly synchronize any outstanding copies, so we can drop the tracking.
