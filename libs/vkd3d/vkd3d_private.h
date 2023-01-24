@@ -2133,6 +2133,10 @@ struct d3d12_command_allocator
     size_t command_buffers_size;
     size_t command_buffer_count;
 
+    struct d3d12_resource **retained_resources;
+    size_t retained_resources_size;
+    size_t retained_resources_count;
+
     struct d3d12_command_allocator_scratch_pool scratch_pools[VKD3D_SCRATCH_POOL_KIND_COUNT];
 
     struct vkd3d_query_pool *query_pools;

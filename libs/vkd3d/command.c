@@ -2058,6 +2058,34 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_AddRef(ID3D12CommandAlloc
     return refcount;
 }
 
+static void d3d12_command_allocator_retain_resource(struct d3d12_command_allocator *allocator,
+        struct d3d12_resource *resource)
+{
+    if (!resource)
+        return;
+
+    vkd3d_array_reserve((void**)&allocator->retained_resources, &allocator->retained_resources_size,
+            allocator->retained_resources_count + 1, sizeof(*allocator->retained_resources));
+
+    if (resource->heap)
+        d3d12_heap_incref(resource->heap);
+    d3d12_resource_incref(resource);
+    allocator->retained_resources[allocator->retained_resources_count++] = resource;
+}
+
+static void d3d12_command_allocator_release_retained_resources(struct d3d12_command_allocator *allocator)
+{
+    size_t i;
+    for (i = 0; i < allocator->retained_resources_count; i++)
+    {
+        struct d3d12_resource *resource = allocator->retained_resources[i];
+        if (resource->heap)
+            d3d12_heap_decref(resource->heap);
+        d3d12_resource_decref(resource);
+    }
+    allocator->retained_resources_count = 0;
+}
+
 static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllocator *iface)
 {
     struct d3d12_command_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
@@ -2085,8 +2113,10 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
             d3d12_command_list_allocator_destroyed(allocator->current_command_list);
 
         d3d12_command_allocator_free_resources(allocator, false);
+        d3d12_command_allocator_release_retained_resources(allocator);
         vkd3d_free(allocator->buffer_views);
         vkd3d_free(allocator->views);
+        vkd3d_free(allocator->retained_resources);
 
         if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_RECYCLE_COMMAND_POOLS)
         {
@@ -2234,6 +2264,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
     vk_procs = &device->vk_procs;
 
     d3d12_command_allocator_free_resources(allocator, true);
+    d3d12_command_allocator_release_retained_resources(allocator);
     if (allocator->command_buffer_count)
     {
         VK_CALL(vkFreeCommandBuffers(device->vk_device, allocator->vk_command_pool,
@@ -4541,6 +4572,9 @@ static void d3d12_command_list_track_resource_usage(struct d3d12_command_list *l
         transition.resource.perform_initial_transition = perform_initial_transition;
         d3d12_command_list_add_transition(list, &transition);
     }
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_RETAIN_COMMAND_LIST_RESOURCES)
+        d3d12_command_allocator_retain_resource(list->allocator, resource);
 }
 
 static void d3d12_command_list_track_query_heap(struct d3d12_command_list *list,
