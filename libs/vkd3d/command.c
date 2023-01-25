@@ -5403,15 +5403,14 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
 
         /* The application did set vertex buffers that we didn't bind because of the pipeline vbo mask.
          * The new pipeline could use those so we need to rebind vertex buffers. */
-        if ((new_active_flags & (VKD3D_DYNAMIC_STATE_VERTEX_BUFFER | VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE))
-          && (list->dynamic_state.dirty_vbos || list->dynamic_state.dirty_vbo_strides))
-          list->dynamic_state.dirty_flags |= VKD3D_DYNAMIC_STATE_VERTEX_BUFFER | VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE;
+        if ((new_active_flags & VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE) && list->dynamic_state.dirty_vbos)
+            list->dynamic_state.dirty_flags |= VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE;
 
         /* Reapply all dynamic states that were not dynamic in previously bound pipeline.
          * If we didn't use to have dynamic vertex strides, but we then bind a pipeline with dynamic strides,
          * we will need to rebind all VBOs. Mark dynamic stride as dirty in this case. */
         if (new_active_flags & ~list->dynamic_state.active_flags & VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE)
-            list->dynamic_state.dirty_vbo_strides = ~0u;
+            list->dynamic_state.dirty_vbos = ~0u;
         list->dynamic_state.dirty_flags |= new_active_flags & ~list->dynamic_state.active_flags;
         list->command_buffer_pipeline = vk_pipeline;
     }
@@ -5982,6 +5981,12 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
                 dyn_state->vk_primitive_topology));
     }
 
+    if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_PATCH_CONTROL_POINTS)
+    {
+        VK_CALL(vkCmdSetPatchControlPointsEXT(list->vk_command_buffer,
+                dyn_state->primitive_topology - D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST + 1));
+    }
+
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART)
     {
         /* The primitive restart dynamic state is only present if the PSO
@@ -5993,9 +5998,8 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
 
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE)
     {
-        update_vbos = (dyn_state->dirty_vbos | dyn_state->dirty_vbo_strides) & list->state->graphics.vertex_buffer_mask;
+        update_vbos = dyn_state->dirty_vbos & list->state->graphics.vertex_buffer_mask;
         dyn_state->dirty_vbos &= ~update_vbos;
-        dyn_state->dirty_vbo_strides &= ~update_vbos;
         stride_align_masks = list->state->graphics.vertex_buffer_stride_align_mask;
 
         while (update_vbos)
@@ -6034,49 +6038,6 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
                     dyn_state->vertex_offsets + range.offset,
                     dyn_state->vertex_sizes + range.offset,
                     dyn_state->vertex_strides + range.offset));
-        }
-    }
-    else if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VERTEX_BUFFER)
-    {
-        update_vbos = dyn_state->dirty_vbos & list->state->graphics.vertex_buffer_mask;
-        dyn_state->dirty_vbos &= ~update_vbos;
-        dyn_state->dirty_vbo_strides &= ~update_vbos;
-        stride_align_masks = list->state->graphics.vertex_buffer_stride_align_mask;
-
-        while (update_vbos)
-        {
-            range = vkd3d_bitmask_iter32_range(&update_vbos);
-
-            for (i = 0; i < range.count; i++)
-            {
-                if (dyn_state->vertex_offsets[i + range.offset] & stride_align_masks[i + range.offset])
-                {
-                    FIXME("Binding VBO at offset %"PRIu64", but required alignment is %u.\n",
-                          dyn_state->vertex_offsets[i + range.offset],
-                          stride_align_masks[i + range.offset] + 1);
-                    dyn_state->vertex_offsets[i + range.offset] &= ~(VkDeviceSize)stride_align_masks[i + range.offset];
-                }
-
-                if (dyn_state->vertex_strides[i + range.offset] & stride_align_masks[i + range.offset])
-                {
-                    FIXME("Binding VBO with stride %"PRIu64", but required alignment is %u.\n",
-                            dyn_state->vertex_strides[i + range.offset],
-                            stride_align_masks[i + range.offset] + 1);
-
-                    /* This modifies global state, but if app hits this, it's already buggy.
-                     * Round up, so that we don't hit offset > size case with dynamic strides. */
-                    dyn_state->vertex_strides[i + range.offset] =
-                            (dyn_state->vertex_strides[i + range.offset] + stride_align_masks[i + range.offset]) &
-                                    ~(VkDeviceSize)stride_align_masks[i + range.offset];
-                }
-            }
-
-            VK_CALL(vkCmdBindVertexBuffers2EXT(list->vk_command_buffer,
-                    range.offset, range.count,
-                    dyn_state->vertex_buffers + range.offset,
-                    dyn_state->vertex_offsets + range.offset,
-                    dyn_state->vertex_sizes + range.offset,
-                    NULL));
         }
     }
 
@@ -7700,7 +7661,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetPrimitiveTopology(d3d12_co
     dyn_state->primitive_topology = topology;
     dyn_state->vk_primitive_topology = vk_topology_from_d3d12_topology(topology);
     d3d12_command_list_invalidate_current_pipeline(list, false);
-    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_TOPOLOGY | VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART;
+    dyn_state->dirty_flags |=
+            VKD3D_DYNAMIC_STATE_TOPOLOGY |
+            VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART |
+            VKD3D_DYNAMIC_STATE_PATCH_CONTROL_POINTS;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetViewports(d3d12_command_list_iface *iface,
@@ -8926,11 +8890,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(d3d12_comman
         dyn_state->vertex_sizes[start_slot + i] = size;
     }
 
-    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_VERTEX_BUFFER | VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE;
+    dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE;
 
     vbo_invalidate_mask = ((1u << view_count) - 1u) << start_slot;
     dyn_state->dirty_vbos |= vbo_invalidate_mask;
-    dyn_state->dirty_vbo_strides |= vbo_invalidate_mask;
 
     if (invalidate)
         d3d12_command_list_invalidate_current_pipeline(list, false);

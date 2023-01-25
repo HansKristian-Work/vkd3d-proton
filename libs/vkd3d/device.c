@@ -2113,9 +2113,8 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     acceleration_structure = &physical_device_info->acceleration_structure_features;
     acceleration_structure->accelerationStructureCaptureReplay = VK_FALSE;
 
-    /* Don't need or require these. */
+    /* Don't need or require this. Dynamic patch control points is nice, but not required. */
     physical_device_info->extended_dynamic_state2_features.extendedDynamicState2LogicOp = VK_FALSE;
-    physical_device_info->extended_dynamic_state2_features.extendedDynamicState2PatchControlPoints = VK_FALSE;
 
     if (!physical_device_info->descriptor_indexing_properties.robustBufferAccessUpdateAfterBind)
     {

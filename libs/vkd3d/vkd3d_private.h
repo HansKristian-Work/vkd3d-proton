@@ -1669,10 +1669,10 @@ enum vkd3d_dynamic_state_flag
     VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE     = (1 << 3),
     VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS          = (1 << 4),
     VKD3D_DYNAMIC_STATE_TOPOLOGY              = (1 << 5),
-    VKD3D_DYNAMIC_STATE_VERTEX_BUFFER         = (1 << 6),
-    VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE  = (1 << 7),
-    VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE = (1 << 8),
-    VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART     = (1 << 9),
+    VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE  = (1 << 6),
+    VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE = (1 << 7),
+    VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART     = (1 << 8),
+    VKD3D_DYNAMIC_STATE_PATCH_CONTROL_POINTS  = (1 << 9),
 };
 
 struct vkd3d_shader_debug_ring_spec_constants
@@ -1810,6 +1810,7 @@ struct d3d12_pipeline_state
     struct d3d12_device *device;
     bool root_signature_compat_hash_is_dxbc_derived;
     bool pso_is_loaded_from_cached_blob;
+    bool pso_is_fully_dynamic;
 
     struct vkd3d_private_store private_store;
 };
@@ -1903,7 +1904,6 @@ struct vkd3d_pipeline_key
     uint32_t strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     VkFormat dsv_format;
 
-    bool dynamic_stride;
     bool dynamic_topology;
 };
 
@@ -2199,7 +2199,6 @@ struct vkd3d_dynamic_state
     uint32_t active_flags; /* vkd3d_dynamic_state_flags */
     uint32_t dirty_flags; /* vkd3d_dynamic_state_flags */
     uint32_t dirty_vbos;
-    uint32_t dirty_vbo_strides;
 
     uint32_t viewport_count;
     VkViewport viewports[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];

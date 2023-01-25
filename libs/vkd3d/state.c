@@ -3234,6 +3234,7 @@ vkd3d_dynamic_state_list[] =
     { VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE,  VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE_EXT },
     { VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE, VK_DYNAMIC_STATE_FRAGMENT_SHADING_RATE_KHR },
     { VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART,     VK_DYNAMIC_STATE_PRIMITIVE_RESTART_ENABLE_EXT },
+    { VKD3D_DYNAMIC_STATE_PATCH_CONTROL_POINTS,  VK_DYNAMIC_STATE_PATCH_CONTROL_POINTS_EXT },
 };
 
 static uint32_t d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_pipeline_state *state,
@@ -3253,12 +3254,12 @@ static uint32_t d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_pi
     dynamic_state_flags |= VKD3D_DYNAMIC_STATE_VIEWPORT | VKD3D_DYNAMIC_STATE_SCISSOR;
 
     if (graphics->attribute_binding_count && !is_mesh_pipeline)
-    {
-        if (!key || key->dynamic_stride)
-            dynamic_state_flags |= VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE;
-        else
-            dynamic_state_flags |= VKD3D_DYNAMIC_STATE_VERTEX_BUFFER;
-    }
+        dynamic_state_flags |= VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE;
+
+    /* Don't try to use dynamic patch control points in a fallback pipeline. */
+    if (!key && (graphics->stage_flags & VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT) &&
+            state->device->device_info.extended_dynamic_state2_features.extendedDynamicState2PatchControlPoints)
+        dynamic_state_flags |= VKD3D_DYNAMIC_STATE_PATCH_CONTROL_POINTS;
 
     if ((!key || key->dynamic_topology) && !is_mesh_pipeline)
         dynamic_state_flags |= VKD3D_DYNAMIC_STATE_TOPOLOGY;
@@ -4020,8 +4021,9 @@ static HRESULT d3d12_pipeline_state_init_static_pipeline(struct d3d12_pipeline_s
         /* If we don't know vertex count for tessellation shaders, we need to defer compilation, but this should
          * be exceedingly rare. */
         can_compile_pipeline_early =
-                (desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH || graphics->patch_vertex_count != 0) &&
-                desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
+                (desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH || graphics->patch_vertex_count != 0 ||
+                 state->device->device_info.extended_dynamic_state2_features.extendedDynamicState2PatchControlPoints) &&
+                 desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
         graphics->pipeline_layout = state->root_signature->graphics.vk_pipeline_layout;
     }
 
@@ -4048,23 +4050,39 @@ static HRESULT d3d12_pipeline_state_finish_graphics(struct d3d12_pipeline_state 
     void *new_code;
     HRESULT hr;
 
-    /* If we got here successfully without SPIR-V code,
-     * it means we'll need to defer compilation from DXBC -> SPIR-V.
-     * Dupe the DXBC code.
-     * TODO: This codepath is not relevant yet. */
-    for (i = 0; i < graphics->stage_count; i++)
-    {
-        if (graphics->code[i].size || graphics->stages[i].module != VK_NULL_HANDLE ||
-                !graphics->cached_desc.bytecode[i].BytecodeLength)
-            continue;
+    /* We are basically forced to compile PSO late with proper DSV format.
+     * This is an application bug if it happens.
+     * If we couldn't compile pipeline early due to e.g. UNKNOWN topology or unknown number of patch control points,
+     * we have to defer the compile, but this is esoteric behavior and should never happen in practice. */
+    state->pso_is_fully_dynamic =
+            graphics->pipeline &&
+            !d3d12_graphics_pipeline_state_has_unknown_dsv_format_with_test(graphics);
 
-        new_code = vkd3d_malloc(graphics->cached_desc.bytecode[i].BytecodeLength);
-        if (!new_code)
-            return E_OUTOFMEMORY;
-        memcpy(new_code, graphics->cached_desc.bytecode[i].pShaderBytecode,
-                graphics->cached_desc.bytecode[i].BytecodeLength);
-        graphics->cached_desc.bytecode[i].pShaderBytecode = new_code;
-        graphics->cached_desc.bytecode_duped_mask |= 1u << i;
+    /* If we cannot adjust control points dynamically,
+     * we are at risk of having to recompile PSO with different number of control points. */
+    if (graphics->primitive_topology_type == D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH &&
+            !(graphics->dynamic_state_flags & VKD3D_DYNAMIC_STATE_PATCH_CONTROL_POINTS))
+        state->pso_is_fully_dynamic = false;
+
+    if (!state->pso_is_fully_dynamic)
+    {
+        /* If we got here successfully without SPIR-V code,
+         * it means we'll need to defer compilation from DXBC -> SPIR-V.
+         * Dupe the DXBC code. */
+        for (i = 0; i < graphics->stage_count; i++)
+        {
+            if (graphics->code[i].size || graphics->stages[i].module != VK_NULL_HANDLE ||
+                    !graphics->cached_desc.bytecode[i].BytecodeLength)
+                continue;
+
+            new_code = vkd3d_malloc(graphics->cached_desc.bytecode[i].BytecodeLength);
+            if (!new_code)
+                return E_OUTOFMEMORY;
+            memcpy(new_code, graphics->cached_desc.bytecode[i].pShaderBytecode,
+                    graphics->cached_desc.bytecode[i].BytecodeLength);
+            graphics->cached_desc.bytecode[i].pShaderBytecode = new_code;
+            graphics->cached_desc.bytecode_duped_mask |= 1u << i;
+        }
     }
 
     list_init(&graphics->compiled_fallback_pipelines);
@@ -4270,6 +4288,11 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
             (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_NO_SERIALIZE_SPIRV))
         d3d12_pipeline_state_free_spirv_code(object);
     else
+        d3d12_pipeline_state_destroy_shader_modules(object, device);
+
+    /* If it is impossible for us to recompile this shader, we can free VkShaderModules. Saves a lot of memory.
+     * If we are required to be able to serialize the SPIR-V, it will live as host pointers, not VkShaderModule. */
+    if (object->pso_is_fully_dynamic)
         d3d12_pipeline_state_destroy_shader_modules(object, device);
 
     /* We don't expect to serialize the PSO blob if we loaded it from cache.
@@ -4478,13 +4501,6 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     memcpy(bindings, graphics->attribute_bindings, graphics->attribute_binding_count * sizeof(*bindings));
     *dynamic_state_flags = d3d12_graphics_pipeline_state_init_dynamic_state(state, &dynamic_create_info,
             dynamic_state_buffer, key);
-
-    if (key && !key->dynamic_stride)
-    {
-        /* If not using extended dynamic state, set static vertex stride. */
-        for (i = 0; i < graphics->attribute_binding_count; i++)
-            bindings[i].stride = key->strides[i];
-    }
 
     if (!(graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT))
     {
@@ -4696,39 +4712,6 @@ err:
     return vk_pipeline;
 }
 
-static bool d3d12_pipeline_state_can_use_dynamic_stride(struct d3d12_pipeline_state *state,
-        const struct vkd3d_dynamic_state *dyn_state)
-{
-    struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
-    uint32_t vertex_mask = graphics->vertex_buffer_mask;
-    unsigned int slot;
-
-    while (vertex_mask)
-    {
-        slot = vkd3d_bitmask_iter32(&vertex_mask);
-        /* The vertex buffer stride must be larger than any attribute offset + format size which accesses a buffer binding.
-         * This is somewhat awkward, since D3D12 does not have this restriction, although the validation layers do warn about this.
-         * There might also be similar fallback paths on certain native drivers, who knows ... */
-
-        /* Allow stride == 0 to pass through. This is allowed by the specification.
-         * The stride >= offset + sizeof(format) rule is for AMD and OOB checks, since
-         * we need compiler to adjust vtx index and offset in this scenario since checks are against vtx index
-         * not byte address, but this path is irrelevant for stride == 0.
-         * This is fairly common to see in games. Scarlet Nexus hits it pretty hard, and
-         * we really should try to avoid late pipeline compiles here. */
-        if (dyn_state->vertex_strides[slot] &&
-                dyn_state->vertex_strides[slot] < graphics->minimum_vertex_buffer_dynamic_stride[slot])
-        {
-            TRACE("Stride for slot %u is %u bytes, but need at least %u.\n", slot,
-                  (unsigned int)dyn_state->vertex_strides[slot],
-                  graphics->minimum_vertex_buffer_dynamic_stride[slot]);
-            return false;
-        }
-    }
-
-    return true;
-}
-
 VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
         const struct vkd3d_dynamic_state *dyn_state, const struct vkd3d_format *dsv_format,
         uint32_t *dynamic_state_flags)
@@ -4744,23 +4727,27 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
         return VK_NULL_HANDLE;
     }
 
-    if (!(graphics->stage_flags & VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT) &&
-            !d3d12_pipeline_state_can_use_dynamic_stride(state, dyn_state))
-    {
-        TRACE("Cannot use dynamic stride, falling back ...\n");
-        return VK_NULL_HANDLE;
-    }
+    /* We are normally supposed to analyze VBO strides to ensure that stride >= offset || stride == 0,
+     * otherwise fall back. However, this means that we can never use fully dynamic graphics pipelines since
+     * it's impossible to guarantee that strides are sensible, which would be a shame.
+     * VK_EXT_dynamic_vertex_input is a possibility, but for pragmatic reasons we just ignore this problem for now.
+     * It rarely, if ever comes up in practice since it's a somewhat nonsensical API pattern.
+     * It does not work properly on native D3D12 AMD drivers either based on testing,
+     * and RADV implements VBOs in a way such that it works anyways.
+     * This scenario is covered by our test suite and we can revisit this if this turns out to be a real problem. */
 
     /* It should be illegal to use different patch size for topology compared to pipeline, but be safe here. */
     if (dyn_state->vk_primitive_topology == VK_PRIMITIVE_TOPOLOGY_PATCH_LIST &&
+        !(graphics->dynamic_state_flags & VKD3D_DYNAMIC_STATE_PATCH_CONTROL_POINTS) &&
         (dyn_state->primitive_topology - D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST + 1) != graphics->patch_vertex_count)
     {
         if (graphics->patch_vertex_count)
         {
-            TRACE("Mismatch in tessellation control points, expected %u, but got %u.\n",
+            WARN("Mismatch in tessellation control points, expected %u, but got %u, ignoring app topology and using shader.\n",
                   graphics->patch_vertex_count,
                   dyn_state->primitive_topology - D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST + 1);
         }
+
         return VK_NULL_HANDLE;
     }
 
@@ -4776,11 +4763,12 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     struct d3d12_device *device = state->device;
     struct vkd3d_pipeline_key pipeline_key;
-    uint32_t stride, stride_align_mask;
     VkPipeline vk_pipeline;
-    unsigned int i;
 
     assert(d3d12_pipeline_state_is_graphics(state));
+
+    /* If we have a fully dynamic PSO we have released all references to code, so this code path should never be hit. */
+    assert(!state->pso_is_fully_dynamic);
 
     memset(&pipeline_key, 0, sizeof(pipeline_key));
 
@@ -4792,26 +4780,6 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
             pipeline_key.dynamic_topology = true;
         else
             pipeline_key.topology = dyn_state->primitive_topology;
-
-        if (d3d12_pipeline_state_can_use_dynamic_stride(state, dyn_state))
-        {
-            pipeline_key.dynamic_stride = true;
-        }
-        else
-        {
-            for (i = 0; i < graphics->attribute_binding_count; ++i)
-            {
-                stride = dyn_state->vertex_strides[graphics->attribute_bindings[i].binding];
-                stride_align_mask = state->graphics.vertex_buffer_stride_align_mask[graphics->attribute_bindings[i].binding];
-                if (stride & stride_align_mask)
-                {
-                    FIXME("Attempting to use VBO stride of %u bytes, but D3D12 requires alignment of %u bytes. VBO stride will be adjusted.\n",
-                            stride, stride_align_mask + 1);
-                    stride &= ~stride_align_mask;
-                }
-                pipeline_key.strides[i] = stride;
-            }
-        }
     }
 
     pipeline_key.dsv_format = dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;

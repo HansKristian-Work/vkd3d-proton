@@ -265,6 +265,7 @@ VK_DEVICE_EXT_PFN(vkCmdSetViewportWithCountEXT)
 
 /* VK_EXT_extended_dynamic_state2 */
 VK_DEVICE_EXT_PFN(vkCmdSetPrimitiveRestartEnableEXT)
+VK_DEVICE_EXT_PFN(vkCmdSetPatchControlPointsEXT)
 
 /* VK_EXT_external_memory_host */
 VK_DEVICE_EXT_PFN(vkGetMemoryHostPointerPropertiesEXT)
