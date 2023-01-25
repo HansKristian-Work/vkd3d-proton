@@ -2594,6 +2594,8 @@ static void d3d12_resource_destroy(struct d3d12_resource *resource, struct d3d12
         VK_CALL(vkDestroyImageView(device->vk_device, resource->vrs_view, NULL));
 
     vkd3d_private_store_destroy(&resource->private_store);
+    if (resource->heap)
+        d3d12_heap_decref(resource->heap);
     vkd3d_free(resource);
 }
 
@@ -3000,7 +3002,9 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
             &heap->desc.Properties, heap->desc.Flags, initial_state, optimized_clear_value, &object)))
         return hr;
 
-    object->heap = heap;
+    /* https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12device-createheap#remarks.
+     * Placed resources hold a reference on the heap. */
+    d3d12_heap_incref(object->heap = heap);
 
     if (d3d12_resource_is_texture(object))
     {

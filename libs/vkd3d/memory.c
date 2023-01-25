@@ -27,16 +27,10 @@ static bool vkd3d_memory_transfer_queue_wait_semaphore(struct vkd3d_memory_trans
 static void vkd3d_acquire_tracked_resource(struct d3d12_resource *resource)
 {
     d3d12_resource_incref(resource);
-
-    if (resource->heap)
-        d3d12_heap_incref(resource->heap);
 }
 
 static void vkd3d_release_tracked_resource(struct d3d12_resource *resource)
 {
-    if (resource->heap)
-        d3d12_heap_decref(resource->heap);
-
     d3d12_resource_decref(resource);
 }
 
