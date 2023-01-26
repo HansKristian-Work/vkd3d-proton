@@ -4184,8 +4184,19 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
 
     if (desc->cached_pso.blob.CachedBlobSizeInBytes)
     {
-        if (FAILED(hr = d3d12_cached_pipeline_state_validate(device, &desc->cached_pso,
-                &object->pipeline_cache_compat)))
+        hr = d3d12_cached_pipeline_state_validate(device, &desc->cached_pso, &object->pipeline_cache_compat);
+
+        if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_IGNORE_MISMATCH_DRIVER) &&
+                (hr == D3D12_ERROR_ADAPTER_NOT_FOUND || hr == D3D12_ERROR_DRIVER_VERSION_MISMATCH))
+        {
+            if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
+                INFO("Ignoring mismatched driver for CachedPSO. Continuing as-if application did not provide cache.\n");
+            hr = S_OK;
+            memset(&cached_pso, 0, sizeof(cached_pso));
+            desc_cached_pso = &cached_pso;
+        }
+
+        if (FAILED(hr))
         {
             if (object->root_signature)
                 d3d12_root_signature_dec_ref(object->root_signature);
@@ -4198,7 +4209,7 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
     /* If we rely on internal shader cache, the PSO blob app provides us might be a pure metadata blob,
      * and therefore kinda useless. Try to use disk cache blob instead.
      * Also, consider that we might have to serialize this pipeline if we don't find anything in disk cache. */
-    if (d3d12_cached_pipeline_state_is_dummy(&desc->cached_pso))
+    if (desc_cached_pso != &cached_pso && d3d12_cached_pipeline_state_is_dummy(desc_cached_pso))
     {
         memset(&cached_pso, 0, sizeof(cached_pso));
         desc_cached_pso = &cached_pso;
