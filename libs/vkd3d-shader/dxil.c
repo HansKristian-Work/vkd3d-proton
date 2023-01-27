@@ -1558,6 +1558,8 @@ int vkd3d_shader_dxil_append_library_entry_points_and_subobjects(
     unsigned int rdat_count;
     int ret = VKD3D_OK;
 
+    dxil_spv_set_thread_log_callback(vkd3d_dxil_log_callback, NULL);
+
     memset(&new_entry, 0, sizeof(new_entry));
     dxil_spv_begin_thread_allocator_context();
 
