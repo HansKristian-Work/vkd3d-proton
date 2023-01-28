@@ -1900,7 +1900,6 @@ static inline bool vk_primitive_topology_supports_restart(VkPrimitiveTopology to
 struct vkd3d_pipeline_key
 {
     D3D12_PRIMITIVE_TOPOLOGY topology;
-    uint32_t viewport_count;
     uint32_t strides[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     VkFormat dsv_format;
 
