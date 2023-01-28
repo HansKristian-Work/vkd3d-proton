@@ -865,8 +865,11 @@ void test_vrs_image(void)
 
         vkd3d_test_set_context("Test %u", i);
 
+        /* Docs say RTV usage is not allowed, yet it works, and D3D12 layers don't complain.
+         * Simultaneous access is also not checked, but we'll only consider doing that when we see this behavior in the wild.
+         * Dead Space (2023) hits this scenario. */
         texture = create_default_texture2d(context.device, 4, 4, 1, 1, DXGI_FORMAT_R8_UINT,
-                0, D3D12_RESOURCE_STATE_COPY_DEST);
+                D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_DEST);
         upload_texture_data(texture, &tex_data, 1, queue, context.list);
         reset_command_list(context.list, context.allocator);
         transition_resource_state(context.list, texture,
