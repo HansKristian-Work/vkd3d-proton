@@ -778,6 +778,16 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
     allocation_info->SizeInBytes = requirements.memoryRequirements.size;
     allocation_info->Alignment = requirements.memoryRequirements.alignment;
 
+    /* If we might create an image with VRS usage, need to also check memory requirements without VRS usage.
+     * VRS usage can depend on heap properties and this can affect compression, tile layouts, etc. */
+    if (create_info.image_info.usage & VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)
+    {
+        create_info.image_info.usage &= ~VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
+        VK_CALL(vkGetDeviceImageMemoryRequirementsKHR(device->vk_device, &requirement_info, &requirements));
+        allocation_info->SizeInBytes = max(requirements.memoryRequirements.size, allocation_info->SizeInBytes);
+        allocation_info->Alignment = max(requirements.memoryRequirements.alignment, allocation_info->Alignment);
+    }
+
     /* Do not report alignments greater than DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT
      * since that might confuse apps. Instead, pad the allocation so that we can
      * align the image ourselves. */
