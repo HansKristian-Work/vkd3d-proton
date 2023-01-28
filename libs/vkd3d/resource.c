@@ -376,6 +376,11 @@ static bool vkd3d_sparse_image_may_have_mip_tail(const D3D12_RESOURCE_DESC1 *des
 static bool vkd3d_resource_can_be_vrs(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, const D3D12_RESOURCE_DESC1 *desc)
 {
+    /* Docs say that RTV should not be allowed for fragment shading rate images, yet it works on native,
+     * Dead Space 2023 relies on it, and D3D12 debug layers don't complain.
+     * Technically, it does not seem to care about SIMULTANEOUS_ACCESS either,
+     * but we only workaround when it's proven to be required.
+     * It would complicate things since it affects layouts, etc. */
     return device->device_info.fragment_shading_rate_features.attachmentFragmentShadingRate &&
             desc->Format == DXGI_FORMAT_R8_UINT &&
             desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
@@ -385,8 +390,7 @@ static bool vkd3d_resource_can_be_vrs(struct d3d12_device *device,
             desc->Layout == D3D12_TEXTURE_LAYOUT_UNKNOWN &&
             heap_properties &&
             !is_cpu_accessible_heap(heap_properties) &&
-            !(desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET |
-                D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL |
+            !(desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL |
                 D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER |
                 D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS |
                 D3D12_RESOURCE_FLAG_VIDEO_DECODE_REFERENCE_ONLY));
