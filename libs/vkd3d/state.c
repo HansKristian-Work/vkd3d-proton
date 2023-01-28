@@ -3322,10 +3322,11 @@ static HRESULT d3d12_pipeline_state_validate_blend_state(struct d3d12_pipeline_s
          * an IO-sig entry with non-NULL format. */
         for (i = 0; i < sig->element_count; i++)
         {
-            if (sig->elements[i].sysval_semantic)
-                continue;
-
             register_index = sig->elements[i].register_index;
+
+            /* Ignore built-in outputs like SV_DEPTH etc */
+            if (sig->elements[i].register_index == ~0u)
+                continue;
 
             if (register_index >= ARRAY_SIZE(desc->rtv_formats.RTFormats))
             {
