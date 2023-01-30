@@ -2689,8 +2689,8 @@ static void test_raytracing_pipeline(enum rt_test_mode mode, D3D12_RAYTRACING_TI
             /* First sanity check that output from BuildRTAS and EmitPostbuildInfo() match up. */
             ok(bottom[0].compacted.CompactedSizeInBytes > 0, "Compacted size for bottom acceleration structure is %u.\n", (unsigned int)bottom[0].compacted.CompactedSizeInBytes);
             ok(top[0].compacted.CompactedSizeInBytes > 0, "Compacted size for top acceleration structure is %u.\n", (unsigned int)top[0].compacted.CompactedSizeInBytes);
-            /* CURRENT_SIZE cannot be queried in Vulkan directly. It should be possible to emulate it with a side buffer which we update on RTAS build,
-             * but ignore it for the time being, since it's only really relevant for tools. */
+
+            /* Requires maintenance1. */
             ok(bottom[0].current.CurrentSizeInBytes > 0, "Current size for bottom acceleration structure is %u.\n", (unsigned int)bottom[0].current.CurrentSizeInBytes);
             ok(top[0].current.CurrentSizeInBytes > 0, "Current size for top acceleration structure is %u.\n", (unsigned int)top[0].current.CurrentSizeInBytes);
 
