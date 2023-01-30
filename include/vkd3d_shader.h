@@ -830,9 +830,14 @@ struct vkd3d_shader_library_entry_point
 {
     unsigned int identifier;
     VkShaderStageFlagBits stage;
+
+    /* For implementing the API, since it uses WCHAR despite C++ identifiers being ASCII ... */
     WCHAR *mangled_entry_point;
     WCHAR *plain_entry_point;
+
+    /* Used only for interfacing with dxil-spirv. */
     char *real_entry_point;
+    char *debug_entry_point;
 };
 
 enum vkd3d_shader_subobject_kind
@@ -889,8 +894,11 @@ int vkd3d_shader_dxil_append_library_entry_points_and_subobjects(
 void vkd3d_shader_dxil_free_library_entry_points(struct vkd3d_shader_library_entry_point *entry_points, size_t count);
 void vkd3d_shader_dxil_free_library_subobjects(struct vkd3d_shader_library_subobject *subobjects, size_t count);
 
+/* export may be a mangled or demangled name.
+ * If RTPSO requests the demangled name, it will likely be demangled, otherwise we forward the mangled name directly.
+ * demangled_export is always a demangled name, for debug purposes. Can be NULL. */
 int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
-        const char *export,
+        const char *export, const char *demangled_export,
         struct vkd3d_shader_code *spirv,
         const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_interface_local_info *shader_interface_local_info,

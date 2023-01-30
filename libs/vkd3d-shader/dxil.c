@@ -951,7 +951,7 @@ end:
 }
 
 int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
-        const char *export,
+        const char *export, const char *demangled_export,
         struct vkd3d_shader_code *spirv,
         const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_interface_local_info *shader_interface_local_info,
@@ -970,7 +970,6 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     dxil_spv_compiled_spirv compiled;
     unsigned int i, j, max_size;
     vkd3d_shader_hash_t hash;
-    char *demangled_export;
     int ret = VKD3D_OK;
     void *code;
 
@@ -979,15 +978,15 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     memset(&spirv->meta, 0, sizeof(spirv->meta));
     hash = vkd3d_shader_hash(dxil);
     spirv->meta.hash = hash;
-    demangled_export = vkd3d_dup_demangled_entry_point_ascii(export);
-    if (demangled_export)
+
+    /* For user provided (not mangled) export names, just inherit that name. */
+    if (!demangled_export)
+        demangled_export = export;
+
+    if (demangled_export && vkd3d_shader_replace_export(hash, &spirv->code, &spirv->size, demangled_export))
     {
-        if (vkd3d_shader_replace_export(hash, &spirv->code, &spirv->size, demangled_export))
-        {
-            spirv->meta.flags |= VKD3D_SHADER_META_FLAG_REPLACED;
-            vkd3d_free(demangled_export);
-            return ret;
-        }
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_REPLACED;
+        return ret;
     }
 
     dxil_spv_begin_thread_allocator_context();
@@ -1381,7 +1380,6 @@ end:
     dxil_spv_converter_free(converter);
     dxil_spv_parsed_blob_free(blob);
     dxil_spv_end_thread_allocator_context();
-    vkd3d_free(demangled_export);
     return ret;
 }
 
@@ -1393,6 +1391,7 @@ void vkd3d_shader_dxil_free_library_entry_points(struct vkd3d_shader_library_ent
         vkd3d_free(entry_points[i].mangled_entry_point);
         vkd3d_free(entry_points[i].plain_entry_point);
         vkd3d_free(entry_points[i].real_entry_point);
+        vkd3d_free(entry_points[i].debug_entry_point);
     }
 
     vkd3d_free(entry_points);
@@ -1447,14 +1446,15 @@ static VkShaderStageFlagBits convert_stage(dxil_spv_shader_stage stage)
 
 static bool vkd3d_dxil_build_entry(struct vkd3d_shader_library_entry_point *entry,
         unsigned int identifier,
-        const char *mangled_name, dxil_spv_shader_stage stage)
+        const char *mangled_name, const char *demangled_name,
+        dxil_spv_shader_stage stage)
 {
     entry->identifier = identifier;
     entry->mangled_entry_point = vkd3d_dup_entry_point(mangled_name);
     if (!entry->mangled_entry_point)
         return false;
 
-    entry->plain_entry_point = vkd3d_dup_demangled_entry_point(mangled_name);
+    entry->plain_entry_point = vkd3d_dup_entry_point(demangled_name);
     if (!entry->plain_entry_point)
     {
         vkd3d_free(entry->mangled_entry_point);
@@ -1463,6 +1463,7 @@ static bool vkd3d_dxil_build_entry(struct vkd3d_shader_library_entry_point *entr
     }
 
     entry->real_entry_point = vkd3d_strdup(mangled_name);
+    entry->debug_entry_point = vkd3d_strdup(demangled_name);
     entry->stage = convert_stage(stage);
     return true;
 }
@@ -1551,6 +1552,7 @@ int vkd3d_shader_dxil_append_library_entry_points_and_subobjects(
     struct vkd3d_shader_code code;
     dxil_spv_rdat_subobject sub;
     dxil_spv_shader_stage stage;
+    const char *demangled_entry;
     const char *mangled_entry;
     char *ascii_entry = NULL;
     vkd3d_shader_hash_t hash;
@@ -1616,6 +1618,7 @@ int vkd3d_shader_dxil_append_library_entry_points_and_subobjects(
                 }
 
                 new_entry.real_entry_point = ascii_entry;
+                new_entry.debug_entry_point = NULL;
                 new_entry.plain_entry_point = vkd3d_wstrdup(library_desc->pExports[i].Name);
                 new_entry.mangled_entry_point = NULL;
                 new_entry.identifier = identifier;
@@ -1640,6 +1643,7 @@ int vkd3d_shader_dxil_append_library_entry_points_and_subobjects(
         for (i = 0; i < count; i++)
         {
             dxil_spv_parsed_blob_get_entry_point_name(blob, i, &mangled_entry);
+            dxil_spv_parsed_blob_get_entry_point_demangled_name(blob, i, &demangled_entry);
             stage = dxil_spv_parsed_blob_get_shader_stage_for_entry(blob, mangled_entry);
             if (stage == DXIL_SPV_STAGE_UNKNOWN)
             {
@@ -1648,7 +1652,7 @@ int vkd3d_shader_dxil_append_library_entry_points_and_subobjects(
                 goto end;
             }
 
-            if (!vkd3d_dxil_build_entry(&new_entry, identifier, mangled_entry, stage))
+            if (!vkd3d_dxil_build_entry(&new_entry, identifier, mangled_entry, demangled_entry, stage))
             {
                 ret = VKD3D_ERROR_INVALID_ARGUMENT;
                 goto end;
@@ -1681,6 +1685,7 @@ end:
     vkd3d_free(new_entry.mangled_entry_point);
     vkd3d_free(new_entry.plain_entry_point);
     vkd3d_free(new_entry.real_entry_point);
+    vkd3d_free(new_entry.debug_entry_point);
     if (blob)
         dxil_spv_parsed_blob_free(blob);
     dxil_spv_end_thread_allocator_context();
