@@ -361,7 +361,8 @@ static void vkd3d_acceleration_structure_write_postbuild_info(
             d3d12_command_list_reset_query(list, vk_query_pool, vk_query_index);
 
             VK_CALL(vkCmdWriteAccelerationStructuresPropertiesKHR(list->vk_command_buffer,
-                    1, &vk_acceleration_structure, vk_query_type, vk_query_pool, vk_query_index));
+                    1, &vk_acceleration_structure, VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_BOTTOM_LEVEL_POINTERS_KHR,
+                    vk_query_pool, vk_query_index));
             VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer,
                     vk_query_pool, vk_query_index, 1,
                     vk_buffer, offset + sizeof(uint64_t), stride,
