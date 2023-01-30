@@ -256,7 +256,8 @@ static void * STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderIdentifie
 
     RT_TRACE("iface %p, export_name %s.\n", iface, debugstr_w(export_name));
 
-    if (object->type == D3D12_STATE_OBJECT_TYPE_COLLECTION)
+    if (object->type == D3D12_STATE_OBJECT_TYPE_COLLECTION &&
+            !object->device->device_info.pipeline_library_group_handles_features.pipelineLibraryGroupHandles)
     {
         FIXME("Cannot query identifiers from COLLECTIONs.\n");
         return NULL;
@@ -1131,7 +1132,7 @@ static VkDeviceSize get_shader_stack_size(struct d3d12_state_object *object,
 {
     const struct vkd3d_vk_device_procs *vk_procs = &object->device->vk_procs;
     return VK_CALL(vkGetRayTracingShaderGroupStackSizeKHR(object->device->vk_device,
-            object->pipeline, index, shader));
+            object->pipeline ? object->pipeline : object->pipeline_library, index, shader));
 }
 
 static VkDeviceSize d3d12_state_object_pipeline_data_compute_default_stack_size(
@@ -1350,17 +1351,20 @@ static HRESULT d3d12_state_object_get_group_handles(struct d3d12_state_object *o
 {
     const struct vkd3d_vk_device_procs *vk_procs = &object->device->vk_procs;
     uint32_t collection_export;
+    VkPipeline vk_pipeline;
     int collection_index;
     uint32_t group_index;
     VkResult vr;
     size_t i;
+
+    vk_pipeline = object->pipeline ? object->pipeline : object->pipeline_library;
 
     for (i = 0; i < data->exports_count; i++)
     {
         group_index = data->exports[i].group_index;
 
         vr = VK_CALL(vkGetRayTracingShaderGroupHandlesKHR(object->device->vk_device,
-                object->pipeline, group_index, 1,
+                vk_pipeline, group_index, 1,
                 sizeof(data->exports[i].identifier),
                 data->exports[i].identifier));
         if (vr)
@@ -1388,8 +1392,16 @@ static HRESULT d3d12_state_object_get_group_handles(struct d3d12_state_object *o
              * It appears to work just fine on NV. */
             if (memcmp(parent_identifier, child_identifier, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES) != 0)
             {
-                FIXME("SBT identifiers do not match for parent and child pipelines. "
-                      "Vulkan does not guarantee this, but DXR 1.1 requires this. Cannot use pipeline.\n");
+                if (object->device->device_info.pipeline_library_group_handles_features.pipelineLibraryGroupHandles)
+                {
+                    ERR("Driver bug, SBT identifiers do not match for parent and child pipelines. "
+                        "This is supposed to be guaranteed with VK_EXT_pipeline_library_group_handles.\n");
+                }
+                else
+                {
+                    FIXME("SBT identifiers do not match for parent and child pipelines. "
+                          "Vulkan does not guarantee this, but DXR 1.1 requires this. Cannot use pipeline.\n");
+                }
                 return E_NOTIMPL;
             }
         }
@@ -1945,8 +1957,8 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
 
             /* If we inherited from a real pipeline, we must observe the rules of AddToStateObject().
              * SBT pointer must be invariant as well as its contents.
-             * Vulkan does not guarantee this, but we can validate and accept the pipeline if
-             * implementation happens to satisfy this rule. */
+             * Vulkan does not guarantee this without VK_EXT_pipeline_library_group_handles,
+             * but we can validate and accept the pipeline if implementation happens to satisfy this rule. */
             if (collection->object->type == D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE)
                 export->inherited_collection_index = (int)i;
             else
@@ -2107,7 +2119,7 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     if (vr == VK_SUCCESS && (object->flags & D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS) &&
             object->type == D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE)
     {
-        /* TODO: Is it actually valid to inherit other pipeline libraries while creating a pipeline library? */
+        /* It is valid to inherit pipeline libraries into other pipeline libraries. */
         pipeline_create_info.flags &= ~VK_PIPELINE_CREATE_LIBRARY_BIT_KHR;
         pipeline_create_info.pStages = NULL;
         pipeline_create_info.pGroups = NULL;
@@ -2134,7 +2146,16 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
                 pipeline_create_info.maxPipelineRayRecursionDepth);
     }
     else
+    {
+        /* We can query group handles straight from COLLECTIONs if we have VK_EXT_pipeline_library_group_handles.
+         * If we're using the workaround in VKD3D_CONFIG, we will have gone through the RAYTRACING_PIPELINE path instead. */
+        if (object->device->device_info.pipeline_library_group_handles_features.pipelineLibraryGroupHandles)
+            if (FAILED(hr = d3d12_state_object_get_group_handles(object, data)))
+                return hr;
+
+        /* This should be 0 for COLLECTION objects. */
         object->pipeline_stack_size = 0;
+    }
 
     /* Pilfer the export table. */
     object->exports = data->exports;
@@ -2200,13 +2221,16 @@ static HRESULT d3d12_state_object_init(struct d3d12_state_object *object,
     object->type = desc->Type;
 
     if (object->type == D3D12_STATE_OBJECT_TYPE_COLLECTION &&
-            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ALLOW_SBT_COLLECTION))
+            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ALLOW_SBT_COLLECTION) &&
+            !device->device_info.pipeline_library_group_handles_features.pipelineLibraryGroupHandles)
     {
         /* It seems to be valid to query shader identifiers from a COLLECTION which is pure insanity.
          * We can fake this behavior if we pretend we have ALLOW_STATE_OBJECT_ADDITIONS and RTPSO.
          * We will validate that the "COLLECTION" matches the consuming RTPSO.
-         * If the collection does not contain an RGEN shader, we're technically out of spec here,
-         * but there is nothing we can do for now without further spec improvements. */
+         * If the collection does not contain an RGEN shader, we're technically out of spec here. */
+
+        /* If we have pipeline library group handles feature however,
+         * we can ignore this workaround and do it properly. */
         INFO("Promoting COLLECTION to RAYTRACING_PIPELINE as workaround.\n");
         object->type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
         object->flags |= D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS;
