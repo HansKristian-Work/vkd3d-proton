@@ -681,8 +681,10 @@ static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *obj
             RT_TRACE("Adding DXIL library:\n");
             for (j = old_count; j < data->entry_points_count; j++)
             {
-                RT_TRACE("  Entry point: %s (stage #%x).\n",
-                        data->entry_points[j].real_entry_point, data->entry_points[j].stage);
+                RT_TRACE("  Entry point: %s (%s) (stage #%x).\n",
+                        data->entry_points[j].real_entry_point,
+                        data->entry_points[j].debug_entry_point,
+                        data->entry_points[j].stage);
             }
 
             for (j = old_obj_count; j < data->subobjects_count; j++)
@@ -1772,10 +1774,11 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
         dxil.code = data->dxil_libraries[entry->identifier]->DXILLibrary.pShaderBytecode;
         dxil.size = data->dxil_libraries[entry->identifier]->DXILLibrary.BytecodeLength;
 
-        if (vkd3d_shader_compile_dxil_export(&dxil, entry->real_entry_point, &spirv,
+        if (vkd3d_shader_compile_dxil_export(&dxil, entry->real_entry_point, entry->debug_entry_point, &spirv,
                 &shader_interface_info, &shader_interface_local_info, &compile_args) != VKD3D_OK)
         {
-            ERR("Failed to convert DXIL export: %s\n", entry->real_entry_point);
+            ERR("Failed to convert DXIL export: %s (%s)\n",
+                    entry->real_entry_point, entry->debug_entry_point);
             vkd3d_free(local_bindings);
             return E_OUTOFMEMORY;
         }
@@ -1795,7 +1798,7 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
         object->breadcrumb_shaders[object->breadcrumb_shaders_count].stage = entry->stage;
         snprintf(object->breadcrumb_shaders[object->breadcrumb_shaders_count].name,
                 sizeof(object->breadcrumb_shaders[object->breadcrumb_shaders_count].name),
-                "%s", entry->real_entry_point);
+                "%s", entry->debug_entry_point);
         object->breadcrumb_shaders_count++;
 #endif
 
