@@ -1357,16 +1357,30 @@ static HRESULT d3d12_state_object_get_group_handles(struct d3d12_state_object *o
     VkResult vr;
     size_t i;
 
-    vk_pipeline = object->pipeline ? object->pipeline : object->pipeline_library;
+    if (object->pipeline)
+        vk_pipeline = object->pipeline;
+    else if (object->device->device_info.pipeline_library_group_handles_features.pipelineLibraryGroupHandles)
+        vk_pipeline = object->pipeline_library;
+    else
+        vk_pipeline = VK_NULL_HANDLE;
 
     for (i = 0; i < data->exports_count; i++)
     {
         group_index = data->exports[i].group_index;
 
-        vr = VK_CALL(vkGetRayTracingShaderGroupHandlesKHR(object->device->vk_device,
-                vk_pipeline, group_index, 1,
-                sizeof(data->exports[i].identifier),
-                data->exports[i].identifier));
+        if (vk_pipeline)
+        {
+            vr = VK_CALL(vkGetRayTracingShaderGroupHandlesKHR(object->device->vk_device,
+                    vk_pipeline, group_index, 1,
+                    sizeof(data->exports[i].identifier),
+                    data->exports[i].identifier));
+        }
+        else
+        {
+            memset(data->exports[i].identifier, 0, sizeof(data->exports[i].identifier));
+            vr = VK_SUCCESS;
+        }
+
         if (vr)
             return hresult_from_vk_result(vr);
 
@@ -1406,6 +1420,9 @@ static HRESULT d3d12_state_object_get_group_handles(struct d3d12_state_object *o
             }
         }
 
+        /* We can still query shader stack sizes even if we cannot get identifiers.
+         * There is no VU against using this on pipeline libraries and DXR spec says
+         * we can call it on COLLECTION objects as well. */
         data->exports[i].stack_size_general = UINT32_MAX;
         data->exports[i].stack_size_any = UINT32_MAX;
         data->exports[i].stack_size_closest = UINT32_MAX;
@@ -2136,23 +2153,17 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     if (vr)
         return hresult_from_vk_result(vr);
 
+    if (FAILED(hr = d3d12_state_object_get_group_handles(object, data)))
+        return hr;
+
     if (object->type == D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE)
     {
-        if (FAILED(hr = d3d12_state_object_get_group_handles(object, data)))
-            return hr;
-
         object->pipeline_stack_size = d3d12_state_object_pipeline_data_compute_default_stack_size(data,
                 &object->stack,
                 pipeline_create_info.maxPipelineRayRecursionDepth);
     }
     else
     {
-        /* We can query group handles straight from COLLECTIONs if we have VK_EXT_pipeline_library_group_handles.
-         * If we're using the workaround in VKD3D_CONFIG, we will have gone through the RAYTRACING_PIPELINE path instead. */
-        if (object->device->device_info.pipeline_library_group_handles_features.pipelineLibraryGroupHandles)
-            if (FAILED(hr = d3d12_state_object_get_group_handles(object, data)))
-                return hr;
-
         /* This should be 0 for COLLECTION objects. */
         object->pipeline_stack_size = 0;
     }
