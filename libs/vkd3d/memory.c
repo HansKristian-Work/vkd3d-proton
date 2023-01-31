@@ -1184,6 +1184,8 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
         }
     }
 
+    allocation->resource.cookie = vkd3d_allocate_cookie();
+
     /* Bind memory to global or dedicated buffer as needed */
     if (allocation->resource.vk_buffer)
     {
@@ -1209,9 +1211,17 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
                 return hresult_from_vk_result(vr);
             }
         }
+
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+        {
+            char name_buffer[1024];
+            snprintf(name_buffer, sizeof(name_buffer), "GlobalBuffer (cookie %"PRIu64")",
+                    allocation->resource.cookie);
+            vkd3d_set_vk_object_name(device, (uint64_t)allocation->resource.vk_buffer,
+                    VK_OBJECT_TYPE_BUFFER, name_buffer);
+        }
     }
 
-    allocation->resource.cookie = vkd3d_allocate_cookie();
     vkd3d_descriptor_debug_register_allocation_cookie(device->descriptor_qa_global_info,
             allocation->resource.cookie, info);
 
@@ -1411,6 +1421,15 @@ static HRESULT vkd3d_memory_chunk_create(struct d3d12_device *device, struct vkd
     {
         vkd3d_free(object);
         return hr;
+    }
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+    {
+        char name_buffer[1024];
+        snprintf(name_buffer, sizeof(name_buffer), "Chunk (cookie %"PRIu64")",
+                object->allocation.resource.cookie);
+        vkd3d_set_vk_object_name(device, (uint64_t)object->allocation.device_allocation.vk_memory,
+                VK_OBJECT_TYPE_DEVICE_MEMORY, name_buffer);
     }
 
     vkd3d_memory_chunk_insert_range(object, 0, 0, object->allocation.resource.size);
@@ -1726,6 +1745,15 @@ HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_mem
          * Defer allocation until CreatePlacedResource(). */
         memset(allocation, 0, sizeof(*allocation));
         hr = S_OK;
+    }
+
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) && !allocation->chunk)
+    {
+        char name_buffer[1024];
+        snprintf(name_buffer, sizeof(name_buffer), "Heap (cookie %"PRIu64")",
+                allocation->resource.cookie);
+        vkd3d_set_vk_object_name(device, (uint64_t)allocation->device_allocation.vk_memory,
+                VK_OBJECT_TYPE_DEVICE_MEMORY, name_buffer);
     }
 
     return hr;
