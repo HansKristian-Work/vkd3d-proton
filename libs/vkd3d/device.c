@@ -40,7 +40,7 @@ struct vkd3d_optional_extension_info
 {
     const char *extension_name;
     ptrdiff_t vulkan_info_offset;
-    uint64_t required_config_flags;
+    uint64_t enable_config_flags;
 };
 
 #define VK_EXTENSION(name, member) \
@@ -139,7 +139,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(NVX_IMAGE_VIEW_HANDLE, NVX_image_view_handle),
     VK_EXTENSION(NV_FRAGMENT_SHADER_BARYCENTRIC, NV_fragment_shader_barycentric),
     VK_EXTENSION(NV_COMPUTE_SHADER_DERIVATIVES, NV_compute_shader_derivatives),
-    VK_EXTENSION_COND(NV_DEVICE_DIAGNOSTIC_CHECKPOINTS, NV_device_diagnostic_checkpoints, VKD3D_CONFIG_FLAG_BREADCRUMBS),
+    VK_EXTENSION_COND(NV_DEVICE_DIAGNOSTIC_CHECKPOINTS, NV_device_diagnostic_checkpoints, VKD3D_CONFIG_FLAG_BREADCRUMBS | VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE),
     VK_EXTENSION(NV_DEVICE_GENERATED_COMMANDS, NV_device_generated_commands),
     /* VALVE extensions */
     VK_EXTENSION(VALVE_MUTABLE_DESCRIPTOR_TYPE, VALVE_mutable_descriptor_type),
@@ -208,12 +208,11 @@ static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensio
     for (i = 0; i < optional_extension_count; ++i)
     {
         const char *extension_name = optional_extensions[i].extension_name;
-        uint64_t required_flags = optional_extensions[i].required_config_flags;
-        bool has_required_flags = (vkd3d_config_flags & required_flags) == required_flags;
+        uint64_t enable_flags = optional_extensions[i].enable_config_flags;
         ptrdiff_t offset = optional_extensions[i].vulkan_info_offset;
         bool *supported = (void *)((uintptr_t)vulkan_info + offset);
 
-        if (!has_required_flags)
+        if (enable_flags && !(vkd3d_config_flags & enable_flags))
             continue;
 
         if ((*supported = has_extension(extensions, count, extension_name)))
