@@ -1909,7 +1909,6 @@ static HRESULT d3d12_pipeline_state_create_shader_module(struct d3d12_device *de
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkShaderModuleCreateInfo shader_desc;
-    char hash_str[16 + 1];
     VkResult vr;
 
     shader_desc.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
@@ -1925,9 +1924,14 @@ static HRESULT d3d12_pipeline_state_create_shader_module(struct d3d12_device *de
         return hresult_from_vk_result(vr);
     }
 
-    /* Helpful for tooling like RenderDoc. */
-    sprintf(hash_str, "%016"PRIx64, code->meta.hash);
-    vkd3d_set_vk_object_name(device, (uint64_t)*vk_module, VK_OBJECT_TYPE_SHADER_MODULE, hash_str);
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+    {
+        /* Helpful for tooling like RenderDoc. */
+        char hash_str[16 + 1];
+        sprintf(hash_str, "%016"PRIx64, code->meta.hash);
+        vkd3d_set_vk_object_name(device, (uint64_t)*vk_module, VK_OBJECT_TYPE_SHADER_MODULE, hash_str);
+    }
+
     return S_OK;
 }
 

@@ -2768,6 +2768,18 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
     return S_OK;
 }
 
+static void d3d12_resource_tag_debug_name(struct d3d12_resource *resource,
+        struct d3d12_device *device, const char *tag)
+{
+    char name_buffer[1024];
+    snprintf(name_buffer, sizeof(name_buffer), "%s (cookie %"PRIu64")", tag, resource->res.cookie);
+
+    if (d3d12_resource_is_texture(resource))
+        vkd3d_set_vk_object_name(device, (uint64_t)resource->res.vk_image, VK_OBJECT_TYPE_IMAGE, name_buffer);
+    else if (d3d12_resource_is_buffer(resource))
+        vkd3d_set_vk_object_name(device, (uint64_t)resource->res.vk_buffer, VK_OBJECT_TYPE_BUFFER, name_buffer);
+}
+
 HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12_RESOURCE_DESC1 *desc,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, HANDLE shared_handle, struct d3d12_resource **resource)
@@ -2923,6 +2935,9 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
             if (FAILED(hr = vkd3d_allocate_memory(device, &device->memory_allocator, &allocate_info, &object->mem)))
                 goto fail;
         }
+
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+            d3d12_resource_tag_debug_name(object, device, "Committed Texture");
     }
     else
     {
@@ -3099,6 +3114,9 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
             hr = hresult_from_vk_result(vr);
             goto fail;
         }
+
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+            d3d12_resource_tag_debug_name(object, device, "Placed Texture");
     }
     else
     {
@@ -3169,6 +3187,9 @@ HRESULT d3d12_resource_create_reserved(struct d3d12_device *device,
 
         vkd3d_va_map_insert(&device->memory_allocator.va_map, &object->res);
     }
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+        d3d12_resource_tag_debug_name(object, device, "Reserved Resource");
 
     *resource = object;
     return S_OK;
