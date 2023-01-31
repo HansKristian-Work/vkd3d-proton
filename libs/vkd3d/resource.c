@@ -960,6 +960,40 @@ static struct vkd3d_view *vkd3d_view_create(enum vkd3d_view_type type);
 static HRESULT d3d12_create_sampler(struct d3d12_device *device,
         const D3D12_SAMPLER_DESC *desc, VkSampler *vk_sampler);
 
+static void vkd3d_view_tag_debug_name(struct vkd3d_view *view, struct d3d12_device *device)
+{
+    VkObjectType vk_object_type = VK_OBJECT_TYPE_MAX_ENUM;
+    char name_buffer[1024];
+    uint64_t vk_object = 0;
+    const char *tag = "";
+
+    if (view->type == VKD3D_VIEW_TYPE_IMAGE)
+    {
+        tag = "ImageView";
+        vk_object = (uint64_t)view->vk_image_view;
+        vk_object_type = VK_OBJECT_TYPE_IMAGE_VIEW;
+    }
+    else if (view->type == VKD3D_VIEW_TYPE_BUFFER)
+    {
+        tag = "BufferView";
+        vk_object = (uint64_t)view->vk_buffer_view;
+        vk_object_type = VK_OBJECT_TYPE_BUFFER_VIEW;
+    }
+    else if (view->type == VKD3D_VIEW_TYPE_SAMPLER)
+    {
+        tag = "Sampler";
+        vk_object = (uint64_t)view->vk_sampler;
+        vk_object_type = VK_OBJECT_TYPE_SAMPLER;
+    }
+    else
+    {
+        return;
+    }
+
+    snprintf(name_buffer, sizeof(name_buffer), "%s (cookie %"PRIu64")", tag, view->cookie);
+    vkd3d_set_vk_object_name(device, vk_object, vk_object_type, name_buffer);
+}
+
 struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
         struct d3d12_device *device, const struct vkd3d_view_key *key)
 {
@@ -1008,6 +1042,9 @@ struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
 
     if (!success)
         return NULL;
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
+        vkd3d_view_tag_debug_name(view, device);
 
     vkd3d_descriptor_debug_register_view_cookie(device->descriptor_qa_global_info,
             view->cookie, view_map->resource_cookie);
