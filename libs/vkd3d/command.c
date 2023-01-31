@@ -9066,8 +9066,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
         if (!rtv_desc || !rtv_desc->resource)
         {
             TRACE("RTV descriptor %u is not initialized.\n", i);
+            VKD3D_BREADCRUMB_AUX32(i);
+            VKD3D_BREADCRUMB_TAG("RTV bind NULL");
             continue;
         }
+
+        VKD3D_BREADCRUMB_AUX64(rtv_desc->view->cookie);
+        VKD3D_BREADCRUMB_AUX32(i);
+        VKD3D_BREADCRUMB_TAG("RTV bind");
 
         list->rtvs[i] = *rtv_desc;
         list->fb_width = min(list->fb_width, rtv_desc->width);
@@ -9085,10 +9091,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
             list->fb_height = min(list->fb_height, rtv_desc->height);
             list->fb_layer_count = min(list->fb_layer_count, rtv_desc->layer_count);
             next_dsv_format = rtv_desc->format->vk_format;
+
+            VKD3D_BREADCRUMB_AUX64(rtv_desc->view->cookie);
+            VKD3D_BREADCRUMB_TAG("DSV bind");
         }
         else
         {
-            WARN("DSV descriptor is not initialized.\n");
+            VKD3D_BREADCRUMB_TAG("DSV bind NULL");
         }
     }
 
