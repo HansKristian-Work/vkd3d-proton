@@ -2974,7 +2974,11 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         }
 
         if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS)
-            d3d12_resource_tag_debug_name(object, device, "Committed Texture");
+        {
+            d3d12_resource_tag_debug_name(object, device,
+                    (heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED) ?
+                    "Committed Texture (not-zeroed)" : "Committed Texture (zeroed)");
+        }
     }
     else
     {
