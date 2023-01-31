@@ -88,6 +88,12 @@ static const char *vkd3d_breadcrumb_command_type_to_str(enum vkd3d_breadcrumb_co
             return "root_const";
         case VKD3D_BREADCRUMB_COMMAND_TAG:
             return "tag";
+        case VKD3D_BREADCRUMB_COMMAND_DISCARD:
+            return "discard";
+        case VKD3D_BREADCRUMB_COMMAND_CLEAR_INLINE:
+            return "clear_inline";
+        case VKD3D_BREADCRUMB_COMMAND_CLEAR_PASS:
+            return "clear_pass";
 
         default:
             return "?";
