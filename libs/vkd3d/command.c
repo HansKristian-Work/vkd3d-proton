@@ -8188,6 +8188,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                     continue;
                 }
 
+                VKD3D_BREADCRUMB_AUX64(preserve_resource ? preserve_resource->res.cookie : 0);
+                VKD3D_BREADCRUMB_AUX32(transition->Subresource);
+                VKD3D_BREADCRUMB_AUX32(transition->StateBefore);
+                VKD3D_BREADCRUMB_AUX32(transition->StateAfter);
+                VKD3D_BREADCRUMB_TAG("Resource Transition");
+
                 /* If the resource is a host-visible image and has been used as a UAV, schedule a
                  * subresource update since we cannot know when it is being written in a shader. */
                 if (transition->StateBefore == D3D12_RESOURCE_STATE_UNORDERED_ACCESS &&
@@ -8286,6 +8292,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
 
                 preserve_resource = impl_from_ID3D12Resource(uav->pResource);
 
+                VKD3D_BREADCRUMB_AUX64(preserve_resource ? preserve_resource->res.cookie : 0);
+                VKD3D_BREADCRUMB_TAG("UAV Barrier");
+
                 /* The only way to synchronize an RTAS is UAV barriers,
                  * as their resource state must be frozen.
                  * If we don't know the resource, we must assume a global UAV transition
@@ -8320,6 +8329,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                 TRACE("Aliasing barrier (before %p, after %p).\n", alias->pResourceBefore, alias->pResourceAfter);
                 before = impl_from_ID3D12Resource(alias->pResourceBefore);
                 after = impl_from_ID3D12Resource(alias->pResourceAfter);
+
+                VKD3D_BREADCRUMB_TAG("Aliasing Barrier");
 
                 if (d3d12_resource_may_alias_other_resources(before) && d3d12_resource_may_alias_other_resources(after))
                 {
