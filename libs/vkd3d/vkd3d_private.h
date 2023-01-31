@@ -3047,10 +3047,12 @@ void vkd3d_breadcrumb_tracer_dump_command_list(struct vkd3d_breadcrumb_tracer *t
     } \
 } while(0)
 
-static inline void vkd3d_breadcrumb_image_desc(
-        struct d3d12_command_list *list, const D3D12_RESOURCE_DESC1 *desc)
+static inline void vkd3d_breadcrumb_image(
+        struct d3d12_command_list *list, const struct d3d12_resource *resource)
 {
-    VKD3D_BREADCRUMB_TAG("ImageDesc [DXGI_FORMAT, D3D12_RESOURCE_DIMENSION, width, height, DepthOrArraySize, MipLevels, Flags]");
+    const D3D12_RESOURCE_DESC1 *desc = &resource->desc;
+    VKD3D_BREADCRUMB_TAG("ImageDesc [Cookie, DXGI_FORMAT, D3D12_RESOURCE_DIMENSION, width, height, DepthOrArraySize, MipLevels, Flags]");
+    VKD3D_BREADCRUMB_AUX64(resource->res.cookie);
     VKD3D_BREADCRUMB_AUX32(desc->Format);
     VKD3D_BREADCRUMB_AUX32(desc->Dimension);
     VKD3D_BREADCRUMB_AUX64(desc->Width);
@@ -3063,10 +3065,11 @@ static inline void vkd3d_breadcrumb_image_desc(
 static inline void vkd3d_breadcrumb_buffer(
         struct d3d12_command_list *list, const struct d3d12_resource *resource)
 {
-    VKD3D_BREADCRUMB_TAG("BufferDesc [VkBuffer VA, SuballocatedOffset, Cookie, Size, Flags]");
+    VKD3D_BREADCRUMB_TAG("BufferDesc [VkBuffer VA, SuballocatedOffset, Cookie, GlobalCookie, Size, Flags]");
     VKD3D_BREADCRUMB_AUX64(resource->mem.resource.va);
     VKD3D_BREADCRUMB_AUX64(resource->mem.offset);
-    VKD3D_BREADCRUMB_AUX32(resource->res.cookie);
+    VKD3D_BREADCRUMB_AUX64(resource->res.cookie);
+    VKD3D_BREADCRUMB_AUX64(resource->mem.resource.cookie);
     VKD3D_BREADCRUMB_AUX64(resource->desc.Width);
     VKD3D_BREADCRUMB_AUX32(resource->desc.Flags);
 }
@@ -3077,7 +3080,7 @@ static inline void vkd3d_breadcrumb_resource(
     if (d3d12_resource_is_buffer(resource))
         vkd3d_breadcrumb_buffer(list, resource);
     else if (d3d12_resource_is_texture(resource))
-        vkd3d_breadcrumb_image_desc(list, &resource->desc);
+        vkd3d_breadcrumb_image(list, resource);
 }
 
 static inline void vkd3d_breadcrumb_subresource(
