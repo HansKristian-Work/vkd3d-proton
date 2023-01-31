@@ -2768,6 +2768,11 @@ static void d3d12_command_list_clear_attachment_inline(struct d3d12_command_list
                     1, &vk_clear_attachment, 1, &vk_clear_rect));
         }
     }
+
+    VKD3D_BREADCRUMB_TAG("clear-view-cookie");
+    VKD3D_BREADCRUMB_AUX64(view->cookie);
+    VKD3D_BREADCRUMB_RESOURCE(resource);
+    VKD3D_BREADCRUMB_COMMAND(CLEAR_INLINE);
 }
 
 static void d3d12_command_list_resolve_buffer_copy_writes(struct d3d12_command_list *list)
@@ -3353,6 +3358,7 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
 
     if (image_barrier_count)
     {
+        VKD3D_BREADCRUMB_TAG("clear-barrier");
         VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
             stages, stages, 0, 0, NULL, 0, NULL,
             image_barrier_count, image_barriers));
@@ -3367,6 +3373,11 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     }
 
     VK_CALL(vkCmdEndRenderingKHR(list->vk_command_buffer));
+
+    VKD3D_BREADCRUMB_TAG("clear-view-cookie");
+    VKD3D_BREADCRUMB_AUX64(view->cookie);
+    VKD3D_BREADCRUMB_RESOURCE(resource);
+    VKD3D_BREADCRUMB_COMMAND(CLEAR_PASS);
 }
 
 static VkPipelineStageFlags vk_queue_shader_stages(struct d3d12_device *device, VkQueueFlags vk_queue_flags)
@@ -9963,12 +9974,18 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
     if (list->type != D3D12_COMMAND_LIST_TYPE_DIRECT && list->type != D3D12_COMMAND_LIST_TYPE_COMPUTE)
     {
         WARN("Not supported for queue type %d.\n", list->type);
+        VKD3D_BREADCRUMB_RESOURCE(texture);
+        VKD3D_BREADCRUMB_TAG("discard-drop-list-type");
         return;
     }
 
     /* Ignore buffers */
     if (!d3d12_resource_is_texture(texture))
+    {
+        VKD3D_BREADCRUMB_RESOURCE(texture);
+        VKD3D_BREADCRUMB_TAG("discard-drop-resource-type");
         return;
+    }
 
     /* D3D12 requires that the texture is either in render target
      * state, in depth-stencil state, or in UAV state depending on usage flags.
@@ -9979,6 +9996,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)))
     {
         WARN("Not supported for resource %p.\n", resource);
+        VKD3D_BREADCRUMB_RESOURCE(texture);
+        VKD3D_BREADCRUMB_TAG("discard-drop-usage-flags");
         return;
     }
 
@@ -10017,7 +10036,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
     }
 
     if (!full_discard)
+    {
+        VKD3D_BREADCRUMB_RESOURCE(texture);
+        VKD3D_BREADCRUMB_TAG("discard-drop-incomplete");
         return;
+    }
 
     /* Resource tracking. If we do a full discard, there is no need to do initial layout transitions.
      * Partial discards on first resource use needs to be handles however,
@@ -10045,6 +10068,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
 
     d3d12_command_list_end_current_render_pass(list, !has_unbound_subresource);
 
+    VKD3D_BREADCRUMB_RESOURCE(texture);
+
     if (all_subresource_full_discard)
     {
         vk_subresource_range.baseMipLevel = 0;
@@ -10055,6 +10080,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
 
         d3d12_command_list_discard_attachment_barrier(list,
                 texture, &vk_subresource_range, !has_unbound_subresource);
+        VKD3D_BREADCRUMB_AUX32(~0u);
+        VKD3D_BREADCRUMB_COMMAND(DISCARD);
     }
     else
     {
@@ -10065,6 +10092,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
 
             d3d12_command_list_discard_attachment_barrier(list,
                     texture, &vk_subresource_range, !has_unbound_subresource);
+            VKD3D_BREADCRUMB_AUX32(i);
+            VKD3D_BREADCRUMB_COMMAND(DISCARD);
         }
     }
 }
