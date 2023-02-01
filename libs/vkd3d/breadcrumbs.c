@@ -365,6 +365,23 @@ static void vkd3d_breadcrumb_tracer_report_command_list(
     }
 }
 
+static void vkd3d_breadcrumb_tracer_report_command_list_linked(struct vkd3d_breadcrumb_tracer *tracer,
+        uint32_t begin_context_index, uint32_t end_context_index)
+{
+    unsigned int count = 0;
+    while (begin_context_index != end_context_index)
+    {
+        ERR("=== Replaying earlier command list #%u (context %u) in submission for clarity ===\n",
+                count, begin_context_index);
+        vkd3d_breadcrumb_tracer_report_command_list(&tracer->trace_contexts[begin_context_index],
+                UINT32_MAX, UINT32_MAX);
+        ERR("=====================================================\n");
+
+        begin_context_index = tracer->trace_contexts[begin_context_index].next;
+        count++;
+    }
+}
+
 void vkd3d_breadcrumb_tracer_dump_command_list(struct vkd3d_breadcrumb_tracer *tracer,
         unsigned int index)
 {
@@ -375,10 +392,27 @@ void vkd3d_breadcrumb_tracer_dump_command_list(struct vkd3d_breadcrumb_tracer *t
     pthread_mutex_unlock(&global_report_lock);
 }
 
+static uint32_t vkd3d_breadcrumb_tracer_rewind_linked_contexts(struct vkd3d_breadcrumb_tracer *tracer,
+        uint32_t context_index)
+{
+    const struct vkd3d_breadcrumb_command_list_trace_context *context = &tracer->trace_contexts[context_index];
+    while (context->prev != UINT32_MAX &&
+            context->prev != context_index && /* avoid infinite loop if there is corruption. */
+            tracer->trace_contexts[context->prev].next == context_index)
+    {
+        /* Make sure that prev and next link together as a sanity check, i.e., we have a reasonable linked list. */
+        context_index = context->prev;
+        context = &tracer->trace_contexts[context_index];
+    }
+
+    return context_index;
+}
+
 static void vkd3d_breadcrumb_tracer_report_command_list_amd(struct vkd3d_breadcrumb_tracer *tracer,
         unsigned int context_index)
 {
     const struct vkd3d_breadcrumb_command_list_trace_context *context;
+    uint32_t begin_context_index;
     uint32_t begin_marker;
     uint32_t end_marker;
 
@@ -407,6 +441,10 @@ static void vkd3d_breadcrumb_tracer_report_command_list_amd(struct vkd3d_breadcr
 
     ERR("Found pending command list context %u in executable state, TOP_OF_PIPE marker %u, BOTTOM_OF_PIPE marker %u.\n",
             context_index, begin_marker, end_marker);
+
+    /* If we had multiple lists in the batch, rewind the replayer. */
+    begin_context_index = vkd3d_breadcrumb_tracer_rewind_linked_contexts(tracer, context_index);
+    vkd3d_breadcrumb_tracer_report_command_list_linked(tracer, begin_context_index, context_index);
     vkd3d_breadcrumb_tracer_report_command_list(context, begin_marker, end_marker);
     ERR("Done analyzing command list.\n");
 }
@@ -419,6 +457,7 @@ static void vkd3d_breadcrumb_tracer_report_queue_nv(struct vkd3d_breadcrumb_trac
     uint32_t begin_marker, end_marker;
     uint32_t checkpoint_context_index;
     VkCheckpointDataNV *checkpoints;
+    uint32_t begin_context_index;
     uint32_t checkpoint_marker;
     uint32_t checkpoint_count;
     uint32_t context_index;
@@ -474,6 +513,8 @@ static void vkd3d_breadcrumb_tracer_report_queue_nv(struct vkd3d_breadcrumb_trac
     {
         ERR("Found pending command list context %u in executable state, TOP_OF_PIPE marker %u, BOTTOM_OF_PIPE marker %u.\n",
                 context_index, begin_marker, end_marker);
+        begin_context_index = vkd3d_breadcrumb_tracer_rewind_linked_contexts(tracer, context_index);
+        vkd3d_breadcrumb_tracer_report_command_list_linked(tracer, begin_context_index, context_index);
         vkd3d_breadcrumb_tracer_report_command_list(&tracer->trace_contexts[context_index], begin_marker, end_marker);
         ERR("Done analyzing command list.\n");
     }
@@ -642,6 +683,18 @@ void vkd3d_breadcrumb_tracer_signal(struct d3d12_command_list *list)
                         offsetof(struct vkd3d_breadcrumb_counter, begin_marker),
                 trace->counter));
     }
+}
+
+void vkd3d_breadcrumb_tracer_link_submission(struct d3d12_command_list *list,
+        struct d3d12_command_list *prev, struct d3d12_command_list *next)
+{
+    struct vkd3d_breadcrumb_tracer *breadcrumb_tracer = &list->device->breadcrumb_tracer;
+    struct vkd3d_breadcrumb_command_list_trace_context *trace;
+    unsigned int context = list->breadcrumb_context_index;
+
+    trace = &breadcrumb_tracer->trace_contexts[context];
+    trace->prev = prev ? prev->breadcrumb_context_index : UINT32_MAX;
+    trace->next = next ? next->breadcrumb_context_index : UINT32_MAX;
 }
 
 void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list)
