@@ -2996,6 +2996,8 @@ struct vkd3d_breadcrumb_command_list_trace_context
     size_t command_count;
     uint32_t counter;
     uint32_t locked;
+    uint32_t prev;
+    uint32_t next;
 };
 
 struct vkd3d_breadcrumb_tracer
@@ -3032,6 +3034,8 @@ void vkd3d_breadcrumb_tracer_add_command(struct d3d12_command_list *list,
         const struct vkd3d_breadcrumb_command *command);
 void vkd3d_breadcrumb_tracer_signal(struct d3d12_command_list *list);
 void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list);
+void vkd3d_breadcrumb_tracer_link_submission(struct d3d12_command_list *list,
+        struct d3d12_command_list *prev, struct d3d12_command_list *next);
 
 #define VKD3D_BREADCRUMB_FLUSH_BATCHES(list) do { \
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \

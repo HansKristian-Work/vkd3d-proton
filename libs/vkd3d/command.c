@@ -12658,6 +12658,16 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 #ifdef VKD3D_ENABLE_BREADCRUMBS
         if (breadcrumb_indices)
             breadcrumb_indices[i] = cmd_list->breadcrumb_context_index;
+
+        /* For a grouped submission, it's useful to know about the full submission when reporting failures.
+         * Synchronization issues can occur between command lists.
+         * It's not allowed to submit the same command list concurrently, so this should be safe. */
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
+        {
+            vkd3d_breadcrumb_tracer_link_submission(cmd_list,
+                    i ? unsafe_impl_from_ID3D12CommandList(command_lists[i - 1]) : NULL,
+                    i + 1 < command_list_count ? unsafe_impl_from_ID3D12CommandList(command_lists[i + 1]) : NULL);
+        }
 #endif
     }
 
