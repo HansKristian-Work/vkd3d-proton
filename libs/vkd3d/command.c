@@ -13749,8 +13749,8 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
 #ifdef VKD3D_ENABLE_BREADCRUMBS
             for (i = 0; i < submission.execute.breadcrumb_indices_count; i++)
             {
-                INFO("=== Executing command list context %u on VkQueue %p, queue family %u ===\n",
-                        submission.execute.breadcrumb_indices[i],
+                INFO("=== Executing command list %u (context %u) on VkQueue %p, queue family %u ===\n",
+                        i, submission.execute.breadcrumb_indices[i],
                         (void*)queue->vkd3d_queue->vk_queue, queue->vkd3d_queue->vk_family_index);
                 vkd3d_breadcrumb_tracer_dump_command_list(&queue->device->breadcrumb_tracer,
                         submission.execute.breadcrumb_indices[i]);
