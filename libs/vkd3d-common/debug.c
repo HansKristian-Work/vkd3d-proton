@@ -58,6 +58,16 @@ static spinlock_t vkd3d_dbg_initialized;
 static pthread_once_t vkd3d_dbg_once = PTHREAD_ONCE_INIT;
 static FILE *vkd3d_log_file;
 
+/* With breadcrumbs trace and similar intensive logging operations,
+ * reduce stdio/syscall overhead to an absolute minimum. */
+struct vkd3d_string_stream
+{
+    char *buffer;
+    size_t offset;
+    size_t size;
+};
+static struct vkd3d_string_stream vkd3d_dbg_buffer;
+
 static void vkd3d_dbg_init_once(void)
 {
     char vkd3d_debug[VKD3D_PATH_MAX];
@@ -77,9 +87,20 @@ static void vkd3d_dbg_init_once(void)
             vkd3d_dbg_level[channel] = VKD3D_DBG_LEVEL_FIXME;
     }
 
+    if (vkd3d_get_env_var("VKD3D_LOG_BUFFERED", vkd3d_debug, sizeof(vkd3d_debug)))
+    {
+        vkd3d_dbg_buffer.offset = 0;
+        vkd3d_dbg_buffer.size = strtoul(vkd3d_debug, NULL, 0);
+        if (!vkd3d_dbg_buffer.size)
+            vkd3d_dbg_buffer.size = 64 * 1024;
+        fprintf(stderr, "Using VKD3D_LOG_BUFFERED with %zu byte chunks.\n", vkd3d_dbg_buffer.size);
+        vkd3d_dbg_buffer.buffer = malloc(vkd3d_dbg_buffer.size);
+    }
+
     if (vkd3d_get_env_var("VKD3D_LOG_FILE", vkd3d_debug, sizeof(vkd3d_debug)))
     {
-        vkd3d_log_file = fopen(vkd3d_debug, "w");
+        /* Avoid extra formatting overhead when using buffered. */
+        vkd3d_log_file = fopen(vkd3d_debug, vkd3d_dbg_buffer.buffer ? "wb" : "w");
         if (!vkd3d_log_file)
         {
             fprintf(stderr, "Failed to open log file: %s!\n", vkd3d_debug);
@@ -108,26 +129,73 @@ enum vkd3d_dbg_level vkd3d_dbg_get_level(enum vkd3d_dbg_channel channel)
 
 void vkd3d_dbg_printf(enum vkd3d_dbg_channel channel, enum vkd3d_dbg_level level, const char *function, const char *fmt, ...)
 {
+    FILE *log_file = vkd3d_log_file ? vkd3d_log_file : stderr;
     static spinlock_t spin;
     unsigned int tid;
-    FILE *log_file;
     va_list args;
 
     if (vkd3d_dbg_get_level(channel) < level)
         return;
-
-    log_file = vkd3d_log_file ? vkd3d_log_file : stderr;
     assert(level < ARRAY_SIZE(debug_level_names));
 
+    va_start(args, fmt);
     tid = vkd3d_get_current_thread_id();
 
-    va_start(args, fmt);
-    spinlock_acquire(&spin);
-    fprintf(log_file, "%04x:%s:%s: ", tid, debug_level_names[level], function);
-    vfprintf(log_file, fmt, args);
-    spinlock_release(&spin);
+    if (vkd3d_dbg_buffer.buffer)
+    {
+        char prefix_buffer[256];
+        int prefix_buffer_count;
+        char local_buffer[4096];
+        int local_buffer_count;
+        int required_count;
+
+        prefix_buffer_count = snprintf(prefix_buffer, sizeof(prefix_buffer),
+                "%04x:%s:%s: ", tid, debug_level_names[level], function);
+        local_buffer_count = vsnprintf(local_buffer, sizeof(local_buffer), fmt, args);
+        required_count = prefix_buffer_count + local_buffer_count;
+
+        spinlock_acquire(&spin);
+        if (vkd3d_dbg_buffer.offset + required_count > vkd3d_dbg_buffer.size)
+        {
+            if (vkd3d_log_file)
+            {
+                fwrite(vkd3d_dbg_buffer.buffer, 1, vkd3d_dbg_buffer.offset, vkd3d_log_file);
+            }
+            else
+            {
+                /* Binary vs text matters on Win32.
+                 * Don't bother trying to be clever here reopening stdio files as O_BINARY, etc. */
+                fputs(vkd3d_dbg_buffer.buffer, stderr);
+            }
+
+            vkd3d_dbg_buffer.offset = 0;
+        }
+
+        /* Here we trade performance for robustness. Some data will be left behind on early termination or crash. */
+        if (vkd3d_dbg_buffer.offset + required_count <= vkd3d_dbg_buffer.size)
+        {
+            memcpy(vkd3d_dbg_buffer.buffer + vkd3d_dbg_buffer.offset, prefix_buffer, prefix_buffer_count);
+            vkd3d_dbg_buffer.offset += prefix_buffer_count;
+            memcpy(vkd3d_dbg_buffer.buffer + vkd3d_dbg_buffer.offset, local_buffer, local_buffer_count);
+            vkd3d_dbg_buffer.offset += local_buffer_count;
+        }
+        else
+        {
+            /* If we cannot buffer up, just emit inline. */
+            fputs(prefix_buffer, log_file);
+            fputs(local_buffer, log_file);
+        }
+        spinlock_release(&spin);
+    }
+    else
+    {
+        spinlock_acquire(&spin);
+        fprintf(log_file, "%04x:%s:%s: ", tid, debug_level_names[level], function);
+        vfprintf(log_file, fmt, args);
+        spinlock_release(&spin);
+        fflush(log_file);
+    }
     va_end(args);
-    fflush(log_file);
 }
 
 static char *get_buffer(void)
