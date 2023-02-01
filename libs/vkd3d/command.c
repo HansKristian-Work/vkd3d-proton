@@ -11515,6 +11515,72 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
     VK_CALL(vkCmdBuildAccelerationStructuresKHR(list->vk_command_buffer, 1,
             &build_info.build_info, build_info.build_range_ptrs));
 
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    VKD3D_BREADCRUMB_TAG("RTAS build [Dest VA, Source VA, Scratch VA]");
+    VKD3D_BREADCRUMB_AUX64(desc->DestAccelerationStructureData);
+    VKD3D_BREADCRUMB_AUX64(desc->SourceAccelerationStructureData);
+    VKD3D_BREADCRUMB_AUX64(desc->ScratchAccelerationStructureData);
+    VKD3D_BREADCRUMB_TAG((desc->Inputs.Flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE) ?
+            "Update" : "Create");
+    VKD3D_BREADCRUMB_TAG(desc->Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL ? "Top" : "Bottom");
+    {
+        VkAccelerationStructureBuildSizesInfoKHR size_info;
+
+        if (desc->Inputs.Flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE)
+        {
+            build_info.build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+            build_info.build_info.flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
+        }
+        VK_CALL(vkGetAccelerationStructureBuildSizesKHR(list->device->vk_device,
+                VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build_info.build_info,
+                build_info.primitive_counts, &size_info));
+        VKD3D_BREADCRUMB_TAG("Build requirements [Size, Build Scratch, Update Scratch]");
+        VKD3D_BREADCRUMB_AUX64(size_info.accelerationStructureSize);
+        VKD3D_BREADCRUMB_AUX64(size_info.buildScratchSize);
+        VKD3D_BREADCRUMB_AUX64(size_info.updateScratchSize);
+
+        if (desc->Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL)
+        {
+            VKD3D_BREADCRUMB_AUX64(desc->Inputs.InstanceDescs);
+            VKD3D_BREADCRUMB_AUX32(desc->Inputs.NumDescs);
+        }
+        else
+        {
+            unsigned int i;
+            for (i = 0; i < desc->Inputs.NumDescs; i++)
+            {
+                const D3D12_RAYTRACING_GEOMETRY_DESC *geom;
+                if (desc->Inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY)
+                    geom = &desc->Inputs.pGeometryDescs[i];
+                else
+                    geom = desc->Inputs.ppGeometryDescs[i];
+
+                if (geom->Type == D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES)
+                {
+                    VKD3D_BREADCRUMB_TAG("Triangle [Flags, VBO VA, VBO stride, IBO, Transform, VBO format, IBO format, V count, I count]");
+                    VKD3D_BREADCRUMB_AUX32(geom->Flags);
+                    VKD3D_BREADCRUMB_AUX64(geom->Triangles.VertexBuffer.StartAddress);
+                    VKD3D_BREADCRUMB_AUX64(geom->Triangles.VertexBuffer.StrideInBytes);
+                    VKD3D_BREADCRUMB_AUX64(geom->Triangles.IndexBuffer);
+                    VKD3D_BREADCRUMB_AUX64(geom->Triangles.Transform3x4);
+                    VKD3D_BREADCRUMB_AUX32(geom->Triangles.VertexFormat);
+                    VKD3D_BREADCRUMB_AUX32(geom->Triangles.IndexFormat);
+                    VKD3D_BREADCRUMB_AUX32(geom->Triangles.VertexCount);
+                    VKD3D_BREADCRUMB_AUX32(geom->Triangles.IndexCount);
+                }
+                else
+                {
+                    VKD3D_BREADCRUMB_TAG("AABB [Flags, VA, stride, count]");
+                    VKD3D_BREADCRUMB_AUX32(geom->Flags);
+                    VKD3D_BREADCRUMB_AUX64(geom->AABBs.AABBs.StartAddress);
+                    VKD3D_BREADCRUMB_AUX64(geom->AABBs.AABBs.StrideInBytes);
+                    VKD3D_BREADCRUMB_AUX64(geom->AABBs.AABBCount);
+                }
+            }
+        }
+    }
+#endif
+
     vkd3d_acceleration_structure_build_info_cleanup(&build_info);
 
     if (num_postbuild_info_descs)
@@ -11567,6 +11633,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
     d3d12_command_list_end_transfer_batch(list);
     vkd3d_acceleration_structure_copy(list, dst_data, src_data, mode);
 
+    VKD3D_BREADCRUMB_AUX64(dst_data);
+    VKD3D_BREADCRUMB_AUX64(src_data);
+    VKD3D_BREADCRUMB_AUX32(mode);
     VKD3D_BREADCRUMB_COMMAND(COPY_RTAS);
 }
 
