@@ -10626,7 +10626,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
         d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
         d3d12_command_list_update_descriptor_buffers(list);
 
-        resolve_args.src_va = d3d12_resource_get_va(resource, aligned_buffer_offset);
+        resolve_args.src_va = resource->res.va + aligned_buffer_offset;
         resolve_args.dst_va = scratch.va;
         resolve_args.invert = operation != D3D12_PREDICATION_OP_EQUAL_ZERO;
 
@@ -10956,9 +10956,9 @@ static void d3d12_command_list_execute_indirect_state_template(
         }
 
         patch_args.template_va = signature->state_template.buffer_va;
-        patch_args.api_buffer_va = d3d12_resource_get_va(arg_buffer, arg_buffer_offset);
+        patch_args.api_buffer_va = arg_buffer->res.va + arg_buffer_offset;
         patch_args.device_generated_commands_va = stream_allocation.va;
-        patch_args.indirect_count_va = count_buffer ? d3d12_resource_get_va(count_buffer, count_buffer_offset) : 0;
+        patch_args.indirect_count_va = count_buffer ? count_buffer->res.va + count_buffer_offset : 0;
         patch_args.dst_indirect_count_va = count_buffer ? count_allocation.va : 0;
         patch_args.api_buffer_word_stride = signature->desc.ByteStride / sizeof(uint32_t);
         patch_args.device_generated_commands_word_stride = signature->state_template.stride / sizeof(uint32_t);
@@ -11196,7 +11196,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                     if (count_buffer)
                     {
                         type = VKD3D_PREDICATE_COMMAND_DRAW_INDIRECT_COUNT;
-                        indirect_va = d3d12_resource_get_va(count_impl, count_buffer_offset);
+                        indirect_va = count_impl->res.va + count_buffer_offset;
                     }
                     else
                     {
@@ -11209,7 +11209,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                 case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
                 case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH:
                     type = VKD3D_PREDICATE_COMMAND_DISPATCH_INDIRECT;
-                    indirect_va = d3d12_resource_get_va(arg_impl, arg_buffer_offset);
+                    indirect_va = arg_impl->res.va + arg_buffer_offset;
                     break;
 
                 default:
@@ -11224,13 +11224,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
         {
             scratch.buffer = count_impl->res.vk_buffer;
             scratch.offset = count_impl->mem.offset + count_buffer_offset;
-            scratch.va = d3d12_resource_get_va(count_impl, count_buffer_offset);
+            scratch.va = count_impl->res.va + count_buffer_offset;
         }
         else
         {
             scratch.buffer = arg_impl->res.vk_buffer;
             scratch.offset = arg_impl->mem.offset + arg_buffer_offset;
-            scratch.va = d3d12_resource_get_va(arg_impl, arg_buffer_offset);
+            scratch.va = arg_impl->res.va + arg_buffer_offset;
         }
 
         d3d12_command_list_end_transfer_batch(list);
