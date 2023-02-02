@@ -4332,11 +4332,6 @@ VkDeviceAddress vkd3d_get_buffer_device_address(struct d3d12_device *device, VkB
 VkDeviceAddress vkd3d_get_acceleration_structure_device_address(struct d3d12_device *device,
         VkAccelerationStructureKHR vk_acceleration_structure);
 
-static inline VkDeviceAddress d3d12_resource_get_va(const struct d3d12_resource *resource, VkDeviceSize offset)
-{
-    return vkd3d_get_buffer_device_address(resource->device, resource->res.vk_buffer) + resource->mem.offset + offset;
-}
-
 static inline unsigned int vkd3d_compute_workgroup_count(unsigned int thread_count, unsigned int workgroup_size)
 {
     return (thread_count + workgroup_size - 1) / workgroup_size;
