@@ -6936,6 +6936,8 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
             return hr;
         }
 
+        object->va = vkd3d_get_buffer_device_address(device, object->vk_buffer);
+
         /* Explicit initialization is not required for these since
          * we can expect the buffer to be zero-initialized. */
         object->initialized = 1;
