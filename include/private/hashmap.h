@@ -196,7 +196,7 @@ static inline void hash_map_init(struct hash_map *hash_map, pfn_hash_func hash_f
     assert(entry_size > sizeof(struct hash_map_entry));
 }
 
-static inline void hash_map_clear(struct hash_map *hash_map)
+static inline void hash_map_free(struct hash_map *hash_map)
 {
     vkd3d_free(hash_map->entries);
     hash_map->entries = NULL;

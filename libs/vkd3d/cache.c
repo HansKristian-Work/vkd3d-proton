@@ -1441,7 +1441,7 @@ static void d3d12_pipeline_library_cleanup_map(struct hash_map *map)
         }
     }
 
-    hash_map_clear(map);
+    hash_map_free(map);
 }
 
 static void d3d12_pipeline_library_cleanup(struct d3d12_pipeline_library *pipeline_library, struct d3d12_device *device)
@@ -2519,9 +2519,9 @@ static HRESULT d3d12_pipeline_library_init(struct d3d12_pipeline_library *pipeli
     return hr;
 
 cleanup_hash_map:
-    hash_map_clear(&pipeline_library->pso_map);
-    hash_map_clear(&pipeline_library->spirv_cache_map);
-    hash_map_clear(&pipeline_library->driver_cache_map);
+    hash_map_free(&pipeline_library->pso_map);
+    hash_map_free(&pipeline_library->spirv_cache_map);
+    hash_map_free(&pipeline_library->driver_cache_map);
 cleanup_mutex:
     rwlock_destroy(&pipeline_library->mutex);
     return hr;
@@ -3086,7 +3086,7 @@ out_cancellation:
     vkd3d_file_unmap(&mapped_write_cache);
     if (merge_file)
         fclose(merge_file);
-    hash_map_clear(&map);
+    hash_map_free(&map);
     vkd3d_free(tmp_buffer);
 }
 

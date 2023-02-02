@@ -952,7 +952,7 @@ void vkd3d_view_map_destroy(struct vkd3d_view_map *view_map, struct d3d12_device
             vkd3d_view_destroy(e->view, device);
     }
 
-    hash_map_clear(&view_map->map);
+    hash_map_free(&view_map->map);
 }
 
 static struct vkd3d_view *vkd3d_view_create(enum vkd3d_view_type type);
@@ -1160,7 +1160,7 @@ void vkd3d_sampler_state_cleanup(struct vkd3d_sampler_state *state,
             VK_CALL(vkDestroySampler(device->vk_device, e->vk_sampler, NULL));
     }
 
-    hash_map_clear(&state->map);
+    hash_map_free(&state->map);
 
     pthread_mutex_destroy(&state->mutex);
 }
