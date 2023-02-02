@@ -3495,20 +3495,20 @@ struct vkd3d_query_resolve_args
 
 struct vkd3d_query_gather_args
 {
+    VkDeviceAddress dst_va;
+    VkDeviceAddress src_va;
+    VkDeviceAddress map_va;
     uint32_t query_count;
-    uint32_t entry_offset;
 };
 
 struct vkd3d_query_gather_info
 {
-    VkDescriptorSetLayout vk_set_layout;
     VkPipelineLayout vk_pipeline_layout;
     VkPipeline vk_pipeline;
 };
 
 struct vkd3d_query_ops
 {
-    VkDescriptorSetLayout vk_gather_set_layout;
     VkPipelineLayout vk_gather_pipeline_layout;
     VkPipeline vk_gather_occlusion_pipeline;
     VkPipeline vk_gather_so_statistics_pipeline;
