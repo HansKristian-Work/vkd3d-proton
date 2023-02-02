@@ -3956,13 +3956,11 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
     VkDeviceSize resolve_buffer_size, resolve_buffer_stride, ssbo_alignment, entry_buffer_size;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_scratch_allocation resolve_buffer, entry_buffer;
-    VkDescriptorBufferInfo dst_buffer, src_buffer, map_buffer;
     struct vkd3d_query_gather_info gather_pipeline;
     const struct vkd3d_active_query *src_queries;
     unsigned int i, j, k, workgroup_count;
     uint32_t resolve_index, entry_offset;
     struct vkd3d_query_gather_args args;
-    VkWriteDescriptorSet vk_writes[3];
     VkMemoryBarrier vk_barrier;
     bool result = false;
 
@@ -4197,23 +4195,6 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
      * them in the query heap's buffer */
     entry_offset = 0;
 
-    for (i = 0; i < ARRAY_SIZE(vk_writes); i++)
-    {
-        vk_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        vk_writes[i].pNext = NULL;
-        vk_writes[i].dstBinding = i;
-        vk_writes[i].dstArrayElement = 0;
-        vk_writes[i].descriptorCount = 1;
-        vk_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        vk_writes[i].pImageInfo = NULL;
-        vk_writes[i].pTexelBufferView = NULL;
-        vk_writes[i].dstSet = VK_NULL_HANDLE;
-    }
-
-    vk_writes[0].pBufferInfo = &dst_buffer;
-    vk_writes[1].pBufferInfo = &src_buffer;
-    vk_writes[2].pBufferInfo = &map_buffer;
-
     for (i = 0; i < dispatch_count; i++)
     {
         const struct dispatch_entry *d = &dispatches[i];
@@ -4225,24 +4206,11 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
         VK_CALL(vkCmdBindPipeline(list->vk_command_buffer,
                 VK_PIPELINE_BIND_POINT_COMPUTE, gather_pipeline.vk_pipeline));
 
-        dst_buffer.buffer = d->heap->vk_buffer;
-        dst_buffer.offset = 0;
-        dst_buffer.range = VK_WHOLE_SIZE;
-
-        src_buffer.buffer = resolve_buffer.buffer;
-        src_buffer.offset = resolve_buffer.offset + d->resolve_buffer_offset;
-        src_buffer.range = d->resolve_buffer_size;
-
-        map_buffer.buffer = entry_buffer.buffer;
-        map_buffer.offset = entry_buffer.offset;
-        map_buffer.range = entry_buffer_size;
-
-        VK_CALL(vkCmdPushDescriptorSetKHR(list->vk_command_buffer,
-                VK_PIPELINE_BIND_POINT_COMPUTE, gather_pipeline.vk_pipeline_layout,
-                0, ARRAY_SIZE(vk_writes), vk_writes));
-
+        args.dst_va = d->heap->va;
+        args.src_va = resolve_buffer.va + d->resolve_buffer_offset;
+        args.map_va = entry_buffer.va + entry_offset * sizeof(struct query_entry);
         args.query_count = d->unique_query_count;
-        args.entry_offset = entry_offset;
+
         entry_offset += d->virtual_query_count;
 
         VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
@@ -10311,8 +10279,6 @@ static void d3d12_command_list_flush_query_resolves(struct d3d12_command_list *l
     if (!list->query_resolve_count)
         return;
 
-    d3d12_command_list_update_descriptor_buffers(list);
-
     for (i = 0; i < list->query_resolve_count; i++)
         d3d12_command_list_execute_query_resolve(list, &list->query_resolves[i]);
 
@@ -10522,10 +10488,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
         if (list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE)
             d3d12_command_list_add_query_resolve(list, &entry);
         else
-        {
-            d3d12_command_list_update_descriptor_buffers(list);
             d3d12_command_list_execute_query_resolve(list, &entry);
-        }
     }
     else
     {
