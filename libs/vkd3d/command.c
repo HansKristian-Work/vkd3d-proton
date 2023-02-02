@@ -6185,7 +6185,6 @@ static bool d3d12_command_list_emit_predicated_command(struct d3d12_command_list
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
     d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
-    d3d12_command_list_update_descriptor_buffers(list);
 
     args.predicate_va = list->predicate_va;
     args.dst_arg_va = scratch->va;
@@ -10624,7 +10623,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
          * so setting VK_CONDITIONAL_RENDERING_INVERTED_BIT_EXT is not necessary. */
         d3d12_command_list_invalidate_current_pipeline(list, true);
         d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
-        d3d12_command_list_update_descriptor_buffers(list);
 
         resolve_args.src_va = resource->res.va + aligned_buffer_offset;
         resolve_args.dst_va = scratch.va;
