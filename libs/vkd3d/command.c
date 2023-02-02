@@ -11086,6 +11086,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
         return;
     }
 
+    VKD3D_BREADCRUMB_TAG("ExecuteIndirect [MaxCommandCount, ArgBuffer cookie, ArgBuffer offset, Count cookie, Count offset]");
+    VKD3D_BREADCRUMB_AUX32(max_command_count);
+    VKD3D_BREADCRUMB_AUX64(arg_impl->res.cookie);
+    VKD3D_BREADCRUMB_AUX64(arg_buffer_offset);
+    VKD3D_BREADCRUMB_AUX64(count_impl ? count_impl->res.cookie : 0);
+    VKD3D_BREADCRUMB_AUX64(count_buffer_offset);
+
     if (sig_impl->requires_state_template)
     {
         /* Complex execute indirect path. */
