@@ -336,7 +336,7 @@ static void vkd3d_shader_scan_init(struct vkd3d_shader_scan_info *scan_info)
 
 static void vkd3d_shader_scan_destroy(struct vkd3d_shader_scan_info *scan_info)
 {
-    hash_map_clear(&scan_info->register_map);
+    hash_map_free(&scan_info->register_map);
 }
 
 static int vkd3d_shader_validate_shader_type(enum vkd3d_shader_type type, VkShaderStageFlagBits stages)
