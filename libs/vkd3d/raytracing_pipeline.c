@@ -1247,6 +1247,27 @@ static bool d3d12_state_object_association_data_equal(const struct d3d12_state_o
     return false;
 }
 
+static bool d3d12_state_object_find_explicit_assignment_override(
+        enum vkd3d_shader_subobject_kind kind,
+        const struct d3d12_state_object_pipeline_data *data,
+        const struct d3d12_state_object_association *association)
+{
+    size_t i;
+
+    for (i = 0; i < data->associations_count; i++)
+    {
+        /* Don't care about explicit DXIL subobject to entry point assignments since even default declared RTPSO objects
+         * will override them. */
+        if (data->associations[i].priority != VKD3D_ASSOCIATION_PRIORITY_EXPLICIT)
+            continue;
+
+        if (d3d12_state_object_association_data_equal(association, &data->associations[i]))
+            return true;
+    }
+
+    return false;
+}
+
 static struct d3d12_state_object_association *d3d12_state_object_find_association(
         enum vkd3d_shader_subobject_kind kind,
         struct d3d12_state_object_pipeline_data *data,
@@ -1288,6 +1309,30 @@ static struct d3d12_state_object_association *d3d12_state_object_find_associatio
             {
                 /* We might get a higher priority match later that makes this conflict irrelevant. */
                 conflict = true;
+
+                if (association->priority == VKD3D_ASSOCIATION_PRIORITY_DECLARED_STATE_OBJECT)
+                {
+                    /* Attempt to tie-break. There is a special rule where if an object is assigned explicitly,
+                     * it takes lower precedence when it comes to resolving default associations.
+                     * Attempt to tie-break this conflict.
+                     * Normally, explicit default assignment should be used, but it is not required :( */
+                    bool has_explicit_association_candidate;
+                    bool has_explicit_association_existing;
+
+                    has_explicit_association_existing =
+                            d3d12_state_object_find_explicit_assignment_override(kind, data, association);
+                    has_explicit_association_candidate =
+                            d3d12_state_object_find_explicit_assignment_override(kind, data, &data->associations[i]);
+
+                    if (has_explicit_association_candidate != has_explicit_association_existing)
+                    {
+                        /* Somewhat inverse. If the existing association has an explicit one, discount it here
+                         * and accept the new one. */
+                        if (has_explicit_association_existing)
+                            association = &data->associations[i];
+                        conflict = false;
+                    }
+                }
             }
         }
     }
@@ -1329,7 +1374,14 @@ static struct d3d12_state_object_association *d3d12_state_object_find_associatio
 
     if (conflict)
     {
-        ERR("Conflicting root signatures defined for same export.\n");
+        /* Ending up with NULL might be intentional. It is only an error if a shader accesses resources that needs a
+         * particular root signature. State objects however are more fatal since they are required. */
+        if (kind == VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE)
+            WARN("Conflicting local root signatures defined for same export, using NULL local root signature.\n");
+        else if (kind == VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE)
+            WARN("Conflicting global root signatures defined for same export, using NULL global root signature.\n");
+        else
+            ERR("Conflicting state object defined for same export.\n");
         return NULL;
     }
 
