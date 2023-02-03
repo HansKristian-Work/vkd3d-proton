@@ -299,6 +299,7 @@ decl_test(test_discard_resource_uav);
 decl_test(test_unbound_rtv_rendering);
 decl_test(test_raytracing_local_rs_static_sampler);
 decl_test(test_raytracing_local_rs_static_sampler_collection);
+decl_test(test_raytracing_object_assignment_ignore_default);
 decl_test(test_rayquery);
 decl_test(test_typed_srv_uav_cast);
 decl_test(test_typed_srv_cast_clear);
