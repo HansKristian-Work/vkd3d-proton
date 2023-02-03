@@ -1013,8 +1013,11 @@ static void vkd3d_view_tag_debug_name(struct vkd3d_view *view, struct d3d12_devi
         return;
     }
 
-    snprintf(name_buffer, sizeof(name_buffer), "%s (cookie %"PRIu64")", tag, view->cookie);
-    vkd3d_set_vk_object_name(device, vk_object, vk_object_type, name_buffer);
+    if (vk_object)
+    {
+        snprintf(name_buffer, sizeof(name_buffer), "%s (cookie %"PRIu64")", tag, view->cookie);
+        vkd3d_set_vk_object_name(device, vk_object, vk_object_type, name_buffer);
+    }
 }
 
 struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
