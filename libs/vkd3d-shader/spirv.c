@@ -11674,6 +11674,17 @@ void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
                     meta |= VKD3D_SHADER_META_FLAG_USES_RASTERIZER_ORDERED_VIEWS;
                     break;
 
+                case SpvCapabilityGroupNonUniform:
+                case SpvCapabilityGroupNonUniformVote:
+                case SpvCapabilityGroupNonUniformArithmetic:
+                case SpvCapabilityGroupNonUniformBallot:
+                case SpvCapabilityGroupNonUniformShuffle:
+                case SpvCapabilityGroupNonUniformShuffleRelative:
+                case SpvCapabilityGroupNonUniformClustered:
+                case SpvCapabilityGroupNonUniformQuad:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_SUBGROUP_OPERATIONS;
+                    break;
+
                 default:
                     break;
             }
