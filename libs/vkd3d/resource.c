@@ -546,7 +546,25 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
 
     if (!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
     {
-        if (vkd3d_get_format_compatibility_list(device, desc, compat_list))
+        if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_SIMULTANEOUS_UAV_SUPPRESS_COMPRESSION) &&
+                (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS) &&
+                (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS))
+        {
+            /* SIMULTANEOUS_ACCESS heavily implies that we should disable compression.
+             * There is no way to do this from within Vulkan, but best effort is full mutable format,
+             * which works around issues on RDNA2 at least.
+             * This works around a Witcher 3 game bug with SSR on High where DCC metadata clears
+             * races with UAV write.
+             * In terms of D3D12 spec, we are not required to disable compression since there can only be
+             * one queue that writes to a set of pixels.
+             * SIMULTANEOUS resources are always GENERAL layout, except when we do UNDEFINED -> GENERAL for purposes
+             * of initial resource access. However, these patterns imply that the entire subresource is written to,
+             * so it cannot be concurrently read by other queues anyways.
+             * https://learn.microsoft.com/en-us/windows/win32/api/d3d12/ne-d3d12-d3d12_resource_flags
+             * For now, keep this as a specific workaround until we understand the problem scope better. */
+            image_info->flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+        }
+        else if (vkd3d_get_format_compatibility_list(device, desc, compat_list))
         {
             format_list->sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO_KHR;
             format_list->pNext = image_info->pNext;
@@ -557,6 +575,7 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
             image_info->flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
         }
     }
+
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D
             && desc->Width == desc->Height && desc->DepthOrArraySize >= 6
             && desc->SampleDesc.Count == 1)
