@@ -1837,7 +1837,7 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
 
         stage->module = create_shader_module(object->device, spirv.code, spirv.size);
 
-        if (spirv.meta.flags & VKD3D_SHADER_META_FLAG_USES_SUBGROUP_SIZE)
+        if (spirv.meta.flags & VKD3D_SHADER_META_FLAG_USES_SUBGROUP_OPERATIONS)
         {
             stage->flags |= VK_PIPELINE_SHADER_STAGE_CREATE_ALLOW_VARYING_SUBGROUP_SIZE_BIT;
         }
