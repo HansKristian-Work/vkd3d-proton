@@ -2337,6 +2337,7 @@ static HRESULT vkd3d_setup_shader_stage(struct d3d12_pipeline_state *state, stru
             spirv_code->meta.cs_required_wave_size)
     {
         uint32_t subgroup_size_alignment = device->device_info.subgroup_size_control_properties.maxSubgroupSize;
+	    uint32_t required_wave_size = spirv_code->meta.cs_required_wave_size;
         stage_desc->flags |= VK_PIPELINE_SHADER_STAGE_CREATE_ALLOW_VARYING_SUBGROUP_SIZE_BIT_EXT;
 
         if (required_subgroup_size_info)
@@ -2344,10 +2345,22 @@ static HRESULT vkd3d_setup_shader_stage(struct d3d12_pipeline_state *state, stru
             required_subgroup_size_info->sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO_EXT;
             required_subgroup_size_info->pNext = (void*)stage_desc->pNext;
 
-            if (spirv_code->meta.cs_required_wave_size)
+	        /* HACK: Force Wave32 if shader uses dynamic shuffle for performance reasons on RDNA2.
+	         * FIXME: RADV should do this for us ... */
+	        if (!required_wave_size &&
+	            stage == VK_SHADER_STAGE_COMPUTE_BIT &&
+	            (spirv_code->meta.flags & VKD3D_SHADER_META_FLAG_USES_DYNAMIC_SHUFFLE) &&
+	            device->device_info.subgroup_size_control_properties.minSubgroupSize == 32 &&
+	            device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_AMD &&
+	            (device->device_info.subgroup_size_control_properties.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT))
+	        {
+		        required_wave_size = 32;
+	        }
+
+	        if (required_wave_size)
             {
                 /* [WaveSize(N)] attribute in SM 6.6. */
-                subgroup_size_alignment = spirv_code->meta.cs_required_wave_size;
+                subgroup_size_alignment = required_wave_size;
 
                 /* If min == max, we can still support WaveSize in a dummy kind of way. */
                 if (device->device_info.subgroup_size_control_properties.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT)

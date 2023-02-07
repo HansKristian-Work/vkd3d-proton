@@ -11527,10 +11527,9 @@ void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
                     break;
             }
         }
-        else if (op == SpvOpFunction)
+        else if (op == SpvOpGroupNonUniformShuffle)
         {
-            /* We're now declaring code, so just stop parsing, there cannot be any capability ops after this. */
-            break;
+			meta |= VKD3D_SHADER_META_FLAG_USES_DYNAMIC_SHUFFLE;
         }
 
         offset += count;
