@@ -7830,6 +7830,31 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetStencilRef(d3d12_command_l
     }
 }
 
+static const char *vk_stage_to_d3d(VkShaderStageFlagBits stage)
+{
+    switch (stage)
+    {
+        case VK_SHADER_STAGE_VERTEX_BIT:
+            return "VS";
+        case VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT:
+            return "HS";
+        case VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT:
+            return "DS";
+        case VK_SHADER_STAGE_GEOMETRY_BIT:
+            return "GS";
+        case VK_SHADER_STAGE_FRAGMENT_BIT:
+            return "PS";
+        case VK_SHADER_STAGE_TASK_BIT_EXT:
+            return "AS";
+        case VK_SHADER_STAGE_MESH_BIT_EXT:
+            return "MS";
+        case VK_SHADER_STAGE_COMPUTE_BIT:
+            return "CS";
+        default:
+            return NULL;
+    }
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_list_iface *iface,
         ID3D12PipelineState *pipeline_state)
 {
@@ -7862,6 +7887,49 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
                         (state->graphics.code[i].meta.flags & VKD3D_SHADER_META_FLAG_REPLACED) ? "yes" : "no");
             }
         }
+    }
+
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) && state)
+    {
+        const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+        VkDebugUtilsLabelEXT label;
+        char buffer[1024];
+
+        memset(&label, 0, sizeof(label));
+        label.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+        label.pLabelName = "?";
+
+        if (state->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
+        {
+            snprintf(buffer, sizeof(buffer), "[%s %016"PRIx64"]",
+                    vk_stage_to_d3d(VK_SHADER_STAGE_COMPUTE_BIT),
+                    state->compute.code.meta.hash);
+            label.color[0] = 1.0f;
+            label.color[1] = 0.5f;
+            label.color[2] = 0.0f;
+            label.color[3] = 1.0f;
+            label.pLabelName = buffer;
+        }
+        else if (state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS ||
+                state->pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS)
+        {
+            size_t offset = 0;
+
+            for (i = 0; i < state->graphics.stage_count && sizeof(buffer) > offset; i++)
+            {
+                offset += snprintf(buffer + offset, sizeof(buffer) - offset,
+                        "[%s %016"PRIx64"] ",
+                        vk_stage_to_d3d(state->graphics.stages[i].stage),
+                        state->graphics.code[i].meta.hash);
+            }
+
+            label.color[0] = 0.0f;
+            label.color[1] = 0.0f;
+            label.color[2] = 1.0f;
+            label.color[3] = 1.0f;
+            label.pLabelName = buffer;
+        }
+        VK_CALL(vkCmdInsertDebugUtilsLabelEXT(list->vk_command_buffer, &label));
     }
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
