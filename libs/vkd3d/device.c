@@ -656,6 +656,14 @@ static void vkd3d_instance_deduce_config_flags_from_environment(void)
                 VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE |
                 VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_NO_SERIALIZE_SPIRV |
                 VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_IGNORE_SPIRV;
+        vkd3d_config_flags |= VKD3D_CONFIG_FLAG_DEBUG_UTILS;
+    }
+
+    if (vkd3d_get_env_var("RADV_THREAD_TRACE", env, sizeof(env)) ||
+            vkd3d_get_env_var("RADV_THREAD_TRACE_TRIGGER", env, sizeof(env)))
+    {
+        INFO("RADV thread trace is enabled. Forcing debug utils to be enabled for labels.\n");
+        vkd3d_config_flags |= VKD3D_CONFIG_FLAG_DEBUG_UTILS;
     }
 }
 
@@ -730,12 +738,6 @@ static void vkd3d_config_flags_init_once(void)
 
     vkd3d_instance_deduce_config_flags_from_environment();
     vkd3d_instance_apply_global_shader_quirks();
-
-#ifdef VKD3D_ENABLE_RENDERDOC
-    /* Enable debug utils by default for Renderdoc builds */
-    TRACE("Renderdoc build implies VKD3D_CONFIG_FLAG_DEBUG_UTILS.\n");
-    vkd3d_config_flags |= VKD3D_CONFIG_FLAG_DEBUG_UTILS;
-#endif
 
     /* If we're going to use vk_debug, make sure we can get debug callbacks. */
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_VULKAN_DEBUG)
