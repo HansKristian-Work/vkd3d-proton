@@ -65,10 +65,10 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_TIMELINE_SEMAPHORE, KHR_timeline_semaphore),
     VK_EXTENSION(KHR_SHADER_FLOAT16_INT8, KHR_shader_float16_int8),
     VK_EXTENSION(KHR_SHADER_SUBGROUP_EXTENDED_TYPES, KHR_shader_subgroup_extended_types),
+    VK_EXTENSION(KHR_PIPELINE_LIBRARY, KHR_pipeline_library),
     VK_EXTENSION_COND(KHR_RAY_TRACING_PIPELINE, KHR_ray_tracing_pipeline, VKD3D_CONFIG_FLAG_DXR),
     VK_EXTENSION_COND(KHR_ACCELERATION_STRUCTURE, KHR_acceleration_structure, VKD3D_CONFIG_FLAG_DXR),
     VK_EXTENSION_COND(KHR_DEFERRED_HOST_OPERATIONS, KHR_deferred_host_operations, VKD3D_CONFIG_FLAG_DXR),
-    VK_EXTENSION_COND(KHR_PIPELINE_LIBRARY, KHR_pipeline_library, VKD3D_CONFIG_FLAG_DXR),
     VK_EXTENSION_COND(KHR_RAY_QUERY, KHR_ray_query, VKD3D_CONFIG_FLAG_DXR11),
     VK_EXTENSION_COND(KHR_RAY_TRACING_MAINTENANCE_1, KHR_ray_tracing_maintenance1, VKD3D_CONFIG_FLAG_DXR11),
     VK_EXTENSION(KHR_SPIRV_1_4, KHR_spirv_1_4),
@@ -129,6 +129,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_DESCRIPTOR_BUFFER, EXT_descriptor_buffer),
     VK_EXTENSION_COND(EXT_PIPELINE_LIBRARY_GROUP_HANDLES, EXT_pipeline_library_group_handles, VKD3D_CONFIG_FLAG_DXR),
     VK_EXTENSION(EXT_IMAGE_SLICED_VIEW_OF_3D, EXT_image_sliced_view_of_3d),
+    VK_EXTENSION(EXT_GRAPHICS_PIPELINE_LIBRARY, EXT_graphics_pipeline_library),
     /* AMD extensions */
     VK_EXTENSION(AMD_BUFFER_MARKER, AMD_buffer_marker),
     VK_EXTENSION(AMD_DEVICE_COHERENT_MEMORY, AMD_device_coherent_memory),
@@ -1610,6 +1611,13 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->image_sliced_view_of_3d_features.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_SLICED_VIEW_OF_3D_FEATURES_EXT;
         vk_prepend_struct(&info->features2, &info->image_sliced_view_of_3d_features);
+    }
+
+    if (vulkan_info->EXT_graphics_pipeline_library)
+    {
+        info->graphics_pipeline_library_features.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_GRAPHICS_PIPELINE_LIBRARY_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->graphics_pipeline_library_features);
     }
 
     /* Core in Vulkan 1.1. */

@@ -176,6 +176,7 @@ struct vkd3d_vulkan_info
     bool EXT_descriptor_buffer;
     bool EXT_pipeline_library_group_handles;
     bool EXT_image_sliced_view_of_3d;
+    bool EXT_graphics_pipeline_library;
     /* AMD device extensions */
     bool AMD_buffer_marker;
     bool AMD_device_coherent_memory;
@@ -3798,6 +3799,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceDescriptorBufferFeaturesEXT descriptor_buffer_features;
     VkPhysicalDevicePipelineLibraryGroupHandlesFeaturesEXT pipeline_library_group_handles_features;
     VkPhysicalDeviceImageSlicedViewOf3DFeaturesEXT image_sliced_view_of_3d_features;
+    VkPhysicalDeviceGraphicsPipelineLibraryFeaturesEXT graphics_pipeline_library_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
