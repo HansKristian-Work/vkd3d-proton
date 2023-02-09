@@ -7333,6 +7333,7 @@ static void d3d12_command_list_end_transfer_batch(struct d3d12_command_list *lis
         case VKD3D_BATCH_TYPE_COPY_IMAGE_TO_BUFFER:
         case VKD3D_BATCH_TYPE_COPY_IMAGE:
             d3d12_command_list_end_current_render_pass(list, false);
+            d3d12_command_list_debug_mark_begin_region(list, "CopyBatch");
             d3d12_command_list_barrier_batch_init(&barriers);
             for (i = 0; i < list->transfer_batch.batch_len; i++)
                 d3d12_command_list_before_copy_texture_region(list, &barriers, &list->transfer_batch.batch[i]);
@@ -7341,6 +7342,7 @@ static void d3d12_command_list_end_transfer_batch(struct d3d12_command_list *lis
             for (i = 0; i < list->transfer_batch.batch_len; i++)
                 d3d12_command_list_copy_texture_region(list, &barriers, &list->transfer_batch.batch[i]);
             d3d12_command_list_barrier_batch_end(list, &barriers);
+            d3d12_command_list_debug_mark_end_region(list);
             list->transfer_batch.batch_len = 0;
             break;
         default:
@@ -8266,6 +8268,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
     d3d12_command_list_end_transfer_batch(list);
     d3d12_command_list_barrier_batch_init(&batch);
 
+    d3d12_command_list_debug_mark_begin_region(list, "ResourceBarrier");
+
     for (i = 0; i < barrier_count; ++i)
     {
         const D3D12_RESOURCE_BARRIER *current = &barriers[i];
@@ -8510,6 +8514,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
         WARN("Issuing split barrier(s) on D3D12_RESOURCE_BARRIER_FLAG_END_ONLY.\n");
 
     VKD3D_BREADCRUMB_COMMAND(BARRIER);
+
+    d3d12_command_list_debug_mark_end_region(list);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ExecuteBundle(d3d12_command_list_iface *iface,
@@ -9416,6 +9422,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
 
     d3d12_command_list_track_resource_usage(list, resource, true);
     d3d12_command_list_end_current_render_pass(list, false);
+    d3d12_command_list_debug_mark_begin_region(list, "ClearUAV");
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
     d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
@@ -9534,6 +9541,8 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
                 vkd3d_compute_workgroup_count(clear_args.extent.height, workgroup_size.height),
                 vkd3d_compute_workgroup_count(layer_count, workgroup_size.depth)));
     }
+
+    d3d12_command_list_debug_mark_end_region(list);
 }
 
 static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *list,
@@ -9558,6 +9567,7 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
 
     d3d12_command_list_track_resource_usage(list, resource, true);
     d3d12_command_list_end_current_render_pass(list, false);
+    d3d12_command_list_debug_mark_begin_region(list, "ClearUAVWithCopy");
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
     d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
@@ -9711,6 +9721,8 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
             VK_PIPELINE_STAGE_TRANSFER_BIT,
             vk_queue_shader_stages(list->device, list->vk_queue_flags),
             0, 1, &barrier, 0, NULL, 0, NULL));
+
+    d3d12_command_list_debug_mark_end_region(list);
 }
 
 static VkClearColorValue vkd3d_fixup_clear_uav_swizzle(struct d3d12_device *device,
