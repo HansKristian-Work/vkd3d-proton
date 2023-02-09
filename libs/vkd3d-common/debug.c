@@ -58,6 +58,11 @@ static spinlock_t vkd3d_dbg_initialized;
 static pthread_once_t vkd3d_dbg_once = PTHREAD_ONCE_INIT;
 static FILE *vkd3d_log_file;
 
+#ifdef _WIN32
+typedef int (*PFN_wine_log)(const char *);
+static PFN_wine_log wine_log_output;
+#endif
+
 /* With breadcrumbs trace and similar intensive logging operations,
  * reduce stdio/syscall overhead to an absolute minimum. */
 struct vkd3d_string_stream
@@ -106,6 +111,14 @@ static void vkd3d_dbg_init_once(void)
             fprintf(stderr, "Failed to open log file: %s!\n", vkd3d_debug);
             fflush(stderr);
         }
+    }
+    else
+    {
+#ifdef _WIN32
+        HMODULE module = LoadLibraryA("ntdll.dll");
+        if (module)
+            wine_log_output = (void*)GetProcAddress(module, "__wine_dbg_output");
+#endif
     }
 
     vkd3d_atomic_uint32_store_explicit(&vkd3d_dbg_initialized, 1, vkd3d_memory_order_release);
@@ -187,6 +200,24 @@ void vkd3d_dbg_printf(enum vkd3d_dbg_channel channel, enum vkd3d_dbg_level level
         }
         spinlock_release(&spin);
     }
+#ifdef _WIN32
+    else if (wine_log_output)
+    {
+        char local_buffer[4096];
+        size_t offset;
+        DWORD ticks;
+
+        /* Try to match format of Wine log output. */
+        ticks = GetTickCount();
+        offset = snprintf(local_buffer, sizeof(local_buffer),
+                "%3u.%03u:%04x:%04x:%s:vkd3d-proton:%s: ", ticks / 1000, ticks % 1000,
+                (UINT)GetCurrentProcessId(), tid,
+                debug_level_names[level], function);
+        if (offset < sizeof(local_buffer))
+            vsnprintf(local_buffer + offset, sizeof(local_buffer) - offset, fmt, args);
+        wine_log_output(local_buffer);
+    }
+#endif
     else
     {
         spinlock_acquire(&spin);
