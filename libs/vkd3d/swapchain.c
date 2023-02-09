@@ -1529,6 +1529,20 @@ static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *cha
     image_barrier.subresourceRange.baseArrayLayer = 0;
     image_barrier.subresourceRange.layerCount = 1;
 
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) &&
+            chain->queue->device->vk_info.EXT_debug_utils)
+    {
+        VkDebugUtilsLabelEXT label;
+        label.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+        label.pNext = NULL;
+        label.pLabelName = "BlitSwapChain";
+        label.color[0] = 1.0f;
+        label.color[1] = 1.0f;
+        label.color[2] = 1.0f;
+        label.color[3] = 1.0f;
+        VK_CALL(vkCmdBeginDebugUtilsLabelEXT(vk_cmd, &label));
+    }
+
     /* srcStage = TOP_OF_PIPE since we're using fences to acquire WSI. */
     VK_CALL(vkCmdPipelineBarrier(vk_cmd,
                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
@@ -1575,6 +1589,12 @@ static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *cha
                 VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
                 VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
                 0, 0, NULL, 0, NULL, 1, &image_barrier));
+
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) &&
+            chain->queue->device->vk_info.EXT_debug_utils)
+    {
+        VK_CALL(vkCmdEndDebugUtilsLabelEXT(vk_cmd));
+    }
 }
 
 static bool dxgi_vk_swap_chain_submit_blit(struct dxgi_vk_swap_chain *chain, uint32_t swapchain_index)
