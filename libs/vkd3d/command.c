@@ -3172,6 +3172,32 @@ static bool d3d12_resource_may_alias_other_resources(struct d3d12_resource *reso
     return true;
 }
 
+static void d3d12_command_list_debug_mark_begin_region(
+        struct d3d12_command_list *list, const char *tag)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkDebugUtilsLabelEXT label;
+
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) && list->device->vk_info.EXT_debug_utils)
+    {
+        label.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+        label.pNext = NULL;
+        label.pLabelName = tag;
+        label.color[0] = 1.0f;
+        label.color[1] = 1.0f;
+        label.color[2] = 1.0f;
+        label.color[3] = 1.0f;
+        VK_CALL(vkCmdBeginDebugUtilsLabelEXT(list->vk_command_buffer, &label));
+    }
+}
+
+static void d3d12_command_list_debug_mark_end_region(struct d3d12_command_list *list)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) && list->device->vk_info.EXT_debug_utils)
+        VK_CALL(vkCmdEndDebugUtilsLabelEXT(list->vk_command_buffer));
+}
+
 static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *list, struct d3d12_resource *resource,
         struct vkd3d_view *view, VkImageAspectFlags clear_aspects, const VkClearValue *clear_value, UINT rect_count,
         const D3D12_RECT *rects, bool is_bound)
@@ -3359,6 +3385,8 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
         }
     }
 
+    d3d12_command_list_debug_mark_begin_region(list, "Clear");
+
     if (image_barrier_count)
     {
         VKD3D_BREADCRUMB_TAG("clear-barrier");
@@ -3381,6 +3409,8 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     VKD3D_BREADCRUMB_AUX64(view->cookie);
     VKD3D_BREADCRUMB_RESOURCE(resource);
     VKD3D_BREADCRUMB_COMMAND(CLEAR_PASS);
+
+    d3d12_command_list_debug_mark_end_region(list);
 }
 
 static VkPipelineStageFlags vk_queue_shader_stages(struct d3d12_device *device, VkQueueFlags vk_queue_flags)
@@ -4258,7 +4288,10 @@ static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list
     }
 
     if (list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE)
+    {
         VK_CALL(vkCmdEndRenderingKHR(list->vk_command_buffer));
+        d3d12_command_list_debug_mark_end_region(list);
+    }
 
     /* Don't emit barriers for temporary suspension of the render pass */
     if (!suspend && (list->rendering_info.state_flags & (VKD3D_RENDERING_ACTIVE | VKD3D_RENDERING_SUSPENDED)))
@@ -6088,6 +6121,7 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     if (!(list->rendering_info.state_flags & VKD3D_RENDERING_SUSPENDED))
         d3d12_command_list_emit_render_pass_transition(list, VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN);
 
+    d3d12_command_list_debug_mark_begin_region(list, "RenderPass");
     VK_CALL(vkCmdBeginRenderingKHR(list->vk_command_buffer, &list->rendering_info.info));
 
     list->rendering_info.state_flags |= VKD3D_RENDERING_ACTIVE;
@@ -6808,6 +6842,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         vk_descriptor_write.pBufferInfo = NULL;
         vk_descriptor_write.pTexelBufferView = NULL;
 
+        d3d12_command_list_debug_mark_begin_region(list, "CopyRenderPass");
         VK_CALL(vkCmdBeginRenderingKHR(list->vk_command_buffer, &rendering_info));
         VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_info.vk_pipeline));
         VK_CALL(vkCmdSetViewport(list->vk_command_buffer, 0, 1, &viewport));
@@ -6818,6 +6853,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
                 VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_args), &push_args));
         VK_CALL(vkCmdDraw(list->vk_command_buffer, 3, region->dstSubresource.layerCount, 0, 0));
         VK_CALL(vkCmdEndRenderingKHR(list->vk_command_buffer));
+        d3d12_command_list_debug_mark_end_region(list);
 
 cleanup:
         if (dst_view)
@@ -7892,7 +7928,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
         }
     }
 
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) && state)
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) && state &&
+            list->device->vk_info.EXT_debug_utils)
     {
         const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
         VkDebugUtilsLabelEXT label;
