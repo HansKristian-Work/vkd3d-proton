@@ -11523,6 +11523,10 @@ void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
                     meta |= VKD3D_SHADER_META_FLAG_USES_FRAGMENT_BARYCENTRIC;
                     break;
 
+                case SpvCapabilitySampleRateShading:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_SAMPLE_RATE_SHADING;
+                    break;
+
                 default:
                     break;
             }
