@@ -3241,18 +3241,28 @@ vkd3d_dynamic_state_list[] =
     { VKD3D_DYNAMIC_STATE_PATCH_CONTROL_POINTS,  VK_DYNAMIC_STATE_PATCH_CONTROL_POINTS_EXT },
 };
 
-static uint32_t d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_pipeline_state *state,
-        VkPipelineDynamicStateCreateInfo *dynamic_desc, VkDynamicState *dynamic_state_buffer,
+uint32_t vkd3d_init_dynamic_state_array(VkDynamicState *dynamic_states, uint32_t dynamic_state_flags)
+{
+    uint32_t i, count;
+
+    for (i = 0, count = 0; i < ARRAY_SIZE(vkd3d_dynamic_state_list); i++)
+    {
+        if (dynamic_state_flags & vkd3d_dynamic_state_list[i].flag)
+            dynamic_states[count++] = vkd3d_dynamic_state_list[i].vk_state;
+    }
+
+    return count;
+}
+
+uint32_t d3d12_graphics_pipeline_state_get_dynamic_state_flags(struct d3d12_pipeline_state *state,
         const struct vkd3d_pipeline_key *key)
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
-    uint32_t dynamic_state_flags;
-    unsigned int i, count;
+    uint32_t dynamic_state_flags = 0;
     bool is_mesh_pipeline;
+    unsigned int i;
 
     is_mesh_pipeline = !!(graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT);
-
-    dynamic_state_flags = 0;
 
     /* Enable dynamic states as necessary */
     dynamic_state_flags |= VKD3D_DYNAMIC_STATE_VIEWPORT | VKD3D_DYNAMIC_STATE_SCISSOR;
@@ -3269,21 +3279,15 @@ static uint32_t d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_pi
         dynamic_state_flags |= VKD3D_DYNAMIC_STATE_TOPOLOGY;
 
     if (graphics->ds_desc.stencilTestEnable)
-    {
         dynamic_state_flags |= VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE;
-    }
 
     if (graphics->ds_desc.depthBoundsTestEnable)
-    {
         dynamic_state_flags |= VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS;
-    }
 
     for (i = 0; i < graphics->rt_count; i++)
     {
         if (vk_blend_attachment_needs_blend_constants(&graphics->blend_attachments[i]))
-        {
             dynamic_state_flags |= VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS;
-        }
     }
 
     /* We always need to enable fragment shading rate dynamic state when rasterizing.
@@ -3297,19 +3301,20 @@ static uint32_t d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_pi
     if (graphics->index_buffer_strip_cut_value && !is_mesh_pipeline)
         dynamic_state_flags |= VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART;
 
-    /* Build dynamic state create info */
-    for (i = 0, count = 0; i < ARRAY_SIZE(vkd3d_dynamic_state_list); i++)
-    {
-        if (dynamic_state_flags & vkd3d_dynamic_state_list[i].flag)
-            dynamic_state_buffer[count++] = vkd3d_dynamic_state_list[i].vk_state;
-    }
+    return dynamic_state_flags;
+}
+
+static uint32_t d3d12_graphics_pipeline_state_init_dynamic_state(struct d3d12_pipeline_state *state,
+        VkPipelineDynamicStateCreateInfo *dynamic_desc, VkDynamicState *dynamic_state_buffer,
+        const struct vkd3d_pipeline_key *key)
+{
+    uint32_t dynamic_state_flags = d3d12_graphics_pipeline_state_get_dynamic_state_flags(state, key);
 
     dynamic_desc->sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     dynamic_desc->pNext = NULL;
     dynamic_desc->flags = 0;
-    dynamic_desc->dynamicStateCount = count;
-    dynamic_desc->pDynamicStates = dynamic_state_buffer;
-
+    dynamic_desc->dynamicStateCount = vkd3d_init_dynamic_state_array(dynamic_state_buffer, dynamic_state_flags);
+    dynamic_desc->pDynamicStates = dynamic_desc->dynamicStateCount ? dynamic_state_buffer : NULL;
     return dynamic_state_flags;
 }
 
