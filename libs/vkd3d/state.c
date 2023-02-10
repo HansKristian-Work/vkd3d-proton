@@ -3402,6 +3402,62 @@ void vkd3d_vertex_input_pipeline_desc_prepare(struct vkd3d_vertex_input_pipeline
         desc->dy_info.pDynamicStates = desc->dy_states;
 }
 
+void vkd3d_fragment_output_pipeline_desc_init(struct vkd3d_fragment_output_pipeline_desc *desc,
+        struct d3d12_pipeline_state *state, const struct vkd3d_format *dsv_format, uint32_t dynamic_state_flags)
+{
+    struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
+    unsigned int i;
+
+    memset(desc, 0, sizeof(*desc));
+
+    memcpy(desc->cb_attachments, graphics->blend_attachments, graphics->rt_count * sizeof(*desc->cb_attachments));
+
+    desc->cb_info.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    desc->cb_info.logicOpEnable = graphics->blend_desc.logicOpEnable;
+    desc->cb_info.logicOp = graphics->blend_desc.logicOp;
+    desc->cb_info.attachmentCount = graphics->rt_count;
+
+    desc->ms_sample_mask = graphics->sample_mask;
+
+    desc->ms_info.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    desc->ms_info.rasterizationSamples = graphics->ms_desc.rasterizationSamples;
+    desc->ms_info.sampleShadingEnable = graphics->ms_desc.sampleShadingEnable;
+    desc->ms_info.minSampleShading = graphics->ms_desc.minSampleShading;
+    desc->ms_info.alphaToCoverageEnable = graphics->ms_desc.alphaToCoverageEnable;
+    desc->ms_info.alphaToOneEnable = graphics->ms_desc.alphaToOneEnable;
+
+    for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+    {
+        desc->rt_formats[i] = graphics->rtv_active_mask & (1u << i)
+            ? graphics->rtv_formats[i] : VK_FORMAT_UNDEFINED;
+    }
+
+    desc->rt_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
+    desc->rt_info.colorAttachmentCount = graphics->rt_count;
+    /* From spec:  If depthAttachmentFormat is not VK_FORMAT_UNDEFINED, it must be a format that includes a depth aspect. */
+    desc->rt_info.depthAttachmentFormat = dsv_format && (dsv_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT) ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
+    /* From spec:  If stencilAttachmentFormat is not VK_FORMAT_UNDEFINED, it must be a format that includes a stencil aspect. */
+    desc->rt_info.stencilAttachmentFormat = dsv_format && (dsv_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT) ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
+
+    desc->dy_info.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    desc->dy_info.dynamicStateCount = vkd3d_init_dynamic_state_array(desc->dy_states,
+            dynamic_state_flags & VKD3D_FRAGMENT_OUTPUT_DYNAMIC_STATE_MASK);
+}
+
+void vkd3d_fragment_output_pipeline_desc_prepare(struct vkd3d_fragment_output_pipeline_desc *desc)
+{
+    if (desc->cb_info.attachmentCount)
+        desc->cb_info.pAttachments = desc->cb_attachments;
+
+    desc->ms_info.pSampleMask = &desc->ms_sample_mask;
+
+    if (desc->rt_info.colorAttachmentCount)
+        desc->rt_info.pColorAttachmentFormats = desc->rt_formats;
+
+    if (desc->dy_info.dynamicStateCount)
+        desc->dy_info.pDynamicStates = desc->dy_states;
+}
+
 uint32_t d3d12_graphics_pipeline_state_get_dynamic_state_flags(struct d3d12_pipeline_state *state,
         const struct vkd3d_pipeline_key *key)
 {
@@ -4119,20 +4175,15 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
     if (vk_info->EXT_depth_clip_enable)
         rs_depth_clip_info_from_d3d12(&graphics->rs_depth_clip_info, &graphics->rs_desc, &desc->rasterizer_state);
 
+    graphics->sample_mask = desc->sample_mask;
+
     graphics->ms_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     graphics->ms_desc.pNext = NULL;
     graphics->ms_desc.flags = 0;
     graphics->ms_desc.rasterizationSamples = sample_count;
     graphics->ms_desc.sampleShadingEnable = VK_FALSE;
     graphics->ms_desc.minSampleShading = 0.0f;
-    graphics->ms_desc.pSampleMask = NULL;
-    if (desc->sample_mask != ~0u)
-    {
-        assert(DIV_ROUND_UP(sample_count, 32) <= ARRAY_SIZE(graphics->sample_mask));
-        graphics->sample_mask[0] = desc->sample_mask;
-        graphics->sample_mask[1] = 0xffffffffu;
-        graphics->ms_desc.pSampleMask = graphics->sample_mask;
-    }
+    graphics->ms_desc.pSampleMask = &graphics->sample_mask;
     graphics->ms_desc.alphaToCoverageEnable = desc->blend_state.AlphaToCoverageEnable;
     graphics->ms_desc.alphaToOneEnable = VK_FALSE;
 
@@ -4556,13 +4607,12 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     VkDynamicState dynamic_state_buffer[ARRAY_SIZE(vkd3d_dynamic_state_list)];
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     VkPipelineCreationFeedbackEXT feedbacks[VKD3D_MAX_SHADER_STAGES];
+    struct vkd3d_fragment_output_pipeline_desc fragment_output_desc;
     VkPipelineShaderStageCreateInfo stages[VKD3D_MAX_SHADER_STAGES];
-    VkFormat rtv_formats[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct vkd3d_vertex_input_pipeline_desc vertex_input_desc;
     VkPipelineTessellationStateCreateInfo tessellation_info;
     VkPipelineCreationFeedbackCreateInfoEXT feedback_info;
     VkPipelineDynamicStateCreateInfo dynamic_create_info;
-    VkPipelineRenderingCreateInfoKHR rendering_info;
     struct d3d12_device *device = state->device;
     VkGraphicsPipelineCreateInfo pipeline_desc;
     VkPipelineViewportStateCreateInfo vp_desc;
@@ -4597,37 +4647,19 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     vp_desc.scissorCount = 0;
     vp_desc.pScissors = NULL;
 
-    rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
-    rendering_info.pNext = NULL;
-    rendering_info.viewMask = 0;
-    rendering_info.colorAttachmentCount = graphics->rt_count;
-    rendering_info.pColorAttachmentFormats = rtv_formats;
-
-    /* From spec:  If depthAttachmentFormat is not VK_FORMAT_UNDEFINED, it must be a format that includes a depth aspect. */
-    rendering_info.depthAttachmentFormat = dsv_format && (dsv_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT) ?
-            dsv_format->vk_format : VK_FORMAT_UNDEFINED;
-    /* From spec:  If stencilAttachmentFormat is not VK_FORMAT_UNDEFINED, it must be a format that includes a stencil aspect. */
-    rendering_info.stencilAttachmentFormat = dsv_format && (dsv_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT) ?
-            dsv_format->vk_format : VK_FORMAT_UNDEFINED;
-
-    for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
-    {
-        if (graphics->rtv_active_mask & (1u << i))
-            rtv_formats[i] = graphics->rtv_formats[i];
-        else
-            rtv_formats[i] = VK_FORMAT_UNDEFINED;
-    }
+    vkd3d_fragment_output_pipeline_desc_init(&fragment_output_desc, state, dsv_format, *dynamic_state_flags);
+    vkd3d_fragment_output_pipeline_desc_prepare(&fragment_output_desc);
 
     memset(&pipeline_desc, 0, sizeof(pipeline_desc));
     pipeline_desc.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipeline_desc.pNext = &rendering_info;
+    pipeline_desc.pNext = &fragment_output_desc.rt_info;
     pipeline_desc.stageCount = graphics->stage_count;
     pipeline_desc.pStages = graphics->stages;
     pipeline_desc.pViewportState = &vp_desc;
     pipeline_desc.pRasterizationState = &graphics->rs_desc;
     pipeline_desc.pMultisampleState = &graphics->ms_desc;
     pipeline_desc.pDepthStencilState = &graphics->ds_desc;
-    pipeline_desc.pColorBlendState = &graphics->blend_desc;
+    pipeline_desc.pColorBlendState = &fragment_output_desc.cb_info;
     pipeline_desc.pDynamicState = &dynamic_create_info;
     pipeline_desc.layout = graphics->pipeline_layout;
     pipeline_desc.basePipelineIndex = -1;

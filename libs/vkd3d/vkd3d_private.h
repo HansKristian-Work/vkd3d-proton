@@ -1710,6 +1710,24 @@ struct vkd3d_vertex_input_pipeline_desc
     VkPipelineDynamicStateCreateInfo dy_info;
 };
 
+#define VKD3D_MAX_FRAGMENT_OUTPUT_DYNAMIC_STATES (1u)
+#define VKD3D_FRAGMENT_OUTPUT_DYNAMIC_STATE_MASK (VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS)
+
+struct vkd3d_fragment_output_pipeline_desc
+{
+    VkPipelineColorBlendAttachmentState cb_attachments[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
+    VkPipelineColorBlendStateCreateInfo cb_info;
+
+    VkSampleMask ms_sample_mask;
+    VkPipelineMultisampleStateCreateInfo ms_info;
+
+    VkFormat rt_formats[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
+    VkPipelineRenderingCreateInfo rt_info;
+
+    VkDynamicState dy_states[VKD3D_MAX_FRAGMENT_OUTPUT_DYNAMIC_STATES];
+    VkPipelineDynamicStateCreateInfo dy_info;
+};
+
 #define VKD3D_SHADER_DEBUG_RING_SPEC_INFO_MAP_ENTRIES 4
 struct vkd3d_shader_debug_ring_spec_info
 {
@@ -1779,7 +1797,7 @@ struct d3d12_graphics_pipeline_state
     VkPipelineDepthStencilStateCreateInfo ds_desc;
     VkPipelineColorBlendStateCreateInfo blend_desc;
 
-    VkSampleMask sample_mask[2];
+    VkSampleMask sample_mask;
     VkPipelineRasterizationConservativeStateCreateInfoEXT rs_conservative_info;
     VkPipelineRasterizationDepthClipStateCreateInfoEXT rs_depth_clip_info;
     VkPipelineRasterizationStateStreamCreateInfoEXT rs_stream_info;
