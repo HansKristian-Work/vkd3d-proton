@@ -3222,6 +3222,102 @@ static bool vk_blend_attachment_needs_blend_constants(const VkPipelineColorBlend
             vk_blend_factor_needs_blend_constants(attachment->dstAlphaBlendFactor));
 }
 
+static enum VkPrimitiveTopology vk_topology_from_d3d12_topology_type(D3D12_PRIMITIVE_TOPOLOGY_TYPE type, bool restart)
+{
+    /* Technically shouldn't need to know restart state here, but there is a VU banning use of primitiveRestartEnable
+     * with list types. Using a strip type is harmless and is likely to dodge driver bugs. */
+    switch (type)
+    {
+        case D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE:
+            return restart ? VK_PRIMITIVE_TOPOLOGY_LINE_STRIP : VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+        case D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE:
+            return restart ? VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        case D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT:
+            return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+        case D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH:
+            return VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
+        default:
+            ERR("Invalid primitive topology type #%x.\n", (unsigned)type);
+            return VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;
+    }
+}
+
+enum VkPrimitiveTopology vk_topology_from_d3d12_topology(D3D12_PRIMITIVE_TOPOLOGY topology)
+{
+    switch (topology)
+    {
+        case D3D_PRIMITIVE_TOPOLOGY_POINTLIST:
+            return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+        case D3D_PRIMITIVE_TOPOLOGY_LINELIST:
+            return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+        case D3D_PRIMITIVE_TOPOLOGY_LINESTRIP:
+            return VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
+        case D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST:
+            return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        case D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP:
+            return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+        case D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_2_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_5_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_6_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_7_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_8_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_9_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_10_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_11_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_12_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_13_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_14_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_15_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_16_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_17_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_18_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_19_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_20_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_21_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_22_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_23_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_24_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_25_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_26_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_27_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_28_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_29_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_30_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_31_CONTROL_POINT_PATCHLIST:
+        case D3D_PRIMITIVE_TOPOLOGY_32_CONTROL_POINT_PATCHLIST:
+            return VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
+        default:
+            FIXME("Unhandled primitive topology %#x.\n", topology);
+            return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+    }
+}
+
+static bool vkd3d_topology_type_can_restart(D3D12_PRIMITIVE_TOPOLOGY_TYPE type)
+{
+    return type == D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE ||
+           type == D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+}
+
+static bool vkd3d_topology_can_restart(VkPrimitiveTopology topology)
+{
+    switch (topology)
+    {
+    case VK_PRIMITIVE_TOPOLOGY_POINT_LIST:
+    case VK_PRIMITIVE_TOPOLOGY_LINE_LIST:
+    case VK_PRIMITIVE_TOPOLOGY_PATCH_LIST:
+    case VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST:
+    case VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST_WITH_ADJACENCY:
+    case VK_PRIMITIVE_TOPOLOGY_LINE_LIST_WITH_ADJACENCY:
+        return false;
+
+    default:
+        return true;
+    }
+}
+
 static const struct
 {
     enum vkd3d_dynamic_state_flag flag;
@@ -3252,6 +3348,58 @@ uint32_t vkd3d_init_dynamic_state_array(VkDynamicState *dynamic_states, uint32_t
     }
 
     return count;
+}
+
+void vkd3d_vertex_input_pipeline_desc_init(struct vkd3d_vertex_input_pipeline_desc *desc,
+        struct d3d12_pipeline_state *state, const struct vkd3d_pipeline_key *key, uint32_t dynamic_state_flags)
+{
+    struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
+
+    /* Mesh shader pipelines do not use vertex input state */
+    assert(!(graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT));
+
+    /* Do not set up pointers here as they would complicate hash table lookup */
+    memset(desc, 0, sizeof(*desc));
+
+    memcpy(desc->vi_divisors, graphics->instance_divisors, graphics->instance_divisor_count * sizeof(*desc->vi_divisors));
+    desc->vi_divisor_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_DIVISOR_STATE_CREATE_INFO_EXT;
+    desc->vi_divisor_info.vertexBindingDivisorCount = graphics->instance_divisor_count;
+
+    memcpy(desc->vi_bindings, graphics->attribute_bindings, graphics->attribute_binding_count * sizeof(*desc->vi_bindings));
+    memcpy(desc->vi_attributes, graphics->attributes, graphics->attribute_count * sizeof(*desc->vi_attributes));
+    desc->vi_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    desc->vi_info.vertexBindingDescriptionCount = graphics->attribute_binding_count;
+    desc->vi_info.vertexAttributeDescriptionCount = graphics->attribute_count;
+
+    desc->ia_info.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    desc->ia_info.topology = key && !key->dynamic_topology
+            ? vk_topology_from_d3d12_topology(key->topology)
+            : vk_topology_from_d3d12_topology_type(graphics->primitive_topology_type, !!graphics->index_buffer_strip_cut_value);
+    desc->ia_info.primitiveRestartEnable = graphics->index_buffer_strip_cut_value && (key && !key->dynamic_topology
+            ? vkd3d_topology_can_restart(desc->ia_info.topology)
+            : vkd3d_topology_type_can_restart(graphics->primitive_topology_type));
+
+    desc->dy_info.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    desc->dy_info.dynamicStateCount = vkd3d_init_dynamic_state_array(desc->dy_states,
+            dynamic_state_flags & VKD3D_VERTEX_INPUT_DYNAMIC_STATE_MASK);
+}
+
+void vkd3d_vertex_input_pipeline_desc_prepare(struct vkd3d_vertex_input_pipeline_desc *desc)
+{
+    if (desc->vi_divisor_info.vertexBindingDivisorCount)
+    {
+        desc->vi_divisor_info.pVertexBindingDivisors = desc->vi_divisors;
+        desc->vi_info.pNext = &desc->vi_divisor_info;
+    }
+
+    if (desc->vi_info.vertexAttributeDescriptionCount)
+        desc->vi_info.pVertexAttributeDescriptions = desc->vi_attributes;
+
+    if (desc->vi_info.vertexBindingDescriptionCount)
+        desc->vi_info.pVertexBindingDescriptions = desc->vi_bindings;
+
+    if (desc->dy_info.dynamicStateCount)
+        desc->dy_info.pDynamicStates = desc->dy_states;
 }
 
 uint32_t d3d12_graphics_pipeline_state_get_dynamic_state_flags(struct d3d12_pipeline_state *state,
@@ -4346,102 +4494,6 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
     return S_OK;
 }
 
-static bool vkd3d_topology_type_can_restart(D3D12_PRIMITIVE_TOPOLOGY_TYPE type)
-{
-    return type == D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE ||
-           type == D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
-}
-
-static bool vkd3d_topology_can_restart(VkPrimitiveTopology topology)
-{
-    switch (topology)
-    {
-    case VK_PRIMITIVE_TOPOLOGY_POINT_LIST:
-    case VK_PRIMITIVE_TOPOLOGY_LINE_LIST:
-    case VK_PRIMITIVE_TOPOLOGY_PATCH_LIST:
-    case VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST:
-    case VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST_WITH_ADJACENCY:
-    case VK_PRIMITIVE_TOPOLOGY_LINE_LIST_WITH_ADJACENCY:
-        return false;
-
-    default:
-        return true;
-    }
-}
-
-static enum VkPrimitiveTopology vk_topology_from_d3d12_topology_type(D3D12_PRIMITIVE_TOPOLOGY_TYPE type, bool restart)
-{
-    /* Technically shouldn't need to know restart state here, but there is a VU banning use of primitiveRestartEnable
-     * with list types. Using a strip type is harmless and is likely to dodge driver bugs. */
-    switch (type)
-    {
-        case D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE:
-            return restart ? VK_PRIMITIVE_TOPOLOGY_LINE_STRIP : VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
-        case D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE:
-            return restart ? VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-        case D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT:
-            return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-        case D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH:
-            return VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
-        default:
-            ERR("Invalid primitive topology type #%x.\n", (unsigned)type);
-            return VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;
-    }
-}
-
-enum VkPrimitiveTopology vk_topology_from_d3d12_topology(D3D12_PRIMITIVE_TOPOLOGY topology)
-{
-    switch (topology)
-    {
-        case D3D_PRIMITIVE_TOPOLOGY_POINTLIST:
-            return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-        case D3D_PRIMITIVE_TOPOLOGY_LINELIST:
-            return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
-        case D3D_PRIMITIVE_TOPOLOGY_LINESTRIP:
-            return VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
-        case D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST:
-            return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-        case D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP:
-            return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
-        case D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_2_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_5_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_6_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_7_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_8_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_9_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_10_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_11_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_12_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_13_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_14_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_15_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_16_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_17_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_18_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_19_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_20_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_21_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_22_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_23_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_24_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_25_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_26_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_27_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_28_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_29_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_30_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_31_CONTROL_POINT_PATCHLIST:
-        case D3D_PRIMITIVE_TOPOLOGY_32_CONTROL_POINT_PATCHLIST:
-            return VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
-        default:
-            FIXME("Unhandled primitive topology %#x.\n", topology);
-            return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-    }
-}
-
 static VkPipeline d3d12_pipeline_state_find_compiled_pipeline(struct d3d12_pipeline_state *state,
         const struct vkd3d_pipeline_key *key, uint32_t *dynamic_state_flags)
 {
@@ -4500,20 +4552,17 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
         const struct vkd3d_pipeline_key *key, const struct vkd3d_format *dsv_format, VkPipelineCache vk_cache,
         uint32_t *dynamic_state_flags)
 {
-    VkVertexInputBindingDescription bindings[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
     const struct vkd3d_vk_device_procs *vk_procs = &state->device->vk_procs;
     VkDynamicState dynamic_state_buffer[ARRAY_SIZE(vkd3d_dynamic_state_list)];
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
-    VkPipelineVertexInputDivisorStateCreateInfoEXT input_divisor_info;
     VkPipelineCreationFeedbackEXT feedbacks[VKD3D_MAX_SHADER_STAGES];
     VkPipelineShaderStageCreateInfo stages[VKD3D_MAX_SHADER_STAGES];
     VkFormat rtv_formats[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
+    struct vkd3d_vertex_input_pipeline_desc vertex_input_desc;
     VkPipelineTessellationStateCreateInfo tessellation_info;
     VkPipelineCreationFeedbackCreateInfoEXT feedback_info;
     VkPipelineDynamicStateCreateInfo dynamic_create_info;
-    VkPipelineVertexInputStateCreateInfo input_desc;
     VkPipelineRenderingCreateInfoKHR rendering_info;
-    VkPipelineInputAssemblyStateCreateInfo ia_desc;
     struct d3d12_device *device = state->device;
     VkGraphicsPipelineCreateInfo pipeline_desc;
     VkPipelineViewportStateCreateInfo vp_desc;
@@ -4524,39 +4573,13 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     VkResult vr;
     HRESULT hr;
 
-    memcpy(bindings, graphics->attribute_bindings, graphics->attribute_binding_count * sizeof(*bindings));
     *dynamic_state_flags = d3d12_graphics_pipeline_state_init_dynamic_state(state, &dynamic_create_info,
             dynamic_state_buffer, key);
 
     if (!(graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT))
     {
-        input_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        input_desc.pNext = NULL;
-        input_desc.flags = 0;
-        input_desc.vertexBindingDescriptionCount = graphics->attribute_binding_count;
-        input_desc.pVertexBindingDescriptions = bindings;
-        input_desc.vertexAttributeDescriptionCount = graphics->attribute_count;
-        input_desc.pVertexAttributeDescriptions = graphics->attributes;
-
-        if (graphics->instance_divisor_count)
-        {
-            input_desc.pNext = &input_divisor_info;
-            input_divisor_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_DIVISOR_STATE_CREATE_INFO_EXT;
-            input_divisor_info.pNext = NULL;
-            input_divisor_info.vertexBindingDivisorCount = graphics->instance_divisor_count;
-            input_divisor_info.pVertexBindingDivisors = graphics->instance_divisors;
-        }
-
-        ia_desc.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        ia_desc.pNext = NULL;
-        ia_desc.flags = 0;
-        ia_desc.topology = key && !key->dynamic_topology ?
-                vk_topology_from_d3d12_topology(key->topology) :
-                vk_topology_from_d3d12_topology_type(graphics->primitive_topology_type, !!graphics->index_buffer_strip_cut_value);
-        ia_desc.primitiveRestartEnable = graphics->index_buffer_strip_cut_value &&
-                                        (key && !key->dynamic_topology ?
-                                          vkd3d_topology_can_restart(ia_desc.topology) :
-                                          vkd3d_topology_type_can_restart(graphics->primitive_topology_type));
+        vkd3d_vertex_input_pipeline_desc_init(&vertex_input_desc, state, key, *dynamic_state_flags);
+        vkd3d_vertex_input_pipeline_desc_prepare(&vertex_input_desc);
 
         tessellation_info.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO;
         tessellation_info.pNext = NULL;
@@ -4614,8 +4637,8 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
 
     if (!(graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT))
     {
-        pipeline_desc.pVertexInputState = &input_desc;
-        pipeline_desc.pInputAssemblyState = &ia_desc;
+        pipeline_desc.pVertexInputState = &vertex_input_desc.vi_info;
+        pipeline_desc.pInputAssemblyState = &vertex_input_desc.ia_info;
         pipeline_desc.pTessellationState = &tessellation_info;
     }
 
