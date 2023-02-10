@@ -1690,6 +1690,26 @@ struct vkd3d_shader_debug_ring_spec_constants
     uint32_t ring_words;
 };
 
+#define VKD3D_MAX_VERTEX_INPUT_DYNAMIC_STATES (3u)
+#define VKD3D_VERTEX_INPUT_DYNAMIC_STATE_MASK (VKD3D_DYNAMIC_STATE_TOPOLOGY |\
+                VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE |\
+                VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART)
+
+struct vkd3d_vertex_input_pipeline_desc
+{
+    VkVertexInputBindingDivisorDescriptionEXT vi_divisors[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+    VkPipelineVertexInputDivisorStateCreateInfoEXT vi_divisor_info;
+
+    VkVertexInputAttributeDescription vi_attributes[D3D12_VS_INPUT_REGISTER_COUNT];
+    VkVertexInputBindingDescription vi_bindings[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+    VkPipelineVertexInputStateCreateInfo vi_info;
+
+    VkPipelineInputAssemblyStateCreateInfo ia_info;
+
+    VkDynamicState dy_states[VKD3D_MAX_VERTEX_INPUT_DYNAMIC_STATES];
+    VkPipelineDynamicStateCreateInfo dy_info;
+};
+
 #define VKD3D_SHADER_DEBUG_RING_SPEC_INFO_MAP_ENTRIES 4
 struct vkd3d_shader_debug_ring_spec_info
 {
