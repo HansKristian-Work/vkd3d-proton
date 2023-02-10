@@ -227,6 +227,18 @@ static inline uint32_t hash_uint64(uint64_t n)
     return hash_combine((uint32_t)n, (uint32_t)(n >> 32));
 }
 
+static inline uint32_t hash_data(const void *data, size_t size)
+{
+    const uint32_t *input = (const uint32_t*)data;
+    uint32_t hash = 0;
+    size_t i;
+
+    for (i = 0; i < size / sizeof(*input); i++)
+        hash = hash_combine(hash, input[i]);
+
+    return hash;
+}
+
 /* A somewhat stronger hash when we're meant to store the hash (pipeline caches, etc). Based on FNV-1a. */
 static inline uint64_t hash_fnv1_init()
 {
