@@ -3663,6 +3663,40 @@ interface ID3D12GraphicsCommandList6 : ID3D12GraphicsCommandList5
     void DispatchMesh(UINT x, UINT y, UINT z);
 }
 
+[
+    uuid(dd171223-8b61-4769-90e3-160ccde4e2c1),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12GraphicsCommandList7 : ID3D12GraphicsCommandList6
+{
+    void Barrier(UINT32 NumBarrierGroups, const void *pBarrierGroups);
+}
+
+[
+    uuid(ee936ef9-599d-4d28-938e-23c4ad05ce51),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12GraphicsCommandList8 : ID3D12GraphicsCommandList7
+{
+    void OMSetFrontAndBackStencilRef(UINT FrontStencilRef, UINT BackStencilRef);
+}
+
+[
+    uuid(34ed2808-ffe6-4c2b-b11a-cabd2b0c59e1),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12GraphicsCommandList9 : ID3D12GraphicsCommandList8
+{
+    void RSSetDepthBias(FLOAT DepthBias, FLOAT DepthBiasClamp, FLOAT SlopeScaledDepthBias);
+    void IASetIndexBufferStripCutValue(D3D12_INDEX_BUFFER_STRIP_CUT_VALUE IBStripCutValue);
+}
+
 typedef enum D3D12_TILE_RANGE_FLAGS
 {
     D3D12_TILE_RANGE_FLAG_NONE = 0x0,
@@ -4210,6 +4244,50 @@ interface ID3D12Device9 : ID3D12Device8
 
     HRESULT CreateCommandQueue1(const D3D12_COMMAND_QUEUE_DESC *desc,
             REFIID creator_id, REFIID riid, void **command_queue);
+}
+
+typedef enum D3D12_BARRIER_LAYOUT
+{
+    D3D12_BARRIER_LAYOUT_UNDEFINED = 0xFFFFFFFF
+} D3D12_BARRIER_LAYOUT;
+
+[
+    uuid(517f8718-aa66-49f9-b02b-a7ab89c06031),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12Device10 : ID3D12Device9
+{
+    HRESULT CreateCommittedResource3(const D3D12_HEAP_PROPERTIES *heap_properties,
+        D3D12_HEAP_FLAGS heap_flags,
+        const D3D12_RESOURCE_DESC1 *desc,
+        D3D12_BARRIER_LAYOUT initial_layout,
+        const D3D12_CLEAR_VALUE *optimized_clear_value,
+        ID3D12ProtectedResourceSession *protected_session,
+        UINT32 num_castable_formats,
+        DXGI_FORMAT *castable_formats,
+        REFIID iid,
+        void **resource);
+
+    HRESULT CreatePlacedResource2(ID3D12Heap *heap,
+        UINT64 heap_offset,
+        const D3D12_RESOURCE_DESC1 *desc,
+        D3D12_BARRIER_LAYOUT initial_layout,
+        const D3D12_CLEAR_VALUE *optimized_clear_value,
+        UINT32 num_castable_formats,
+        DXGI_FORMAT *castable_formats,
+        REFIID iid,
+        void **resource);
+
+    HRESULT CreateReservedResource2(const D3D12_RESOURCE_DESC *desc,
+        D3D12_BARRIER_LAYOUT initial_layout,
+        const D3D12_CLEAR_VALUE *optimized_clear_value,
+        ID3D12ProtectedResourceSession *protected_session,
+        UINT32 num_castable_formats,
+        DXGI_FORMAT *castable_formats,
+        REFIID iid,
+        void **resource);
 }
 [
     uuid(34ab647b-3cc8-46ac-841b-c0965645c046),
