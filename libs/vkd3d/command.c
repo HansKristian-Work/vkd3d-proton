@@ -4582,6 +4582,9 @@ HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_i
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList4)
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList5)
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList6)
+            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList7)
+            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList8)
+            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList9)
             || IsEqualGUID(iid, &IID_ID3D12CommandList)
             || IsEqualGUID(iid, &IID_ID3D12DeviceChild)
             || IsEqualGUID(iid, &IID_ID3D12Object)
@@ -12001,7 +12004,31 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchMesh(d3d12_command_list
         VK_CALL(vkCmdDrawMeshTasksIndirectEXT(list->vk_command_buffer, scratch.buffer, scratch.offset, 1, 0));
 }
 
-static CONST_VTBL struct ID3D12GraphicsCommandList6Vtbl d3d12_command_list_vtbl =
+static void STDMETHODCALLTYPE d3d12_command_list_Barrier(d3d12_command_list_iface *iface, UINT32 NumBarrierGroups, const void *pBarrierGroups)
+{
+    FIXME("iface %p, NumBarrierGroups %u, D3D12_BARRIER_GROUP %p stub!\n", 
+        iface, NumBarrierGroups, pBarrierGroups);
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_OMSetFrontAndBackStencilRef(d3d12_command_list_iface *iface, UINT FrontStencilRef, UINT BackStencilRef)
+{
+    FIXME("iface %p, FrontStencilRef %u, BackStencilRef %u stub!\n", 
+        iface, FrontStencilRef, BackStencilRef);
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_RSSetDepthBias(d3d12_command_list_iface *iface, FLOAT DepthBias, FLOAT DepthBiasClamp, FLOAT SlopeScaledDepthBias)
+{
+    FIXME("iface %p, DepthBias %f, DepthBiasClamp %f, SlopeScaledDepthBias %f stub!\n", 
+        iface, DepthBias, DepthBiasClamp, SlopeScaledDepthBias);
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBufferStripCutValue(d3d12_command_list_iface *iface, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE IBStripCutValue)
+{
+    FIXME("iface %p, IBStripCutValue %u stub!\n", 
+        iface, IBStripCutValue);
+}
+
+static CONST_VTBL struct ID3D12GraphicsCommandList9Vtbl d3d12_command_list_vtbl =
 {
     /* IUnknown methods */
     d3d12_command_list_QueryInterface,
@@ -12094,6 +12121,13 @@ static CONST_VTBL struct ID3D12GraphicsCommandList6Vtbl d3d12_command_list_vtbl 
     d3d12_command_list_RSSetShadingRateImage,
     /* ID3D12GraphicsCommandList6 methods */
     d3d12_command_list_DispatchMesh,
+    /* ID3D12GraphicsCommandList7 methods */
+    d3d12_command_list_Barrier,
+    /* ID3D12GraphicsCommandList8 methods */
+    d3d12_command_list_OMSetFrontAndBackStencilRef,
+    /* ID3D12GraphicsCommandList9 methods */
+    d3d12_command_list_RSSetDepthBias,
+    d3d12_command_list_IASetIndexBufferStripCutValue,
 };
 
 #ifdef VKD3D_ENABLE_PROFILING

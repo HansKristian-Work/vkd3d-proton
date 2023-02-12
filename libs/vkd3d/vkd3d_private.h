@@ -2229,7 +2229,7 @@ struct vkd3d_dynamic_state
 };
 
 /* ID3D12CommandList */
-typedef ID3D12GraphicsCommandList6 d3d12_command_list_iface;
+typedef ID3D12GraphicsCommandList9 d3d12_command_list_iface;
 
 enum vkd3d_initial_transition_type
 {
@@ -3811,7 +3811,7 @@ struct vkd3d_cached_command_allocator
 };
 
 /* ID3D12Device */
-typedef ID3D12Device9 d3d12_device_iface;
+typedef ID3D12Device10 d3d12_device_iface;
 
 struct vkd3d_descriptor_qa_global_info;
 struct vkd3d_descriptor_qa_heap_buffer_data;
@@ -3914,9 +3914,9 @@ static inline struct d3d12_device *unsafe_impl_from_ID3D12Device(d3d12_device_if
 
 static inline struct d3d12_device *impl_from_ID3D12Device(d3d12_device_iface *iface)
 {
-    extern CONST_VTBL struct ID3D12Device9Vtbl d3d12_device_vtbl;
+    extern CONST_VTBL struct ID3D12Device10Vtbl d3d12_device_vtbl;
 #ifdef VKD3D_ENABLE_PROFILING
-    extern CONST_VTBL struct ID3D12Device9Vtbl d3d12_device_vtbl_profiled;
+    extern CONST_VTBL struct ID3D12Device10Vtbl d3d12_device_vtbl_profiled;
 #endif
     if (!iface)
         return NULL;
@@ -3975,17 +3975,17 @@ static inline const struct vkd3d_memory_info_domain *d3d12_device_get_memory_inf
 
 static inline HRESULT d3d12_device_query_interface(struct d3d12_device *device, REFIID iid, void **object)
 {
-    return ID3D12Device9_QueryInterface(&device->ID3D12Device_iface, iid, object);
+    return ID3D12Device10_QueryInterface(&device->ID3D12Device_iface, iid, object);
 }
 
 static inline ULONG d3d12_device_add_ref(struct d3d12_device *device)
 {
-    return ID3D12Device9_AddRef(&device->ID3D12Device_iface);
+    return ID3D12Device10_AddRef(&device->ID3D12Device_iface);
 }
 
 static inline ULONG d3d12_device_release(struct d3d12_device *device)
 {
-    return ID3D12Device9_Release(&device->ID3D12Device_iface);
+    return ID3D12Device10_Release(&device->ID3D12Device_iface);
 }
 
 static inline unsigned int d3d12_device_get_descriptor_handle_increment_size(
