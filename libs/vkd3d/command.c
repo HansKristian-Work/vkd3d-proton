@@ -9345,6 +9345,11 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
         layer_count = args->u.view->info.texture.vk_view_type == VK_IMAGE_VIEW_TYPE_3D
                 ? d3d12_resource_desc_get_depth(&resource->desc, miplevel_idx)
                 : args->u.view->info.texture.layer_count;
+
+        /* Robustness would take care of it, but no reason to spam more threads than needed. */
+        if (args->u.view->info.texture.vk_view_type == VK_IMAGE_VIEW_TYPE_3D)
+            layer_count = min(layer_count, args->u.view->info.texture.w_size - args->u.view->info.texture.w_offset);
+
         pipeline = vkd3d_meta_get_clear_image_uav_pipeline(
                 &list->device->meta_ops, args->u.view->info.texture.vk_view_type,
                 args->u.view->format->type == VKD3D_FORMAT_TYPE_UINT);
@@ -9559,11 +9564,24 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     copy_region.bufferOffset = scratch.offset;
     copy_region.bufferRowLength = 0;
     copy_region.bufferImageHeight = 0;
-    copy_region.imageOffset.z = 0;
-    copy_region.imageExtent.depth = d3d12_resource_desc_get_depth(&resource->desc, miplevel_idx);
+
     copy_region.imageSubresource = vk_subresource_layers_from_view(args->u.view);
-    base_layer = copy_region.imageSubresource.baseArrayLayer;
-    layer_count = copy_region.imageSubresource.layerCount;
+
+    if (args->u.view->info.texture.vk_view_type == VK_IMAGE_VIEW_TYPE_3D)
+    {
+        base_layer = args->u.view->info.texture.w_offset;
+        layer_count = d3d12_resource_desc_get_depth(&resource->desc, miplevel_idx);
+        layer_count = min(layer_count, args->u.view->info.texture.w_size - args->u.view->info.texture.w_offset);
+    }
+    else
+    {
+        copy_region.imageOffset.z = 0;
+        base_layer = copy_region.imageSubresource.baseArrayLayer;
+        layer_count = copy_region.imageSubresource.layerCount;
+    }
+
+    copy_region.imageExtent.depth = 1;
+    copy_region.imageSubresource.layerCount = 1;
 
     copy_info.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2_KHR;
     copy_info.pNext = NULL;
@@ -9596,8 +9614,11 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
 
         for (j = 0; j < layer_count; j++)
         {
-            copy_region.imageSubresource.baseArrayLayer = base_layer + j;
-            copy_region.imageSubresource.layerCount = 1;
+            if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+                copy_region.imageOffset.z = base_layer + j;
+            else
+                copy_region.imageSubresource.baseArrayLayer = base_layer + j;
+
             VK_CALL(vkCmdCopyBufferToImage2KHR(list->vk_command_buffer, &copy_info));
         }
     }
@@ -9873,6 +9894,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
             view_desc.miplevel_count = 1;
             view_desc.layer_idx = base_view->info.texture.layer_idx;
             view_desc.layer_count = base_view->info.texture.layer_count;
+            view_desc.w_offset = base_view->info.texture.w_offset;
+            view_desc.w_size = base_view->info.texture.w_size;
             view_desc.aspect_mask = view_desc.format->vk_aspect_mask;
             view_desc.image_usage = VK_IMAGE_USAGE_STORAGE_BIT;
             view_desc.allowed_swizzle = false;

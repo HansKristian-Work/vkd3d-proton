@@ -859,6 +859,8 @@ static uint32_t vkd3d_view_entry_hash(const void *key)
             hash = hash_combine(hash, float_bits_to_uint32(k->u.texture.miplevel_clamp));
             hash = hash_combine(hash, k->u.texture.layer_idx);
             hash = hash_combine(hash, k->u.texture.layer_count);
+            hash = hash_combine(hash, k->u.texture.w_offset);
+            hash = hash_combine(hash, k->u.texture.w_size);
             hash = hash_combine(hash, k->u.texture.components.r);
             hash = hash_combine(hash, k->u.texture.components.g);
             hash = hash_combine(hash, k->u.texture.components.b);
@@ -920,6 +922,8 @@ static bool vkd3d_view_entry_compare(const void *key, const struct hash_map_entr
                     k->u.texture.miplevel_clamp == e->key.u.texture.miplevel_clamp &&
                     k->u.texture.layer_idx == e->key.u.texture.layer_idx &&
                     k->u.texture.layer_count == e->key.u.texture.layer_count &&
+                    k->u.texture.w_offset == e->key.u.texture.w_offset &&
+                    k->u.texture.w_size == e->key.u.texture.w_size &&
                     k->u.texture.components.r == e->key.u.texture.components.r &&
                     k->u.texture.components.g == e->key.u.texture.components.g &&
                     k->u.texture.components.b == e->key.u.texture.components.b &&
@@ -3914,6 +3918,8 @@ static bool init_default_texture_view_desc(struct vkd3d_texture_view_desc *desc,
     desc->layer_idx = 0;
     desc->layer_count = d3d12_resource_desc_get_layer_count(&resource->desc);
     desc->image_usage = 0;
+    desc->w_offset = 0;
+    desc->w_size = UINT_MAX;
 
     switch (resource->desc.Dimension)
     {
@@ -3951,6 +3957,7 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_t
     VkImageViewUsageCreateInfo image_usage_create_info;
     const struct vkd3d_format *format = desc->format;
     VkImageViewMinLodCreateInfoEXT min_lod_desc;
+    VkImageViewSlicedCreateInfoEXT sliced_desc;
     VkImageView vk_view = VK_NULL_HANDLE;
     VkImageViewCreateInfo view_desc;
     struct vkd3d_view *object;
@@ -4004,6 +4011,17 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_t
         image_usage_create_info.usage = desc->image_usage;
         vk_prepend_struct(&view_desc, &image_usage_create_info);
 
+        if (desc->view_type == VK_IMAGE_VIEW_TYPE_3D &&
+                (desc->w_offset != 0 || desc->w_size != VK_REMAINING_3D_SLICES_EXT) &&
+                device->device_info.image_sliced_view_of_3d_features.imageSlicedViewOf3D)
+        {
+            sliced_desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_SLICED_CREATE_INFO_EXT;
+            sliced_desc.pNext = NULL;
+            sliced_desc.sliceOffset = desc->w_offset;
+            sliced_desc.sliceCount = desc->w_size;
+            vk_prepend_struct(&view_desc, &sliced_desc);
+        }
+
         if ((vr = VK_CALL(vkCreateImageView(device->vk_device, &view_desc, NULL, &vk_view))) < 0)
         {
             WARN("Failed to create Vulkan image view, vr %d.\n", vr);
@@ -4023,6 +4041,8 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_t
     object->info.texture.miplevel_idx = desc->miplevel_idx;
     object->info.texture.layer_idx = desc->layer_idx;
     object->info.texture.layer_count = desc->layer_count;
+    object->info.texture.w_offset = desc->w_offset;
+    object->info.texture.w_size = desc->w_size;
     *view = object;
     return true;
 }
@@ -5089,12 +5109,17 @@ static void vkd3d_create_texture_uav(vkd3d_cpu_descriptor_va_t desc_va,
             case D3D12_UAV_DIMENSION_TEXTURE3D:
                 key.u.texture.view_type = VK_IMAGE_VIEW_TYPE_3D;
                 key.u.texture.miplevel_idx = desc->Texture3D.MipSlice;
-                if (desc->Texture3D.FirstWSlice ||
-                    ((desc->Texture3D.WSize != max(1u, (UINT)resource->desc.DepthOrArraySize >> desc->Texture3D.MipSlice)) &&
-                        (desc->Texture3D.WSize != UINT_MAX)))
+                key.u.texture.w_offset = desc->Texture3D.FirstWSlice;
+                key.u.texture.w_size = desc->Texture3D.WSize;
+                if (!device->device_info.image_sliced_view_of_3d_features.imageSlicedViewOf3D)
                 {
-                    FIXME("Unhandled depth view %u-%u.\n",
-                          desc->Texture3D.FirstWSlice, desc->Texture3D.WSize);
+                    if (desc->Texture3D.FirstWSlice ||
+                        ((desc->Texture3D.WSize != max(1u, (UINT)resource->desc.DepthOrArraySize >> desc->Texture3D.MipSlice)) &&
+                            desc->Texture3D.WSize != UINT_MAX))
+                    {
+                        FIXME("Unhandled depth view %u-%u.\n",
+                                desc->Texture3D.FirstWSlice, desc->Texture3D.WSize);
+                    }
                 }
                 break;
             default:

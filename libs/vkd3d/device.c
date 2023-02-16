@@ -128,6 +128,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_SHADER_MODULE_IDENTIFIER, EXT_shader_module_identifier),
     VK_EXTENSION(EXT_DESCRIPTOR_BUFFER, EXT_descriptor_buffer),
     VK_EXTENSION_COND(EXT_PIPELINE_LIBRARY_GROUP_HANDLES, EXT_pipeline_library_group_handles, VKD3D_CONFIG_FLAG_DXR),
+    VK_EXTENSION(EXT_IMAGE_SLICED_VIEW_OF_3D, EXT_image_sliced_view_of_3d),
     /* AMD extensions */
     VK_EXTENSION(AMD_BUFFER_MARKER, AMD_buffer_marker),
     VK_EXTENSION(AMD_DEVICE_COHERENT_MEMORY, AMD_device_coherent_memory),
@@ -1600,6 +1601,13 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->pipeline_library_group_handles_features.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_LIBRARY_GROUP_HANDLES_FEATURES_EXT;
         vk_prepend_struct(&info->features2, &info->pipeline_library_group_handles_features);
+    }
+
+    if (vulkan_info->EXT_image_sliced_view_of_3d)
+    {
+        info->image_sliced_view_of_3d_features.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_SLICED_VIEW_OF_3D_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->image_sliced_view_of_3d_features);
     }
 
     /* Core in Vulkan 1.1. */
