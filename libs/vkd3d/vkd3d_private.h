@@ -175,6 +175,7 @@ struct vkd3d_vulkan_info
     bool EXT_shader_module_identifier;
     bool EXT_descriptor_buffer;
     bool EXT_pipeline_library_group_handles;
+    bool EXT_image_sliced_view_of_3d;
     /* AMD device extensions */
     bool AMD_buffer_marker;
     bool AMD_device_coherent_memory;
@@ -1089,6 +1090,8 @@ struct vkd3d_view
             unsigned int miplevel_idx;
             unsigned int layer_idx;
             unsigned int layer_count;
+            unsigned int w_offset;
+            unsigned int w_size;
         } texture;
     } info;
 };
@@ -1115,6 +1118,8 @@ struct vkd3d_texture_view_desc
     unsigned int miplevel_count;
     unsigned int layer_idx;
     unsigned int layer_count;
+    unsigned int w_offset;
+    unsigned int w_size;
     float miplevel_clamp;
     VkComponentMapping components;
     bool allowed_swizzle;
@@ -3754,6 +3759,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDevicePresentWaitFeaturesKHR present_wait_features;
     VkPhysicalDeviceDescriptorBufferFeaturesEXT descriptor_buffer_features;
     VkPhysicalDevicePipelineLibraryGroupHandlesFeaturesEXT pipeline_library_group_handles_features;
+    VkPhysicalDeviceImageSlicedViewOf3DFeaturesEXT image_sliced_view_of_3d_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
