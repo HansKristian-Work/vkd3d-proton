@@ -4252,7 +4252,7 @@ static HRESULT d3d12_pipeline_state_init_static_pipeline(struct d3d12_pipeline_s
     if (can_compile_pipeline_early)
     {
         if (!(graphics->pipeline = d3d12_pipeline_state_create_pipeline_variant(state, NULL, graphics->dsv_format,
-                state->vk_pso_cache, &graphics->dynamic_state_flags)))
+                state->vk_pso_cache, 0, &graphics->dynamic_state_flags)))
             return E_OUTOFMEMORY;
     }
     else
@@ -4607,7 +4607,7 @@ static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_sta
 
 VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_state *state,
         const struct vkd3d_pipeline_key *key, const struct vkd3d_format *dsv_format, VkPipelineCache vk_cache,
-        uint32_t *dynamic_state_flags)
+        VkGraphicsPipelineLibraryFlagsEXT library_flags, uint32_t *dynamic_state_flags)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &state->device->vk_procs;
     VkDynamicState dynamic_state_buffer[ARRAY_SIZE(vkd3d_dynamic_state_list)];
@@ -4615,8 +4615,10 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     VkPipelineCreationFeedbackEXT feedbacks[VKD3D_MAX_SHADER_STAGES];
     struct vkd3d_fragment_output_pipeline_desc fragment_output_desc;
     VkPipelineShaderStageCreateInfo stages[VKD3D_MAX_SHADER_STAGES];
+    VkGraphicsPipelineLibraryCreateInfoEXT library_create_info;
     struct vkd3d_vertex_input_pipeline_desc vertex_input_desc;
     VkPipelineTessellationStateCreateInfo tessellation_info;
+    bool has_vertex_input_state, has_fragment_output_state;
     VkPipelineCreationFeedbackCreateInfoEXT feedback_info;
     VkPipelineDynamicStateCreateInfo dynamic_create_info;
     struct d3d12_device *device = state->device;
@@ -4631,6 +4633,11 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
 
     *dynamic_state_flags = d3d12_graphics_pipeline_state_init_dynamic_state(state, &dynamic_create_info,
             dynamic_state_buffer, key);
+
+    has_vertex_input_state = !(graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT) &&
+            (!library_flags || (library_flags & VK_GRAPHICS_PIPELINE_LIBRARY_VERTEX_INPUT_INTERFACE_BIT_EXT));
+
+    has_fragment_output_state = !library_flags || (library_flags & VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_OUTPUT_INTERFACE_BIT_EXT);
 
     if (!(graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT))
     {
@@ -4663,9 +4670,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     pipeline_desc.pStages = graphics->stages;
     pipeline_desc.pViewportState = &vp_desc;
     pipeline_desc.pRasterizationState = &graphics->rs_desc;
-    pipeline_desc.pMultisampleState = &graphics->ms_desc;
     pipeline_desc.pDepthStencilState = &graphics->ds_desc;
-    pipeline_desc.pColorBlendState = &fragment_output_desc.cb_info;
     pipeline_desc.pDynamicState = &dynamic_create_info;
     pipeline_desc.layout = graphics->pipeline_layout;
     pipeline_desc.basePipelineIndex = -1;
@@ -4673,11 +4678,35 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     if (d3d12_device_supports_variable_shading_rate_tier_2(device))
         pipeline_desc.flags |= VK_PIPELINE_CREATE_RENDERING_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
 
-    if (!(graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT))
+    if (graphics->stage_flags & VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT)
+        pipeline_desc.pTessellationState = &tessellation_info;
+
+    if (has_vertex_input_state)
     {
         pipeline_desc.pVertexInputState = &vertex_input_desc.vi_info;
         pipeline_desc.pInputAssemblyState = &vertex_input_desc.ia_info;
-        pipeline_desc.pTessellationState = &tessellation_info;
+    }
+
+    if (has_fragment_output_state || graphics->ms_desc.sampleShadingEnable)
+        pipeline_desc.pMultisampleState = &graphics->ms_desc;
+
+    if (has_fragment_output_state)
+        pipeline_desc.pColorBlendState = &fragment_output_desc.cb_info;
+
+    if (library_flags)
+    {
+        TRACE("Compiling pipeline library for %p with flags %#x.\n", state, library_flags);
+
+        library_create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_LIBRARY_CREATE_INFO_EXT;
+        /* Explicit cast to silence a constness warning, this seems to be a Vulkan header bug */
+        library_create_info.pNext = (void*)pipeline_desc.pNext;
+        library_create_info.flags = library_flags;
+
+        pipeline_desc.pNext = &library_create_info;
+        pipeline_desc.flags |= VK_PIPELINE_CREATE_LIBRARY_BIT_KHR |
+                VK_PIPELINE_CREATE_RETAIN_LINK_TIME_OPTIMIZATION_INFO_BIT_EXT;
+
+        graphics->library_flags = library_flags;
     }
 
     /* A workaround for SottR, which creates pipelines with DSV_UNKNOWN, but still insists on using a depth buffer.
@@ -4879,7 +4908,7 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     FIXME("Compiling a fallback pipeline late!\n");
 
     vk_pipeline = d3d12_pipeline_state_create_pipeline_variant(state,
-            &pipeline_key, dsv_format, VK_NULL_HANDLE, dynamic_state_flags);
+            &pipeline_key, dsv_format, VK_NULL_HANDLE, 0, dynamic_state_flags);
 
     if (!vk_pipeline)
     {
