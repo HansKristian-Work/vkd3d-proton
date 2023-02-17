@@ -3402,6 +3402,67 @@ void vkd3d_vertex_input_pipeline_desc_prepare(struct vkd3d_vertex_input_pipeline
         desc->dy_info.pDynamicStates = desc->dy_states;
 }
 
+uint32_t vkd3d_vertex_input_pipeline_desc_hash(const void *key)
+{
+    return hash_data(key, sizeof(struct vkd3d_vertex_input_pipeline_desc));
+}
+
+bool vkd3d_vertex_input_pipeline_desc_compare(const void *key, const struct hash_map_entry *entry)
+{
+    const struct vkd3d_vertex_input_pipeline *pipeline = (const void*)entry;
+    const struct vkd3d_vertex_input_pipeline_desc *desc = key;
+    return !memcmp(desc, &pipeline->desc, sizeof(*desc));
+}
+
+VkPipeline vkd3d_vertex_input_pipeline_create(struct d3d12_device *device,
+        const struct vkd3d_vertex_input_pipeline_desc *desc)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkGraphicsPipelineLibraryCreateInfoEXT library_create_info;
+    struct vkd3d_vertex_input_pipeline_desc desc_copy = *desc;
+    VkGraphicsPipelineCreateInfo create_info;
+    VkPipeline vk_pipeline;
+    VkResult vr;
+
+    vkd3d_vertex_input_pipeline_desc_prepare(&desc_copy);
+
+    memset(&library_create_info, 0, sizeof(library_create_info));
+    library_create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_LIBRARY_CREATE_INFO_EXT;
+    library_create_info.flags = VK_GRAPHICS_PIPELINE_LIBRARY_VERTEX_INPUT_INTERFACE_BIT_EXT;
+
+    memset(&create_info, 0, sizeof(create_info));
+    create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    create_info.pNext = &library_create_info;
+    create_info.flags = VK_PIPELINE_CREATE_LIBRARY_BIT_KHR | VK_PIPELINE_CREATE_RETAIN_LINK_TIME_OPTIMIZATION_INFO_BIT_EXT;
+    create_info.pInputAssemblyState = &desc_copy.ia_info;
+    create_info.pVertexInputState = &desc_copy.vi_info;
+    create_info.pDynamicState = &desc_copy.dy_info;
+    create_info.basePipelineIndex = -1;
+
+    if (d3d12_device_uses_descriptor_buffers(device))
+        create_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+
+    if ((vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device,
+            VK_NULL_HANDLE, 1, &create_info, NULL, &vk_pipeline))))
+    {
+        ERR("Failed to create vertex input pipeline, vr %d.\n", vr);
+        return VK_NULL_HANDLE;
+    }
+
+    return vk_pipeline;
+}
+
+void vkd3d_vertex_input_pipeline_free(struct hash_map_entry *entry, void *userdata)
+{
+    const struct vkd3d_vertex_input_pipeline *pipeline = (const void*)entry;
+    const struct vkd3d_vk_device_procs *vk_procs;
+    struct d3d12_device *device = userdata;
+
+    vk_procs = &device->vk_procs;
+
+    VK_CALL(vkDestroyPipeline(device->vk_device, pipeline->vk_pipeline, NULL));
+}
+
 void vkd3d_fragment_output_pipeline_desc_init(struct vkd3d_fragment_output_pipeline_desc *desc,
         struct d3d12_pipeline_state *state, const struct vkd3d_format *dsv_format, uint32_t dynamic_state_flags)
 {
@@ -3456,6 +3517,70 @@ void vkd3d_fragment_output_pipeline_desc_prepare(struct vkd3d_fragment_output_pi
 
     if (desc->dy_info.dynamicStateCount)
         desc->dy_info.pDynamicStates = desc->dy_states;
+}
+
+uint32_t vkd3d_fragment_output_pipeline_desc_hash(const void *key)
+{
+    return hash_data(key, sizeof(struct vkd3d_fragment_output_pipeline_desc));
+}
+
+bool vkd3d_fragment_output_pipeline_desc_compare(const void *key, const struct hash_map_entry *entry)
+{
+    const struct vkd3d_fragment_output_pipeline *pipeline = (const void*)entry;
+    const struct vkd3d_fragment_output_pipeline_desc *desc = key;
+    /* We zero-initialize these structs and pointers are
+     * NULL during lookup, so using a memcmp is fine */
+    return !memcmp(desc, &pipeline->desc, sizeof(*desc));
+}
+
+VkPipeline vkd3d_fragment_output_pipeline_create(struct d3d12_device *device,
+        const struct vkd3d_fragment_output_pipeline_desc *desc)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_fragment_output_pipeline_desc desc_copy = *desc;
+    VkGraphicsPipelineLibraryCreateInfoEXT library_create_info;
+    VkGraphicsPipelineCreateInfo create_info;
+    VkPipeline vk_pipeline;
+    VkResult vr;
+
+    vkd3d_fragment_output_pipeline_desc_prepare(&desc_copy);
+
+    memset(&library_create_info, 0, sizeof(library_create_info));
+    library_create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_LIBRARY_CREATE_INFO_EXT;
+    library_create_info.pNext = &desc_copy.rt_info;
+    library_create_info.flags = VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_OUTPUT_INTERFACE_BIT_EXT;
+
+    memset(&create_info, 0, sizeof(create_info));
+    create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    create_info.pNext = &library_create_info;
+    create_info.flags = VK_PIPELINE_CREATE_LIBRARY_BIT_KHR | VK_PIPELINE_CREATE_RETAIN_LINK_TIME_OPTIMIZATION_INFO_BIT_EXT;
+    create_info.pColorBlendState = &desc_copy.cb_info;
+    create_info.pMultisampleState = &desc_copy.ms_info;
+    create_info.pDynamicState = &desc_copy.dy_info;
+    create_info.basePipelineIndex = -1;
+
+    if (d3d12_device_uses_descriptor_buffers(device))
+        create_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+
+    if ((vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device,
+            VK_NULL_HANDLE, 1, &create_info, NULL, &vk_pipeline))))
+    {
+        ERR("Failed to create vertex input pipeline, vr %d.\n", vr);
+        return VK_NULL_HANDLE;
+    }
+
+    return vk_pipeline;
+}
+
+void vkd3d_fragment_output_pipeline_free(struct hash_map_entry *entry, void *userdata)
+{
+    const struct vkd3d_fragment_output_pipeline *pipeline = (const void*)entry;
+    const struct vkd3d_vk_device_procs *vk_procs;
+    struct d3d12_device *device = userdata;
+
+    vk_procs = &device->vk_procs;
+
+    VK_CALL(vkDestroyPipeline(device->vk_device, pipeline->vk_pipeline, NULL));
 }
 
 uint32_t d3d12_graphics_pipeline_state_get_dynamic_state_flags(struct d3d12_pipeline_state *state,

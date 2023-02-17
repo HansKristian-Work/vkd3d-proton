@@ -3041,6 +3041,16 @@ static ULONG STDMETHODCALLTYPE d3d12_device_AddRef(d3d12_device_iface *iface)
     return refcount;
 }
 
+static void d3d12_device_free_pipeline_libraries(struct d3d12_device *device)
+{
+    hash_map_iter(&device->vertex_input_pipelines, vkd3d_vertex_input_pipeline_free, device);
+    hash_map_free(&device->vertex_input_pipelines);
+
+    hash_map_iter(&device->fragment_output_pipelines, vkd3d_fragment_output_pipeline_free, device);
+    hash_map_free(&device->fragment_output_pipelines);
+}
+
+
 static void d3d12_device_destroy(struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -3076,6 +3086,7 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     vkd3d_memory_allocator_cleanup(&device->memory_allocator, device);
     vkd3d_memory_transfer_queue_cleanup(&device->memory_transfers);
     vkd3d_global_descriptor_buffer_cleanup(&device->global_descriptor_buffer, device);
+    d3d12_device_free_pipeline_libraries(device);
     /* Tear down descriptor global info late, so we catch last minute faults after we drain the queues. */
     vkd3d_descriptor_debug_free_global_info(device->descriptor_qa_global_info, device);
 
@@ -3085,6 +3096,8 @@ static void d3d12_device_destroy(struct d3d12_device *device)
 #endif
 
     VK_CALL(vkDestroyDevice(device->vk_device, NULL));
+    rwlock_destroy(&device->fragment_output_lock);
+    rwlock_destroy(&device->vertex_input_lock);
     pthread_mutex_destroy(&device->mutex);
     if (device->parent)
         IUnknown_Release(device->parent);
@@ -6897,8 +6910,20 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     
     device->ID3D12DeviceExt_iface.lpVtbl = &d3d12_device_vkd3d_ext_vtbl;
 
-    if (FAILED(hr = vkd3d_create_vk_device(device, create_info)))
+    if ((rc = rwlock_init(&device->vertex_input_lock)))
+    {
+        hr = hresult_from_errno(rc);
         goto out_free_mutex;
+    }
+
+    if ((rc = rwlock_init(&device->fragment_output_lock)))
+    {
+        hr = hresult_from_errno(rc);
+        goto out_free_vertex_input_lock;
+    }
+
+    if (FAILED(hr = vkd3d_create_vk_device(device, create_info)))
+        goto out_free_fragment_output_lock;
 
     if (FAILED(hr = vkd3d_private_store_init(&device->private_store)))
         goto out_free_vk_resources;
@@ -6945,6 +6970,16 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
                 VKD3D_DESCRIPTOR_DEBUG_DEFAULT_NUM_COOKIES, device)))
             goto out_cleanup_breadcrumb_tracer;
     }
+
+    hash_map_init(&device->vertex_input_pipelines,
+            vkd3d_vertex_input_pipeline_desc_hash,
+            vkd3d_vertex_input_pipeline_desc_compare,
+            sizeof(struct vkd3d_vertex_input_pipeline));
+
+    hash_map_init(&device->fragment_output_pipelines,
+            vkd3d_fragment_output_pipeline_desc_hash,
+            vkd3d_fragment_output_pipeline_desc_compare,
+            sizeof(struct vkd3d_fragment_output_pipeline));
 
     if ((device->parent = create_info->parent))
         IUnknown_AddRef(device->parent);
@@ -6999,6 +7034,10 @@ out_free_vk_resources:
     VK_CALL(vkDestroyDevice(device->vk_device, NULL));
 out_free_instance:
     vkd3d_instance_decref(device->vkd3d_instance);
+out_free_fragment_output_lock:
+    rwlock_destroy(&device->fragment_output_lock);
+out_free_vertex_input_lock:
+    rwlock_destroy(&device->vertex_input_lock);
 out_free_mutex:
     pthread_mutex_destroy(&device->mutex);
     return hr;
@@ -7164,6 +7203,70 @@ void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
     va_end(args);
 
     device->removed_reason = reason;
+}
+
+VkPipeline d3d12_device_get_or_create_vertex_input_pipeline(struct d3d12_device *device,
+        const struct vkd3d_vertex_input_pipeline_desc *desc)
+{
+    struct vkd3d_vertex_input_pipeline pipeline, *entry;
+
+    memset(&pipeline, 0, sizeof(pipeline));
+
+    rwlock_lock_read(&device->vertex_input_lock);
+    entry = (void*)hash_map_find(&device->vertex_input_pipelines, desc);
+
+    if (entry)
+        pipeline.vk_pipeline = entry->vk_pipeline;
+
+    rwlock_unlock_read(&device->vertex_input_lock);
+
+    if (!pipeline.vk_pipeline)
+    {
+        rwlock_lock_write(&device->vertex_input_lock);
+        pipeline.desc = *desc;
+
+        entry = (void*)hash_map_insert(&device->vertex_input_pipelines, desc, &pipeline.entry);
+
+        if (!entry->vk_pipeline)
+            entry->vk_pipeline = vkd3d_vertex_input_pipeline_create(device, desc);
+
+        pipeline.vk_pipeline = entry->vk_pipeline;
+        rwlock_unlock_write(&device->vertex_input_lock);
+    }
+
+    return pipeline.vk_pipeline;
+}
+
+VkPipeline d3d12_device_get_or_create_fragment_output_pipeline(struct d3d12_device *device,
+        const struct vkd3d_fragment_output_pipeline_desc *desc)
+{
+    struct vkd3d_fragment_output_pipeline pipeline, *entry;
+
+    memset(&pipeline, 0, sizeof(pipeline));
+
+    rwlock_lock_read(&device->fragment_output_lock);
+    entry = (void*)hash_map_find(&device->fragment_output_pipelines, desc);
+
+    if (entry)
+        pipeline.vk_pipeline = entry->vk_pipeline;
+
+    rwlock_unlock_read(&device->fragment_output_lock);
+
+    if (!pipeline.vk_pipeline)
+    {
+        rwlock_lock_write(&device->fragment_output_lock);
+        pipeline.desc = *desc;
+
+        entry = (void*)hash_map_insert(&device->fragment_output_pipelines, desc, &pipeline.entry);
+
+        if (!entry->vk_pipeline)
+            entry->vk_pipeline = vkd3d_fragment_output_pipeline_create(device, desc);
+
+        pipeline.vk_pipeline = entry->vk_pipeline;
+        rwlock_unlock_write(&device->fragment_output_lock);
+    }
+
+    return pipeline.vk_pipeline;
 }
 
 IUnknown *vkd3d_get_device_parent(ID3D12Device *device)

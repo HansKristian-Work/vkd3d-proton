@@ -1711,6 +1711,19 @@ struct vkd3d_vertex_input_pipeline_desc
     VkPipelineDynamicStateCreateInfo dy_info;
 };
 
+struct vkd3d_vertex_input_pipeline
+{
+    struct hash_map_entry entry;
+    struct vkd3d_vertex_input_pipeline_desc desc;
+    VkPipeline vk_pipeline;
+};
+
+uint32_t vkd3d_vertex_input_pipeline_desc_hash(const void *key);
+bool vkd3d_vertex_input_pipeline_desc_compare(const void *key, const struct hash_map_entry *entry);
+VkPipeline vkd3d_vertex_input_pipeline_create(struct d3d12_device *device,
+        const struct vkd3d_vertex_input_pipeline_desc *desc);
+void vkd3d_vertex_input_pipeline_free(struct hash_map_entry *entry, void *userdata);
+
 #define VKD3D_MAX_FRAGMENT_OUTPUT_DYNAMIC_STATES (1u)
 #define VKD3D_FRAGMENT_OUTPUT_DYNAMIC_STATE_MASK (VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS)
 
@@ -1728,6 +1741,19 @@ struct vkd3d_fragment_output_pipeline_desc
     VkDynamicState dy_states[VKD3D_MAX_FRAGMENT_OUTPUT_DYNAMIC_STATES];
     VkPipelineDynamicStateCreateInfo dy_info;
 };
+
+struct vkd3d_fragment_output_pipeline
+{
+    struct hash_map_entry entry;
+    struct vkd3d_fragment_output_pipeline_desc desc;
+    VkPipeline vk_pipeline;
+};
+
+uint32_t vkd3d_fragment_output_pipeline_desc_hash(const void *key);
+bool vkd3d_fragment_output_pipeline_desc_compare(const void *key, const struct hash_map_entry *entry);
+VkPipeline vkd3d_fragment_output_pipeline_create(struct d3d12_device *device,
+        const struct vkd3d_fragment_output_pipeline_desc *desc);
+void vkd3d_fragment_output_pipeline_free(struct hash_map_entry *entry, void *userdata);
 
 #define VKD3D_SHADER_DEBUG_RING_SPEC_INFO_MAP_ENTRIES 4
 struct vkd3d_shader_debug_ring_spec_info
@@ -3933,6 +3959,10 @@ struct d3d12_device
     struct vkd3d_shader_debug_ring debug_ring;
     struct vkd3d_pipeline_library_disk_cache disk_cache;
     struct vkd3d_global_descriptor_buffer global_descriptor_buffer;
+    rwlock_t vertex_input_lock;
+    struct hash_map vertex_input_pipelines;
+    rwlock_t fragment_output_lock;
+    struct hash_map fragment_output_pipelines;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     struct vkd3d_breadcrumb_tracer breadcrumb_tracer;
 #endif
@@ -3953,6 +3983,11 @@ void d3d12_device_unmap_vkd3d_queue(struct d3d12_device *device,
 bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent);
 void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
         const char *message, ...) VKD3D_PRINTF_FUNC(3, 4);
+
+VkPipeline d3d12_device_get_or_create_vertex_input_pipeline(struct d3d12_device *device,
+        const struct vkd3d_vertex_input_pipeline_desc *desc);
+VkPipeline d3d12_device_get_or_create_fragment_output_pipeline(struct d3d12_device *device,
+        const struct vkd3d_fragment_output_pipeline_desc *desc);
 
 static inline struct d3d12_device *unsafe_impl_from_ID3D12Device(d3d12_device_iface *iface)
 {
