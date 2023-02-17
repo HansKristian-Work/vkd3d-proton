@@ -9894,9 +9894,9 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc
     const struct vkd3d_shader_src_param *resource;
     uint32_t constituents[VKD3D_VEC4_SIZE];
     struct vkd3d_shader_image image;
-    const uint32_t alignment = 4;
     uint32_t component_count;
     uint32_t component_idx;
+    uint32_t alignment = 4;
     uint32_t indices[4];
     unsigned int i, j;
     bool is_sparse_op;
@@ -9916,8 +9916,7 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc
         return;
     }
 
-    if (image.storage_class == SpvStorageClassPhysicalStorageBuffer)
-        access_mask = SpvMemoryAccessAlignedMask;
+    access_mask = SpvMemoryAccessAlignedMask;
 
     /* Load the highest component that we use. */
     component_count = 0;
@@ -9940,12 +9939,31 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc
         indices[1] = vkd3d_dxbc_compiler_get_constant_uint(compiler, image.structure_stride * 4);
         indices[2] = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], VKD3DSP_WRITEMASK_0);
         indices[3] = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[1], VKD3DSP_WRITEMASK_0);
+
+        /* Promote alignment if we can do so easily.
+         * For structured buffers this is likely. */
+        if (src[1].reg.type == VKD3DSPR_IMMCONST)
+        {
+            uint32_t offset_alignment = src[1].reg.immconst_uint[0] & -src[1].reg.immconst_uint[0];
+            alignment = 4 * (image.structure_stride & -image.structure_stride);
+            /* 0 alignment is perfect alignment. */
+            if (offset_alignment != 0)
+                alignment = min(alignment, offset_alignment);
+
+            alignment = min(alignment, 16u);
+        }
     }
     else
     {
         indices[1] = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0);
         indices[2] = indices[1];
         indices[3] = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], VKD3DSP_WRITEMASK_0);
+
+        if (src[0].reg.type == VKD3DSPR_IMMCONST)
+        {
+            uint32_t offset_alignment = src[0].reg.immconst_uint[0] & -src[0].reg.immconst_uint[0];
+            alignment = offset_alignment ? min(offset_alignment, 16u) : 16u;
+        }
     }
 
     ptr_id = vkd3d_spirv_build_op_trv(builder, &builder->function_stream,
@@ -9954,7 +9972,7 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc
     if (resource->reg.modifier == VKD3DSPRM_NONUNIFORM)
         vkd3d_dxbc_compiler_decorate_nonuniform(compiler, ptr_id);
 
-    if (image.structure_stride)
+    if (image.structure_stride || alignment == 16)
         vkd3d_spirv_build_op_decorate(builder, ptr_id, SpvDecorationRawAccessChainRobustnessPerElementFROG, NULL, 0);
     else
         vkd3d_spirv_build_op_decorate(builder, ptr_id, SpvDecorationRawAccessChainRobustnessPerComponentFROG, NULL, 0);
@@ -10053,7 +10071,7 @@ static void vkd3d_dxbc_compiler_emit_store_uav_raw_structured(struct vkd3d_dxbc_
     uint32_t type_id, ptr_type_id, val_id;
     struct vkd3d_shader_image image;
     unsigned int component_count;
-    const uint32_t alignment = 4;
+    uint32_t alignment = 4;
     uint32_t indices[4];
     uint32_t ptr_id;
 
@@ -10063,8 +10081,7 @@ static void vkd3d_dxbc_compiler_emit_store_uav_raw_structured(struct vkd3d_dxbc_
     component_count = vkd3d_write_mask_component_count(dst->write_mask);
 
     vkd3d_spirv_enable_capability(builder, SpvCapabilityRawAccessChainsFROG);
-    if (image.storage_class == SpvStorageClassPhysicalStorageBuffer)
-        access_mask = SpvMemoryAccessAlignedMask;
+    access_mask = SpvMemoryAccessAlignedMask;
 
     indices[0] = image.id;
     if (image.structure_stride)
@@ -10072,12 +10089,32 @@ static void vkd3d_dxbc_compiler_emit_store_uav_raw_structured(struct vkd3d_dxbc_
         indices[1] = vkd3d_dxbc_compiler_get_constant_uint(compiler, image.structure_stride * 4);
         indices[2] = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], VKD3DSP_WRITEMASK_0);
         indices[3] = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[1], VKD3DSP_WRITEMASK_0);
+
+        /* Promote alignment if we can do so easily.
+         * For structured buffers this is likely. */
+        if (src[1].reg.type == VKD3DSPR_IMMCONST)
+        {
+            uint32_t offset_alignment = src[1].reg.immconst_uint[0] & -src[1].reg.immconst_uint[0];
+            alignment = 4 * (image.structure_stride & -image.structure_stride);
+            /* 0 alignment is perfect alignment. */
+            if (offset_alignment != 0)
+                alignment = min(alignment, offset_alignment);
+
+            alignment = min(alignment, 16u);
+        }
     }
     else
     {
+        /* We cannot promote alignment for byte address buffers easily. */
         indices[1] = vkd3d_dxbc_compiler_get_constant_uint(compiler, 0);
         indices[2] = indices[1];
         indices[3] = vkd3d_dxbc_compiler_emit_load_src(compiler, &src[0], VKD3DSP_WRITEMASK_0);
+
+        if (src[0].reg.type == VKD3DSPR_IMMCONST)
+        {
+            uint32_t offset_alignment = src[0].reg.immconst_uint[0] & -src[0].reg.immconst_uint[0];
+            alignment = offset_alignment ? min(offset_alignment, 16u) : 16u;
+        }
     }
 
     texel = &src[instruction->src_count - 1];
@@ -10093,7 +10130,7 @@ static void vkd3d_dxbc_compiler_emit_store_uav_raw_structured(struct vkd3d_dxbc_
     if (dst->reg.modifier == VKD3DSPRM_NONUNIFORM)
         vkd3d_dxbc_compiler_decorate_nonuniform(compiler, ptr_id);
 
-    if (image.structure_stride)
+    if (image.structure_stride || alignment == 16 || (alignment == 8 && component_count <= 2))
         vkd3d_spirv_build_op_decorate(builder, ptr_id, SpvDecorationRawAccessChainRobustnessPerElementFROG, NULL, 0);
     else
         vkd3d_spirv_build_op_decorate(builder, ptr_id, SpvDecorationRawAccessChainRobustnessPerComponentFROG, NULL, 0);
