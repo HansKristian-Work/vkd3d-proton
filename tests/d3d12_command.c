@@ -4698,7 +4698,7 @@ static void test_conservative_rasterization(bool use_dxil)
             D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.0f, 0, 0, NULL);
 
     ID3D12GraphicsCommandList_OMSetStencilRef(command_list, 0xFF);
-    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, root_signature);
     ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
     ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
     ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &context.viewport);
