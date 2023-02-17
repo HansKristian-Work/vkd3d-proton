@@ -38,6 +38,7 @@ struct hash_map_entry
 
 typedef uint32_t (*pfn_hash_func)(const void* key);
 typedef bool (*pfn_hash_compare_func)(const void *key, const struct hash_map_entry *entry);
+typedef void (*pfn_hash_map_iterator)(struct hash_map_entry *entry, void *userdata);
 
 /* Open-addressing hash table */
 struct hash_map
@@ -183,6 +184,19 @@ static inline struct hash_map_entry *hash_map_insert(struct hash_map *hash_map, 
      * Return old one, caller is responsible for cleaning up the node we attempted to add. */
 
     return target;
+}
+
+static inline void hash_map_iter(struct hash_map *hash_map, pfn_hash_map_iterator iterator, void *userdata)
+{
+    uint32_t i;
+
+    for (i = 0; i < hash_map->entry_count; i++)
+    {
+        struct hash_map_entry *e = void_ptr_offset(hash_map->entries, hash_map->entry_size * i);
+
+        if (e->flags & HASH_MAP_ENTRY_OCCUPIED)
+            iterator(e, userdata);
+    }
 }
 
 static inline void hash_map_init(struct hash_map *hash_map, pfn_hash_func hash_func, pfn_hash_compare_func compare_func, size_t entry_size)
