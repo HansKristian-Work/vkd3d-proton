@@ -1807,6 +1807,7 @@ struct d3d12_graphics_pipeline_state
 
     VkPipelineLayout pipeline_layout;
     VkPipeline pipeline;
+    VkGraphicsPipelineLibraryFlagsEXT library_flags;
     struct list compiled_fallback_pipelines;
 
     bool xfb_enabled;
@@ -1963,7 +1964,7 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
         uint32_t *dynamic_state_flags);
 VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_state *state,
         const struct vkd3d_pipeline_key *key, const struct vkd3d_format *dsv_format,
-        VkPipelineCache vk_cache, uint32_t *dynamic_state_flags);
+        VkPipelineCache vk_cache, VkGraphicsPipelineLibraryFlagsEXT library_flags, uint32_t *dynamic_state_flags);
 
 static inline struct d3d12_pipeline_state *impl_from_ID3D12PipelineState(ID3D12PipelineState *iface)
 {
