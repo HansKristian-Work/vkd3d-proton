@@ -9348,7 +9348,14 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
 
         /* Robustness would take care of it, but no reason to spam more threads than needed. */
         if (args->u.view->info.texture.vk_view_type == VK_IMAGE_VIEW_TYPE_3D)
-            layer_count = min(layer_count, args->u.view->info.texture.w_size - args->u.view->info.texture.w_offset);
+        {
+            layer_count = min(layer_count - args->u.view->info.texture.w_offset, args->u.view->info.texture.w_size);
+            if (layer_count >= 0x80000000u)
+            {
+                ERR("3D slice out of bounds.\n");
+                layer_count = 0;
+            }
+        }
 
         pipeline = vkd3d_meta_get_clear_image_uav_pipeline(
                 &list->device->meta_ops, args->u.view->info.texture.vk_view_type,
@@ -9571,7 +9578,12 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     {
         base_layer = args->u.view->info.texture.w_offset;
         layer_count = d3d12_resource_desc_get_depth(&resource->desc, miplevel_idx);
-        layer_count = min(layer_count, args->u.view->info.texture.w_size - args->u.view->info.texture.w_offset);
+        layer_count = min(layer_count - args->u.view->info.texture.w_offset, args->u.view->info.texture.w_size);
+        if (layer_count >= 0x80000000u)
+        {
+            ERR("3D slice out of bounds.\n");
+            layer_count = 0;
+        }
     }
     else
     {
