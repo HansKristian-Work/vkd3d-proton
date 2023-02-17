@@ -335,3 +335,5 @@ decl_test(test_rasterizer_ordered_views_dxbc);
 decl_test(test_rasterizer_ordered_views_dxil);
 decl_test(test_vtable_origins);
 decl_test(test_concurrent_signal_stress);
+decl_test(test_uav_robustness_oob_structure_element_dxbc);
+decl_test(test_uav_robustness_oob_structure_element_dxil);
