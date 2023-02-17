@@ -1833,7 +1833,9 @@ struct d3d12_graphics_pipeline_state
 
     VkPipelineLayout pipeline_layout;
     VkPipeline pipeline;
+    VkPipeline library;
     VkGraphicsPipelineLibraryFlagsEXT library_flags;
+    VkPipelineCreateFlags library_create_flags;
     struct list compiled_fallback_pipelines;
 
     bool xfb_enabled;
