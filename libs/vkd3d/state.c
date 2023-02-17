@@ -4353,25 +4353,65 @@ static HRESULT d3d12_pipeline_state_init_static_pipeline(struct d3d12_pipeline_s
         const struct d3d12_pipeline_state_desc *desc)
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
-    bool can_compile_pipeline_early;
+    bool can_compile_pipeline_early, has_gpl, create_library = false;
+    VkGraphicsPipelineLibraryFlagsEXT library_flags = 0;
+
+    has_gpl = state->device->device_info.graphics_pipeline_library_features.graphicsPipelineLibrary;
+
+    library_flags = VK_GRAPHICS_PIPELINE_LIBRARY_VERTEX_INPUT_INTERFACE_BIT_EXT |
+            VK_GRAPHICS_PIPELINE_LIBRARY_PRE_RASTERIZATION_SHADERS_BIT_EXT |
+            VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_SHADER_BIT_EXT |
+            VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_OUTPUT_INTERFACE_BIT_EXT;
+
+    if (d3d12_graphics_pipeline_state_has_unknown_dsv_format_with_test(graphics))
+    {
+        library_flags &= ~VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_OUTPUT_INTERFACE_BIT_EXT;
+        create_library = true;
+    }
 
     if (graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT)
     {
         can_compile_pipeline_early = true;
+
+        library_flags &= ~VK_GRAPHICS_PIPELINE_LIBRARY_VERTEX_INPUT_INTERFACE_BIT_EXT;
         graphics->pipeline_layout = state->root_signature->mesh.vk_pipeline_layout;
     }
     else
     {
-        /* If we don't know vertex count for tessellation shaders, we need to defer compilation, but this should
-         * be exceedingly rare. */
-        can_compile_pipeline_early =
-                (desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH || graphics->patch_vertex_count != 0 ||
-                 state->device->device_info.extended_dynamic_state2_features.extendedDynamicState2PatchControlPoints) &&
-                 desc->primitive_topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
+        /* Defer compilation if tessellation is enabled but the patch vertex count is not known */
+        bool has_tess = !!(graphics->stage_flags & VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT);
+
+        can_compile_pipeline_early = !has_tess || graphics->patch_vertex_count != 0 ||
+                state->device->device_info.extended_dynamic_state2_features.extendedDynamicState2PatchControlPoints;
+
+        if (desc->primitive_topology_type == D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED)
+        {
+            library_flags &= ~VK_GRAPHICS_PIPELINE_LIBRARY_VERTEX_INPUT_INTERFACE_BIT_EXT;
+            create_library = true;
+
+            can_compile_pipeline_early = false;
+        }
+
+        /* In case of tessellation shaders, we may have to recompile the pipeline with a
+         * different patch vertex count, which is part of pre-rasterization state. Do not
+         * create a pipeline library if dynamic patch control points are unsupported. */
+        if (has_tess && !state->device->device_info.extended_dynamic_state2_features.extendedDynamicState2PatchControlPoints)
+            create_library = false;
+
         graphics->pipeline_layout = state->root_signature->graphics.vk_pipeline_layout;
     }
 
     graphics->pipeline = VK_NULL_HANDLE;
+    graphics->library = VK_NULL_HANDLE;
+    graphics->library_flags = 0;
+    graphics->library_create_flags = 0;
+
+    if (create_library && has_gpl)
+    {
+        if (!(graphics->library = d3d12_pipeline_state_create_pipeline_variant(state, NULL, graphics->dsv_format,
+                state->vk_pso_cache, library_flags, &graphics->dynamic_state_flags)))
+            return E_OUTOFMEMORY;
+    }
 
     if (can_compile_pipeline_early)
     {
