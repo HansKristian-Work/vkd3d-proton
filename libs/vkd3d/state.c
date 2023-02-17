@@ -1988,6 +1988,7 @@ static void d3d12_pipeline_state_destroy_graphics(struct d3d12_pipeline_state *s
     }
 
     VK_CALL(vkDestroyPipeline(device->vk_device, graphics->pipeline, NULL));
+    VK_CALL(vkDestroyPipeline(device->vk_device, graphics->library, NULL));
 }
 
 static void d3d12_pipeline_state_set_name(struct d3d12_pipeline_state *state, const char *name)
@@ -3600,9 +3601,7 @@ uint32_t d3d12_graphics_pipeline_state_get_dynamic_state_flags(struct d3d12_pipe
     if (graphics->attribute_binding_count && !is_mesh_pipeline)
         dynamic_state_flags |= VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE;
 
-    /* Don't try to use dynamic patch control points in a fallback pipeline. */
-    if (!key && is_tess_pipeline &&
-            state->device->device_info.extended_dynamic_state2_features.extendedDynamicState2PatchControlPoints)
+    if (is_tess_pipeline && state->device->device_info.extended_dynamic_state2_features.extendedDynamicState2PatchControlPoints)
         dynamic_state_flags |= VKD3D_DYNAMIC_STATE_PATCH_CONTROL_POINTS;
 
     if ((!key || key->dynamic_topology) && !is_mesh_pipeline && !is_tess_pipeline)
@@ -4730,6 +4729,65 @@ static bool d3d12_pipeline_state_put_pipeline_to_cache(struct d3d12_pipeline_sta
     return compiled_pipeline;
 }
 
+static VkResult d3d12_pipeline_state_link_pipeline_variant(struct d3d12_pipeline_state *state,
+        const struct vkd3d_pipeline_key *key, const struct vkd3d_format *dsv_format, VkPipelineCache vk_cache,
+        uint32_t dynamic_state_flags, VkPipeline *vk_pipeline)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &state->device->vk_procs;
+    struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
+    struct vkd3d_fragment_output_pipeline_desc fragment_output_desc;
+    struct vkd3d_vertex_input_pipeline_desc vertex_input_desc;
+    VkPipelineLibraryCreateInfoKHR library_info;
+    VkGraphicsPipelineCreateInfo create_info;
+    VkPipeline vk_libraries[3];
+    uint32_t library_count = 0;
+    VkResult vr;
+
+    vk_libraries[library_count++] = graphics->library;
+
+    if ((!(graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT)) &&
+            (!(graphics->library_flags & VK_GRAPHICS_PIPELINE_LIBRARY_VERTEX_INPUT_INTERFACE_BIT_EXT)))
+    {
+        vkd3d_vertex_input_pipeline_desc_init(&vertex_input_desc, state, key, dynamic_state_flags);
+        vk_libraries[library_count++] = d3d12_device_get_or_create_vertex_input_pipeline(state->device, &vertex_input_desc);
+    }
+
+    if (!(graphics->library_flags & VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_OUTPUT_INTERFACE_BIT_EXT))
+    {
+        vkd3d_fragment_output_pipeline_desc_init(&fragment_output_desc, state, dsv_format, dynamic_state_flags);
+        vk_libraries[library_count++] = d3d12_device_get_or_create_fragment_output_pipeline(state->device, &fragment_output_desc);
+    }
+
+    memset(&library_info, 0, sizeof(library_info));
+    library_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LIBRARY_CREATE_INFO_KHR;
+    library_info.libraryCount = library_count;
+    library_info.pLibraries = vk_libraries;
+
+    memset(&create_info, 0, sizeof(create_info));
+    create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    create_info.pNext = &library_info;
+    create_info.flags = graphics->library_create_flags;
+    create_info.layout = graphics->pipeline_layout;
+    create_info.basePipelineIndex = -1;
+
+    if (d3d12_device_uses_descriptor_buffers(state->device))
+        create_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+
+    /* Only use LINK_TIME_OPTIMIZATION for the primary pipeline for now,
+     * accept a small runtime perf hit on subsequent compiles in order
+     * to avoid stutter. */
+    if (!key)
+        create_info.flags |= VK_PIPELINE_CREATE_LINK_TIME_OPTIMIZATION_BIT_EXT;
+
+    vr = VK_CALL(vkCreateGraphicsPipelines(state->device->vk_device,
+            vk_cache, 1, &create_info, NULL, vk_pipeline));
+
+    if (vr != VK_SUCCESS && vr != VK_PIPELINE_COMPILE_REQUIRED_EXT)
+        ERR("Failed to create link pipeline, vr %d.\n", vr);
+
+    return vr;
+}
+
 VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_state *state,
         const struct vkd3d_pipeline_key *key, const struct vkd3d_format *dsv_format, VkPipelineCache vk_cache,
         VkGraphicsPipelineLibraryFlagsEXT library_flags, uint32_t *dynamic_state_flags)
@@ -4758,6 +4816,13 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
 
     *dynamic_state_flags = d3d12_graphics_pipeline_state_init_dynamic_state(state, &dynamic_create_info,
             dynamic_state_buffer, key);
+
+    if (!library_flags && graphics->library)
+    {
+        if (d3d12_pipeline_state_link_pipeline_variant(state, key, dsv_format,
+                vk_cache, *dynamic_state_flags, &vk_pipeline) == VK_SUCCESS)
+            return vk_pipeline;
+    }
 
     has_vertex_input_state = !(graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT) &&
             (!library_flags || (library_flags & VK_GRAPHICS_PIPELINE_LIBRARY_VERTEX_INPUT_INTERFACE_BIT_EXT));
@@ -4941,6 +5006,9 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
 
     if (feedback_info.pipelineStageCreationFeedbackCount)
         vkd3d_report_pipeline_creation_feedback_results(&feedback_info);
+
+    if (library_flags)
+        graphics->library_create_flags = pipeline_desc.flags & VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT_EXT;
 
 err:
     /* Clean up any temporary SPIR-V modules we created. */
