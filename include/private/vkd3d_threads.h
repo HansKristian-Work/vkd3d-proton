@@ -34,6 +34,9 @@ struct pthread
     DWORD id;
     void * (*routine)(void *);
     void *arg;
+
+    HMODULE d3d12_reference;
+    HMODULE dxgi_reference;
 };
 typedef struct pthread *pthread_t;
 
@@ -57,6 +60,26 @@ static DWORD WINAPI win32_thread_wrapper_routine(void *arg)
 {
     pthread_t thread = arg;
     thread->routine(thread->arg);
+
+    /* If a game unloads d3d12.dll or dxgi.dll while there are live device references (yikes),
+     * we risk that one of our internal threads are running. This is bad obviously.
+     * Works around a crash in Like a Dragon: Ishin! when pipeline cache is used.
+     * The fix is to hold references to any dependent code while running threads.
+     * We can limit all this jank to the thread implementation. */
+    if (thread->dxgi_reference)
+    {
+        TRACE("Releasing module reference for dxgi.dll: %p.\n", thread->dxgi_reference);
+        FreeLibrary(thread->dxgi_reference);
+    }
+
+    /* We are executing in d3d12.dll here, so we have to use the atomic FreeLibraryAndExit thread to make this work. */
+    if (thread->d3d12_reference)
+    {
+        TRACE("Releasing module reference for d3d12.dll and exiting thread: %p.\n", thread->d3d12_reference);
+        FreeLibraryAndExitThread(thread->d3d12_reference, 0);
+    }
+
+    /* Otherwise, fall back to the implicit ExitThread(). */
     return 0;
 }
 
@@ -69,9 +92,23 @@ static inline int pthread_create(pthread_t *out_thread, void *attr, void * (*thr
     (void)attr;
     thread->routine = thread_fun;
     thread->arg = arg;
+
+    /* Need GetModuleHandleEx which lets us get a refcount. */
+    if (!GetModuleHandleExA(0, "d3d12.dll", &thread->d3d12_reference))
+        thread->d3d12_reference = NULL;
+    if (!GetModuleHandleExA(0, "dxgi.dll", &thread->dxgi_reference))
+        thread->dxgi_reference = NULL;
+
+    TRACE("Module reference for d3d12.dll: %p.\n", thread->d3d12_reference);
+    TRACE("Module reference for dxgi.dll: %p.\n", thread->dxgi_reference);
+
     thread->thread = CreateThread(NULL, 0, win32_thread_wrapper_routine, thread, 0, &thread->id);
     if (!thread->thread)
     {
+        if (thread->dxgi_reference)
+            FreeLibrary(thread->dxgi_reference);
+        if (thread->d3d12_reference)
+            FreeLibrary(thread->d3d12_reference);
         vkd3d_free(thread);
         return -1;
     }
