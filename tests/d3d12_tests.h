@@ -327,3 +327,5 @@ decl_test(test_sparse_buffer_memory_lifetime);
 decl_test(test_rendering_no_attachments_layers);
 decl_test(test_memory_model_uav_coherence_thread_group_dxbc);
 decl_test(test_memory_model_uav_coherence_thread_group_dxil);
+decl_test(test_rasterizer_ordered_views_dxbc);
+decl_test(test_rasterizer_ordered_views_dxil);

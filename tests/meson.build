@@ -37,6 +37,7 @@ d3d12_test_src = [
   'd3d12_copy.c',
   'd3d12_vrs.c',
   'd3d12_pso.c',
+  'd3d12_rov.c',
   'd3d12_va.c',
   'd3d12.c',
 ]
