@@ -3258,11 +3258,12 @@ uint32_t d3d12_graphics_pipeline_state_get_dynamic_state_flags(struct d3d12_pipe
         const struct vkd3d_pipeline_key *key)
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
+    bool is_mesh_pipeline, is_tess_pipeline;
     uint32_t dynamic_state_flags = 0;
-    bool is_mesh_pipeline;
     unsigned int i;
 
     is_mesh_pipeline = !!(graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT);
+    is_tess_pipeline = !!(graphics->stage_flags & VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT);
 
     /* Enable dynamic states as necessary */
     dynamic_state_flags |= VKD3D_DYNAMIC_STATE_VIEWPORT | VKD3D_DYNAMIC_STATE_SCISSOR;
@@ -3271,11 +3272,11 @@ uint32_t d3d12_graphics_pipeline_state_get_dynamic_state_flags(struct d3d12_pipe
         dynamic_state_flags |= VKD3D_DYNAMIC_STATE_VERTEX_BUFFER_STRIDE;
 
     /* Don't try to use dynamic patch control points in a fallback pipeline. */
-    if (!key && (graphics->stage_flags & VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT) &&
+    if (!key && is_tess_pipeline &&
             state->device->device_info.extended_dynamic_state2_features.extendedDynamicState2PatchControlPoints)
         dynamic_state_flags |= VKD3D_DYNAMIC_STATE_PATCH_CONTROL_POINTS;
 
-    if ((!key || key->dynamic_topology) && !is_mesh_pipeline)
+    if ((!key || key->dynamic_topology) && !is_mesh_pipeline && !is_tess_pipeline)
         dynamic_state_flags |= VKD3D_DYNAMIC_STATE_TOPOLOGY;
 
     if (graphics->ds_desc.stencilTestEnable)
