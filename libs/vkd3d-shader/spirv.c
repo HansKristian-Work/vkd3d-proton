@@ -1797,6 +1797,7 @@ enum vkd3d_spirv_extension
     VKD3D_SPV_EXT_SHADER_VIEWPORT_INDEX_LAYER   = 0x00000010,
     VKD3D_SPV_EXT_SHADER_STENCIL_EXPORT         = 0x00000020,
     VKD3D_SPV_EXT_FRAGMENT_FULLY_COVERED        = 0x00000040,
+    VKD3D_SPV_EXT_FRAGMENT_SHADER_INTERLOCK     = 0x00000080,
 };
 
 struct vkd3d_spirv_extension_info
@@ -1813,6 +1814,7 @@ static const struct vkd3d_spirv_extension_info vkd3d_spirv_extensions[] =
     {VKD3D_SPV_EXT_SHADER_VIEWPORT_INDEX_LAYER, "SPV_EXT_shader_viewport_index_layer"},
     {VKD3D_SPV_EXT_SHADER_STENCIL_EXPORT,       "SPV_EXT_shader_stencil_export"},
     {VKD3D_SPV_EXT_FRAGMENT_FULLY_COVERED,      "SPV_EXT_fragment_fully_covered"},
+    {VKD3D_SPV_EXT_FRAGMENT_SHADER_INTERLOCK,   "SPV_EXT_fragment_shader_interlock"},
 };
 
 struct vkd3d_spirv_capability_extension_mapping
@@ -1830,6 +1832,8 @@ static const struct vkd3d_spirv_capability_extension_mapping vkd3d_spirv_capabil
     {SpvCapabilityShaderViewportIndexLayerEXT,            VKD3D_SPV_EXT_SHADER_VIEWPORT_INDEX_LAYER},
     {SpvCapabilityStencilExportEXT,                       VKD3D_SPV_EXT_SHADER_STENCIL_EXPORT},
     {SpvCapabilityFragmentFullyCoveredEXT,                VKD3D_SPV_EXT_FRAGMENT_FULLY_COVERED},
+    {SpvCapabilityFragmentShaderPixelInterlockEXT,        VKD3D_SPV_EXT_FRAGMENT_SHADER_INTERLOCK},
+    {SpvCapabilityFragmentShaderSampleInterlockEXT,       VKD3D_SPV_EXT_FRAGMENT_SHADER_INTERLOCK},
 };
 
 static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
@@ -4393,6 +4397,9 @@ static void vkd3d_dxbc_compiler_emit_shader_phase_name(struct vkd3d_dxbc_compile
         case VKD3DSIH_HS_JOIN_PHASE:
             name = "join";
             break;
+        case VKD3DSIH_NOP:
+            name = "default";
+            break;
         default:
             ERR("Invalid phase type %#x.\n", phase->type);
             return;
@@ -5180,6 +5187,11 @@ static void vkd3d_dxbc_compiler_emit_output(struct vkd3d_dxbc_compiler *compiler
     uint32_t id, var_id;
 
     phase = vkd3d_dxbc_compiler_get_current_shader_phase(compiler);
+
+    /* Ignore trivial wrappers. */
+    if (phase && phase->type == VKD3DSIH_NOP)
+        phase = NULL;
+
     is_patch_constant = phase && (phase->type == VKD3DSIH_HS_FORK_PHASE || phase->type == VKD3DSIH_HS_JOIN_PHASE);
 
     shader_signature = is_patch_constant ? compiler->patch_constant_signature : compiler->output_signature;
@@ -5928,6 +5940,30 @@ static uint32_t vkd3d_dxbc_compiler_emit_robust_physical_counter(struct vkd3d_dx
             args, ARRAY_SIZE(args));
 }
 
+static void vkd3d_dxbc_compiler_begin_shader_phase_rasterizer_ordered(struct vkd3d_dxbc_compiler *compiler)
+{
+    struct vkd3d_shader_phase *phase;
+    assert(compiler->shader_phase_count == 0);
+    if (!vkd3d_array_reserve((void **)&compiler->shader_phases, &compiler->shader_phases_size,
+            compiler->shader_phase_count + 1, sizeof(*compiler->shader_phases)))
+        return;
+    phase = &compiler->shader_phases[compiler->shader_phase_count];
+
+    phase->type = VKD3DSIH_NOP;
+    phase->idx = compiler->shader_phase_count;
+    phase->instance_count = 0;
+    phase->function_id = 0;
+    phase->instance_id = 0;
+    phase->function_location = 0;
+    ++compiler->shader_phase_count;
+
+    vkd3d_dxbc_compiler_begin_shader_phase(compiler, phase);
+
+    /* Enable the conservative pixel interlock here.
+     * We modify this to per-sample interlock later if we prove the shader runs per-sample. */
+    vkd3d_spirv_enable_capability(&compiler->spirv_builder, SpvCapabilityFragmentShaderPixelInterlockEXT);
+}
+
 static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_compiler *compiler)
 {
     const struct vkd3d_shader_transform_feedback_info *xfb_info = compiler->shader_interface.xfb_info;
@@ -5997,7 +6033,11 @@ static void vkd3d_dxbc_compiler_emit_initial_declarations(struct vkd3d_dxbc_comp
 
     if (compiler->shader_type != VKD3D_SHADER_TYPE_HULL)
     {
-        vkd3d_spirv_builder_begin_main_function(builder);
+        /* Wrap the entire entry point in Begin/End locks. Reuse the phase system from tessellation. */
+        if (compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL && compiler->scan_info->requires_rov)
+            vkd3d_dxbc_compiler_begin_shader_phase_rasterizer_ordered(compiler);
+        else
+            vkd3d_spirv_builder_begin_main_function(builder);
 
         /* Don't emit arrayed clip/cull builtins for HULL
          * shaders, as this is simply just per-vertex state
@@ -6915,7 +6955,7 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
     bool is_uav, use_ssbo;
     bool promote_coherent;
 
-    if (instruction->flags & ~VKD3DSUF_GLOBALLY_COHERENT)
+    if (instruction->flags & ~(VKD3DSUF_GLOBALLY_COHERENT | VKD3DSUF_RASTERIZER_ORDERED))
         FIXME("Unhandled instruction flags %#x.\n", instruction->flags);
 
     is_uav = reg->type == VKD3DSPR_UAV;
@@ -6948,6 +6988,12 @@ static void vkd3d_dxbc_compiler_emit_resource_declaration(struct vkd3d_dxbc_comp
         promote_coherent = (uav_flags & VKD3D_SHADER_UAV_FLAG_READ_ACCESS) &&
                 (uav_flags & VKD3D_SHADER_UAV_FLAG_WRITE_ACCESS) &&
                 scan_info->requires_thread_group_uav_coherency;
+
+        if (compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL && (instruction->flags & VKD3DSUF_RASTERIZER_ORDERED))
+        {
+            /* ROVs are implicitly coherent. */
+            promote_coherent = true;
+        }
     }
     else
     {
@@ -7218,7 +7264,8 @@ static void vkd3d_dxbc_compiler_emit_dcl_input(struct vkd3d_dxbc_compiler *compi
     const struct vkd3d_shader_dst_param *dst = &instruction->declaration.dst;
     const struct vkd3d_shader_phase *phase;
 
-    if ((phase = vkd3d_dxbc_compiler_get_current_shader_phase(compiler)))
+    /* For NOP phases, we only care about wrapping code. Can use globals as normal. */
+    if ((phase = vkd3d_dxbc_compiler_get_current_shader_phase(compiler)) && phase->type != VKD3DSIH_NOP)
         vkd3d_dxbc_compiler_emit_shader_phase_input(compiler, phase, dst);
     else if (vkd3d_shader_register_is_input(&dst->reg) || dst->reg.type == VKD3DSPR_PATCHCONST)
         vkd3d_dxbc_compiler_emit_input(compiler, dst, VKD3D_SIV_NONE, VKD3DSIM_NONE);
@@ -11397,6 +11444,50 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
     return compiler->compiler_error;
 }
 
+static void vkd3d_dxbc_compiler_emit_rasterizer_ordered_shader_main(struct vkd3d_dxbc_compiler *compiler)
+{
+    const struct vkd3d_shader_phase *phase = &compiler->shader_phases[0];
+    struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
+    bool is_per_sample = false;
+    uint32_t void_id;
+    size_t i;
+
+    /* Decide how to emit ROV after we know if we're going to be using per-sample or per-pixel interlocks. */
+
+    for (i = 0; i < builder->capability_count && !is_per_sample; i++)
+        if (builder->capabilities[i] == SpvCapabilitySampleRateShading)
+            is_per_sample = true;
+
+    for (i = 0; i < builder->capability_count; i++)
+    {
+        if (builder->capabilities[i] == SpvCapabilityFragmentShaderPixelInterlockEXT)
+        {
+            if (is_per_sample)
+            {
+                builder->capabilities[i] = SpvCapabilityFragmentShaderSampleInterlockEXT;
+                vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeSampleInterlockOrderedEXT, NULL, 0);
+            }
+            else
+                vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModePixelInterlockOrderedEXT, NULL, 0);
+
+            break;
+        }
+    }
+
+    /* Slow. Wraps the entire shader in begin/end pairs.
+     * We mostly just care about ROVs working here, so we can expose the feature.
+     * The only known use of ROV in the wild in D3D12 games is limited to DXIL and to
+     * do a good job we need decent CFG analysis,
+     * something we don't have in DXBC without a rewrite. */
+    vkd3d_spirv_builder_begin_main_function(builder);
+    void_id = vkd3d_spirv_get_op_type_void(builder);
+    vkd3d_spirv_build_op(&builder->function_stream, SpvOpBeginInvocationInterlockEXT);
+    vkd3d_spirv_build_op_function_call(builder, void_id, phase->function_id, NULL, 0);
+    vkd3d_spirv_build_op(&builder->function_stream, SpvOpEndInvocationInterlockEXT);
+    vkd3d_spirv_build_op_return(builder);
+    vkd3d_spirv_build_op_function_end(builder);
+}
+
 int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
         struct vkd3d_shader_code *spirv)
 {
@@ -11410,6 +11501,8 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
 
     if (compiler->shader_type == VKD3D_SHADER_TYPE_HULL)
         vkd3d_dxbc_compiler_emit_hull_shader_main(compiler);
+    else if (compiler->shader_type == VKD3D_SHADER_TYPE_PIXEL && compiler->shader_phase_count)
+        vkd3d_dxbc_compiler_emit_rasterizer_ordered_shader_main(compiler);
 
     if (compiler->epilogue_function_id)
     {
