@@ -708,6 +708,7 @@ struct vkd3d_shader_scan_info
     bool has_uav_counter;
     bool declares_globally_coherent_uav;
     bool requires_thread_group_uav_coherency;
+    bool requires_rov;
     unsigned int patch_vertex_count;
 };
 

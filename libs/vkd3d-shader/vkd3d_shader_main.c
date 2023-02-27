@@ -585,6 +585,8 @@ static void vkd3d_shader_scan_instruction(struct vkd3d_shader_scan_info *scan_in
             /* See test_memory_model_uav_coherent_thread_group() for details. */
             if (instruction->flags & VKD3DSUF_GLOBALLY_COHERENT)
                 scan_info->declares_globally_coherent_uav = true;
+            if (instruction->flags & VKD3DSUF_RASTERIZER_ORDERED)
+                scan_info->requires_rov = true;
             break;
         case VKD3DSIH_SYNC:
             /* See test_memory_model_uav_coherent_thread_group() for details. */
