@@ -5029,6 +5029,7 @@ static void d3d12_command_list_init_default_descriptor_buffers(struct d3d12_comm
 static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
         ID3D12PipelineState *initial_pipeline_state)
 {
+    const VkPhysicalDeviceLimits *limits = &list->device->device_info.properties2.properties.limits;
     d3d12_command_list_iface *iface = &list->ID3D12GraphicsCommandList_iface;
 
     list->index_buffer.dxgi_format = DXGI_FORMAT_UNKNOWN;
@@ -5037,9 +5038,13 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
     memset(&list->dsv, 0, sizeof(list->dsv));
     list->dsv_layout = VK_IMAGE_LAYOUT_UNDEFINED;
     list->dsv_plane_optimal_mask = 0;
-    list->fb_width = 0;
-    list->fb_height = 0;
-    list->fb_layer_count = 0;
+
+    /* Initial state is considered unbound render targets.
+     * Also need to mark rendering_info as dirty. */
+    list->rendering_info.state_flags = 0;
+    list->fb_width = limits->maxFramebufferWidth;
+    list->fb_height = limits->maxFramebufferHeight;
+    list->fb_layer_count = limits->maxFramebufferLayers;
 
     list->xfb_enabled = false;
 
@@ -5106,7 +5111,6 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     list->wbi_batch.batch_len = 0;
     list->query_resolve_count = 0;
 
-    list->rendering_info.state_flags = 0;
     list->execute_indirect.has_emitted_indirect_to_compute_barrier = false;
     list->execute_indirect.has_observed_transition_to_indirect = false;
 }
