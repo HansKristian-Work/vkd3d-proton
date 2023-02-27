@@ -3625,7 +3625,21 @@ uint32_t d3d12_graphics_pipeline_state_get_dynamic_state_flags(struct d3d12_pipe
      * Target Independent Rasterization (ForcedSampleCount) is not supported when this is used
      * so we don't need to worry about side effects when there are no render targets. */
     if (d3d12_device_supports_variable_shading_rate_tier_1(state->device) && graphics->rt_count)
-        dynamic_state_flags |= VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE;
+    {
+        /* If sample rate shading or ROVs are used, force default VRS state. Do this by not enabling the dynamic state.
+         * This forces default static pipeline state to be used instead, which is what we want. */
+        const uint32_t disable_flags =
+                VKD3D_SHADER_META_FLAG_USES_SAMPLE_RATE_SHADING |
+                VKD3D_SHADER_META_FLAG_USES_RASTERIZER_ORDERED_VIEWS;
+        bool allow_vrs_combiners = true;
+
+        for (i = 0; allow_vrs_combiners && i < graphics->stage_count; i++)
+            if (graphics->code[i].meta.flags & disable_flags)
+                allow_vrs_combiners = false;
+
+        if (allow_vrs_combiners)
+            dynamic_state_flags |= VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE;
+    }
 
     if (graphics->index_buffer_strip_cut_value && !is_mesh_pipeline)
         dynamic_state_flags |= VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART;
