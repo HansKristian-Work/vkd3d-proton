@@ -7117,6 +7117,13 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
         return false;
     }
 
+    if ((meta->flags & VKD3D_SHADER_META_FLAG_USES_RASTERIZER_ORDERED_VIEWS) &&
+            !device->d3d12_caps.options.ROVsSupported)
+    {
+        WARN("Attempting to use rasterizer ordered views in shader %016"PRIx64", but this requires capability to be supported.\n", meta->hash);
+        return false;
+    }
+
     if (meta->cs_required_wave_size)
     {
         const struct vkd3d_physical_device_info *info = &device->device_info;
