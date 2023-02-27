@@ -130,6 +130,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION_COND(EXT_PIPELINE_LIBRARY_GROUP_HANDLES, EXT_pipeline_library_group_handles, VKD3D_CONFIG_FLAG_DXR),
     VK_EXTENSION(EXT_IMAGE_SLICED_VIEW_OF_3D, EXT_image_sliced_view_of_3d),
     VK_EXTENSION(EXT_GRAPHICS_PIPELINE_LIBRARY, EXT_graphics_pipeline_library),
+    VK_EXTENSION(EXT_FRAGMENT_SHADER_INTERLOCK, EXT_fragment_shader_interlock),
     /* AMD extensions */
     VK_EXTENSION(AMD_BUFFER_MARKER, AMD_buffer_marker),
     VK_EXTENSION(AMD_DEVICE_COHERENT_MEMORY, AMD_device_coherent_memory),
@@ -1618,6 +1619,13 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->graphics_pipeline_library_features.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_GRAPHICS_PIPELINE_LIBRARY_FEATURES_EXT;
         vk_prepend_struct(&info->features2, &info->graphics_pipeline_library_features);
+    }
+
+    if (vulkan_info->EXT_fragment_shader_interlock)
+    {
+        info->fragment_shader_interlock_features.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_INTERLOCK_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->fragment_shader_interlock_features);
     }
 
     /* Core in Vulkan 1.1. */
@@ -6286,8 +6294,8 @@ static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
     options->ResourceBindingTier = d3d12_device_determine_resource_binding_tier(device);
     options->PSSpecifiedStencilRefSupported = vk_info->EXT_shader_stencil_export;
     options->TypedUAVLoadAdditionalFormats = d3d12_device_determine_additional_typed_uav_support(device);
-    /* Requires VK_EXT_fragment_shader_interlock */
-    options->ROVsSupported = FALSE;
+    options->ROVsSupported = device->device_info.fragment_shader_interlock_features.fragmentShaderPixelInterlock &&
+            device->device_info.fragment_shader_interlock_features.fragmentShaderSampleInterlock;
     options->ConservativeRasterizationTier = d3d12_device_determine_conservative_rasterization_tier(device);
     options->MaxGPUVirtualAddressBitsPerResource = 40; /* XXX */
     options->StandardSwizzle64KBSupported = FALSE;
