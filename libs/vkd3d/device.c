@@ -672,6 +672,9 @@ static void vkd3d_instance_deduce_config_flags_from_environment(void)
 
 static void vkd3d_instance_apply_global_shader_quirks(void)
 {
+    unsigned int level;
+    char env[64];
+
     struct override
     {
         uint64_t config;
@@ -691,6 +694,34 @@ static void vkd3d_instance_apply_global_shader_quirks(void)
         eq_test = overrides[i].negative ? 0 : overrides[i].config;
         if ((vkd3d_config_flags & overrides[i].config) == eq_test)
             vkd3d_shader_quirk_info.global_quirks |= overrides[i].quirk;
+    }
+
+    if (vkd3d_get_env_var("VKD3D_LIMIT_TESS_FACTORS", env, sizeof(env)))
+    {
+        static const struct
+        {
+            unsigned int level;
+            uint32_t quirk;
+        } mapping[] = {
+            { 4, VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_4 },
+            { 8, VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_8 },
+            { 12, VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_12 },
+            { 16, VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_16 },
+            { 32, VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_32 },
+        };
+
+        level = strtoul(env, NULL, 0);
+        INFO("Attempting to limit tessellation factors to %ux.\n", level);
+
+        for (i = 0; i < ARRAY_SIZE(mapping); i++)
+        {
+            if (level <= mapping[i].level)
+            {
+                INFO("Limiting tessellation factors to %ux.\n", mapping[i].level);
+                vkd3d_shader_quirk_info.global_quirks |= mapping[i].quirk;
+                break;
+            }
+        }
     }
 }
 
