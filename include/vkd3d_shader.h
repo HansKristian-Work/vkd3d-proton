@@ -377,6 +377,16 @@ enum vkd3d_shader_quirk
 
     /* Forces NoContract on every expression that can take it. */
     VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH = (1 << 3),
+
+    /* Clamp tessellation factors to a "reasonable" value.
+     * Different flags for different values is a little jank,
+     * but also avoids having to pass down side-channel float values.
+     * Also makes it easier to do app profiles with existing quirk structures. */
+    VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_32 = (1 << 4),
+    VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_16 = (1 << 5),
+    VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_12 = (1 << 6),
+    VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_8 = (1 << 7),
+    VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_4 = (1 << 8),
 };
 
 struct vkd3d_shader_quirk_hash
