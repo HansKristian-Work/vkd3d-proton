@@ -240,32 +240,32 @@ static void STDMETHODCALLTYPE d3d12_device_CreateSamplerFeedbackUnorderedAccessV
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource3_profiled(d3d12_device_iface *iface,
-    const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, 
-    const D3D12_RESOURCE_DESC1 *desc, D3D12_BARRIER_LAYOUT initial_layout,
-    const D3D12_CLEAR_VALUE *optimized_clear_value, ID3D12ProtectedResourceSession *protected_session,
-    UINT32 num_castable_formats, DXGI_FORMAT *castable_formats, REFIID iid, void **resource)
+        const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        const D3D12_RESOURCE_DESC1 *desc, D3D12_BARRIER_LAYOUT initial_layout,
+        const D3D12_CLEAR_VALUE *optimized_clear_value, ID3D12ProtectedResourceSession *protected_session,
+        UINT32 num_castable_formats, DXGI_FORMAT *castable_formats, REFIID iid, void **resource)
 {
-    DEVICE_PROFILED_CALL(CreateCommittedResource3, iface, heap_properties, heap_flags, desc, initial_layout, 
-                            optimized_clear_value, protected_session, num_castable_formats, castable_formats, 
-                            iid, resource);
+    DEVICE_PROFILED_CALL_HRESULT(CreateCommittedResource3, iface, heap_properties, heap_flags, desc, initial_layout,
+            optimized_clear_value, protected_session, num_castable_formats, castable_formats,
+            iid, resource);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource2_profiled(d3d12_device_iface *iface,
-    UINT64 heap_offset, const D3D12_RESOURCE_DESC1 *desc, D3D12_BARRIER_LAYOUT initial_layout,
-    const D3D12_CLEAR_VALUE *optimized_clear_value, UINT32 num_castable_formats, 
-    DXGI_FORMAT *castable_formats, REFIID iid, void **resource)
+        ID3D12Heap *heap, UINT64 heap_offset, const D3D12_RESOURCE_DESC1 *desc, D3D12_BARRIER_LAYOUT initial_layout,
+        const D3D12_CLEAR_VALUE *optimized_clear_value, UINT32 num_castable_formats,
+        DXGI_FORMAT *castable_formats, REFIID iid, void **resource)
 {
-    DEVICE_PROFILED_CALL(CreatePlacedResource2, iface, heap_offset, desc, initial_layout, optimized_clear_value, 
-                            num_castable_formats, castable_formats, iid, resource);
+    DEVICE_PROFILED_CALL_HRESULT(CreatePlacedResource2, iface, heap, heap_offset, desc, initial_layout, optimized_clear_value,
+            num_castable_formats, castable_formats, iid, resource);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource2_profiled(d3d12_device_iface *iface,
-    D3D12_BARRIER_LAYOUT initial_layout, const D3D12_CLEAR_VALUE *optimized_clear_value,
-    ID3D12ProtectedResourceSession *protected_session, UINT32 num_castable_formats,
-    DXGI_FORMAT *castable_formats, REFIID iid, void **resource)
+        const D3D12_RESOURCE_DESC *desc, D3D12_BARRIER_LAYOUT initial_layout, const D3D12_CLEAR_VALUE *optimized_clear_value,
+        ID3D12ProtectedResourceSession *protected_session, UINT32 num_castable_formats,
+        DXGI_FORMAT *castable_formats, REFIID iid, void **resource)
 {
-    DEVICE_PROFILED_CALL(CreateReservedResource2, iface, initial_layout, optimized_clear_value, protected_session, 
-                            num_castable_formats, castable_formats, iid, resource);
+    DEVICE_PROFILED_CALL_HRESULT(CreateReservedResource2, iface, desc, initial_layout, optimized_clear_value, protected_session,
+            num_castable_formats, castable_formats, iid, resource);
 }
 
 CONST_VTBL struct ID3D12Device10Vtbl d3d12_device_vtbl_profiled =

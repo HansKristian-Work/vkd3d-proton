@@ -466,22 +466,22 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchMesh_profiled(d3d12_com
 
 static void STDMETHODCALLTYPE d3d12_command_list_Barrier_profiled(d3d12_command_list_iface *iface, UINT32 NumBarrierGroups, const void *pBarrierGroups)
 {
-    COMMAND_LIST_PROFILED_CALL(iface, Barrier, NumBarrierGroups, pBarrierGroups);
+    COMMAND_LIST_PROFILED_CALL(Barrier, iface, NumBarrierGroups, pBarrierGroups);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_OMSetFrontAndBackStencilRef_profiled(d3d12_command_list_iface *iface, UINT FrontStencilRef, UINT BackStencilRef)
 {
-    COMMAND_LIST_PROFILED_CALL(iface, OMSetFrontAndBackStencilRef, FrontStencilRef, BackStencilRef);
+    COMMAND_LIST_PROFILED_CALL(OMSetFrontAndBackStencilRef, iface, FrontStencilRef, BackStencilRef);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetDepthBias_profiled(d3d12_command_list_iface *iface, FLOAT DepthBias, FLOAT DepthBiasClamp, FLOAT SlopeScaledDepthBias)
 {
-    COMMAND_LIST_PROFILED_CALL(iface, RSSetDepthBias, DepthBias, DepthBiasClamp, SlopeScaledDepthBias);
+    COMMAND_LIST_PROFILED_CALL(RSSetDepthBias, iface, DepthBias, DepthBiasClamp, SlopeScaledDepthBias);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBufferStripCutValue_profiled(d3d12_command_list_iface *iface, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE IBStripCutValue)
 {
-    COMMAND_LIST_PROFILED_CALL(iface, IBStripCutValue);
+    COMMAND_LIST_PROFILED_CALL(IASetIndexBufferStripCutValue, iface, IBStripCutValue);
 }
 
 static CONST_VTBL struct ID3D12GraphicsCommandList9Vtbl d3d12_command_list_vtbl_profiled =
