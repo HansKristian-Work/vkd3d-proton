@@ -1737,6 +1737,8 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     VkQueue vk_queue;
     VkResult vr;
 
+    VKD3D_REGION_DECL(queue_present);
+
     dxgi_vk_swap_chain_present_recreate_swapchain_if_required(chain);
     if (!chain->present.vk_swapchain)
         return;
@@ -1795,7 +1797,9 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     }
 
     vk_queue = vkd3d_queue_acquire(chain->queue->vkd3d_queue);
+    VKD3D_REGION_BEGIN(queue_present);
     vr = VK_CALL(vkQueuePresentKHR(vk_queue, &present_info));
+    VKD3D_REGION_END(queue_present);
     vkd3d_queue_release(chain->queue->vkd3d_queue);
     VKD3D_DEVICE_REPORT_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
 
