@@ -68,7 +68,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_FRAGMENT_SHADING_RATE, KHR_fragment_shading_rate),
     /* Only required to silence validation errors. */
     VK_EXTENSION(KHR_CREATE_RENDERPASS_2, KHR_create_renderpass2),
-    VK_EXTENSION(KHR_FORMAT_FEATURE_FLAGS_2, KHR_format_feature_flags2),
     VK_EXTENSION(KHR_SHADER_ATOMIC_INT64, KHR_shader_atomic_int64),
     VK_EXTENSION(KHR_COPY_COMMANDS_2, KHR_copy_commands2),
     VK_EXTENSION(KHR_DYNAMIC_RENDERING, KHR_dynamic_rendering),
@@ -3379,68 +3378,11 @@ bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent)
     return true;
 }
 
-static bool vk_format_is_supported_by_global_read_write_without_format(VkFormat format)
-{
-    size_t i;
-
-    /* from https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#formats-without-shader-storage-format */
-    static const VkFormat supported_formats[] =
-    {
-        VK_FORMAT_R8G8B8A8_UNORM,
-        VK_FORMAT_R8G8B8A8_SNORM,
-        VK_FORMAT_R8G8B8A8_UINT,
-        VK_FORMAT_R8G8B8A8_SINT,
-        VK_FORMAT_R32_UINT,
-        VK_FORMAT_R32_SINT,
-        VK_FORMAT_R32_SFLOAT,
-        VK_FORMAT_R32G32_UINT,
-        VK_FORMAT_R32G32_SINT,
-        VK_FORMAT_R32G32_SFLOAT,
-        VK_FORMAT_R32G32B32A32_UINT,
-        VK_FORMAT_R32G32B32A32_SINT,
-        VK_FORMAT_R32G32B32A32_SFLOAT,
-        VK_FORMAT_R16G16B16A16_UINT,
-        VK_FORMAT_R16G16B16A16_SINT,
-        VK_FORMAT_R16G16B16A16_SFLOAT,
-        VK_FORMAT_R16G16_SFLOAT,
-        VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-        VK_FORMAT_R16_SFLOAT,
-        VK_FORMAT_R16G16B16A16_UNORM,
-        VK_FORMAT_A2B10G10R10_UNORM_PACK32,
-        VK_FORMAT_R16G16_UNORM,
-        VK_FORMAT_R8G8_UNORM,
-        VK_FORMAT_R16_UNORM,
-        VK_FORMAT_R8_UNORM,
-        VK_FORMAT_R16G16B16A16_SNORM,
-        VK_FORMAT_R16G16_SNORM,
-        VK_FORMAT_R8G8_SNORM,
-        VK_FORMAT_R16_SNORM,
-        VK_FORMAT_R8_SNORM,
-        VK_FORMAT_R16G16_SINT,
-        VK_FORMAT_R8G8_SINT,
-        VK_FORMAT_R16_SINT,
-        VK_FORMAT_R8_SINT,
-        VK_FORMAT_A2B10G10R10_UINT_PACK32,
-        VK_FORMAT_R16G16_UINT,
-        VK_FORMAT_R8G8_UINT,
-        VK_FORMAT_R16_UINT,
-        VK_FORMAT_R8_UINT,
-    };
-
-    for (i = 0; i < ARRAY_SIZE(supported_formats); i++)
-    {
-        if (format == supported_formats[i])
-            return true;
-    }
-
-    return false;
-}
-
 static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D12_FEATURE_DATA_FORMAT_SUPPORT *data)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkFormatFeatureFlags2KHR image_features;
-    VkFormatProperties3KHR properties3;
+    VkFormatFeatureFlags2 image_features;
+    VkFormatProperties3 properties3;
     const struct vkd3d_format *format;
     VkFormatProperties2 properties;
 
@@ -3457,19 +3399,13 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
     properties.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2;
     properties.pNext = NULL;
 
-    if (device->vk_info.KHR_format_feature_flags2)
-    {
-        properties3.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3_KHR;
-        properties3.pNext = NULL;
-        vk_prepend_struct(&properties, &properties3);
-    }
+    properties3.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3;
+    properties3.pNext = NULL;
+    vk_prepend_struct(&properties, &properties3);
 
     VK_CALL(vkGetPhysicalDeviceFormatProperties2(device->vk_physical_device, format->vk_format, &properties));
 
-    if (device->vk_info.KHR_format_feature_flags2)
-        image_features = properties3.linearTilingFeatures | properties3.optimalTilingFeatures;
-    else
-        image_features = properties.formatProperties.linearTilingFeatures | properties.formatProperties.optimalTilingFeatures;
+    image_features = properties3.linearTilingFeatures | properties3.optimalTilingFeatures;
 
     if (properties.formatProperties.bufferFeatures)
         data->Support1 |= D3D12_FORMAT_SUPPORT1_BUFFER;
@@ -3482,11 +3418,11 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
         data->Support1 |= D3D12_FORMAT_SUPPORT1_TEXTURE1D | D3D12_FORMAT_SUPPORT1_TEXTURE2D
                 | D3D12_FORMAT_SUPPORT1_TEXTURE3D | D3D12_FORMAT_SUPPORT1_TEXTURECUBE;
     }
-    if (image_features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT_KHR)
+    if (image_features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT)
     {
         data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_LOAD | D3D12_FORMAT_SUPPORT1_MULTISAMPLE_LOAD
                 | D3D12_FORMAT_SUPPORT1_SHADER_GATHER;
-        if (image_features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT_KHR)
+        if (image_features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT)
         {
             data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE
                     | D3D12_FORMAT_SUPPORT1_MIP;
@@ -3497,33 +3433,24 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
                     | D3D12_FORMAT_SUPPORT1_SHADER_GATHER_COMPARISON;
         }
     }
-    if (image_features & VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT_KHR)
+    if (image_features & VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT)
         data->Support1 |= D3D12_FORMAT_SUPPORT1_RENDER_TARGET | D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RENDERTARGET;
-    if (image_features & VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT_KHR)
+    if (image_features & VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT)
         data->Support1 |= D3D12_FORMAT_SUPPORT1_BLENDABLE;
-    if (image_features & VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT_KHR)
+    if (image_features & VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT)
         data->Support1 |= D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL;
-    if (image_features & VK_FORMAT_FEATURE_2_BLIT_SRC_BIT_KHR)
+    if (image_features & VK_FORMAT_FEATURE_2_BLIT_SRC_BIT)
         data->Support1 |= D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RESOLVE;
-    if (image_features & VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR)
+    if (image_features & VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT)
     {
         data->Support1 |= D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW;
-        if (image_features & VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR)
+        if (image_features & VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT)
             data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD;
-        if (image_features & VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT_KHR)
+        if (image_features & VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT)
             data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE;
-
-        if (!device->vk_info.KHR_format_feature_flags2 &&
-                vk_format_is_supported_by_global_read_write_without_format(format->vk_format))
-        {
-            if (device->device_info.features2.features.shaderStorageImageReadWithoutFormat)
-                data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD;
-            if (device->device_info.features2.features.shaderStorageImageWriteWithoutFormat)
-                data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE;
-        }
     }
 
-    if (image_features & VK_FORMAT_FEATURE_2_STORAGE_IMAGE_ATOMIC_BIT_KHR)
+    if (image_features & VK_FORMAT_FEATURE_2_STORAGE_IMAGE_ATOMIC_BIT)
     {
         data->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_ADD
                 | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_BITWISE_OPS
