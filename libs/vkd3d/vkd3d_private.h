@@ -109,7 +109,6 @@ struct vkd3d_vulkan_info
     bool EXT_debug_utils;
 
     /* KHR device extensions */
-    bool KHR_draw_indirect_count;
     bool KHR_push_descriptor;
     bool KHR_shader_float16_int8;
     bool KHR_shader_subgroup_extended_types;
