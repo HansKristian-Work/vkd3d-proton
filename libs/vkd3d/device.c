@@ -59,7 +59,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
 {
     /* KHR extensions */
     VK_EXTENSION(KHR_PUSH_DESCRIPTOR, KHR_push_descriptor),
-    VK_EXTENSION(KHR_SHADER_FLOAT16_INT8, KHR_shader_float16_int8),
     VK_EXTENSION(KHR_SHADER_SUBGROUP_EXTENDED_TYPES, KHR_shader_subgroup_extended_types),
     VK_EXTENSION(KHR_PIPELINE_LIBRARY, KHR_pipeline_library),
     VK_EXTENSION_COND(KHR_RAY_TRACING_PIPELINE, KHR_ray_tracing_pipeline, VKD3D_CONFIG_FLAG_DXR),
@@ -1274,12 +1273,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->push_descriptor_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR;
         vk_prepend_struct(&info->properties2, &info->push_descriptor_properties);
-    }
-
-    if (vulkan_info->KHR_shader_float16_int8)
-    {
-        info->float16_int8_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT16_INT8_FEATURES_KHR;
-        vk_prepend_struct(&info->features2, &info->float16_int8_features);
     }
 
     if (vulkan_info->KHR_shader_subgroup_extended_types)
@@ -6391,7 +6384,7 @@ static void d3d12_device_caps_init_feature_options4(struct d3d12_device *device)
 
     /* If SSBO alignment is > 16, we cannot use SSBOs due to robustness rules.
      * If we cannot use SSBOs, we cannot use 16-bit raw buffers, which is a requirement for this feature. */
-    options4->Native16BitShaderOpsSupported = device->device_info.float16_int8_features.shaderFloat16 &&
+    options4->Native16BitShaderOpsSupported = device->device_info.vulkan_1_2_features.shaderFloat16 &&
             device->device_info.features2.features.shaderInt16 &&
             device->device_info.vulkan_1_1_features.uniformAndStorageBuffer16BitAccess &&
             device->device_info.subgroup_extended_types_features.shaderSubgroupExtendedTypes &&
@@ -6638,7 +6631,7 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
                 device->device_info.compute_shader_derivatives_features_nv.computeDerivativeGroupLinear &&
                 device->device_info.shader_atomic_int64_features.shaderBufferInt64Atomics &&
                 device->device_info.demote_features.shaderDemoteToHelperInvocation &&
-                device->device_info.float16_int8_features.shaderInt8 &&
+                device->device_info.vulkan_1_2_features.shaderInt8 &&
                 device->device_info.subgroup_size_control_features.computeFullSubgroups &&
                 device->device_info.subgroup_size_control_features.subgroupSizeControl &&
                 d3d12_device_supports_required_subgroup_size_for_stage(device, VK_SHADER_STAGE_COMPUTE_BIT))
