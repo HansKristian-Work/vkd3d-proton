@@ -81,7 +81,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_DEPTH_CLIP_ENABLE, EXT_depth_clip_enable),
     VK_EXTENSION(EXT_IMAGE_VIEW_MIN_LOD, EXT_image_view_min_lod),
     VK_EXTENSION(EXT_ROBUSTNESS_2, EXT_robustness2),
-    VK_EXTENSION(EXT_SHADER_DEMOTE_TO_HELPER_INVOCATION, EXT_shader_demote_to_helper_invocation),
     VK_EXTENSION(EXT_SHADER_STENCIL_EXPORT, EXT_shader_stencil_export),
     VK_EXTENSION(EXT_SHADER_VIEWPORT_INDEX_LAYER, EXT_shader_viewport_index_layer),
     VK_EXTENSION(EXT_TRANSFORM_FEEDBACK, EXT_transform_feedback),
@@ -1286,12 +1285,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->properties2, &info->robustness2_properties);
     }
 
-    if (vulkan_info->EXT_shader_demote_to_helper_invocation)
-    {
-        info->demote_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DEMOTE_TO_HELPER_INVOCATION_FEATURES_EXT;
-        vk_prepend_struct(&info->features2, &info->demote_features);
-    }
-
     if (vulkan_info->EXT_transform_feedback)
     {
         info->xfb_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT;
@@ -1886,9 +1879,6 @@ static void vkd3d_trace_physical_device_features(const struct vkd3d_physical_dev
     TRACE("  VkPhysicalDeviceDepthClipEnableFeaturesEXT:\n");
     TRACE("    depthClipEnable: %#x.\n", info->depth_clip_features.depthClipEnable);
 
-    TRACE("  VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT:\n");
-    TRACE("    shaderDemoteToHelperInvocation: %#x.\n", info->demote_features.shaderDemoteToHelperInvocation);
-
     TRACE("  VkPhysicalDeviceTransformFeedbackFeaturesEXT:\n");
     TRACE("    transformFeedback: %#x.\n", info->xfb_features.transformFeedback);
     TRACE("    geometryStreams: %#x.\n", info->xfb_features.geometryStreams);
@@ -1991,8 +1981,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         vulkan_info->EXT_conditional_rendering = false;
     if (!physical_device_info->depth_clip_features.depthClipEnable)
         vulkan_info->EXT_depth_clip_enable = false;
-    if (!physical_device_info->demote_features.shaderDemoteToHelperInvocation)
-        vulkan_info->EXT_shader_demote_to_helper_invocation = false;
 
     vulkan_info->vertex_attrib_zero_divisor = physical_device_info->vertex_divisor_features.vertexAttributeInstanceRateZeroDivisor;
 
@@ -6362,7 +6350,6 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
         if (device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_5 &&
                 device->device_info.compute_shader_derivatives_features_nv.computeDerivativeGroupLinear &&
                 device->device_info.vulkan_1_2_features.shaderBufferInt64Atomics &&
-                device->device_info.demote_features.shaderDemoteToHelperInvocation &&
                 device->device_info.vulkan_1_2_features.shaderInt8 &&
                 d3d12_device_supports_required_subgroup_size_for_stage(device, VK_SHADER_STAGE_COMPUTE_BIT))
         {
@@ -6497,12 +6484,8 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
 
     device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
             VKD3D_SHADER_TARGET_EXTENSION_SPV_KHR_INTEGER_DOT_PRODUCT;
-
-    if (device->vk_info.EXT_shader_demote_to_helper_invocation)
-    {
-        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
-                VKD3D_SHADER_TARGET_EXTENSION_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION;
-    }
+    device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+            VKD3D_SHADER_TARGET_EXTENSION_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION;
 
     if (d3d12_device_determine_additional_typed_uav_support(device))
     {
