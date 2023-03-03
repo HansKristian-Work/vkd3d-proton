@@ -11249,7 +11249,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
     if (!max_command_count)
         return;
 
-    if ((count_buffer || list->predicate_va) && !list->device->vk_info.KHR_draw_indirect_count)
+    if ((count_buffer || list->predicate_va) && !list->device->device_info.vulkan_1_2_features.drawIndirectCount)
     {
         FIXME("Count buffers not supported by Vulkan implementation.\n");
         return;
@@ -11345,7 +11345,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
 
                 if (count_buffer || list->predicate_va)
                 {
-                    VK_CALL(vkCmdDrawIndirectCountKHR(list->vk_command_buffer, arg_impl->res.vk_buffer,
+                    VK_CALL(vkCmdDrawIndirectCount(list->vk_command_buffer, arg_impl->res.vk_buffer,
                             arg_buffer_offset + arg_impl->mem.offset, scratch.buffer, scratch.offset,
                             max_command_count, signature_desc->ByteStride));
                 }
@@ -11370,7 +11370,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
 
                 if (count_buffer || list->predicate_va)
                 {
-                    VK_CALL(vkCmdDrawIndexedIndirectCountKHR(list->vk_command_buffer, arg_impl->res.vk_buffer,
+                    VK_CALL(vkCmdDrawIndexedIndirectCount(list->vk_command_buffer, arg_impl->res.vk_buffer,
                             arg_buffer_offset + arg_impl->mem.offset, scratch.buffer, scratch.offset,
                             max_command_count, signature_desc->ByteStride));
                 }

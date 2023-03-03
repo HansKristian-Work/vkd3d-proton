@@ -78,7 +78,9 @@ VK_DEVICE_PFN(vkCmdDispatchIndirect)
 VK_DEVICE_PFN(vkCmdDraw)
 VK_DEVICE_PFN(vkCmdDrawIndexed)
 VK_DEVICE_PFN(vkCmdDrawIndexedIndirect)
+VK_DEVICE_PFN(vkCmdDrawIndexedIndirectCount)
 VK_DEVICE_PFN(vkCmdDrawIndirect)
+VK_DEVICE_PFN(vkCmdDrawIndirectCount)
 VK_DEVICE_PFN(vkCmdEndQuery)
 VK_DEVICE_PFN(vkCmdExecuteCommands)
 VK_DEVICE_PFN(vkCmdFillBuffer)
@@ -174,10 +176,6 @@ VK_DEVICE_PFN(vkUnmapMemory)
 VK_DEVICE_PFN(vkUpdateDescriptorSets)
 VK_DEVICE_PFN(vkWaitForFences)
 VK_DEVICE_PFN(vkWaitSemaphores)
-
-/* VK_KHR_draw_indirect_count */
-VK_DEVICE_EXT_PFN(vkCmdDrawIndirectCountKHR)
-VK_DEVICE_EXT_PFN(vkCmdDrawIndexedIndirectCountKHR)
 
 /* VK_KHR_push_descriptor */
 VK_DEVICE_EXT_PFN(vkCmdPushDescriptorSetKHR)
