@@ -116,7 +116,6 @@ struct vkd3d_vulkan_info
     bool KHR_pipeline_library;
     bool KHR_ray_query;
     bool KHR_fragment_shading_rate;
-    bool KHR_driver_properties;
     bool KHR_uniform_buffer_standard_layout;
     bool KHR_maintenance4;
     bool KHR_ray_tracing_maintenance1;
@@ -3745,7 +3744,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration_structure_properties;
     VkPhysicalDeviceFragmentShadingRatePropertiesKHR fragment_shading_rate_properties;
     VkPhysicalDeviceConservativeRasterizationPropertiesEXT conservative_rasterization_properties;
-    VkPhysicalDeviceDriverPropertiesKHR driver_properties;
     VkPhysicalDeviceMaintenance4PropertiesKHR maintenance4_properties;
     VkPhysicalDeviceDeviceGeneratedCommandsPropertiesNV device_generated_commands_properties_nv;
     VkPhysicalDeviceMeshShaderPropertiesEXT mesh_shader_properties;

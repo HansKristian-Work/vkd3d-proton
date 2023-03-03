@@ -1664,7 +1664,7 @@ HRESULT vkd3d_allocate_memory(struct d3d12_device *device, struct vkd3d_memory_a
      * RADV definitely does this, and it seems like NV also does it.
      * TODO: an extension for this would be nice. */
     implementation_implicitly_clears =
-            vkd3d_driver_implicitly_clears(device->device_info.driver_properties.driverID) &&
+            vkd3d_driver_implicitly_clears(device->device_info.vulkan_1_2_properties.driverID) &&
             !suballocate;
 
     needs_clear = !implementation_implicitly_clears &&
