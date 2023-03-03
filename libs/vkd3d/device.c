@@ -66,7 +66,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION_COND(KHR_RAY_QUERY, KHR_ray_query, VKD3D_CONFIG_FLAG_DXR11),
     VK_EXTENSION_COND(KHR_RAY_TRACING_MAINTENANCE_1, KHR_ray_tracing_maintenance1, VKD3D_CONFIG_FLAG_DXR11),
     VK_EXTENSION(KHR_FRAGMENT_SHADING_RATE, KHR_fragment_shading_rate),
-    VK_EXTENSION(KHR_MAINTENANCE_4, KHR_maintenance4),
     VK_EXTENSION(KHR_FRAGMENT_SHADER_BARYCENTRIC, KHR_fragment_shader_barycentric),
     VK_EXTENSION(KHR_PRESENT_ID, KHR_present_id),
     VK_EXTENSION(KHR_PRESENT_WAIT, KHR_present_wait),
@@ -1259,14 +1258,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->properties2, &info->push_descriptor_properties);
     }
 
-    if (vulkan_info->KHR_maintenance4)
-    {
-        info->maintenance4_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_PROPERTIES;
-        vk_prepend_struct(&info->properties2, &info->maintenance4_properties);
-        info->maintenance4_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES;
-        vk_prepend_struct(&info->features2, &info->maintenance4_features);
-    }
-
     if (vulkan_info->EXT_calibrated_timestamps)
         info->time_domains = vkd3d_physical_device_get_time_domains(device);
 
@@ -2147,12 +2138,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     if (!physical_device_info->extended_dynamic_state2_features.extendedDynamicState2)
     {
         ERR("EXT_extended_dynamic_state2 is not supported by this implementation. This is required for correct operation.\n");
-        return E_INVALIDARG;
-    }
-
-    if (!physical_device_info->maintenance4_features.maintenance4)
-    {
-        ERR("KHR_maintenance4 is not supported by this implementation. This is required for correct operation.\n");
         return E_INVALIDARG;
     }
 

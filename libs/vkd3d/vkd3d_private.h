@@ -116,7 +116,6 @@ struct vkd3d_vulkan_info
     bool KHR_pipeline_library;
     bool KHR_ray_query;
     bool KHR_fragment_shading_rate;
-    bool KHR_maintenance4;
     bool KHR_ray_tracing_maintenance1;
     bool KHR_fragment_shader_barycentric;
     bool KHR_external_memory_win32;
@@ -3743,7 +3742,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration_structure_properties;
     VkPhysicalDeviceFragmentShadingRatePropertiesKHR fragment_shading_rate_properties;
     VkPhysicalDeviceConservativeRasterizationPropertiesEXT conservative_rasterization_properties;
-    VkPhysicalDeviceMaintenance4PropertiesKHR maintenance4_properties;
     VkPhysicalDeviceDeviceGeneratedCommandsPropertiesNV device_generated_commands_properties_nv;
     VkPhysicalDeviceMeshShaderPropertiesEXT mesh_shader_properties;
     VkPhysicalDeviceShaderModuleIdentifierPropertiesEXT shader_module_identifier_properties;
@@ -3780,7 +3778,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceImageViewMinLodFeaturesEXT image_view_min_lod_features;
     VkPhysicalDeviceDescriptorSetHostMappingFeaturesVALVE descriptor_set_host_mapping_features;
     VkPhysicalDeviceCoherentMemoryFeaturesAMD device_coherent_memory_features_amd;
-    VkPhysicalDeviceMaintenance4FeaturesKHR maintenance4_features;
     VkPhysicalDeviceRayTracingMaintenance1FeaturesKHR ray_tracing_maintenance1_features;
     VkPhysicalDeviceDeviceGeneratedCommandsFeaturesNV device_generated_commands_features_nv;
     VkPhysicalDeviceMeshShaderFeaturesEXT mesh_shader_features;
