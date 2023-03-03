@@ -9306,6 +9306,19 @@ static uint32_t vkd3d_dxbc_compiler_get_resource_index(struct vkd3d_dxbc_compile
     }
 #endif
 
+    /* The stride between physical VAs are strided, so apply that here.
+     * Important that we apply this stride after descriptor QA check. */
+    if ((binding->flags & VKD3D_SHADER_BINDING_FLAG_RAW_VA) &&
+            (binding->flags & VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER) &&
+            (compiler->shader_interface.flags & VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER))
+    {
+        index_id = vkd3d_spirv_build_op_imul(builder,
+                vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1),
+                vkd3d_dxbc_compiler_get_constant_uint(compiler,
+                        compiler->shader_interface.descriptor_size_cbv_srv_uav / sizeof(VkDeviceAddress)),
+                index_id);
+    }
+
     /* AMD drivers rely on the index being marked as nonuniform */
     if (reg->modifier == VKD3DSPRM_NONUNIFORM)
         vkd3d_dxbc_compiler_decorate_nonuniform(compiler, index_id);

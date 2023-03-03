@@ -8571,10 +8571,13 @@ static void d3d12_command_list_set_descriptor_heaps_buffers(struct d3d12_command
             list->descriptor_heap.buffers.heap_va_resource = heap->descriptor_buffer.va;
             list->descriptor_heap.buffers.vk_buffer_resource = heap->descriptor_buffer.vk_buffer;
 
-            /* In case we need to hoist buffer descriptors. */
-            d = d3d12_desc_decode_va(heap->cpu_va.ptr);
-            list->cbv_srv_uav_descriptors_types = d.types;
-            list->cbv_srv_uav_descriptors_view = d.view;
+            if (!d3d12_device_use_embedded_mutable_descriptors(list->device))
+            {
+                /* In case we need to hoist buffer descriptors. */
+                d = d3d12_desc_decode_va(heap->cpu_va.ptr);
+                list->cbv_srv_uav_descriptors_types = d.types;
+                list->cbv_srv_uav_descriptors_view = d.view;
+            }
         }
         else if (heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
         {
@@ -8691,7 +8694,7 @@ static void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *l
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
 
     assert(index < ARRAY_SIZE(bindings->descriptor_tables));
-    bindings->descriptor_tables[index] = d3d12_desc_heap_offset_from_gpu_handle(base_descriptor);
+    bindings->descriptor_tables[index] = d3d12_desc_heap_offset_from_gpu_handle(list->device, base_descriptor);
     bindings->descriptor_table_active_mask |= (uint64_t)1 << index;
 
     if (root_signature)
@@ -9412,7 +9415,6 @@ struct vkd3d_clear_uav_info
 };
 
 static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
-        const struct d3d12_desc_split *d,
         struct d3d12_resource *resource, const struct vkd3d_clear_uav_info *args,
         const VkClearColorValue *clear_color, UINT rect_count, const D3D12_RECT *rects)
 {
@@ -9575,7 +9577,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
 }
 
 static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *list,
-        const struct d3d12_desc_split *d, struct d3d12_resource *resource,
+        struct d3d12_resource *resource,
         const struct vkd3d_clear_uav_info *args, const VkClearColorValue *clear_value,
         const struct vkd3d_format *format, UINT rect_count, const D3D12_RECT *rects)
 {
@@ -9846,25 +9848,25 @@ static bool vkd3d_clear_uav_check_uint_format_compatibility(struct d3d12_device 
     return false;
 }
 
-static inline bool vkd3d_clear_uav_info_from_desc(struct vkd3d_clear_uav_info *args, const struct d3d12_desc_split *d)
+static inline bool vkd3d_clear_uav_info_from_metadata(struct vkd3d_clear_uav_info *args,
+        struct d3d12_desc_split_metadata metadata)
 {
-    if (d->types->flags & VKD3D_DESCRIPTOR_FLAG_IMAGE_VIEW)
+    if (metadata.types->flags & VKD3D_DESCRIPTOR_FLAG_IMAGE_VIEW)
     {
         args->has_view = true;
-        args->u.view = d->view->info.view;
-        args->clear_dxgi_format = d->view->info.view->format->dxgi_format;
+        args->u.view = metadata.view->info.view;
+        args->clear_dxgi_format = metadata.view->info.view->format->dxgi_format;
         return true;
     }
-    else if (d->types->flags & VKD3D_DESCRIPTOR_FLAG_BUFFER_VA_RANGE)
+    else if (metadata.types->flags & VKD3D_DESCRIPTOR_FLAG_BUFFER_VA_RANGE)
     {
-        args->u.buffer = d->view->info.buffer;
+        args->u.buffer = metadata.view->info.buffer;
         args->has_view = false;
-        args->clear_dxgi_format = d->view->info.buffer.dxgi_format;
+        args->clear_dxgi_format = metadata.view->info.buffer.dxgi_format;
         return true;
     }
     else
     {
-        /* Hit if we try to clear a NULL descriptor, just noop it. */
         return false;
     }
 }
@@ -9956,12 +9958,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
         const UINT values[4], UINT rect_count, const D3D12_RECT *rects)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_desc_split_metadata metadata;
     const struct vkd3d_format *clear_format;
     const struct vkd3d_format *uint_format;
     struct vkd3d_view *inline_view = NULL;
     struct d3d12_resource *resource_impl;
     struct vkd3d_clear_uav_info args;
-    struct d3d12_desc_split d;
     VkClearColorValue color;
 
     TRACE("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p.\n",
@@ -9969,10 +9971,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
 
     memcpy(color.uint32, values, sizeof(color.uint32));
 
-    d = d3d12_desc_decode_va(cpu_handle.ptr);
+    metadata = d3d12_desc_decode_metadata(list->device, cpu_handle.ptr);
     resource_impl = impl_from_ID3D12Resource(resource);
 
-    if (!vkd3d_clear_uav_info_from_desc(&args, &d))
+    if (!resource_impl || !metadata.view)
+        return;
+
+    if (!vkd3d_clear_uav_info_from_metadata(&args, metadata))
         return;
 
     if (d3d12_resource_is_texture(resource_impl) && !args.has_view)
@@ -10013,7 +10018,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
     }
     else if (d3d12_resource_is_texture(resource_impl) && clear_format->type != VKD3D_FORMAT_TYPE_UINT)
     {
-        const struct vkd3d_view *base_view = d.view->info.view;
+        const struct vkd3d_view *base_view = metadata.view->info.view;
         uint_format = vkd3d_clear_uav_find_uint_format(list->device, clear_format->dxgi_format);
         color = vkd3d_fixup_clear_uav_uint_color(list->device, clear_format->dxgi_format, color);
 
@@ -10058,7 +10063,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
              * with the packed clear value and perform a buffer to image copy. */
             if (color.uint32[0] || color.uint32[1] || color.uint32[2] || color.uint32[3])
             {
-                d3d12_command_list_clear_uav_with_copy(list, &d, resource_impl,
+                d3d12_command_list_clear_uav_with_copy(list, resource_impl,
                         &args, &color, uint_format, rect_count, rects);
                 return;
             }
@@ -10069,7 +10074,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
         vkd3d_mask_uint_clear_color(color.uint32, clear_format->vk_format);
     }
 
-    d3d12_command_list_clear_uav(list, &d, resource_impl, &args, &color, rect_count, rects);
+    d3d12_command_list_clear_uav(list, resource_impl, &args, &color, rect_count, rects);
 
     if (inline_view)
     {
@@ -10083,20 +10088,23 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d
         const float values[4], UINT rect_count, const D3D12_RECT *rects)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_desc_split_metadata metadata;
     struct vkd3d_view *inline_view = NULL;
     struct d3d12_resource *resource_impl;
     struct vkd3d_clear_uav_info args;
-    struct d3d12_desc_split d;
     VkClearColorValue color;
 
     TRACE("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p.\n",
             iface, gpu_handle.ptr, cpu_handle.ptr, resource, values, rect_count, rects);
 
-    d = d3d12_desc_decode_va(cpu_handle.ptr);
+    metadata = d3d12_desc_decode_metadata(list->device, cpu_handle.ptr);
     memcpy(color.float32, values, sizeof(color.float32));
     resource_impl = impl_from_ID3D12Resource(resource);
 
-    if (!vkd3d_clear_uav_info_from_desc(&args, &d))
+    if (!resource_impl || !metadata.view)
+        return;
+
+    if (!vkd3d_clear_uav_info_from_metadata(&args, metadata))
         return;
 
     if (d3d12_resource_is_texture(resource_impl) && !args.has_view)
@@ -10119,7 +10127,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d
         args.has_view = true;
     }
 
-    d3d12_command_list_clear_uav(list, &d, resource_impl, &args, &color, rect_count, rects);
+    d3d12_command_list_clear_uav(list, resource_impl, &args, &color, rect_count, rects);
 
     if (inline_view)
     {
