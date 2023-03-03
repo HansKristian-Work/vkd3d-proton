@@ -69,7 +69,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_FRAGMENT_SHADER_BARYCENTRIC, KHR_fragment_shader_barycentric),
     VK_EXTENSION(KHR_PRESENT_ID, KHR_present_id),
     VK_EXTENSION(KHR_PRESENT_WAIT, KHR_present_wait),
-    VK_EXTENSION(KHR_SYNCHRONIZATION_2, KHR_synchronization2),
 #ifdef _WIN32
     VK_EXTENSION(KHR_EXTERNAL_MEMORY_WIN32, KHR_external_memory_win32),
     VK_EXTENSION(KHR_EXTERNAL_SEMAPHORE_WIN32, KHR_external_semaphore_win32),
