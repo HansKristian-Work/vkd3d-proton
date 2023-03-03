@@ -1265,6 +1265,16 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     info->vulkan_1_1_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES;
     vk_prepend_struct(&info->properties2, &info->vulkan_1_1_properties);
 
+    info->vulkan_1_2_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    vk_prepend_struct(&info->features2, &info->vulkan_1_2_features);
+    info->vulkan_1_2_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES;
+    vk_prepend_struct(&info->properties2, &info->vulkan_1_2_properties);
+
+    info->vulkan_1_3_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+    vk_prepend_struct(&info->features2, &info->vulkan_1_3_features);
+    info->vulkan_1_3_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES;
+    vk_prepend_struct(&info->properties2, &info->vulkan_1_3_properties);
+
     if (vulkan_info->KHR_buffer_device_address)
     {
         info->buffer_device_address_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR;
@@ -2173,6 +2183,25 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
 
     physical_device_info->vulkan_1_1_features.protectedMemory = VK_FALSE;
     physical_device_info->vulkan_1_1_features.samplerYcbcrConversion = VK_FALSE;
+
+    physical_device_info->vulkan_1_2_features.storageBuffer8BitAccess = VK_FALSE;
+    physical_device_info->vulkan_1_2_features.uniformAndStorageBuffer8BitAccess = VK_FALSE;
+    physical_device_info->vulkan_1_2_features.storagePushConstant8 = VK_FALSE;
+    physical_device_info->vulkan_1_2_features.shaderInputAttachmentArrayDynamicIndexing = VK_FALSE;
+    physical_device_info->vulkan_1_2_features.shaderInputAttachmentArrayNonUniformIndexing = VK_FALSE;
+    physical_device_info->vulkan_1_2_features.bufferDeviceAddressCaptureReplay = VK_FALSE;
+    physical_device_info->vulkan_1_2_features.bufferDeviceAddressMultiDevice = VK_FALSE;
+    physical_device_info->vulkan_1_2_features.imagelessFramebuffer = VK_FALSE;
+    physical_device_info->vulkan_1_2_features.hostQueryReset = VK_FALSE;
+    physical_device_info->vulkan_1_2_features.vulkanMemoryModel = VK_FALSE;
+    physical_device_info->vulkan_1_2_features.vulkanMemoryModelDeviceScope = VK_FALSE;
+    physical_device_info->vulkan_1_2_features.vulkanMemoryModelAvailabilityVisibilityChains = VK_FALSE;
+
+    physical_device_info->vulkan_1_3_features.robustImageAccess = VK_FALSE;
+    physical_device_info->vulkan_1_3_features.inlineUniformBlock = VK_FALSE;
+    physical_device_info->vulkan_1_3_features.descriptorBindingInlineUniformBlockUpdateAfterBind = VK_FALSE;
+    physical_device_info->vulkan_1_3_features.privateData = VK_FALSE;
+    physical_device_info->vulkan_1_3_features.textureCompressionASTC_HDR = VK_FALSE;
 
     buffer_device_address = &physical_device_info->buffer_device_address_features;
     buffer_device_address->bufferDeviceAddressCaptureReplay = VK_FALSE;
