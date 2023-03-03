@@ -492,7 +492,7 @@ struct vkd3d_image_create_info
 {
     struct vkd3d_format_compatibility_list format_compat_list;
     VkExternalMemoryImageCreateInfo external_info;
-    VkImageFormatListCreateInfoKHR format_list;
+    VkImageFormatListCreateInfo format_list;
     VkImageCreateInfo image_info;
 };
 
@@ -503,7 +503,7 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
 {
     struct vkd3d_format_compatibility_list *compat_list = &create_info->format_compat_list;
     VkExternalMemoryImageCreateInfo *external_info = &create_info->external_info;
-    VkImageFormatListCreateInfoKHR *format_list = &create_info->format_list;
+    VkImageFormatListCreateInfo *format_list = &create_info->format_list;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkImageCreateInfo *image_info = &create_info->image_info;
     const bool sparse_resource = !heap_properties;

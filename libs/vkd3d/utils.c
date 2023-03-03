@@ -411,9 +411,6 @@ static HRESULT vkd3d_init_format_compatibility_lists(struct d3d12_device *device
     device->format_compatibility_list_count = 0;
     device->format_compatibility_lists = NULL;
 
-    if (!device->vk_info.KHR_image_format_list)
-        return S_OK;
-
     count = 0;
     for (i = 0; i < ARRAY_SIZE(dxgi_format_compatibility_list); ++i)
         count = max(count, dxgi_format_compatibility_list[i].image_format + 1);

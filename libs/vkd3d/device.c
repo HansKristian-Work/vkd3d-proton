@@ -60,7 +60,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     /* KHR extensions */
     VK_EXTENSION(KHR_BUFFER_DEVICE_ADDRESS, KHR_buffer_device_address),
     VK_EXTENSION(KHR_DRAW_INDIRECT_COUNT, KHR_draw_indirect_count),
-    VK_EXTENSION(KHR_IMAGE_FORMAT_LIST, KHR_image_format_list),
     VK_EXTENSION(KHR_PUSH_DESCRIPTOR, KHR_push_descriptor),
     VK_EXTENSION(KHR_TIMELINE_SEMAPHORE, KHR_timeline_semaphore),
     VK_EXTENSION(KHR_SHADER_FLOAT16_INT8, KHR_shader_float16_int8),
