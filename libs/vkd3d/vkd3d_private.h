@@ -117,7 +117,6 @@ struct vkd3d_vulkan_info
     bool KHR_ray_query;
     bool KHR_fragment_shading_rate;
     bool KHR_create_renderpass2;
-    bool KHR_shader_atomic_int64;
     bool KHR_copy_commands2;
     bool KHR_dynamic_rendering;
     bool KHR_depth_stencil_resolve;
@@ -3783,7 +3782,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR barycentric_features_khr;
     VkPhysicalDeviceRayQueryFeaturesKHR ray_query_features;
     VkPhysicalDeviceComputeShaderDerivativesFeaturesNV compute_shader_derivatives_features_nv;
-    VkPhysicalDeviceShaderAtomicInt64FeaturesKHR shader_atomic_int64_features;
     VkPhysicalDeviceShaderImageAtomicInt64FeaturesEXT shader_image_atomic_int64_features;
     VkPhysicalDeviceScalarBlockLayoutFeaturesEXT scalar_block_layout_features;
     VkPhysicalDeviceUniformBufferStandardLayoutFeatures uniform_buffer_standard_layout_features;
