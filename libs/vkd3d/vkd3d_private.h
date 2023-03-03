@@ -137,7 +137,6 @@ struct vkd3d_vulkan_info
     bool EXT_vertex_attribute_divisor;
     bool EXT_extended_dynamic_state2;
     bool EXT_external_memory_host;
-    bool EXT_4444_formats;
     bool EXT_shader_image_atomic_int64;
     bool EXT_scalar_block_layout;
     bool EXT_pipeline_creation_feedback;
@@ -3749,7 +3748,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceTransformFeedbackFeaturesEXT xfb_features;
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT vertex_divisor_features;
     VkPhysicalDeviceCustomBorderColorFeaturesEXT custom_border_color_features;
-    VkPhysicalDevice4444FormatsFeaturesEXT ext_4444_formats_features;
     VkPhysicalDeviceRobustness2FeaturesEXT robustness2_features;
     VkPhysicalDeviceExtendedDynamicState2FeaturesEXT extended_dynamic_state2_features;
     VkPhysicalDeviceMutableDescriptorTypeFeaturesEXT mutable_descriptor_features;
