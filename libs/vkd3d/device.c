@@ -59,7 +59,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
 {
     /* KHR extensions */
     VK_EXTENSION(KHR_PUSH_DESCRIPTOR, KHR_push_descriptor),
-    VK_EXTENSION(KHR_SHADER_SUBGROUP_EXTENDED_TYPES, KHR_shader_subgroup_extended_types),
     VK_EXTENSION(KHR_PIPELINE_LIBRARY, KHR_pipeline_library),
     VK_EXTENSION_COND(KHR_RAY_TRACING_PIPELINE, KHR_ray_tracing_pipeline, VKD3D_CONFIG_FLAG_DXR),
     VK_EXTENSION_COND(KHR_ACCELERATION_STRUCTURE, KHR_acceleration_structure, VKD3D_CONFIG_FLAG_DXR),
@@ -1273,13 +1272,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->push_descriptor_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR;
         vk_prepend_struct(&info->properties2, &info->push_descriptor_properties);
-    }
-
-    if (vulkan_info->KHR_shader_subgroup_extended_types)
-    {
-        info->subgroup_extended_types_features.sType =
-                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_EXTENDED_TYPES_FEATURES_KHR;
-        vk_prepend_struct(&info->features2, &info->subgroup_extended_types_features);
     }
 
     if (vulkan_info->KHR_maintenance4)
@@ -6387,7 +6379,6 @@ static void d3d12_device_caps_init_feature_options4(struct d3d12_device *device)
     options4->Native16BitShaderOpsSupported = device->device_info.vulkan_1_2_features.shaderFloat16 &&
             device->device_info.features2.features.shaderInt16 &&
             device->device_info.vulkan_1_1_features.uniformAndStorageBuffer16BitAccess &&
-            device->device_info.subgroup_extended_types_features.shaderSubgroupExtendedTypes &&
             device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment <= 16;
 }
 
