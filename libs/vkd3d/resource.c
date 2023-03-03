@@ -6045,7 +6045,7 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_pool(struct d3d12_descrip
     vk_pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     vk_pool_info.pNext = NULL;
 
-    vk_pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT_EXT;
+    vk_pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
     if (!(descriptor_heap->desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE) &&
             (descriptor_heap->device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_TYPE))
         vk_pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_HOST_ONLY_BIT_EXT;

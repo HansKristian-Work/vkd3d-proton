@@ -147,7 +147,6 @@ struct vkd3d_vulkan_info
     bool EXT_conservative_rasterization;
     bool EXT_custom_border_color;
     bool EXT_depth_clip_enable;
-    bool EXT_descriptor_indexing;
     bool EXT_image_view_min_lod;
     bool EXT_robustness2;
     bool EXT_sampler_filter_minmax;
@@ -3749,7 +3748,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceVulkan11Properties vulkan_1_1_properties;
     VkPhysicalDeviceVulkan12Properties vulkan_1_2_properties;
     VkPhysicalDeviceVulkan13Properties vulkan_1_3_properties;
-    VkPhysicalDeviceDescriptorIndexingPropertiesEXT descriptor_indexing_properties;
     VkPhysicalDevicePushDescriptorPropertiesKHR push_descriptor_properties;
     VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT texel_buffer_alignment_properties;
     VkPhysicalDeviceTransformFeedbackPropertiesEXT xfb_properties;
@@ -3784,7 +3782,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceVulkan13Features vulkan_1_3_features;
     VkPhysicalDeviceConditionalRenderingFeaturesEXT conditional_rendering_features;
     VkPhysicalDeviceDepthClipEnableFeaturesEXT depth_clip_features;
-    VkPhysicalDeviceDescriptorIndexingFeaturesEXT descriptor_indexing_features;
     VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT demote_features;
     VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT texel_buffer_alignment_features;
     VkPhysicalDeviceTransformFeedbackFeaturesEXT xfb_features;
