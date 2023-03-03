@@ -34,8 +34,8 @@
 # include "private/vulkan_private_extensions.h"
 #endif  /* VKD3D_NO_VULKAN_H */
 
-#define VKD3D_MIN_API_VERSION VK_API_VERSION_1_1
-#define VKD3D_MAX_API_VERSION VK_API_VERSION_1_1
+#define VKD3D_MIN_API_VERSION VK_API_VERSION_1_3
+#define VKD3D_MAX_API_VERSION VK_API_VERSION_1_3
 
 #ifdef __cplusplus
 extern "C" {
