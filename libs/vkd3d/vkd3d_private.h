@@ -110,7 +110,6 @@ struct vkd3d_vulkan_info
 
     /* KHR device extensions */
     bool KHR_push_descriptor;
-    bool KHR_shader_float16_int8;
     bool KHR_shader_subgroup_extended_types;
     bool KHR_ray_tracing_pipeline;
     bool KHR_acceleration_structure;
@@ -3781,7 +3780,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT vertex_divisor_features;
     VkPhysicalDeviceCustomBorderColorFeaturesEXT custom_border_color_features;
     VkPhysicalDevice4444FormatsFeaturesEXT ext_4444_formats_features;
-    VkPhysicalDeviceFloat16Int8FeaturesKHR float16_int8_features;
     VkPhysicalDeviceShaderSubgroupExtendedTypesFeaturesKHR subgroup_extended_types_features;
     VkPhysicalDeviceRobustness2FeaturesEXT robustness2_features;
     VkPhysicalDeviceExtendedDynamicStateFeaturesEXT extended_dynamic_state_features;
