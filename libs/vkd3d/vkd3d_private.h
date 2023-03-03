@@ -3749,6 +3749,8 @@ struct vkd3d_physical_device_info
 {
     /* properties */
     VkPhysicalDeviceVulkan11Properties vulkan_1_1_properties;
+    VkPhysicalDeviceVulkan12Properties vulkan_1_2_properties;
+    VkPhysicalDeviceVulkan13Properties vulkan_1_3_properties;
     VkPhysicalDeviceDescriptorIndexingPropertiesEXT descriptor_indexing_properties;
     VkPhysicalDevicePushDescriptorPropertiesKHR push_descriptor_properties;
     VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT texel_buffer_alignment_properties;
@@ -3780,6 +3782,8 @@ struct vkd3d_physical_device_info
 
     /* features */
     VkPhysicalDeviceVulkan11Features vulkan_1_1_features;
+    VkPhysicalDeviceVulkan12Features vulkan_1_2_features;
+    VkPhysicalDeviceVulkan13Features vulkan_1_3_features;
     VkPhysicalDeviceBufferDeviceAddressFeaturesKHR buffer_device_address_features;
     VkPhysicalDeviceConditionalRenderingFeaturesEXT conditional_rendering_features;
     VkPhysicalDeviceDepthClipEnableFeaturesEXT depth_clip_features;
