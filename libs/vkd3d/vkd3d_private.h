@@ -111,7 +111,6 @@ struct vkd3d_vulkan_info
     /* KHR device extensions */
     bool KHR_buffer_device_address;
     bool KHR_draw_indirect_count;
-    bool KHR_image_format_list;
     bool KHR_push_descriptor;
     bool KHR_timeline_semaphore;
     bool KHR_shader_float16_int8;
