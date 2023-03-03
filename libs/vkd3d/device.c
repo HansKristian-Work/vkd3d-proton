@@ -92,7 +92,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_MESH_SHADER, EXT_mesh_shader),
     VK_EXTENSION(EXT_MUTABLE_DESCRIPTOR_TYPE, EXT_mutable_descriptor_type),
     VK_EXTENSION(EXT_HDR_METADATA, EXT_hdr_metadata),
-    VK_EXTENSION(EXT_PIPELINE_CREATION_CACHE_CONTROL, EXT_pipeline_creation_cache_control),
     VK_EXTENSION(EXT_SHADER_MODULE_IDENTIFIER, EXT_shader_module_identifier),
     VK_EXTENSION(EXT_DESCRIPTOR_BUFFER, EXT_descriptor_buffer),
     VK_EXTENSION_COND(EXT_PIPELINE_LIBRARY_GROUP_HANDLES, EXT_pipeline_library_group_handles, VKD3D_CONFIG_FLAG_DXR),
@@ -1442,13 +1441,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->mesh_shader_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT;
         vk_prepend_struct(&info->features2, &info->mesh_shader_features);
         vk_prepend_struct(&info->properties2, &info->mesh_shader_properties);
-    }
-
-    if (vulkan_info->EXT_pipeline_creation_cache_control)
-    {
-        info->pipeline_creation_cache_control_features.sType =
-                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_CREATION_CACHE_CONTROL_FEATURES;
-        vk_prepend_struct(&info->features2, &info->pipeline_creation_cache_control_features);
     }
 
     if (vulkan_info->EXT_shader_module_identifier)

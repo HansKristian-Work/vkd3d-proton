@@ -2641,7 +2641,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
         feedback_info.pipelineStageCreationFeedbackCount = 0;
 
     if (pipeline_info.stage.module == VK_NULL_HANDLE)
-        pipeline_info.flags |= VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT_EXT;
+        pipeline_info.flags |= VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT;
 
     if (d3d12_device_uses_descriptor_buffers(device))
         pipeline_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
@@ -2651,11 +2651,11 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
 
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
     {
-        if (pipeline_info.flags & VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT_EXT)
+        if (pipeline_info.flags & VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT)
         {
             if (vr == VK_SUCCESS)
                 INFO("[IDENTIFIER] Successfully created compute pipeline from identifier.\n");
-            else if (vr == VK_PIPELINE_COMPILE_REQUIRED_EXT)
+            else if (vr == VK_PIPELINE_COMPILE_REQUIRED)
                 INFO("[IDENTIFIER] Failed to create compute pipeline from identifier, falling back ...\n");
         }
         else
@@ -2663,9 +2663,9 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
     }
 
     /* Fallback. */
-    if (vr == VK_PIPELINE_COMPILE_REQUIRED_EXT)
+    if (vr == VK_PIPELINE_COMPILE_REQUIRED)
     {
-        pipeline_info.flags &= ~VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT_EXT;
+        pipeline_info.flags &= ~VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT;
 
         if (FAILED(hr = vkd3d_compile_shader_stage(state, device,
                 VK_SHADER_STAGE_COMPUTE_BIT, code, spirv_code)))
@@ -4833,7 +4833,7 @@ static VkResult d3d12_pipeline_state_link_pipeline_variant(struct d3d12_pipeline
     vr = VK_CALL(vkCreateGraphicsPipelines(state->device->vk_device,
             vk_cache, 1, &create_info, NULL, vk_pipeline));
 
-    if (vr != VK_SUCCESS && vr != VK_PIPELINE_COMPILE_REQUIRED_EXT)
+    if (vr != VK_SUCCESS && vr != VK_PIPELINE_COMPILE_REQUIRED)
         ERR("Failed to create link pipeline, vr %d.\n", vr);
 
     return vr;
@@ -4996,7 +4996,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     /* If we're using identifiers, set the appropriate flag. */
     for (i = 0; i < graphics->stage_count; i++)
         if (pipeline_desc.pStages[i].module == VK_NULL_HANDLE)
-            pipeline_desc.flags |= VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT_EXT;
+            pipeline_desc.flags |= VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT;
 
     if (d3d12_device_uses_descriptor_buffers(device))
         pipeline_desc.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
@@ -5019,18 +5019,18 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
 
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
     {
-        if (pipeline_desc.flags & VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT_EXT)
+        if (pipeline_desc.flags & VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT)
         {
             if (vr == VK_SUCCESS)
                 INFO("[IDENTIFIER] Successfully created graphics pipeline from identifier.\n");
-            else if (vr == VK_PIPELINE_COMPILE_REQUIRED_EXT)
+            else if (vr == VK_PIPELINE_COMPILE_REQUIRED)
                 INFO("[IDENTIFIER] Failed to create graphics pipeline from identifier, falling back ...\n");
         }
         else
             INFO("[IDENTIFIER] No graphics identifier\n");
     }
 
-    if (vr == VK_PIPELINE_COMPILE_REQUIRED_EXT)
+    if (vr == VK_PIPELINE_COMPILE_REQUIRED)
     {
         if (FAILED(hr = vkd3d_late_compile_shader_stages(state)))
         {
@@ -5039,7 +5039,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
             goto err;
         }
 
-        pipeline_desc.flags &= ~VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT_EXT;
+        pipeline_desc.flags &= ~VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT;
         /* Internal modules are known to be non-null now. */
         pipeline_desc.pStages = state->graphics.stages;
         vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device, vk_cache, 1, &pipeline_desc, NULL, &vk_pipeline));
@@ -5058,7 +5058,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
         vkd3d_report_pipeline_creation_feedback_results(&feedback_info);
 
     if (library_flags)
-        graphics->library_create_flags = pipeline_desc.flags & VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT_EXT;
+        graphics->library_create_flags = pipeline_desc.flags & VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT;
 
 err:
     /* Clean up any temporary SPIR-V modules we created. */
