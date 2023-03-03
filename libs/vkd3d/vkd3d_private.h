@@ -138,7 +138,6 @@ struct vkd3d_vulkan_info
     bool EXT_extended_dynamic_state2;
     bool EXT_external_memory_host;
     bool EXT_shader_image_atomic_int64;
-    bool EXT_pipeline_creation_feedback;
     bool EXT_mesh_shader;
     bool EXT_mutable_descriptor_type; /* EXT promotion of VALVE one. */
     bool EXT_hdr_metadata;
