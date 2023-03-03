@@ -209,7 +209,9 @@ enum vkd3d_shader_interface_flag
     VKD3D_SHADER_INTERFACE_BINDLESS_CBV_AS_STORAGE_BUFFER   = 0x00000002u,
     VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER               = 0x00000004u,
     VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER              = 0x00000008u,
-    VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER             = 0x00000010u
+    VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER             = 0x00000010u,
+    /* In this model, use descriptor_size_cbv_srv_uav as array stride for raw VA buffer. */
+    VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER   = 0x00000020u,
 };
 
 struct vkd3d_shader_stage_io_entry
@@ -264,6 +266,10 @@ struct vkd3d_shader_interface_info
     VkShaderStageFlagBits stage;
 
     const struct vkd3d_shader_transform_feedback_info *xfb_info;
+
+    /* Used for either VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER or local root signatures. */
+    uint32_t descriptor_size_cbv_srv_uav;
+    uint32_t descriptor_size_sampler;
 };
 
 struct vkd3d_shader_descriptor_table
@@ -304,7 +310,6 @@ struct vkd3d_shader_interface_local_info
     unsigned int shader_record_buffer_count;
     const struct vkd3d_shader_resource_binding *bindings;
     unsigned int binding_count;
-    uint32_t descriptor_size;
 };
 
 struct vkd3d_shader_transform_feedback_element
