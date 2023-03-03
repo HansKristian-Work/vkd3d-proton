@@ -141,6 +141,7 @@ VK_DEVICE_PFN(vkFlushMappedMemoryRanges)
 VK_DEVICE_PFN(vkFreeCommandBuffers)
 VK_DEVICE_PFN(vkFreeDescriptorSets)
 VK_DEVICE_PFN(vkFreeMemory)
+VK_DEVICE_PFN(vkGetBufferDeviceAddress)
 VK_DEVICE_PFN(vkGetBufferMemoryRequirements)
 VK_DEVICE_PFN(vkGetBufferMemoryRequirements2)
 VK_DEVICE_PFN(vkGetDescriptorSetLayoutSupport)
@@ -170,11 +171,6 @@ VK_DEVICE_PFN(vkSetEvent)
 VK_DEVICE_PFN(vkUnmapMemory)
 VK_DEVICE_PFN(vkUpdateDescriptorSets)
 VK_DEVICE_PFN(vkWaitForFences)
-
-/* VK_KHR_buffer_device_address */
-VK_DEVICE_EXT_PFN(vkGetBufferDeviceAddressKHR)
-VK_DEVICE_EXT_PFN(vkGetBufferOpaqueCaptureAddressKHR)
-VK_DEVICE_EXT_PFN(vkGetDeviceMemoryOpaqueCaptureAddressKHR)
 
 /* VK_KHR_timeline_semaphore */
 VK_DEVICE_EXT_PFN(vkGetSemaphoreCounterValueKHR)

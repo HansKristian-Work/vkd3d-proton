@@ -1122,7 +1122,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     if (allocation->resource.vk_buffer)
     {
         allocation->flags |= VKD3D_ALLOCATION_FLAG_GPU_ADDRESS;
-        flags_info.flags |= VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR;
+        flags_info.flags |= VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
     }
 
     allocation->resource.size = info->memory_requirements.size;
@@ -1772,7 +1772,7 @@ HRESULT vkd3d_allocate_internal_buffer_memory(struct d3d12_device *device, VkBuf
 
     flags_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
     flags_info.pNext = NULL;
-    flags_info.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR;
+    flags_info.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
 
     VK_CALL(vkGetBufferMemoryRequirements(device->vk_device, vk_buffer, &memory_requirements));
 
