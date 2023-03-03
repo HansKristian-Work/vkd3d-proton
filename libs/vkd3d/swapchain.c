@@ -202,19 +202,19 @@ static void dxgi_vk_swap_chain_drain_queue(struct dxgi_vk_swap_chain *chain)
 static void dxgi_vk_swap_chain_drain_blit_semaphore(struct dxgi_vk_swap_chain *chain, uint64_t value)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
-    VkSemaphoreWaitInfoKHR wait_info;
+    VkSemaphoreWaitInfo wait_info;
     VkResult vr;
 
     if (!value)
         return;
 
-    wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO_KHR;
+    wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
     wait_info.pNext = NULL;
     wait_info.flags = 0;
     wait_info.pSemaphores = &chain->present.vk_blit_semaphore;
     wait_info.pValues = &value;
     wait_info.semaphoreCount = 1;
-    vr = VK_CALL(vkWaitSemaphoresKHR(chain->queue->device->vk_device, &wait_info, UINT64_MAX));
+    vr = VK_CALL(vkWaitSemaphores(chain->queue->device->vk_device, &wait_info, UINT64_MAX));
     if (vr)
         ERR("Failed to wait for present semaphore, vr %d.\n", vr);
 }
@@ -1431,7 +1431,7 @@ static bool request_needs_swapchain_recreation(const struct dxgi_vk_swap_chain_p
 static void dxgi_vk_swap_chain_present_signal_blit_semaphore(struct dxgi_vk_swap_chain *chain)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
-    VkTimelineSemaphoreSubmitInfoKHR timeline_info;
+    VkTimelineSemaphoreSubmitInfo timeline_info;
     VkSubmitInfo submit_info;
     VkQueue vk_queue;
     VkResult vr;
@@ -1445,7 +1445,7 @@ static void dxgi_vk_swap_chain_present_signal_blit_semaphore(struct dxgi_vk_swap
     submit_info.pSignalSemaphores = &chain->present.vk_blit_semaphore;
     submit_info.signalSemaphoreCount = 1;
 
-    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR;
+    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
     timeline_info.signalSemaphoreValueCount = 1;
     timeline_info.pSignalSemaphoreValues = &chain->present.blit_count;
 

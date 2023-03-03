@@ -60,7 +60,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     /* KHR extensions */
     VK_EXTENSION(KHR_DRAW_INDIRECT_COUNT, KHR_draw_indirect_count),
     VK_EXTENSION(KHR_PUSH_DESCRIPTOR, KHR_push_descriptor),
-    VK_EXTENSION(KHR_TIMELINE_SEMAPHORE, KHR_timeline_semaphore),
     VK_EXTENSION(KHR_SHADER_FLOAT16_INT8, KHR_shader_float16_int8),
     VK_EXTENSION(KHR_SHADER_SUBGROUP_EXTENDED_TYPES, KHR_shader_subgroup_extended_types),
     VK_EXTENSION(KHR_PIPELINE_LIBRARY, KHR_pipeline_library),
@@ -1272,14 +1271,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     info->vulkan_1_3_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES;
     vk_prepend_struct(&info->properties2, &info->vulkan_1_3_properties);
 
-    if (vulkan_info->KHR_timeline_semaphore)
-    {
-        info->timeline_semaphore_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES_KHR;
-        vk_prepend_struct(&info->features2, &info->timeline_semaphore_features);
-        info->timeline_semaphore_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_PROPERTIES_KHR;
-        vk_prepend_struct(&info->properties2, &info->timeline_semaphore_properties);
-    }
-
     if (vulkan_info->KHR_push_descriptor)
     {
         info->push_descriptor_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR;
@@ -2206,12 +2197,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
          * split application infos in Fossilize, which is annoying for pragmatic reasons.
          * Validation does not appear to complain, so we just go ahead and enable robustness anyways. */
         WARN("Device does not expose robust buffer access for the update after bind feature, enabling it anyways.\n");
-    }
-
-    if (!vulkan_info->KHR_timeline_semaphore)
-    {
-        ERR("Timeline semaphores are not supported by this implementation. This is required for correct operation.\n");
-        return E_INVALIDARG;
     }
 
     if (!physical_device_info->separate_depth_stencil_layout_features.separateDepthStencilLayouts)
