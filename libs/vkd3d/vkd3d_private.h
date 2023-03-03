@@ -117,7 +117,6 @@ struct vkd3d_vulkan_info
     bool KHR_ray_query;
     bool KHR_fragment_shading_rate;
     bool KHR_create_renderpass2;
-    bool KHR_separate_depth_stencil_layouts;
     bool KHR_shader_integer_dot_product;
     bool KHR_format_feature_flags2;
     bool KHR_shader_atomic_int64;
@@ -3783,7 +3782,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features;
     VkPhysicalDeviceFragmentShadingRateFeaturesKHR fragment_shading_rate_features;
     VkPhysicalDeviceSubgroupSizeControlFeaturesEXT subgroup_size_control_features;
-    VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR separate_depth_stencil_layout_features;
     VkPhysicalDeviceShaderIntegerDotProductFeaturesKHR shader_integer_dot_product_features;
     VkPhysicalDeviceFragmentShaderBarycentricFeaturesNV barycentric_features_nv;
     VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR barycentric_features_khr;

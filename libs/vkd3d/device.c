@@ -68,7 +68,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_FRAGMENT_SHADING_RATE, KHR_fragment_shading_rate),
     /* Only required to silence validation errors. */
     VK_EXTENSION(KHR_CREATE_RENDERPASS_2, KHR_create_renderpass2),
-    VK_EXTENSION(KHR_SEPARATE_DEPTH_STENCIL_LAYOUTS, KHR_separate_depth_stencil_layouts),
     VK_EXTENSION(KHR_SHADER_INTEGER_DOT_PRODUCT, KHR_shader_integer_dot_product),
     VK_EXTENSION(KHR_FORMAT_FEATURE_FLAGS_2, KHR_format_feature_flags2),
     VK_EXTENSION(KHR_SHADER_ATOMIC_INT64, KHR_shader_atomic_int64),
@@ -1447,13 +1446,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->fragment_shading_rate_features);
     }
 
-    if (vulkan_info->KHR_separate_depth_stencil_layouts)
-    {
-        info->separate_depth_stencil_layout_features.sType =
-                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SEPARATE_DEPTH_STENCIL_LAYOUTS_FEATURES;
-        vk_prepend_struct(&info->features2, &info->separate_depth_stencil_layout_features);
-    }
-
     if (vulkan_info->KHR_shader_integer_dot_product)
     {
         info->shader_integer_dot_product_features.sType =
@@ -2172,12 +2164,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
          * split application infos in Fossilize, which is annoying for pragmatic reasons.
          * Validation does not appear to complain, so we just go ahead and enable robustness anyways. */
         WARN("Device does not expose robust buffer access for the update after bind feature, enabling it anyways.\n");
-    }
-
-    if (!physical_device_info->separate_depth_stencil_layout_features.separateDepthStencilLayouts)
-    {
-        ERR("separateDepthStencilLayouts is not supported by this implementation. This is required for correct operation.\n");
-        return E_INVALIDARG;
     }
 
     if (!physical_device_info->vulkan_1_2_features.samplerMirrorClampToEdge)
