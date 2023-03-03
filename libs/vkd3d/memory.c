@@ -384,7 +384,7 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
                 buffer_to_image_copy.regionCount = 1;
                 buffer_to_image_copy.pRegions = &copy_region;
 
-                VK_CALL(vkCmdCopyBufferToImage2KHR(vk_cmd_buffer, &buffer_to_image_copy));
+                VK_CALL(vkCmdCopyBufferToImage2(vk_cmd_buffer, &buffer_to_image_copy));
 
                 vkd3d_memory_transfer_queue_track_resource_locked(queue,
                         transfer->resource, queue->next_signal_value);
