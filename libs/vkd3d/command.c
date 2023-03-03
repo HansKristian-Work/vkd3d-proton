@@ -5964,13 +5964,13 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
     {
         if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT)
         {
-            VK_CALL(vkCmdSetViewportWithCountEXT(list->vk_command_buffer,
+            VK_CALL(vkCmdSetViewportWithCount(list->vk_command_buffer,
                     dyn_state->viewport_count, dyn_state->viewports));
         }
 
         if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR)
         {
-            VK_CALL(vkCmdSetScissorWithCountEXT(list->vk_command_buffer,
+            VK_CALL(vkCmdSetScissorWithCount(list->vk_command_buffer,
                     dyn_state->viewport_count, dyn_state->scissors));
         }
     }
@@ -5982,9 +5982,9 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
         static const VkRect2D dummy_rect = { { 0, 0 }, { 0, 0 } };
 
         if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT)
-            VK_CALL(vkCmdSetViewportWithCountEXT(list->vk_command_buffer, 1, &dummy_vp));
+            VK_CALL(vkCmdSetViewportWithCount(list->vk_command_buffer, 1, &dummy_vp));
         if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR)
-            VK_CALL(vkCmdSetScissorWithCountEXT(list->vk_command_buffer, 1, &dummy_rect));
+            VK_CALL(vkCmdSetScissorWithCount(list->vk_command_buffer, 1, &dummy_rect));
     }
 
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS)
@@ -6007,7 +6007,7 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
 
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_TOPOLOGY)
     {
-        VK_CALL(vkCmdSetPrimitiveTopologyEXT(list->vk_command_buffer,
+        VK_CALL(vkCmdSetPrimitiveTopology(list->vk_command_buffer,
                 dyn_state->vk_primitive_topology));
     }
 
@@ -6022,7 +6022,7 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
         /* The primitive restart dynamic state is only present if the PSO
          * has a strip cut value, so we only need to check if the
          * current primitive topology is a strip type. */
-        VK_CALL(vkCmdSetPrimitiveRestartEnableEXT(list->vk_command_buffer,
+        VK_CALL(vkCmdSetPrimitiveRestartEnable(list->vk_command_buffer,
                 vk_primitive_topology_supports_restart(dyn_state->vk_primitive_topology)));
     }
 
@@ -6062,7 +6062,7 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
                 }
             }
 
-            VK_CALL(vkCmdBindVertexBuffers2EXT(list->vk_command_buffer,
+            VK_CALL(vkCmdBindVertexBuffers2(list->vk_command_buffer,
                     range.offset, range.count,
                     dyn_state->vertex_buffers + range.offset,
                     dyn_state->vertex_offsets + range.offset,

@@ -135,7 +135,6 @@ struct vkd3d_vulkan_info
     bool EXT_shader_viewport_index_layer;
     bool EXT_transform_feedback;
     bool EXT_vertex_attribute_divisor;
-    bool EXT_extended_dynamic_state;
     bool EXT_extended_dynamic_state2;
     bool EXT_external_memory_host;
     bool EXT_4444_formats;
@@ -3752,7 +3751,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceCustomBorderColorFeaturesEXT custom_border_color_features;
     VkPhysicalDevice4444FormatsFeaturesEXT ext_4444_formats_features;
     VkPhysicalDeviceRobustness2FeaturesEXT robustness2_features;
-    VkPhysicalDeviceExtendedDynamicStateFeaturesEXT extended_dynamic_state_features;
     VkPhysicalDeviceExtendedDynamicState2FeaturesEXT extended_dynamic_state2_features;
     VkPhysicalDeviceMutableDescriptorTypeFeaturesEXT mutable_descriptor_features;
     VkPhysicalDeviceRayTracingPipelineFeaturesKHR ray_tracing_pipeline_features;
