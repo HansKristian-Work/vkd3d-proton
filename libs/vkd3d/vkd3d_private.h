@@ -116,7 +116,6 @@ struct vkd3d_vulkan_info
     bool KHR_pipeline_library;
     bool KHR_ray_query;
     bool KHR_fragment_shading_rate;
-    bool KHR_dynamic_rendering;
     bool KHR_depth_stencil_resolve;
     bool KHR_driver_properties;
     bool KHR_uniform_buffer_standard_layout;
@@ -2351,9 +2350,9 @@ enum vkd3d_rendering_flags
 
 struct vkd3d_rendering_info
 {
-    VkRenderingInfoKHR info;
-    VkRenderingAttachmentInfoKHR rtv[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
-    VkRenderingAttachmentInfoKHR dsv;
+    VkRenderingInfo info;
+    VkRenderingAttachmentInfo rtv[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
+    VkRenderingAttachmentInfo dsv;
     VkRenderingFragmentShadingRateAttachmentInfoKHR vrs;
     uint32_t state_flags;
     uint32_t rtv_mask;
@@ -3785,7 +3784,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceUniformBufferStandardLayoutFeatures uniform_buffer_standard_layout_features;
     VkPhysicalDeviceImageViewMinLodFeaturesEXT image_view_min_lod_features;
     VkPhysicalDeviceDescriptorSetHostMappingFeaturesVALVE descriptor_set_host_mapping_features;
-    VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamic_rendering_features;
     VkPhysicalDeviceCoherentMemoryFeaturesAMD device_coherent_memory_features_amd;
     VkPhysicalDeviceMaintenance4FeaturesKHR maintenance4_features;
     VkPhysicalDeviceRayTracingMaintenance1FeaturesKHR ray_tracing_maintenance1_features;
