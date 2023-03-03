@@ -68,7 +68,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_FRAGMENT_SHADING_RATE, KHR_fragment_shading_rate),
     /* Only required to silence validation errors. */
     VK_EXTENSION(KHR_CREATE_RENDERPASS_2, KHR_create_renderpass2),
-    VK_EXTENSION(KHR_SHADER_ATOMIC_INT64, KHR_shader_atomic_int64),
     VK_EXTENSION(KHR_COPY_COMMANDS_2, KHR_copy_commands2),
     VK_EXTENSION(KHR_DYNAMIC_RENDERING, KHR_dynamic_rendering),
     /* Only required to silence validation errors. */
@@ -1473,13 +1472,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_GENERATED_COMMANDS_PROPERTIES_NV;
         vk_prepend_struct(&info->features2, &info->device_generated_commands_features_nv);
         vk_prepend_struct(&info->properties2, &info->device_generated_commands_properties_nv);
-    }
-
-    if (vulkan_info->KHR_shader_atomic_int64)
-    {
-        info->shader_atomic_int64_features.sType =
-                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES_KHR;
-        vk_prepend_struct(&info->features2, &info->shader_atomic_int64_features);
     }
 
     if (vulkan_info->EXT_shader_image_atomic_int64)
@@ -6330,7 +6322,7 @@ static void d3d12_device_caps_init_feature_options9(struct d3d12_device *device)
     D3D12_FEATURE_DATA_D3D12_OPTIONS9 *options9 = &device->d3d12_caps.options9;
 
     options9->AtomicInt64OnGroupSharedSupported =
-            device->device_info.shader_atomic_int64_features.shaderSharedInt64Atomics;
+            device->device_info.vulkan_1_2_features.shaderSharedInt64Atomics;
     /* Unsure if sparse 64-bit image atomics is also required. */
     /* If we cannot expose AtomicInt64OnDescriptorHeapResourceSupported, we cannot expose this one either. */
     options9->AtomicInt64OnTypedResourceSupported =
@@ -6360,7 +6352,7 @@ static void d3d12_device_caps_init_feature_options11(struct d3d12_device *device
 
     /* If we're not using raw SSBOs, we cannot support 64-bit atomics. */
     options11->AtomicInt64OnDescriptorHeapResourceSupported =
-            device->device_info.shader_atomic_int64_features.shaderBufferInt64Atomics &&
+            device->device_info.vulkan_1_2_features.shaderBufferInt64Atomics &&
             device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment <= 16;
 }
 
@@ -6513,7 +6505,7 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
          */
         if (device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_5 &&
                 device->device_info.compute_shader_derivatives_features_nv.computeDerivativeGroupLinear &&
-                device->device_info.shader_atomic_int64_features.shaderBufferInt64Atomics &&
+                device->device_info.vulkan_1_2_features.shaderBufferInt64Atomics &&
                 device->device_info.demote_features.shaderDemoteToHelperInvocation &&
                 device->device_info.vulkan_1_2_features.shaderInt8 &&
                 device->device_info.subgroup_size_control_features.computeFullSubgroups &&
