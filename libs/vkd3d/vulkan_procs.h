@@ -155,6 +155,9 @@ VK_DEVICE_PFN(vkGetBufferDeviceAddress)
 VK_DEVICE_PFN(vkGetBufferMemoryRequirements)
 VK_DEVICE_PFN(vkGetBufferMemoryRequirements2)
 VK_DEVICE_PFN(vkGetDescriptorSetLayoutSupport)
+VK_DEVICE_PFN(vkGetDeviceBufferMemoryRequirements)
+VK_DEVICE_PFN(vkGetDeviceImageMemoryRequirements)
+VK_DEVICE_PFN(vkGetDeviceImageSparseMemoryRequirements)
 VK_DEVICE_PFN(vkGetDeviceMemoryCommitment)
 VK_DEVICE_PFN(vkGetDeviceQueue)
 VK_DEVICE_PFN(vkGetEventStatus)
@@ -208,11 +211,6 @@ VK_DEVICE_EXT_PFN(vkCmdCopyAccelerationStructureKHR)
 /* VK_KHR_fragment_shading_rate */
 VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceFragmentShadingRatesKHR)
 VK_DEVICE_EXT_PFN(vkCmdSetFragmentShadingRateKHR)
-
-/* VK_KHR_maintenance4 */
-VK_DEVICE_EXT_PFN(vkGetDeviceBufferMemoryRequirementsKHR)
-VK_DEVICE_EXT_PFN(vkGetDeviceImageMemoryRequirementsKHR)
-VK_DEVICE_EXT_PFN(vkGetDeviceImageSparseMemoryRequirementsKHR)
 
 #ifdef VK_KHR_external_memory_win32
 /* VK_KHR_external_memory_win32 */
