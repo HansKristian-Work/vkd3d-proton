@@ -5221,29 +5221,20 @@ static uint32_t d3d12_max_host_descriptor_count_from_heap_type(struct d3d12_devi
 static uint32_t vkd3d_bindless_build_mutable_type_list(VkDescriptorType *list, uint32_t flags)
 {
     uint32_t count = 0;
-    if (flags & VKD3D_BINDLESS_CBV)
-    {
-        list[count++] = flags & VKD3D_BINDLESS_CBV_AS_SSBO ?
-                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    }
 
-    if (flags & VKD3D_BINDLESS_UAV)
-    {
-        list[count++] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        list[count++] = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+    list[count++] = flags & VKD3D_BINDLESS_CBV_AS_SSBO ?
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 
-        /* This behavior should be default, but there are too many broken games.
-         * Can be used as a perf/memory opt-in.
-         * Will likely be required on Intel as well due to anemic bindless sizes. */
-        if ((flags & VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO) && !(flags & VKD3D_BINDLESS_CBV_AS_SSBO))
-            list[count++] = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    }
+    list[count++] = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    list[count++] = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+    list[count++] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    list[count++] = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
 
-    if (flags & VKD3D_BINDLESS_SRV)
-    {
-        list[count++] = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-        list[count++] = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
-    }
+    /* This behavior should be default, but there are too many broken games.
+     * Can be used as a perf/memory opt-in.
+     * Will likely be required on Intel as well due to anemic bindless sizes. */
+    if ((flags & VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO) && !(flags & VKD3D_BINDLESS_CBV_AS_SSBO))
+        list[count++] = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 
     return count;
 }
@@ -5627,8 +5618,6 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
 {
     const struct vkd3d_physical_device_info *device_info = &device->device_info;
     uint32_t flags = 0;
-
-    flags |= VKD3D_BINDLESS_SAMPLER | VKD3D_BINDLESS_SRV | VKD3D_BINDLESS_CBV | VKD3D_BINDLESS_UAV;
 
     if (!d3d12_device_uses_descriptor_buffers(device))
     {

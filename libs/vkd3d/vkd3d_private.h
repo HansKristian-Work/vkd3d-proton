@@ -3279,19 +3279,15 @@ static inline void vkd3d_breadcrumb_buffer_copy(
 /* Bindless */
 enum vkd3d_bindless_flags
 {
-    VKD3D_BINDLESS_SAMPLER               = (1u << 0),
-    VKD3D_BINDLESS_CBV                   = (1u << 1),
-    VKD3D_BINDLESS_SRV                   = (1u << 2),
-    VKD3D_BINDLESS_UAV                   = (1u << 3),
-    VKD3D_BINDLESS_CBV_AS_SSBO           = (1u << 4),
-    VKD3D_BINDLESS_RAW_SSBO              = (1u << 5),
-    VKD3D_SSBO_OFFSET_BUFFER             = (1u << 6),
-    VKD3D_TYPED_OFFSET_BUFFER            = (1u << 7),
-    VKD3D_RAW_VA_ROOT_DESCRIPTOR_CBV     = (1u << 8),
-    VKD3D_RAW_VA_ROOT_DESCRIPTOR_SRV_UAV = (1u << 9),
-    VKD3D_BINDLESS_MUTABLE_TYPE          = (1u << 10),
-    VKD3D_HOIST_STATIC_TABLE_CBV         = (1u << 11),
-    VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO = (1u << 12),
+    VKD3D_BINDLESS_CBV_AS_SSBO           = (1u << 0),
+    VKD3D_BINDLESS_RAW_SSBO              = (1u << 1),
+    VKD3D_SSBO_OFFSET_BUFFER             = (1u << 2),
+    VKD3D_TYPED_OFFSET_BUFFER            = (1u << 3),
+    VKD3D_RAW_VA_ROOT_DESCRIPTOR_CBV     = (1u << 4),
+    VKD3D_RAW_VA_ROOT_DESCRIPTOR_SRV_UAV = (1u << 5),
+    VKD3D_BINDLESS_MUTABLE_TYPE          = (1u << 6),
+    VKD3D_HOIST_STATIC_TABLE_CBV         = (1u << 7),
+    VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO = (1u << 8),
 };
 
 #define VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS 8
