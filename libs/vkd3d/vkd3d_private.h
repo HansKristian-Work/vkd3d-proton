@@ -117,7 +117,6 @@ struct vkd3d_vulkan_info
     bool KHR_ray_query;
     bool KHR_fragment_shading_rate;
     bool KHR_create_renderpass2;
-    bool KHR_copy_commands2;
     bool KHR_dynamic_rendering;
     bool KHR_depth_stencil_resolve;
     bool KHR_driver_properties;
@@ -2402,8 +2401,8 @@ struct vkd3d_image_copy_info
     enum vkd3d_batch_type batch_type;
     union
     {
-        VkBufferImageCopy2KHR buffer_image;
-        VkImageCopy2KHR image;
+        VkBufferImageCopy2 buffer_image;
+        VkImageCopy2 image;
     } copy;
     /* TODO: split d3d12_command_list_copy_image too, so this can be a local variable of before_copy_texture_region. */
     bool writes_full_subresource;

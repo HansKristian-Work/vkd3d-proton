@@ -68,7 +68,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_FRAGMENT_SHADING_RATE, KHR_fragment_shading_rate),
     /* Only required to silence validation errors. */
     VK_EXTENSION(KHR_CREATE_RENDERPASS_2, KHR_create_renderpass2),
-    VK_EXTENSION(KHR_COPY_COMMANDS_2, KHR_copy_commands2),
     VK_EXTENSION(KHR_DYNAMIC_RENDERING, KHR_dynamic_rendering),
     /* Only required to silence validation errors. */
     VK_EXTENSION(KHR_DEPTH_STENCIL_RESOLVE, KHR_depth_stencil_resolve),
@@ -2164,12 +2163,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     if (!physical_device_info->vulkan_1_1_features.shaderDrawParameters)
     {
         ERR("shaderDrawParameters is not supported by this implementation. This is required for correct operation.\n");
-        return E_INVALIDARG;
-    }
-
-    if (!vulkan_info->KHR_copy_commands2)
-    {
-        ERR("KHR_copy_commands2 is not supported by this implementation. This is required for correct operation.\n");
         return E_INVALIDARG;
     }
 
