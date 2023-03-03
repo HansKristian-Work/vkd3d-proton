@@ -1706,6 +1706,11 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     shader_interface_info.stage = VK_SHADER_STAGE_ALL;
     shader_interface_info.xfb_info = NULL;
 
+    shader_interface_info.descriptor_size_cbv_srv_uav = d3d12_device_get_descriptor_handle_increment_size(
+            object->device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    shader_interface_info.descriptor_size_sampler = d3d12_device_get_descriptor_handle_increment_size(
+            object->device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+
     if (!d3d12_state_object_pipeline_data_find_global_state_objects(data,
             &global_signature, &shader_config, &pipeline_config))
         return E_INVALIDARG;
@@ -1769,7 +1774,6 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
             shader_interface_local_info.local_root_parameter_count = local_signature->parameter_count;
             shader_interface_local_info.shader_record_constant_buffers = local_signature->root_constants;
             shader_interface_local_info.shader_record_buffer_count = local_signature->root_constant_count;
-            shader_interface_local_info.descriptor_size = VKD3D_RESOURCE_DESC_INCREMENT;
 
             if (local_signature->static_sampler_count)
             {

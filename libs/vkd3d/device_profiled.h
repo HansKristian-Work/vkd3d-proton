@@ -64,21 +64,21 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateRootSignature_profiled(d3d12
 static void STDMETHODCALLTYPE d3d12_device_CreateConstantBufferView_profiled(d3d12_device_iface *iface,
         const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
-    DEVICE_PROFILED_CALL(CreateConstantBufferView, iface, desc, descriptor);
+    DEVICE_PROFILED_CALL(CreateConstantBufferView_default, iface, desc, descriptor);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateShaderResourceView_profiled(d3d12_device_iface *iface,
         ID3D12Resource *resource, const D3D12_SHADER_RESOURCE_VIEW_DESC *desc,
         D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
-    DEVICE_PROFILED_CALL(CreateShaderResourceView, iface, resource, desc, descriptor);
+    DEVICE_PROFILED_CALL(CreateShaderResourceView_default, iface, resource, desc, descriptor);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView_profiled(d3d12_device_iface *iface,
         ID3D12Resource *resource, ID3D12Resource *counter_resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
-    DEVICE_PROFILED_CALL(CreateUnorderedAccessView, iface, resource, counter_resource, desc, descriptor);
+    DEVICE_PROFILED_CALL(CreateUnorderedAccessView_default, iface, resource, counter_resource, desc, descriptor);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateRenderTargetView_profiled(d3d12_device_iface *iface,
@@ -98,7 +98,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateDepthStencilView_profiled(d3d12
 static void STDMETHODCALLTYPE d3d12_device_CreateSampler_profiled(d3d12_device_iface *iface,
         const D3D12_SAMPLER_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
-    DEVICE_PROFILED_CALL(CreateSampler, iface, desc, descriptor);
+    DEVICE_PROFILED_CALL(CreateSampler_default, iface, desc, descriptor);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CopyDescriptors_profiled(d3d12_device_iface *iface,
@@ -146,7 +146,7 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptorsSimple_profiled(d3d12_
 {
     VKD3D_REGION_DECL(CopyDescriptorsSimple);
     VKD3D_REGION_BEGIN(CopyDescriptorsSimple);
-    d3d12_device_CopyDescriptorsSimple(iface, descriptor_count, dst_descriptor_range_offset,
+    d3d12_device_CopyDescriptorsSimple_default(iface, descriptor_count, dst_descriptor_range_offset,
             src_descriptor_range_offset, descriptor_heap_type);
     VKD3D_REGION_END_ITERATIONS(CopyDescriptorsSimple, descriptor_count);
 }
