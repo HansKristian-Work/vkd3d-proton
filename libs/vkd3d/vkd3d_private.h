@@ -115,7 +115,6 @@ struct vkd3d_vulkan_info
     bool KHR_deferred_host_operations;
     bool KHR_pipeline_library;
     bool KHR_ray_query;
-    bool KHR_shader_float_controls;
     bool KHR_fragment_shading_rate;
     bool KHR_create_renderpass2;
     bool KHR_sampler_mirror_clamp_to_edge;
@@ -3753,7 +3752,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceExternalMemoryHostPropertiesEXT external_memory_host_properties;
     VkPhysicalDeviceRayTracingPipelinePropertiesKHR ray_tracing_pipeline_properties;
     VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration_structure_properties;
-    VkPhysicalDeviceFloatControlsPropertiesKHR float_control_properties;
     VkPhysicalDeviceFragmentShadingRatePropertiesKHR fragment_shading_rate_properties;
     VkPhysicalDeviceConservativeRasterizationPropertiesEXT conservative_rasterization_properties;
     VkPhysicalDeviceShaderIntegerDotProductPropertiesKHR shader_integer_dot_product_properties;

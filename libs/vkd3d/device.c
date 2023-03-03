@@ -65,7 +65,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION_COND(KHR_DEFERRED_HOST_OPERATIONS, KHR_deferred_host_operations, VKD3D_CONFIG_FLAG_DXR),
     VK_EXTENSION_COND(KHR_RAY_QUERY, KHR_ray_query, VKD3D_CONFIG_FLAG_DXR11),
     VK_EXTENSION_COND(KHR_RAY_TRACING_MAINTENANCE_1, KHR_ray_tracing_maintenance1, VKD3D_CONFIG_FLAG_DXR11),
-    VK_EXTENSION(KHR_SHADER_FLOAT_CONTROLS, KHR_shader_float_controls),
     VK_EXTENSION(KHR_FRAGMENT_SHADING_RATE, KHR_fragment_shading_rate),
     /* Only required to silence validation errors. */
     VK_EXTENSION(KHR_CREATE_RENDERPASS_2, KHR_create_renderpass2),
@@ -1439,12 +1438,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->ray_tracing_maintenance1_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_MAINTENANCE_1_FEATURES_KHR;
         vk_prepend_struct(&info->features2, &info->ray_tracing_maintenance1_features);
-    }
-
-    if (vulkan_info->KHR_shader_float_controls)
-    {
-        info->float_control_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT_CONTROLS_PROPERTIES_KHR;
-        vk_prepend_struct(&info->properties2, &info->float_control_properties);
     }
 
     if (vulkan_info->KHR_fragment_shading_rate)
@@ -6560,13 +6553,13 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
         /* DXIL allows control over denorm behavior for FP32 only.
          * shaderDenorm handling appears to work just fine on NV, despite the properties struct saying otherwise.
          * Assume that this is just a driver oversight, since otherwise we cannot expose SM 6.2 there ... */
-        denorm_behavior = ((device->device_info.float_control_properties.denormBehaviorIndependence ==
+        denorm_behavior = ((device->device_info.vulkan_1_2_properties.denormBehaviorIndependence ==
                 VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY) ||
-                (device->device_info.float_control_properties.denormBehaviorIndependence ==
+                (device->device_info.vulkan_1_2_properties.denormBehaviorIndependence ==
                         VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_ALL)) &&
                 (device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_NVIDIA ||
-                        (device->device_info.float_control_properties.shaderDenormFlushToZeroFloat32 &&
-                                device->device_info.float_control_properties.shaderDenormPreserveFloat32));
+                        (device->device_info.vulkan_1_2_properties.shaderDenormFlushToZeroFloat32 &&
+                                device->device_info.vulkan_1_2_properties.shaderDenormPreserveFloat32));
 
         if (denorm_behavior)
         {
