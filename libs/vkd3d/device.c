@@ -66,7 +66,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION_COND(KHR_RAY_QUERY, KHR_ray_query, VKD3D_CONFIG_FLAG_DXR11),
     VK_EXTENSION_COND(KHR_RAY_TRACING_MAINTENANCE_1, KHR_ray_tracing_maintenance1, VKD3D_CONFIG_FLAG_DXR11),
     VK_EXTENSION(KHR_FRAGMENT_SHADING_RATE, KHR_fragment_shading_rate),
-    VK_EXTENSION(KHR_DRIVER_PROPERTIES, KHR_driver_properties),
     VK_EXTENSION(KHR_UNIFORM_BUFFER_STANDARD_LAYOUT, KHR_uniform_buffer_standard_layout),
     VK_EXTENSION(KHR_MAINTENANCE_4, KHR_maintenance4),
     VK_EXTENSION(KHR_FRAGMENT_SHADER_BARYCENTRIC, KHR_fragment_shader_barycentric),
@@ -1494,13 +1493,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->descriptor_set_host_mapping_features.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_SET_HOST_MAPPING_FEATURES_VALVE;
         vk_prepend_struct(&info->features2, &info->descriptor_set_host_mapping_features);
-    }
-
-    if (vulkan_info->KHR_driver_properties)
-    {
-        info->driver_properties.sType =
-                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES_KHR;
-        vk_prepend_struct(&info->properties2, &info->driver_properties);
     }
 
     if (vulkan_info->AMD_device_coherent_memory)
@@ -6661,7 +6653,7 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
     }
 
     if (device->d3d12_caps.options4.Native16BitShaderOpsSupported &&
-            (device->device_info.driver_properties.driverID == VK_DRIVER_ID_MESA_RADV ||
+            (device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV ||
                     (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16)))
     {
         /* Native FP16 is buggy on NV for now. */

@@ -295,22 +295,19 @@ static bool vkd3d_get_format_compatibility_list(const struct d3d12_device *devic
 
 static bool d3d12_device_prefers_general_depth_stencil(const struct d3d12_device *device)
 {
-    if (device->vk_info.KHR_driver_properties)
+    if (device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
     {
-        if (device->device_info.driver_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
-        {
-            /* NVIDIA doesn't really care about layouts for the most part. */
-            return true;
-        }
-        else if (device->device_info.driver_properties.driverID == VK_DRIVER_ID_MESA_RADV)
-        {
-            /* RADV can use TC-compat HTILE without too much issues on Polaris and later.
-             * Use GENERAL for these GPUs.
-             * Pre-Polaris we run into issues where even read-only depth requires decompress
-             * so using GENERAL shouldn't really make things worse, it's going to run pretty bad
-             * either way. */
-            return true;
-        }
+        /* NVIDIA doesn't really care about layouts for the most part. */
+        return true;
+    }
+    else if (device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV)
+    {
+        /* RADV can use TC-compat HTILE without too much issues on Polaris and later.
+         * Use GENERAL for these GPUs.
+         * Pre-Polaris we run into issues where even read-only depth requires decompress
+         * so using GENERAL shouldn't really make things worse, it's going to run pretty bad
+         * either way. */
+        return true;
     }
 
     return false;
