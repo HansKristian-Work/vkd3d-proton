@@ -9417,15 +9417,15 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
         const VkClearColorValue *clear_color, UINT rect_count, const D3D12_RECT *rects)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    unsigned int i, miplevel_idx, layer_count;
+    VkExtent3D workgroup_size, workgroup_count;
+    unsigned int i, j, miplevel_idx, layer_count;
     struct vkd3d_clear_uav_pipeline pipeline;
     struct vkd3d_clear_uav_args clear_args;
     VkDescriptorBufferInfo buffer_info;
     VkDescriptorImageInfo image_info;
     D3D12_RECT full_rect, curr_rect;
     VkWriteDescriptorSet write_set;
-    VkExtent3D workgroup_size;
-    uint32_t extra_offset;
+    uint32_t max_workgroup_count;
 
     d3d12_command_list_track_resource_usage(list, resource, true);
     d3d12_command_list_end_current_render_pass(list, false);
@@ -9434,6 +9434,8 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     d3d12_command_list_invalidate_current_pipeline(list, true);
     d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
     d3d12_command_list_update_descriptor_buffers(list);
+
+    max_workgroup_count = list->device->vk_info.device_limits.maxComputeWorkGroupCount[0];
 
     clear_args.clear_color = *clear_color;
 
@@ -9511,7 +9513,6 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     full_rect.right = d3d12_resource_desc_get_width(&resource->desc, miplevel_idx);
     full_rect.top = 0;
     full_rect.bottom = d3d12_resource_desc_get_height(&resource->desc, miplevel_idx);
-    extra_offset = 0;
 
     if (d3d12_resource_is_buffer(resource))
     {
@@ -9546,19 +9547,28 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
                 continue;
         }
 
-        clear_args.offset.x = curr_rect.left + extra_offset;
-        clear_args.offset.y = curr_rect.top;
-        clear_args.extent.width = curr_rect.right - curr_rect.left;
-        clear_args.extent.height = curr_rect.bottom - curr_rect.top;
+        workgroup_count.width = vkd3d_compute_workgroup_count(curr_rect.right - curr_rect.left, workgroup_size.width);
+        workgroup_count.height = vkd3d_compute_workgroup_count(curr_rect.bottom - curr_rect.top, workgroup_size.height);
+        workgroup_count.depth = vkd3d_compute_workgroup_count(layer_count, workgroup_size.depth);
 
-        VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
-                pipeline.vk_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
-                0, sizeof(clear_args), &clear_args));
+        /* For very large buffers, we may end up having to dispatch more workgroups
+         * than the device supports in one go. For images, this can never happen, so
+         * ignore the y and z dimensions. */
+        for (j = 0; j < workgroup_count.width; j += max_workgroup_count)
+        {
+            clear_args.offset.x = curr_rect.left + j * workgroup_size.width;
+            clear_args.offset.y = curr_rect.top;
+            clear_args.extent.width = curr_rect.right - clear_args.offset.x;
+            clear_args.extent.height = curr_rect.bottom - clear_args.offset.y;
 
-        VK_CALL(vkCmdDispatch(list->vk_command_buffer,
-                vkd3d_compute_workgroup_count(clear_args.extent.width, workgroup_size.width),
-                vkd3d_compute_workgroup_count(clear_args.extent.height, workgroup_size.height),
-                vkd3d_compute_workgroup_count(layer_count, workgroup_size.depth)));
+            VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+                    pipeline.vk_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+                    0, sizeof(clear_args), &clear_args));
+
+            VK_CALL(vkCmdDispatch(list->vk_command_buffer,
+                    min(workgroup_count.width - j, max_workgroup_count),
+                    workgroup_count.height, workgroup_count.depth));
+        }
     }
 
     d3d12_command_list_debug_mark_end_region(list);
