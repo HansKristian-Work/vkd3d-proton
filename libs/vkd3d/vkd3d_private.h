@@ -116,7 +116,6 @@ struct vkd3d_vulkan_info
     bool KHR_pipeline_library;
     bool KHR_ray_query;
     bool KHR_fragment_shading_rate;
-    bool KHR_depth_stencil_resolve;
     bool KHR_driver_properties;
     bool KHR_uniform_buffer_standard_layout;
     bool KHR_maintenance4;
