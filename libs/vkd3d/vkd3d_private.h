@@ -109,7 +109,6 @@ struct vkd3d_vulkan_info
     bool EXT_debug_utils;
 
     /* KHR device extensions */
-    bool KHR_buffer_device_address;
     bool KHR_draw_indirect_count;
     bool KHR_push_descriptor;
     bool KHR_timeline_semaphore;
@@ -3783,7 +3782,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceVulkan11Features vulkan_1_1_features;
     VkPhysicalDeviceVulkan12Features vulkan_1_2_features;
     VkPhysicalDeviceVulkan13Features vulkan_1_3_features;
-    VkPhysicalDeviceBufferDeviceAddressFeaturesKHR buffer_device_address_features;
     VkPhysicalDeviceConditionalRenderingFeaturesEXT conditional_rendering_features;
     VkPhysicalDeviceDepthClipEnableFeaturesEXT depth_clip_features;
     VkPhysicalDeviceDescriptorIndexingFeaturesEXT descriptor_indexing_features;

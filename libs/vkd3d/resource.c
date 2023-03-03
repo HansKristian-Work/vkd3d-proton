@@ -197,7 +197,7 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     }
 
-    buffer_info.usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR;
+    buffer_info.usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
     if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
         buffer_info.usage |= VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT;
@@ -4816,12 +4816,12 @@ VkDeviceAddress vkd3d_get_buffer_device_address(struct d3d12_device *device, VkB
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
-    VkBufferDeviceAddressInfoKHR address_info;
-    address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR;
+    VkBufferDeviceAddressInfo address_info;
+    address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
     address_info.pNext = NULL;
     address_info.buffer = vk_buffer;
 
-    return VK_CALL(vkGetBufferDeviceAddressKHR(device->vk_device, &address_info));
+    return VK_CALL(vkGetBufferDeviceAddress(device->vk_device, &address_info));
 }
 
 VkDeviceAddress vkd3d_get_acceleration_structure_device_address(struct d3d12_device *device,
@@ -5917,7 +5917,7 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_buffer(struct d3d12_descr
 
     if (descriptor_heap->desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
     {
-        usage = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR;
+        usage = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
         if (descriptor_heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
         {
             usage |= VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT;
@@ -7366,7 +7366,7 @@ HRESULT vkd3d_global_descriptor_buffer_init(struct vkd3d_global_descriptor_buffe
         return S_OK;
 
     vk_usage_flags = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
-            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR;
+            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
     /* If push descriptors require extra backing storage, we need to let the driver reserve magic push space for it. */
     if (!device->device_info.descriptor_buffer_properties.bufferlessPushDescriptors)
@@ -7394,7 +7394,7 @@ HRESULT vkd3d_global_descriptor_buffer_init(struct vkd3d_global_descriptor_buffe
     global_descriptor_buffer->resource.usage = vk_usage_flags;
 
     vk_usage_flags = VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT |
-            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR;
+            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
     if (FAILED(hr = vkd3d_create_buffer_explicit_usage(device, vk_usage_flags,
             4 * 1024, &global_descriptor_buffer->sampler.vk_buffer)))
     {

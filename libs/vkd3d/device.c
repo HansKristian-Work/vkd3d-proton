@@ -58,7 +58,6 @@ static const struct vkd3d_optional_extension_info optional_instance_extensions[]
 static const struct vkd3d_optional_extension_info optional_device_extensions[] =
 {
     /* KHR extensions */
-    VK_EXTENSION(KHR_BUFFER_DEVICE_ADDRESS, KHR_buffer_device_address),
     VK_EXTENSION(KHR_DRAW_INDIRECT_COUNT, KHR_draw_indirect_count),
     VK_EXTENSION(KHR_PUSH_DESCRIPTOR, KHR_push_descriptor),
     VK_EXTENSION(KHR_TIMELINE_SEMAPHORE, KHR_timeline_semaphore),
@@ -1274,12 +1273,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     info->vulkan_1_3_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES;
     vk_prepend_struct(&info->properties2, &info->vulkan_1_3_properties);
 
-    if (vulkan_info->KHR_buffer_device_address)
-    {
-        info->buffer_device_address_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR;
-        vk_prepend_struct(&info->features2, &info->buffer_device_address_features);
-    }
-
     if (vulkan_info->KHR_timeline_semaphore)
     {
         info->timeline_semaphore_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES_KHR;
@@ -2139,7 +2132,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     VkPhysicalDeviceAccelerationStructureFeaturesKHR *acceleration_structure;
-    VkPhysicalDeviceBufferDeviceAddressFeaturesKHR *buffer_device_address;
     VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing;
     VkPhysicalDeviceDescriptorBufferFeaturesEXT *descriptor_buffer;
     VkPhysicalDevice physical_device = device->vk_physical_device;
@@ -2201,10 +2193,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     physical_device_info->vulkan_1_3_features.descriptorBindingInlineUniformBlockUpdateAfterBind = VK_FALSE;
     physical_device_info->vulkan_1_3_features.privateData = VK_FALSE;
     physical_device_info->vulkan_1_3_features.textureCompressionASTC_HDR = VK_FALSE;
-
-    buffer_device_address = &physical_device_info->buffer_device_address_features;
-    buffer_device_address->bufferDeviceAddressCaptureReplay = VK_FALSE;
-    buffer_device_address->bufferDeviceAddressMultiDevice = VK_FALSE;
 
     descriptor_buffer = &physical_device_info->descriptor_buffer_features;
     descriptor_buffer->descriptorBufferCaptureReplay = VK_FALSE;
@@ -2294,12 +2282,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     if (!physical_device_info->maintenance4_features.maintenance4)
     {
         ERR("KHR_maintenance4 is not supported by this implementation. This is required for correct operation.\n");
-        return E_INVALIDARG;
-    }
-
-    if (!physical_device_info->buffer_device_address_features.bufferDeviceAddress)
-    {
-        ERR("Buffer device address is not supported by this implementation. This is required for correct operation.\n");
         return E_INVALIDARG;
     }
 
