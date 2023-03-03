@@ -81,7 +81,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_DEPTH_CLIP_ENABLE, EXT_depth_clip_enable),
     VK_EXTENSION(EXT_IMAGE_VIEW_MIN_LOD, EXT_image_view_min_lod),
     VK_EXTENSION(EXT_ROBUSTNESS_2, EXT_robustness2),
-    VK_EXTENSION(EXT_SAMPLER_FILTER_MINMAX, EXT_sampler_filter_minmax),
     VK_EXTENSION(EXT_SHADER_DEMOTE_TO_HELPER_INVOCATION, EXT_shader_demote_to_helper_invocation),
     VK_EXTENSION(EXT_SHADER_STENCIL_EXPORT, EXT_shader_stencil_export),
     VK_EXTENSION(EXT_SHADER_VIEWPORT_INDEX_LAYER, EXT_shader_viewport_index_layer),
@@ -1292,12 +1291,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->robustness2_features);
         info->robustness2_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_PROPERTIES_EXT;
         vk_prepend_struct(&info->properties2, &info->robustness2_properties);
-    }
-
-    if (vulkan_info->EXT_sampler_filter_minmax)
-    {
-        info->sampler_filter_minmax_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_FILTER_MINMAX_PROPERTIES_EXT;
-        vk_prepend_struct(&info->properties2, &info->sampler_filter_minmax_properties);
     }
 
     if (vulkan_info->EXT_shader_demote_to_helper_invocation)
@@ -5885,7 +5878,6 @@ CONST_VTBL struct ID3D12Device10Vtbl d3d12_device_vtbl =
 
 static D3D12_TILED_RESOURCES_TIER d3d12_device_determine_tiled_resources_tier(struct d3d12_device *device)
 {
-    const VkPhysicalDeviceSamplerFilterMinmaxProperties *minmax_properties = &device->device_info.sampler_filter_minmax_properties;
     const VkPhysicalDeviceSparseProperties *sparse_properties = &device->device_info.properties2.properties.sparseProperties;
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
 
@@ -5899,7 +5891,7 @@ static D3D12_TILED_RESOURCES_TIER d3d12_device_determine_tiled_resources_tier(st
     if (!features->shaderResourceResidency || !features->shaderResourceMinLod ||
             sparse_properties->residencyAlignedMipSize ||
             !sparse_properties->residencyNonResidentStrict ||
-            !minmax_properties->filterMinmaxSingleComponentFormats)
+            !device->device_info.vulkan_1_2_properties.filterMinmaxSingleComponentFormats)
         return D3D12_TILED_RESOURCES_TIER_1;
 
     if (!features->sparseResidencyImage3D ||

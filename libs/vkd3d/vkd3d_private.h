@@ -130,7 +130,6 @@ struct vkd3d_vulkan_info
     bool EXT_depth_clip_enable;
     bool EXT_image_view_min_lod;
     bool EXT_robustness2;
-    bool EXT_sampler_filter_minmax;
     bool EXT_shader_demote_to_helper_invocation;
     bool EXT_shader_stencil_export;
     bool EXT_shader_viewport_index_layer;
@@ -3734,7 +3733,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceShaderCorePropertiesAMD shader_core_properties;
     VkPhysicalDeviceShaderCoreProperties2AMD shader_core_properties2;
     VkPhysicalDeviceShaderSMBuiltinsPropertiesNV shader_sm_builtins_properties;
-    VkPhysicalDeviceSamplerFilterMinmaxPropertiesEXT sampler_filter_minmax_properties;
     VkPhysicalDeviceRobustness2PropertiesEXT robustness2_properties;
     VkPhysicalDeviceExternalMemoryHostPropertiesEXT external_memory_host_properties;
     VkPhysicalDeviceRayTracingPipelinePropertiesKHR ray_tracing_pipeline_properties;

@@ -5269,14 +5269,14 @@ static VkSamplerReductionModeEXT vk_reduction_mode_from_d3d12(D3D12_FILTER_REDUC
     {
         case D3D12_FILTER_REDUCTION_TYPE_STANDARD:
         case D3D12_FILTER_REDUCTION_TYPE_COMPARISON:
-            return VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE_EXT;
+            return VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE;
         case D3D12_FILTER_REDUCTION_TYPE_MINIMUM:
-            return VK_SAMPLER_REDUCTION_MODE_MIN_EXT;
+            return VK_SAMPLER_REDUCTION_MODE_MIN;
         case D3D12_FILTER_REDUCTION_TYPE_MAXIMUM:
-            return VK_SAMPLER_REDUCTION_MODE_MAX_EXT;
+            return VK_SAMPLER_REDUCTION_MODE_MAX;
         default:
             FIXME("Unhandled reduction mode %#x.\n", mode);
-            return VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE_EXT;
+            return VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE;
     }
 }
 
@@ -5369,7 +5369,8 @@ HRESULT d3d12_create_static_sampler(struct d3d12_device *device,
     if (d3d12_sampler_needs_border_color(desc->AddressU, desc->AddressV, desc->AddressW))
         sampler_desc.borderColor = vk_static_border_color_from_d3d12(desc->BorderColor);
 
-    if (reduction_desc.reductionMode != VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE_EXT && device->vk_info.EXT_sampler_filter_minmax)
+    if (reduction_desc.reductionMode != VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE &&
+            device->device_info.vulkan_1_2_features.samplerFilterMinmax)
         vk_prepend_struct(&sampler_desc, &reduction_desc);
 
     if ((vr = VK_CALL(vkCreateSampler(device->vk_device, &sampler_desc, NULL, vk_sampler))) < 0)
@@ -5428,7 +5429,8 @@ static HRESULT d3d12_create_sampler(struct d3d12_device *device,
     if (sampler_desc.borderColor == VK_BORDER_COLOR_FLOAT_CUSTOM_EXT)
         vk_prepend_struct(&sampler_desc, &border_color_info);
 
-    if (reduction_desc.reductionMode != VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE_EXT && device->vk_info.EXT_sampler_filter_minmax)
+    if (reduction_desc.reductionMode != VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE &&
+            device->device_info.vulkan_1_2_features.samplerFilterMinmax)
         vk_prepend_struct(&sampler_desc, &reduction_desc);
 
     if ((vr = VK_CALL(vkCreateSampler(device->vk_device, &sampler_desc, NULL, vk_sampler))) < 0)
