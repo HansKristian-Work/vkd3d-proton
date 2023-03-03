@@ -89,7 +89,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_EXTENDED_DYNAMIC_STATE_2, EXT_extended_dynamic_state2),
     VK_EXTENSION(EXT_EXTERNAL_MEMORY_HOST, EXT_external_memory_host),
     VK_EXTENSION(EXT_SHADER_IMAGE_ATOMIC_INT64, EXT_shader_image_atomic_int64),
-    VK_EXTENSION(EXT_SCALAR_BLOCK_LAYOUT, EXT_scalar_block_layout),
     VK_EXTENSION(EXT_PIPELINE_CREATION_FEEDBACK, EXT_pipeline_creation_feedback),
     VK_EXTENSION(EXT_MESH_SHADER, EXT_mesh_shader),
     VK_EXTENSION(EXT_MUTABLE_DESCRIPTOR_TYPE, EXT_mutable_descriptor_type),
@@ -1422,13 +1421,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->shader_image_atomic_int64_features.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_IMAGE_ATOMIC_INT64_FEATURES_EXT;
         vk_prepend_struct(&info->features2, &info->shader_image_atomic_int64_features);
-    }
-
-    if (vulkan_info->EXT_scalar_block_layout)
-    {
-        info->scalar_block_layout_features.sType =
-                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES_EXT;
-        vk_prepend_struct(&info->features2, &info->scalar_block_layout_features);
     }
 
     if (vulkan_info->VALVE_descriptor_set_host_mapping)
@@ -6533,7 +6525,7 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
                 VKD3D_SHADER_TARGET_EXTENSION_RAY_TRACING_PRIMITIVE_CULLING;
     }
 
-    if (device->device_info.scalar_block_layout_features.scalarBlockLayout)
+    if (device->device_info.vulkan_1_2_features.scalarBlockLayout)
     {
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                 VKD3D_SHADER_TARGET_EXTENSION_SCALAR_BLOCK_LAYOUT;
