@@ -100,7 +100,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_CONSERVATIVE_RASTERIZATION, EXT_conservative_rasterization),
     VK_EXTENSION(EXT_CUSTOM_BORDER_COLOR, EXT_custom_border_color),
     VK_EXTENSION(EXT_DEPTH_CLIP_ENABLE, EXT_depth_clip_enable),
-    VK_EXTENSION(EXT_DESCRIPTOR_INDEXING, EXT_descriptor_indexing),
     VK_EXTENSION(EXT_IMAGE_VIEW_MIN_LOD, EXT_image_view_min_lod),
     VK_EXTENSION(EXT_ROBUSTNESS_2, EXT_robustness2),
     VK_EXTENSION(EXT_SAMPLER_FILTER_MINMAX, EXT_sampler_filter_minmax),
@@ -1337,14 +1336,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->depth_clip_features);
     }
 
-    if (vulkan_info->EXT_descriptor_indexing)
-    {
-        info->descriptor_indexing_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT;
-        vk_prepend_struct(&info->features2, &info->descriptor_indexing_features);
-        info->descriptor_indexing_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES_EXT;
-        vk_prepend_struct(&info->properties2, &info->descriptor_indexing_properties);
-    }
-
     if (vulkan_info->EXT_robustness2)
     {
         info->robustness2_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT;
@@ -1863,55 +1854,55 @@ static void vkd3d_trace_physical_device_limits(const struct vkd3d_physical_devic
 
     TRACE("  VkPhysicalDeviceDescriptorIndexingPropertiesEXT:\n");
     TRACE("    maxUpdateAfterBindDescriptorsInAllPools: %u.\n",
-            info->descriptor_indexing_properties.maxUpdateAfterBindDescriptorsInAllPools);
+            info->vulkan_1_2_properties.maxUpdateAfterBindDescriptorsInAllPools);
 
     TRACE("    shaderUniformBufferArrayNonUniformIndexingNative: %#x.\n",
-            info->descriptor_indexing_properties.shaderUniformBufferArrayNonUniformIndexingNative);
+            info->vulkan_1_2_properties.shaderUniformBufferArrayNonUniformIndexingNative);
     TRACE("    shaderSampledImageArrayNonUniformIndexingNative: %#x.\n",
-            info->descriptor_indexing_properties.shaderSampledImageArrayNonUniformIndexingNative);
+            info->vulkan_1_2_properties.shaderSampledImageArrayNonUniformIndexingNative);
     TRACE("    shaderStorageBufferArrayNonUniformIndexingNative: %#x.\n",
-            info->descriptor_indexing_properties.shaderStorageBufferArrayNonUniformIndexingNative);
+            info->vulkan_1_2_properties.shaderStorageBufferArrayNonUniformIndexingNative);
     TRACE("    shaderStorageImageArrayNonUniformIndexingNative: %#x.\n",
-            info->descriptor_indexing_properties.shaderStorageImageArrayNonUniformIndexingNative);
+            info->vulkan_1_2_properties.shaderStorageImageArrayNonUniformIndexingNative);
     TRACE("    shaderInputAttachmentArrayNonUniformIndexingNative: %#x.\n",
-            info->descriptor_indexing_properties.shaderInputAttachmentArrayNonUniformIndexingNative);
+            info->vulkan_1_2_properties.shaderInputAttachmentArrayNonUniformIndexingNative);
 
     TRACE("    robustBufferAccessUpdateAfterBind: %#x.\n",
-            info->descriptor_indexing_properties.robustBufferAccessUpdateAfterBind);
+            info->vulkan_1_2_properties.robustBufferAccessUpdateAfterBind);
     TRACE("    quadDivergentImplicitLod: %#x.\n",
-            info->descriptor_indexing_properties.quadDivergentImplicitLod);
+            info->vulkan_1_2_properties.quadDivergentImplicitLod);
 
     TRACE("    maxPerStageDescriptorUpdateAfterBindSamplers: %u.\n",
-            info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindSamplers);
+            info->vulkan_1_2_properties.maxPerStageDescriptorUpdateAfterBindSamplers);
     TRACE("    maxPerStageDescriptorUpdateAfterBindUniformBuffers: %u.\n",
-            info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindUniformBuffers);
+            info->vulkan_1_2_properties.maxPerStageDescriptorUpdateAfterBindUniformBuffers);
     TRACE("    maxPerStageDescriptorUpdateAfterBindStorageBuffers: %u.\n",
-            info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindStorageBuffers);
+            info->vulkan_1_2_properties.maxPerStageDescriptorUpdateAfterBindStorageBuffers);
     TRACE("    maxPerStageDescriptorUpdateAfterBindSampledImages: %u.\n",
-            info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindSampledImages);
+            info->vulkan_1_2_properties.maxPerStageDescriptorUpdateAfterBindSampledImages);
     TRACE("    maxPerStageDescriptorUpdateAfterBindStorageImages: %u.\n",
-            info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindStorageImages);
+            info->vulkan_1_2_properties.maxPerStageDescriptorUpdateAfterBindStorageImages);
     TRACE("    maxPerStageDescriptorUpdateAfterBindInputAttachments: %u.\n",
-            info->descriptor_indexing_properties.maxPerStageDescriptorUpdateAfterBindInputAttachments);
+            info->vulkan_1_2_properties.maxPerStageDescriptorUpdateAfterBindInputAttachments);
     TRACE("    maxPerStageUpdateAfterBindResources: %u.\n",
-            info->descriptor_indexing_properties.maxPerStageUpdateAfterBindResources);
+            info->vulkan_1_2_properties.maxPerStageUpdateAfterBindResources);
 
     TRACE("    maxDescriptorSetUpdateAfterBindSamplers: %u.\n",
-            info->descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindSamplers);
+            info->vulkan_1_2_properties.maxDescriptorSetUpdateAfterBindSamplers);
     TRACE("    maxDescriptorSetUpdateAfterBindUniformBuffers: %u.\n",
-            info->descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindUniformBuffers);
+            info->vulkan_1_2_properties.maxDescriptorSetUpdateAfterBindUniformBuffers);
     TRACE("    maxDescriptorSetUpdateAfterBindUniformBuffersDynamic: %u.\n",
-            info->descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindUniformBuffersDynamic);
+            info->vulkan_1_2_properties.maxDescriptorSetUpdateAfterBindUniformBuffersDynamic);
     TRACE("    maxDescriptorSetUpdateAfterBindStorageBuffers: %u.\n",
-            info->descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindStorageBuffers);
+            info->vulkan_1_2_properties.maxDescriptorSetUpdateAfterBindStorageBuffers);
     TRACE("    maxDescriptorSetUpdateAfterBindStorageBuffersDynamic: %u.\n",
-            info->descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindStorageBuffersDynamic);
+            info->vulkan_1_2_properties.maxDescriptorSetUpdateAfterBindStorageBuffersDynamic);
     TRACE("    maxDescriptorSetUpdateAfterBindSampledImages: %u.\n",
-            info->descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindSampledImages);
+            info->vulkan_1_2_properties.maxDescriptorSetUpdateAfterBindSampledImages);
     TRACE("    maxDescriptorSetUpdateAfterBindStorageImages: %u.\n",
-            info->descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindStorageImages);
+            info->vulkan_1_2_properties.maxDescriptorSetUpdateAfterBindStorageImages);
     TRACE("    maxDescriptorSetUpdateAfterBindInputAttachments: %u.\n",
-            info->descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindInputAttachments);
+            info->vulkan_1_2_properties.maxDescriptorSetUpdateAfterBindInputAttachments);
 
     TRACE("    maxPerSetDescriptors: %u.\n", info->vulkan_1_1_properties.maxPerSetDescriptors);
     TRACE("    maxMemoryAllocationSize: %#"PRIx64".\n", info->vulkan_1_1_properties.maxMemoryAllocationSize);
@@ -2003,48 +1994,48 @@ static void vkd3d_trace_physical_device_features(const struct vkd3d_physical_dev
 
     TRACE("  VkPhysicalDeviceDescriptorIndexingFeaturesEXT:\n");
     TRACE("    shaderInputAttachmentArrayDynamicIndexing: %#x.\n",
-            info->descriptor_indexing_features.shaderInputAttachmentArrayDynamicIndexing);
+            info->vulkan_1_2_features.shaderInputAttachmentArrayDynamicIndexing);
     TRACE("    shaderUniformTexelBufferArrayDynamicIndexing: %#x.\n",
-            info->descriptor_indexing_features.shaderUniformTexelBufferArrayDynamicIndexing);
+            info->vulkan_1_2_features.shaderUniformTexelBufferArrayDynamicIndexing);
     TRACE("    shaderStorageTexelBufferArrayDynamicIndexing: %#x.\n",
-            info->descriptor_indexing_features.shaderStorageTexelBufferArrayDynamicIndexing);
+            info->vulkan_1_2_features.shaderStorageTexelBufferArrayDynamicIndexing);
 
     TRACE("    shaderUniformBufferArrayNonUniformIndexing: %#x.\n",
-            info->descriptor_indexing_features.shaderUniformBufferArrayNonUniformIndexing);
+            info->vulkan_1_2_features.shaderUniformBufferArrayNonUniformIndexing);
     TRACE("    shaderSampledImageArrayNonUniformIndexing: %#x.\n",
-            info->descriptor_indexing_features.shaderSampledImageArrayNonUniformIndexing);
+            info->vulkan_1_2_features.shaderSampledImageArrayNonUniformIndexing);
     TRACE("    shaderStorageBufferArrayNonUniformIndexing: %#x.\n",
-            info->descriptor_indexing_features.shaderStorageBufferArrayNonUniformIndexing);
+            info->vulkan_1_2_features.shaderStorageBufferArrayNonUniformIndexing);
     TRACE("    shaderStorageImageArrayNonUniformIndexing: %#x.\n",
-            info->descriptor_indexing_features.shaderStorageImageArrayNonUniformIndexing);
+            info->vulkan_1_2_features.shaderStorageImageArrayNonUniformIndexing);
     TRACE("    shaderInputAttachmentArrayNonUniformIndexing: %#x.\n",
-            info->descriptor_indexing_features.shaderInputAttachmentArrayNonUniformIndexing);
+            info->vulkan_1_2_features.shaderInputAttachmentArrayNonUniformIndexing);
     TRACE("    shaderUniformTexelBufferArrayNonUniformIndexing: %#x.\n",
-            info->descriptor_indexing_features.shaderUniformTexelBufferArrayNonUniformIndexing);
+            info->vulkan_1_2_features.shaderUniformTexelBufferArrayNonUniformIndexing);
     TRACE("    shaderStorageTexelBufferArrayNonUniformIndexing: %#x.\n",
-            info->descriptor_indexing_features.shaderStorageTexelBufferArrayNonUniformIndexing);
+            info->vulkan_1_2_features.shaderStorageTexelBufferArrayNonUniformIndexing);
 
     TRACE("    descriptorBindingUniformBufferUpdateAfterBind: %#x.\n",
-            info->descriptor_indexing_features.descriptorBindingUniformBufferUpdateAfterBind);
+            info->vulkan_1_2_features.descriptorBindingUniformBufferUpdateAfterBind);
     TRACE("    descriptorBindingSampledImageUpdateAfterBind: %#x.\n",
-            info->descriptor_indexing_features.descriptorBindingSampledImageUpdateAfterBind);
+            info->vulkan_1_2_features.descriptorBindingSampledImageUpdateAfterBind);
     TRACE("    descriptorBindingStorageImageUpdateAfterBind: %#x.\n",
-            info->descriptor_indexing_features.descriptorBindingStorageImageUpdateAfterBind);
+            info->vulkan_1_2_features.descriptorBindingStorageImageUpdateAfterBind);
     TRACE("    descriptorBindingStorageBufferUpdateAfterBind: %#x.\n",
-            info->descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind);
+            info->vulkan_1_2_features.descriptorBindingStorageBufferUpdateAfterBind);
     TRACE("    descriptorBindingUniformTexelBufferUpdateAfterBind: %#x.\n",
-            info->descriptor_indexing_features.descriptorBindingUniformTexelBufferUpdateAfterBind);
+            info->vulkan_1_2_features.descriptorBindingUniformTexelBufferUpdateAfterBind);
     TRACE("    descriptorBindingStorageTexelBufferUpdateAfterBind: %#x.\n",
-            info->descriptor_indexing_features.descriptorBindingStorageTexelBufferUpdateAfterBind);
+            info->vulkan_1_2_features.descriptorBindingStorageTexelBufferUpdateAfterBind);
 
     TRACE("    descriptorBindingUpdateUnusedWhilePending: %#x.\n",
-            info->descriptor_indexing_features.descriptorBindingUpdateUnusedWhilePending);
+            info->vulkan_1_2_features.descriptorBindingUpdateUnusedWhilePending);
     TRACE("    descriptorBindingPartiallyBound: %#x.\n",
-            info->descriptor_indexing_features.descriptorBindingPartiallyBound);
+            info->vulkan_1_2_features.descriptorBindingPartiallyBound);
     TRACE("    descriptorBindingVariableDescriptorCount: %#x.\n",
-            info->descriptor_indexing_features.descriptorBindingVariableDescriptorCount);
+            info->vulkan_1_2_features.descriptorBindingVariableDescriptorCount);
     TRACE("    runtimeDescriptorArray: %#x.\n",
-            info->descriptor_indexing_features.runtimeDescriptorArray);
+            info->vulkan_1_2_features.runtimeDescriptorArray);
 
     TRACE("  VkPhysicalDeviceConditionalRenderingFeaturesEXT:\n");
     TRACE("    conditionalRendering: %#x.\n", info->conditional_rendering_features.conditionalRendering);
@@ -2132,7 +2123,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     VkPhysicalDeviceAccelerationStructureFeaturesKHR *acceleration_structure;
-    VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing;
     VkPhysicalDeviceDescriptorBufferFeaturesEXT *descriptor_buffer;
     VkPhysicalDevice physical_device = device->vk_physical_device;
     struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
@@ -2198,17 +2188,13 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     descriptor_buffer->descriptorBufferCaptureReplay = VK_FALSE;
     descriptor_buffer->descriptorBufferImageLayoutIgnored = VK_FALSE;
 
-    descriptor_indexing = &physical_device_info->descriptor_indexing_features;
-    descriptor_indexing->shaderInputAttachmentArrayDynamicIndexing = VK_FALSE;
-    descriptor_indexing->shaderInputAttachmentArrayNonUniformIndexing = VK_FALSE;
-
     acceleration_structure = &physical_device_info->acceleration_structure_features;
     acceleration_structure->accelerationStructureCaptureReplay = VK_FALSE;
 
     /* Don't need or require this. Dynamic patch control points is nice, but not required. */
     physical_device_info->extended_dynamic_state2_features.extendedDynamicState2LogicOp = VK_FALSE;
 
-    if (!physical_device_info->descriptor_indexing_properties.robustBufferAccessUpdateAfterBind)
+    if (!physical_device_info->vulkan_1_2_properties.robustBufferAccessUpdateAfterBind)
     {
         /* Generally, we cannot enable robustness if this is not supported,
          * but this means we cannot support D3D12 at all, so just disabling robustBufferAccess is not a viable option.
