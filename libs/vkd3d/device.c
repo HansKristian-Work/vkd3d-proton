@@ -6086,22 +6086,6 @@ CONST_VTBL struct ID3D12Device10Vtbl d3d12_device_vtbl =
 #include "device_profiled.h"
 #endif
 
-static D3D12_RESOURCE_BINDING_TIER d3d12_device_determine_resource_binding_tier(struct d3d12_device *device)
-{
-    const uint32_t tier_2_required_flags = VKD3D_BINDLESS_SRV | VKD3D_BINDLESS_SAMPLER;
-    const uint32_t tier_3_required_flags = VKD3D_BINDLESS_CBV | VKD3D_BINDLESS_UAV;
-
-    uint32_t bindless_flags = device->bindless_state.flags;
-
-    if ((bindless_flags & tier_2_required_flags) != tier_2_required_flags)
-        return D3D12_RESOURCE_BINDING_TIER_1;
-
-    if ((bindless_flags & tier_3_required_flags) != tier_3_required_flags)
-        return D3D12_RESOURCE_BINDING_TIER_2;
-
-    return D3D12_RESOURCE_BINDING_TIER_3;
-}
-
 static D3D12_TILED_RESOURCES_TIER d3d12_device_determine_tiled_resources_tier(struct d3d12_device *device)
 {
     const VkPhysicalDeviceSamplerFilterMinmaxProperties *minmax_properties = &device->device_info.sampler_filter_minmax_properties;
@@ -6319,7 +6303,7 @@ static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
     /* Currently not supported */
     options->MinPrecisionSupport = D3D12_SHADER_MIN_PRECISION_SUPPORT_NONE;
     options->TiledResourcesTier = d3d12_device_determine_tiled_resources_tier(device);
-    options->ResourceBindingTier = d3d12_device_determine_resource_binding_tier(device);
+    options->ResourceBindingTier = D3D12_RESOURCE_BINDING_TIER_3;
     options->PSSpecifiedStencilRefSupported = vk_info->EXT_shader_stencil_export;
     options->TypedUAVLoadAdditionalFormats = d3d12_device_determine_additional_typed_uav_support(device);
     options->ROVsSupported = device->device_info.fragment_shader_interlock_features.fragmentShaderPixelInterlock &&
