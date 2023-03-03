@@ -84,7 +84,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_SHADER_DEMOTE_TO_HELPER_INVOCATION, EXT_shader_demote_to_helper_invocation),
     VK_EXTENSION(EXT_SHADER_STENCIL_EXPORT, EXT_shader_stencil_export),
     VK_EXTENSION(EXT_SHADER_VIEWPORT_INDEX_LAYER, EXT_shader_viewport_index_layer),
-    VK_EXTENSION(EXT_SUBGROUP_SIZE_CONTROL, EXT_subgroup_size_control),
     VK_EXTENSION(EXT_TEXEL_BUFFER_ALIGNMENT, EXT_texel_buffer_alignment),
     VK_EXTENSION(EXT_TRANSFORM_FEEDBACK, EXT_transform_feedback),
     VK_EXTENSION(EXT_VERTEX_ATTRIBUTE_DIVISOR, EXT_vertex_attribute_divisor),
@@ -1207,11 +1206,11 @@ static bool d3d12_device_determine_additional_shading_rates_supported(struct d3d
 bool d3d12_device_supports_required_subgroup_size_for_stage(
         struct d3d12_device *device, VkShaderStageFlagBits stage)
 {
-    if (device->device_info.subgroup_size_control_properties.minSubgroupSize ==
-            device->device_info.subgroup_size_control_properties.maxSubgroupSize)
+    if (device->device_info.vulkan_1_3_properties.minSubgroupSize ==
+            device->device_info.vulkan_1_3_properties.maxSubgroupSize)
         return true;
 
-    return (device->device_info.subgroup_size_control_properties.requiredSubgroupSizeStages & stage) != 0;
+    return (device->device_info.vulkan_1_3_properties.requiredSubgroupSizeStages & stage) != 0;
 }
 
 static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_device_info *info)
@@ -1297,14 +1296,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->demote_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DEMOTE_TO_HELPER_INVOCATION_FEATURES_EXT;
         vk_prepend_struct(&info->features2, &info->demote_features);
-    }
-
-    if (vulkan_info->EXT_subgroup_size_control)
-    {
-        info->subgroup_size_control_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES_EXT;
-        info->subgroup_size_control_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES_EXT;
-        vk_prepend_struct(&info->properties2, &info->subgroup_size_control_properties);
-        vk_prepend_struct(&info->features2, &info->subgroup_size_control_features);
     }
 
     if (vulkan_info->EXT_texel_buffer_alignment)
@@ -6111,18 +6102,8 @@ static void d3d12_device_caps_init_feature_options1(struct d3d12_device *device)
     D3D12_FEATURE_DATA_D3D12_OPTIONS1 *options1 = &device->d3d12_caps.options1;
 
     options1->WaveOps = device->d3d12_caps.max_shader_model >= D3D_SHADER_MODEL_6_0;
-
-    if (device->vk_info.EXT_subgroup_size_control)
-    {
-        options1->WaveLaneCountMin = device->device_info.subgroup_size_control_properties.minSubgroupSize;
-        options1->WaveLaneCountMax = device->device_info.subgroup_size_control_properties.maxSubgroupSize;
-    }
-    else
-    {
-        WARN("Device info for WaveLaneCountMin and WaveLaneCountMax may be inaccurate.\n");
-        options1->WaveLaneCountMin = device->device_info.vulkan_1_1_properties.subgroupSize;
-        options1->WaveLaneCountMax = device->device_info.vulkan_1_1_properties.subgroupSize;
-    }
+    options1->WaveLaneCountMin = device->device_info.vulkan_1_3_properties.minSubgroupSize;
+    options1->WaveLaneCountMax = device->device_info.vulkan_1_3_properties.maxSubgroupSize;
 
     if (device->vk_info.AMD_shader_core_properties)
     {
@@ -6441,8 +6422,6 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
                 device->device_info.vulkan_1_2_features.shaderBufferInt64Atomics &&
                 device->device_info.demote_features.shaderDemoteToHelperInvocation &&
                 device->device_info.vulkan_1_2_features.shaderInt8 &&
-                device->device_info.subgroup_size_control_features.computeFullSubgroups &&
-                device->device_info.subgroup_size_control_features.subgroupSizeControl &&
                 d3d12_device_supports_required_subgroup_size_for_stage(device, VK_SHADER_STAGE_COMPUTE_BIT))
         {
             INFO("Enabling support for SM 6.6.\n");
@@ -6931,21 +6910,19 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
     {
         const struct vkd3d_physical_device_info *info = &device->device_info;
 
-        if (!info->subgroup_size_control_features.subgroupSizeControl ||
-                !info->subgroup_size_control_features.computeFullSubgroups ||
-                !d3d12_device_supports_required_subgroup_size_for_stage(device, VK_SHADER_STAGE_COMPUTE_BIT))
+        if (!d3d12_device_supports_required_subgroup_size_for_stage(device, VK_SHADER_STAGE_COMPUTE_BIT))
         {
             ERR("Required subgroup size control features are not supported for SM 6.6 WaveSize.\n");
             return false;
         }
 
-        if (meta->cs_required_wave_size < info->subgroup_size_control_properties.minSubgroupSize ||
-                meta->cs_required_wave_size > info->subgroup_size_control_properties.maxSubgroupSize)
+        if (meta->cs_required_wave_size < info->vulkan_1_3_properties.minSubgroupSize ||
+                meta->cs_required_wave_size > info->vulkan_1_3_properties.maxSubgroupSize)
         {
             ERR("Requested WaveSize %u, but supported range is [%u, %u].\n",
                     meta->cs_required_wave_size,
-                    info->subgroup_size_control_properties.minSubgroupSize,
-                    info->subgroup_size_control_properties.maxSubgroupSize);
+                    info->vulkan_1_3_properties.minSubgroupSize,
+                    info->vulkan_1_3_properties.maxSubgroupSize);
             return false;
         }
     }

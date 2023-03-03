@@ -133,7 +133,6 @@ struct vkd3d_vulkan_info
     bool EXT_shader_demote_to_helper_invocation;
     bool EXT_shader_stencil_export;
     bool EXT_shader_viewport_index_layer;
-    bool EXT_subgroup_size_control;
     bool EXT_texel_buffer_alignment;
     bool EXT_transform_feedback;
     bool EXT_vertex_attribute_divisor;
@@ -3728,7 +3727,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT texel_buffer_alignment_properties;
     VkPhysicalDeviceTransformFeedbackPropertiesEXT xfb_properties;
     VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT vertex_divisor_properties;
-    VkPhysicalDeviceSubgroupSizeControlPropertiesEXT subgroup_size_control_properties;
     VkPhysicalDeviceCustomBorderColorPropertiesEXT custom_border_color_properties;
     VkPhysicalDeviceShaderCorePropertiesAMD shader_core_properties;
     VkPhysicalDeviceShaderCoreProperties2AMD shader_core_properties2;
@@ -3765,7 +3763,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceRayTracingPipelineFeaturesKHR ray_tracing_pipeline_features;
     VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features;
     VkPhysicalDeviceFragmentShadingRateFeaturesKHR fragment_shading_rate_features;
-    VkPhysicalDeviceSubgroupSizeControlFeaturesEXT subgroup_size_control_features;
     VkPhysicalDeviceFragmentShaderBarycentricFeaturesNV barycentric_features_nv;
     VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR barycentric_features_khr;
     VkPhysicalDeviceRayQueryFeaturesKHR ray_query_features;
