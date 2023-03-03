@@ -130,7 +130,6 @@ struct vkd3d_vulkan_info
     bool KHR_shader_integer_dot_product;
     bool KHR_format_feature_flags2;
     bool KHR_shader_atomic_int64;
-    bool KHR_bind_memory2;
     bool KHR_copy_commands2;
     bool KHR_dynamic_rendering;
     bool KHR_depth_stencil_resolve;

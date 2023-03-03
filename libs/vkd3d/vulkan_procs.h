@@ -62,6 +62,8 @@ VK_DEVICE_PFN(vkAllocateCommandBuffers)
 VK_DEVICE_PFN(vkAllocateDescriptorSets)
 VK_DEVICE_PFN(vkAllocateMemory)
 VK_DEVICE_PFN(vkBeginCommandBuffer)
+VK_DEVICE_PFN(vkBindBufferMemory2)
+VK_DEVICE_PFN(vkBindImageMemory2)
 VK_DEVICE_PFN(vkCmdBeginQuery)
 VK_DEVICE_PFN(vkCmdBindDescriptorSets)
 VK_DEVICE_PFN(vkCmdBindIndexBuffer)
@@ -206,10 +208,6 @@ VK_DEVICE_EXT_PFN(vkCmdCopyAccelerationStructureKHR)
 /* VK_KHR_fragment_shading_rate */
 VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceFragmentShadingRatesKHR)
 VK_DEVICE_EXT_PFN(vkCmdSetFragmentShadingRateKHR)
-
-/* VK_KHR_bind_memory2 */
-VK_DEVICE_EXT_PFN(vkBindBufferMemory2KHR)
-VK_DEVICE_EXT_PFN(vkBindImageMemory2KHR)
 
 /* VK_KHR_copy_commands2 */
 VK_DEVICE_EXT_PFN(vkCmdBlitImage2KHR)
