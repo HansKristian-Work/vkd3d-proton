@@ -2315,7 +2315,7 @@ static void d3d12_pipeline_state_init_compile_arguments(struct d3d12_pipeline_st
 
 static HRESULT vkd3d_setup_shader_stage(struct d3d12_pipeline_state *state, struct d3d12_device *device,
         VkPipelineShaderStageCreateInfo *stage_desc, VkShaderStageFlagBits stage,
-        VkPipelineShaderStageRequiredSubgroupSizeCreateInfoEXT *required_subgroup_size_info,
+        VkPipelineShaderStageRequiredSubgroupSizeCreateInfo *required_subgroup_size_info,
         const VkPipelineShaderStageModuleIdentifierCreateInfoEXT *identifier_create_info,
         const struct vkd3d_shader_code *spirv_code)
 {
@@ -2333,16 +2333,15 @@ static HRESULT vkd3d_setup_shader_stage(struct d3d12_pipeline_state *state, stru
     if (!spirv_code->size && identifier_create_info && identifier_create_info->identifierSize)
         stage_desc->pNext = identifier_create_info;
 
-    if (((spirv_code->meta.flags & VKD3D_SHADER_META_FLAG_USES_SUBGROUP_SIZE) &&
-            device->device_info.subgroup_size_control_features.subgroupSizeControl) ||
+    if ((spirv_code->meta.flags & VKD3D_SHADER_META_FLAG_USES_SUBGROUP_SIZE) ||
             spirv_code->meta.cs_required_wave_size)
     {
-        uint32_t subgroup_size_alignment = device->device_info.subgroup_size_control_properties.maxSubgroupSize;
-        stage_desc->flags |= VK_PIPELINE_SHADER_STAGE_CREATE_ALLOW_VARYING_SUBGROUP_SIZE_BIT_EXT;
+        uint32_t subgroup_size_alignment = device->device_info.vulkan_1_3_properties.maxSubgroupSize;
+        stage_desc->flags |= VK_PIPELINE_SHADER_STAGE_CREATE_ALLOW_VARYING_SUBGROUP_SIZE_BIT;
 
         if (required_subgroup_size_info)
         {
-            required_subgroup_size_info->sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO_EXT;
+            required_subgroup_size_info->sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO;
             required_subgroup_size_info->pNext = (void*)stage_desc->pNext;
 
             if (spirv_code->meta.cs_required_wave_size)
@@ -2351,10 +2350,10 @@ static HRESULT vkd3d_setup_shader_stage(struct d3d12_pipeline_state *state, stru
                 subgroup_size_alignment = spirv_code->meta.cs_required_wave_size;
 
                 /* If min == max, we can still support WaveSize in a dummy kind of way. */
-                if (device->device_info.subgroup_size_control_properties.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT)
+                if (device->device_info.vulkan_1_3_properties.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT)
                     stage_desc->pNext = required_subgroup_size_info;
 
-                stage_desc->flags &= ~VK_PIPELINE_SHADER_STAGE_CREATE_ALLOW_VARYING_SUBGROUP_SIZE_BIT_EXT;
+                stage_desc->flags &= ~VK_PIPELINE_SHADER_STAGE_CREATE_ALLOW_VARYING_SUBGROUP_SIZE_BIT;
             }
             else if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_MINIMUM_SUBGROUP_SIZE) &&
                     d3d12_device_supports_required_subgroup_size_for_stage(device, stage))
@@ -2363,13 +2362,13 @@ static HRESULT vkd3d_setup_shader_stage(struct d3d12_pipeline_state *state, stru
                  * This shader variant unfortunately expects that a subgroup 32 variant will actually use wave32 on AMD.
                  * amdgpu-pro and AMDVLK happens to emit wave32, but RADV will emit wave64 here unless we force it to be wave32.
                  * This is an application bug, since the shader is not guaranteed a specific size, but we can only workaround ... */
-                subgroup_size_alignment = device->device_info.subgroup_size_control_properties.minSubgroupSize;
+                subgroup_size_alignment = device->device_info.vulkan_1_3_properties.minSubgroupSize;
 
                 /* If min == max, we can still support WaveSize in a dummy kind of way. */
-                if (device->device_info.subgroup_size_control_properties.requiredSubgroupSizeStages & stage)
+                if (device->device_info.vulkan_1_3_properties.requiredSubgroupSizeStages & stage)
                     stage_desc->pNext = required_subgroup_size_info;
 
-                stage_desc->flags &= ~VK_PIPELINE_SHADER_STAGE_CREATE_ALLOW_VARYING_SUBGROUP_SIZE_BIT_EXT;
+                stage_desc->flags &= ~VK_PIPELINE_SHADER_STAGE_CREATE_ALLOW_VARYING_SUBGROUP_SIZE_BIT;
             }
 
             required_subgroup_size_info->requiredSubgroupSize = subgroup_size_alignment;
@@ -2378,10 +2377,9 @@ static HRESULT vkd3d_setup_shader_stage(struct d3d12_pipeline_state *state, stru
         /* If we can, we should be explicit and enable FULL_SUBGROUPS bit as well. This should be default
          * behavior, but cannot hurt. */
         if (stage == VK_SHADER_STAGE_COMPUTE_BIT &&
-                device->device_info.subgroup_size_control_features.computeFullSubgroups &&
                 !(spirv_code->meta.cs_workgroup_size[0] % subgroup_size_alignment))
         {
-            stage_desc->flags |= VK_PIPELINE_SHADER_STAGE_CREATE_REQUIRE_FULL_SUBGROUPS_BIT_EXT;
+            stage_desc->flags |= VK_PIPELINE_SHADER_STAGE_CREATE_REQUIRE_FULL_SUBGROUPS_BIT;
         }
     }
 
@@ -2576,7 +2574,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
         struct d3d12_device *device,
         const D3D12_SHADER_BYTECODE *code)
 {
-    VkPipelineShaderStageRequiredSubgroupSizeCreateInfoEXT required_subgroup_size_info;
+    VkPipelineShaderStageRequiredSubgroupSizeCreateInfo required_subgroup_size_info;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkPipelineCreationFeedbackCreateInfoEXT feedback_info;
     struct vkd3d_shader_debug_ring_spec_info spec_info;
