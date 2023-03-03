@@ -68,7 +68,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_FRAGMENT_SHADING_RATE, KHR_fragment_shading_rate),
     /* Only required to silence validation errors. */
     VK_EXTENSION(KHR_CREATE_RENDERPASS_2, KHR_create_renderpass2),
-    VK_EXTENSION(KHR_SHADER_INTEGER_DOT_PRODUCT, KHR_shader_integer_dot_product),
     VK_EXTENSION(KHR_FORMAT_FEATURE_FLAGS_2, KHR_format_feature_flags2),
     VK_EXTENSION(KHR_SHADER_ATOMIC_INT64, KHR_shader_atomic_int64),
     VK_EXTENSION(KHR_COPY_COMMANDS_2, KHR_copy_commands2),
@@ -1444,16 +1443,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->fragment_shading_rate_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR;
         vk_prepend_struct(&info->properties2, &info->fragment_shading_rate_properties);
         vk_prepend_struct(&info->features2, &info->fragment_shading_rate_features);
-    }
-
-    if (vulkan_info->KHR_shader_integer_dot_product)
-    {
-        info->shader_integer_dot_product_features.sType =
-                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_FEATURES_KHR;
-        info->shader_integer_dot_product_properties.sType =
-                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_PROPERTIES_KHR;
-        vk_prepend_struct(&info->features2, &info->shader_integer_dot_product_features);
-        vk_prepend_struct(&info->properties2, &info->shader_integer_dot_product_properties);
     }
 
     if (vulkan_info->NV_fragment_shader_barycentric && !vulkan_info->KHR_fragment_shader_barycentric)
@@ -6732,16 +6721,14 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
 static void vkd3d_init_shader_extensions(struct d3d12_device *device)
 {
     device->vk_info.shader_extension_count = 0;
+
+    device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+            VKD3D_SHADER_TARGET_EXTENSION_SPV_KHR_INTEGER_DOT_PRODUCT;
+
     if (device->vk_info.EXT_shader_demote_to_helper_invocation)
     {
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                 VKD3D_SHADER_TARGET_EXTENSION_SPV_EXT_DEMOTE_TO_HELPER_INVOCATION;
-    }
-
-    if (device->device_info.shader_integer_dot_product_features.shaderIntegerDotProduct)
-    {
-        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
-                VKD3D_SHADER_TARGET_EXTENSION_SPV_KHR_INTEGER_DOT_PRODUCT;
     }
 
     if (d3d12_device_determine_additional_typed_uav_support(device))
