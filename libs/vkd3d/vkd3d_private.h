@@ -122,7 +122,6 @@ struct vkd3d_vulkan_info
     bool KHR_external_semaphore_win32;
     bool KHR_present_wait;
     bool KHR_present_id;
-    bool KHR_synchronization2;
     /* EXT device extensions */
     bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;
