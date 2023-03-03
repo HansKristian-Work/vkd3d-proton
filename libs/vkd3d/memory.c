@@ -233,19 +233,19 @@ static bool vkd3d_memory_transfer_queue_wait_semaphore(struct vkd3d_memory_trans
 
     if (timeout)
     {
-        wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO_KHR;
+        wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
         wait_info.pNext = NULL;
         wait_info.flags = 0;
         wait_info.semaphoreCount = 1;
         wait_info.pSemaphores = &queue->vk_semaphore;
         wait_info.pValues = &wait_value;
 
-        vr = VK_CALL(vkWaitSemaphoresKHR(queue->device->vk_device, &wait_info, timeout));
+        vr = VK_CALL(vkWaitSemaphores(queue->device->vk_device, &wait_info, timeout));
         new_value = wait_value;
     }
     else
     {
-        vr = VK_CALL(vkGetSemaphoreCounterValueKHR(queue->device->vk_device,
+        vr = VK_CALL(vkGetSemaphoreCounterValue(queue->device->vk_device,
                 queue->vk_semaphore, &new_value));
     }
 
@@ -274,9 +274,9 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
     const VkPipelineStageFlags vk_stage_mask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
     const struct vkd3d_vk_device_procs *vk_procs = &queue->device->vk_procs;
     const struct vkd3d_subresource_layout *subresource_layout;
-    VkTimelineSemaphoreSubmitInfoKHR timeline_info;
     VkCopyBufferToImageInfo2 buffer_to_image_copy;
     struct vkd3d_queue_family_info *queue_family;
+    VkTimelineSemaphoreSubmitInfo timeline_info;
     struct vkd3d_format_footprint footprint;
     VkCommandBufferBeginInfo begin_info;
     VkImageMemoryBarrier image_barrier;
@@ -403,7 +403,7 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
         return E_FAIL;
 
     memset(&timeline_info, 0, sizeof(timeline_info));
-    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR;
+    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
     timeline_info.signalSemaphoreValueCount = 1;
     timeline_info.pSignalSemaphoreValues = &queue->next_signal_value;
 
@@ -428,7 +428,7 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
 
     /* Stall future submissions on other queues until the clear has finished */
     memset(&timeline_info, 0, sizeof(timeline_info));
-    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR;
+    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
     timeline_info.waitSemaphoreValueCount = 1;
     timeline_info.pWaitSemaphoreValues = &queue->next_signal_value;
 

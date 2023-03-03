@@ -111,7 +111,6 @@ struct vkd3d_vulkan_info
     /* KHR device extensions */
     bool KHR_draw_indirect_count;
     bool KHR_push_descriptor;
-    bool KHR_timeline_semaphore;
     bool KHR_shader_float16_int8;
     bool KHR_shader_subgroup_extended_types;
     bool KHR_ray_tracing_pipeline;
@@ -3748,7 +3747,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT texel_buffer_alignment_properties;
     VkPhysicalDeviceTransformFeedbackPropertiesEXT xfb_properties;
     VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT vertex_divisor_properties;
-    VkPhysicalDeviceTimelineSemaphorePropertiesKHR timeline_semaphore_properties;
     VkPhysicalDeviceSubgroupSizeControlPropertiesEXT subgroup_size_control_properties;
     VkPhysicalDeviceCustomBorderColorPropertiesEXT custom_border_color_properties;
     VkPhysicalDeviceShaderCorePropertiesAMD shader_core_properties;
@@ -3784,7 +3782,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT vertex_divisor_features;
     VkPhysicalDeviceCustomBorderColorFeaturesEXT custom_border_color_features;
     VkPhysicalDevice4444FormatsFeaturesEXT ext_4444_formats_features;
-    VkPhysicalDeviceTimelineSemaphoreFeaturesKHR timeline_semaphore_features;
     VkPhysicalDeviceFloat16Int8FeaturesKHR float16_int8_features;
     VkPhysicalDeviceShaderSubgroupExtendedTypesFeaturesKHR subgroup_extended_types_features;
     VkPhysicalDeviceRobustness2FeaturesEXT robustness2_features;
