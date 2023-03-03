@@ -89,7 +89,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_EXTENDED_DYNAMIC_STATE_2, EXT_extended_dynamic_state2),
     VK_EXTENSION(EXT_EXTERNAL_MEMORY_HOST, EXT_external_memory_host),
     VK_EXTENSION(EXT_SHADER_IMAGE_ATOMIC_INT64, EXT_shader_image_atomic_int64),
-    VK_EXTENSION(EXT_PIPELINE_CREATION_FEEDBACK, EXT_pipeline_creation_feedback),
     VK_EXTENSION(EXT_MESH_SHADER, EXT_mesh_shader),
     VK_EXTENSION(EXT_MUTABLE_DESCRIPTOR_TYPE, EXT_mutable_descriptor_type),
     VK_EXTENSION(EXT_HDR_METADATA, EXT_hdr_metadata),

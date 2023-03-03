@@ -2576,7 +2576,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
 {
     VkPipelineShaderStageRequiredSubgroupSizeCreateInfo required_subgroup_size_info;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkPipelineCreationFeedbackCreateInfoEXT feedback_info;
+    VkPipelineCreationFeedbackCreateInfo feedback_info;
     struct vkd3d_shader_debug_ring_spec_info spec_info;
     VkPipelineCreationFeedbackEXT feedbacks[1];
     VkComputePipelineCreateInfo pipeline_info;
@@ -2628,10 +2628,9 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
 
     TRACE("Calling vkCreateComputePipelines.\n");
 
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG) &&
-            device->vk_info.EXT_pipeline_creation_feedback)
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
     {
-        feedback_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATION_FEEDBACK_CREATE_INFO_EXT;
+        feedback_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATION_FEEDBACK_CREATE_INFO;
         feedback_info.pNext = pipeline_info.pNext;
         feedback_info.pPipelineStageCreationFeedbacks = feedbacks;
         feedback_info.pipelineStageCreationFeedbackCount = 1;
@@ -5004,8 +5003,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
 
     TRACE("Calling vkCreateGraphicsPipelines.\n");
 
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG) &&
-            device->vk_info.EXT_pipeline_creation_feedback)
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
     {
         feedback_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATION_FEEDBACK_CREATE_INFO_EXT;
         feedback_info.pNext = pipeline_desc.pNext;
