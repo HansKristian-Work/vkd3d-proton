@@ -1261,11 +1261,10 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     info->features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     info->properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
 
-    info->subgroup_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
-    vk_prepend_struct(&info->properties2, &info->subgroup_properties);
-
-    info->maintenance3_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES;
-    vk_prepend_struct(&info->properties2, &info->maintenance3_properties);
+    info->vulkan_1_1_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+    vk_prepend_struct(&info->features2, &info->vulkan_1_1_features);
+    info->vulkan_1_1_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES;
+    vk_prepend_struct(&info->properties2, &info->vulkan_1_1_properties);
 
     if (vulkan_info->KHR_buffer_device_address)
     {
@@ -1292,10 +1291,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->float16_int8_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT16_INT8_FEATURES_KHR;
         vk_prepend_struct(&info->features2, &info->float16_int8_features);
     }
-
-    /* Core in Vulkan 1.1. */
-    info->storage_16bit_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES;
-    vk_prepend_struct(&info->features2, &info->storage_16bit_features);
 
     if (vulkan_info->KHR_shader_subgroup_extended_types)
     {
@@ -1673,10 +1668,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->fragment_shader_interlock_features);
     }
 
-    /* Core in Vulkan 1.1. */
-    info->shader_draw_parameters_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES;
-    vk_prepend_struct(&info->features2, &info->shader_draw_parameters_features);
-
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
     VK_CALL(vkGetPhysicalDeviceProperties2(device->vk_physical_device, &info->properties2));
 }
@@ -1921,8 +1912,8 @@ static void vkd3d_trace_physical_device_limits(const struct vkd3d_physical_devic
     TRACE("    maxDescriptorSetUpdateAfterBindInputAttachments: %u.\n",
             info->descriptor_indexing_properties.maxDescriptorSetUpdateAfterBindInputAttachments);
 
-    TRACE("    maxPerSetDescriptors: %u.\n", info->maintenance3_properties.maxPerSetDescriptors);
-    TRACE("    maxMemoryAllocationSize: %#"PRIx64".\n", info->maintenance3_properties.maxMemoryAllocationSize);
+    TRACE("    maxPerSetDescriptors: %u.\n", info->vulkan_1_1_properties.maxPerSetDescriptors);
+    TRACE("    maxMemoryAllocationSize: %#"PRIx64".\n", info->vulkan_1_1_properties.maxMemoryAllocationSize);
 
     TRACE("  VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT:\n");
     TRACE("    storageTexelBufferOffsetAlignmentBytes: %#"PRIx64".\n",
@@ -2181,6 +2172,9 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     /* Disable unused Vulkan features. */
     features->shaderTessellationAndGeometryPointSize = VK_FALSE;
 
+    physical_device_info->vulkan_1_1_features.protectedMemory = VK_FALSE;
+    physical_device_info->vulkan_1_1_features.samplerYcbcrConversion = VK_FALSE;
+
     buffer_device_address = &physical_device_info->buffer_device_address_features;
     buffer_device_address->bufferDeviceAddressCaptureReplay = VK_FALSE;
     buffer_device_address->bufferDeviceAddressMultiDevice = VK_FALSE;
@@ -2240,7 +2234,7 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     if (vulkan_info->KHR_fragment_shading_rate)
         physical_device_info->additional_shading_rates_supported = d3d12_device_determine_additional_shading_rates_supported(device);
 
-    if (!physical_device_info->shader_draw_parameters_features.shaderDrawParameters)
+    if (!physical_device_info->vulkan_1_1_features.shaderDrawParameters)
     {
         ERR("shaderDrawParameters is not supported by this implementation. This is required for correct operation.\n");
         return E_INVALIDARG;
@@ -6364,8 +6358,8 @@ static void d3d12_device_caps_init_feature_options1(struct d3d12_device *device)
     else
     {
         WARN("Device info for WaveLaneCountMin and WaveLaneCountMax may be inaccurate.\n");
-        options1->WaveLaneCountMin = device->device_info.subgroup_properties.subgroupSize;
-        options1->WaveLaneCountMax = device->device_info.subgroup_properties.subgroupSize;
+        options1->WaveLaneCountMin = device->device_info.vulkan_1_1_properties.subgroupSize;
+        options1->WaveLaneCountMax = device->device_info.vulkan_1_1_properties.subgroupSize;
     }
 
     if (device->vk_info.AMD_shader_core_properties)
@@ -6393,7 +6387,7 @@ static void d3d12_device_caps_init_feature_options1(struct d3d12_device *device)
     }
     else
     {
-        options1->TotalLaneCount = 32 * device->device_info.subgroup_properties.subgroupSize;
+        options1->TotalLaneCount = 32 * device->device_info.vulkan_1_1_properties.subgroupSize;
         WARN("No device info available for TotalLaneCount = .\n");
     }
 
@@ -6442,7 +6436,7 @@ static void d3d12_device_caps_init_feature_options4(struct d3d12_device *device)
      * If we cannot use SSBOs, we cannot use 16-bit raw buffers, which is a requirement for this feature. */
     options4->Native16BitShaderOpsSupported = device->device_info.float16_int8_features.shaderFloat16 &&
             device->device_info.features2.features.shaderInt16 &&
-            device->device_info.storage_16bit_features.uniformAndStorageBuffer16BitAccess &&
+            device->device_info.vulkan_1_1_features.uniformAndStorageBuffer16BitAccess &&
             device->device_info.subgroup_extended_types_features.shaderSubgroupExtendedTypes &&
             device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment <= 16;
 }
@@ -6596,12 +6590,11 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
     /* We need to support modern cbuffer layout in SM 6.0, which is equivalent to array of scalars with
      * tight packing. Either scalar block layout or the more relaxed UBO standard layout feature exposes this. */
 
-    if (device->api_version >= VK_API_VERSION_1_1 &&
-        physical_device_info->subgroup_properties.subgroupSize >= 4 &&
+    if (physical_device_info->vulkan_1_1_properties.subgroupSize >= 4 &&
         (physical_device_info->uniform_buffer_standard_layout_features.uniformBufferStandardLayout ||
          physical_device_info->scalar_block_layout_features.scalarBlockLayout) &&
-        (physical_device_info->subgroup_properties.supportedOperations & required) == required &&
-        (physical_device_info->subgroup_properties.supportedStages & required_stages) == required_stages)
+        (physical_device_info->vulkan_1_1_properties.subgroupSupportedOperations & required) == required &&
+        (physical_device_info->vulkan_1_1_properties.subgroupSupportedStages & required_stages) == required_stages)
     {
         /* From testing on native Polaris drivers, AMD expose SM 6.5, even if lots of features are not supported.
          * This is a good hint that shader model versions are not tied to features which have caps bits.

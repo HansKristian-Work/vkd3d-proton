@@ -3749,13 +3749,12 @@ enum vkd3d_time_domain_flag
 struct vkd3d_physical_device_info
 {
     /* properties */
+    VkPhysicalDeviceVulkan11Properties vulkan_1_1_properties;
     VkPhysicalDeviceDescriptorIndexingPropertiesEXT descriptor_indexing_properties;
     VkPhysicalDevicePushDescriptorPropertiesKHR push_descriptor_properties;
-    VkPhysicalDeviceMaintenance3Properties maintenance3_properties;
     VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT texel_buffer_alignment_properties;
     VkPhysicalDeviceTransformFeedbackPropertiesEXT xfb_properties;
     VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT vertex_divisor_properties;
-    VkPhysicalDeviceSubgroupProperties subgroup_properties;
     VkPhysicalDeviceTimelineSemaphorePropertiesKHR timeline_semaphore_properties;
     VkPhysicalDeviceSubgroupSizeControlPropertiesEXT subgroup_size_control_properties;
     VkPhysicalDeviceCustomBorderColorPropertiesEXT custom_border_color_properties;
@@ -3781,6 +3780,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceProperties2KHR properties2;
 
     /* features */
+    VkPhysicalDeviceVulkan11Features vulkan_1_1_features;
     VkPhysicalDeviceBufferDeviceAddressFeaturesKHR buffer_device_address_features;
     VkPhysicalDeviceConditionalRenderingFeaturesEXT conditional_rendering_features;
     VkPhysicalDeviceDepthClipEnableFeaturesEXT depth_clip_features;
@@ -3793,7 +3793,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDevice4444FormatsFeaturesEXT ext_4444_formats_features;
     VkPhysicalDeviceTimelineSemaphoreFeaturesKHR timeline_semaphore_features;
     VkPhysicalDeviceFloat16Int8FeaturesKHR float16_int8_features;
-    VkPhysicalDevice16BitStorageFeatures storage_16bit_features;
     VkPhysicalDeviceShaderSubgroupExtendedTypesFeaturesKHR subgroup_extended_types_features;
     VkPhysicalDeviceRobustness2FeaturesEXT robustness2_features;
     VkPhysicalDeviceExtendedDynamicStateFeaturesEXT extended_dynamic_state_features;
@@ -3802,7 +3801,6 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceRayTracingPipelineFeaturesKHR ray_tracing_pipeline_features;
     VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features;
     VkPhysicalDeviceFragmentShadingRateFeaturesKHR fragment_shading_rate_features;
-    VkPhysicalDeviceShaderDrawParametersFeatures shader_draw_parameters_features;
     VkPhysicalDeviceSubgroupSizeControlFeaturesEXT subgroup_size_control_features;
     VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR separate_depth_stencil_layout_features;
     VkPhysicalDeviceShaderIntegerDotProductFeaturesKHR shader_integer_dot_product_features;
