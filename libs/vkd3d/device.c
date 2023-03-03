@@ -66,7 +66,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION_COND(KHR_RAY_QUERY, KHR_ray_query, VKD3D_CONFIG_FLAG_DXR11),
     VK_EXTENSION_COND(KHR_RAY_TRACING_MAINTENANCE_1, KHR_ray_tracing_maintenance1, VKD3D_CONFIG_FLAG_DXR11),
     VK_EXTENSION(KHR_FRAGMENT_SHADING_RATE, KHR_fragment_shading_rate),
-    VK_EXTENSION(KHR_UNIFORM_BUFFER_STANDARD_LAYOUT, KHR_uniform_buffer_standard_layout),
     VK_EXTENSION(KHR_MAINTENANCE_4, KHR_maintenance4),
     VK_EXTENSION(KHR_FRAGMENT_SHADER_BARYCENTRIC, KHR_fragment_shader_barycentric),
     VK_EXTENSION(KHR_PRESENT_ID, KHR_present_id),
@@ -1479,13 +1478,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->scalar_block_layout_features.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES_EXT;
         vk_prepend_struct(&info->features2, &info->scalar_block_layout_features);
-    }
-
-    if (vulkan_info->KHR_uniform_buffer_standard_layout)
-    {
-        info->uniform_buffer_standard_layout_features.sType =
-                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES;
-        vk_prepend_struct(&info->features2, &info->uniform_buffer_standard_layout_features);
     }
 
     if (vulkan_info->VALVE_descriptor_set_host_mapping)
@@ -6384,8 +6376,6 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
      * tight packing. Either scalar block layout or the more relaxed UBO standard layout feature exposes this. */
 
     if (physical_device_info->vulkan_1_1_properties.subgroupSize >= 4 &&
-        (physical_device_info->uniform_buffer_standard_layout_features.uniformBufferStandardLayout ||
-         physical_device_info->scalar_block_layout_features.scalarBlockLayout) &&
         (physical_device_info->vulkan_1_1_properties.subgroupSupportedOperations & required) == required &&
         (physical_device_info->vulkan_1_1_properties.subgroupSupportedStages & required_stages) == required_stages)
     {
