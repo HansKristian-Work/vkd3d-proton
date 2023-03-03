@@ -84,7 +84,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_SHADER_DEMOTE_TO_HELPER_INVOCATION, EXT_shader_demote_to_helper_invocation),
     VK_EXTENSION(EXT_SHADER_STENCIL_EXPORT, EXT_shader_stencil_export),
     VK_EXTENSION(EXT_SHADER_VIEWPORT_INDEX_LAYER, EXT_shader_viewport_index_layer),
-    VK_EXTENSION(EXT_TEXEL_BUFFER_ALIGNMENT, EXT_texel_buffer_alignment),
     VK_EXTENSION(EXT_TRANSFORM_FEEDBACK, EXT_transform_feedback),
     VK_EXTENSION(EXT_VERTEX_ATTRIBUTE_DIVISOR, EXT_vertex_attribute_divisor),
     VK_EXTENSION(EXT_EXTENDED_DYNAMIC_STATE, EXT_extended_dynamic_state),
@@ -1298,14 +1297,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->demote_features);
     }
 
-    if (vulkan_info->EXT_texel_buffer_alignment)
-    {
-        info->texel_buffer_alignment_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_FEATURES_EXT;
-        vk_prepend_struct(&info->features2, &info->texel_buffer_alignment_features);
-        info->texel_buffer_alignment_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_PROPERTIES_EXT;
-        vk_prepend_struct(&info->properties2, &info->texel_buffer_alignment_properties);
-    }
-
     if (vulkan_info->EXT_transform_feedback)
     {
         info->xfb_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT;
@@ -1792,13 +1783,13 @@ static void vkd3d_trace_physical_device_limits(const struct vkd3d_physical_devic
 
     TRACE("  VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT:\n");
     TRACE("    storageTexelBufferOffsetAlignmentBytes: %#"PRIx64".\n",
-            info->texel_buffer_alignment_properties.storageTexelBufferOffsetAlignmentBytes);
+            info->vulkan_1_3_properties.storageTexelBufferOffsetAlignmentBytes);
     TRACE("    storageTexelBufferOffsetSingleTexelAlignment: %#x.\n",
-            info->texel_buffer_alignment_properties.storageTexelBufferOffsetSingleTexelAlignment);
+            info->vulkan_1_3_properties.storageTexelBufferOffsetSingleTexelAlignment);
     TRACE("    uniformTexelBufferOffsetAlignmentBytes: %#"PRIx64".\n",
-            info->texel_buffer_alignment_properties.uniformTexelBufferOffsetAlignmentBytes);
+            info->vulkan_1_3_properties.uniformTexelBufferOffsetAlignmentBytes);
     TRACE("    uniformTexelBufferOffsetSingleTexelAlignment: %#x.\n",
-            info->texel_buffer_alignment_properties.uniformTexelBufferOffsetSingleTexelAlignment);
+            info->vulkan_1_3_properties.uniformTexelBufferOffsetSingleTexelAlignment);
 
     TRACE("  VkPhysicalDeviceTransformFeedbackPropertiesEXT:\n");
     TRACE("    maxTransformFeedbackStreams: %u.\n", info->xfb_properties.maxTransformFeedbackStreams);
@@ -1929,9 +1920,6 @@ static void vkd3d_trace_physical_device_features(const struct vkd3d_physical_dev
     TRACE("  VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT:\n");
     TRACE("    shaderDemoteToHelperInvocation: %#x.\n", info->demote_features.shaderDemoteToHelperInvocation);
 
-    TRACE("  VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT:\n");
-    TRACE("    texelBufferAlignment: %#x.\n", info->texel_buffer_alignment_features.texelBufferAlignment);
-
     TRACE("  VkPhysicalDeviceTransformFeedbackFeaturesEXT:\n");
     TRACE("    transformFeedback: %#x.\n", info->xfb_features.transformFeedback);
     TRACE("    geometryStreams: %#x.\n", info->xfb_features.geometryStreams);
@@ -2036,10 +2024,7 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         vulkan_info->EXT_depth_clip_enable = false;
     if (!physical_device_info->demote_features.shaderDemoteToHelperInvocation)
         vulkan_info->EXT_shader_demote_to_helper_invocation = false;
-    if (!physical_device_info->texel_buffer_alignment_features.texelBufferAlignment)
-        vulkan_info->EXT_texel_buffer_alignment = false;
 
-    vulkan_info->texel_buffer_alignment_properties = physical_device_info->texel_buffer_alignment_properties;
     vulkan_info->vertex_attrib_zero_divisor = physical_device_info->vertex_divisor_features.vertexAttributeInstanceRateZeroDivisor;
 
     /* Disable unused Vulkan features. */
