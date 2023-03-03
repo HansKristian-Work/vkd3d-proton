@@ -68,7 +68,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_FRAGMENT_SHADING_RATE, KHR_fragment_shading_rate),
     /* Only required to silence validation errors. */
     VK_EXTENSION(KHR_CREATE_RENDERPASS_2, KHR_create_renderpass2),
-    VK_EXTENSION(KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE, KHR_sampler_mirror_clamp_to_edge),
     VK_EXTENSION(KHR_SEPARATE_DEPTH_STENCIL_LAYOUTS, KHR_separate_depth_stencil_layouts),
     VK_EXTENSION(KHR_SHADER_INTEGER_DOT_PRODUCT, KHR_shader_integer_dot_product),
     VK_EXTENSION(KHR_FORMAT_FEATURE_FLAGS_2, KHR_format_feature_flags2),
@@ -2181,9 +2180,9 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         return E_INVALIDARG;
     }
 
-    if (!vulkan_info->KHR_sampler_mirror_clamp_to_edge)
+    if (!physical_device_info->vulkan_1_2_features.samplerMirrorClampToEdge)
     {
-        ERR("KHR_sampler_mirror_clamp_to_edge is not supported by this implementation. This is required for correct operation.\n");
+        ERR("samplerMirrorClampToEdge is not supported by this implementation. This is required for correct operation.\n");
         return E_INVALIDARG;
     }
 
