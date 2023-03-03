@@ -1463,12 +1463,12 @@ static void dxgi_vk_swap_chain_present_signal_blit_semaphore(struct dxgi_vk_swap
 static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *chain, VkCommandBuffer vk_cmd, uint32_t swapchain_index)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
-    VkRenderingAttachmentInfoKHR attachment_info;
+    VkRenderingAttachmentInfo attachment_info;
     VkImageMemoryBarrier image_barrier;
-    VkRenderingInfoKHR rendering_info;
     VkDescriptorImageInfo image_info;
     VkWriteDescriptorSet write_info;
     struct d3d12_resource *resource;
+    VkRenderingInfo rendering_info;
     VkViewport viewport;
     bool blank_present;
 
@@ -1549,7 +1549,7 @@ static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *cha
                 VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
                 0, 0, NULL, 0, NULL, 1, &image_barrier));
 
-    VK_CALL(vkCmdBeginRenderingKHR(vk_cmd, &rendering_info));
+    VK_CALL(vkCmdBeginRendering(vk_cmd, &rendering_info));
 
     if (!blank_present)
     {
@@ -1578,7 +1578,7 @@ static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *cha
         VK_CALL(vkCmdDraw(vk_cmd, 3, 1, 0, 0));
     }
 
-    VK_CALL(vkCmdEndRenderingKHR(vk_cmd));
+    VK_CALL(vkCmdEndRendering(vk_cmd));
 
     image_barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
     image_barrier.dstAccessMask = 0;

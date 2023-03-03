@@ -66,7 +66,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION_COND(KHR_RAY_QUERY, KHR_ray_query, VKD3D_CONFIG_FLAG_DXR11),
     VK_EXTENSION_COND(KHR_RAY_TRACING_MAINTENANCE_1, KHR_ray_tracing_maintenance1, VKD3D_CONFIG_FLAG_DXR11),
     VK_EXTENSION(KHR_FRAGMENT_SHADING_RATE, KHR_fragment_shading_rate),
-    VK_EXTENSION(KHR_DYNAMIC_RENDERING, KHR_dynamic_rendering),
     /* Only required to silence validation errors. */
     VK_EXTENSION(KHR_DEPTH_STENCIL_RESOLVE, KHR_depth_stencil_resolve),
     VK_EXTENSION(KHR_DRIVER_PROPERTIES, KHR_driver_properties),
@@ -1492,13 +1491,6 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->uniform_buffer_standard_layout_features);
     }
 
-    if (vulkan_info->KHR_dynamic_rendering)
-    {
-        info->dynamic_rendering_features.sType =
-                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR;
-        vk_prepend_struct(&info->features2, &info->dynamic_rendering_features);
-    }
-
     if (vulkan_info->VALVE_descriptor_set_host_mapping)
     {
         info->descriptor_set_host_mapping_features.sType =
@@ -2161,12 +2153,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     if (!physical_device_info->vulkan_1_1_features.shaderDrawParameters)
     {
         ERR("shaderDrawParameters is not supported by this implementation. This is required for correct operation.\n");
-        return E_INVALIDARG;
-    }
-
-    if (!physical_device_info->dynamic_rendering_features.dynamicRendering)
-    {
-        ERR("KHR_dynamic_rendering is not supported by this implementation. This is required for correct operation.\n");
         return E_INVALIDARG;
     }
 

@@ -3203,11 +3203,11 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
         const D3D12_RECT *rects, bool is_bound)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkRenderingAttachmentInfoKHR attachment_info, stencil_attachment_info;
+    VkRenderingAttachmentInfo attachment_info, stencil_attachment_info;
     VkImageLayout initial_layouts[2], final_layouts[2];
     uint32_t plane_write_mask, image_barrier_count, i;
     VkImageMemoryBarrier image_barriers[2];
-    VkRenderingInfoKHR rendering_info;
+    VkRenderingInfo rendering_info;
     bool requires_discard_barrier;
     VkPipelineStageFlags stages;
     bool separate_ds_layouts;
@@ -3218,7 +3218,7 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     memset(final_layouts, 0, sizeof(final_layouts));
 
     memset(&attachment_info, 0, sizeof(attachment_info));
-    attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
+    attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
     attachment_info.imageView = view->vk_image_view;
     attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
     attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -3227,7 +3227,7 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     stencil_attachment_info = attachment_info;
 
     memset(&rendering_info, 0, sizeof(rendering_info));
-    rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR;
+    rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
     rendering_info.renderArea.offset.x = 0;
     rendering_info.renderArea.offset.y = 0;
     rendering_info.renderArea.extent.width = d3d12_resource_desc_get_width(&resource->desc, view->info.texture.miplevel_idx);
@@ -3395,7 +3395,7 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
             image_barrier_count, image_barriers));
     }
 
-    VK_CALL(vkCmdBeginRenderingKHR(list->vk_command_buffer, &rendering_info));
+    VK_CALL(vkCmdBeginRendering(list->vk_command_buffer, &rendering_info));
 
     if (!clear_op)
     {
@@ -3403,7 +3403,7 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
                 clear_aspects, clear_value, rect_count, rects);
     }
 
-    VK_CALL(vkCmdEndRenderingKHR(list->vk_command_buffer));
+    VK_CALL(vkCmdEndRendering(list->vk_command_buffer));
 
     VKD3D_BREADCRUMB_TAG("clear-view-cookie");
     VKD3D_BREADCRUMB_AUX64(view->cookie);
@@ -4289,7 +4289,7 @@ static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list
 
     if (list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE)
     {
-        VK_CALL(vkCmdEndRenderingKHR(list->vk_command_buffer));
+        VK_CALL(vkCmdEndRendering(list->vk_command_buffer));
         d3d12_command_list_debug_mark_end_region(list);
     }
 
@@ -5223,7 +5223,7 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
     /* The pipeline has fallback PSO in case we're attempting to render to unbound RTV. */
     for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
     {
-        VkRenderingAttachmentInfoKHR *attachment = &rendering_info->rtv[i];
+        VkRenderingAttachmentInfo *attachment = &rendering_info->rtv[i];
 
         if ((graphics->rtv_active_mask & (1u << i)) && list->rtvs[i].view)
         {
@@ -6126,7 +6126,7 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
         d3d12_command_list_emit_render_pass_transition(list, VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN);
 
     d3d12_command_list_debug_mark_begin_region(list, "RenderPass");
-    VK_CALL(vkCmdBeginRenderingKHR(list->vk_command_buffer, &list->rendering_info.info));
+    VK_CALL(vkCmdBeginRendering(list->vk_command_buffer, &list->rendering_info.info));
 
     list->rendering_info.state_flags |= VKD3D_RENDERING_ACTIVE;
     list->rendering_info.state_flags &= ~VKD3D_RENDERING_SUSPENDED;
@@ -6596,9 +6596,9 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_texture_view_desc dst_view_desc, src_view_desc;
     struct vkd3d_copy_image_pipeline_key pipeline_key;
-    VkRenderingAttachmentInfoKHR attachment_info;
     VkPipelineStageFlags src_stages, dst_stages;
     struct vkd3d_copy_image_info pipeline_info;
+    VkRenderingAttachmentInfo attachment_info;
     VkImageMemoryBarrier vk_image_barriers[2];
     VkWriteDescriptorSet vk_descriptor_write;
     struct vkd3d_copy_image_args push_args;
@@ -6607,7 +6607,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
     VkImageLayout src_layout, dst_layout;
     bool dst_is_depth_stencil, use_copy;
     VkDescriptorImageInfo vk_image_info;
-    VkRenderingInfoKHR rendering_info;
+    VkRenderingInfo rendering_info;
     VkCopyImageInfo2 copy_info;
     VkViewport viewport;
     unsigned int i;
@@ -6792,14 +6792,14 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         }
 
         memset(&attachment_info, 0, sizeof(attachment_info));
-        attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
+        attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
         attachment_info.imageView = dst_view->vk_image_view;
         attachment_info.imageLayout = dst_layout;
         attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
         memset(&rendering_info, 0, sizeof(rendering_info));
-        rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR;
+        rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
         rendering_info.renderArea.offset.x = region->dstOffset.x;
         rendering_info.renderArea.offset.y = region->dstOffset.y;
         rendering_info.renderArea.extent.width = region->extent.width;
@@ -6847,7 +6847,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         vk_descriptor_write.pTexelBufferView = NULL;
 
         d3d12_command_list_debug_mark_begin_region(list, "CopyRenderPass");
-        VK_CALL(vkCmdBeginRenderingKHR(list->vk_command_buffer, &rendering_info));
+        VK_CALL(vkCmdBeginRendering(list->vk_command_buffer, &rendering_info));
         VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_info.vk_pipeline));
         VK_CALL(vkCmdSetViewport(list->vk_command_buffer, 0, 1, &viewport));
         VK_CALL(vkCmdSetScissor(list->vk_command_buffer, 0, 1, &rendering_info.renderArea));
@@ -6856,7 +6856,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         VK_CALL(vkCmdPushConstants(list->vk_command_buffer, pipeline_info.vk_pipeline_layout,
                 VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_args), &push_args));
         VK_CALL(vkCmdDraw(list->vk_command_buffer, 3, region->dstSubresource.layerCount, 0, 0));
-        VK_CALL(vkCmdEndRenderingKHR(list->vk_command_buffer));
+        VK_CALL(vkCmdEndRendering(list->vk_command_buffer));
         d3d12_command_list_debug_mark_end_region(list);
 
 cleanup:
@@ -12315,9 +12315,9 @@ static struct d3d12_command_list *unsafe_impl_from_ID3D12CommandList(ID3D12Comma
 
 extern CONST_VTBL struct ID3D12GraphicsCommandListExtVtbl d3d12_command_list_vkd3d_ext_vtbl;
 
-static void d3d12_command_list_init_attachment_info(VkRenderingAttachmentInfoKHR *attachment_info)
+static void d3d12_command_list_init_attachment_info(VkRenderingAttachmentInfo *attachment_info)
 {
-    attachment_info->sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
+    attachment_info->sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
     attachment_info->loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
     attachment_info->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 }
@@ -12326,7 +12326,7 @@ static void d3d12_command_list_init_rendering_info(struct d3d12_device *device, 
 {
     unsigned int i;
 
-    rendering_info->info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR;
+    rendering_info->info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
     rendering_info->info.colorAttachmentCount = D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT;
     rendering_info->info.pColorAttachments = rendering_info->rtv;
 
