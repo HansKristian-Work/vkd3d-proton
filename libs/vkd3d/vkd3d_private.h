@@ -115,7 +115,6 @@ struct vkd3d_vulkan_info
     bool KHR_deferred_host_operations;
     bool KHR_pipeline_library;
     bool KHR_ray_query;
-    bool KHR_spirv_1_4;
     bool KHR_shader_float_controls;
     bool KHR_fragment_shading_rate;
     bool KHR_create_renderpass2;
