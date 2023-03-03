@@ -1195,7 +1195,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
         bind_info.memory = allocation->device_allocation.vk_memory;
         bind_info.memoryOffset = 0;
 
-        if ((vr = VK_CALL(vkBindBufferMemory2KHR(device->vk_device, 1, &bind_info))) < 0)
+        if ((vr = VK_CALL(vkBindBufferMemory2(device->vk_device, 1, &bind_info))) < 0)
         {
             ERR("Failed to bind buffer memory, vr %d.\n", vr);
             vkd3d_memory_allocation_free(allocation, device, allocator);
@@ -1788,7 +1788,7 @@ HRESULT vkd3d_allocate_internal_buffer_memory(struct d3d12_device *device, VkBuf
     bind_info.memory = allocation->vk_memory;
     bind_info.memoryOffset = 0;
 
-    if (FAILED(vr = VK_CALL(vkBindBufferMemory2KHR(device->vk_device, 1, &bind_info))))
+    if (FAILED(vr = VK_CALL(vkBindBufferMemory2(device->vk_device, 1, &bind_info))))
         return hresult_from_vk_result(vr);
 
     return hr;

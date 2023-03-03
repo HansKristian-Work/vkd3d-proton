@@ -2971,7 +2971,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         bind_info.memory = allocation->device_allocation.vk_memory;
         bind_info.memoryOffset = allocation->offset;
 
-        if ((vr = VK_CALL(vkBindImageMemory2KHR(device->vk_device, 1, &bind_info))))
+        if ((vr = VK_CALL(vkBindImageMemory2(device->vk_device, 1, &bind_info))))
         {
             ERR("Failed to bind image memory, vr %d.\n", vr);
             hr = hresult_from_vk_result(vr);
@@ -3175,7 +3175,7 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
             bind_info.memoryOffset = object->mem.offset;
         }
 
-        if ((vr = VK_CALL(vkBindImageMemory2KHR(device->vk_device, 1, &bind_info))) < 0)
+        if ((vr = VK_CALL(vkBindImageMemory2(device->vk_device, 1, &bind_info))) < 0)
         {
             ERR("Failed to bind image memory, vr %d.\n", vr);
             hr = hresult_from_vk_result(vr);

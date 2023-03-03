@@ -81,7 +81,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_SHADER_INTEGER_DOT_PRODUCT, KHR_shader_integer_dot_product),
     VK_EXTENSION(KHR_FORMAT_FEATURE_FLAGS_2, KHR_format_feature_flags2),
     VK_EXTENSION(KHR_SHADER_ATOMIC_INT64, KHR_shader_atomic_int64),
-    VK_EXTENSION(KHR_BIND_MEMORY_2, KHR_bind_memory2),
     VK_EXTENSION(KHR_COPY_COMMANDS_2, KHR_copy_commands2),
     VK_EXTENSION(KHR_DYNAMIC_RENDERING, KHR_dynamic_rendering),
     /* Only required to silence validation errors. */
@@ -2237,12 +2236,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     if (!physical_device_info->vulkan_1_1_features.shaderDrawParameters)
     {
         ERR("shaderDrawParameters is not supported by this implementation. This is required for correct operation.\n");
-        return E_INVALIDARG;
-    }
-
-    if (!vulkan_info->KHR_bind_memory2)
-    {
-        ERR("KHR_bind_memory2 is not supported by this implementation. This is required for correct operation.\n");
         return E_INVALIDARG;
     }
 
