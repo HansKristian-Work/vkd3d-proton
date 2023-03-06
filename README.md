@@ -18,19 +18,13 @@ Backwards compatibility with the vkd3d standalone API is not a goal of this proj
 
 There are some hard requirements on drivers to be able to implement D3D12 in a reasonably performant way.
 
-- Vulkan 1.1
-- `VK_EXT_descriptor_indexing` with at least 1000000 UpdateAfterBind descriptors for all types except UniformBuffer.
+- Vulkan 1.3
+- Descriptor indexing with at least 1000000 UpdateAfterBind descriptors for all types except UniformBuffer.
   Essentially all features in `VkPhysicalDeviceDescriptorIndexingFeatures` must be supported.
-- `VK_KHR_timeline_semaphore`
-- `VK_KHR_sampler_mirror_clamp_to_edge`
+- Further, the following device features are required:
+  - `samplerMirrorClampToEdge`
+  - `shaderDrawParameters`
 - `VK_EXT_robustness2`
-- `VK_KHR_separate_depth_stencil_layouts`
-- `VK_KHR_bind_memory2`
-- `VK_KHR_copy_commands2`
-- `VK_KHR_dynamic_rendering`
-- `VK_EXT_extended_dynamic_state`
-- `VK_EXT_extended_dynamic_state2`
-- `VK_KHR_buffer_device_address`
 - `VK_KHR_push_descriptor`
 
 Some notable extensions that **should** be supported for optimal or correct behavior.
@@ -38,12 +32,12 @@ These extensions will likely become mandatory later.
 
 - `VK_EXT_image_view_min_lod`
 
-`VK_EXT_mutable_descriptor_type` (or the vendor `VALVE` alias) is also highly recommended, but not mandatory.
+`VK_EXT_mutable_descriptor_type` (or the vendor `VALVE` alias) and `VK_EXT_descriptor_buffer` are also highly recommended, but not mandatory.
 
 ### AMD (RADV)
 
 For AMD, RADV is the recommended driver and the one that sees most testing on AMD GPUs.
-The minimum requirement at the moment is Mesa 22.0 since it supports `VK_KHR_dynamic_rendering`.
+The minimum requirement at the moment is Mesa 22.0.
 
 NOTE: For older Mesa versions, use the v2.6 release.
 
@@ -56,7 +50,7 @@ If you're having problems, always try the latest drivers.
 
 ### Intel
 
-We have not done any testing against Intel iGPUs yet.
+We have not done any testing against Intel GPUs yet.
 
 ------
 
