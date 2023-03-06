@@ -222,9 +222,9 @@ static bool vkd3d_memory_transfer_queue_wait_semaphore(struct vkd3d_memory_trans
         uint64_t wait_value, uint64_t timeout)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &queue->device->vk_procs;
+    uint64_t old_value, new_value = 0;
     VkSemaphoreWaitInfo wait_info;
-    uint64_t old_value, new_value;
-    VkResult vr;
+    VkResult vr = VK_TIMEOUT;
 
     old_value = vkd3d_atomic_uint64_load_explicit(&queue->last_known_value, vkd3d_memory_order_acquire);
 
@@ -241,9 +241,11 @@ static bool vkd3d_memory_transfer_queue_wait_semaphore(struct vkd3d_memory_trans
         wait_info.pValues = &wait_value;
 
         vr = VK_CALL(vkWaitSemaphores(queue->device->vk_device, &wait_info, timeout));
-        new_value = wait_value;
+        if (vr == VK_SUCCESS)
+            new_value = wait_value;
     }
-    else
+
+    if (vr != VK_SUCCESS)
     {
         vr = VK_CALL(vkGetSemaphoreCounterValue(queue->device->vk_device,
                 queue->vk_semaphore, &new_value));
