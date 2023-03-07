@@ -1,0 +1,37 @@
+/*
+ * * Copyright 2023 Joshua Ashton for Valve Corporation
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+ */
+import "vkd3d_d3d12.idl";
+
+[
+    uuid(18da885c-a7b5-464e-a121-ccb75d4dfc31),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface IVKD3DCoreInterface
+{
+    HRESULT CreateDevice(IUnknown *adapter, D3D_FEATURE_LEVEL minimum_feature_level, REFIID iid, void **device);
+    HRESULT CreateRootSignatureDeserializer(const void *data, SIZE_T data_size, REFIID iid, void **deserializer);
+    HRESULT SerializeRootSignature(const D3D12_ROOT_SIGNATURE_DESC *root_signature_desc, D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob);
+    HRESULT CreateVersionedRootSignatureDeserializer(const void *data, SIZE_T data_size, REFIID iid, void **deserializer);
+    HRESULT SerializeVersionedRootSignature(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *desc, ID3DBlob **blob, ID3DBlob **error_blob);
+    HRESULT GetDebugInterface(REFIID iid, void** debug);
+    HRESULT EnableExperimentalFeatures(UINT feature_count, const IID *iids, void *configurations, UINT *configurations_sizes);
+    HRESULT GetInterface(REFCLSID rcslid, REFIID iid, void** debug);
+}
+cpp_quote("DEFINE_GUID(CLSID_VKD3DCore,       0xed53efad, 0xda21, 0x4d96, 0xa1, 0xbc, 0xe7, 0x34, 0xe0, 0x78, 0x87, 0x9c );")
