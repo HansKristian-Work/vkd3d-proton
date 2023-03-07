@@ -208,9 +208,11 @@ typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 # if defined(__cplusplus) && !defined(CINTERFACE)
 #  define REFIID const IID &
 #  define REFGUID const GUID &
+#  define REFCLSID const GUID &
 # else
 #  define REFIID const IID * const
 #  define REFGUID const GUID * const
+#  define REFCLSID const GUID * const
 # endif
 
 #if defined(__cplusplus) && !defined(CINTERFACE)
