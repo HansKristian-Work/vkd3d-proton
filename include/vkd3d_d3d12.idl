@@ -4353,3 +4353,7 @@ typedef HRESULT (__stdcall *PFN_D3D12_ENABLE_EXPERIMENTAL_FEATURES)(UINT num_fea
 
 [local] HRESULT __stdcall D3D12EnableExperimentalFeatures(UINT num_features,
         const IID *iids, void *config_structs, UINT *config_struct_sizes);
+
+typedef HRESULT (__stdcall *PFN_D3D12_GET_INTERFACE)(REFCLSID clsid, REFIID iid, void **debug);
+
+[local] HRESULT __stdcall D3D12GetInterface(REFCLSID clsid, REFIID iid, void **debug);
