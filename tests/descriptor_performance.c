@@ -142,6 +142,7 @@ static void do_benchmark_run(ID3D12Device *device)
     srv_desc.Texture2D.PlaneSlice = 0;
     srv_desc.Texture2D.ResourceMinLODClamp = 0.0f;
 
+#if 0
     /* Benchmark creation of 1 million SRVs in CPU-only heaps. */
     {
         start_time = get_time();
@@ -205,15 +206,18 @@ static void do_benchmark_run(ID3D12Device *device)
         end_time = get_time();
         printf("Copying 1M SRVs to zeroed GPU visible heap took: %.3f ms.\n", 1e3 * (end_time - start_time));
     }
+#endif
 
     /* Try copying descriptors one at a time on top of zero-initialized descriptor heap. */
+    start_time = get_time();
+    for (uint32_t i = 0; i < 10000; i++)
     {
-        start_time = get_time();
-        copy_descriptor_heap_single(device, gpu_heap, cpu_heap, 1000000);
-        end_time = get_time();
-        printf("Copying 1M individual SRVs to GPU visible heap (duplicates) took: %.3f ms.\n", 1e3 * (end_time - start_time));
+        copy_descriptor_heap_single(device, gpu_heap, cpu_heap, 10000);
     }
+    end_time = get_time();
+    printf("Copying 100M individual SRVs to GPU visible heap (duplicates) took: %.3f ms.\n", 1e3 * (end_time - start_time));
 
+#if 0
     /* Create zero descriptors. */
     zero_descriptor_heap(device, gpu_heap, 1000000);
 
@@ -223,6 +227,7 @@ static void do_benchmark_run(ID3D12Device *device)
         end_time = get_time();
         printf("Copying 1M individual SRVs to zeroed GPU visible heap took: %.3f ms.\n", 1e3 * (end_time - start_time));
     }
+#endif
 
     ID3D12Resource_Release(texture);
     ID3D12DescriptorHeap_Release(cpu_heap);
