@@ -1354,8 +1354,11 @@ void test_object_interface(void)
         hr = ID3D12Object_GetPrivateData(object, &WKPDID_D3DDebugObjectName, &size, NULL);
         ok(hr == DXGI_ERROR_NOT_FOUND, "Got unexpected hr %#x.\n", hr);
 
+#if 0
+        /* NULL name crashes on Windows 11 22621. */
         hr = ID3D12Object_SetName(object, NULL);
         ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+#endif
 
         hr = ID3D12Object_GetPrivateData(object, &WKPDID_D3DDebugObjectNameW, &size, NULL);
         ok(hr == DXGI_ERROR_NOT_FOUND, "Got unexpected hr %#x.\n", hr);
