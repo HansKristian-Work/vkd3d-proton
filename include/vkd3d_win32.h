@@ -58,6 +58,7 @@
 #include <vkd3d_command_list_vkd3d_ext.h>
 #include <vkd3d_device_vkd3d_ext.h>
 #include <vkd3d_d3d12.h>
+#include <vkd3d_core_interface.h>
 #undef WIDL_C_INLINE_WRAPPERS
 
 #include <vkd3d_d3d12sdklayers.h>
