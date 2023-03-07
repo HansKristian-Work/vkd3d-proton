@@ -1506,3 +1506,39 @@ void test_enumerate_meta_commands(void)
     refcount = ID3D12Device5_Release(device5);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
+
+void test_vtable_origins(void)
+{
+#ifdef _WIN32
+    HMODULE d3d12core_module, vtable_module;
+    MEMORY_BASIC_INFORMATION info;
+    ID3D12Device *device;
+    SIZE_T ret;
+
+    /* Skip this test if running on an older version of 
+     * Windows from before the D3D12 + D3D12Core split. */
+    if (!(d3d12core_module = LoadLibraryA("d3d12core")))
+    {
+        skip("No D3D12Core module, skipping.\n");
+        return;
+    }
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    ret = VirtualQuery(device->lpVtbl, &info, sizeof(info));
+    ok(ret, "VirtualQuery of ID3D12Device VTable failed.\n");
+    if (!ret)
+    {
+        return;
+    }
+
+    vtable_module = (HMODULE)info.AllocationBase;
+
+    /* Ensure the vtable for ID3D12Device comes from D3D12Core.dll */
+    todo ok(vtable_module == d3d12core_module, "VTable for ID3D12Device not provided by D3D12Core.\n");
+#endif
+}
