@@ -2974,7 +2974,7 @@ static ULONG STDMETHODCALLTYPE d3d12_device_Release(d3d12_device_iface *iface)
     {
         d3d12_remove_device_singleton(device->adapter_luid);
         d3d12_device_destroy(device);
-        vkd3d_free(device);
+        vkd3d_free_aligned(device);
     }
 
     if (is_locked)
@@ -7147,7 +7147,7 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
         return S_OK;
     }
 
-    if (!(object = vkd3d_calloc(1, sizeof(*object))))
+    if (!(object = vkd3d_malloc_aligned(sizeof(*object), 64)))
     {
         pthread_mutex_unlock(&d3d12_device_map_mutex);
         return E_OUTOFMEMORY;
@@ -7155,7 +7155,7 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
 
     if (FAILED(hr = d3d12_device_init(object, instance, create_info)))
     {
-        vkd3d_free(object);
+        vkd3d_free_aligned(object);
         pthread_mutex_unlock(&d3d12_device_map_mutex);
         return hr;
     }
@@ -7164,7 +7164,7 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
     {
         WARN("Feature level %#x is not supported.\n", create_info->minimum_feature_level);
         d3d12_device_destroy(object);
-        vkd3d_free(object);
+        vkd3d_free_aligned(object);
         pthread_mutex_unlock(&d3d12_device_map_mutex);
         return E_INVALIDARG;
     }

@@ -1409,9 +1409,35 @@ static inline void d3d12_desc_copy_embedded_resource_payload(uint8_t *dst, const
 {
     /* Add special unrolled paths for the usual suspects. */
     if (size == 64)
+    {
+#ifdef __SSE2__
+        __m128i a, b, c, d;
+        a = _mm_load_si128((const __m128i *)(src + 0));
+        b = _mm_load_si128((const __m128i *)(src + 16));
+        c = _mm_load_si128((const __m128i *)(src + 32));
+        d = _mm_load_si128((const __m128i *)(src + 48));
+        /* Non-temporal stores appear to help significantly on Deck. */
+        _mm_stream_si128((__m128i *)(dst + 0), a);
+        _mm_stream_si128((__m128i *)(dst + 16), b);
+        _mm_stream_si128((__m128i *)(dst + 32), c);
+        _mm_stream_si128((__m128i *)(dst + 48), d);
+#else
         memcpy(dst, src, 64);
+#endif
+    }
     else if (size == 32)
+    {
+#ifdef __SSE2__
+        __m128i a, b;
+        a = _mm_load_si128((const __m128i *)(src + 0));
+        b = _mm_load_si128((const __m128i *)(src + 16));
+        /* Non-temporal stores appear to help significantly on Deck. */
+        _mm_stream_si128((__m128i *)(dst + 0), a);
+        _mm_stream_si128((__m128i *)(dst + 16), b);
+#else
         memcpy(dst, src, 32);
+#endif
+    }
     else
         memcpy(dst, src, size);
 }
@@ -1435,7 +1461,19 @@ static inline void d3d12_desc_copy_embedded_resource_single(vkd3d_cpu_descriptor
 static inline void d3d12_desc_copy_embedded_sampler_single(vkd3d_cpu_descriptor_va_t dst_va,
         vkd3d_cpu_descriptor_va_t src_va, size_t size)
 {
-    memcpy((uint8_t *)dst_va, (const uint8_t *)src_va, size);
+    if (size == 16)
+    {
+#ifdef __SSE2__
+        __m128i a;
+        a = _mm_load_si128((const __m128i *)src_va);
+        /* Non-temporal stores appear to help significantly on Deck. */
+        _mm_stream_si128((__m128i *)dst_va, a);
+#else
+        memcpy((uint8_t *)dst_va, (const uint8_t *)src_va, 16);
+#endif
+    }
+    else
+        memcpy((uint8_t *)dst_va, (const uint8_t *)src_va, size);
 }
 
 static inline void d3d12_desc_copy_embedded_resource_multi(vkd3d_cpu_descriptor_va_t dst_va,
@@ -3429,7 +3467,7 @@ struct vkd3d_bindless_state
 
     /* NULL descriptor payloads are not necessarily all zero.
      * Access the array with vkd3d_bindless_state_get_null_descriptor_payload(). */
-    uint8_t null_descriptor_payloads[6][VKD3D_MAX_DESCRIPTOR_SIZE];
+    DECLSPEC_ALIGN(16) uint8_t null_descriptor_payloads[6][VKD3D_MAX_DESCRIPTOR_SIZE];
     size_t descriptor_buffer_cbv_srv_uav_size;
     size_t descriptor_buffer_sampler_size;
     unsigned int descriptor_buffer_cbv_srv_uav_size_log2;
