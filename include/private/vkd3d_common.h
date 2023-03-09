@@ -326,4 +326,12 @@ static inline uint64_t vkd3d_get_current_time_ticks(void)
 #endif
 }
 
+#if defined(__GNUC__) || defined(__clang__)
+#define VKD3D_EXPECT_TRUE(x) __builtin_expect(!!(x), 1)
+#define VKD3D_EXPECT_FALSE(x) __builtin_expect(!!(x), 0)
+#else
+#define VKD3D_EXPECT_TRUE(x) (x)
+#define VKD3D_EXPECT_FALSE(x) (x)
+#endif
+
 #endif  /* __VKD3D_COMMON_H */
