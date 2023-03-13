@@ -1449,6 +1449,471 @@ void test_vbv_stride_edge_cases(void)
     destroy_test_context(&context);
 }
 
+void test_execute_indirect_multi_dispatch_root_descriptors(void)
+{
+    const unsigned int max_indirect_count = 5;
+    D3D12_INDIRECT_ARGUMENT_DESC arguments[2];
+    D3D12_ROOT_PARAMETER root_params[1];
+    ID3D12CommandSignature *signature;
+    D3D12_COMMAND_SIGNATURE_DESC desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Resource *indirect;
+    unsigned int test_index;
+    ID3D12Resource *output;
+    unsigned int iteration;
+    unsigned int i;
+    HRESULT hr;
+
+    struct test_data
+    {
+        uint32_t dispatch_counts[4];
+        struct
+        {
+            D3D12_GPU_VIRTUAL_ADDRESS va;
+            uint32_t wg_x, wg_y, wg_z;
+        } dispatches[16];
+    } indirect_data = {
+        { 2, 7, 4, 13 },
+        {
+            { 0, 2, 3, 4 },
+            { 0, 5, 6, 7 },
+            { 0, 8, 9, 10 },
+            { 0, 11, 3, 12 },
+            { 0, 6, 13, 14 },
+            { 0, 13, 14, 15 },
+            { 0, 16, 17, 18 },
+            { 0, 19, 18, 7 },
+            { 0, 2, 3, 4 },
+            { 0, 5, 6, 7 },
+            { 0, 8, 9, 10 },
+            { 0, 11, 3, 12 },
+            { 0, 6, 13, 14 },
+            { 0, 13, 14, 15 },
+            { 0, 16, 17, 18 },
+            { 0, 19, 18, 7 },
+        },
+    };
+
+    uint32_t expected_counts[ARRAY_SIZE(indirect_data.dispatches)] = { 0 };
+
+    static const DWORD cs_code_dxbc[] =
+    {
+#if 0
+    RWStructuredBuffer<uint> RWBuf : register(u0);
+
+    [numthreads(1, 1, 1)]
+    void main()
+    {
+            uint o;
+            InterlockedAdd(RWBuf[0], 1, o);
+    }
+#endif
+        0x43425844, 0x9de05180, 0xc4ce6696, 0x888b971b, 0x17d7d33f, 0x00000001, 0x000000ac, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000058, 0x00050050, 0x00000016, 0x0100086a,
+        0x0400009e, 0x0011e000, 0x00000000, 0x00000004, 0x0400009b, 0x00000001, 0x00000001, 0x00000001,
+        0x0a0000ad, 0x0011e000, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+        0x00004001, 0x00000001, 0x0100003e,
+    };
+
+    static const D3D12_SHADER_BYTECODE cs_code = SHADER_BYTECODE(cs_code_dxbc);
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    desc.ByteStride = sizeof(indirect_data.dispatches[0]);
+    desc.NodeMask = 0;
+    desc.NumArgumentDescs = ARRAY_SIZE(arguments);
+    desc.pArgumentDescs = arguments;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(root_params, 0, sizeof(root_params));
+    rs_desc.NumParameters = ARRAY_SIZE(root_params);
+    rs_desc.pParameters = root_params;
+    root_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, cs_code);
+
+    memset(arguments, 0, sizeof(arguments));
+    arguments[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_UNORDERED_ACCESS_VIEW;
+    arguments[0].UnorderedAccessView.RootParameterIndex = 0;
+    arguments[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+    hr = ID3D12Device_CreateCommandSignature(context.device, &desc, context.root_signature, &IID_ID3D12CommandSignature, (void **)&signature);
+    if (FAILED(hr))
+        signature = NULL;
+    todo ok(SUCCEEDED(hr), "Failed to create command signature, hr #%x.\n", hr);
+
+    output = create_default_buffer(context.device, ARRAY_SIZE(indirect_data.dispatches) * 4, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    for (i = 0; i < ARRAY_SIZE(indirect_data.dispatches); i++)
+        indirect_data.dispatches[i].va = ID3D12Resource_GetGPUVirtualAddress(output) + 4 * i;
+
+    indirect = create_upload_buffer(context.device, sizeof(indirect_data), &indirect_data);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+
+    for (test_index = 0; test_index < 8 && signature; test_index++)
+    {
+        iteration = test_index & 3;
+
+        if (test_index < 4)
+        {
+            /* Multi-dispatch, direct count. */
+            ID3D12GraphicsCommandList_ExecuteIndirect(context.list, signature, indirect_data.dispatch_counts[iteration],
+                    indirect, offsetof(struct test_data, dispatches[test_index]), NULL, 0);
+        }
+        else
+        {
+            /* Indirect count style. */
+            ID3D12GraphicsCommandList_ExecuteIndirect(context.list, signature, max_indirect_count,
+                    indirect, offsetof(struct test_data, dispatches[test_index]),
+                    indirect, offsetof(struct test_data, dispatch_counts[iteration]));
+        }
+    }
+
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (test_index = 0; test_index < 8; test_index++)
+    {
+        unsigned int num_dispatches;
+        iteration = test_index & 3;
+        num_dispatches = test_index < 4 ?
+            indirect_data.dispatch_counts[iteration] :
+            min(indirect_data.dispatch_counts[iteration], max_indirect_count);
+
+        for (i = test_index; i < num_dispatches + test_index; i++)
+        {
+            expected_counts[i] +=
+                indirect_data.dispatches[i].wg_x *
+                indirect_data.dispatches[i].wg_y *
+                indirect_data.dispatches[i].wg_z;
+        }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(indirect_data.dispatches); i++)
+    {
+        uint32_t value;
+        value = get_readback_uint(&rb, i, 0, 0);
+        todo ok(value == expected_counts[i], "Value %u: Expected %u, got %u.\n", i, expected_counts[i], value);
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(indirect);
+    ID3D12Resource_Release(output);
+    if (signature)
+        ID3D12CommandSignature_Release(signature);
+
+    destroy_test_context(&context);
+}
+
+void test_execute_indirect_multi_dispatch_root_constants(void)
+{
+    const unsigned int max_indirect_count = 5;
+    D3D12_INDIRECT_ARGUMENT_DESC arguments[2];
+    D3D12_ROOT_PARAMETER root_params[2];
+    ID3D12CommandSignature *signature;
+    D3D12_COMMAND_SIGNATURE_DESC desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Resource *indirect;
+    unsigned int test_index;
+    ID3D12Resource *output;
+    unsigned int iteration;
+    HRESULT hr;
+
+    static const uint32_t indirect_data[] = {
+        1, 8, 3, 6, /* indirect multi dispatch counts */
+        13, 10, 20, 30, /* root constant u32 + dispatch group counts */
+        14, 11, 21, 31,
+        15, 0, 22, 32,
+        16, 13, 23, 0,
+        17, 10, 20, 30,
+        18, 11, 21, 31,
+        19, 12, 22, 32,
+        20, 13, 23, 33,
+        21, 10, 20, 30,
+        22, 11, 21, 31,
+        23, 12, 22, 32,
+        24, 13, 23, 33,
+        25, 10, 20, 30,
+        26, 11, 21, 31,
+        27, 12, 22, 32,
+        28, 13, 23, 33,
+    };
+
+    static const DWORD cs_code_dxbc[] =
+    {
+#if 0
+    RWStructuredBuffer<uint> RWBuf : register(u0);
+    cbuffer C : register(b0) { uint4 v; };
+
+    [numthreads(1, 1, 1)]
+    void main()
+    {
+            uint o;
+            InterlockedAdd(RWBuf[0], v.x | v.y | v.z | v.w, o);
+    }
+#endif
+        0x43425844, 0x7a70560a, 0x4aa2793e, 0x14ed39f7, 0xa8aea1d3, 0x00000001, 0x00000128, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x000000d4, 0x00050050, 0x00000035, 0x0100086a,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0400009e, 0x0011e000, 0x00000000, 0x00000004,
+        0x02000068, 0x00000001, 0x0400009b, 0x00000001, 0x00000001, 0x00000001, 0x0900003c, 0x00100012,
+        0x00000000, 0x0020801a, 0x00000000, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0800003c,
+        0x00100012, 0x00000000, 0x0010000a, 0x00000000, 0x0020802a, 0x00000000, 0x00000000, 0x0800003c,
+        0x00100012, 0x00000000, 0x0010000a, 0x00000000, 0x0020803a, 0x00000000, 0x00000000, 0x0a0000ad,
+        0x0011e000, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0010000a,
+        0x00000000, 0x0100003e,
+    };
+
+    static const D3D12_SHADER_BYTECODE cs_code = SHADER_BYTECODE(cs_code_dxbc);
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    desc.ByteStride = sizeof(uint32_t) + sizeof(D3D12_DISPATCH_ARGUMENTS);
+    desc.NodeMask = 0;
+    desc.NumArgumentDescs = ARRAY_SIZE(arguments);
+    desc.pArgumentDescs = arguments;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(root_params, 0, sizeof(root_params));
+    rs_desc.NumParameters = ARRAY_SIZE(root_params);
+    rs_desc.pParameters = root_params;
+    root_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_params[1].Constants.Num32BitValues = 4;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, cs_code);
+
+    memset(arguments, 0, sizeof(arguments));
+    arguments[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT;
+    arguments[0].Constant.RootParameterIndex = 1;
+    arguments[0].Constant.Num32BitValuesToSet = 1;
+    arguments[0].Constant.DestOffsetIn32BitValues = 2;
+    arguments[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+    hr = ID3D12Device_CreateCommandSignature(context.device, &desc, context.root_signature, &IID_ID3D12CommandSignature, (void **)&signature);
+    if (FAILED(hr))
+        signature = NULL;
+    todo ok(SUCCEEDED(hr), "Failed to create command signature, hr #%x.\n", hr);
+
+    output = create_default_buffer(context.device, 8 * 4, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    indirect = create_upload_buffer(context.device, sizeof(indirect_data), indirect_data);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+
+    for (test_index = 0; test_index < 8 && signature; test_index++)
+    {
+        iteration = test_index & 3;
+
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0,
+            ID3D12Resource_GetGPUVirtualAddress(output) + 4 * test_index);
+
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(context.list, 1, 1, 0);
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(context.list, 1, 2, 1);
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(context.list, 1, 3, 2);
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(context.list, 1, 4, 3);
+
+        if (test_index < 4)
+        {
+            /* Multi-dispatch, direct count. */
+            ID3D12GraphicsCommandList_ExecuteIndirect(context.list, signature, indirect_data[iteration], indirect, 16 + 16 * test_index, NULL, 0);
+        }
+        else
+        {
+            /* Indirect count style. */
+            ID3D12GraphicsCommandList_ExecuteIndirect(context.list, signature, max_indirect_count,
+                indirect, 16 + 16 * test_index,
+                indirect, 4 * iteration);
+        }
+
+        /* Also test behavior for cleared root constant state. cbv.z should be cleared to 0 here. */
+        ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    }
+
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (test_index = 0; test_index < 8; test_index++)
+    {
+        unsigned int num_dispatches, expected, expected_cbv, value, i;
+        iteration = test_index & 3;
+        num_dispatches = test_index < 4 ? indirect_data[iteration] : min(indirect_data[iteration], max_indirect_count);
+        expected = 0;
+
+        for (i = test_index; i < num_dispatches + test_index; i++)
+        {
+            expected_cbv = 1 | 2 | 4; /* x, y and w elements are untouched. */
+            expected_cbv |= indirect_data[4 + 4 * i + 0];
+
+            expected += expected_cbv *
+                    indirect_data[4 + 4 * i + 1] *
+                    indirect_data[4 + 4 * i + 2] *
+                    indirect_data[4 + 4 * i + 3];
+        }
+        expected += 7; /* For the single 1, 1, 1 dispatch. */
+        value = get_readback_uint(&rb, test_index, 0, 0);
+        todo ok(value == expected, "Iteration %u: Expected %u, got %u.\n", test_index, expected, value);
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(indirect);
+    ID3D12Resource_Release(output);
+    if (signature)
+        ID3D12CommandSignature_Release(signature);
+
+    destroy_test_context(&context);
+}
+
+void test_execute_indirect_multi_dispatch(void)
+{
+    const unsigned int max_indirect_count = 5;
+    D3D12_INDIRECT_ARGUMENT_DESC arguments[1];
+    ID3D12CommandSignature *signature;
+    D3D12_COMMAND_SIGNATURE_DESC desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER root_param;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Resource *indirect;
+    unsigned int test_index;
+    ID3D12Resource *output;
+    unsigned int iteration;
+    HRESULT hr;
+
+    /* Simple multi dispatch indirect without state changes. */
+
+    static const uint32_t indirect_data[] = {
+        1, 8, 3, 6, /* indirect multi dispatch counts */
+        10, 20, 30, /* dispatch group counts */
+        11, 21, 31,
+        0, 22, 32,
+        13, 23, 0,
+        10, 20, 30,
+        11, 21, 31,
+        12, 22, 32,
+        13, 23, 33,
+        10, 20, 30,
+        11, 21, 31,
+        12, 22, 32,
+        13, 23, 33,
+        10, 20, 30,
+        11, 21, 31,
+        12, 22, 32,
+        13, 23, 33,
+    };
+
+    static const DWORD cs_code_dxbc[] =
+    {
+#if 0
+    RWStructuredBuffer<uint> RWBuf : register(u0);
+
+    [numthreads(1, 1, 1)]
+    void main()
+    {
+            uint o;
+            InterlockedAdd(RWBuf[0], 1, o);
+    }
+#endif
+        0x43425844, 0x9de05180, 0xc4ce6696, 0x888b971b, 0x17d7d33f, 0x00000001, 0x000000ac, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000058, 0x00050050, 0x00000016, 0x0100086a,
+        0x0400009e, 0x0011e000, 0x00000000, 0x00000004, 0x0400009b, 0x00000001, 0x00000001, 0x00000001,
+        0x0a0000ad, 0x0011e000, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+        0x00004001, 0x00000001, 0x0100003e,
+    };
+
+    static const D3D12_SHADER_BYTECODE cs_code = SHADER_BYTECODE(cs_code_dxbc);
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(&root_param, 0, sizeof(root_param));
+    rs_desc.NumParameters = 1;
+    rs_desc.pParameters = &root_param;
+    root_param.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, cs_code);
+
+    desc.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS);
+    desc.NodeMask = 0;
+    desc.NumArgumentDescs = ARRAY_SIZE(arguments);
+    desc.pArgumentDescs = arguments;
+
+    memset(arguments, 0, sizeof(arguments));
+    arguments[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+    hr = ID3D12Device_CreateCommandSignature(context.device, &desc, NULL, &IID_ID3D12CommandSignature, (void **)&signature);
+    ok(SUCCEEDED(hr), "Failed to create command signature, hr #%x.\n", hr);
+
+    output = create_default_buffer(context.device, 8 * 4, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    indirect = create_upload_buffer(context.device, sizeof(indirect_data), indirect_data);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+
+    for (test_index = 0; test_index < 8; test_index++)
+    {
+        iteration = test_index & 3;
+
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0,
+                ID3D12Resource_GetGPUVirtualAddress(output) + 4 * test_index);
+
+        if (test_index < 4)
+        {
+            /* Multi-dispatch, direct count. */
+            ID3D12GraphicsCommandList_ExecuteIndirect(context.list, signature, indirect_data[iteration], indirect, 16 + 12 * test_index, NULL, 0);
+        }
+        else
+        {
+            /* Indirect count style. */
+            ID3D12GraphicsCommandList_ExecuteIndirect(context.list, signature, max_indirect_count,
+                    indirect, 16 + 12 * test_index,
+                    indirect, 4 * iteration);
+        }
+    }
+
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (test_index = 0; test_index < 8; test_index++)
+    {
+        unsigned int num_dispatches, expected, value, i;
+        iteration = test_index & 3;
+        num_dispatches = test_index < 4 ? indirect_data[iteration] : min(indirect_data[iteration], max_indirect_count);
+        expected = 0;
+        for (i = test_index; i < num_dispatches + test_index; i++)
+        {
+            expected += indirect_data[4 + 3 * i + 0] *
+                    indirect_data[4 + 3 * i + 1] *
+                    indirect_data[4 + 3 * i + 2];
+        }
+        value = get_readback_uint(&rb, test_index, 0, 0);
+        todo ok(value == expected, "Iteration %u: Expected %u, got %u.\n", test_index, expected, value);
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(indirect);
+    ID3D12Resource_Release(output);
+    ID3D12CommandSignature_Release(signature);
+
+    destroy_test_context(&context);
+}
+
 void test_execute_indirect_state(void)
 {
     static const struct vec4 values = { 1000.0f, 2000.0f, 3000.0f, 4000.0f };
