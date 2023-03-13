@@ -3572,20 +3572,18 @@ void d3d12_desc_copy(vkd3d_cpu_descriptor_va_t dst_va, vkd3d_cpu_descriptor_va_t
     }
 #endif
 
-    if (device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_EMBEDDED)
+    if (d3d12_device_use_embedded_mutable_descriptors(device))
     {
         /* Rare path. */
         if (heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
         {
-            d3d12_desc_copy_embedded_resource_multi(dst_va, src_va,
-                    device->bindless_state.descriptor_buffer_cbv_srv_uav_size,
-                    count);
+            d3d12_desc_copy_embedded_resource(dst_va, src_va,
+                    device->bindless_state.descriptor_buffer_cbv_srv_uav_size * count);
         }
         else
         {
-            d3d12_desc_copy_embedded_sampler_multi(dst_va, src_va,
-                    device->bindless_state.descriptor_buffer_sampler_size,
-                    count);
+            vkd3d_memcpy_aligned_cached((void *)dst_va, (const void *)src_va,
+                    device->bindless_state.descriptor_buffer_sampler_size * count);
         }
     }
     else
@@ -4091,13 +4089,20 @@ static void d3d12_descriptor_heap_write_null_descriptor_template_embedded(struct
 
     src = vkd3d_bindless_state_get_null_descriptor_payload(&device->bindless_state, vk_descriptor_type);
 
-    /* If metadata is packed into the descriptor, it gets cleared to zero here in this copy. */
-    d3d12_desc_copy_embedded_resource_payload(desc.payload, src,
-            device->bindless_state.descriptor_buffer_cbv_srv_uav_size);
+    if (VKD3D_EXPECT_TRUE(desc.metadata == NULL))
+    {
+        /* If metadata is packed into the descriptor, it gets cleared to zero here in this copy. */
+        vkd3d_memcpy_aligned_non_temporal(desc.payload, src,
+                device->bindless_state.descriptor_buffer_cbv_srv_uav_size);
+    }
+    else
+    {
+        vkd3d_memcpy_aligned_cached(desc.payload, src,
+                device->bindless_state.descriptor_buffer_cbv_srv_uav_size);
 
-    /* If metadata is not packed, need to clear that separately. */
-    if (desc.metadata)
+        /* If metadata is not packed, need to clear that separately. */
         memset(desc.metadata, 0, sizeof(*desc.metadata));
+    }
 }
 
 static void d3d12_descriptor_heap_write_null_descriptor_template(vkd3d_cpu_descriptor_va_t desc_va,
@@ -7192,13 +7197,28 @@ HRESULT d3d12_descriptor_heap_create(struct d3d12_device *device,
             object->cpu_va.ptr = (SIZE_T)object->sets[0].mapped_set;
             assert(!(object->cpu_va.ptr & VKD3D_RESOURCE_EMBEDDED_METADATA_OFFSET_LOG2_MASK));
 
-            /* Need to encode offset to metadata from any given CPU VA.
-             * Samplers don't require metadata structs, only non-shader visible resource heap does. */
             if (!(desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE) &&
-                    !(device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_EMBEDDED_PACKED_METADATA) &&
                     desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
             {
-                object->cpu_va.ptr |= vkd3d_log2i_ceil(descriptor_size * max(1u, desc->NumDescriptors));
+                if (!(device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_EMBEDDED_PACKED_METADATA))
+                {
+                    /* Need to encode offset to metadata from any given CPU VA.
+                     * Samplers don't require metadata structs, only non-shader visible resource heap does. */
+                    object->cpu_va.ptr |= vkd3d_log2i_ceil(descriptor_size * max(1u, desc->NumDescriptors));
+                }
+                else
+                {
+                    /* Use this bit only to mark if this is a shader visible heap or not.
+                     * If we're copying to shader visible heap,
+                     * we can use non-temporal copies for more perf on Deck.
+                     * For the more generic functions which decode VAs, the log2 offset must be greater
+                     * than this value for it to detect planar metadata.
+                     * Specialized functions can make use of this bit to enter more optimal code paths. */
+
+                    /* Ignore all of this for sampler heaps since they are irrelevant
+                     * from a performance standpoint. */
+                    object->cpu_va.ptr += VKD3D_RESOURCE_EMBEDDED_CACHED_MASK;
+                }
             }
         }
         else

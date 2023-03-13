@@ -2988,7 +2988,7 @@ static ULONG STDMETHODCALLTYPE d3d12_device_Release(d3d12_device_iface *iface)
     {
         d3d12_remove_device_singleton(device->adapter_luid);
         d3d12_device_destroy(device);
-        vkd3d_free(device);
+        vkd3d_free_aligned(device);
     }
 
     if (is_locked)
@@ -4314,38 +4314,76 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptorsSimple_embedded_64_16_
             iface, descriptor_count, dst_descriptor_range_offset.ptr, src_descriptor_range_offset.ptr,
             descriptor_heap_type);
 
-    if (descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+    if (VKD3D_EXPECT_TRUE(descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV))
     {
         /* If metadata is packed, this collapses to pure memcpy. */
 
-        if (descriptor_count == 1)
+        /* The cached mask is used to mark if a page is write-combined or not.
+         * For CPU -> GPU copies, we can use NT stores. This helps Deck performance,
+         * so it's worthwhile to go to extreme lengths. This memory is always mapped write-combined.
+         * For CPU -> CPU copies, we cannot use NT stores since it breaks memory ordering if
+         * other threads aim to read the CPU descriptors later. Fortunately, CPU -> CPU copies
+         * are quirky at best and never used, so the branch predictor should be able to hide all overhead. */
+
+        /* Using a subtract here (instead of the more idiomatic negative mask)
+         * is a cute way of asserting the API requirement that the
+         * src VA must be a non-shader visible heap. We use aligned loads and stores which will fault if
+         * there is a misalignment.
+         * It is also faster since the subtract is folded in to the constant address offsets. */
+
+        if (VKD3D_EXPECT_TRUE(descriptor_count == 1))
         {
-            /* Expected path. */
-            d3d12_desc_copy_embedded_resource_payload((uint8_t *)dst_descriptor_range_offset.ptr,
-                    (const uint8_t *)src_descriptor_range_offset.ptr, 64);
+            if (VKD3D_EXPECT_TRUE(!(dst_descriptor_range_offset.ptr & VKD3D_RESOURCE_EMBEDDED_CACHED_MASK)))
+            {
+                vkd3d_memcpy_aligned_64_non_temporal(
+                        (void *)dst_descriptor_range_offset.ptr,
+                        (const void *)(src_descriptor_range_offset.ptr - VKD3D_RESOURCE_EMBEDDED_CACHED_MASK));
+            }
+            else
+            {
+                /* If we're copying to host visible descriptor memory, we have to be careful
+                 * not to break memory ordering by using NT stores.
+                 * This path is basically never taken. */
+                vkd3d_memcpy_aligned_64_cached(
+                        (void *)(dst_descriptor_range_offset.ptr - VKD3D_RESOURCE_EMBEDDED_CACHED_MASK),
+                        (const void *)(src_descriptor_range_offset.ptr - VKD3D_RESOURCE_EMBEDDED_CACHED_MASK));
+            }
         }
         else
         {
-            /* Rare path. */
-            d3d12_desc_copy_embedded_resource_payload((uint8_t *)dst_descriptor_range_offset.ptr,
-                    (const uint8_t *)src_descriptor_range_offset.ptr,
-                    64 * descriptor_count);
+            if (VKD3D_EXPECT_TRUE(!(dst_descriptor_range_offset.ptr & VKD3D_RESOURCE_EMBEDDED_CACHED_MASK)))
+            {
+                vkd3d_memcpy_aligned_non_temporal(
+                        (void *)dst_descriptor_range_offset.ptr,
+                        (const void *)(src_descriptor_range_offset.ptr - VKD3D_RESOURCE_EMBEDDED_CACHED_MASK),
+                        64 * descriptor_count);
+            }
+            else
+            {
+                /* If we're copying to host visible descriptor memory, we have to be careful
+                 * not to break memory ordering by using NT stores.
+                 * This path is basically never taken. */
+                vkd3d_memcpy_aligned_cached(
+                        (void *)(dst_descriptor_range_offset.ptr - VKD3D_RESOURCE_EMBEDDED_CACHED_MASK),
+                        (const void *)(src_descriptor_range_offset.ptr - VKD3D_RESOURCE_EMBEDDED_CACHED_MASK),
+                        64 * descriptor_count);
+            }
         }
     }
     else if (descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
     {
-        if (descriptor_count == 1)
+        if (VKD3D_EXPECT_TRUE(descriptor_count == 1))
         {
-            /* Expected path. */
-            d3d12_desc_copy_embedded_sampler_single(dst_descriptor_range_offset.ptr,
-                    src_descriptor_range_offset.ptr, 16);
+            vkd3d_memcpy_aligned_16_cached(
+                    (void *)dst_descriptor_range_offset.ptr,
+                    (const void *)src_descriptor_range_offset.ptr);
         }
         else
         {
-            /* Rare path. */
-            d3d12_desc_copy_embedded_sampler_multi(dst_descriptor_range_offset.ptr,
-                    src_descriptor_range_offset.ptr,
-                    16, descriptor_count);
+            vkd3d_memcpy_aligned_cached(
+                    (void *)dst_descriptor_range_offset.ptr,
+                    (const void *)src_descriptor_range_offset.ptr,
+                    16 * descriptor_count);
         }
     }
     else
@@ -4369,36 +4407,40 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptorsSimple_embedded_32_16_
             iface, descriptor_count, dst_descriptor_range_offset.ptr, src_descriptor_range_offset.ptr,
             descriptor_heap_type);
 
-    if (descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+    if (VKD3D_EXPECT_TRUE(descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV))
     {
-        if (descriptor_count == 1)
+        if (VKD3D_EXPECT_TRUE(descriptor_count == 1))
         {
             /* Expected path. */
-            d3d12_desc_copy_embedded_resource_single(dst_descriptor_range_offset.ptr,
-                    src_descriptor_range_offset.ptr, 32);
+            d3d12_desc_copy_embedded_resource_single_32(
+                    dst_descriptor_range_offset.ptr,
+                    src_descriptor_range_offset.ptr);
         }
         else
         {
             /* Rare path. */
-            d3d12_desc_copy_embedded_resource_multi(dst_descriptor_range_offset.ptr,
+            d3d12_desc_copy_embedded_resource(
+                    dst_descriptor_range_offset.ptr,
                     src_descriptor_range_offset.ptr,
-                    32, descriptor_count);
+                    32 * descriptor_count);
         }
     }
     else if (descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
     {
-        if (descriptor_count == 1)
+        if (VKD3D_EXPECT_TRUE(descriptor_count == 1))
         {
             /* Expected path. */
-            d3d12_desc_copy_embedded_sampler_single(dst_descriptor_range_offset.ptr,
-                    src_descriptor_range_offset.ptr, 16);
+            vkd3d_memcpy_aligned_16_cached(
+                    (void *)dst_descriptor_range_offset.ptr,
+                    (const void *)src_descriptor_range_offset.ptr);
         }
         else
         {
             /* Rare path. */
-            d3d12_desc_copy_embedded_sampler_multi(dst_descriptor_range_offset.ptr,
-                    src_descriptor_range_offset.ptr,
-                    16, descriptor_count);
+            vkd3d_memcpy_aligned_cached(
+                    (void *)dst_descriptor_range_offset.ptr,
+                    (const void *)src_descriptor_range_offset.ptr,
+                    16 * descriptor_count);
         }
     }
     else
@@ -4424,39 +4466,19 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptorsSimple_embedded_generi
 
     device = unsafe_impl_from_ID3D12Device(iface);
 
-    if (descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+    if (VKD3D_EXPECT_TRUE(descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV))
     {
-        if (descriptor_count == 1)
-        {
-            /* Expected path. */
-            d3d12_desc_copy_embedded_resource_single(dst_descriptor_range_offset.ptr,
-                    src_descriptor_range_offset.ptr, device->bindless_state.descriptor_buffer_cbv_srv_uav_size);
-        }
-        else
-        {
-            /* Rare path. */
-            d3d12_desc_copy_embedded_resource_multi(dst_descriptor_range_offset.ptr,
-                    src_descriptor_range_offset.ptr,
-                    device->bindless_state.descriptor_buffer_cbv_srv_uav_size, descriptor_count);
-        }
+        d3d12_desc_copy_embedded_resource(
+                dst_descriptor_range_offset.ptr,
+                src_descriptor_range_offset.ptr,
+                device->bindless_state.descriptor_buffer_cbv_srv_uav_size * descriptor_count);
     }
     else if (descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
     {
-        if (descriptor_count == 1)
-        {
-            /* Expected path. */
-            d3d12_desc_copy_embedded_sampler_single(dst_descriptor_range_offset.ptr,
-                    src_descriptor_range_offset.ptr,
-                    device->bindless_state.descriptor_buffer_sampler_size);
-        }
-        else
-        {
-            /* Rare path. */
-            d3d12_desc_copy_embedded_sampler_multi(dst_descriptor_range_offset.ptr,
-                    src_descriptor_range_offset.ptr,
-                    device->bindless_state.descriptor_buffer_sampler_size,
-                    descriptor_count);
-        }
+        vkd3d_memcpy_aligned_cached(
+                (void *)dst_descriptor_range_offset.ptr,
+                (const void *)src_descriptor_range_offset.ptr,
+                device->bindless_state.descriptor_buffer_sampler_size * descriptor_count);
     }
     else
     {
@@ -4480,8 +4502,8 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptorsSimple_default(d3d12_d
 
     device = unsafe_impl_from_ID3D12Device(iface);
 
-    if (descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV ||
-            descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
+    if (VKD3D_EXPECT_TRUE(descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV ||
+            descriptor_heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER))
     {
         /* Not quite as fast as embedded, but still not bad. */
         d3d12_device_copy_descriptors_cbv_srv_uav_sampler(device,
@@ -7161,7 +7183,7 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
         return S_OK;
     }
 
-    if (!(object = vkd3d_calloc(1, sizeof(*object))))
+    if (!(object = vkd3d_malloc_aligned(sizeof(*object), 64)))
     {
         pthread_mutex_unlock(&d3d12_device_map_mutex);
         return E_OUTOFMEMORY;
@@ -7169,7 +7191,7 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
 
     if (FAILED(hr = d3d12_device_init(object, instance, create_info)))
     {
-        vkd3d_free(object);
+        vkd3d_free_aligned(object);
         pthread_mutex_unlock(&d3d12_device_map_mutex);
         return hr;
     }
@@ -7178,7 +7200,7 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
     {
         WARN("Feature level %#x is not supported.\n", create_info->minimum_feature_level);
         d3d12_device_destroy(object);
-        vkd3d_free(object);
+        vkd3d_free_aligned(object);
         pthread_mutex_unlock(&d3d12_device_map_mutex);
         return E_INVALIDARG;
     }
