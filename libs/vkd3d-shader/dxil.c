@@ -889,6 +889,18 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         }
     }
 
+    if (quirks & VKD3D_SHADER_QUIRK_FORCE_SUBGROUP_SIZE_1)
+    {
+        const dxil_spv_option_force_subgroup_size helper =
+                { { DXIL_SPV_OPTION_FORCE_SUBGROUP_SIZE }, 1, DXIL_SPV_FALSE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support FORCE_SUBGROUP_SIZE_1.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
     remap_userdata.shader_interface_info = shader_interface_info;
     remap_userdata.shader_interface_local_info = NULL;
     remap_userdata.num_root_descriptors = num_root_descriptors;

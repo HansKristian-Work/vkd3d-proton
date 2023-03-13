@@ -387,6 +387,10 @@ enum vkd3d_shader_quirk
     VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_12 = (1 << 6),
     VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_8 = (1 << 7),
     VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_4 = (1 << 8),
+
+    /* Force lane count query to return 1.
+     * Can be used to disable buggy subgroup logic that checks for subgroup sizes. */
+    VKD3D_SHADER_QUIRK_FORCE_SUBGROUP_SIZE_1 = (1 << 9),
 };
 
 struct vkd3d_shader_quirk_hash
