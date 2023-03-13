@@ -494,6 +494,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
             VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
     { VKD3D_STRING_COMPARE_EXACT, "re3.exe",
             VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
+    { VKD3D_STRING_COMPARE_EXACT, "re4.exe",
+            VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
     { VKD3D_STRING_COMPARE_EXACT, "re7.exe",
             VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
     /* Control (870780).
@@ -550,6 +552,16 @@ static const struct vkd3d_shader_quirk_info wolong_quirks = {
     NULL, 0, VKD3D_SHADER_QUIRK_LIMIT_TESS_FACTORS_8,
 };
 
+/* The subgroup check in CACAO shader is botched and does not handle Wave64 properly.
+ * Just pretend the subgroup size is non-sensical to use the normal FFX CACAO code path. */
+static const struct vkd3d_shader_quirk_hash re4_hashes[] = {
+    { 0xa100b53736f9c1bfull, VKD3D_SHADER_QUIRK_FORCE_SUBGROUP_SIZE_1 },
+};
+
+static const struct vkd3d_shader_quirk_info re4_quirks = {
+    re4_hashes, ARRAY_SIZE(re4_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
@@ -561,6 +573,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Borderlands3.exe", &borderlands3_quirks },
     /* Wo Long: Fallen Dynasty (2285240) */
     { VKD3D_STRING_COMPARE_EXACT, "WoLong.exe", &wolong_quirks },
+    /* Resident Evil 4 (2050650) */
+    { VKD3D_STRING_COMPARE_EXACT, "re4.exe", &re4_quirks },
     /* MSVC fails to compile empty array. */
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
 };
