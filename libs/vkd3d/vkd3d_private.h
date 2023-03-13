@@ -41,6 +41,7 @@
 #include "vkd3d_string.h"
 #include "vkd3d_file_utils.h"
 #include "vkd3d_native_sync_handle.h"
+#include "copy_utils.h"
 #include <assert.h>
 #include <inttypes.h>
 #include <limits.h>
@@ -1122,6 +1123,7 @@ struct vkd3d_descriptor_binding
 #define VKD3D_RESOURCE_DESC_INCREMENT (1u << VKD3D_RESOURCE_DESC_INCREMENT_LOG2)
 #define VKD3D_RESOURCE_EMBEDDED_METADATA_OFFSET_LOG2_MASK 31
 #define VKD3D_RESOURCE_EMBEDDED_RESOURCE_HEAP_MASK (1ull << 32)
+#define VKD3D_RESOURCE_EMBEDDED_CACHED_MASK ((vkd3d_cpu_descriptor_va_t)1)
 
 /* Arrange data so that it can pack as tightly as possible.
  * When we copy descriptors, we must copy both structures.
@@ -1388,7 +1390,7 @@ static inline struct d3d12_desc_split_embedded d3d12_desc_decode_embedded_resour
 
     uint32_t log2_offset = va & VKD3D_RESOURCE_EMBEDDED_METADATA_OFFSET_LOG2_MASK;
 
-    if (log2_offset)
+    if (log2_offset > VKD3D_RESOURCE_EMBEDDED_CACHED_MASK)
     {
         va -= log2_offset;
         split.payload = (uint8_t *)va;
@@ -1397,6 +1399,7 @@ static inline struct d3d12_desc_split_embedded d3d12_desc_decode_embedded_resour
     }
     else
     {
+        va &= ~VKD3D_RESOURCE_EMBEDDED_CACHED_MASK;
         /* Shader visible VA. We don't care about metadata at this point. */
         split.metadata = NULL;
         split.payload = (uint8_t *)va;
@@ -1405,60 +1408,50 @@ static inline struct d3d12_desc_split_embedded d3d12_desc_decode_embedded_resour
     return split;
 }
 
-static inline void d3d12_desc_copy_embedded_resource_payload(uint8_t *dst, const uint8_t *src, size_t size)
-{
-    /* Add special unrolled paths for the usual suspects. */
-    if (size == 64)
-        memcpy(dst, src, 64);
-    else if (size == 32)
-        memcpy(dst, src, 32);
-    else
-        memcpy(dst, src, size);
-}
-
-static inline void d3d12_desc_copy_embedded_resource_single(vkd3d_cpu_descriptor_va_t dst_va,
+static inline void d3d12_desc_copy_embedded_resource(vkd3d_cpu_descriptor_va_t dst_va,
         vkd3d_cpu_descriptor_va_t src_va, size_t size)
 {
     struct d3d12_desc_split_embedded dst, src;
 
     dst = d3d12_desc_decode_embedded_resource_va(dst_va);
     src = d3d12_desc_decode_embedded_resource_va(src_va);
-
-    d3d12_desc_copy_embedded_resource_payload(dst.payload, src.payload, size);
 
     /* Copy metadata if we're doing CPU -> CPU descriptor copy.
      * Copying from GPU descriptor heap is not allowed. */
-    if (dst.metadata && src.metadata)
-        memcpy(dst.metadata, src.metadata, sizeof(*dst.metadata));
+    if (VKD3D_EXPECT_TRUE(dst.metadata == NULL))
+    {
+        /* If we don't have metadata it means we're writing to a descriptor buffer,
+         * prefer NT writes. */
+        vkd3d_memcpy_aligned_non_temporal(dst.payload, src.payload, size);
+    }
+    else
+    {
+        vkd3d_memcpy_aligned_cached(dst.payload, src.payload, size);
+        vkd3d_memcpy_aligned_cached(dst.metadata, src.metadata, size);
+    }
 }
 
-static inline void d3d12_desc_copy_embedded_sampler_single(vkd3d_cpu_descriptor_va_t dst_va,
-        vkd3d_cpu_descriptor_va_t src_va, size_t size)
-{
-    memcpy((uint8_t *)dst_va, (const uint8_t *)src_va, size);
-}
-
-static inline void d3d12_desc_copy_embedded_resource_multi(vkd3d_cpu_descriptor_va_t dst_va,
-        vkd3d_cpu_descriptor_va_t src_va, size_t size, unsigned int count)
+static inline void d3d12_desc_copy_embedded_resource_single_32(vkd3d_cpu_descriptor_va_t dst_va,
+        vkd3d_cpu_descriptor_va_t src_va)
 {
     struct d3d12_desc_split_embedded dst, src;
 
     dst = d3d12_desc_decode_embedded_resource_va(dst_va);
     src = d3d12_desc_decode_embedded_resource_va(src_va);
 
-    memcpy(dst.payload, src.payload, size * count);
-
     /* Copy metadata if we're doing CPU -> CPU descriptor copy.
-     * Copying from GPU descriptor heap is not allowed.
-     * Metadata structs are always padded out to the descriptor size. */
-    if (dst.metadata && src.metadata)
-        memcpy(dst.metadata, src.metadata, size * count);
-}
-
-static inline void d3d12_desc_copy_embedded_sampler_multi(vkd3d_cpu_descriptor_va_t dst_va,
-        vkd3d_cpu_descriptor_va_t src_va, size_t size, unsigned int count)
-{
-    memcpy((uint8_t *)dst_va, (const uint8_t *)src_va, size * count);
+     * Copying from GPU descriptor heap is not allowed. */
+    if (VKD3D_EXPECT_TRUE(dst.metadata == NULL))
+    {
+        /* If we don't have metadata it means we're writing to a descriptor buffer,
+         * prefer NT writes. */
+        vkd3d_memcpy_aligned_32_non_temporal(dst.payload, src.payload);
+    }
+    else
+    {
+        vkd3d_memcpy_aligned_32_cached(dst.payload, src.payload);
+        vkd3d_memcpy_aligned_32_cached(dst.metadata, src.metadata);
+    }
 }
 
 static inline struct d3d12_desc_split d3d12_desc_decode_va(vkd3d_cpu_descriptor_va_t va)
@@ -3429,7 +3422,7 @@ struct vkd3d_bindless_state
 
     /* NULL descriptor payloads are not necessarily all zero.
      * Access the array with vkd3d_bindless_state_get_null_descriptor_payload(). */
-    uint8_t null_descriptor_payloads[6][VKD3D_MAX_DESCRIPTOR_SIZE];
+    DECLSPEC_ALIGN(16) uint8_t null_descriptor_payloads[6][VKD3D_MAX_DESCRIPTOR_SIZE];
     size_t descriptor_buffer_cbv_srv_uav_size;
     size_t descriptor_buffer_sampler_size;
     unsigned int descriptor_buffer_cbv_srv_uav_size_log2;

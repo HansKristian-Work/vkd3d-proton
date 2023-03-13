@@ -14116,6 +14116,11 @@ static void d3d12_command_queue_add_submission_locked(struct d3d12_command_queue
 static void d3d12_command_queue_add_submission(struct d3d12_command_queue *queue,
         const struct d3d12_command_queue_submission *sub)
 {
+    /* Ensure that any non-temporal writes from CopyDescriptors are ordered properly
+     * with the submission thread that calls vkQueueSubmit. */
+    if (d3d12_device_use_embedded_mutable_descriptors(queue->device))
+        vkd3d_memcpy_non_temporal_barrier();
+
     pthread_mutex_lock(&queue->queue_lock);
     d3d12_command_queue_add_submission_locked(queue, sub);
     pthread_mutex_unlock(&queue->queue_lock);

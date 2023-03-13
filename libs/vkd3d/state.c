@@ -5691,6 +5691,10 @@ static bool vkd3d_bindless_supports_embedded_mutable_type(struct d3d12_device *d
             (device->device_info.descriptor_buffer_properties.samplerDescriptorSize - 1))
         return false;
 
+    /* Sampler descriptor has to be at least 16 byte, so we can use fast path for copies. */
+    if (device->device_info.descriptor_buffer_properties.samplerDescriptorSize < 16)
+        return false;
+
     /* If descriptor buffers must be bound at large alignment, we cannot do magic packing tricks. */
     if (device->device_info.descriptor_buffer_properties.descriptorBufferOffsetAlignment >
             device->device_info.descriptor_buffer_properties.robustStorageBufferDescriptorSize)
