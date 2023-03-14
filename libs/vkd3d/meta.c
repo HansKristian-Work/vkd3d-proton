@@ -1111,6 +1111,44 @@ bool vkd3d_meta_get_query_gather_pipeline(struct vkd3d_meta_ops *meta_ops,
     }
 }
 
+HRESULT vkd3d_multi_dispatch_indirect_ops_init(
+        struct vkd3d_multi_dispatch_indirect_ops *meta_multi_dispatch_indirect_ops,
+        struct d3d12_device *device)
+{
+    VkPushConstantRange push_constant_range;
+    VkResult vr;
+
+    memset(meta_multi_dispatch_indirect_ops, 0, sizeof(*meta_multi_dispatch_indirect_ops));
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    push_constant_range.offset = 0;
+    push_constant_range.size = sizeof(struct vkd3d_multi_dispatch_indirect_args);
+
+    if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL, 1,
+            &push_constant_range, &meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_layout)) < 0)
+        goto fail;
+
+    if ((vr = vkd3d_meta_create_compute_pipeline(device,
+            sizeof(cs_execute_indirect_multi_dispatch), cs_execute_indirect_multi_dispatch,
+            meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_layout, NULL, true,
+            &meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_pipeline)) < 0)
+        goto fail;
+
+    return S_OK;
+
+fail:
+    vkd3d_multi_dispatch_indirect_ops_cleanup(meta_multi_dispatch_indirect_ops, device);
+    return hresult_from_vk_result(vr);
+}
+
+void vkd3d_multi_dispatch_indirect_ops_cleanup(
+        struct vkd3d_multi_dispatch_indirect_ops *meta_multi_dispatch_indirect_ops,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VK_CALL(vkDestroyPipeline(device->vk_device, meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_pipeline, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_layout, NULL));
+}
+
 HRESULT vkd3d_predicate_ops_init(struct vkd3d_predicate_ops *meta_predicate_ops,
         struct d3d12_device *device)
 {
@@ -1202,6 +1240,13 @@ void vkd3d_meta_get_predicate_pipeline(struct vkd3d_meta_ops *meta_ops,
     info->vk_pipeline_layout = predicate_ops->vk_command_pipeline_layout;
     info->vk_pipeline = predicate_ops->vk_command_pipelines[command_type];
     info->data_size = predicate_ops->data_sizes[command_type];
+}
+
+void vkd3d_meta_get_multi_dispatch_indirect_pipeline(struct vkd3d_meta_ops *meta_ops,
+        struct vkd3d_multi_dispatch_indirect_info *info)
+{
+    info->vk_pipeline = meta_ops->multi_dispatch_indirect.vk_multi_dispatch_indirect_pipeline;
+    info->vk_pipeline_layout = meta_ops->multi_dispatch_indirect.vk_multi_dispatch_indirect_layout;
 }
 
 HRESULT vkd3d_execute_indirect_ops_init(struct vkd3d_execute_indirect_ops *meta_indirect_ops,
@@ -1370,8 +1415,13 @@ HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device
     if (FAILED(hr = vkd3d_execute_indirect_ops_init(&meta_ops->execute_indirect, device)))
         goto fail_execute_indirect_ops;
 
+    if (FAILED(hr = vkd3d_multi_dispatch_indirect_ops_init(&meta_ops->multi_dispatch_indirect, device)))
+        goto fail_multi_dispatch_indirect_ops;
+
     return S_OK;
 
+fail_multi_dispatch_indirect_ops:
+    vkd3d_execute_indirect_ops_cleanup(&meta_ops->execute_indirect, device);
 fail_execute_indirect_ops:
     vkd3d_predicate_ops_cleanup(&meta_ops->predicate, device);
 fail_predicate_ops:
@@ -1390,6 +1440,7 @@ fail_common:
 
 HRESULT vkd3d_meta_ops_cleanup(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device)
 {
+    vkd3d_multi_dispatch_indirect_ops_cleanup(&meta_ops->multi_dispatch_indirect, device);
     vkd3d_execute_indirect_ops_cleanup(&meta_ops->execute_indirect, device);
     vkd3d_predicate_ops_cleanup(&meta_ops->predicate, device);
     vkd3d_query_ops_cleanup(&meta_ops->query, device);

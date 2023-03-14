@@ -6174,6 +6174,68 @@ static void d3d12_command_list_check_index_buffer_strip_cut_value(struct d3d12_c
     }
 }
 
+static bool d3d12_command_list_emit_multi_dispatch_indirect_count(struct d3d12_command_list *list,
+        VkDeviceAddress indirect_args, uint32_t stride, uint32_t max_commands,
+        VkDeviceAddress count_arg,
+        struct vkd3d_scratch_allocation *scratch)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct vkd3d_multi_dispatch_indirect_info pipeline_info;
+    struct vkd3d_multi_dispatch_indirect_args args;
+    VkMemoryBarrier vk_barrier;
+
+    vkd3d_meta_get_multi_dispatch_indirect_pipeline(&list->device->meta_ops, &pipeline_info);
+
+    if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+            VKD3D_SCRATCH_POOL_KIND_DEVICE_STORAGE,
+            sizeof(VkDispatchIndirectCommand) * max_commands, sizeof(uint32_t), ~0u, scratch))
+        return false;
+
+    d3d12_command_list_end_current_render_pass(list, false);
+    d3d12_command_list_end_transfer_batch(list);
+
+    d3d12_command_list_invalidate_current_pipeline(list, true);
+    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
+
+    args.indirect_va = indirect_args;
+    args.count_va = count_arg;
+    args.output_va = scratch->va;
+    args.stride_words = stride / sizeof(uint32_t);
+    args.max_commands = max_commands;
+
+    /* TODO: We can hoist the command similar to execute indirect template resolve. */
+
+    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+            pipeline_info.vk_pipeline));
+    VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+            pipeline_info.vk_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+            0, sizeof(args), &args));
+
+    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    vk_barrier.pNext = NULL;
+    vk_barrier.srcAccessMask = 0;
+    vk_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            0, 1, &vk_barrier, 0, NULL, 0, NULL));
+
+    VK_CALL(vkCmdDispatch(list->vk_command_buffer,
+            vkd3d_compute_workgroup_count(max_commands, vkd3d_meta_get_multi_dispatch_indirect_workgroup_size()),
+            1, 1));
+
+    vk_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    vk_barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+            0, 1, &vk_barrier, 0, NULL, 0, NULL));
+
+    return true;
+}
+
 static bool d3d12_command_list_emit_predicated_command(struct d3d12_command_list *list,
         enum vkd3d_predicate_command_type command_type, VkDeviceAddress indirect_args,
         const union vkd3d_predicate_command_direct_args *direct_args, struct vkd3d_scratch_allocation *scratch)
@@ -11353,6 +11415,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const D3D12_COMMAND_SIGNATURE_DESC *signature_desc = &sig_impl->desc;
     struct vkd3d_scratch_allocation scratch;
+    uint32_t unrolled_stride;
     unsigned int i;
 
     TRACE("iface %p, command_signature %p, max_command_count %u, arg_buffer %p, "
@@ -11368,6 +11431,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
         FIXME("Count buffers not supported by Vulkan implementation.\n");
         return;
     }
+
+    unrolled_stride = signature_desc->ByteStride;
 
     VKD3D_BREADCRUMB_TAG("ExecuteIndirect [MaxCommandCount, ArgBuffer cookie, ArgBuffer offset, Count cookie, Count offset]");
     VKD3D_BREADCRUMB_AUX32(max_command_count);
@@ -11436,9 +11501,24 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
         }
         else if (count_buffer)
         {
-            scratch.buffer = count_impl->res.vk_buffer;
-            scratch.offset = count_impl->mem.offset + count_buffer_offset;
-            scratch.va = count_impl->res.va + count_buffer_offset;
+            /* Unroll to N normal indirect dispatches, use count buffer to mask dispatches to (0, 0, 0).
+             * Can use this path for indirect trace rays as well since as needed. */
+            if (arg_desc->Type == D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH)
+            {
+                if (!d3d12_command_list_emit_multi_dispatch_indirect_count(list,
+                        arg_impl->res.va + arg_buffer_offset,
+                        unrolled_stride, max_command_count,
+                        count_impl->res.va + count_buffer_offset, &scratch))
+                    return;
+
+                unrolled_stride = sizeof(VkDispatchIndirectCommand);
+            }
+            else
+            {
+                scratch.buffer = count_impl->res.vk_buffer;
+                scratch.offset = count_impl->mem.offset + count_buffer_offset;
+                scratch.va = count_impl->res.va + count_buffer_offset;
+            }
         }
         else
         {
@@ -11516,12 +11596,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
-                if (count_buffer)
-                {
-                    FIXME_ONCE("Count buffers not supported for indirect dispatch.\n");
-                    break;
-                }
-
                 if (!d3d12_command_list_update_compute_state(list))
                 {
                     WARN("Failed to update compute state, ignoring dispatch.\n");
@@ -11533,7 +11607,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                 for (i = 0; i < max_command_count; i++)
                 {
                     VK_CALL(vkCmdDispatchIndirect(list->vk_command_buffer, scratch.buffer, scratch.offset));
-                    scratch.offset += signature_desc->ByteStride;
+                    scratch.offset += unrolled_stride;
                 }
                 break;
 

@@ -3733,6 +3733,32 @@ HRESULT vkd3d_predicate_ops_init(struct vkd3d_predicate_ops *meta_predicate_ops,
 void vkd3d_predicate_ops_cleanup(struct vkd3d_predicate_ops *meta_predicate_ops,
         struct d3d12_device *device);
 
+struct vkd3d_multi_dispatch_indirect_info
+{
+    VkPipelineLayout vk_pipeline_layout;
+    VkPipeline vk_pipeline;
+};
+
+struct vkd3d_multi_dispatch_indirect_args
+{
+    VkDeviceAddress indirect_va;
+    VkDeviceAddress count_va;
+    VkDeviceAddress output_va;
+    uint32_t stride_words;
+    uint32_t max_commands;
+};
+
+struct vkd3d_multi_dispatch_indirect_ops
+{
+    VkPipelineLayout vk_multi_dispatch_indirect_layout;
+    VkPipeline vk_multi_dispatch_indirect_pipeline;
+};
+
+HRESULT vkd3d_multi_dispatch_indirect_ops_init(struct vkd3d_multi_dispatch_indirect_ops *meta_predicate_ops,
+        struct d3d12_device *device);
+void vkd3d_multi_dispatch_indirect_ops_cleanup(struct vkd3d_multi_dispatch_indirect_ops *meta_predicate_ops,
+        struct d3d12_device *device);
+
 struct vkd3d_execute_indirect_args
 {
     VkDeviceAddress template_va;
@@ -3784,6 +3810,7 @@ struct vkd3d_meta_ops
     struct vkd3d_query_ops query;
     struct vkd3d_predicate_ops predicate;
     struct vkd3d_execute_indirect_ops execute_indirect;
+    struct vkd3d_multi_dispatch_indirect_ops multi_dispatch_indirect;
 };
 
 HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device);
@@ -3815,6 +3842,14 @@ bool vkd3d_meta_get_query_gather_pipeline(struct vkd3d_meta_ops *meta_ops,
 
 void vkd3d_meta_get_predicate_pipeline(struct vkd3d_meta_ops *meta_ops,
         enum vkd3d_predicate_command_type command_type, struct vkd3d_predicate_command_info *info);
+
+void vkd3d_meta_get_multi_dispatch_indirect_pipeline(struct vkd3d_meta_ops *meta_ops,
+        struct vkd3d_multi_dispatch_indirect_info *info);
+
+static inline uint32_t vkd3d_meta_get_multi_dispatch_indirect_workgroup_size(void)
+{
+    return 32;
+}
 
 HRESULT vkd3d_meta_get_execute_indirect_pipeline(struct vkd3d_meta_ops *meta_ops,
         uint32_t patch_command_count, struct vkd3d_execute_indirect_info *info);
