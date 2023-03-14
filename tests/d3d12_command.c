@@ -1903,7 +1903,7 @@ void test_execute_indirect_multi_dispatch(void)
                     indirect_data[4 + 3 * i + 2];
         }
         value = get_readback_uint(&rb, test_index, 0, 0);
-        todo ok(value == expected, "Iteration %u: Expected %u, got %u.\n", test_index, expected, value);
+        ok(value == expected, "Iteration %u: Expected %u, got %u.\n", test_index, expected, value);
     }
 
     release_resource_readback(&rb);
