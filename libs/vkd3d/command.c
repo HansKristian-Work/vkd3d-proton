@@ -11516,9 +11516,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
-                if (max_command_count != 1)
-                    FIXME("Ignoring command count %u.\n", max_command_count);
-
                 if (count_buffer)
                 {
                     FIXME_ONCE("Count buffers not supported for indirect dispatch.\n");
@@ -11531,7 +11528,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                     break;
                 }
 
-                VK_CALL(vkCmdDispatchIndirect(list->vk_command_buffer, scratch.buffer, scratch.offset));
+                /* Without state changes, we can always just unroll the dispatches.
+                 * Not the most useful feature ever, but it has to work. */
+                for (i = 0; i < max_command_count; i++)
+                {
+                    VK_CALL(vkCmdDispatchIndirect(list->vk_command_buffer, scratch.buffer, scratch.offset));
+                    scratch.offset += signature_desc->ByteStride;
+                }
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS:
