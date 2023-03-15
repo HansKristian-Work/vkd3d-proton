@@ -1600,7 +1600,7 @@ void test_execute_indirect_multi_dispatch_root_descriptors(void)
     {
         uint32_t value;
         value = get_readback_uint(&rb, i, 0, 0);
-        todo ok(value == expected_counts[i], "Value %u: Expected %u, got %u.\n", i, expected_counts[i], value);
+        todo_if(!signature) ok(value == expected_counts[i], "Value %u: Expected %u, got %u.\n", i, expected_counts[i], value);
     }
 
     release_resource_readback(&rb);
@@ -1765,7 +1765,7 @@ void test_execute_indirect_multi_dispatch_root_constants(void)
         }
         expected += 7; /* For the single 1, 1, 1 dispatch. */
         value = get_readback_uint(&rb, test_index, 0, 0);
-        todo ok(value == expected, "Iteration %u: Expected %u, got %u.\n", test_index, expected, value);
+        todo_if(!signature) ok(value == expected, "Iteration %u: Expected %u, got %u.\n", test_index, expected, value);
     }
 
     release_resource_readback(&rb);
