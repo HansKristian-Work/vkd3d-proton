@@ -30,6 +30,7 @@ vkd3d_shaders =[
   'shaders/cs_execute_indirect_patch.comp',
   'shaders/cs_execute_indirect_patch_debug_ring.comp',
   'shaders/cs_execute_indirect_multi_dispatch.comp',
+  'shaders/cs_execute_indirect_multi_dispatch_state.comp',
 ]
 
 vkd3d_src = [
