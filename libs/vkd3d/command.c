@@ -14842,12 +14842,6 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
     static const VkIndexType vk_index_types[] = { VK_INDEX_TYPE_UINT32, VK_INDEX_TYPE_UINT16 };
     static const uint32_t d3d_index_types[] = { DXGI_FORMAT_R32_UINT, DXGI_FORMAT_R16_UINT };
 
-    if (!device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
-    {
-        WARN("Device generated commands not supported, indirect state commands will be ignored.\n");
-        return S_OK;
-    }
-
     for (i = 0; i < desc->NumArgumentDescs; i++)
     {
         const D3D12_INDIRECT_ARGUMENT_DESC *argument_desc = &desc->pArgumentDescs[i];
