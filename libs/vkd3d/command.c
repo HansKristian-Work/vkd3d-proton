@@ -5737,6 +5737,11 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
                 VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD, sizeof(root_parameter_data),
                 D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, ~0u, &alloc);
         ptr_root_parameter_data = alloc.host_ptr;
+
+        /* Dirty all state that enters push UBO block to make sure it's emitted.
+         * Push descriptors that are not raw VA can be emitted on a partial basis.
+         * Root constants and tables are always considered dirty here, so omit that. */
+        bindings->root_descriptor_dirty_mask |= root_signature->root_descriptor_raw_va_mask;
     }
     else
         ptr_root_parameter_data = &root_parameter_data;
