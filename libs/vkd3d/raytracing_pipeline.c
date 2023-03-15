@@ -1717,7 +1717,7 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
 
     if (global_signature)
     {
-        shader_interface_info.flags = d3d12_root_signature_get_shader_interface_flags(global_signature);
+        shader_interface_info.flags = d3d12_root_signature_get_shader_interface_flags(global_signature, VKD3D_PIPELINE_TYPE_RAY_TRACING);
         shader_interface_info.descriptor_tables.offset = global_signature->descriptor_table_offset;
         shader_interface_info.descriptor_tables.count = global_signature->descriptor_table_count;
         shader_interface_info.bindings = global_signature->bindings;
@@ -1751,7 +1751,7 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     local_static_sampler_bindings = NULL;
     local_static_sampler_bindings_count = 0;
     local_static_sampler_bindings_size = 0;
-    object->local_static_sampler.set_index = global_signature ? global_signature->num_set_layouts : 0;
+    object->local_static_sampler.set_index = global_signature ? global_signature->raygen.num_set_layouts : 0;
 
     if (object->device->debug_ring.active)
         data->spec_info_buffer = vkd3d_calloc(data->entry_points_count, sizeof(*data->spec_info_buffer));
@@ -1799,8 +1799,8 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
             }
 
             /* Promote state which might only be active in local root signature. */
-            shader_interface_info.flags |= d3d12_root_signature_get_shader_interface_flags(local_signature);
-            if (local_signature->flags & (VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER | VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER))
+            shader_interface_info.flags |= d3d12_root_signature_get_shader_interface_flags(local_signature, VKD3D_PIPELINE_TYPE_RAY_TRACING);
+            if (local_signature->raygen.flags & (VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER | VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER))
                 shader_interface_info.offset_buffer_binding = &local_signature->offset_buffer_binding;
         }
         else
