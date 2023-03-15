@@ -2594,6 +2594,7 @@ struct d3d12_command_list
     {
         bool has_observed_transition_to_indirect;
         bool has_emitted_indirect_to_compute_barrier;
+        bool has_emitted_indirect_to_compute_cbv_barrier;
     } execute_indirect;
 
     VkCommandBuffer vk_command_buffer;
