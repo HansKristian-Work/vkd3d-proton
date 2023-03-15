@@ -5713,7 +5713,7 @@ static void d3d12_command_list_fetch_root_parameter_uniform_block_data(struct d3
 
 static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list *list,
         struct vkd3d_pipeline_bindings *bindings, VkPipelineBindPoint vk_bind_point,
-        VkPipelineLayout layout, VkShaderStageFlags push_stages)
+        VkPipelineLayout layout, VkShaderStageFlags push_stages, uint32_t root_signature_flags)
 {
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -5728,7 +5728,7 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
     unsigned int va_count = 0;
     uint64_t dirty_push_mask;
 
-    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
+    if (root_signature_flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
     {
         d3d12_command_allocator_allocate_scratch_memory(list->allocator,
                 VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD, sizeof(root_parameter_data),
@@ -5765,7 +5765,7 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
         bindings->root_descriptor_dirty_mask = 0;
     }
 
-    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
+    if (root_signature_flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
     {
         d3d12_command_list_fetch_root_parameter_uniform_block_data(list, bindings, ptr_root_parameter_data);
         vk_write_descriptor_set_from_scratch_push_ubo(&descriptor_writes[descriptor_write_count],
@@ -5879,17 +5879,23 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
     if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_HOISTED_DESCRIPTORS)
         d3d12_command_list_update_hoisted_descriptors(list, bindings);
 
-    if (rs->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
+    if (bind_point_layout->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
     {
         /* Root constants and descriptor table offsets are part of the root descriptor set */
         if (bindings->root_descriptor_dirty_mask || bindings->root_constant_dirty_mask
                 || (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS))
-            d3d12_command_list_update_root_descriptors(list, bindings, vk_bind_point, layout, push_stages);
+        {
+            d3d12_command_list_update_root_descriptors(list, bindings, vk_bind_point, layout, push_stages,
+                    bind_point_layout->flags);
+        }
     }
     else
     {
         if (bindings->root_descriptor_dirty_mask)
-            d3d12_command_list_update_root_descriptors(list, bindings, vk_bind_point, layout, push_stages);
+        {
+            d3d12_command_list_update_root_descriptors(list, bindings, vk_bind_point, layout, push_stages,
+                    bind_point_layout->flags);
+        }
 
         if (bindings->root_constant_dirty_mask)
             d3d12_command_list_update_root_constants(list, bindings, layout, push_stages);
