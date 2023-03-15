@@ -2977,14 +2977,22 @@ struct d3d12_command_signature
     uint32_t argument_buffer_offset;
 
     /* Complex command signatures require some work to stamp out device generated commands. */
-    struct
+    union
     {
-        VkBuffer buffer;
-        VkDeviceAddress buffer_va;
-        struct vkd3d_device_memory_allocation memory;
-        VkIndirectCommandsLayoutNV layout;
-        uint32_t stride;
-        struct vkd3d_execute_indirect_info pipeline;
+        struct
+        {
+            VkBuffer buffer;
+            VkDeviceAddress buffer_va;
+            struct vkd3d_device_memory_allocation memory;
+            VkIndirectCommandsLayoutNV layout;
+            uint32_t stride;
+            struct vkd3d_execute_indirect_info pipeline;
+        } graphics;
+        struct
+        {
+            int32_t source_offsets[D3D12_MAX_ROOT_COST];
+            uint32_t dispatch_offset_words;
+        } compute;
     } state_template;
     bool requires_state_template;
     enum vkd3d_pipeline_type pipeline_type;
