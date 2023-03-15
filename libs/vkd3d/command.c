@@ -14774,7 +14774,15 @@ static HRESULT d3d12_command_signature_allocate_preprocess_memory_for_list(
     return S_OK;
 }
 
-static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_signature *signature,
+static HRESULT d3d12_command_signature_init_state_template_compute(struct d3d12_command_signature *signature,
+        const D3D12_COMMAND_SIGNATURE_DESC *desc,
+        struct d3d12_root_signature *root_signature,
+        struct d3d12_device *device)
+{
+    return E_NOTIMPL;
+}
+
+static HRESULT d3d12_command_signature_init_state_template_graphics(struct d3d12_command_signature *signature,
         const D3D12_COMMAND_SIGNATURE_DESC *desc,
         struct d3d12_root_signature *root_signature,
         struct d3d12_device *device)
@@ -15190,15 +15198,38 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
 
     if ((object->requires_state_template = requires_state_template))
     {
-        if (!device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
+        if ((pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS || pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS) &&
+                !device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
         {
             FIXME("VK_NV_device_generated_commands is not supported by implementation.\n");
             hr = E_NOTIMPL;
             goto err;
         }
-
-        if (FAILED(hr = d3d12_command_signature_init_state_template(object, desc, root_signature, device)))
+        else if (pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE &&
+                !(device->bindless_state.flags & VKD3D_FORCE_COMPUTE_ROOT_PARAMETERS_PUSH_UBO))
+        {
+            FIXME("State template is required for compute, but VKD3D_CONFIG_FLAG_FORCE_COMPUTE_ROOT_PARAMETERS_PUSH_UBO is not enabled.\n");
+            hr = E_NOTIMPL;
             goto err;
+        }
+        else if (pipeline_type == VKD3D_PIPELINE_TYPE_RAY_TRACING)
+        {
+            /* Very similar idea as indirect compute would be. */
+            FIXME("State template is required for indirect ray tracing, but it is unimplemented.\n");
+            hr = E_NOTIMPL;
+            goto err;
+        }
+
+        if (pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS || pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS)
+        {
+            if (FAILED(hr = d3d12_command_signature_init_state_template_graphics(object, desc, root_signature, device)))
+                goto err;
+        }
+        else if (pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
+        {
+            if (FAILED(hr = d3d12_command_signature_init_state_template_compute(object, desc, root_signature, device)))
+                goto err;
+        }
     }
     else
         object->argument_buffer_offset = argument_buffer_offset;
