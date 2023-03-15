@@ -1573,6 +1573,16 @@ void test_execute_indirect_multi_dispatch_root_descriptors(void)
                     indirect, offsetof(struct test_data, dispatches[test_index]),
                     indirect, offsetof(struct test_data, dispatch_counts[iteration]));
         }
+
+        if (test_index == 6)
+        {
+            /* Test case with late indirect update. Just make sure we can exercise both
+             * code paths. */
+            transition_resource_state(context.list, indirect, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT,
+                    D3D12_RESOURCE_STATE_COPY_SOURCE);
+            transition_resource_state(context.list, indirect, D3D12_RESOURCE_STATE_COPY_SOURCE,
+                    D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
+        }
     }
 
     transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -1740,6 +1750,16 @@ void test_execute_indirect_multi_dispatch_root_constants(void)
 
         /* Also test behavior for cleared root constant state. cbv.z should be cleared to 0 here. */
         ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+
+        if (test_index == 6)
+        {
+            /* Test case with late indirect update. Just make sure we can exercise both
+             * code paths. */
+            transition_resource_state(context.list, indirect, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT,
+                    D3D12_RESOURCE_STATE_COPY_SOURCE);
+            transition_resource_state(context.list, indirect, D3D12_RESOURCE_STATE_COPY_SOURCE,
+                    D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
+        }
     }
 
     transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -1884,6 +1904,16 @@ void test_execute_indirect_multi_dispatch(void)
             ID3D12GraphicsCommandList_ExecuteIndirect(context.list, signature, max_indirect_count,
                     indirect, 16 + 12 * test_index,
                     indirect, 4 * iteration);
+        }
+
+        if (test_index == 6)
+        {
+            /* Test case with late indirect update. Just make sure we can exercise both
+             * code paths. */
+            transition_resource_state(context.list, indirect, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT,
+                    D3D12_RESOURCE_STATE_COPY_SOURCE);
+            transition_resource_state(context.list, indirect, D3D12_RESOURCE_STATE_COPY_SOURCE,
+                    D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
         }
     }
 
