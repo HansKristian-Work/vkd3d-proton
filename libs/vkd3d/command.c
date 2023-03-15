@@ -14855,6 +14855,14 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
             case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT:
                 root_parameter_index = argument_desc->Constant.RootParameterIndex;
                 root_constant = root_signature_get_32bit_constants(root_signature, root_parameter_index);
+
+                if (root_signature->graphics.flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
+                {
+                    ERR("Root signature uses push UBO for root parameters, but this feature requires push constant path.\n");
+                    hr = E_NOTIMPL;
+                    goto end;
+                }
+
                 token.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_CONSTANT_NV;
                 token.pushconstantPipelineLayout = root_signature->graphics.vk_pipeline_layout;
                 token.pushconstantShaderStageFlags = root_signature->graphics.vk_push_stages;
@@ -14878,6 +14886,14 @@ static HRESULT d3d12_command_signature_init_state_template(struct d3d12_command_
             case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT_BUFFER_VIEW:
                 root_parameter_index = argument_desc->ShaderResourceView.RootParameterIndex;
                 root_parameter = root_signature_get_parameter(root_signature, root_parameter_index);
+
+                if (root_signature->graphics.flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
+                {
+                    ERR("Root signature uses push UBO for root parameters, but this feature requires push constant path.\n");
+                    hr = E_NOTIMPL;
+                    goto end;
+                }
+
                 if (!(root_signature->root_descriptor_raw_va_mask & (1ull << root_parameter_index)))
                 {
                     ERR("Root parameter %u is not a raw VA. Cannot implement command signature which updates root descriptor.\n",
