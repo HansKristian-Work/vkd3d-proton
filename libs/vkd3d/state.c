@@ -877,6 +877,15 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
     return S_OK;
 }
 
+static void d3d12_root_signature_add_common_flags(struct d3d12_root_signature *root_signature,
+        uint32_t common_flags)
+{
+    root_signature->graphics.flags |= common_flags;
+    root_signature->mesh.flags |= common_flags;
+    root_signature->compute.flags |= common_flags;
+    root_signature->raygen.flags |= common_flags;
+}
+
 static void d3d12_root_signature_init_extra_bindings(struct d3d12_root_signature *root_signature,
         const struct d3d12_root_signature_info *info)
 {
@@ -887,9 +896,9 @@ static void d3d12_root_signature_init_extra_bindings(struct d3d12_root_signature
     if (info->has_ssbo_offset_buffer || info->has_typed_offset_buffer)
     {
         if (info->has_ssbo_offset_buffer)
-            root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER;
+            d3d12_root_signature_add_common_flags(root_signature, VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER);
         if (info->has_typed_offset_buffer)
-            root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER;
+            d3d12_root_signature_add_common_flags(root_signature, VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER);
 
         vkd3d_bindless_state_find_binding(&root_signature->device->bindless_state,
                 VKD3D_BINDLESS_SET_EXTRA_OFFSET_BUFFER,
@@ -964,8 +973,14 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
     const D3D12_DESCRIPTOR_RANGE1 *range;
     unsigned int i, j, k;
     HRESULT hr = S_OK;
+    uint32_t or_flags;
 
-    if (info->push_descriptor_count || (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK))
+    or_flags = root_signature->graphics.flags |
+            root_signature->compute.flags |
+            root_signature->raygen.flags |
+            root_signature->mesh.flags;
+
+    if (info->push_descriptor_count || (or_flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK))
     {
         if (!(vk_binding_info = vkd3d_malloc(sizeof(*vk_binding_info) * (info->push_descriptor_count + 1))))
             return E_OUTOFMEMORY;
@@ -1086,7 +1101,7 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
             context->vk_binding += 1;
     }
 
-    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
+    if (or_flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
     {
         vk_binding = &vk_binding_info[j++];
         vk_binding->binding = context->vk_binding;
@@ -1280,6 +1295,18 @@ fail:
     return hr;
 }
 
+static void d3d12_root_signature_update_bind_point_layout(struct d3d12_bind_point_layout *layout,
+        const VkPushConstantRange *push_range, const struct vkd3d_descriptor_set_context *context,
+        const struct d3d12_root_signature_info *info)
+{
+    /* Select push UBO style or push constants on a per-pipeline type basis. */
+    if ((layout->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK) || info->push_descriptor_count)
+        layout->num_set_layouts = context->vk_set;
+
+    if (!(layout->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK))
+        layout->push_constant_range = *push_range;
+}
+
 static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *root_signature,
         struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC1 *desc)
 {
@@ -1287,6 +1314,7 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
     const struct vkd3d_bindless_state *bindless_state = &device->bindless_state;
     struct vkd3d_descriptor_set_context context;
     VkShaderStageFlagBits mesh_shader_stages;
+    VkPushConstantRange push_constant_range;
     struct d3d12_root_signature_info info;
     unsigned int i;
     HRESULT hr;
@@ -1353,17 +1381,23 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
     }
 
     if (FAILED(hr = d3d12_root_signature_init_push_constants(root_signature, desc, &info,
-            &root_signature->push_constant_range)))
+            &push_constant_range)))
         return hr;
 
-    /* If we cannot contain the push constants, fall back to push UBO. */
-    if (root_signature->push_constant_range.size > vk_device_properties->limits.maxPushConstantsSize)
-        root_signature->flags |= VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK;
+    /* If we cannot contain the push constants, fall back to push UBO everywhere. */
+    if (push_constant_range.size > vk_device_properties->limits.maxPushConstantsSize)
+        d3d12_root_signature_add_common_flags(root_signature, VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK);
 
     d3d12_root_signature_init_extra_bindings(root_signature, &info);
 
+    /* Individual pipeline types may opt-in or out-of using the push UBO descriptor set. */
+    root_signature->graphics.num_set_layouts = context.vk_set;
+    root_signature->mesh.num_set_layouts = context.vk_set;
+    root_signature->compute.num_set_layouts = context.vk_set;
+    root_signature->raygen.num_set_layouts = context.vk_set;
+
     if (FAILED(hr = d3d12_root_signature_init_root_descriptors(root_signature, desc,
-                &info, &root_signature->push_constant_range, &context,
+                &info, &push_constant_range, &context,
                 &root_signature->vk_root_descriptor_layout)))
         return hr;
 
@@ -1380,11 +1414,15 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
     if (FAILED(hr = d3d12_root_signature_init_root_descriptor_tables(root_signature, desc, &info, &context)))
         return hr;
 
-    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
-    {
-        root_signature->push_constant_range.stageFlags = 0;
-        root_signature->push_constant_range.size = 0;
-    }
+    /* Select push UBO style or push constants on a per-pipeline type basis. */
+    d3d12_root_signature_update_bind_point_layout(&root_signature->graphics,
+            &push_constant_range, &context, &info);
+    d3d12_root_signature_update_bind_point_layout(&root_signature->mesh,
+            &push_constant_range, &context, &info);
+    d3d12_root_signature_update_bind_point_layout(&root_signature->compute,
+            &push_constant_range, &context, &info);
+    d3d12_root_signature_update_bind_point_layout(&root_signature->raygen,
+            &push_constant_range, &context, &info);
 
     /* If we need to use restricted entry_points in vkCmdPushConstants,
      * we are unfortunately required to do it like this
@@ -1396,11 +1434,9 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
      * For graphics we can generally rely on visibility mask, but not so for compute and raygen,
      * since they use ALL visibility. */
 
-    root_signature->num_set_layouts = context.vk_set;
-
     if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
-            device, root_signature->num_set_layouts, root_signature->set_layouts,
-            &root_signature->push_constant_range,
+            device, root_signature->graphics.num_set_layouts, root_signature->set_layouts,
+            &root_signature->graphics.push_constant_range,
             VK_SHADER_STAGE_ALL_GRAPHICS, &root_signature->graphics)))
         return hr;
 
@@ -1411,23 +1447,23 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
                 VK_SHADER_STAGE_FRAGMENT_BIT;
 
         if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
-                device, root_signature->num_set_layouts, root_signature->set_layouts,
-                &root_signature->push_constant_range,
+                device, root_signature->mesh.num_set_layouts, root_signature->set_layouts,
+                &root_signature->mesh.push_constant_range,
                 mesh_shader_stages, &root_signature->mesh)))
             return hr;
     }
 
     if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
-            device, root_signature->num_set_layouts, root_signature->set_layouts,
-            &root_signature->push_constant_range,
+            device, root_signature->compute.num_set_layouts, root_signature->set_layouts,
+            &root_signature->compute.push_constant_range,
             VK_SHADER_STAGE_COMPUTE_BIT, &root_signature->compute)))
         return hr;
 
     if (d3d12_device_supports_ray_tracing_tier_1_0(device))
     {
         if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
-                device, root_signature->num_set_layouts, root_signature->set_layouts,
-                &root_signature->push_constant_range,
+                device, root_signature->raygen.num_set_layouts, root_signature->set_layouts,
+                &root_signature->raygen.push_constant_range,
                 VK_SHADER_STAGE_RAYGEN_BIT_KHR |
                 VK_SHADER_STAGE_MISS_BIT_KHR |
                 VK_SHADER_STAGE_INTERSECTION_BIT_KHR |
@@ -1454,12 +1490,12 @@ HRESULT d3d12_root_signature_create_local_static_samplers_layout(struct d3d12_ro
     if (!d3d12_device_supports_ray_tracing_tier_1_0(root_signature->device))
         return E_INVALIDARG;
 
-    memcpy(set_layouts, root_signature->set_layouts, root_signature->num_set_layouts * sizeof(VkDescriptorSetLayout));
-    set_layouts[root_signature->num_set_layouts] = vk_set_layout;
+    memcpy(set_layouts, root_signature->set_layouts, root_signature->raygen.num_set_layouts * sizeof(VkDescriptorSetLayout));
+    set_layouts[root_signature->raygen.num_set_layouts] = vk_set_layout;
 
     if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
-            root_signature->device, root_signature->num_set_layouts + 1, set_layouts,
-            &root_signature->push_constant_range,
+            root_signature->device, root_signature->raygen.num_set_layouts + 1, set_layouts,
+            &root_signature->raygen.push_constant_range,
             VK_SHADER_STAGE_RAYGEN_BIT_KHR |
             VK_SHADER_STAGE_MISS_BIT_KHR |
             VK_SHADER_STAGE_INTERSECTION_BIT_KHR |
@@ -1606,16 +1642,20 @@ HRESULT d3d12_root_signature_create_raw(struct d3d12_device *device,
     return d3d12_root_signature_create_from_blob(device, payload, payload_length, true, root_signature);
 }
 
-unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_root_signature *root_signature)
+unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_root_signature *root_signature,
+        enum vkd3d_pipeline_type pipeline_type)
 {
+    const struct d3d12_bind_point_layout *layout;
     unsigned int flags = 0;
 
-    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
+    layout = d3d12_root_signature_get_layout(root_signature, pipeline_type);
+
+    if (layout->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
         flags |= VKD3D_SHADER_INTERFACE_PUSH_CONSTANTS_AS_UNIFORM_BUFFER;
 
-    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER)
+    if (layout->flags & VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER)
         flags |= VKD3D_SHADER_INTERFACE_SSBO_OFFSET_BUFFER;
-    if (root_signature->flags & VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER)
+    if (layout->flags & VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER)
         flags |= VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER;
 
     if (root_signature->device->bindless_state.flags & VKD3D_BINDLESS_CBV_AS_SSBO)
@@ -2281,7 +2321,7 @@ static void d3d12_pipeline_state_init_shader_interface(struct d3d12_pipeline_sta
 {
     const struct d3d12_root_signature *root_signature = state->root_signature;
     memset(shader_interface, 0, sizeof(*shader_interface));
-    shader_interface->flags = d3d12_root_signature_get_shader_interface_flags(root_signature);
+    shader_interface->flags = d3d12_root_signature_get_shader_interface_flags(root_signature, state->pipeline_type);
     shader_interface->min_ssbo_alignment = d3d12_device_get_ssbo_alignment(device);
     shader_interface->descriptor_tables.offset = root_signature->descriptor_table_offset;
     shader_interface->descriptor_tables.count = root_signature->descriptor_table_count;

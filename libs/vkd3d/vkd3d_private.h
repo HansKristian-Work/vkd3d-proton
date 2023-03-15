@@ -1598,6 +1598,9 @@ struct d3d12_bind_point_layout
 {
     VkPipelineLayout vk_pipeline_layout;
     VkShaderStageFlags vk_push_stages;
+    unsigned int flags; /* vkd3d_root_signature_flag */
+    uint32_t num_set_layouts;
+    VkPushConstantRange push_constant_range;
 };
 
 #define VKD3D_MAX_HOISTED_DESCRIPTORS 16
@@ -1641,7 +1644,6 @@ struct d3d12_root_signature
     uint64_t root_descriptor_push_mask;
 
     D3D12_ROOT_SIGNATURE_FLAGS d3d12_flags;
-    unsigned int flags; /* vkd3d_root_signature_flag */
 
     unsigned int binding_count;
     struct vkd3d_shader_resource_binding *bindings;
@@ -1649,8 +1651,6 @@ struct d3d12_root_signature
     unsigned int root_constant_count;
     struct vkd3d_shader_push_constant_buffer *root_constants;
 
-    /* Use one global push constant range */
-    VkPushConstantRange push_constant_range;
     struct vkd3d_shader_descriptor_binding push_constant_ubo_binding;
     struct vkd3d_shader_descriptor_binding raw_va_aux_buffer_binding;
     struct vkd3d_shader_descriptor_binding offset_buffer_binding;
@@ -1660,7 +1660,6 @@ struct d3d12_root_signature
 #endif
 
     VkDescriptorSetLayout set_layouts[VKD3D_MAX_DESCRIPTOR_SETS];
-    uint32_t num_set_layouts;
 
     uint32_t descriptor_table_offset;
     uint32_t descriptor_table_count;
@@ -1695,7 +1694,8 @@ static inline struct d3d12_root_signature *impl_from_ID3D12RootSignature(ID3D12R
     return CONTAINING_RECORD(iface, struct d3d12_root_signature, ID3D12RootSignature_iface);
 }
 
-unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_root_signature *root_signature);
+unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_root_signature *root_signature,
+        enum vkd3d_pipeline_type pipeline_type);
 HRESULT d3d12_root_signature_create_local_static_samplers_layout(struct d3d12_root_signature *root_signature,
         VkDescriptorSetLayout vk_set_layout, VkPipelineLayout *vk_pipeline_layout);
 HRESULT vkd3d_create_pipeline_layout(struct d3d12_device *device,
