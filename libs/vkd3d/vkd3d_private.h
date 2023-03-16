@@ -164,6 +164,9 @@ struct vkd3d_vulkan_info
     bool VALVE_mutable_descriptor_type;
     bool VALVE_descriptor_set_host_mapping;
 
+    unsigned int extension_count;
+    const char* const* extension_names;
+
     bool rasterization_stream;
     bool transform_feedback_queries;
 

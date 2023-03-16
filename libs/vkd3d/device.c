@@ -914,16 +914,17 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     }
 
     vr = vk_global_procs->vkCreateInstance(&instance_info, NULL, &vk_instance);
-    vkd3d_free((void *)extensions);
     if (vr < 0)
     {
         ERR("Failed to create Vulkan instance, vr %d.\n", vr);
+        vkd3d_free((void *)extensions);
         return hresult_from_vk_result(vr);
     }
 
     if (FAILED(hr = vkd3d_load_vk_instance_procs(&instance->vk_procs, vk_global_procs, vk_instance)))
     {
         ERR("Failed to load instance procs, hr %#x.\n", hr);
+        vkd3d_free((void *)extensions);
         if (instance->vk_procs.vkDestroyInstance)
             instance->vk_procs.vkDestroyInstance(vk_instance, NULL);
         return hr;
@@ -931,6 +932,9 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
 
     instance->vk_instance = vk_instance;
     instance->instance_version = loader_version;
+
+    instance->vk_info.extension_count = instance_info.enabledExtensionCount;
+    instance->vk_info.extension_names = extensions;
 
     TRACE("Created Vulkan instance %p, version %u.%u.\n", vk_instance,
             VK_VERSION_MAJOR(loader_version),
@@ -1012,6 +1016,7 @@ static void vkd3d_destroy_instance(struct vkd3d_instance *instance)
     if (instance->vk_debug_callback)
         VK_CALL(vkDestroyDebugUtilsMessengerEXT(vk_instance, instance->vk_debug_callback, NULL));
 
+    vkd3d_free((void *)instance->vk_info.extension_names);
     VK_CALL(vkDestroyInstance(vk_instance, NULL));
 
     vkd3d_free(instance);
@@ -2466,10 +2471,11 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
         WARN("Disabled extensions that can cause Vulkan device creation to fail, retrying.\n");
         vr = VK_CALL(vkCreateDevice(physical_device, &device_info, NULL, &vk_device));
     }
-    vkd3d_free((void *)extensions);
+
     if (vr < 0)
     {
         ERR("Failed to create Vulkan device, vr %d.\n", vr);
+        vkd3d_free((void *)extensions);
         return hresult_from_vk_result(vr);
     }
 
@@ -2489,6 +2495,9 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
         device->vk_procs.vkDestroyDevice(vk_device, NULL);
         return hr;
     }
+
+    device->vk_info.extension_count = device_info.enabledExtensionCount;
+    device->vk_info.extension_names = extensions;
 
     TRACE("Created Vulkan device %p.\n", vk_device);
 
@@ -2950,6 +2959,7 @@ static void d3d12_device_destroy(struct d3d12_device *device)
         vkd3d_renderdoc_end_capture(device->vkd3d_instance->vk_instance);
 #endif
 
+    vkd3d_free((void *)device->vk_info.extension_names);
     VK_CALL(vkDestroyDevice(device->vk_device, NULL));
     rwlock_destroy(&device->fragment_output_lock);
     rwlock_destroy(&device->vertex_input_lock);
@@ -6919,6 +6929,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     vkd3d_instance_incref(device->vkd3d_instance = instance);
     device->vk_info = instance->vk_info;
+    device->vk_info.extension_count = 0;
+    device->vk_info.extension_names = NULL;
 
     device->adapter_luid = create_info->adapter_luid;
     device->removed_reason = S_OK;
