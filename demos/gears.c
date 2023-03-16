@@ -175,9 +175,10 @@ static void cxg_populate_command_list(struct cx_gears *cxg, unsigned int rt_idx)
     barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
     ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &barrier);
 
-    rtv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cxg->rtv_heap);
+    cxg->rtv_heap->lpVtbl->GetCPUDescriptorHandleForHeapStart(cxg->rtv_heap, &rtv_handle);
+
     rtv_handle.ptr += rt_idx * cxg->rtv_descriptor_size;
-    dsv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cxg->dsv_heap);
+    cxg->dsv_heap->lpVtbl->GetCPUDescriptorHandleForHeapStart(cxg->dsv_heap, &dsv_handle);
     ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &rtv_handle, FALSE, &dsv_handle);
 
     ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, rtv_handle, clear_colour, 0, NULL);
@@ -377,7 +378,7 @@ static void cxg_load_pipeline(struct cx_gears *cxg)
 
     cxg->rtv_descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(cxg->device,
             D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-    rtv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cxg->rtv_heap);
+    cxg->rtv_heap->lpVtbl->GetCPUDescriptorHandleForHeapStart(cxg->rtv_heap, &rtv_handle);
     for (i = 0; i < ARRAY_SIZE(cxg->render_targets); ++i)
     {
         cxg->render_targets[i] = demo_swapchain_get_back_buffer(cxg->swapchain, i);
@@ -764,7 +765,7 @@ static void cxg_load_assets(struct cx_gears *cxg)
             D3D12_RESOURCE_STATE_DEPTH_WRITE, &clear_value, &IID_ID3D12Resource, (void **)&cxg->ds);
     assert(SUCCEEDED(hr));
 
-    dsv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cxg->dsv_heap);
+    cxg->dsv_heap->lpVtbl->GetCPUDescriptorHandleForHeapStart(cxg->dsv_heap, &dsv_handle);
     ID3D12Device_CreateDepthStencilView(cxg->device, cxg->ds, NULL, dsv_handle);
 
     heap_desc.Type = D3D12_HEAP_TYPE_UPLOAD;

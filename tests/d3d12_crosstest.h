@@ -29,12 +29,15 @@
 #endif
 
 #define COBJMACROS
+
 #include "vkd3d_test.h"
 #include "vkd3d_windows.h"
-#define WIDL_C_INLINE_WRAPPERS
 #include "vkd3d_d3d12.h"
 #include "vkd3d_device_vkd3d_ext.h"
 #include "vkd3d_d3d12sdklayers.h"
+
+/* Wrappers that work around broken WIDL headers for aggregate returns. */
+#include "d3d12_com_wrappers.h"
 
 #include <inttypes.h>
 #include <limits.h>

@@ -112,7 +112,8 @@ static void cxt_populate_command_list(struct cx_triangle *cxt)
     barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
     ID3D12GraphicsCommandList_ResourceBarrier(cxt->command_list, 1, &barrier);
 
-    rtv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cxt->rtv_heap);
+    cxt->rtv_heap->lpVtbl->GetCPUDescriptorHandleForHeapStart(cxt->rtv_heap, &rtv_handle);
+
     rtv_handle.ptr += cxt->frame_idx * cxt->rtv_descriptor_size;
     ID3D12GraphicsCommandList_OMSetRenderTargets(cxt->command_list, 1, &rtv_handle, FALSE, NULL);
 
@@ -212,7 +213,7 @@ static void cxt_load_pipeline(struct cx_triangle *cxt)
 
     cxt->rtv_descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(cxt->device,
             D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-    rtv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cxt->rtv_heap);
+    cxt->rtv_heap->lpVtbl->GetCPUDescriptorHandleForHeapStart(cxt->rtv_heap, &rtv_handle);
     for (i = 0; i < ARRAY_SIZE(cxt->render_targets); ++i)
     {
         cxt->render_targets[i] = demo_swapchain_get_back_buffer(cxt->swapchain, i);
