@@ -985,6 +985,8 @@ VkImageSubresource vk_image_subresource_from_d3d12(
         const struct vkd3d_format *format, uint32_t subresource_idx,
         unsigned int miplevel_count, unsigned int layer_count,
         bool all_aspects);
+VkImageLayout vk_image_layout_from_d3d12_resource_state(
+        struct d3d12_command_list *list, const struct d3d12_resource *resource, D3D12_RESOURCE_STATES state);
 UINT d3d12_plane_index_from_vk_aspect(VkImageAspectFlagBits aspect);
 
 HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12_RESOURCE_DESC1 *desc,
@@ -4016,6 +4018,9 @@ struct vkd3d_descriptor_qa_heap_buffer_data;
 /* ID3D12DeviceExt */
 typedef ID3D12DeviceExt d3d12_device_vkd3d_ext_iface;
 
+/* ID3D12DXVKInteropDevice */
+typedef ID3D12DXVKInteropDevice d3d12_dxvk_interop_device_iface;
+
 struct d3d12_device_scratch_pool
 {
     struct vkd3d_scratch_buffer scratch_buffers[VKD3D_SCRATCH_BUFFER_COUNT];
@@ -4026,6 +4031,7 @@ struct d3d12_device
 {
     d3d12_device_iface ID3D12Device_iface;
     d3d12_device_vkd3d_ext_iface ID3D12DeviceExt_iface;
+    d3d12_dxvk_interop_device_iface ID3D12DXVKInteropDevice_iface;
     LONG refcount;
 
     VkDevice vk_device;

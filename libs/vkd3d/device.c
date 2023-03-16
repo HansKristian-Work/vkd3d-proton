@@ -2856,6 +2856,7 @@ void d3d12_device_return_query_pool(struct d3d12_device *device, const struct vk
 
 /* ID3D12Device */
 extern ULONG STDMETHODCALLTYPE d3d12_device_vkd3d_ext_AddRef(ID3D12DeviceExt *iface);
+extern ULONG STDMETHODCALLTYPE d3d12_dxvk_interop_device_AddRef(ID3D12DXVKInteropDevice *iface);
 
 HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
         REFIID riid, void **object)
@@ -2886,6 +2887,14 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
         struct d3d12_device *device = impl_from_ID3D12Device(iface);
         d3d12_device_vkd3d_ext_AddRef(&device->ID3D12DeviceExt_iface);
         *object = &device->ID3D12DeviceExt_iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice))
+    {
+        struct d3d12_device *device = impl_from_ID3D12Device(iface);
+        d3d12_dxvk_interop_device_AddRef(&device->ID3D12DXVKInteropDevice_iface);
+        *object = &device->ID3D12DXVKInteropDevice_iface;
         return S_OK;
     }
 
@@ -6908,6 +6917,7 @@ static void d3d12_device_replace_vtable(struct d3d12_device *device)
 }
 
 extern CONST_VTBL struct ID3D12DeviceExtVtbl d3d12_device_vkd3d_ext_vtbl;
+extern CONST_VTBL struct ID3D12DXVKInteropDeviceVtbl d3d12_dxvk_interop_device_vtbl;
 
 static HRESULT d3d12_device_init(struct d3d12_device *device,
         struct vkd3d_instance *instance, const struct vkd3d_device_create_info *create_info)
@@ -6945,6 +6955,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     }
     
     device->ID3D12DeviceExt_iface.lpVtbl = &d3d12_device_vkd3d_ext_vtbl;
+    device->ID3D12DXVKInteropDevice_iface.lpVtbl = &d3d12_dxvk_interop_device_vtbl;
 
     if ((rc = rwlock_init(&device->vertex_input_lock)))
     {
