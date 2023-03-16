@@ -8041,7 +8041,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
     }
 }
 
-static VkImageLayout vk_image_layout_from_d3d12_resource_state(
+VkImageLayout vk_image_layout_from_d3d12_resource_state(
         struct d3d12_command_list *list, const struct d3d12_resource *resource, D3D12_RESOURCE_STATES state)
 {
     /* Simultaneous access is always general, until we're forced to treat it differently in
