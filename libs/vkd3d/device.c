@@ -2006,7 +2006,9 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
 
     vulkan_info->vertex_attrib_zero_divisor = physical_device_info->vertex_divisor_features.vertexAttributeInstanceRateZeroDivisor;
 
-    /* Disable unused Vulkan features. */
+    /* Disable unused Vulkan features. The following features need
+     * to remain enabled for DXVK in order to support D3D11on12:
+     * hostQueryReset, vulkanMemoryModel, synchronization2. */
     features->shaderTessellationAndGeometryPointSize = VK_FALSE;
 
     physical_device_info->vulkan_1_1_features.protectedMemory = VK_FALSE;
@@ -2020,8 +2022,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     physical_device_info->vulkan_1_2_features.bufferDeviceAddressCaptureReplay = VK_FALSE;
     physical_device_info->vulkan_1_2_features.bufferDeviceAddressMultiDevice = VK_FALSE;
     physical_device_info->vulkan_1_2_features.imagelessFramebuffer = VK_FALSE;
-    physical_device_info->vulkan_1_2_features.hostQueryReset = VK_FALSE;
-    physical_device_info->vulkan_1_2_features.vulkanMemoryModel = VK_FALSE;
     physical_device_info->vulkan_1_2_features.vulkanMemoryModelDeviceScope = VK_FALSE;
     physical_device_info->vulkan_1_2_features.vulkanMemoryModelAvailabilityVisibilityChains = VK_FALSE;
 
