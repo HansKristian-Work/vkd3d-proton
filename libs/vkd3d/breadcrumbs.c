@@ -52,6 +52,12 @@ static const char *vkd3d_breadcrumb_command_type_to_str(enum vkd3d_breadcrumb_co
             return "execute_indirect";
         case VKD3D_BREADCRUMB_COMMAND_EXECUTE_INDIRECT_TEMPLATE:
             return "execute_indirect_template";
+        case VKD3D_BREADCRUMB_COMMAND_EXECUTE_INDIRECT_PATCH_COMPUTE:
+            return "execute_indirect_patch_compute";
+        case VKD3D_BREADCRUMB_COMMAND_EXECUTE_INDIRECT_PATCH_STATE_COMPUTE:
+            return "execute_indirect_patch_state_compute";
+        case VKD3D_BREADCRUMB_COMMAND_EXECUTE_INDIRECT_UNROLL_COMPUTE:
+            return "execute_indirect_unroll_compute";
         case VKD3D_BREADCRUMB_COMMAND_COPY:
             return "copy";
         case VKD3D_BREADCRUMB_COMMAND_COPY_TILES:

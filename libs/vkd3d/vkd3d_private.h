@@ -3118,6 +3118,9 @@ enum vkd3d_breadcrumb_command_type
     VKD3D_BREADCRUMB_COMMAND_DISCARD,
     VKD3D_BREADCRUMB_COMMAND_CLEAR_INLINE,
     VKD3D_BREADCRUMB_COMMAND_CLEAR_PASS,
+    VKD3D_BREADCRUMB_COMMAND_EXECUTE_INDIRECT_PATCH_COMPUTE,
+    VKD3D_BREADCRUMB_COMMAND_EXECUTE_INDIRECT_PATCH_STATE_COMPUTE,
+    VKD3D_BREADCRUMB_COMMAND_EXECUTE_INDIRECT_UNROLL_COMPUTE,
 };
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
@@ -3757,10 +3760,23 @@ struct vkd3d_multi_dispatch_indirect_args
     uint32_t max_commands;
 };
 
+struct vkd3d_multi_dispatch_indirect_state_args
+{
+    VkDeviceAddress indirect_va;
+    VkDeviceAddress count_va;
+    VkDeviceAddress dispatch_va;
+    VkDeviceAddress root_parameters_va;
+    VkDeviceAddress root_parameter_template_va;
+    uint32_t stride_words;
+    uint32_t dispatch_offset_words;
+};
+
 struct vkd3d_multi_dispatch_indirect_ops
 {
     VkPipelineLayout vk_multi_dispatch_indirect_layout;
+    VkPipelineLayout vk_multi_dispatch_indirect_state_layout;
     VkPipeline vk_multi_dispatch_indirect_pipeline;
+    VkPipeline vk_multi_dispatch_indirect_state_pipeline;
 };
 
 HRESULT vkd3d_multi_dispatch_indirect_ops_init(struct vkd3d_multi_dispatch_indirect_ops *meta_predicate_ops,
@@ -3853,6 +3869,8 @@ void vkd3d_meta_get_predicate_pipeline(struct vkd3d_meta_ops *meta_ops,
         enum vkd3d_predicate_command_type command_type, struct vkd3d_predicate_command_info *info);
 
 void vkd3d_meta_get_multi_dispatch_indirect_pipeline(struct vkd3d_meta_ops *meta_ops,
+        struct vkd3d_multi_dispatch_indirect_info *info);
+void vkd3d_meta_get_multi_dispatch_indirect_state_pipeline(struct vkd3d_meta_ops *meta_ops,
         struct vkd3d_multi_dispatch_indirect_info *info);
 
 static inline uint32_t vkd3d_meta_get_multi_dispatch_indirect_workgroup_size(void)

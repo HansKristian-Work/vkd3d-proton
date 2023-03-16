@@ -5705,10 +5705,13 @@ static void d3d12_command_list_fetch_root_parameter_uniform_block_data(struct d3
         dst_data->root_constants[first_table_offset + table->table_index] =
                 bindings->descriptor_tables[root_parameter_index];
     }
+}
 
-    /* Reset dirty flags to avoid redundant updates in the future */
-    bindings->dirty_flags &= ~VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS;
-    bindings->root_constant_dirty_mask = 0;
+static void d3d12_command_list_fetch_root_parameter_data(struct d3d12_command_list *list,
+        struct vkd3d_pipeline_bindings *bindings, union root_parameter_data *dst_data)
+{
+    d3d12_command_list_fetch_root_descriptor_vas(list, bindings, dst_data);
+    d3d12_command_list_fetch_root_parameter_uniform_block_data(list, bindings, dst_data);
 }
 
 static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list *list,
@@ -5768,6 +5771,12 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
     if (root_signature_flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
     {
         d3d12_command_list_fetch_root_parameter_uniform_block_data(list, bindings, ptr_root_parameter_data);
+
+        /* Reset dirty flags to avoid redundant updates in the future.
+         * We consume all constants / tables here regardless of dirty state. */
+        bindings->dirty_flags &= ~VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS;
+        bindings->root_constant_dirty_mask = 0;
+
         vk_write_descriptor_set_from_scratch_push_ubo(&descriptor_writes[descriptor_write_count],
                 &buffer_info, &alloc, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT,
                 root_signature->push_constant_ubo_binding.binding);
@@ -6239,6 +6248,88 @@ static bool d3d12_command_list_emit_multi_dispatch_indirect_count(struct d3d12_c
             VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
             0, 1, &vk_barrier, 0, NULL, 0, NULL));
 
+    VKD3D_BREADCRUMB_COMMAND(EXECUTE_INDIRECT_PATCH_COMPUTE);
+    return true;
+}
+
+static bool d3d12_command_list_emit_multi_dispatch_indirect_count_state(struct d3d12_command_list *list,
+        struct d3d12_command_signature *signature,
+        VkDeviceAddress indirect_args,
+        uint32_t stride, uint32_t max_commands,
+        VkDeviceAddress count_arg,
+        struct vkd3d_scratch_allocation *dispatch_scratch,
+        struct vkd3d_scratch_allocation *ubo_scratch)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct vkd3d_multi_dispatch_indirect_info pipeline_info;
+    struct vkd3d_multi_dispatch_indirect_state_args args;
+    struct vkd3d_scratch_allocation template_scratch;
+    VkMemoryBarrier vk_barrier;
+
+    vkd3d_meta_get_multi_dispatch_indirect_state_pipeline(&list->device->meta_ops, &pipeline_info);
+
+    if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+            VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD,
+            D3D12_MAX_ROOT_COST * sizeof(uint32_t) +
+                    sizeof(signature->state_template.compute.source_offsets),
+            sizeof(uint32_t), ~0u, &template_scratch))
+        return false;
+
+    if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+            VKD3D_SCRATCH_POOL_KIND_DEVICE_STORAGE,
+            sizeof(VkDispatchIndirectCommand) * max_commands,
+            sizeof(uint32_t), ~0u, dispatch_scratch))
+        return false;
+
+    if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+            VKD3D_SCRATCH_POOL_KIND_DEVICE_STORAGE,
+            (D3D12_MAX_ROOT_COST * sizeof(uint32_t)) * max_commands,
+            D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT,
+            ~0u, ubo_scratch))
+        return false;
+
+    d3d12_command_list_fetch_root_parameter_data(list, &list->compute_bindings, template_scratch.host_ptr);
+    memcpy(void_ptr_offset(template_scratch.host_ptr, D3D12_MAX_ROOT_COST * sizeof(uint32_t)),
+            signature->state_template.compute.source_offsets,
+            sizeof(signature->state_template.compute.source_offsets));
+
+    args.indirect_va = indirect_args;
+    args.count_va = count_arg;
+    args.dispatch_va = dispatch_scratch->va;
+    args.root_parameters_va = ubo_scratch->va;
+    args.root_parameter_template_va = template_scratch.va;
+    args.stride_words = stride / sizeof(uint32_t);
+    args.dispatch_offset_words = signature->state_template.compute.dispatch_offset_words;
+
+    /* TODO: We can hoist the command similar to execute indirect template resolve. */
+
+    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+            pipeline_info.vk_pipeline));
+    VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+            pipeline_info.vk_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+            0, sizeof(args), &args));
+
+    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    vk_barrier.pNext = NULL;
+    vk_barrier.srcAccessMask = 0;
+    vk_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            0, 1, &vk_barrier, 0, NULL, 0, NULL));
+
+    VK_CALL(vkCmdDispatch(list->vk_command_buffer, max_commands, 1, 1));
+
+    vk_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    vk_barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_UNIFORM_READ_BIT;
+
+    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            0, 1, &vk_barrier, 0, NULL, 0, NULL));
+
+    VKD3D_BREADCRUMB_COMMAND(EXECUTE_INDIRECT_PATCH_STATE_COMPUTE);
     return true;
 }
 
@@ -11140,7 +11231,101 @@ static HRESULT d3d12_command_signature_allocate_preprocess_memory_for_list(
         uint32_t max_command_count,
         struct vkd3d_scratch_allocation *allocation, VkDeviceSize *size);
 
-static void d3d12_command_list_execute_indirect_state_template(
+static void d3d12_command_list_execute_indirect_state_template_compute(
+        struct d3d12_command_list *list, struct d3d12_command_signature *signature,
+        uint32_t max_command_count,
+        struct d3d12_resource *arg_buffer, UINT64 arg_buffer_offset,
+        struct d3d12_resource *count_buffer, UINT64 count_buffer_offset)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkDeviceAddress arg_va = arg_buffer->res.va + arg_buffer_offset;
+    struct vkd3d_scratch_allocation dispatch_scratch, ubo_scratch;
+    VkDeviceAddress count_va = 0;
+    VkWriteDescriptorSet write;
+    VkDescriptorBufferInfo buf;
+    VkPipelineLayout vk_layout;
+    uint32_t write_set;
+    unsigned int i;
+
+    d3d12_command_list_end_current_render_pass(list, false);
+    d3d12_command_list_end_transfer_batch(list);
+
+    if (count_buffer)
+        count_va = count_buffer->res.va + count_buffer_offset;
+
+    if (!d3d12_command_list_emit_multi_dispatch_indirect_count_state(list,
+            signature,
+            arg_va, signature->desc.ByteStride, max_command_count,
+            count_va, &dispatch_scratch, &ubo_scratch))
+        return;
+
+    d3d12_command_list_invalidate_current_pipeline(list, true);
+    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
+
+    if (!d3d12_command_list_update_compute_state(list))
+    {
+        WARN("Failed to update compute state, ignoring dispatch.\n");
+        return;
+    }
+
+    vk_write_descriptor_set_from_scratch_push_ubo(&write, &buf, &ubo_scratch,
+            D3D12_MAX_ROOT_COST * sizeof(uint32_t),
+            list->compute_bindings.root_signature->push_constant_ubo_binding.binding);
+
+    vk_layout = list->compute_bindings.root_signature->compute.vk_pipeline_layout;
+    write_set = list->compute_bindings.root_signature->push_constant_ubo_binding.set;
+
+    /* Run indirect dispatches back to back with one push UBO per dispatch which lets us
+     * update root parameters per command. */
+    for (i = 0; i < max_command_count; i++)
+    {
+        VK_CALL(vkCmdPushDescriptorSetKHR(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                vk_layout, write_set, 1, &write));
+        VK_CALL(vkCmdDispatchIndirect(list->vk_command_buffer, dispatch_scratch.buffer, dispatch_scratch.offset));
+
+        VKD3D_BREADCRUMB_AUX32(i);
+        VKD3D_BREADCRUMB_COMMAND(EXECUTE_INDIRECT_UNROLL_COMPUTE);
+
+        dispatch_scratch.offset += sizeof(VkDispatchIndirectCommand);
+        buf.offset += D3D12_MAX_ROOT_COST * sizeof(uint32_t);
+    }
+
+    /* Need to clear state to zero if it was part of a command signature. */
+    for (i = 0; i < signature->desc.NumArgumentDescs; i++)
+    {
+        const D3D12_INDIRECT_ARGUMENT_DESC *arg = &signature->desc.pArgumentDescs[i];
+        switch (arg->Type)
+        {
+            case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT_BUFFER_VIEW:
+            case D3D12_INDIRECT_ARGUMENT_TYPE_SHADER_RESOURCE_VIEW:
+            case D3D12_INDIRECT_ARGUMENT_TYPE_UNORDERED_ACCESS_VIEW:
+            {
+                uint32_t index = arg->ConstantBufferView.RootParameterIndex;
+                d3d12_command_list_set_root_descriptor(list,
+                        &list->compute_bindings, index, 0);
+                break;
+            }
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT:
+            {
+                uint32_t zeroes[D3D12_MAX_ROOT_COST];
+                memset(zeroes, 0, sizeof(uint32_t) * arg->Constant.Num32BitValuesToSet);
+                d3d12_command_list_set_root_constants(list,
+                        &list->compute_bindings, arg->Constant.RootParameterIndex,
+                        arg->Constant.DestOffsetIn32BitValues,
+                        arg->Constant.Num32BitValuesToSet, zeroes);
+                break;
+            }
+
+            default:
+                break;
+        }
+    }
+
+    /* No need to implicitly invalidate anything here, since we used the normal APIs. */
+}
+
+static void d3d12_command_list_execute_indirect_state_template_graphics(
         struct d3d12_command_list *list, struct d3d12_command_signature *signature,
         uint32_t max_command_count,
         struct d3d12_resource *arg_buffer, UINT64 arg_buffer_offset,
@@ -11452,10 +11637,23 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
         /* Complex execute indirect path. */
         if (list->predicate_va)
             FIXME("Predicated ExecuteIndirect with state template not supported yet. Ignoring predicate.\n");
-        d3d12_command_list_execute_indirect_state_template(list, sig_impl,
-                max_command_count,
-                arg_impl, arg_buffer_offset,
-                count_impl, count_buffer_offset);
+
+        if (sig_impl->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS ||
+                sig_impl->pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS)
+        {
+            d3d12_command_list_execute_indirect_state_template_graphics(list, sig_impl,
+                    max_command_count,
+                    arg_impl, arg_buffer_offset,
+                    count_impl, count_buffer_offset);
+        }
+        else if (sig_impl->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
+        {
+            d3d12_command_list_execute_indirect_state_template_compute(list, sig_impl,
+                    max_command_count,
+                    arg_impl, arg_buffer_offset,
+                    count_impl, count_buffer_offset);
+        }
+
         VKD3D_BREADCRUMB_COMMAND(EXECUTE_INDIRECT_TEMPLATE);
         return;
     }
@@ -11613,6 +11811,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                 for (i = 0; i < max_command_count; i++)
                 {
                     VK_CALL(vkCmdDispatchIndirect(list->vk_command_buffer, scratch.buffer, scratch.offset));
+                    VKD3D_BREADCRUMB_AUX32(i);
+                    VKD3D_BREADCRUMB_COMMAND(EXECUTE_INDIRECT_UNROLL_COMPUTE);
                     scratch.offset += unrolled_stride;
                 }
                 break;
