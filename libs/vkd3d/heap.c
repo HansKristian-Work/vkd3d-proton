@@ -35,7 +35,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_QueryInterface(d3d12_heap_iface *ifa
             || IsEqualGUID(iid, &IID_ID3D12Object)
             || IsEqualGUID(iid, &IID_IUnknown))
     {
-        ID3D12Heap_AddRef(iface);
+        ID3D12Heap1_AddRef(iface);
         *object = iface;
         return S_OK;
     }

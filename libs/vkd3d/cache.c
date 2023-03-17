@@ -1466,7 +1466,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_QueryInterface(d3d12_pip
             || IsEqualGUID(riid, &IID_ID3D12Object)
             || IsEqualGUID(riid, &IID_IUnknown))
     {
-        ID3D12PipelineLibrary_AddRef(iface);
+        ID3D12PipelineLibrary1_AddRef(iface);
         *object = iface;
         return S_OK;
     }

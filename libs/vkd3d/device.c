@@ -2863,7 +2863,7 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
             || IsEqualGUID(riid, &IID_ID3D12Object)
             || IsEqualGUID(riid, &IID_IUnknown))
     {
-        ID3D12Device_AddRef(iface);
+        ID3D12Device10_AddRef(iface);
         *object = iface;
         return S_OK;
     }
@@ -5129,7 +5129,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePipelineLibrary(d3d12_device
     }
     else
     {
-        ID3D12PipelineLibrary_Release(&pipeline_library->ID3D12PipelineLibrary_iface);
+        ID3D12PipelineLibrary1_Release(&pipeline_library->ID3D12PipelineLibrary_iface);
         return S_FALSE;
     }
 }
