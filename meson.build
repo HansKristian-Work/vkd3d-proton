@@ -65,7 +65,12 @@ vkd3d_private_includes  = include_directories(vkd3d_private_includes)
 vkd3d_shader_private_includes = [ './libs/vkd3d-shader' ]
 vkd3d_shader_private_includes = include_directories(vkd3d_shader_private_includes)
 
-idl_compiler  = find_program('widl')
+idl_compiler  = find_program('widl', required : false)
+# widl-stable is used on Debian. If cross-file defines widl-mingw-tools-fallback, that will also be attempted.
+if not idl_compiler.found()
+  idl_compiler  = find_program('widl-stable', 'widl-mingw-tools-fallback')
+endif
+
 idl_generator = generator(idl_compiler,
   output    : [ '@BASENAME@.h' ],
   arguments : [ '-h', '-o', '@OUTPUT@', '@INPUT@' ])
