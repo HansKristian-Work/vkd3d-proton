@@ -187,3 +187,4 @@ uninstall() {
 }
 
 $action d3d12
+$action d3d12core
