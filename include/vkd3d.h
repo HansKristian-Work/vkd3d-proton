@@ -23,7 +23,19 @@
 
 #ifndef VKD3D_NO_WIN32_TYPES
 # include <vkd3d_windows.h>
+
+# define WIDL_C_INLINE_WRAPPERS
+
+# ifdef __MINGW32__
+/* Workaround for MinGW-tools WIDL when using inline wrappers.
+ * FORCEINLINE is extern which conflicts. It is okay to override it here.
+ * All relevant system headers have been included. */
+#  undef FORCEINLINE
+#  define FORCEINLINE inline
+# endif
+
 # include <vkd3d_d3d12.h>
+# undef WIDL_C_INLINE_WRAPPERS
 #endif  /* VKD3D_NO_WIN32_TYPES */
 
 #ifndef VKD3D_NO_VULKAN_H

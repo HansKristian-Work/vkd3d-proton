@@ -35,6 +35,7 @@
 #include "vkd3d_d3d12.h"
 #include "vkd3d_device_vkd3d_ext.h"
 #include "vkd3d_d3d12sdklayers.h"
+#undef WIDL_C_INLINE_WRAPPERS
 
 #include <inttypes.h>
 #include <limits.h>
