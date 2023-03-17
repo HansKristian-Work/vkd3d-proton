@@ -18,7 +18,6 @@
 
 #define COBJMACROS
 #define INITGUID
-#define WIDL_C_INLINE_WRAPPERS
 #include "vkd3d_test.h"
 #include <vkd3d.h>
 
