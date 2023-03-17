@@ -1542,7 +1542,7 @@ void test_vtable_origins(void)
     vtable_module = (HMODULE)info.AllocationBase;
 
     /* Ensure the vtable for ID3D12Device comes from D3D12Core.dll */
-    todo ok(vtable_module == d3d12core_module, "VTable for ID3D12Device not provided by D3D12Core.\n");
+    ok(vtable_module == d3d12core_module, "VTable for ID3D12Device not provided by D3D12Core.\n");
 
     ID3D12Device_Release(device);
 #endif
