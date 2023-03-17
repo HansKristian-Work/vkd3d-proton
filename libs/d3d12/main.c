@@ -66,6 +66,9 @@ static void load_d3d12core_once(void)
         if ((d3d12core_module = LoadLibraryA(SONAME_D3D12CORE)))
             d3d12core_D3D12GetInterface = (PFN_D3D12_GET_INTERFACE)(void *)GetProcAddress(d3d12core_module, "D3D12GetInterface");
 #else
+        /* We link directly to d3d12core, however we still need to dlopen + dlsym
+         * as both shared libraries export D3D12GetInterface, so we need to do this
+         * to avoid confusing the linker. */
         if ((d3d12core_module = dlopen(SONAME_D3D12CORE, RTLD_NOW)))
             d3d12core_D3D12GetInterface = (PFN_D3D12_GET_INTERFACE)dlsym(d3d12core_module, "D3D12GetInterface");
 #endif
