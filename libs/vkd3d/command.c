@@ -1005,7 +1005,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_QueryInterface(d3d12_fence_iface *i
             || IsEqualGUID(riid, &IID_ID3D12Object)
             || IsEqualGUID(riid, &IID_IUnknown))
     {
-        ID3D12Fence_AddRef(iface);
+        ID3D12Fence1_AddRef(iface);
         *object = iface;
         return S_OK;
     }
@@ -1347,7 +1347,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_shared_fence_QueryInterface(d3d12_fence_i
             || IsEqualGUID(riid, &IID_ID3D12Object)
             || IsEqualGUID(riid, &IID_IUnknown))
     {
-        ID3D12Fence_AddRef(iface);
+        ID3D12Fence1_AddRef(iface);
         *object = iface;
         return S_OK;
     }
@@ -4623,7 +4623,7 @@ HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_i
             || IsEqualGUID(iid, &IID_ID3D12Object)
             || IsEqualGUID(iid, &IID_IUnknown))
     {
-        ID3D12GraphicsCommandList_AddRef(iface);
+        ID3D12GraphicsCommandList9_AddRef(iface);
         *object = iface;
         return S_OK;
     }
@@ -5089,7 +5089,7 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
     list->cbv_srv_uav_descriptors_view = NULL;
     list->vrs_image = NULL;
 
-    ID3D12GraphicsCommandList_SetPipelineState(iface, initial_pipeline_state);
+    ID3D12GraphicsCommandList9_SetPipelineState(iface, initial_pipeline_state);
 }
 
 static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *list)

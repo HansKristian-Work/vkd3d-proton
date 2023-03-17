@@ -1525,7 +1525,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_QueryInterface(d3d12_resource_if
             || IsEqualGUID(riid, &IID_ID3D12Object)
             || IsEqualGUID(riid, &IID_IUnknown))
     {
-        ID3D12Resource_AddRef(iface);
+        ID3D12Resource2_AddRef(iface);
         *object = iface;
         return S_OK;
     }

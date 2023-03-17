@@ -1090,7 +1090,7 @@ static void d3d12_bundle_exec_ia_set_vertex_buffers(d3d12_command_list_iface *li
 {
     const struct d3d12_ia_set_vertex_buffers_command *args = args_v;
 
-    ID3D12GraphicsCommandList5_IASetVertexBuffers(list, args->start_slot, args->view_count, args->views);
+    ID3D12GraphicsCommandList9_IASetVertexBuffers(list, args->start_slot, args->view_count, args->views);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_IASetVertexBuffers(d3d12_command_list_iface *iface,
