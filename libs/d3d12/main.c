@@ -74,9 +74,16 @@ static void load_d3d12core_once(void)
 #endif
 
         if (!d3d12core_D3D12GetInterface)
+        {
+            WARN("Did not find d3d12core implementation.\n");
             return;
+        }
 
-        d3d12core_D3D12GetInterface(&CLSID_VKD3DCore, &IID_IVKD3DCoreInterface, (void**)&core);
+        if (FAILED(d3d12core_D3D12GetInterface(&CLSID_VKD3DCore, &IID_IVKD3DCoreInterface, (void**)&core)))
+        {
+            ERR("Failed to find vkd3d-proton d3d12core interfaces. Make sure d3d12core.dll is installed as well. WINEDLLOVERRIDES=d3d12core=b may be needed.\n");
+            core = NULL;
+        }
     }
 }
 
