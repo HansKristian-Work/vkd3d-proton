@@ -417,7 +417,10 @@ HRESULT WINAPI DLLEXPORT D3D12GetInterface(REFCLSID rcslid, REFIID iid, void **d
     if (IsEqualGUID(rcslid, &CLSID_VKD3DCore))
     {
         if (IsEqualGUID(iid, &IID_IVKD3DCoreInterface))
+        {
             *debug = (void*)&d3d12core_interface_instance;
+            return S_OK;
+        }
     }
     return E_NOINTERFACE;
 }
