@@ -559,8 +559,8 @@
         "VP_VKD3D_d3d12_level_11_0_baseline": {
             "version": 1,
             "api-version": "1.3.204",
-            "label": "VKD3D D3D12 Level 11.0 Baseline profile",
-            "description": "VKD3D for D3D12 Feature Level 11.0 minimum requirements",
+            "label": "VKD3D-Proton D3D12 Level 11.0 Baseline profile",
+            "description": "VKD3D-Proton for D3D12 Feature Level 11.0 minimum requirements",
             "capabilities": [
                 "vulkan10requirements",
                 "vulkan11requirements",
@@ -574,8 +574,8 @@
         "VP_VKD3D_d3d12_level_11_0_optimal": {
             "version": 1,
             "api-version": "1.3.235",
-            "label": "VKD3D D3D12 Level 11.0 Optimal profile",
-            "description": "VKD3D for D3D12 Feature Level 11.0 requirements for optimal performance",
+            "label": "VKD3D-Proton D3D12 Level 11.0 Optimal profile",
+            "description": "VKD3D-Proton for D3D12 Feature Level 11.0 requirements for optimal performance",
             "capabilities": [
                 "vulkan10requirements",
                 "vulkan11requirements",
@@ -590,8 +590,8 @@
         "VP_VKD3D_d3d12_level_11_1_baseline": {
             "version": 1,
             "api-version": "1.3.204",
-            "label": "VKD3D D3D12 Level 11.1 Baseline profile",
-            "description": "VKD3D for D3D12 Feature Level 11.1 minimum requirements",
+            "label": "VKD3D-proton D3D12 Level 11.1 Baseline profile",
+            "description": "VKD3D-Proton for D3D12 Feature Level 11.1 minimum requirements",
             "capabilities": [
                 "vulkan10requirements",
                 "vulkan11requirements",
@@ -606,8 +606,8 @@
         "VP_VKD3D_d3d12_level_11_1_optimal": {
             "version": 1,
             "api-version": "1.3.235",
-            "label": "VKD3D D3D12 Level 11.1 Optimal profile",
-            "description": "VKD3D for D3D12 Feature Level 11.1 requirements for optimal performance",
+            "label": "VKD3D-Proton D3D12 Level 11.1 Optimal profile",
+            "description": "VKD3D-Proton for D3D12 Feature Level 11.1 requirements for optimal performance",
             "capabilities": [
                 "vulkan10requirements",
                 "vulkan11requirements",
@@ -623,8 +623,8 @@
         "VP_VKD3D_d3d12_level_12_0_baseline": {
             "version": 1,
             "api-version": "1.3.204",
-            "label": "VKD3D D3D12 Level 12.0 Baseline profile",
-            "description": "VKD3D for D3D12 Feature Level 12.0 minimum requirements",
+            "label": "VKD3D-Proton D3D12 Level 12.0 Baseline profile",
+            "description": "VKD3D-Proton for D3D12 Feature Level 12.0 minimum requirements",
             "capabilities": [
                 "vulkan10requirements",
                 "vulkan11requirements",
@@ -640,8 +640,8 @@
         "VP_VKD3D_d3d12_level_12_0_optimal": {
             "version": 1,
             "api-version": "1.3.235",
-            "label": "VKD3D D3D12 Level 12.0 Optimal profile",
-            "description": "VKD3D for D3D12 Feature Level 12.0 requirements for optimal performance",
+            "label": "VKD3D-Proton D3D12 Level 12.0 Optimal profile",
+            "description": "VKD3D-Proton for D3D12 Feature Level 12.0 requirements for optimal performance",
             "capabilities": [
                 "vulkan10requirements",
                 "vulkan11requirements",
@@ -658,8 +658,8 @@
         "VP_VKD3D_d3d12_level_12_1_baseline": {
             "version": 1,
             "api-version": "1.3.204",
-            "label": "VKD3D D3D12 Level 12.1 Baseline profile",
-            "description": "VKD3D for D3D12 Feature Level 12.1 minimum requirements",
+            "label": "VKD3D-Proton D3D12 Level 12.1 Baseline profile",
+            "description": "VKD3D-Proton for D3D12 Feature Level 12.1 minimum requirements",
             "capabilities": [
                 "vulkan10requirements",
                 "vulkan11requirements",
@@ -676,8 +676,8 @@
         "VP_VKD3D_d3d12_level_12_1_optimal": {
             "version": 1,
             "api-version": "1.3.235",
-            "label": "VKD3D D3D12 Level 12.1 Optimal profile",
-            "description": "VKD3D for D3D12 Feature Level 12.1 requirements for optimal performance",
+            "label": "VKD3D-Proton D3D12 Level 12.1 Optimal profile",
+            "description": "VKD3D-Proton for D3D12 Feature Level 12.1 requirements for optimal performance",
             "capabilities": [
                 "vulkan10requirements",
                 "vulkan11requirements",
@@ -695,8 +695,8 @@
         "VP_VKD3D_d3d12_level_12_2_baseline": {
             "version": 1,
             "api-version": "1.3.226",
-            "label": "VKD3D D3D12 Level 12.2 Baseline profile",
-            "description": "VKD3D for D3D12 Feature Level 12.2 minimum requirements",
+            "label": "VKD3D-Proton D3D12 Level 12.2 Baseline profile",
+            "description": "VKD3D-Proton for D3D12 Feature Level 12.2 minimum requirements",
             "capabilities": [
                 "vulkan10requirements",
                 "vulkan11requirements",
@@ -718,8 +718,8 @@
         "VP_VKD3D_d3d12_level_12_2_optimal": {
             "version": 1,
             "api-version": "1.3.235",
-            "label": "VKD3D D3D12 Level 12.2 Optimal profile",
-            "description": "VKD3D for D3D12 Feature Level 12.2 requirements for optimal performance",
+            "label": "VKD3D-Proton D3D12 Level 12.2 Optimal profile",
+            "description": "VKD3D-Proton for D3D12 Feature Level 12.2 requirements for optimal performance",
             "capabilities": [
                 "vulkan10requirements",
                 "vulkan11requirements",
