@@ -3556,6 +3556,7 @@ void d3d12_desc_copy(vkd3d_cpu_descriptor_va_t dst_va, vkd3d_cpu_descriptor_va_t
         unsigned int count, D3D12_DESCRIPTOR_HEAP_TYPE heap_type, struct d3d12_device *device)
 {
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+    if (!d3d12_device_use_embedded_mutable_descriptors(device))
     {
         struct d3d12_desc_split dst, src;
         unsigned int i;
