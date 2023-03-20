@@ -21,6 +21,11 @@
 
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 
+/* Make sure that we don't create a log file intended for d3d12core.dll.
+ * These modules are now split, and we'll either block d3d12core log file from being created (Win32),
+ * or the log file for d3d12.dll disappears into the aether. */
+#define VKD3D_DBG_NO_FILE
+
 #define INITGUID
 
 #define VK_NO_PROTOTYPES
