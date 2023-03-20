@@ -281,7 +281,14 @@
         },
         "d3d12_level_12_1": {
             "extensions": {
-                "VK_EXT_conservative_rasterization": 1
+                "VK_EXT_conservative_rasterization": 1,
+                "VK_EXT_fragment_shader_interlock": 1
+            },
+            "features": {
+                "VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT": {
+                    "fragmentShaderPixelInterlock": true,
+                    "fragmentShaderSampleInterlock": true
+                }
             }
         },
         "d3d12_level_12_2_min_shading_rate_8": {
