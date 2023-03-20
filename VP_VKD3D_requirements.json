@@ -1,5 +1,5 @@
 {
-    "$schema": "https://schema.khronos.org/vulkan/profiles-0.8.1-197.json#",
+    "$schema": "https://schema.khronos.org/vulkan/profiles-0.8.1-235.json#",
     "capabilities": {
         "vulkan10requirements": {
             "features": {
@@ -21,91 +21,203 @@
                 }
             }
         },
+        "vulkan12requirements": {
+            "features": {
+                "VkPhysicalDeviceVulkan12Features": {
+                    "uniformBufferStandardLayout": true,
+                    "subgroupBroadcastDynamicId": true,
+                    "imagelessFramebuffer": true,
+                    "separateDepthStencilLayouts": true,
+                    "hostQueryReset": true,
+                    "timelineSemaphore": true,
+                    "shaderSubgroupExtendedTypes": true
+                }
+            },
+            "properties": {
+                "VkPhysicalDeviceVulkan12Properties": {
+                    "maxTimelineSemaphoreValueDifference": 2147483647
+                }
+            }
+        },
+        "vulkan13requirements": {
+            "features": {
+                "VkPhysicalDeviceVulkan12Features": {
+                    "vulkanMemoryModel": true,
+                    "vulkanMemoryModelDeviceScope": true,
+                    "bufferDeviceAddress": true
+                },
+                "VkPhysicalDeviceVulkan13Features": {
+                    "robustImageAccess": true,
+                    "shaderTerminateInvocation": true,
+                    "shaderZeroInitializeWorkgroupMemory": true,
+                    "synchronization2": true,
+                    "shaderIntegerDotProduct": true,
+                    "maintenance4": true,
+                    "pipelineCreationCacheControl": true,
+                    "subgroupSizeControl": true,
+                    "computeFullSubgroups": true,
+                    "shaderDemoteToHelperInvocation": true,
+                    "inlineUniformBlock": true,
+                    "dynamicRendering": true
+                }
+            },
+            "properties": {
+                "VkPhysicalDeviceVulkan13Properties": {
+                    "maxBufferSize": 1073741824,
+                    "maxInlineUniformBlockSize": 256,
+                    "maxPerStageDescriptorInlineUniformBlocks": 4,
+                    "maxPerStageDescriptorUpdateAfterBindInlineUniformBlocks": 4,
+                    "maxDescriptorSetInlineUniformBlocks": 4,
+                    "maxDescriptorSetUpdateAfterBindInlineUniformBlocks": 4,
+                    "maxInlineUniformTotalSize": 256
+                }
+            }
+        },
+        "vulkan_min_requirements": {
+            "extensions": {
+                "VK_KHR_push_descriptor": 1,
+                "VK_EXT_robustness2": 1,
+                "VK_EXT_extended_dynamic_state2": 1
+            },
+            "features": {
+                "VkPhysicalDeviceFeatures": {
+                    "shaderTessellationAndGeometryPointSize": false
+                },
+                "VkPhysicalDeviceVulkan11Features": {
+                    "protectedMemory": false,
+                    "samplerYcbcrConversion": false,
+                    "shaderDrawParameters": true
+                },
+                "VkPhysicalDeviceVulkan12Features": {
+                    "samplerMirrorClampToEdge": true,
+                    "storageBuffer8BitAccess": false,
+                    "uniformAndStorageBuffer8BitAccess": false,
+                    "storagePushConstant8": false,
+                    "bufferDeviceAddressCaptureReplay": false,
+                    "bufferDeviceAddressMultiDevice": false,
+                    "imagelessFramebuffer": false,
+                    "hostQueryReset": false,
+                    "vulkanMemoryModel": false,
+                    "vulkanMemoryModelDeviceScope": false,
+                    "vulkanMemoryModelAvailabilityVisibilityChains": false,
+                    "separateDepthStencilLayouts": true,
+                    "shaderInputAttachmentArrayDynamicIndexing": false,
+                    "shaderUniformTexelBufferArrayDynamicIndexing": true,
+                    "shaderStorageTexelBufferArrayDynamicIndexing": true,
+                    "shaderUniformBufferArrayNonUniformIndexing": true,
+                    "shaderSampledImageArrayNonUniformIndexing": true,
+                    "shaderStorageBufferArrayNonUniformIndexing": true,
+                    "shaderStorageImageArrayNonUniformIndexing": true,
+                    "shaderInputAttachmentArrayNonUniformIndexing": false,
+                    "shaderUniformTexelBufferArrayNonUniformIndexing": true,
+                    "shaderStorageTexelBufferArrayNonUniformIndexing": true,
+                    "descriptorBindingUniformBufferUpdateAfterBind": true,
+                    "descriptorBindingSampledImageUpdateAfterBind": true,
+                    "descriptorBindingStorageImageUpdateAfterBind": true,
+                    "descriptorBindingStorageBufferUpdateAfterBind": true,
+                    "descriptorBindingUniformTexelBufferUpdateAfterBind": true,
+                    "descriptorBindingStorageTexelBufferUpdateAfterBind": true,
+                    "descriptorBindingUpdateUnusedWhilePending": true,
+                    "descriptorBindingPartiallyBound": true,
+                    "descriptorBindingVariableDescriptorCount": true,
+                    "runtimeDescriptorArray": true
+                },
+                "VkPhysicalDeviceVulkan13Features": {
+                    "robustImageAccess": false,
+                    "inlineUniformBlock": false,
+                    "descriptorBindingInlineUniformBlockUpdateAfterBind": false,
+                    "privateData": false,
+                    "textureCompressionASTC_HDR": false,
+                    "dynamicRendering": true,
+                    "maintenance4": true
+                },
+                "VkPhysicalDeviceExtendedDynamicState2FeaturesEXT": {
+                    "extendedDynamicState2LogicOp": false
+                },
+                "VkPhysicalDeviceRobustness2FeaturesEXT": {
+                    "nullDescriptor": true
+                }
+            },
+            "properties": {
+                "VkPhysicalDeviceVulkan12Properties": {
+                    "maxPerStageDescriptorUpdateAfterBindSampledImages": 1000000,
+                    "maxPerStageDescriptorUpdateAfterBindStorageImages": 1000000,
+                    "maxPerStageDescriptorUpdateAfterBindStorageBuffers": 1000000
+                }
+            }
+        },
         "d3d12_level_11_0": {
             "extensions": {
                 "VK_KHR_surface": 1,
                 "VK_KHR_swapchain": 1,
-                "VK_KHR_timeline_semaphore": 1,
-                "VK_KHR_separate_depth_stencil_layouts": 1,
-                "VK_KHR_sampler_mirror_clamp_to_edge": 1,
                 "VK_EXT_robustness2": 1,
-                "VK_KHR_bind_memory2": 1,
-                "VK_KHR_copy_commands2": 1,
-                "VK_KHR_dynamic_rendering": 1,
                 "VK_EXT_extended_dynamic_state": 1,
-                "VK_EXT_extended_dynamic_state2": 1,
-                "VK_KHR_maintenance4": 1,
-                "VK_EXT_descriptor_indexing": 1
+                "VK_EXT_extended_dynamic_state2": 1
             },
             "features": {
-                "VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR": {
-                    "separateDepthStencilLayouts": true
+                "VkPhysicalDeviceVulkan11Features": {
+                    "shaderDrawParameters": true
+                },
+                "VkPhysicalDeviceVulkan13Features": {
+
                 },
                 "VkPhysicalDeviceRobustness2FeaturesEXT": {
                     "nullDescriptor": true
-                },
-                "VkPhysicalDeviceShaderDrawParametersFeatures": {
-                    "shaderDrawParameters": true
-                },
-                "VkPhysicalDeviceDynamicRenderingFeaturesKHR": {
-                    "dynamicRendering": true
                 },
                 "VkPhysicalDeviceExtendedDynamicStateFeaturesEXT": {
                     "extendedDynamicState": true
                 },
                 "VkPhysicalDeviceExtendedDynamicState2FeaturesEXT": {
                     "extendedDynamicState2": true
-                },
-                "VkPhysicalDeviceMaintenance4FeaturesKHR": {
-                    "maintenance4": true
-                },
-                "VkPhysicalDeviceDescriptorIndexingFeaturesEXT": {
-                    "runtimeDescriptorArray": true,
-                    "descriptorBindingPartiallyBound": true,
-                    "descriptorBindingUpdateUnusedWhilePending": true,
-                    "descriptorBindingVariableDescriptorCount": true,
-                    "descriptorBindingSampledImageUpdateAfterBind": true,
-                    "descriptorBindingUniformTexelBufferUpdateAfterBind": true,
-                    "shaderSampledImageArrayNonUniformIndexing": true,
-                    "shaderUniformTexelBufferArrayNonUniformIndexing": true
-                }
-            },
-            "properties": {
-                "VkPhysicalDeviceDescriptorIndexingPropertiesEXT": {
-                    "maxPerStageDescriptorUpdateAfterBindSampledImages": 1000000,
-                    "maxPerStageDescriptorUpdateAfterBindStorageImages": 1000000
                 }
             }
         },
-        "d3d12_level_11_0_bindless_uniform": {
-            "extensions": {
-                "VK_EXT_descriptor_indexing": 1
-            },
+        "d3d12_level_11_0_descriptor_sets": {
             "properties": {
-                "VkPhysicalDeviceDescriptorIndexingPropertiesEXT": {
-                    "maxPerStageDescriptorUpdateAfterBindUniformBuffers": 1000000
-                }
-            }      
-        },
-        "d3d12_level_11_0_bindless_storage": {
-            "extensions": {
-                "VK_EXT_descriptor_indexing": 1
-            },
-            "properties": {
-                "VkPhysicalDeviceDescriptorIndexingPropertiesEXT": {
+                "VkPhysicalDeviceVulkan12Properties": {
+                    "maxPerStageDescriptorUpdateAfterBindSampledImages": 1000000,
+                    "maxPerStageDescriptorUpdateAfterBindStorageImages": 1000000,
                     "maxPerStageDescriptorUpdateAfterBindStorageBuffers": 1000000
                 }
             }
         },
-        "d3d12_level_11_0_optimal": {
+        "d3d12_level_11_0_descriptor_buffers": {
             "extensions": {
-                "VK_EXT_descriptor_indexing": 1,
-                "VK_EXT_shader_stencil_export": 1,
-                "VK_EXT_shader_viewport_index_layer": 1
+                "VK_EXT_descriptor_buffer": 1
+            },
+            "features": {
+                "VkPhysicalDeviceDescriptorBufferFeaturesEXT": {
+                    "descriptorBuffer": true,
+                    "descriptorBufferPushDescriptors": true
+                }
             },
             "properties": {
-                "VkPhysicalDeviceDescriptorIndexingPropertiesEXT": {
-                    "robustBufferAccessUpdateAfterBind": true
+                "VkPhysicalDeviceProperties": {
+                    "limits": {
+                        "maxPerStageDescriptorStorageBuffers": 64,
+                        "maxPerStageDescriptorStorageImages": 64,
+                        "minStorageBufferOffsetAlignment": 4
+                    }
+                }
+            }
+        },
+        "d3d12_level_11_0_mutable_descriptor_type_ext": {
+            "extensions": {
+                "VK_EXT_mutable_descriptor_type": 1
+            },
+            "features": {
+                "VkPhysicalDeviceMutableDescriptorTypeFeaturesEXT": {
+                    "mutableDescriptorType": true
+                }
+            }
+        },
+        "d3d12_level_11_0_mutable_descriptor_type_valve": {
+            "extensions": {
+                "VK_VALVE_mutable_descriptor_type": 1
+            },
+            "features": {
+                "VkPhysicalDeviceMutableDescriptorTypeFeaturesVALVE": {
+                    "mutableDescriptorType": true   
                 }
             }
         },
@@ -145,11 +257,17 @@
                 "VkPhysicalDeviceProperties": {
                     "sparseProperties": {
                         "residencyStandard2DBlockShape": true,
-                        "residencyNonResidentStrict": true
+                        "residencyNonResidentStrict": true,
+                        "residencyAlignedMipSize": false
                     }
                 },
-                "VkPhysicalDeviceSamplerFilterMinmaxPropertiesEXT": {
-                    "filterMinmaxSingleComponentFormats": false
+                "VkPhysicalDeviceVulkan11Properties": {
+                    "subgroupSize": 4,
+                    "subgroupSupportedOperations": [ "VK_SUBGROUP_FEATURE_ARITHMETIC_BIT", "VK_SUBGROUP_FEATURE_BASIC_BIT", "VK_SUBGROUP_FEATURE_BALLOT_BIT", "VK_SUBGROUP_FEATURE_SHUFFLE_BIT", "VK_SUBGROUP_FEATURE_QUAD_BIT", "VK_SUBGROUP_FEATURE_VOTE_BIT" ],
+                    "subgroupSupportedStages": [ "VK_SHADER_STAGE_COMPUTE_BIT", "VK_SHADER_STAGE_FRAGMENT_BIT" ]
+                },
+                "VkPhysicalDeviceVulkan12Properties": {
+                    "filterMinmaxSingleComponentFormats": true
                 }
             },
             "queueFamiliesProperties": [
@@ -161,214 +279,78 @@
                 }
             ]
         },
-        "d3d12_level_12_0_properties3_read_without_format": {
-            "extensions": {
-                "VK_KHR_format_feature_flags2": 1
-            },
-            "formats": {
-                "VK_FORMAT_R32_SFLOAT": {
-                    "VkFormatProperties3KHR": {
-                        "linearTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ],
-                        "optimalTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ]
-                    }
-                },
-                "VK_FORMAT_R32_UINT": {
-                    "VkFormatProperties3KHR": {
-                        "linearTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ],
-                        "optimalTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ]
-                    }
-                },
-                "VK_FORMAT_R32_SINT": {
-                    "VkFormatProperties3KHR": {
-                        "linearTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ],
-                        "optimalTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ]
-                    }
-                },
-                "VK_FORMAT_R32G32B32A32_SFLOAT": {
-                    "VkFormatProperties3KHR": {
-                        "linearTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ],
-                        "optimalTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ]
-                    }
-                },
-                "VK_FORMAT_R32G32B32A32_UINT": {
-                    "VkFormatProperties3KHR": {
-                        "linearTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ],
-                        "optimalTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ]
-                    }
-                },
-                "VK_FORMAT_R32G32B32A32_SINT": {
-                    "VkFormatProperties3KHR": {
-                        "linearTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ],
-                        "optimalTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ]
-                    }
-                },
-                "VK_FORMAT_R16G16B16A16_SFLOAT": {
-                    "VkFormatProperties3KHR": {
-                        "linearTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ],
-                        "optimalTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ]
-                    }
-                },
-                "VK_FORMAT_R16G16B16A16_UINT": {
-                    "VkFormatProperties3KHR": {
-                        "linearTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ],
-                        "optimalTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ]
-                    }
-                },
-                "VK_FORMAT_R16G16B16A16_SINT": {
-                    "VkFormatProperties3KHR": {
-                        "linearTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ],
-                        "optimalTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ]
-                    }
-                },
-                "VK_FORMAT_R8G8B8A8_UNORM": {
-                    "VkFormatProperties3KHR": {
-                        "linearTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ],
-                        "optimalTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ]
-                    }
-                },
-                "VK_FORMAT_R8G8B8A8_UINT": {
-                    "VkFormatProperties3KHR": {
-                        "linearTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ],
-                        "optimalTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ]
-                    }
-                },
-                "VK_FORMAT_R8G8B8A8_SINT": {
-                    "VkFormatProperties3KHR": {
-                        "linearTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ],
-                        "optimalTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ]
-                    }
-                },
-                "VK_FORMAT_R16_SFLOAT": {
-                    "VkFormatProperties3KHR": {
-                        "linearTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ],
-                        "optimalTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ]
-                    }
-                },
-                "VK_FORMAT_R16_UINT": {
-                    "VkFormatProperties3KHR": {
-                        "linearTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ],
-                        "optimalTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ]
-                    }
-                },
-                "VK_FORMAT_R16_SINT": {
-                    "VkFormatProperties3KHR": {
-                        "linearTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ],
-                        "optimalTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ]
-                    }
-                },
-                "VK_FORMAT_R8_UNORM": {
-                    "VkFormatProperties3KHR": {
-                        "linearTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ],
-                        "optimalTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ]
-                    }
-                },
-                "VK_FORMAT_R8_UINT": {
-                    "VkFormatProperties3KHR": {
-                        "linearTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ],
-                        "optimalTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ]
-                    }
-                },
-                "VK_FORMAT_R8_SINT": {
-                    "VkFormatProperties3KHR": {
-                        "linearTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ],
-                        "optimalTilingFeatures": [
-                            "VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT_KHR", "VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT_KHR"
-                        ]
-                    }
-                }
-            }
-        },
-        "d3d12_level_12_0_global_read_without_format": {
-            "extensions": {
-            },
-            "features": {
-                "VkPhysicalDeviceFeatures": {
-                    "shaderStorageImageReadWithoutFormat": true
-                }
-            }
-        },
         "d3d12_level_12_1": {
             "extensions": {
                 "VK_EXT_conservative_rasterization": 1
             }
         },
+        "d3d12_level_12_2_min_shading_rate_8": {
+            "properties": {
+                "VkPhysicalDeviceFragmentShadingRatePropertiesKHR": {
+                    "minFragmentShadingRateAttachmentTexelSize": {
+                        "width": 8,
+                        "height": 8,
+                    }
+                } 
+            }
+        },
+        "d3d12_level_12_2_min_shading_rate_16": {
+            "properties": {
+                "VkPhysicalDeviceFragmentShadingRatePropertiesKHR": {
+                    "minFragmentShadingRateAttachmentTexelSize": {
+                        "width": 16,
+                        "height": 16,
+                    }
+                } 
+            }
+        },
+        "d3d12_level_12_2_min_shading_rate_32": {
+            "properties": {
+                "VkPhysicalDeviceFragmentShadingRatePropertiesKHR": {
+                    "minFragmentShadingRateAttachmentTexelSize":  {
+                        "width": 32,
+                        "height": 32,
+                    }
+                } 
+            }
+        },
+        "d3d12_level_12_2_max_shading_rate_8": {
+            "properties": {
+                "VkPhysicalDeviceFragmentShadingRatePropertiesKHR": {
+                    "maxFragmentShadingRateAttachmentTexelSize":  {
+                        "width": 8,
+                        "height": 8,
+                    }
+                } 
+            }
+        },
+        "d3d12_level_12_2_max_shading_rate_16": {
+            "properties": {
+                "VkPhysicalDeviceFragmentShadingRatePropertiesKHR": {
+                    "maxFragmentShadingRateAttachmentTexelSize": {
+                        "width": 16,
+                        "height": 16,
+                    }
+                } 
+            }
+        },
+        "d3d12_level_12_2_max_shading_rate_32": {
+            "properties": {
+                "VkPhysicalDeviceFragmentShadingRatePropertiesKHR": {
+                    "maxFragmentShadingRateAttachmentTexelSize": {
+                        "width": 32,
+                        "height": 32,
+                    }
+                } 
+            }
+        },
         "d3d12_level_12_2": {
             "extensions": {
-                "VK_EXT_descriptor_indexing": 1,
                 "VK_EXT_shader_viewport_index_layer": 1,
                 "VK_KHR_ray_tracing_pipeline": 1,
                 "VK_KHR_acceleration_structure": 1,
-                "VK_KHR_ray_query": 1
+                "VK_KHR_ray_query": 1,
+                "VK_EXT_mesh_shader": 1
             },
             "features": {
                 "VkPhysicalDeviceFeatures": {
@@ -376,7 +358,7 @@
                     "depthBounds": true,
                     "sparseResidencyImage3D": true
                 },
-                "VkPhysicalDeviceDescriptorIndexingFeaturesEXT": {
+                "VkPhysicalDeviceVulkan12Features": {
                     "descriptorBindingStorageImageUpdateAfterBind": true,
                     "descriptorBindingStorageTexelBufferUpdateAfterBind": true,
                     "shaderStorageImageArrayNonUniformIndexing": true,
@@ -391,25 +373,40 @@
                 },
                 "VkPhysicalDeviceRayQueryFeaturesKHR": {
                     "rayQuery": true
+                },
+                "VkPhysicalDeviceFragmentShadingRateFeaturesKHR": {
+                    "attachmentFragmentShadingRate": true,
+                    "pipelineFragmentShadingRate": true
+                },
+                "VkPhysicalDeviceMeshShaderFeaturesEXT": {
+                    "meshShader": true,
+                    "taskShader": true
                 }
             },
             "properties": {
                 "VkPhysicalDeviceProperties": {
+                    "limits": {
+                        "framebufferColorSampleCounts": [ "VK_SAMPLE_COUNT_2_BIT" ]
+                    },
                     "sparseProperties": {
                         "residencyStandard3DBlockShape": true
                     }
                 },
-                "VkPhysicalDeviceDescriptorIndexingPropertiesEXT": {
+                "VkPhysicalDeviceVulkan12Properties": {
                     "maxPerStageDescriptorUpdateAfterBindStorageImages": 1000000
                 },
                 "VkPhysicalDeviceConservativeRasterizationPropertiesEXT": {
-                    "degenerateTrianglesRasterized": true
+                    "degenerateTrianglesRasterized": true,
+                    "fullyCoveredFragmentShaderInputVariable": true
                 },
                 "VkPhysicalDeviceRayTracingPipelinePropertiesKHR": {
-                    "maxRayHitAttributeSize": 0,
-                    "shaderGroupHandleSize": 0,
-                    "shaderGroupBaseAlignment": 0,
-                    "shaderGroupHandleAlignment": 0
+                    "maxRayHitAttributeSize": 32,
+                    "shaderGroupHandleSize": 32,
+                    "shaderGroupBaseAlignment": 64,
+                    "shaderGroupHandleAlignment": 32
+                },
+                "VkPhysicalDeviceFragmentShadingRatePropertiesKHR": {
+                    "fragmentShadingRateNonTrivialCombinerOps": true
                 }
             },
             "formats": {
@@ -445,6 +442,10 @@
                     "VkFormatProperties": {
                         "bufferFeatures": [ "VK_FORMAT_FEATURE_ACCELERATION_STRUCTURE_VERTEX_BUFFER_BIT_KHR" ]                    }
                 },
+                "VK_FORMAT_A2B10G10R10_UNORM_PACK32": {
+                    "VkFormatProperties": {
+                        "bufferFeatures": [ "VK_FORMAT_FEATURE_ACCELERATION_STRUCTURE_VERTEX_BUFFER_BIT_KHR" ]                    }
+                },
                 "VK_FORMAT_R8G8B8A8_UNORM": {
                     "VkFormatProperties": {
                         "bufferFeatures": [ "VK_FORMAT_FEATURE_ACCELERATION_STRUCTURE_VERTEX_BUFFER_BIT_KHR" ]                    }
@@ -471,42 +472,8 @@
                 }
             ]
         },
-        "d3d12_level_12_2_update_after_uniform": {
-            "extensions": {
-                "VK_EXT_descriptor_indexing": 1
-            },
-            "features": {
-                "VkPhysicalDeviceDescriptorIndexingFeaturesEXT": {
-                    "descriptorBindingUniformBufferUpdateAfterBind": true,
-                    "shaderUniformBufferArrayNonUniformIndexing": true
-                }
-            },
-            "properties": {
-                "VkPhysicalDeviceDescriptorIndexingPropertiesEXT": {
-                    "maxPerStageDescriptorUpdateAfterBindStorageImages": 1000000
-                }
-            },
-        },
-        "d3d12_level_12_2_update_after_storage": {
-            "extensions": {
-                "VK_EXT_descriptor_indexing": 1
-            },
-            "features": {
-                "VkPhysicalDeviceDescriptorIndexingFeaturesEXT": {
-                    "descriptorBindingStorageBufferUpdateAfterBind": true,
-                    "shaderStorageBufferArrayNonUniformIndexing": true
-                }
-            },
-            "properties": {
-                "VkPhysicalDeviceDescriptorIndexingPropertiesEXT": {
-                    "maxPerStageDescriptorUpdateAfterBindStorageImages": 1000000
-                }
-            },
-        },
         "d3d12_level_12_2_sm6_0": {
             "extensions": {
-                "VK_KHR_shader_float_controls": 1,
-                "VK_KHR_uniform_buffer_standard_layout": 1,
                 "VK_EXT_scalar_block_layout": 1
             },
             "features": {
@@ -518,7 +485,7 @@
                 }
             },
             "properties": {
-                "VkPhysicalDeviceFloatControlsPropertiesKHR": {
+                "VkPhysicalDeviceVulkan12Properties": {
                     "shaderDenormFlushToZeroFloat32": true,
                     "shaderDenormPreserveFloat32": true
                 },
@@ -531,11 +498,8 @@
             }
         },
         "d3d12_level_12_2_sm6_2_32_bit_only": {
-            "extensions": {
-                "VK_KHR_shader_float_controls": 1
-            },
             "properties": {
-                "VkPhysicalDeviceFloatControlsPropertiesKHR": {
+                "VkPhysicalDeviceVulkan12Properties": {
                     "denormBehaviorIndependence": "VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY",
                     "shaderDenormFlushToZeroFloat32": true,
                     "shaderDenormPreserveFloat32": true
@@ -543,11 +507,8 @@
             }
         },
         "d3d12_level_12_2_sm6_2_32_all": {
-            "extensions": {
-                "VK_KHR_shader_float_controls": 1
-            },
             "properties": {
-                "VkPhysicalDeviceFloatControlsPropertiesKHR": {
+                "VkPhysicalDeviceVulkan12Properties": {
                     "denormBehaviorIndependence": "VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_ALL",
                     "shaderDenormFlushToZeroFloat32": true,
                     "shaderDenormPreserveFloat32": true
@@ -555,119 +516,177 @@
             }
         },
         "d3d12_level_12_2_sm6_2_32_bit_only_nv": {
-            "extensions": {
-                "VK_KHR_shader_float_controls": 1
-            },
             "properties": {
                 "VkPhysicalDeviceProperties": {
                     "vendorID": 4318
                 },
-                "VkPhysicalDeviceFloatControlsPropertiesKHR": {
+                "VkPhysicalDeviceVulkan12Properties": {
                     "denormBehaviorIndependence": "VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY"
                 }
             }
         },
         "d3d12_level_12_2_sm6_2_32_all_nv": {
-            "extensions": {
-                "VK_KHR_shader_float_controls": 1
-            },
             "properties": {
                 "VkPhysicalDeviceProperties": {
                     "vendorID": 4318
                 },
-                "VkPhysicalDeviceFloatControlsPropertiesKHR": {
+                "VkPhysicalDeviceVulkan12Properties": {
                     "denormBehaviorIndependence": "VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_ALL"
                 }
             }
         },
-        "d3d12_level_12_2_sm6_3": {
-            "extensions": {
-                "VK_KHR_spirv_1_4": 1
-            }
-        },
         "d3d12_level_12_2_sm6_6": {
             "extensions": {
-                "VK_NV_compute_shader_derivatives": 1,
-                "VK_KHR_shader_atomic_int64": 1,
-                "VK_EXT_shader_demote_to_helper_invocation": 1,
-                "VK_KHR_shader_float16_int8": 1,
-                "VK_EXT_subgroup_size_control": 1
+                "VK_NV_compute_shader_derivatives": 1
             },
             "features": {
-                "VkPhysicalDeviceComputeShaderDerivativesFeaturesNV": {
-                    "computeDerivativeGroupLinear": true
-                },
-                "VkPhysicalDeviceShaderAtomicInt64FeaturesKHR": {
+                "VkPhysicalDeviceVulkan12Features": {
+                    "shaderInt8": true,
                     "shaderBufferInt64Atomics": true
                 },
-                "VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT": {
-                    "shaderDemoteToHelperInvocation": true
-                },
-                "VkPhysicalDeviceShaderFloat16Int8FeaturesKHR": {
-                    "shaderInt8": true
-                },
-                "VkPhysicalDeviceSubgroupSizeControlFeaturesEXT": {
-                    "subgroupSizeControl": true,
-                    "computeFullSubgroups": true
+                "VkPhysicalDeviceComputeShaderDerivativesFeaturesNV": {
+                    "computeDerivativeGroupLinear": true
                 }
             },
             "properties": {
-                "VkPhysicalDeviceSubgroupSizeControlPropertiesEXT": {
+                "VkPhysicalDeviceVulkan13Properties": {
                     "requiredSubgroupSizeStages": ["VK_SHADER_STAGE_COMPUTE_BIT"]
                 }
             }
-        },
+        }
     },
     "profiles": {
         "VP_VKD3D_d3d12_level_11_0_baseline": {
             "version": 1,
-            "api-version": "1.2.197",
+            "api-version": "1.3.204",
             "label": "VKD3D D3D12 Level 11.0 Baseline profile",
             "description": "VKD3D for D3D12 Feature Level 11.0 minimum requirements",
             "capabilities": [
                 "vulkan10requirements",
                 "vulkan11requirements",
+                "vulkan12requirements",
+                "vulkan13requirements",
+                "vulkan_min_requirements",
                 "d3d12_level_11_0",
-                ["d3d12_level_11_0_bindless_uniform", "d3d12_level_11_0_bindless_storage"]
+                "d3d12_level_11_0_descriptor_sets"
+            ]
+        },
+        "VP_VKD3D_d3d12_level_11_0_optimal": {
+            "version": 1,
+            "api-version": "1.3.235",
+            "label": "VKD3D D3D12 Level 11.0 Optimal profile",
+            "description": "VKD3D for D3D12 Feature Level 11.0 requirements for optimal performance",
+            "capabilities": [
+                "vulkan10requirements",
+                "vulkan11requirements",
+                "vulkan12requirements",
+                "vulkan13requirements",
+                "vulkan_min_requirements",
+                "d3d12_level_11_0",
+                "d3d12_level_11_0_descriptor_buffers",
+                ["d3d12_level_11_0_mutable_descriptor_type_valve", "d3d12_level_11_0_mutable_descriptor_type_ext"]
             ]
         },
         "VP_VKD3D_d3d12_level_11_1_baseline": {
             "version": 1,
-            "api-version": "1.2.197",
+            "api-version": "1.3.204",
             "label": "VKD3D D3D12 Level 11.1 Baseline profile",
             "description": "VKD3D for D3D12 Feature Level 11.1 minimum requirements",
             "capabilities": [
                 "vulkan10requirements",
                 "vulkan11requirements",
+                "vulkan12requirements",
+                "vulkan13requirements",
+                "vulkan_min_requirements",
                 "d3d12_level_11_0",
-                ["d3d12_level_11_0_bindless_uniform", "d3d12_level_11_0_bindless_storage"],
+                "d3d12_level_11_0_descriptor_sets",
+                "d3d12_level_11_1",
+            ]
+        },
+        "VP_VKD3D_d3d12_level_11_1_optimal": {
+            "version": 1,
+            "api-version": "1.3.235",
+            "label": "VKD3D D3D12 Level 11.1 Optimal profile",
+            "description": "VKD3D for D3D12 Feature Level 11.1 requirements for optimal performance",
+            "capabilities": [
+                "vulkan10requirements",
+                "vulkan11requirements",
+                "vulkan12requirements",
+                "vulkan13requirements",
+                "vulkan_min_requirements",
+                "d3d12_level_11_0",
+                "d3d12_level_11_0_descriptor_buffers",
+                ["d3d12_level_11_0_mutable_descriptor_type_valve", "d3d12_level_11_0_mutable_descriptor_type_ext"],
                 "d3d12_level_11_1",
             ]
         },
         "VP_VKD3D_d3d12_level_12_0_baseline": {
             "version": 1,
-            "api-version": "1.2.197",
+            "api-version": "1.3.204",
             "label": "VKD3D D3D12 Level 12.0 Baseline profile",
-            "description": "VKD3D for D3D12 Feature Level 11.0 minimum requirements",
+            "description": "VKD3D for D3D12 Feature Level 12.0 minimum requirements",
             "capabilities": [
                 "vulkan10requirements",
                 "vulkan11requirements",
+                "vulkan12requirements",
+                "vulkan13requirements",
+                "vulkan_min_requirements",
                 "d3d12_level_11_0",
-                ["d3d12_level_11_0_bindless_uniform", "d3d12_level_11_0_bindless_storage"],
+                "d3d12_level_11_0_descriptor_sets",
+                "d3d12_level_11_1",
+                "d3d12_level_12_0"
+            ]
+        },
+        "VP_VKD3D_d3d12_level_12_0_optimal": {
+            "version": 1,
+            "api-version": "1.3.235",
+            "label": "VKD3D D3D12 Level 12.0 Optimal profile",
+            "description": "VKD3D for D3D12 Feature Level 12.0 requirements for optimal performance",
+            "capabilities": [
+                "vulkan10requirements",
+                "vulkan11requirements",
+                "vulkan12requirements",
+                "vulkan13requirements",
+                "vulkan_min_requirements",
+                "d3d12_level_11_0",
+                "d3d12_level_11_0_descriptor_buffers",
+                ["d3d12_level_11_0_mutable_descriptor_type_valve", "d3d12_level_11_0_mutable_descriptor_type_ext"],
                 "d3d12_level_11_1",
                 "d3d12_level_12_0"
             ]
         },
         "VP_VKD3D_d3d12_level_12_1_baseline": {
             "version": 1,
-            "api-version": "1.2.197",
-            "label": "VKD3D D3D12 Level 12.0 Baseline profile",
-            "description": "VKD3D for D3D12 Feature Level 11.0 minimum requirements",
+            "api-version": "1.3.204",
+            "label": "VKD3D D3D12 Level 12.1 Baseline profile",
+            "description": "VKD3D for D3D12 Feature Level 12.1 minimum requirements",
             "capabilities": [
                 "vulkan10requirements",
                 "vulkan11requirements",
+                "vulkan12requirements",
+                "vulkan13requirements",
+                "vulkan_min_requirements",
                 "d3d12_level_11_0",
-                ["d3d12_level_11_0_bindless_uniform", "d3d12_level_11_0_bindless_storage"],
+                "d3d12_level_11_0_descriptor_sets",
+                "d3d12_level_11_1",
+                "d3d12_level_12_0",
+                "d3d12_level_12_1"
+            ]
+        },
+        "VP_VKD3D_d3d12_level_12_1_optimal": {
+            "version": 1,
+            "api-version": "1.3.235",
+            "label": "VKD3D D3D12 Level 12.1 Optimal profile",
+            "description": "VKD3D for D3D12 Feature Level 12.1 requirements for optimal performance",
+            "capabilities": [
+                "vulkan10requirements",
+                "vulkan11requirements",
+                "vulkan12requirements",
+                "vulkan13requirements",
+                "vulkan_min_requirements",
+                "d3d12_level_11_0",
+                "d3d12_level_11_0_descriptor_buffers",
+                ["d3d12_level_11_0_mutable_descriptor_type_valve", "d3d12_level_11_0_mutable_descriptor_type_ext"],
                 "d3d12_level_11_1",
                 "d3d12_level_12_0",
                 "d3d12_level_12_1"
@@ -675,23 +694,49 @@
         },
         "VP_VKD3D_d3d12_level_12_2_baseline": {
             "version": 1,
-            "api-version": "1.2.197",
+            "api-version": "1.3.204",
             "label": "VKD3D D3D12 Level 12.2 Baseline profile",
             "description": "VKD3D for D3D12 Feature Level 12.2 minimum requirements",
             "capabilities": [
                 "vulkan10requirements",
                 "vulkan11requirements",
+                "vulkan12requirements",
+                "vulkan13requirements",
+                "vulkan_min_requirements",
                 "d3d12_level_11_0",
-                [ "d3d12_level_11_0_bindless_uniform", "d3d12_level_11_0_bindless_storage" ],
+                "d3d12_level_11_0_descriptor_sets",
                 "d3d12_level_11_1",
                 "d3d12_level_12_0",
-                [ "d3d12_level_12_0_properties3_read_without_format", "d3d12_level_12_0_global_read_without_format" ],
                 "d3d12_level_12_1",
                 "d3d12_level_12_2",
-                [ "d3d12_level_12_2_update_after_uniform", "d3d12_level_12_2_update_after_storage" ],
                 "d3d12_level_12_2_sm6_0",
                 [ "d3d12_level_12_2_sm6_2_32_bit_only", "d3d12_level_12_2_sm6_2_32_all", "d3d12_level_12_2_sm6_2_32_bit_only_nv", "d3d12_level_12_2_sm6_2_32_all_nv" ],
-                "d3d12_level_12_2_sm6_3"
+                [ "d3d12_level_12_2_min_shading_rate_8", "d3d12_level_12_2_min_shading_rate_16", "d3d12_level_12_2_min_shading_rate_32" ],
+                [ "d3d12_level_12_2_max_shading_rate_8", "d3d12_level_12_2_max_shading_rate_16", "d3d12_level_12_2_max_shading_rate_32" ]
+            ]
+        },
+        "VP_VKD3D_d3d12_level_12_2_optimal": {
+            "version": 1,
+            "api-version": "1.3.235",
+            "label": "VKD3D D3D12 Level 12.2 Optimal profile",
+            "description": "VKD3D for D3D12 Feature Level 12.2 requirements for optimal performance",
+            "capabilities": [
+                "vulkan10requirements",
+                "vulkan11requirements",
+                "vulkan12requirements",
+                "vulkan13requirements",
+                "vulkan_min_requirements",
+                "d3d12_level_11_0",
+                "d3d12_level_11_0_descriptor_buffers",
+                [ "d3d12_level_11_0_mutable_descriptor_type_valve", "d3d12_level_11_0_mutable_descriptor_type_ext" ],
+                "d3d12_level_11_1",
+                "d3d12_level_12_0",
+                "d3d12_level_12_1",
+                "d3d12_level_12_2",
+                "d3d12_level_12_2_sm6_0",
+                [ "d3d12_level_12_2_sm6_2_32_bit_only", "d3d12_level_12_2_sm6_2_32_all", "d3d12_level_12_2_sm6_2_32_bit_only_nv", "d3d12_level_12_2_sm6_2_32_all_nv" ],
+                [ "d3d12_level_12_2_min_shading_rate_8", "d3d12_level_12_2_min_shading_rate_16", "d3d12_level_12_2_min_shading_rate_32" ],
+                [ "d3d12_level_12_2_max_shading_rate_8", "d3d12_level_12_2_max_shading_rate_16", "d3d12_level_12_2_max_shading_rate_32" ]
             ]
         }
     },
