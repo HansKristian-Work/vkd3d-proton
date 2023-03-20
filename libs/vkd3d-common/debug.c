@@ -148,14 +148,16 @@ enum vkd3d_dbg_level vkd3d_dbg_get_level(enum vkd3d_dbg_channel channel)
 
 void vkd3d_dbg_printf(enum vkd3d_dbg_channel channel, enum vkd3d_dbg_level level, const char *function, const char *fmt, ...)
 {
-    FILE *log_file = vkd3d_log_file ? vkd3d_log_file : stderr;
     static spinlock_t spin;
     unsigned int tid;
+    FILE *log_file;
     va_list args;
 
     if (vkd3d_dbg_get_level(channel) < level)
         return;
     assert(level < ARRAY_SIZE(debug_level_names));
+
+    log_file = vkd3d_log_file ? vkd3d_log_file : stderr;
 
     va_start(args, fmt);
     tid = vkd3d_get_current_thread_id();
