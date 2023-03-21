@@ -1801,6 +1801,14 @@ static VkShaderStageFlags vkd3d_pipeline_state_desc_get_shader_stages(const stru
     if (desc->cs.BytecodeLength && desc->cs.pShaderBytecode)
         result |= VK_SHADER_STAGE_COMPUTE_BIT;
 
+    /* If we use rasterizer discard, force fragment shader to not exist.
+     * Required for VUID 06894. */
+    if (desc->stream_output.NumEntries &&
+            desc->stream_output.RasterizedStream == D3D12_SO_NO_RASTERIZED_STREAM)
+    {
+        result &= ~VK_SHADER_STAGE_FRAGMENT_BIT;
+    }
+
     return result;
 }
 
