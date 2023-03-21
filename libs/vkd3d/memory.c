@@ -1639,6 +1639,19 @@ static inline bool vkd3d_driver_implicitly_clears(VkDriverId driver_id)
     }
 }
 
+bool vkd3d_allocate_image_memory_prefers_dedicated(struct d3d12_device *device,
+        D3D12_HEAP_FLAGS heap_flags, const VkMemoryRequirements *requirements)
+{
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_DEDICATED_IMAGE_ALLOCATION)
+        return true;
+
+    /* If we don't need to sub-allocate, and we don't need to clear any buffers
+     * there is no need to allocate a GLOBAL_BUFFER. */
+    return requirements->size >= VKD3D_VA_BLOCK_SIZE &&
+            (vkd3d_driver_implicitly_clears(device->device_info.vulkan_1_2_properties.driverID) ||
+                    (heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED));
+}
+
 HRESULT vkd3d_allocate_memory(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
         const struct vkd3d_allocate_memory_info *info, struct vkd3d_memory_allocation *allocation)
 {

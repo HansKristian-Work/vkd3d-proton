@@ -2901,7 +2901,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
             allocation = &object->mem;
         }
 
-        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_DEDICATED_IMAGE_ALLOCATION)
+        if (vkd3d_allocate_image_memory_prefers_dedicated(device, heap_flags, &allocate_info.memory_requirements))
             dedicated_requirements.prefersDedicatedAllocation = VK_TRUE;
 
         if (!(use_dedicated_allocation = dedicated_requirements.prefersDedicatedAllocation))
