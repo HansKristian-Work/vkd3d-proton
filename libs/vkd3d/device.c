@@ -1249,13 +1249,16 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
 
     /* NV 525.x drivers and 530.x are affected by this bug. Not all users are affected,
      * but there is no known workaround for this. */
-    if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
+    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS))
     {
-        WARN("Disabling VK_KHR_present_wait on NV drivers due to spurious failure to create swapchains.\n");
-        device->vk_info.KHR_present_wait = false;
-        device->vk_info.KHR_present_id = false;
-        device->device_info.present_wait_features.presentWait = false;
-        device->device_info.present_id_features.presentId = false;
+        if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
+        {
+            WARN("Disabling VK_KHR_present_wait on NV drivers due to spurious failure to create swapchains.\n");
+            device->vk_info.KHR_present_wait = false;
+            device->vk_info.KHR_present_id = false;
+            device->device_info.present_wait_features.presentWait = false;
+            device->device_info.present_id_features.presentId = false;
+        }
     }
 }
 
