@@ -7237,6 +7237,8 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
         return E_OUTOFMEMORY;
     }
 
+    memset(object, 0, sizeof(*object));
+
     if (FAILED(hr = d3d12_device_init(object, instance, create_info)))
     {
         vkd3d_free_aligned(object);
