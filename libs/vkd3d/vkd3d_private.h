@@ -636,6 +636,7 @@ struct vkd3d_allocate_memory_info
     void *host_ptr;
     const void *pNext;
     uint32_t flags;
+    VkBufferUsageFlags explicit_global_buffer_usage;
     VkMemoryPropertyFlags optional_memory_properties;
 };
 
@@ -690,6 +691,7 @@ struct vkd3d_memory_allocation
     D3D12_HEAP_TYPE heap_type;
     D3D12_HEAP_FLAGS heap_flags;
     uint32_t flags;
+    VkBufferUsageFlags explicit_global_buffer_usage;
 
     uint64_t clear_semaphore_value;
 

@@ -2957,6 +2957,10 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
              * be cleared to zero, which only works if we allow buffers */
             allocate_info.heap_flags &= ~D3D12_HEAP_FLAG_DENY_BUFFERS;
             allocate_info.flags = VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER;
+
+            /* For suballocations, we only care about being able to clear the memory,
+             * not anything else. */
+            allocate_info.explicit_global_buffer_usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
         }
 
         if (FAILED(hr = vkd3d_allocate_memory(device, &device->memory_allocator, &allocate_info, allocation)))
