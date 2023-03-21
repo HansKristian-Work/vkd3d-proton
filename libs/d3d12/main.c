@@ -38,6 +38,7 @@
 #include "vkd3d_debug.h"
 #include "vkd3d_threads.h"
 #include "vkd3d_string.h"
+#include "vkd3d_platform.h"
 
 /* We need to specify the __declspec(dllexport) attribute
  * on MinGW because otherwise the stdcall aliases/fixups
@@ -54,11 +55,7 @@
 
 static pthread_once_t library_once = PTHREAD_ONCE_INIT;
 
-#ifdef _WIN32
-static HMODULE d3d12core_module = NULL;
-#else
-static void *d3d12core_module = NULL;
-#endif
+static vkd3d_module_t d3d12core_module = NULL;
 
 static IVKD3DCoreInterface* core = NULL;
 
@@ -68,16 +65,11 @@ static bool load_d3d12core_module(const char *module_name)
     {
         PFN_D3D12_GET_INTERFACE d3d12core_D3D12GetInterface = NULL;
 
-#ifdef _WIN32
-        if ((d3d12core_module = LoadLibraryA(module_name)))
-            d3d12core_D3D12GetInterface = (PFN_D3D12_GET_INTERFACE)(void *)GetProcAddress(d3d12core_module, "D3D12GetInterface");
-#else
         /* We link directly to d3d12core, however we still need to dlopen + dlsym
          * as both shared libraries export D3D12GetInterface, so we need to do this
          * to avoid confusing the linker. */
-        if ((d3d12core_module = dlopen(module_name, RTLD_NOW)))
-            d3d12core_D3D12GetInterface = (PFN_D3D12_GET_INTERFACE)dlsym(d3d12core_module, "D3D12GetInterface");
-#endif
+        if ((d3d12core_module = vkd3d_dlopen(module_name)))
+            d3d12core_D3D12GetInterface = (PFN_D3D12_GET_INTERFACE)vkd3d_dlsym(d3d12core_module, "D3D12GetInterface");
 
         if (!d3d12core_D3D12GetInterface)
         {
@@ -95,13 +87,8 @@ static bool load_d3d12core_module(const char *module_name)
 
 fail:
     core = NULL;
-#ifdef _WIN32
     if (d3d12core_module)
-        FreeLibrary(d3d12core_module);
-#else
-    if (d3d12core_module)
-        dlclose(d3d12core_module);
-#endif
+        vkd3d_dlclose(d3d12core_module);
     d3d12core_module = NULL;
     return false;
 }
