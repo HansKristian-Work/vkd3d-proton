@@ -37,6 +37,7 @@
 #include "vkd3d_atomic.h"
 #include "vkd3d_debug.h"
 #include "vkd3d_threads.h"
+#include "vkd3d_string.h"
 
 /* We need to specify the __declspec(dllexport) attribute
  * on MinGW because otherwise the stdcall aliases/fixups
@@ -61,34 +62,72 @@ static void *d3d12core_module = NULL;
 
 static IVKD3DCoreInterface* core = NULL;
 
-static void load_d3d12core_once(void)
+static bool load_d3d12core_module(const char *module_name)
 {
     if (!d3d12core_module)
     {
         PFN_D3D12_GET_INTERFACE d3d12core_D3D12GetInterface = NULL;
 
 #ifdef _WIN32
-        if ((d3d12core_module = LoadLibraryA(SONAME_D3D12CORE)))
+        if ((d3d12core_module = LoadLibraryA(module_name)))
             d3d12core_D3D12GetInterface = (PFN_D3D12_GET_INTERFACE)(void *)GetProcAddress(d3d12core_module, "D3D12GetInterface");
 #else
         /* We link directly to d3d12core, however we still need to dlopen + dlsym
          * as both shared libraries export D3D12GetInterface, so we need to do this
          * to avoid confusing the linker. */
-        if ((d3d12core_module = dlopen(SONAME_D3D12CORE, RTLD_NOW)))
+        if ((d3d12core_module = dlopen(module_name, RTLD_NOW)))
             d3d12core_D3D12GetInterface = (PFN_D3D12_GET_INTERFACE)dlsym(d3d12core_module, "D3D12GetInterface");
 #endif
 
         if (!d3d12core_D3D12GetInterface)
         {
             WARN("Did not find d3d12core implementation.\n");
-            return;
+            goto fail;
         }
 
         if (FAILED(d3d12core_D3D12GetInterface(&CLSID_VKD3DCore, &IID_IVKD3DCoreInterface, (void**)&core)))
         {
-            ERR("Failed to find vkd3d-proton d3d12core interfaces. Make sure d3d12core.dll is installed as well. WINEDLLOVERRIDES=d3d12core=b may be needed.\n");
-            core = NULL;
+            goto fail;
         }
+
+        return true;
+    }
+
+fail:
+    core = NULL;
+#ifdef _WIN32
+    if (d3d12core_module)
+        FreeLibrary(d3d12core_module);
+#else
+    if (d3d12core_module)
+        dlclose(d3d12core_module);
+#endif
+    d3d12core_module = NULL;
+    return false;
+}
+
+static void load_d3d12core_once(void)
+{
+    bool ret;
+
+    ret = load_d3d12core_module(SONAME_D3D12CORE);
+#ifdef _WIN32
+    if (!ret)
+    {
+        /* Fallback to loading directly from the system32 dir, to handle
+         * the case where a game ships a D3D12Core.dll next to
+         * their executable. */
+        char buf[PATH_MAX];
+        GetSystemDirectoryA(buf, sizeof(buf));
+        vkd3d_strlcat(buf, sizeof(buf), "\\" SONAME_D3D12CORE);
+
+        ret = load_d3d12core_module(buf);
+    }
+#endif
+
+    if (!ret)
+    {
+        ERR("Failed to find vkd3d-proton d3d12core interfaces. Make sure " SONAME_D3D12CORE " is installed as well.\n");
     }
 }
 
