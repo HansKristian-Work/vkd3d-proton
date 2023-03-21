@@ -76,5 +76,22 @@ static inline bool vkd3d_string_compare(enum vkd3d_string_compare_mode mode, con
     }
 }
 
+static inline void vkd3d_strlcpy(char *dst, size_t dst_size, const char *src)
+{
+    if (dst_size > 0)
+    {
+        strncpy(dst, src, dst_size - 1);
+        dst[dst_size - 1] = '\0';
+    }
+}
+
+static inline void vkd3d_strlcat(char *dst, size_t dst_size, const char *src)
+{
+    if (dst_size > 0)
+    {
+        strncat(dst, src, dst_size - 1);
+        dst[dst_size - 1] = '\0';
+    }
+}
 
 #endif /* __VKD3D_STRING_H */
