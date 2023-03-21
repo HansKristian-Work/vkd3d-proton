@@ -1067,6 +1067,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     VkBindBufferMemoryInfo bind_info;
     void *host_ptr = info->host_ptr;
     uint32_t type_mask;
+    bool request_bda;
     VkResult vr;
     HRESULT hr;
 
@@ -1076,6 +1077,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     allocation->heap_type = info->heap_properties.Type;
     allocation->heap_flags = info->heap_flags;
     allocation->flags = info->flags;
+    allocation->explicit_global_buffer_usage = info->explicit_global_buffer_usage;
 
     /* This also sort of validates the heap description,
      * so we want to do this before creating any objects */
@@ -1090,12 +1092,29 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
 
     if (allocation->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER)
     {
-        /* If requested, create a buffer covering the entire allocation
-         * and derive the exact memory requirements from that. Any buffer
-         * resources are just going to use this buffer with an offset. */
-        if (FAILED(hr = vkd3d_create_global_buffer(device, info->memory_requirements.size,
-                &info->heap_properties, info->heap_flags, &allocation->resource.vk_buffer)))
-            return hr;
+        if (info->explicit_global_buffer_usage)
+        {
+            /* If we only need specific buffer usages (used purely to clear memory for example),
+             * we can relax buffer usage and help tools. If we only use TRANSFER usage, it's trivial
+             * to prove if a VkBuffer has ever been used. With BDA and bindless, not so much ... */
+            if (FAILED(hr = vkd3d_create_buffer_explicit_usage(device,
+                    info->explicit_global_buffer_usage,
+                    info->memory_requirements.size,
+                    &allocation->resource.vk_buffer)))
+                return hr;
+
+            request_bda = !!(info->explicit_global_buffer_usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+        }
+        else
+        {
+            request_bda = true;
+            /* If requested, create a buffer covering the entire allocation
+             * and derive the exact memory requirements from that. Any buffer
+             * resources are just going to use this buffer with an offset. */
+            if (FAILED(hr = vkd3d_create_global_buffer(device, info->memory_requirements.size,
+                    &info->heap_properties, info->heap_flags, &allocation->resource.vk_buffer)))
+                return hr;
+        }
 
         VK_CALL(vkGetBufferMemoryRequirements(device->vk_device,
                 allocation->resource.vk_buffer, &memory_requirements));
@@ -1107,6 +1126,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
         /* Respect existing memory requirements since there may not
          * be any buffer resource to get memory requirements from. */
         memory_requirements = info->memory_requirements;
+        assert(!info->explicit_global_buffer_usage);
     }
 
     /* If an allocation is a dedicated fallback allocation,
@@ -1121,7 +1141,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     flags_info.pNext = info->pNext;
     flags_info.flags = 0;
 
-    if (allocation->resource.vk_buffer)
+    if (allocation->resource.vk_buffer && request_bda)
     {
         allocation->flags |= VKD3D_ALLOCATION_FLAG_GPU_ADDRESS;
         flags_info.flags |= VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
@@ -1207,6 +1227,9 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
         /* Assign GPU address as necessary. */
         if (allocation->flags & VKD3D_ALLOCATION_FLAG_GPU_ADDRESS)
         {
+            assert(allocation->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER);
+            assert(request_bda);
+
             if (FAILED(hr = vkd3d_allocation_assign_gpu_address(allocation, device, allocator)))
             {
                 vkd3d_memory_allocation_free(allocation, device, allocator);
@@ -1496,7 +1519,9 @@ void vkd3d_memory_allocator_cleanup(struct vkd3d_memory_allocator *allocator, st
 
 static HRESULT vkd3d_memory_allocator_try_add_chunk(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, uint32_t type_mask,
-        VkMemoryPropertyFlags optional_properties, struct vkd3d_memory_chunk **chunk)
+        VkMemoryPropertyFlags optional_properties,
+        VkBufferUsageFlags explicit_global_buffer_usage,
+        struct vkd3d_memory_chunk **chunk)
 {
     struct vkd3d_allocate_memory_info alloc_info;
     struct vkd3d_memory_chunk *object;
@@ -1512,7 +1537,10 @@ static HRESULT vkd3d_memory_allocator_try_add_chunk(struct vkd3d_memory_allocato
     alloc_info.optional_memory_properties = optional_properties;
 
     if (!(heap_flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
+    {
         alloc_info.flags |= VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER;
+        alloc_info.explicit_global_buffer_usage = explicit_global_buffer_usage;
+    }
 
     if (!vkd3d_array_reserve((void**)&allocator->chunks, &allocator->chunks_size,
             allocator->chunks_count + 1, sizeof(*allocator->chunks)))
@@ -1532,6 +1560,7 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
         struct d3d12_device *device, const VkMemoryRequirements *memory_requirements, uint32_t type_mask,
         VkMemoryPropertyFlags optional_properties,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        VkBufferUsageFlags explicit_global_buffer_usage,
         struct vkd3d_memory_allocation *allocation)
 {
     const D3D12_HEAP_FLAGS heap_flag_mask = ~(D3D12_HEAP_FLAG_CREATE_NOT_ZEROED | D3D12_HEAP_FLAG_CREATE_NOT_RESIDENT);
@@ -1548,6 +1577,7 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
         /* Match flags since otherwise the backing buffer
          * may not support our required usage flags */
         if (chunk->allocation.heap_type != heap_properties->Type ||
+                chunk->allocation.explicit_global_buffer_usage != explicit_global_buffer_usage ||
                 chunk->allocation.heap_flags != (heap_flags & heap_flag_mask))
             continue;
 
@@ -1562,7 +1592,8 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
     /* Try allocating a new chunk on one of the supported memory type
      * before the caller falls back to potentially slower memory */
     if (FAILED(hr = vkd3d_memory_allocator_try_add_chunk(allocator, device, heap_properties,
-            heap_flags & heap_flag_mask, type_mask, optional_properties, &chunk)))
+            heap_flags & heap_flag_mask, type_mask, optional_properties,
+            explicit_global_buffer_usage, &chunk)))
         return hr;
 
     return vkd3d_memory_chunk_allocate_range(chunk, memory_requirements, allocation);
@@ -1598,7 +1629,7 @@ static HRESULT vkd3d_suballocate_memory(struct d3d12_device *device, struct vkd3
     uint32_t required_mask, optional_mask;
     VkMemoryPropertyFlags type_flags;
     HRESULT hr;
-    
+
     if (FAILED(hr = vkd3d_select_memory_flags(device, &info->heap_properties, &type_flags)))
         return hr;
 
@@ -1610,14 +1641,15 @@ static HRESULT vkd3d_suballocate_memory(struct d3d12_device *device, struct vkd3
 
     hr = vkd3d_memory_allocator_try_suballocate_memory(allocator, device,
             &memory_requirements, optional_mask, 0, &info->heap_properties,
-            info->heap_flags, allocation);
+            info->heap_flags, info->explicit_global_buffer_usage, allocation);
 
     if (FAILED(hr) && (required_mask & ~optional_mask))
     {
         hr = vkd3d_memory_allocator_try_suballocate_memory(allocator, device,
                 &memory_requirements, required_mask & ~optional_mask,
                 optional_flags,
-                &info->heap_properties, info->heap_flags, allocation);
+                &info->heap_properties, info->heap_flags, info->explicit_global_buffer_usage,
+                allocation);
     }
 
     pthread_mutex_unlock(&allocator->mutex);
