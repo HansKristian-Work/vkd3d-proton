@@ -2991,6 +2991,7 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     rwlock_destroy(&device->fragment_output_lock);
     rwlock_destroy(&device->vertex_input_lock);
     pthread_mutex_destroy(&device->mutex);
+    pthread_mutex_destroy(&device->global_submission_mutex);
     if (device->parent)
         IUnknown_Release(device->parent);
     vkd3d_instance_decref(device->vkd3d_instance);
@@ -6971,14 +6972,21 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
         hr = hresult_from_errno(rc);
         goto out_free_instance;
     }
-    
+
+    if ((rc = pthread_mutex_init(&device->global_submission_mutex, NULL)))
+    {
+        ERR("Failed to initialize mutex, error %d.\n", rc);
+        hr = hresult_from_errno(rc);
+        goto out_free_mutex;
+    }
+
     device->ID3D12DeviceExt_iface.lpVtbl = &d3d12_device_vkd3d_ext_vtbl;
     device->ID3D12DXVKInteropDevice_iface.lpVtbl = &d3d12_dxvk_interop_device_vtbl;
 
     if ((rc = rwlock_init(&device->vertex_input_lock)))
     {
         hr = hresult_from_errno(rc);
-        goto out_free_mutex;
+        goto out_free_global_submission_mutex;
     }
 
     if ((rc = rwlock_init(&device->fragment_output_lock)))
@@ -7105,6 +7113,8 @@ out_free_fragment_output_lock:
     rwlock_destroy(&device->fragment_output_lock);
 out_free_vertex_input_lock:
     rwlock_destroy(&device->vertex_input_lock);
+out_free_global_submission_mutex:
+    pthread_mutex_destroy(&device->global_submission_mutex);
 out_free_mutex:
     pthread_mutex_destroy(&device->mutex);
     return hr;

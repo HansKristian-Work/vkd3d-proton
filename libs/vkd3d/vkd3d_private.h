@@ -2777,6 +2777,9 @@ struct vkd3d_queue
     /* Access to VkQueue must be externally synchronized. */
     pthread_mutex_t mutex;
 
+    /* If not NULL, lock a shared mutex as well. */
+    pthread_mutex_t *global_mutex;
+
     VkQueue vk_queue;
 
     VkCommandPool barrier_pool;
@@ -4044,6 +4047,7 @@ struct d3d12_device
     struct vkd3d_vk_device_procs vk_procs;
 
     pthread_mutex_t mutex;
+    pthread_mutex_t global_submission_mutex;
 
     VkPhysicalDeviceMemoryProperties memory_properties;
 
