@@ -1321,6 +1321,10 @@ struct d3d12_descriptor_heap_set
 
 struct d3d12_descriptor_heap
 {
+    /* Used by special optimizations where we can take advantage of knowledge of the binding model
+     * without awkward lookups. Optimized vtable overrides define what these pointers mean. */
+    void *fast_pointer_bank[3];
+
     ID3D12DescriptorHeap ID3D12DescriptorHeap_iface;
     LONG refcount;
 
