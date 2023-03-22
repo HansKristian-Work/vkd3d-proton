@@ -334,3 +334,4 @@ decl_test(test_memory_model_uav_coherence_thread_group_dxil);
 decl_test(test_rasterizer_ordered_views_dxbc);
 decl_test(test_rasterizer_ordered_views_dxil);
 decl_test(test_vtable_origins);
+decl_test(test_concurrent_signal_stress);

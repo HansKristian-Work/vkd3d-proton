@@ -1607,3 +1607,83 @@ void test_fence_wait_multiple_shared(void)
     skip("Shared fences not supported on native Linux build.\n");
 #endif
 }
+
+static void test_concurrent_signal_stress_inner(void)
+{
+    ID3D12CommandQueue *queue1, *queue2;
+    struct test_context context;
+    ID3D12Fence *fences[4];
+    unsigned int iteration;
+    UINT64 fence_values[4];
+    ID3D12Device1 *device1;
+    bool wait_success;
+    unsigned int i;
+    HANDLE event;
+    HRESULT hr;
+
+    event = create_event();
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device1, (void**)&device1);
+    queue1 = create_command_queue(context.device, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
+    queue2 = create_command_queue(context.device, D3D12_COMMAND_LIST_TYPE_COMPUTE, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL);
+
+    for (i = 0; i < ARRAY_SIZE(fences); i++)
+    {
+        hr = ID3D12Device_CreateFence(context.device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void**)&fences[i]);
+        ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", hr);
+        fence_values[i] = 0;
+    }
+
+    for (iteration = 0; iteration < 10; iteration++)
+    {
+        for (i = 0; i < 2; i++)
+        {
+            fence_values[0] += 3;
+            queue_signal(queue1, fences[0], fence_values[0]);
+            fence_values[0] += 4;
+            queue_signal(queue1, fences[0], fence_values[0]);
+            fence_values[1] += 5;
+            queue_signal(queue2, fences[1], fence_values[1]);
+            fence_values[2] += 6;
+            queue_signal(queue1, fences[2], fence_values[2]);
+            fence_values[3] += 7;
+            queue_signal(queue2, fences[3], fence_values[3]);
+        }
+
+        hr = ID3D12Device1_SetEventOnMultipleFenceCompletion(device1,
+                fences, fence_values, 4, D3D12_MULTIPLE_FENCE_WAIT_FLAG_ALL, event);
+        ok(SUCCEEDED(hr), "Failed to set event hr #%x.\n", hr);
+
+        wait_success = wait_event(event, 1000) == WAIT_OBJECT_0;
+
+        ok(wait_success, "Failed to wait for event. GPU likely hung.\n");
+        if (!wait_success)
+            goto err;
+    }
+
+    for (i = 0; i < ARRAY_SIZE(fences); i++)
+        wait_for_fence(fences[i], fence_values[i]);
+
+err:
+    ID3D12CommandQueue_Release(queue1);
+    ID3D12CommandQueue_Release(queue2);
+    for (i = 0; i < ARRAY_SIZE(fences); i++)
+        ID3D12Fence_Release(fences[i]);
+    ID3D12Device1_Release(device1);
+    destroy_event(event);
+    destroy_test_context(&context);
+}
+
+void test_concurrent_signal_stress(void)
+{
+    unsigned int i;
+    for (i = 0; i < 100; i++)
+    {
+        vkd3d_test_set_context("Test %u", i);
+        test_concurrent_signal_stress_inner();
+    }
+    vkd3d_test_set_context(NULL);
+}
