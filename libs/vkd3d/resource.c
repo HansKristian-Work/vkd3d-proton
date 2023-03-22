@@ -6978,6 +6978,7 @@ static void d3d12_descriptor_heap_add_null_descriptor_template_descriptors(
 static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descriptor_heap,
         struct d3d12_device *device, const D3D12_DESCRIPTOR_HEAP_DESC *desc)
 {
+    uint32_t fast_bank_pointer_index = 0;
     unsigned int i;
     HRESULT hr;
 
@@ -7020,6 +7021,15 @@ static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descript
 
                 d3d12_descriptor_heap_get_host_mapping(descriptor_heap, set_info, set_info->set_index);
 
+                /* For special fast paths of descriptor copies
+                 * (e.g. d3d12_device_CopyDescriptorsSimple_descriptor_buffer_16_16_4),
+                 * we can store the mapped pointers in a convenient location. */
+                if (fast_bank_pointer_index < ARRAY_SIZE(descriptor_heap->fast_pointer_bank) - 1)
+                {
+                    descriptor_heap->fast_pointer_bank[fast_bank_pointer_index++] =
+                            descriptor_heap->sets[set_info->set_index].mapped_set;
+                }
+
                 if (descriptor_heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV &&
                         !d3d12_device_use_embedded_mutable_descriptors(device))
                 {
@@ -7034,6 +7044,9 @@ static HRESULT d3d12_descriptor_heap_init(struct d3d12_descriptor_heap *descript
 
     if (FAILED(hr = d3d12_descriptor_heap_init_data_buffer(descriptor_heap, device, desc)))
         goto fail;
+
+    if (desc->Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+        descriptor_heap->fast_pointer_bank[fast_bank_pointer_index++] = descriptor_heap->raw_va_aux_buffer.host_ptr;
 
     if (desc->Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE)
         d3d12_descriptor_heap_update_extra_bindings(descriptor_heap, device);
