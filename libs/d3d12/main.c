@@ -104,7 +104,7 @@ static void load_d3d12core_once(void)
         /* Fallback to loading directly from the system32 dir, to handle
          * the case where a game ships a D3D12Core.dll next to
          * their executable. */
-        char buf[PATH_MAX];
+        char buf[VKD3D_PATH_MAX];
         GetSystemDirectoryA(buf, sizeof(buf));
         vkd3d_strlcat(buf, sizeof(buf), "\\" SONAME_D3D12CORE);
 
