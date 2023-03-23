@@ -2183,6 +2183,8 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     if (d3d12_device_uses_descriptor_buffers(object->device))
         pipeline_create_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
 
+    TRACE("Calling vkCreateRayTracingPipelinesKHR.\n");
+
     vr = VK_CALL(vkCreateRayTracingPipelinesKHR(object->device->vk_device, VK_NULL_HANDLE,
             VK_NULL_HANDLE, 1, &pipeline_create_info, NULL,
             (pipeline_create_info.flags & VK_PIPELINE_CREATE_LIBRARY_BIT_KHR) ?
@@ -2204,6 +2206,8 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
         vr = VK_CALL(vkCreateRayTracingPipelinesKHR(object->device->vk_device, VK_NULL_HANDLE,
                 VK_NULL_HANDLE, 1, &pipeline_create_info, NULL, &object->pipeline));
     }
+
+    TRACE("Completed vkCreateRayTracingPipelinesKHR.\n");
 
     if (vr)
         return hresult_from_vk_result(vr);
