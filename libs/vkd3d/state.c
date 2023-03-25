@@ -4710,6 +4710,21 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
         if (FAILED(hr = vkd3d_create_pipeline_cache_from_d3d12_desc(device, desc_cached_pso, &object->vk_pso_cache)))
             ERR("Failed to create pipeline cache, hr %d.\n", hr);
 
+    /* By using our own VkPipelineCache, drivers will generally not cache pipelines internally in memory.
+     * For games that spam an extreme number of pipelines only to serialize them to pipeline libraries and then
+     * release the pipeline state, we will run into memory issues on memory constrained systems since a driver might
+     * be tempted to keep several gigabytes of PSO binaries live in memory.
+     * A workaround (pilfered from Fossilize) is to create our own pipeline cache and destroy it.
+     * Ideally there would be a flag to disable in-memory caching (but retain on-disk cache),
+     * but that's extremely specific, so do what we gotta do. */
+    if (!object->vk_pso_cache &&
+            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE) &&
+            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_CURB_MEMORY_PSO_CACHE))
+    {
+        if (vkd3d_create_pipeline_cache(device, 0, NULL, &object->vk_pso_cache) != VK_SUCCESS)
+            object->vk_pso_cache = VK_NULL_HANDLE;
+    }
+
     if (SUCCEEDED(hr))
     {
         switch (bind_point)
@@ -4792,6 +4807,14 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
          * so we should serialize this to internal disk cache.
          * Pushes work to disk$ thread. */
         vkd3d_pipeline_library_store_pipeline_to_disk_cache(&device->disk_cache, object);
+    }
+
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_CURB_MEMORY_PSO_CACHE) &&
+            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE))
+    {
+        /* Throw the pipeline cache away immediately. Tricks drivers into not retaining the PSO in memory cache. */
+        VK_CALL(vkDestroyPipelineCache(device->vk_device, object->vk_pso_cache, NULL));
+        object->vk_pso_cache = VK_NULL_HANDLE;
     }
 
     TRACE("Created pipeline state %p.\n", object);
