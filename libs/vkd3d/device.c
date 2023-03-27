@@ -598,6 +598,8 @@ static void vkd3d_instance_apply_application_workarounds(void)
     if (!vkd3d_get_program_name(app))
         return;
 
+    INFO("Program name: \"%s\"\n", app);
+
     for (i = 0; i < ARRAY_SIZE(application_override); i++)
     {
         if (vkd3d_string_compare(application_override[i].mode, app, application_override[i].name))
