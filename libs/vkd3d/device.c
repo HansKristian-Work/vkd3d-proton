@@ -517,6 +517,9 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Dead Space.exe", VKD3D_CONFIG_FLAG_FORCE_DEDICATED_IMAGE_ALLOCATION, 0 },
     /* Witcher 3 (2023) (292030) */
     { VKD3D_STRING_COMPARE_EXACT, "witcher3.exe", VKD3D_CONFIG_FLAG_SIMULTANEOUS_UAV_SUPPRESS_COMPRESSION, 0 },
+    /* The Last of Us - Part 1 (1888930) */
+    { VKD3D_STRING_COMPARE_EXACT, "tlou-i.exe", VKD3D_CONFIG_FLAG_CURB_MEMORY_PSO_CACHE, 0 },
+    { VKD3D_STRING_COMPARE_EXACT, "tlou-i-l.exe", VKD3D_CONFIG_FLAG_CURB_MEMORY_PSO_CACHE, 0 },
     { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
 };
 
