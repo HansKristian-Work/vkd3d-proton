@@ -5973,7 +5973,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource3(d3d12_dev
 {
     FIXME("iface %p, heap_properties %p, heap_flags %u, desc %p, initial_layout %u, "
             "optimized_clear_value %p, protected_session %p, num_castable_formats %u, "
-            "castable_formats %p, iid %s, resource %p stub!\n", iface, 
+            "castable_formats %p, iid %s, resource %p stub!\n", iface,
             heap_properties, heap_flags, desc, initial_layout, optimized_clear_value, 
             protected_session, num_castable_formats, castable_formats, debugstr_guid(iid), resource);
 
@@ -5987,7 +5987,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource2(d3d12_device
 {
     FIXME("iface %p, heap %p, heap_offset %#"PRIx64", desc %p, initial_layout %u, optimized_clear_value %p, "
             "num_castable_formats %u, castable_formats %p, iid %s, resource %p stub!\n", iface,
-            heap_offset, desc, initial_layout, optimized_clear_value, num_castable_formats, 
+            heap, heap_offset, desc, initial_layout, optimized_clear_value, num_castable_formats,
             castable_formats, debugstr_guid(iid), resource);
 
     return E_NOTIMPL;
@@ -5998,9 +5998,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource2(d3d12_devi
     ID3D12ProtectedResourceSession *protected_session, UINT32 num_castable_formats,
     DXGI_FORMAT *castable_formats, REFIID iid, void **resource)
 {
-    FIXME("iface %p, desc %p initial_layout %u, optimized_clear_value %p, protected_session %p, "
+    FIXME("iface %p, desc %p, initial_layout %u, optimized_clear_value %p, protected_session %p, "
             "num_castable_formats %u, castable_formats %p, iid %s, resource %p stub!\n", iface,
-            initial_layout, optimized_clear_value, protected_session, num_castable_formats, 
+            desc, initial_layout, optimized_clear_value, protected_session, num_castable_formats,
             castable_formats, debugstr_guid(iid), resource);
 
     return E_NOTIMPL;
