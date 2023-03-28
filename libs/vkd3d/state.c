@@ -4717,9 +4717,14 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
      * A workaround (pilfered from Fossilize) is to create our own pipeline cache and destroy it.
      * Ideally there would be a flag to disable in-memory caching (but retain on-disk cache),
      * but that's extremely specific, so do what we gotta do. */
+
+    /* Mesa's internal cache can bloat indefinitely, so workaround it as needed for now.
+     * TODO: Find a better solution. */
     if (!object->vk_pso_cache &&
             (vkd3d_config_flags & VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE) &&
-            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_CURB_MEMORY_PSO_CACHE))
+            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_CURB_MEMORY_PSO_CACHE) &&
+            !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS) &&
+            device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV)
     {
         if (vkd3d_create_pipeline_cache(device, 0, NULL, &object->vk_pso_cache) != VK_SUCCESS)
             object->vk_pso_cache = VK_NULL_HANDLE;
@@ -4810,7 +4815,9 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
     }
 
     if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_CURB_MEMORY_PSO_CACHE) &&
-            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE))
+            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE) &&
+            !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS) &&
+            device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV)
     {
         /* Throw the pipeline cache away immediately. Tricks drivers into not retaining the PSO in memory cache. */
         VK_CALL(vkDestroyPipelineCache(device->vk_device, object->vk_pso_cache, NULL));
