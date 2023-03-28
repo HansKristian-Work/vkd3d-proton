@@ -273,12 +273,12 @@ static bool vkd3d_memory_transfer_queue_wait_semaphore(struct vkd3d_memory_trans
 
 static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_transfer_queue *queue)
 {
-    const VkPipelineStageFlags vk_stage_mask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
     const struct vkd3d_vk_device_procs *vk_procs = &queue->device->vk_procs;
     const struct vkd3d_subresource_layout *subresource_layout;
     VkCopyBufferToImageInfo2 buffer_to_image_copy;
     struct vkd3d_queue_family_info *queue_family;
-    VkTimelineSemaphoreSubmitInfo timeline_info;
+    VkSemaphoreSubmitInfo signal_semaphore_info;
+    VkCommandBufferSubmitInfo cmd_buffer_info;
     struct vkd3d_format_footprint footprint;
     VkCommandBufferBeginInfo begin_info;
     VkImageMemoryBarrier image_barrier;
@@ -287,7 +287,7 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
     VkBufferImageCopy2 copy_region;
     VkCommandBuffer vk_cmd_buffer;
     VkDeviceSize buffer_offset;
-    VkSubmitInfo submit_info;
+    VkSubmitInfo2 submit_info;
     bool need_transition;
     uint32_t plane_idx;
     VkQueue vk_queue;
@@ -400,24 +400,27 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
         return hresult_from_vk_result(vr);
     }
 
-
     if (!(vk_queue = vkd3d_queue_acquire(queue->vkd3d_queue)))
         return E_FAIL;
 
-    memset(&timeline_info, 0, sizeof(timeline_info));
-    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-    timeline_info.signalSemaphoreValueCount = 1;
-    timeline_info.pSignalSemaphoreValues = &queue->next_signal_value;
+    memset(&cmd_buffer_info, 0, sizeof(cmd_buffer_info));
+    cmd_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+    cmd_buffer_info.commandBuffer = vk_cmd_buffer;
+
+    memset(&signal_semaphore_info, 0, sizeof(signal_semaphore_info));
+    signal_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    signal_semaphore_info.semaphore = queue->vk_semaphore;
+    signal_semaphore_info.value = queue->next_signal_value;
+    signal_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 
     memset(&submit_info, 0, sizeof(submit_info));
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.pNext = &timeline_info;
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &vk_cmd_buffer;
-    submit_info.signalSemaphoreCount = 1;
-    submit_info.pSignalSemaphores = &queue->vk_semaphore;
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submit_info.commandBufferInfoCount = 1;
+    submit_info.pCommandBufferInfos = &cmd_buffer_info;
+    submit_info.signalSemaphoreInfoCount = 1;
+    submit_info.pSignalSemaphoreInfos = &signal_semaphore_info;
 
-    vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
+    vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
     vkd3d_queue_release(queue->vkd3d_queue);
 
     VKD3D_DEVICE_REPORT_BREADCRUMB_IF(queue->device, vr == VK_ERROR_DEVICE_LOST);
@@ -429,18 +432,6 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
     }
 
     /* Stall future submissions on other queues until the clear has finished */
-    memset(&timeline_info, 0, sizeof(timeline_info));
-    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-    timeline_info.waitSemaphoreValueCount = 1;
-    timeline_info.pWaitSemaphoreValues = &queue->next_signal_value;
-
-    memset(&submit_info, 0, sizeof(submit_info));
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.pNext = &timeline_info;
-    submit_info.waitSemaphoreCount = 1;
-    submit_info.pWaitSemaphores = &queue->vk_semaphore;
-    submit_info.pWaitDstStageMask = &vk_stage_mask;
-
     queue_mask = queue->device->unique_queue_mask;
 
     while (queue_mask)
