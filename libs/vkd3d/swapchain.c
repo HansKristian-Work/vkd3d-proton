@@ -1431,26 +1431,26 @@ static bool request_needs_swapchain_recreation(const struct dxgi_vk_swap_chain_p
 static void dxgi_vk_swap_chain_present_signal_blit_semaphore(struct dxgi_vk_swap_chain *chain)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
-    VkTimelineSemaphoreSubmitInfo timeline_info;
-    VkSubmitInfo submit_info;
+    VkSemaphoreSubmitInfo signal_semaphore_info;
+    VkSubmitInfo2 submit_info;
     VkQueue vk_queue;
     VkResult vr;
 
     chain->present.blit_count += 1;
 
-    memset(&submit_info, 0, sizeof(submit_info));
-    memset(&timeline_info, 0, sizeof(timeline_info));
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.pNext = &timeline_info;
-    submit_info.pSignalSemaphores = &chain->present.vk_blit_semaphore;
-    submit_info.signalSemaphoreCount = 1;
+    memset(&signal_semaphore_info, 0, sizeof(signal_semaphore_info));
+    signal_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    signal_semaphore_info.semaphore = chain->present.vk_blit_semaphore;
+    signal_semaphore_info.value = chain->present.blit_count;
+    signal_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
-    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-    timeline_info.signalSemaphoreValueCount = 1;
-    timeline_info.pSignalSemaphoreValues = &chain->present.blit_count;
+    memset(&submit_info, 0, sizeof(submit_info));
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submit_info.signalSemaphoreInfoCount = 1;
+    submit_info.pSignalSemaphoreInfos = &signal_semaphore_info;
 
     vk_queue = vkd3d_queue_acquire(chain->queue->vkd3d_queue);
-    vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
+    vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
     vkd3d_queue_release(chain->queue->vkd3d_queue);
 
     if (vr)
@@ -1602,10 +1602,12 @@ static bool dxgi_vk_swap_chain_submit_blit(struct dxgi_vk_swap_chain *chain, uin
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     VkDevice vk_device = chain->queue->device->vk_device;
     VkSemaphoreCreateInfo semaphore_create_info;
+    VkSemaphoreSubmitInfo signal_semaphore_info;
     VkCommandBufferAllocateInfo allocate_info;
+    VkCommandBufferSubmitInfo cmd_buffer_info;
     VkCommandBufferBeginInfo cmd_begin_info;
     VkFenceCreateInfo fence_create_info;
-    VkSubmitInfo submit_info;
+    VkSubmitInfo2 submit_info;
     VkCommandBuffer vk_cmd;
     VkQueue vk_queue;
     VkResult vr;
@@ -1680,15 +1682,24 @@ static bool dxgi_vk_swap_chain_submit_blit(struct dxgi_vk_swap_chain *chain, uin
     dxgi_vk_swap_chain_record_render_pass(chain, vk_cmd, swapchain_index);
     VK_CALL(vkEndCommandBuffer(vk_cmd));
 
+    memset(&signal_semaphore_info, 0, sizeof(signal_semaphore_info));
+    signal_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    signal_semaphore_info.semaphore = chain->present.vk_release_semaphores[swapchain_index];
+    signal_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+    memset(&cmd_buffer_info, 0, sizeof(cmd_buffer_info));
+    cmd_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+    cmd_buffer_info.commandBuffer = vk_cmd;
+
     memset(&submit_info, 0, sizeof(submit_info));
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.pCommandBuffers = &vk_cmd;
-    submit_info.commandBufferCount = 1;
-    submit_info.signalSemaphoreCount = 1;
-    submit_info.pSignalSemaphores = &chain->present.vk_release_semaphores[swapchain_index];
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submit_info.commandBufferInfoCount = 1;
+    submit_info.pCommandBufferInfos = &cmd_buffer_info;
+    submit_info.signalSemaphoreInfoCount = 1;
+    submit_info.pSignalSemaphoreInfos = &signal_semaphore_info;
 
     vk_queue = vkd3d_queue_acquire(chain->queue->vkd3d_queue);
-    vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, chain->present.vk_blit_fences[swapchain_index]));
+    vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, &submit_info, chain->present.vk_blit_fences[swapchain_index]));
     vkd3d_queue_release(chain->queue->vkd3d_queue);
     VKD3D_DEVICE_REPORT_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
     if (vr < 0)
