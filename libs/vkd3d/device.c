@@ -6669,6 +6669,53 @@ static void d3d12_device_caps_init_feature_level(struct d3d12_device *device)
     TRACE("Max feature level: %#x.\n", caps->max_feature_level);
 }
 
+static void d3d12_device_caps_shader_model_override(struct d3d12_device *device)
+{
+    D3D_SHADER_MODEL sm_override = (D3D_SHADER_MODEL)0;
+    char sm_string[VKD3D_PATH_MAX];
+    unsigned int i;
+
+    static const struct
+    {
+        const char *string;
+        D3D_SHADER_MODEL shader_model;
+    }
+    shader_models[] =
+    {
+        { "5_1", D3D_SHADER_MODEL_5_1 },
+        { "6_0", D3D_SHADER_MODEL_6_0 },
+        { "6_1", D3D_SHADER_MODEL_6_1 },
+        { "6_2", D3D_SHADER_MODEL_6_2 },
+        { "6_3", D3D_SHADER_MODEL_6_3 },
+        { "6_4", D3D_SHADER_MODEL_6_4 },
+        { "6_5", D3D_SHADER_MODEL_6_5 },
+        { "6_6", D3D_SHADER_MODEL_6_6 },
+        { "6_7", D3D_SHADER_MODEL_6_7 },
+    };
+
+    if (!vkd3d_get_env_var("VKD3D_SHADER_MODEL", sm_string, sizeof(sm_string)))
+        return;
+
+    for (i = 0; i < ARRAY_SIZE(shader_models); i++)
+    {
+        if (!strcmp(sm_string, shader_models[i].string))
+        {
+            sm_override = shader_models[i].shader_model;
+            break;
+        }
+    }
+
+    if (!sm_override)
+    {
+        WARN("Unrecognized shader model %s.\n", sm_string);
+    }
+    else
+    {
+        device->d3d12_caps.max_shader_model = sm_override;
+        WARN("Overriding supported shader model: %s.\n", sm_string);
+    }
+}
+
 static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
 {
     const struct vkd3d_physical_device_info *physical_device_info = &device->device_info;
@@ -6902,6 +6949,7 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
     d3d12_device_caps_init_feature_options11(device);
     d3d12_device_caps_init_feature_level(device);
 
+    d3d12_device_caps_shader_model_override(device);
     d3d12_device_caps_override(device);
     d3d12_device_caps_override_application(device);
 }
