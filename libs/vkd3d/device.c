@@ -6869,7 +6869,7 @@ static void d3d12_device_caps_override(struct d3d12_device *device)
 
     static const struct
     {
-        const char* string;
+        const char *string;
         D3D_FEATURE_LEVEL feature_level;
     }
     feature_levels[] =
