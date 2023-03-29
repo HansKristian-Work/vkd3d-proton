@@ -2860,7 +2860,7 @@ struct d3d12_command_queue_submission_signal
 
 struct d3d12_command_queue_submission_execute
 {
-    VkCommandBuffer *cmd;
+    VkCommandBufferSubmitInfo *cmd;
     LONG **outstanding_submissions_counters;
     UINT cmd_count;
     UINT outstanding_submissions_counter_count;
