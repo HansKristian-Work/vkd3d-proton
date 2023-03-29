@@ -6543,6 +6543,10 @@ static void d3d12_device_caps_init_feature_options11(struct d3d12_device *device
 
 static void d3d12_device_caps_init_feature_level(struct d3d12_device *device)
 {
+    // Here be dragons. Rather than force DX12 levels of hardware via the environment variable, do our
+    // best with the features we know are actually used. The commented out features will of course
+    // crash if they're still not supported but used at the respective DX12 feature level.
+
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
     const struct vkd3d_vulkan_info *vk_info = &device->vk_info;
     struct d3d12_caps *caps = &device->d3d12_caps;
@@ -6558,23 +6562,23 @@ static void d3d12_device_caps_init_feature_level(struct d3d12_device *device)
             caps->options.TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_2 &&
             caps->options.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_2 &&
             caps->options.TypedUAVLoadAdditionalFormats)
-        caps->max_feature_level = D3D_FEATURE_LEVEL_12_0;
-
-    if (caps->max_feature_level >= D3D_FEATURE_LEVEL_12_0 && caps->options.ROVsSupported &&
-            caps->options.ConservativeRasterizationTier >= D3D12_CONSERVATIVE_RASTERIZATION_TIER_1)
         caps->max_feature_level = D3D_FEATURE_LEVEL_12_1;
+
+    //if (caps->max_feature_level >= D3D_FEATURE_LEVEL_12_0 && caps->options.ROVsSupported &&
+    //        caps->options.ConservativeRasterizationTier >= D3D12_CONSERVATIVE_RASTERIZATION_TIER_1)
+    //    caps->max_feature_level = D3D_FEATURE_LEVEL_12_1;
 
     if (caps->max_feature_level >= D3D_FEATURE_LEVEL_12_1 && caps->max_shader_model >= D3D_SHADER_MODEL_6_5 &&
             caps->options.VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation &&
             caps->options1.WaveOps && caps->options1.Int64ShaderOps && caps->options2.DepthBoundsTestSupported &&
             caps->options3.CopyQueueTimestampQueriesSupported && caps->options3.CastingFullyTypedFormatSupported &&
             caps->options.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_3 &&
-            caps->options.ConservativeRasterizationTier >= D3D12_CONSERVATIVE_RASTERIZATION_TIER_3 &&
+            //caps->options.ConservativeRasterizationTier >= D3D12_CONSERVATIVE_RASTERIZATION_TIER_3 &&
             caps->options.TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_3 &&
-            caps->options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_1 &&
-            caps->options6.VariableShadingRateTier >= D3D12_VARIABLE_SHADING_RATE_TIER_2 &&
-            caps->options7.MeshShaderTier >= D3D12_MESH_SHADER_TIER_1 &&
-            caps->options7.SamplerFeedbackTier >= D3D12_SAMPLER_FEEDBACK_TIER_0_9)
+            //caps->options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_1 &&
+            //caps->options6.VariableShadingRateTier >= D3D12_VARIABLE_SHADING_RATE_TIER_2 &&
+            caps->options7.MeshShaderTier >= D3D12_MESH_SHADER_TIER_1 
+            /* && caps->options7.SamplerFeedbackTier >= D3D12_SAMPLER_FEEDBACK_TIER_0_9 */)
         caps->max_feature_level = D3D_FEATURE_LEVEL_12_2;
 
     TRACE("Max feature level: %#x.\n", caps->max_feature_level);
