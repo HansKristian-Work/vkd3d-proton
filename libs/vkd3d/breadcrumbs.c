@@ -133,7 +133,7 @@ HRESULT vkd3d_breadcrumb_tracer_init(struct vkd3d_breadcrumb_tracer *tracer, str
         resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
 
         if (FAILED(hr = vkd3d_create_buffer(device, &heap_properties, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS,
-                &resource_desc, &tracer->host_buffer)))
+                &resource_desc, VK_VKD3D_TYPE_TRACER_JUICE, &tracer->host_buffer)))
         {
             goto err;
         }

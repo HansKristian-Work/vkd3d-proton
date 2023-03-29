@@ -685,6 +685,7 @@ struct vkd3d_allocate_resource_memory_info
     void *host_ptr;
 };
 
+struct vkd3d_memory_allocation;
 struct vkd3d_view_map;
 
 struct vkd3d_unique_resource
@@ -697,6 +698,8 @@ struct vkd3d_unique_resource
     uint64_t cookie;
     VkDeviceAddress va;
     VkDeviceSize size;
+
+    struct vkd3d_memory_allocation *allocation;
 
     /* This is used to handle views when we cannot bind it to a
      * specific ID3D12Resource, i.e. RTAS. Only allocated as needed. */
@@ -1051,7 +1054,7 @@ HRESULT vkd3d_allocate_internal_buffer_memory(struct d3d12_device *device, VkBuf
         struct vkd3d_device_memory_allocation *allocation);
 HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        const D3D12_RESOURCE_DESC1 *desc, VkBuffer *vk_buffer);
+        const D3D12_RESOURCE_DESC1 *desc, VkVkd3dTypeJUICE vkd3dType, VkBuffer *vk_buffer);
 HRESULT vkd3d_create_buffer_explicit_usage(struct d3d12_device *device,
         VkBufferUsageFlags vk_usage, VkDeviceSize vk_size, VkBuffer *vk_buffer);
 HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,

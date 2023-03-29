@@ -696,7 +696,7 @@ static HRESULT vkd3d_create_global_buffer(struct d3d12_device *device, VkDeviceS
             heap_properties->Type != D3D12_HEAP_TYPE_READBACK)
         resource_desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
-    return vkd3d_create_buffer(device, heap_properties, heap_flags, &resource_desc, vk_buffer);
+    return vkd3d_create_buffer(device, heap_properties, heap_flags, &resource_desc, VK_VKD3D_TYPE_GLOBAL_MEMORY_BUFFER_JUICE, vk_buffer);
 }
 
 void vkd3d_free_device_memory(struct d3d12_device *device, const struct vkd3d_device_memory_allocation *allocation)
@@ -953,6 +953,8 @@ static HRESULT vkd3d_allocation_assign_gpu_address(struct vkd3d_memory_allocatio
         return E_OUTOFMEMORY;
     }
 
+    allocation->resource.allocation = allocation;
+
     /* Internal scratch buffers are not visible to application so we never have to map it back to VkBuffer. */
     if (!(allocation->flags & VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH))
         vkd3d_va_map_insert(&allocator->va_map, &allocation->resource);
@@ -1059,6 +1061,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
         struct vkd3d_memory_allocator *allocator, const struct vkd3d_allocate_memory_info *info)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkD3D12HeapCreateInfoJUICE heap_create_info;
     VkMemoryRequirements memory_requirements;
     VkMemoryAllocateFlagsInfo flags_info;
     VkMemoryPropertyFlags type_flags;
@@ -1114,9 +1117,15 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     if (!(info->flags & VKD3D_ALLOCATION_FLAG_DEDICATED))
         type_mask &= vkd3d_select_memory_types(device, &info->heap_properties, info->heap_flags);
 
+    heap_create_info.sType = VK_STRUCTURE_TYPE_D3D12_HEAP_CREATE_INFO_JUICE;
+    heap_create_info.pNext = info->pNext;
+    heap_create_info.heapType = (VkD3D12HeapTypeJUICE)info->heap_properties.Type;
+    heap_create_info.cpuPageProperty = (VkD3D12CpuPagePropertyJUICE)info->heap_properties.CPUPageProperty;
+    heap_create_info.memoryPool = (VkD3D12MemoryPoolJUICE)info->heap_properties.MemoryPoolPreference;
+
     /* Allocate actual backing storage */
     flags_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
-    flags_info.pNext = info->pNext;
+    flags_info.pNext = &heap_create_info;
     flags_info.flags = 0;
 
     if (allocation->resource.vk_buffer)

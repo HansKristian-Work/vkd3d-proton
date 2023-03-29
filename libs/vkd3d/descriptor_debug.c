@@ -224,7 +224,7 @@ HRESULT vkd3d_descriptor_debug_alloc_global_info(
 
     heap_flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
 
-    if (FAILED(hr = vkd3d_create_buffer(device, &heap_info, heap_flags, &buffer_desc, &global_info->vk_buffer)))
+    if (FAILED(hr = vkd3d_create_buffer(device, &heap_info, heap_flags, &buffer_desc, VK_VKD3D_TYPE_DESCRIPTOR_DEBUG_JUICE, &global_info->vk_buffer)))
     {
         vkd3d_descriptor_debug_free_global_info(global_info, device);
         return hr;
