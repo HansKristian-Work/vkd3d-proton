@@ -13259,12 +13259,12 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
     struct vkd3d_initial_transition *transitions;
     size_t num_transitions, num_command_buffers;
+    VkCommandBufferSubmitInfo *buffers, *buffer;
     struct d3d12_command_queue_submission sub;
     struct d3d12_command_list *cmd_list;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     unsigned int *breadcrumb_indices;
 #endif
-    VkCommandBuffer *buffers;
     LONG **outstanding;
     unsigned int i, j;
     HRESULT hr;
@@ -13344,8 +13344,16 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         InterlockedIncrement(outstanding[i]);
 
         if (cmd_list->vk_init_commands)
-            buffers[j++] = cmd_list->vk_init_commands;
-        buffers[j++] = cmd_list->vk_command_buffer;
+        {
+            buffer = &buffers[j++];
+            buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+            buffer->commandBuffer = cmd_list->vk_init_commands;
+        }
+
+        buffer = &buffers[j++];
+        buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+        buffer->commandBuffer = cmd_list->vk_command_buffer;
+
         if (cmd_list->debug_capture)
             sub.execute.debug_capture = true;
 
@@ -13367,7 +13375,9 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
     /* Append a full GPU barrier between submissions.
      * This command buffer is SIMULTANEOUS_BIT. */
-    buffers[j++] = command_queue->vkd3d_queue->barrier_command_buffer;
+    buffer = &buffers[j++];
+    buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+    buffer->commandBuffer = command_queue->vkd3d_queue->barrier_command_buffer;
 
     if (command_list_count == 1 && num_transitions != 0)
     {
@@ -13992,17 +14002,16 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
 }
 
 static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queue,
-        VkCommandBuffer *cmd, UINT count,
-        VkCommandBuffer transition_cmd, VkSemaphore transition_timeline, uint64_t transition_timeline_value,
+        const VkCommandBufferSubmitInfo *cmd, UINT count,
+        const VkCommandBufferSubmitInfo *transition_cmd,
+        const VkSemaphoreSubmitInfo *transition_semaphore,
         LONG **submission_counters, size_t num_submission_counters,
         bool debug_capture)
 {
-    static const VkPipelineStageFlags wait_stage_mask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
     const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
     struct vkd3d_queue *vkd3d_queue = command_queue->vkd3d_queue;
-    VkTimelineSemaphoreSubmitInfo timeline_submit_info[2];
-    uint64_t submission_timeline_count;
-    VkSubmitInfo submit_desc[2];
+    VkSemaphoreSubmitInfo signal_semaphore_info;
+    VkSubmitInfo2 submit_desc[2];
     uint32_t num_submits;
     VkQueue vk_queue;
     unsigned int i;
@@ -14012,10 +14021,9 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     TRACE("queue %p, command_list_count %u, command_lists %p.\n",
           command_queue, count, cmd);
 
-    memset(timeline_submit_info, 0, sizeof(timeline_submit_info));
     memset(submit_desc, 0, sizeof(submit_desc));
 
-    if (transition_cmd)
+    if (transition_cmd->commandBuffer)
     {
         /* The transition cmd must happen in-order, since with the advanced aliasing model in D3D12,
          * it is enough to separate aliases with an ExecuteCommandLists.
@@ -14024,22 +14032,17 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
          * The clear requirement only exists for render targets. */
         num_submits = 2;
 
-        submit_desc[0].signalSemaphoreCount = 1;
-        submit_desc[0].pSignalSemaphores = &transition_timeline;
-        submit_desc[0].commandBufferCount = 1;
-        submit_desc[0].pCommandBuffers = &transition_cmd;
-
-        timeline_submit_info[0].signalSemaphoreValueCount = 1;
         /* Could use the serializing binary semaphore here,
          * but we need to keep track of the timeline on CPU as well
          * to know when we can reset the barrier command buffer. */
-        timeline_submit_info[0].pSignalSemaphoreValues = &transition_timeline_value;
+        submit_desc[0].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+        submit_desc[0].signalSemaphoreInfoCount = 1;
+        submit_desc[0].pSignalSemaphoreInfos = transition_semaphore;
+        submit_desc[0].commandBufferInfoCount = 1;
+        submit_desc[0].pCommandBufferInfos = transition_cmd;
 
-        submit_desc[1].waitSemaphoreCount = 1;
-        timeline_submit_info[1].waitSemaphoreValueCount = 1;
-        timeline_submit_info[1].pWaitSemaphoreValues = &transition_timeline_value;
-        submit_desc[1].pWaitSemaphores = &transition_timeline;
-        submit_desc[1].pWaitDstStageMask = &wait_stage_mask;
+        submit_desc[1].waitSemaphoreInfoCount = 1;
+        submit_desc[1].pWaitSemaphoreInfos = transition_semaphore;
     }
     else
     {
@@ -14055,25 +14058,17 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         return;
     }
 
-    submit_desc[num_submits - 1].commandBufferCount = count;
-    submit_desc[num_submits - 1].pCommandBuffers = cmd;
+    memset(&signal_semaphore_info, 0, sizeof(signal_semaphore_info));
+    signal_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    signal_semaphore_info.semaphore = vkd3d_queue->submission_timeline;
+    signal_semaphore_info.value = ++vkd3d_queue->submission_timeline_count;
+    signal_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
-    submission_timeline_count = ++vkd3d_queue->submission_timeline_count;
-    submit_desc[num_submits - 1].signalSemaphoreCount = 1;
-    timeline_submit_info[num_submits - 1].signalSemaphoreValueCount = 1;
-    submit_desc[num_submits - 1].pSignalSemaphores = &vkd3d_queue->submission_timeline;
-    timeline_submit_info[num_submits - 1].pSignalSemaphoreValues = &submission_timeline_count;
-
-    for (i = 0; i < num_submits; i++)
-    {
-        submit_desc[i].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-
-        if (submit_desc[i].waitSemaphoreCount || submit_desc[i].signalSemaphoreCount)
-        {
-            timeline_submit_info[i].sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-            submit_desc[i].pNext = &timeline_submit_info[i];
-        }
-    }
+    submit_desc[num_submits - 1].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submit_desc[num_submits - 1].commandBufferInfoCount = count;
+    submit_desc[num_submits - 1].pCommandBufferInfos = cmd;
+    submit_desc[num_submits - 1].signalSemaphoreInfoCount = 1;
+    submit_desc[num_submits - 1].pSignalSemaphoreInfos = &signal_semaphore_info;
 
 #ifdef VKD3D_ENABLE_RENDERDOC
     /* For each submission we have marked to be captured, we will first need to filter it
@@ -14087,7 +14082,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     (void)debug_capture;
 #endif
 
-    if ((vr = VK_CALL(vkQueueSubmit(vk_queue, num_submits, submit_desc, VK_NULL_HANDLE))) < 0)
+    if ((vr = VK_CALL(vkQueueSubmit2(vk_queue, num_submits, submit_desc, VK_NULL_HANDLE))) < 0)
         ERR("Failed to submit queue(s), vr %d.\n", vr);
 
     VKD3D_DEVICE_REPORT_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
@@ -14110,7 +14105,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     {
         if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker,
                 NULL, vkd3d_queue->submission_timeline,
-                submission_timeline_count, false,
+                signal_semaphore_info.value, false,
                 submission_counters, num_submission_counters)))
         {
             ERR("Failed to enqueue timeline semaphore.\n");
@@ -14494,8 +14489,8 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
     struct d3d12_command_queue_submission submission;
     struct d3d12_command_queue_transition_pool pool;
     struct d3d12_command_queue *queue = userdata;
-    uint64_t transition_timeline_value = 0;
-    VkCommandBuffer transition_cmd;
+    VkSemaphoreSubmitInfo transition_semaphore;
+    VkCommandBufferSubmitInfo transition_cmd;
     VKD3D_UNUSED unsigned int i;
     HRESULT hr;
 
@@ -14553,16 +14548,28 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
 
         case VKD3D_SUBMISSION_EXECUTE:
             VKD3D_REGION_BEGIN(queue_execute);
+
+            memset(&transition_cmd, 0, sizeof(transition_cmd));
+            transition_cmd.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+
+            memset(&transition_semaphore, 0, sizeof(transition_semaphore));
+            transition_semaphore.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+            transition_semaphore.semaphore = pool.timeline;
+            transition_semaphore.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
             d3d12_command_queue_transition_pool_build(&pool, queue->device,
                     submission.execute.transitions,
                     submission.execute.transition_count,
-                    &transition_cmd, &transition_timeline_value);
+                    &transition_cmd.commandBuffer,
+                    &transition_semaphore.value);
+
             d3d12_command_queue_execute(queue, submission.execute.cmd,
                     submission.execute.cmd_count,
-                    transition_cmd, pool.timeline, transition_timeline_value,
+                    &transition_cmd, &transition_semaphore,
                     submission.execute.outstanding_submissions_counters,
                     submission.execute.outstanding_submissions_counter_count,
                     submission.execute.debug_capture);
+
             /* command_queue_execute takes ownership of the outstanding_submission_counters allocation.
              * The atomic counters are decremented when the submission is observed to be freed.
              * On error, the counters are freed early, so there is no risk of leak. */
