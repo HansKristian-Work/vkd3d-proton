@@ -4026,7 +4026,8 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
     unsigned int i, j, k, workgroup_count;
     uint32_t resolve_index, entry_offset;
     struct vkd3d_query_gather_args args;
-    VkMemoryBarrier vk_barrier;
+    VkMemoryBarrier2 vk_barrier;
+    VkDependencyInfo dep_info;
     bool result = false;
 
     struct dispatch_entry
@@ -4246,15 +4247,19 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
                 sizeof(struct query_entry) * count, &query_list[i]));
     }
 
-    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    vk_barrier.pNext = NULL;
-    vk_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    vk_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    memset(&vk_barrier, 0, sizeof(vk_barrier));
+    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    vk_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
 
-    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-            VK_PIPELINE_STAGE_TRANSFER_BIT,
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-            0, 1, &vk_barrier, 0, NULL, 0, NULL));
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.memoryBarrierCount = 1;
+    dep_info.pMemoryBarriers = &vk_barrier;
+
+    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
 
     /* Gather virtual query results and store
      * them in the query heap's buffer */
@@ -4286,13 +4291,12 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
         VK_CALL(vkCmdDispatch(list->vk_command_buffer, workgroup_count, 1, 1));
     }
 
-    vk_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    vk_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_TRANSFER_READ_BIT;
 
-    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
-            0, 1, &vk_barrier, 0, NULL, 0, NULL));
+    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
 
     list->pending_queries_count = 0;
     result = true;
