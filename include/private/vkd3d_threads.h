@@ -254,6 +254,7 @@ static inline int condvar_reltime_wait_timeout_seconds(condvar_reltime_t *cond, 
 
 static inline void vkd3d_set_thread_name(const char *name)
 {
+    VKD3D_PROFILE_THREAD_NAME(name);
     (void)name;
 }
 
