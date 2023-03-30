@@ -102,8 +102,9 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device, uint32_t family_index, u
     VkCommandBufferAllocateInfo allocate_info;
     VkCommandPoolCreateInfo pool_create_info;
     VkCommandBufferBeginInfo begin_info;
-    VkMemoryBarrier memory_barrier;
+    VkMemoryBarrier2 memory_barrier;
     struct vkd3d_queue *object;
+    VkDependencyInfo dep_info;
     VkResult vr;
     HRESULT hr;
     int rc;
@@ -170,14 +171,19 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device, uint32_t family_index, u
     VK_CALL(vkBeginCommandBuffer(object->barrier_command_buffer, &begin_info));
 
     /* To avoid unnecessary tracking, just emit a host barrier on every submit. */
-    memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    memory_barrier.pNext = NULL;
-    memory_barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
-    memory_barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_HOST_READ_BIT;
-    VK_CALL(vkCmdPipelineBarrier(object->barrier_command_buffer,
-            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT | VK_PIPELINE_STAGE_HOST_BIT, 0,
-            1, &memory_barrier, 0, NULL, 0, NULL));
+    memset(&memory_barrier, 0, sizeof(memory_barrier));
+    memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    memory_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    memory_barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+    memory_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT | VK_PIPELINE_STAGE_2_HOST_BIT;
+    memory_barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_HOST_READ_BIT;
+
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.memoryBarrierCount = 1;
+    dep_info.pMemoryBarriers = &memory_barrier;
+
+    VK_CALL(vkCmdPipelineBarrier2(object->barrier_command_buffer, &dep_info));
     VK_CALL(vkEndCommandBuffer(object->barrier_command_buffer));
 
     if (FAILED(hr = vkd3d_create_binary_semaphore(device, &object->serializing_binary_semaphore)))
