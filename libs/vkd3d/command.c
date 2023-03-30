@@ -3226,13 +3226,14 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkRenderingAttachmentInfo attachment_info, stencil_attachment_info;
     VkImageLayout initial_layouts[2], final_layouts[2];
-    uint32_t plane_write_mask, image_barrier_count, i;
-    VkImageMemoryBarrier image_barriers[2];
+    VkImageMemoryBarrier2 image_barriers[2];
     VkRenderingInfo rendering_info;
     bool requires_discard_barrier;
-    VkPipelineStageFlags stages;
+    VkPipelineStageFlags2 stages;
+    uint32_t plane_write_mask, i;
+    VkDependencyInfo dep_info;
     bool separate_ds_layouts;
-    VkAccessFlags access;
+    VkAccessFlags2 access;
     bool clear_op;
 
     memset(initial_layouts, 0, sizeof(initial_layouts));
@@ -3357,35 +3358,39 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
 
     if (clear_aspects & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
     {
-        stages = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-        access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        stages = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+        access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
         if (!clear_op || clear_aspects != view->format->vk_aspect_mask)
-            access |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+            access |= VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
     }
     else
     {
-        stages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        access = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        stages = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
 
         if (!clear_op)
-            access |= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+            access |= VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT;
     }
 
-    image_barrier_count = 0;
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.imageMemoryBarrierCount = 0;
+    dep_info.pImageMemoryBarriers = image_barriers;
 
     for (i = 0; i < (separate_ds_layouts ? 2 : 1); i++)
     {
         if (initial_layouts[i] != final_layouts[i])
         {
-            VkImageMemoryBarrier *barrier = &image_barriers[image_barrier_count++];
+            VkImageMemoryBarrier2 *barrier = &image_barriers[dep_info.imageMemoryBarrierCount++];
 
             memset(barrier, 0, sizeof(*barrier));
-            barrier->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            barrier->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
             barrier->srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             barrier->dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             barrier->image = resource->res.vk_image;
-            barrier->srcAccessMask = clear_op ? 0 : access;
+            barrier->srcStageMask = stages;
+            barrier->dstStageMask = stages;
             barrier->dstAccessMask = access;
             barrier->oldLayout = initial_layouts[i];
             barrier->newLayout = final_layouts[i];
@@ -3394,6 +3399,9 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
             barrier->subresourceRange.levelCount = 1;
             barrier->subresourceRange.baseArrayLayer = view->info.texture.layer_idx;
             barrier->subresourceRange.layerCount = view->info.texture.layer_count;
+
+            if (clear_op)
+                barrier->srcAccessMask = access;
 
             if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
             {
@@ -3408,12 +3416,10 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
 
     d3d12_command_list_debug_mark_begin_region(list, "Clear");
 
-    if (image_barrier_count)
+    if (dep_info.imageMemoryBarrierCount)
     {
         VKD3D_BREADCRUMB_TAG("clear-barrier");
-        VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-            stages, stages, 0, 0, NULL, 0, NULL,
-            image_barrier_count, image_barriers));
+        VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
     }
 
     VK_CALL(vkCmdBeginRendering(list->vk_command_buffer, &rendering_info));
