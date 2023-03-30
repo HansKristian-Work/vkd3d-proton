@@ -2794,17 +2794,25 @@ static void d3d12_command_list_clear_attachment_inline(struct d3d12_command_list
 static void d3d12_command_list_resolve_buffer_copy_writes(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkMemoryBarrier vk_barrier;
+    VkMemoryBarrier2 vk_barrier;
+    VkDependencyInfo dep_info;
 
     if (list->tracked_copy_buffer_count)
     {
-        vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-        vk_barrier.pNext = NULL;
-        vk_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        vk_barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
-                1, &vk_barrier, 0, NULL, 0, NULL));
+        memset(&vk_barrier, 0, sizeof(vk_barrier));
+        vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        vk_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        vk_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+
+        memset(&dep_info, 0, sizeof(dep_info));
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.memoryBarrierCount = 1;
+        dep_info.pMemoryBarriers = &vk_barrier;
+
+        VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+
         list->tracked_copy_buffer_count = 0;
     }
 }
