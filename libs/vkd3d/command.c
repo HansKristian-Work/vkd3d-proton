@@ -6348,7 +6348,8 @@ static bool d3d12_command_list_emit_multi_dispatch_indirect_count_state(struct d
     struct vkd3d_multi_dispatch_indirect_state_args args;
     struct vkd3d_scratch_allocation template_scratch;
     VkCommandBuffer vk_patch_cmd_buffer;
-    VkMemoryBarrier vk_barrier;
+    VkMemoryBarrier2 vk_barrier;
+    VkDependencyInfo dep_info;
 
     vkd3d_meta_get_multi_dispatch_indirect_state_pipeline(&list->device->meta_ops, &pipeline_info);
 
@@ -6385,10 +6386,16 @@ static bool d3d12_command_list_emit_multi_dispatch_indirect_count_state(struct d
     args.stride_words = stride / sizeof(uint32_t);
     args.dispatch_offset_words = signature->state_template.compute.dispatch_offset_words;
 
-    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    vk_barrier.pNext = NULL;
-    vk_barrier.srcAccessMask = 0;
-    vk_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.memoryBarrierCount = 1;
+    dep_info.pMemoryBarriers = &vk_barrier;
+
+    memset(&vk_barrier, 0, sizeof(vk_barrier));
+    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
 
     if (!list->execute_indirect.has_observed_transition_to_indirect)
     {
@@ -6397,8 +6404,7 @@ static bool d3d12_command_list_emit_multi_dispatch_indirect_count_state(struct d
         vk_patch_cmd_buffer = list->vk_init_commands;
         if (!list->execute_indirect.has_emitted_indirect_to_compute_barrier)
         {
-            VK_CALL(vkCmdPipelineBarrier(vk_patch_cmd_buffer, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &vk_barrier, 0, NULL, 0, NULL));
+            VK_CALL(vkCmdPipelineBarrier2(vk_patch_cmd_buffer, &dep_info));
             list->execute_indirect.has_emitted_indirect_to_compute_barrier = true;
             list->execute_indirect.has_emitted_indirect_to_compute_cbv_barrier = true;
         }
@@ -6406,8 +6412,7 @@ static bool d3d12_command_list_emit_multi_dispatch_indirect_count_state(struct d
     else
     {
         vk_patch_cmd_buffer = list->vk_command_buffer;
-        VK_CALL(vkCmdPipelineBarrier(vk_patch_cmd_buffer, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &vk_barrier, 0, NULL, 0, NULL));
+        VK_CALL(vkCmdPipelineBarrier2(vk_patch_cmd_buffer, &dep_info));
         d3d12_command_list_invalidate_current_pipeline(list, true);
         d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
     }
@@ -6418,22 +6423,16 @@ static bool d3d12_command_list_emit_multi_dispatch_indirect_count_state(struct d
             pipeline_info.vk_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
             0, sizeof(args), &args));
 
-    VK_CALL(vkCmdPipelineBarrier(vk_patch_cmd_buffer,
-            VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-            0, 1, &vk_barrier, 0, NULL, 0, NULL));
-
     VK_CALL(vkCmdDispatch(vk_patch_cmd_buffer, max_commands, 1, 1));
 
     if (vk_patch_cmd_buffer == list->vk_command_buffer)
     {
-        vk_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        vk_barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_UNIFORM_READ_BIT;
+        vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        vk_barrier.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_UNIFORM_READ_BIT;
 
-        VK_CALL(vkCmdPipelineBarrier(vk_patch_cmd_buffer,
-                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                0, 1, &vk_barrier, 0, NULL, 0, NULL));
+        VK_CALL(vkCmdPipelineBarrier2(vk_patch_cmd_buffer, &dep_info));
     }
 
     VKD3D_BREADCRUMB_COMMAND(EXECUTE_INDIRECT_PATCH_STATE_COMPUTE);
