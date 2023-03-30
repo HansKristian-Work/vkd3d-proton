@@ -4797,7 +4797,8 @@ static HRESULT d3d12_command_list_batch_reset_query_pools(struct d3d12_command_l
 static HRESULT d3d12_command_list_build_init_commands(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkMemoryBarrier barrier;
+    VkDependencyInfo dep_info;
+    VkMemoryBarrier2 barrier;
     VkResult vr;
     HRESULT hr;
 
@@ -4809,21 +4810,26 @@ static HRESULT d3d12_command_list_build_init_commands(struct d3d12_command_list 
 
     if (list->execute_indirect.has_emitted_indirect_to_compute_barrier)
     {
-        VkPipelineStageFlags dst_stages = VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
         /* We've patched an indirect command stream here, so do the final barrier now. */
-        barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-        barrier.pNext = NULL;
-        barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+        memset(&barrier, 0, sizeof(barrier));
+        barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        barrier.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+        barrier.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
 
         if (list->execute_indirect.has_emitted_indirect_to_compute_cbv_barrier)
         {
-            barrier.dstAccessMask |= VK_ACCESS_UNIFORM_READ_BIT;
-            dst_stages |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+            barrier.dstAccessMask |= VK_ACCESS_2_UNIFORM_READ_BIT;
+            barrier.dstStageMask |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         }
 
-        VK_CALL(vkCmdPipelineBarrier(list->vk_init_commands, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                dst_stages, 0, 1, &barrier, 0, NULL, 0, NULL));
+        memset(&dep_info, 0, sizeof(dep_info));
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.memoryBarrierCount = 1;
+        dep_info.pMemoryBarriers = &barrier;
+
+        VK_CALL(vkCmdPipelineBarrier2(list->vk_init_commands, &dep_info));
     }
 
     if ((vr = VK_CALL(vkEndCommandBuffer(list->vk_init_commands))) < 0)
