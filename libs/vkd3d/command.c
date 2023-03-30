@@ -3703,7 +3703,8 @@ static void d3d12_command_list_flush_subresource_updates(struct d3d12_command_li
     struct vkd3d_format_footprint footprint;
     VkCopyImageToBufferInfo2 copy_info;
     VkBufferImageCopy2 copy_region;
-    VkMemoryBarrier barrier;
+    VkDependencyInfo dep_info;
+    VkMemoryBarrier2 barrier;
     uint32_t i, plane_idx;
 
     if (!list->subresource_tracking_count)
@@ -3712,15 +3713,19 @@ static void d3d12_command_list_flush_subresource_updates(struct d3d12_command_li
     /* Images may not be in COMMON state anymore by the time the subresource
      * updates get resolved, however we should still perform the update. Emit
      * a full barrier to reduce the amount of tracking needed. */
-    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    barrier.pNext = NULL;
-    barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+    memset(&barrier, 0, sizeof(barrier));
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+    barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_TRANSFER_READ_BIT;
 
-    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-            VK_PIPELINE_STAGE_TRANSFER_BIT,
-            0, 1, &barrier, 0, NULL, 0, NULL));
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.memoryBarrierCount = 1;
+    dep_info.pMemoryBarriers = &barrier;
+
+    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
 
     for (i = 0; i < list->subresource_tracking_count; i++)
     {
