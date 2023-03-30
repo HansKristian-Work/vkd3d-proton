@@ -3470,24 +3470,25 @@ static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_l
         struct d3d12_resource *resource, const VkImageSubresourceRange *subresources, bool is_bound)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkImageMemoryBarrier barrier;
-    VkPipelineStageFlags stages;
-    VkAccessFlags access;
+    VkImageMemoryBarrier2 barrier;
+    VkPipelineStageFlags2 stages;
+    VkDependencyInfo dep_info;
+    VkAccessFlags2 access;
     VkImageLayout layout;
 
     /* Ignore read access bits since reads will be undefined anyway */
     if ((list->type == D3D12_COMMAND_LIST_TYPE_DIRECT) &&
             (resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET))
     {
-        stages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        access = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        stages = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
         layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     }
     else if ((list->type == D3D12_COMMAND_LIST_TYPE_DIRECT) &&
             (resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
     {
-        stages = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-        access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        stages = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+        access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
         layout = is_bound && list->dsv_layout ?
                 list->dsv_layout :
                 d3d12_command_list_get_depth_stencil_resource_layout(list, resource, NULL);
@@ -3495,7 +3496,7 @@ static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_l
     else if (resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
     {
         stages = vk_queue_shader_stages(list->device, list->vk_queue_flags);
-        access = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+        access = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT;
         layout = VK_IMAGE_LAYOUT_GENERAL;
     }
     else
@@ -3505,10 +3506,11 @@ static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_l
     }
 
     /* With separate depth stencil layouts, we can only discard the aspect we care about. */
-
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.pNext = NULL;
+    memset(&barrier, 0, sizeof(barrier));
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    barrier.srcStageMask = stages;
     barrier.srcAccessMask = access;
+    barrier.dstStageMask = stages;
     barrier.dstAccessMask = access;
     barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     barrier.newLayout = layout;
@@ -3517,8 +3519,12 @@ static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_l
     barrier.image = resource->res.vk_image;
     barrier.subresourceRange = *subresources;
 
-    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-        stages, stages, 0, 0, NULL, 0, NULL, 1, &barrier));
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.imageMemoryBarrierCount = 1;
+    dep_info.pImageMemoryBarriers = &barrier;
+
+    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
 }
 
 enum vkd3d_render_pass_transition_mode
