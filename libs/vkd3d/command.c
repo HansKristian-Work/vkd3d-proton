@@ -10899,8 +10899,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(d3d12_command_list_ifa
             VK_CALL(vkCmdResetQueryPool(list->vk_command_buffer, query_heap->vk_query_pool, index, 1));
         }
 
-        VK_CALL(vkCmdWriteTimestamp(list->vk_command_buffer,
-                VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_heap->vk_query_pool, index));
+        VK_CALL(vkCmdWriteTimestamp2(list->vk_command_buffer,
+                VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, query_heap->vk_query_pool, index));
     }
     else
         FIXME("Unhandled query type %u.\n", type);
@@ -13914,8 +13914,7 @@ static void d3d12_command_queue_init_query_heap(struct d3d12_device *device, VkC
 
             case D3D12_QUERY_HEAP_TYPE_TIMESTAMP:
             case D3D12_QUERY_HEAP_TYPE_COPY_QUEUE_TIMESTAMP:
-                VK_CALL(vkCmdWriteTimestamp(vk_cmd_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                        heap->vk_query_pool, i));
+                VK_CALL(vkCmdWriteTimestamp2(vk_cmd_buffer, VK_PIPELINE_STAGE_2_NONE, heap->vk_query_pool, i));
                 break;
 
             default:
