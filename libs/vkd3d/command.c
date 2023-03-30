@@ -3545,33 +3545,34 @@ static bool d3d12_resource_requires_shader_visibility_after_transition(
                     new_layout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL);
 }
 
-static VkPipelineStageFlags vk_render_pass_barrier_from_view(struct d3d12_command_list *list,
+static bool vk_render_pass_barrier_from_view(struct d3d12_command_list *list,
         const struct vkd3d_view *view, const struct d3d12_resource *resource,
-        enum vkd3d_render_pass_transition_mode mode, VkImageLayout layout, VkImageMemoryBarrier *vk_barrier)
+        enum vkd3d_render_pass_transition_mode mode, VkImageLayout layout, VkImageMemoryBarrier2 *vk_barrier)
 {
     VkImageLayout outside_render_pass_layout;
-    VkPipelineStageFlags stages;
-    VkAccessFlags access;
+    VkPipelineStageFlags2 stages;
+    VkAccessFlags2 access;
 
     if (view->format->vk_aspect_mask & VK_IMAGE_ASPECT_COLOR_BIT)
     {
-        stages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        access = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+        stages = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT;
         outside_render_pass_layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     }
     else
     {
-        stages = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-        access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+        stages = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+        access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
         outside_render_pass_layout = d3d12_command_list_get_depth_stencil_resource_layout(list, resource, NULL);
     }
 
-    vk_barrier->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    vk_barrier->pNext = NULL;
+    memset(vk_barrier, 0, sizeof(*vk_barrier));
+    vk_barrier->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    vk_barrier->srcStageMask = stages;
+    vk_barrier->dstStageMask = stages;
 
     if (mode == VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN)
     {
-        vk_barrier->srcAccessMask = 0;
         vk_barrier->dstAccessMask = access;
         vk_barrier->oldLayout = outside_render_pass_layout;
         vk_barrier->newLayout = layout;
@@ -3583,8 +3584,8 @@ static VkPipelineStageFlags vk_render_pass_barrier_from_view(struct d3d12_comman
         if (d3d12_resource_requires_shader_visibility_after_transition(resource,
                 vk_barrier->oldLayout, vk_barrier->newLayout))
         {
-            vk_barrier->dstAccessMask |= VK_ACCESS_SHADER_READ_BIT;
-            stages = VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT;
+            vk_barrier->dstAccessMask |= VK_ACCESS_2_SHADER_READ_BIT;
+            stages = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
         }
     }
     else /* if (mode == VKD3D_RENDER_PASS_TRANSITION_MODE_END) */
@@ -3601,20 +3602,19 @@ static VkPipelineStageFlags vk_render_pass_barrier_from_view(struct d3d12_comman
          * we transition it into the appropriate DS state. When we leave, we would use DS_READ_ONLY_OPTIMAL,
          * which can be sampled from and used as a read-only depth attachment without any extra barrier.
          * Thus, we have to complete that barrier here. */
-        vk_barrier->dstAccessMask = 0;
         if (vk_barrier->oldLayout != vk_barrier->newLayout)
         {
             if (vk_barrier->newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL)
             {
                 vk_barrier->dstAccessMask =
-                        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_SHADER_READ_BIT;
+                        VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_SHADER_READ_BIT;
                 /* We don't know if we have DEPTH_READ | NON_PIXEL_RESOURCE or DEPTH_READ | PIXEL_RESOURCE. */
-                stages = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+                stages = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
             }
             else if (vk_barrier->newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
             {
                 vk_barrier->dstAccessMask =
-                        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+                        VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
             }
         }
     }
@@ -3624,13 +3624,13 @@ static VkPipelineStageFlags vk_render_pass_barrier_from_view(struct d3d12_comman
      * Implicit decay or promotion does *not* happen for normal render targets, so we can rely on resource states.
      * For read-only depth or read-write depth for non-resource DSVs, this is also a no-op. */
     if (vk_barrier->oldLayout == vk_barrier->newLayout)
-        return 0;
+        return false;
 
     vk_barrier->srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     vk_barrier->dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     vk_barrier->image = resource->res.vk_image;
     vk_barrier->subresourceRange = vk_subresource_range_from_view(view);
-    return stages;
+    return true;
 }
 
 static void d3d12_command_list_track_resource_usage(struct d3d12_command_list *list,
@@ -3765,14 +3765,18 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
         enum vkd3d_render_pass_transition_mode mode)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkImageMemoryBarrier vk_image_barriers[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 2];
+    VkImageMemoryBarrier2 vk_image_barriers[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 2];
     VkImageSubresourceLayers vk_subresource_layers;
-    VkPipelineStageFlags stage_mask = 0;
-    VkPipelineStageFlags new_stages;
     struct d3d12_rtv_desc *dsv;
-    uint32_t i, j;
+    VkDependencyInfo dep_info;
+    uint32_t i;
 
-    for (i = 0, j = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.imageMemoryBarrierCount = 0;
+    dep_info.pImageMemoryBarriers = vk_image_barriers;
+
+    for (i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
     {
         struct d3d12_rtv_desc *rtv = &list->rtvs[i];
 
@@ -3794,12 +3798,10 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
             }
         }
 
-        if ((new_stages = vk_render_pass_barrier_from_view(list, rtv->view, rtv->resource,
-                mode, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, &vk_image_barriers[j])))
-        {
-            stage_mask |= new_stages;
-            j++;
-        }
+        if ((vk_render_pass_barrier_from_view(list, rtv->view, rtv->resource,
+                mode, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                &vk_image_barriers[dep_info.imageMemoryBarrierCount])))
+            dep_info.imageMemoryBarrierCount++;
     }
 
     dsv = &list->dsv;
@@ -3808,12 +3810,9 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
 
     if (dsv->view && list->dsv_layout)
     {
-        if ((new_stages = vk_render_pass_barrier_from_view(list, dsv->view, dsv->resource,
-                mode, list->dsv_layout, &vk_image_barriers[j])))
-        {
-            stage_mask |= new_stages;
-            j++;
-        }
+        if ((vk_render_pass_barrier_from_view(list, dsv->view, dsv->resource,
+                mode, list->dsv_layout, &vk_image_barriers[dep_info.imageMemoryBarrierCount])))
+            dep_info.imageMemoryBarrierCount++;
 
         /* We know for sure we will write something to these attachments now, so try to promote. */
         if (mode == VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN)
@@ -3829,12 +3828,10 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
 
     /* Ignore VRS targets. They have to be in the appropriate resource state here. */
 
-    if (!j)
+    if (!dep_info.imageMemoryBarrierCount)
         return;
 
-    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-        stage_mask, stage_mask, 0, 0, NULL, 0, NULL,
-        j, vk_image_barriers));
+    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
 }
 
 static inline bool d3d12_query_type_is_indexed(D3D12_QUERY_TYPE type)
