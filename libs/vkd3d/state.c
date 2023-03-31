@@ -3013,6 +3013,47 @@ static void ds_desc_from_d3d12(struct VkPipelineDepthStencilStateCreateInfo *vk_
     vk_desc->maxDepthBounds = 1.0f;
 }
 
+static enum VkBlendFactor vk_blend_factor_from_d3d12_a8(D3D12_BLEND blend)
+{
+    /* Rewrite any ALPHA references to COLOR since we're actually rendering to R8.
+     * When alpha blending receives COLOR inputs, it's actually receiving alpha,
+     * so it's really just an alias for our case. */
+    switch (blend)
+    {
+        case D3D12_BLEND_ZERO:
+            return VK_BLEND_FACTOR_ZERO;
+        case D3D12_BLEND_ONE:
+            return VK_BLEND_FACTOR_ONE;
+        case D3D12_BLEND_SRC_COLOR:
+        case D3D12_BLEND_SRC_ALPHA:
+            return VK_BLEND_FACTOR_SRC_COLOR;
+        case D3D12_BLEND_INV_SRC_COLOR:
+        case D3D12_BLEND_INV_SRC_ALPHA:
+            return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+        case D3D12_BLEND_DEST_ALPHA:
+        case D3D12_BLEND_DEST_COLOR:
+            return VK_BLEND_FACTOR_DST_COLOR;
+        case D3D12_BLEND_INV_DEST_ALPHA:
+        case D3D12_BLEND_INV_DEST_COLOR:
+            return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
+        case D3D12_BLEND_SRC_ALPHA_SAT:
+            return VK_BLEND_FACTOR_ONE;
+        case D3D12_BLEND_BLEND_FACTOR:
+            return VK_BLEND_FACTOR_CONSTANT_ALPHA;
+        case D3D12_BLEND_INV_BLEND_FACTOR:
+            return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA;
+        case D3D12_BLEND_SRC1_COLOR:
+        case D3D12_BLEND_SRC1_ALPHA:
+            return VK_BLEND_FACTOR_SRC1_COLOR;
+        case D3D12_BLEND_INV_SRC1_COLOR:
+        case D3D12_BLEND_INV_SRC1_ALPHA:
+            return VK_BLEND_FACTOR_ONE_MINUS_SRC1_COLOR;
+        default:
+            FIXME("Unhandled blend %#x.\n", blend);
+            return VK_BLEND_FACTOR_ZERO;
+    }
+}
+
 static enum VkBlendFactor vk_blend_factor_from_d3d12(D3D12_BLEND blend, bool alpha)
 {
     switch (blend)
@@ -3082,7 +3123,7 @@ static enum VkBlendOp vk_blend_op_from_d3d12(D3D12_BLEND_OP op)
 }
 
 static void blend_attachment_from_d3d12(struct VkPipelineColorBlendAttachmentState *vk_desc,
-        const D3D12_RENDER_TARGET_BLEND_DESC *d3d12_desc)
+        const D3D12_RENDER_TARGET_BLEND_DESC *d3d12_desc, DXGI_FORMAT dxgi_format)
 {
     if (d3d12_desc->BlendEnable && d3d12_desc->RenderTargetWriteMask)
     {
@@ -3093,20 +3134,46 @@ static void blend_attachment_from_d3d12(struct VkPipelineColorBlendAttachmentSta
         vk_desc->srcAlphaBlendFactor = vk_blend_factor_from_d3d12(d3d12_desc->SrcBlendAlpha, true);
         vk_desc->dstAlphaBlendFactor = vk_blend_factor_from_d3d12(d3d12_desc->DestBlendAlpha, true);
         vk_desc->alphaBlendOp = vk_blend_op_from_d3d12(d3d12_desc->BlendOpAlpha);
+
+        if (dxgi_format == DXGI_FORMAT_A8_UNORM)
+        {
+            /* Alpha blend ops become color blend ops. */
+            vk_desc->colorBlendOp = vk_desc->alphaBlendOp;
+            vk_desc->srcColorBlendFactor = vk_blend_factor_from_d3d12_a8(d3d12_desc->SrcBlendAlpha);
+            vk_desc->dstColorBlendFactor = vk_blend_factor_from_d3d12_a8(d3d12_desc->DestBlendAlpha);
+            vk_desc->srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+            vk_desc->dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        }
     }
     else
     {
         memset(vk_desc, 0, sizeof(*vk_desc));
     }
     vk_desc->colorWriteMask = 0;
-    if (d3d12_desc->RenderTargetWriteMask & D3D12_COLOR_WRITE_ENABLE_RED)
-        vk_desc->colorWriteMask |= VK_COLOR_COMPONENT_R_BIT;
-    if (d3d12_desc->RenderTargetWriteMask & D3D12_COLOR_WRITE_ENABLE_GREEN)
-        vk_desc->colorWriteMask |= VK_COLOR_COMPONENT_G_BIT;
-    if (d3d12_desc->RenderTargetWriteMask & D3D12_COLOR_WRITE_ENABLE_BLUE)
-        vk_desc->colorWriteMask |= VK_COLOR_COMPONENT_B_BIT;
-    if (d3d12_desc->RenderTargetWriteMask & D3D12_COLOR_WRITE_ENABLE_ALPHA)
-        vk_desc->colorWriteMask |= VK_COLOR_COMPONENT_A_BIT;
+
+    if (dxgi_format == DXGI_FORMAT_A8_UNORM)
+    {
+        /* Redirect A8 to R8 so need to flag the R bit here.
+         * There's just one component, so don't try to use partial masks. */
+        if (d3d12_desc->RenderTargetWriteMask & D3D12_COLOR_WRITE_ENABLE_ALPHA)
+        {
+            vk_desc->colorWriteMask |= VK_COLOR_COMPONENT_R_BIT |
+                    VK_COLOR_COMPONENT_G_BIT |
+                    VK_COLOR_COMPONENT_B_BIT |
+                    VK_COLOR_COMPONENT_A_BIT;
+        }
+    }
+    else
+    {
+        if (d3d12_desc->RenderTargetWriteMask & D3D12_COLOR_WRITE_ENABLE_RED)
+            vk_desc->colorWriteMask |= VK_COLOR_COMPONENT_R_BIT;
+        if (d3d12_desc->RenderTargetWriteMask & D3D12_COLOR_WRITE_ENABLE_GREEN)
+            vk_desc->colorWriteMask |= VK_COLOR_COMPONENT_G_BIT;
+        if (d3d12_desc->RenderTargetWriteMask & D3D12_COLOR_WRITE_ENABLE_BLUE)
+            vk_desc->colorWriteMask |= VK_COLOR_COMPONENT_B_BIT;
+        if (d3d12_desc->RenderTargetWriteMask & D3D12_COLOR_WRITE_ENABLE_ALPHA)
+            vk_desc->colorWriteMask |= VK_COLOR_COMPONENT_A_BIT;
+    }
 }
 
 static VkLogicOp vk_logic_op_from_d3d12(D3D12_LOGIC_OP op)
@@ -4026,7 +4093,7 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
             goto fail;
         }
 
-        blend_attachment_from_d3d12(&graphics->blend_attachments[i], rt_desc);
+        blend_attachment_from_d3d12(&graphics->blend_attachments[i], rt_desc, desc->rtv_formats.RTFormats[i]);
 
         if (graphics->null_attachment_mask & (1u << i))
             memset(&graphics->blend_attachments[i], 0, sizeof(graphics->blend_attachments[i]));
