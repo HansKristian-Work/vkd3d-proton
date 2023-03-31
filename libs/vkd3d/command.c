@@ -10981,22 +10981,30 @@ static void d3d12_command_list_resolve_binary_occlusion_queries(struct d3d12_com
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_query_resolve_args args;
     unsigned int workgroup_count;
-    VkMemoryBarrier vk_barrier;
+    VkMemoryBarrier2 vk_barrier;
+    VkDependencyInfo dep_info;
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
     d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
 
-    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    vk_barrier.pNext = NULL;
-    vk_barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    /* If there are any overlapping copy writes, handle them here since we're doing a transfer barrier anyways. */
-    vk_barrier.srcAccessMask = list->tracked_copy_buffer_count ? VK_ACCESS_TRANSFER_WRITE_BIT : 0;
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.memoryBarrierCount = 1;
+    dep_info.pMemoryBarriers = &vk_barrier;
+
+    memset(&vk_barrier, 0, sizeof(vk_barrier));
+    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+
+    /* If there are any overlapping copy writes, handle them here since we're
+     * doing a transfer barrier anyways. dst_buffer is in COPY_DEST state */
+    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    vk_barrier.srcAccessMask = list->tracked_copy_buffer_count ? VK_ACCESS_2_TRANSFER_WRITE_BIT : VK_ACCESS_2_NONE;
+    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+
     d3d12_command_list_reset_buffer_copy_tracking(list);
 
-    /* dst_buffer is in COPY_DEST state */
-    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-            0, 1, &vk_barrier, 0, NULL, 0, NULL));
+    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
 
     VK_CALL(vkCmdBindPipeline(list->vk_command_buffer,
             VK_PIPELINE_BIND_POINT_COMPUTE,
@@ -11013,11 +11021,12 @@ static void d3d12_command_list_resolve_binary_occlusion_queries(struct d3d12_com
     workgroup_count = vkd3d_compute_workgroup_count(count, VKD3D_QUERY_OP_WORKGROUP_SIZE);
     VK_CALL(vkCmdDispatch(list->vk_command_buffer, workgroup_count, 1, 1));
 
-    vk_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    vk_barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-            0, 1, &vk_barrier, 0, NULL, 0, NULL));
+    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    vk_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+
+    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_list_iface *iface,
