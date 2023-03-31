@@ -281,12 +281,13 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
     VkCommandBufferSubmitInfo cmd_buffer_info;
     struct vkd3d_format_footprint footprint;
     VkCommandBufferBeginInfo begin_info;
-    VkImageMemoryBarrier image_barrier;
+    VkImageMemoryBarrier2 image_barrier;
     VkImageSubresource vk_subresource;
     uint32_t queue_mask, queue_index;
     VkBufferImageCopy2 copy_region;
     VkCommandBuffer vk_cmd_buffer;
     VkDeviceSize buffer_offset;
+    VkDependencyInfo dep_info;
     VkSubmitInfo2 submit_info;
     bool need_transition;
     uint32_t plane_idx;
@@ -332,6 +333,11 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
         return hresult_from_vk_result(vr);
     }
 
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.imageMemoryBarrierCount = 1;
+    dep_info.pImageMemoryBarriers = &image_barrier;
+
     for (i = 0; i < queue->transfer_count; i++)
     {
         const struct vkd3d_memory_transfer_info *transfer = &queue->transfers[i];
@@ -353,12 +359,10 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
 
                 if (need_transition && vk_image_memory_barrier_for_initial_transition(transfer->resource, &image_barrier))
                 {
-                    image_barrier.dstAccessMask |= VK_ACCESS_TRANSFER_WRITE_BIT;
+                    image_barrier.dstStageMask |= VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+                    image_barrier.dstAccessMask |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
 
-                    VK_CALL(vkCmdPipelineBarrier(vk_cmd_buffer,
-                            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                            VK_PIPELINE_STAGE_TRANSFER_BIT,
-                            0, 0, NULL, 0, NULL, 1, &image_barrier));
+                    VK_CALL(vkCmdPipelineBarrier2(vk_cmd_buffer, &dep_info));
                 }
 
                 vk_subresource = d3d12_resource_get_vk_subresource(transfer->resource, transfer->subresource_idx, false);
