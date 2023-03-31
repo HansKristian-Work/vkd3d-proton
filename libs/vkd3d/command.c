@@ -7700,11 +7700,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct d3d12_resource *tiled_res, *linear_res;
-    VkImageMemoryBarrier vk_image_barrier;
+    VkImageMemoryBarrier2 vk_image_barrier;
     VkBufferImageCopy2 buffer_image_copy;
-    VkMemoryBarrier vk_global_barrier;
-    VkCopyBufferInfo2 copy_info;
+    VkMemoryBarrier2 vk_global_barrier;
     VkImageLayout vk_image_layout;
+    VkCopyBufferInfo2 copy_info;
+    VkDependencyInfo dep_info;
     VkBufferCopy2 buffer_copy;
     bool copy_to_buffer;
     unsigned int i;
@@ -7740,44 +7741,48 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
         vk_image_layout = d3d12_resource_pick_layout(tiled_res, copy_to_buffer
                 ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-        vk_image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        vk_image_barrier.pNext = NULL;
+
+        memset(&vk_image_barrier, 0, sizeof(vk_image_barrier));
+        vk_image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
         vk_image_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         vk_image_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        vk_image_barrier.srcAccessMask = 0;
-        vk_image_barrier.dstAccessMask = copy_to_buffer ? VK_ACCESS_TRANSFER_READ_BIT : VK_ACCESS_TRANSFER_WRITE_BIT;
+        vk_image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        vk_image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        vk_image_barrier.dstAccessMask = copy_to_buffer ? VK_ACCESS_2_TRANSFER_READ_BIT : VK_ACCESS_2_TRANSFER_WRITE_BIT;
         vk_image_barrier.oldLayout = tiled_res->common_layout;
         vk_image_barrier.newLayout = vk_image_layout;
         vk_image_barrier.image = tiled_res->res.vk_image;
 
         /* The entire resource must be in the appropriate copy state */
         vk_image_barrier.subresourceRange.aspectMask = tiled_res->format->vk_aspect_mask;
-        vk_image_barrier.subresourceRange.baseMipLevel = 0;
         vk_image_barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
-        vk_image_barrier.subresourceRange.baseArrayLayer = 0;
         vk_image_barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
 
-        vk_global_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-        vk_global_barrier.pNext = NULL;
-        vk_global_barrier.srcAccessMask = 0;
-        vk_global_barrier.dstAccessMask = 0;
+        memset(&vk_global_barrier, 0, sizeof(vk_global_barrier));
+        vk_global_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        vk_global_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        vk_global_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        vk_global_barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        vk_global_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+
+        memset(&dep_info, 0, sizeof(dep_info));
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.imageMemoryBarrierCount = 1;
+        dep_info.pImageMemoryBarriers = &vk_image_barrier;
+        dep_info.memoryBarrierCount = 0;
+        dep_info.pMemoryBarriers = &vk_global_barrier;
 
         if (copy_to_buffer)
         {
             /* Need to handle hazards before the image to buffer copy. */
             if (list->tracked_copy_buffer_count)
-            {
-                vk_global_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-                vk_global_barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            }
+                dep_info.memoryBarrierCount = 1;
 
             /* We're doing a transfer barrier anyways, so resolve buffer copy tracking in that barrier. */
             d3d12_command_list_reset_buffer_copy_tracking(list);
         }
 
-        VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                0, 1, &vk_global_barrier, 0, NULL, 1, &vk_image_barrier));
+        VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
 
         buffer_image_copy.bufferRowLength = tile_shape->WidthInTexels;
         buffer_image_copy.bufferImageHeight = tile_shape->HeightInTexels;
@@ -7806,9 +7811,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
                 copy_info.regionCount = 1;
                 copy_info.pRegions = &buffer_image_copy;
 
-                /* Resolve hazards after the image to buffer copy since we're going an image barrier anyways. */
-                vk_global_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-                vk_global_barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                /* Resolve hazards after the image to buffer copy since we're doing an image barrier anyways. */
+                dep_info.memoryBarrierCount = 1;
 
                 VK_CALL(vkCmdCopyImageToBuffer2(list->vk_command_buffer, &copy_info));
             }
@@ -7828,14 +7832,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
             }
         }
 
-        vk_image_barrier.srcAccessMask = copy_to_buffer ? 0 : VK_ACCESS_TRANSFER_WRITE_BIT;
-        vk_image_barrier.dstAccessMask = 0;
+        vk_image_barrier.srcAccessMask = copy_to_buffer ? VK_ACCESS_2_NONE : VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        vk_image_barrier.dstAccessMask = VK_ACCESS_2_NONE;
         vk_image_barrier.oldLayout = vk_image_layout;
         vk_image_barrier.newLayout = tiled_res->common_layout;
 
-        VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                0, 1, &vk_global_barrier, 0, NULL, 1, &vk_image_barrier));
+        VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
     }
     else
     {
