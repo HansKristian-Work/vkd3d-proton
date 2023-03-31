@@ -1859,7 +1859,8 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
         dxil.code = data->dxil_libraries[entry->identifier]->DXILLibrary.pShaderBytecode;
         dxil.size = data->dxil_libraries[entry->identifier]->DXILLibrary.BytecodeLength;
 
-        if (vkd3d_shader_compile_dxil_export(&dxil, entry->real_entry_point, entry->debug_entry_point, &spirv,
+        if (vkd3d_shader_compile_dxil_export(&dxil, entry->real_entry_point, entry->debug_entry_point,
+                &spirv, NULL,
                 &shader_interface_info, &shader_interface_local_info, &compile_args) != VKD3D_OK)
         {
             ERR("Failed to convert DXIL export: %s (%s)\n",

@@ -1879,6 +1879,7 @@ struct d3d12_graphics_pipeline_state
     struct vkd3d_shader_debug_ring_spec_info spec_info[VKD3D_MAX_SHADER_STAGES];
     VkPipelineShaderStageCreateInfo stages[VKD3D_MAX_SHADER_STAGES];
     struct vkd3d_shader_code code[VKD3D_MAX_SHADER_STAGES];
+    struct vkd3d_shader_code_debug code_debug[VKD3D_MAX_SHADER_STAGES];
     VkShaderStageFlags stage_flags;
     VkShaderModuleIdentifierEXT identifiers[VKD3D_MAX_SHADER_STAGES];
     VkPipelineShaderStageModuleIdentifierCreateInfoEXT identifier_create_infos[VKD3D_MAX_SHADER_STAGES];
@@ -1939,6 +1940,7 @@ struct d3d12_compute_pipeline_state
 {
     VkPipeline vk_pipeline;
     struct vkd3d_shader_code code;
+    struct vkd3d_shader_code_debug code_debug;
     VkShaderModuleIdentifierEXT identifier;
     VkPipelineShaderStageModuleIdentifierCreateInfoEXT identifier_create_info;
 };

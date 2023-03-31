@@ -55,7 +55,7 @@ static void test_invalid_shaders(void)
     };
     static const struct vkd3d_shader_code ps_break = {ps_break_code, sizeof(ps_break_code)};
 
-    rc = vkd3d_shader_compile_dxbc(&ps_break, &spirv, VKD3D_SHADER_STRIP_DEBUG, NULL, NULL);
+    rc = vkd3d_shader_compile_dxbc(&ps_break, &spirv, NULL, VKD3D_SHADER_STRIP_DEBUG, NULL, NULL);
     ok(rc == VKD3D_ERROR_INVALID_SHADER, "Got unexpected error code %d.\n", rc);
 }
 
@@ -124,7 +124,7 @@ static void test_vkd3d_shader_pfns(void)
     ok(element, "Could not find shader signature element.\n");
     pfn_vkd3d_shader_free_shader_signature(&signature);
 
-    rc = pfn_vkd3d_shader_compile_dxbc(&vs, &spirv, 0, NULL, NULL);
+    rc = pfn_vkd3d_shader_compile_dxbc(&vs, &spirv, NULL, 0, NULL, NULL);
     ok(rc == VKD3D_OK, "Got unexpected error code %d.\n", rc);
     pfn_vkd3d_shader_free_shader_code(&spirv);
 
