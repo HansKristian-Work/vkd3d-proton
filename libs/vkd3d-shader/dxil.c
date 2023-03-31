@@ -553,6 +553,7 @@ static bool dxil_match_shader_stage(dxil_spv_shader_stage blob_stage, VkShaderSt
 
 int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv,
+        struct vkd3d_shader_code_debug *spirv_debug,
         const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_compile_arguments *compiler_args)
 {
@@ -951,6 +952,13 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     memcpy(code, compiled.data, compiled.size);
     spirv->code = code;
     spirv->size = compiled.size;
+
+    if (spirv_debug)
+    {
+        dxil_spv_converter_get_compiled_entry_point(converter, &spirv_debug->debug_entry_point_name);
+        spirv_debug->debug_entry_point_name = vkd3d_strdup(spirv_debug->debug_entry_point_name);
+    }
+
     dxil_spv_converter_get_compute_workgroup_dimensions(converter,
             &spirv->meta.cs_workgroup_size[0],
             &spirv->meta.cs_workgroup_size[1],
@@ -969,7 +977,7 @@ end:
 
 int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         const char *export, const char *demangled_export,
-        struct vkd3d_shader_code *spirv,
+        struct vkd3d_shader_code *spirv, struct vkd3d_shader_code_debug *spirv_debug,
         const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_interface_local_info *shader_interface_local_info,
         const struct vkd3d_shader_compile_arguments *compiler_args)
@@ -1378,6 +1386,11 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     memcpy(code, compiled.data, compiled.size);
     spirv->code = code;
     spirv->size = compiled.size;
+
+    /* Nothing useful here for now. */
+    if (spirv_debug)
+        memset(spirv_debug, 0, sizeof(*spirv_debug));
+
     vkd3d_shader_extract_feature_meta(spirv);
 
     if (demangled_export)

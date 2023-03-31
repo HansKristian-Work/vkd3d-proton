@@ -8170,9 +8170,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
 
         if (state->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
         {
-            snprintf(buffer, sizeof(buffer), "[%s %016"PRIx64"]",
+            snprintf(buffer, sizeof(buffer), "[%s %016"PRIx64" \"%s\"]",
                     vk_stage_to_d3d(VK_SHADER_STAGE_COMPUTE_BIT),
-                    state->compute.code.meta.hash);
+                    state->compute.code.meta.hash,
+                    state->compute.code_debug.debug_entry_point_name);
             label.color[0] = 1.0f;
             label.color[1] = 0.5f;
             label.color[2] = 0.0f;
@@ -8187,9 +8188,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
             for (i = 0; i < state->graphics.stage_count && sizeof(buffer) > offset; i++)
             {
                 offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                        "[%s %016"PRIx64"] ",
+                        "[%s %016"PRIx64" \"%s\"] ",
                         vk_stage_to_d3d(state->graphics.stages[i].stage),
-                        state->graphics.code[i].meta.hash);
+                        state->graphics.code[i].meta.hash,
+                        state->graphics.code_debug[i].debug_entry_point_name);
             }
 
             label.color[0] = 0.0f;

@@ -919,6 +919,7 @@ unsigned int vkd3d_shader_scan_get_idxtemp_components(const struct vkd3d_shader_
 /* DXIL support */
 int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv,
+        struct vkd3d_shader_code_debug *spirv_debug,
         const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_compile_arguments *compiler_args);
 

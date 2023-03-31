@@ -91,6 +91,11 @@ struct vkd3d_shader_code
     struct vkd3d_shader_meta meta;
 };
 
+struct vkd3d_shader_code_debug
+{
+    const char *debug_entry_point_name;
+};
+
 /* Scans OpCapabilities. */
 void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code);
 
@@ -815,10 +820,12 @@ struct vkd3d_shader_signature
 #ifndef VKD3D_SHADER_NO_PROTOTYPES
 
 int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_shader_code *spirv, unsigned int compiler_options,
+        struct vkd3d_shader_code *spirv, struct vkd3d_shader_code_debug *spirv_debug,
+        unsigned int compiler_options,
         const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_compile_arguments *compile_args);
 void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *code);
+void vkd3d_shader_free_shader_code_debug(struct vkd3d_shader_code_debug *code);
 
 int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *root_signature,
@@ -922,6 +929,7 @@ void vkd3d_shader_dxil_free_library_subobjects(struct vkd3d_shader_library_subob
 int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         const char *export, const char *demangled_export,
         struct vkd3d_shader_code *spirv,
+        struct vkd3d_shader_code_debug *spirv_debug,
         const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_interface_local_info *shader_interface_local_info,
         const struct vkd3d_shader_compile_arguments *compiler_args);
@@ -937,7 +945,8 @@ uint64_t vkd3d_shader_get_revision(void);
  * Function pointer typedefs for vkd3d-shader functions.
  */
 typedef int (*PFN_vkd3d_shader_compile_dxbc)(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_shader_code *spirv, unsigned int compiler_options,
+        struct vkd3d_shader_code *spirv, struct vkd3d_shader_code_debug *spirv_debug,
+        unsigned int compiler_options,
         const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_compile_arguments *compile_args);
 typedef void (*PFN_vkd3d_shader_free_shader_code)(struct vkd3d_shader_code *code);
