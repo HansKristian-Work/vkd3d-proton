@@ -11097,10 +11097,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
     const struct vkd3d_predicate_ops *predicate_ops = &list->device->meta_ops.predicate;
     struct vkd3d_predicate_resolve_args resolve_args;
     VkConditionalRenderingBeginInfoEXT begin_info;
-    VkPipelineStageFlags dst_stages, src_stages;
     struct vkd3d_scratch_allocation scratch;
-    VkAccessFlags dst_access, src_access;
-    VkMemoryBarrier vk_barrier;
+    VkMemoryBarrier2 vk_barrier;
+    VkDependencyInfo dep_info;
 
     TRACE("iface %p, buffer %p, aligned_buffer_offset %#"PRIx64", operation %#x.\n",
             iface, buffer, aligned_buffer_offset, operation);
@@ -11142,29 +11141,30 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
                 VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(resolve_args), &resolve_args));
         VK_CALL(vkCmdDispatch(list->vk_command_buffer, 1, 1, 1));
 
-        src_stages = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-        src_access = VK_ACCESS_SHADER_WRITE_BIT;
+        memset(&vk_barrier, 0, sizeof(vk_barrier));
+        vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
 
         if (list->device->device_info.conditional_rendering_features.conditionalRendering)
         {
-            dst_stages = VK_PIPELINE_STAGE_CONDITIONAL_RENDERING_BIT_EXT;
-            dst_access = VK_ACCESS_CONDITIONAL_RENDERING_READ_BIT_EXT;
+            vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_CONDITIONAL_RENDERING_BIT_EXT;
+            vk_barrier.dstAccessMask = VK_ACCESS_2_CONDITIONAL_RENDERING_READ_BIT_EXT;
             list->predicate_enabled = true;
         }
         else
         {
-            dst_stages = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-            dst_access = VK_ACCESS_SHADER_READ_BIT;
+            vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
             list->predicate_va = scratch.va;
         }
 
-        vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-        vk_barrier.pNext = NULL;
-        vk_barrier.srcAccessMask = src_access;
-        vk_barrier.dstAccessMask = dst_access;
+        memset(&dep_info, 0, sizeof(dep_info));
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.memoryBarrierCount = 1;
+        dep_info.pMemoryBarriers = &vk_barrier;
 
-        VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-                src_stages, dst_stages, 0, 1, &vk_barrier, 0, NULL, 0, NULL));
+        VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
 
         if (list->predicate_enabled)
             VK_CALL(vkCmdBeginConditionalRenderingEXT(list->vk_command_buffer, &begin_info));
