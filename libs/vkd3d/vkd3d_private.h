@@ -2416,7 +2416,7 @@ struct vkd3d_initial_transition
 };
 
 bool vk_image_memory_barrier_for_initial_transition(const struct d3d12_resource *resource,
-        VkImageMemoryBarrier *barrier);
+        VkImageMemoryBarrier2 *barrier);
 
 enum vkd3d_active_query_state
 {

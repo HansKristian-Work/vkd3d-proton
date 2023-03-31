@@ -13877,7 +13877,7 @@ struct d3d12_command_queue_transition_pool
     VkSemaphore timeline;
     uint64_t timeline_value;
 
-    VkImageMemoryBarrier *barriers;
+    VkImageMemoryBarrier2 *barriers;
     size_t barriers_size;
     size_t barriers_count;
 
@@ -14015,6 +14015,7 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
     const struct vkd3d_initial_transition *transition;
     VkCommandBufferBeginInfo begin_info;
     unsigned int command_index;
+    VkDependencyInfo dep_info;
     uint32_t need_transition;
     size_t i;
 
@@ -14072,9 +14073,14 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_CALL(vkResetCommandBuffer(pool->cmd[command_index], 0));
     VK_CALL(vkBeginCommandBuffer(pool->cmd[command_index], &begin_info));
-    VK_CALL(vkCmdPipelineBarrier(pool->cmd[command_index],
-            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-            0, 0, NULL, 0, NULL, pool->barriers_count, pool->barriers));
+
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.imageMemoryBarrierCount = pool->barriers_count;
+    dep_info.pImageMemoryBarriers = pool->barriers;
+
+    VK_CALL(vkCmdPipelineBarrier2(pool->cmd[command_index], &dep_info));
+
     for (i = 0; i < pool->query_heaps_count; i++)
         d3d12_command_queue_init_query_heap(device, pool->cmd[command_index], pool->query_heaps[i]);
     VK_CALL(vkEndCommandBuffer(pool->cmd[command_index]));
@@ -15658,7 +15664,7 @@ err:
 }
 
 bool vk_image_memory_barrier_for_initial_transition(const struct d3d12_resource *resource,
-        VkImageMemoryBarrier *barrier)
+        VkImageMemoryBarrier2 *barrier)
 {
     assert(d3d12_resource_is_texture(resource));
 
@@ -15682,23 +15688,18 @@ bool vk_image_memory_barrier_for_initial_transition(const struct d3d12_resource 
     }
 #endif
 
-    barrier->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier->pNext = NULL;
-    barrier->srcAccessMask = 0;
-    barrier->dstAccessMask = 0;
-    barrier->oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    memset(barrier, 0, sizeof(*barrier));
+    barrier->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
     barrier->newLayout = vk_image_layout_from_d3d12_resource_state(NULL, resource, resource->initial_state);
     barrier->srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier->dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier->image = resource->res.vk_image;
     barrier->subresourceRange.aspectMask = resource->format->vk_aspect_mask;
-    barrier->subresourceRange.baseMipLevel = 0;
     barrier->subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
-    barrier->subresourceRange.baseArrayLayer = 0;
     barrier->subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
 
     /* srcAccess and dstAccess mask is 0, which is fine if we use timeline semaphores
-     * to synchronize. Otherwise, the caller will need to set access masks. */
+     * to synchronize. Otherwise, the caller will need to set stage and access masks. */
 
     TRACE("Initial layout transition for resource %p (old layout %#x, new layout %#x).\n",
           resource, barrier->oldLayout, barrier->newLayout);
