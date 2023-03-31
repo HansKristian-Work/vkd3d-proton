@@ -6866,19 +6866,20 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_texture_view_desc dst_view_desc, src_view_desc;
     struct vkd3d_copy_image_pipeline_key pipeline_key;
-    VkPipelineStageFlags src_stages, dst_stages;
+    VkPipelineStageFlags2 src_stages, dst_stages;
     struct vkd3d_copy_image_info pipeline_info;
     VkRenderingAttachmentInfo attachment_info;
-    VkImageMemoryBarrier vk_image_barriers[2];
+    VkImageMemoryBarrier2 vk_image_barriers[2];
     VkWriteDescriptorSet vk_descriptor_write;
     struct vkd3d_copy_image_args push_args;
     struct vkd3d_view *dst_view, *src_view;
-    VkAccessFlags src_access, dst_access;
+    VkAccessFlags2 src_access, dst_access;
     VkImageLayout src_layout, dst_layout;
     bool dst_is_depth_stencil, use_copy;
     VkDescriptorImageInfo vk_image_info;
     VkRenderingInfo rendering_info;
     VkCopyImageInfo2 copy_info;
+    VkDependencyInfo dep_info;
     VkViewport viewport;
     unsigned int i;
     HRESULT hr;
@@ -6899,16 +6900,16 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
             dst_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         }
 
-        src_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
-        dst_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
-        src_access = VK_ACCESS_TRANSFER_READ_BIT;
-        dst_access = VK_ACCESS_TRANSFER_WRITE_BIT;
+        src_stages = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        dst_stages = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        src_access = VK_ACCESS_2_TRANSFER_READ_BIT;
+        dst_access = VK_ACCESS_2_TRANSFER_WRITE_BIT;
     }
     else
     {
         src_layout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        src_stages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-        src_access = VK_ACCESS_SHADER_READ_BIT;
+        src_stages = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        src_access = VK_ACCESS_2_SHADER_READ_BIT;
 
         if (dst_is_depth_stencil)
         {
@@ -6928,26 +6929,33 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
             else
                 dst_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
-            dst_stages = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-            dst_access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            dst_stages = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+            dst_access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
         }
         else
         {
             dst_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-            dst_stages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-            dst_access = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            dst_stages = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            dst_access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
         }
     }
 
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.imageMemoryBarrierCount = overlapping_subresource ? 1 : 2;
+    dep_info.pImageMemoryBarriers = vk_image_barriers;
+
+    memset(vk_image_barriers, 0, sizeof(vk_image_barriers));
+
     for (i = 0; i < ARRAY_SIZE(vk_image_barriers); i++)
     {
-        vk_image_barriers[i].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        vk_image_barriers[i].pNext = NULL;
+        vk_image_barriers[i].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
         vk_image_barriers[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         vk_image_barriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     }
 
-    vk_image_barriers[0].srcAccessMask = 0;
+    vk_image_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    vk_image_barriers[0].dstStageMask = dst_stages;
     vk_image_barriers[0].dstAccessMask = dst_access;
     /* Fully writing a subresource with a copy is a valid way to use the "advanced" aliasing model of D3D12.
      * In this model, a complete Copy command is sufficient to activate an aliased resource.
@@ -6960,17 +6968,15 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
     if (overlapping_subresource)
         vk_image_barriers[0].dstAccessMask |= src_access;
 
-    vk_image_barriers[1].srcAccessMask = 0;
+    vk_image_barriers[1].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    vk_image_barriers[1].dstStageMask = src_stages;
     vk_image_barriers[1].dstAccessMask = src_access;
     vk_image_barriers[1].oldLayout = src_resource->common_layout;
     vk_image_barriers[1].newLayout = src_layout;
     vk_image_barriers[1].image = src_resource->res.vk_image;
     vk_image_barriers[1].subresourceRange = vk_subresource_range_from_layers(&region->srcSubresource);
 
-    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, src_stages | dst_stages,
-            0, 0, NULL, 0, NULL, overlapping_subresource ? 1 : ARRAY_SIZE(vk_image_barriers),
-            vk_image_barriers));
+    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
 
     VKD3D_BREADCRUMB_TAG("Image -> Image");
     VKD3D_BREADCRUMB_RESOURCE(src_resource);
@@ -7136,20 +7142,21 @@ cleanup:
             vkd3d_view_decref(src_view, list->device);
     }
 
+    vk_image_barriers[0].srcStageMask = dst_stages;
     vk_image_barriers[0].srcAccessMask = dst_access;
-    vk_image_barriers[0].dstAccessMask = 0;
+    vk_image_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    vk_image_barriers[0].dstAccessMask = VK_ACCESS_2_NONE;
     vk_image_barriers[0].oldLayout = dst_layout;
     vk_image_barriers[0].newLayout = dst_resource->common_layout;
 
-    vk_image_barriers[1].srcAccessMask = 0;
-    vk_image_barriers[1].dstAccessMask = 0;
+    vk_image_barriers[1].srcStageMask = src_stages;
+    vk_image_barriers[1].srcAccessMask = VK_ACCESS_2_NONE;
+    vk_image_barriers[1].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    vk_image_barriers[1].dstAccessMask = VK_ACCESS_2_NONE;
     vk_image_barriers[1].oldLayout = src_layout;
     vk_image_barriers[1].newLayout = src_resource->common_layout;
 
-    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-            src_stages | dst_stages, VK_PIPELINE_STAGE_TRANSFER_BIT,
-            0, 0, NULL, 0, NULL, overlapping_subresource ? 1 : ARRAY_SIZE(vk_image_barriers),
-            vk_image_barriers));
+    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
 
     if (dst_resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
         d3d12_command_list_update_subresource_data(list, dst_resource, region->dstSubresource);
