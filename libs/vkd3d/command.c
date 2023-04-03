@@ -4421,13 +4421,13 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
 
                 if (vk_queue_flags & VK_QUEUE_GRAPHICS_BIT)
                 {
-                    *stages |= VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
+                    *stages |= VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
                     *access |= VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
                 }
                 break;
 
             case D3D12_RESOURCE_STATE_INDEX_BUFFER:
-                *stages |= VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
+                *stages |= VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
                 *access |= VK_ACCESS_2_INDEX_READ_BIT;
                 break;
 
