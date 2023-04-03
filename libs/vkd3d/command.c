@@ -4528,7 +4528,8 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
 
             case D3D12_RESOURCE_STATE_RESOLVE_DEST:
             case D3D12_RESOURCE_STATE_RESOLVE_SOURCE:
-                *stages |= VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+                /* Needs COPY stage for D3D12_RESOLVE_MODE_DECOMPRESS */
+                *stages |= VK_PIPELINE_STAGE_2_RESOLVE_BIT | VK_PIPELINE_STAGE_2_COPY_BIT;
                 break;
 
             case D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE:
@@ -7923,8 +7924,8 @@ static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *li
         vk_image_barriers[i].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
         vk_image_barriers[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         vk_image_barriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        vk_image_barriers[i].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        vk_image_barriers[i].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        vk_image_barriers[i].srcStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+        vk_image_barriers[i].dstStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
     }
 
     writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
