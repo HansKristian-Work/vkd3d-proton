@@ -359,7 +359,7 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
 
                 if (need_transition && vk_image_memory_barrier_for_initial_transition(transfer->resource, &image_barrier))
                 {
-                    image_barrier.dstStageMask |= VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+                    image_barrier.dstStageMask |= VK_PIPELINE_STAGE_2_COPY_BIT;
                     image_barrier.dstAccessMask |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
 
                     VK_CALL(vkCmdPipelineBarrier2(vk_cmd_buffer, &dep_info));
@@ -415,7 +415,7 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
     signal_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
     signal_semaphore_info.semaphore = queue->vk_semaphore;
     signal_semaphore_info.value = queue->next_signal_value;
-    signal_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    signal_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
 
     memset(&submit_info, 0, sizeof(submit_info));
     submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;

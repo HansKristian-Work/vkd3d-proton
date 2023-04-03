@@ -2800,9 +2800,9 @@ static void d3d12_command_list_resolve_buffer_copy_writes(struct d3d12_command_l
     {
         memset(&vk_barrier, 0, sizeof(vk_barrier));
         vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
         vk_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
         vk_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
 
         memset(&dep_info, 0, sizeof(dep_info));
@@ -3703,7 +3703,7 @@ static void d3d12_command_list_flush_subresource_updates(struct d3d12_command_li
     barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
     barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
     barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    barrier.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
     barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_TRANSFER_READ_BIT;
 
     memset(&dep_info, 0, sizeof(dep_info));
@@ -4235,7 +4235,7 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
 
     memset(&vk_barrier, 0, sizeof(vk_barrier));
     vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
     vk_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
     vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
@@ -4279,7 +4279,7 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
 
     vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_COPY_BIT;
     vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_TRANSFER_READ_BIT;
 
     VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
@@ -4515,13 +4515,13 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
                 break;
 
             case D3D12_RESOURCE_STATE_COPY_DEST:
-                *stages |= VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+                *stages |= VK_PIPELINE_STAGE_2_COPY_BIT;
                 if (d3d12_resource_is_buffer(resource))
                     *access |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
                 break;
 
             case D3D12_RESOURCE_STATE_COPY_SOURCE:
-                *stages |= VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+                *stages |= VK_PIPELINE_STAGE_2_COPY_BIT;
                 if (d3d12_resource_is_buffer(resource))
                     *access |= VK_ACCESS_2_TRANSFER_READ_BIT;
                 break;
@@ -6887,8 +6887,8 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
             dst_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         }
 
-        src_stages = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        dst_stages = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        src_stages = VK_PIPELINE_STAGE_2_COPY_BIT;
+        dst_stages = VK_PIPELINE_STAGE_2_COPY_BIT;
         src_access = VK_ACCESS_2_TRANSFER_READ_BIT;
         dst_access = VK_ACCESS_2_TRANSFER_WRITE_BIT;
     }
@@ -6941,7 +6941,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         vk_image_barriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     }
 
-    vk_image_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    vk_image_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
     vk_image_barriers[0].dstStageMask = dst_stages;
     vk_image_barriers[0].dstAccessMask = dst_access;
     /* Fully writing a subresource with a copy is a valid way to use the "advanced" aliasing model of D3D12.
@@ -6955,7 +6955,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
     if (overlapping_subresource)
         vk_image_barriers[0].dstAccessMask |= src_access;
 
-    vk_image_barriers[1].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    vk_image_barriers[1].srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
     vk_image_barriers[1].dstStageMask = src_stages;
     vk_image_barriers[1].dstAccessMask = src_access;
     vk_image_barriers[1].oldLayout = src_resource->common_layout;
@@ -7131,14 +7131,14 @@ cleanup:
 
     vk_image_barriers[0].srcStageMask = dst_stages;
     vk_image_barriers[0].srcAccessMask = dst_access;
-    vk_image_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    vk_image_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
     vk_image_barriers[0].dstAccessMask = VK_ACCESS_2_NONE;
     vk_image_barriers[0].oldLayout = dst_layout;
     vk_image_barriers[0].newLayout = dst_resource->common_layout;
 
     vk_image_barriers[1].srcStageMask = src_stages;
     vk_image_barriers[1].srcAccessMask = VK_ACCESS_2_NONE;
-    vk_image_barriers[1].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    vk_image_barriers[1].dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
     vk_image_barriers[1].dstAccessMask = VK_ACCESS_2_NONE;
     vk_image_barriers[1].oldLayout = src_layout;
     vk_image_barriers[1].newLayout = src_resource->common_layout;
@@ -7345,8 +7345,8 @@ static void d3d12_command_list_before_copy_texture_region(struct d3d12_command_l
         d3d12_command_list_reset_buffer_copy_tracking(list);
 
         d3d12_command_list_transition_image_layout_with_global_memory_barrier(list, batch, src_resource->res.vk_image,
-                &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_NONE,
-                src_resource->common_layout, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
+                &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_NONE,
+                src_resource->common_layout, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
                 info->src_layout, global_transfer_access, global_transfer_access);
     }
     else if (info->batch_type == VKD3D_BATCH_TYPE_COPY_BUFFER_TO_IMAGE)
@@ -7354,9 +7354,9 @@ static void d3d12_command_list_before_copy_texture_region(struct d3d12_command_l
         d3d12_command_list_track_resource_usage(list, dst_resource, !info->writes_full_resource);
 
         d3d12_command_list_transition_image_layout(list, batch, dst_resource->res.vk_image,
-                &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_NONE,
+                &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_NONE,
                 info->writes_full_subresource ? VK_IMAGE_LAYOUT_UNDEFINED : dst_resource->common_layout,
-                VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, info->dst_layout);
+                VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, info->dst_layout);
     }
     else if (info->batch_type == VKD3D_BATCH_TYPE_COPY_IMAGE)
     {
@@ -7399,8 +7399,8 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
         VK_CALL(vkCmdCopyImageToBuffer2(list->vk_command_buffer, &copy_info));
 
         d3d12_command_list_transition_image_layout_with_global_memory_barrier(list, batch, src_resource->res.vk_image,
-                &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_NONE,
-                info->src_layout, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_NONE, src_resource->common_layout,
+                &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_NONE,
+                info->src_layout, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_NONE, src_resource->common_layout,
                 global_transfer_access, global_transfer_access);
     }
     else if (info->batch_type == VKD3D_BATCH_TYPE_COPY_BUFFER_TO_IMAGE)
@@ -7423,8 +7423,8 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
         VK_CALL(vkCmdCopyBufferToImage2(list->vk_command_buffer, &copy_info));
 
         d3d12_command_list_transition_image_layout(list, batch, dst_resource->res.vk_image,
-                &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-                VK_ACCESS_2_TRANSFER_WRITE_BIT, info->dst_layout, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_2_COPY_BIT,
+                VK_ACCESS_2_TRANSFER_WRITE_BIT, info->dst_layout, VK_PIPELINE_STAGE_2_COPY_BIT,
                 VK_ACCESS_2_NONE, dst_resource->common_layout);
 
         if (dst_resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
@@ -7735,8 +7735,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
         vk_image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
         vk_image_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         vk_image_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        vk_image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        vk_image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        vk_image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+        vk_image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
         vk_image_barrier.dstAccessMask = copy_to_buffer ? VK_ACCESS_2_TRANSFER_READ_BIT : VK_ACCESS_2_TRANSFER_WRITE_BIT;
         vk_image_barrier.oldLayout = tiled_res->common_layout;
         vk_image_barrier.newLayout = vk_image_layout;
@@ -7749,9 +7749,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
 
         memset(&vk_global_barrier, 0, sizeof(vk_global_barrier));
         vk_global_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        vk_global_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        vk_global_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
         vk_global_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        vk_global_barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        vk_global_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
         vk_global_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
 
         memset(&dep_info, 0, sizeof(dep_info));
@@ -8657,9 +8657,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                         transition->StateAfter == D3D12_RESOURCE_STATE_COPY_DEST))
                 {
                     d3d12_command_list_reset_buffer_copy_tracking(list);
-                    batch.vk_memory_barrier.srcStageMask |= VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+                    batch.vk_memory_barrier.srcStageMask |= VK_PIPELINE_STAGE_2_COPY_BIT;
                     batch.vk_memory_barrier.srcAccessMask |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
-                    batch.vk_memory_barrier.dstStageMask |= VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+                    batch.vk_memory_barrier.dstStageMask |= VK_PIPELINE_STAGE_2_COPY_BIT;
                     batch.vk_memory_barrier.dstAccessMask |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
                 }
 
@@ -10090,7 +10090,7 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
     barrier.srcStageMask = vk_queue_shader_stages(list->vk_queue_flags);
     barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    barrier.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
     barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_TRANSFER_READ_BIT;
 
     VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
@@ -10164,7 +10164,7 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
         }
     }
 
-    barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    barrier.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
     barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
     barrier.dstStageMask = vk_queue_shader_stages(list->vk_queue_flags);
     barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
@@ -10998,7 +10998,7 @@ static void d3d12_command_list_resolve_binary_occlusion_queries(struct d3d12_com
 
     /* If there are any overlapping copy writes, handle them here since we're
      * doing a transfer barrier anyways. dst_buffer is in COPY_DEST state */
-    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
     vk_barrier.srcAccessMask = list->tracked_copy_buffer_count ? VK_ACCESS_2_TRANSFER_WRITE_BIT : VK_ACCESS_2_NONE;
     vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
@@ -11024,7 +11024,7 @@ static void d3d12_command_list_resolve_binary_occlusion_queries(struct d3d12_com
 
     vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
     vk_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
 
     VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
