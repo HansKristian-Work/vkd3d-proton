@@ -7202,8 +7202,8 @@ static void d3d12_command_list_transition_image_layout_with_global_memory_barrie
 static void d3d12_command_list_transition_image_layout(struct d3d12_command_list *list,
         struct d3d12_command_list_barrier_batch *batch,
         VkImage vk_image, const VkImageSubresourceLayers *vk_subresource,
-        VkPipelineStageFlags src_stages, VkAccessFlags src_access, VkImageLayout old_layout,
-        VkPipelineStageFlags dst_stages, VkAccessFlags dst_access, VkImageLayout new_layout)
+        VkPipelineStageFlags2 src_stages, VkAccessFlags2 src_access, VkImageLayout old_layout,
+        VkPipelineStageFlags2 dst_stages, VkAccessFlags2 dst_access, VkImageLayout new_layout)
 {
     d3d12_command_list_transition_image_layout_with_global_memory_barrier(list, batch,
             vk_image, vk_subresource,
@@ -7335,8 +7335,8 @@ static void d3d12_command_list_before_copy_texture_region(struct d3d12_command_l
         struct d3d12_command_list_barrier_batch *batch,
         struct vkd3d_image_copy_info *info)
 {
-    VkAccessFlags global_transfer_access;
     struct d3d12_resource *dst_resource, *src_resource;
+    VkAccessFlags2 global_transfer_access;
 
     dst_resource = impl_from_ID3D12Resource(info->dst.pResource);
     src_resource = impl_from_ID3D12Resource(info->src.pResource);
@@ -7350,12 +7350,12 @@ static void d3d12_command_list_before_copy_texture_region(struct d3d12_command_l
         /* We're going to do an image layout transition, so we can handle pending buffer barriers while we're at it.
          * After that barrier completes, we implicitly synchronize any outstanding copies, so we can drop the tracking.
          * This also avoids having to compute the destination damage region. */
-        global_transfer_access = list->tracked_copy_buffer_count ? VK_ACCESS_TRANSFER_WRITE_BIT : 0;
+        global_transfer_access = list->tracked_copy_buffer_count ? VK_ACCESS_2_TRANSFER_WRITE_BIT : VK_ACCESS_2_NONE;
         d3d12_command_list_reset_buffer_copy_tracking(list);
 
         d3d12_command_list_transition_image_layout_with_global_memory_barrier(list, batch, src_resource->res.vk_image,
-                &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
-                src_resource->common_layout, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+                &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_NONE,
+                src_resource->common_layout, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
                 info->src_layout, global_transfer_access, global_transfer_access);
     }
     else if (info->batch_type == VKD3D_BATCH_TYPE_COPY_BUFFER_TO_IMAGE)
@@ -7363,9 +7363,9 @@ static void d3d12_command_list_before_copy_texture_region(struct d3d12_command_l
         d3d12_command_list_track_resource_usage(list, dst_resource, !info->writes_full_resource);
 
         d3d12_command_list_transition_image_layout(list, batch, dst_resource->res.vk_image,
-                &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_NONE,
                 info->writes_full_subresource ? VK_IMAGE_LAYOUT_UNDEFINED : dst_resource->common_layout,
-                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, info->dst_layout);
+                VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, info->dst_layout);
     }
     else if (info->batch_type == VKD3D_BATCH_TYPE_COPY_IMAGE)
     {
@@ -7379,7 +7379,7 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
 {
     struct d3d12_resource *dst_resource, *src_resource;
     const struct vkd3d_vk_device_procs *vk_procs;
-    VkAccessFlags global_transfer_access;
+    VkAccessFlags2 global_transfer_access;
 
     vk_procs = &list->device->vk_procs;
 
@@ -7390,7 +7390,7 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
     {
         VkCopyImageToBufferInfo2 copy_info;
 
-        global_transfer_access = VK_ACCESS_TRANSFER_WRITE_BIT;
+        global_transfer_access = VK_ACCESS_2_TRANSFER_WRITE_BIT;
 
         copy_info.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_BUFFER_INFO_2;
         copy_info.pNext = NULL;
@@ -7408,8 +7408,8 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
         VK_CALL(vkCmdCopyImageToBuffer2(list->vk_command_buffer, &copy_info));
 
         d3d12_command_list_transition_image_layout_with_global_memory_barrier(list, batch, src_resource->res.vk_image,
-                &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
-                info->src_layout, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, src_resource->common_layout,
+                &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_NONE,
+                info->src_layout, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_NONE, src_resource->common_layout,
                 global_transfer_access, global_transfer_access);
     }
     else if (info->batch_type == VKD3D_BATCH_TYPE_COPY_BUFFER_TO_IMAGE)
@@ -7432,9 +7432,9 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
         VK_CALL(vkCmdCopyBufferToImage2(list->vk_command_buffer, &copy_info));
 
         d3d12_command_list_transition_image_layout(list, batch, dst_resource->res.vk_image,
-                &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                VK_ACCESS_TRANSFER_WRITE_BIT, info->dst_layout, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                0, dst_resource->common_layout);
+                &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                VK_ACCESS_2_TRANSFER_WRITE_BIT, info->dst_layout, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                VK_ACCESS_2_NONE, dst_resource->common_layout);
 
         if (dst_resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
             d3d12_command_list_update_subresource_data(list, dst_resource, info->copy.buffer_image.imageSubresource);
