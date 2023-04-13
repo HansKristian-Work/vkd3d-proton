@@ -672,7 +672,10 @@ static void vkd3d_instance_deduce_config_flags_from_environment(void)
             vkd3d_get_env_var("RADV_THREAD_TRACE_TRIGGER", env, sizeof(env)))
     {
         INFO("RADV thread trace is enabled. Forcing debug utils to be enabled for labels.\n");
-        vkd3d_config_flags |= VKD3D_CONFIG_FLAG_DEBUG_UTILS;
+        /* Disable caching so we can get full debug information when emitting labels. */
+        vkd3d_config_flags |= VKD3D_CONFIG_FLAG_DEBUG_UTILS |
+                VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE |
+                VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_APP_CACHE_ONLY;
     }
 }
 
