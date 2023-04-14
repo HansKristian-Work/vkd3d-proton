@@ -25,6 +25,7 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include "vkd3d_string.h"
 
 /* pthread_t is passed by value in some functions,
  * which implies we need pthread_t to be a pointer type here. */
@@ -256,9 +257,28 @@ static inline int condvar_reltime_wait_timeout_seconds(condvar_reltime_t *cond, 
         return -1;
 }
 
+typedef HRESULT (WINAPI *PFN_SetThreadDescription)(HANDLE, PCWSTR);
+
 static inline void vkd3d_set_thread_name(const char *name)
 {
-    (void)name;
+    PFN_SetThreadDescription set_thread_description;
+    HMODULE module;
+    WCHAR *wname;
+
+    module = GetModuleHandleA("kernel32.dll");
+    if (module)
+    {
+        set_thread_description = (void*)GetProcAddress(module, "SetThreadDescription");
+        if (set_thread_description)
+        {
+            wname = vkd3d_dup_entry_point(name);
+            if (wname)
+            {
+                set_thread_description(GetCurrentThread(), wname);
+                vkd3d_free(wname);
+            }
+        }
+    }
 }
 
 typedef INIT_ONCE pthread_once_t;
