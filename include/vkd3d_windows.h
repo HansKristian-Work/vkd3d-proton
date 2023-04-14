@@ -171,16 +171,7 @@ typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 # define CONTAINING_RECORD(address, type, field) \
         ((type *)((char *)(address) - offsetof(type, field)))
 
-# ifdef __x86_64__
-#  define __stdcall __attribute__((ms_abi))
-# else
-#  if (__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 2)) || defined(__APPLE__)
-#   define __stdcall __attribute__((__stdcall__)) __attribute__((__force_align_arg_pointer__))
-#  else
-#   define __stdcall __attribute__((__stdcall__))
-#  endif
-# endif
-
+# define __stdcall
 # define WINAPI __stdcall
 # define STDMETHODCALLTYPE __stdcall
 
