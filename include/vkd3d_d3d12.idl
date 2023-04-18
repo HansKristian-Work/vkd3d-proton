@@ -22,6 +22,10 @@ import "vkd3d_dxgibase.idl";
 
 import "vkd3d_d3dcommon.idl";
 
+cpp_quote("#pragma push_macro(\"WIDL_EXPLICIT_AGGREGATE_RETURNS\")")
+cpp_quote("#undef WIDL_EXPLICIT_AGGREGATE_RETURNS")
+cpp_quote("#define WIDL_EXPLICIT_AGGREGATE_RETURNS")
+
 cpp_quote("#ifndef _D3D12_CONSTANTS")
 cpp_quote("#define _D3D12_CONSTANTS")
 
@@ -4358,3 +4362,5 @@ typedef HRESULT (__stdcall *PFN_D3D12_ENABLE_EXPERIMENTAL_FEATURES)(UINT num_fea
 typedef HRESULT (__stdcall *PFN_D3D12_GET_INTERFACE)(REFCLSID clsid, REFIID iid, void **debug);
 
 [local] HRESULT __stdcall D3D12GetInterface(REFCLSID clsid, REFIID iid, void **debug);
+
+cpp_quote("#pragma pop_macro(\"WIDL_EXPLICIT_AGGREGATE_RETURNS\")")
