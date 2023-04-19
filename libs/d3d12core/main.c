@@ -372,6 +372,9 @@ HRESULT STDMETHODCALLTYPE d3d12core_GetDebugInterface(d3d12core_interface *core,
 {
     TRACE("iid %s, debug %p.\n", debugstr_guid(iid), debug);
 
+    if (debug)
+        *debug = NULL;
+
     WARN("Returning DXGI_ERROR_SDK_COMPONENT_MISSING.\n");
     return DXGI_ERROR_SDK_COMPONENT_MISSING;
 }
