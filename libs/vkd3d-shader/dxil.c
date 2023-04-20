@@ -965,6 +965,11 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
             &spirv->meta.cs_workgroup_size[2]);
     dxil_spv_converter_get_patch_vertex_count(converter, &spirv->meta.patch_vertex_count);
     dxil_spv_converter_get_compute_required_wave_size(converter, &spirv->meta.cs_required_wave_size);
+
+    if ((quirks & VKD3D_SHADER_QUIRK_FORCE_MAX_WAVE32) && !spirv->meta.cs_required_wave_size &&
+            compiler_args->max_subgroup_size > 32 && compiler_args->min_subgroup_size <= 32)
+        spirv->meta.cs_required_wave_size = 32;
+
     vkd3d_shader_extract_feature_meta(spirv);
     vkd3d_shader_dump_spirv_shader(hash, spirv);
 
