@@ -434,6 +434,9 @@ struct vkd3d_shader_compile_arguments
     const unsigned int *output_swizzles;
     unsigned int output_swizzle_count;
 
+    uint32_t min_subgroup_size;
+    uint32_t max_subgroup_size;
+
     const struct vkd3d_shader_quirk_info *quirks;
 };
 
