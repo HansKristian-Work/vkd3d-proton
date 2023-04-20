@@ -2387,6 +2387,8 @@ static void d3d12_pipeline_state_init_compile_arguments(struct d3d12_pipeline_st
     compile_arguments->target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
     compile_arguments->target_extension_count = device->vk_info.shader_extension_count;
     compile_arguments->target_extensions = device->vk_info.shader_extensions;
+    compile_arguments->min_subgroup_size = device->device_info.vulkan_1_3_properties.minSubgroupSize;
+    compile_arguments->max_subgroup_size = device->device_info.vulkan_1_3_properties.maxSubgroupSize;
     compile_arguments->quirks = &vkd3d_shader_quirk_info;
 
     if (stage == VK_SHADER_STAGE_FRAGMENT_BIT)
