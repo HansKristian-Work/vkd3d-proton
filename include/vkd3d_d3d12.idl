@@ -4710,6 +4710,10 @@ typedef HRESULT (__stdcall *PFN_D3D12_CREATE_VERSIONED_ROOT_SIGNATURE_DESERIALIZ
 [local] HRESULT __stdcall D3D12CreateVersionedRootSignatureDeserializer(
         const void *data, SIZE_T data_size, REFIID iid, void **deserializer);
 
+typedef HRESULT (__stdcall *PFN_D3D12_SERIALIZE_ROOT_SIGNATURE)(
+        const D3D12_ROOT_SIGNATURE_DESC *root_signature_desc,
+        D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob);
+
 [local] HRESULT __stdcall D3D12SerializeRootSignature(
         const D3D12_ROOT_SIGNATURE_DESC *root_signature_desc,
         D3D_ROOT_SIGNATURE_VERSION version, ID3DBlob **blob, ID3DBlob **error_blob);
