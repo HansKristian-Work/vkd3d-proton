@@ -1469,6 +1469,29 @@ typedef enum D3D12_FILTER_REDUCTION_TYPE
 const UINT D3D12_FILTER_REDUCTION_TYPE_MASK = 0x3;
 const UINT D3D12_FILTER_REDUCTION_TYPE_SHIFT = 7;
 
+cpp_quote( "#define D3D12_ENCODE_BASIC_FILTER( min, mag, mip, reduction )                                      \\" )
+cpp_quote( "    ( ( D3D12_FILTER ) (                                                                           \\" )
+cpp_quote( "    ( ( ( min ) & D3D12_FILTER_TYPE_MASK ) << D3D12_MIN_FILTER_SHIFT ) |                           \\" )
+cpp_quote( "    ( ( ( mag ) & D3D12_FILTER_TYPE_MASK ) << D3D12_MAG_FILTER_SHIFT ) |                           \\" )
+cpp_quote( "    ( ( ( mip ) & D3D12_FILTER_TYPE_MASK ) << D3D12_MIP_FILTER_SHIFT ) |                           \\" )
+cpp_quote( "    ( ( ( reduction ) & D3D12_FILTER_REDUCTION_TYPE_MASK ) << D3D12_FILTER_REDUCTION_TYPE_SHIFT ) ) )" )
+
+cpp_quote( "#define D3D12_ENCODE_ANISOTROPIC_FILTER( reduction )     \\" )
+cpp_quote( "    ( ( D3D12_FILTER ) (                                 \\" )
+cpp_quote( "    D3D12_ANISOTROPIC_FILTERING_BIT |                    \\" )
+cpp_quote( "    D3D12_ENCODE_BASIC_FILTER( D3D12_FILTER_TYPE_LINEAR, \\" )
+cpp_quote( "                               D3D12_FILTER_TYPE_LINEAR, \\" )
+cpp_quote( "                               D3D12_FILTER_TYPE_LINEAR, \\" )
+cpp_quote( "                               reduction ) ) )" )
+
+cpp_quote( "#define D3D12_ENCODE_MIN_MAG_ANISOTROPIC_MIP_POINT_FILTER( reduction ) \\" )
+cpp_quote( "    ( ( D3D12_FILTER ) (                                               \\" )
+cpp_quote( "    D3D12_ANISOTROPIC_FILTERING_BIT |                                  \\" )
+cpp_quote( "    D3D12_ENCODE_BASIC_FILTER( D3D12_FILTER_TYPE_LINEAR,               \\" )
+cpp_quote( "                               D3D12_FILTER_TYPE_LINEAR,               \\" )
+cpp_quote( "                               D3D12_FILTER_TYPE_POINT,                \\" )
+cpp_quote( "                               reduction ) ) )" )
+
 cpp_quote("#define D3D12_DECODE_MAG_FILTER(filter) \\")
 cpp_quote("    ((D3D12_FILTER_TYPE)(((filter) >> D3D12_MAG_FILTER_SHIFT) & D3D12_FILTER_TYPE_MASK))")
 
