@@ -581,16 +581,6 @@ static const struct vkd3d_shader_quirk_info re_quirks = {
     re_hashes, ARRAY_SIZE(re_hashes), 0,
 };
 
-/* Subgroup ballots in shadow pre-processing shader assume wave32 despite
- * the shader using 64-wide workgroups. */
-static const struct vkd3d_shader_quirk_hash tlou1_hashes[] = {
-    { 0x4a1afb3a12797c11ull, VKD3D_SHADER_QUIRK_FORCE_MAX_WAVE32 },
-};
-
-static const struct vkd3d_shader_quirk_info tlou1_quirks = {
-    tlou1_hashes, ARRAY_SIZE(tlou1_hashes), 0,
-};
-
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
@@ -608,8 +598,6 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "re7.exe", &re_quirks },
     /* Resident Evil 4 (2050650) */
     { VKD3D_STRING_COMPARE_EXACT, "re4.exe", &re_quirks },
-    /* The Last of Us - Part 1 (1888930) */
-    { VKD3D_STRING_COMPARE_EXACT, "tlou-i.exe", &tlou1_quirks },
     /* MSVC fails to compile empty array. */
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
 };
