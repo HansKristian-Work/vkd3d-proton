@@ -440,6 +440,7 @@ struct vkd3d_shader_compile_arguments
 
     uint32_t min_subgroup_size;
     uint32_t max_subgroup_size;
+    bool promote_wave_size_heuristics;
 
     const struct vkd3d_shader_quirk_info *quirks;
 };

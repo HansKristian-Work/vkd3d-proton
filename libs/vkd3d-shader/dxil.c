@@ -564,6 +564,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     dxil_spv_converter converter = NULL;
     dxil_spv_parsed_blob blob = NULL;
     dxil_spv_compiled_spirv compiled;
+    unsigned int heuristic_wave_size;
     dxil_spv_shader_stage stage;
     unsigned int i, j, max_size;
     vkd3d_shader_hash_t hash;
@@ -966,9 +967,17 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     dxil_spv_converter_get_patch_vertex_count(converter, &spirv->meta.patch_vertex_count);
     dxil_spv_converter_get_compute_required_wave_size(converter, &spirv->meta.cs_required_wave_size);
 
-    if ((quirks & VKD3D_SHADER_QUIRK_FORCE_MAX_WAVE32) && !spirv->meta.cs_required_wave_size &&
-            compiler_args->max_subgroup_size > 32 && compiler_args->min_subgroup_size <= 32)
-        spirv->meta.cs_required_wave_size = 32;
+    if (compiler_args->promote_wave_size_heuristics)
+    {
+        dxil_spv_converter_get_compute_heuristic_max_wave_size(converter, &heuristic_wave_size);
+        if (quirks & VKD3D_SHADER_QUIRK_FORCE_MAX_WAVE32)
+            heuristic_wave_size = 32;
+
+        if (heuristic_wave_size && !spirv->meta.cs_required_wave_size &&
+                compiler_args->max_subgroup_size > heuristic_wave_size &&
+                compiler_args->min_subgroup_size <= heuristic_wave_size)
+            spirv->meta.cs_required_wave_size = heuristic_wave_size;
+    }
 
     vkd3d_shader_extract_feature_meta(spirv);
     vkd3d_shader_dump_spirv_shader(hash, spirv);

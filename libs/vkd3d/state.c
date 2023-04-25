@@ -2389,6 +2389,8 @@ static void d3d12_pipeline_state_init_compile_arguments(struct d3d12_pipeline_st
     compile_arguments->target_extensions = device->vk_info.shader_extensions;
     compile_arguments->min_subgroup_size = device->device_info.vulkan_1_3_properties.minSubgroupSize;
     compile_arguments->max_subgroup_size = device->device_info.vulkan_1_3_properties.maxSubgroupSize;
+    compile_arguments->promote_wave_size_heuristics =
+            d3d12_device_supports_required_subgroup_size_for_stage(device, stage);
     compile_arguments->quirks = &vkd3d_shader_quirk_info;
 
     if (stage == VK_SHADER_STAGE_FRAGMENT_BIT)

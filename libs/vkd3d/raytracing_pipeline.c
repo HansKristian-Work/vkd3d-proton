@@ -1698,6 +1698,7 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     compile_args.target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
     compile_args.min_subgroup_size = object->device->device_info.vulkan_1_3_properties.minSubgroupSize;
     compile_args.max_subgroup_size = object->device->device_info.vulkan_1_3_properties.maxSubgroupSize;
+    /* Don't care about wave size promotion in RT. */
     compile_args.quirks = &vkd3d_shader_quirk_info;
 
     /* TODO: Allow different root signatures per module. */
