@@ -583,12 +583,8 @@ static const struct vkd3d_shader_quirk_info re_quirks = {
 
 /* Subgroup ballots in shadow pre-processing shader assume wave32 despite
  * the shader using 64-wide workgroups. */
-static const struct vkd3d_shader_quirk_hash tlou1_hashes[] = {
-    { 0x4a1afb3a12797c11ull, VKD3D_SHADER_QUIRK_FORCE_MAX_WAVE32 },
-};
-
 static const struct vkd3d_shader_quirk_info tlou1_quirks = {
-    tlou1_hashes, ARRAY_SIZE(tlou1_hashes), 0,
+    NULL, 0, VKD3D_SHADER_QUIRK_FORCE_MAX_WAVE32,
 };
 
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
@@ -610,6 +606,7 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "re4.exe", &re_quirks },
     /* The Last of Us - Part 1 (1888930) */
     { VKD3D_STRING_COMPARE_EXACT, "tlou-i.exe", &tlou1_quirks },
+    { VKD3D_STRING_COMPARE_EXACT, "tlou-i-l.exe", &tlou1_quirks },
     /* MSVC fails to compile empty array. */
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
 };
