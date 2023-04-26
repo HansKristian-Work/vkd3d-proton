@@ -6155,8 +6155,19 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
     memset(bindless_state, 0, sizeof(*bindless_state));
     bindless_state->flags = vkd3d_bindless_state_get_bindless_flags(device);
 
+    if (!device_info->vulkan_1_2_features.descriptorIndexing ||
+            /* Some extra features not covered by descriptorIndexing meta-feature. */
+            !device_info->vulkan_1_2_features.shaderStorageTexelBufferArrayNonUniformIndexing ||
+            !device_info->vulkan_1_2_features.shaderStorageImageArrayNonUniformIndexing ||
+            !device_info->vulkan_1_2_features.descriptorBindingVariableDescriptorCount)
+    {
+        ERR("Insufficient descriptor indexing support.\n");
+        goto fail;
+    }
+
     if (!d3d12_device_uses_descriptor_buffers(device))
     {
+        /* UBO is optional. We can fall back to SSBO if required. */
         if (device_info->vulkan_1_2_properties.maxPerStageDescriptorUpdateAfterBindSampledImages < 1000000 ||
                 device_info->vulkan_1_2_properties.maxPerStageDescriptorUpdateAfterBindStorageImages < 1000000 ||
                 device_info->vulkan_1_2_properties.maxPerStageDescriptorUpdateAfterBindStorageBuffers < 1000000)
