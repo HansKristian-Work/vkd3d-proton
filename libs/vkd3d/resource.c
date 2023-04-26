@@ -7893,14 +7893,47 @@ HRESULT vkd3d_global_descriptor_buffer_init(struct vkd3d_global_descriptor_buffe
     VkBufferUsageFlags vk_usage_flags;
     HRESULT hr;
 
-    bool requires_offset_buffer = device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment > 4 &&
-            device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment <= 16;
+    bool requires_offset_buffer = device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment > 4;
+    bool uses_ssbo = device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment <= 16;
+    if (!uses_ssbo)
+        requires_offset_buffer = false;
 
-    /* Don't bother with descriptor buffers if we need to keep offset buffer around. */
+    /* Don't bother with descriptor buffers if we need to keep offset buffer around.
+     * Also, ignore descriptor buffers if implementation does not support non-uniform UBO indexing.
+     * We want to keep the descriptor buffer path as lean as possible. */
     if (!device->device_info.descriptor_buffer_features.descriptorBuffer ||
             !device->device_info.descriptor_buffer_features.descriptorBufferPushDescriptors ||
+            !device->device_info.vulkan_1_2_features.shaderUniformBufferArrayNonUniformIndexing ||
             requires_offset_buffer)
         return S_OK;
+
+    if (device->device_info.mutable_descriptor_features.mutableDescriptorType)
+    {
+        /* If we are forced to use MUTABLE_SINGLE_SET due to small address space for resources,
+         * we ignore descriptor buffers as well. Similar rationale to non-uniform UBO indexing.
+         * We will not add even more code paths to deal with that.
+         * Non-mutable + descriptor buffer is only relevant on AMD Windows driver for the time being,
+         * and eventually we will make mutable a hard requirement, so don't bother checking that case. */
+        VkDeviceSize required_resource_descriptors = 1000000 + 1; /* One magic SSBO for internal VA buffer. */
+        uint32_t flags = VKD3D_BINDLESS_MUTABLE_TYPE;
+        VkDeviceSize mutable_desc_size;
+
+        if (uses_ssbo)
+            flags |= VKD3D_BINDLESS_RAW_SSBO;
+
+        /* If we cannot interleave SSBO / texel buffers, we'll have to do them side by side.
+         * Implementation needs to support 2M descriptors in that case. */
+        if (!vkd3d_bindless_supports_embedded_mutable_type(device, flags))
+            required_resource_descriptors *= 2;
+
+        mutable_desc_size = vkd3d_bindless_get_mutable_descriptor_type_size(device);
+        if (device->device_info.descriptor_buffer_properties.maxResourceDescriptorBufferRange <
+                required_resource_descriptors * mutable_desc_size)
+        {
+            INFO("Small descriptor heap detected, falling back to MUTABLE_SINGLE_SET.\n");
+            return S_OK;
+        }
+    }
 
     vk_usage_flags = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
             VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
