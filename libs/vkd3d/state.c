@@ -6004,23 +6004,25 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
             flags |= VKD3D_BINDLESS_CBV_AS_SSBO;
     }
 
-    /* Normally, we would be able to use SSBOs conditionally even when maxSSBOAlignment > 4, but
-     * applications (RE2 being one example) are of course buggy and don't match descriptor and shader usage of resources,
-     * so we cannot rely on alignment analysis to select the appropriate resource type. */
-    if ((d3d12_device_uses_descriptor_buffers(device) ||
-            (device_info->vulkan_1_2_properties.maxPerStageDescriptorUpdateAfterBindStorageBuffers >= 1000000 &&
-                    device_info->vulkan_1_2_features.descriptorBindingStorageBufferUpdateAfterBind)) &&
-        device_info->properties2.properties.limits.minStorageBufferOffsetAlignment <= 16)
+    /* 16 is the cutoff due to requirements on ByteAddressBuffer.
+     * We need tight 16 byte robustness on those and trying to emulate that with offset buffers
+     * is too much of an ordeal. */
+    if (device_info->properties2.properties.limits.minStorageBufferOffsetAlignment <= 16)
     {
         flags |= VKD3D_BINDLESS_RAW_SSBO;
 
-        /* Intel GPUs have smol descriptor heaps and only way we can fit a D3D12 heap is with
-         * single set mutable. */
-        if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_MUTABLE_SINGLE_SET) ||
-                device_info->properties2.properties.vendorID == VKD3D_VENDOR_ID_INTEL)
+        /* Descriptor buffers do not support SINGLE_SET layout.
+         * We only enable descriptor buffers if we have verified that MUTABLE_SINGLE_SET hack is not required. */
+        if (!d3d12_device_uses_descriptor_buffers(device))
         {
-            INFO("Enabling single descriptor set path for MUTABLE.\n");
-            flags |= VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO;
+            /* Intel GPUs have smol descriptor heaps and only way we can fit a D3D12 heap is with
+             * single set mutable. */
+            if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_MUTABLE_SINGLE_SET) ||
+                    device_info->properties2.properties.vendorID == VKD3D_VENDOR_ID_INTEL)
+            {
+                INFO("Enabling single descriptor set path for MUTABLE.\n");
+                flags |= VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO;
+            }
         }
 
         if (device_info->properties2.properties.limits.minStorageBufferOffsetAlignment > 4)
