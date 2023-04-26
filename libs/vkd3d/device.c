@@ -6449,8 +6449,19 @@ static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
     D3D12_FEATURE_DATA_D3D12_OPTIONS *options = &device->d3d12_caps.options;
     const struct vkd3d_vulkan_info *vk_info = &device->vk_info;
+    bool supports_denorm_fp64;
 
-    options->DoublePrecisionFloatShaderOps = features->shaderFloat64;
+    /* NV driver does not expose it, yet it seems to work. Similar story as FP32. */
+    if (device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
+        supports_denorm_fp64 = true;
+    else
+        supports_denorm_fp64 = device->device_info.vulkan_1_2_properties.shaderDenormPreserveFloat64;
+
+    /* FP64 must preserve denorms (oof). */
+    options->DoublePrecisionFloatShaderOps = features->shaderFloat64 &&
+            supports_denorm_fp64 &&
+            device->device_info.vulkan_1_2_properties.denormBehaviorIndependence != VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE;
+
     options->OutputMergerLogicOp = features->logicOp;
     /* Currently not supported */
     options->MinPrecisionSupport = D3D12_SHADER_MIN_PRECISION_SUPPORT_NONE;
@@ -6549,9 +6560,13 @@ static void d3d12_device_caps_init_feature_options4(struct d3d12_device *device)
 
     /* If SSBO alignment is > 16, we cannot use SSBOs due to robustness rules.
      * If we cannot use SSBOs, we cannot use 16-bit raw buffers, which is a requirement for this feature. */
+
+    /* FP16 and FP64 must preserve denorms. Only FP32 can change, so we can accept both 32_BIT_INDEPENDENCY_ONLY and ALL. */
     options4->Native16BitShaderOpsSupported = device->device_info.vulkan_1_2_features.shaderFloat16 &&
             device->device_info.features2.features.shaderInt16 &&
             device->device_info.vulkan_1_1_features.uniformAndStorageBuffer16BitAccess &&
+            device->device_info.vulkan_1_2_properties.shaderDenormPreserveFloat16 &&
+            device->device_info.vulkan_1_2_properties.denormBehaviorIndependence != VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE &&
             device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment <= 16;
 }
 
@@ -6779,13 +6794,16 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
         /* DXIL allows control over denorm behavior for FP32 only.
          * shaderDenorm handling appears to work just fine on NV, despite the properties struct saying otherwise.
          * Assume that this is just a driver oversight, since otherwise we cannot expose SM 6.2 there ... */
-        denorm_behavior = ((device->device_info.vulkan_1_2_properties.denormBehaviorIndependence ==
-                VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY) ||
-                (device->device_info.vulkan_1_2_properties.denormBehaviorIndependence ==
-                        VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_ALL)) &&
-                (device->device_info.properties2.properties.vendorID == VKD3D_VENDOR_ID_NVIDIA ||
-                        (device->device_info.vulkan_1_2_properties.shaderDenormFlushToZeroFloat32 &&
-                                device->device_info.vulkan_1_2_properties.shaderDenormPreserveFloat32));
+        denorm_behavior = device->device_info.vulkan_1_2_properties.denormBehaviorIndependence !=
+                VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE;
+        if (denorm_behavior)
+        {
+            if (device->device_info.vulkan_1_2_properties.driverID != VK_DRIVER_ID_NVIDIA_PROPRIETARY)
+            {
+                denorm_behavior = device->device_info.vulkan_1_2_properties.shaderDenormFlushToZeroFloat32 &&
+                        device->device_info.vulkan_1_2_properties.shaderDenormPreserveFloat32;
+            }
+        }
 
         if (denorm_behavior)
         {
