@@ -4276,6 +4276,9 @@ static inline unsigned int d3d12_device_get_descriptor_handle_increment_size(
     }
 }
 
+uint32_t vkd3d_bindless_get_mutable_descriptor_type_size(struct d3d12_device *device);
+bool vkd3d_bindless_supports_embedded_mutable_type(struct d3d12_device *device, uint32_t flags);
+
 static inline uint32_t vkd3d_bindless_embedded_mutable_ssbo_offset(struct d3d12_device *device)
 {
     const VkPhysicalDeviceDescriptorBufferPropertiesEXT *props = &device->device_info.descriptor_buffer_properties;

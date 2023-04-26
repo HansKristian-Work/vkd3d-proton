@@ -5776,7 +5776,7 @@ static HRESULT vkd3d_bindless_state_add_binding(struct vkd3d_bindless_state *bin
     return hresult_from_vk_result(vr);
 }
 
-static uint32_t vkd3d_bindless_get_mutable_descriptor_type_size(struct d3d12_device *device)
+uint32_t vkd3d_bindless_get_mutable_descriptor_type_size(struct d3d12_device *device)
 {
     VkDescriptorType descriptor_types[VKD3D_MAX_MUTABLE_DESCRIPTOR_TYPES];
     uint32_t descriptor_type_count, i;
@@ -5815,14 +5815,10 @@ static bool vkd3d_bindless_supports_embedded_packed_metadata(struct d3d12_device
             vkd3d_bindless_get_mutable_descriptor_type_size(device);
 }
 
-static bool vkd3d_bindless_supports_embedded_mutable_type(struct d3d12_device *device, uint32_t flags)
+bool vkd3d_bindless_supports_embedded_mutable_type(struct d3d12_device *device, uint32_t flags)
 {
     const VkPhysicalDeviceDescriptorBufferPropertiesEXT *props = &device->device_info.descriptor_buffer_properties;
     uint32_t max_size;
-
-    if (!device->device_info.mutable_descriptor_features.mutableDescriptorType ||
-            !d3d12_device_uses_descriptor_buffers(device))
-        return false;
 
 #ifdef VKD3D_ENABLE_PROFILING
     /* For now, we don't do vtable variant shenanigans for profiled devices.
@@ -6069,7 +6065,8 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
         flags |= VKD3D_BINDLESS_MUTABLE_TYPE;
 
         /* If we can, opt in to extreme speed mode. */
-        if (vkd3d_bindless_supports_embedded_mutable_type(device, flags))
+        if (d3d12_device_uses_descriptor_buffers(device) &&
+                vkd3d_bindless_supports_embedded_mutable_type(device, flags))
         {
             flags |= VKD3D_BINDLESS_MUTABLE_EMBEDDED;
             INFO("Device supports ultra-fast path for descriptor copies.\n");
