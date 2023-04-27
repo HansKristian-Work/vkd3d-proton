@@ -147,6 +147,8 @@ struct vkd3d_vulkan_info
     bool EXT_image_sliced_view_of_3d;
     bool EXT_graphics_pipeline_library;
     bool EXT_fragment_shader_interlock;
+    bool EXT_pageable_device_local_memory;
+    bool EXT_memory_priority;
     /* AMD device extensions */
     bool AMD_buffer_marker;
     bool AMD_device_coherent_memory;
@@ -638,6 +640,7 @@ struct vkd3d_allocate_memory_info
     uint32_t flags;
     VkBufferUsageFlags explicit_global_buffer_usage;
     VkMemoryPropertyFlags optional_memory_properties;
+    float vk_memory_priority;
 };
 
 struct vkd3d_allocate_heap_memory_info
@@ -645,6 +648,7 @@ struct vkd3d_allocate_heap_memory_info
     D3D12_HEAP_DESC heap_desc;
     void *host_ptr;
     uint32_t extra_allocation_flags;
+    float vk_memory_priority;
 };
 
 struct vkd3d_allocate_resource_memory_info
@@ -655,6 +659,9 @@ struct vkd3d_allocate_resource_memory_info
     VkImage vk_image;
     void *host_ptr;
 };
+
+uint32_t vkd3d_get_priority_adjust(VkDeviceSize size);
+float vkd3d_convert_to_vk_prio(D3D12_RESIDENCY_PRIORITY d3d12prio);
 
 struct vkd3d_view_map;
 
@@ -809,6 +816,16 @@ void vkd3d_memory_allocator_cleanup(struct vkd3d_memory_allocator *allocator, st
 /* ID3D12Heap */
 typedef ID3D12Heap1 d3d12_heap_iface;
 
+typedef struct
+{
+    bool allows_dynamic_residency;
+
+    spinlock_t spinlock; /* covers access to any of the following fields after creation */
+
+    D3D12_RESIDENCY_PRIORITY d3d12priority;
+    LONG residency_count;
+} priority_info;
+
 struct d3d12_heap
 {
     d3d12_heap_iface ID3D12Heap_iface;
@@ -817,6 +834,8 @@ struct d3d12_heap
 
     D3D12_HEAP_DESC desc;
     struct vkd3d_memory_allocation allocation;
+
+    priority_info priority;
 
     struct d3d12_device *device;
     struct vkd3d_private_store private_store;
@@ -942,6 +961,8 @@ struct d3d12_resource
     struct d3d12_sparse_info sparse;
     struct vkd3d_view_map view_map;
     struct vkd3d_subresource_layout *subresource_layouts;
+
+    priority_info priority;
 
     struct d3d12_device *device;
 
@@ -3962,6 +3983,8 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceImageSlicedViewOf3DFeaturesEXT image_sliced_view_of_3d_features;
     VkPhysicalDeviceGraphicsPipelineLibraryFeaturesEXT graphics_pipeline_library_features;
     VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT fragment_shader_interlock_features;
+    VkPhysicalDeviceMemoryPriorityFeaturesEXT memory_priority_features;
+    VkPhysicalDevicePageableDeviceLocalMemoryFeaturesEXT pageable_device_memory_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
