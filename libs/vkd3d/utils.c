@@ -647,6 +647,67 @@ VkFormat vkd3d_get_vk_format(DXGI_FORMAT format)
     return VK_FORMAT_UNDEFINED;
 }
 
+/* Get some size-based low bits for memory prioritization in the same
+   way as d3d12; d3d12 bumps certain resource priorities to
+   D3D12_RESIDENCY_PRIORITY_HIGH + size-based bits (10MB resolution)
+   see: https://learn.microsoft.com/en-us/windows/win32/direct3d12/residency#default-priority-algorithm */
+uint32_t vkd3d_get_priority_adjust(VkDeviceSize size)
+{
+    return min((size / (10 * 1048576)), 0xffffUL);
+}
+
+static float vkd3d_lerp_u32_to_float(uint32_t uval, uint32_t ustart, uint32_t uend, float fstart, float fend)
+{
+    float a;
+
+    if (uval <= ustart) return fstart;
+    else if (uval >= uend) return fend;
+
+    a = (float)(uval - ustart) / (float)(uend - ustart);
+    return fstart * (1.0f - a) + (fend * a);
+}
+
+/* map from 32-bit d3d prio to float (0..1) vk prio. */
+float vkd3d_convert_to_vk_prio(D3D12_RESIDENCY_PRIORITY d3d12prio)
+{
+    float result;
+
+    /* align D3D12_RESIDENCY_PRIORITY_NORMAL (the default d3d12 prio) with
+       0.5 (the default vk prio) so neither kind wins without explicit prio */
+    if (d3d12prio <= D3D12_RESIDENCY_PRIORITY_NORMAL)
+    {
+        result = vkd3d_lerp_u32_to_float(d3d12prio,
+            0, D3D12_RESIDENCY_PRIORITY_NORMAL,
+            0.001f, 0.500f);
+    }
+    else if (d3d12prio <= D3D12_RESIDENCY_PRIORITY_HIGH)
+    {
+        result = vkd3d_lerp_u32_to_float(d3d12prio,
+            D3D12_RESIDENCY_PRIORITY_NORMAL, D3D12_RESIDENCY_PRIORITY_HIGH,
+            0.500f, 0.700f);
+    }
+    else if (d3d12prio <= D3D12_RESIDENCY_PRIORITY_HIGH+0xffff)
+    {
+        result = vkd3d_lerp_u32_to_float(d3d12prio,
+            D3D12_RESIDENCY_PRIORITY_HIGH, D3D12_RESIDENCY_PRIORITY_HIGH+0xffff,
+            0.700f, 0.800f);
+    }
+    else
+    {
+        result = vkd3d_lerp_u32_to_float(d3d12prio,
+            D3D12_RESIDENCY_PRIORITY_HIGH+0xffff, UINT32_MAX,
+            0.800f, 1.000f);
+    }
+
+    /* Note: A naive conversion from a UINT32 d3d priority to a float32 vk priority
+       loses around 9 of the 16 lower-order bits which encode size-based subranking
+       in the D3D12_RESIDENCY_PRIORITY_HIGH to HIGH+0xffff domain.  The above expansion
+       of that domain into a proportionally wider range works around this. */
+
+    /* 0.0f is reserved for explicitly evicted resources */
+    return max(min(result, 1.f), 0.001f);
+}
+
 DXGI_FORMAT vkd3d_get_dxgi_format(VkFormat format)
 {
     DXGI_FORMAT dxgi_format;
