@@ -6766,6 +6766,65 @@ static bool d3d12_command_list_emit_multi_dispatch_indirect_count(struct d3d12_c
     return true;
 }
 
+static void d3d12_command_list_emit_execute_indirect_debug_ring(struct d3d12_command_list *list,
+        struct d3d12_command_signature *signature,
+        VkDeviceAddress indirect_args, VkDeviceAddress count_arg, uint32_t max_commands)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct vkd3d_execute_indirect_debug_ring_args args;
+    static uint32_t vkd3d_implicit_instance_count;
+    VkCommandBuffer vk_patch_cmd_buffer;
+    VkMemoryBarrier2 vk_barrier;
+    VkDependencyInfo dep_info;
+
+    memset(&args, 0, sizeof(args));
+    args.api_buffer_va = indirect_args;
+    args.indirect_count_va = count_arg;
+    args.api_buffer_word_stride = signature->desc.ByteStride / sizeof(uint32_t);
+    args.debug_tag = 2; /* Something arbitrary that's non-zero */
+    args.implicit_instance = vkd3d_atomic_uint32_increment(
+            &vkd3d_implicit_instance_count, vkd3d_memory_order_relaxed) - 1;
+
+    /* Allow correlation against breadcrumb log. */
+    VKD3D_BREADCRUMB_AUX32(args.implicit_instance);
+    VKD3D_BREADCRUMB_TAG("Implicit instance");
+
+    d3d12_command_allocator_allocate_init_post_indirect_command_buffer(list->allocator, list);
+    vk_patch_cmd_buffer = list->cmd.vk_init_commands_post_indirect_barrier;
+
+    if (vk_patch_cmd_buffer == list->cmd.vk_command_buffer)
+        d3d12_command_list_end_current_render_pass(list, true);
+
+    VK_CALL(vkCmdBindPipeline(vk_patch_cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+            signature->debug_ring_pipeline.vk_pipeline));
+    VK_CALL(vkCmdPushConstants(vk_patch_cmd_buffer,
+            signature->debug_ring_pipeline.vk_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+            0, sizeof(args), &args));
+
+    VK_CALL(vkCmdDispatch(vk_patch_cmd_buffer, max_commands, 1, 1));
+
+    if (vk_patch_cmd_buffer == list->cmd.vk_command_buffer)
+    {
+        memset(&dep_info, 0, sizeof(dep_info));
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.memoryBarrierCount = 1;
+        dep_info.pMemoryBarriers = &vk_barrier;
+
+        memset(&vk_barrier, 0, sizeof(vk_barrier));
+        vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        vk_barrier.srcAccessMask = 0;
+        vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+        vk_barrier.dstAccessMask = 0;
+        VK_CALL(vkCmdPipelineBarrier2(vk_patch_cmd_buffer, &dep_info));
+
+        d3d12_command_list_invalidate_current_pipeline(list, true);
+        d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
+    }
+    else
+        list->cmd.indirect_meta->need_compute_to_indirect_barrier = true;
+}
+
 static bool d3d12_command_list_emit_multi_dispatch_indirect_count_state(struct d3d12_command_list *list,
         struct d3d12_command_signature *signature,
         VkDeviceAddress indirect_args,
@@ -13136,6 +13195,10 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
             static uint32_t vkd3d_implicit_instance_count;
             patch_args.implicit_instance = vkd3d_atomic_uint32_increment(
                     &vkd3d_implicit_instance_count, vkd3d_memory_order_relaxed) - 1;
+
+            /* Allow correlation against breadcrumb log. */
+            VKD3D_BREADCRUMB_AUX32(patch_args.implicit_instance);
+            VKD3D_BREADCRUMB_TAG("Implicit instance");
         }
 
         d3d12_command_allocator_allocate_init_post_indirect_command_buffer(list->allocator, list);
@@ -13441,6 +13504,16 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
         return;
     }
 
+    d3d12_command_list_end_transfer_batch(list);
+
+    if (sig_impl->debug_ring_pipeline.vk_pipeline)
+    {
+        d3d12_command_list_emit_execute_indirect_debug_ring(list, sig_impl,
+                arg_impl->res.va + arg_buffer_offset,
+                count_impl ? count_impl->res.va + count_buffer_offset : 0,
+                max_command_count);
+    }
+
     /* Temporary workaround, since we cannot parse non-draw arguments yet. Point directly
      * to the first argument. Should avoid hard crashes for now. */
     arg_buffer_offset += sig_impl->argument_buffer_offset_for_command;
@@ -13514,7 +13587,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
             scratch.va = arg_impl->res.va + arg_buffer_offset;
         }
 
-        d3d12_command_list_end_transfer_batch(list);
         switch (arg_desc->Type)
         {
             case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW:
@@ -19331,8 +19403,18 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
          * for optimal reordering. */
         vkd3d_atomic_uint32_store_explicit(&device->device_has_dgc_templates, 1, vkd3d_memory_order_relaxed);
     }
+    else
+    {
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE_INDIRECT)
+        {
+            vkd3d_meta_get_execute_indirect_debug_ring_pipeline(&device->meta_ops,
+                    signature_size / sizeof(uint32_t),
+                    &object->debug_ring_pipeline);
+        }
+    }
 
     object->argument_buffer_offset_for_command = argument_buffer_offset;
+
     d3d12_device_add_ref(object->device = device);
 
     TRACE("Created command signature %p.\n", object);
