@@ -1830,6 +1830,7 @@ static void vkd3d_execute_indirect_ops_cleanup(struct vkd3d_execute_indirect_ops
         VK_CALL(vkDestroyPipeline(device->vk_device, meta_indirect_ops->pipelines[i].vk_pipeline, NULL));
     VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_indirect_ops->vk_pipeline_layout, NULL));
     pthread_mutex_destroy(&meta_indirect_ops->mutex);
+    vkd3d_free(meta_indirect_ops->pipelines);
 }
 
 static HRESULT vkd3d_dstorage_ops_init(struct vkd3d_dstorage_ops *dstorage_ops, struct d3d12_device *device)
