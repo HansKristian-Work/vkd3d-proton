@@ -6781,7 +6781,7 @@ static void d3d12_command_list_emit_execute_indirect_debug_ring(struct d3d12_com
     args.api_buffer_va = indirect_args;
     args.indirect_count_va = count_arg;
     args.api_buffer_word_stride = signature->desc.ByteStride / sizeof(uint32_t);
-    args.debug_tag = 2; /* Something arbitrary that's non-zero */
+    args.debug_tag = signature->desc.pArgumentDescs[signature->desc.NumArgumentDescs - 1].Type;
     args.implicit_instance = vkd3d_atomic_uint32_increment(
             &vkd3d_implicit_instance_count, vkd3d_memory_order_relaxed) - 1;
 
@@ -13124,7 +13124,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
     current_pipeline = list->current_pipeline;
 
     memset(&patch_args, 0, sizeof(patch_args));
-    patch_args.debug_tag = (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE_INDIRECT) ? 1 : 0;
+    patch_args.debug_tag = (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE_INDIRECT) ? UINT32_MAX : 0;
 
     /* If everything regarding alignment works out, we can just reuse the app indirect buffer instead. */
     require_ibo_update = false;
