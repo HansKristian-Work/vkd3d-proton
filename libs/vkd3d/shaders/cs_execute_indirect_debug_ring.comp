@@ -1,0 +1,52 @@
+#version 450
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : require
+#extension GL_GOOGLE_include_directive : require
+#include "../../../include/shader-debug/debug_channel.h"
+
+layout(local_size_x_id = 4) in;
+
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer SrcBuffer {
+    uint values[];
+};
+
+layout(buffer_reference, std430, buffer_reference_align = 4) writeonly buffer DstBuffer {
+    uint values[];
+};
+
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer IndirectCount {
+    uint count;
+};
+
+layout(buffer_reference, std430, buffer_reference_align = 4) writeonly buffer IndirectCountWrite {
+    uint count;
+};
+
+layout(push_constant) uniform Registers
+{
+    SrcBuffer src_buffer_va;
+    uvec2 indirect_count_va;
+    uint src_stride;
+    uint debug_tag;
+    uint implicit_instance;
+};
+
+void main()
+{
+    DEBUG_CHANNEL_INIT_IMPLICIT_INSTANCE(uvec3(debug_tag, gl_WorkGroupID.x, gl_LocalInvocationIndex), implicit_instance);
+
+    uint draw_id = gl_WorkGroupID.x;
+    uint max_draws = gl_NumWorkGroups.x;
+    if (any(notEqual(indirect_count_va, uvec2(0))))
+        max_draws = min(max_draws, IndirectCount(indirect_count_va).count);
+
+    if (gl_GlobalInvocationID.x == 0u)
+        DEBUG_CHANNEL_MSG(int(max_draws), int(gl_NumWorkGroups.x));
+
+    if (draw_id < max_draws)
+    {
+        uint src_offset = src_stride * draw_id + gl_LocalInvocationIndex;
+        uint src_value = src_buffer_va.values[src_offset];
+        DEBUG_CHANNEL_MSG(0, 0, gl_LocalInvocationIndex, src_value);
+    }
+}
