@@ -147,6 +147,14 @@ static bool vkd3d_shader_debug_ring_print_message(struct vkd3d_shader_debug_ring
                     READ_RING_WORD(word_offset + 0),
                     READ_RING_WORD(word_offset + 1));
         }
+        else if (message_word_count == 3)
+        {
+            uint32_t value;
+            len = strlen(message_buffer);
+            avail = sizeof(message_buffer) - len;
+            value = READ_RING_WORD(word_offset + 2);
+            snprintf(message_buffer + len, avail, "%u", value);
+        }
         else if (message_word_count == 4)
         {
             union { uint32_t u32; float f32; int32_t s32; } value;

@@ -47,6 +47,6 @@ void main()
     {
         uint src_offset = src_stride * draw_id + gl_LocalInvocationIndex;
         uint src_value = src_buffer_va.values[src_offset];
-        DEBUG_CHANNEL_MSG(0, 0, gl_LocalInvocationIndex, src_value);
+        DEBUG_CHANNEL_MSG(uint(-1), gl_LocalInvocationIndex, src_value);
     }
 }
