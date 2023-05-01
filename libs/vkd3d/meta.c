@@ -1758,7 +1758,8 @@ HRESULT vkd3d_meta_get_execute_indirect_pipeline(struct vkd3d_meta_ops *meta_ops
         }
     }
 
-    debug = meta_ops->device->debug_ring.active;
+    debug = meta_ops->device->debug_ring.active &&
+            !!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE_INDIRECT);
 
     /* If we have debug ring, we can dump indirect command buffer data to the ring as well.
      * Vital for debugging broken execute indirect data with templates. */

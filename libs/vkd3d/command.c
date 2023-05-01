@@ -13065,7 +13065,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
     current_pipeline = list->current_pipeline;
 
     memset(&patch_args, 0, sizeof(patch_args));
-    patch_args.debug_tag = 0; /* Modify to non-zero value as desired when debugging. */
+    patch_args.debug_tag = (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE_INDIRECT) ? 1 : 0;
 
     /* If everything regarding alignment works out, we can just reuse the app indirect buffer instead. */
     require_ibo_update = false;
