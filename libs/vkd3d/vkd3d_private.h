@@ -3385,6 +3385,8 @@ struct vkd3d_breadcrumb_tracer
     vkd3d_shader_hash_t *barrier_hashes;
     size_t barrier_hashes_size;
     uint32_t barrier_hashes_count;
+
+    bool reported_fault;
 };
 
 HRESULT vkd3d_breadcrumb_tracer_init(struct vkd3d_breadcrumb_tracer *tracer, struct d3d12_device *device);
