@@ -559,6 +559,13 @@ void vkd3d_breadcrumb_tracer_report_device_lost(struct vkd3d_breadcrumb_tracer *
     pthread_mutex_lock(&global_report_lock);
     ERR("Device lost observed, analyzing breadcrumbs ...\n");
 
+    if (tracer->reported_fault)
+    {
+        pthread_mutex_unlock(&global_report_lock);
+        return;
+    }
+    tracer->reported_fault = true;
+
     if (device->vk_info.NV_device_diagnostic_checkpoints)
     {
         /* vkGetQueueCheckpointDataNV does not require us to synchronize access to the queue. */
