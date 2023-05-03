@@ -1831,6 +1831,7 @@ enum vkd3d_spirv_extension
     VKD3D_SPV_EXT_SHADER_STENCIL_EXPORT         = 0x00000020,
     VKD3D_SPV_EXT_FRAGMENT_FULLY_COVERED        = 0x00000040,
     VKD3D_SPV_EXT_FRAGMENT_SHADER_INTERLOCK     = 0x00000080,
+    VKD3D_SPV_KHR_FLOAT_CONTROLS                = 0x00000100,
 };
 
 struct vkd3d_spirv_extension_info
@@ -1848,6 +1849,7 @@ static const struct vkd3d_spirv_extension_info vkd3d_spirv_extensions[] =
     {VKD3D_SPV_EXT_SHADER_STENCIL_EXPORT,       "SPV_EXT_shader_stencil_export"},
     {VKD3D_SPV_EXT_FRAGMENT_FULLY_COVERED,      "SPV_EXT_fragment_fully_covered"},
     {VKD3D_SPV_EXT_FRAGMENT_SHADER_INTERLOCK,   "SPV_EXT_fragment_shader_interlock"},
+    {VKD3D_SPV_KHR_FLOAT_CONTROLS,              "SPV_KHR_float_controls"},
 };
 
 struct vkd3d_spirv_capability_extension_mapping
@@ -1867,6 +1869,7 @@ static const struct vkd3d_spirv_capability_extension_mapping vkd3d_spirv_capabil
     {SpvCapabilityFragmentFullyCoveredEXT,                VKD3D_SPV_EXT_FRAGMENT_FULLY_COVERED},
     {SpvCapabilityFragmentShaderPixelInterlockEXT,        VKD3D_SPV_EXT_FRAGMENT_SHADER_INTERLOCK},
     {SpvCapabilityFragmentShaderSampleInterlockEXT,       VKD3D_SPV_EXT_FRAGMENT_SHADER_INTERLOCK},
+    {SpvCapabilityDenormPreserve,                         VKD3D_SPV_KHR_FLOAT_CONTROLS},
 };
 
 static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
@@ -6122,6 +6125,22 @@ static void vkd3d_dxbc_compiler_emit_dcl_global_flags(struct vkd3d_dxbc_compiler
     {
         vkd3d_spirv_enable_capability(builder, SpvCapabilityFloat64);
         flags &= ~(VKD3DSGF_ENABLE_DOUBLE_PRECISION_FLOAT_OPS | VKD3DSGF_ENABLE_11_1_DOUBLE_EXTENSIONS);
+
+        if (compiler->compile_args)
+        {
+            uint32_t literal = 64;
+            unsigned int i;
+
+            for (i = 0; i < compiler->compile_args->target_extension_count; i++)
+            {
+                if (compiler->compile_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP64_DENORM_PRESERVE)
+                {
+                    vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeDenormPreserve, &literal, 1);
+                    vkd3d_spirv_enable_capability(builder, SpvCapabilityDenormPreserve);
+                    break;
+                }
+            }
+        }
     }
 
     if (flags & ~(VKD3DSGF_REFACTORING_ALLOWED | VKD3DSGF_ENABLE_RAW_AND_STRUCTURED_BUFFERS))
