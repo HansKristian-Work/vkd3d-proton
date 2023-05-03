@@ -6988,6 +6988,7 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
 
 static void vkd3d_init_shader_extensions(struct d3d12_device *device)
 {
+    bool allow_denorm_control;
     device->vk_info.shader_extension_count = 0;
 
     device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
@@ -7039,8 +7040,18 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
                 VKD3D_SHADER_TARGET_EXTENSION_MIN_PRECISION_IS_NATIVE_16BIT;
     }
 
+    /* NV driver implies denorm preserve by default in FP16 and 64, but there's an issue where
+     * the explicit denorm preserve state spills into FP32 even when we explicitly want FTZ for FP32.
+     * Denorm preserve is only exposed on FP16 on this implementation,
+     * so it's technically in-spec to do this,
+     * but the only way we can make NV pass our tests is to *not* emit anything at all for 16 and 64. */
+    allow_denorm_control =
+            device->device_info.vulkan_1_2_properties.driverID != VK_DRIVER_ID_NVIDIA_PROPRIETARY ||
+            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS);
+
     if (device->device_info.vulkan_1_2_properties.denormBehaviorIndependence !=
-            VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE)
+            VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE &&
+            allow_denorm_control)
     {
         if (device->device_info.vulkan_1_2_properties.shaderDenormPreserveFloat16)
         {
