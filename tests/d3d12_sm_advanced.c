@@ -5728,9 +5728,17 @@ static void test_denorm_behavior(bool use_dxil)
     {
 #ifdef FP64
         {
+#ifdef DXBC
+            uint4 loaded_v = ROBuf.Load4(0);
+            double2 v = double2(asdouble(loaded_v.x, loaded_v.y), asdouble(loaded_v.z, loaded_v.w));
+            precise double v2 = v.x + v.y;
+			asuint(v2, loaded_v.x, loaded_v.y);
+            RWBuf.Store2(0, loaded_v.xy);
+#else
             double2 v = ROBuf.Load<double2>(0);
             precise double v2 = v.x + v.y;
             RWBuf.Store<double>(0, v2);
+#endif
         }
 #endif
 
@@ -5749,6 +5757,21 @@ static void test_denorm_behavior(bool use_dxil)
 #endif
     }
 #endif
+
+    static const DWORD cs_fp64_fp32_any_dxbc[] =
+    {
+        0x43425844, 0x9f437732, 0x672138f1, 0xc013fe98, 0x6dd67925, 0x00000001, 0x00000144, 0x00000004,
+        0x00000030, 0x00000040, 0x00000050, 0x00000134, 0x4e475349, 0x00000008, 0x00000000, 0x00000008,
+        0x4e47534f, 0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x000000dc, 0x00050050, 0x00000037,
+        0x0100186a, 0x030000a1, 0x00107000, 0x00000000, 0x0300009d, 0x0011e000, 0x00000000, 0x02000068,
+        0x00000002, 0x0400009b, 0x00000001, 0x00000001, 0x00000001, 0x897800a5, 0x800002c2, 0x00199983,
+        0x001000f2, 0x00000000, 0x00004001, 0x00000000, 0x00107e46, 0x00000000, 0x071800bf, 0x00100032,
+        0x00000000, 0x00100ee6, 0x00000000, 0x00100446, 0x00000000, 0x891800a5, 0x800002c2, 0x00199983,
+        0x00100032, 0x00000001, 0x00004001, 0x00000010, 0x00107046, 0x00000000, 0x07200000, 0x00100042,
+        0x00000000, 0x0010001a, 0x00000001, 0x0010000a, 0x00000001, 0x070000a6, 0x0011e072, 0x00000000,
+        0x00004001, 0x00000000, 0x00100246, 0x00000000, 0x0100003e, 0x30494653, 0x00000008, 0x00000001,
+        0x00000000,
+    };
 
     static const BYTE cs_fp16_fp32_ftz[] =
     {
@@ -6345,6 +6368,8 @@ static void test_denorm_behavior(bool use_dxil)
     static const D3D12_SHADER_BYTECODE fp64_fp32_any_dxil = SHADER_BYTECODE(cs_fp64_fp32_any);
     static const D3D12_SHADER_BYTECODE fp16_fp64_fp32_any_dxil = SHADER_BYTECODE(cs_fp16_fp64_fp32_any);
 
+    static const D3D12_SHADER_BYTECODE fp64_fp32_any_dxbc = SHADER_BYTECODE(cs_fp64_fp32_any_dxbc);
+
     /* Test different combinations where FP16 and/or FP64 is used with denorm preserve alongside FP32 explicit modes. */
 #define MAKE_FLOAT2(a, b) (((uint64_t)(b) << 32) | (a))
 #define MAKE_HALF4(a, b, c, d) (((uint64_t)(d) << 48) | ((uint64_t)(c) << 32) | ((uint64_t)(b) << 16) | ((uint64_t)(a) << 0))
@@ -6366,7 +6391,7 @@ static void test_denorm_behavior(bool use_dxil)
         { NULL, &fp16_fp64_fp32_denorm_dxil, TEST_DATA(true, false, true, true) },
         /* FP32 any */
         { NULL, &fp16_fp32_any_dxil, TEST_DATA(true, false, false, false) },
-        { NULL, &fp64_fp32_any_dxil, TEST_DATA(false, false, false, true) },
+        { &fp64_fp32_any_dxbc, &fp64_fp32_any_dxil, TEST_DATA(false, false, false, true) },
         { NULL, &fp16_fp64_fp32_any_dxil, TEST_DATA(true, false, false, true) },
     };
 #undef MAKE_FLOAT2
