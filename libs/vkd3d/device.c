@@ -7038,6 +7038,22 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                 VKD3D_SHADER_TARGET_EXTENSION_MIN_PRECISION_IS_NATIVE_16BIT;
     }
+
+    if (device->device_info.vulkan_1_2_properties.denormBehaviorIndependence !=
+            VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE)
+    {
+        if (device->device_info.vulkan_1_2_properties.shaderDenormPreserveFloat16)
+        {
+            device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                    VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP16_DENORM_PRESERVE;
+        }
+
+        if (device->device_info.vulkan_1_2_properties.shaderDenormPreserveFloat64)
+        {
+            device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                    VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP64_DENORM_PRESERVE;
+        }
+    }
 }
 
 static void vkd3d_compute_shader_interface_key(struct d3d12_device *device)

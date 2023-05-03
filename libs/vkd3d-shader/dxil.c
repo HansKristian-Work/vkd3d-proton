@@ -557,6 +557,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_compile_arguments *compiler_args)
 {
+    dxil_spv_option_denorm_preserve_support denorm_preserve = {{ DXIL_SPV_OPTION_DENORM_PRESERVE_SUPPORT }};
     struct vkd3d_dxil_remap_userdata remap_userdata;
     unsigned int raw_va_binding_count = 0;
     unsigned int num_root_descriptors = 0;
@@ -840,6 +841,17 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
                     goto end;
                 }
             }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP16_DENORM_PRESERVE)
+                denorm_preserve.supports_float16_denorm_preserve = DXIL_SPV_TRUE;
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP64_DENORM_PRESERVE)
+                denorm_preserve.supports_float64_denorm_preserve = DXIL_SPV_TRUE;
+        }
+
+        if (dxil_spv_converter_add_option(converter, &denorm_preserve.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support DENORM_PRESERVE_SUPPORT.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
         }
 
         if (compiler_args->dual_source_blending)
@@ -996,6 +1008,7 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         const struct vkd3d_shader_interface_local_info *shader_interface_local_info,
         const struct vkd3d_shader_compile_arguments *compiler_args)
 {
+    dxil_spv_option_denorm_preserve_support denorm_preserve = {{ DXIL_SPV_OPTION_DENORM_PRESERVE_SUPPORT }};
     const struct vkd3d_shader_push_constant_buffer *record_constant_buffer;
     const struct vkd3d_shader_resource_binding *resource_binding;
     const struct vkd3d_shader_root_parameter *root_parameter;
@@ -1363,7 +1376,18 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
                     goto end;
                 }
             }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP16_DENORM_PRESERVE)
+                denorm_preserve.supports_float16_denorm_preserve = DXIL_SPV_TRUE;
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP64_DENORM_PRESERVE)
+                denorm_preserve.supports_float64_denorm_preserve = DXIL_SPV_TRUE;
         }
+    }
+
+    if (dxil_spv_converter_add_option(converter, &denorm_preserve.base) != DXIL_SPV_SUCCESS)
+    {
+        ERR("dxil-spirv does not support DENORM_PRESERVE_SUPPORT.\n");
+        ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+        goto end;
     }
 
     dxil_spv_converter_set_entry_point(converter, export);
