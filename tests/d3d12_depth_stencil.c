@@ -1990,3 +1990,246 @@ void test_depth_stencil_layout_tracking(void)
     destroy_depth_stencil(&ds);
     destroy_test_context(&context);
 }
+
+void test_dynamic_depth_stencil_write(void)
+{
+    enum { NUM_QUADS = 4 * 4 };
+    enum { READ_ONLY = 0, DEPTH_WRITE = 1, STENCIL_WRITE = 2, WRITE = 3 };
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc;
+    D3D12_INPUT_LAYOUT_DESC input_layout;
+    D3D12_INPUT_ELEMENT_DESC layout_elem;
+    D3D12_CPU_DESCRIPTOR_HANDLE dsvs[4];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    float vbo_data[NUM_QUADS][4][4];
+    struct test_context_desc desc;
+    ID3D12PipelineState *psos[4];
+    D3D12_VERTEX_BUFFER_VIEW vbv;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12DescriptorHeap *heap;
+    ID3D12Resource *vbo;
+    ID3D12Resource *ds;
+    D3D12_VIEWPORT vp;
+    unsigned int i, j;
+    D3D12_RECT rect;
+
+    static const DWORD vs_code[] =
+    {
+#if 0
+    float4 main(float4 pos : POSITION) : SV_Position
+    {
+        return pos;
+    }
+#endif
+        0x43425844, 0x1808c035, 0xc030df61, 0x84df42ec, 0xfc8e362e, 0x00000001, 0x000000dc, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x00000f0f, 0x49534f50, 0x4e4f4954, 0xababab00,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x505f5653, 0x7469736f, 0x006e6f69, 0x58454853, 0x00000040, 0x00010050,
+        0x00000010, 0x0100086a, 0x0300005f, 0x001010f2, 0x00000000, 0x04000067, 0x001020f2, 0x00000000,
+        0x00000001, 0x05000036, 0x001020f2, 0x00000000, 0x00101e46, 0x00000000, 0x0100003e,
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_render_target = true;
+    desc.no_root_signature = true;
+
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    memset(&input_layout, 0, sizeof(input_layout));
+    memset(&layout_elem, 0, sizeof(layout_elem));
+    input_layout.NumElements = 1;
+    input_layout.pInputElementDescs = &layout_elem;
+    layout_elem.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    layout_elem.InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
+    layout_elem.SemanticName = "POSITION";
+
+    init_pipeline_state_desc_shaders(&pso_desc, context.root_signature, DXGI_FORMAT_UNKNOWN,
+            &input_layout, vs_code, sizeof(vs_code), NULL, 0);
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.StencilEnable = TRUE;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    pso_desc.DepthStencilState.FrontFace.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    pso_desc.DepthStencilState.FrontFace.StencilFailOp = D3D12_STENCIL_OP_REPLACE;
+    pso_desc.DepthStencilState.FrontFace.StencilPassOp = D3D12_STENCIL_OP_REPLACE;
+    pso_desc.DepthStencilState.FrontFace.StencilDepthFailOp = D3D12_STENCIL_OP_REPLACE;
+    pso_desc.DepthStencilState.BackFace = pso_desc.DepthStencilState.FrontFace;
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+
+    heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 4);
+    ds = create_default_texture2d(context.device, 4, 4, 1, 1, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+
+    for (i = 0; i < ARRAY_SIZE(psos); i++)
+    {
+        D3D12_CPU_DESCRIPTOR_HANDLE h;
+        pso_desc.DepthStencilState.DepthWriteMask = (i & 1) ? D3D12_DEPTH_WRITE_MASK_ALL : D3D12_DEPTH_WRITE_MASK_ZERO;
+        pso_desc.DepthStencilState.StencilWriteMask = (i & 2) ? 0xff : 0;
+        ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&psos[i]);
+
+        memset(&dsv_desc, 0, sizeof(dsv_desc));
+        dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+        dsv_desc.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+        dsv_desc.Flags |= (i & 1) == 0 ? D3D12_DSV_FLAG_READ_ONLY_DEPTH : 0;
+        dsv_desc.Flags |= (i & 2) == 0 ? D3D12_DSV_FLAG_READ_ONLY_STENCIL : 0;
+        h = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+        h.ptr += ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV) * i;
+        ID3D12Device_CreateDepthStencilView(context.device, ds, &dsv_desc, h);
+        dsvs[i] = h;
+    }
+
+    /* Verify if DSV read-only state affects clear operations. */
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, dsvs[WRITE], D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.5f, 0x80, 0, NULL);
+    set_rect(&rect, 0, 0, 4, 1);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, dsvs[READ_ONLY], D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.25f, 0x70, 1, &rect);
+    set_rect(&rect, 0, 1, 4, 2);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, dsvs[DEPTH_WRITE], D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.125f, 0x10, 1, &rect);
+    set_rect(&rect, 0, 2, 4, 3);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, dsvs[STENCIL_WRITE], D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.75f, 0x90, 1, &rect);
+
+    transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    /* Verify that read-only state does not affect ClearDSV. */
+    get_texture_readback_with_command_list(ds, 0, &rb, context.queue, context.list);
+    {
+        static const float expected_depth[] =
+        {
+            0.25f, 0.25f, 0.25f, 0.25f,
+            0.125f, 0.125f, 0.125f, 0.125f,
+            0.75f, 0.75f, 0.75f, 0.75f,
+            0.5f, 0.5f, 0.5f, 0.5f,
+        };
+        float value, expected;
+        unsigned int x, y;
+
+        for (y = 0; y < 4; y++)
+        {
+            for (x = 0; x < 4; x++)
+            {
+                value = get_readback_float(&rb, x, y);
+                expected = expected_depth[y * 4 + x];
+                ok(expected == value, "Depth pixel %u, %u mismatch, expected %f, got %f.\n", x, y, expected, value);
+            }
+        }
+    }
+    release_resource_readback(&rb);
+    reset_command_list(context.list, context.allocator);
+    get_texture_readback_with_command_list(ds, 1, &rb, context.queue, context.list);
+    {
+        static const uint8_t expected_stencil[] =
+        {
+            0x70, 0x70, 0x70, 0x70,
+            0x10, 0x10, 0x10, 0x10,
+            0x90, 0x90, 0x90, 0x90,
+            0x80, 0x80, 0x80, 0x80,
+        };
+        uint8_t value, expected;
+        unsigned int x, y;
+
+        for (y = 0; y < 4; y++)
+        {
+            for (x = 0; x < 4; x++)
+            {
+                value = get_readback_uint8(&rb, x, y);
+                expected = expected_stencil[y * 4 + x];
+                ok(expected == value, "Stencil pixel %u, %u mismatch, expected %u, got %u.\n", x, y, expected, value);
+            }
+        }
+    }
+    release_resource_readback(&rb);
+
+    reset_command_list(context.list, context.allocator);
+    transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, dsvs[WRITE], D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, NULL);
+
+    for (i = 0; i < NUM_QUADS; i++)
+    {
+        for (j = 0; j < 4; j++)
+        {
+            vbo_data[i][j][0] = (j & 1) ? +1.0f : -1.0f;
+            vbo_data[i][j][1] = (j & 2) ? +1.0f : -1.0f;
+            vbo_data[i][j][2] = (float)i / 256.0f;
+            vbo_data[i][j][3] = 1.0f;
+        }
+    }
+
+    vbo = create_upload_buffer(context.device, sizeof(vbo_data), vbo_data);
+    vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vbo);
+    vbv.SizeInBytes = sizeof(vbo_data);
+    vbv.StrideInBytes = 4 * sizeof(float);
+
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    ID3D12GraphicsCommandList_IASetVertexBuffers(context.list, 0, 1, &vbv);
+
+    set_rect(&rect, 0, 0, 4, 4);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &rect);
+
+    for (i = 0; i < NUM_QUADS; i++)
+    {
+        unsigned int x, y;
+        x = i % 4;
+        y = i / 4;
+        set_viewport(&vp, x, y, 1, 1, 0, 1);
+        ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 0, NULL, FALSE, &dsvs[y]);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, psos[x]);
+        ID3D12GraphicsCommandList_OMSetStencilRef(context.list, i + 1);
+        ID3D12GraphicsCommandList_DrawInstanced(context.list, 4, 1, 4 * i, 0);
+    }
+
+    /* Read-write state of the DSV *does* matter when rendering however! We have to dynamically disable writes. */
+    transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(ds, 0, &rb, context.queue, context.list);
+    {
+        float value, expected;
+        unsigned int x, y;
+
+        for (y = 0; y < 4; y++)
+        {
+            for (x = 0; x < 4; x++)
+            {
+                value = get_readback_float(&rb, x, y);
+                /* Write happens if both PSO and DSV enable write. */
+                expected = (x & DEPTH_WRITE) && (y & DEPTH_WRITE) ? (float)(y * 4 + x) / 256.0f : 1.0f;
+                ok(expected == value, "Depth pixel %u, %u mismatch, expected %f, got %f.\n", x, y, expected, value);
+            }
+        }
+    }
+
+    release_resource_readback(&rb);
+    reset_command_list(context.list, context.allocator);
+    get_texture_readback_with_command_list(ds, 1, &rb, context.queue, context.list);
+    {
+        uint8_t value, expected;
+        unsigned int x, y;
+
+        for (y = 0; y < 4; y++)
+        {
+            for (x = 0; x < 4; x++)
+            {
+                value = get_readback_uint8(&rb, x, y);
+                expected = (x & STENCIL_WRITE) && (y & STENCIL_WRITE) ? (y * 4 + x + 1) : 0;
+                ok(expected == value, "Stencil pixel %u, %u mismatch, expected %u, got %u.\n", x, y, expected, value);
+            }
+        }
+    }
+    release_resource_readback(&rb);
+
+    for (i = 0; i < ARRAY_SIZE(psos); i++)
+        ID3D12PipelineState_Release(psos[i]);
+
+    ID3D12Resource_Release(vbo);
+    ID3D12Resource_Release(ds);
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
