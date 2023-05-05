@@ -3500,6 +3500,8 @@ vkd3d_dynamic_state_list[] =
     { VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE, VK_DYNAMIC_STATE_FRAGMENT_SHADING_RATE_KHR },
     { VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART,     VK_DYNAMIC_STATE_PRIMITIVE_RESTART_ENABLE_EXT },
     { VKD3D_DYNAMIC_STATE_PATCH_CONTROL_POINTS,  VK_DYNAMIC_STATE_PATCH_CONTROL_POINTS_EXT },
+    { VKD3D_DYNAMIC_STATE_DEPTH_WRITE_ENABLE,    VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE },
+    { VKD3D_DYNAMIC_STATE_STENCIL_WRITE_MASK,    VK_DYNAMIC_STATE_STENCIL_WRITE_MASK },
 };
 
 uint32_t vkd3d_init_dynamic_state_array(VkDynamicState *dynamic_states, uint32_t dynamic_state_flags)
@@ -3776,6 +3778,13 @@ uint32_t d3d12_graphics_pipeline_state_get_dynamic_state_flags(struct d3d12_pipe
 
     if (graphics->ds_desc.depthBoundsTestEnable)
         dynamic_state_flags |= VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS;
+
+    /* If the DSV is read-only for a plane, writes are dynamically disabled. */
+    if (graphics->ds_desc.depthTestEnable && graphics->ds_desc.depthWriteEnable)
+        dynamic_state_flags |= VKD3D_DYNAMIC_STATE_DEPTH_WRITE_ENABLE;
+
+    if (graphics->ds_desc.stencilTestEnable && graphics->ds_desc.front.writeMask)
+        dynamic_state_flags |= VKD3D_DYNAMIC_STATE_STENCIL_WRITE_MASK;
 
     for (i = 0; i < graphics->rt_count; i++)
     {

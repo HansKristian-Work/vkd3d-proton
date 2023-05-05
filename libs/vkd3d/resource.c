@@ -6034,6 +6034,7 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
     rtv_desc->layer_count = key.u.texture.layer_count;
     rtv_desc->view = view;
     rtv_desc->resource = resource;
+    rtv_desc->plane_write_enable = 1u << 0;
 }
 
 void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_device *device,
@@ -6124,6 +6125,9 @@ void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_dev
     dsv_desc->layer_count = key.u.texture.layer_count;
     dsv_desc->view = view;
     dsv_desc->resource = resource;
+    dsv_desc->plane_write_enable =
+            (desc && (desc->Flags & D3D12_DSV_FLAG_READ_ONLY_DEPTH) ? 0 : (1u << 0)) |
+            (desc && (desc->Flags & D3D12_DSV_FLAG_READ_ONLY_STENCIL) ? 0 : (1u << 1));
 }
 
 /* ID3D12DescriptorHeap */
