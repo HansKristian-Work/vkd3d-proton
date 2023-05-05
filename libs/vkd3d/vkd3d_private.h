@@ -1237,6 +1237,7 @@ struct d3d12_rtv_desc
     unsigned int width;
     unsigned int height;
     unsigned int layer_count;
+    unsigned int plane_write_enable;
     struct vkd3d_view *view;
     struct d3d12_resource *resource;
 };
@@ -1770,6 +1771,8 @@ enum vkd3d_dynamic_state_flag
     VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE = (1 << 7),
     VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART     = (1 << 8),
     VKD3D_DYNAMIC_STATE_PATCH_CONTROL_POINTS  = (1 << 9),
+    VKD3D_DYNAMIC_STATE_DEPTH_WRITE_ENABLE    = (1 << 10),
+    VKD3D_DYNAMIC_STATE_STENCIL_WRITE_MASK    = (1 << 11),
 };
 
 struct vkd3d_shader_debug_ring_spec_constants
@@ -2371,6 +2374,8 @@ struct vkd3d_dynamic_state
 
     float blend_constants[4];
     uint32_t stencil_reference;
+    uint32_t stencil_write_mask;
+    uint32_t dsv_plane_write_enable;
 
     float min_depth_bounds;
     float max_depth_bounds;
