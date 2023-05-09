@@ -299,6 +299,20 @@ void test_check_feature_support(void)
             || root_signature.HighestVersion == D3D_ROOT_SIGNATURE_VERSION_1_1,
             "Got unexpected root signature feature version %#x.\n", root_signature.HighestVersion);
 
+    root_signature.HighestVersion = 0;
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ROOT_SIGNATURE,
+            &root_signature, sizeof(root_signature));
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(root_signature.HighestVersion == 0, "Got unexpected root signature feature version %#x.\n",
+            root_signature.HighestVersion);
+
+    root_signature.HighestVersion = 0xdeadbeef;
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ROOT_SIGNATURE,
+            &root_signature, sizeof(root_signature));
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(root_signature.HighestVersion == 0xdeadbeef, "Got unexpected root signature feature version %#x.\n",
+            root_signature.HighestVersion);
+
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
