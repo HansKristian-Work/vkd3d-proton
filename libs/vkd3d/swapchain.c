@@ -648,7 +648,7 @@ static float convert_max_luminance(UINT dxgi_luminance)
 
 static float convert_min_luminance(UINT dxgi_luminance)
 {
-    return dxgi_luminance / 0.0001f;
+    return dxgi_luminance * 0.0001f;
 }
 
 static float convert_level(UINT16 dxgi_level)
