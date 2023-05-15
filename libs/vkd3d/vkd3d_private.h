@@ -3250,6 +3250,7 @@ struct vkd3d_shader_debug_ring
     VkDeviceAddress atomic_device_address;
     size_t ring_size;
     size_t control_block_size;
+    uint32_t implicit_instance_count;
 
     pthread_t ring_thread;
     pthread_mutex_t ring_lock;
