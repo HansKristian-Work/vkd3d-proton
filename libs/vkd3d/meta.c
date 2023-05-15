@@ -1525,8 +1525,11 @@ static HRESULT vkd3d_multi_dispatch_indirect_ops_init(
         struct vkd3d_multi_dispatch_indirect_ops *meta_multi_dispatch_indirect_ops,
         struct d3d12_device *device)
 {
+    struct vkd3d_shader_debug_ring_spec_info debug_ring_info;
     VkPushConstantRange push_constant_range;
+    const VkSpecializationInfo *spec;
     VkResult vr;
+    bool debug;
 
     memset(meta_multi_dispatch_indirect_ops, 0, sizeof(*meta_multi_dispatch_indirect_ops));
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
@@ -1543,6 +1546,20 @@ static HRESULT vkd3d_multi_dispatch_indirect_ops_init(
             &push_constant_range, &meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_state_layout)) < 0)
         goto fail;
 
+    debug = device->debug_ring.active &&
+            !!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE_INDIRECT);
+
+    if (debug)
+    {
+        vkd3d_shader_debug_ring_init_spec_constant(device, &debug_ring_info,
+                0 /* Reserve this hash for internal debug streams. */);
+        spec = &debug_ring_info.spec_info;
+    }
+    else
+    {
+        spec = NULL;
+    }
+
     if ((vr = vkd3d_meta_create_compute_pipeline(device,
             sizeof(cs_execute_indirect_multi_dispatch), cs_execute_indirect_multi_dispatch,
             meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_layout, NULL, true,
@@ -1550,8 +1567,9 @@ static HRESULT vkd3d_multi_dispatch_indirect_ops_init(
         goto fail;
 
     if ((vr = vkd3d_meta_create_compute_pipeline(device,
-            sizeof(cs_execute_indirect_multi_dispatch_state), cs_execute_indirect_multi_dispatch_state,
-            meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_state_layout, NULL, true,
+            debug ? sizeof(cs_execute_indirect_multi_dispatch_state_debug_ring) : sizeof(cs_execute_indirect_multi_dispatch_state),
+            debug ? cs_execute_indirect_multi_dispatch_state_debug_ring : cs_execute_indirect_multi_dispatch_state,
+            meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_state_layout, spec, true,
             &meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_state_pipeline)) < 0)
         goto fail;
 

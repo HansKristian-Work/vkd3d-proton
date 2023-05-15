@@ -6837,6 +6837,7 @@ static bool d3d12_command_list_emit_multi_dispatch_indirect_count_state(struct d
     struct vkd3d_multi_dispatch_indirect_info pipeline_info;
     struct vkd3d_multi_dispatch_indirect_state_args args;
     struct vkd3d_scratch_allocation template_scratch;
+    static uint32_t vkd3d_implicit_instance_count;
     VkCommandBuffer vk_patch_cmd_buffer;
     VkMemoryBarrier2 vk_barrier;
     VkDependencyInfo dep_info;
@@ -6875,6 +6876,13 @@ static bool d3d12_command_list_emit_multi_dispatch_indirect_count_state(struct d
     args.root_parameter_template_va = template_scratch.va;
     args.stride_words = stride / sizeof(uint32_t);
     args.dispatch_offset_words = signature->state_template.compute.dispatch_offset_words;
+    args.debug_tag = UINT32_MAX;
+    args.implicit_instance = vkd3d_atomic_uint32_increment(
+            &vkd3d_implicit_instance_count, vkd3d_memory_order_relaxed) - 1;
+
+    /* Allow correlation against breadcrumb log. */
+    VKD3D_BREADCRUMB_TAG("Implicit instance (compute template)");
+    VKD3D_BREADCRUMB_AUX32(args.implicit_instance);
 
     d3d12_command_allocator_allocate_init_post_indirect_command_buffer(list->allocator, list);
     vk_patch_cmd_buffer = list->cmd.vk_init_commands_post_indirect_barrier;
@@ -18981,6 +18989,13 @@ static HRESULT d3d12_command_signature_init_state_template_dgc(struct d3d12_comm
         VKD3D_PATCH_COMMAND_TOKEN_COPY_ROOT_VA_HI,
     };
 
+    static const enum vkd3d_patch_command_token dispatch_types[] =
+    {
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_DISPATCH_X,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_DISPATCH_Y,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_DISPATCH_Z,
+    };
+
     static const VkIndexType vk_index_types[] = { VK_INDEX_TYPE_UINT32, VK_INDEX_TYPE_UINT16 };
     static const uint32_t d3d_index_types[] = { DXGI_FORMAT_R32_UINT, DXGI_FORMAT_R16_UINT };
 
@@ -19154,9 +19169,8 @@ static HRESULT d3d12_command_signature_init_state_template_dgc(struct d3d12_comm
                 token.offset = stream_stride;
                 stream_stride += sizeof(VkDispatchIndirectCommand);
                 dst_word_offset = token.offset / sizeof(uint32_t);
-                /* TODO: Rebase on top of debug-ring-indirect. */
-                generic_u32_copy_count = 0;
-                generic_u32_copy_types = NULL;
+                generic_u32_copy_count = ARRAY_SIZE(dispatch_types);
+                generic_u32_copy_types = dispatch_types;
                 break;
 
             default:
