@@ -53,6 +53,7 @@ enum vkd3d_meta_copy_mode
 #include <cs_execute_indirect_debug_ring.h>
 #include <cs_execute_indirect_multi_dispatch.h>
 #include <cs_execute_indirect_multi_dispatch_state.h>
+#include <cs_execute_indirect_multi_dispatch_state_debug_ring.h>
 #include <vs_fullscreen_layer.h>
 #include <vs_fullscreen.h>
 #include <gs_fullscreen.h>
