@@ -8377,7 +8377,6 @@ static void d3d12_command_list_emit_execute_indirect_debug_ring(struct d3d12_com
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_execute_indirect_debug_ring_args args;
-    static uint32_t vkd3d_implicit_instance_count;
     VkCommandBuffer vk_patch_cmd_buffer;
     VkMemoryBarrier2 vk_barrier;
     VkDependencyInfo dep_info;
@@ -8386,9 +8385,13 @@ static void d3d12_command_list_emit_execute_indirect_debug_ring(struct d3d12_com
     args.api_buffer_va = indirect_args;
     args.indirect_count_va = count_arg;
     args.api_buffer_word_stride = signature->desc.ByteStride / sizeof(uint32_t);
-    args.debug_tag = signature->desc.pArgumentDescs[signature->desc.NumArgumentDescs - 1].Type;
-    args.implicit_instance = vkd3d_atomic_uint32_increment(
-            &vkd3d_implicit_instance_count, vkd3d_memory_order_relaxed) - 1;
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE_INDIRECT)
+    {
+        args.debug_tag = signature->desc.pArgumentDescs[signature->desc.NumArgumentDescs - 1].Type;
+        args.implicit_instance = vkd3d_atomic_uint32_increment(
+                &list->device->debug_ring.implicit_instance_count, vkd3d_memory_order_relaxed) - 1;
+    }
 
     /* Allow correlation against breadcrumb log. */
     VKD3D_BREADCRUMB_TAG("Implicit instance (plain)");
@@ -8442,7 +8445,6 @@ static bool d3d12_command_list_emit_multi_dispatch_indirect_count_state(struct d
     struct vkd3d_multi_dispatch_indirect_info pipeline_info;
     struct vkd3d_multi_dispatch_indirect_state_args args;
     struct vkd3d_scratch_allocation template_scratch;
-    static uint32_t vkd3d_implicit_instance_count;
     VkCommandBuffer vk_patch_cmd_buffer;
     VkMemoryBarrier2 vk_barrier;
     VkDependencyInfo dep_info;
@@ -8481,9 +8483,13 @@ static bool d3d12_command_list_emit_multi_dispatch_indirect_count_state(struct d
     args.root_parameter_template_va = template_scratch.va;
     args.stride_words = stride / sizeof(uint32_t);
     args.dispatch_offset_words = signature->state_template.compute.dispatch_offset_words;
-    args.debug_tag = UINT32_MAX;
-    args.implicit_instance = vkd3d_atomic_uint32_increment(
-            &vkd3d_implicit_instance_count, vkd3d_memory_order_relaxed) - 1;
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE_INDIRECT)
+    {
+        args.debug_tag = UINT32_MAX;
+        args.implicit_instance = vkd3d_atomic_uint32_increment(
+                &list->device->debug_ring.implicit_instance_count, vkd3d_memory_order_relaxed) - 1;
+    }
 
     /* Allow correlation against breadcrumb log. */
     VKD3D_BREADCRUMB_TAG("Implicit instance (compute template)");
@@ -15867,9 +15873,8 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         if (patch_args.debug_tag != 0)
         {
             /* Makes log easier to understand since a sorted log will appear in-order. */
-            static uint32_t vkd3d_implicit_instance_count;
             patch_args.implicit_instance = vkd3d_atomic_uint32_increment(
-                    &vkd3d_implicit_instance_count, vkd3d_memory_order_relaxed) - 1;
+                    &list->device->debug_ring.implicit_instance_count, vkd3d_memory_order_relaxed) - 1;
 
             /* Allow correlation against breadcrumb log. */
             VKD3D_BREADCRUMB_TAG("Implicit instance (template)");
