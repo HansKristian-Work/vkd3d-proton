@@ -1,6 +1,6 @@
-# VKD3D-Proton
+# vkd3d-proton
 
-VKD3D-Proton is a fork of VKD3D, which aims to implement the full Direct3D 12 API on top of Vulkan.
+vkd3d-proton is a fork of VKD3D, which aims to implement the full Direct3D 12 API on top of Vulkan.
 The project serves as the development effort for Direct3D 12 support in [Proton](https://github.com/ValveSoftware/Proton).
 
 ## Upstream
@@ -62,7 +62,7 @@ git clone --recursive https://github.com/HansKristian-Work/vkd3d-proton
 ```
 in order to pull in all the submodules which are needed for building.
 
-## Building VKD3D-Proton
+## Building vkd3d-proton
 
 ### Requirements:
 - [wine](https://www.winehq.org/) (for `widl`) [for native builds]
@@ -73,16 +73,16 @@ in order to pull in all the submodules which are needed for building.
 
 ### Building:
 #### The simple way
-Inside the VKD3D-Proton directory, run:
+Inside the vkd3d-proton directory, run:
 ```
 ./package-release.sh master /your/target/directory --no-package
 ```
 
-This will create a folder `vkd3d-master` in `/your/target/directory`, which contains both 32-bit and 64-bit versions of VKD3D-Proton, which can be set up in the same way as the release versions as noted above.
+This will create a folder `vkd3d-master` in `/your/target/directory`, which contains both 32-bit and 64-bit versions of vkd3d-proton, which can be set up in the same way as the release versions as noted above.
 
 If you want to build natively (ie. for `libvkd3d-proton.so`), pass `--native` to the build script. This option will make it build using your system's compilers.
 
-In order to preserve the build directories for development, pass `--dev-build` to the script. This option implies `--no-package`. After making changes to the source code, you can then do the following to rebuild VKD3D-Proton:
+In order to preserve the build directories for development, pass `--dev-build` to the script. This option implies `--no-package`. After making changes to the source code, you can then do the following to rebuild vkd3d-proton:
 ```
 # change to build.86 for 32-bit
 ninja -C /your/target/directory/build.64 install
@@ -112,7 +112,7 @@ meson --buildtype release --prefix /your/vkd3d-proton/directory build.86
 ninja -C build.86 install
 ```
 
-## Using VKD3D-Proton
+## Using vkd3d-proton
 
 The intended way to use vkd3d-proton is as native Win32 DLLs (d3d12.dll and d3d12core.dll).
 These serve as a drop-in replacement for D3D12, and can be used in Wine (Proton or vanilla flavors), or on Windows.
@@ -120,10 +120,10 @@ These serve as a drop-in replacement for D3D12, and can be used in Wine (Proton 
 vkd3d-proton does not supply the necessary DXGI components on its own.
 Instead, DXVK (2.1+) and vkd3d-proton share a DXGI implementation.
 
-### A note on using VKD3D-Proton on Windows
+### A note on using vkd3d-proton on Windows
 
 Native Windows use is mostly relevant for developer testing purposes.
-Do not expect games running on Windows 7 or 8.1 to magically make use of VKD3D-Proton,
+Do not expect games running on Windows 7 or 8.1 to magically make use of vkd3d-proton,
 as many games will only even attempt to load d3d12.dll if they are running on Windows 10.
 
 ### Native Linux build
@@ -133,9 +133,9 @@ A native option is mostly relevant for development purposes for the time being.
 
 ## Environment variables
 
-Most of the environment variables used by VKD3D-Proton are for debugging purposes. The
+Most of the environment variables used by vkd3d-proton are for debugging purposes. The
 environment variables are not considered a part of API and might be changed or
-removed in the future versions of VKD3D-Proton.
+removed in the future versions of vkd3d-proton.
 
 Some of debug variables are lists of elements. Elements must be separated by
 commas or semicolons.
