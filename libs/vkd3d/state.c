@@ -4832,11 +4832,7 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
 
     /* Mesa's internal cache can bloat indefinitely, so workaround it as needed for now.
      * TODO: Find a better solution. */
-    if (!object->vk_pso_cache &&
-            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE) &&
-            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_CURB_MEMORY_PSO_CACHE) &&
-            !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS) &&
-            device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV)
+    if (!object->vk_pso_cache && device->device_info.workarounds.force_dummy_pipeline_cache)
     {
         if (vkd3d_create_pipeline_cache(device, 0, NULL, &object->vk_pso_cache) != VK_SUCCESS)
             object->vk_pso_cache = VK_NULL_HANDLE;
@@ -4927,10 +4923,7 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
         vkd3d_pipeline_library_store_pipeline_to_disk_cache(&device->disk_cache, object);
     }
 
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_CURB_MEMORY_PSO_CACHE) &&
-            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE) &&
-            !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS) &&
-            device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV)
+    if (device->device_info.workarounds.force_dummy_pipeline_cache)
     {
         /* Throw the pipeline cache away immediately. Tricks drivers into not retaining the PSO in memory cache. */
         VK_CALL(vkDestroyPipelineCache(device->vk_device, object->vk_pso_cache, NULL));

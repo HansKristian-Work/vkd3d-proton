@@ -519,12 +519,6 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Dead Space.exe", VKD3D_CONFIG_FLAG_FORCE_DEDICATED_IMAGE_ALLOCATION, 0 },
     /* Witcher 3 (2023) (292030) */
     { VKD3D_STRING_COMPARE_EXACT, "witcher3.exe", VKD3D_CONFIG_FLAG_SIMULTANEOUS_UAV_SUPPRESS_COMPRESSION, 0 },
-    /* The Last of Us - Part 1 (1888930) */
-    { VKD3D_STRING_COMPARE_EXACT, "tlou-i.exe", VKD3D_CONFIG_FLAG_CURB_MEMORY_PSO_CACHE, 0 },
-    { VKD3D_STRING_COMPARE_EXACT, "tlou-i-l.exe", VKD3D_CONFIG_FLAG_CURB_MEMORY_PSO_CACHE, 0 },
-    /* Uncharted: Legacy of Thieves Collection (1659420) */
-    { VKD3D_STRING_COMPARE_EXACT, "u4.exe", VKD3D_CONFIG_FLAG_CURB_MEMORY_PSO_CACHE, 0 },
-    { VKD3D_STRING_COMPARE_EXACT, "tll.exe", VKD3D_CONFIG_FLAG_CURB_MEMORY_PSO_CACHE, 0 },
     { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
 };
 
@@ -1278,6 +1272,26 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
             device->vk_info.KHR_present_id = false;
             device->device_info.present_wait_features.presentWait = false;
             device->device_info.present_id_features.presentId = false;
+        }
+
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE)
+        {
+            /* RADV's internal memory cache implementation (pipelineCache == VK_NULL_HANDLE)
+             * is currently bugged and will bloat indefinitely.
+             * Can be removed when RADV is fixed. */
+            if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV)
+            {
+                if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_CURB_MEMORY_PSO_CACHE)
+                {
+                    info->workarounds.force_dummy_pipeline_cache = true;
+                }
+                else if (info->properties2.properties.vendorID == 0x1002 &&
+                        info->properties2.properties.deviceID == 0x163f)
+                {
+                    WARN("Forcing CURB_MEMORY_PSO_CACHE workaround on Steam Deck.\n");
+                    info->workarounds.force_dummy_pipeline_cache = true;
+                }
+            }
         }
     }
 }
