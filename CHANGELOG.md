@@ -1,5 +1,82 @@
 # Change Log
 
+## 2.9
+
+This release rolls up various development happening over the last months.
+
+### d3d12core.dll split
+
+Some games started assuming that the DLLs were laid out similar to AgilitySDK, where
+d3d12.dll is just a loader, and d3d12core.dll contains the real implementation.
+vkd3d-proton now implements this split as well. It is possible that various scripts must be updated
+to accomodate both DLLs now. Once d3d12.dll is installed in a prefix,
+only d3d12core.dll needs to be updated, as d3d12.dll is just a trivial shim either way.
+
+### Performance improvements
+
+- Greatly reduce system memory requirements on the first run of an application.
+  SPIR-V code was held in memory "just in case" it had to be recompiled later, but this is no longer the case.
+- Use `VK_EXT_graphics_pipeline_libraries` to avoid shader compilation stutter in some extreme edge cases.
+- Improve performance with certain bad occlusion query patterns in e.g. Elden Ring.
+- Improve CPU performance of `VK_EXT_descriptor_buffer` even further with vendor-specific "ultra-fast" paths.
+  - Our microbenchmark for single descriptor copies are now significantly faster than native D3D12 drivers on both RADV and NVIDIA.
+  - Intel performance numbers are TBD, but we expect a win there as well.
+- Improve VRAM oversubscription behavior when
+  `VK_EXT_pageable_device_local_memory` is supported. (NVIDIA contribution, thanks!)
+  This allows us to implement `Evict` and `MakeResident` APIs in a useful way.
+  `VK_EXT_memory_priority` is also used for static priorities as a fallback.
+
+### Features
+
+- Add `VK_EXT_image_sliced_view_of_3d` to support sliced 3D UAVs.
+- Improve DXR 1.1 support with `VK_EXT_pipeline_library_group_handles`.
+- Implement `VK_EXT_fragment_shader_interlock`. Completes FL 12.1.
+- Move to Vulkan 1.3 as minimum version.
+- D3D11on12 interoperability interfaces are now supported.
+  It is compatible with DXVK 2.2, which actually implements 11on12.
+
+### Legacy swapchain removal
+
+The old swapchain implementation is now gone.
+DXVK 2.1 is required as we now share common code.
+This means that there is no fallback for pre-2.1 DXVK versions or Wine DXGI anymore.
+
+#### Native Linux swapchain support
+
+The new swapchain can support Linux native surfaces.
+The demo applications in `demos/` with functional swapchain now builds on Linux as well.
+
+### Driver workarounds
+
+- `KHR_present_wait` is currently disabled on NVIDIA drivers due to a bug that would occur on some PRIME setups.
+  This is supposed to be fixed in the latest beta drivers, and this workaround will eventually be removed
+  when we have a confirmed major version that fixes the issue.
+- Workaround RADV bug causing memory bloat in shader caches. Can save several 100s of MBs of memory,
+  which is important on certain memory hungry titles to avoid instability.
+- Workaround NVIDIA bug with concurrent queue submissions using timeline semaphores.
+  Fixed a bunch of inexplicable `Xid 109 CTX_SWITCH_TIMEOUT` errors in many different games.
+
+### Bugfixes and game workarounds
+
+Various bugfixes for games as usual. Listing individual games is becoming impractical at this point,
+and it's best to refer to other sources for compatibility information with specific games.
+As usual, a bunch of fixes in dxil-spirv to fix shader bugs.
+
+### Misc
+
+- On Wine, use `winevulkan.dll` rather than `vulkan-1.dll` if available.
+  Works around some games that hook Vulkan despite using D3D12.
+- Improve compatibility with games relying on certain AgilitySDK details.
+- Improve build system compatibility with different `widl` versions.
+- `VKD3D_CONFIG=dxr` now enables DXR 1.1 as well. `dxr11` is kept for compat.
+- Fix HDR Metadata MinLuminance value.
+- Add `VKD3D_LIMIT_TESS_FACTORS` to work around excessive tessellation. Enabled for Wo Long.
+- (Developers) Improve debugging support with more detailed breadcrumb information.
+- (Developers) Insert more actionable information in captures and logs.
+- (Developers) Log directly to Wine when available. Makes `PROTON_LOG=1` more reliable.
+- (Developers) Set thread names on Win32 build as well.
+- (Developers) Use native Linux calling convention instead of `ms_abi`.
+
 ## 2.8
 
 This release rolls up some significant new developments before the holidays.
