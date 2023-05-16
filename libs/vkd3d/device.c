@@ -750,8 +750,8 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"skip_application_workarounds", VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS},
     {"debug_utils", VKD3D_CONFIG_FLAG_DEBUG_UTILS},
     {"force_static_cbv", VKD3D_CONFIG_FLAG_FORCE_STATIC_CBV},
-    {"dxr", VKD3D_CONFIG_FLAG_DXR},
-    {"dxr11", VKD3D_CONFIG_FLAG_DXR | VKD3D_CONFIG_FLAG_DXR11},
+    {"dxr", VKD3D_CONFIG_FLAG_DXR | VKD3D_CONFIG_FLAG_DXR11},
+    {"dxr11", VKD3D_CONFIG_FLAG_DXR | VKD3D_CONFIG_FLAG_DXR11}, /* Alias for compat reasons */
     {"single_queue", VKD3D_CONFIG_FLAG_SINGLE_QUEUE},
     {"descriptor_qa_checks", VKD3D_CONFIG_FLAG_DESCRIPTOR_QA_CHECKS},
     {"no_upload_hvv", VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV},
