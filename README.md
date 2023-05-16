@@ -114,13 +114,11 @@ ninja -C build.86 install
 
 ## Using VKD3D-Proton
 
-The intended way to use VKD3D-Proton is as a native Win32 d3d12.dll.
-This serves as a drop-in replacement for D3D12, and can be used in Wine (Proton or vanilla flavors), or on Windows.
+The intended way to use vkd3d-proton is as native Win32 DLLs (d3d12.dll and d3d12core.dll).
+These serve as a drop-in replacement for D3D12, and can be used in Wine (Proton or vanilla flavors), or on Windows.
 
-VKD3D-Proton does not supply the necessary DXGI component.
-VKD3D-Proton can be used with either DXVK's DXGI implementation, or
-Wine's DXGI implementation.
-VKD3D-Proton implements its own IDXGISwapChain when built as a native d3d12.dll.
+vkd3d-proton does not supply the necessary DXGI components on its own.
+Instead, DXVK (2.1+) and vkd3d-proton share a DXGI implementation.
 
 ### A note on using VKD3D-Proton on Windows
 
@@ -131,7 +129,7 @@ as many games will only even attempt to load d3d12.dll if they are running on Wi
 ### Native Linux build
 
 A native Linux binary can be built, but it is not intended to be compatible with upstream Wine.
-A native option is mostly relevant for development purposes.
+A native option is mostly relevant for development purposes for the time being.
 
 ## Environment variables
 
