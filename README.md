@@ -147,6 +147,7 @@ commas or semicolons.
       For debugging purposes.
     - `nodxr` - Disables DXR support.
     - `dxr` - DXR is normally enabled automatically. This config forces it to be enabled even when considered unsafe.
+    - `dxr12` - Enables experimental support for DXR 1.2 if `VK_EXT_opacity_micromap` is available.
     - `force_static_cbv` - Unsafe speed hack on NVIDIA. May or may not give a significant performance uplift.
     - `single_queue` - Do not use asynchronous compute or transfer queues.
     - `no_upload_hvv` - Blocks any attempt to use host-visible VRAM (large/resizable BAR) for the UPLOAD heap.

@@ -122,6 +122,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION_COND(EXT_DEVICE_ADDRESS_BINDING_REPORT, EXT_device_address_binding_report, VKD3D_CONFIG_FLAG_FAULT),
     VK_EXTENSION(EXT_DEPTH_BIAS_CONTROL, EXT_depth_bias_control),
     VK_EXTENSION(EXT_ZERO_INITIALIZE_DEVICE_MEMORY, EXT_zero_initialize_device_memory),
+    VK_EXTENSION_COND(EXT_OPACITY_MICROMAP, EXT_opacity_micromap, VKD3D_CONFIG_FLAG_DXR_1_2),
     /* AMD extensions */
     VK_EXTENSION(AMD_BUFFER_MARKER, AMD_buffer_marker),
     VK_EXTENSION(AMD_DEVICE_COHERENT_MEMORY, AMD_device_coherent_memory),
@@ -1041,6 +1042,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"debug_utils", VKD3D_CONFIG_FLAG_DEBUG_UTILS},
     {"force_static_cbv", VKD3D_CONFIG_FLAG_FORCE_STATIC_CBV},
     {"dxr", VKD3D_CONFIG_FLAG_DXR},
+    {"dxr12", VKD3D_CONFIG_FLAG_DXR_1_2},
     {"nodxr", VKD3D_CONFIG_FLAG_NO_DXR},
     {"single_queue", VKD3D_CONFIG_FLAG_SINGLE_QUEUE},
     {"descriptor_qa_checks", VKD3D_CONFIG_FLAG_DESCRIPTOR_QA_CHECKS},
@@ -2112,6 +2114,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->zero_initialize_device_memory_features.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ZERO_INITIALIZE_DEVICE_MEMORY_FEATURES_EXT;
         vk_prepend_struct(&info->features2, &info->zero_initialize_device_memory_features);
+    }
+
+    if (vulkan_info->EXT_opacity_micromap)
+    {
+        info->opacity_micromap_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->opacity_micromap_features);
     }
 
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));

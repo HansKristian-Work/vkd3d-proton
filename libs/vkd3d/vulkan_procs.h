@@ -379,6 +379,14 @@ VK_DEVICE_EXT_PFN(vkQueueNotifyOutOfBandNV)
 /* VK_KHR_cooperative_matrix */
 VK_INSTANCE_PFN(vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR)
 
+/* VK_EXT_opacity_micromap */
+VK_DEVICE_EXT_PFN(vkGetMicromapBuildSizesEXT)
+VK_DEVICE_EXT_PFN(vkCreateMicromapEXT)
+VK_DEVICE_EXT_PFN(vkDestroyMicromapEXT)
+VK_DEVICE_EXT_PFN(vkCmdBuildMicromapsEXT)
+VK_DEVICE_EXT_PFN(vkCmdWriteMicromapsPropertiesEXT)
+VK_DEVICE_EXT_PFN(vkCmdCopyMicromapEXT)
+
 #undef VK_INSTANCE_PFN
 #undef VK_INSTANCE_EXT_PFN
 #undef VK_DEVICE_PFN
