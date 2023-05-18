@@ -1010,6 +1010,18 @@ static int vkd3d_dxil_converter_set_options(dxil_spv_converter converter,
                     return VKD3D_ERROR_NOT_IMPLEMENTED;
                 }
             }
+#if 0
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_OPACITY_MICROMAP)
+            {
+                static const dxil_spv_option_opacity_micromap helper =
+                        { { DXIL_SPV_OPTION_OPACITY_MICROMAP }, DXIL_SPV_TRUE };
+                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support OPACITY_MICROMAP.\n");
+                    return VKD3D_ERROR_NOT_IMPLEMENTED;
+                }
+            }
+#endif
         }
 
         if (compiler_args->driver_version)
