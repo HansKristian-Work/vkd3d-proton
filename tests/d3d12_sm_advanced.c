@@ -6449,6 +6449,10 @@ static void test_denorm_behavior(bool use_dxil)
 
         vkd3d_test_set_context("Test %u", i);
         pso = create_compute_pipeline_state(context.device, context.root_signature, *cs);
+        ok(!!pso, "Failed to create PSO.\n");
+        if (!pso)
+            continue;
+
         src = create_upload_buffer(context.device, sizeof(tests[i].input_data), tests[i].input_data);
         dst = create_default_buffer(context.device, sizeof(tests[i].output_data), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
