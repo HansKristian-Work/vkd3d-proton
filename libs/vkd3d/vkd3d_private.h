@@ -2462,7 +2462,9 @@ struct vkd3d_scratch_buffer
 #define VKD3D_QUERY_TYPE_INDEX_RT_SERIALIZE_SIZE (4u)
 #define VKD3D_QUERY_TYPE_INDEX_RT_CURRENT_SIZE (5u)
 #define VKD3D_QUERY_TYPE_INDEX_RT_SERIALIZE_SIZE_BOTTOM_LEVEL_POINTERS (6u)
-#define VKD3D_VIRTUAL_QUERY_TYPE_COUNT (7u)
+#define VKD3D_QUERY_TYPE_INDEX_OMM_COMPACTED_SIZE (7u)
+#define VKD3D_QUERY_TYPE_INDEX_OMM_SERIALIZE_SIZE (8u)
+#define VKD3D_VIRTUAL_QUERY_TYPE_COUNT (9u)
 #define VKD3D_VIRTUAL_QUERY_POOL_COUNT (128u)
 
 struct vkd3d_query_pool
@@ -6190,6 +6192,25 @@ void vkd3d_acceleration_structure_copy(
         struct d3d12_command_list *list,
         D3D12_GPU_VIRTUAL_ADDRESS dst, D3D12_GPU_VIRTUAL_ADDRESS src,
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode);
+
+bool vkd3d_opacity_micromap_convert_inputs(const struct d3d12_device *device,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
+        VkMicromapBuildInfoEXT *build_info,
+        VkMicromapUsageEXT *usages);
+void vkd3d_opacity_micromap_write_postbuild_info(
+        struct d3d12_command_list *list,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
+        VkDeviceSize desc_offset,
+        VkMicromapEXT vk_opacity_micromap);
+void vkd3d_opacity_micromap_emit_postbuild_info(
+        struct d3d12_command_list *list,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
+        uint32_t count,
+        const D3D12_GPU_VIRTUAL_ADDRESS *addresses);
+void vkd3d_opacity_micromap_emit_immediate_postbuild_info(
+        struct d3d12_command_list *list, uint32_t count,
+        const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
+        VkMicromapEXT vk_opacity_micromap);
 
 typedef enum D3D11_USAGE
 {
