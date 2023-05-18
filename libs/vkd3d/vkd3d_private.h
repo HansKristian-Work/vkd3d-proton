@@ -356,6 +356,9 @@ const struct vkd3d_unique_resource *vkd3d_va_map_deref(struct vkd3d_va_map *va_m
 VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3d_va_map *va_map,
         struct d3d12_device *device,
         VkDeviceAddress va);
+VkMicromapEXT vkd3d_va_map_place_opacity_micromap(struct vkd3d_va_map *va_map,
+        struct d3d12_device *device,
+        VkDeviceAddress va);
 void vkd3d_va_map_init(struct vkd3d_va_map *va_map);
 void vkd3d_va_map_cleanup(struct vkd3d_va_map *va_map);
 
@@ -1189,7 +1192,7 @@ enum vkd3d_view_type
     VKD3D_VIEW_TYPE_BUFFER,
     VKD3D_VIEW_TYPE_IMAGE,
     VKD3D_VIEW_TYPE_SAMPLER,
-    VKD3D_VIEW_TYPE_ACCELERATION_STRUCTURE
+    VKD3D_VIEW_TYPE_ACCELERATION_STRUCTURE_OR_OPACITY_MICROMAP
 };
 
 struct vkd3d_view
@@ -1204,6 +1207,7 @@ struct vkd3d_view
         VkImageView vk_image_view;
         VkSampler vk_sampler;
         VkAccelerationStructureKHR vk_acceleration_structure;
+        VkMicromapEXT vk_micromap;
     };
     const struct vkd3d_format *format;
     union
@@ -1212,6 +1216,7 @@ struct vkd3d_view
         {
             VkDeviceSize offset;
             VkDeviceSize size;
+            bool rtas_is_micromap; /* not hashed */
         } buffer;
         struct
         {
@@ -1260,6 +1265,8 @@ bool vkd3d_create_buffer_view(struct d3d12_device *device,
 bool vkd3d_create_raw_r32ui_vk_buffer_view(struct d3d12_device *device,
         VkBuffer vk_buffer, VkDeviceSize offset, VkDeviceSize range, VkBufferView *vk_view);
 bool vkd3d_create_acceleration_structure_view(struct d3d12_device *device,
+        const struct vkd3d_buffer_view_desc *desc, struct vkd3d_view **view);
+bool vkd3d_create_opacity_micromap_view(struct d3d12_device *device,
         const struct vkd3d_buffer_view_desc *desc, struct vkd3d_view **view);
 bool vkd3d_create_texture_view(struct d3d12_device *device,
         const struct vkd3d_texture_view_desc *desc, struct vkd3d_view **view);
@@ -5461,6 +5468,7 @@ static inline bool d3d12_device_use_ssbo_root_descriptors(struct d3d12_device *d
 bool d3d12_device_supports_variable_shading_rate_tier_1(struct d3d12_device *device);
 bool d3d12_device_supports_variable_shading_rate_tier_2(struct d3d12_device *device);
 bool d3d12_device_supports_ray_tracing_tier_1_0(const struct d3d12_device *device);
+bool d3d12_device_supports_ray_tracing_tier_1_2(const struct d3d12_device *device);
 UINT d3d12_determine_shading_rate_image_tile_size(struct d3d12_device *device);
 bool d3d12_device_supports_required_subgroup_size_for_stage(
         struct d3d12_device *device, VkShaderStageFlagBits stage);
@@ -6150,8 +6158,13 @@ struct vkd3d_view_key
         D3D12_SAMPLER_DESC2 sampler;
     } u;
 };
-struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
-        struct d3d12_device *device, const struct vkd3d_view_key *key);
+struct vkd3d_view *vkd3d_view_map_create_view2(struct vkd3d_view_map *view_map,
+        struct d3d12_device *device, const struct vkd3d_view_key *key, bool rtas_is_omm);
+static inline struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
+        struct d3d12_device *device, const struct vkd3d_view_key *key)
+{
+    return vkd3d_view_map_create_view2(view_map, device, key, false);
+}
 
 /* This is not a hard limit, just an arbitrary value which lets us avoid allocation for
  * the common case. */
