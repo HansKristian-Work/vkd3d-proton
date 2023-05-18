@@ -115,6 +115,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_PAGEABLE_DEVICE_LOCAL_MEMORY, EXT_pageable_device_local_memory),
     VK_EXTENSION(EXT_MEMORY_PRIORITY, EXT_memory_priority),
     VK_EXTENSION(EXT_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS, EXT_dynamic_rendering_unused_attachments),
+    VK_EXTENSION_DISABLE_COND(EXT_OPACITY_MICROMAP, EXT_opacity_micromap, VKD3D_CONFIG_FLAG_NO_DXR),
     VK_EXTENSION(EXT_LINE_RASTERIZATION, EXT_line_rasterization),
     VK_EXTENSION(EXT_IMAGE_COMPRESSION_CONTROL, EXT_image_compression_control),
     VK_EXTENSION_COND(EXT_DEVICE_FAULT, EXT_device_fault, VKD3D_CONFIG_FLAG_FAULT),
@@ -2032,6 +2033,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->dynamic_rendering_unused_attachments_features);
     }
 
+    if (vulkan_info->EXT_opacity_micromap)
+    {
+        info->opacity_micromap_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->opacity_micromap_features);
+    }
+
     if (vulkan_info->EXT_line_rasterization)
     {
         info->line_rasterization_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_FEATURES_EXT;
@@ -2525,6 +2532,11 @@ static void vkd3d_trace_physical_device_features(const struct vkd3d_physical_dev
     TRACE("    taskShader: %#x\n", info->mesh_shader_features.taskShader);
     TRACE("    multiviewMeshShader: %#x\n", info->mesh_shader_features.multiviewMeshShader);
     TRACE("    primitiveFragmentShadingRateMeshShader: %#x\n", info->mesh_shader_features.primitiveFragmentShadingRateMeshShader);
+
+    TRACE("  VkPhysicalDeviceOpacityMicromapFeaturesEXT:\n");
+    TRACE("    micromap: %#x\n", info->opacity_micromap_features.micromap);
+    TRACE("    micromapCaptureReplay: %#x\n", info->opacity_micromap_features.micromapCaptureReplay);
+    TRACE("    micromapHostCommands: %#x\n", info->opacity_micromap_features.micromapHostCommands);
 
     TRACE("  VkPhysicalDeviceLineRasterizationFeaturesEXT:\n");
     TRACE("    rectangularLines: %u\n", info->line_rasterization_features.rectangularLines);
