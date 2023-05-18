@@ -1452,6 +1452,12 @@ bool d3d12_device_supports_ray_tracing_tier_1_0(const struct d3d12_device *devic
             device->d3d12_caps.options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_0;
 }
 
+bool d3d12_device_supports_ray_tracing_tier_1_2(const struct d3d12_device *device)
+{
+    return device->device_info.opacity_micromap_features.micromap &&
+            device->d3d12_caps.options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_2;
+}
+
 bool d3d12_device_supports_variable_shading_rate_tier_1(struct d3d12_device *device)
 {
     const struct vkd3d_physical_device_info *info = &device->device_info;

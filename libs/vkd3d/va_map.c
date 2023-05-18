@@ -300,6 +300,55 @@ VkAccelerationStructureKHR vkd3d_va_map_place_acceleration_structure(struct vkd3
     return view->vk_acceleration_structure;
 }
 
+VkMicromapEXT vkd3d_va_map_place_opacity_micromap(struct vkd3d_va_map *va_map,
+        struct d3d12_device *device,
+        VkDeviceAddress va)
+{
+    struct vkd3d_unique_resource *resource;
+    struct vkd3d_view_map *old_view_map;
+    struct vkd3d_view_map *view_map;
+    const struct vkd3d_view *view;
+    struct vkd3d_view_key key;
+
+    resource = vkd3d_va_map_deref_mutable(va_map, va);
+    if (!resource || !resource->va)
+        return VK_NULL_HANDLE;
+
+    view_map = vkd3d_atomic_ptr_load_explicit(&resource->view_map, vkd3d_memory_order_acquire);
+    if (!view_map)
+    {
+        view_map = vkd3d_malloc(sizeof(*view_map));
+        if (!view_map)
+            return VK_NULL_HANDLE;
+
+        if (FAILED(vkd3d_view_map_init(view_map)))
+        {
+            vkd3d_free(view_map);
+            return VK_NULL_HANDLE;
+        }
+
+        old_view_map = vkd3d_atomic_ptr_compare_exchange(&resource->view_map, NULL, view_map,
+                vkd3d_memory_order_release, vkd3d_memory_order_acquire);
+        if (old_view_map)
+        {
+            vkd3d_view_map_destroy(view_map, device);
+            vkd3d_free(view_map);
+            view_map = old_view_map;
+        }
+    }
+
+    key.view_type = VKD3D_VIEW_TYPE_OPACITY_MICROMAP;
+    key.u.buffer.buffer = resource->vk_buffer;
+    key.u.buffer.offset = va - resource->va;
+    key.u.buffer.size = resource->size - key.u.buffer.offset;
+    key.u.buffer.format = NULL;
+
+    view = vkd3d_view_map_create_view(view_map, device, &key);
+    if (!view)
+        return VK_NULL_HANDLE;
+    return view->vk_micromap;
+}
+
 void vkd3d_va_map_init(struct vkd3d_va_map *va_map)
 {
     memset(va_map, 0, sizeof(*va_map));
