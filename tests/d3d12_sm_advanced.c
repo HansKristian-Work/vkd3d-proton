@@ -5693,7 +5693,7 @@ void test_advanced_cbv_layout(void)
 static void test_denorm_behavior(bool use_dxil)
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS4 features4;
-    D3D12_FEATURE_DATA_D3D12_OPTIONS1 features1;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS features;
     D3D12_FEATURE_DATA_SHADER_MODEL model;
     D3D12_ROOT_PARAMETER root_param[2];
     D3D12_ROOT_SIGNATURE_DESC rs_desc;
@@ -6414,9 +6414,9 @@ static void test_denorm_behavior(bool use_dxil)
         features4.Native16BitShaderOpsSupported;
 
     support_64bit =
-        SUCCEEDED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS1,
-            &features1, sizeof(features1))) &&
-        features1.Int64ShaderOps;
+        SUCCEEDED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS,
+            &features, sizeof(features))) &&
+        features.DoublePrecisionFloatShaderOps;
 
     memset(&rs_desc, 0, sizeof(rs_desc));
     memset(&root_param, 0, sizeof(root_param));
