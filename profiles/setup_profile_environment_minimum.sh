@@ -1,0 +1,2 @@
+PROFILE_NAME=VP_D3D12_minimum
+source profiles/setup_profile_environment_common.sh
