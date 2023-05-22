@@ -4407,8 +4407,7 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
             case D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA:
                 input_rate = VK_VERTEX_INPUT_RATE_INSTANCE;
                 instance_divisor = e->InstanceDataStepRate;
-                if (instance_divisor > vk_info->max_vertex_attrib_divisor
-                        || (!instance_divisor && !vk_info->vertex_attrib_zero_divisor))
+                if (instance_divisor > vk_info->max_vertex_attrib_divisor)
                 {
                     FIXME("Instance divisor %u not supported by Vulkan implementation.\n", instance_divisor);
                     instance_divisor = 1;

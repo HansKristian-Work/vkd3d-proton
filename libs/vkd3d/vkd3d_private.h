@@ -170,9 +170,6 @@ struct vkd3d_vulkan_info
     const char* const* extension_names;
 
     bool rasterization_stream;
-    bool transform_feedback_queries;
-
-    bool vertex_attrib_zero_divisor;
     unsigned int max_vertex_attrib_divisor;
 
     VkPhysicalDeviceLimits device_limits;
