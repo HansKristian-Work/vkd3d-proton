@@ -860,7 +860,8 @@ static HRESULT vkd3d_meta_ops_common_init(struct vkd3d_meta_ops_common *meta_ops
 {
     VkResult vr;
 
-    if (device->vk_info.EXT_shader_viewport_index_layer)
+    if (device->device_info.vulkan_1_2_features.shaderOutputViewportIndex &&
+            device->device_info.vulkan_1_2_features.shaderOutputLayer)
     {
         if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(vs_fullscreen_layer), &meta_ops_common->vk_module_fullscreen_vs)) < 0)
         {

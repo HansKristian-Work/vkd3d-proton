@@ -132,7 +132,6 @@ struct vkd3d_vulkan_info
     bool EXT_image_view_min_lod;
     bool EXT_robustness2;
     bool EXT_shader_stencil_export;
-    bool EXT_shader_viewport_index_layer;
     bool EXT_transform_feedback;
     bool EXT_vertex_attribute_divisor;
     bool EXT_extended_dynamic_state2;
