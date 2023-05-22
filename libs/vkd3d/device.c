@@ -7568,6 +7568,7 @@ out_free_memory_transfers:
 out_free_private_store:
     vkd3d_private_store_destroy(&device->private_store);
 out_free_vk_resources:
+    d3d12_device_destroy_vkd3d_queues(device);
     vk_procs = &device->vk_procs;
     VK_CALL(vkDestroyDevice(device->vk_device, NULL));
 out_free_instance:
