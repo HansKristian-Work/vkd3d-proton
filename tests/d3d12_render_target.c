@@ -871,6 +871,7 @@ void test_multisample_rendering(void)
 void test_rendering_no_attachments_layers(void)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
     D3D12_ROOT_SIGNATURE_DESC rs_desc;
     D3D12_ROOT_PARAMETER root_param;
     struct test_context_desc desc;
@@ -961,6 +962,14 @@ void test_rendering_no_attachments_layers(void)
     desc.no_root_signature = true;
     if (!init_test_context(&context, &desc))
         return;
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options))) ||
+            !options.VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation)
+    {
+        skip("Cannot render layers from VS. Skipping.\n");
+        destroy_test_context(&context);
+        return;
+    }
 
     memset(&root_param, 0, sizeof(root_param));
     memset(&rs_desc, 0, sizeof(rs_desc));
