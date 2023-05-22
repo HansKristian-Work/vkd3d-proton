@@ -82,7 +82,6 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_IMAGE_VIEW_MIN_LOD, EXT_image_view_min_lod),
     VK_EXTENSION(EXT_ROBUSTNESS_2, EXT_robustness2),
     VK_EXTENSION(EXT_SHADER_STENCIL_EXPORT, EXT_shader_stencil_export),
-    VK_EXTENSION(EXT_SHADER_VIEWPORT_INDEX_LAYER, EXT_shader_viewport_index_layer),
     VK_EXTENSION(EXT_TRANSFORM_FEEDBACK, EXT_transform_feedback),
     VK_EXTENSION(EXT_VERTEX_ATTRIBUTE_DIVISOR, EXT_vertex_attribute_divisor),
     VK_EXTENSION(EXT_EXTENDED_DYNAMIC_STATE_2, EXT_extended_dynamic_state2),
@@ -6698,7 +6697,9 @@ static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
     options->StandardSwizzle64KBSupported = FALSE;
     options->CrossNodeSharingTier = D3D12_CROSS_NODE_SHARING_TIER_NOT_SUPPORTED;
     options->CrossAdapterRowMajorTextureSupported = FALSE;
-    options->VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation = vk_info->EXT_shader_viewport_index_layer;
+    options->VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation =
+            device->device_info.vulkan_1_2_features.shaderOutputViewportIndex &&
+            device->device_info.vulkan_1_2_features.shaderOutputLayer;
     options->ResourceHeapTier = d3d12_device_determine_heap_tier(device);
 }
 
@@ -7646,8 +7647,11 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
         return false;
     }
 
+    /* From Vulkan 1.2 promotion of the extension:
+     * Enabling both features is equivalent to enabling the VK_EXT_shader_viewport_index_layer extension. */
     if ((meta->flags & VKD3D_SHADER_META_FLAG_USES_SHADER_VIEWPORT_INDEX_LAYER) &&
-            !device->vk_info.EXT_shader_viewport_index_layer)
+            (!device->device_info.vulkan_1_2_features.shaderOutputLayer ||
+                    !device->device_info.vulkan_1_2_features.shaderOutputViewportIndex))
     {
         WARN("Attempting to use shader viewport index layer in shader %016"PRIx64", but this requires VK_EXT_shader_viewport_index_layer.\n", meta->hash);
         return false;
