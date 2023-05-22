@@ -260,6 +260,48 @@ static inline bool join_thread(HANDLE untyped_thread)
 }
 #endif
 
+extern D3D_FEATURE_LEVEL vkd3d_device_feature_level;
+static inline void enable_feature_level_override(int argc, char **argv)
+{
+    static const struct
+    {
+        D3D_FEATURE_LEVEL level;
+        const char *tag;
+    } level_map[] = {
+        { D3D_FEATURE_LEVEL_11_0, "11_0" },
+        { D3D_FEATURE_LEVEL_11_1, "11_1" },
+        { D3D_FEATURE_LEVEL_12_0, "12_0" },
+        { D3D_FEATURE_LEVEL_12_1, "12_1" },
+        { D3D_FEATURE_LEVEL_12_2, "12_2" },
+    };
+
+    const char *level = NULL;
+    int i;
+
+    for (i = 1; i + 1 < argc; ++i)
+    {
+        if (!strcmp(argv[i], "--feature-level"))
+        {
+            level = argv[i + 1];
+            break;
+        }
+    }
+
+    vkd3d_device_feature_level = D3D_FEATURE_LEVEL_11_0;
+    if (level)
+    {
+        for (i = 0; i < (int)ARRAY_SIZE(level_map); i++)
+        {
+            if (!strcmp(level_map[i].tag, level))
+            {
+                INFO("Overriding feature level %s.\n", level);
+                vkd3d_device_feature_level = level_map[i].level;
+                break;
+            }
+        }
+    }
+}
+
 static HRESULT wait_for_fence(ID3D12Fence *fence, uint64_t value)
 {
     unsigned int ret;
@@ -380,7 +422,7 @@ static ID3D12Device *create_device(void)
     if (pfn_D3D12EnableExperimentalFeatures)
         pfn_D3D12EnableExperimentalFeatures(1, &D3D12ExperimentalShaderModels, NULL, NULL);
 
-    hr = pfn_D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device);
+    hr = pfn_D3D12CreateDevice(adapter, vkd3d_device_feature_level, &IID_ID3D12Device, (void **)&device);
     if (adapter)
         IUnknown_Release(adapter);
 
@@ -519,7 +561,7 @@ static ID3D12Device *create_device(void)
 {
     ID3D12Device *device;
     HRESULT hr;
-    hr = D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device);
+    hr = D3D12CreateDevice(NULL, vkd3d_device_feature_level, &IID_ID3D12Device, (void **)&device);
     return SUCCEEDED(hr) ? device : NULL;
 }
 

@@ -43,6 +43,7 @@ START_TEST(d3d12)
 
     parse_args(argc, argv);
     enable_d3d12_debug_layer(argc, argv);
+    enable_feature_level_override(argc, argv);
     init_adapter_info();
 
     pfn_D3D12CreateVersionedRootSignatureDeserializer = get_d3d12_pfn(D3D12CreateVersionedRootSignatureDeserializer);
