@@ -6991,7 +6991,8 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
 
     if (physical_device_info->vulkan_1_1_properties.subgroupSize >= 4 &&
         (physical_device_info->vulkan_1_1_properties.subgroupSupportedOperations & required) == required &&
-        (physical_device_info->vulkan_1_1_properties.subgroupSupportedStages & required_stages) == required_stages)
+        (physical_device_info->vulkan_1_1_properties.subgroupSupportedStages & required_stages) == required_stages &&
+        (physical_device_info->vulkan_1_2_features.scalarBlockLayout || physical_device_info->vulkan_1_2_features.uniformBufferStandardLayout))
     {
         /* From testing on native Polaris drivers, AMD expose SM 6.5, even if lots of features are not supported.
          * This is a good hint that shader model versions are not tied to features which have caps bits.
