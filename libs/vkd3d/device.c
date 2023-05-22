@@ -2069,7 +2069,6 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     vulkan_info->device_limits = physical_device_info->properties2.properties.limits;
     vulkan_info->sparse_properties = physical_device_info->properties2.properties.sparseProperties;
     vulkan_info->rasterization_stream = physical_device_info->xfb_properties.transformFeedbackRasterizationStreamSelect;
-    vulkan_info->transform_feedback_queries = physical_device_info->xfb_properties.transformFeedbackQueries;
     vulkan_info->max_vertex_attrib_divisor = max(physical_device_info->vertex_divisor_properties.maxVertexAttribDivisor, 1);
 
     if (!physical_device_info->conditional_rendering_features.conditionalRendering)
@@ -2077,7 +2076,18 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     if (!physical_device_info->depth_clip_features.depthClipEnable)
         vulkan_info->EXT_depth_clip_enable = false;
 
-    vulkan_info->vertex_attrib_zero_divisor = physical_device_info->vertex_divisor_features.vertexAttributeInstanceRateZeroDivisor;
+    if (!physical_device_info->vertex_divisor_features.vertexAttributeInstanceRateDivisor ||
+            !physical_device_info->vertex_divisor_features.vertexAttributeInstanceRateZeroDivisor)
+    {
+        ERR("Lacking support for VK_EXT_vertex_attribute_divisor.\n");
+        return E_INVALIDARG;
+    }
+
+    if (!physical_device_info->xfb_properties.transformFeedbackQueries)
+    {
+        ERR("Lacking support for transform feedback.\n");
+        return E_INVALIDARG;
+    }
 
     /* Disable unused Vulkan features. The following features need
      * to remain enabled for DXVK in order to support D3D11on12:
@@ -2130,6 +2140,13 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     if (!physical_device_info->vulkan_1_2_features.samplerMirrorClampToEdge)
     {
         ERR("samplerMirrorClampToEdge is not supported by this implementation. This is required for correct operation.\n");
+        return E_INVALIDARG;
+    }
+
+    if (!physical_device_info->robustness2_features.robustBufferAccess2 ||
+            !physical_device_info->robustness2_features.robustImageAccess2)
+    {
+        ERR("Robustness2 features not supported. This is required.\n");
         return E_INVALIDARG;
     }
 
