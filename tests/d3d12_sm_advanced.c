@@ -6406,6 +6406,7 @@ static void test_denorm_behavior(bool use_dxil)
     {
         skip("SM 6.2 not supported.\n");
         destroy_test_context(&context);
+        return;
     }
 
     support_16bit =
