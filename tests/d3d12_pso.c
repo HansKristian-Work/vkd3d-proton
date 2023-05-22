@@ -196,6 +196,7 @@ void test_create_graphics_pipeline_state(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
     ID3D12RootSignature *root_signature;
     ID3D12PipelineState *pipeline_state;
     ID3D12Device *device, *tmp_device;
@@ -282,10 +283,15 @@ void test_create_graphics_pipeline_state(void)
     blend->IndependentBlendEnable = false;
     blend->RenderTarget[0].BlendEnable = false;
     blend->RenderTarget[0].LogicOpEnable = true;
-    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
-            &IID_ID3D12PipelineState, (void **)&pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
-    ID3D12PipelineState_Release(pipeline_state);
+
+    if (SUCCEEDED(ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options))) &&
+            options.OutputMergerLogicOp)
+    {
+        hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
+                &IID_ID3D12PipelineState, (void **) &pipeline_state);
+        ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+        ID3D12PipelineState_Release(pipeline_state);
+    }
 
     /* IndependentBlendEnable must be set to false when logic operations are enabled. */
     blend->IndependentBlendEnable = true;

@@ -275,7 +275,7 @@ static inline void enable_feature_level_override(int argc, char **argv)
         { D3D_FEATURE_LEVEL_12_2, "12_2" },
     };
 
-    const char *level;
+    const char *level = NULL;
     int i;
 
     for (i = 1; i + 1 < argc; ++i)
@@ -287,13 +287,17 @@ static inline void enable_feature_level_override(int argc, char **argv)
         }
     }
 
-    for (i = 0; i < (int)ARRAY_SIZE(level_map); i++)
+    vkd3d_device_feature_level = D3D_FEATURE_LEVEL_11_0;
+    if (level)
     {
-        if (!strcmp(level_map[i].tag, level))
+        for (i = 0; i < (int)ARRAY_SIZE(level_map); i++)
         {
-            INFO("Overriding feature level %s.\n", level);
-            vkd3d_device_feature_level = level_map[i].level;
-            break;
+            if (!strcmp(level_map[i].tag, level))
+            {
+                INFO("Overriding feature level %s.\n", level);
+                vkd3d_device_feature_level = level_map[i].level;
+                break;
+            }
         }
     }
 }
