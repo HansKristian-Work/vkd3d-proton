@@ -3947,6 +3947,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceMeshShaderPropertiesEXT mesh_shader_properties;
     VkPhysicalDeviceShaderModuleIdentifierPropertiesEXT shader_module_identifier_properties;
     VkPhysicalDeviceDescriptorBufferPropertiesEXT descriptor_buffer_properties;
+    VkPhysicalDeviceGraphicsPipelineLibraryPropertiesEXT graphics_pipeline_library_properties;
 
     VkPhysicalDeviceProperties2KHR properties2;
 

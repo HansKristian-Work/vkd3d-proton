@@ -1568,7 +1568,10 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->graphics_pipeline_library_features.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_GRAPHICS_PIPELINE_LIBRARY_FEATURES_EXT;
+        info->graphics_pipeline_library_properties.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_GRAPHICS_PIPELINE_LIBRARY_PROPERTIES_EXT;
         vk_prepend_struct(&info->features2, &info->graphics_pipeline_library_features);
+        vk_prepend_struct(&info->properties2, &info->graphics_pipeline_library_properties);
     }
 
     if (vulkan_info->EXT_fragment_shader_interlock)
@@ -2065,6 +2068,13 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         features->sparseResidencyBuffer = VK_FALSE;
         features->sparseResidencyImage2D = VK_FALSE;
         physical_device_info->properties2.properties.sparseProperties.residencyNonResidentStrict = VK_FALSE;
+    }
+
+    /* We need independent interpolation to use GPL. */
+    if (!physical_device_info->graphics_pipeline_library_properties.graphicsPipelineLibraryIndependentInterpolationDecoration)
+    {
+        vulkan_info->EXT_graphics_pipeline_library = false;
+        physical_device_info->graphics_pipeline_library_features.graphicsPipelineLibrary = VK_FALSE;
     }
 
     vulkan_info->device_limits = physical_device_info->properties2.properties.limits;
