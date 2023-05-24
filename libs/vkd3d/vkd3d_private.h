@@ -3043,13 +3043,14 @@ struct d3d12_command_signature
             VkIndirectCommandsLayoutNV layout;
             uint32_t stride;
             struct vkd3d_execute_indirect_info pipeline;
-        } graphics;
+        } dgc;
         struct
         {
             int32_t source_offsets[D3D12_MAX_ROOT_COST];
             uint32_t dispatch_offset_words;
         } compute;
     } state_template;
+    bool requires_state_template_dgc;
     bool requires_state_template;
     enum vkd3d_pipeline_type pipeline_type;
 
