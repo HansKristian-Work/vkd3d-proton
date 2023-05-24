@@ -157,7 +157,7 @@ void test_query_pipeline_statistics(void)
     ID3D12QueryHeap *query_heap;
     ID3D12Resource *resource;
     struct resource_readback rb;
-    unsigned int pixel_count, i;
+    unsigned int i;
     HRESULT hr;
 
     if (!init_test_context(&context, NULL))
@@ -227,10 +227,9 @@ void test_query_pipeline_statistics(void)
     ok(pipeline_statistics->CPrimitives > 0, "CPrimitives: Got %"PRIu64", expected > 0.\n",
             pipeline_statistics->CPrimitives);
 
-    /* Exact number of pixel shader invocations depends on the graphics card. */
-    pixel_count = context.render_target_desc.Width * context.render_target_desc.Height;
-    ok(pipeline_statistics->PSInvocations >= pixel_count, "PSInvocations: Got %"PRIu64", expected >= %u.\n",
-            pipeline_statistics->PSInvocations, pixel_count);
+    /* Exact number of pixel shader invocations depends on the graphics card and VRS can affect it. */
+    ok(pipeline_statistics->PSInvocations > 0, "PSInvocations: Got %"PRIu64", expected >= %u.\n",
+            pipeline_statistics->PSInvocations, 0);
 
     /* We used no tessellation or compute shaders at all. */
     ok(pipeline_statistics->HSInvocations == 0, "HSInvocations: Got %"PRIu64", expected 0.\n",
