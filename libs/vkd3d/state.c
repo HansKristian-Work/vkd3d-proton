@@ -6064,10 +6064,21 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
         flags |= VKD3D_HOIST_STATIC_TABLE_CBV;
     }
 
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_COMPUTE_ROOT_PARAMETERS_PUSH_UBO)
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES) &&
+            !device->device_info.device_generated_commands_compute_features_nv.deviceGeneratedCompute)
     {
         INFO("Forcing push UBO path for compute root parameters.\n");
         flags |= VKD3D_FORCE_COMPUTE_ROOT_PARAMETERS_PUSH_UBO;
+    }
+
+    if (device->device_info.device_generated_commands_compute_features_nv.deviceGeneratedCompute &&
+            device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
+    {
+        INFO("Enabling fast paths for advanced ExecuteIndirect() graphics and compute.\n");
+    }
+    else if (device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
+    {
+        INFO("Enabling fast paths for advanced ExecuteIndirect() graphics.\n");
     }
 
     if (vkd3d_bindless_supports_mutable_type(device, flags))

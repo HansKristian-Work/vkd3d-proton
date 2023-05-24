@@ -164,6 +164,7 @@ struct vkd3d_vulkan_info
     bool NV_device_generated_commands;
     bool NV_shader_subgroup_partitioned;
     bool NV_memory_decompression;
+    bool NV_device_generated_commands_compute;
     /* VALVE extensions */
     bool VALVE_mutable_descriptor_type;
     bool VALVE_descriptor_set_host_mapping;
@@ -3065,13 +3066,14 @@ struct d3d12_command_signature
             VkIndirectCommandsLayoutNV layout;
             uint32_t stride;
             struct vkd3d_execute_indirect_info pipeline;
-        } graphics;
+        } dgc;
         struct
         {
             int32_t source_offsets[D3D12_MAX_ROOT_COST];
             uint32_t dispatch_offset_words;
         } compute;
     } state_template;
+    bool requires_state_template_dgc;
     bool requires_state_template;
     enum vkd3d_pipeline_type pipeline_type;
 
@@ -4043,6 +4045,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDevicePageableDeviceLocalMemoryFeaturesEXT pageable_device_memory_features;
     VkPhysicalDeviceDynamicRenderingUnusedAttachmentsFeaturesEXT dynamic_rendering_unused_attachments_features;
     VkPhysicalDeviceMemoryDecompressionFeaturesNV memory_decompression_features;
+    VkPhysicalDeviceDeviceGeneratedCommandsComputeFeaturesNV device_generated_commands_compute_features_nv;
 
     VkPhysicalDeviceFeatures2 features2;
 
