@@ -114,6 +114,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(NV_DEVICE_GENERATED_COMMANDS, NV_device_generated_commands),
     VK_EXTENSION(NV_SHADER_SUBGROUP_PARTITIONED, NV_shader_subgroup_partitioned),
     VK_EXTENSION(NV_MEMORY_DECOMPRESSION, NV_memory_decompression),
+    VK_EXTENSION(NV_DEVICE_GENERATED_COMMANDS_COMPUTE, NV_device_generated_commands_compute),
     /* VALVE extensions */
     VK_EXTENSION(VALVE_MUTABLE_DESCRIPTOR_TYPE, VALVE_mutable_descriptor_type),
     VK_EXTENSION(VALVE_DESCRIPTOR_SET_HOST_MAPPING, VALVE_descriptor_set_host_mapping),
@@ -473,7 +474,7 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "HaloInfinite.exe",
             VKD3D_CONFIG_FLAG_ZERO_MEMORY_WORKAROUNDS_COMMITTED_BUFFER_UAV | VKD3D_CONFIG_FLAG_FORCE_RAW_VA_CBV |
             VKD3D_CONFIG_FLAG_USE_HOST_IMPORT_FALLBACK | VKD3D_CONFIG_FLAG_PREALLOCATE_SRV_MIP_CLAMPS |
-            VKD3D_CONFIG_FLAG_FORCE_COMPUTE_ROOT_PARAMETERS_PUSH_UBO | VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0 },
+            VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES | VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0 },
     /* (1182900) Workaround amdgpu kernel bug with host memory import and concurrent submissions. */
     { VKD3D_STRING_COMPARE_EXACT, "APlagueTaleRequiem_x64.exe", VKD3D_CONFIG_FLAG_USE_HOST_IMPORT_FALLBACK, 0 },
     /* Shadow of the Tomb Raider (750920).
@@ -528,7 +529,7 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     /* Age of Wonders 4 (1669000). Extremely stuttery performance with ReBAR. */
     { VKD3D_STRING_COMPARE_EXACT, "AOW4.exe", VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0 },
     { VKD3D_STRING_COMPARE_HASH_EQUAL, "e89c09e4505d8d43",
-            VKD3D_CONFIG_FLAG_FORCE_COMPUTE_ROOT_PARAMETERS_PUSH_UBO | VKD3D_CONFIG_FLAG_REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT, 0 },
+            VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES | VKD3D_CONFIG_FLAG_REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT, 0 },
     { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
 };
 
@@ -793,7 +794,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"preallocate_srv_mip_clamps", VKD3D_CONFIG_FLAG_PREALLOCATE_SRV_MIP_CLAMPS},
     {"force_initial_transition", VKD3D_CONFIG_FLAG_FORCE_INITIAL_TRANSITION},
     {"breadcrumbs_trace", VKD3D_CONFIG_FLAG_BREADCRUMBS | VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE},
-    {"force_compute_root_parameters_push_ubo", VKD3D_CONFIG_FLAG_FORCE_COMPUTE_ROOT_PARAMETERS_PUSH_UBO},
+    {"requires_compute_indirect_templates", VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES},
     {"skip_driver_workarounds", VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS},
     {"curb_memory_pso_cache", VKD3D_CONFIG_FLAG_CURB_MEMORY_PSO_CACHE},
     {"enable_experimental_features", VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES},
@@ -1298,10 +1299,19 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
         device->device_info.mesh_shader_features.multiviewMeshShader = VK_FALSE;
     }
 
-    /* NV 525.x drivers and 530.x are affected by this bug. Not all users are affected,
-     * but there is no known workaround for this. */
     if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS))
     {
+        /* The first beta release fails vkd3d-proton tests. Unblock when it's passing. */
+        if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY &&
+                device->vk_info.NV_device_generated_commands_compute)
+        {
+            device->vk_info.NV_device_generated_commands_compute = false;
+            device->device_info.device_generated_commands_compute_features_nv.deviceGeneratedCompute = VK_FALSE;
+            WARN("Disabling NV_dgcc due to bug in initial beta release.\n");
+        }
+
+        /* NV 525.x drivers and 530.x are affected by this bug. Not all users are affected,
+         * but there is no known workaround for this. */
         if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY &&
                 VKD3D_DRIVER_VERSION_MAJOR_NV(info->properties2.properties.driverVersion) < 535)
         {
@@ -1522,6 +1532,13 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_GENERATED_COMMANDS_PROPERTIES_NV;
         vk_prepend_struct(&info->features2, &info->device_generated_commands_features_nv);
         vk_prepend_struct(&info->properties2, &info->device_generated_commands_properties_nv);
+    }
+
+    if (vulkan_info->NV_device_generated_commands_compute)
+    {
+        info->device_generated_commands_compute_features_nv.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_GENERATED_COMMANDS_COMPUTE_FEATURES_NV;
+        vk_prepend_struct(&info->features2, &info->device_generated_commands_compute_features_nv);
     }
 
     if (vulkan_info->EXT_shader_image_atomic_int64)
@@ -2201,6 +2218,10 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
 
     /* Don't need or require this. Dynamic patch control points is nice, but not required. */
     physical_device_info->extended_dynamic_state2_features.extendedDynamicState2LogicOp = VK_FALSE;
+
+    /* Unneeded. */
+    physical_device_info->device_generated_commands_compute_features_nv.deviceGeneratedComputeCaptureReplay = VK_FALSE;
+    physical_device_info->device_generated_commands_compute_features_nv.deviceGeneratedComputePipelines = VK_FALSE;
 
     if (!physical_device_info->vulkan_1_2_properties.robustBufferAccessUpdateAfterBind)
     {
