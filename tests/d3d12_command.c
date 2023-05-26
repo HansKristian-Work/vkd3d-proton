@@ -2505,13 +2505,17 @@ void test_execute_indirect_state(void)
 
 #define UNALIGNED_ARGUMENT_BUFFER_OFFSET (64 * 1024 + 4)
 #define UNALIGNED_COUNT_BUFFER_OFFSET (128 * 1024 + 4)
+#define OVERSIZED_COUNT_BUFFER_OFFSET (128 * 1024 + 8)
 #define ALIGNED_COUNT_BUFFER_OFFSET (128 * 1024 + 4 * 1024)
         {
+            const uint32_t large_value = 1024;
             uint8_t *ptr;
+
             ID3D12Resource_Map(argument_buffer, 0, NULL, (void**)&ptr);
             memcpy(ptr, tests[i].argument_buffer_data, tests[i].argument_buffer_size);
             memcpy(ptr + UNALIGNED_ARGUMENT_BUFFER_OFFSET, tests[i].argument_buffer_data, tests[i].argument_buffer_size);
             memcpy(ptr + UNALIGNED_COUNT_BUFFER_OFFSET, &tests[i].api_max_count, sizeof(tests[i].api_max_count));
+            memcpy(ptr + OVERSIZED_COUNT_BUFFER_OFFSET, &large_value, sizeof(large_value));
             memcpy(ptr + ALIGNED_COUNT_BUFFER_OFFSET, &tests[i].api_max_count, sizeof(tests[i].api_max_count));
             ID3D12Resource_Unmap(argument_buffer, 0, NULL);
         }
@@ -2556,6 +2560,10 @@ void test_execute_indirect_state(void)
         ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature, 1024,
                 argument_buffer, UNALIGNED_ARGUMENT_BUFFER_OFFSET,
                 argument_buffer, UNALIGNED_COUNT_BUFFER_OFFSET);
+        /* Test equivalent call with indirect count, but indirect count which needs to be clamped. */
+        ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature, tests[i].api_max_count,
+                argument_buffer, UNALIGNED_ARGUMENT_BUFFER_OFFSET,
+                argument_buffer, OVERSIZED_COUNT_BUFFER_OFFSET);
         /* Test equivalent, but now with late transition to INDIRECT. */
         ID3D12GraphicsCommandList_CopyResource(command_list, argument_buffer_late, argument_buffer);
         transition_resource_state(command_list, argument_buffer_late, D3D12_RESOURCE_STATE_COPY_DEST,
@@ -2580,7 +2588,7 @@ void test_execute_indirect_state(void)
         get_buffer_readback_with_command_list(streamout_buffer, DXGI_FORMAT_R32G32B32A32_FLOAT, &rb, queue, command_list);
         reset_command_list(command_list, context.allocator);
 
-        expected_output_size = (tests[i].expected_output_count * 3 + 2) * sizeof(struct vec4);
+        expected_output_size = (tests[i].expected_output_count * 4 + 2) * sizeof(struct vec4);
         size = get_readback_uint(&rb, 0, 0, 0);
         ok(size == expected_output_size, "Expected size %u, got %u.\n", expected_output_size, size);
 
@@ -2592,10 +2600,14 @@ void test_execute_indirect_state(void)
                     j, v->x, v->y, v->z, v->w, expect->x, expect->y, expect->z, expect->w);
 
             v = get_readback_vec4(&rb, j + tests[i].expected_output_count + 1, 0);
-            ok(compare_vec4(v, expect, 0), "Element (indirect count) %u failed: (%f, %f, %f, %f) != (%f, %f, %f, %f)\n",
+            ok(compare_vec4(v, expect, 0), "Element (clamped count) %u failed: (%f, %f, %f, %f) != (%f, %f, %f, %f)\n",
                     j, v->x, v->y, v->z, v->w, expect->x, expect->y, expect->z, expect->w);
 
             v = get_readback_vec4(&rb, j + 2 * tests[i].expected_output_count + 1, 0);
+            ok(compare_vec4(v, expect, 0), "Element (indirect count) %u failed: (%f, %f, %f, %f) != (%f, %f, %f, %f)\n",
+                    j, v->x, v->y, v->z, v->w, expect->x, expect->y, expect->z, expect->w);
+
+            v = get_readback_vec4(&rb, j + 3 * tests[i].expected_output_count + 1, 0);
             ok(compare_vec4(v, expect, 0), "Element (late latch) %u failed: (%f, %f, %f, %f) != (%f, %f, %f, %f)\n",
                     j, v->x, v->y, v->z, v->w, expect->x, expect->y, expect->z, expect->w);
         }
@@ -2630,7 +2642,7 @@ void test_execute_indirect_state(void)
 
         for (j = 0; j < 2; j++)
         {
-            v = get_readback_vec4(&rb, j + 1 + 3 * tests[i].expected_output_count, 0);
+            v = get_readback_vec4(&rb, j + 1 + 4 * tests[i].expected_output_count, 0);
             expect = &expect_reset_state[j];
             ok(compare_vec4(v, expect, 0), "Post-reset element %u failed: (%f, %f, %f, %f) != (%f, %f, %f, %f)\n",
                     j, v->x, v->y, v->z, v->w, expect->x, expect->y, expect->z, expect->w);
