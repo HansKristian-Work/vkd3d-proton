@@ -2056,6 +2056,8 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     VkPhysicalDevice physical_device = device->vk_physical_device;
     struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
     VkPhysicalDeviceFeatures *features;
+    bool single_storage_texel;
+    bool single_uniform_texel;
 
     vkd3d_trace_physical_device(physical_device, physical_device_info, vk_procs);
     vkd3d_trace_physical_device_features(physical_device_info);
@@ -2100,8 +2102,16 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         return E_INVALIDARG;
     }
 
-    if (!physical_device_info->vulkan_1_3_properties.storageTexelBufferOffsetSingleTexelAlignment ||
-            !physical_device_info->vulkan_1_3_properties.uniformTexelBufferOffsetSingleTexelAlignment)
+    single_storage_texel =
+            physical_device_info->vulkan_1_3_properties.storageTexelBufferOffsetSingleTexelAlignment ||
+            physical_device_info->vulkan_1_3_properties.storageTexelBufferOffsetAlignmentBytes == 1;
+
+    /* ANV workaround, uniform texel is not set, but alignment requirement is 1, which is basically the same thing. */
+    single_uniform_texel =
+            physical_device_info->vulkan_1_3_properties.uniformTexelBufferOffsetSingleTexelAlignment ||
+            physical_device_info->vulkan_1_3_properties.uniformTexelBufferOffsetAlignmentBytes == 1;
+
+    if (!single_storage_texel || !single_uniform_texel)
     {
         ERR("Lacking support for single texel alignment.\n");
         return E_INVALIDARG;
