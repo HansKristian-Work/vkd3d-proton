@@ -19,4 +19,6 @@ Name of the game, settings used etc.
 - VKD3D-Proton version: 
 
 ### Log files
-Proton or Wine logs.
+Please attach Proton or Wine logs as a text file:
+- When using Proton, set the Steam launch options for your game to `PROTON_LOG=1 %command%` and attach the corresponding `steam-xxxxx.log` file in your home directory.
+- When using regular Wine, use `wine game.exe > game.log 2>&1` and attach the resulting `game.log` file.
