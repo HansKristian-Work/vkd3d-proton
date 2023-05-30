@@ -148,6 +148,7 @@ struct vkd3d_vulkan_info
     bool EXT_fragment_shader_interlock;
     bool EXT_pageable_device_local_memory;
     bool EXT_memory_priority;
+    bool EXT_dynamic_rendering_unused_attachments;
     /* AMD device extensions */
     bool AMD_buffer_marker;
     bool AMD_device_coherent_memory;
@@ -3987,6 +3988,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT fragment_shader_interlock_features;
     VkPhysicalDeviceMemoryPriorityFeaturesEXT memory_priority_features;
     VkPhysicalDevicePageableDeviceLocalMemoryFeaturesEXT pageable_device_memory_features;
+    VkPhysicalDeviceDynamicRenderingUnusedAttachmentsFeaturesEXT dynamic_rendering_unused_attachments_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
