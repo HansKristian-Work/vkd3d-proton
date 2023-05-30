@@ -517,9 +517,9 @@
                 "VkPhysicalDeviceImageSlicedViewOf3DFeaturesEXT": {
                     "imageSlicedViewOf3D": true
                 },
-				"VkPhysicalDeviceMemoryPriorityFeaturesEXT": {
-					"memoryPriority": true
-				},
+                "VkPhysicalDeviceMemoryPriorityFeaturesEXT": {
+                    "memoryPriority": true
+                },
                 "VkPhysicalDeviceDeviceGeneratedCommandsFeaturesNV": {
                     "deviceGeneratedCommands": true
                 },
@@ -533,54 +533,54 @@
                 }
             }
         },
-		"optional_amd": {
+        "optional_amd": {
             "extensions": {
                 "VK_EXT_shader_stencil_export": 1,
-				"VK_AMD_device_coherent_memory": 1,
-				"VK_AMD_shader_core_properties": 1,
-				"VK_AMD_shader_core_properties2": 1
+                "VK_AMD_device_coherent_memory": 1,
+                "VK_AMD_shader_core_properties": 1,
+                "VK_AMD_shader_core_properties2": 1
             },
-			"features": {
-				"VkPhysicalDeviceCoherentMemoryFeaturesAMD": {
-					"deviceCoherentMemory": true
-				}
-			},
-			"properties": {
-				"VkPhysicalDeviceProperties": {
-					"vendorID": 4098
-				},
+            "features": {
+                "VkPhysicalDeviceCoherentMemoryFeaturesAMD": {
+                    "deviceCoherentMemory": true
+                }
+            },
+            "properties": {
+                "VkPhysicalDeviceProperties": {
+                    "vendorID": 4098
+                },
                 "VkPhysicalDeviceVulkan12Properties": {
-					"denormBehaviorIndependence": "VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY",
+                    "denormBehaviorIndependence": "VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY",
                     "shaderDenormFlushToZeroFloat32": true,
                     "shaderDenormPreserveFloat16": true,
                     "shaderDenormPreserveFloat32": true,
                     "shaderDenormPreserveFloat64": true
                 }
-			}
-		},
-		"optional_nv": {
-			"extensions": {
+            }
+        },
+        "optional_nv": {
+            "extensions": {
                 "VK_KHR_fragment_shader_barycentric": 1,
                 "VK_EXT_pageable_device_local_memory": 1,
-				"VK_NV_shader_sm_builtins": 1,
-				"VK_NVX_binary_import": 1,
-				"VK_NVX_image_view_handle": 1,
-				"VK_NV_device_diagnostic_checkpoints": 1
-			},
-			"features": {
+                "VK_NV_shader_sm_builtins": 1,
+                "VK_NVX_binary_import": 1,
+                "VK_NVX_image_view_handle": 1,
+                "VK_NV_device_diagnostic_checkpoints": 1
+            },
+            "features": {
                 "VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR": {
                     "fragmentShaderBarycentric": true
                 },
                 "VkPhysicalDevicePageableDeviceLocalMemoryFeaturesEXT": {
                     "pageableDeviceLocalMemory": true
                 }
-			},
-			"properties": {
-				"VkPhysicalDeviceProperties": {
-					"vendorID": 4318
-				}
-			}
-		}
+            },
+            "properties": {
+                "VkPhysicalDeviceProperties": {
+                    "vendorID": 4318
+                }
+            }
+        }
     },
     "profiles": {
         "VP_D3D12_FL_11_0_baseline": {
@@ -714,7 +714,7 @@
                 "shader_model_66",
                 "optimal_performance",
                 "optional",
-				"optional_amd"
+                "optional_amd"
             ]
         },
         "VP_D3D12_maximum_nv": {
@@ -735,7 +735,7 @@
                 "shader_model_66",
                 "optimal_performance",
                 "optional",
-				"optional_nv"
+                "optional_nv"
             ]
         }
     },
