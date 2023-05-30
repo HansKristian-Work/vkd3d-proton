@@ -98,6 +98,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_FRAGMENT_SHADER_INTERLOCK, EXT_fragment_shader_interlock),
     VK_EXTENSION(EXT_PAGEABLE_DEVICE_LOCAL_MEMORY, EXT_pageable_device_local_memory),
     VK_EXTENSION(EXT_MEMORY_PRIORITY, EXT_memory_priority),
+    VK_EXTENSION(EXT_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS, EXT_dynamic_rendering_unused_attachments),
     /* AMD extensions */
     VK_EXTENSION(AMD_BUFFER_MARKER, AMD_buffer_marker),
     VK_EXTENSION(AMD_DEVICE_COHERENT_MEMORY, AMD_device_coherent_memory),
@@ -1593,6 +1594,14 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->pageable_device_memory_features.sType =
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PAGEABLE_DEVICE_LOCAL_MEMORY_FEATURES_EXT;
         vk_prepend_struct(&info->features2, &info->pageable_device_memory_features);
+    }
+
+    /* This EXT only exists to remove VUID for validation, it does not add new functionality. */
+    if (vulkan_info->EXT_dynamic_rendering_unused_attachments)
+    {
+        info->dynamic_rendering_unused_attachments_features.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->dynamic_rendering_unused_attachments_features);
     }
 
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
