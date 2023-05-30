@@ -538,11 +538,15 @@
                 "VK_EXT_shader_stencil_export": 1,
                 "VK_AMD_device_coherent_memory": 1,
                 "VK_AMD_shader_core_properties": 1,
-                "VK_AMD_shader_core_properties2": 1
+                "VK_AMD_shader_core_properties2": 1,
+                "VK_EXT_dynamic_rendering_unused_attachments": 1
             },
             "features": {
                 "VkPhysicalDeviceCoherentMemoryFeaturesAMD": {
                     "deviceCoherentMemory": true
+                },
+                "VkPhysicalDeviceDynamicRenderingUnusedAttachmentsFeaturesEXT": {
+                    "dynamicRenderingUnusedAttachments": true
                 }
             },
             "properties": {
