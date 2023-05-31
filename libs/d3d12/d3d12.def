@@ -9,3 +9,6 @@ EXPORTS
     D3D12EnableExperimentalFeatures
     D3D12SerializeRootSignature
     D3D12SerializeVersionedRootSignature
+
+    D3D12PIXEventsReplaceBlock
+    D3D12PIXGetThreadInfo

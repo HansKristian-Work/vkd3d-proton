@@ -206,3 +206,15 @@ HRESULT WINAPI DLLEXPORT D3D12GetInterface(REFCLSID rcslid, REFIID iid, void **d
         return E_NOINTERFACE;
     return IVKD3DCoreInterface_GetInterface(core, rcslid, iid, debug);
 }
+
+HRESULT WINAPI DLLEXPORT D3D12PIXEventsReplaceBlock()
+{
+    FIXME("stub!\n");
+    return E_NOTIMPL;
+}
+
+HRESULT WINAPI DLLEXPORT D3D12PIXGetThreadInfo()
+{
+    FIXME("stub!\n");
+    return E_NOTIMPL;
+}
