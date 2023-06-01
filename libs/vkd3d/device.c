@@ -1269,7 +1269,8 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
      * but there is no known workaround for this. */
     if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS))
     {
-        if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
+        if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY &&
+                VKD3D_DRIVER_VERSION_MAJOR_NV(info->properties2.properties.driverVersion) < 535)
         {
             WARN("Disabling VK_KHR_present_wait on NV drivers due to spurious failure to create swapchains.\n");
             device->vk_info.KHR_present_wait = false;
