@@ -2876,7 +2876,15 @@ int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
         return ret;
 
     if (!raw_payload.code)
-        return VKD3D_ERROR;
+    {
+        /* This might be a DXIL lib target in which case we have to parse subobjects. */
+        if (!shader_is_dxil(dxbc->code, dxbc->size))
+            return VKD3D_ERROR;
+
+        /* Payload subobjects do not own any memory, they point directly to blob. No need to free. */
+        if ((ret = vkd3d_shader_dxil_find_global_root_signature_subobject(dxbc->code, dxbc->size, &raw_payload)))
+            return ret;
+    }
 
     if ((ret = vkd3d_shader_parse_root_signature_raw(raw_payload.code, raw_payload.size,
             root_signature, compatibility_hash)) < 0)

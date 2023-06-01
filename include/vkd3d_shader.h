@@ -933,6 +933,9 @@ int vkd3d_shader_dxil_append_library_entry_points_and_subobjects(
 void vkd3d_shader_dxil_free_library_entry_points(struct vkd3d_shader_library_entry_point *entry_points, size_t count);
 void vkd3d_shader_dxil_free_library_subobjects(struct vkd3d_shader_library_subobject *subobjects, size_t count);
 
+int vkd3d_shader_dxil_find_global_root_signature_subobject(const void *dxbc, size_t size,
+        struct vkd3d_shader_code *code);
+
 /* export may be a mangled or demangled name.
  * If RTPSO requests the demangled name, it will likely be demangled, otherwise we forward the mangled name directly.
  * demangled_export is always a demangled name, for debug purposes. Can be NULL. */
