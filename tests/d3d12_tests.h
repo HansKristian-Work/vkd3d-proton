@@ -322,6 +322,7 @@ decl_test(test_raytracing_reject_duplicate_objects);
 decl_test(test_raytracing_embedded_subobjects);
 decl_test(test_raytracing_default_association_tiebreak);
 decl_test(test_raytracing_collection_identifiers);
+decl_test(test_raytracing_root_signature_from_subobject);
 decl_test(test_fence_wait_robustness);
 decl_test(test_fence_wait_robustness_shared);
 decl_test(test_fence_wait_multiple);
