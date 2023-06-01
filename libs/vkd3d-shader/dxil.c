@@ -1596,6 +1596,62 @@ static void vkd3d_shader_dxil_copy_subobject(unsigned int identifier,
     }
 }
 
+int vkd3d_shader_dxil_find_global_root_signature_subobject(const void *dxbc, size_t size,
+        struct vkd3d_shader_code *code)
+{
+    dxil_spv_parsed_blob blob = NULL;
+    dxil_spv_rdat_subobject rdat;
+    unsigned int i, rdat_count;
+    int found_index = -1;
+    int ret = VKD3D_OK;
+
+    dxil_spv_set_thread_log_callback(vkd3d_dxil_log_callback, NULL);
+    dxil_spv_begin_thread_allocator_context();
+
+    if (dxil_spv_parse_dxil_blob(dxbc, size, &blob) != DXIL_SPV_SUCCESS)
+    {
+        ret = VKD3D_ERROR_INVALID_ARGUMENT;
+        goto end;
+    }
+
+    rdat_count = dxil_spv_parsed_blob_get_num_rdat_subobjects(blob);
+
+    for (i = 0; i < rdat_count; i++)
+    {
+        dxil_spv_parsed_blob_get_rdat_subobject(blob, i, &rdat);
+        if (rdat.kind == DXIL_SPV_RDAT_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE)
+        {
+            if (found_index >= 0)
+            {
+                /* Ambiguous. Must fail. */
+                ret = VKD3D_ERROR_INVALID_ARGUMENT;
+                goto end;
+            }
+
+            found_index = (int)i;
+        }
+    }
+
+    if (found_index < 0)
+    {
+        ret = VKD3D_ERROR_INVALID_ARGUMENT;
+        goto end;
+    }
+
+    dxil_spv_parsed_blob_get_rdat_subobject(blob, found_index, &rdat);
+    memset(code, 0, sizeof(*code));
+
+    /* These point directly to blob. */
+    code->code = rdat.payload;
+    code->size = rdat.payload_size;
+
+end:
+    if (blob)
+        dxil_spv_parsed_blob_free(blob);
+    dxil_spv_end_thread_allocator_context();
+    return ret;
+}
+
 int vkd3d_shader_dxil_append_library_entry_points_and_subobjects(
         const D3D12_DXIL_LIBRARY_DESC *library_desc,
         unsigned int identifier,
