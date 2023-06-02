@@ -3662,3 +3662,32 @@ void test_sparse_buffer_memory_lifetime(void)
     destroy_test_context(&context);
 }
 
+void test_reserved_resource_mapping(void)
+{
+    struct test_context context;
+    D3D12_RESOURCE_DESC desc;
+    ID3D12Resource *res;
+    HRESULT hr;
+    void *ptr;
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    desc.MipLevels = 1;
+    desc.DepthOrArraySize = 1;
+    desc.Height = 1;
+    desc.Width = 64 * 1024;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    desc.SampleDesc.Count = 1;
+    hr = ID3D12Device_CreateReservedResource(context.device, &desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void **)&res);
+    ok(SUCCEEDED(hr), "Failed to create reserved resource, hr #%x.\n", hr);
+
+    hr = ID3D12Resource_Map(res, 0, NULL, &ptr);
+    ok(hr == E_INVALIDARG, "Unexpected return value hr #%x.\n", hr);
+
+    ID3D12Resource_Release(res);
+
+    destroy_test_context(&context);
+}
