@@ -500,6 +500,7 @@
         },
         "optional": {
             "extensions": {
+                "VK_KHR_fragment_shader_barycentric": 1,
                 "VK_EXT_conditional_rendering": 1,
                 "VK_EXT_external_memory_host": 1,
                 "VK_EXT_image_view_min_lod": 1,
@@ -508,6 +509,9 @@
                 "VK_NV_device_generated_commands": 1
             },
             "features": {
+                "VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR": {
+                    "fragmentShaderBarycentric": true
+                },
                 "VkPhysicalDeviceConditionalRenderingFeaturesEXT": {
                     "conditionalRendering": true
                 },
@@ -564,7 +568,6 @@
         },
         "optional_nv": {
             "extensions": {
-                "VK_KHR_fragment_shader_barycentric": 1,
                 "VK_EXT_pageable_device_local_memory": 1,
                 "VK_NV_shader_sm_builtins": 1,
                 "VK_NVX_binary_import": 1,
@@ -572,9 +575,6 @@
                 "VK_NV_device_diagnostic_checkpoints": 1
             },
             "features": {
-                "VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR": {
-                    "fragmentShaderBarycentric": true
-                },
                 "VkPhysicalDevicePageableDeviceLocalMemoryFeaturesEXT": {
                     "pageableDeviceLocalMemory": true
                 }
