@@ -348,3 +348,4 @@ decl_test(test_dynamic_depth_stencil_write);
 decl_test(test_reserved_resource_mapping);
 decl_test(test_quad_vote_sm67_compute);
 decl_test(test_sm67_helper_lane_wave_ops);
+decl_test(test_sm67_multi_sample_uav);
