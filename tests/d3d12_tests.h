@@ -350,3 +350,4 @@ decl_test(test_quad_vote_sm67_compute);
 decl_test(test_sm67_helper_lane_wave_ops);
 decl_test(test_sm67_multi_sample_uav);
 decl_test(test_sm67_sample_cmp_level);
+decl_test(test_sm67_dynamic_texture_offset);
