@@ -536,8 +536,17 @@ enum vkd3d_static_border_color
     VKD3D_STATIC_BORDER_COLOR_TRANSPARENT_BLACK = 0,
     VKD3D_STATIC_BORDER_COLOR_OPAQUE_BLACK = 1,
     VKD3D_STATIC_BORDER_COLOR_OPAQUE_WHITE = 2,
+    VKD3D_STATIC_BORDER_COLOR_OPAQUE_BLACK_UINT = 3,
+    VKD3D_STATIC_BORDER_COLOR_OPAQUE_WHITE_UINT = 4,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_STATIC_BORDER_COLOR),
+};
+
+enum vkd3d_sampler_flags
+{
+    VKD3D_SAMPLER_FLAG_NONE = 0,
+    VKD3D_SAMPLER_FLAG_UINT_BORDER_COLOR = 0x1,
+    VKD3D_SAMPLER_FLAG_NON_NORMALIZED_COORDINATES = 0x2,
 };
 
 struct vkd3d_static_sampler_desc
@@ -555,6 +564,24 @@ struct vkd3d_static_sampler_desc
     unsigned int shader_register;
     unsigned int register_space;
     enum vkd3d_shader_visibility shader_visibility;
+};
+
+struct vkd3d_static_sampler_desc1
+{
+    enum vkd3d_filter filter;
+    enum vkd3d_texture_address_mode address_u;
+    enum vkd3d_texture_address_mode address_v;
+    enum vkd3d_texture_address_mode address_w;
+    float mip_lod_bias;
+    unsigned int max_anisotropy;
+    enum vkd3d_comparison_func comparison_func;
+    enum vkd3d_static_border_color border_color;
+    float min_lod;
+    float max_lod;
+    unsigned int shader_register;
+    unsigned int register_space;
+    enum vkd3d_shader_visibility shader_visibility;
+    unsigned int flags; /* vkd3d_sampler_flags */
 };
 
 enum vkd3d_descriptor_range_type
@@ -704,13 +731,32 @@ struct vkd3d_root_signature_desc1
     enum vkd3d_root_signature_flags flags;
 };
 
+struct vkd3d_root_signature_desc2
+{
+    unsigned int parameter_count;
+    const struct vkd3d_root_parameter1 *parameters;
+    unsigned int static_sampler_count;
+    const struct vkd3d_static_sampler_desc1 *static_samplers;
+    enum vkd3d_root_signature_flags flags;
+};
+
 enum vkd3d_root_signature_version
 {
     VKD3D_ROOT_SIGNATURE_VERSION_1_0 = 0x1,
     VKD3D_ROOT_SIGNATURE_VERSION_1_1 = 0x2,
+    VKD3D_ROOT_SIGNATURE_VERSION_1_2 = 0x3,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_ROOT_SIGNATURE_VERSION),
 };
+
+#define VKD3D_ROOT_SIGNATURE_VERSION_COUNT 3
+static inline unsigned vkd3d_root_signature_version_to_other_index(
+        enum vkd3d_root_signature_version version)
+{
+    assert(version >= VKD3D_ROOT_SIGNATURE_VERSION_1_0 &&
+            version <= VKD3D_ROOT_SIGNATURE_VERSION_1_2);
+    return version - VKD3D_ROOT_SIGNATURE_VERSION_1_0;
+}
 
 struct vkd3d_versioned_root_signature_desc
 {
@@ -719,6 +765,7 @@ struct vkd3d_versioned_root_signature_desc
     {
         struct vkd3d_root_signature_desc v_1_0;
         struct vkd3d_root_signature_desc1 v_1_1;
+        struct vkd3d_root_signature_desc2 v_1_2;
     };
 };
 
