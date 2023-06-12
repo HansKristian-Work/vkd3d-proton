@@ -82,6 +82,7 @@ decl_test(test_discard_instruction);
 decl_test(test_shader_interstage_interface);
 decl_test(test_shader_input_output_components);
 decl_test(test_root_signature_byte_code);
+decl_test(test_root_signature_byte_code2);
 decl_test(test_cs_constant_buffer);
 decl_test(test_constant_buffer_relative_addressing);
 decl_test(test_immediate_constant_buffer);
