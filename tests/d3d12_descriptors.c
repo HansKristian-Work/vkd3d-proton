@@ -3607,6 +3607,56 @@ void test_create_sampler(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+void test_create_sampler2(void)
+{
+    /* This is just a smoke test that calling CreateSampler2() does not blow up.
+     * Also, note that there is no CreateSampler1(). */
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
+    D3D12_DESCRIPTOR_HEAP_DESC heap_desc;
+    D3D12_SAMPLER_DESC2 sampler_desc;
+    ID3D12DescriptorHeap *heap;
+    ID3D12Device11 *device11;
+    ID3D12Device *device;
+    ULONG refcount;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    if (FAILED(ID3D12Device_QueryInterface(device, &IID_ID3D12Device11, (void**)&device11)))
+    {
+        skip("ID3D12Device11 not supported.\n");
+        ID3D12Device_Release(device);
+        return;
+    }
+
+    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
+    heap_desc.NumDescriptors = 16;
+    heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    heap_desc.NodeMask = 0;
+    hr = ID3D12Device_CreateDescriptorHeap(device, &heap_desc, &IID_ID3D12DescriptorHeap, (void **)&heap);
+    ok(SUCCEEDED(hr), "Failed to create descriptor heap, hr %#x.\n", hr);
+
+    cpu_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+    memset(&sampler_desc, 0, sizeof(sampler_desc));
+    sampler_desc.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    sampler_desc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    sampler_desc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    sampler_desc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    sampler_desc.MaxLOD = D3D12_FLOAT32_MAX;
+    ID3D12Device11_CreateSampler2(device11, &sampler_desc, cpu_handle);
+
+    ID3D12Device11_Release(device11);
+
+    refcount = ID3D12DescriptorHeap_Release(heap);
+    ok(!refcount, "ID3D12DescriptorHeap has %u references left.\n", (unsigned int)refcount);
+    refcount = ID3D12Device_Release(device);
+    ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
 void test_create_unordered_access_view(void)
 {
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;

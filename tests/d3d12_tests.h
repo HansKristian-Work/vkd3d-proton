@@ -35,6 +35,7 @@ decl_test(test_create_placed_resource_size);
 decl_test(test_create_reserved_resource);
 decl_test(test_create_descriptor_heap);
 decl_test(test_create_sampler);
+decl_test(test_create_sampler2);
 decl_test(test_create_unordered_access_view);
 decl_test(test_create_root_signature);
 decl_test(test_root_signature_limits);
