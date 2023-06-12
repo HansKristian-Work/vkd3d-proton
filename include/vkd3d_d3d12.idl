@@ -1403,6 +1403,8 @@ typedef enum D3D12_STATIC_BORDER_COLOR
     D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK = 0,
     D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK = 1,
     D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE = 2,
+    D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK_UINT = 3,
+    D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE_UINT = 4,
 } D3D12_STATIC_BORDER_COLOR;
 
 typedef enum D3D12_FILTER
@@ -1551,6 +1553,33 @@ typedef struct D3D12_STATIC_SAMPLER_DESC
     UINT RegisterSpace;
     D3D12_SHADER_VISIBILITY ShaderVisibility;
 } D3D12_STATIC_SAMPLER_DESC;
+
+typedef enum D3D12_SAMPLER_FLAGS
+{
+    D3D12_SAMPLER_FLAG_NONE = 0x0,
+    D3D12_SAMPLER_FLAG_UINT_BORDER_COLOR = 0x1,
+    D3D12_SAMPLER_FLAG_NON_NORMALIZED_COORDINATES = 0x2,
+} D3D12_SAMPLER_FLAGS;
+cpp_quote("DEFINE_ENUM_FLAG_OPERATORS(D3D12_SAMPLER_FLAGS);")
+
+typedef struct D3D12_STATIC_SAMPLER_DESC1
+{
+    D3D12_FILTER Filter;
+    D3D12_TEXTURE_ADDRESS_MODE AddressU;
+    D3D12_TEXTURE_ADDRESS_MODE AddressV;
+    D3D12_TEXTURE_ADDRESS_MODE AddressW;
+    FLOAT MipLODBias;
+    UINT MaxAnisotropy;
+    D3D12_COMPARISON_FUNC ComparisonFunc;
+    D3D12_STATIC_BORDER_COLOR BorderColor;
+    FLOAT MinLOD;
+    FLOAT MaxLOD;
+    UINT ShaderRegister;
+    UINT RegisterSpace;
+    D3D12_SHADER_VISIBILITY ShaderVisibility;
+    D3D12_SAMPLER_FLAGS Flags;
+} D3D12_STATIC_SAMPLER_DESC1;
+
 
 typedef enum D3D12_ROOT_SIGNATURE_FLAGS
 {
@@ -2022,6 +2051,25 @@ typedef struct D3D12_SAMPLER_DESC
     FLOAT MinLOD;
     FLOAT MaxLOD;
 } D3D12_SAMPLER_DESC;
+
+typedef struct D3D12_SAMPLER_DESC2
+{
+    D3D12_FILTER Filter;
+    D3D12_TEXTURE_ADDRESS_MODE AddressU;
+    D3D12_TEXTURE_ADDRESS_MODE AddressV;
+    D3D12_TEXTURE_ADDRESS_MODE AddressW;
+    FLOAT MipLODBias;
+    UINT MaxAnisotropy;
+    D3D12_COMPARISON_FUNC ComparisonFunc;
+    union
+    {
+        FLOAT FloatBorderColor[4];
+        UINT UintBorderColor[4];
+    };
+    FLOAT MinLOD;
+    FLOAT MaxLOD;
+    D3D12_SAMPLER_FLAGS Flags;
+} D3D12_SAMPLER_DESC2;
 
 typedef struct D3D12_CPU_DESCRIPTOR_HANDLE
 {
@@ -4676,6 +4724,37 @@ interface ID3D12Device10 : ID3D12Device9
         REFIID iid,
         void **resource);
 }
+
+[
+    uuid(5405c344-d457-444e-b4dd-2366e45aee39),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12Device11 : ID3D12Device10
+{
+    void CreateSampler2(
+        const D3D12_SAMPLER_DESC2* pDesc,
+        D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor);
+}
+
+[
+    uuid(5af5c532-4c91-4cd0-b541-15a405395fc5),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12Device12 : ID3D12Device11
+{
+    D3D12_RESOURCE_ALLOCATION_INFO GetResourceAllocationInfo3(
+        UINT VisibleMask,
+        UINT NumResourceDescs,
+        const D3D12_RESOURCE_DESC1* pResourceDescs,
+        const UINT32* pNumCastableFormats,
+        const DXGI_FORMAT *const *ppCastableFormats,
+        D3D12_RESOURCE_ALLOCATION_INFO1* pResourceAllocationInfo1);
+}
+
 [
     uuid(34ab647b-3cc8-46ac-841b-c0965645c046),
     object,
