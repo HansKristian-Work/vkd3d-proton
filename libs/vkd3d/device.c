@@ -2999,10 +2999,11 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
             || IsEqualGUID(riid, &IID_ID3D12Device8)
             || IsEqualGUID(riid, &IID_ID3D12Device9)
             || IsEqualGUID(riid, &IID_ID3D12Device10)
+            || IsEqualGUID(riid, &IID_ID3D12Device11)
             || IsEqualGUID(riid, &IID_ID3D12Object)
             || IsEqualGUID(riid, &IID_IUnknown))
     {
-        ID3D12Device10_AddRef(iface);
+        ID3D12Device11_AddRef(iface);
         *object = iface;
         return S_OK;
     }
@@ -4335,14 +4336,40 @@ static void STDMETHODCALLTYPE d3d12_device_CreateSampler_embedded(d3d12_device_i
         const D3D12_SAMPLER_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    D3D12_SAMPLER_DESC2 desc2;
+
+    TRACE("iface %p, desc %p, descriptor %#lx.\n", iface, desc, descriptor.ptr);
+
+    memcpy(&desc2, desc, sizeof(*desc));
+    desc2.Flags = D3D12_SAMPLER_FLAG_NONE;
+    d3d12_desc_create_sampler_embedded(descriptor.ptr, device, &desc2);
+}
+
+static void STDMETHODCALLTYPE d3d12_device_CreateSampler_default(d3d12_device_iface *iface,
+        const D3D12_SAMPLER_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
+{
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    D3D12_SAMPLER_DESC2 desc2;
+
+    TRACE("iface %p, desc %p, descriptor %#lx.\n", iface, desc, descriptor.ptr);
+
+    memcpy(&desc2, desc, sizeof(*desc));
+    desc2.Flags = D3D12_SAMPLER_FLAG_NONE;
+    d3d12_desc_create_sampler(descriptor.ptr, device, &desc2);
+}
+
+static void STDMETHODCALLTYPE d3d12_device_CreateSampler2_embedded(d3d12_device_iface *iface,
+        const D3D12_SAMPLER_DESC2 *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
+{
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
 
     TRACE("iface %p, desc %p, descriptor %#lx.\n", iface, desc, descriptor.ptr);
 
     d3d12_desc_create_sampler_embedded(descriptor.ptr, device, desc);
 }
 
-static void STDMETHODCALLTYPE d3d12_device_CreateSampler_default(d3d12_device_iface *iface,
-        const D3D12_SAMPLER_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
+static void STDMETHODCALLTYPE d3d12_device_CreateSampler2_default(d3d12_device_iface *iface,
+        const D3D12_SAMPLER_DESC2 *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
 
@@ -6390,7 +6417,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource2(d3d12_devi
 
 /* Gotta love C sometimes ... :') */
 #define VKD3D_DECLARE_D3D12_DEVICE_VARIANT(name, create_desc, copy_desc_variant) \
-CONST_VTBL struct ID3D12Device10Vtbl d3d12_device_vtbl_##name = \
+CONST_VTBL struct ID3D12Device11Vtbl d3d12_device_vtbl_##name = \
 { \
     /* IUnknown methods */ \
     d3d12_device_QueryInterface, \
@@ -6484,6 +6511,8 @@ CONST_VTBL struct ID3D12Device10Vtbl d3d12_device_vtbl_##name = \
     d3d12_device_CreateCommittedResource3, \
     d3d12_device_CreatePlacedResource2, \
     d3d12_device_CreateReservedResource2, \
+    /* ID3D12Device11 methods */ \
+    d3d12_device_CreateSampler2_##create_desc, \
 }
 
 VKD3D_DECLARE_D3D12_DEVICE_VARIANT(default, default, default);

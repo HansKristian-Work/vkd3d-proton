@@ -1226,7 +1226,7 @@ void d3d12_desc_create_uav(vkd3d_cpu_descriptor_va_t descriptor, struct d3d12_de
         struct d3d12_resource *resource, struct d3d12_resource *counter_resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc);
 void d3d12_desc_create_sampler(vkd3d_cpu_descriptor_va_t sampler,
-        struct d3d12_device *device, const D3D12_SAMPLER_DESC *desc);
+        struct d3d12_device *device, const D3D12_SAMPLER_DESC2 *desc);
 
 void d3d12_desc_create_cbv_embedded(vkd3d_cpu_descriptor_va_t descriptor,
         struct d3d12_device *device, const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc);
@@ -1237,7 +1237,7 @@ void d3d12_desc_create_uav_embedded(vkd3d_cpu_descriptor_va_t descriptor, struct
         struct d3d12_resource *resource, struct d3d12_resource *counter_resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc);
 void d3d12_desc_create_sampler_embedded(vkd3d_cpu_descriptor_va_t sampler,
-        struct d3d12_device *device, const D3D12_SAMPLER_DESC *desc);
+        struct d3d12_device *device, const D3D12_SAMPLER_DESC2 *desc);
 
 bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
         VkBuffer vk_buffer, const struct vkd3d_format *format,
@@ -4051,7 +4051,7 @@ struct vkd3d_cached_command_allocator
 };
 
 /* ID3D12Device */
-typedef ID3D12Device10 d3d12_device_iface;
+typedef ID3D12Device11 d3d12_device_iface;
 
 struct vkd3d_descriptor_qa_global_info;
 struct vkd3d_descriptor_qa_heap_buffer_data;
@@ -4220,17 +4220,17 @@ static inline const struct vkd3d_memory_info_domain *d3d12_device_get_memory_inf
 
 static inline HRESULT d3d12_device_query_interface(struct d3d12_device *device, REFIID iid, void **object)
 {
-    return ID3D12Device10_QueryInterface(&device->ID3D12Device_iface, iid, object);
+    return ID3D12Device11_QueryInterface(&device->ID3D12Device_iface, iid, object);
 }
 
 static inline ULONG d3d12_device_add_ref(struct d3d12_device *device)
 {
-    return ID3D12Device10_AddRef(&device->ID3D12Device_iface);
+    return ID3D12Device11_AddRef(&device->ID3D12Device_iface);
 }
 
 static inline ULONG d3d12_device_release(struct d3d12_device *device)
 {
-    return ID3D12Device10_Release(&device->ID3D12Device_iface);
+    return ID3D12Device11_Release(&device->ID3D12Device_iface);
 }
 
 static inline bool d3d12_device_use_embedded_mutable_descriptors(struct d3d12_device *device)
@@ -4725,7 +4725,7 @@ struct vkd3d_view_key
     {
         struct vkd3d_buffer_view_desc buffer;
         struct vkd3d_texture_view_desc texture;
-        D3D12_SAMPLER_DESC sampler;
+        D3D12_SAMPLER_DESC2 sampler;
     } u;
 };
 struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,

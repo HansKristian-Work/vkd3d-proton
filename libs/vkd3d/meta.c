@@ -60,8 +60,8 @@ static VkResult vkd3d_meta_create_descriptor_set_layout(struct d3d12_device *dev
 static VkResult vkd3d_meta_create_sampler(struct d3d12_device *device, VkFilter filter, VkSampler *vk_sampler)
 {
     struct vkd3d_view_key view_key;
+    D3D12_SAMPLER_DESC2 desc;
     struct vkd3d_view *view;
-    D3D12_SAMPLER_DESC desc;
 
     memset(&desc, 0, sizeof(desc));
     desc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
