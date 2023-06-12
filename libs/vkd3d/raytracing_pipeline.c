@@ -1522,7 +1522,7 @@ static void d3d12_state_object_append_local_static_samplers(
         struct d3d12_state_object *object,
         VkDescriptorSetLayoutBinding **out_vk_bindings, size_t *out_vk_bindings_size, size_t *out_vk_bindings_count,
         struct vkd3d_shader_resource_binding *local_bindings,
-        const D3D12_STATIC_SAMPLER_DESC *sampler_desc, const VkSampler *vk_samplers,
+        const D3D12_STATIC_SAMPLER_DESC1 *sampler_desc, const VkSampler *vk_samplers,
         unsigned int sampler_count)
 {
     VkDescriptorSetLayoutBinding *vk_bindings = *out_vk_bindings;

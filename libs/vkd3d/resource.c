@@ -1105,13 +1105,13 @@ struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
 
 struct vkd3d_sampler_key
 {
-    D3D12_STATIC_SAMPLER_DESC desc;
+    D3D12_STATIC_SAMPLER_DESC1 desc;
 };
 
 struct vkd3d_sampler_entry
 {
     struct hash_map_entry entry;
-    D3D12_STATIC_SAMPLER_DESC desc;
+    D3D12_STATIC_SAMPLER_DESC1 desc;
     VkSampler vk_sampler;
 };
 
@@ -1130,6 +1130,7 @@ static uint32_t vkd3d_sampler_entry_hash(const void *key)
     hash = hash_combine(hash, (uint32_t)k->desc.BorderColor);
     hash = hash_combine(hash, float_bits_to_uint32(k->desc.MinLOD));
     hash = hash_combine(hash, float_bits_to_uint32(k->desc.MaxLOD));
+    hash = hash_combine(hash, k->desc.Flags);
     return hash;
 }
 
@@ -1147,7 +1148,8 @@ static bool vkd3d_sampler_entry_compare(const void *key, const struct hash_map_e
             k->desc.ComparisonFunc == e->desc.ComparisonFunc &&
             k->desc.BorderColor == e->desc.BorderColor &&
             k->desc.MinLOD == e->desc.MinLOD &&
-            k->desc.MaxLOD == e->desc.MaxLOD;
+            k->desc.MaxLOD == e->desc.MaxLOD &&
+            k->desc.Flags == e->desc.Flags;
 }
 
 HRESULT vkd3d_sampler_state_init(struct vkd3d_sampler_state *state,
@@ -1189,10 +1191,10 @@ void vkd3d_sampler_state_cleanup(struct vkd3d_sampler_state *state,
 }
 
 HRESULT d3d12_create_static_sampler(struct d3d12_device *device,
-        const D3D12_STATIC_SAMPLER_DESC *desc, VkSampler *vk_sampler);
+        const D3D12_STATIC_SAMPLER_DESC1 *desc, VkSampler *vk_sampler);
 
 HRESULT vkd3d_sampler_state_create_static_sampler(struct vkd3d_sampler_state *state,
-        struct d3d12_device *device, const D3D12_STATIC_SAMPLER_DESC *desc, VkSampler *vk_sampler)
+        struct d3d12_device *device, const D3D12_STATIC_SAMPLER_DESC1 *desc, VkSampler *vk_sampler)
 {
     struct vkd3d_sampler_entry entry, *e;
     HRESULT hr;
@@ -5772,12 +5774,15 @@ static VkBorderColor vk_border_color_from_d3d12(struct d3d12_device *device, con
 }
 
 HRESULT d3d12_create_static_sampler(struct d3d12_device *device,
-        const D3D12_STATIC_SAMPLER_DESC *desc, VkSampler *vk_sampler)
+        const D3D12_STATIC_SAMPLER_DESC1 *desc, VkSampler *vk_sampler)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkSamplerReductionModeCreateInfoEXT reduction_desc;
     VkSamplerCreateInfo sampler_desc;
     VkResult vr;
+
+    if (desc->Flags)
+        FIXME_ONCE("Ignoring static sampler flags #%x.\n", desc->Flags);
 
     reduction_desc.sType = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO_EXT;
     reduction_desc.pNext = NULL;

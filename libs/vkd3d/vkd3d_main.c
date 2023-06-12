@@ -217,19 +217,19 @@ int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
             compatibility_hash);
 }
 
-int vkd3d_parse_root_signature_v_1_1(const struct vkd3d_shader_code *dxbc,
+int vkd3d_parse_root_signature_v_1_2(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *out_desc,
         vkd3d_shader_hash_t *compatibility_hash)
 {
-    return vkd3d_parse_root_signature_for_version(dxbc, out_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_1, false,
+    return vkd3d_parse_root_signature_for_version(dxbc, out_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_2, false,
             compatibility_hash);
 }
 
-int vkd3d_parse_root_signature_v_1_1_from_raw_payload(const struct vkd3d_shader_code *dxbc,
+int vkd3d_parse_root_signature_v_1_2_from_raw_payload(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *out_desc,
         vkd3d_shader_hash_t *compatibility_hash)
 {
-    return vkd3d_parse_root_signature_for_version(dxbc, out_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_1, true,
+    return vkd3d_parse_root_signature_for_version(dxbc, out_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_2, true,
             compatibility_hash);
 }
 
