@@ -101,6 +101,12 @@ static void STDMETHODCALLTYPE d3d12_device_CreateSampler_profiled(d3d12_device_i
     DEVICE_PROFILED_CALL(CreateSampler_default, iface, desc, descriptor);
 }
 
+static void STDMETHODCALLTYPE d3d12_device_CreateSampler2_profiled(d3d12_device_iface *iface,
+        const D3D12_SAMPLER_DESC2 *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
+{
+    DEVICE_PROFILED_CALL(CreateSampler2_default, iface, desc, descriptor);
+}
+
 static void STDMETHODCALLTYPE d3d12_device_CopyDescriptors_profiled(d3d12_device_iface *iface,
         UINT dst_descriptor_range_count, const D3D12_CPU_DESCRIPTOR_HANDLE *dst_descriptor_range_offsets,
         const UINT *dst_descriptor_range_sizes,
@@ -268,7 +274,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource2_profiled(d
             num_castable_formats, castable_formats, iid, resource);
 }
 
-CONST_VTBL struct ID3D12Device10Vtbl d3d12_device_vtbl_profiled =
+CONST_VTBL struct ID3D12Device11Vtbl d3d12_device_vtbl_profiled =
 {
     /* IUnknown methods */
     d3d12_device_QueryInterface,
@@ -362,6 +368,8 @@ CONST_VTBL struct ID3D12Device10Vtbl d3d12_device_vtbl_profiled =
     d3d12_device_CreateCommittedResource3_profiled,
     d3d12_device_CreatePlacedResource2_profiled,
     d3d12_device_CreateReservedResource2_profiled,
+    /* ID3D12Device11 methods */
+    d3d12_device_CreateSampler2_profiled,
 };
 
 #endif
