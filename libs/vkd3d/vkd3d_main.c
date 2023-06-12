@@ -280,7 +280,7 @@ struct d3d12_versioned_root_signature_deserializer
     {
         D3D12_VERSIONED_ROOT_SIGNATURE_DESC d3d12;
         struct vkd3d_versioned_root_signature_desc vkd3d;
-    } desc, other_desc;
+    } desc, other_desc[VKD3D_ROOT_SIGNATURE_VERSION_COUNT];
 };
 
 STATIC_ASSERT(sizeof(D3D12_VERSIONED_ROOT_SIGNATURE_DESC) == sizeof(struct vkd3d_versioned_root_signature_desc));
@@ -327,13 +327,15 @@ static ULONG STDMETHODCALLTYPE d3d12_versioned_root_signature_deserializer_Relea
 {
     struct d3d12_versioned_root_signature_deserializer *deserializer = impl_from_ID3D12VersionedRootSignatureDeserializer(iface);
     ULONG refcount = InterlockedDecrement(&deserializer->refcount);
+    unsigned int i;
 
     TRACE("%p decreasing refcount to %u.\n", deserializer, refcount);
 
     if (!refcount)
     {
         vkd3d_shader_free_root_signature(&deserializer->desc.vkd3d);
-        vkd3d_shader_free_root_signature(&deserializer->other_desc.vkd3d);
+        for (i = 0; i < ARRAY_SIZE(deserializer->other_desc); i++)
+            vkd3d_shader_free_root_signature(&deserializer->other_desc[i].vkd3d);
         vkd3d_free(deserializer);
     }
 
@@ -348,6 +350,8 @@ static enum vkd3d_root_signature_version vkd3d_root_signature_version_from_d3d12
             return VKD3D_ROOT_SIGNATURE_VERSION_1_0;
         case D3D_ROOT_SIGNATURE_VERSION_1_1:
             return VKD3D_ROOT_SIGNATURE_VERSION_1_1;
+        case D3D_ROOT_SIGNATURE_VERSION_1_2:
+            return VKD3D_ROOT_SIGNATURE_VERSION_1_2;
         default:
             WARN("Unknown root signature version %#x.\n", version);
             return 0;
@@ -359,11 +363,15 @@ static HRESULT STDMETHODCALLTYPE d3d12_versioned_root_signature_deserializer_Get
         const D3D12_VERSIONED_ROOT_SIGNATURE_DESC **desc)
 {
     struct d3d12_versioned_root_signature_deserializer *deserializer = impl_from_ID3D12VersionedRootSignatureDeserializer(iface);
+    enum vkd3d_root_signature_version vkd3d_root_sig_version;
+    unsigned int other_index;
     int ret;
 
     TRACE("iface %p, version %#x, desc %p.\n", iface, version, desc);
 
-    if (version != D3D_ROOT_SIGNATURE_VERSION_1_0 && version != D3D_ROOT_SIGNATURE_VERSION_1_1)
+    if (version != D3D_ROOT_SIGNATURE_VERSION_1_0 &&
+            version != D3D_ROOT_SIGNATURE_VERSION_1_1 &&
+            version != D3D_ROOT_SIGNATURE_VERSION_1_2)
     {
         WARN("Root signature version %#x not supported.\n", version);
         return E_INVALIDARG;
@@ -375,18 +383,21 @@ static HRESULT STDMETHODCALLTYPE d3d12_versioned_root_signature_deserializer_Get
         return S_OK;
     }
 
-    if (!deserializer->other_desc.d3d12.Version)
+    vkd3d_root_sig_version = vkd3d_root_signature_version_from_d3d12(version);
+    other_index = vkd3d_root_signature_version_to_other_index(vkd3d_root_sig_version);
+
+    if (!deserializer->other_desc[other_index].d3d12.Version)
     {
-        if ((ret = vkd3d_shader_convert_root_signature(&deserializer->other_desc.vkd3d,
-                vkd3d_root_signature_version_from_d3d12(version), &deserializer->desc.vkd3d)) < 0)
+        if ((ret = vkd3d_shader_convert_root_signature(&deserializer->other_desc[other_index].vkd3d,
+                vkd3d_root_sig_version, &deserializer->desc.vkd3d)) < 0)
         {
             WARN("Failed to convert versioned root signature, vkd3d result %d.\n", ret);
             return hresult_from_vkd3d_result(ret);
         }
     }
 
-    assert(deserializer->other_desc.d3d12.Version == version);
-    *desc = &deserializer->other_desc.d3d12;
+    assert(deserializer->other_desc[other_index].d3d12.Version == version);
+    *desc = &deserializer->other_desc[other_index].d3d12;
     return S_OK;
 }
 
