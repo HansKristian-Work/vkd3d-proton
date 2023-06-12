@@ -424,7 +424,7 @@ static void d3d12_root_signature_info_count_sampler_table(struct d3d12_root_sign
 }
 
 static HRESULT d3d12_root_signature_info_count_descriptors(struct d3d12_root_signature_info *info,
-        struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC1 *desc, const D3D12_DESCRIPTOR_RANGE1 *range)
+        struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC2 *desc, const D3D12_DESCRIPTOR_RANGE1 *range)
 {
     switch (range->RangeType)
     {
@@ -452,7 +452,7 @@ static HRESULT d3d12_root_signature_info_count_descriptors(struct d3d12_root_sig
 }
 
 static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_info *info,
-        struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC1 *desc)
+        struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC2 *desc)
 {
     bool local_root_signature;
     unsigned int i, j;
@@ -559,7 +559,7 @@ static bool d3d12_root_signature_parameter_is_raw_va(struct d3d12_root_signature
 
 static HRESULT d3d12_root_signature_init_shader_record_constants(
         struct d3d12_root_signature *root_signature,
-        const D3D12_ROOT_SIGNATURE_DESC1 *desc, const struct d3d12_root_signature_info *info)
+        const D3D12_ROOT_SIGNATURE_DESC2 *desc, const struct d3d12_root_signature_info *info)
 {
     unsigned int i, j;
 
@@ -587,7 +587,7 @@ static HRESULT d3d12_root_signature_init_shader_record_constants(
 }
 
 static HRESULT d3d12_root_signature_init_push_constants(struct d3d12_root_signature *root_signature,
-        const D3D12_ROOT_SIGNATURE_DESC1 *desc, const struct d3d12_root_signature_info *info,
+        const D3D12_ROOT_SIGNATURE_DESC2 *desc, const struct d3d12_root_signature_info *info,
         struct VkPushConstantRange *push_constant_range)
 {
     unsigned int i, j;
@@ -787,7 +787,7 @@ static void d3d12_root_signature_init_sampler_heap_bindings(struct d3d12_root_si
 }
 
 static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_root_signature *root_signature,
-        const D3D12_ROOT_SIGNATURE_DESC1 *desc, const struct d3d12_root_signature_info *info,
+        const D3D12_ROOT_SIGNATURE_DESC2 *desc, const struct d3d12_root_signature_info *info,
         struct vkd3d_descriptor_set_context *context)
 {
     struct vkd3d_bindless_state *bindless_state = &root_signature->device->bindless_state;
@@ -920,7 +920,7 @@ static void d3d12_root_signature_init_extra_bindings(struct d3d12_root_signature
 
 static HRESULT d3d12_root_signature_init_shader_record_descriptors(
         struct d3d12_root_signature *root_signature,
-        const D3D12_ROOT_SIGNATURE_DESC1 *desc, const struct d3d12_root_signature_info *info,
+        const D3D12_ROOT_SIGNATURE_DESC2 *desc, const struct d3d12_root_signature_info *info,
         struct vkd3d_descriptor_set_context *context)
 {
     struct vkd3d_shader_resource_binding *binding;
@@ -960,7 +960,7 @@ static HRESULT d3d12_root_signature_init_shader_record_descriptors(
 }
 
 static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_signature *root_signature,
-        const D3D12_ROOT_SIGNATURE_DESC1 *desc, struct d3d12_root_signature_info *info,
+        const D3D12_ROOT_SIGNATURE_DESC2 *desc, struct d3d12_root_signature_info *info,
         const VkPushConstantRange *push_constant_range, struct vkd3d_descriptor_set_context *context,
         VkDescriptorSetLayout *vk_set_layout)
 {
@@ -1139,7 +1139,7 @@ static HRESULT d3d12_root_signature_init_root_descriptors(struct d3d12_root_sign
 }
 
 static HRESULT d3d12_root_signature_init_local_static_samplers(struct d3d12_root_signature *root_signature,
-        const D3D12_ROOT_SIGNATURE_DESC1 *desc)
+        const D3D12_ROOT_SIGNATURE_DESC2 *desc)
 {
     unsigned int i;
     HRESULT hr;
@@ -1149,7 +1149,7 @@ static HRESULT d3d12_root_signature_init_local_static_samplers(struct d3d12_root
 
     for (i = 0; i < desc->NumStaticSamplers; i++)
     {
-        const D3D12_STATIC_SAMPLER_DESC *s = &desc->pStaticSamplers[i];
+        const D3D12_STATIC_SAMPLER_DESC1 *s = &desc->pStaticSamplers[i];
         if (FAILED(hr = vkd3d_sampler_state_create_static_sampler(&root_signature->device->sampler_state,
                 root_signature->device, s, &root_signature->static_samplers[i])))
             return hr;
@@ -1164,7 +1164,7 @@ static HRESULT d3d12_root_signature_init_local_static_samplers(struct d3d12_root
 }
 
 static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signature *root_signature,
-        const D3D12_ROOT_SIGNATURE_DESC1 *desc, struct vkd3d_descriptor_set_context *context,
+        const D3D12_ROOT_SIGNATURE_DESC2 *desc, struct vkd3d_descriptor_set_context *context,
         VkDescriptorSetLayout *vk_set_layout)
 {
     VkDescriptorSetLayoutBinding *vk_binding_info, *vk_binding;
@@ -1180,7 +1180,7 @@ static HRESULT d3d12_root_signature_init_static_samplers(struct d3d12_root_signa
 
     for (i = 0; i < desc->NumStaticSamplers; ++i)
     {
-        const D3D12_STATIC_SAMPLER_DESC *s = &desc->pStaticSamplers[i];
+        const D3D12_STATIC_SAMPLER_DESC1 *s = &desc->pStaticSamplers[i];
 
         if (FAILED(hr = vkd3d_sampler_state_create_static_sampler(&root_signature->device->sampler_state,
                 root_signature->device, s, &root_signature->static_samplers[i])))
@@ -1232,7 +1232,7 @@ cleanup:
 }
 
 static HRESULT d3d12_root_signature_init_local(struct d3d12_root_signature *root_signature,
-        struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC1 *desc)
+        struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC2 *desc)
 {
     /* Local root signatures map to the ShaderRecordBufferKHR. */
     struct vkd3d_descriptor_set_context context;
@@ -1308,7 +1308,7 @@ static void d3d12_root_signature_update_bind_point_layout(struct d3d12_bind_poin
 }
 
 static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *root_signature,
-        struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC1 *desc)
+        struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC2 *desc)
 {
     const VkPhysicalDeviceProperties *vk_device_properties = &device->device_info.properties2.properties;
     const struct vkd3d_bindless_state *bindless_state = &device->bindless_state;
@@ -1511,7 +1511,7 @@ HRESULT d3d12_root_signature_create_local_static_samplers_layout(struct d3d12_ro
 }
 
 static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signature,
-        struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC1 *desc)
+        struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC2 *desc)
 {
     HRESULT hr;
 
@@ -1549,7 +1549,7 @@ HRESULT d3d12_root_signature_create_empty(struct d3d12_device *device,
         struct d3d12_root_signature **root_signature)
 {
     struct d3d12_root_signature *object;
-    D3D12_ROOT_SIGNATURE_DESC1 desc;
+    D3D12_ROOT_SIGNATURE_DESC2 desc;
     HRESULT hr;
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
@@ -1589,7 +1589,8 @@ static HRESULT d3d12_root_signature_create_from_blob(struct d3d12_device *device
 
     if (raw_payload)
     {
-        if ((ret = vkd3d_parse_root_signature_v_1_1_from_raw_payload(&dxbc, &root_signature_desc.vkd3d, &compatibility_hash)))
+        if ((ret = vkd3d_parse_root_signature_v_1_2_from_raw_payload(&dxbc, &root_signature_desc.vkd3d,
+                &compatibility_hash)))
         {
             WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
             return hresult_from_vkd3d_result(ret);
@@ -1597,7 +1598,7 @@ static HRESULT d3d12_root_signature_create_from_blob(struct d3d12_device *device
     }
     else
     {
-        if ((ret = vkd3d_parse_root_signature_v_1_1(&dxbc, &root_signature_desc.vkd3d, &compatibility_hash)) < 0)
+        if ((ret = vkd3d_parse_root_signature_v_1_2(&dxbc, &root_signature_desc.vkd3d, &compatibility_hash)) < 0)
         {
             WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
             return hresult_from_vkd3d_result(ret);
@@ -1610,7 +1611,7 @@ static HRESULT d3d12_root_signature_create_from_blob(struct d3d12_device *device
         return E_OUTOFMEMORY;
     }
 
-    hr = d3d12_root_signature_init(object, device, &root_signature_desc.d3d12.Desc_1_1);
+    hr = d3d12_root_signature_init(object, device, &root_signature_desc.d3d12.Desc_1_2);
 
     /* For pipeline libraries, (and later DXR to some degree), we need a way to
      * compare root signature objects. */

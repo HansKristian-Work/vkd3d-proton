@@ -1245,7 +1245,7 @@ bool vkd3d_create_vk_buffer_view(struct d3d12_device *device,
 bool vkd3d_create_raw_buffer_view(struct d3d12_device *device,
         D3D12_GPU_VIRTUAL_ADDRESS gpu_address, VkBufferView *vk_buffer_view);
 HRESULT d3d12_create_static_sampler(struct d3d12_device *device,
-        const D3D12_STATIC_SAMPLER_DESC *desc, VkSampler *vk_sampler);
+        const D3D12_STATIC_SAMPLER_DESC1 *desc, VkSampler *vk_sampler);
 
 #define D3D12_DESC_ALIGNMENT 64
 struct d3d12_rtv_desc
@@ -1697,7 +1697,7 @@ struct d3d12_root_signature
     uint32_t descriptor_table_count;
 
     unsigned int static_sampler_count;
-    D3D12_STATIC_SAMPLER_DESC *static_samplers_desc;
+    D3D12_STATIC_SAMPLER_DESC1 *static_samplers_desc;
     VkSampler *static_samplers;
 
     struct vkd3d_descriptor_hoist_info hoist_info;
@@ -1738,11 +1738,11 @@ HRESULT vkd3d_create_pipeline_layout(struct d3d12_device *device,
 int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_versioned_root_signature_desc *desc,
         vkd3d_shader_hash_t *compatibility_hash);
-int vkd3d_parse_root_signature_v_1_1(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_versioned_root_signature_desc *desc,
+int vkd3d_parse_root_signature_v_1_2(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_versioned_root_signature_desc *out_desc,
         vkd3d_shader_hash_t *compatibility_hash);
-int vkd3d_parse_root_signature_v_1_1_from_raw_payload(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_versioned_root_signature_desc *desc,
+int vkd3d_parse_root_signature_v_1_2_from_raw_payload(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_versioned_root_signature_desc *out_desc,
         vkd3d_shader_hash_t *compatibility_hash);
 
 VkShaderStageFlags vkd3d_vk_stage_flags_from_visibility(D3D12_SHADER_VISIBILITY visibility);
@@ -3091,7 +3091,7 @@ HRESULT vkd3d_sampler_state_init(struct vkd3d_sampler_state *state,
 void vkd3d_sampler_state_cleanup(struct vkd3d_sampler_state *state,
         struct d3d12_device *device);
 HRESULT vkd3d_sampler_state_create_static_sampler(struct vkd3d_sampler_state *state,
-        struct d3d12_device *device, const D3D12_STATIC_SAMPLER_DESC *desc, VkSampler *vk_sampler);
+        struct d3d12_device *device, const D3D12_STATIC_SAMPLER_DESC1 *desc, VkSampler *vk_sampler);
 HRESULT vkd3d_sampler_state_allocate_descriptor_set(struct vkd3d_sampler_state *state,
         struct d3d12_device *device, VkDescriptorSetLayout vk_layout, VkDescriptorSet *vk_set,
         VkDescriptorPool *vk_pool);
