@@ -2807,9 +2807,7 @@ int vkd3d_shader_parse_root_signature_raw(const char *data, unsigned int data_si
 
     read_uint32(&ptr, &version);
     TRACE("Version %#x.\n", version);
-    if (version != VKD3D_ROOT_SIGNATURE_VERSION_1_0 &&
-            version != VKD3D_ROOT_SIGNATURE_VERSION_1_1 &&
-            version != VKD3D_ROOT_SIGNATURE_VERSION_1_2)
+    if (!vkd3d_root_signature_version_is_supported(version))
     {
         FIXME("Unknown version %#x.\n", version);
         return VKD3D_ERROR_INVALID_ARGUMENT;
@@ -3438,9 +3436,7 @@ int vkd3d_shader_serialize_root_signature(const struct vkd3d_versioned_root_sign
 
     TRACE("root_signature %p, dxbc %p.\n", root_signature, dxbc);
 
-    if (root_signature->version != VKD3D_ROOT_SIGNATURE_VERSION_1_0 &&
-            root_signature->version != VKD3D_ROOT_SIGNATURE_VERSION_1_1 &&
-            root_signature->version != VKD3D_ROOT_SIGNATURE_VERSION_1_2)
+    if (!vkd3d_root_signature_version_is_supported(root_signature->version))
     {
         WARN("Root signature version %#x not supported.\n", root_signature->version);
         return VKD3D_ERROR_INVALID_ARGUMENT;
@@ -3895,17 +3891,13 @@ int vkd3d_shader_convert_root_signature(struct vkd3d_versioned_root_signature_de
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
-    if (version != VKD3D_ROOT_SIGNATURE_VERSION_1_0 &&
-            version != VKD3D_ROOT_SIGNATURE_VERSION_1_1 &&
-            version != VKD3D_ROOT_SIGNATURE_VERSION_1_2)
+    if (!vkd3d_root_signature_version_is_supported(version))
     {
         WARN("Root signature version %#x not supported.\n", version);
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
-    if (src->version != VKD3D_ROOT_SIGNATURE_VERSION_1_0 &&
-            src->version != VKD3D_ROOT_SIGNATURE_VERSION_1_1 &&
-            src->version != VKD3D_ROOT_SIGNATURE_VERSION_1_2)
+    if (!vkd3d_root_signature_version_is_supported(src->version))
     {
         WARN("Root signature version %#x not supported.\n", src->version);
         return VKD3D_ERROR_INVALID_ARGUMENT;
