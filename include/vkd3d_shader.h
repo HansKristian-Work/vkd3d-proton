@@ -758,6 +758,11 @@ static inline unsigned vkd3d_root_signature_version_to_other_index(
     return version - VKD3D_ROOT_SIGNATURE_VERSION_1_0;
 }
 
+static inline bool vkd3d_root_signature_version_is_supported(enum vkd3d_root_signature_version version)
+{
+    return version >= VKD3D_ROOT_SIGNATURE_VERSION_1_0 && version <= VKD3D_ROOT_SIGNATURE_VERSION_1_2;
+}
+
 struct vkd3d_versioned_root_signature_desc
 {
     enum vkd3d_root_signature_version version;
