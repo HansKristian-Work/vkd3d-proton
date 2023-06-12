@@ -234,9 +234,9 @@ static void check_descriptor_range_(unsigned int line, const D3D12_DESCRIPTOR_RA
 }
 
 static void check_descriptor_range1_(unsigned int line, const D3D12_DESCRIPTOR_RANGE1 *range,
-        const D3D12_DESCRIPTOR_RANGE1 *expected_range, bool converted)
+        const D3D12_DESCRIPTOR_RANGE1 *expected_range, bool converted_from_v1_0)
 {
-    unsigned int expected_flags = converted
+    unsigned int expected_flags = converted_from_v1_0
             ? D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE | D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE
             : expected_range->Flags;
 
@@ -319,7 +319,7 @@ static void check_root_parameter_(unsigned int line, const D3D12_ROOT_PARAMETER 
 }
 
 static void check_root_parameter1_(unsigned int line, const D3D12_ROOT_PARAMETER1 *parameter,
-        const D3D12_ROOT_PARAMETER1 *expected_parameter, bool converted)
+        const D3D12_ROOT_PARAMETER1 *expected_parameter, bool converted_from_v1_0)
 {
     const D3D12_ROOT_DESCRIPTOR1 *descriptor, *expected_descriptor;
     const D3D12_ROOT_DESCRIPTOR_TABLE1 *table, *expected_table;
@@ -344,7 +344,7 @@ static void check_root_parameter1_(unsigned int line, const D3D12_ROOT_PARAMETER
             {
                 for (i = 0; i < table->NumDescriptorRanges; ++i)
                     check_descriptor_range1_(line, &table->pDescriptorRanges[i],
-                            &expected_table->pDescriptorRanges[i], converted);
+                            &expected_table->pDescriptorRanges[i], converted_from_v1_0);
             }
             break;
         case D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
@@ -371,7 +371,7 @@ static void check_root_parameter1_(unsigned int line, const D3D12_ROOT_PARAMETER
             ok_(line)(descriptor->RegisterSpace == expected_descriptor->RegisterSpace,
                     "Got register space %u, expected %u.\n",
                     descriptor->RegisterSpace, expected_descriptor->RegisterSpace);
-            expected_flags = converted ? D3D12_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE : expected_descriptor->Flags;
+            expected_flags = converted_from_v1_0 ? D3D12_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE : expected_descriptor->Flags;
             ok_(line)(descriptor->Flags == expected_flags,
                     "Got root descriptor flags %#x, expected %#x.\n",
                     descriptor->Flags, expected_flags);
@@ -417,6 +417,15 @@ static void check_static_sampler_(unsigned int line, const D3D12_STATIC_SAMPLER_
             sampler->ShaderVisibility, expected_sampler->ShaderVisibility);
 }
 
+static void check_static_sampler1_(unsigned int line, const D3D12_STATIC_SAMPLER_DESC1 *sampler,
+        const D3D12_STATIC_SAMPLER_DESC1 *expected_sampler)
+{
+    check_static_sampler_(line, (const D3D12_STATIC_SAMPLER_DESC *)sampler,
+            (const D3D12_STATIC_SAMPLER_DESC *)expected_sampler);
+    ok_(line)(sampler->Flags == expected_sampler->Flags,
+            "Got flags %#x, expected %#x.\n", sampler->Flags, expected_sampler->Flags);
+}
+
 #define check_root_signature_desc(desc, expected) check_root_signature_desc_(__LINE__, desc, expected)
 static void check_root_signature_desc_(unsigned int line, const D3D12_ROOT_SIGNATURE_DESC *desc,
         const D3D12_ROOT_SIGNATURE_DESC *expected_desc)
@@ -453,7 +462,7 @@ static void check_root_signature_desc_(unsigned int line, const D3D12_ROOT_SIGNA
 
 #define check_root_signature_desc1(a, b, c) check_root_signature_desc1_(__LINE__, a, b, c)
 static void check_root_signature_desc1_(unsigned int line, const D3D12_ROOT_SIGNATURE_DESC1 *desc,
-        const D3D12_ROOT_SIGNATURE_DESC1 *expected_desc, bool converted)
+        const D3D12_ROOT_SIGNATURE_DESC1 *expected_desc, bool converted_from_v1_0)
 {
     unsigned int i;
 
@@ -467,7 +476,7 @@ static void check_root_signature_desc1_(unsigned int line, const D3D12_ROOT_SIGN
     else if (desc->NumParameters == expected_desc->NumParameters)
     {
         for (i = 0; i < desc->NumParameters; ++i)
-            check_root_parameter1_(line, &desc->pParameters[i], &expected_desc->pParameters[i], converted);
+            check_root_parameter1_(line, &desc->pParameters[i], &expected_desc->pParameters[i], converted_from_v1_0);
     }
     ok_(line)(desc->NumStaticSamplers == expected_desc->NumStaticSamplers,
             "Got static sampler count %u, expected %u.\n",
@@ -480,6 +489,40 @@ static void check_root_signature_desc1_(unsigned int line, const D3D12_ROOT_SIGN
     {
         for (i = 0; i < desc->NumStaticSamplers; ++i)
             check_static_sampler_(line, &desc->pStaticSamplers[i], &expected_desc->pStaticSamplers[i]);
+    }
+    ok_(line)(desc->Flags == expected_desc->Flags, "Got flags %#x, expected %#x.\n",
+            desc->Flags, expected_desc->Flags);
+}
+
+#define check_root_signature_desc2(a, b, c) check_root_signature_desc2_(__LINE__, a, b, c)
+static void check_root_signature_desc2_(unsigned int line, const D3D12_ROOT_SIGNATURE_DESC2 *desc,
+        const D3D12_ROOT_SIGNATURE_DESC2 *expected_desc, bool converted_from_v1_0)
+{
+    unsigned int i;
+
+    ok_(line)(desc->NumParameters == expected_desc->NumParameters,
+            "Got parameter count %u, expected %u.\n",
+            desc->NumParameters, expected_desc->NumParameters);
+    if (!expected_desc->pParameters)
+    {
+        ok_(line)(!desc->pParameters, "Got unexpected parameters %p.\n", desc->pParameters);
+    }
+    else if (desc->NumParameters == expected_desc->NumParameters)
+    {
+        for (i = 0; i < desc->NumParameters; ++i)
+            check_root_parameter1_(line, &desc->pParameters[i], &expected_desc->pParameters[i], converted_from_v1_0);
+    }
+    ok_(line)(desc->NumStaticSamplers == expected_desc->NumStaticSamplers,
+            "Got static sampler count %u, expected %u.\n",
+            desc->NumStaticSamplers, expected_desc->NumStaticSamplers);
+    if (!expected_desc->pStaticSamplers)
+    {
+        ok_(line)(!desc->pStaticSamplers, "Got unexpected static samplers %p.\n", desc->pStaticSamplers);
+    }
+    else if (desc->NumStaticSamplers == expected_desc->NumStaticSamplers)
+    {
+        for (i = 0; i < desc->NumStaticSamplers; ++i)
+            check_static_sampler1_(line, &desc->pStaticSamplers[i], &expected_desc->pStaticSamplers[i]);
     }
     ok_(line)(desc->Flags == expected_desc->Flags, "Got flags %#x, expected %#x.\n",
             desc->Flags, expected_desc->Flags);
@@ -618,6 +661,62 @@ static void check_root_signature_deserialization1_(unsigned int line, const D3D1
     ok_(line)(!refcount, "ID3D12RootSignatureDeserializer has %u references left.\n", (unsigned int)refcount);
 }
 
+#define check_root_signature_deserialization2(a, b, c, d) check_root_signature_deserialization2_(__LINE__, a, b, c, d)
+static void check_root_signature_deserialization2_(unsigned int line, const D3D12_SHADER_BYTECODE *code,
+        const D3D12_ROOT_SIGNATURE_DESC *expected_desc,
+        const D3D12_ROOT_SIGNATURE_DESC1 *expected_desc1,
+        const D3D12_ROOT_SIGNATURE_DESC2 *expected_desc2)
+{
+    const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *versioned_desc, *versioned_desc2;
+    ID3D12VersionedRootSignatureDeserializer *versioned_deserializer;
+    ID3D12RootSignatureDeserializer *deserializer;
+    const D3D12_ROOT_SIGNATURE_DESC *desc;
+    ULONG refcount;
+    HRESULT hr;
+
+    hr = pfn_D3D12CreateVersionedRootSignatureDeserializer(code->pShaderBytecode, code->BytecodeLength,
+            &IID_ID3D12VersionedRootSignatureDeserializer, (void **)&versioned_deserializer);
+    ok_(line)(hr == S_OK, "Failed to create deserializer, hr %#x.\n", hr);
+
+    versioned_desc = ID3D12VersionedRootSignatureDeserializer_GetUnconvertedRootSignatureDesc(versioned_deserializer);
+    ok(versioned_desc, "Got NULL root signature desc.\n");
+    ok(versioned_desc->Version == D3D_ROOT_SIGNATURE_VERSION_1_2, "Got unexpected version %#x.\n", versioned_desc->Version);
+    check_root_signature_desc2_(line, &versioned_desc->Desc_1_2, expected_desc2, false);
+
+    hr = ID3D12VersionedRootSignatureDeserializer_GetRootSignatureDescAtVersion(versioned_deserializer,
+            D3D_ROOT_SIGNATURE_VERSION_1_2, &versioned_desc2);
+    ok_(line)(hr == S_OK, "Failed to get root signature 1.2, hr %#x.\n", hr);
+    ok_(line)(versioned_desc2 == versioned_desc, "Got unexpected pointer %p.\n", versioned_desc2);
+
+    hr = ID3D12VersionedRootSignatureDeserializer_GetRootSignatureDescAtVersion(versioned_deserializer,
+            D3D_ROOT_SIGNATURE_VERSION_1_1, &versioned_desc2);
+    ok_(line)(hr == S_OK, "Failed to get root signature 1.1, hr %#x.\n", hr);
+    ok(versioned_desc2, "Got NULL root signature desc.\n");
+    ok(versioned_desc2->Version == D3D_ROOT_SIGNATURE_VERSION_1_1, "Got unexpected version %#x.\n", versioned_desc2->Version);
+    check_root_signature_desc1_(line, &versioned_desc2->Desc_1_1, expected_desc1, false);
+
+    hr = ID3D12VersionedRootSignatureDeserializer_GetRootSignatureDescAtVersion(versioned_deserializer,
+            D3D_ROOT_SIGNATURE_VERSION_1_0, &versioned_desc);
+    ok_(line)(hr == S_OK, "Failed to get root signature 1.0, hr %#x.\n", hr);
+    ok(versioned_desc, "Got NULL root signature desc.\n");
+    ok(versioned_desc->Version == D3D_ROOT_SIGNATURE_VERSION_1_0, "Got unexpected version %#x.\n", versioned_desc->Version);
+    check_root_signature_desc_(line, &versioned_desc->Desc_1_0, expected_desc);
+
+    refcount = ID3D12VersionedRootSignatureDeserializer_Release(versioned_deserializer);
+    ok_(line)(!refcount, "ID3D12VersionedRootSignatureDeserializer has %u references left.\n", (unsigned int)refcount);
+
+    hr = D3D12CreateRootSignatureDeserializer(code->pShaderBytecode, code->BytecodeLength,
+            &IID_ID3D12RootSignatureDeserializer, (void **)&deserializer);
+    ok_(line)(hr == S_OK, "Failed to create deserializer, hr %#x.\n", hr);
+
+    desc = ID3D12RootSignatureDeserializer_GetRootSignatureDesc(deserializer);
+    ok(desc, "Got NULL root signature desc.\n");
+    check_root_signature_desc_(line, desc, expected_desc);
+
+    refcount = ID3D12RootSignatureDeserializer_Release(deserializer);
+    ok_(line)(!refcount, "ID3D12RootSignatureDeserializer has %u references left.\n", (unsigned int)refcount);
+}
+
 #define check_root_signature_serialization1(a, b) check_root_signature_serialization1_(__LINE__, a, b)
 static void check_root_signature_serialization1_(unsigned int line, const D3D12_SHADER_BYTECODE *bytecode,
         const D3D12_ROOT_SIGNATURE_DESC1 *desc)
@@ -632,6 +731,40 @@ static void check_root_signature_serialization1_(unsigned int line, const D3D12_
 
     versioned_desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
     versioned_desc.Desc_1_1 = *desc;
+
+    error_blob = (ID3DBlob *)(uintptr_t)0xdeadbeef;
+    hr = pfn_D3D12SerializeVersionedRootSignature(&versioned_desc, &blob, &error_blob);
+    ok_(line)(hr == S_OK, "Failed to serialize root signature, hr %#x.\n", hr);
+    ok_(line)(!error_blob, "Got unexpected error blob %p.\n", error_blob);
+
+    blob_buffer = ID3D10Blob_GetBufferPointer(blob);
+    blob_size = ID3D10Blob_GetBufferSize(blob);
+    ok_(line)(blob_size == bytecode->BytecodeLength, "Got size %u, expected %u.\n",
+            (unsigned int)blob_size, (unsigned int)bytecode->BytecodeLength);
+
+    for (i = 0; i < bytecode->BytecodeLength / sizeof(*code); ++i)
+    {
+        ok_(line)(blob_buffer[i] == code[i], "Got dword %#x, expected %#x at %u.\n",
+                (unsigned int)blob_buffer[i], (unsigned int)code[i], i);
+    }
+
+    ID3D10Blob_Release(blob);
+}
+
+#define check_root_signature_serialization2(a, b) check_root_signature_serialization2_(__LINE__, a, b)
+static void check_root_signature_serialization2_(unsigned int line, const D3D12_SHADER_BYTECODE *bytecode,
+        const D3D12_ROOT_SIGNATURE_DESC2 *desc)
+{
+    D3D12_VERSIONED_ROOT_SIGNATURE_DESC versioned_desc;
+    const DWORD *code = bytecode->pShaderBytecode;
+    ID3DBlob *blob, *error_blob;
+    DWORD *blob_buffer;
+    size_t blob_size;
+    unsigned int i;
+    HRESULT hr;
+
+    versioned_desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_2;
+    versioned_desc.Desc_1_2 = *desc;
 
     error_blob = (ID3DBlob *)(uintptr_t)0xdeadbeef;
     hr = pfn_D3D12SerializeVersionedRootSignature(&versioned_desc, &blob, &error_blob);
@@ -1283,6 +1416,215 @@ void test_root_signature_byte_code(void)
     check_interface(versioned_deserializer, &IID_ID3D12Pageable, false);
 
     refcount = ID3D12VersionedRootSignatureDeserializer_Release(versioned_deserializer);
+    ok(!refcount, "ID3D12VersionedRootSignatureDeserializer has %u references left.\n", (unsigned int)refcount);
+}
+
+void test_root_signature_byte_code2(void)
+{
+    /* Difference between v1.1 and v1.2 is just that static samplers get an extra field.
+     * Internally, we will convert all v1.0 and v1.1 signatures to v1.2, so we implicitly get a lot of test coverage for that.
+     * This focuses on testing v1.2 to v1.1 / v1.0 conversion and that we can successfully serialize/unserialize v1.2 rootsigs. */
+    ID3D12VersionedRootSignatureDeserializer *deserializer;
+    D3D12_STATIC_SAMPLER_DESC1 sampler_descs1[2];
+    D3D12_STATIC_SAMPLER_DESC sampler_descs[2];
+    D3D12_DESCRIPTOR_RANGE1 rs_range1[2];
+    D3D12_ROOT_PARAMETER1 rs_params1[5];
+    D3D12_DESCRIPTOR_RANGE rs_range[2];
+    D3D12_ROOT_PARAMETER rs_params[5];
+    D3D12_ROOT_SIGNATURE_DESC2 desc2;
+    D3D12_ROOT_SIGNATURE_DESC1 desc1;
+    D3D12_ROOT_SIGNATURE_DESC desc0;
+    unsigned int i, j;
+    UINT refcount;
+    HRESULT hr;
+
+    /* See commented out block below for reference input. */
+    static const DWORD rs_blob_dxbc[] =
+    {
+        0x43425844, 0xf040292c, 0x0756431b, 0xa1a95380, 0xc607f7d4, 0x00000001, 0x00000158, 0x00000001,
+        0x00000024, 0x30535452, 0x0000012c, 0x00000003, 0x00000005, 0x00000018, 0x00000002, 0x000000bc,
+        0x00000400, 0x00000004, 0x00000001, 0x00000054, 0x00000003, 0x00000000, 0x00000060, 0x00000002,
+        0x00000005, 0x0000006c, 0x00000001, 0x00000004, 0x00000078, 0x00000000, 0x00000000, 0x00000084,
+        0x00000002, 0x00000001, 0x00000000, 0x00000004, 0x00000003, 0x00000008, 0x00000006, 0x00000005,
+        0x00000008, 0x0000000a, 0x00000009, 0x00000002, 0x00000002, 0x0000008c, 0x00000002, 0x00000002,
+        0x00000001, 0x0000000a, 0x00000008, 0x00000003, 0x00000001, 0x00000002, 0x00000001, 0x0000000a,
+        0x00000003, 0x00000003, 0x00000000, 0x00000001, 0x00000003, 0x00000001, 0x00000000, 0x00000000,
+        0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000005, 0x00000000,
+        0x00000001, 0x00000001, 0x00000001, 0x00000004, 0x3f800000, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x41200000, 0x00000000, 0x00000003, 0x00000000, 0x00000001,
+    };
+    static const D3D12_SHADER_BYTECODE rs_blob = SHADER_BYTECODE(rs_blob_dxbc);
+
+    memset(sampler_descs, 0, sizeof(sampler_descs));
+    memset(sampler_descs1, 0, sizeof(sampler_descs1));
+    memset(rs_range1, 0, sizeof(rs_range1));
+    memset(rs_range, 0, sizeof(rs_range));
+    memset(rs_params1, 0, sizeof(rs_params1));
+    memset(rs_params, 0, sizeof(rs_params));
+
+    rs_params1[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+    rs_params1[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_params1[0].Descriptor.Flags = 0;
+    rs_params1[0].Descriptor.RegisterSpace = 1;
+    rs_params1[0].Descriptor.ShaderRegister = 2;
+
+    rs_params1[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params1[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rs_params1[1].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+    rs_params1[1].Descriptor.RegisterSpace = 3;
+    rs_params1[1].Descriptor.ShaderRegister = 4;
+
+    rs_params1[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rs_params1[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rs_params1[2].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+    rs_params1[2].Descriptor.RegisterSpace = 5;
+    rs_params1[2].Descriptor.ShaderRegister = 6;
+
+    rs_params1[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_GEOMETRY;
+    rs_params1[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_params1[3].Constants.Num32BitValues = 2;
+    rs_params1[3].Constants.RegisterSpace = 9;
+    rs_params1[3].Constants.ShaderRegister = 10;
+
+    rs_params1[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params1[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_params1[4].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(rs_range1);
+    rs_params1[4].DescriptorTable.pDescriptorRanges = rs_range1;
+
+    rs_range1[0].BaseShaderRegister = 1;
+    rs_range1[0].Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC;
+    rs_range1[0].NumDescriptors = 2;
+    rs_range1[0].OffsetInDescriptorsFromTableStart = 3;
+    rs_range1[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+    rs_range1[0].RegisterSpace = 10;
+
+    rs_range1[1].BaseShaderRegister = 1;
+    rs_range1[1].Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE | D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE;
+    rs_range1[1].NumDescriptors = 2;
+    rs_range1[1].OffsetInDescriptorsFromTableStart = 3;
+    rs_range1[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    rs_range1[1].RegisterSpace = 10;
+
+    rs_params[4].DescriptorTable.pDescriptorRanges = rs_range;
+    for (i = 0; i < ARRAY_SIZE(rs_params1); i++)
+    {
+        const D3D12_DESCRIPTOR_RANGE1 *src_range;
+        D3D12_DESCRIPTOR_RANGE *dst_range;
+
+        rs_params[i].ShaderVisibility = rs_params1[i].ShaderVisibility;
+        rs_params[i].ParameterType = rs_params1[i].ParameterType;
+
+        switch (rs_params[i].ParameterType)
+        {
+            case D3D12_ROOT_PARAMETER_TYPE_CBV:
+            case D3D12_ROOT_PARAMETER_TYPE_SRV:
+            case D3D12_ROOT_PARAMETER_TYPE_UAV:
+                rs_params[i].Descriptor.RegisterSpace = rs_params1[i].Descriptor.RegisterSpace;
+                rs_params[i].Descriptor.ShaderRegister = rs_params1[i].Descriptor.ShaderRegister;
+                break;
+
+            case D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
+                rs_params[i].Constants = rs_params1[i].Constants;
+                break;
+
+            case D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+                rs_params[i].DescriptorTable.NumDescriptorRanges = rs_params1[i].DescriptorTable.NumDescriptorRanges;
+                dst_range = (D3D12_DESCRIPTOR_RANGE *)rs_params[i].DescriptorTable.pDescriptorRanges;
+                src_range = rs_params1[i].DescriptorTable.pDescriptorRanges;
+                for (j = 0; j < rs_params[i].DescriptorTable.NumDescriptorRanges; j++)
+                {
+                    dst_range[j].BaseShaderRegister = src_range[j].BaseShaderRegister;
+                    dst_range[j].NumDescriptors = src_range[j].NumDescriptors;
+                    dst_range[j].OffsetInDescriptorsFromTableStart = src_range[j].OffsetInDescriptorsFromTableStart;
+                    dst_range[j].RangeType = src_range[j].RangeType;
+                    dst_range[j].RegisterSpace = src_range[j].RegisterSpace;
+                }
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    sampler_descs[0].Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    sampler_descs[0].AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    sampler_descs[0].AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    sampler_descs[0].AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    sampler_descs[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    sampler_descs[1].AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    sampler_descs[1].AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    sampler_descs[1].AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    sampler_descs[1].Filter = D3D12_FILTER_MIN_MAG_POINT_MIP_LINEAR;
+    sampler_descs[1].MipLODBias = 1.0f;
+    sampler_descs[1].MaxLOD = 10.0f;
+    sampler_descs[1].BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK_UINT;
+    sampler_descs[1].RegisterSpace = 3;
+
+    memcpy(&sampler_descs1[0], &sampler_descs[0], sizeof(sampler_descs[0]));
+    memcpy(&sampler_descs1[1], &sampler_descs[1], sizeof(sampler_descs[1]));
+    sampler_descs1[1].Flags = D3D12_SAMPLER_FLAG_UINT_BORDER_COLOR;
+
+    memset(&desc0, 0, sizeof(desc0));
+    memset(&desc1, 0, sizeof(desc1));
+    memset(&desc2, 0, sizeof(desc2));
+
+    desc0.NumStaticSamplers = ARRAY_SIZE(sampler_descs);
+    desc0.pStaticSamplers = sampler_descs;
+    desc0.NumParameters = ARRAY_SIZE(rs_params);
+    desc0.pParameters = rs_params;
+    desc0.Flags = D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED;
+    desc1.NumStaticSamplers = ARRAY_SIZE(sampler_descs);
+    desc1.pStaticSamplers = sampler_descs;
+    desc1.NumParameters = ARRAY_SIZE(rs_params1);
+    desc1.Flags = desc0.Flags;
+    desc1.pParameters = rs_params1;
+    desc2.NumStaticSamplers = ARRAY_SIZE(sampler_descs1);
+    desc2.pStaticSamplers = sampler_descs1;
+    desc2.NumParameters = ARRAY_SIZE(rs_params1);
+    desc2.pParameters = rs_params1;
+    desc2.Flags = desc0.Flags;
+
+#if 0
+    /* There is no -Trootsig_1_2 in DXC yet, so prebuild the binary here instead on native runtime as reference. */
+    {
+        D3D12_VERSIONED_ROOT_SIGNATURE_DESC versioned;
+        const uint32_t *ptr;
+        ID3D10Blob *blob;
+        size_t size;
+        size_t i;
+
+        versioned.Version = D3D_ROOT_SIGNATURE_VERSION_1_2;
+        versioned.Desc_1_2 = desc2;
+        hr = D3D12SerializeVersionedRootSignature(&versioned, &blob, NULL);
+        size = ID3D10Blob_GetBufferSize(blob) / 4;
+        ptr = ID3D10Blob_GetBufferPointer(blob);
+
+        for (i = 0; i < size; i++)
+        {
+            printf("0x%08x, ", ptr[i]);
+            if (i % 8 == 7)
+                printf("\n");
+        }
+        printf("\n");
+
+        ID3D10Blob_Release(blob);
+    }
+#endif
+
+    if (!pfn_D3D12CreateVersionedRootSignatureDeserializer)
+    {
+        skip("D3D12CreateVersionedRootSignatureDeserializer is not available.\n");
+        return;
+    }
+
+    hr = pfn_D3D12CreateVersionedRootSignatureDeserializer(rs_blob_dxbc, sizeof(rs_blob_dxbc),
+            &IID_ID3D12VersionedRootSignatureDeserializer, (void **)&deserializer);
+    ok(SUCCEEDED(hr), "Got unexpected hr %#x.\n", hr);
+
+    check_root_signature_deserialization2(&rs_blob, &desc0, &desc1, &desc2);
+    check_root_signature_serialization2(&rs_blob, &desc2);
+
+    refcount = ID3D12VersionedRootSignatureDeserializer_Release(deserializer);
     ok(!refcount, "ID3D12VersionedRootSignatureDeserializer has %u references left.\n", (unsigned int)refcount);
 }
 
