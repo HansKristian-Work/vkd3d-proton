@@ -344,18 +344,7 @@ static ULONG STDMETHODCALLTYPE d3d12_versioned_root_signature_deserializer_Relea
 
 static enum vkd3d_root_signature_version vkd3d_root_signature_version_from_d3d12(D3D_ROOT_SIGNATURE_VERSION version)
 {
-    switch (version)
-    {
-        case D3D_ROOT_SIGNATURE_VERSION_1_0:
-            return VKD3D_ROOT_SIGNATURE_VERSION_1_0;
-        case D3D_ROOT_SIGNATURE_VERSION_1_1:
-            return VKD3D_ROOT_SIGNATURE_VERSION_1_1;
-        case D3D_ROOT_SIGNATURE_VERSION_1_2:
-            return VKD3D_ROOT_SIGNATURE_VERSION_1_2;
-        default:
-            WARN("Unknown root signature version %#x.\n", version);
-            return 0;
-    }
+    return (enum vkd3d_root_signature_version)version;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_versioned_root_signature_deserializer_GetRootSignatureDescAtVersion(
@@ -369,9 +358,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_versioned_root_signature_deserializer_Get
 
     TRACE("iface %p, version %#x, desc %p.\n", iface, version, desc);
 
-    if (version != D3D_ROOT_SIGNATURE_VERSION_1_0 &&
-            version != D3D_ROOT_SIGNATURE_VERSION_1_1 &&
-            version != D3D_ROOT_SIGNATURE_VERSION_1_2)
+    vkd3d_root_sig_version = vkd3d_root_signature_version_from_d3d12(version);
+    if (!vkd3d_root_signature_version_is_supported(vkd3d_root_sig_version))
     {
         WARN("Root signature version %#x not supported.\n", version);
         return E_INVALIDARG;
@@ -383,7 +371,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_versioned_root_signature_deserializer_Get
         return S_OK;
     }
 
-    vkd3d_root_sig_version = vkd3d_root_signature_version_from_d3d12(version);
     other_index = vkd3d_root_signature_version_to_other_index(vkd3d_root_sig_version);
 
     if (!deserializer->other_desc[other_index].d3d12.Version)
