@@ -352,3 +352,4 @@ decl_test(test_sm67_multi_sample_uav);
 decl_test(test_sm67_sample_cmp_level);
 decl_test(test_sm67_dynamic_texture_offset);
 decl_test(test_sm67_raw_gather);
+decl_test(test_sm67_integer_sampling);
