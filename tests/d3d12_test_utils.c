@@ -208,8 +208,8 @@ void upload_buffer_data_(unsigned int line, ID3D12Resource *buffer, size_t offse
     ID3D12Device_Release(device);
 }
 
-void upload_texture_data_(unsigned int line, ID3D12Resource *texture,
-        const D3D12_SUBRESOURCE_DATA *data, unsigned int sub_resource_count,
+void upload_texture_data_base_(unsigned int line, ID3D12Resource *texture,
+        const D3D12_SUBRESOURCE_DATA *data, unsigned int first_subresource, unsigned int sub_resource_count,
         ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list)
 {
     D3D12_TEXTURE_COPY_LOCATION dst_location, src_location;
@@ -235,7 +235,7 @@ void upload_texture_data_(unsigned int line, ID3D12Resource *texture,
     hr = ID3D12Resource_GetDevice(texture, &IID_ID3D12Device, (void **)&device);
     ok_(line)(SUCCEEDED(hr), "Failed to get device, hr %#x.\n", hr);
 
-    ID3D12Device_GetCopyableFootprints(device, &resource_desc, 0, sub_resource_count,
+    ID3D12Device_GetCopyableFootprints(device, &resource_desc, first_subresource, sub_resource_count,
             0, layouts, row_counts, row_sizes, &required_size);
 
     upload_buffer = create_upload_buffer_(line, device, required_size, NULL);
@@ -256,7 +256,7 @@ void upload_texture_data_(unsigned int line, ID3D12Resource *texture,
     {
         dst_location.pResource = texture;
         dst_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        dst_location.SubresourceIndex = i;
+        dst_location.SubresourceIndex = i + first_subresource;
 
         src_location.pResource = upload_buffer;
         src_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
@@ -278,6 +278,13 @@ void upload_texture_data_(unsigned int line, ID3D12Resource *texture,
     free(layouts);
     free(row_counts);
     free(row_sizes);
+}
+
+void upload_texture_data_(unsigned int line, ID3D12Resource *texture,
+    const D3D12_SUBRESOURCE_DATA *data, unsigned int sub_resource_count,
+    ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list)
+{
+    upload_texture_data_base_(line, texture, data, 0, sub_resource_count, queue, command_list);
 }
 
 void init_readback(struct resource_readback *rb, ID3D12Resource *buffer,

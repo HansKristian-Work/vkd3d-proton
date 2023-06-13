@@ -1293,6 +1293,10 @@ void upload_buffer_data_(unsigned int line, ID3D12Resource *buffer, size_t offse
 void upload_texture_data_(unsigned int line, ID3D12Resource *texture,
         const D3D12_SUBRESOURCE_DATA *data, unsigned int sub_resource_count,
         ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list);
+void upload_texture_data_base_(unsigned int line, ID3D12Resource *texture,
+        const D3D12_SUBRESOURCE_DATA *data,
+        unsigned int first_subresource, unsigned int sub_resource_count,
+        ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list);
 void init_readback(struct resource_readback *rb, ID3D12Resource *buffer,
         uint64_t buffer_size, uint64_t width, uint64_t height, unsigned int depth, uint64_t row_pitch);
 
@@ -1379,6 +1383,7 @@ void destroy_depth_stencil_(unsigned int line, struct depth_stencil_resource *ds
 #define check_alignment(a, b) check_alignment_(__LINE__, a, b)
 #define upload_buffer_data(a, b, c, d, e, f) upload_buffer_data_(__LINE__, a, b, c, d, e, f)
 #define upload_texture_data(a, b, c, d, e) upload_texture_data_(__LINE__, a, b, c, d, e)
+#define upload_texture_data_base(a, b, c, d, e, f) upload_texture_data_base_(__LINE__, a, b, c, d, e, f)
 #define check_readback_data_float(a, b, c, d) check_readback_data_float_(__LINE__, a, b, c, d)
 #define check_sub_resource_float(a, b, c, d, e, f) check_sub_resource_float_(__LINE__, a, b, c, d, e, f)
 #define check_readback_data_uint8(a, b, c, d) check_readback_data_uint8_(__LINE__, a, b, c, d)
