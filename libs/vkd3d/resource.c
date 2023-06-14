@@ -4969,9 +4969,15 @@ static struct vkd3d_view *vkd3d_create_texture_srv_view(struct d3d12_device *dev
             desc->ViewDimension != D3D12_SRV_DIMENSION_TEXTURE2DMS &&
             desc->ViewDimension != D3D12_SRV_DIMENSION_TEXTURE2DMSARRAY)
     {
+        bool found;
+
         key.u.texture.miplevel_clamp = floor(key.u.texture.miplevel_clamp);
 
-        if (!hash_map_find(&resource->view_map.map, &key))
+        rw_spinlock_acquire_read(&resource->view_map.spinlock);
+        found = !!hash_map_find(&resource->view_map.map, &key);
+        rw_spinlock_release_read(&resource->view_map.spinlock);
+
+        if (!found)
         {
             uint32_t starting_mip = key.u.texture.miplevel_idx;
             uint32_t mip_count = key.u.texture.miplevel_count != UINT32_MAX ?
