@@ -2058,7 +2058,9 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
      * This would unnecessarily stall our progress. */
     if (chain->wait_thread.active && !chain->present.present_id_valid && chain->request.swap_interval > 0)
     {
-        chain->present.present_id += 1;
+        /* If we recreate swapchain, we still want to maintain a monotonically increasing counter here for
+         * profiling purposes. */
+        chain->present.present_id = chain->present.complete_count + 1;
         present_id.sType = VK_STRUCTURE_TYPE_PRESENT_ID_KHR;
         present_id.pNext = NULL;
         present_id.swapchainCount = 1;
