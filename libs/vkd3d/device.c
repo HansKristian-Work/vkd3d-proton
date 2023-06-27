@@ -523,6 +523,7 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "witcher3.exe", VKD3D_CONFIG_FLAG_SIMULTANEOUS_UAV_SUPPRESS_COMPRESSION, 0 },
     /* Age of Wonders 4 (1669000). Extremely stuttery performance with ReBAR. */
     { VKD3D_STRING_COMPARE_EXACT, "AOW4.exe", VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0 },
+    { VKD3D_STRING_COMPARE_HASH_EQUAL, "e89c09e4505d8d43", VKD3D_CONFIG_FLAG_FORCE_COMPUTE_ROOT_PARAMETERS_PUSH_UBO, 0 },
     { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
 };
 
