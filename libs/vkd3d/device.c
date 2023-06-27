@@ -607,7 +607,7 @@ static void vkd3d_instance_apply_application_workarounds(void)
     if (!vkd3d_get_program_name(app))
         return;
 
-    INFO("Program name: \"%s\"\n", app);
+    INFO("Program name: \"%s\" (hash: %016"PRIx64")\n", app, hash_fnv1_iterate_string(hash_fnv1_init(), app));
 
     for (i = 0; i < ARRAY_SIZE(application_override); i++)
     {

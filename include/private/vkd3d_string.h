@@ -20,6 +20,7 @@
 #define __VKD3D_STRING_H
 
 #include "vkd3d_common.h"
+#include "hashmap.h"
 #include <stddef.h>
 
 /* Various string utilities. */
@@ -54,10 +55,13 @@ enum vkd3d_string_compare_mode
     VKD3D_STRING_COMPARE_STARTS_WITH,
     VKD3D_STRING_COMPARE_ENDS_WITH,
     VKD3D_STRING_COMPARE_CONTAINS,
+    VKD3D_STRING_COMPARE_HASH_EQUAL,
 };
 
 static inline bool vkd3d_string_compare(enum vkd3d_string_compare_mode mode, const char *string, const char *comparator)
 {
+    uint64_t str_hash, comp_hash;
+
     switch (mode)
     {
         default:
@@ -73,6 +77,10 @@ static inline bool vkd3d_string_compare(enum vkd3d_string_compare_mode mode, con
             return vkd3d_string_ends_with(string, comparator);
         case VKD3D_STRING_COMPARE_CONTAINS:
             return strstr(string, comparator) != NULL;
+        case VKD3D_STRING_COMPARE_HASH_EQUAL:
+            comp_hash = strtoull(comparator, NULL, 16);
+            str_hash = hash_fnv1_iterate_string(hash_fnv1_init(), string);
+            return comp_hash == str_hash;
     }
 }
 
