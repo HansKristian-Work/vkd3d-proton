@@ -319,6 +319,272 @@ void test_enhanced_barrier_castable_formats_validation(void)
     ID3D12Device12_Release(device12);
 }
 
+void test_enhanced_barrier_castable_dsv(void)
+{
+    enum { PSO_INDEX_FLOAT = 0, PSO_INDEX_UINT, PSO_INDEX_UINT16, PSO_INDEX_COUNT };
+    D3D12_FEATURE_DATA_D3D12_OPTIONS12 features12;
+    ID3D12PipelineState *psos[PSO_INDEX_COUNT];
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc;
+    struct test_context_desc context_desc;
+    D3D12_DESCRIPTOR_RANGE desc_range[2];
+    ID3D12DescriptorHeap *resource_heap;
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu_h;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_params[1];
+    D3D12_HEAP_PROPERTIES heap_props;
+    ID3D12DescriptorHeap *dsv_heap;
+    struct test_context context;
+    D3D12_RESOURCE_DESC1 desc1;
+    ID3D12Device10 *device10;
+    ID3D12Resource *resource;
+    ID3D12Resource *readback;
+    unsigned int i;
+    HRESULT hr;
+
+    static const struct test
+    {
+        DXGI_FORMAT tex_format;
+        DXGI_FORMAT dsv_format;
+        DXGI_FORMAT srv_format;
+        float clear_value;
+        uint32_t reference_value;
+        unsigned int pso_index;
+    } tests[] = {
+        { DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_FLOAT, 1.0f, 0x3f800000, PSO_INDEX_FLOAT },
+        { DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_FLOAT, 0.5f, 0x3f000000, PSO_INDEX_FLOAT },
+        { DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_FLOAT, 0.0f, 0, PSO_INDEX_FLOAT },
+        { DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_FLOAT, 1.0f, 0x3f800000, PSO_INDEX_FLOAT },
+        { DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_FLOAT, 0.5f, 0x3f000000, PSO_INDEX_FLOAT },
+        { DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_FLOAT, 0.0f, 0, PSO_INDEX_FLOAT },
+        { DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_FLOAT, 1.0f, 0x3f800000, PSO_INDEX_FLOAT },
+        { DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_FLOAT, 0.5f, 0x3f000000, PSO_INDEX_FLOAT },
+        { DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_FLOAT, 0.0f, 0, PSO_INDEX_FLOAT },
+        { DXGI_FORMAT_D16_UNORM, DXGI_FORMAT_D16_UNORM, DXGI_FORMAT_R16_UNORM, 0.0f, 0, PSO_INDEX_FLOAT },
+        { DXGI_FORMAT_D16_UNORM, DXGI_FORMAT_D16_UNORM, DXGI_FORMAT_R16_UNORM, 1.0f, 0x3f800000, PSO_INDEX_FLOAT },
+        { DXGI_FORMAT_R16_TYPELESS, DXGI_FORMAT_D16_UNORM, DXGI_FORMAT_R16_UNORM, 0.0f, 0, PSO_INDEX_FLOAT },
+        { DXGI_FORMAT_R16_TYPELESS, DXGI_FORMAT_D16_UNORM, DXGI_FORMAT_R16_UNORM, 1.0f, 0x3f800000, PSO_INDEX_FLOAT },
+        { DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_D16_UNORM, DXGI_FORMAT_R16_UNORM, 0.0f, 0, PSO_INDEX_FLOAT },
+        { DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_D16_UNORM, DXGI_FORMAT_R16_UNORM, 1.0f, 0x3f800000, PSO_INDEX_FLOAT },
+#if 0
+        /* The clear 1.0f cases fail on AMD, so we don't have to support it. */
+        { DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_UINT, 1.0f, 0x3f800000, PSO_INDEX_UINT },
+        { DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_UINT, 0.5f, 0x3f000000, PSO_INDEX_UINT },
+        { DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_UINT, 0.0f, 0, PSO_INDEX_UINT },
+        { DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R16G16_UINT, 1.0f, 0x3f800000, PSO_INDEX_UINT16 },
+        { DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R16G16_UINT, 0.5f, 0x3f000000, PSO_INDEX_UINT16 },
+        { DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R16G16_UINT, 0.0f, 0, PSO_INDEX_UINT16 },
+        { DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_UINT, 1.0f, 0x3f800000, PSO_INDEX_UINT },
+        { DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_UINT, 0.5f, 0x3f000000, PSO_INDEX_UINT },
+        { DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_UINT, 0.0f, 0, PSO_INDEX_UINT },
+        { DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R16G16_UINT, 1.0f, 0x3f800000, PSO_INDEX_UINT16 },
+        { DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R16G16_UINT, 0.5f, 0x3f000000, PSO_INDEX_UINT16 },
+        { DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R16G16_UINT, 0.0f, 0, PSO_INDEX_UINT16 },
+#endif
+    };
+
+#if 0
+    Texture2D<float> SRVFloat : register(t0);
+    Texture2D<uint> SRVUint : register(t0);
+    Texture2D<uint2> SRVUint16 : register(t0);
+    RWTexture2D<uint> UAVUint32 : register(u0);
+
+    [numthreads(8, 8, 1)]
+    void ReadFloat(uint2 thr : SV_DispatchThreadID)
+    {
+        UAVUint32[thr] = asuint(SRVFloat[thr]);
+    }
+
+    [numthreads(8, 8, 1)]
+    void ReadUint(uint2 thr : SV_DispatchThreadID)
+    {
+        UAVUint32[thr] = SRVUint[thr];
+    }
+
+    [numthreads(8, 8, 1)]
+    void ReadUint16(uint2 thr : SV_DispatchThreadID)
+    {
+        uint2 v = SRVUint16[thr];
+        UAVUint32[thr] = v.x | (v.y << 16);
+    }
+#endif
+
+    static const DWORD read_float_dxbc[] =
+    {
+        0x43425844, 0x471fb384, 0x6ed7016b, 0x0d3ddbb9, 0x286bd3d3, 0x00000001, 0x00000110, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x000000bc, 0x00050050, 0x0000002f, 0x0100086a,
+        0x04001858, 0x00107000, 0x00000000, 0x00005555, 0x0400189c, 0x0011e000, 0x00000000, 0x00004444,
+        0x0200005f, 0x00020032, 0x02000068, 0x00000001, 0x0400009b, 0x00000008, 0x00000008, 0x00000001,
+        0x04000036, 0x00100032, 0x00000000, 0x00020046, 0x08000036, 0x001000c2, 0x00000000, 0x00004002,
+        0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x8900002d, 0x800000c2, 0x00155543, 0x00100012,
+        0x00000000, 0x00100e46, 0x00000000, 0x00107e46, 0x00000000, 0x060000a4, 0x0011e0f2, 0x00000000,
+        0x00020546, 0x00100006, 0x00000000, 0x0100003e,
+    };
+
+    static const DWORD read_uint_dxbc[] =
+    {
+        0x43425844, 0x7eedb2c6, 0x9f1524d0, 0xbf6128f2, 0x09358ca2, 0x00000001, 0x00000110, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x000000bc, 0x00050050, 0x0000002f, 0x0100086a,
+        0x04001858, 0x00107000, 0x00000000, 0x00004444, 0x0400189c, 0x0011e000, 0x00000000, 0x00004444,
+        0x0200005f, 0x00020032, 0x02000068, 0x00000001, 0x0400009b, 0x00000008, 0x00000008, 0x00000001,
+        0x04000036, 0x00100032, 0x00000000, 0x00020046, 0x08000036, 0x001000c2, 0x00000000, 0x00004002,
+        0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x8900002d, 0x800000c2, 0x00111103, 0x00100012,
+        0x00000000, 0x00100e46, 0x00000000, 0x00107e46, 0x00000000, 0x060000a4, 0x0011e0f2, 0x00000000,
+        0x00020546, 0x00100006, 0x00000000, 0x0100003e,
+
+    };
+
+    static const DWORD read_uint16_dxbc[] =
+    {
+        0x43425844, 0xac8268a7, 0x6ff5ff4b, 0xda3e1bbd, 0x675ab903, 0x00000001, 0x00000148, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x000000f4, 0x00050050, 0x0000003d, 0x0100086a,
+        0x04001858, 0x00107000, 0x00000000, 0x00004444, 0x0400189c, 0x0011e000, 0x00000000, 0x00004444,
+        0x0200005f, 0x00020032, 0x02000068, 0x00000001, 0x0400009b, 0x00000008, 0x00000008, 0x00000001,
+        0x04000036, 0x00100032, 0x00000000, 0x00020046, 0x08000036, 0x001000c2, 0x00000000, 0x00004002,
+        0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x8900002d, 0x800000c2, 0x00111103, 0x00100032,
+        0x00000000, 0x00100e46, 0x00000000, 0x00107e46, 0x00000000, 0x07000029, 0x00100022, 0x00000000,
+        0x0010001a, 0x00000000, 0x00004001, 0x00000010, 0x0700003c, 0x00100012, 0x00000000, 0x0010001a,
+        0x00000000, 0x0010000a, 0x00000000, 0x060000a4, 0x0011e0f2, 0x00000000, 0x00020546, 0x00100006,
+        0x00000000, 0x0100003e,
+    };
+
+    static const D3D12_SHADER_BYTECODE cs_read_float_dxbc = SHADER_BYTECODE(read_float_dxbc);
+    static const D3D12_SHADER_BYTECODE cs_read_uint_dxbc = SHADER_BYTECODE(read_uint_dxbc);
+    static const D3D12_SHADER_BYTECODE cs_read_uint16_dxbc = SHADER_BYTECODE(read_uint16_dxbc);
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    if (FAILED(hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS12, &features12, sizeof(features12))) ||
+        !features12.RelaxedFormatCastingSupported)
+    {
+        destroy_test_context(&context);
+        skip("RelaxedFormatCasting is not supported.\n");
+        return;
+    }
+
+    if (FAILED(ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device10, (void **)&device10)))
+    {
+        destroy_test_context(&context);
+        skip("ID3D12Device10 not supported, skipping test.\n");
+        return;
+    }
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_params, 0, sizeof(rs_params));
+    memset(desc_range, 0, sizeof(desc_range));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_params);
+    rs_desc.pParameters = rs_params;
+    rs_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_params[0].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(desc_range);
+    rs_params[0].DescriptorTable.pDescriptorRanges = desc_range;
+    desc_range[0].NumDescriptors = 1;
+    desc_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    desc_range[1].NumDescriptors = 1;
+    desc_range[1].OffsetInDescriptorsFromTableStart = 1;
+    desc_range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+
+    hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr #%x.\n", hr);
+
+    psos[PSO_INDEX_FLOAT] = create_compute_pipeline_state(context.device, context.root_signature, cs_read_float_dxbc);
+    psos[PSO_INDEX_UINT] = create_compute_pipeline_state(context.device, context.root_signature, cs_read_uint_dxbc);
+    psos[PSO_INDEX_UINT16] = create_compute_pipeline_state(context.device, context.root_signature, cs_read_uint16_dxbc);
+
+    memset(&desc1, 0, sizeof(desc1));
+    memset(&heap_props, 0, sizeof(heap_props));
+    desc1.Width = 1024;
+    desc1.Height = 1024;
+    desc1.DepthOrArraySize = 1;
+    desc1.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc1.MipLevels = 1;
+    desc1.SampleDesc.Count = 1;
+    desc1.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+    desc1.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    resource_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 2);
+    dsv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        DXGI_FORMAT castable_formats[2];
+        UINT castable_format_count = 0;
+
+        vkd3d_test_set_context("Test %u", i);
+        castable_formats[castable_format_count++] = tests[i].srv_format;
+        castable_formats[castable_format_count++] = tests[i].dsv_format;
+
+        desc1.Format = tests[i].tex_format;
+        hr = ID3D12Device10_CreateCommittedResource3(device10, &heap_props, D3D12_HEAP_FLAG_CREATE_NOT_ZEROED,
+                &desc1, D3D12_BARRIER_LAYOUT_COMMON, NULL, NULL,
+                castable_format_count, castable_formats,
+                &IID_ID3D12Resource, (void **)&resource);
+        ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+
+        cpu_h = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(dsv_heap);
+
+        memset(&dsv_desc, 0, sizeof(dsv_desc));
+        dsv_desc.Format = tests[i].dsv_format;
+        dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+
+        ID3D12Device_CreateDepthStencilView(context.device, resource, &dsv_desc, cpu_h);
+        /* Transition away from enhanced barriers to legacy barriers. Input resource state must be COMMON. */
+        transition_resource_state(context.list, resource, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        ID3D12GraphicsCommandList_DiscardResource(context.list, resource, NULL);
+        ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, cpu_h, D3D12_CLEAR_FLAG_DEPTH, tests[i].clear_value, 0, 0, NULL);
+        transition_resource_state(context.list, resource, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+
+        cpu_h = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(resource_heap);
+        memset(&srv_desc, 0, sizeof(srv_desc));
+        srv_desc.Format = tests[i].srv_format;
+        srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srv_desc.Texture2D.MipLevels = 1;
+        ID3D12Device_CreateShaderResourceView(context.device, resource, &srv_desc, cpu_h);
+
+        readback = create_default_texture2d(context.device, desc1.Width, desc1.Height, 1, 1, DXGI_FORMAT_R32_UINT,
+                D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+        cpu_h.ptr += ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        memset(&uav_desc, 0, sizeof(uav_desc));
+        uav_desc.Format = DXGI_FORMAT_R32_UINT;
+        uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        ID3D12Device_CreateUnorderedAccessView(context.device, readback, NULL, &uav_desc, cpu_h);
+
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &resource_heap);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, psos[tests[i].pso_index]);
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0,
+                ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(resource_heap));
+        ID3D12GraphicsCommandList_Dispatch(context.list, desc1.Width / 8, desc1.Height / 8, 1);
+
+        transition_resource_state(context.list, readback, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_uint(readback, 0, context.queue, context.list, tests[i].reference_value, 0);
+
+        ID3D12Resource_Release(resource);
+        ID3D12Resource_Release(readback);
+        reset_command_list(context.list, context.allocator);
+    }
+    vkd3d_test_set_context(NULL);
+
+    ID3D12DescriptorHeap_Release(resource_heap);
+    ID3D12DescriptorHeap_Release(dsv_heap);
+    for (i = 0; i < ARRAY_SIZE(psos); i++)
+        ID3D12PipelineState_Release(psos[i]);
+    ID3D12Device10_Release(device10);
+    destroy_test_context(&context);
+}
+
 void test_enhanced_barrier_castable_formats(void)
 {
     const DXGI_FORMAT castable_formats[] = { DXGI_FORMAT_R32_UINT };
