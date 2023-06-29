@@ -355,3 +355,4 @@ decl_test(test_sm67_raw_gather);
 decl_test(test_sm67_integer_sampling);
 decl_test(test_enhanced_barrier_castable_formats);
 decl_test(test_enhanced_barrier_castable_formats_buffer);
+decl_test(test_enhanced_barrier_castable_formats_validation);

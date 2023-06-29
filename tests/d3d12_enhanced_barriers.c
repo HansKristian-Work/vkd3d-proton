@@ -90,6 +90,235 @@ void test_enhanced_barrier_castable_formats_buffer(void)
     ID3D12Device10_Release(device10);
 }
 
+void test_enhanced_barrier_castable_formats_validation(void)
+{
+    /* The runtime is supposed to validate the format casting list. */
+    D3D12_RESOURCE_ALLOCATION_INFO allocation_info;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS12 features12;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc;
+    ID3D12DescriptorHeap *resource_heap;
+    D3D12_HEAP_PROPERTIES heap_props;
+    ID3D12DescriptorHeap *dsv_heap;
+    D3D12_RESOURCE_DESC1 desc1;
+    ID3D12Device12 *device12;
+    ID3D12Resource *resource;
+    ID3D12Device *device;
+    unsigned int i, j;
+    HRESULT hr;
+
+    static const struct test
+    {
+        DXGI_FORMAT tex_format;
+        UINT32 num_formats;
+        UINT flags;
+        bool valid;
+        DXGI_FORMAT cast_formats[16];
+    } tests[] = {
+        { DXGI_FORMAT_R32_UINT, 1, D3D12_RESOURCE_FLAG_NONE, true, { DXGI_FORMAT_R32_UINT } },
+        { DXGI_FORMAT_R32_UINT, 2, D3D12_RESOURCE_FLAG_NONE, true, { DXGI_FORMAT_R32_UINT, DXGI_FORMAT_R16G16_FLOAT } },
+        { DXGI_FORMAT_R32_UINT, 3, D3D12_RESOURCE_FLAG_NONE, true, { DXGI_FORMAT_R32_UINT, DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R16G16_FLOAT } },
+        { DXGI_FORMAT_R32_UINT, 3, D3D12_RESOURCE_FLAG_NONE, true, { DXGI_FORMAT_R32_UINT, DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R9G9B9E5_SHAREDEXP } },
+        { DXGI_FORMAT_R32_UINT, 3, D3D12_RESOURCE_FLAG_NONE, false, { DXGI_FORMAT_R32_UINT, DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R16_FLOAT } },
+        { DXGI_FORMAT_R32_UINT, 1, D3D12_RESOURCE_FLAG_NONE, false, { DXGI_FORMAT_UNKNOWN } },
+        /* Block format casting is still not allowed. */
+        { DXGI_FORMAT_R32G32B32A32_UINT, 1, D3D12_RESOURCE_FLAG_NONE, false, { DXGI_FORMAT_BC7_UNORM } },
+        { DXGI_FORMAT_R32G32_UINT, 1, D3D12_RESOURCE_FLAG_NONE, false, { DXGI_FORMAT_BC1_UNORM } },
+        /* ... unless the base format is compressed! Similar to Vulkan. */
+        { DXGI_FORMAT_BC1_UNORM, 1, D3D12_RESOURCE_FLAG_NONE, true, { DXGI_FORMAT_R32G32_UINT } },
+        { DXGI_FORMAT_BC7_UNORM, 1, D3D12_RESOURCE_FLAG_NONE, true, { DXGI_FORMAT_R32G32B32A32_UINT } },
+#if 0
+        /* Block format casting between similar block size *is* allowed apparently? This is not allowed in Vulkan.
+         * This will likely "just work" on any reasonable driver, but it will throw a validation error. */
+        { DXGI_FORMAT_BC1_UNORM, 1, D3D12_RESOURCE_FLAG_NONE, true, { DXGI_FORMAT_BC4_UNORM } },
+        { DXGI_FORMAT_BC7_UNORM, 1, D3D12_RESOURCE_FLAG_NONE, true, { DXGI_FORMAT_BC6H_UF16 } },
+#endif
+        /* If one format supports usage flag, it's allowed. */
+        { DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, 1, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, true, { DXGI_FORMAT_R8G8B8A8_UNORM } },
+        { DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, 1, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, true, { DXGI_FORMAT_R8G8B8A8_UINT } },
+        { DXGI_FORMAT_BC1_UNORM, 1, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, false, { DXGI_FORMAT_BC1_UNORM } },
+        { DXGI_FORMAT_BC1_UNORM, 1, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, true, { DXGI_FORMAT_R32G32_UINT } },
+        /* Depth-stencil does not need typeless here. */
+        { DXGI_FORMAT_D32_FLOAT, 1, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, true, { DXGI_FORMAT_R32_FLOAT } },
+        { DXGI_FORMAT_R32_FLOAT, 1, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, true, { DXGI_FORMAT_D32_FLOAT } },
+#if 0
+        /* This does not trip an error for some wild reason, but as other tests proved, this is non-sense, and likely unintentional ... */
+        { DXGI_FORMAT_D32_FLOAT, 1, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, true, { DXGI_FORMAT_R32_UINT } },
+        { DXGI_FORMAT_D32_FLOAT, 2, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, true, { DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R16G16_UINT } },
+        { DXGI_FORMAT_R32_FLOAT, 2, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, true, { DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R16G16_UINT } },
+        { DXGI_FORMAT_R16G16_FLOAT, 2, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, true, { DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R16G16_UINT } },
+#endif
+
+        { DXGI_FORMAT_R32_TYPELESS, 1, D3D12_RESOURCE_FLAG_NONE, true, { DXGI_FORMAT_R32_TYPELESS } },
+
+        /* Somehow, this is allowed, even if no format in the cast list supports depth-stencil directly.
+         * Trying to cast to D32_FLOAT here however triggers device lost, meaning that TYPELESS resources in castable formats is meaningless.
+         * Same goes for R32_FLOAT. This means that typeless formats in cast list must not contribute to allowed format list and should be ignored,
+         * except for resolving resource desc validation ... (?!?!). */
+        { DXGI_FORMAT_R32_TYPELESS, 1, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, true, { DXGI_FORMAT_R32_TYPELESS } },
+
+        /* Somehow, this is allowed, even if no format in the cast list supports depth-stencil directly. */
+        { DXGI_FORMAT_R32_FLOAT, 1, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, true, { DXGI_FORMAT_R32_TYPELESS } },
+
+        /* Even THIS is allowed, dear lord ... */
+        { DXGI_FORMAT_R32_FLOAT, 1, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, true, { DXGI_FORMAT_R32_FLOAT } },
+
+        /* Also test castable formats count = 0, then old style rules should apply. */
+        /* This succeeds because of relaxed format casting rules in legacy model (sRGB can be reinterpreted as UNORM or UINT). */
+        { DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, 0, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, true },
+
+        { DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, false },
+        { DXGI_FORMAT_BC1_UNORM, 0, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, false },
+        { DXGI_FORMAT_BC1_UNORM, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, false },
+        { DXGI_FORMAT_R32_TYPELESS, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, true },
+        { DXGI_FORMAT_R16_TYPELESS, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, true },
+        { DXGI_FORMAT_R32_FLOAT, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, true },
+        { DXGI_FORMAT_R16_UNORM, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, true },
+        { DXGI_FORMAT_R8G8B8A8_UINT, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, false },
+    };
+
+    if (!(device = create_device()))
+        return;
+
+    if (FAILED(hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_OPTIONS12, &features12, sizeof(features12))) ||
+            !features12.RelaxedFormatCastingSupported)
+    {
+        ID3D12Device_Release(device);
+        skip("RelaxedFormatCasting is not supported.\n");
+        return;
+    }
+
+    if (FAILED(hr = ID3D12Device_QueryInterface(device, &IID_ID3D12Device12, (void **)&device12)))
+    {
+        skip("ID3D12Device12 not available.\n");
+        ID3D12Device_Release(device);
+        return;
+    }
+
+    resource_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    dsv_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
+
+    memset(&desc1, 0, sizeof(desc1));
+    memset(&heap_props, 0, sizeof(heap_props));
+    desc1.Width = 64;
+    desc1.Height = 64;
+    desc1.DepthOrArraySize = 1;
+    desc1.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc1.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    desc1.SampleDesc.Count = 1;
+    desc1.MipLevels = 1;
+    heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    memset(&srv_desc, 0, sizeof(srv_desc));
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv_desc.Texture2D.MipLevels = 1;
+    memset(&dsv_desc, 0, sizeof(dsv_desc));
+    dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        const DXGI_FORMAT *p_formats = tests[i].cast_formats;
+        desc1.Format = tests[i].tex_format;
+        desc1.Flags = tests[i].flags;
+        vkd3d_test_set_context("Test %u", i);
+
+        allocation_info = ID3D12Device12_GetResourceAllocationInfo3(device12, 0, 1, &desc1,
+                tests[i].num_formats ? &tests[i].num_formats : NULL,
+                tests[i].num_formats ? &p_formats : NULL, NULL);
+
+        if (tests[i].valid)
+            ok(allocation_info.SizeInBytes != UINT64_MAX, "Unexpected failure in GetResourceAllocationInfo3.\n");
+        else
+            ok(allocation_info.SizeInBytes == UINT64_MAX, "Unexpected success in GetResourceAllocationInfo3.\n");
+
+        /* Test older API as well to make sure there are no "special" validation rules for AllocationInfo3. */
+        if (tests[i].num_formats == 0)
+        {
+            allocation_info = ID3D12Device12_GetResourceAllocationInfo2(device12, 0, 1, &desc1, NULL);
+
+            if (tests[i].valid)
+                ok(allocation_info.SizeInBytes != UINT64_MAX, "Unexpected failure in GetResourceAllocationInfo2.\n");
+            else
+                ok(allocation_info.SizeInBytes == UINT64_MAX, "Unexpected success in GetResourceAllocationInfo2.\n");
+        }
+
+        hr = ID3D12Device12_CreateCommittedResource3(device12, &heap_props,
+                D3D12_HEAP_FLAG_CREATE_NOT_ZEROED, &desc1, D3D12_BARRIER_LAYOUT_UNDEFINED,
+                NULL, NULL,
+                tests[i].num_formats, tests[i].cast_formats,
+                &IID_ID3D12Resource, (void**)&resource);
+
+        if (FAILED(hr))
+            resource = NULL;
+
+        if (tests[i].valid)
+            ok(hr == S_OK, "Unexpected failure in GetResourceAllocationInfo3, hr #%x.\n", hr);
+        else
+            ok(hr == E_INVALIDARG, "Unexpected success in GetResourceAllocationInfo3.\n");
+
+        if (tests[i].num_formats == 0)
+        {
+            hr = ID3D12Device12_CreateCommittedResource2(device12, &heap_props,
+                    D3D12_HEAP_FLAG_CREATE_NOT_ZEROED, &desc1, D3D12_RESOURCE_STATE_COMMON,
+                    NULL, NULL,
+                    &IID_ID3D12Resource, NULL);
+
+            if (tests[i].valid)
+                ok(hr == S_FALSE, "Unexpected failure in GetResourceAllocationInfo2, hr #%x.\n", hr);
+            else
+                ok(hr == E_INVALIDARG, "Unexpected success in GetResourceAllocationInfo2.\n");
+        }
+
+        /* Try to create all possible views. Tests that it does not blow up.
+         * Also useful to see if validation blows up. */
+        if (resource)
+        {
+            if (tests[i].tex_format != DXGI_FORMAT_R16_TYPELESS && tests[i].tex_format != DXGI_FORMAT_R32_TYPELESS)
+            {
+                if (tests[i].tex_format != DXGI_FORMAT_D32_FLOAT && tests[i].tex_format != DXGI_FORMAT_D16_UNORM)
+                {
+                    srv_desc.Format = tests[i].tex_format;
+                    ID3D12Device_CreateShaderResourceView(device, resource, &srv_desc,
+                            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(resource_heap));
+                }
+                else if (tests[i].flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
+                {
+                    dsv_desc.Format = tests[i].tex_format;
+                    ID3D12Device_CreateDepthStencilView(device, resource, &dsv_desc,
+                            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(dsv_heap));
+                }
+            }
+
+            for (j = 0; j < tests[i].num_formats; j++)
+            {
+                if (tests[i].cast_formats[j] == DXGI_FORMAT_R16_TYPELESS || tests[i].cast_formats[j] == DXGI_FORMAT_R32_TYPELESS)
+                    continue;
+
+                if (tests[i].cast_formats[j] != DXGI_FORMAT_D32_FLOAT && tests[i].tex_format != DXGI_FORMAT_D16_UNORM)
+                {
+                    srv_desc.Format = tests[i].cast_formats[j];
+                    ID3D12Device_CreateShaderResourceView(device, resource, &srv_desc,
+                            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(resource_heap));
+                }
+                else if (tests[i].flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
+                {
+                    dsv_desc.Format = tests[i].cast_formats[j];
+                    ID3D12Device_CreateDepthStencilView(device, resource, &dsv_desc,
+                            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(dsv_heap));
+                }
+            }
+            ID3D12Resource_Release(resource);
+        }
+    }
+    vkd3d_test_set_context(NULL);
+
+    ID3D12DescriptorHeap_Release(resource_heap);
+    ID3D12DescriptorHeap_Release(dsv_heap);
+    ID3D12Device_Release(device);
+    ID3D12Device12_Release(device12);
+}
+
 void test_enhanced_barrier_castable_formats(void)
 {
     const DXGI_FORMAT castable_formats[] = { DXGI_FORMAT_R32_UINT };
