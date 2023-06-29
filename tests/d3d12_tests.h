@@ -66,6 +66,7 @@ decl_test(test_append_aligned_element);
 decl_test(test_gpu_virtual_address);
 decl_test(test_fragment_coords);
 decl_test(test_fractional_viewports);
+decl_test(test_negative_viewports);
 decl_test(test_scissor);
 decl_test(test_draw_depth_no_ps);
 decl_test(test_draw_depth_only);
