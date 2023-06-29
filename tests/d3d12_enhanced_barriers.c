@@ -19,6 +19,77 @@
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_API
 #include "d3d12_crosstest.h"
 
+void test_enhanced_barrier_castable_formats_buffer(void)
+{
+    const DXGI_FORMAT formats0[] = { DXGI_FORMAT_R32_UINT };
+    const DXGI_FORMAT formats1[] = { DXGI_FORMAT_UNKNOWN };
+    D3D12_FEATURE_DATA_D3D12_OPTIONS12 features12;
+    D3D12_HEAP_PROPERTIES heap_props;
+    D3D12_RESOURCE_DESC1 desc1;
+    ID3D12Device10 *device10;
+    ID3D12Device *device;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+        return;
+
+    if (FAILED(hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_OPTIONS12, &features12, sizeof(features12))) ||
+        !features12.RelaxedFormatCastingSupported)
+    {
+        ID3D12Device_Release(device);
+        skip("RelaxedFormatCasting is not supported.\n");
+        return;
+    }
+
+    if (FAILED(hr = ID3D12Device_QueryInterface(device, &IID_ID3D12Device10, (void **)&device10)))
+    {
+        skip("ID3D12Device10 not available.\n");
+        ID3D12Device_Release(device);
+        return;
+    }
+
+    memset(&desc1, 0, sizeof(desc1));
+    memset(&heap_props, 0, sizeof(heap_props));
+    desc1.Width = 64 * 1024;
+    desc1.Height = 1;
+    desc1.DepthOrArraySize = 1;
+    desc1.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    desc1.Format = DXGI_FORMAT_UNKNOWN;
+    desc1.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    desc1.SampleDesc.Count = 1;
+    desc1.MipLevels = 1;
+
+    /* Barrier layout must be UNDEFINED for buffers. */
+    heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+    hr = ID3D12Device10_CreateCommittedResource3(device10, &heap_props, D3D12_HEAP_FLAG_NONE,
+            &desc1, D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS,
+            NULL, NULL,
+            0, NULL, &IID_ID3D12Resource, NULL);
+    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", hr);
+
+    hr = ID3D12Device10_CreateCommittedResource3(device10, &heap_props, D3D12_HEAP_FLAG_NONE,
+            &desc1, D3D12_BARRIER_LAYOUT_UNDEFINED,
+            NULL, NULL, 0, NULL, &IID_ID3D12Resource, NULL);
+    ok(hr == S_FALSE, "Unexpected hr #%x.\n", hr);
+
+    /* Castable formats are not allowed for buffers. */
+    hr = ID3D12Device10_CreateCommittedResource3(device10, &heap_props, D3D12_HEAP_FLAG_NONE,
+            &desc1, D3D12_BARRIER_LAYOUT_UNDEFINED,
+            NULL, NULL,
+            ARRAY_SIZE(formats0), formats0, &IID_ID3D12Resource, NULL);
+    ok(hr == E_INVALIDARG, "Unexpected hr #%x.\n", hr);
+
+    /* For some reason, this is allowed for buffers. It seems to compare byte size of UNKNOWN vs UNKNOWN (0 == 0) based on validation error above. */
+    hr = ID3D12Device10_CreateCommittedResource3(device10, &heap_props, D3D12_HEAP_FLAG_NONE,
+            &desc1, D3D12_BARRIER_LAYOUT_UNDEFINED,
+            NULL, NULL,
+            ARRAY_SIZE(formats1), formats1, &IID_ID3D12Resource, NULL);
+    ok(hr == S_FALSE, "Unexpected hr #%x.\n", hr);
+
+    ID3D12Device_Release(device);
+    ID3D12Device10_Release(device10);
+}
+
 void test_enhanced_barrier_castable_formats(void)
 {
     const DXGI_FORMAT castable_formats[] = { DXGI_FORMAT_R32_UINT };

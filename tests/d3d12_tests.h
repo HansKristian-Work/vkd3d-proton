@@ -354,3 +354,4 @@ decl_test(test_sm67_dynamic_texture_offset);
 decl_test(test_sm67_raw_gather);
 decl_test(test_sm67_integer_sampling);
 decl_test(test_enhanced_barrier_castable_formats);
+decl_test(test_enhanced_barrier_castable_formats_buffer);
