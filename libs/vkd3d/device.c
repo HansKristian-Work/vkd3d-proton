@@ -4088,12 +4088,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
                 return E_INVALIDARG;
             }
 
-            data->UnrestrictedBufferTextureCopyPitchSupported = FALSE;
-            data->UnrestrictedVertexElementAlignmentSupported = FALSE;
-            data->InvertedViewportHeightFlipsYSupported = FALSE;
-            data->InvertedViewportDepthFlipsZSupported = FALSE;
-            data->TextureCopyBetweenDimensionsSupported = FALSE;
-            data->AlphaBlendFactorSupported = FALSE;
+            *data = device->d3d12_caps.options13;
+
+            TRACE("Inverted viewport height flips Y supported %u.", data->InvertedViewportHeightFlipsYSupported);
+            TRACE("Inverted viewport deps flips Z supported %u.", data->InvertedViewportDepthFlipsZSupported);
             return S_OK;
         }
 
@@ -6949,6 +6947,14 @@ static void d3d12_device_caps_init_feature_options11(struct d3d12_device *device
             device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment <= 16;
 }
 
+static void d3d12_device_caps_init_feature_options13(struct d3d12_device *device)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS13 *options13 = &device->d3d12_caps.options13;
+
+    options13->InvertedViewportHeightFlipsYSupported = TRUE;
+    options13->InvertedViewportDepthFlipsZSupported = TRUE;
+}
+
 static void d3d12_device_caps_init_feature_level(struct d3d12_device *device)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
@@ -7270,6 +7276,7 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
     d3d12_device_caps_init_feature_options9(device);
     d3d12_device_caps_init_feature_options10(device);
     d3d12_device_caps_init_feature_options11(device);
+    d3d12_device_caps_init_feature_options13(device);
     d3d12_device_caps_init_feature_level(device);
 
     d3d12_device_caps_shader_model_override(device);

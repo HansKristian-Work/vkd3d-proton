@@ -490,6 +490,172 @@ void test_fractional_viewports(void)
     destroy_test_context(&context);
 }
 
+void test_negative_viewports(void)
+{
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    D3D12_FEATURE_DATA_D3D12_OPTIONS13 options13;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_INPUT_LAYOUT_DESC input_layout;
+    struct test_context_desc desc;
+    D3D12_VERTEX_BUFFER_VIEW vbv;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12CommandQueue *queue;
+    D3D12_VIEWPORT viewport;
+    ID3D12Device *device;
+    ID3D12Resource *vb;
+    unsigned int x, y;
+    HRESULT hr;
+
+    static const DWORD vs_code[] =
+    {
+#if 0
+        void main(in float4 in_position : POSITION,
+                in float2 in_texcoord : TEXCOORD,
+                out float4 position : SV_Position,
+                out float2 texcoord : TEXCOORD)
+        {
+            position = in_position;
+            texcoord = in_texcoord;
+        }
+#endif
+        0x43425844, 0x4df282ca, 0x85c8bbfc, 0xd44ad19f, 0x1158be97, 0x00000001, 0x00000148, 0x00000003,
+        0x0000002c, 0x00000080, 0x000000d8, 0x4e475349, 0x0000004c, 0x00000002, 0x00000008, 0x00000038,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x00000f0f, 0x00000041, 0x00000000, 0x00000000,
+        0x00000003, 0x00000001, 0x00000303, 0x49534f50, 0x4e4f4954, 0x58455400, 0x524f4f43, 0xabab0044,
+        0x4e47534f, 0x00000050, 0x00000002, 0x00000008, 0x00000038, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x00000044, 0x00000000, 0x00000000, 0x00000003, 0x00000001, 0x00000c03,
+        0x505f5653, 0x7469736f, 0x006e6f69, 0x43584554, 0x44524f4f, 0xababab00, 0x52444853, 0x00000068,
+        0x00010040, 0x0000001a, 0x0300005f, 0x001010f2, 0x00000000, 0x0300005f, 0x00101032, 0x00000001,
+        0x04000067, 0x001020f2, 0x00000000, 0x00000001, 0x03000065, 0x00102032, 0x00000001, 0x05000036,
+        0x001020f2, 0x00000000, 0x00101e46, 0x00000000, 0x05000036, 0x00102032, 0x00000001, 0x00101046,
+        0x00000001, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE vs = {vs_code, sizeof(vs_code)};
+    static const DWORD ps_code[] =
+    {
+#if 0
+        float4 main(float4 position : SV_Position,
+                float2 texcoord : TEXCOORD) : SV_Target
+        {
+            return float4(position.xyz, texcoord.y);
+        }
+#endif
+        0x43425844, 0x07ec126b, 0x6a8e9d8d, 0xb63d0841, 0xa5e0efc5, 0x00000001, 0x00000120, 0x00000003,
+        0x0000002c, 0x00000084, 0x000000b8, 0x4e475349, 0x00000050, 0x00000002, 0x00000008, 0x00000038,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000070f, 0x00000044, 0x00000000, 0x00000000,
+        0x00000003, 0x00000001, 0x00000203, 0x505f5653, 0x7469736f, 0x006e6f69, 0x43584554, 0x44524f4f,
+        0xababab00, 0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000,
+        0x00000003, 0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000060,
+        0x00000050, 0x00000018, 0x0100086a, 0x04002064, 0x00101072, 0x00000000, 0x00000001, 0x03001062,
+        0x00101022, 0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x05000036, 0x00102072, 0x00000000,
+        0x00101246, 0x00000000, 0x05000036, 0x00102082, 0x00000000, 0x0010101a, 0x00000001, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+    static const D3D12_INPUT_ELEMENT_DESC layout_desc[] =
+    {
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 16, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    };
+    static const struct
+    {
+        struct vec4 position;
+        struct vec2 texcoord;
+    }
+    quad[] =
+    {
+        {{-1.0f,  1.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+        {{-1.0f, -1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+        {{ 1.0f,  1.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+        {{ 1.0f, -1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+    device = context.device;
+
+    memset(&options13, 0, sizeof(options13));
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_OPTIONS13, &options13, sizeof(options13));
+    ok(SUCCEEDED(hr), "OPTIONS13 is not supported by runtime.\n");
+
+    if (!options13.InvertedViewportHeightFlipsYSupported)
+    {
+        skip("Device does not support negative viewport height.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    context.root_signature = create_empty_root_signature(context.device,
+            D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    input_layout.pInputElementDescs = layout_desc;
+    input_layout.NumElements = ARRAY_SIZE(layout_desc);
+
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, desc.rt_format, &vs, &ps, &input_layout);
+
+    vb = create_upload_buffer(context.device, sizeof(quad), quad);
+
+    vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb);
+    vbv.StrideInBytes = sizeof(quad[0]);
+    vbv.SizeInBytes = sizeof(quad);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+
+    for (y = 0; y < context.render_target_desc.Height; y += context.render_target_desc.Height / 2)
+    {
+        for (x = 0; x < context.render_target_desc.Width; x += context.render_target_desc.Width / 2)
+        {
+            set_viewport(&viewport, x, context.render_target_desc.Height - y,
+                context.render_target_desc.Width / 2, -(float)(context.render_target_desc.Height / 2), 1.0f, 0.0f);
+            ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
+            ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
+            ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 1, 0, 0);
+        }
+    }
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+    for (y = 0; y < rb.height; ++y)
+    {
+        for (x = 0; x < rb.width; ++x)
+        {
+            const struct vec4 *actual = get_readback_vec4(&rb, x, y);
+            struct vec2 expected_fragcoord = {x + 0.5f, y + 0.5f};
+            float expected_texcoord_y = (((y % (rb.height / 2)) * 2.0f + 1.0f) / rb.height);
+            float expected_depth = expected_texcoord_y;
+            ok(compare_float(actual->x, expected_fragcoord.x, 0) && compare_float(actual->y, expected_fragcoord.y, 0),
+                    "Got fragcoord {%.8e, %.8e}, expected {%.8e, %.8e} at (%u, %u).\n",
+                    actual->x, actual->y, expected_fragcoord.x, expected_fragcoord.y, x, y);
+            ok(compare_float(actual->z, expected_depth, 2),
+                    "Got depth {%.2f}, expected {%.2f} at (%u, %u).\n",
+                    actual->z, expected_depth, x, y);
+            ok(compare_float(actual->w, expected_texcoord_y, 2),
+                    "Got texcoord {%.2f}, expected {%.2f} at (%u, %u).\n",
+                    actual->w, expected_texcoord_y, x, y);
+        }
+    }
+    release_resource_readback(&rb);
+
+    reset_command_list(command_list, context.allocator);
+
+    ID3D12Resource_Release(vb);
+    destroy_test_context(&context);
+}
+
 void test_scissor(void)
 {
     ID3D12GraphicsCommandList *command_list;
