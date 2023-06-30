@@ -1010,6 +1010,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_fence_QueryInterface(d3d12_fence_iface *i
 {
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
+    if (!object)
+        return E_POINTER;
+
     if (IsEqualGUID(riid, &IID_ID3D12Fence)
             || IsEqualGUID(riid, &IID_ID3D12Fence1)
             || IsEqualGUID(riid, &IID_ID3D12Pageable)
@@ -1351,6 +1354,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_shared_fence_QueryInterface(d3d12_fence_i
         REFIID riid, void **object)
 {
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
+
+    if (!object)
+        return E_POINTER;
 
     if (IsEqualGUID(riid, &IID_ID3D12Fence)
             || IsEqualGUID(riid, &IID_ID3D12Fence1)
@@ -2045,6 +2051,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_QueryInterface(ID3D12Co
         REFIID riid, void **object)
 {
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
+
+    if (!object)
+        return E_POINTER;
 
     if (IsEqualGUID(riid, &IID_ID3D12CommandAllocator)
             || IsEqualGUID(riid, &IID_ID3D12Pageable)
@@ -4639,6 +4648,9 @@ HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_i
         REFIID iid, void **object)
 {
     TRACE("iface %p, iid %s, object %p.\n", iface, debugstr_guid(iid), object);
+
+    if (!object)
+        return E_POINTER;
 
     if (IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList)
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList1)
@@ -13049,6 +13061,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_QueryInterface(ID3D12Comman
 {
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
+    if (!object)
+        return E_POINTER;
+
     if (IsEqualGUID(riid, &IID_ID3D12CommandQueue)
             || IsEqualGUID(riid, &IID_ID3D12Pageable)
             || IsEqualGUID(riid, &IID_ID3D12DeviceChild)
@@ -14898,6 +14913,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_signature_QueryInterface(ID3D12Co
         REFIID iid, void **out)
 {
     TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
+
+    if (!out)
+        return E_POINTER;
 
     if (IsEqualGUID(iid, &IID_ID3D12CommandSignature)
             || IsEqualGUID(iid, &IID_ID3D12Pageable)

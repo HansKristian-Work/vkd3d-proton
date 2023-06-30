@@ -32,6 +32,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_state_object_QueryInterface(ID3D12StateOb
 {
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
+    if (!object)
+        return E_POINTER;
+
     if (IsEqualGUID(riid, &IID_ID3D12StateObject)
         || IsEqualGUID(riid, &IID_ID3D12DeviceChild)
         || IsEqualGUID(riid, &IID_ID3D12Object)

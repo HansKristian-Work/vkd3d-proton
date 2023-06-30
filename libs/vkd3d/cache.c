@@ -1460,6 +1460,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_QueryInterface(d3d12_pip
 {
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
+    if (!object)
+        return E_POINTER;
+
     if (IsEqualGUID(riid, &IID_ID3D12PipelineLibrary)
             || IsEqualGUID(riid, &IID_ID3D12PipelineLibrary1)
             || IsEqualGUID(riid, &IID_ID3D12DeviceChild)
