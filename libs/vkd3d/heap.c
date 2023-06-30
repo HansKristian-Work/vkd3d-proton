@@ -28,6 +28,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_QueryInterface(d3d12_heap_iface *ifa
 {
     TRACE("iface %p, iid %s, object %p.\n", iface, debugstr_guid(iid), object);
 
+    if (!object)
+        return E_POINTER;
+
     if (IsEqualGUID(iid, &IID_ID3D12Heap)
             || IsEqualGUID(iid, &IID_ID3D12Heap1)
             || IsEqualGUID(iid, &IID_ID3D12Pageable)

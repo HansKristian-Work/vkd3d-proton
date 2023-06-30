@@ -75,6 +75,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_bundle_allocator_QueryInterface(ID3D12Com
 {
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
+    if (!object)
+        return E_POINTER;
+
     if (IsEqualGUID(riid, &IID_ID3D12CommandAllocator)
             || IsEqualGUID(riid, &IID_ID3D12Pageable)
             || IsEqualGUID(riid, &IID_ID3D12DeviceChild)
@@ -254,6 +257,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_bundle_QueryInterface(d3d12_command_list_
         REFIID iid, void **object)
 {
     TRACE("iface %p, iid %s, object %p.\n", iface, debugstr_guid(iid), object);
+
+    if (!object)
+        return E_POINTER;
 
     if (IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList)
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList1)

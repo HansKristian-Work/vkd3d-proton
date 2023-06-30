@@ -1519,6 +1519,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_QueryInterface(d3d12_resource_if
 {
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
+    if (!object)
+        return E_POINTER;
+
     if (IsEqualGUID(riid, &IID_ID3D12Resource)
             || IsEqualGUID(riid, &IID_ID3D12Resource1)
             || IsEqualGUID(riid, &IID_ID3D12Resource2)
@@ -6188,6 +6191,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_descriptor_heap_QueryInterface(ID3D12Desc
 {
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
+    if (!object)
+        return E_POINTER;
+
     if (IsEqualGUID(riid, &IID_ID3D12DescriptorHeap)
             || IsEqualGUID(riid, &IID_ID3D12Pageable)
             || IsEqualGUID(riid, &IID_ID3D12DeviceChild)
@@ -7372,6 +7378,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_query_heap_QueryInterface(ID3D12QueryHeap
         REFIID iid, void **out)
 {
     TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
+
+    if (!out)
+        return E_POINTER;
 
     if (IsEqualGUID(iid, &IID_ID3D12QueryHeap)
             || IsEqualGUID(iid, &IID_ID3D12Pageable)

@@ -2993,6 +2993,9 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
 {
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
+    if (!object)
+        return E_POINTER;
+
     if (IsEqualGUID(riid, &IID_ID3D12Device)
             || IsEqualGUID(riid, &IID_ID3D12Device1)
             || IsEqualGUID(riid, &IID_ID3D12Device2)
