@@ -358,7 +358,7 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_GetDevice(IDXGIVkSwapChain *
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
     TRACE("iface %p\n", iface);
-    return ID3D12Device11_QueryInterface(&chain->queue->device->ID3D12Device_iface, riid, object);
+    return ID3D12Device12_QueryInterface(&chain->queue->device->ID3D12Device_iface, riid, object);
 }
 
 static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_GetImage(IDXGIVkSwapChain *iface, UINT BufferId, REFIID riid, void **object)
@@ -993,7 +993,7 @@ static HRESULT dxgi_vk_swap_chain_init_sync_objects(struct dxgi_vk_swap_chain *c
     char env[8];
     HRESULT hr;
 
-    if (FAILED(hr = ID3D12Device11_CreateFence(&chain->queue->device->ID3D12Device_iface, 0,
+    if (FAILED(hr = ID3D12Device12_CreateFence(&chain->queue->device->ID3D12Device_iface, 0,
             D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence1, (void**)&chain->present.frame_latency_fence)))
     {
         WARN("Failed to create frame latency fence, hr %#x.\n", hr);
