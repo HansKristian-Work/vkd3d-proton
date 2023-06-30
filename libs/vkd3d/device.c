@@ -6216,7 +6216,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource2(d3d12_dev
     if (FAILED(hr = d3d12_resource_create_committed(device, desc, heap_properties,
             heap_flags, initial_state, optimized_clear_value, NULL, &object)))
     {
-        *resource = NULL;
+        if (resource)
+            *resource = NULL;
         return hr;
     }
 
