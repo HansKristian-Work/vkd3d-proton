@@ -1098,6 +1098,44 @@ void test_reset_command_allocator(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+void test_object_interface_null_cases(void)
+{
+    ID3D12Device *device;
+    ID3D12Fence *fence;
+    HRESULT hr;
+    UINT ref;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence);
+    ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", hr);
+
+    hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, NULL);
+    ok(hr == S_FALSE, "Unexpected hr #%x.\n", hr);
+
+    /* S_FALSE is returned even for bogus requested interfaces. */
+    hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Heap, NULL);
+    ok(hr == S_FALSE, "Unexpected hr #%x.\n", hr);
+
+    /* E_POINTER is always returned if QueryInterface ppOutput is NULL. */
+    hr = ID3D12Fence_QueryInterface(fence, &IID_IUnknown, NULL);
+    ok(hr == E_POINTER, "Unexpected hr #%x.\n", hr);
+
+    hr = ID3D12Fence_QueryInterface(fence, &IID_ID3D12Fence, NULL);
+    ok(hr == E_POINTER, "Unexpected hr #%x.\n", hr);
+
+    hr = ID3D12Fence_QueryInterface(fence, &IID_ID3D12Heap, NULL);
+    ok(hr == E_POINTER, "Unexpected hr #%x.\n", hr);
+
+    ID3D12Fence_Release(fence);
+    ref = ID3D12Device_Release(device);
+    ok(ref == 0, "Unexpected ref-count %u\n", ref);
+}
+
 void test_object_interface(void)
 {
     D3D12_DESCRIPTOR_HEAP_DESC descriptor_heap_desc;
