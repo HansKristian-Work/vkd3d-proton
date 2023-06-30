@@ -67,7 +67,7 @@ HRESULT vkd3d_create_device(const struct vkd3d_device_create_info *create_info,
 
     if (!device)
     {
-        ID3D12Device11_Release(&object->ID3D12Device_iface);
+        ID3D12Device12_Release(&object->ID3D12Device_iface);
         return S_FALSE;
     }
 

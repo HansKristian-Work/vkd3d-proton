@@ -3009,10 +3009,11 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
             || IsEqualGUID(riid, &IID_ID3D12Device9)
             || IsEqualGUID(riid, &IID_ID3D12Device10)
             || IsEqualGUID(riid, &IID_ID3D12Device11)
+            || IsEqualGUID(riid, &IID_ID3D12Device12)
             || IsEqualGUID(riid, &IID_ID3D12Object)
             || IsEqualGUID(riid, &IID_IUnknown))
     {
-        ID3D12Device11_AddRef(iface);
+        ID3D12Device12_AddRef(iface);
         *object = iface;
         return S_OK;
     }
@@ -6121,8 +6122,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateProtectedResourceSession1(d3
     return E_NOTIMPL;
 }
 
-static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourceAllocationInfo2(d3d12_device_iface *iface,
+static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourceAllocationInfo3(d3d12_device_iface *iface,
         D3D12_RESOURCE_ALLOCATION_INFO *info, UINT visible_mask, UINT count, const D3D12_RESOURCE_DESC1 *resource_descs,
+        const UINT32 *p_num_castable_formats, const DXGI_FORMAT * const *pp_castable_formats,
         D3D12_RESOURCE_ALLOCATION_INFO1 *resource_infos)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
@@ -6194,6 +6196,16 @@ invalid:
         info->Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
 
     return info;
+}
+
+static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourceAllocationInfo2(d3d12_device_iface *iface,
+        D3D12_RESOURCE_ALLOCATION_INFO *info, UINT visible_mask, UINT count, const D3D12_RESOURCE_DESC1 *resource_descs,
+        D3D12_RESOURCE_ALLOCATION_INFO1 *resource_infos)
+{
+    TRACE("iface %p, info %p, visible_mask 0x%08x, count %u, resource_descs %p.\n",
+            iface, info, visible_mask, count, resource_descs);
+
+    return d3d12_device_GetResourceAllocationInfo3(iface, info, visible_mask, count, resource_descs, NULL, NULL, resource_infos);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource2(d3d12_device_iface *iface,
@@ -6428,7 +6440,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource2(d3d12_devi
 
 /* Gotta love C sometimes ... :') */
 #define VKD3D_DECLARE_D3D12_DEVICE_VARIANT(name, create_desc, copy_desc_variant) \
-CONST_VTBL struct ID3D12Device11Vtbl d3d12_device_vtbl_##name = \
+CONST_VTBL struct ID3D12Device12Vtbl d3d12_device_vtbl_##name = \
 { \
     /* IUnknown methods */ \
     d3d12_device_QueryInterface, \
@@ -6524,6 +6536,8 @@ CONST_VTBL struct ID3D12Device11Vtbl d3d12_device_vtbl_##name = \
     d3d12_device_CreateReservedResource2, \
     /* ID3D12Device11 methods */ \
     d3d12_device_CreateSampler2_##create_desc, \
+    /* ID3D12Device12 methods */ \
+    d3d12_device_GetResourceAllocationInfo3, \
 }
 
 VKD3D_DECLARE_D3D12_DEVICE_VARIANT(default, default, default);

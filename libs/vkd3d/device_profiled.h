@@ -274,7 +274,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource2_profiled(d
             num_castable_formats, castable_formats, iid, resource);
 }
 
-CONST_VTBL struct ID3D12Device11Vtbl d3d12_device_vtbl_profiled =
+CONST_VTBL struct ID3D12Device12Vtbl d3d12_device_vtbl_profiled =
 {
     /* IUnknown methods */
     d3d12_device_QueryInterface,
@@ -370,6 +370,8 @@ CONST_VTBL struct ID3D12Device11Vtbl d3d12_device_vtbl_profiled =
     d3d12_device_CreateReservedResource2_profiled,
     /* ID3D12Device11 methods */
     d3d12_device_CreateSampler2_profiled,
+    /* ID3D12Device12 methods */
+    d3d12_device_GetResourceAllocationInfo3,
 };
 
 #endif
