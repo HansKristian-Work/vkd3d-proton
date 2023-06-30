@@ -673,8 +673,11 @@ static void vkd3d_instance_deduce_config_flags_from_environment(void)
         vkd3d_config_flags |= VKD3D_CONFIG_FLAG_DEBUG_UTILS;
     }
 
+    /* RADV_THREAD_TRACE_xxx are deprecated and will be removed at some point. */
     if (vkd3d_get_env_var("RADV_THREAD_TRACE", env, sizeof(env)) ||
-            vkd3d_get_env_var("RADV_THREAD_TRACE_TRIGGER", env, sizeof(env)))
+            vkd3d_get_env_var("RADV_THREAD_TRACE_TRIGGER", env, sizeof(env)) ||
+            (vkd3d_get_env_var("MESA_VK_TRACE", env, sizeof(env)) &&
+                strcmp(env, "rgp") == 0))
     {
         INFO("RADV thread trace is enabled. Forcing debug utils to be enabled for labels.\n");
         /* Disable caching so we can get full debug information when emitting labels. */
