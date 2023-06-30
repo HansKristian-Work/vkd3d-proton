@@ -44,6 +44,7 @@ decl_test(test_create_graphics_pipeline_state);
 decl_test(test_create_pipeline_state);
 decl_test(test_create_fence);
 decl_test(test_object_interface);
+decl_test(test_object_interface_null_cases);
 decl_test(test_multithread_private_data);
 decl_test(test_reset_command_allocator);
 decl_test(test_cpu_signal_fence);
