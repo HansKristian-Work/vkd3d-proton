@@ -808,6 +808,13 @@ HRESULT return_interface(void *iface, REFIID iface_iid,
     IUnknown *unknown = iface;
     HRESULT hr;
 
+    /* Don't check IID here, we always have to return S_FALSE. */
+    if (!object)
+    {
+        IUnknown_Release(unknown);
+        return S_FALSE;
+    }
+
     if (IsEqualGUID(iface_iid, requested_iid))
     {
         *object = unknown;
