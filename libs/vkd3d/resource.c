@@ -2179,6 +2179,12 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC1 *desc, struct d3
 {
     const struct vkd3d_format *format;
 
+    if (desc->Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D && desc->SampleDesc.Count > 1)
+    {
+        WARN("MSAA not supported on 1D and 3D textures.\n");
+        return E_INVALIDARG;
+    }
+
     switch (desc->Dimension)
     {
         case D3D12_RESOURCE_DIMENSION_BUFFER:
