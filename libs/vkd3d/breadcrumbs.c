@@ -598,6 +598,7 @@ void vkd3d_breadcrumb_tracer_report_device_lost(struct vkd3d_breadcrumb_tracer *
     }
 
     ERR("Done analyzing breadcrumbs ...\n");
+    vkd3d_dbg_flush();
     pthread_mutex_unlock(&global_report_lock);
 }
 

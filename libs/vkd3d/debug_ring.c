@@ -350,6 +350,7 @@ void *vkd3d_shader_debug_ring_thread_main(void *arg)
             }
         }
         INFO("Done fishing for clues ...\n");
+        vkd3d_dbg_flush();
     }
 
     return NULL;
