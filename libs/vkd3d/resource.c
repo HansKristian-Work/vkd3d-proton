@@ -904,6 +904,11 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
 
     if (pad_allocation)
     {
+        WARN("Padding allocation requirements. Requested alignment %u < %u (dim %u, %u x %u x %u, %u levels, %u samples, fmt #%x, flags #%x).\n",
+                (unsigned int)target_alignment, (unsigned int)allocation_info->Alignment,
+                desc->Dimension,
+                (unsigned int)desc->Width, desc->Height, desc->DepthOrArraySize, desc->MipLevels, desc->SampleDesc.Count,
+                desc->Format, desc->Flags);
         /* On Polaris, 128k alignment can happen.
          * Also, some resources which should require 4 KiB alignment may end up requiring 64 KiB on AMD.
          * One example is mip-mapped BC textures. */
