@@ -4865,6 +4865,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
         return E_FAIL;
     }
 
+    /* Ensure that any non-temporal writes from CopyDescriptors are ordered properly. */
+    if (d3d12_device_use_embedded_mutable_descriptors(list->device))
+        vkd3d_memcpy_non_temporal_barrier();
+
     d3d12_command_list_end_current_render_pass(list, false);
     d3d12_command_list_end_transfer_batch(list);
 
