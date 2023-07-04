@@ -770,6 +770,7 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
     D3D12_RESOURCE_DESC1 validated_desc;
     VkMemoryRequirements2 requirements;
     VkDeviceSize target_alignment;
+    bool pad_allocation;
     HRESULT hr;
 
     assert(desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER);
@@ -813,10 +814,37 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
      * align the image ourselves. */
     target_alignment = desc->Alignment ? desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
 
-    if (allocation_info->Alignment > target_alignment)
+    pad_allocation = allocation_info->Alignment > target_alignment &&
+            (allocation_info->Alignment > D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT ||
+                    !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT));
+
+    if (pad_allocation)
     {
+        /* On Polaris, 128k alignment can happen.
+         * Also, some resources which should require 4 KiB alignment may end up requiring 64 KiB on AMD.
+         * One example is mip-mapped BC textures. */
         allocation_info->SizeInBytes += allocation_info->Alignment - target_alignment;
         allocation_info->Alignment = target_alignment;
+    }
+    else if (allocation_info->Alignment > target_alignment)
+    {
+        /* It is unclear from tests and documentation if implementations are allowed to return 64k alignment here.
+         * There are three possible interpretations:
+         * - We are forced to support 4 KiB alignment. We must pad as necessary.
+         *   This however, breaks at least one game due to game bug.
+         *   It is also horrible for space efficiency since we will effectively be doubling resource sizes just to handle padding.
+         * - We can return 64 KiB alignment here. This has not been observed on native implementations so far.
+         * - We must fail the call. This has not been observed on native implementations so far.
+         *   The official sample in https://github.com/microsoft/DirectX-Graphics-Samples/blob/master/Samples/Desktop/D3D12SmallResources/src/D3D12SmallResources.cpp#L365,
+         *   suggests that one of these interpretations is possible. On error, UINT64_MAX / 64k is returned, which
+         *   means we cannot determine if we must trigger error, or bump the alignment requirement,
+         *   since 64k alignment can mean both things :(
+         * - Failing the call is the most reasonable thing to do, but some applications may rely on it always working,
+         *   so we cannot take this path by default.
+         *   Additionally, on CreatePlacedResource time,
+         *   we can verify that alignment requirements are met if placement offset is small. */
+        FIXME_ONCE("Asking for small resource alignment, but we cannot satisfy it without padding.\n");
+        return E_INVALIDARG;
     }
 
     return hr;
@@ -3174,6 +3202,22 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
 
         /* Align manually. This works because we padded the required allocation size reported to the app. */
         VK_CALL(vkGetImageMemoryRequirements(device->vk_device, object->res.vk_image, &memory_requirements));
+
+        /* For SMALL_RESOURCE_PLACEMENT when we have workaround active,
+         * verify that application did in fact check alignment requirements.
+         * If application places 64k aligned, we will have made sure to leave room for padding below.
+         * See vkd3d_get_image_allocation_info() for details. */
+        if ((heap_offset & (D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT - 1)) &&
+                (heap_offset & (memory_requirements.alignment - 1)) &&
+                (vkd3d_config_flags & VKD3D_CONFIG_FLAG_REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT))
+        {
+            /* Unclear if this is our bug or app bug, so FIXME seems appropriate. */
+            FIXME("Application attempts to place small aligned resource at heap offset %"PRIu64", but it is not possible (requirement %u).\n",
+                    heap_offset, (unsigned int)memory_requirements.alignment);
+            hr = E_INVALIDARG;
+            goto fail;
+        }
+
         heap_offset = align(heap->allocation.offset + heap_offset, memory_requirements.alignment) - heap->allocation.offset;
 
         if (heap_offset + memory_requirements.size > heap->allocation.resource.size)
