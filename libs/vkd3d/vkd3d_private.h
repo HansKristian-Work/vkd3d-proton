@@ -4257,8 +4257,9 @@ static inline struct d3d12_desc_split_metadata d3d12_desc_decode_metadata(
          * If the descriptor is smaller, we can use the planar method where we encode log2 offset. */
         if (device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_EMBEDDED_PACKED_METADATA)
         {
-            struct vkd3d_descriptor_metadata *m =
-                    (void *)(uintptr_t)(va + device->bindless_state.descriptor_buffer_packed_metadata_offset);
+            struct vkd3d_descriptor_metadata *m;
+            va &= ~VKD3D_RESOURCE_EMBEDDED_CACHED_MASK;
+            m = (void *)(uintptr_t)(va + device->bindless_state.descriptor_buffer_packed_metadata_offset);
             meta.view = &m->view;
             meta.types = &m->types;
         }
