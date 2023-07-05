@@ -6159,7 +6159,7 @@ static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourc
         }
         else
         {
-            if (FAILED(vkd3d_get_image_allocation_info(device, desc, &resource_info)))
+            if (FAILED(vkd3d_get_image_allocation_info(device, desc, 0, NULL, &resource_info)))
             {
                 WARN("Failed to get allocation info for texture.\n");
                 goto invalid;
