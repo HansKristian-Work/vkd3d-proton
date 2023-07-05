@@ -10280,15 +10280,20 @@ static const struct vkd3d_format *vkd3d_clear_uav_find_uint_format(struct d3d12_
     return vkd3d_get_format(device, uint_format, false);
 }
 
-static bool vkd3d_clear_uav_check_uint_format_compatibility(struct d3d12_device *device, const struct vkd3d_format *resource_format, const struct vkd3d_format *uint_format)
+static bool vkd3d_clear_uav_check_uint_format_compatibility(struct d3d12_device *device,
+        const struct d3d12_resource *resource, const struct vkd3d_format *uint_format)
 {
     const struct vkd3d_format_compatibility_list *compat;
     unsigned int i;
 
-    if (resource_format->vk_format == uint_format->vk_format)
+    if (resource->format->vk_format == uint_format->vk_format)
         return true;
 
-    compat = &device->format_compatibility_lists[resource_format->dxgi_format];
+    compat = &resource->format_compatibility_list;
+
+    /* Full mutable, we can cast to whatever we want. */
+    if (compat->format_count > ARRAY_SIZE(compat->vk_formats))
+        return true;
 
     for (i = 0; i < compat->format_count; i++)
     {
@@ -10481,7 +10486,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
 
         vkd3d_mask_uint_clear_color(color.uint32, uint_format->vk_format);
 
-        if (vkd3d_clear_uav_check_uint_format_compatibility(list->device, resource_impl->format, uint_format))
+        if (vkd3d_clear_uav_check_uint_format_compatibility(list->device, resource_impl, uint_format))
         {
             struct vkd3d_texture_view_desc view_desc;
             memset(&view_desc, 0, sizeof(view_desc));

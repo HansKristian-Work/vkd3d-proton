@@ -927,6 +927,13 @@ struct vkd3d_subresource_layout
     size_t depth_pitch;
 };
 
+struct vkd3d_format_compatibility_list
+{
+    unsigned int format_count;
+    VkFormat vk_formats[VKD3D_MAX_COMPATIBLE_FORMAT_COUNT];
+    DXGI_FORMAT uint_format;
+};
+
 /* ID3D12Resource */
 typedef ID3D12Resource2 d3d12_resource_iface;
 
@@ -958,6 +965,7 @@ struct d3d12_resource
     struct d3d12_sparse_info sparse;
     struct vkd3d_view_map view_map;
     struct vkd3d_subresource_layout *subresource_layouts;
+    struct vkd3d_format_compatibility_list format_compatibility_list;
 
     priority_info priority;
 
@@ -3515,13 +3523,6 @@ static inline uint8_t *vkd3d_bindless_state_get_null_descriptor_payload(struct v
     assert(index >= 2 && index < 8);
     return bindless_state->null_descriptor_payloads[index - 2];
 }
-
-struct vkd3d_format_compatibility_list
-{
-    unsigned int format_count;
-    VkFormat vk_formats[VKD3D_MAX_COMPATIBLE_FORMAT_COUNT];
-    DXGI_FORMAT uint_format;
-};
 
 void vkd3d_format_compatibility_list_add_format(struct vkd3d_format_compatibility_list *list, VkFormat vk_format);
 
