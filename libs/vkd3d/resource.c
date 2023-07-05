@@ -244,18 +244,78 @@ static unsigned int max_miplevel_count(const D3D12_RESOURCE_DESC1 *desc)
     return vkd3d_log2i(size) + 1;
 }
 
+static bool vkd3d_get_castable_format_compatibility_list(const struct d3d12_device *device,
+        const D3D12_RESOURCE_DESC1 *desc, UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
+        struct vkd3d_format_compatibility_list *list, VkImageCreateFlags *vk_flags)
+{
+    const struct vkd3d_format *format = vkd3d_get_format(device, desc->Format, false);
+    bool base_format_is_compressed;
+    unsigned int i;
+
+    base_format_is_compressed = vkd3d_format_is_compressed(format);
+
+    memset(list, 0, sizeof(*list));
+
+    /* Odd-ball case which is non-sense, but allowed. Base format is TYPELESS and castable list has only FLOAT.
+     * We'll end up creating { UINT, FLOAT } in this case which could screw over compression,
+     * but this is bizarre enough that we should not try to work around it unless this becomes an actual problem. */
+    vkd3d_format_compatibility_list_add_format(list, format->vk_format);
+    if (format->type == VKD3D_FORMAT_TYPE_TYPELESS)
+        WARN("Using typeless base type #%x in a resource with castable formats.\n", desc->Format);
+
+    for (i = 0; i < num_castable_formats; i++)
+    {
+        format = vkd3d_get_format(device, castable_formats[i], false);
+        /* We have validated this already. */
+        assert(format);
+
+        /* For purposes for format list, typeless formats are ignored since you cannot create views of them,
+         * but they *do* contribute to format feature checks for some reason ... >_< */
+        if (format->type == VKD3D_FORMAT_TYPE_TYPELESS)
+            continue;
+
+        vkd3d_format_compatibility_list_add_format(list, format->vk_format);
+        if (base_format_is_compressed && !vkd3d_format_is_compressed(format))
+            *vk_flags |= VK_IMAGE_CREATE_BLOCK_TEXEL_VIEW_COMPATIBLE_BIT;
+    }
+
+    /* See vkd3d_get_format_compatibility_list for rationale. */
+    if ((desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) &&
+            device->device_info.shader_image_atomic_int64_features.shaderImageInt64Atomics)
+    {
+        for (i = 0; i < list->format_count; i++)
+        {
+            if (list->vk_formats[i] == VK_FORMAT_R32G32_UINT)
+            {
+                vkd3d_format_compatibility_list_add_format(list, VK_FORMAT_R64_UINT);
+                break;
+            }
+        }
+    }
+
+    if (list->format_count < 2)
+        return false;
+
+    *vk_flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+
+    /* Too many formats to expect compression, just use plain mutable. */
+    if (list->format_count == ARRAY_SIZE(list->vk_formats))
+        list->format_count = 0;
+
+    return list->format_count != 0;
+}
+
 static bool vkd3d_get_format_compatibility_list(const struct d3d12_device *device,
-        const D3D12_RESOURCE_DESC1 *desc, struct vkd3d_format_compatibility_list *out_list)
+        const D3D12_RESOURCE_DESC1 *desc, struct vkd3d_format_compatibility_list *list, VkImageCreateFlags *vk_flags)
 {
     static const VkFormat r32_uav_formats[] = { VK_FORMAT_R32_UINT, VK_FORMAT_R32_SINT, VK_FORMAT_R32_SFLOAT };
     const struct vkd3d_format *format = vkd3d_get_format(device, desc->Format, false);
-    struct vkd3d_format_compatibility_list list;
     unsigned int i;
 
-    memset(&list, 0, sizeof(list));
+    memset(list, 0, sizeof(*list));
 
     if (desc->Format < device->format_compatibility_list_count)
-        list = device->format_compatibility_lists[desc->Format];
+        *list = device->format_compatibility_lists[desc->Format];
 
     if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
     {
@@ -264,7 +324,7 @@ static bool vkd3d_get_format_compatibility_list(const struct d3d12_device *devic
         if (format->byte_count == 4 && format->type == VKD3D_FORMAT_TYPE_TYPELESS)
         {
             for (i = 0; i < ARRAY_SIZE(r32_uav_formats); i++)
-                vkd3d_format_compatibility_list_add_format(&list, r32_uav_formats[i]);
+                vkd3d_format_compatibility_list_add_format(list, r32_uav_formats[i]);
         }
 
         /* 64-bit image atomics in D3D12 are done through RG32_UINT instead.
@@ -275,21 +335,22 @@ static bool vkd3d_get_format_compatibility_list(const struct d3d12_device *devic
          * mutable format. */
         if (device->device_info.shader_image_atomic_int64_features.shaderImageInt64Atomics)
         {
-            for (i = 0; i < list.format_count; i++)
+            for (i = 0; i < list->format_count; i++)
             {
-                if (list.vk_formats[i] == VK_FORMAT_R32G32_UINT)
+                if (list->vk_formats[i] == VK_FORMAT_R32G32_UINT)
                 {
-                    vkd3d_format_compatibility_list_add_format(&list, VK_FORMAT_R64_UINT);
+                    vkd3d_format_compatibility_list_add_format(list, VK_FORMAT_R64_UINT);
                     break;
                 }
             }
         }
     }
 
-    if (list.format_count < 2)
+    if (list->format_count < 2)
         return false;
 
-    *out_list = list;
+    assert(list->format_count <= ARRAY_SIZE(list->vk_formats));
+    *vk_flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
     return true;
 }
 
@@ -561,16 +622,30 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
              * https://learn.microsoft.com/en-us/windows/win32/api/d3d12/ne-d3d12-d3d12_resource_flags
              * For now, keep this as a specific workaround until we understand the problem scope better. */
             image_info->flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+            memset(compat_list, 0, sizeof(*compat_list));
         }
-        else if (vkd3d_get_format_compatibility_list(device, desc, compat_list))
+        else
         {
-            format_list->sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO_KHR;
-            format_list->pNext = image_info->pNext;
-            format_list->viewFormatCount = compat_list->format_count;
-            format_list->pViewFormats = compat_list->vk_formats;
+            bool requires_format_list = false;
+            if (num_castable_formats)
+            {
+                requires_format_list = vkd3d_get_castable_format_compatibility_list(device, desc,
+                        num_castable_formats, castable_formats, compat_list, &image_info->flags);
+            }
+            else
+            {
+                requires_format_list = vkd3d_get_format_compatibility_list(device, desc,
+                        compat_list, &image_info->flags);
+            }
 
-            image_info->pNext = format_list;
-            image_info->flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+            if (requires_format_list)
+            {
+                format_list->sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO_KHR;
+                format_list->pNext = image_info->pNext;
+                format_list->viewFormatCount = compat_list->format_count;
+                format_list->pViewFormats = compat_list->vk_formats;
+                image_info->pNext = format_list;
+            }
         }
     }
 
