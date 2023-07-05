@@ -6397,19 +6397,107 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandQueue1(d3d12_device_i
     return d3d12_device_CreateCommandQueue(iface, desc, iid, command_queue);
 }
 
+static D3D12_RESOURCE_STATES vkd3d_barrier_layout_to_resource_state(D3D12_BARRIER_LAYOUT layout, D3D12_RESOURCE_FLAGS flags)
+{
+    if (flags & D3D12_RESOURCE_FLAG_RAYTRACING_ACCELERATION_STRUCTURE)
+        return D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
+
+    /* We cannot make meaningful use of the DIRECT_QUEUE and COMPUTE_QUEUE special layouts.
+     * There is no explicit ownership transfer in D3D12 like in Vulkan, so we have to use CONCURRENT either way. */
+    switch (layout)
+    {
+        case D3D12_BARRIER_LAYOUT_COMMON:
+        case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COMMON:
+        case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COMMON:
+            return D3D12_RESOURCE_STATE_COMMON;
+
+        case D3D12_BARRIER_LAYOUT_GENERIC_READ:
+        case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_GENERIC_READ:
+        case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_GENERIC_READ:
+            return D3D12_RESOURCE_STATE_GENERIC_READ;
+
+        case D3D12_BARRIER_LAYOUT_RENDER_TARGET:
+            return D3D12_RESOURCE_STATE_RENDER_TARGET;
+        case D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS:
+        case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_UNORDERED_ACCESS:
+        case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_UNORDERED_ACCESS:
+            return D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+
+        case D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE:
+            return D3D12_RESOURCE_STATE_DEPTH_WRITE;
+
+        case D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_READ:
+            return D3D12_RESOURCE_STATE_DEPTH_READ;
+
+        case D3D12_BARRIER_LAYOUT_SHADER_RESOURCE:
+        case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_SHADER_RESOURCE:
+            return D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_SHADER_RESOURCE:
+            return D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+
+        case D3D12_BARRIER_LAYOUT_COPY_SOURCE:
+        case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COPY_SOURCE:
+        case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_SOURCE:
+            return D3D12_RESOURCE_STATE_COPY_SOURCE;
+        case D3D12_BARRIER_LAYOUT_COPY_DEST:
+        case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COPY_DEST:
+        case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_DEST:
+            return D3D12_RESOURCE_STATE_COPY_DEST;
+
+        case D3D12_BARRIER_LAYOUT_RESOLVE_SOURCE:
+            return D3D12_RESOURCE_STATE_RESOLVE_SOURCE;
+        case D3D12_BARRIER_LAYOUT_RESOLVE_DEST:
+            return D3D12_RESOURCE_STATE_RESOLVE_DEST;
+        case D3D12_BARRIER_LAYOUT_SHADING_RATE_SOURCE:
+            return D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE;
+
+        default:
+            /* Generic fallback.
+             * It is unclear what the intention of initial layout = D3D12_BARRIER_LAYOUT_UNDEFINED means.
+             * To be defensive, fall back to COMMON here. The first use of such a resource must be a DISCARD
+             * barrier either way which will elide any initial transition. */
+            return D3D12_RESOURCE_STATE_COMMON;
+    }
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource3(d3d12_device_iface *iface,
     const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, 
     const D3D12_RESOURCE_DESC1 *desc, D3D12_BARRIER_LAYOUT initial_layout,
     const D3D12_CLEAR_VALUE *optimized_clear_value, ID3D12ProtectedResourceSession *protected_session,
     UINT32 num_castable_formats, const DXGI_FORMAT *castable_formats, REFIID iid, void **resource)
 {
-    FIXME("iface %p, heap_properties %p, heap_flags %u, desc %p, initial_layout %u, "
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_resource *object;
+    HRESULT hr;
+
+    TRACE("iface %p, heap_properties %p, heap_flags %u, desc %p, initial_layout %u, "
             "optimized_clear_value %p, protected_session %p, num_castable_formats %u, "
             "castable_formats %p, iid %s, resource %p stub!\n", iface,
             heap_properties, heap_flags, desc, initial_layout, optimized_clear_value, 
             protected_session, num_castable_formats, castable_formats, debugstr_guid(iid), resource);
 
-    return E_NOTIMPL;
+    if (protected_session)
+        FIXME("Ignoring protected session %p.\n", protected_session);
+
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER && initial_layout != D3D12_BARRIER_LAYOUT_UNDEFINED)
+    {
+        WARN("Using non-undefined layout for buffer. This is not allowed.\n");
+        return E_INVALIDARG;
+    }
+
+    /* For initial resource state, we cannot make use of the enhanced barrier layouts in any meaningful way.
+     * Just collapse them into the equivalent legacy layout.
+     * This can be refactored later if need be. */
+    if (FAILED(hr = d3d12_resource_create_committed(device, desc, heap_properties,
+            heap_flags, vkd3d_barrier_layout_to_resource_state(initial_layout, desc->Flags),
+            optimized_clear_value, num_castable_formats, castable_formats, NULL, &object)))
+    {
+        if (resource)
+            *resource = NULL;
+        return hr;
+    }
+
+    return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource2(d3d12_device_iface *iface,
@@ -6417,12 +6505,28 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource2(d3d12_device
     const D3D12_CLEAR_VALUE *optimized_clear_value, UINT32 num_castable_formats, 
     const DXGI_FORMAT *castable_formats, REFIID iid, void **resource)
 {
-    FIXME("iface %p, heap %p, heap_offset %#"PRIx64", desc %p, initial_layout %u, optimized_clear_value %p, "
+    struct d3d12_heap *heap_object = impl_from_ID3D12Heap(heap);
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_resource *object;
+    HRESULT hr;
+
+    TRACE("iface %p, heap %p, heap_offset %#"PRIx64", desc %p, initial_layout %u, optimized_clear_value %p, "
             "num_castable_formats %u, castable_formats %p, iid %s, resource %p stub!\n", iface,
             heap, heap_offset, desc, initial_layout, optimized_clear_value, num_castable_formats,
             castable_formats, debugstr_guid(iid), resource);
 
-    return E_NOTIMPL;
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER && initial_layout != D3D12_BARRIER_LAYOUT_UNDEFINED)
+    {
+        WARN("Using non-undefined layout for buffer. This is not allowed.\n");
+        return E_INVALIDARG;
+    }
+
+    if (FAILED(hr = d3d12_resource_create_placed(device, desc, heap_object,
+            heap_offset, vkd3d_barrier_layout_to_resource_state(initial_layout, desc->Flags),
+            optimized_clear_value, num_castable_formats, castable_formats, &object)))
+        return hr;
+
+    return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource2(d3d12_device_iface *iface,
@@ -6430,12 +6534,27 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource2(d3d12_devi
     ID3D12ProtectedResourceSession *protected_session, UINT32 num_castable_formats,
     const DXGI_FORMAT *castable_formats, REFIID iid, void **resource)
 {
-    FIXME("iface %p, desc %p, initial_layout %u, optimized_clear_value %p, protected_session %p, "
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_resource *object;
+    D3D12_RESOURCE_DESC1 desc1;
+    HRESULT hr;
+
+    TRACE("iface %p, desc %p, initial_layout %u, optimized_clear_value %p, protected_session %p, "
             "num_castable_formats %u, castable_formats %p, iid %s, resource %p stub!\n", iface,
             desc, initial_layout, optimized_clear_value, protected_session, num_castable_formats,
             castable_formats, debugstr_guid(iid), resource);
 
-    return E_NOTIMPL;
+    if (protected_session)
+        FIXME("Ignoring protected session %p.\n", protected_session);
+
+    d3d12_resource_promote_desc(desc, &desc1);
+
+    if (FAILED(hr = d3d12_resource_create_reserved(device, &desc1,
+            vkd3d_barrier_layout_to_resource_state(initial_layout, desc1.Flags), optimized_clear_value,
+            num_castable_formats, castable_formats, &object)))
+        return hr;
+
+    return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);
 }
 
 /* Gotta love C sometimes ... :') */
