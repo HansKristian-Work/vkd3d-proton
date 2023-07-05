@@ -4080,9 +4080,11 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
                 return E_INVALIDARG;
             }
 
-            data->MSPrimitivesPipelineStatisticIncludesCulledPrimitives = D3D12_TRI_STATE_UNKNOWN;
-            data->EnhancedBarriersSupported = FALSE;
-            data->RelaxedFormatCastingSupported = FALSE;
+            *data = device->d3d12_caps.options12;
+            TRACE("RelaxedFormatCasting supported %u.\n", data->RelaxedFormatCastingSupported);
+            TRACE("EnhancedBarriers supported %u.\n", data->EnhancedBarriersSupported);
+            TRACE("MSPrimitivesPipelineStatisticIncludesCulledPrimitives %u.\n",
+                    data->MSPrimitivesPipelineStatisticIncludesCulledPrimitives);
             return S_OK;
         }
 
@@ -7100,6 +7102,15 @@ static void d3d12_device_caps_init_feature_options11(struct d3d12_device *device
             device->device_info.properties2.properties.limits.minStorageBufferOffsetAlignment <= 16;
 }
 
+static void d3d12_device_caps_init_feature_options12(struct d3d12_device *device)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS12 *options12 = &device->d3d12_caps.options12;
+
+    /* Exposing this without EnhancedBarrier is somewhat meaningless,
+     * but this allows us to implement the enhanced barrier API piecemeal. */
+    options12->RelaxedFormatCastingSupported = TRUE;
+}
+
 static void d3d12_device_caps_init_feature_options13(struct d3d12_device *device)
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS13 *options13 = &device->d3d12_caps.options13;
@@ -7480,6 +7491,7 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
     d3d12_device_caps_init_feature_options9(device);
     d3d12_device_caps_init_feature_options10(device);
     d3d12_device_caps_init_feature_options11(device);
+    d3d12_device_caps_init_feature_options12(device);
     d3d12_device_caps_init_feature_options13(device);
     d3d12_device_caps_init_feature_options14(device);
     d3d12_device_caps_init_feature_level(device);
