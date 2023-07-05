@@ -1063,7 +1063,9 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
 HRESULT vkd3d_create_buffer_explicit_usage(struct d3d12_device *device,
         VkBufferUsageFlags vk_usage, VkDeviceSize vk_size, VkBuffer *vk_buffer);
 HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
-        const D3D12_RESOURCE_DESC1 *desc, D3D12_RESOURCE_ALLOCATION_INFO *allocation_info);
+        const D3D12_RESOURCE_DESC1 *desc,
+        UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
+        D3D12_RESOURCE_ALLOCATION_INFO *allocation_info);
 
 enum vkd3d_view_type
 {

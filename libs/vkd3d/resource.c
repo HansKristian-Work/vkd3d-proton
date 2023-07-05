@@ -496,6 +496,7 @@ struct vkd3d_image_create_info
 static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC1 *desc, struct d3d12_resource *resource,
+        UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
         struct vkd3d_image_create_info *create_info)
 {
     struct vkd3d_format_compatibility_list *compat_list = &create_info->format_compat_list;
@@ -740,7 +741,9 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
 
 static HRESULT vkd3d_create_image(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        const D3D12_RESOURCE_DESC1 *desc, struct d3d12_resource *resource, VkImage *vk_image)
+        const D3D12_RESOURCE_DESC1 *desc, struct d3d12_resource *resource,
+        UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
+        VkImage *vk_image)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_image_create_info create_info;
@@ -748,7 +751,7 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
     HRESULT hr;
 
     if (FAILED(hr = vkd3d_get_image_create_info(device, heap_properties,
-            heap_flags, desc, resource, &create_info)))
+            heap_flags, desc, resource, num_castable_formats, castable_formats, &create_info)))
         return hr;
 
     if ((vr = VK_CALL(vkCreateImage(device->vk_device, &create_info.image_info, NULL, vk_image))) < 0)
@@ -763,7 +766,9 @@ static size_t vkd3d_compute_resource_layouts_from_desc(struct d3d12_device *devi
         const D3D12_RESOURCE_DESC1 *desc, struct vkd3d_subresource_layout *layouts);
 
 HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
-        const D3D12_RESOURCE_DESC1 *desc, D3D12_RESOURCE_ALLOCATION_INFO *allocation_info)
+        const D3D12_RESOURCE_DESC1 *desc,
+        UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
+        D3D12_RESOURCE_ALLOCATION_INFO *allocation_info)
 {
     static const D3D12_HEAP_PROPERTIES heap_properties = {D3D12_HEAP_TYPE_DEFAULT};
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -784,7 +789,9 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
         desc = &validated_desc;
     }
 
-    if (FAILED(hr = vkd3d_get_image_create_info(device, &heap_properties, 0, desc, NULL, &create_info)))
+    if (FAILED(hr = vkd3d_get_image_create_info(device, &heap_properties, 0, desc, NULL,
+            num_castable_formats, castable_formats,
+            &create_info)))
         return hr;
 
     requirement_info.sType = VK_STRUCTURE_TYPE_DEVICE_IMAGE_MEMORY_REQUIREMENTS;
@@ -2352,7 +2359,9 @@ static HRESULT d3d12_resource_validate_heap_properties(const D3D12_RESOURCE_DESC
 
 static HRESULT d3d12_resource_validate_create_info(const D3D12_RESOURCE_DESC1 *desc,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_RESOURCE_STATES initial_state,
-        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_device *device)
+        const D3D12_CLEAR_VALUE *optimized_clear_value,
+        UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
+        struct d3d12_device *device)
 {
     HRESULT hr;
 
@@ -2715,7 +2724,9 @@ static void d3d12_resource_destroy_and_release_device(struct d3d12_resource *res
     d3d12_device_release(device);
 }
 
-static HRESULT d3d12_resource_create_vk_resource(struct d3d12_resource *resource, struct d3d12_device *device)
+static HRESULT d3d12_resource_create_vk_resource(struct d3d12_resource *resource,
+        UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
+        struct d3d12_device *device)
 {
     const D3D12_HEAP_PROPERTIES *heap_properties;
     HRESULT hr;
@@ -2737,7 +2748,9 @@ static HRESULT d3d12_resource_create_vk_resource(struct d3d12_resource *resource
             resource->desc.MipLevels = max_miplevel_count(&resource->desc);
 
         if (FAILED(hr = vkd3d_create_image(device, heap_properties,
-                D3D12_HEAP_FLAG_NONE, &resource->desc, resource, &resource->res.vk_image)))
+                D3D12_HEAP_FLAG_NONE, &resource->desc, resource,
+                num_castable_formats, castable_formats,
+                &resource->res.vk_image)))
             return hr;
     }
 
@@ -2792,7 +2805,9 @@ static size_t d3d12_resource_init_subresource_layouts(struct d3d12_resource *res
 static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags,
         const D3D12_RESOURCE_DESC1 *desc, const D3D12_HEAP_PROPERTIES *heap_properties,
         D3D12_HEAP_FLAGS heap_flags, D3D12_RESOURCE_STATES initial_state,
-        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
+        const D3D12_CLEAR_VALUE *optimized_clear_value,
+        UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
+        struct d3d12_resource **resource)
 {
     const D3D12_RESOURCE_FLAGS high_priority_resource_flags =
         D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET |
@@ -2802,7 +2817,8 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
     HRESULT hr;
 
     if (FAILED(hr = d3d12_resource_validate_create_info(desc,
-            heap_properties, initial_state, optimized_clear_value, device)))
+            heap_properties, initial_state, optimized_clear_value,
+            num_castable_formats, castable_formats, device)))
         return hr;
 
     if (!(object = vkd3d_malloc(sizeof(*object))))
@@ -2912,7 +2928,9 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
     HRESULT hr;
 
     if (FAILED(hr = d3d12_resource_create(device, VKD3D_RESOURCE_COMMITTED | VKD3D_RESOURCE_ALLOCATION,
-            desc, heap_properties, heap_flags, initial_state, optimized_clear_value, &object)))
+            desc, heap_properties, heap_flags, initial_state, optimized_clear_value,
+            num_castable_formats, castable_formats,
+            &object)))
         return hr;
 
     if (d3d12_resource_is_texture(object))
@@ -2932,7 +2950,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         VkExportMemoryAllocateInfo export_info;
 #endif
 
-        if (FAILED(hr = d3d12_resource_create_vk_resource(object, device)))
+        if (FAILED(hr = d3d12_resource_create_vk_resource(object, num_castable_formats, castable_formats, device)))
             goto fail;
 
         image_info.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2;
@@ -3164,7 +3182,9 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
                 heap->desc.Flags & ~(D3D12_HEAP_FLAG_DENY_BUFFERS |
                         D3D12_HEAP_FLAG_DENY_NON_RT_DS_TEXTURES |
                         D3D12_HEAP_FLAG_DENY_RT_DS_TEXTURES),
-                initial_state, optimized_clear_value, 0, NULL, NULL, resource)))
+                initial_state, optimized_clear_value,
+                num_castable_formats, castable_formats,
+                NULL, resource)))
         {
             ERR("Failed to create fallback committed resource.\n");
         }
@@ -3172,7 +3192,9 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
     }
 
     if (FAILED(hr = d3d12_resource_create(device, VKD3D_RESOURCE_PLACED, desc,
-            &heap->desc.Properties, heap->desc.Flags, initial_state, optimized_clear_value, &object)))
+            &heap->desc.Properties, heap->desc.Flags, initial_state, optimized_clear_value,
+            num_castable_formats, castable_formats,
+            &object)))
         return hr;
 
     /* https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12device-createheap#remarks.
@@ -3181,7 +3203,7 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
 
     if (d3d12_resource_is_texture(object))
     {
-        if (FAILED(hr = d3d12_resource_create_vk_resource(object, device)))
+        if (FAILED(hr = d3d12_resource_create_vk_resource(object, num_castable_formats, castable_formats, device)))
             goto fail;
 
         /* Align manually. This works because we padded the required allocation size reported to the app. */
@@ -3309,10 +3331,12 @@ HRESULT d3d12_resource_create_reserved(struct d3d12_device *device,
     HRESULT hr;
 
     if (FAILED(hr = d3d12_resource_create(device, VKD3D_RESOURCE_RESERVED, desc,
-            NULL, D3D12_HEAP_FLAG_NONE, initial_state, optimized_clear_value, &object)))
+            NULL, D3D12_HEAP_FLAG_NONE, initial_state, optimized_clear_value,
+            num_castable_formats, castable_formats,
+            &object)))
         return hr;
 
-    if (FAILED(hr = d3d12_resource_create_vk_resource(object, device)))
+    if (FAILED(hr = d3d12_resource_create_vk_resource(object, num_castable_formats, castable_formats, device)))
         goto fail;
 
     if (FAILED(hr = d3d12_resource_init_sparse_info(object, device, &object->sparse)))
