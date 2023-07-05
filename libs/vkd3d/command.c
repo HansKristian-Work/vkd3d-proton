@@ -10292,7 +10292,7 @@ static bool vkd3d_clear_uav_check_uint_format_compatibility(struct d3d12_device 
     compat = &resource->format_compatibility_list;
 
     /* Full mutable, we can cast to whatever we want. */
-    if (compat->format_count > ARRAY_SIZE(compat->vk_formats))
+    if (compat->format_count == 0)
         return true;
 
     for (i = 0; i < compat->format_count; i++)
