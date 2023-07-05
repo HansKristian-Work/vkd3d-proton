@@ -2903,7 +2903,9 @@ static void d3d12_resource_tag_debug_name(struct d3d12_resource *resource,
 
 HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12_RESOURCE_DESC1 *desc,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, D3D12_RESOURCE_STATES initial_state,
-        const D3D12_CLEAR_VALUE *optimized_clear_value, HANDLE shared_handle, struct d3d12_resource **resource)
+        const D3D12_CLEAR_VALUE *optimized_clear_value,
+        UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
+        HANDLE shared_handle, struct d3d12_resource **resource)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct d3d12_resource *object;
@@ -3139,7 +3141,9 @@ static HRESULT d3d12_resource_validate_heap(const D3D12_RESOURCE_DESC1 *resource
 
 HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RESOURCE_DESC1 *desc,
         struct d3d12_heap *heap, uint64_t heap_offset, D3D12_RESOURCE_STATES initial_state,
-        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
+        const D3D12_CLEAR_VALUE *optimized_clear_value,
+        UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
+        struct d3d12_resource **resource)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     struct vkd3d_allocate_memory_info allocate_info;
@@ -3160,7 +3164,7 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
                 heap->desc.Flags & ~(D3D12_HEAP_FLAG_DENY_BUFFERS |
                         D3D12_HEAP_FLAG_DENY_NON_RT_DS_TEXTURES |
                         D3D12_HEAP_FLAG_DENY_RT_DS_TEXTURES),
-                initial_state, optimized_clear_value, NULL, resource)))
+                initial_state, optimized_clear_value, 0, NULL, NULL, resource)))
         {
             ERR("Failed to create fallback committed resource.\n");
         }
@@ -3297,7 +3301,9 @@ fail:
 
 HRESULT d3d12_resource_create_reserved(struct d3d12_device *device,
         const D3D12_RESOURCE_DESC1 *desc, D3D12_RESOURCE_STATES initial_state,
-        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource)
+        const D3D12_CLEAR_VALUE *optimized_clear_value,
+        UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
+        struct d3d12_resource **resource)
 {
     struct d3d12_resource *object;
     HRESULT hr;

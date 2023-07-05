@@ -1021,13 +1021,19 @@ UINT d3d12_plane_index_from_vk_aspect(VkImageAspectFlagBits aspect);
 
 HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12_RESOURCE_DESC1 *desc,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, D3D12_RESOURCE_STATES initial_state,
-        const D3D12_CLEAR_VALUE *optimized_clear_value, HANDLE shared_handle, struct d3d12_resource **resource);
+        const D3D12_CLEAR_VALUE *optimized_clear_value,
+        UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
+        HANDLE shared_handle, struct d3d12_resource **resource);
 HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RESOURCE_DESC1 *desc,
         struct d3d12_heap *heap, uint64_t heap_offset, D3D12_RESOURCE_STATES initial_state,
-        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource);
+        const D3D12_CLEAR_VALUE *optimized_clear_value,
+        UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
+        struct d3d12_resource **resource);
 HRESULT d3d12_resource_create_reserved(struct d3d12_device *device,
         const D3D12_RESOURCE_DESC1 *desc, D3D12_RESOURCE_STATES initial_state,
-        const D3D12_CLEAR_VALUE *optimized_clear_value, struct d3d12_resource **resource);
+        const D3D12_CLEAR_VALUE *optimized_clear_value,
+        UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
+        struct d3d12_resource **resource);
 
 static inline struct d3d12_resource *impl_from_ID3D12Resource2(ID3D12Resource2 *iface)
 {
