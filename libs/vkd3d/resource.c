@@ -780,7 +780,7 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
     HRESULT hr;
 
     assert(desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER);
-    assert(d3d12_resource_validate_desc(desc, device) == S_OK);
+    assert(d3d12_resource_validate_desc(desc, num_castable_formats, castable_formats, device) == S_OK);
 
     if (!desc->MipLevels)
     {
@@ -2190,9 +2190,113 @@ void d3d12_resource_promote_desc(const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE
     desc1->SamplerFeedbackMipRegion.Depth = 0;
 }
 
-HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC1 *desc, struct d3d12_device *device)
+static HRESULT d3d12_resource_validate_usage(const D3D12_RESOURCE_DESC1 *desc,
+        UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
+        struct d3d12_device *device)
+{
+    /* Sentinel for format being supported at all. */
+    VkFormatFeatureFlags required_image_flags =
+            VK_FORMAT_FEATURE_TRANSFER_DST_BIT | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;
+    const struct vkd3d_format *format = NULL;
+    const struct vkd3d_format *cast_format;
+    VkFormatFeatureFlags total_flags = 0;
+    UINT i;
+
+    /* Validate that special usage flags are satisfied. */
+    if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
+        required_image_flags |= VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
+    if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)
+        required_image_flags |= VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;
+    if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
+        required_image_flags |= VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    if (!(desc->Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))
+        required_image_flags |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+
+    if (desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
+    {
+        /* For DSV-enabled textures, UAV and RTV is banned. We only need to check if one format
+         * in the cast list potentially supports DSV. Oddly enough, we can add TYPELESS formats
+         * to the list, and it still counts for purposes of validation, but they don't count as being viewable,
+         * so we can end up in a situation where we can create a DSV texture that can never be viewed as DSV ...
+         * This is demonstrated by tests, and is likely a bug/quirk of the runtime, but applications
+         * may accidentally rely on this. */
+        format = vkd3d_format_from_d3d12_resource_desc(device, desc, 0);
+        if (!format)
+        {
+            WARN("Unrecognized format #%x.\n", desc->Format);
+            return E_INVALIDARG;
+        }
+        total_flags |= num_castable_formats ? format->vk_format_features : format->vk_format_features_castable;
+    }
+
+    /* Validate format cast list. */
+    for (i = 0; i < num_castable_formats; i++)
+    {
+        if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+        {
+            /* D3D12 runtime allows this, even if it is nonsensical. */
+            if (castable_formats[i] != DXGI_FORMAT_UNKNOWN)
+                return E_INVALIDARG;
+            continue;
+        }
+
+        cast_format = vkd3d_get_format(device, castable_formats[i],
+                !!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL));
+        if (!cast_format)
+        {
+            WARN("Unrecognized format #%x.\n", castable_formats[i]);
+            return E_INVALIDARG;
+        }
+        total_flags |= cast_format->vk_format_features;
+
+        if (vkd3d_format_is_compressed(format))
+        {
+            if (vkd3d_format_is_compressed(cast_format))
+            {
+                if (format->block_byte_count != cast_format->block_byte_count)
+                {
+                    WARN("Cannot cast to block format of different size.\n");
+                    return E_INVALIDARG;
+                }
+            }
+            else
+            {
+                if (format->block_byte_count != cast_format->byte_count)
+                {
+                    WARN("Cannot cast to non-compressed format with different size.\n");
+                    return E_INVALIDARG;
+                }
+            }
+        }
+        else if (vkd3d_format_is_compressed(cast_format))
+        {
+            WARN("Cannot cast uncompressed to block-compressed format.\n");
+            return E_INVALIDARG;
+        }
+        else if (format->byte_count != cast_format->byte_count)
+        {
+            WARN("Cannot cast to type of different bit width.\n");
+            return E_INVALIDARG;
+        }
+    }
+
+    if (desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER &&
+            (total_flags & required_image_flags) != required_image_flags)
+    {
+        WARN("Requested resource flags #%x, but no format in cast list supports it.\n",
+                desc->Flags);
+        return E_INVALIDARG;
+    }
+
+    return S_OK;
+}
+
+HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC1 *desc,
+        UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
+        struct d3d12_device *device)
 {
     const struct vkd3d_format *format;
+    HRESULT hr;
 
     if (desc->Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D && desc->SampleDesc.Count > 1)
     {
@@ -2277,6 +2381,9 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC1 *desc, struct d3
             WARN("Invalid resource dimension %#x.\n", desc->Dimension);
             return E_INVALIDARG;
     }
+
+    if (FAILED(hr = d3d12_resource_validate_usage(desc, num_castable_formats, castable_formats, device)))
+        return hr;
 
     return d3d12_validate_resource_flags(desc->Flags);
 }
@@ -2365,7 +2472,7 @@ static HRESULT d3d12_resource_validate_create_info(const D3D12_RESOURCE_DESC1 *d
 {
     HRESULT hr;
 
-    if (FAILED(hr = d3d12_resource_validate_desc(desc, device)))
+    if (FAILED(hr = d3d12_resource_validate_desc(desc, num_castable_formats, castable_formats, device)))
         return hr;
 
     if (initial_state == D3D12_RESOURCE_STATE_RENDER_TARGET && !(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET))
