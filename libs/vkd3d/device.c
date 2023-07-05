@@ -6144,9 +6144,16 @@ static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourc
     for (i = 0; i < count; i++)
     {
         const D3D12_RESOURCE_DESC1 *desc = &resource_descs[i];
+        const DXGI_FORMAT *p_castable_formats = NULL;
+        UINT num_castable_formats = 0;
         hasMsaaResource |= desc->SampleDesc.Count > 1;
 
-        if (FAILED(d3d12_resource_validate_desc(desc, device)))
+        if (p_num_castable_formats)
+            num_castable_formats = p_num_castable_formats[i];
+        if (pp_castable_formats)
+            p_castable_formats = pp_castable_formats[i];
+
+        if (FAILED(d3d12_resource_validate_desc(desc, num_castable_formats, p_castable_formats, device)))
         {
             WARN("Invalid resource desc.\n");
             goto invalid;
@@ -6159,7 +6166,9 @@ static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE d3d12_device_GetResourc
         }
         else
         {
-            if (FAILED(vkd3d_get_image_allocation_info(device, desc, 0, NULL, &resource_info)))
+            if (FAILED(vkd3d_get_image_allocation_info(device, desc,
+                    num_castable_formats, p_castable_formats,
+                    &resource_info)))
             {
                 WARN("Failed to get allocation info for texture.\n");
                 goto invalid;
@@ -6305,7 +6314,7 @@ static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints1(d3d12_device_i
         goto end;
     }
 
-    if (FAILED(d3d12_resource_validate_desc(desc, device)))
+    if (FAILED(d3d12_resource_validate_desc(desc, 0, NULL, device)))
     {
         WARN("Invalid resource desc.\n");
         goto end;
