@@ -4518,6 +4518,12 @@ struct vkd3d_format
     enum vkd3d_format_type type;
     bool is_emulated;
     const struct vkd3d_format_footprint *plane_footprints;
+    /* Only includes format features explicitly for vk_format. */
+    VkFormatFeatureFlags vk_format_features;
+    /* If the format is TYPELESS or relaxed castable (e.g. sRGB to UNORM),
+     * the feature list includes all potential format features.
+     * This will hold either just depth features or color features depending on which format query is used. */
+    VkFormatFeatureFlags vk_format_features_castable;
 };
 
 static inline size_t vkd3d_format_get_data_offset(const struct vkd3d_format *format,
