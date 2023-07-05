@@ -391,13 +391,24 @@ void vkd3d_format_compatibility_list_add_format(struct vkd3d_format_compatibilit
     unsigned int i;
     bool found = false;
 
+    /* Already marked overflow. */
+    if (list->format_count > ARRAY_SIZE(list->vk_formats))
+        return;
+
     for (i = 0; i < list->format_count && !found; i++)
         found = list->vk_formats[i] == vk_format;
 
     if (!found)
     {
-        assert(list->format_count < ARRAY_SIZE(list->vk_formats));
-        list->vk_formats[list->format_count++] = vk_format;
+        if (list->format_count < ARRAY_SIZE(list->vk_formats))
+        {
+            list->vk_formats[list->format_count++] = vk_format;
+        }
+        else
+        {
+            /* Mark overflow. Caller can fall back to plain MUTABLE_FORMAT_BIT without format list. */
+            list->format_count = UINT32_MAX;
+        }
     }
 }
 
@@ -428,8 +439,9 @@ static HRESULT vkd3d_init_format_compatibility_lists(struct d3d12_device *device
 
         for (j = 0; j < ARRAY_SIZE(src->view_formats) && src->view_formats[j]; j++)
             vkd3d_format_compatibility_list_add_format(dst, vkd3d_get_vk_format(src->view_formats[j]));
-    }
 
+        assert(dst->format_count <= ARRAY_SIZE(dst->vk_formats));
+    }
 
     device->format_compatibility_list_count = count;
     device->format_compatibility_lists = lists;
