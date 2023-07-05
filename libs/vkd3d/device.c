@@ -5155,7 +5155,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_OpenSharedHandle(d3d12_device_ifac
         heap_props.VisibleNodeMask = 0;
 
         hr = d3d12_resource_create_committed(device, &desc, &heap_props,
-                D3D12_HEAP_FLAG_SHARED, D3D12_RESOURCE_STATE_COMMON, NULL, handle, &resource);
+                D3D12_HEAP_FLAG_SHARED, D3D12_RESOURCE_STATE_COMMON, NULL, 0, NULL, handle, &resource);
         if (kmt_handle)
             CloseHandle(handle);
 
@@ -5924,7 +5924,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource1(d3d12_devi
     d3d12_resource_promote_desc(desc, &desc1);
 
     if (FAILED(hr = d3d12_resource_create_reserved(device, &desc1,
-            initial_state, optimized_clear_value, &object)))
+            initial_state, optimized_clear_value, 0, NULL, &object)))
         return hr;
 
     return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);
@@ -6226,7 +6226,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource2(d3d12_dev
         FIXME("Ignoring protected session %p.\n", protected_session);
 
     if (FAILED(hr = d3d12_resource_create_committed(device, desc, heap_properties,
-            heap_flags, initial_state, optimized_clear_value, NULL, &object)))
+            heap_flags, initial_state, optimized_clear_value, 0, NULL, NULL, &object)))
     {
         if (resource)
             *resource = NULL;
@@ -6252,7 +6252,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource1(d3d12_device
             optimized_clear_value, debugstr_guid(iid), resource);
 
     if (FAILED(hr = d3d12_resource_create_placed(device, resource_desc, heap_object,
-            heap_offset, initial_state, optimized_clear_value, &object)))
+            heap_offset, initial_state, optimized_clear_value, 0, NULL, &object)))
         return hr;
 
     return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);

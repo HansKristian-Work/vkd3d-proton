@@ -448,7 +448,7 @@ static HRESULT dxgi_vk_swap_chain_allocate_user_buffer(struct dxgi_vk_swap_chain
     heap_props.VisibleNodeMask = 1;
 
     return d3d12_resource_create_committed(device, &resource_desc, &heap_props, D3D12_HEAP_FLAG_NONE,
-            D3D12_RESOURCE_STATE_PRESENT, NULL, NULL, ppResource);
+            D3D12_RESOURCE_STATE_PRESENT, NULL, 0, NULL, NULL, ppResource);
 }
 
 static HRESULT dxgi_vk_swap_chain_reallocate_user_buffers(struct dxgi_vk_swap_chain *chain)
