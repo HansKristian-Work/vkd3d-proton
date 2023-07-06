@@ -5008,7 +5008,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateSharedHandle(d3d12_device_if
                 metadata.Usage = D3D11_USAGE_DEFAULT;
                 metadata.BindFlags = D3D11_BIND_SHADER_RESOURCE;
                 metadata.CPUAccessFlags = 0;
-                metadata.MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
+                metadata.MiscFlags = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
 
                 if (resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)
                     metadata.BindFlags |= D3D11_BIND_RENDER_TARGET;
