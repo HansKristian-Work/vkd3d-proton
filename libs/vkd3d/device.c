@@ -5022,6 +5022,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateSharedHandle(d3d12_device_if
                 if (!vkd3d_set_shared_metadata(*handle, &metadata, sizeof(metadata)))
                     ERR("Failed to set metadata for shared resource, importing created handle will fail.\n");
             }
+            CloseHandle(*handle);
         }
 
         ID3D12Resource_Release(resource_iface);
