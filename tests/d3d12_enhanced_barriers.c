@@ -1010,3 +1010,215 @@ void test_enhanced_barrier_buffer_transfer(void)
     ID3D12GraphicsCommandList7_Release(list7);
     destroy_test_context(&context);
 }
+
+void test_enhanced_barrier_global_direct_queue_smoke(void)
+{
+    /* Attempt to use every possible stage / access pattern and make sure that we don't trip any validation.
+     * It would be extremely tedious to write GPU work tests that depend on the exact barriers working.
+     * It would also be almost impossible to test everything in a meaningful way.
+     * The only way we can screw this up is if we mistranslate the stages / access masks for whatever reason. */
+    D3D12_FEATURE_DATA_D3D12_OPTIONS12 features12;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS5 features5;
+    D3D12_BARRIER_GROUP barrier_group;
+    ID3D12GraphicsCommandList7 *list7;
+    struct test_context_desc desc;
+    struct test_context context;
+    unsigned int i;
+    HRESULT hr;
+
+#define B(s) { D3D12_BARRIER_SYNC_##s, D3D12_BARRIER_SYNC_##s, D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_ACCESS_NO_ACCESS }
+#define BC(s) { D3D12_BARRIER_SYNC_##s, D3D12_BARRIER_SYNC_##s, D3D12_BARRIER_ACCESS_COMMON, D3D12_BARRIER_ACCESS_COMMON }
+#define BA(s, a) { D3D12_BARRIER_SYNC_##s, D3D12_BARRIER_SYNC_##s, D3D12_BARRIER_ACCESS_##a, D3D12_BARRIER_ACCESS_##a }
+
+    static const D3D12_GLOBAL_BARRIER barriers[] =
+    {
+        /* Exhaustively test all SYNC stages (except SPLIT, which deserves its own test). */
+        B(ALL),
+        B(DRAW),
+        B(INDEX_INPUT),
+        B(VERTEX_SHADING),
+        B(PIXEL_SHADING),
+        B(DEPTH_STENCIL),
+        B(RENDER_TARGET),
+        B(COMPUTE_SHADING),
+        B(COPY),
+        B(RESOLVE),
+        B(EXECUTE_INDIRECT),
+        B(PREDICATION),
+        B(ALL_SHADING),
+        B(NON_PIXEL_SHADING),
+        BA(CLEAR_UNORDERED_ACCESS_VIEW, UNORDERED_ACCESS),
+
+        BC(ALL),
+        BC(DRAW),
+        BC(INDEX_INPUT),
+        BC(VERTEX_SHADING),
+        BC(PIXEL_SHADING),
+        BC(DEPTH_STENCIL),
+        BC(RENDER_TARGET),
+        BC(COMPUTE_SHADING),
+        BC(COPY),
+        BC(RESOLVE),
+        BC(EXECUTE_INDIRECT),
+        BC(PREDICATION),
+        BC(ALL_SHADING),
+        BC(NON_PIXEL_SHADING),
+        /* COMMON is not compatible with ClearUAV stage in validation despite docs saying so. */
+
+        /* Test access masks.
+         * Reference: https://microsoft.github.io/DirectX-Specs/d3d/D3D12EnhancedBarriers.html#access-bits-barrier-sync-compatibility */
+        BA(ALL, VERTEX_BUFFER),
+        BA(VERTEX_SHADING, VERTEX_BUFFER),
+        BA(DRAW, VERTEX_BUFFER),
+        BA(ALL_SHADING, VERTEX_BUFFER),
+
+        BA(ALL, CONSTANT_BUFFER),
+        BA(VERTEX_SHADING, CONSTANT_BUFFER),
+        BA(PIXEL_SHADING, CONSTANT_BUFFER),
+        BA(COMPUTE_SHADING, CONSTANT_BUFFER),
+        BA(DRAW, CONSTANT_BUFFER),
+        BA(ALL_SHADING, CONSTANT_BUFFER),
+        BA(NON_PIXEL_SHADING, CONSTANT_BUFFER), /* missing from list */
+
+        BA(ALL, INDEX_BUFFER),
+        BA(INDEX_INPUT, INDEX_BUFFER),
+        BA(DRAW, INDEX_BUFFER),
+
+        BA(ALL, RENDER_TARGET),
+        /* BA(DRAW, RENDER_TARGET),  This is an error in validation despite being part of list */
+        BA(RENDER_TARGET, RENDER_TARGET),
+
+        BA(ALL, UNORDERED_ACCESS),
+        BA(VERTEX_SHADING, UNORDERED_ACCESS),
+        BA(PIXEL_SHADING, UNORDERED_ACCESS),
+        BA(COMPUTE_SHADING, UNORDERED_ACCESS),
+        BA(NON_PIXEL_SHADING, UNORDERED_ACCESS), /* missing from list */
+        BA(DRAW, UNORDERED_ACCESS),
+        BA(ALL_SHADING, UNORDERED_ACCESS),
+        BA(CLEAR_UNORDERED_ACCESS_VIEW, UNORDERED_ACCESS),
+
+        BA(ALL, DEPTH_STENCIL_WRITE),
+        BA(DRAW, DEPTH_STENCIL_WRITE),
+        BA(DEPTH_STENCIL, DEPTH_STENCIL_WRITE),
+
+        BA(ALL, DEPTH_STENCIL_READ),
+        BA(DRAW, DEPTH_STENCIL_READ),
+        BA(DEPTH_STENCIL, DEPTH_STENCIL_READ),
+
+        BA(ALL, SHADER_RESOURCE),
+        BA(VERTEX_SHADING, SHADER_RESOURCE),
+        BA(PIXEL_SHADING, SHADER_RESOURCE),
+        BA(COMPUTE_SHADING, SHADER_RESOURCE),
+        BA(DRAW, SHADER_RESOURCE),
+        BA(ALL_SHADING, SHADER_RESOURCE),
+        BA(NON_PIXEL_SHADING, SHADER_RESOURCE), /* missing from list */
+
+        BA(ALL, STREAM_OUTPUT),
+        BA(VERTEX_SHADING, STREAM_OUTPUT),
+        BA(DRAW, STREAM_OUTPUT),
+        BA(ALL_SHADING, STREAM_OUTPUT),
+        BA(NON_PIXEL_SHADING, STREAM_OUTPUT), /* missing from list */
+
+        BA(ALL, INDIRECT_ARGUMENT),
+        BA(EXECUTE_INDIRECT, INDIRECT_ARGUMENT),
+        BA(ALL, PREDICATION), /* dupe */
+        BA(PREDICATION, PREDICATION),
+
+        BA(ALL, COPY_DEST),
+        BA(COPY, COPY_DEST),
+
+        BA(ALL, COPY_SOURCE),
+        BA(COPY, COPY_SOURCE),
+
+        BA(ALL, RESOLVE_DEST),
+        BA(RESOLVE, RESOLVE_DEST),
+
+        BA(ALL, RESOLVE_SOURCE),
+        BA(RESOLVE, RESOLVE_SOURCE),
+
+        BA(ALL, SHADING_RATE_SOURCE),
+        BA(PIXEL_SHADING, SHADING_RATE_SOURCE),
+        BA(ALL_SHADING, SHADING_RATE_SOURCE),
+
+        /* Ignore video decode/encode */
+    };
+
+    static const D3D12_GLOBAL_BARRIER barriers_dxr[] =
+    {
+        B(RAYTRACING),
+        B(BUILD_RAYTRACING_ACCELERATION_STRUCTURE),
+        B(COPY_RAYTRACING_ACCELERATION_STRUCTURE),
+        B(EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO),
+
+        BC(RAYTRACING),
+        BC(BUILD_RAYTRACING_ACCELERATION_STRUCTURE),
+        BC(COPY_RAYTRACING_ACCELERATION_STRUCTURE),
+        BC(EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO),
+
+        BA(ALL, RAYTRACING_ACCELERATION_STRUCTURE_READ),
+        BA(COMPUTE_SHADING, RAYTRACING_ACCELERATION_STRUCTURE_READ),
+        BA(RAYTRACING, RAYTRACING_ACCELERATION_STRUCTURE_READ),
+        BA(ALL_SHADING, RAYTRACING_ACCELERATION_STRUCTURE_READ),
+        BA(NON_PIXEL_SHADING, RAYTRACING_ACCELERATION_STRUCTURE_READ), /* not part of list */
+        /* Vertex / Pixel is banned for some reason. */
+        BA(BUILD_RAYTRACING_ACCELERATION_STRUCTURE, RAYTRACING_ACCELERATION_STRUCTURE_READ),
+        BA(COPY_RAYTRACING_ACCELERATION_STRUCTURE, RAYTRACING_ACCELERATION_STRUCTURE_READ),
+        BA(EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO, RAYTRACING_ACCELERATION_STRUCTURE_READ),
+
+        BA(ALL, RAYTRACING_ACCELERATION_STRUCTURE_WRITE),
+        BA(COMPUTE_SHADING, RAYTRACING_ACCELERATION_STRUCTURE_WRITE), /* What? */
+        BA(RAYTRACING, RAYTRACING_ACCELERATION_STRUCTURE_WRITE),
+        BA(ALL_SHADING, RAYTRACING_ACCELERATION_STRUCTURE_WRITE),
+        BA(NON_PIXEL_SHADING, RAYTRACING_ACCELERATION_STRUCTURE_WRITE), /* not part of list */
+        /* Vertex / Pixel is banned for some reason. */
+
+        BA(BUILD_RAYTRACING_ACCELERATION_STRUCTURE, RAYTRACING_ACCELERATION_STRUCTURE_WRITE),
+        BA(COPY_RAYTRACING_ACCELERATION_STRUCTURE, RAYTRACING_ACCELERATION_STRUCTURE_WRITE),
+    };
+#undef B
+#undef BC
+#undef BA
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_render_target = true;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS12, &features12, sizeof(features12))) ||
+            !features12.EnhancedBarriersSupported)
+    {
+        skip("Enhanced barriers not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS5, &features5, sizeof(features5))))
+        memset(&features5, 0, sizeof(features5));
+
+    hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList7, (void **)&list7);
+    ok(SUCCEEDED(hr), "Failed to query gcl7.\n");
+
+    memset(&barrier_group, 0, sizeof(barrier_group));
+    barrier_group.Type = D3D12_BARRIER_TYPE_GLOBAL;
+    barrier_group.NumBarriers = 1;
+    for (i = 0; i < ARRAY_SIZE(barriers); i++)
+    {
+        barrier_group.pGlobalBarriers = &barriers[i];
+        ID3D12GraphicsCommandList7_Barrier(list7, 1, &barrier_group);
+    }
+
+    if (features5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_0)
+    {
+        for (i = 0; i < ARRAY_SIZE(barriers_dxr); i++)
+        {
+            barrier_group.pGlobalBarriers = &barriers_dxr[i];
+            ID3D12GraphicsCommandList7_Barrier(list7, 1, &barrier_group);
+        }
+    }
+
+    ID3D12GraphicsCommandList7_Release(list7);
+    ID3D12GraphicsCommandList7_Close(list7);
+    destroy_test_context(&context);
+}
