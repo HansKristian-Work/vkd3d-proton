@@ -464,7 +464,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchMesh_profiled(d3d12_com
     COMMAND_LIST_PROFILED_CALL(DispatchMesh, iface, x, y, z);
 }
 
-static void STDMETHODCALLTYPE d3d12_command_list_Barrier_profiled(d3d12_command_list_iface *iface, UINT32 NumBarrierGroups, const void *pBarrierGroups)
+static void STDMETHODCALLTYPE d3d12_command_list_Barrier_profiled(d3d12_command_list_iface *iface, UINT32 NumBarrierGroups, const D3D12_BARRIER_GROUP *pBarrierGroups)
 {
     COMMAND_LIST_PROFILED_CALL(Barrier, iface, NumBarrierGroups, pBarrierGroups);
 }
