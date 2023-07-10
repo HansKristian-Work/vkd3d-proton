@@ -882,3 +882,131 @@ void test_enhanced_barrier_castable_formats(void)
     ID3D12PipelineState_Release(read_pso);
     destroy_test_context(&context);
 }
+
+void test_enhanced_barrier_buffer_transfer(void)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS12 features12;
+    D3D12_GLOBAL_BARRIER global_barrier;
+    D3D12_BUFFER_BARRIER buffer_barrier;
+    D3D12_BARRIER_GROUP barrier_group;
+    ID3D12GraphicsCommandList7 *list7;
+    struct test_context_desc desc;
+    struct test_context context;
+    struct resource_readback rb;
+    uint32_t input_data[64][64];
+    ID3D12Resource *dst_overlap;
+    ID3D12Resource *dst_serial;
+    ID3D12Resource *src;
+    unsigned int i, j;
+    HRESULT hr;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_render_target = true;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS12, &features12, sizeof(features12))) ||
+        !features12.EnhancedBarriersSupported)
+    {
+        skip("Enhanced barriers not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList7, (void **)&list7);
+    ok(SUCCEEDED(hr), "Failed to query gcl7.\n");
+
+    /* Verify that even for resources created with the new APIs, we cannot relax our tracking code. */
+    dst_overlap = create_default_buffer2(context.device, sizeof(input_data), D3D12_RESOURCE_FLAG_NONE);
+    dst_serial = create_default_buffer2(context.device, sizeof(input_data), D3D12_RESOURCE_FLAG_NONE);
+
+    for (i = 0; i < 64; i++)
+        for (j = 0; j < 64; j++)
+            input_data[i][j] = i + 1;
+    src = create_upload_buffer2(context.device, sizeof(input_data), input_data);
+
+    memset(&barrier_group, 0, sizeof(barrier_group));
+    memset(&global_barrier, 0, sizeof(global_barrier));
+    memset(&buffer_barrier, 0, sizeof(buffer_barrier));
+    barrier_group.Type = D3D12_BARRIER_TYPE_GLOBAL;
+    barrier_group.NumBarriers = 1;
+    barrier_group.pGlobalBarriers = &global_barrier;
+    global_barrier.SyncBefore = D3D12_BARRIER_SYNC_COPY;
+    global_barrier.AccessBefore = D3D12_BARRIER_ACCESS_COPY_DEST;
+    global_barrier.SyncAfter = D3D12_BARRIER_SYNC_COPY;
+    global_barrier.AccessAfter = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+    buffer_barrier.SyncBefore = D3D12_BARRIER_SYNC_COPY;
+    buffer_barrier.AccessBefore = D3D12_BARRIER_ACCESS_COPY_DEST;
+    buffer_barrier.SyncAfter = D3D12_BARRIER_SYNC_COPY;
+    buffer_barrier.AccessAfter = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+    buffer_barrier.Size = UINT64_MAX;
+
+    /* Overlapping test. */
+    {
+        for (i = 0; i < 64; i++)
+        {
+            /* Trip WAW hazards. We are still supposed to handle this gracefully. */
+            ID3D12GraphicsCommandList_CopyBufferRegion(context.list, dst_overlap, 63 * sizeof(uint32_t) * i, src, 64 * sizeof(uint32_t) * i, 64 * sizeof(uint32_t));
+        }
+        ID3D12GraphicsCommandList7_Barrier(list7, 1, &barrier_group);
+        get_buffer_readback_with_command_list(dst_overlap, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+        for (i = 0; i < 64; i++)
+        {
+            for (j = 0; j < 63; j++)
+            {
+                uint32_t value, expected;
+                value = get_readback_uint(&rb, i * 63 + j, 0, 0);
+                expected = i + 1;
+                ok(value == expected, "Index %u: expected %u, got %u.\n", i * 63 + j, expected, value);
+            }
+        }
+        reset_command_list(context.list, context.allocator);
+        release_resource_readback(&rb);
+    }
+
+    /* Serial test with self-copies. Here we must have barriers, or sync errors are observed. */
+    {
+        ID3D12GraphicsCommandList_CopyBufferRegion(context.list, dst_serial, 0, src, 0, 64 * sizeof(uint32_t));
+
+        for (i = 1; i < 64; i++)
+        {
+            /* Alternate between global and buffer barriers for more test coverage. */
+            if (i & 1)
+            {
+                barrier_group.Type = D3D12_BARRIER_TYPE_BUFFER;
+                barrier_group.pBufferBarriers = &buffer_barrier;
+                buffer_barrier.pResource = dst_serial;
+            }
+            else
+            {
+                barrier_group.Type = D3D12_BARRIER_TYPE_GLOBAL;
+                barrier_group.pGlobalBarriers = &global_barrier;
+            }
+
+            ID3D12GraphicsCommandList7_Barrier(list7, 1, &barrier_group);
+            ID3D12GraphicsCommandList_CopyBufferRegion(context.list, dst_serial, 64 * sizeof(uint32_t) * i, dst_serial, 64 * sizeof(uint32_t) * (i - 1), 64 * sizeof(uint32_t));
+        }
+
+        barrier_group.Type = D3D12_BARRIER_TYPE_GLOBAL;
+        barrier_group.pGlobalBarriers = &global_barrier;
+        ID3D12GraphicsCommandList7_Barrier(list7, 1, &barrier_group);
+
+        get_buffer_readback_with_command_list(dst_serial, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+        for (i = 0; i < 64 * 64; i++)
+        {
+            uint32_t value, expected;
+            value = get_readback_uint(&rb, i, 0, 0);
+            expected = 1;
+            ok(value == expected, "Index %u: expected %u, got %u.\n", i, expected, value);
+        }
+        release_resource_readback(&rb);
+    }
+
+    ID3D12Resource_Release(dst_overlap);
+    ID3D12Resource_Release(dst_serial);
+    ID3D12Resource_Release(src);
+    ID3D12GraphicsCommandList7_Release(list7);
+    destroy_test_context(&context);
+}
