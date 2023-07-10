@@ -1222,3 +1222,142 @@ void test_enhanced_barrier_global_direct_queue_smoke(void)
     ID3D12GraphicsCommandList7_Close(list7);
     destroy_test_context(&context);
 }
+
+void test_enhanced_barrier_split_barrier(void)
+{
+    /* Agility SDK 610 is completely broken w.r.t. split barriers. Even the most basic thing trips device lost due to bogus validation error.
+     * Keep the test around for later however. */
+    D3D12_FEATURE_DATA_D3D12_OPTIONS12 features12;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_GLOBAL_BARRIER global_barrier;
+    D3D12_BUFFER_BARRIER buffer_barrier;
+    D3D12_BARRIER_GROUP barrier_group;
+    ID3D12GraphicsCommandList7 *list7;
+    ID3D12DescriptorHeap *gpu_heap;
+    ID3D12DescriptorHeap *cpu_heap;
+    ID3D12Resource *clear_resource;
+    ID3D12Resource *read_resource;
+    struct test_context_desc desc;
+    struct resource_readback rb;
+    struct test_context context;
+    unsigned int i, j;
+    HRESULT hr;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_render_target = true;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS12, &features12, sizeof(features12))) ||
+            !features12.EnhancedBarriersSupported)
+    {
+        skip("Enhanced barriers not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList7, (void **)&list7);
+    ok(SUCCEEDED(hr), "Failed to query gcl7.\n");
+
+    memset(&global_barrier, 0, sizeof(global_barrier));
+    memset(&buffer_barrier, 0, sizeof(buffer_barrier));
+    memset(&barrier_group, 0, sizeof(barrier_group));
+
+    gpu_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    cpu_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+
+    clear_resource = create_default_buffer2(context.device, 4 * 64 * 1024 * sizeof(uint32_t), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+    read_resource = create_default_buffer2(context.device, 4 * 64 * 1024 * sizeof(uint32_t), D3D12_RESOURCE_FLAG_NONE);
+
+    memset(&uav_desc, 0, sizeof(uav_desc));
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    uav_desc.Format = DXGI_FORMAT_R32_UINT;
+    uav_desc.Buffer.NumElements = 4 * 64 * 1024;
+    ID3D12Device_CreateUnorderedAccessView(context.device, clear_resource, NULL,
+            &uav_desc, ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(gpu_heap));
+    ID3D12Device_CreateUnorderedAccessView(context.device, clear_resource, NULL,
+            &uav_desc, ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_heap));
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &gpu_heap);
+
+    /* The most basic tests break on AgilitySDK 610. TODO: Flesh this out later. */
+    {
+        UINT uint_values[4] = { 0 };
+        D3D12_RECT rect;
+
+        barrier_group.Type = D3D12_BARRIER_TYPE_BUFFER;
+        barrier_group.NumBarriers = 1;
+        barrier_group.pBufferBarriers = &buffer_barrier;
+        buffer_barrier.SyncBefore = D3D12_BARRIER_SYNC_CLEAR_UNORDERED_ACCESS_VIEW;
+        buffer_barrier.SyncAfter = D3D12_BARRIER_SYNC_SPLIT;
+        buffer_barrier.AccessBefore = D3D12_BARRIER_ACCESS_UNORDERED_ACCESS;
+        buffer_barrier.AccessAfter = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+        buffer_barrier.pResource = clear_resource;
+        buffer_barrier.Size = UINT64_MAX;
+
+        for (i = 0; i < 4; i++)
+        {
+            uint_values[0] = i + 1;
+            set_rect(&rect, i * 64 * 1024, 0, (i + 1) * 64 * 1024, 1);
+            ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(context.list,
+                    ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(gpu_heap),
+                    ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(cpu_heap),
+                    clear_resource, uint_values, 1, &rect);
+
+#if 0
+            /* This trips device lost with nonsense validation errors about SYNC not supporting AccessAfter ... <_< */
+            buffer_barrier.SyncBefore = D3D12_BARRIER_SYNC_CLEAR_UNORDERED_ACCESS_VIEW;
+            buffer_barrier.SyncAfter = D3D12_BARRIER_SYNC_SPLIT;
+            buffer_barrier.AccessBefore = D3D12_BARRIER_ACCESS_UNORDERED_ACCESS;
+            buffer_barrier.AccessAfter = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+            ID3D12GraphicsCommandList7_Barrier(list7, 1, &barrier_group);
+
+            buffer_barrier.SyncBefore = D3D12_BARRIER_SYNC_SPLIT;
+            buffer_barrier.SyncAfter = D3D12_BARRIER_SYNC_COPY;
+            buffer_barrier.AccessBefore = D3D12_BARRIER_ACCESS_UNORDERED_ACCESS;
+            buffer_barrier.AccessAfter = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+            ID3D12GraphicsCommandList7_Barrier(list7, 1, &barrier_group);
+#else
+            buffer_barrier.SyncBefore = D3D12_BARRIER_SYNC_CLEAR_UNORDERED_ACCESS_VIEW;
+            buffer_barrier.SyncAfter = D3D12_BARRIER_SYNC_COPY;
+            buffer_barrier.AccessBefore = D3D12_BARRIER_ACCESS_UNORDERED_ACCESS;
+            buffer_barrier.AccessAfter = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+            ID3D12GraphicsCommandList7_Barrier(list7, 1, &barrier_group);
+#endif
+
+            ID3D12GraphicsCommandList_CopyBufferRegion(context.list, read_resource, 64 * 1024 * i * sizeof(uint32_t),
+                    clear_resource, 64 * 1024 * i * sizeof(uint32_t), 64 * 1024 * sizeof(uint32_t));
+        }
+
+        buffer_barrier.SyncBefore = D3D12_BARRIER_SYNC_COPY;
+        buffer_barrier.SyncAfter = D3D12_BARRIER_SYNC_COPY;
+        buffer_barrier.AccessBefore = D3D12_BARRIER_ACCESS_COPY_DEST;
+        buffer_barrier.AccessAfter = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+        buffer_barrier.pResource = read_resource;
+        ID3D12GraphicsCommandList7_Barrier(list7, 1, &barrier_group);
+
+        get_buffer_readback_with_command_list(read_resource, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+        for (i = 0; i < 4; i++)
+        {
+            for (j = 0; j < 64 * 1024; j++)
+            {
+                uint32_t value, expected;
+                value = get_readback_uint(&rb, i * 64 * 1024 + j, 0, 0);
+                expected = i + 1;
+                ok(value == expected, "Copy %u, elem %u, expected %u, got %u.\n", i, j, expected, value);
+            }
+        }
+
+        reset_command_list(context.list, context.allocator);
+        release_resource_readback(&rb);
+    }
+
+    ID3D12DescriptorHeap_Release(gpu_heap);
+    ID3D12DescriptorHeap_Release(cpu_heap);
+    ID3D12Resource_Release(clear_resource);
+    ID3D12Resource_Release(read_resource);
+    ID3D12GraphicsCommandList7_Release(list7);
+    destroy_test_context(&context);
+}
