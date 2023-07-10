@@ -151,6 +151,40 @@ static inline ID3D12Resource *create_placed_buffer_(unsigned int line, ID3D12Dev
     return buffer;
 }
 
+#define create_placed_buffer2(a, b, c, d, e) create_placed_buffer2_(__LINE__, a, b, c, d, e)
+static inline ID3D12Resource *create_placed_buffer2_(unsigned int line, ID3D12Device *device,
+        ID3D12Heap *heap, size_t offset, size_t size, D3D12_RESOURCE_FLAGS resource_flags)
+{
+    D3D12_RESOURCE_DESC1 resource_desc;
+    ID3D12Device10 *device10;
+    ID3D12Resource *buffer;
+    HRESULT hr;
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = size;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = resource_flags;
+
+    hr = ID3D12Device_QueryInterface(device, &IID_ID3D12Device10, (void **)&device10);
+    assert_that_(line)(SUCCEEDED(hr), "Failed to query device10 interface.\n");
+    if (FAILED(hr))
+        return NULL;
+
+    hr = ID3D12Device10_CreatePlacedResource2(device10, heap, offset, &resource_desc,
+            D3D12_BARRIER_LAYOUT_UNDEFINED, NULL, 0, NULL, &IID_ID3D12Resource, (void **)&buffer);
+    assert_that_(line)(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+    ID3D12Device10_Release(device10);
+    return buffer;
+}
+
 #define create_buffer(a, b, c, d, e) create_buffer_(__LINE__, a, b, c, d, e)
 static inline ID3D12Resource *create_buffer_(unsigned int line, ID3D12Device *device,
         D3D12_HEAP_TYPE heap_type, size_t size, D3D12_RESOURCE_FLAGS resource_flags,
@@ -183,12 +217,59 @@ static inline ID3D12Resource *create_buffer_(unsigned int line, ID3D12Device *de
     return buffer;
 }
 
+#define create_buffer2(a, b, c, d) create_buffer2_(__LINE__, a, b, c, d)
+static inline ID3D12Resource *create_buffer2_(unsigned int line, ID3D12Device *device,
+    D3D12_HEAP_TYPE heap_type, size_t size, D3D12_RESOURCE_FLAGS resource_flags)
+{
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC1 resource_desc;
+    ID3D12Device10 *device10;
+    ID3D12Resource *buffer;
+    HRESULT hr;
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = heap_type;
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = size;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = resource_flags;
+
+    hr = ID3D12Device_QueryInterface(device, &IID_ID3D12Device10, (void **)&device10);
+    assert_that_(line)(SUCCEEDED(hr), "Failed to query device10 interface.\n");
+    if (FAILED(hr))
+        return NULL;
+
+    hr = ID3D12Device10_CreateCommittedResource3(device10, &heap_properties,
+            D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_BARRIER_LAYOUT_UNDEFINED,
+            NULL, NULL, 0, NULL, &IID_ID3D12Resource, (void **)&buffer);
+    assert_that_(line)(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+    ID3D12Device10_Release(device10);
+    return buffer;
+}
+
 #define create_readback_buffer(a, b) create_readback_buffer_(__LINE__, a, b)
 static inline ID3D12Resource *create_readback_buffer_(unsigned int line, ID3D12Device *device,
         size_t size)
 {
     return create_buffer_(line, device, D3D12_HEAP_TYPE_READBACK, size,
             D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+}
+
+#define create_readback_buffer2(a, b) create_readback_buffer2_(__LINE__, a, b)
+static inline ID3D12Resource *create_readback_buffer2_(unsigned int line, ID3D12Device *device,
+        size_t size)
+{
+    return create_buffer2_(line, device, D3D12_HEAP_TYPE_READBACK, size,
+            D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE);
 }
 
 #define update_buffer_data(a, b, c, d) update_buffer_data_(__LINE__, a, b, c, d)
@@ -214,6 +295,19 @@ static inline ID3D12Resource *create_upload_buffer_(unsigned int line, ID3D12Dev
 
     buffer = create_buffer_(line, device, D3D12_HEAP_TYPE_UPLOAD, size,
             D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ);
+    if (data)
+        update_buffer_data_(line, buffer, 0, size, data);
+    return buffer;
+}
+
+#define create_upload_buffer2(a, b, c) create_upload_buffer2_(__LINE__, a, b, c)
+static inline ID3D12Resource *create_upload_buffer2_(unsigned int line, ID3D12Device *device,
+        size_t size, const void *data)
+{
+    ID3D12Resource *buffer;
+
+    buffer = create_buffer2_(line, device, D3D12_HEAP_TYPE_UPLOAD, size,
+            D3D12_RESOURCE_FLAG_NONE);
     if (data)
         update_buffer_data_(line, buffer, 0, size, data);
     return buffer;
@@ -631,6 +725,14 @@ static inline ID3D12Resource *create_default_buffer_(unsigned int line, ID3D12De
 {
     return create_buffer_(line, device, D3D12_HEAP_TYPE_DEFAULT, size,
             resource_flags, initial_resource_state);
+}
+
+#define create_default_buffer2(a, b, c) create_default_buffer2_(__LINE__, a, b, c)
+static inline ID3D12Resource *create_default_buffer2_(unsigned int line, ID3D12Device *device,
+    size_t size, D3D12_RESOURCE_FLAGS resource_flags)
+{
+    return create_buffer2_(line, device, D3D12_HEAP_TYPE_DEFAULT, size,
+            resource_flags);
 }
 
 static inline ID3D12Resource *create_default_texture_(unsigned int line, ID3D12Device *device,
