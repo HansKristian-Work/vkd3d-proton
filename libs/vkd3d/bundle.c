@@ -1657,7 +1657,7 @@ static void STDMETHODCALLTYPE d3d12_bundle_DispatchMesh(d3d12_command_list_iface
     args->z = z;
 }
 
-static void STDMETHODCALLTYPE d3d12_bundle_Barrier(d3d12_command_list_iface *iface, UINT32 NumBarrierGroups, const void *pBarrierGroups)
+static void STDMETHODCALLTYPE d3d12_bundle_Barrier(d3d12_command_list_iface *iface, UINT32 NumBarrierGroups, const D3D12_BARRIER_GROUP *pBarrierGroups)
 {
     WARN("iface %p, NumBarrierGroups %u, D3D12_BARRIER_GROUP %p ignored!\n", iface, NumBarrierGroups, pBarrierGroups);
 }
