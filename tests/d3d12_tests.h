@@ -361,3 +361,4 @@ decl_test(test_enhanced_barrier_castable_dsv);
 decl_test(test_dstorage_decompression);
 decl_test(test_uninit_root_parameters);
 decl_test(test_enhanced_barrier_buffer_transfer);
+decl_test(test_enhanced_barrier_global_direct_queue_smoke);
