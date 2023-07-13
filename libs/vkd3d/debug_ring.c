@@ -438,7 +438,17 @@ HRESULT vkd3d_shader_debug_ring_init(struct vkd3d_shader_debug_ring *ring,
          * We use coherent in the debug_channel.h header, but not necessarily guaranteed to be coherent with
          * host reads, so make extra sure. */
         if (device->device_info.device_coherent_memory_features_amd.deviceCoherentMemory)
+        {
             memory_props |= VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD | VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD;
+        }
+        else if (device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
+        {
+            /* Writes to sysmem seem to be coherent, but not ReBAR. Very slow, but hey,
+             * we're desperate when we're doing breadcrumb + debug ring! */
+            memory_props = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                    VK_MEMORY_PROPERTY_HOST_CACHED_BIT |
+                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        }
     }
 
     if (FAILED(vkd3d_allocate_internal_buffer_memory(device, ring->device_atomic_buffer,
