@@ -267,72 +267,84 @@ void DEBUG_CHANNEL_MSG_UNIFORM(uint v0)
 {
     if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0);
+    subgroupBarrier();
 }
 
 void DEBUG_CHANNEL_MSG_UNIFORM(uint v0, uint v1)
 {
     if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0, v1);
+    subgroupBarrier();
 }
 
 void DEBUG_CHANNEL_MSG_UNIFORM(uint v0, uint v1, uint v2)
 {
     if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0, v1, v2);
+    subgroupBarrier();
 }
 
 void DEBUG_CHANNEL_MSG_UNIFORM(uint v0, uint v1, uint v2, uint v3)
 {
     if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0, v1, v2, v3);
+    subgroupBarrier();
 }
 
 void DEBUG_CHANNEL_MSG_UNIFORM(int v0)
 {
     if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0);
+    subgroupBarrier();
 }
 
 void DEBUG_CHANNEL_MSG_UNIFORM(int v0, int v1)
 {
     if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0, v1);
+    subgroupBarrier();
 }
 
 void DEBUG_CHANNEL_MSG_UNIFORM(int v0, int v1, int v2)
 {
     if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0, v1, v2);
+    subgroupBarrier();
 }
 
 void DEBUG_CHANNEL_MSG_UNIFORM(int v0, int v1, int v2, int v3)
 {
     if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0, v1, v2, v3);
+    subgroupBarrier();
 }
 
 void DEBUG_CHANNEL_MSG_UNIFORM(float v0)
 {
     if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0);
+    subgroupBarrier();
 }
 
 void DEBUG_CHANNEL_MSG_UNIFORM(float v0, float v1)
 {
     if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0, v1);
+    subgroupBarrier();
 }
 
 void DEBUG_CHANNEL_MSG_UNIFORM(float v0, float v1, float v2)
 {
     if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0, v1, v2);
+    subgroupBarrier();
 }
 
 void DEBUG_CHANNEL_MSG_UNIFORM(float v0, float v1, float v2, float v3)
 {
     if (DEBUG_CHANNEL_ELECT())
         DEBUG_CHANNEL_MSG(v0, v1, v2, v3);
+    subgroupBarrier();
 }
 
 #endif
