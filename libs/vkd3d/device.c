@@ -465,11 +465,13 @@ static const struct vkd3d_instance_application_meta application_override[] = {
      * This works okay with zerovram on first game boot, but not later, since this memory is guaranteed to be recycled.
      * Game also relies on indirectly modifying CBV root descriptors, which means we are forced to rely on RAW_VA_CBV.
      * It also relies on multi-dispatch indirect with state updates which is ... ye.
-     * Need another config flag to workaround that as well. */
+     * Need another config flag to workaround that as well.
+     * Poor loading times and performance with ReBar on some devices.
+     */
     { VKD3D_STRING_COMPARE_EXACT, "HaloInfinite.exe",
             VKD3D_CONFIG_FLAG_ZERO_MEMORY_WORKAROUNDS_COMMITTED_BUFFER_UAV | VKD3D_CONFIG_FLAG_FORCE_RAW_VA_CBV |
             VKD3D_CONFIG_FLAG_USE_HOST_IMPORT_FALLBACK | VKD3D_CONFIG_FLAG_PREALLOCATE_SRV_MIP_CLAMPS |
-            VKD3D_CONFIG_FLAG_FORCE_COMPUTE_ROOT_PARAMETERS_PUSH_UBO, 0 },
+            VKD3D_CONFIG_FLAG_FORCE_COMPUTE_ROOT_PARAMETERS_PUSH_UBO | VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0 },
     /* (1182900) Workaround amdgpu kernel bug with host memory import and concurrent submissions. */
     { VKD3D_STRING_COMPARE_EXACT, "APlagueTaleRequiem_x64.exe", VKD3D_CONFIG_FLAG_USE_HOST_IMPORT_FALLBACK, 0 },
     /* Shadow of the Tomb Raider (750920).
