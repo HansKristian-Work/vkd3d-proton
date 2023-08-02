@@ -13861,8 +13861,28 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
 static void d3d12_command_queue_wait_shared(struct d3d12_command_queue *command_queue,
         struct d3d12_shared_fence *fence, UINT64 value)
 {
+    const struct vkd3d_vk_device_procs *vk_procs;
+    VkSemaphoreWaitInfo wait_info;
+    struct d3d12_device *device;
+    VkResult vr;
+
     assert(fence->timeline_semaphore);
-    vkd3d_queue_add_wait(command_queue->vkd3d_queue, &fence->ID3D12Fence_iface, fence->timeline_semaphore, value);
+
+    device = command_queue->device;
+    vk_procs = &device->vk_procs;
+
+    /* Resolve the wait on the CPU rather than submitting it to the Vulkan queue.
+     * For shared fences, we cannot know when signal operations for the fence get
+     * queued up, so this is the only way to prevent wait-before-signal situations
+     * when multiple D3D12 queues use the same Vulkan queue. */
+    wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+    wait_info.pNext = NULL;
+    wait_info.flags = 0;
+    wait_info.pSemaphores = &fence->timeline_semaphore;
+    wait_info.semaphoreCount = 1;
+    wait_info.pValues = &value;
+    vr = VK_CALL(vkWaitSemaphores(device->vk_device, &wait_info, UINT64_MAX));
+    VKD3D_DEVICE_REPORT_BREADCRUMB_IF(device, vr == VK_ERROR_DEVICE_LOST);
 }
 
 static void d3d12_command_queue_signal_shared(struct d3d12_command_queue *command_queue,
