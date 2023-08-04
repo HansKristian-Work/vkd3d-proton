@@ -163,6 +163,7 @@ struct vkd3d_vulkan_info
     bool NV_device_diagnostic_checkpoints;
     bool NV_device_generated_commands;
     bool NV_shader_subgroup_partitioned;
+    bool NV_memory_decompression;
     /* VALVE extensions */
     bool VALVE_mutable_descriptor_type;
     bool VALVE_descriptor_set_host_mapping;
@@ -3961,6 +3962,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceShaderModuleIdentifierPropertiesEXT shader_module_identifier_properties;
     VkPhysicalDeviceDescriptorBufferPropertiesEXT descriptor_buffer_properties;
     VkPhysicalDeviceGraphicsPipelineLibraryPropertiesEXT graphics_pipeline_library_properties;
+    VkPhysicalDeviceMemoryDecompressionPropertiesNV memory_decompression_properties;
 
     VkPhysicalDeviceProperties2KHR properties2;
 
@@ -4001,6 +4003,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceMemoryPriorityFeaturesEXT memory_priority_features;
     VkPhysicalDevicePageableDeviceLocalMemoryFeaturesEXT pageable_device_memory_features;
     VkPhysicalDeviceDynamicRenderingUnusedAttachmentsFeaturesEXT dynamic_rendering_unused_attachments_features;
+    VkPhysicalDeviceMemoryDecompressionFeaturesNV memory_decompression_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
