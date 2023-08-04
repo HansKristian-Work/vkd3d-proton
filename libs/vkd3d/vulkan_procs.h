@@ -335,6 +335,10 @@ VK_DEVICE_EXT_PFN(vkGetDescriptorSetLayoutBindingOffsetEXT)
 /* VK_EXT_pageable_device_local_memory */
 VK_DEVICE_EXT_PFN(vkSetDeviceMemoryPriorityEXT)
 
+/* VK_NV_memory_decompression */
+VK_DEVICE_EXT_PFN(vkCmdDecompressMemoryNV)
+VK_DEVICE_EXT_PFN(vkCmdDecompressMemoryIndirectCountNV)
+
 #undef VK_INSTANCE_PFN
 #undef VK_INSTANCE_EXT_PFN
 #undef VK_DEVICE_PFN
