@@ -3870,6 +3870,23 @@ HRESULT vkd3d_execute_indirect_ops_init(struct vkd3d_execute_indirect_ops *meta_
 void vkd3d_execute_indirect_ops_cleanup(struct vkd3d_execute_indirect_ops *meta_indirect_ops,
         struct d3d12_device *device);
 
+struct vkd3d_dstorage_emit_nv_memory_decompression_regions_args
+{
+    VkDeviceAddress control_va;
+    VkDeviceAddress src_buffer_va;
+    VkDeviceAddress dst_buffer_va;
+    VkDeviceAddress scratch_va;
+    uint32_t stream_count;
+    uint32_t stream_index;
+};
+
+struct vkd3d_dstorage_ops
+{
+    VkPipelineLayout vk_emit_nv_memory_decompression_regions_layout;
+    VkPipeline vk_emit_nv_memory_decompression_regions_pipeline;
+    VkPipeline vk_emit_nv_memory_decompression_workgroups_pipeline;
+};
+
 struct vkd3d_meta_ops_common
 {
     VkShaderModule vk_module_fullscreen_vs;
@@ -3887,6 +3904,7 @@ struct vkd3d_meta_ops
     struct vkd3d_predicate_ops predicate;
     struct vkd3d_execute_indirect_ops execute_indirect;
     struct vkd3d_multi_dispatch_indirect_ops multi_dispatch_indirect;
+    struct vkd3d_dstorage_ops dstorage;
 };
 
 HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device);
