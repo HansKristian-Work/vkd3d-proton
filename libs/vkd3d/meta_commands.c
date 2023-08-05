@@ -20,6 +20,123 @@
 
 #include "vkd3d_private.h"
 
+/* Determined by calling EnumerateMetaCommands on Windows drivers */
+const GUID IID_META_COMMAND_DSTORAGE = {0x1bddd090,0xc47e,0x459c,{0x8f,0x81,0x42,0xc9,0xf9,0x7a,0x53,0x08}};
+
+struct d3d12_meta_command_dstorage_create_args
+{
+    UINT64 version;
+    UINT64 format;
+    UINT64 max_streams;
+    UINT64 flags;
+};
+
+struct d3d12_meta_command_dstorage_exec_args
+{
+    D3D12_GPU_VIRTUAL_ADDRESS input_buffer_va;
+    UINT64 input_buffer_size;
+    D3D12_GPU_VIRTUAL_ADDRESS output_buffer_va;
+    UINT64 output_buffer_size;
+    D3D12_GPU_VIRTUAL_ADDRESS control_buffer_va;
+    UINT64 control_buffer_size;
+    D3D12_GPU_VIRTUAL_ADDRESS scratch_buffer_va;
+    UINT64 scratch_buffer_size;
+    UINT64 stream_count;
+    D3D12_GPU_VIRTUAL_ADDRESS status_buffer_va;
+    UINT64 status_buffer_size;
+};
+
+struct d3d12_meta_command_parameter_info
+{
+    D3D12_META_COMMAND_PARAMETER_STAGE stage;
+    D3D12_META_COMMAND_PARAMETER_DESC desc;
+};
+
+struct d3d12_meta_command_info
+{
+    REFGUID command_id;
+    LPCWSTR name;
+    D3D12_GRAPHICS_STATES init_dirty_states;
+    D3D12_GRAPHICS_STATES exec_dirty_states;
+    unsigned int parameter_count;
+    const struct d3d12_meta_command_parameter_info *parameters;
+    d3d12_meta_command_create_proc create_proc;
+};
+
+/* Determined by calling EnumerateMetaCommandParameters on Windows drivers */
+static const struct d3d12_meta_command_parameter_info d3d12_meta_command_dstorage_parameter_infos[] =
+{
+    { D3D12_META_COMMAND_PARAMETER_STAGE_CREATION,
+        { u"Version", D3D12_META_COMMAND_PARAMETER_TYPE_UINT64,
+                D3D12_META_COMMAND_PARAMETER_FLAG_INPUT, 0,
+                offsetof(struct d3d12_meta_command_dstorage_create_args, version) } },
+    { D3D12_META_COMMAND_PARAMETER_STAGE_CREATION,
+        { u"Format", D3D12_META_COMMAND_PARAMETER_TYPE_UINT64,
+                D3D12_META_COMMAND_PARAMETER_FLAG_INPUT, 0,
+                offsetof(struct d3d12_meta_command_dstorage_create_args, format) } },
+    { D3D12_META_COMMAND_PARAMETER_STAGE_CREATION,
+        { u"MaxStreams", D3D12_META_COMMAND_PARAMETER_TYPE_UINT64,
+                D3D12_META_COMMAND_PARAMETER_FLAG_INPUT, 0,
+                offsetof(struct d3d12_meta_command_dstorage_create_args, max_streams) } },
+    { D3D12_META_COMMAND_PARAMETER_STAGE_CREATION,
+        { u"Flags", D3D12_META_COMMAND_PARAMETER_TYPE_UINT64,
+                D3D12_META_COMMAND_PARAMETER_FLAG_INPUT, 0,
+                offsetof(struct d3d12_meta_command_dstorage_create_args, flags) } },
+
+    { D3D12_META_COMMAND_PARAMETER_STAGE_EXECUTION,
+        { u"InputBuffer", D3D12_META_COMMAND_PARAMETER_TYPE_GPU_VIRTUAL_ADDRESS,
+                D3D12_META_COMMAND_PARAMETER_FLAG_INPUT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                offsetof(struct d3d12_meta_command_dstorage_exec_args, input_buffer_va) } },
+    { D3D12_META_COMMAND_PARAMETER_STAGE_EXECUTION,
+        { u"InputBufferSize", D3D12_META_COMMAND_PARAMETER_TYPE_UINT64,
+                D3D12_META_COMMAND_PARAMETER_FLAG_INPUT, 0,
+                offsetof(struct d3d12_meta_command_dstorage_exec_args, input_buffer_size) } },
+    { D3D12_META_COMMAND_PARAMETER_STAGE_EXECUTION,
+        { u"OutputBuffer", D3D12_META_COMMAND_PARAMETER_TYPE_GPU_VIRTUAL_ADDRESS,
+                D3D12_META_COMMAND_PARAMETER_FLAG_OUTPUT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                offsetof(struct d3d12_meta_command_dstorage_exec_args, output_buffer_va) } },
+    { D3D12_META_COMMAND_PARAMETER_STAGE_EXECUTION,
+        { u"OutputBufferSize", D3D12_META_COMMAND_PARAMETER_TYPE_UINT64,
+                D3D12_META_COMMAND_PARAMETER_FLAG_INPUT, 0,
+                offsetof(struct d3d12_meta_command_dstorage_exec_args, output_buffer_size) } },
+    { D3D12_META_COMMAND_PARAMETER_STAGE_EXECUTION,
+        { u"ControlBuffer", D3D12_META_COMMAND_PARAMETER_TYPE_GPU_VIRTUAL_ADDRESS,
+                D3D12_META_COMMAND_PARAMETER_FLAG_INPUT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                offsetof(struct d3d12_meta_command_dstorage_exec_args, control_buffer_va) } },
+    { D3D12_META_COMMAND_PARAMETER_STAGE_EXECUTION,
+        { u"ControlBufferSize", D3D12_META_COMMAND_PARAMETER_TYPE_UINT64,
+                D3D12_META_COMMAND_PARAMETER_FLAG_INPUT, 0,
+                offsetof(struct d3d12_meta_command_dstorage_exec_args, control_buffer_size) } },
+    { D3D12_META_COMMAND_PARAMETER_STAGE_EXECUTION,
+        { u"ScratchBuffer", D3D12_META_COMMAND_PARAMETER_TYPE_GPU_VIRTUAL_ADDRESS,
+                D3D12_META_COMMAND_PARAMETER_FLAG_OUTPUT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                offsetof(struct d3d12_meta_command_dstorage_exec_args, scratch_buffer_va) } },
+    { D3D12_META_COMMAND_PARAMETER_STAGE_EXECUTION,
+        { u"ScratchBufferSize", D3D12_META_COMMAND_PARAMETER_TYPE_UINT64,
+                D3D12_META_COMMAND_PARAMETER_FLAG_INPUT, 0,
+                offsetof(struct d3d12_meta_command_dstorage_exec_args, scratch_buffer_size) } },
+    { D3D12_META_COMMAND_PARAMETER_STAGE_EXECUTION,
+        { u"StreamCount", D3D12_META_COMMAND_PARAMETER_TYPE_UINT64,
+                D3D12_META_COMMAND_PARAMETER_FLAG_INPUT, 0,
+                offsetof(struct d3d12_meta_command_dstorage_exec_args, stream_count) } },
+    { D3D12_META_COMMAND_PARAMETER_STAGE_EXECUTION,
+        { u"StatusBuffer", D3D12_META_COMMAND_PARAMETER_TYPE_GPU_VIRTUAL_ADDRESS,
+                D3D12_META_COMMAND_PARAMETER_FLAG_OUTPUT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                offsetof(struct d3d12_meta_command_dstorage_exec_args, status_buffer_va) } },
+    { D3D12_META_COMMAND_PARAMETER_STAGE_EXECUTION,
+        { u"StatusBufferSize", D3D12_META_COMMAND_PARAMETER_TYPE_UINT64,
+                D3D12_META_COMMAND_PARAMETER_FLAG_INPUT, 0,
+                offsetof(struct d3d12_meta_command_dstorage_exec_args, status_buffer_size) } },
+};
+
+const struct d3d12_meta_command_info d3d12_meta_command_infos[] =
+{
+    { &IID_META_COMMAND_DSTORAGE, u"DirectStorage", 0,
+          D3D12_GRAPHICS_STATE_COMPUTE_ROOT_SIGNATURE | D3D12_GRAPHICS_STATE_PIPELINE_STATE,
+          ARRAY_SIZE(d3d12_meta_command_dstorage_parameter_infos),
+          d3d12_meta_command_dstorage_parameter_infos, NULL },
+};
+
 static void d3d12_meta_command_destroy(struct d3d12_meta_command *meta_command)
 {
     vkd3d_private_store_destroy(&meta_command->private_store);
