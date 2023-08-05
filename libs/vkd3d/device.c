@@ -6029,10 +6029,17 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateMetaCommand(d3d12_device_ifa
         REFGUID command_id, UINT node_mask, const void *param_data, SIZE_T param_size,
         REFIID iid, void **meta_command)
 {
-    FIXME("iface %p, command_id %s, node_mask %#x, param_data %p, param_size %lu, iid %s, meta_command %p stub!\n",
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    struct d3d12_meta_command *object;
+    HRESULT hr;
+
+    TRACE("iface %p, command_id %s, node_mask %#x, param_data %p, param_size %lu, iid %s, meta_command %p.\n",
             iface, debugstr_guid(command_id), node_mask, param_data, param_size, debugstr_guid(iid), meta_command);
 
-    return E_NOTIMPL;
+    if (FAILED(hr = d3d12_meta_command_create(device, command_id, param_data, param_size, &object)))
+        return hr;
+
+    return return_interface(&object->ID3D12MetaCommand_iface, &IID_ID3D12MetaCommand, iid, meta_command);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateStateObject(d3d12_device_iface *iface,
