@@ -4520,6 +4520,36 @@ static inline struct d3d12_state_object *impl_from_ID3D12StateObject(ID3D12State
     return CONTAINING_RECORD(iface, struct d3d12_state_object, ID3D12StateObject_iface);
 }
 
+/* ID3D12MetaCommand */
+struct d3d12_meta_command;
+
+typedef HRESULT (*d3d12_meta_command_create_proc)(struct d3d12_meta_command*, struct d3d12_device*, const void*, size_t);
+typedef void (*d3d12_meta_command_exec_proc)(struct d3d12_meta_command*, struct d3d12_command_list*, const void*, size_t);
+
+typedef ID3D12MetaCommand d3d12_meta_command_iface;
+
+struct d3d12_meta_command
+{
+    d3d12_meta_command_iface ID3D12MetaCommand_iface;
+    LONG refcount;
+
+    d3d12_meta_command_exec_proc init_proc;
+    d3d12_meta_command_exec_proc exec_proc;
+
+    struct d3d12_device *device;
+
+    struct vkd3d_private_store private_store;
+};
+
+struct d3d12_meta_command *impl_from_ID3D12MetaCommand(ID3D12MetaCommand *iface);
+
+void vkd3d_enumerate_meta_commands(struct d3d12_device *device, UINT *count, D3D12_META_COMMAND_DESC *output_descs);
+bool vkd3d_enumerate_meta_command_parameters(struct d3d12_device *device, REFGUID command_id,
+        D3D12_META_COMMAND_PARAMETER_STAGE stage, UINT *total_size, UINT *param_count,
+        D3D12_META_COMMAND_PARAMETER_DESC *param_descs);
+HRESULT d3d12_meta_command_create(struct d3d12_device *device, REFGUID guid,
+        const void *parameters, size_t parameter_size, struct d3d12_meta_command **meta_command);
+
 /* utils */
 enum vkd3d_format_type
 {
