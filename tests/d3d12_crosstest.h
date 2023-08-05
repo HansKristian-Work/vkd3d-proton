@@ -507,6 +507,13 @@ static inline bool is_intel_windows_device(ID3D12Device *device)
     return get_adapter_desc(device, &desc) && desc.VendorId == 0x8086;
 }
 
+static inline bool is_nvidia_windows_device(ID3D12Device *device)
+{
+    DXGI_ADAPTER_DESC desc;
+
+    return get_adapter_desc(device, &desc) && desc.VendorId == 0x10de;
+}
+
 static inline bool is_mesa_device(ID3D12Device *device)
 {
     return false;
@@ -616,6 +623,11 @@ static inline bool is_amd_windows_device(ID3D12Device *device)
 }
 
 static inline bool is_intel_windows_device(ID3D12Device *device)
+{
+    return false;
+}
+
+static inline bool is_nvidia_windows_device(ID3D12Device *device)
 {
     return false;
 }
