@@ -12346,15 +12346,37 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndRenderPass(d3d12_command_lis
 static void STDMETHODCALLTYPE d3d12_command_list_InitializeMetaCommand(d3d12_command_list_iface *iface,
         ID3D12MetaCommand *meta_command, const void *parameter_data, SIZE_T parameter_size)
 {
-    FIXME("iface %p, meta_command %p, parameter_data %p, parameter_size %lu stub!\n",
+    struct d3d12_meta_command *meta_command_object = impl_from_ID3D12MetaCommand(meta_command);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+
+    TRACE("iface %p, meta_command %p, parameter_data %p, parameter_size %lu.\n",
             iface, meta_command, parameter_data, parameter_size);
+
+    /* Not all meta commands require initialization */
+    if (!meta_command_object->init_proc)
+        return;
+
+    d3d12_command_list_end_current_render_pass(list, true);
+    d3d12_command_list_end_transfer_batch(list);
+    d3d12_command_list_invalidate_all_state(list);
+
+    meta_command_object->init_proc(meta_command_object, list, parameter_data, parameter_size);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ExecuteMetaCommand(d3d12_command_list_iface *iface,
         ID3D12MetaCommand *meta_command, const void *parameter_data, SIZE_T parameter_size)
 {
-    FIXME("iface %p, meta_command %p, parameter_data %p, parameter_size %lu stub!\n",
+    struct d3d12_meta_command *meta_command_object = impl_from_ID3D12MetaCommand(meta_command);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+
+    TRACE("iface %p, meta_command %p, parameter_data %p, parameter_size %lu.\n",
             iface, meta_command, parameter_data, parameter_size);
+
+    d3d12_command_list_end_current_render_pass(list, true);
+    d3d12_command_list_end_transfer_batch(list);
+    d3d12_command_list_invalidate_all_state(list);
+
+    meta_command_object->exec_proc(meta_command_object, list, parameter_data, parameter_size);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStructure(d3d12_command_list_iface *iface,
