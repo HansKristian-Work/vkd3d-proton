@@ -1,0 +1,125 @@
+#version 450
+
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_explicit_arithmetic_types : enable
+#extension GL_KHR_shader_subgroup_ballot : enable
+
+#define VK_MEMORY_DECOMPRESSION_METHOD_GDEFLATE_1_0_BIT_NV (uint64_t(1))
+
+#define GDEFLATE_TILE_SIZE (65536u)
+
+layout(local_size_x = 32u) in;
+
+struct stream_offsets_t {
+  uint src_offset;
+  uint dst_offset;
+};
+
+
+layout(buffer_reference, scalar)
+readonly buffer control_buffer_t {
+  uint stream_count;
+  stream_offsets_t streams[];
+};
+
+
+layout(buffer_reference, scalar)
+readonly buffer tile_stream_t {
+  uint dword0;
+  uint dword1;
+  uint last_compressed_size;
+  uint tile_offsets[];
+};
+
+
+struct memory_region_t {
+  uint64_t src_address;
+  uint64_t dst_address;
+  uint64_t compressed_size;
+  uint64_t decompressed_size;
+  uint64_t decompression_method;
+};
+
+
+layout(buffer_reference, scalar)
+buffer memory_regions_t {
+  uvec3 region_count;
+  uint  reserved;
+  memory_region_t memory_regions[];
+};
+
+
+layout(push_constant)
+uniform u_info_t {
+  control_buffer_t control_buffer;
+  uint64_t src_buffer;
+  uint64_t dst_buffer;
+  uint64_t scratch_buffer;
+  uint stream_count;
+  uint stream_index;
+};
+
+
+void main() {
+  // Respect the stream count stored in the control buffer,
+  // the stream count from the API is only an upper bound.
+  if (stream_index >= control_buffer.stream_count)
+    return;
+
+  // If the current stream index is valid, parse the tile stream header
+  stream_offsets_t stream_offsets = control_buffer.streams[stream_index];
+  tile_stream_t tile_stream = tile_stream_t(src_buffer + stream_offsets.src_offset);
+
+  uint tile_index = uint(gl_GlobalInvocationID.x);
+  uint tile_count = bitfieldExtract(tile_stream.dword0, 16, 16);
+
+  if (tile_index >= tile_count)
+    return;
+
+  // The offset of the first tile is implied to be zero relative to the
+  // end of the tile stream metadata, and compressed tiles are packed in
+  // memory so we can use the offsets to compute the size of each tile.
+  uint src_offset = 0u;
+  uint dst_offset = tile_index * GDEFLATE_TILE_SIZE;
+
+  if (tile_index != 0)
+    src_offset = tile_stream.tile_offsets[tile_index - 1u];
+
+  uint src_size;
+  uint dst_size;
+
+  if (tile_index + 1 == tile_count) {
+    src_size = tile_stream.last_compressed_size;
+    dst_size = bitfieldExtract(tile_stream.dword1, 2, 18);
+  } else {
+    src_size = tile_stream.tile_offsets[tile_index] - src_offset;
+    dst_size = GDEFLATE_TILE_SIZE;
+  }
+
+  // Compute actual source data offset relative to the tile stream
+  uint metadata_size = 8u + tile_count * 4u;
+  src_offset += metadata_size;
+
+  // Allocate an output region structure from the scratch buffer
+  memory_regions_t region_buffer = memory_regions_t(scratch_buffer);
+
+  uvec4 ballot = subgroupBallot(true);
+
+  uint out_count = subgroupBallotBitCount(ballot);
+  uint out_index = subgroupBallotExclusiveBitCount(ballot);
+
+  uint out_first;
+
+  if (subgroupElect())
+    out_first = atomicAdd(region_buffer.region_count.x, out_count);
+
+  out_index += subgroupBroadcastFirst(out_first);
+
+  // Compute absolute VAs for vkCmdDecompressMemoryIndirectCountNV
+  region_buffer.memory_regions[out_index] = memory_region_t(
+    src_buffer + uint64_t(stream_offsets.src_offset + src_offset),
+    dst_buffer + uint64_t(stream_offsets.dst_offset + dst_offset),
+    uint64_t(src_size), uint64_t(dst_size),
+    VK_MEMORY_DECOMPRESSION_METHOD_GDEFLATE_1_0_BIT_NV);
+}

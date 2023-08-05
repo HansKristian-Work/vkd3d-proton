@@ -45,6 +45,8 @@ enum vkd3d_meta_copy_mode
 #include <cs_resolve_binary_queries.h>
 #include <cs_resolve_predicate.h>
 #include <cs_resolve_query.h>
+#include <cs_emit_nv_memory_decompression_regions.h>
+#include <cs_emit_nv_memory_decompression_workgroups.h>
 #include <cs_execute_indirect_patch.h>
 #include <cs_execute_indirect_patch_debug_ring.h>
 #include <cs_execute_indirect_multi_dispatch.h>
