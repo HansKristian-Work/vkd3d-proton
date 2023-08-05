@@ -23,6 +23,9 @@
 /* Determined by calling EnumerateMetaCommands on Windows drivers */
 const GUID IID_META_COMMAND_DSTORAGE = {0x1bddd090,0xc47e,0x459c,{0x8f,0x81,0x42,0xc9,0xf9,0x7a,0x53,0x08}};
 
+static HRESULT d3d12_meta_command_create_dstorage(struct d3d12_meta_command *meta_command,
+        struct d3d12_device *device, const void *parameter_data, size_t parameter_size);
+
 struct d3d12_meta_command_dstorage_create_args
 {
     UINT64 version;
@@ -134,8 +137,105 @@ const struct d3d12_meta_command_info d3d12_meta_command_infos[] =
     { &IID_META_COMMAND_DSTORAGE, u"DirectStorage", 0,
           D3D12_GRAPHICS_STATE_COMPUTE_ROOT_SIGNATURE | D3D12_GRAPHICS_STATE_PIPELINE_STATE,
           ARRAY_SIZE(d3d12_meta_command_dstorage_parameter_infos),
-          d3d12_meta_command_dstorage_parameter_infos, NULL },
+          d3d12_meta_command_dstorage_parameter_infos, &d3d12_meta_command_create_dstorage },
 };
+
+static const struct d3d12_meta_command_info *vkd3d_get_meta_command_info(REFGUID guid)
+{
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(d3d12_meta_command_infos); i++)
+    {
+        if (!memcmp(guid, d3d12_meta_command_infos[i].command_id, sizeof(*guid)))
+            return &d3d12_meta_command_infos[i];
+    }
+
+    return NULL;
+}
+
+static bool vkd3d_check_meta_command_support(struct d3d12_device *device, REFGUID command_id)
+{
+    if (!memcmp(command_id, &IID_META_COMMAND_DSTORAGE, sizeof(*command_id)))
+    {
+        return device->device_info.memory_decompression_features.memoryDecompression &&
+                (device->device_info.memory_decompression_properties.decompressionMethods & VK_MEMORY_DECOMPRESSION_METHOD_GDEFLATE_1_0_BIT_NV) &&
+                (device->meta_ops.dstorage.vk_emit_nv_memory_decompression_regions_pipeline);
+    }
+
+    return false;
+}
+
+void vkd3d_enumerate_meta_commands(struct d3d12_device *device, UINT *count, D3D12_META_COMMAND_DESC *output_descs)
+{
+    uint32_t max_count, out_count;
+    unsigned int i;
+
+    max_count = output_descs ? *count : 0;
+    out_count = 0;
+
+    for (i = 0; i < ARRAY_SIZE(d3d12_meta_command_infos); i++)
+    {
+        const struct d3d12_meta_command_info *info = &d3d12_meta_command_infos[i];
+
+        if (!vkd3d_check_meta_command_support(device, info->command_id))
+            continue;
+
+        if (out_count < max_count)
+        {
+            D3D12_META_COMMAND_DESC *output_desc = &output_descs[out_count];
+            output_desc->Id = *info->command_id;
+            output_desc->Name = info->name;
+            output_desc->InitializationDirtyState = info->init_dirty_states;
+            output_desc->ExecutionDirtyState = info->exec_dirty_states;
+        }
+
+        out_count++;
+    }
+
+    *count = out_count;
+}
+
+bool vkd3d_enumerate_meta_command_parameters(struct d3d12_device *device, REFGUID command_id,
+        D3D12_META_COMMAND_PARAMETER_STAGE stage, UINT *total_size, UINT *param_count,
+        D3D12_META_COMMAND_PARAMETER_DESC *param_descs)
+{
+    const struct d3d12_meta_command_info *command_info = vkd3d_get_meta_command_info(command_id);
+    uint32_t struct_size, max_count, out_count;
+    unsigned int i;
+
+    if (!command_info)
+        return false;
+
+    if (!vkd3d_check_meta_command_support(device, command_info->command_id))
+        return false;
+
+    max_count = param_count ? *param_count : 0u;
+    out_count = 0;
+
+    struct_size = 0;
+
+    for (i = 0; i < command_info->parameter_count; i++)
+    {
+        const struct d3d12_meta_command_parameter_info *param = &command_info->parameters[i];
+
+        if (param->stage != stage)
+            continue;
+
+        if (out_count < max_count)
+            param_descs[out_count] = param->desc;
+
+        out_count += 1;
+        struct_size = max(struct_size, param->desc.StructureOffset + sizeof(uint64_t));
+    }
+
+    if (param_count)
+        *param_count = out_count;
+
+    if (total_size)
+        *total_size = struct_size;
+
+    return true;
+}
 
 static void d3d12_meta_command_destroy(struct d3d12_meta_command *meta_command)
 {
@@ -268,6 +368,184 @@ CONST_VTBL struct ID3D12MetaCommandVtbl d3d12_meta_command_vtbl =
     /* ID3D12MetaCommand methods */
     d3d12_meta_command_GetRequiredParameterResourceSize,
 };
+
+static void d3d12_meta_command_exec_dstorage(struct d3d12_meta_command *meta_command,
+        struct d3d12_command_list *list, const void *parameter_data, size_t parameter_size)
+{
+    const struct d3d12_meta_command_dstorage_exec_args *parameters = parameter_data;
+    struct vkd3d_dstorage_emit_nv_memory_decompression_regions_args push_args;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const struct vkd3d_meta_ops *meta_ops = &list->device->meta_ops;
+    uint32_t workgroup_data_offset, workgroup_count, scratch_offset;
+    const struct vkd3d_unique_resource *scratch_buffer;
+    VkMemoryBarrier2 vk_barrier;
+    VkDependencyInfo dep_info;
+    unsigned int i;
+
+    TRACE("input_va %"PRIx64", input_size %"PRIu64", output_va %"PRIx64", output_size %"PRIu64", "
+            "control_va %"PRIx64", control_size %"PRIu64", scratch_va %"PRIx64", scratch_size %"PRIu64", "
+            "status_va %"PRIx64", status_size %"PRIu64", stream_count %"PRIu64".\n",
+            parameters->input_buffer_va, parameters->input_buffer_size,
+            parameters->output_buffer_va, parameters->output_buffer_size,
+            parameters->control_buffer_va, parameters->control_buffer_size,
+            parameters->scratch_buffer_va, parameters->scratch_buffer_size,
+            parameters->status_buffer_va, parameters->status_buffer_size,
+            parameters->stream_count);
+
+    scratch_buffer = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, parameters->scratch_buffer_va);
+    assert(scratch_buffer);
+
+    scratch_offset = parameters->scratch_buffer_va - scratch_buffer->va;
+
+    /* Offset within the scratch buffer where we are going to store
+     * workgroup counts for the memory region preprocessing step. */
+    workgroup_data_offset = sizeof(struct d3d12_meta_command_dstorage_scratch_header);
+
+    /* The first dispatch will compute the number of workgroups needed
+     * to process the tiles within each stream, and also reset the tile
+     * count passed to vkCmdDecompressMemoryIndirectCountNV later. */
+    memset(&push_args, 0, sizeof(push_args));
+    push_args.control_va = parameters->control_buffer_va;
+    push_args.src_buffer_va = parameters->input_buffer_va;
+    push_args.dst_buffer_va = parameters->output_buffer_va;
+    push_args.scratch_va = parameters->scratch_buffer_va;
+    push_args.stream_count = parameters->stream_count;
+
+    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+            meta_ops->dstorage.vk_emit_nv_memory_decompression_workgroups_pipeline));
+
+    VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+            meta_ops->dstorage.vk_emit_nv_memory_decompression_regions_layout,
+            VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_args), &push_args));
+
+    workgroup_count = vkd3d_compute_workgroup_count(parameters->stream_count, 32);
+    VK_CALL(vkCmdDispatch(list->vk_command_buffer, workgroup_count, 1, 1));
+
+    /* Iterate over individual streams and dispatch another compute shader
+     * that emits the actual VkDecompressMemoryRegionNV structures. */
+    memset(&vk_barrier, 0, sizeof(vk_barrier));
+    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+    vk_barrier.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT |
+            VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT;
+
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.memoryBarrierCount = 1;
+    dep_info.pMemoryBarriers = &vk_barrier;
+
+    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+
+    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+            meta_ops->dstorage.vk_emit_nv_memory_decompression_regions_pipeline));
+
+    for (i = 0; i < parameters->stream_count; i++)
+    {
+        push_args.stream_index = i;
+
+        VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+                meta_ops->dstorage.vk_emit_nv_memory_decompression_regions_layout,
+                VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_args), &push_args));
+
+        VK_CALL(vkCmdDispatchIndirect(list->vk_command_buffer, scratch_buffer->vk_buffer,
+                scratch_offset + workgroup_data_offset + i * sizeof(VkDispatchIndirectCommand)));
+    }
+
+    /* Decompress all submitted streams in one go. */
+    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+    vk_barrier.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+
+    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+
+    VK_CALL(vkCmdDecompressMemoryIndirectCountNV(list->vk_command_buffer,
+            push_args.scratch_va + offsetof(struct d3d12_meta_command_dstorage_scratch_header, regions),
+            push_args.scratch_va, sizeof(VkDecompressMemoryRegionNV)));
+
+    /* DirectStorage does not query expected resource states from the implementation, so
+     * all buffers must end up in the equivalent of D3D12_RESOURCE_STATE_UNORDERED_ACCESS. */
+    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+    vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT;
+
+    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+}
+
+static HRESULT d3d12_meta_command_create_dstorage(struct d3d12_meta_command *meta_command,
+        struct d3d12_device *device, const void* parameter_data, size_t parameter_size)
+{
+    const struct d3d12_meta_command_dstorage_create_args *parameters = parameter_data;
+
+    if (parameter_size < sizeof(*parameters) || !parameters)
+    {
+        FIXME("Invalid parameter set (size = %u, ptr = %p) for DirectStorage meta command.\n", parameter_size, parameters);
+        return E_INVALIDARG;
+    }
+
+    if (parameters->version != 1)
+    {
+        ERR("Unsupported version %u for DirectStorage meta command.\n", parameters->version);
+        return DXGI_ERROR_UNSUPPORTED;
+    }
+
+    if (parameters->format != 1)
+    {
+        ERR("Unsupported format %u for DirectStorage meta command.\n", parameters->format);
+        return DXGI_ERROR_UNSUPPORTED;
+    }
+
+    if (parameters->flags != 0)
+        FIXME("Unrecognized flags %#x for DirectStorage meta command.\n", parameters->flags);
+
+    meta_command->exec_proc = &d3d12_meta_command_exec_dstorage;
+    return S_OK;
+}
+
+HRESULT d3d12_meta_command_create(struct d3d12_device *device, REFGUID guid,
+        const void *parameters, size_t parameter_size, struct d3d12_meta_command **meta_command)
+{
+    const struct d3d12_meta_command_info *command_info;
+    struct d3d12_meta_command *object;
+    HRESULT hr;
+
+    if (!vkd3d_check_meta_command_support(device, guid))
+    {
+        FIXME("Unsupported meta command %s.\n", debugstr_guid(guid));
+        return E_INVALIDARG;
+    }
+
+    if (!(object = vkd3d_calloc(1, sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    memset(object, 0, sizeof(*object));
+    object->ID3D12MetaCommand_iface.lpVtbl = &d3d12_meta_command_vtbl;
+    object->refcount = 1;
+    object->device = device;
+
+    command_info = vkd3d_get_meta_command_info(guid);
+    assert(command_info && command_info->create_proc);
+
+    if (FAILED(hr = command_info->create_proc(object, device, parameters, parameter_size)))
+    {
+        vkd3d_free(object);
+        return hr;
+    }
+
+    if (FAILED(hr = vkd3d_private_store_init(&object->private_store)))
+    {
+        vkd3d_free(object);
+        return hr;
+    }
+
+    d3d12_device_add_ref(device);
+
+    *meta_command = object;
+    return S_OK;
+}
 
 struct d3d12_meta_command *impl_from_ID3D12MetaCommand(ID3D12MetaCommand *iface)
 {
