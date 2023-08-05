@@ -4525,6 +4525,25 @@ struct d3d12_meta_command;
 
 extern const GUID IID_META_COMMAND_DSTORAGE;
 
+/* These are not documented in any way, semantics and types
+ * were guessed based on native DirectStorage behaviour. */
+struct d3d12_meta_command_dstorage_query_in_args
+{
+    uint16_t unknown0;  /* always 1 */
+    uint16_t stream_count;
+    uint32_t unknown1;
+    uint64_t unknown2;
+};
+
+struct d3d12_meta_command_dstorage_query_out_args
+{
+    uint16_t unknown0;  /* always 1 */
+    uint16_t max_stream_count;
+    uint32_t unknown1;
+    uint64_t scratch_size;
+    uint64_t unknown2;
+};
+
 /* Upper limit on the number of tiles we can decompress in
  * one call to the meta command. Corresponds to up to 4GB
  * of decompressed data. */
