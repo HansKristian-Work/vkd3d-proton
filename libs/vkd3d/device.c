@@ -4177,6 +4177,48 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
                 return E_INVALIDARG;
             }
 
+            TRACE("input_data_size = %u, input_data = %p, output_data_size = %u, output_data = %p.\n",
+                    data->QueryInputDataSizeInBytes, data->pQueryInputData, data->QueryOutputDataSizeInBytes,
+                    data->pQueryOutputData);
+
+            if ((data->QueryInputDataSizeInBytes && !data->pQueryInputData) ||
+                    (data->QueryOutputDataSizeInBytes && !data->pQueryOutputData))
+                return E_INVALIDARG;
+
+            if (!memcmp(&data->CommandId, &IID_META_COMMAND_DSTORAGE, sizeof(data->CommandId)))
+            {
+                /* It is not clear what any of these parameters do, but as of right now
+                 * it appears that only a single combination of parameters is supported. */
+                const struct d3d12_meta_command_dstorage_query_in_args *in_args = data->pQueryInputData;
+                struct d3d12_meta_command_dstorage_query_out_args *out_args = data->pQueryOutputData;
+
+                /* Passing an output parameter size larger than the structure,
+                 * is allowed but any excess bytes are not written. */
+                if (data->QueryInputDataSizeInBytes < sizeof(*in_args) || data->QueryOutputDataSizeInBytes < sizeof(*out_args))
+                {
+                    FIXME("Unexpected input/output sizes for DirectStorage meta command: %u, %u.\n",
+                            data->QueryInputDataSizeInBytes, data->QueryOutputDataSizeInBytes);
+                    return E_INVALIDARG;
+                }
+
+                memset(out_args, 0, sizeof(*out_args));
+
+                if (in_args->unknown2 == 1)
+                {
+                    out_args->unknown0 = 1;
+                    /* Limit stream count to something reasonable. Given that we have a hard limit
+                     * on the number of tiles we can process in one call, we should make it unlikely
+                     * for applications to hit that upper limit even if they try. */
+                    out_args->max_stream_count = min(256u, in_args->stream_count);
+                    /* Reserve data for the indirect tile count, then the memory region for
+                     * each tile, and finally a compute workgroup count for each stream. */
+                    out_args->scratch_size = sizeof(struct d3d12_meta_command_dstorage_scratch_header) +
+                            sizeof(VkDispatchIndirectCommand) * out_args->max_stream_count;
+                }
+
+                return S_OK;
+            }
+
             FIXME("Unsupported meta command %s.\n", debugstr_guid(&data->CommandId));
             return E_INVALIDARG;
         }
