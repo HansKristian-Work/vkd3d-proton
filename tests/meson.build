@@ -28,6 +28,7 @@ d3d12_test_src = [
   'd3d12_pso_blob.c',
   'd3d12_resource.c',
   'd3d12_bindless.c',
+  'd3d12_dstorage.c',
   'd3d12_shaders.c',
   'd3d12_command.c',
   'd3d12_sparse.c',
