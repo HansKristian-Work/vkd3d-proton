@@ -5998,12 +5998,14 @@ static void STDMETHODCALLTYPE d3d12_device_RemoveDevice(d3d12_device_iface *ifac
 static HRESULT STDMETHODCALLTYPE d3d12_device_EnumerateMetaCommands(d3d12_device_iface *iface,
         UINT *count, D3D12_META_COMMAND_DESC *descs)
 {
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+
     TRACE("iface %p, count %p, descs %p.\n", iface, count, descs);
 
     if (!count)
         return E_INVALIDARG;
 
-    *count = 0;
+    vkd3d_enumerate_meta_commands(device, count, descs);
     return S_OK;
 }
 
@@ -6011,10 +6013,16 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_EnumerateMetaCommandParameters(d3d
         REFGUID command_id, D3D12_META_COMMAND_PARAMETER_STAGE stage, UINT *total_size,
         UINT *param_count, D3D12_META_COMMAND_PARAMETER_DESC *param_descs)
 {
-    FIXME("iface %p, command_id %s, stage %u, total_size %p, param_count %p, param_descs %p stub!\n",
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+
+    TRACE("iface %p, command_id %s, stage %u, total_size %p, param_count %p, param_descs %p.\n",
             iface, debugstr_guid(command_id), stage, total_size, param_count, param_descs);
 
-    return E_NOTIMPL;
+    if (!vkd3d_enumerate_meta_command_parameters(device,
+            command_id, stage, total_size, param_count, param_descs))
+        return E_INVALIDARG;
+
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateMetaCommand(d3d12_device_iface *iface,
