@@ -1413,6 +1413,50 @@ void vkd3d_execute_indirect_ops_cleanup(struct vkd3d_execute_indirect_ops *meta_
     pthread_mutex_destroy(&meta_indirect_ops->mutex);
 }
 
+static HRESULT vkd3d_dstorage_ops_init(struct vkd3d_dstorage_ops *dstorage_ops, struct d3d12_device *device)
+{
+    VkPushConstantRange push_range;
+    VkResult vr;
+
+    if (!device->device_info.features2.features.shaderInt64 ||
+            !(device->device_info.vulkan_1_1_properties.subgroupSupportedOperations & VK_SUBGROUP_FEATURE_BALLOT_BIT))
+        return S_OK;
+
+    push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    push_range.offset = 0;
+    push_range.size = sizeof(struct vkd3d_dstorage_emit_nv_memory_decompression_regions_args);
+
+    if ((vr = vkd3d_meta_create_pipeline_layout(device, 0, NULL, 1, &push_range,
+            &dstorage_ops->vk_emit_nv_memory_decompression_regions_layout)))
+        return hresult_from_vk_result(vr);
+
+    if ((vr = vkd3d_meta_create_compute_pipeline(device,
+            sizeof(cs_emit_nv_memory_decompression_regions),
+            cs_emit_nv_memory_decompression_regions,
+            dstorage_ops->vk_emit_nv_memory_decompression_regions_layout,
+            NULL, false, &dstorage_ops->vk_emit_nv_memory_decompression_regions_pipeline)))
+        return hresult_from_vk_result(vr);
+
+    if ((vr = vkd3d_meta_create_compute_pipeline(device,
+            sizeof(cs_emit_nv_memory_decompression_workgroups),
+            cs_emit_nv_memory_decompression_workgroups,
+            dstorage_ops->vk_emit_nv_memory_decompression_regions_layout,
+            NULL, false, &dstorage_ops->vk_emit_nv_memory_decompression_workgroups_pipeline)))
+        return hresult_from_vk_result(vr);
+
+    return S_OK;
+}
+
+static void vkd3d_dstorage_ops_cleanup(struct vkd3d_dstorage_ops *dstorage_ops, struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    VK_CALL(vkDestroyPipeline(device->vk_device, dstorage_ops->vk_emit_nv_memory_decompression_regions_pipeline, NULL));
+    VK_CALL(vkDestroyPipeline(device->vk_device, dstorage_ops->vk_emit_nv_memory_decompression_workgroups_pipeline, NULL));
+
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, dstorage_ops->vk_emit_nv_memory_decompression_regions_layout, NULL));
+}
+
 HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device)
 {
     HRESULT hr;
@@ -1444,8 +1488,13 @@ HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device
     if (FAILED(hr = vkd3d_multi_dispatch_indirect_ops_init(&meta_ops->multi_dispatch_indirect, device)))
         goto fail_multi_dispatch_indirect_ops;
 
+    if (FAILED(hr = vkd3d_dstorage_ops_init(&meta_ops->dstorage, device)))
+        goto fail_dstorage_ops;
+
     return S_OK;
 
+fail_dstorage_ops:
+    vkd3d_multi_dispatch_indirect_ops_cleanup(&meta_ops->multi_dispatch_indirect, device);
 fail_multi_dispatch_indirect_ops:
     vkd3d_execute_indirect_ops_cleanup(&meta_ops->execute_indirect, device);
 fail_execute_indirect_ops:
@@ -1466,6 +1515,7 @@ fail_common:
 
 HRESULT vkd3d_meta_ops_cleanup(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device)
 {
+    vkd3d_dstorage_ops_cleanup(&meta_ops->dstorage, device);
     vkd3d_multi_dispatch_indirect_ops_cleanup(&meta_ops->multi_dispatch_indirect, device);
     vkd3d_execute_indirect_ops_cleanup(&meta_ops->execute_indirect, device);
     vkd3d_predicate_ops_cleanup(&meta_ops->predicate, device);
