@@ -4523,6 +4523,23 @@ static inline struct d3d12_state_object *impl_from_ID3D12StateObject(ID3D12State
 /* ID3D12MetaCommand */
 struct d3d12_meta_command;
 
+extern const GUID IID_META_COMMAND_DSTORAGE;
+
+/* Upper limit on the number of tiles we can decompress in
+ * one call to the meta command. Corresponds to up to 4GB
+ * of decompressed data. */
+#define VKD3D_DSTORAGE_MAX_TILE_COUNT (0x10000u)
+
+struct d3d12_meta_command_dstorage_scratch_header
+{
+    /* Workgroup count for fallback shader */
+    VkDispatchIndirectCommand region_count;
+    /* Padding to ensure 8-byte alignment of region array */
+    uint32_t padding;
+    /* Region array to be interpreted by vkCmdDecompressMemoryNV */
+    VkDecompressMemoryRegionNV regions[VKD3D_DSTORAGE_MAX_TILE_COUNT];
+};
+
 typedef HRESULT (*d3d12_meta_command_create_proc)(struct d3d12_meta_command*, struct d3d12_device*, const void*, size_t);
 typedef void (*d3d12_meta_command_exec_proc)(struct d3d12_meta_command*, struct d3d12_command_list*, const void*, size_t);
 
