@@ -1,0 +1,94 @@
+#version 450
+
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_explicit_arithmetic_types : enable
+
+#define MAX_TILE_COUNT_PER_STREAM           (0x10000u)
+#define EMIT_MEMORY_REGIONS_WORKGROUP_SIZE  (32)
+
+layout(local_size_x = 32) in;
+
+struct stream_offsets_t {
+  uint src_offset;
+  uint dst_offset;
+};
+
+
+layout(buffer_reference, scalar)
+readonly buffer control_buffer_t {
+  uint stream_count;
+  stream_offsets_t streams[];
+};
+
+
+layout(buffer_reference, scalar)
+readonly buffer tile_stream_t {
+  uint dword0;
+  uint dword1;
+  uint last_compressed_size;
+  uint tile_offsets[];
+};
+
+
+layout(buffer_reference, scalar)
+writeonly buffer dispatch_commands_t {
+  uvec3 dispatches[];
+};
+
+
+struct memory_region_t {
+  uint64_t src_address;
+  uint64_t dst_address;
+  uint64_t compressed_size;
+  uint64_t decompressed_size;
+  uint64_t decompression_method;
+};
+
+
+layout(buffer_reference, scalar)
+writeonly buffer memory_regions_t {
+  uvec3 region_count;
+  uint  reserved;
+  memory_region_t memory_regions[];
+};
+
+
+layout(push_constant)
+uniform u_info_t {
+  control_buffer_t control_buffer;
+  uint64_t src_buffer;
+  uint64_t dst_buffer;
+  uint64_t scratch_buffer;
+  uint stream_count;
+};
+
+
+void main() {
+  uint stream_index = uint(gl_GlobalInvocationID.x);
+
+  // Reset memory region count that is later passed the decompression command.
+  if (stream_index == 0u) {
+    memory_regions_t region_buffer = memory_regions_t(scratch_buffer);
+    region_buffer.region_count = uvec3(0u, 1u, 1u);
+  }
+
+  if (stream_index >= stream_count)
+    return;
+
+  // Respect the stream count stored in the control buffer. If the current
+  // stream index is valid, read the tile count from the tile stream header.
+  uint tile_count = 0;
+
+  if (stream_index < control_buffer.stream_count) {
+    stream_offsets_t stream_offsets = control_buffer.streams[stream_index];
+    tile_stream_t tile_stream = tile_stream_t(src_buffer + stream_offsets.src_offset);
+    tile_count = bitfieldExtract(tile_stream.dword0, 16, 16);
+  }
+
+  uint workgroup_count = (tile_count + EMIT_MEMORY_REGIONS_WORKGROUP_SIZE - 1) / EMIT_MEMORY_REGIONS_WORKGROUP_SIZE;
+
+  dispatch_commands_t dispatch_commands = dispatch_commands_t(scratch_buffer +
+    uint64_t(16u + 40u * MAX_TILE_COUNT_PER_STREAM));
+  dispatch_commands.dispatches[stream_index] = uvec3(workgroup_count, 1u, 1u);
+}
