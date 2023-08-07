@@ -112,6 +112,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(NV_COMPUTE_SHADER_DERIVATIVES, NV_compute_shader_derivatives),
     VK_EXTENSION_COND(NV_DEVICE_DIAGNOSTIC_CHECKPOINTS, NV_device_diagnostic_checkpoints, VKD3D_CONFIG_FLAG_BREADCRUMBS | VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE),
     VK_EXTENSION(NV_DEVICE_GENERATED_COMMANDS, NV_device_generated_commands),
+    VK_EXTENSION(NV_SHADER_SUBGROUP_PARTITIONED, NV_shader_subgroup_partitioned),
     /* VALVE extensions */
     VK_EXTENSION(VALVE_MUTABLE_DESCRIPTOR_TYPE, VALVE_mutable_descriptor_type),
     VK_EXTENSION(VALVE_DESCRIPTOR_SET_HOST_MAPPING, VALVE_descriptor_set_host_mapping),
@@ -7581,6 +7582,13 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
             device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                     VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP64_DENORM_PRESERVE;
         }
+    }
+
+    if (device->vk_info.NV_shader_subgroup_partitioned &&
+            (device->device_info.vulkan_1_1_properties.subgroupSupportedOperations & VK_SUBGROUP_FEATURE_PARTITIONED_BIT_NV))
+    {
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_SUBGROUP_PARTITIONED_NV;
     }
 }
 

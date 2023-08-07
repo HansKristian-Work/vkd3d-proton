@@ -162,6 +162,7 @@ struct vkd3d_vulkan_info
     bool NV_compute_shader_derivatives;
     bool NV_device_diagnostic_checkpoints;
     bool NV_device_generated_commands;
+    bool NV_shader_subgroup_partitioned;
     /* VALVE extensions */
     bool VALVE_mutable_descriptor_type;
     bool VALVE_descriptor_set_host_mapping;
