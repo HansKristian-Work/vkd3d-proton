@@ -845,6 +845,17 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
                 denorm_preserve.supports_float16_denorm_preserve = DXIL_SPV_TRUE;
             else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP64_DENORM_PRESERVE)
                 denorm_preserve.supports_float64_denorm_preserve = DXIL_SPV_TRUE;
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_SUBGROUP_PARTITIONED_NV)
+            {
+                static const dxil_spv_option_subgroup_partitioned_nv helper =
+                        { { DXIL_SPV_OPTION_SUBGROUP_PARTITIONED_NV }, DXIL_SPV_TRUE };
+                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support SUBGROUP_PARTITIONED_NV.\n");
+                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+                    goto end;
+                }
+            }
         }
 
         if (dxil_spv_converter_add_option(converter, &denorm_preserve.base) != DXIL_SPV_SUCCESS)
@@ -1380,6 +1391,17 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
                 denorm_preserve.supports_float16_denorm_preserve = DXIL_SPV_TRUE;
             else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP64_DENORM_PRESERVE)
                 denorm_preserve.supports_float64_denorm_preserve = DXIL_SPV_TRUE;
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_SUBGROUP_PARTITIONED_NV)
+            {
+                static const dxil_spv_option_subgroup_partitioned_nv helper =
+                        { { DXIL_SPV_OPTION_SUBGROUP_PARTITIONED_NV }, DXIL_SPV_TRUE };
+                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support SUBGROUP_PARTITIONED_NV.\n");
+                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+                    goto end;
+                }
+            }
         }
     }
 
