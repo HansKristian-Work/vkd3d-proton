@@ -473,6 +473,8 @@ static void d3d12_meta_command_exec_dstorage(struct d3d12_meta_command *meta_com
     vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT;
 
     VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+
+    VKD3D_BREADCRUMB_COMMAND(DSTORAGE);
 }
 
 static HRESULT d3d12_meta_command_create_dstorage(struct d3d12_meta_command *meta_command,
