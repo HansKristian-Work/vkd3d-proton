@@ -2388,7 +2388,6 @@ struct vkd3d_pipeline_bindings
     uint32_t dirty_flags; /* vkd3d_pipeline_dirty_flags */
 
     uint32_t descriptor_tables[D3D12_MAX_ROOT_COST];
-    uint64_t descriptor_table_active_mask;
     uint64_t descriptor_heap_dirty_mask;
 
     /* Needed when VK_KHR_push_descriptor is not available. */

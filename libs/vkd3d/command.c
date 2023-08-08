@@ -5523,7 +5523,7 @@ static void d3d12_command_list_update_descriptor_table_offsets(struct d3d12_comm
     uint64_t descriptor_table_mask;
 
     assert(root_signature->descriptor_table_count);
-    descriptor_table_mask = root_signature->descriptor_table_mask & bindings->descriptor_table_active_mask;
+    descriptor_table_mask = root_signature->descriptor_table_mask;
 
     while (descriptor_table_mask)
     {
@@ -5758,7 +5758,7 @@ static void d3d12_command_list_fetch_root_parameter_uniform_block_data(struct d3
     }
 
     first_table_offset = root_signature->descriptor_table_offset / sizeof(uint32_t);
-    descriptor_table_mask = root_signature->descriptor_table_mask & bindings->descriptor_table_active_mask;
+    descriptor_table_mask = root_signature->descriptor_table_mask;
 
     while (descriptor_table_mask)
     {
@@ -9027,7 +9027,6 @@ static inline void d3d12_command_list_set_descriptor_table_embedded(struct d3d12
     assert(index < ARRAY_SIZE(bindings->descriptor_tables));
     bindings->descriptor_tables[index] = d3d12_desc_heap_offset_from_embedded_gpu_handle(
             base_descriptor, cbv_srv_uav_size_log2, sampler_size_log2);
-    bindings->descriptor_table_active_mask |= (uint64_t)1 << index;
 
     if (root_signature)
     {
@@ -9049,7 +9048,6 @@ static inline void d3d12_command_list_set_descriptor_table(struct d3d12_command_
 
     assert(index < ARRAY_SIZE(bindings->descriptor_tables));
     bindings->descriptor_tables[index] = d3d12_desc_heap_offset_from_gpu_handle(base_descriptor);
-    bindings->descriptor_table_active_mask |= (uint64_t)1 << index;
 
     if (root_signature)
     {
