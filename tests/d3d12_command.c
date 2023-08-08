@@ -5442,3 +5442,193 @@ void test_conservative_rasterization_dxil(void)
     test_conservative_rasterization(true);
 }
 
+void test_uninit_root_parameters(void)
+{
+    D3D12_DESCRIPTOR_RANGE table_range[1];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_params[3];
+    ID3D12DescriptorHeap *desc_heap;
+    struct test_context context;
+    ID3D12RootSignature *alt_rs;
+    struct resource_readback rb;
+    ID3D12Resource *buf[4];
+    ID3D12Resource *output;
+    unsigned int i, j;
+
+    static const DWORD cs_code[] =
+    {
+#if 0
+    Buffer<float4> T : register(t0);
+    RWStructuredBuffer<float4> U : register(u0);
+    cbuffer C : register(b0)
+    {
+            float4 v;
+    };
+
+    [numthreads(1, 1, 1)]
+    void main(uint thr : SV_DispatchThreadID)
+    {
+            U[thr] = T.Load(thr) + v;
+    }
+#endif
+        0x43425844, 0x6ef24b9b, 0xb10f5510, 0x55b976be, 0xf57e9c8f, 0x00000001, 0x00000114, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x000000c0, 0x00050050, 0x00000030, 0x0100086a,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x04000858, 0x00107000, 0x00000000, 0x00005555,
+        0x0400009e, 0x0011e000, 0x00000000, 0x00000010, 0x0200005f, 0x00020012, 0x02000068, 0x00000001,
+        0x0400009b, 0x00000001, 0x00000001, 0x00000001, 0x8800002d, 0x80000042, 0x00155543, 0x001000f2,
+        0x00000000, 0x00020006, 0x00107e46, 0x00000000, 0x08000000, 0x001000f2, 0x00000000, 0x00100e46,
+        0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x080000a8, 0x0011e0f2, 0x00000000, 0x0002000a,
+        0x00004001, 0x00000000, 0x00100e46, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE cs_code_dxbc = SHADER_BYTECODE(cs_code);
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_params, 0, sizeof(rs_params));
+    memset(table_range, 0, sizeof(table_range));
+
+    rs_desc.NumParameters = ARRAY_SIZE(rs_params);
+    rs_desc.pParameters = rs_params;
+    rs_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_params[0].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(table_range);
+    rs_params[0].DescriptorTable.pDescriptorRanges = table_range;
+    table_range[0].NumDescriptors = 4;
+    table_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    rs_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_params[2].Constants.Num32BitValues = ARRAY_SIZE(buf);
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    rs_params[2].Constants.Num32BitValues += 2;
+    create_root_signature(context.device, &rs_desc, &alt_rs);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, cs_code_dxbc);
+
+    desc_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, ARRAY_SIZE(buf));
+
+    for (i = 0; i < ARRAY_SIZE(buf); i++)
+    {
+        D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu_h;
+        float data[4];
+
+        for (j = 0; j < 4; j++)
+            data[j] = (float)(4 * i + 1 + j);
+        buf[i] = create_upload_buffer(context.device, sizeof(data), data);
+
+        srv_desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+        srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        srv_desc.Buffer.FirstElement = 0;
+        srv_desc.Buffer.Flags = 0;
+        srv_desc.Buffer.NumElements = 1;
+        srv_desc.Buffer.StructureByteStride = 0;
+        cpu_h = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(desc_heap);
+        cpu_h.ptr += ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) * i;
+        ID3D12Device_CreateShaderResourceView(context.device, buf[i], &srv_desc, cpu_h);
+    }
+
+    output = create_default_buffer(context.device, 4096, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    /* First, check to see what happens when we let stale 32-bit constants and descriptor heap tables pass through a SetRootSignature call. */
+    {
+        D3D12_GPU_DESCRIPTOR_HANDLE gpu_h = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(desc_heap);
+        const struct vec4 expected = { 15.0f, 26.0f, 37.0f, 48.0f };
+        const float data[4] = { 10, 20, 30, 40 };
+        const struct vec4 *value;
+
+        gpu_h.ptr += ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &desc_heap);
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, alt_rs);
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, gpu_h);
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output));
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(context.list, 2, 4, data, 0);
+
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+        ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+
+        transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+
+        /* Setting a new root signature does not clear out any state. This does not even trigger a warning, but it can hang AMD GPUs ... */
+        value = get_readback_vec4(&rb, 0, 0);
+        ok(compare_vec4(value, &expected, 0), "Expected (%f, %f, %f, %f), got (%f, %f, %f, %f).\n",
+                expected.x, expected.y, expected.z, expected.w,
+                value->x, value->y, value->z, value->w);
+        release_resource_readback(&rb);
+    }
+
+    /* Try not setting root constants. Expect zeroed state. */
+    {
+        D3D12_GPU_DESCRIPTOR_HANDLE gpu_h = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(desc_heap);
+        const struct vec4 expected = { 5.0f, 6.0f, 7.0f, 8.0f };
+        const struct vec4 *value;
+
+        gpu_h.ptr += ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &desc_heap);
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, gpu_h);
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output) + 16);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+        ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+
+        transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+
+        /* Setting a new root signature does not clear out any state. This does not even trigger a warning, but it can hang AMD GPUs ... */
+        value = get_readback_vec4(&rb, 1, 0);
+        ok(compare_vec4(value, &expected, 0), "Expected (%f, %f, %f, %f), got (%f, %f, %f, %f).\n",
+                expected.x, expected.y, expected.z, expected.w,
+                value->x, value->y, value->z, value->w);
+        release_resource_readback(&rb);
+    }
+
+    /* See what happens on ClearState(). It should be equivalent to a Reset(), i.e. cleared state. */
+    {
+        D3D12_GPU_DESCRIPTOR_HANDLE gpu_h = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(desc_heap);
+        const struct vec4 expected = { 5.0f, 6.0f, 7.0f, 8.0f };
+        const float data[4] = { 10, 20, 30, 40 };
+        const struct vec4 *value;
+
+        gpu_h.ptr += ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &desc_heap);
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, alt_rs);
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, gpu_h);
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output));
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(context.list, 2, 4, data, 0);
+
+        /* Root parameter state is cleared to zero in ClearState. Have to set table + root descriptor or weird things happen. */
+        ID3D12GraphicsCommandList_ClearState(context.list, NULL);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &desc_heap);
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, gpu_h);
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output) + 32);
+
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+        ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+
+        transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+
+        value = get_readback_vec4(&rb, 2, 0);
+        ok(compare_vec4(value, &expected, 0), "Expected (%f, %f, %f, %f), got (%f, %f, %f, %f).\n",
+                expected.x, expected.y, expected.z, expected.w,
+                value->x, value->y, value->z, value->w);
+        release_resource_readback(&rb);
+    }
+
+    ID3D12RootSignature_Release(alt_rs);
+    ID3D12Resource_Release(output);
+    for (i = 0; i < ARRAY_SIZE(buf); i++)
+        ID3D12Resource_Release(buf[i]);
+    ID3D12DescriptorHeap_Release(desc_heap);
+    destroy_test_context(&context);
+}
