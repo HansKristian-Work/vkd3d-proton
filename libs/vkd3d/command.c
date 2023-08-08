@@ -9036,6 +9036,10 @@ static inline void d3d12_command_list_set_descriptor_table_embedded(struct d3d12
         if (root_signature->hoist_info.num_desc)
             bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_HOISTED_DESCRIPTORS;
     }
+
+    VKD3D_BREADCRUMB_AUX32(index);
+    VKD3D_BREADCRUMB_AUX32(bindings->descriptor_tables[index]);
+    VKD3D_BREADCRUMB_TAG("DescriptorTable [param, offset]");
 }
 
 static inline void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *list,
