@@ -4642,7 +4642,7 @@ static void d3d12_command_list_track_query_heap(struct d3d12_command_list *list,
     }
 }
 
-extern ULONG STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_AddRef(ID3D12GraphicsCommandListExt *iface);
+extern ULONG STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_AddRef(d3d12_command_list_vkd3d_ext_iface *iface);
 
 HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_iface *iface,
         REFIID iid, void **object)
