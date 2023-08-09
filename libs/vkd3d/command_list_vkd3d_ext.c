@@ -68,7 +68,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_GetVulkanHandle(d3
 #define CU_LAUNCH_PARAM_BUFFER_SIZE    (const void*)0x02
 #define CU_LAUNCH_PARAM_END            (const void*)0x00
 
-static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_LaunchCubinShader(d3d12_command_list_vkd3d_ext_iface *iface, D3D12_CUBIN_DATA_HANDLE *handle, UINT32 block_x, UINT32 block_y, UINT32 block_z, const void *params, UINT32 param_size)
+static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_LaunchCubinShaderEx(d3d12_command_list_vkd3d_ext_iface *iface, D3D12_CUBIN_DATA_HANDLE *handle, UINT32 block_x, UINT32 block_y, UINT32 block_z, UINT32 smem_size, const void *params, UINT32 param_size, const void *raw_params, UINT32 raw_params_count)
 {
     VkCuLaunchInfoNVX launchInfo = { VK_STRUCTURE_TYPE_CU_LAUNCH_INFO_NVX };
     const struct vkd3d_vk_device_procs *vk_procs;
@@ -80,7 +80,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_LaunchCubinShader(
     };
 
     struct d3d12_command_list *command_list = d3d12_command_list_from_ID3D12GraphicsCommandListExt(iface);
-    TRACE("iface %p, handle %p, block_x %u,  block_y %u, block_z %u, params %p, param_size %u \n", iface, handle, block_x, block_y, block_z, params, param_size);
+    TRACE("iface %p, handle %p, block_x %u,  block_y %u, block_z %u, smem_size %u, params %p, param_size %u, raw_params %p, raw_params_count %u \n",
+           iface, handle, block_x, block_y, block_z, smem_size, params, param_size, raw_params, raw_params_count);
+
     if (!handle || !block_x || !block_y || !block_z || !params || !param_size)
         return E_INVALIDARG;
 
@@ -91,9 +93,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_LaunchCubinShader(
     launchInfo.blockDimX = handle->blockX;
     launchInfo.blockDimY = handle->blockY;
     launchInfo.blockDimZ = handle->blockZ;
-    launchInfo.sharedMemBytes = 0;
-    launchInfo.paramCount = 0;
-    launchInfo.pParams = NULL;
+    launchInfo.sharedMemBytes = smem_size;
+    launchInfo.paramCount = raw_params_count;
+    launchInfo.pParams = raw_params;
     launchInfo.extraCount = 1;
     launchInfo.pExtras = config;
     
@@ -102,7 +104,21 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_LaunchCubinShader(
     return S_OK;
 }
 
-CONST_VTBL struct ID3D12GraphicsCommandListExtVtbl d3d12_command_list_vkd3d_ext_vtbl =
+static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_LaunchCubinShader(d3d12_command_list_vkd3d_ext_iface *iface, D3D12_CUBIN_DATA_HANDLE *handle, UINT32 block_x, UINT32 block_y, UINT32 block_z, const void *params, UINT32 param_size)
+{
+    return d3d12_command_list_vkd3d_ext_LaunchCubinShaderEx(iface,
+                                                            handle,
+                                                            block_x,
+                                                            block_y,
+                                                            block_z,
+                                                            0, /* smem_size */
+                                                            params,
+                                                            param_size,
+                                                            NULL, /* raw_params */
+                                                            0 /* raw_params_count */);
+}
+
+CONST_VTBL struct ID3D12GraphicsCommandListExt1Vtbl d3d12_command_list_vkd3d_ext_vtbl =
 {
     /* IUnknown methods */
     d3d12_command_list_vkd3d_ext_QueryInterface,
@@ -111,6 +127,9 @@ CONST_VTBL struct ID3D12GraphicsCommandListExtVtbl d3d12_command_list_vkd3d_ext_
 
     /* ID3D12GraphicsCommandListExt methods */
     d3d12_command_list_vkd3d_ext_GetVulkanHandle,
-    d3d12_command_list_vkd3d_ext_LaunchCubinShader
+    d3d12_command_list_vkd3d_ext_LaunchCubinShader,
+
+    /* ID3D12GraphicsCommandListExt1 methods */
+    d3d12_command_list_vkd3d_ext_LaunchCubinShaderEx,
 };
 

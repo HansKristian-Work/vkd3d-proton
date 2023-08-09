@@ -30,3 +30,13 @@ interface ID3D12GraphicsCommandListExt : IUnknown
    HRESULT LaunchCubinShader(D3D12_CUBIN_DATA_HANDLE *handle, UINT32 block_x, UINT32 block_y, UINT32 block_z, const void *params, UINT32 param_size);
 }
 
+[
+    uuid(d53b0028-afb4-4b65-a4f1-7b0daaa65b4f),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12GraphicsCommandListExt1 : ID3D12GraphicsCommandListExt
+{
+   HRESULT LaunchCubinShaderEx(D3D12_CUBIN_DATA_HANDLE *handle, UINT32 block_x, UINT32 block_y, UINT32 block_z, UINT32 smem_size, const void *params, UINT32 param_size, const void *raw_params, UINT32 raw_params_count);
+}
