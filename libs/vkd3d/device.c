@@ -504,9 +504,9 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "re3.exe",
             VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
     { VKD3D_STRING_COMPARE_EXACT, "re4.exe",
-            VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
+            0, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
     { VKD3D_STRING_COMPARE_EXACT, "re4demo.exe",
-            VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
+            0, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
     { VKD3D_STRING_COMPARE_EXACT, "re7.exe",
             VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
     /* Control (870780).
@@ -585,6 +585,12 @@ static const struct vkd3d_shader_quirk_info re_quirks = {
     re_hashes, ARRAY_SIZE(re_hashes), 0,
 };
 
+/* There are lots of shaders which cause random flicker due to bad 16-bit behavior.
+ * These shaders really need 32-bit it seems to render properly, so just do that. */
+static const struct vkd3d_shader_quirk_info re4_quirks = {
+    re_hashes, ARRAY_SIZE(re_hashes), VKD3D_SHADER_QUIRK_FORCE_MIN16_AS_32BIT,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
@@ -601,7 +607,7 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* Resident Evil 7 (418370) */
     { VKD3D_STRING_COMPARE_EXACT, "re7.exe", &re_quirks },
     /* Resident Evil 4 (2050650) */
-    { VKD3D_STRING_COMPARE_EXACT, "re4.exe", &re_quirks },
+    { VKD3D_STRING_COMPARE_EXACT, "re4.exe", &re4_quirks },
     /* MSVC fails to compile empty array. */
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
 };
