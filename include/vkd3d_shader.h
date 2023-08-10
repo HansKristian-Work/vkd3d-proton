@@ -408,6 +408,9 @@ enum vkd3d_shader_quirk
     /* Enforce a subgroup size of 32 or less. Can be used to work around
      * issues in shaders that are buggy with large subgroups. */
     VKD3D_SHADER_QUIRK_FORCE_MAX_WAVE32 = (1 << 10),
+
+    /* For shaders which are bugged when you opt-in to 16-bit. */
+    VKD3D_SHADER_QUIRK_FORCE_MIN16_AS_32BIT = (1 << 11),
 };
 
 struct vkd3d_shader_quirk_hash

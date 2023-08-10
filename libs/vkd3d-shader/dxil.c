@@ -831,14 +831,17 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
             }
             else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_MIN_PRECISION_IS_NATIVE_16BIT)
             {
-                static const dxil_spv_option_min_precision_native_16bit helper =
-                        { { DXIL_SPV_OPTION_MIN_PRECISION_NATIVE_16BIT }, DXIL_SPV_TRUE };
-
-                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                if (!(quirks & VKD3D_SHADER_QUIRK_FORCE_MIN16_AS_32BIT))
                 {
-                    ERR("dxil-spirv does not support MIN_PRECISION_NATIVE_16BIT.\n");
-                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                    goto end;
+                    static const dxil_spv_option_min_precision_native_16bit helper =
+                            { { DXIL_SPV_OPTION_MIN_PRECISION_NATIVE_16BIT }, DXIL_SPV_TRUE };
+
+                    if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                    {
+                        ERR("dxil-spirv does not support MIN_PRECISION_NATIVE_16BIT.\n");
+                        ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+                        goto end;
+                    }
                 }
             }
             else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP16_DENORM_PRESERVE)
@@ -1032,6 +1035,7 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     unsigned int i, j, max_size;
     vkd3d_shader_hash_t hash;
     int ret = VKD3D_OK;
+    uint32_t quirks;
     void *code;
 
     dxil_spv_set_thread_log_callback(vkd3d_dxil_log_callback, NULL);
@@ -1039,6 +1043,8 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     memset(&spirv->meta, 0, sizeof(spirv->meta));
     hash = vkd3d_shader_hash(dxil);
     spirv->meta.hash = hash;
+
+    quirks = vkd3d_shader_compile_arguments_select_quirks(compiler_args, hash);
 
     /* For user provided (not mangled) export names, just inherit that name. */
     if (!demangled_export)
@@ -1377,14 +1383,17 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
             }
             else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_MIN_PRECISION_IS_NATIVE_16BIT)
             {
-                static const dxil_spv_option_min_precision_native_16bit helper =
-                        { { DXIL_SPV_OPTION_MIN_PRECISION_NATIVE_16BIT }, DXIL_SPV_TRUE };
-
-                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                if (!(quirks & VKD3D_SHADER_QUIRK_FORCE_MIN16_AS_32BIT))
                 {
-                    ERR("dxil-spirv does not support MIN_PRECISION_NATIVE_16BIT.\n");
-                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-                    goto end;
+                    static const dxil_spv_option_min_precision_native_16bit helper =
+                            { {DXIL_SPV_OPTION_MIN_PRECISION_NATIVE_16BIT }, DXIL_SPV_TRUE };
+
+                    if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                    {
+                        ERR("dxil-spirv does not support MIN_PRECISION_NATIVE_16BIT.\n");
+                        ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+                        goto end;
+                    }
                 }
             }
             else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP16_DENORM_PRESERVE)
