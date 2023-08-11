@@ -2606,6 +2606,23 @@ struct d3d12_wbi_batch_state
     size_t batch_len;
 };
 
+struct d3d12_rtas_batch_state
+{
+    VkAccelerationStructureBuildGeometryInfoKHR *build_infos;
+    size_t build_info_count;
+    size_t build_info_size;
+
+    VkAccelerationStructureGeometryKHR *geometry_infos;
+    size_t geometry_info_count;
+    size_t geometry_info_size;
+
+    VkAccelerationStructureBuildRangeInfoKHR *range_infos;
+    size_t range_info_size;
+
+    const VkAccelerationStructureBuildRangeInfoKHR **range_ptrs;
+    size_t range_ptr_size;
+};
+
 union vkd3d_descriptor_heap_state
 {
     struct
@@ -2737,6 +2754,7 @@ struct d3d12_command_list
 
     struct d3d12_transfer_batch_state transfer_batch;
     struct d3d12_wbi_batch_state wbi_batch;
+    struct d3d12_rtas_batch_state rtas_batch;
 
     struct vkd3d_private_store private_store;
 
@@ -4840,28 +4858,18 @@ struct vkd3d_view_key
 struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
         struct d3d12_device *device, const struct vkd3d_view_key *key);
 
-/* Acceleration structure helpers. */
-struct vkd3d_acceleration_structure_build_info
-{
-    /* This is not a hard limit, just an arbitrary value which lets us avoid allocation for
-     * the common case. */
+/* This is not a hard limit, just an arbitrary value which lets us avoid allocation for
+ * the common case. */
 #define VKD3D_BUILD_INFO_STACK_COUNT 16
-    const struct VkAccelerationStructureBuildRangeInfoKHR *build_range_ptr_stack[VKD3D_BUILD_INFO_STACK_COUNT];
-    VkAccelerationStructureBuildRangeInfoKHR build_range_stack[VKD3D_BUILD_INFO_STACK_COUNT];
-    VkAccelerationStructureGeometryKHR geometries_stack[VKD3D_BUILD_INFO_STACK_COUNT];
-    const VkAccelerationStructureBuildRangeInfoKHR **build_range_ptrs;
-    uint32_t primitive_counts_stack[VKD3D_BUILD_INFO_STACK_COUNT];
-    VkAccelerationStructureBuildRangeInfoKHR *build_ranges;
-    VkAccelerationStructureBuildGeometryInfoKHR build_info;
-    VkAccelerationStructureGeometryKHR *geometries;
-    uint32_t *primitive_counts;
-};
 
-void vkd3d_acceleration_structure_build_info_cleanup(
-        struct vkd3d_acceleration_structure_build_info *info);
-bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *device,
-        struct vkd3d_acceleration_structure_build_info *info,
+uint32_t vkd3d_acceleration_structure_get_geometry_count(
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc);
+bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *device,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
+        VkAccelerationStructureBuildGeometryInfoKHR *build_info,
+        VkAccelerationStructureGeometryKHR *geometry_infos,
+        VkAccelerationStructureBuildRangeInfoKHR *range_infos,
+        uint32_t *primitive_counts);
 void vkd3d_acceleration_structure_emit_postbuild_info(
         struct d3d12_command_list *list,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *desc,
