@@ -4876,6 +4876,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
 
     d3d12_command_list_end_current_render_pass(list, false);
     d3d12_command_list_end_transfer_batch(list);
+    d3d12_command_list_flush_rtas_batch(list);
 
     if (list->predicate_enabled)
         VK_CALL(vkCmdEndConditionalRenderingEXT(list->vk_command_buffer));
@@ -5180,6 +5181,8 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     list->execute_indirect.has_emitted_indirect_to_compute_barrier = false;
     list->execute_indirect.has_emitted_indirect_to_compute_cbv_barrier = false;
     list->execute_indirect.has_observed_transition_to_indirect = false;
+
+    d3d12_command_list_clear_rtas_batch(list);
 }
 
 static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
@@ -6205,6 +6208,7 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     struct d3d12_graphics_pipeline_state *graphics;
 
     d3d12_command_list_end_transfer_batch(list);
+    d3d12_command_list_flush_rtas_batch(list);
 
     d3d12_command_list_promote_dsv_layout(list);
     if (!d3d12_command_list_update_graphics_pipeline(list, pipeline_type))
@@ -8666,6 +8670,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                 VKD3D_BREADCRUMB_AUX32(transition->StateAfter);
                 VKD3D_BREADCRUMB_TAG("Resource Transition");
 
+                /* Flush pending RTAS updates in case a scratch buffer or input resource gets transitioned */
+                if (d3d12_resource_is_buffer(preserve_resource) && (transition->StateBefore == D3D12_RESOURCE_STATE_UNORDERED_ACCESS ||
+                        transition->StateBefore == D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE))
+                    d3d12_command_list_flush_rtas_batch(list);
+
                 /* If the resource is a host-visible image and has been used as a UAV, schedule a
                  * subresource update since we cannot know when it is being written in a shader. */
                 if (transition->StateBefore == D3D12_RESOURCE_STATE_UNORDERED_ACCESS &&
@@ -8769,6 +8778,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                  * If we don't know the resource, we must assume a global UAV transition
                  * which also includes RTAS. */
                 state_mask = 0;
+
+                /* Flush pending RTAS builds if the resource could be an RTAS or scratch buffer */
+                if (!preserve_resource || d3d12_resource_is_buffer(preserve_resource))
+                    d3d12_command_list_flush_rtas_batch(list);
+
                 if (!preserve_resource || d3d12_resource_is_acceleration_structure(preserve_resource))
                     state_mask |= D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
                 if (!preserve_resource || !d3d12_resource_is_acceleration_structure(preserve_resource))
@@ -8806,6 +8820,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
 
                 if (d3d12_resource_may_alias_other_resources(before) && d3d12_resource_may_alias_other_resources(after))
                 {
+                    /* Flush pending RTAS builds if we're disabling a potential input resource, scratch or RTAS buffer */
+                    if (!before || d3d12_resource_is_buffer(before))
+                        d3d12_command_list_flush_rtas_batch(list);
+
                     /* Aliasing barriers in D3D12 are extremely weird and don't behavior like you would expect.
                      * For buffer aliasing, it is basically a global memory barrier, but for images it gets
                      * quite weird. We cannot perform UNDEFINED transitions here, even if that is what makes sense.
@@ -12288,7 +12306,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_WriteBufferImmediate(d3d12_comm
         do_batch = mode == D3D12_WRITEBUFFERIMMEDIATE_MODE_DEFAULT
                 || !list->device->vk_info.AMD_buffer_marker
                 || (list->wbi_batch.batch_len && mode != D3D12_WRITEBUFFERIMMEDIATE_MODE_MARKER_IN)
-                || (list->query_resolve_count);
+                || (list->query_resolve_count)
+                || (list->rtas_batch.build_info_count);
 
         if (do_batch)
         {
@@ -12323,6 +12342,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_WriteBufferImmediate(d3d12_comm
             {
                 /* Flush pending transfers first to maintain correct order of operations */
                 d3d12_command_list_end_transfer_batch(list);
+                d3d12_command_list_flush_rtas_batch(list);
                 d3d12_command_list_end_wbi_batch(list);
             }
         }
@@ -12489,10 +12509,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
     VkAccelerationStructureBuildGeometryInfoKHR *build_info;
     VkAccelerationStructureBuildRangeInfoKHR *range_infos;
     VkAccelerationStructureGeometryKHR *geometry_infos;
     uint32_t *primitive_counts = NULL;
+    VkMemoryBarrier2 vk_barrier;
+    VkDependencyInfo dep_info;
     uint32_t geometry_count;
 
     TRACE("iface %p, desc %p, num_postbuild_info_descs %u, postbuild_info_descs %p\n",
@@ -12504,10 +12527,35 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
         return;
     }
 
+    /* Do not batch TLAS and BLAS builds into the same command, since doing so
+     * is disallowed if there are data dependencies between the builds. This
+     * happens in Cyberpunk 2077, which does not emit appropriate UAV barriers. */
+    if (rtas_batch->build_info_count && rtas_batch->build_type != desc->Inputs.Type)
+    {
+        d3d12_command_list_flush_rtas_batch(list);
+
+        memset(&vk_barrier, 0, sizeof(vk_barrier));
+        vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+        vk_barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+        vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+        vk_barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+
+        memset(&dep_info, 0, sizeof(dep_info));
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.memoryBarrierCount = 1;
+        dep_info.pMemoryBarriers = &vk_barrier;
+
+        VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+    }
+
+    rtas_batch->build_type = desc->Inputs.Type;
+
     geometry_count = vkd3d_acceleration_structure_get_geometry_count(&desc->Inputs);
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
-    primitive_counts = vkd3d_malloc(geometry_count * sizeof(*primitive_counts));
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
+        primitive_counts = vkd3d_malloc(geometry_count * sizeof(*primitive_counts));
 #endif
 
     if (!d3d12_command_list_allocate_rtas_build_info(list, geometry_count,
@@ -12548,81 +12596,91 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
 
     build_info->scratchData.deviceAddress = desc->ScratchAccelerationStructureData;
 
-    d3d12_command_list_flush_rtas_batch(list);
-
 #ifdef VKD3D_ENABLE_BREADCRUMBS
-    VKD3D_BREADCRUMB_TAG("RTAS build [Dest VA, Source VA, Scratch VA]");
-    VKD3D_BREADCRUMB_AUX64(desc->DestAccelerationStructureData);
-    VKD3D_BREADCRUMB_AUX64(desc->SourceAccelerationStructureData);
-    VKD3D_BREADCRUMB_AUX64(desc->ScratchAccelerationStructureData);
-    VKD3D_BREADCRUMB_TAG((desc->Inputs.Flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE) ?
-            "Update" : "Create");
-    VKD3D_BREADCRUMB_TAG(desc->Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL ? "Top" : "Bottom");
+    /* Immediately record the RTAS build command here so that we don't have
+     * to create a deep copy of the entire D3D12 input description */
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
     {
-        VkAccelerationStructureBuildSizesInfoKHR size_info;
+        d3d12_command_list_flush_rtas_batch(list);
 
-        memset(&size_info, 0, sizeof(size_info));
-        size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+        VKD3D_BREADCRUMB_TAG("RTAS build [Dest VA, Source VA, Scratch VA]");
+        VKD3D_BREADCRUMB_AUX64(desc->DestAccelerationStructureData);
+        VKD3D_BREADCRUMB_AUX64(desc->SourceAccelerationStructureData);
+        VKD3D_BREADCRUMB_AUX64(desc->ScratchAccelerationStructureData);
+        VKD3D_BREADCRUMB_TAG((desc->Inputs.Flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE) ?
+                "Update" : "Create");
+        VKD3D_BREADCRUMB_TAG(desc->Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL ? "Top" : "Bottom");
+        {
+            VkAccelerationStructureBuildSizesInfoKHR size_info;
 
-        if (desc->Inputs.Flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE)
-        {
-            build_info->mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-            build_info->flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
-        }
-        VK_CALL(vkGetAccelerationStructureBuildSizesKHR(list->device->vk_device,
-                VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, build_info,
-                primitive_counts, &size_info));
-        VKD3D_BREADCRUMB_TAG("Build requirements [Size, Build Scratch, Update Scratch]");
-        VKD3D_BREADCRUMB_AUX64(size_info.accelerationStructureSize);
-        VKD3D_BREADCRUMB_AUX64(size_info.buildScratchSize);
-        VKD3D_BREADCRUMB_AUX64(size_info.updateScratchSize);
+            memset(&size_info, 0, sizeof(size_info));
+            size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
 
-        if (desc->Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL)
-        {
-            VKD3D_BREADCRUMB_AUX64(desc->Inputs.InstanceDescs);
-            VKD3D_BREADCRUMB_AUX32(desc->Inputs.NumDescs);
-        }
-        else
-        {
-            unsigned int i;
-            for (i = 0; i < desc->Inputs.NumDescs; i++)
+            if (desc->Inputs.Flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE)
             {
-                const D3D12_RAYTRACING_GEOMETRY_DESC *geom;
-                if (desc->Inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY)
-                    geom = &desc->Inputs.pGeometryDescs[i];
-                else
-                    geom = desc->Inputs.ppGeometryDescs[i];
+                build_info->mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+                build_info->flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
+            }
+            VK_CALL(vkGetAccelerationStructureBuildSizesKHR(list->device->vk_device,
+                    VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, build_info,
+                    primitive_counts, &size_info));
+            VKD3D_BREADCRUMB_TAG("Build requirements [Size, Build Scratch, Update Scratch]");
+            VKD3D_BREADCRUMB_AUX64(size_info.accelerationStructureSize);
+            VKD3D_BREADCRUMB_AUX64(size_info.buildScratchSize);
+            VKD3D_BREADCRUMB_AUX64(size_info.updateScratchSize);
 
-                if (geom->Type == D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES)
+            if (desc->Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL)
+            {
+                VKD3D_BREADCRUMB_AUX64(desc->Inputs.InstanceDescs);
+                VKD3D_BREADCRUMB_AUX32(desc->Inputs.NumDescs);
+            }
+            else
+            {
+                unsigned int i;
+                for (i = 0; i < desc->Inputs.NumDescs; i++)
                 {
-                    VKD3D_BREADCRUMB_TAG("Triangle [Flags, VBO VA, VBO stride, IBO, Transform, VBO format, IBO format, V count, I count]");
-                    VKD3D_BREADCRUMB_AUX32(geom->Flags);
-                    VKD3D_BREADCRUMB_AUX64(geom->Triangles.VertexBuffer.StartAddress);
-                    VKD3D_BREADCRUMB_AUX64(geom->Triangles.VertexBuffer.StrideInBytes);
-                    VKD3D_BREADCRUMB_AUX64(geom->Triangles.IndexBuffer);
-                    VKD3D_BREADCRUMB_AUX64(geom->Triangles.Transform3x4);
-                    VKD3D_BREADCRUMB_AUX32(geom->Triangles.VertexFormat);
-                    VKD3D_BREADCRUMB_AUX32(geom->Triangles.IndexFormat);
-                    VKD3D_BREADCRUMB_AUX32(geom->Triangles.VertexCount);
-                    VKD3D_BREADCRUMB_AUX32(geom->Triangles.IndexCount);
-                }
-                else
-                {
-                    VKD3D_BREADCRUMB_TAG("AABB [Flags, VA, stride, count]");
-                    VKD3D_BREADCRUMB_AUX32(geom->Flags);
-                    VKD3D_BREADCRUMB_AUX64(geom->AABBs.AABBs.StartAddress);
-                    VKD3D_BREADCRUMB_AUX64(geom->AABBs.AABBs.StrideInBytes);
-                    VKD3D_BREADCRUMB_AUX64(geom->AABBs.AABBCount);
+                    const D3D12_RAYTRACING_GEOMETRY_DESC *geom;
+                    if (desc->Inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY)
+                        geom = &desc->Inputs.pGeometryDescs[i];
+                    else
+                        geom = desc->Inputs.ppGeometryDescs[i];
+
+                    if (geom->Type == D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES)
+                    {
+                        VKD3D_BREADCRUMB_TAG("Triangle [Flags, VBO VA, VBO stride, IBO, Transform, VBO format, IBO format, V count, I count]");
+                        VKD3D_BREADCRUMB_AUX32(geom->Flags);
+                        VKD3D_BREADCRUMB_AUX64(geom->Triangles.VertexBuffer.StartAddress);
+                        VKD3D_BREADCRUMB_AUX64(geom->Triangles.VertexBuffer.StrideInBytes);
+                        VKD3D_BREADCRUMB_AUX64(geom->Triangles.IndexBuffer);
+                        VKD3D_BREADCRUMB_AUX64(geom->Triangles.Transform3x4);
+                        VKD3D_BREADCRUMB_AUX32(geom->Triangles.VertexFormat);
+                        VKD3D_BREADCRUMB_AUX32(geom->Triangles.IndexFormat);
+                        VKD3D_BREADCRUMB_AUX32(geom->Triangles.VertexCount);
+                        VKD3D_BREADCRUMB_AUX32(geom->Triangles.IndexCount);
+                    }
+                    else
+                    {
+                        VKD3D_BREADCRUMB_TAG("AABB [Flags, VA, stride, count]");
+                        VKD3D_BREADCRUMB_AUX32(geom->Flags);
+                        VKD3D_BREADCRUMB_AUX64(geom->AABBs.AABBs.StartAddress);
+                        VKD3D_BREADCRUMB_AUX64(geom->AABBs.AABBs.StrideInBytes);
+                        VKD3D_BREADCRUMB_AUX64(geom->AABBs.AABBCount);
+                    }
                 }
             }
         }
-    }
 
-    vkd3d_free(primitive_counts);
+        vkd3d_free(primitive_counts);
+    }
 #endif
 
     if (num_postbuild_info_descs)
     {
+        /* This doesn't seem to get used very often, so just record the build command
+         * for now. If this ever becomes a performance issue, we can add postbuild info
+         * to the batch. */
+        d3d12_command_list_flush_rtas_batch(list);
+
         vkd3d_acceleration_structure_emit_immediate_postbuild_info(list,
                 num_postbuild_info_descs, postbuild_info_descs,
                 build_info->dstAccelerationStructure);
