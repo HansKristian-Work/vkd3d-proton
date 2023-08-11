@@ -2608,6 +2608,8 @@ struct d3d12_wbi_batch_state
 
 struct d3d12_rtas_batch_state
 {
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE build_type;
+
     VkAccelerationStructureBuildGeometryInfoKHR *build_infos;
     size_t build_info_count;
     size_t build_info_size;
