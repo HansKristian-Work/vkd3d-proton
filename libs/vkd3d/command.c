@@ -76,6 +76,9 @@ static void d3d12_command_list_decay_optimal_dsv_resource(struct d3d12_command_l
 static void d3d12_command_list_end_transfer_batch(struct d3d12_command_list *list);
 static void d3d12_command_list_end_wbi_batch(struct d3d12_command_list *list);
 static inline void d3d12_command_list_ensure_transfer_batch(struct d3d12_command_list *list, enum vkd3d_batch_type type);
+static void d3d12_command_list_free_rtas_batch(struct d3d12_command_list *list);
+static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list);
+static void d3d12_command_list_clear_rtas_batch(struct d3d12_command_list *list);
 
 static void d3d12_command_list_flush_query_resolves(struct d3d12_command_list *list);
 
@@ -4722,6 +4725,7 @@ ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_iface *ifa
         vkd3d_free(list->subresource_tracking);
         vkd3d_free(list->query_resolves);
         hash_map_free(&list->query_resolve_lut);
+        d3d12_command_list_free_rtas_batch(list);
 
         vkd3d_free_aligned(list);
 
@@ -12382,13 +12386,114 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteMetaCommand(d3d12_comman
     meta_command_object->exec_proc(meta_command_object, list, parameter_data, parameter_size);
 }
 
+static void d3d12_command_list_free_rtas_batch(struct d3d12_command_list *list)
+{
+    struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
+
+    vkd3d_free(rtas_batch->build_infos);
+    vkd3d_free(rtas_batch->geometry_infos);
+    vkd3d_free(rtas_batch->range_infos);
+    vkd3d_free(rtas_batch->range_ptrs);
+}
+
+static bool d3d12_command_list_allocate_rtas_build_info(struct d3d12_command_list *list, uint32_t geometry_count,
+        VkAccelerationStructureBuildGeometryInfoKHR **build_info,
+        VkAccelerationStructureGeometryKHR **geometry_infos,
+        VkAccelerationStructureBuildRangeInfoKHR **range_infos)
+{
+    struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
+
+    if (!vkd3d_array_reserve((void **)&rtas_batch->build_infos, &rtas_batch->build_info_size,
+            rtas_batch->build_info_count + 1, sizeof(*rtas_batch->build_infos)))
+    {
+        ERR("Failed to allocate build info array.\n");
+        return false;
+    }
+
+    if (!vkd3d_array_reserve((void **)&rtas_batch->geometry_infos, &rtas_batch->geometry_info_size,
+            rtas_batch->geometry_info_count + geometry_count, sizeof(*rtas_batch->geometry_infos)))
+    {
+        ERR("Failed to allocate geometry info array.\n");
+        return false;
+    }
+
+    if (!vkd3d_array_reserve((void **)&rtas_batch->range_infos, &rtas_batch->range_info_size,
+            rtas_batch->geometry_info_count + geometry_count, sizeof(*rtas_batch->range_infos)))
+    {
+        ERR("Failed to allocate range info array.\n");
+        return false;
+    }
+
+    *build_info = &rtas_batch->build_infos[rtas_batch->build_info_count];
+    *geometry_infos = &rtas_batch->geometry_infos[rtas_batch->geometry_info_count];
+    *range_infos = &rtas_batch->range_infos[rtas_batch->geometry_info_count];
+
+    rtas_batch->build_info_count += 1;
+    rtas_batch->geometry_info_count += geometry_count;
+
+    return true;
+}
+
+static void d3d12_command_list_clear_rtas_batch(struct d3d12_command_list *list)
+{
+    struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
+
+    rtas_batch->build_info_count = 0;
+    rtas_batch->geometry_info_count = 0;
+}
+
+static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct d3d12_rtas_batch_state *rtas_batch = &list->rtas_batch;
+    unsigned int i, geometry_index;
+
+    if (!rtas_batch->build_info_count)
+        return;
+
+    TRACE("list %p, build_info_count %u.\n", list, rtas_batch->build_info_count);
+
+    if (!vkd3d_array_reserve((void **)&rtas_batch->range_ptrs, &rtas_batch->range_ptr_size,
+            rtas_batch->build_info_count, sizeof(*rtas_batch->range_ptrs)))
+    {
+        ERR("Failed to allocate range pointer array.\n");
+        return;
+    }
+
+    /* Assign geometry and range pointers */
+    geometry_index = 0;
+
+    for (i = 0; i < rtas_batch->build_info_count; i++)
+    {
+        uint32_t geometry_count = rtas_batch->build_infos[i].geometryCount;
+        assert(geometry_index + geometry_count <= rtas_batch->geometry_info_count);
+
+        rtas_batch->build_infos[i].pGeometries = &rtas_batch->geometry_infos[geometry_index];
+        rtas_batch->range_ptrs[i] = &rtas_batch->range_infos[geometry_index];
+
+        geometry_index += geometry_count;
+    }
+
+    d3d12_command_list_end_current_render_pass(list, true);
+    d3d12_command_list_end_transfer_batch(list);
+
+    VK_CALL(vkCmdBuildAccelerationStructuresKHR(list->vk_command_buffer,
+            rtas_batch->build_info_count, rtas_batch->build_infos, rtas_batch->range_ptrs));
+
+    d3d12_command_list_clear_rtas_batch(list);
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStructure(d3d12_command_list_iface *iface,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc, UINT num_postbuild_info_descs,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *postbuild_info_descs)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    struct vkd3d_acceleration_structure_build_info build_info;
+    VkAccelerationStructureBuildGeometryInfoKHR *build_info;
+    VkAccelerationStructureBuildRangeInfoKHR *range_infos;
+    VkAccelerationStructureGeometryKHR *geometry_infos;
+    uint32_t *primitive_counts = NULL;
+    uint32_t geometry_count;
 
     TRACE("iface %p, desc %p, num_postbuild_info_descs %u, postbuild_info_descs %p\n",
             iface, desc, num_postbuild_info_descs, postbuild_info_descs);
@@ -12399,7 +12504,18 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
         return;
     }
 
-    if (!vkd3d_acceleration_structure_convert_inputs(list->device, &build_info, &desc->Inputs))
+    geometry_count = vkd3d_acceleration_structure_get_geometry_count(&desc->Inputs);
+
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    primitive_counts = vkd3d_malloc(geometry_count * sizeof(*primitive_counts));
+#endif
+
+    if (!d3d12_command_list_allocate_rtas_build_info(list, geometry_count,
+            &build_info, &geometry_infos, &range_infos))
+        return;
+
+    if (!vkd3d_acceleration_structure_convert_inputs(list->device, &desc->Inputs,
+            build_info, geometry_infos, range_infos, primitive_counts))
     {
         ERR("Failed to convert inputs.\n");
         return;
@@ -12407,36 +12523,32 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
 
     if (desc->DestAccelerationStructureData)
     {
-        build_info.build_info.dstAccelerationStructure =
+        build_info->dstAccelerationStructure =
                 vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map,
                         list->device, desc->DestAccelerationStructureData);
-        if (build_info.build_info.dstAccelerationStructure == VK_NULL_HANDLE)
+        if (build_info->dstAccelerationStructure == VK_NULL_HANDLE)
         {
             ERR("Failed to place destAccelerationStructure. Dropping call.\n");
             return;
         }
     }
 
-    if (build_info.build_info.mode == VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR &&
+    if (build_info->mode == VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR &&
             desc->SourceAccelerationStructureData)
     {
-        build_info.build_info.srcAccelerationStructure =
+        build_info->srcAccelerationStructure =
                 vkd3d_va_map_place_acceleration_structure(&list->device->memory_allocator.va_map,
                         list->device, desc->SourceAccelerationStructureData);
-        if (build_info.build_info.srcAccelerationStructure == VK_NULL_HANDLE)
+        if (build_info->srcAccelerationStructure == VK_NULL_HANDLE)
         {
             ERR("Failed to place srcAccelerationStructure. Dropping call.\n");
             return;
         }
     }
 
-    build_info.build_info.scratchData.deviceAddress = desc->ScratchAccelerationStructureData;
+    build_info->scratchData.deviceAddress = desc->ScratchAccelerationStructureData;
 
-    d3d12_command_list_end_current_render_pass(list, true);
-    d3d12_command_list_end_transfer_batch(list);
-
-    VK_CALL(vkCmdBuildAccelerationStructuresKHR(list->vk_command_buffer, 1,
-            &build_info.build_info, build_info.build_range_ptrs));
+    d3d12_command_list_flush_rtas_batch(list);
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     VKD3D_BREADCRUMB_TAG("RTAS build [Dest VA, Source VA, Scratch VA]");
@@ -12454,12 +12566,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
 
         if (desc->Inputs.Flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE)
         {
-            build_info.build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-            build_info.build_info.flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
+            build_info->mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+            build_info->flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
         }
         VK_CALL(vkGetAccelerationStructureBuildSizesKHR(list->device->vk_device,
-                VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build_info.build_info,
-                build_info.primitive_counts, &size_info));
+                VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, build_info,
+                primitive_counts, &size_info));
         VKD3D_BREADCRUMB_TAG("Build requirements [Size, Build Scratch, Update Scratch]");
         VKD3D_BREADCRUMB_AUX64(size_info.accelerationStructureSize);
         VKD3D_BREADCRUMB_AUX64(size_info.buildScratchSize);
@@ -12505,15 +12617,15 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
             }
         }
     }
-#endif
 
-    vkd3d_acceleration_structure_build_info_cleanup(&build_info);
+    vkd3d_free(primitive_counts);
+#endif
 
     if (num_postbuild_info_descs)
     {
         vkd3d_acceleration_structure_emit_immediate_postbuild_info(list,
                 num_postbuild_info_descs, postbuild_info_descs,
-                build_info.build_info.dstAccelerationStructure);
+                build_info->dstAccelerationStructure);
     }
 
     VKD3D_BREADCRUMB_COMMAND(BUILD_RTAS);

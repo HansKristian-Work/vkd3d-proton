@@ -6129,9 +6129,14 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
 
+    VkAccelerationStructureGeometryKHR geometries_stack[VKD3D_BUILD_INFO_STACK_COUNT];
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    struct vkd3d_acceleration_structure_build_info build_info;
+    uint32_t primitive_counts_stack[VKD3D_BUILD_INFO_STACK_COUNT];
+    VkAccelerationStructureBuildGeometryInfoKHR build_info;
     VkAccelerationStructureBuildSizesInfoKHR size_info;
+    VkAccelerationStructureGeometryKHR *geometries;
+    uint32_t *primitive_counts;
+    uint32_t geometry_count;
 
     TRACE("iface %p, desc %p, info %p!\n", iface, desc, info);
 
@@ -6142,21 +6147,32 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
         return;
     }
 
-    if (!vkd3d_acceleration_structure_convert_inputs(device, &build_info, desc))
+    geometry_count = vkd3d_acceleration_structure_get_geometry_count(desc);
+    primitive_counts = primitive_counts_stack;
+    geometries = geometries_stack;
+
+    if (geometry_count > VKD3D_BUILD_INFO_STACK_COUNT)
+    {
+        primitive_counts = vkd3d_malloc(geometry_count * sizeof(*primitive_counts));
+        geometries = vkd3d_malloc(geometry_count * sizeof(*geometries));
+    }
+
+    if (!vkd3d_acceleration_structure_convert_inputs(device,
+            desc, &build_info, geometries, NULL, primitive_counts))
     {
         ERR("Failed to convert inputs.\n");
         memset(info, 0, sizeof(*info));
-        return;
+        goto cleanup;
     }
+
+    build_info.pGeometries = geometries;
 
     memset(&size_info, 0, sizeof(size_info));
     size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
 
     VK_CALL(vkGetAccelerationStructureBuildSizesKHR(device->vk_device,
-            VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build_info.build_info,
-            build_info.primitive_counts, &size_info));
-
-    vkd3d_acceleration_structure_build_info_cleanup(&build_info);
+            VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build_info,
+            primitive_counts, &size_info));
 
     info->ResultDataMaxSizeInBytes = size_info.accelerationStructureSize;
     info->ScratchDataSizeInBytes = size_info.buildScratchSize;
@@ -6165,6 +6181,14 @@ static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePre
     TRACE("ResultDataMaxSizeInBytes: %"PRIu64".\n", info->ResultDataMaxSizeInBytes);
     TRACE("ScratchDatSizeInBytes: %"PRIu64".\n", info->ScratchDataSizeInBytes);
     TRACE("UpdateScratchDataSizeInBytes: %"PRIu64".\n", info->UpdateScratchDataSizeInBytes);
+
+cleanup:
+
+    if (geometry_count > VKD3D_BUILD_INFO_STACK_COUNT)
+    {
+        vkd3d_free(primitive_counts);
+        vkd3d_free(geometries);
+    }
 }
 
 static D3D12_DRIVER_MATCHING_IDENTIFIER_STATUS STDMETHODCALLTYPE d3d12_device_CheckDriverMatchingIdentifier(d3d12_device_iface *iface,
