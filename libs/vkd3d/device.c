@@ -1281,6 +1281,23 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
     if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
         info->properties2.properties.limits.minStorageBufferOffsetAlignment = 4;
 
+    /* UE5 is broken and assumes that if mesh shaders are supported, barycentrics are also supported.
+     * This happens to be the case on RDNA2+ and Turing+ on Windows, but Mesa landed barycentrics long
+     * after mesh shaders, so Mesa 23.1 will often fail on boot for practically all UE5 content.
+     * The reasonable workaround is to disable mesh shaders unless barys are also supported.
+     * Nanite can work without mesh shaders.
+     * Unfortunately, we don't know of a robust way to detect UE5, so have to apply this globally. */
+    if (!device->vk_info.KHR_fragment_shader_barycentric && device->vk_info.EXT_mesh_shader)
+    {
+        WARN("Mesh shaders are supported, but not barycentrics. Disabling mesh shaders as a global UE5 workaround.\n");
+        device->vk_info.EXT_mesh_shader = false;
+        device->device_info.mesh_shader_features.meshShader = VK_FALSE;
+        device->device_info.mesh_shader_features.taskShader = VK_FALSE;
+        device->device_info.mesh_shader_features.primitiveFragmentShadingRateMeshShader = VK_FALSE;
+        device->device_info.mesh_shader_features.meshShaderQueries = VK_FALSE;
+        device->device_info.mesh_shader_features.multiviewMeshShader = VK_FALSE;
+    }
+
     /* NV 525.x drivers and 530.x are affected by this bug. Not all users are affected,
      * but there is no known workaround for this. */
     if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS))
