@@ -1123,6 +1123,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
          * be any buffer resource to get memory requirements from. */
         memory_requirements = info->memory_requirements;
         assert(!info->explicit_global_buffer_usage);
+        request_bda = false;
     }
 
     /* If an allocation is a dedicated fallback allocation,
