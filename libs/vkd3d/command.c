@@ -6210,6 +6210,16 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     d3d12_command_list_end_transfer_batch(list);
     d3d12_command_list_flush_rtas_batch(list);
 
+    if (pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS &&
+            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_MESH_COMPUTE_EMULATION))
+    {
+        d3d12_command_list_end_current_render_pass(list, true);
+        if (!d3d12_command_list_update_graphics_pipeline(list, pipeline_type))
+            return false;
+        d3d12_command_list_update_descriptors(list);
+        return true;
+    }
+
     d3d12_command_list_promote_dsv_layout(list);
     if (!d3d12_command_list_update_graphics_pipeline(list, pipeline_type))
         return false;
@@ -12010,16 +12020,31 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                     break;
                 }
 
-                if (count_buffer || list->predicate_va)
+                if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_MESH_COMPUTE_EMULATION)
                 {
-                    VK_CALL(vkCmdDrawMeshTasksIndirectCountEXT(list->vk_command_buffer, arg_impl->res.vk_buffer,
-                            arg_buffer_offset  + arg_impl->mem.offset, scratch.buffer, scratch.offset,
-                            max_command_count, signature_desc->ByteStride));
+                    d3d12_command_list_debug_mark_begin_region(list, "ExecuteIndirectMeshDebug");
+                    if (!list->predicate_va && !count_buffer && max_command_count == 1)
+                    {
+                        VK_CALL(vkCmdDispatchIndirect(list->vk_command_buffer, arg_impl->res.vk_buffer,
+                                arg_buffer_offset + arg_impl->mem.offset));
+                    }
+                    else
+                        FIXME("Unimplemented count/predicate mesh compute emulation.\n");
+                    d3d12_command_list_debug_mark_end_region(list);
                 }
                 else
                 {
-                    VK_CALL(vkCmdDrawMeshTasksIndirectEXT(list->vk_command_buffer,
-                            scratch.buffer, scratch.offset, 1, 0));
+                    if (count_buffer || list->predicate_va)
+                    {
+                        VK_CALL(vkCmdDrawMeshTasksIndirectCountEXT(list->vk_command_buffer, arg_impl->res.vk_buffer,
+                                arg_buffer_offset + arg_impl->mem.offset, scratch.buffer, scratch.offset,
+                                max_command_count, signature_desc->ByteStride));
+                    }
+                    else
+                    {
+                        VK_CALL(vkCmdDrawMeshTasksIndirectEXT(list->vk_command_buffer,
+                                scratch.buffer, scratch.offset, 1, 0));
+                    }
                 }
                 break;
 
@@ -12958,10 +12983,22 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchMesh(d3d12_command_list
         return;
     }
 
-    if (!list->predicate_va)
-        VK_CALL(vkCmdDrawMeshTasksEXT(list->vk_command_buffer, x, y, z));
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_MESH_COMPUTE_EMULATION)
+    {
+        d3d12_command_list_debug_mark_begin_region(list, "DispatchMeshDebug");
+        if (!list->predicate_va)
+            VK_CALL(vkCmdDispatch(list->vk_command_buffer, x, y, z));
+        else
+            VK_CALL(vkCmdDispatchIndirect(list->vk_command_buffer, scratch.buffer, scratch.offset));
+        d3d12_command_list_debug_mark_end_region(list);
+    }
     else
-        VK_CALL(vkCmdDrawMeshTasksIndirectEXT(list->vk_command_buffer, scratch.buffer, scratch.offset, 1, 0));
+    {
+        if (!list->predicate_va)
+            VK_CALL(vkCmdDrawMeshTasksEXT(list->vk_command_buffer, x, y, z));
+        else
+            VK_CALL(vkCmdDrawMeshTasksIndirectEXT(list->vk_command_buffer, scratch.buffer, scratch.offset, 1, 0));
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_Barrier(d3d12_command_list_iface *iface, UINT32 NumBarrierGroups, const void *pBarrierGroups)

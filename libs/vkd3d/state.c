@@ -195,7 +195,10 @@ VkShaderStageFlags vkd3d_vk_stage_flags_from_visibility(D3D12_SHADER_VISIBILITY 
         case D3D12_SHADER_VISIBILITY_AMPLIFICATION:
             return VK_SHADER_STAGE_TASK_BIT_EXT;
         case D3D12_SHADER_VISIBILITY_MESH:
-            return VK_SHADER_STAGE_MESH_BIT_EXT;
+            if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_MESH_COMPUTE_EMULATION)
+                return VK_SHADER_STAGE_COMPUTE_BIT;
+            else
+                return VK_SHADER_STAGE_MESH_BIT_EXT;
         default:
             return 0;
     }
@@ -1442,11 +1445,17 @@ static HRESULT d3d12_root_signature_init_global(struct d3d12_root_signature *roo
             VK_SHADER_STAGE_ALL_GRAPHICS, &root_signature->graphics)))
         return hr;
 
-    if (device->device_info.mesh_shader_features.meshShader && device->device_info.mesh_shader_features.taskShader)
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_MESH_COMPUTE_EMULATION) ||
+            (device->device_info.mesh_shader_features.meshShader && device->device_info.mesh_shader_features.taskShader))
     {
-        mesh_shader_stages = VK_SHADER_STAGE_MESH_BIT_EXT |
-                VK_SHADER_STAGE_TASK_BIT_EXT |
-                VK_SHADER_STAGE_FRAGMENT_BIT;
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_MESH_COMPUTE_EMULATION)
+            mesh_shader_stages = VK_SHADER_STAGE_COMPUTE_BIT;
+        else
+        {
+            mesh_shader_stages = VK_SHADER_STAGE_MESH_BIT_EXT |
+                    VK_SHADER_STAGE_TASK_BIT_EXT |
+                    VK_SHADER_STAGE_FRAGMENT_BIT;
+        }
 
         if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
                 device, root_signature->mesh.num_set_layouts, root_signature->set_layouts,
@@ -2390,6 +2399,7 @@ static void d3d12_pipeline_state_init_compile_arguments(struct d3d12_pipeline_st
     compile_arguments->target_extensions = device->vk_info.shader_extensions;
     compile_arguments->min_subgroup_size = device->device_info.vulkan_1_3_properties.minSubgroupSize;
     compile_arguments->max_subgroup_size = device->device_info.vulkan_1_3_properties.maxSubgroupSize;
+    compile_arguments->emulate_mesh_shaders = !!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_MESH_COMPUTE_EMULATION);
     compile_arguments->promote_wave_size_heuristics =
             d3d12_device_supports_required_subgroup_size_for_stage(device, stage);
     compile_arguments->quirks = &vkd3d_shader_quirk_info;
@@ -3924,7 +3934,13 @@ static void d3d12_pipeline_state_graphics_load_spirv_from_cached_state(
      * This really shouldn't happen unless we have corrupt cache entries. */
     for (i = 0; i < graphics->stage_count; i++)
     {
-        if (FAILED(vkd3d_load_spirv_from_cached_state(device, cached_pso,
+        /* Don't attempt to use identifiers or cached shaders with the mesh compute debug fallbacks.
+         * Just complicates the PSO creation code, where we just want to emit simplest possible code. */
+        bool force_discard =
+                graphics->cached_desc.bytecode_stages[i] == VK_SHADER_STAGE_MESH_BIT_EXT &&
+                (vkd3d_config_flags & VKD3D_CONFIG_FLAG_MESH_COMPUTE_EMULATION);
+
+        if (force_discard || FAILED(vkd3d_load_spirv_from_cached_state(device, cached_pso,
                 graphics->cached_desc.bytecode_stages[i], &graphics->code[i],
                 &graphics->identifier_create_infos[i])))
         {
@@ -4100,6 +4116,9 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
         rt_count = 0;
     }
 
+    if (state->pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS && (vkd3d_config_flags & VKD3D_CONFIG_FLAG_MESH_COMPUTE_EMULATION))
+        rt_count = 0;
+
     graphics->null_attachment_mask = 0;
     graphics->rtv_active_mask = 0;
     for (i = 0; i < rt_count; ++i)
@@ -4175,7 +4194,18 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
     }
 
     graphics->dsv_format = NULL;
-    format = vkd3d_get_format(device, desc->dsv_format, true);
+
+    if (state->pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS && (vkd3d_config_flags & VKD3D_CONFIG_FLAG_MESH_COMPUTE_EMULATION))
+    {
+        /* Nop out everything related to rasterization. */
+        format = NULL;
+        graphics->ds_desc.depthTestEnable = VK_FALSE;
+        graphics->ds_desc.depthBoundsTestEnable = VK_FALSE;
+        graphics->ds_desc.stencilTestEnable = VK_FALSE;
+        graphics->stage_flags &= ~VK_SHADER_STAGE_FRAGMENT_BIT;
+    }
+    else
+        format = vkd3d_get_format(device, desc->dsv_format, true);
 
     /* F1 2021 enables stencil test on a D16_UNORM.
      * Filter out any tests which are irrelevant for the DS format in question. */
@@ -5049,6 +5079,38 @@ static VkResult d3d12_pipeline_state_link_pipeline_variant(struct d3d12_pipeline
     return vr;
 }
 
+static VkPipeline d3d12_pipeline_state_create_mesh_compute_pipeline(
+        struct d3d12_pipeline_state *state, VkPipelineCache vk_cache)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &state->device->vk_procs;
+    VkComputePipelineCreateInfo pipeline_desc;
+    VkPipeline vk_pipeline = VK_NULL_HANDLE;
+    VkResult vr;
+
+    memset(&pipeline_desc, 0, sizeof(pipeline_desc));
+    pipeline_desc.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    pipeline_desc.stage = state->graphics.stages[0];
+    pipeline_desc.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    pipeline_desc.layout = state->graphics.pipeline_layout;
+    pipeline_desc.basePipelineIndex = -1;
+
+    assert(state->graphics.stage_count == 1);
+    assert(!pipeline_desc.stage.pNext);
+    assert(pipeline_desc.stage.module);
+
+    if (d3d12_device_uses_descriptor_buffers(state->device))
+        pipeline_desc.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+
+    vr = VK_CALL(vkCreateComputePipelines(state->device->vk_device, vk_cache, 1, &pipeline_desc, NULL, &vk_pipeline));
+    if (vr != VK_SUCCESS)
+    {
+        ERR("Failed to create mesh compute debug pipeline.\n");
+        return VK_NULL_HANDLE;
+    }
+
+    return vk_pipeline;
+}
+
 VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_state *state,
         const struct vkd3d_pipeline_key *key, const struct vkd3d_format *dsv_format, VkPipelineCache vk_cache,
         VkGraphicsPipelineLibraryFlagsEXT library_flags, uint32_t *dynamic_state_flags)
@@ -5074,6 +5136,13 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     unsigned int i;
     VkResult vr;
     HRESULT hr;
+
+    if (state->pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS &&
+            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_MESH_COMPUTE_EMULATION))
+    {
+        *dynamic_state_flags = 0;
+        return d3d12_pipeline_state_create_mesh_compute_pipeline(state, vk_cache);
+    }
 
     *dynamic_state_flags = d3d12_graphics_pipeline_state_init_dynamic_state(state, &dynamic_create_info,
             dynamic_state_buffer, key);

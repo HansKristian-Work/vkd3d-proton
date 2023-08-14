@@ -797,6 +797,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"skip_driver_workarounds", VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS},
     {"curb_memory_pso_cache", VKD3D_CONFIG_FLAG_CURB_MEMORY_PSO_CACHE},
     {"enable_experimental_features", VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES},
+    {"mesh_compute_emulation", VKD3D_CONFIG_FLAG_MESH_COMPUTE_EMULATION},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -1331,6 +1332,17 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
                 }
             }
         }
+    }
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_MESH_COMPUTE_EMULATION)
+    {
+        INFO("Disabling mesh shader support. Replacing with dummy compute emulation for capture debug purposes.\n");
+        device->vk_info.EXT_mesh_shader = false;
+        device->device_info.mesh_shader_features.meshShader = VK_FALSE;
+        device->device_info.mesh_shader_features.taskShader = VK_FALSE;
+        device->device_info.mesh_shader_features.primitiveFragmentShadingRateMeshShader = VK_FALSE;
+        device->device_info.mesh_shader_features.meshShaderQueries = VK_FALSE;
+        device->device_info.mesh_shader_features.multiviewMeshShader = VK_FALSE;
     }
 }
 
@@ -6996,8 +7008,11 @@ static D3D12_MESH_SHADER_TIER d3d12_device_determine_mesh_shader_tier(struct d3d
 {
     const VkPhysicalDeviceMeshShaderFeaturesEXT *mesh_shader_features = &device->device_info.mesh_shader_features;
 
-    if (!mesh_shader_features->meshShader || !mesh_shader_features->taskShader)
-        return D3D12_MESH_SHADER_TIER_NOT_SUPPORTED;
+    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_MESH_COMPUTE_EMULATION))
+    {
+        if (!mesh_shader_features->meshShader || !mesh_shader_features->taskShader)
+            return D3D12_MESH_SHADER_TIER_NOT_SUPPORTED;
+    }
 
     return D3D12_MESH_SHADER_TIER_1;
 }
@@ -7752,6 +7767,9 @@ static void vkd3d_compute_shader_interface_key(struct d3d12_device *device)
 
     for (i = 0; i < device->vk_info.shader_extension_count; i++)
         key = hash_fnv1_iterate_u32(key, device->vk_info.shader_extensions[i]);
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_MESH_COMPUTE_EMULATION)
+        key = hash_fnv1_iterate_u32(key, 1);
 
     device->shader_interface_key = key;
 }

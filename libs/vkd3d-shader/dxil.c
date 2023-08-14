@@ -589,6 +589,14 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
 
     vkd3d_shader_dump_shader(hash, dxbc, "dxil");
 
+    if (shader_interface_info->stage == VK_SHADER_STAGE_TASK_BIT_EXT &&
+            compiler_args->emulate_mesh_shaders)
+    {
+        FIXME("Missing emulation for task shaders.\n");
+        ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+        goto end;
+    }
+
     if (dxil_spv_parse_dxil_blob(dxbc->code, dxbc->size, &blob) != DXIL_SPV_SUCCESS)
     {
         ret = VKD3D_ERROR_INVALID_SHADER;
@@ -855,6 +863,19 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
                 if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
                 {
                     ERR("dxil-spirv does not support SUBGROUP_PARTITIONED_NV.\n");
+                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+                    goto end;
+                }
+            }
+
+            if (shader_interface_info->stage == VK_SHADER_STAGE_MESH_BIT_EXT &&
+                    compiler_args->emulate_mesh_shaders)
+            {
+                static const dxil_spv_option_mesh_compute_emulation helper =
+                        { { DXIL_SPV_OPTION_MESH_COMPUTE_EMULATION }, DXIL_SPV_TRUE };
+                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support MESH_COMPUTE_EMULATION.\n");
                     ret = VKD3D_ERROR_NOT_IMPLEMENTED;
                     goto end;
                 }

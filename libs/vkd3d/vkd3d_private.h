@@ -1632,10 +1632,12 @@ static inline VkPipelineBindPoint vk_bind_point_from_pipeline_type(enum vkd3d_pi
     switch (pipeline_type)
     {
         case VKD3D_PIPELINE_TYPE_NONE:
-          break;
+            break;
         case VKD3D_PIPELINE_TYPE_GRAPHICS:
-        case VKD3D_PIPELINE_TYPE_MESH_GRAPHICS:
             return VK_PIPELINE_BIND_POINT_GRAPHICS;
+        case VKD3D_PIPELINE_TYPE_MESH_GRAPHICS:
+            return (vkd3d_config_flags & VKD3D_CONFIG_FLAG_MESH_COMPUTE_EMULATION) ?
+                    VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS;
         case VKD3D_PIPELINE_TYPE_COMPUTE:
             return VK_PIPELINE_BIND_POINT_COMPUTE;
         case VKD3D_PIPELINE_TYPE_RAY_TRACING:
