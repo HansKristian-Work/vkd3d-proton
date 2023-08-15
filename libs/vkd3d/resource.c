@@ -3389,9 +3389,12 @@ HRESULT d3d12_resource_create_placed(struct d3d12_device *device, const D3D12_RE
     if (FAILED(hr = d3d12_resource_validate_heap(desc, heap)))
         return hr;
 
-    if (heap->allocation.device_allocation.vk_memory == VK_NULL_HANDLE)
+    if (heap->allocation.device_allocation.vk_memory == VK_NULL_HANDLE ||
+            (desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER &&
+                (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_COMMITTED_IMAGE_RESOURCE)))
     {
-        WARN("Placing resource on heap with no memory backing it. Falling back to committed resource.\n");
+        if (heap->allocation.device_allocation.vk_memory == VK_NULL_HANDLE)
+            WARN("Placing resource on heap with no memory backing it. Falling back to committed resource.\n");
 
         if (FAILED(hr = d3d12_resource_create_committed(device, desc, &heap->desc.Properties,
                 heap->desc.Flags & ~(D3D12_HEAP_FLAG_DENY_BUFFERS |

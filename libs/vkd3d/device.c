@@ -798,6 +798,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"curb_memory_pso_cache", VKD3D_CONFIG_FLAG_CURB_MEMORY_PSO_CACHE},
     {"enable_experimental_features", VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES},
     {"mesh_compute_emulation", VKD3D_CONFIG_FLAG_MESH_COMPUTE_EMULATION},
+    {"force_no_image_alias", VKD3D_CONFIG_FLAG_FORCE_COMMITTED_IMAGE_RESOURCE | VKD3D_CONFIG_FLAG_FORCE_DEDICATED_IMAGE_ALLOCATION},
 };
 
 static void vkd3d_config_flags_init_once(void)
