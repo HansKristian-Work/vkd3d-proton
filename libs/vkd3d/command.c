@@ -8332,21 +8332,17 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
 
     if (!state || list->active_pipeline_type != state->pipeline_type)
     {
-        if (list->active_pipeline_type == VKD3D_PIPELINE_TYPE_RAY_TRACING)
-        {
-            /* DXR uses compute bind points for descriptors. When binding an RTPSO, invalidate all compute state
-             * to make sure we broadcast state correctly to COMPUTE or RT bind points in Vulkan. */
-            d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
-        }
-
         if (state)
         {
             bindings = d3d12_command_list_get_bindings(list, state->pipeline_type);
             if (bindings->root_signature)
             {
                 /* We might have clobbered push constants in the new bind point,
-                 * invalidate all state which can affect push constants. */
-                d3d12_command_list_invalidate_push_constants(bindings);
+                 * invalidate all state which can affect push constants.
+                 * We might also change the pipeline layout, in case we switch between mesh and legacy graphics.
+                 * In this scenario, the push constant layout will be incompatible due to stage
+                 * differences, so everything must be rebound. */
+                d3d12_command_list_invalidate_root_parameters(list, bindings, true);
             }
 
             list->active_pipeline_type = state->pipeline_type;
