@@ -8379,7 +8379,7 @@ static void vkd3d_dxbc_compiler_emit_imad(struct vkd3d_dxbc_compiler *compiler,
 static void vkd3d_dxbc_compiler_emit_udiv(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    uint32_t type_id, val_id, src0_id, src1_id, condition_id, uint_max_id;
+    uint32_t type_id, src0_id, src1_id, condition_id, uint_max_id, quotient_val_id = 0, remainder_val_id = 0;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
@@ -8398,11 +8398,9 @@ static void vkd3d_dxbc_compiler_emit_udiv(struct vkd3d_dxbc_compiler *compiler,
         uint_max_id = vkd3d_dxbc_compiler_get_constant_uint_vector(compiler,
                 0xffffffff, component_count);
 
-        val_id = vkd3d_spirv_build_op_udiv(builder, type_id, src0_id, src1_id);
+        quotient_val_id = vkd3d_spirv_build_op_udiv(builder, type_id, src0_id, src1_id);
         /* The SPIR-V spec says: "The resulting value is undefined if Operand 2 is 0." */
-        val_id = vkd3d_spirv_build_op_select(builder, type_id, condition_id, val_id, uint_max_id);
-
-        vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst[0], val_id);
+        quotient_val_id = vkd3d_spirv_build_op_select(builder, type_id, condition_id, quotient_val_id, uint_max_id);
     }
 
     if (dst[1].reg.type != VKD3DSPR_NULL)
@@ -8421,11 +8419,17 @@ static void vkd3d_dxbc_compiler_emit_udiv(struct vkd3d_dxbc_compiler *compiler,
                     0xffffffff, component_count);
         }
 
-        val_id = vkd3d_spirv_build_op_umod(builder, type_id, src0_id, src1_id);
+        remainder_val_id = vkd3d_spirv_build_op_umod(builder, type_id, src0_id, src1_id);
         /* The SPIR-V spec says: "The resulting value is undefined if Operand 2 is 0." */
-        val_id = vkd3d_spirv_build_op_select(builder, type_id, condition_id, val_id, uint_max_id);
-
-        vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst[1], val_id);
+        remainder_val_id = vkd3d_spirv_build_op_select(builder, type_id, condition_id, remainder_val_id, uint_max_id);
+    }
+    if (dst[0].reg.type != VKD3DSPR_NULL) 
+    {        
+        vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst[0], quotient_val_id);
+    }
+    if (dst[1].reg.type != VKD3DSPR_NULL)
+    {
+        vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst[1], remainder_val_id);
     }
 }
 
