@@ -160,6 +160,29 @@ static dxil_spv_bool dxil_remap_inner(
             {
                 vk_binding->descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_BUFFER_DEVICE_ADDRESS;
                 vk_binding->root_constant_index = root_descriptor_index;
+
+#ifndef VKD3D_NO_TRACE_MESSAGES
+                switch (descriptor_type)
+                {
+                    case VKD3D_SHADER_DESCRIPTOR_TYPE_SRV:
+                        TRACE("SRV (t%u, space%u) -> Root Descriptor #%u.\n",
+                                d3d_binding->register_index, d3d_binding->register_space,
+                                root_descriptor_index);
+                        break;
+                    case VKD3D_SHADER_DESCRIPTOR_TYPE_UAV:
+                        TRACE("UAV (u%u, space%u) -> Root Descriptor #%u.\n",
+                                d3d_binding->register_index, d3d_binding->register_space,
+                                root_descriptor_index);
+                        break;
+                    case VKD3D_SHADER_DESCRIPTOR_TYPE_CBV:
+                        TRACE("CBV (b%u, space%u) -> Root Descriptor #%u.\n",
+                                d3d_binding->register_index, d3d_binding->register_space,
+                                root_descriptor_index);
+                        break;
+                    default:
+                        break;
+                }
+#endif
             }
             else if (binding->flags & VKD3D_SHADER_BINDING_FLAG_BINDLESS)
             {
@@ -177,6 +200,34 @@ static dxil_spv_bool dxil_remap_inner(
                     vk_binding->bindless.heap_root_offset = binding->descriptor_offset +
                             d3d_binding->register_index - binding->register_index;
                     vk_binding->root_constant_index = binding->descriptor_table + remap->descriptor_table_offset_words;
+
+#ifndef VKD3D_NO_TRACE_MESSAGES
+                    switch (descriptor_type)
+                    {
+                        case VKD3D_SHADER_DESCRIPTOR_TYPE_SRV:
+                            TRACE("SRV (t%u, space%u) -> Table #%u + offset %u.\n",
+                                    d3d_binding->register_index, d3d_binding->register_space,
+                                    binding->descriptor_table, vk_binding->bindless.heap_root_offset);
+                            break;
+                        case VKD3D_SHADER_DESCRIPTOR_TYPE_UAV:
+                            TRACE("UAV (u%u, space%u) -> Table #%u + offset %u.\n",
+                                    d3d_binding->register_index, d3d_binding->register_space,
+                                    binding->descriptor_table, vk_binding->bindless.heap_root_offset);
+                            break;
+                        case VKD3D_SHADER_DESCRIPTOR_TYPE_CBV:
+                            TRACE("CBV (b%u, space%u) -> Table #%u + offset %u.\n",
+                                    d3d_binding->register_index, d3d_binding->register_space,
+                                    binding->descriptor_table, vk_binding->bindless.heap_root_offset);
+                            break;
+                        case VKD3D_SHADER_DESCRIPTOR_TYPE_SAMPLER:
+                            TRACE("Sampler (s%u, space%u) -> Table #%u + offset %u.\n",
+                                    d3d_binding->register_index, d3d_binding->register_space,
+                                    binding->descriptor_table, vk_binding->bindless.heap_root_offset);
+                            break;
+                        default:
+                            break;
+                    }
+#endif
 
                     if (vk_binding->root_constant_index < 2 * remap->num_root_descriptors)
                     {
@@ -494,6 +545,9 @@ static dxil_spv_bool dxil_cbv_remap(void *userdata, const dxil_spv_d3d_binding *
                 return DXIL_SPV_FALSE;
             }
             vk_binding->vulkan.push_constant.offset_in_words -= remap->num_root_descriptors * 2;
+
+            TRACE("CBV (b%u, space%u) -> Root Constant #%u.\n", vk_binding->vulkan.push_constant.offset_in_words);
+
             return DXIL_SPV_TRUE;
         }
     }
