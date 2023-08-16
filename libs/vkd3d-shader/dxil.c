@@ -578,7 +578,10 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     memset(&spirv->meta, 0, sizeof(spirv->meta));
     hash = vkd3d_shader_hash(dxbc);
     spirv->meta.hash = hash;
-    if (vkd3d_shader_replace(hash, &spirv->code, &spirv->size))
+
+    /* Cannot replace mesh shaders until we have reflected the IO layout. */
+    if (shader_interface_info->stage != VK_SHADER_STAGE_MESH_BIT_EXT &&
+            vkd3d_shader_replace(hash, &spirv->code, &spirv->size))
     {
         spirv->meta.flags |= VKD3D_SHADER_META_FLAG_REPLACED;
         return ret;
@@ -970,15 +973,24 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         goto end;
     }
 
-    if (!(code = vkd3d_malloc(compiled.size)))
+    /* Late replacement for mesh shaders. */
+    if (shader_interface_info->stage == VK_SHADER_STAGE_MESH_BIT_EXT &&
+            vkd3d_shader_replace(hash, &spirv->code, &spirv->size))
     {
-        ret = VKD3D_ERROR_OUT_OF_MEMORY;
-        goto end;
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_REPLACED;
     }
+    else
+    {
+        if (!(code = vkd3d_malloc(compiled.size)))
+        {
+            ret = VKD3D_ERROR_OUT_OF_MEMORY;
+            goto end;
+        }
 
-    memcpy(code, compiled.data, compiled.size);
-    spirv->code = code;
-    spirv->size = compiled.size;
+        memcpy(code, compiled.data, compiled.size);
+        spirv->code = code;
+        spirv->size = compiled.size;
+    }
 
     if (spirv_debug)
     {
