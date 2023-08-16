@@ -2556,6 +2556,8 @@ void vkd3d_pipeline_cache_compat_from_state_desc(struct vkd3d_pipeline_cache_com
 {
     const D3D12_SHADER_BYTECODE *code_list[] = {
         &desc->vs,
+        &desc->as,
+        &desc->ms,
         &desc->hs,
         &desc->ds,
         &desc->gs,
