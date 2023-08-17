@@ -399,6 +399,52 @@ void vkd3d_descriptor_debug_unregister_heap(uint64_t cookie)
     FLUSH_BUFFER();
 }
 
+void vkd3d_descriptor_debug_register_query_heap_cookie(struct vkd3d_descriptor_qa_global_info *global_info,
+        uint64_t cookie, const D3D12_QUERY_HEAP_DESC *desc)
+{
+    const char *type_desc;
+    DECL_BUFFER();
+
+    if (!vkd3d_descriptor_debug_active_log())
+        return;
+
+    APPEND_SNPRINTF("QUERY HEAP CREATE #%"PRIu64" || ", cookie);
+
+    switch (desc->Type)
+    {
+        case D3D12_QUERY_HEAP_TYPE_COPY_QUEUE_TIMESTAMP:
+            type_desc = "COPY_QUEUE_TIMESTAMP";
+            break;
+
+        case D3D12_QUERY_HEAP_TYPE_OCCLUSION:
+            type_desc = "OCCLUSION";
+            break;
+
+        case D3D12_QUERY_HEAP_TYPE_TIMESTAMP:
+            type_desc = "TIMESTAMP";
+            break;
+
+        case D3D12_QUERY_HEAP_TYPE_VIDEO_DECODE_STATISTICS:
+            type_desc = "VIDEO_DECODE_STATISTICS";
+            break;
+
+        case D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS:
+            type_desc = "PIPELINE_STATISTICS";
+            break;
+
+        case D3D12_QUERY_HEAP_TYPE_SO_STATISTICS:
+            type_desc = "SO_STATISTICS";
+            break;
+
+        default:
+            type_desc = "???";
+            break;
+    }
+
+    APPEND_SNPRINTF(" || %s || Count = %u", type_desc, desc->Count);
+    FLUSH_BUFFER();
+}
+
 void vkd3d_descriptor_debug_register_resource_cookie(struct vkd3d_descriptor_qa_global_info *global_info,
         uint64_t cookie, const D3D12_RESOURCE_DESC1 *desc)
 {
