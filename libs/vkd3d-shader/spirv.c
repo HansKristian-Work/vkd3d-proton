@@ -11141,9 +11141,36 @@ static bool is_dcl_instruction(enum VKD3D_SHADER_INSTRUCTION_HANDLER handler_idx
             || handler_idx == VKD3DSIH_HS_DECLS;
 }
 
+static bool is_scope_generating_control_flow_instruction(enum VKD3D_SHADER_INSTRUCTION_HANDLER handler)
+{
+    /* Ignore continue, break, ret and any unconditional branches which don't logically generate new labels on their own.
+     * In some Xenia shaders, there is questionable back-to-back continue + continue, followed by break.
+     * If we've terminated a block, just ignore it.
+     * Technically, if there are if/endif pairs after a continue or break, it might be more
+     * correct to track shadow control flow scopes and ignore code until we pop out of the shadow stack,
+     * but this is silly and should only be considered if actually needed. */
+    switch (handler)
+    {
+        case VKD3DSIH_CASE:
+        case VKD3DSIH_DEFAULT:
+        case VKD3DSIH_ELSE:
+        case VKD3DSIH_ENDIF:
+        case VKD3DSIH_ENDLOOP:
+        case VKD3DSIH_ENDSWITCH:
+        case VKD3DSIH_IF:
+        case VKD3DSIH_LOOP:
+        case VKD3DSIH_SWITCH:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
 int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
+    const struct vkd3d_control_flow_info *cf_info;
     int ret = VKD3D_OK;
 
     if (!is_dcl_instruction(instruction->handler_idx) && !compiler->after_declarations_section)
@@ -11151,6 +11178,13 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         compiler->after_declarations_section = true;
         vkd3d_dxbc_compiler_emit_main_prolog(compiler);
     }
+
+    /* Some Xenia shaders are broken and emit instructions after ending control flow in a block.
+     * Just ignore these instructions. */
+    cf_info = compiler->control_flow_depth
+            ? &compiler->control_flow_info[compiler->control_flow_depth - 1] : NULL;
+    if (cf_info && !cf_info->inside_block && !is_scope_generating_control_flow_instruction(instruction->handler_idx))
+        return VKD3D_OK;
 
     switch (instruction->handler_idx)
     {
