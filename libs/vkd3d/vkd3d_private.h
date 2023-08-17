@@ -1568,6 +1568,7 @@ struct d3d12_query_heap
     struct vkd3d_device_memory_allocation device_allocation;
     VkBuffer vk_buffer;
     VkDeviceAddress va;
+    uint64_t cookie;
     uint32_t initialized;
 
     struct d3d12_device *device;

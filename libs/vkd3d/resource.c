@@ -7739,7 +7739,7 @@ static ULONG STDMETHODCALLTYPE d3d12_query_heap_Release(ID3D12QueryHeap *iface)
         VK_CALL(vkDestroyQueryPool(device->vk_device, heap->vk_query_pool, NULL));
         VK_CALL(vkDestroyBuffer(device->vk_device, heap->vk_buffer, NULL));
         vkd3d_free_device_memory(device, &heap->device_allocation);
-
+        vkd3d_descriptor_debug_unregister_cookie(device->descriptor_qa_global_info, heap->cookie);
         vkd3d_free(heap);
 
         d3d12_device_release(device);
@@ -7823,6 +7823,7 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
     object->refcount = 1;
     object->device = device;
     object->desc = *desc;
+    object->cookie = vkd3d_allocate_cookie();
 
     if (!d3d12_query_heap_type_is_inline(desc->Type))
     {
@@ -7910,6 +7911,9 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
         vkd3d_free(object);
         return hr;
     }
+
+    vkd3d_descriptor_debug_register_query_heap_cookie(device->descriptor_qa_global_info,
+            object->cookie, desc);
 
     d3d12_device_add_ref(device);
 

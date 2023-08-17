@@ -11166,6 +11166,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
                 stride, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
     }
 
+    VKD3D_BREADCRUMB_TAG("QueryResolve [Type, StartIndex, QueryCount, DstOffset, QueryHeapCookie, DstBuffer]");
+    VKD3D_BREADCRUMB_AUX32(type);
+    VKD3D_BREADCRUMB_AUX32(start_index);
+    VKD3D_BREADCRUMB_AUX32(query_count);
+    VKD3D_BREADCRUMB_AUX64(aligned_dst_buffer_offset);
+    VKD3D_BREADCRUMB_AUX64(query_heap->cookie);
+    VKD3D_BREADCRUMB_RESOURCE(buffer);
     VKD3D_BREADCRUMB_COMMAND(RESOLVE_QUERY);
 }
 
