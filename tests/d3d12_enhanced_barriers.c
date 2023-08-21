@@ -1492,3 +1492,245 @@ void test_enhanced_barrier_discard_behavior(void)
     ID3D12Heap_Release(heap);
     destroy_test_context(&context);
 }
+
+void test_enhanced_barrier_subresource(void)
+{
+    static const FLOAT black[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    static const FLOAT white[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    D3D12_FEATURE_DATA_D3D12_OPTIONS12 features12;
+    D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
+    ID3D12GraphicsCommandList7 *list7;
+    D3D12_TEXTURE_BARRIER barrier[4];
+    ID3D12DescriptorHeap *rtv_heap;
+    struct test_context_desc desc;
+    D3D12_BARRIER_GROUP group[2];
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *readback;
+    ID3D12Resource *rtv;
+    unsigned int i;
+    HRESULT hr;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_render_target = true;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS12, &features12, sizeof(features12))) ||
+            !features12.EnhancedBarriersSupported)
+    {
+        skip("Enhanced barriers not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList7, (void **)&list7);
+    ok(SUCCEEDED(hr), "Failed to query gcl7.\n");
+
+    rtv = create_default_texture2d_enhanced(context.device, 1024, 1024, 4, 4, DXGI_FORMAT_R32_UINT,
+            D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_BARRIER_LAYOUT_UNDEFINED);
+    rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 4 * 4);
+
+    readback = create_default_texture2d_enhanced(context.device, 1024, 1024, 4, 4, DXGI_FORMAT_R32_UINT,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_BARRIER_LAYOUT_COMMON /* Should auto-promote to COPY_DEST */);
+
+    for (i = 0; i < 4 * 4; i++)
+    {
+        memset(&rtv_desc, 0, sizeof(rtv_desc));
+        rtv_desc.Format = DXGI_FORMAT_R32_UINT;
+        rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
+        rtv_desc.Texture2DArray.ArraySize = 1;
+        rtv_desc.Texture2DArray.FirstArraySlice = i / 4;
+        rtv_desc.Texture2DArray.MipSlice = i % 4;
+        rtv_desc.Texture2DArray.PlaneSlice = 0;
+
+        ID3D12Device_CreateRenderTargetView(context.device, rtv, &rtv_desc,
+                get_cpu_handle(context.device, rtv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, i));
+    }
+
+    memset(barrier, 0, sizeof(barrier));
+    memset(group, 0, sizeof(group));
+    group[0].NumBarriers = 1;
+    group[0].Type = D3D12_BARRIER_TYPE_TEXTURE;
+    group[0].pTextureBarriers = barrier;
+    barrier[0].pResource = rtv;
+    barrier[0].LayoutBefore = D3D12_BARRIER_LAYOUT_UNDEFINED;
+    barrier[0].LayoutAfter = D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+    barrier[0].SyncBefore = D3D12_BARRIER_SYNC_NONE;
+    barrier[0].SyncAfter = D3D12_BARRIER_SYNC_RENDER_TARGET;
+    barrier[0].AccessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
+    barrier[0].AccessAfter = D3D12_BARRIER_ACCESS_RENDER_TARGET;
+    /* MipLevels == 0, flags this as subresource index, and -1 means all subresources. */
+    barrier[0].Subresources.IndexOrFirstMipLevel = -1;
+    ID3D12GraphicsCommandList7_Barrier(list7, 1, group);
+
+    /* Activate all subresources. */
+    for (i = 0; i < 4 * 4; i++)
+        ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, get_cpu_handle(context.device, rtv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, i), black, 0, NULL);
+
+    /* Enhanced barriers are really weird in the sense that there is a separate DISCARD flag, unrelated to the layout.
+     * We need to know if UNDEFINED -> blah transitions are allowed to actually discard or not. */
+
+    /* Try different edge cases of the subresources struct. */
+
+    /* NumPlanes = 0 -> nothing happens */
+    {
+        for (i = 0; i < ARRAY_SIZE(barrier); i++)
+        {
+            barrier[i].LayoutBefore = D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+            barrier[i].LayoutAfter = D3D12_BARRIER_LAYOUT_COPY_SOURCE;
+            barrier[i].SyncBefore = D3D12_BARRIER_SYNC_RENDER_TARGET;
+            barrier[i].SyncAfter = D3D12_BARRIER_SYNC_COPY;
+            barrier[i].AccessBefore = D3D12_BARRIER_ACCESS_RENDER_TARGET;
+            barrier[i].AccessAfter = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+            barrier[i].pResource = rtv;
+        }
+
+        /* Here, PlaneCount is 0, so this should be a no-op. */
+        for (i = 0; i < ARRAY_SIZE(barrier); i++)
+        {
+            barrier[i].Subresources.IndexOrFirstMipLevel = 0;
+            barrier[i].Subresources.NumMipLevels = 1;
+            barrier[i].Subresources.NumArraySlices = 1;
+            barrier[i].Subresources.NumPlanes = 0;
+        }
+
+        group[0].NumBarriers = ARRAY_SIZE(barrier);
+        ID3D12GraphicsCommandList7_Barrier(list7, 1, group);
+        /* This passes validation. */
+        ID3D12GraphicsCommandList7_Barrier(list7, 1, group);
+    }
+
+    /* NumArraySlices == 0 -> 1 slice (?!?!?!) */
+    {
+        barrier[0].LayoutBefore = D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+        barrier[0].LayoutAfter = D3D12_BARRIER_LAYOUT_COPY_SOURCE;
+        barrier[0].SyncBefore = D3D12_BARRIER_SYNC_RENDER_TARGET;
+        barrier[0].SyncAfter = D3D12_BARRIER_SYNC_COPY;
+        barrier[0].AccessBefore = D3D12_BARRIER_ACCESS_RENDER_TARGET;
+        barrier[0].AccessAfter = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+
+        barrier[0].Subresources.IndexOrFirstMipLevel = 0;
+        barrier[0].Subresources.NumMipLevels = 1;
+        barrier[0].Subresources.NumArraySlices = 0; /* Apparently, this means 1 layer. */
+        barrier[0].Subresources.NumPlanes = 1;
+        group[0].NumBarriers = 1;
+        ID3D12GraphicsCommandList7_Barrier(list7, 1, group);
+
+        barrier[0].Subresources.NumArraySlices = 1;
+        barrier[0].LayoutBefore = D3D12_BARRIER_LAYOUT_COPY_SOURCE;
+        barrier[0].LayoutAfter = D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+        barrier[0].SyncBefore = D3D12_BARRIER_SYNC_COPY;
+        barrier[0].SyncAfter = D3D12_BARRIER_SYNC_RENDER_TARGET;
+        barrier[0].AccessBefore = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+        barrier[0].AccessAfter = D3D12_BARRIER_ACCESS_RENDER_TARGET;
+        ID3D12GraphicsCommandList7_Barrier(list7, 1, group);
+    }
+
+    /* -1 ArraySlices is not allowed. Trips validation. */
+    /* -1 MipLevels is not allowed. Trips validation. */
+    /* -1 NumPlanes is not allowed. Trips validation. */
+    /* Cannot test MipLevels == 0, because that signals use of subresource index. */
+
+    /* Test chained transition. */
+    {
+        barrier[0].LayoutBefore = D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+        barrier[0].LayoutAfter = D3D12_BARRIER_LAYOUT_COPY_SOURCE;
+        barrier[0].SyncBefore = D3D12_BARRIER_SYNC_RENDER_TARGET;
+        barrier[0].SyncAfter = D3D12_BARRIER_SYNC_COPY;
+        barrier[0].AccessBefore = D3D12_BARRIER_ACCESS_RENDER_TARGET;
+        barrier[0].AccessAfter = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+        barrier[0].Subresources.IndexOrFirstMipLevel = -1;
+        barrier[0].Subresources.NumMipLevels = 0;
+        barrier[0].Subresources.NumPlanes = 1;
+
+        barrier[1].LayoutBefore = D3D12_BARRIER_LAYOUT_COPY_SOURCE;
+        barrier[1].LayoutAfter = D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+        barrier[1].SyncBefore = D3D12_BARRIER_SYNC_COPY;
+        barrier[1].SyncAfter = D3D12_BARRIER_SYNC_RENDER_TARGET;
+        barrier[1].AccessBefore = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+        barrier[1].AccessAfter = D3D12_BARRIER_ACCESS_RENDER_TARGET;
+        barrier[1].Subresources.IndexOrFirstMipLevel = -1;
+        barrier[1].Subresources.NumMipLevels = 0;
+        barrier[1].Subresources.NumPlanes = 1;
+
+        /* Single group style. */
+        group[0].NumBarriers = 2;
+        ID3D12GraphicsCommandList7_Barrier(list7, 1, group);
+        ID3D12GraphicsCommandList7_Barrier(list7, 1, group);
+
+        /* Multiple group style. */
+        group[0].NumBarriers = 1;
+        group[1].NumBarriers = 1;
+        group[1].pTextureBarriers = &barrier[1];
+        group[1].Type = D3D12_BARRIER_TYPE_TEXTURE;
+        ID3D12GraphicsCommandList7_Barrier(list7, 2, group);
+        ID3D12GraphicsCommandList7_Barrier(list7, 2, group);
+    }
+
+    for (i = 0; i < 4 * 4; i++)
+        ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, get_cpu_handle(context.device, rtv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, i), white, 0, NULL);
+
+    /* Complicated way of transitioning all subresources. */
+    {
+        barrier[0].LayoutBefore = D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+        barrier[0].LayoutAfter = D3D12_BARRIER_LAYOUT_COPY_SOURCE;
+        barrier[0].SyncBefore = D3D12_BARRIER_SYNC_RENDER_TARGET;
+        barrier[0].SyncAfter = D3D12_BARRIER_SYNC_COPY;
+        barrier[0].AccessBefore = D3D12_BARRIER_ACCESS_RENDER_TARGET;
+        barrier[0].AccessAfter = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+        barrier[0].Subresources.NumPlanes = 1;
+        barrier[0].Subresources.NumMipLevels = 2;
+        barrier[0].Subresources.NumArraySlices = 2;
+
+        group[0].NumBarriers = 4;
+
+        for (i = 0; i < 4; i++)
+        {
+            if (i != 0)
+                barrier[i] = barrier[0];
+            barrier[i].Subresources.IndexOrFirstMipLevel = (i & 1) * 2;
+            barrier[i].Subresources.FirstArraySlice = i & 2;
+        }
+
+        ID3D12GraphicsCommandList7_Barrier(list7, 1, group);
+    }
+
+    for (i = 0; i < 4 * 4; i++)
+    {
+        D3D12_TEXTURE_COPY_LOCATION dst_loc, src_loc;
+        D3D12_BOX src_box;
+
+        dst_loc.pResource = readback;
+        dst_loc.SubresourceIndex = i;
+        dst_loc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+
+        src_loc.pResource = rtv;
+        src_loc.SubresourceIndex = i;
+        src_loc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+
+        set_box(&src_box, 0, 0, 0, 1024 >> (i & 3), 1024 >> (i & 3), 1);
+        ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst_loc, 0, 0, 0, &src_loc, &src_box);
+    }
+
+    /* Validation does not complain about COPY_SOURCE use after COMMON dst copy (wtf ...), but it *does* if initial layout is COPY_DEST.
+     * We might be expected to deal with it (we already do anyways since transfer layouts are a mess in D3D12). */
+
+    for (i = 0; i < 4 * 4; i++)
+    {
+        uint32_t value;
+        get_texture_readback_with_command_list(readback, i, &rb, context.queue, context.list);
+        value = get_readback_uint(&rb, 100, 100, 0);
+        ok(value == 1, "Subresource %u: Expected %u, got %u.\n", i, 1, value);
+        reset_command_list(context.list, context.allocator);
+        release_resource_readback(&rb);
+    }
+
+    ID3D12Resource_Release(readback);
+    ID3D12DescriptorHeap_Release(rtv_heap);
+    ID3D12GraphicsCommandList7_Release(list7);
+    ID3D12Resource_Release(rtv);
+    destroy_test_context(&context);
+}
