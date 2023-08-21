@@ -5043,10 +5043,10 @@ static void d3d12_command_list_read_query_range(struct d3d12_command_list *list,
      * in at most one range. */
     while (lo < hi)
     {
-        if (pos < list->query_ranges_count)
-        {
-            range = &list->query_ranges[pos];
+        range = list->query_ranges + pos;
 
+        if (pos < list->query_ranges_count && range->vk_pool == vk_pool)
+        {
             if (lo >= range->index)
             {
                 lo = max(lo, range->index + range->count);
