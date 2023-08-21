@@ -1734,3 +1734,126 @@ void test_enhanced_barrier_subresource(void)
     ID3D12Resource_Release(rtv);
     destroy_test_context(&context);
 }
+
+void test_enhanced_barrier_self_copy(void)
+{
+    static const FLOAT gray[] = { 127.0f / 255.0f, 127.0f / 255.0f, 127.0f / 255.0f, 127.0f / 255.0f };
+    static const FLOAT white[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    D3D12_FEATURE_DATA_D3D12_OPTIONS12 features12;
+    D3D12_RESOURCE_ALLOCATION_INFO alloc_info;
+    ID3D12GraphicsCommandList7 *list7;
+    ID3D12DescriptorHeap *rtv_heap;
+    struct test_context_desc desc;
+    D3D12_TEXTURE_BARRIER barrier;
+    struct test_context context;
+    D3D12_RESOURCE_DESC1 desc1;
+    D3D12_BARRIER_GROUP group;
+    D3D12_HEAP_DESC heap_desc;
+    ID3D12Device10 *device10;
+    ID3D12Resource *rtv;
+    ID3D12Heap *heap;
+    D3D12_RECT rect;
+    unsigned int i;
+    HRESULT hr;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_render_target = true;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS12, &features12, sizeof(features12))) ||
+        !features12.EnhancedBarriersSupported)
+    {
+        skip("Enhanced barriers not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList7, (void **)&list7);
+    ok(SUCCEEDED(hr), "Failed to query gcl7.\n");
+
+    ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device10, (void **)&device10);
+
+    /* Force placed resources, since committed resources can often just ignore metadata clears, etc.
+     * This is the case on AMD it seems. */
+    memset(&desc1, 0, sizeof(desc1));
+    desc1.Width = 64;
+    desc1.Height = 64;
+    desc1.DepthOrArraySize = 1;
+    desc1.MipLevels = 1;
+    desc1.SampleDesc.Count = 1;
+    desc1.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc1.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc1.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    desc1.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    alloc_info = ID3D12Device10_GetResourceAllocationInfo2(device10, 0, 1, &desc1, NULL);
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap_desc.SizeInBytes = alloc_info.SizeInBytes;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES;
+    hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
+    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n", hr);
+
+    hr = ID3D12Device10_CreatePlacedResource2(device10, heap, 0, &desc1, D3D12_BARRIER_LAYOUT_RENDER_TARGET, NULL, 0, NULL, &IID_ID3D12Resource, (void **)&rtv);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+
+    rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+    ID3D12Device_CreateRenderTargetView(context.device, rtv, NULL,
+        ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv_heap));
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv_heap), white, 0, NULL);
+    set_rect(&rect, 0, 0, 32, 32);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv_heap), gray, 1, &rect);
+
+    memset(&barrier, 0, sizeof(barrier));
+    group.NumBarriers = 1;
+    group.Type = D3D12_BARRIER_TYPE_TEXTURE;
+    group.pTextureBarriers = &barrier;
+    barrier.pResource = rtv;
+    barrier.LayoutBefore = D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+    barrier.LayoutAfter = D3D12_BARRIER_LAYOUT_COMMON;
+    barrier.SyncBefore = D3D12_BARRIER_SYNC_RENDER_TARGET;
+    barrier.SyncAfter = D3D12_BARRIER_SYNC_COPY;
+    barrier.AccessBefore = D3D12_BARRIER_ACCESS_RENDER_TARGET;
+    barrier.AccessAfter = D3D12_BARRIER_ACCESS_COPY_SOURCE | D3D12_BARRIER_ACCESS_COPY_DEST;
+    ID3D12GraphicsCommandList7_Barrier(list7, 1, &group);
+
+    /* Copy to our own subresource to fill out each quadrant. */
+    for (i = 1; i < 4; i++)
+    {
+        D3D12_TEXTURE_COPY_LOCATION dst_loc, src_loc;
+        unsigned int input_i = i - 1;
+        D3D12_BOX src_box;
+
+        dst_loc.pResource = rtv;
+        dst_loc.SubresourceIndex = 0;
+        dst_loc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        src_loc.pResource = rtv;
+        src_loc.SubresourceIndex = 0;
+        src_loc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        set_box(&src_box, (input_i & 1) * 32, (input_i & 2) * 16, 0,
+                (input_i & 1) * 32 + 32, (input_i & 2) * 16 + 32, 1);
+        ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst_loc, (i & 1) * 32, (i & 2) * 16, 0, &src_loc, &src_box);
+
+        /* There is no implicit barrier between these overlapping copies. */
+        barrier.LayoutBefore = D3D12_BARRIER_LAYOUT_COMMON;
+        barrier.LayoutAfter = D3D12_BARRIER_LAYOUT_COMMON;
+        barrier.SyncBefore = D3D12_BARRIER_SYNC_COPY;
+        barrier.SyncAfter = D3D12_BARRIER_SYNC_COPY;
+        barrier.AccessBefore = D3D12_BARRIER_ACCESS_COPY_DEST;
+        barrier.AccessAfter = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+        ID3D12GraphicsCommandList7_Barrier(list7, 1, &group);
+    }
+
+    check_sub_resource_uint(rtv, 0, context.queue, context.list, 127u * 0x01010101u, 0);
+
+    ID3D12DescriptorHeap_Release(rtv_heap);
+    ID3D12GraphicsCommandList7_Release(list7);
+    ID3D12Resource_Release(rtv);
+    ID3D12Device10_Release(device10);
+    ID3D12Heap_Release(heap);
+    destroy_test_context(&context);
+}
