@@ -1361,3 +1361,134 @@ void test_enhanced_barrier_split_barrier(void)
     ID3D12GraphicsCommandList7_Release(list7);
     destroy_test_context(&context);
 }
+
+void test_enhanced_barrier_discard_behavior(void)
+{
+    static const FLOAT white[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    D3D12_FEATURE_DATA_D3D12_OPTIONS12 features12;
+    D3D12_RESOURCE_ALLOCATION_INFO alloc_info;
+    ID3D12GraphicsCommandList7 *list7;
+    ID3D12DescriptorHeap *rtv_heap;
+    struct test_context_desc desc;
+    D3D12_TEXTURE_BARRIER barrier;
+    struct test_context context;
+    struct resource_readback rb;
+    D3D12_RESOURCE_DESC1 desc1;
+    D3D12_BARRIER_GROUP group;
+    D3D12_HEAP_DESC heap_desc;
+    ID3D12Device10 *device10;
+    ID3D12Resource *rtv;
+    ID3D12Heap *heap;
+    HRESULT hr;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_render_target = true;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS12, &features12, sizeof(features12))) ||
+            !features12.EnhancedBarriersSupported)
+    {
+        skip("Enhanced barriers not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList7, (void **)&list7);
+    ok(SUCCEEDED(hr), "Failed to query gcl7.\n");
+
+    ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device10, (void **)&device10);
+
+    /* Force placed resources, since committed resources can often just ignore metadata clears, etc.
+     * This is the case on AMD it seems. */
+    memset(&desc1, 0, sizeof(desc1));
+    desc1.Width = 1024;
+    desc1.Height = 1024;
+    desc1.DepthOrArraySize = 1;
+    desc1.MipLevels = 1;
+    desc1.SampleDesc.Count = 1;
+    desc1.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc1.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc1.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    desc1.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    alloc_info = ID3D12Device10_GetResourceAllocationInfo2(device10, 0, 1, &desc1, NULL);
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap_desc.SizeInBytes = alloc_info.SizeInBytes;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES;
+    hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
+    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n", hr);
+
+    hr = ID3D12Device10_CreatePlacedResource2(device10, heap, 0, &desc1, D3D12_BARRIER_LAYOUT_RENDER_TARGET, NULL, 0, NULL, &IID_ID3D12Resource, (void **)&rtv);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+
+    rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+    ID3D12Device_CreateRenderTargetView(context.device, rtv, NULL,
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv_heap));
+
+    memset(&barrier, 0, sizeof(barrier));
+    group.NumBarriers = 1;
+    group.Type = D3D12_BARRIER_TYPE_TEXTURE;
+    group.pTextureBarriers = &barrier;
+    barrier.pResource = rtv;
+    barrier.LayoutBefore = D3D12_BARRIER_LAYOUT_UNDEFINED;
+    barrier.LayoutAfter = D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+    barrier.SyncBefore = D3D12_BARRIER_SYNC_NONE;
+    barrier.SyncAfter = D3D12_BARRIER_SYNC_RENDER_TARGET;
+    barrier.AccessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
+    barrier.AccessAfter = D3D12_BARRIER_ACCESS_RENDER_TARGET;
+    ID3D12GraphicsCommandList7_Barrier(list7, 1, &group);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv_heap), white, 0, NULL);
+
+    /* Enhanced barriers are really weird in the sense that there is a separate DISCARD flag, unrelated to the layout.
+     * We need to know if UNDEFINED -> blah transitions are allowed to actually discard or not. */
+
+    /* Flush cache. UNDEFINED requires ACCESS_NO_ACCESS unless both layouts are UNDEFINED. */
+    barrier.LayoutBefore = D3D12_BARRIER_LAYOUT_UNDEFINED;
+    barrier.LayoutAfter = D3D12_BARRIER_LAYOUT_UNDEFINED;
+    barrier.SyncBefore = D3D12_BARRIER_SYNC_RENDER_TARGET;
+    barrier.SyncAfter = D3D12_BARRIER_SYNC_RENDER_TARGET;
+    barrier.AccessBefore = D3D12_BARRIER_ACCESS_RENDER_TARGET;
+    barrier.AccessAfter = D3D12_BARRIER_ACCESS_NO_ACCESS;
+    ID3D12GraphicsCommandList7_Barrier(list7, 1, &group);
+
+    /* Try soft-discarding. */
+    barrier.LayoutBefore = D3D12_BARRIER_LAYOUT_UNDEFINED;
+    barrier.LayoutAfter = D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+    barrier.SyncBefore = D3D12_BARRIER_SYNC_RENDER_TARGET;
+    barrier.SyncAfter = D3D12_BARRIER_SYNC_RENDER_TARGET;
+    barrier.AccessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
+    barrier.AccessAfter = D3D12_BARRIER_ACCESS_RENDER_TARGET; /* D3D12 refuses NO_ACCESS here, so much for Vulkan compat :) */
+    /* With this flag, we observe that AMD clears to 0 iff the resource is PLACED. */
+    /* barrier.Flags = D3D12_TEXTURE_BARRIER_FLAG_DISCARD; */
+    ID3D12GraphicsCommandList7_Barrier(list7, 1, &group);
+
+    barrier.LayoutBefore = D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+    barrier.LayoutAfter = D3D12_BARRIER_LAYOUT_COPY_SOURCE;
+    barrier.SyncBefore = D3D12_BARRIER_SYNC_RENDER_TARGET;
+    barrier.SyncAfter = D3D12_BARRIER_SYNC_COPY;
+    barrier.AccessBefore = D3D12_BARRIER_ACCESS_RENDER_TARGET; /* D3D12 refuses NO_ACCESS here, so much for Vulkan compat :) */
+    barrier.AccessAfter = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+    ID3D12GraphicsCommandList7_Barrier(list7, 1, &group);
+
+    get_texture_readback_with_command_list(rtv, 0, &rb, context.queue, context.list);
+
+    /* The value is preserved here. This proves that we cannot do UNDEFINED -> blah transitions in Vulkan unless
+     * DISCARD flag is also used. */
+    {
+        uint32_t v = get_readback_uint(&rb, 0, 0, 0);
+        ok(v == ~0u, "Unexpected value #%x.\n", v);
+    }
+
+    release_resource_readback(&rb);
+    ID3D12DescriptorHeap_Release(rtv_heap);
+    ID3D12GraphicsCommandList7_Release(list7);
+    ID3D12Resource_Release(rtv);
+    ID3D12Device10_Release(device10);
+    ID3D12Heap_Release(heap);
+    destroy_test_context(&context);
+}
