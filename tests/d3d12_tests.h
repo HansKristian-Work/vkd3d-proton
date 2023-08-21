@@ -136,6 +136,7 @@ decl_test(test_atomic_instructions_dxil);
 decl_test(test_buffer_srv);
 decl_test(test_create_query_heap);
 decl_test(test_query_timestamp);
+decl_test(test_query_timestamp_write_after_read);
 decl_test(test_query_pipeline_statistics);
 decl_test(test_query_occlusion);
 decl_test(test_resolve_non_issued_query_data);
