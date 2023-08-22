@@ -4010,7 +4010,8 @@ static size_t get_query_heap_stride(D3D12_QUERY_HEAP_TYPE heap_type)
 }
 
 static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *list,
-        struct vkd3d_pipeline_bindings *bindings, bool invalidate_descriptor_heaps);
+        struct vkd3d_pipeline_bindings *bindings, bool invalidate_descriptor_heaps,
+        struct vkd3d_pipeline_bindings *sibling_push_domain);
 
 static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list *list)
 {
@@ -4300,7 +4301,7 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
     result = true;
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
-    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
+    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
 
     VKD3D_BREADCRUMB_COMMAND(GATHER_VIRTUAL_QUERY);
 
@@ -4379,8 +4380,14 @@ static void d3d12_command_list_invalidate_push_constants(struct vkd3d_pipeline_b
 }
 
 static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *list,
-        struct vkd3d_pipeline_bindings *bindings, bool invalidate_descriptor_heaps)
+        struct vkd3d_pipeline_bindings *bindings, bool invalidate_descriptor_heaps,
+        struct vkd3d_pipeline_bindings *sibling_push_domain)
 {
+    /* For scenarios where we're emitting push constants to one bind point in meta shaders,
+     * this will invalidate push constants for the other bind points as well. */
+    if (sibling_push_domain && sibling_push_domain->root_signature)
+        d3d12_command_list_invalidate_push_constants(sibling_push_domain);
+
     if (!bindings->root_signature)
         return;
 
@@ -5195,8 +5202,8 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
 static inline void d3d12_command_list_invalidate_all_state(struct d3d12_command_list *list)
 {
     d3d12_command_list_invalidate_current_pipeline(list, true);
-    d3d12_command_list_invalidate_root_parameters(list, &list->graphics_bindings, true);
-    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
+    d3d12_command_list_invalidate_root_parameters(list, &list->graphics_bindings, true, NULL);
+    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, NULL);
     list->index_buffer.is_dirty = true;
 }
 
@@ -6328,7 +6335,7 @@ static bool d3d12_command_list_emit_multi_dispatch_indirect_count(struct d3d12_c
         vk_patch_cmd_buffer = list->vk_command_buffer;
         VK_CALL(vkCmdPipelineBarrier2(vk_patch_cmd_buffer, &dep_info));
         d3d12_command_list_invalidate_current_pipeline(list, true);
-        d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
+        d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
     }
 
     args.indirect_va = indirect_args;
@@ -6440,7 +6447,7 @@ static bool d3d12_command_list_emit_multi_dispatch_indirect_count_state(struct d
         vk_patch_cmd_buffer = list->vk_command_buffer;
         VK_CALL(vkCmdPipelineBarrier2(vk_patch_cmd_buffer, &dep_info));
         d3d12_command_list_invalidate_current_pipeline(list, true);
-        d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
+        d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
     }
 
     VK_CALL(vkCmdBindPipeline(vk_patch_cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
@@ -6485,7 +6492,7 @@ static bool d3d12_command_list_emit_predicated_command(struct d3d12_command_list
     d3d12_command_list_end_current_render_pass(list, true);
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
-    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
+    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
 
     args.predicate_va = list->predicate_va;
     args.dst_arg_va = scratch->va;
@@ -7050,7 +7057,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         }
 
         d3d12_command_list_invalidate_current_pipeline(list, true);
-        d3d12_command_list_invalidate_root_parameters(list, &list->graphics_bindings, true);
+        d3d12_command_list_invalidate_root_parameters(list, &list->graphics_bindings, true, &list->compute_bindings);
         d3d12_command_list_update_descriptor_buffers(list);
 
         memset(&dst_view_desc, 0, sizeof(dst_view_desc));
@@ -8342,7 +8349,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
                  * We might also change the pipeline layout, in case we switch between mesh and legacy graphics.
                  * In this scenario, the push constant layout will be incompatible due to stage
                  * differences, so everything must be rebound. */
-                d3d12_command_list_invalidate_root_parameters(list, bindings, true);
+                d3d12_command_list_invalidate_root_parameters(list, bindings, true, NULL);
             }
 
             list->active_pipeline_type = state->pipeline_type;
@@ -8943,8 +8950,8 @@ static void d3d12_command_list_set_descriptor_heaps_buffers(struct d3d12_command
     list->descriptor_heap.buffers.heap_dirty = true;
     /* Invalidation is a bit more aggressive for descriptor buffers.
      * We also need to invalidate any push descriptors. */
-    d3d12_command_list_invalidate_root_parameters(list, &list->graphics_bindings, true);
-    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
+    d3d12_command_list_invalidate_root_parameters(list, &list->graphics_bindings, true, NULL);
+    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, NULL);
 }
 
 static void d3d12_command_list_set_descriptor_heaps_sets(struct d3d12_command_list *list,
@@ -9010,7 +9017,7 @@ static void d3d12_command_list_set_root_signature(struct d3d12_command_list *lis
     if (root_signature)
         bindings->static_sampler_set = root_signature->vk_sampler_set;
 
-    d3d12_command_list_invalidate_root_parameters(list, bindings, true);
+    d3d12_command_list_invalidate_root_parameters(list, bindings, true, NULL);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootSignature(d3d12_command_list_iface *iface,
@@ -9902,7 +9909,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     d3d12_command_list_debug_mark_begin_region(list, "ClearUAV");
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
-    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
+    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
     d3d12_command_list_update_descriptor_buffers(list);
 
     max_workgroup_count = list->device->vk_info.device_limits.maxComputeWorkGroupCount[0];
@@ -10070,7 +10077,7 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     d3d12_command_list_debug_mark_begin_region(list, "ClearUAVWithCopy");
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
-    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
+    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
     d3d12_command_list_update_descriptor_buffers(list);
 
     assert(args->has_view);
@@ -11066,7 +11073,7 @@ static void d3d12_command_list_resolve_binary_occlusion_queries(struct d3d12_com
     VkDependencyInfo dep_info;
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
-    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
+    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
 
     memset(&dep_info, 0, sizeof(dep_info));
     dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
@@ -11217,7 +11224,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
          * VK_EXT_conditional_rendering. We'll handle the predicate operation here
          * so setting VK_CONDITIONAL_RENDERING_INVERTED_BIT_EXT is not necessary. */
         d3d12_command_list_invalidate_current_pipeline(list, true);
-        d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
+        d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
 
         resolve_args.src_va = resource->res.va + aligned_buffer_offset;
         resolve_args.dst_va = scratch.va;
@@ -12758,7 +12765,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState1(d3d12_command
     if (list->active_pipeline_type != VKD3D_PIPELINE_TYPE_RAY_TRACING)
     {
         list->active_pipeline_type = VKD3D_PIPELINE_TYPE_RAY_TRACING;
-        d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true);
+        d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, NULL);
     }
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
