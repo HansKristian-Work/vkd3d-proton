@@ -13561,6 +13561,10 @@ static void d3d12_command_list_process_enhanced_barrier_texture(struct d3d12_com
     vk_transition.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     vk_transition.image = resource->res.vk_image;
 
+    /* All COPY operations on images do their own barriers, so we don't have to explicitly flush or invalidate. */
+    vk_transition.srcAccessMask &= ~(VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_TRANSFER_READ_BIT);
+    vk_transition.dstAccessMask &= ~(VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_TRANSFER_READ_BIT);
+
     /* This works like a "deactivating" discard.
      * The behavior around UNDEFINED layout in D3D12 is ... not well explained in the docs.
      * The basic idea for aliasing seems to be that you should transition to UNDEFINED + NO_ACCESS to "deactivate",
