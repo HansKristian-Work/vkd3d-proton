@@ -8620,6 +8620,30 @@ static void d3d12_command_list_barrier_batch_add_global_transition(
     batch->vk_memory_barrier.dstAccessMask |= dstAccessMask;
 }
 
+static void d3d12_command_list_merge_copy_tracking(struct d3d12_command_list *list,
+        struct d3d12_command_list_barrier_batch *batch)
+{
+    /* If we're going to do transfer barriers and we have
+     * pending copies in flight which need to be synchronized,
+     * we should just resolve that while we're at it. */
+    d3d12_command_list_reset_buffer_copy_tracking(list);
+    d3d12_command_list_barrier_batch_add_global_transition(list, batch,
+            VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+}
+
+static void d3d12_command_list_merge_copy_tracking_transition(struct d3d12_command_list *list,
+        const D3D12_RESOURCE_TRANSITION_BARRIER *transition,
+        struct d3d12_command_list_barrier_batch *batch)
+{
+    if (list->tracked_copy_buffer_count && (
+            transition->StateBefore == D3D12_RESOURCE_STATE_COPY_DEST ||
+            transition->StateAfter == D3D12_RESOURCE_STATE_COPY_DEST))
+    {
+        d3d12_command_list_merge_copy_tracking(list, batch);
+    }
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_list_iface *iface,
         UINT barrier_count, const D3D12_RESOURCE_BARRIER *barriers)
 {
@@ -8726,19 +8750,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                     }
                 }
 
-                /* If we're going to do transfer barriers and we have
-                 * pending copies in flight which need to be synchronized,
-                 * we should just resolve that while we're at it. */
-                if (list->tracked_copy_buffer_count && (
-                        transition->StateBefore == D3D12_RESOURCE_STATE_COPY_DEST ||
-                        transition->StateAfter == D3D12_RESOURCE_STATE_COPY_DEST))
-                {
-                    d3d12_command_list_reset_buffer_copy_tracking(list);
-                    batch.vk_memory_barrier.srcStageMask |= VK_PIPELINE_STAGE_2_COPY_BIT;
-                    batch.vk_memory_barrier.srcAccessMask |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
-                    batch.vk_memory_barrier.dstStageMask |= VK_PIPELINE_STAGE_2_COPY_BIT;
-                    batch.vk_memory_barrier.dstAccessMask |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
-                }
+                d3d12_command_list_merge_copy_tracking_transition(list, transition, &batch);
 
                 vk_access_and_stage_flags_from_d3d12_resource_state(list, preserve_resource,
                         transition->StateBefore, list->vk_queue_flags, &transition_src_stage_mask,
