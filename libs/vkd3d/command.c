@@ -13275,6 +13275,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_Barrier(d3d12_command_list_ifac
             case D3D12_BARRIER_TYPE_GLOBAL:
                 for (i = 0; i < num_barriers; i++)
                     d3d12_command_list_process_enhanced_barrier_global(list, &batch, &group->pGlobalBarriers[i]);
+
+                /* GLOBAL barrier can be used as a global aliasing barrier for linear staging images as well.
+                 * Flush out these now. */
+                if (num_barriers)
+                    d3d12_command_list_flush_subresource_updates(list);
                 break;
 
             case D3D12_BARRIER_TYPE_BUFFER:
