@@ -13056,6 +13056,33 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchMesh(d3d12_command_list
         VK_CALL(vkCmdDrawMeshTasksIndirectEXT(list->vk_command_buffer, scratch.buffer, scratch.offset, 1, 0));
 }
 
+static bool d3d12_barrier_invalidates_indirect_arguments(D3D12_BARRIER_SYNC sync, D3D12_BARRIER_ACCESS access)
+{
+    return (sync & (D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_EXECUTE_INDIRECT)) &&
+            (access == D3D12_BARRIER_ACCESS_COMMON || (access & D3D12_BARRIER_ACCESS_INDIRECT_ARGUMENT));
+}
+
+static bool d3d12_barrier_accesses_copy_dest(D3D12_BARRIER_SYNC sync, D3D12_BARRIER_ACCESS access)
+{
+    return (sync & (D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_COPY)) &&
+            (access == D3D12_BARRIER_ACCESS_COMMON || (access & D3D12_BARRIER_ACCESS_COPY_DEST));
+}
+
+static void d3d12_command_list_merge_copy_tracking_global_barrier(struct d3d12_command_list *list,
+        const D3D12_GLOBAL_BARRIER *barrier,
+        struct d3d12_command_list_barrier_batch *batch)
+{
+    /* If we're going to do transfer barriers and we have
+     * pending copies in flight which need to be synchronized,
+     * we should just resolve that while we're at it. */
+    if (list->tracked_copy_buffer_count && (
+            d3d12_barrier_accesses_copy_dest(barrier->SyncBefore, barrier->AccessBefore) ||
+                    d3d12_barrier_accesses_copy_dest(barrier->SyncAfter, barrier->AccessAfter)))
+    {
+        d3d12_command_list_merge_copy_tracking(list, batch);
+    }
+}
+
 static VkPipelineStageFlags2 vk_stage_flags_from_d3d12_barrier(struct d3d12_command_list *list,
         D3D12_BARRIER_SYNC sync, D3D12_BARRIER_ACCESS access)
 {
@@ -13196,18 +13223,6 @@ static VkAccessFlags2 vk_access_flags_from_d3d12_barrier(D3D12_BARRIER_ACCESS ac
     return vk_access;
 }
 
-static bool d3d12_barrier_invalidates_indirect_arguments(D3D12_BARRIER_SYNC sync, D3D12_BARRIER_ACCESS access)
-{
-    return (sync & (D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_EXECUTE_INDIRECT)) &&
-            (access == D3D12_BARRIER_ACCESS_COMMON || (access & D3D12_BARRIER_ACCESS_INDIRECT_ARGUMENT));
-}
-
-static bool d3d12_barrier_accesses_copy_dest(D3D12_BARRIER_SYNC sync, D3D12_BARRIER_ACCESS access)
-{
-    return (sync & (D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_COPY)) &&
-            (access == D3D12_BARRIER_ACCESS_COMMON || (access & D3D12_BARRIER_ACCESS_COPY_DEST));
-}
-
 static void d3d12_command_list_process_enhanced_barrier_global(struct d3d12_command_list *list,
         struct d3d12_command_list_barrier_batch *batch, const D3D12_GLOBAL_BARRIER *barrier)
 {
@@ -13237,20 +13252,7 @@ static void d3d12_command_list_process_enhanced_barrier_global(struct d3d12_comm
     if (barrier->SyncBefore & (D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE))
         d3d12_command_list_flush_rtas_batch(list);
 
-    /* If we're going to do transfer barriers and we have
-     * pending copies in flight which need to be synchronized,
-     * we should just resolve that while we're at it. */
-    if (list->tracked_copy_buffer_count && (
-            d3d12_barrier_accesses_copy_dest(barrier->SyncBefore, barrier->AccessBefore) ||
-            d3d12_barrier_accesses_copy_dest(barrier->SyncAfter, barrier->AccessAfter)))
-    {
-        d3d12_command_list_reset_buffer_copy_tracking(list);
-        batch->vk_memory_barrier.srcStageMask |= VK_PIPELINE_STAGE_2_COPY_BIT;
-        batch->vk_memory_barrier.srcAccessMask |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        batch->vk_memory_barrier.dstStageMask |= VK_PIPELINE_STAGE_2_COPY_BIT;
-        batch->vk_memory_barrier.dstAccessMask |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    }
-
+    d3d12_command_list_merge_copy_tracking_global_barrier(list, barrier, batch);
     d3d12_command_list_barrier_batch_add_global_transition(list, batch,
             src_stages, src_access, dst_stages, dst_access);
 }
