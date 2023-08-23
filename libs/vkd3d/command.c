@@ -3115,6 +3115,34 @@ static uint32_t d3d12_command_list_notify_dsv_state(struct d3d12_command_list *l
     return dsv_decay_mask;
 }
 
+static VkImageAspectFlags d3d12_barrier_subresource_range_covers_aspects(const struct d3d12_resource *resource,
+        const D3D12_BARRIER_SUBRESOURCE_RANGE *range);
+
+static uint32_t d3d12_command_list_notify_dsv_state_enhanced(struct d3d12_command_list *list,
+        struct d3d12_resource *resource, const D3D12_TEXTURE_BARRIER *barrier)
+{
+    bool dsv_optimal = barrier->LayoutAfter == D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE ||
+            barrier->LayoutAfter == D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_READ;
+    VkImageAspectFlags covered_aspects;
+    uint32_t dsv_promote_mask = 0;
+    uint32_t dsv_decay_mask = 0;
+
+    if (!dsv_optimal)
+    {
+        dsv_decay_mask = d3d12_command_list_notify_decay_dsv_resource(list, resource);
+    }
+    else if ((covered_aspects = d3d12_barrier_subresource_range_covers_aspects(resource, &barrier->Subresources)))
+    {
+        if (covered_aspects & VK_IMAGE_ASPECT_DEPTH_BIT)
+            dsv_promote_mask |= VKD3D_DEPTH_PLANE_OPTIMAL;
+        if (covered_aspects & VK_IMAGE_ASPECT_STENCIL_BIT)
+            dsv_promote_mask |= VKD3D_STENCIL_PLANE_OPTIMAL;
+        d3d12_command_list_promote_dsv_resource(list, resource, dsv_promote_mask);
+    }
+
+    return dsv_decay_mask;
+}
+
 static void d3d12_command_list_decay_optimal_dsv_resources(struct d3d12_command_list *list)
 {
     struct d3d12_command_list_barrier_batch batch;
