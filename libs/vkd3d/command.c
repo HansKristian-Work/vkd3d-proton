@@ -9798,6 +9798,45 @@ static bool vkd3d_rtv_and_aspects_fully_cover_resource(const struct d3d12_resour
             view->info.texture.layer_count >= resource->desc.DepthOrArraySize; /* takes care of REMAINING_LAYERS as well. */
 }
 
+static VkImageAspectFlags d3d12_barrier_subresource_range_covers_aspects(const struct d3d12_resource *resource,
+        const D3D12_BARRIER_SUBRESOURCE_RANGE *range)
+{
+    VkImageAspectFlags aspects;
+    unsigned int i;
+
+    /* BARRIER_SUBRESOURCE_RANGE has two paths. When mip levels is zero, we use the legacy subresource index.
+     * When non-zero, it uses normal ranges a-la Vulkan. */
+    if (range->NumMipLevels == 0)
+    {
+        if (range->IndexOrFirstMipLevel == D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES)
+            return resource->format->vk_aspect_mask;
+        else if (d3d12_resource_desc_get_sub_resource_count_per_plane(&resource->desc) == 1)
+            return vk_image_aspect_flags_from_d3d12(resource->format, range->IndexOrFirstMipLevel);
+        else
+            return 0;
+    }
+    else
+    {
+        /* NumArraySlices = 0 actually means 1 slice for whatever reason. */
+        aspects = 0;
+        if (range->IndexOrFirstMipLevel == 0 && range->FirstArraySlice == 0 &&
+                range->NumMipLevels >= resource->desc.MipLevels &&
+                max(1u, range->NumArraySlices) >= d3d12_resource_desc_get_layer_count(&resource->desc))
+        {
+            for (i = 0; i < range->NumPlanes; i++)
+                aspects |= vk_image_aspect_flags_from_d3d12(resource->format, i + range->FirstPlane);
+        }
+        return aspects;
+    }
+}
+
+static bool d3d12_barrier_subresource_range_covers_resource(const struct d3d12_resource *resource,
+        const D3D12_BARRIER_SUBRESOURCE_RANGE *range)
+{
+    return d3d12_barrier_subresource_range_covers_aspects(resource, range) ==
+            resource->format->vk_aspect_mask;
+}
+
 static void d3d12_command_list_clear_attachment(struct d3d12_command_list *list, struct d3d12_resource *resource,
         struct vkd3d_view *view, VkImageAspectFlags clear_aspects, const VkClearValue *clear_value, UINT rect_count,
         const D3D12_RECT *rects)
