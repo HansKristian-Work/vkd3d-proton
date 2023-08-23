@@ -8461,6 +8461,118 @@ VkImageLayout vk_image_layout_from_d3d12_resource_state(
     }
 }
 
+static VkImageLayout vk_image_layout_from_d3d12_barrier(
+        struct d3d12_command_list *list, struct d3d12_resource *resource, D3D12_BARRIER_LAYOUT layout)
+{
+    if (layout == D3D12_BARRIER_LAYOUT_UNDEFINED)
+        return VK_IMAGE_LAYOUT_UNDEFINED;
+
+    /* Simultaneous access is always general, until we're forced to treat it differently in
+     * a transfer, render pass, or similar. */
+    if (resource->flags & (VKD3D_RESOURCE_LINEAR_STAGING_COPY | VKD3D_RESOURCE_SIMULTANEOUS_ACCESS))
+        return VK_IMAGE_LAYOUT_GENERAL;
+
+    switch (layout)
+    {
+        case D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS:
+            return VK_IMAGE_LAYOUT_GENERAL;
+
+        case D3D12_BARRIER_LAYOUT_RENDER_TARGET:
+            return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        case D3D12_BARRIER_LAYOUT_SHADING_RATE_SOURCE:
+            return VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR;
+
+        case D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE:
+            if (list)
+                return d3d12_command_list_get_depth_stencil_resource_layout(list, resource, NULL);
+            else
+                return resource->common_layout;
+
+        default:
+            return resource->common_layout;
+    }
+}
+
+static void vk_image_memory_barrier_subresources_from_d3d12_texture_barrier(
+        struct d3d12_command_list *list, const struct d3d12_resource *resource,
+        const D3D12_BARRIER_SUBRESOURCE_RANGE *range, uint32_t dsv_decay_mask,
+        VkImageSubresourceRange *vk_range)
+{
+    VkImageSubresource subresource;
+    unsigned int i;
+
+    if (range->NumMipLevels == 0)
+    {
+        /* SubresourceIndex path. */
+        if (range->IndexOrFirstMipLevel == D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES)
+        {
+            vk_range->aspectMask = resource->format->vk_aspect_mask;
+            vk_range->baseMipLevel = 0;
+            vk_range->baseArrayLayer = 0;
+            vk_range->levelCount = VK_REMAINING_MIP_LEVELS;
+            vk_range->layerCount = VK_REMAINING_ARRAY_LAYERS;
+        }
+        else
+        {
+            subresource = d3d12_resource_get_vk_subresource(resource, range->IndexOrFirstMipLevel, false);
+            vk_range->aspectMask = subresource.aspectMask;
+            vk_range->baseMipLevel = subresource.mipLevel;
+            vk_range->baseArrayLayer = subresource.arrayLayer;
+            vk_range->levelCount = 1;
+            vk_range->layerCount = 1;
+        }
+    }
+    else
+    {
+        vk_range->baseMipLevel = range->IndexOrFirstMipLevel;
+        vk_range->levelCount = range->NumMipLevels;
+        vk_range->baseArrayLayer = range->FirstArraySlice;
+        /* Oddly enough, 0 slices translates to 1 ... */
+        vk_range->layerCount = max(1u, range->NumArraySlices);
+
+        vk_range->aspectMask = 0;
+        for (i = 0; i < range->NumPlanes; i++)
+            vk_range->aspectMask |= vk_image_aspect_flags_from_d3d12(resource->format, i + range->FirstPlane);
+
+        /* This is invalid in D3D12 and trips validation layers.
+         * Be defensive, since apps are likely going to screw this up. */
+        if (range->NumMipLevels == UINT32_MAX)
+        {
+            WARN("Invalid UINT32_MAX miplevels.\n");
+            vk_range->levelCount = resource->desc.MipLevels - vk_range->baseMipLevel;
+        }
+
+        if (range->NumArraySlices == UINT32_MAX)
+        {
+            WARN("Invalid UINT32_MAX array slices.\n");
+            vk_range->layerCount = d3d12_resource_desc_get_layer_count(&resource->desc) - vk_range->baseArrayLayer;
+        }
+    }
+
+    /* In a decay, need to transition everything that we promoted back to the common state.
+     * DSV decay is all or nothing, so just use a full transition. */
+    if ((dsv_decay_mask & VKD3D_DEPTH_PLANE_OPTIMAL) &&
+            (resource->format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT))
+    {
+        vk_range->aspectMask |= VK_IMAGE_ASPECT_DEPTH_BIT;
+        vk_range->baseMipLevel = 0;
+        vk_range->baseArrayLayer = 0;
+        vk_range->levelCount = VK_REMAINING_MIP_LEVELS;
+        vk_range->layerCount = VK_REMAINING_ARRAY_LAYERS;
+    }
+
+    if ((dsv_decay_mask & VKD3D_STENCIL_PLANE_OPTIMAL) &&
+            (resource->format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT))
+    {
+        vk_range->aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+        vk_range->baseMipLevel = 0;
+        vk_range->baseArrayLayer = 0;
+        vk_range->levelCount = VK_REMAINING_MIP_LEVELS;
+        vk_range->layerCount = VK_REMAINING_ARRAY_LAYERS;
+    }
+}
+
 static void vk_image_memory_barrier_for_transition(
         VkImageMemoryBarrier2 *image_barrier, const struct d3d12_resource *resource,
         UINT subresource_idx, VkImageLayout old_layout, VkImageLayout new_layout,
