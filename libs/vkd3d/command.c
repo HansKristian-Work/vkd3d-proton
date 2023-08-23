@@ -13103,6 +13103,16 @@ static VkPipelineStageFlags2 vk_stage_flags_from_d3d12_barrier(struct d3d12_comm
     if (sync & D3D12_BARRIER_SYNC_ALL)
         return VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
+    /* Split barriers are currently broken in the D3D12 runtime, so they cannot be used,
+     * but the spec for them is rather unfortunate, you're meant to synchronize once with
+     * SyncAfter = SPLIT, and then SyncBefore = SPLIT to complete the barrier.
+     * Apparently, there can only be one SPLIT barrier in flight for each (sub-)resource
+     * which is extremely weird and suggests we have to track a VkEvent to make this work,
+     * which is complete bogus. SPLIT barriers are allowed cross submissions even ...
+     * Only reasonable solution is to force ALL_COMMANDS_BIT when SPLIT is observed. */
+    if (sync == D3D12_BARRIER_SYNC_SPLIT)
+        return VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
     if (sync & D3D12_BARRIER_SYNC_DRAW)
     {
         sync |= D3D12_BARRIER_SYNC_INDEX_INPUT |
