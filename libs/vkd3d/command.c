@@ -7334,11 +7334,14 @@ static bool d3d12_command_list_init_copy_texture_region(struct d3d12_command_lis
     }
     else if (src->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX && dst->Type == D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX)
     {
+        bool overlapping_subresource;
         assert(d3d12_resource_is_texture(dst_resource));
         assert(d3d12_resource_is_texture(src_resource));
 
         out->dst_format = dst_resource->format;
         out->src_format = src_resource->format;
+
+        overlapping_subresource = dst_resource == src_resource && src->SubresourceIndex == dst->SubresourceIndex;
 
         if (!vk_image_copy_from_d3d12(&out->copy.image, src->SubresourceIndex, dst->SubresourceIndex,
                 &src_resource->desc, &dst_resource->desc, out->src_format, out->dst_format,
@@ -7361,9 +7364,11 @@ static bool d3d12_command_list_init_copy_texture_region(struct d3d12_command_lis
             return false;
         }
 
+        /* Writing full subresource with overlapping subresource is bogus.
+         * Need to skip any UNDEFINED transition here. Similar concern as in D3D12_RESOLVE_MODE_DECOMPRESS. */
         out->writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
                 &out->copy.image.extent,
-                &out->copy.image.dstSubresource);
+                &out->copy.image.dstSubresource) && !overlapping_subresource;
         out->batch_type = VKD3D_BATCH_TYPE_COPY_IMAGE;
 
         out->writes_full_resource =
@@ -7487,8 +7492,14 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
     }
     else if (info->batch_type == VKD3D_BATCH_TYPE_COPY_IMAGE)
     {
+        const VkImageSubresourceLayers *src_range = &info->copy.image.srcSubresource;
+        const VkImageSubresourceLayers *dst_range = &info->copy.image.dstSubresource;
+        bool overlap = dst_resource == src_resource &&
+                src_range->baseArrayLayer == dst_range->baseArrayLayer &&
+                src_range->mipLevel == dst_range->mipLevel &&
+                src_range->aspectMask == dst_range->aspectMask;
         d3d12_command_list_copy_image(list, dst_resource, info->dst_format,
-                src_resource, info->src_format, &info->copy.image, info->writes_full_subresource, false);
+                src_resource, info->src_format, &info->copy.image, info->writes_full_subresource, overlap);
     }
 }
 
