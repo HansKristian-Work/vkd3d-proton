@@ -7270,10 +7270,8 @@ static void d3d12_device_caps_init_feature_options11(struct d3d12_device *device
 static void d3d12_device_caps_init_feature_options12(struct d3d12_device *device)
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS12 *options12 = &device->d3d12_caps.options12;
-
-    /* Exposing this without EnhancedBarrier is somewhat meaningless,
-     * but this allows us to implement the enhanced barrier API piecemeal. */
     options12->RelaxedFormatCastingSupported = TRUE;
+    options12->EnhancedBarriersSupported = TRUE;
 }
 
 static void d3d12_device_caps_init_feature_options13(struct d3d12_device *device)
