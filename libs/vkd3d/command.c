@@ -13475,7 +13475,111 @@ static void d3d12_command_list_process_enhanced_barrier_buffer(struct d3d12_comm
 static void d3d12_command_list_process_enhanced_barrier_texture(struct d3d12_command_list *list,
         struct d3d12_command_list_barrier_batch *batch, const D3D12_TEXTURE_BARRIER *barrier)
 {
-    FIXME("TODO!\n");
+    VkImageSubresourceLayers vk_subresource_layers;
+    VkImageMemoryBarrier2 vk_transition;
+    D3D12_GLOBAL_BARRIER global_barrier;
+    struct d3d12_resource *resource;
+    uint32_t dsv_decay_mask = 0;
+    bool discarding_transition;
+    unsigned int i;
+
+    if (barrier->SyncBefore == D3D12_BARRIER_SYNC_SPLIT || barrier->SyncAfter == D3D12_BARRIER_SYNC_SPLIT)
+        WARN("Split barriers are known to be broken on D3D12 native runtime.\n");
+
+    if (!barrier->pResource)
+    {
+        WARN("No pResource.\n");
+        return;
+    }
+
+    resource = impl_from_ID3D12Resource(barrier->pResource);
+    if (!resource || !d3d12_resource_is_texture(resource))
+    {
+        WARN("Resource is not a texture.\n");
+        return;
+    }
+
+    /* Split barrier. Defer this until SyncBefore = SPLIT. See notes in sync flag translation. */
+    if (barrier->SyncAfter == D3D12_BARRIER_SYNC_SPLIT)
+        return;
+
+    /* This is a no-op, but zero array planes is not a noop for some bizarre reason. */
+    if (barrier->Subresources.NumMipLevels != 0 && barrier->Subresources.NumPlanes == 0)
+    {
+        WARN("No-op texture barrier due to NumPlanes == 0.\n");
+        return;
+    }
+
+    if (barrier->Subresources.NumMipLevels != 0 && barrier->Subresources.NumArraySlices == 0)
+        WARN("NumArraySlices == 0 promotes to 1 slice.\n");
+
+    global_barrier.SyncBefore = barrier->SyncBefore;
+    global_barrier.SyncAfter = barrier->SyncAfter;
+    global_barrier.AccessBefore = barrier->AccessBefore;
+    global_barrier.AccessAfter = barrier->AccessAfter;
+    d3d12_command_list_merge_copy_tracking_global_barrier(list, &global_barrier, batch);
+
+    vk_transition.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    vk_transition.pNext = NULL;
+    vk_transition.oldLayout = vk_image_layout_from_d3d12_barrier(list, resource, barrier->LayoutBefore);
+
+    if ((resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) &&
+            barrier->LayoutBefore != barrier->LayoutAfter)
+    {
+        dsv_decay_mask = d3d12_command_list_notify_dsv_state_enhanced(list, resource, barrier);
+    }
+
+    vk_image_memory_barrier_subresources_from_d3d12_texture_barrier(list, resource,
+            &barrier->Subresources, dsv_decay_mask, &vk_transition.subresourceRange);
+
+    vk_transition.newLayout = vk_image_layout_from_d3d12_barrier(list, resource, barrier->LayoutAfter);
+
+    /* Aliasing is a lot trickier with enhanced barriers.
+     * If aliasing is possible, i.e. there are memory flushes on the resource,
+     * we must resolve subresource updates now.
+     * Aliasing is possible if we flush and ensure some kind of execution barrier with the consumer. */
+    if ((resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY) &&
+            barrier->AccessBefore != D3D12_BARRIER_ACCESS_NO_ACCESS &&
+            d3d12_resource_may_alias_other_resources(resource))
+    {
+        vk_subresource_layers.baseArrayLayer = vk_transition.subresourceRange.baseArrayLayer;
+        vk_subresource_layers.layerCount = vk_transition.subresourceRange.layerCount;
+        vk_subresource_layers.aspectMask = vk_transition.subresourceRange.aspectMask;
+        for (i = 0; i < vk_transition.subresourceRange.levelCount; i++)
+        {
+            vk_subresource_layers.mipLevel = i + vk_transition.subresourceRange.baseMipLevel;
+            d3d12_command_list_update_subresource_data(list, resource, vk_subresource_layers);
+        }
+        d3d12_command_list_flush_subresource_updates(list);
+    }
+
+    vk_transition.srcStageMask = vk_stage_flags_from_d3d12_barrier(list, barrier->SyncBefore, barrier->AccessBefore);
+    vk_transition.dstStageMask = vk_stage_flags_from_d3d12_barrier(list, barrier->SyncAfter, barrier->AccessAfter);
+    vk_transition.srcAccessMask = vk_access_flags_from_d3d12_barrier(barrier->AccessBefore);
+    vk_transition.dstAccessMask = vk_access_flags_from_d3d12_barrier(barrier->AccessAfter);
+    vk_transition.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    vk_transition.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    vk_transition.image = resource->res.vk_image;
+
+    /* This works like a "deactivating" discard.
+     * The behavior around UNDEFINED layout in D3D12 is ... not well explained in the docs.
+     * The basic idea for aliasing seems to be that you should transition to UNDEFINED + NO_ACCESS to "deactivate",
+     * and the activating resource will transition from UNDEFINED.
+     * Using NO_ACCESS seems to imply that the resource can be invalidated (i.e. any data in caches can vanish),
+     * so any subsequent transition from UNDEFINED should be able to discard, regardless of the DISCARD flag.
+     * For deactivation, we will perform no layout transition. In sync2, this is done by setting newLayout == oldLayout. */
+    if (vk_transition.newLayout == VK_IMAGE_LAYOUT_UNDEFINED)
+        vk_transition.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    if (barrier->LayoutBefore == D3D12_BARRIER_LAYOUT_UNDEFINED && !(barrier->Flags & D3D12_TEXTURE_BARRIER_FLAG_DISCARD))
+        FIXME("Transitioning away from UNDEFINED, but there is no DISCARD flag. Uncertain what is expected here. vkd3d-proton will force a discard.\n");
+
+    d3d12_command_list_barrier_batch_add_layout_transition(list, batch, &vk_transition);
+
+    discarding_transition = vk_transition.oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
+            vk_transition.newLayout != VK_IMAGE_LAYOUT_UNDEFINED &&
+            d3d12_barrier_subresource_range_covers_resource(resource, &barrier->Subresources);
+    d3d12_command_list_track_resource_usage(list, resource, !discarding_transition);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_Barrier(d3d12_command_list_iface *iface, UINT32 NumBarrierGroups, const D3D12_BARRIER_GROUP *pBarrierGroups)
