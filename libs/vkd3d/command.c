@@ -8511,7 +8511,7 @@ static void d3d12_command_list_barrier_batch_end(struct d3d12_command_list *list
     dep_info.imageMemoryBarrierCount = batch->image_barrier_count;
     dep_info.pImageMemoryBarriers = batch->vk_image_barriers;
 
-    if (batch->vk_memory_barrier.srcStageMask && batch->vk_memory_barrier.dstStageMask)
+    if (batch->vk_memory_barrier.srcStageMask || batch->vk_memory_barrier.dstStageMask)
     {
         dep_info.memoryBarrierCount = 1;
         dep_info.pMemoryBarriers = &batch->vk_memory_barrier;
