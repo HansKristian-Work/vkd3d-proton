@@ -763,6 +763,19 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
             WARN("dxil-spirv does not support SHADER_SOURCE_FILE.\n");
     }
 
+    {
+        const struct dxil_spv_option_precise_control helper =
+                { { DXIL_SPV_OPTION_PRECISE_CONTROL },
+                        (quirks & VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH) ? DXIL_SPV_TRUE : DXIL_SPV_FALSE,
+                        DXIL_SPV_FALSE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            WARN("dxil-spirv does not support PRECISE_CONTROL.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
     if (compiler_args)
     {
         for (i = 0; i < compiler_args->target_extension_count; i++)
@@ -1330,6 +1343,19 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         snprintf(buffer, sizeof(buffer), "%016"PRIx64".%s.dxil", spirv->meta.hash, export);
         if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
             WARN("dxil-spirv does not support SHADER_SOURCE_FILE.\n");
+    }
+
+    {
+        const struct dxil_spv_option_precise_control helper =
+                { { DXIL_SPV_OPTION_PRECISE_CONTROL },
+                        (quirks & VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH) ? DXIL_SPV_TRUE : DXIL_SPV_FALSE,
+                        DXIL_SPV_FALSE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            WARN("dxil-spirv does not support PRECISE_CONTROL.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
     }
 
     if (compiler_args)
