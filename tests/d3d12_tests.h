@@ -263,6 +263,7 @@ decl_test(test_typed_buffers_many_objects_dxil);
 decl_test(test_create_pipeline_with_null_root_signature);
 decl_test(test_undefined_read_typed_buffer_as_untyped_dxbc);
 decl_test(test_undefined_read_typed_buffer_as_untyped_dxil);
+decl_test(test_undefined_descriptor_heap_mismatch_types);
 decl_test(test_virtual_queries);
 decl_test(test_vrs);
 decl_test(test_vrs_dxil);
