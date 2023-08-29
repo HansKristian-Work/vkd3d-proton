@@ -5822,7 +5822,7 @@ static uint32_t vkd3d_bindless_embedded_mutable_packed_metadata_offset(struct d3
 static bool vkd3d_bindless_supports_embedded_packed_metadata(struct d3d12_device *device)
 {
     return vkd3d_bindless_embedded_mutable_packed_metadata_offset(device) +
-            sizeof(struct vkd3d_descriptor_metadata) <=
+            sizeof(struct vkd3d_descriptor_metadata_view) <=
             vkd3d_bindless_get_mutable_descriptor_type_size(device);
 }
 
@@ -5923,7 +5923,7 @@ bool vkd3d_bindless_supports_embedded_mutable_type(struct d3d12_device *device, 
     if (max_size < 32)
         return false;
 
-    if (max_size < sizeof(struct vkd3d_descriptor_metadata))
+    if (max_size < sizeof(struct vkd3d_descriptor_metadata_view))
         return false;
 
     /* Make sure we can implement SRV buffer with side by side texel buffer and SSBO. */

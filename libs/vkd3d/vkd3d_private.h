@@ -1182,7 +1182,6 @@ struct vkd3d_descriptor_metadata_types
 {
     VkDescriptorType current_null_type;
     uint8_t set_info_mask;
-    uint8_t flags;
     /* If SINGLE_DESCRIPTOR is set, use the embedded write info instead
      * to avoid missing caches. */
     struct vkd3d_descriptor_binding single_binding;
@@ -1193,12 +1192,20 @@ STATIC_ASSERT(VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS <= 8);
 
 struct vkd3d_descriptor_metadata_buffer_view
 {
-    VkDeviceAddress va;
-    /* Allows tighter packing. 64-bit view range is not supported in D3D12. */
-    uint32_t range;
+    uint8_t flags;
     /* Format used if used in a formatted context such as UAV clears.
      * If UNKNOWN, denotes a raw buffer. R32_UINT can be used in place of it. */
-    DXGI_FORMAT dxgi_format;
+    uint8_t dxgi_format; /* All valid formats fit in 8-bit. */
+    uint16_t padding;
+    /* Allows tighter packing. 64-bit view range is not supported in D3D12. */
+    uint32_t range;
+    VkDeviceAddress va;
+};
+
+struct vkd3d_descriptor_metadata_image_view
+{
+    uint8_t flags;
+    struct vkd3d_view *view;
 };
 
 struct vkd3d_descriptor_metadata_view
@@ -1209,15 +1216,9 @@ struct vkd3d_descriptor_metadata_view
     union
     {
         struct vkd3d_descriptor_metadata_buffer_view buffer;
-        struct vkd3d_view *view;
+        struct vkd3d_descriptor_metadata_image_view image;
+        uint8_t flags;
     } info;
-};
-
-/* A packed variant, used for embedded mutable descriptors. */
-struct vkd3d_descriptor_metadata
-{
-    struct vkd3d_descriptor_metadata_view view;
-    struct vkd3d_descriptor_metadata_types types;
 };
 
 #ifdef VKD3D_ENABLE_DESCRIPTOR_QA
@@ -1435,7 +1436,7 @@ struct d3d12_desc_split
 struct d3d12_desc_split_embedded
 {
     uint8_t *payload;
-    struct vkd3d_descriptor_metadata *metadata;
+    struct vkd3d_descriptor_metadata_view *metadata;
 };
 
 static inline struct d3d12_desc_split_embedded d3d12_desc_decode_embedded_resource_va(vkd3d_cpu_descriptor_va_t va)
@@ -1449,7 +1450,7 @@ static inline struct d3d12_desc_split_embedded d3d12_desc_decode_embedded_resour
         va -= log2_offset;
         split.payload = (uint8_t *)va;
         va += 1u << log2_offset;
-        split.metadata = (struct vkd3d_descriptor_metadata *)va;
+        split.metadata = (struct vkd3d_descriptor_metadata_view *)va;
     }
     else
     {
@@ -2736,7 +2737,6 @@ struct d3d12_command_list
 
     LONG *outstanding_submissions_count;
 
-    const struct vkd3d_descriptor_metadata_types *cbv_srv_uav_descriptors_types;
     const struct vkd3d_descriptor_metadata_view *cbv_srv_uav_descriptors_view;
 
     struct d3d12_resource *vrs_image;
@@ -4319,19 +4319,19 @@ static inline struct d3d12_desc_split_metadata d3d12_desc_decode_metadata(
          * If the descriptor is smaller, we can use the planar method where we encode log2 offset. */
         if (device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_EMBEDDED_PACKED_METADATA)
         {
-            struct vkd3d_descriptor_metadata *m;
+            struct vkd3d_descriptor_metadata_view *m;
             va &= ~VKD3D_RESOURCE_EMBEDDED_CACHED_MASK;
             m = (void *)(uintptr_t)(va + device->bindless_state.descriptor_buffer_packed_metadata_offset);
-            meta.view = &m->view;
-            meta.types = &m->types;
+            meta.view = m;
+            meta.types = NULL;
         }
         else
         {
             struct d3d12_desc_split_embedded d = d3d12_desc_decode_embedded_resource_va(va);
             if (d.metadata)
             {
-                meta.view = &d.metadata->view;
-                meta.types = &d.metadata->types;
+                meta.view = d.metadata;
+                meta.types = NULL;
             }
             else
             {
