@@ -168,8 +168,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaTextureObject(ID3
     srv_desc = d3d12_desc_decode_va(srv_handle.ptr);
     sampler_desc = d3d12_desc_decode_va(sampler_handle.ptr);
 
-    imageViewHandleInfo.imageView = srv_desc.view->info.view->vk_image_view;
-    imageViewHandleInfo.sampler = sampler_desc.view->info.view->vk_sampler;
+    imageViewHandleInfo.imageView = srv_desc.view->info.image.view->vk_image_view;
+    imageViewHandleInfo.sampler = sampler_desc.view->info.image.view->vk_sampler;
     imageViewHandleInfo.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 
     vk_procs = &device->vk_procs;
@@ -192,7 +192,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaSurfaceObject(ID3
     device = d3d12_device_from_ID3D12DeviceExt(iface);
     uav_desc = d3d12_desc_decode_va(uav_handle.ptr);
 
-    imageViewHandleInfo.imageView = uav_desc.view->info.view->vk_image_view;
+    imageViewHandleInfo.imageView = uav_desc.view->info.image.view->vk_image_view;
     imageViewHandleInfo.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
 
     vk_procs = &device->vk_procs;

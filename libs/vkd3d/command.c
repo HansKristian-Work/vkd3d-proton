@@ -5159,7 +5159,6 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
     memset(list->so_counter_buffers, 0, sizeof(list->so_counter_buffers));
     memset(list->so_counter_buffer_offsets, 0, sizeof(list->so_counter_buffer_offsets));
 
-    list->cbv_srv_uav_descriptors_types = NULL;
     list->cbv_srv_uav_descriptors_view = NULL;
     list->vrs_image = NULL;
 
@@ -5886,7 +5885,6 @@ static void d3d12_command_list_update_hoisted_descriptors(struct d3d12_command_l
 {
     const struct d3d12_root_signature *rs = bindings->root_signature;
     const struct vkd3d_descriptor_hoist_desc *hoist_desc;
-    const struct vkd3d_descriptor_metadata_types *types;
     struct vkd3d_root_descriptor_info *root_parameter;
     const struct vkd3d_descriptor_metadata_view *view;
     const struct vkd3d_unique_resource *resource;
@@ -5900,12 +5898,8 @@ static void d3d12_command_list_update_hoisted_descriptors(struct d3d12_command_l
         hoist_desc = &rs->hoist_info.desc[i];
 
         view = list->cbv_srv_uav_descriptors_view;
-        types = list->cbv_srv_uav_descriptors_types;
         if (view)
-        {
             view += bindings->descriptor_tables[hoist_desc->table_index] + hoist_desc->table_offset;
-            types += bindings->descriptor_tables[hoist_desc->table_index] + hoist_desc->table_offset;
-        }
 
         root_parameter = &bindings->root_descriptors[hoist_desc->parameter_index];
 
@@ -5914,7 +5908,7 @@ static void d3d12_command_list_update_hoisted_descriptors(struct d3d12_command_l
         root_parameter->vk_descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         info = &root_parameter->info;
 
-        if (types && (types->flags & VKD3D_DESCRIPTOR_FLAG_BUFFER_VA_RANGE))
+        if (view && (view->info.buffer.flags & VKD3D_DESCRIPTOR_FLAG_BUFFER_VA_RANGE))
         {
             /* Buffer descriptors must be valid on recording time. */
             resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, view->info.buffer.va);
@@ -8937,7 +8931,6 @@ static void d3d12_command_list_set_descriptor_heaps_buffers(struct d3d12_command
             {
                 /* In case we need to hoist buffer descriptors. */
                 d = d3d12_desc_decode_va(heap->cpu_va.ptr);
-                list->cbv_srv_uav_descriptors_types = d.types;
                 list->cbv_srv_uav_descriptors_view = d.view;
             }
         }
@@ -8991,7 +8984,6 @@ static void d3d12_command_list_set_descriptor_heaps_sets(struct d3d12_command_li
         {
             struct d3d12_desc_split d;
             d = d3d12_desc_decode_va(heap->cpu_va.ptr);
-            list->cbv_srv_uav_descriptors_types = d.types;
             list->cbv_srv_uav_descriptors_view = d.view;
         }
     }
@@ -10345,14 +10337,14 @@ static bool vkd3d_clear_uav_check_uint_format_compatibility(struct d3d12_device 
 static inline bool vkd3d_clear_uav_info_from_metadata(struct vkd3d_clear_uav_info *args,
         struct d3d12_desc_split_metadata metadata)
 {
-    if (metadata.types->flags & VKD3D_DESCRIPTOR_FLAG_IMAGE_VIEW)
+    if (metadata.view->info.flags & VKD3D_DESCRIPTOR_FLAG_IMAGE_VIEW)
     {
         args->has_view = true;
-        args->u.view = metadata.view->info.view;
-        args->clear_dxgi_format = metadata.view->info.view->format->dxgi_format;
+        args->u.view = metadata.view->info.image.view;
+        args->clear_dxgi_format = metadata.view->info.image.view->format->dxgi_format;
         return true;
     }
-    else if (metadata.types->flags & VKD3D_DESCRIPTOR_FLAG_BUFFER_VA_RANGE)
+    else if (metadata.view->info.flags & VKD3D_DESCRIPTOR_FLAG_BUFFER_VA_RANGE)
     {
         args->u.buffer = metadata.view->info.buffer;
         args->has_view = false;
@@ -10509,7 +10501,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
     }
     else if (d3d12_resource_is_texture(resource_impl) && clear_format->type != VKD3D_FORMAT_TYPE_UINT)
     {
-        const struct vkd3d_view *base_view = metadata.view->info.view;
+        const struct vkd3d_view *base_view = metadata.view->info.image.view;
         uint_format = vkd3d_clear_uav_find_uint_format(list->device, clear_format->dxgi_format);
         color = vkd3d_fixup_clear_uav_uint_color(list->device, clear_format->dxgi_format, color);
 

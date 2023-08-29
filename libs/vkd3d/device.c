@@ -4427,7 +4427,7 @@ static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView_default(d3d
     {
         struct d3d12_desc_split d = d3d12_desc_decode_va(descriptor.ptr);
 
-        imageViewHandleInfo.imageView = d.view->info.view->vk_image_view;
+        imageViewHandleInfo.imageView = d.view->info.image.view->vk_image_view;
         imageViewHandleInfo.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
 
         vk_procs = &device->vk_procs;
