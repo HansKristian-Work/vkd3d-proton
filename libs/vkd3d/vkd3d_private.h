@@ -3464,26 +3464,38 @@ enum vkd3d_bindless_flags
     VKD3D_BINDLESS_MUTABLE_EMBEDDED                 = (1u << 9),
     VKD3D_BINDLESS_MUTABLE_EMBEDDED_PACKED_METADATA = (1u << 10),
     VKD3D_FORCE_COMPUTE_ROOT_PARAMETERS_PUSH_UBO    = (1u << 11),
+    VKD3D_BINDLESS_MUTABLE_TYPE_SPLIT_RAW_TYPED     = (1u << 12),
 };
 
 #define VKD3D_BINDLESS_SET_MAX_EXTRA_BINDINGS 8
 
 enum vkd3d_bindless_set_flag
 {
-    VKD3D_BINDLESS_SET_SAMPLER    = (1u << 0),
-    VKD3D_BINDLESS_SET_CBV        = (1u << 1),
-    VKD3D_BINDLESS_SET_SRV        = (1u << 2),
-    VKD3D_BINDLESS_SET_UAV        = (1u << 3),
-    VKD3D_BINDLESS_SET_IMAGE      = (1u << 4),
-    VKD3D_BINDLESS_SET_BUFFER     = (1u << 5),
-    VKD3D_BINDLESS_SET_RAW_SSBO   = (1u << 6),
-    VKD3D_BINDLESS_SET_MUTABLE    = (1u << 7),
+    VKD3D_BINDLESS_SET_SAMPLER       = (1u << 0),
+    VKD3D_BINDLESS_SET_CBV           = (1u << 1),
+    VKD3D_BINDLESS_SET_SRV           = (1u << 2),
+    VKD3D_BINDLESS_SET_UAV           = (1u << 3),
+    VKD3D_BINDLESS_SET_IMAGE         = (1u << 4),
+    VKD3D_BINDLESS_SET_BUFFER        = (1u << 5),
+    VKD3D_BINDLESS_SET_RAW_SSBO      = (1u << 6),
+    VKD3D_BINDLESS_SET_MUTABLE       = (1u << 7),
+    VKD3D_BINDLESS_SET_MUTABLE_RAW   = (1u << 8),
+    VKD3D_BINDLESS_SET_MUTABLE_TYPED = (1u << 9),
 
     VKD3D_BINDLESS_SET_EXTRA_RAW_VA_AUX_BUFFER           = (1u << 24),
     VKD3D_BINDLESS_SET_EXTRA_OFFSET_BUFFER               = (1u << 25),
     VKD3D_BINDLESS_SET_EXTRA_GLOBAL_HEAP_INFO_BUFFER     = (1u << 26),
     VKD3D_BINDLESS_SET_EXTRA_DESCRIPTOR_HEAP_INFO_BUFFER = (1u << 27),
     VKD3D_BINDLESS_SET_EXTRA_MASK = 0xff000000u
+};
+
+/* No need to scan through for common cases. */
+enum vkd3d_bindless_state_info_indices
+{
+    VKD3D_BINDLESS_STATE_INFO_INDEX_SAMPLER = 0,
+    VKD3D_BINDLESS_STATE_INFO_INDEX_MUTABLE_SPLIT_TYPED = 1,
+    VKD3D_BINDLESS_STATE_INFO_INDEX_MUTABLE_SPLIT_RAW = 2,
+    VKD3D_BINDLESS_STATE_INFO_INDEX_MUTABLE_SINGLE = 1,
 };
 
 struct vkd3d_bindless_set_info
@@ -4268,6 +4280,17 @@ static inline bool is_cpu_accessible_heap(const D3D12_HEAP_PROPERTIES *propertie
                 || properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
     }
     return true;
+}
+
+static inline uint32_t vkd3d_bindless_state_find_set_info_index_fast(struct d3d12_device *device,
+        enum vkd3d_bindless_state_info_indices split_type, uint32_t fallback_lookup_types)
+{
+    if (device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_TYPE_SPLIT_RAW_TYPED)
+        return split_type;
+    else if (device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_TYPE)
+        return VKD3D_BINDLESS_STATE_INFO_INDEX_MUTABLE_SINGLE;
+    else
+        return vkd3d_bindless_state_find_set_info_index(&device->bindless_state, fallback_lookup_types);
 }
 
 static inline const struct vkd3d_memory_info_domain *d3d12_device_get_memory_info_domain(
