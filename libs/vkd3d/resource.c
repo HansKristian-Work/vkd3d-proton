@@ -4599,7 +4599,7 @@ void d3d12_desc_create_cbv_embedded(vkd3d_cpu_descriptor_va_t desc_va,
     addr_info.range = desc->SizeInBytes;
     VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
             device->device_info.descriptor_buffer_properties.robustUniformBufferDescriptorSize,
-            d.payload));
+            d.payload + device->bindless_state.descriptor_buffer_packed_raw_buffer_offset));
 }
 
 void d3d12_desc_create_cbv(vkd3d_cpu_descriptor_va_t desc_va,
@@ -6922,8 +6922,7 @@ static void d3d12_descriptor_heap_zero_initialize(struct d3d12_descriptor_heap *
 
     /* Clear out descriptor heap with the largest possible descriptor type we know of when using mutable descriptor type.
      * Purely for defensive purposes. */
-    if (vk_descriptor_type == VK_DESCRIPTOR_TYPE_MUTABLE_EXT)
-        vk_descriptor_type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    assert(vk_descriptor_type != VK_DESCRIPTOR_TYPE_MUTABLE_EXT);
 
     write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     write.pNext = NULL;
@@ -7036,10 +7035,10 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_set(struct d3d12_descript
         return hresult_from_vk_result(vr);
     }
 
-    if (binding->vk_descriptor_type != VK_DESCRIPTOR_TYPE_SAMPLER)
+    if (binding->vk_init_null_descriptor_type != VK_DESCRIPTOR_TYPE_SAMPLER)
     {
         d3d12_descriptor_heap_zero_initialize(descriptor_heap,
-                binding->vk_descriptor_type, *vk_descriptor_set,
+                binding->vk_init_null_descriptor_type, *vk_descriptor_set,
                 binding->binding_index, descriptor_count);
     }
 

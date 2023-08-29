@@ -3501,6 +3501,7 @@ enum vkd3d_bindless_state_info_indices
 struct vkd3d_bindless_set_info
 {
     VkDescriptorType vk_descriptor_type;
+    VkDescriptorType vk_init_null_descriptor_type;
     D3D12_DESCRIPTOR_HEAP_TYPE heap_type;
     uint32_t flags; /* vkd3d_bindless_set_flag */
     uint32_t set_index;
