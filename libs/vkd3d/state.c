@@ -6109,6 +6109,14 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
         flags &= ~VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO;
     }
 
+    /* Shorthand formulation to make future checks nicer. */
+    if ((flags & VKD3D_BINDLESS_MUTABLE_TYPE) &&
+            (flags & VKD3D_BINDLESS_RAW_SSBO) &&
+            !(flags & VKD3D_BINDLESS_MUTABLE_TYPE_RAW_SSBO))
+    {
+        flags |= VKD3D_BINDLESS_MUTABLE_TYPE_SPLIT_RAW_TYPED;
+    }
+
     return flags;
 }
 
