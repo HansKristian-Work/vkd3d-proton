@@ -6515,6 +6515,17 @@ void test_undefined_descriptor_heap_mismatch_types(void)
                     continue;
                 }
             }
+            else if (is_amd_vulkan_device(context.device) && !is_radv_device(context.device))
+            {
+                /* For amdvlk/proprietary. Here we have 32 byte layout which has some failure cases
+                 * where we expect hangs. */
+                if ((access_type == UAV_RAW_BUFFER || access_type == SRV_RAW_BUFFER || access_type == CBV) &&
+                        (descriptor_type == SRV_TEX || descriptor_type == UAV_TEX))
+                {
+                    skip("Skipping texture accessed through raw buffer since it will hang GPU.\n");
+                    continue;
+                }
+            }
 
             /* First, clobber the descriptor with something that is clearly wrong.
              * When we write the wrong descriptor afterward, we want to make sure that we either observe
