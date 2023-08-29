@@ -4415,6 +4415,24 @@ static inline void vkd3d_init_write_descriptor_set(VkWriteDescriptorSet *vk_writ
     vk_write->pTexelBufferView = &info->buffer_view;
 }
 
+static void d3d12_descriptor_heap_write_null_descriptor_template_embedded_partial(struct d3d12_device *device,
+        vkd3d_cpu_descriptor_va_t desc_va,
+        VkDescriptorType vk_descriptor_type, size_t payload_offset, size_t size)
+{
+    struct d3d12_desc_split_embedded desc;
+    const uint8_t *src;
+
+    desc = d3d12_desc_decode_embedded_resource_va(desc_va);
+    src = vkd3d_bindless_state_get_null_descriptor_payload(&device->bindless_state, vk_descriptor_type);
+    desc.payload += payload_offset;
+    src += payload_offset;
+
+    if (VKD3D_EXPECT_TRUE(desc.metadata == NULL))
+        vkd3d_memcpy_aligned_non_temporal(desc.payload, src, size);
+    else
+        vkd3d_memcpy_aligned_cached(desc.payload, src, size);
+}
+
 static void d3d12_descriptor_heap_write_null_descriptor_template_embedded(struct d3d12_device *device,
         vkd3d_cpu_descriptor_va_t desc_va,
         VkDescriptorType vk_descriptor_type)
