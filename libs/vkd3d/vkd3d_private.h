@@ -3534,7 +3534,7 @@ struct vkd3d_bindless_state
     size_t descriptor_buffer_sampler_size;
     unsigned int descriptor_buffer_cbv_srv_uav_size_log2;
     unsigned int descriptor_buffer_sampler_size_log2;
-    unsigned int descriptor_buffer_packed_ssbo_offset;
+    unsigned int descriptor_buffer_packed_raw_buffer_offset;
     unsigned int descriptor_buffer_packed_metadata_offset;
 };
 
@@ -4399,14 +4399,20 @@ static inline unsigned int d3d12_device_get_descriptor_handle_increment_size(
 uint32_t vkd3d_bindless_get_mutable_descriptor_type_size(struct d3d12_device *device);
 bool vkd3d_bindless_supports_embedded_mutable_type(struct d3d12_device *device, uint32_t flags);
 
-static inline uint32_t vkd3d_bindless_embedded_mutable_ssbo_offset(struct d3d12_device *device)
+static inline uint32_t vkd3d_bindless_embedded_mutable_raw_buffer_offset(struct d3d12_device *device)
 {
     const VkPhysicalDeviceDescriptorBufferPropertiesEXT *props = &device->device_info.descriptor_buffer_properties;
-    uint32_t texel_buffer_size, ssbo_descriptor_offset;
+    uint32_t texel_buffer_size, raw_buffer_descriptor_offset;
 
     texel_buffer_size = max(props->robustUniformTexelBufferDescriptorSize, props->robustStorageTexelBufferDescriptorSize);
-    ssbo_descriptor_offset = align(texel_buffer_size, props->descriptorBufferOffsetAlignment);
-    return ssbo_descriptor_offset;
+    if (props->sampledImageDescriptorSize > props->storageImageDescriptorSize)
+    {
+        /* Somewhat RADV specific. If sampled image size is larger than storage image, we can sneak in
+         * descriptors in the upper half. Try to take advantage of this. */
+        texel_buffer_size = max(texel_buffer_size, props->storageImageDescriptorSize);
+    }
+    raw_buffer_descriptor_offset = align(texel_buffer_size, props->descriptorBufferOffsetAlignment);
+    return raw_buffer_descriptor_offset;
 }
 
 static inline bool d3d12_device_use_ssbo_raw_buffer(struct d3d12_device *device)

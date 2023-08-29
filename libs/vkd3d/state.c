@@ -5812,8 +5812,8 @@ static uint32_t vkd3d_bindless_embedded_mutable_packed_metadata_offset(struct d3
     uint32_t metadata_offset;
 
     /* Metadata is required for UAVs to implement ClearUAV. */
-    metadata_offset = vkd3d_bindless_embedded_mutable_ssbo_offset(device);
-    metadata_offset += props->robustStorageBufferDescriptorSize;
+    metadata_offset = vkd3d_bindless_embedded_mutable_raw_buffer_offset(device);
+    metadata_offset += max(props->robustStorageBufferDescriptorSize, props->robustUniformBufferDescriptorSize);
     metadata_offset = max(metadata_offset, props->storageImageDescriptorSize);
     metadata_offset = align(metadata_offset, 16);
     return metadata_offset;
@@ -5926,8 +5926,9 @@ bool vkd3d_bindless_supports_embedded_mutable_type(struct d3d12_device *device, 
     if (max_size < sizeof(struct vkd3d_descriptor_metadata_view))
         return false;
 
-    /* Make sure we can implement SRV buffer with side by side texel buffer and SSBO. */
-    if (vkd3d_bindless_embedded_mutable_ssbo_offset(device) + props->robustStorageBufferDescriptorSize > max_size)
+    /* Make sure we can implement SRV buffer with side by side texel buffer and SSBO/UBO. */
+    if (vkd3d_bindless_embedded_mutable_raw_buffer_offset(device) +
+            max(props->robustStorageBufferDescriptorSize, props->robustUniformBufferDescriptorSize) > max_size)
         return false;
 
     return true;
@@ -6143,21 +6144,44 @@ static void vkd3d_bindless_state_init_null_descriptor_payloads(struct vkd3d_bind
     {
         payload = vkd3d_bindless_state_get_null_descriptor_payload(bindless_state, types[i].vk_descriptor_type);
         get_info.type = types[i].vk_descriptor_type;
+
+#if 0
+        /* To be enabled when we modify the descriptor set layouts. */
+        if ((bindless_state->flags & VKD3D_BINDLESS_MUTABLE_EMBEDDED) &&
+                types[i].vk_descriptor_type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)
+        {
+            payload += bindless_state->descriptor_buffer_packed_raw_buffer_offset;
+        }
+#endif
+
         VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info, types[i].size, payload));
 
-        if ((bindless_state->flags & VKD3D_BINDLESS_MUTABLE_EMBEDDED) &&
-                (types[i].vk_descriptor_type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER ||
-                 types[i].vk_descriptor_type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER))
+        if (bindless_state->flags & VKD3D_BINDLESS_MUTABLE_EMBEDDED)
         {
-            /* Buffer types are always emitted side by side.
-             * Emit NULL typed buffer in first half, and NULL SSBO after.
-             * When creating a NULL buffer descriptor we'll always use the typed template,
-             * since SSBO is ambiguous (we don't know UAV vs SRV necessarily). */
-            payload += bindless_state->descriptor_buffer_packed_ssbo_offset;
-            get_info.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
-                    device->device_info.descriptor_buffer_properties.robustStorageBufferDescriptorSize,
-                    payload));
+            bool write_null_ssbo = types[i].vk_descriptor_type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER ||
+                    types[i].vk_descriptor_type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+
+            /* If we pack SSBOs + metadata above the storage image (embedded packed metadata),
+             * add NULL SSBO descriptor as well. */
+            if (types[i].vk_descriptor_type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE &&
+                    bindless_state->descriptor_buffer_packed_raw_buffer_offset >=
+                    device->device_info.descriptor_buffer_properties.storageImageDescriptorSize)
+            {
+                write_null_ssbo = true;
+            }
+
+            if (write_null_ssbo)
+            {
+                /* Buffer types are always emitted side by side.
+                 * Emit NULL typed buffer in first half, and NULL SSBO after.
+                 * When creating a NULL buffer descriptor we'll always use the typed template,
+                 * since SSBO is ambiguous (we don't know UAV vs SRV necessarily). */
+                payload += bindless_state->descriptor_buffer_packed_raw_buffer_offset;
+                get_info.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
+                        device->device_info.descriptor_buffer_properties.robustStorageBufferDescriptorSize,
+                        payload));
+            }
         }
 
         bindless_state->descriptor_buffer_cbv_srv_uav_size =
@@ -6279,8 +6303,8 @@ HRESULT vkd3d_bindless_state_init(struct vkd3d_bindless_state *bindless_state,
                 vkd3d_log2i(bindless_state->descriptor_buffer_cbv_srv_uav_size);
         bindless_state->descriptor_buffer_sampler_size_log2 =
                 vkd3d_log2i(bindless_state->descriptor_buffer_sampler_size);
-        bindless_state->descriptor_buffer_packed_ssbo_offset =
-                vkd3d_bindless_embedded_mutable_ssbo_offset(device);
+        bindless_state->descriptor_buffer_packed_raw_buffer_offset =
+                vkd3d_bindless_embedded_mutable_raw_buffer_offset(device);
         bindless_state->descriptor_buffer_packed_metadata_offset =
                 vkd3d_bindless_embedded_mutable_packed_metadata_offset(device);
     }
