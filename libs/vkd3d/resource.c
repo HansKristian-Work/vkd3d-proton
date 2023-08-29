@@ -4885,7 +4885,7 @@ static void vkd3d_create_buffer_srv_embedded(vkd3d_cpu_descriptor_va_t desc_va,
     addr_info.format = VK_FORMAT_UNDEFINED;
     VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
             device->device_info.descriptor_buffer_properties.robustStorageBufferDescriptorSize,
-            d.payload + device->bindless_state.descriptor_buffer_packed_ssbo_offset));
+            d.payload + device->bindless_state.descriptor_buffer_packed_raw_buffer_offset));
 
     /* Emit texel buffer alias. */
     get_info.type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
@@ -5558,7 +5558,7 @@ static void vkd3d_create_buffer_uav_embedded(vkd3d_cpu_descriptor_va_t desc_va, 
     addr_info.format = VK_FORMAT_UNDEFINED;
     VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
             device->device_info.descriptor_buffer_properties.robustStorageBufferDescriptorSize,
-            d.payload + device->bindless_state.descriptor_buffer_packed_ssbo_offset));
+            d.payload + device->bindless_state.descriptor_buffer_packed_raw_buffer_offset));
 
     /* UAV counter and texel buffers alias. This is fine. We don't expect having to work around
      * scenarios where this happens.
@@ -6732,7 +6732,7 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_buffer(struct d3d12_descr
                  * but we check this when enabling embedded mutable descriptors. */
                 descriptor_heap->descriptor_buffer.offsets[set_count] =
                         src_null_payload_offsets[0] +
-                        device->bindless_state.descriptor_buffer_packed_ssbo_offset - set_info->host_mapping_offset;
+                        device->bindless_state.descriptor_buffer_packed_raw_buffer_offset - set_info->host_mapping_offset;
                 assert(descriptor_heap->descriptor_buffer.offsets[set_count] < UINT_MAX);
                 assert(!(descriptor_heap->descriptor_buffer.offsets[set_count] &
                         (device->device_info.descriptor_buffer_properties.descriptorBufferOffsetAlignment - 1)));
