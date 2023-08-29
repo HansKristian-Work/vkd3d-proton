@@ -533,6 +533,11 @@ static inline bool is_radv_device(ID3D12Device *device)
 {
     return false;
 }
+
+static inline bool is_amd_vulkan_device(ID3D12Device *device)
+{
+    return false;
+}
 #else
 
 static PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr;
@@ -663,6 +668,16 @@ static inline bool is_radv_device(ID3D12Device *device)
 
     get_driver_properties(device, &properties);
     return properties.driverID == VK_DRIVER_ID_MESA_RADV_KHR;
+}
+
+static inline bool is_amd_vulkan_device(ID3D12Device *device)
+{
+    VkPhysicalDeviceDriverPropertiesKHR properties;
+
+    get_driver_properties(device, &properties);
+    return properties.driverID == VK_DRIVER_ID_MESA_RADV_KHR ||
+            properties.driverID == VK_DRIVER_ID_AMD_OPEN_SOURCE_KHR ||
+            properties.driverID == VK_DRIVER_ID_AMD_PROPRIETARY;
 }
 #endif
 
