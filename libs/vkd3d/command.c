@@ -10266,19 +10266,16 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
 }
 
 static VkClearColorValue vkd3d_fixup_clear_uav_swizzle(struct d3d12_device *device,
-        DXGI_FORMAT dxgi_format, VkClearColorValue color)
+        const struct vkd3d_format *clear_format, VkClearColorValue color)
 {
-    VkClearColorValue result;
-
-    switch (dxgi_format)
+    if (clear_format->dxgi_format == DXGI_FORMAT_A8_UNORM && clear_format->vk_format != VK_FORMAT_A8_UNORM_KHR)
     {
-        case DXGI_FORMAT_A8_UNORM:
-            result.uint32[0] = color.uint32[3];
-            return result;
-
-        default:
-            return color;
+        VkClearColorValue result;
+        result.uint32[0] = color.uint32[3];
+        return result;
     }
+
+    return color;
 }
 
 static VkClearColorValue vkd3d_fixup_clear_uav_uint_color(struct d3d12_device *device,
@@ -10300,6 +10297,10 @@ static VkClearColorValue vkd3d_fixup_clear_uav_uint_color(struct d3d12_device *d
             result.uint32[1] = color.uint32[1];
             result.uint32[2] = color.uint32[0];
             result.uint32[3] = color.uint32[3];
+            return result;
+
+        case DXGI_FORMAT_A8_UNORM:
+            result.uint32[0] = color.uint32[3];
             return result;
 
         default:
@@ -10482,10 +10483,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
     }
 
     if (args.clear_dxgi_format)
-    {
-        color = vkd3d_fixup_clear_uav_swizzle(list->device, args.clear_dxgi_format, color);
         clear_format = vkd3d_get_format(list->device, args.clear_dxgi_format, false);
-    }
     else
         clear_format = NULL;
 
@@ -10582,6 +10580,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_desc_split_metadata metadata;
+    const struct vkd3d_format *clear_format;
     struct vkd3d_view *inline_view = NULL;
     struct d3d12_resource *resource_impl;
     struct vkd3d_clear_uav_info args;
@@ -10609,7 +10608,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d
     }
 
     if (args.clear_dxgi_format)
-        color = vkd3d_fixup_clear_uav_swizzle(list->device, args.clear_dxgi_format, color);
+    {
+        clear_format = vkd3d_get_format(list->device, args.clear_dxgi_format, false);
+        color = vkd3d_fixup_clear_uav_swizzle(list->device, clear_format, color);
+    }
 
     if (!args.has_view && args.clear_dxgi_format)
     {

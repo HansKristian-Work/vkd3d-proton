@@ -3150,7 +3150,7 @@ static enum VkBlendOp vk_blend_op_from_d3d12(D3D12_BLEND_OP op)
 }
 
 static void blend_attachment_from_d3d12(struct VkPipelineColorBlendAttachmentState *vk_desc,
-        const D3D12_RENDER_TARGET_BLEND_DESC *d3d12_desc, DXGI_FORMAT dxgi_format)
+        const D3D12_RENDER_TARGET_BLEND_DESC *d3d12_desc, const struct vkd3d_format *format)
 {
     if (d3d12_desc->BlendEnable && d3d12_desc->RenderTargetWriteMask)
     {
@@ -3162,7 +3162,7 @@ static void blend_attachment_from_d3d12(struct VkPipelineColorBlendAttachmentSta
         vk_desc->dstAlphaBlendFactor = vk_blend_factor_from_d3d12(d3d12_desc->DestBlendAlpha, true);
         vk_desc->alphaBlendOp = vk_blend_op_from_d3d12(d3d12_desc->BlendOpAlpha);
 
-        if (dxgi_format == DXGI_FORMAT_A8_UNORM)
+        if (format && format->dxgi_format == DXGI_FORMAT_A8_UNORM && format->vk_format != VK_FORMAT_A8_UNORM_KHR)
         {
             /* Alpha blend ops become color blend ops. */
             vk_desc->colorBlendOp = vk_desc->alphaBlendOp;
@@ -3178,7 +3178,7 @@ static void blend_attachment_from_d3d12(struct VkPipelineColorBlendAttachmentSta
     }
     vk_desc->colorWriteMask = 0;
 
-    if (dxgi_format == DXGI_FORMAT_A8_UNORM)
+    if (format && format->dxgi_format == DXGI_FORMAT_A8_UNORM && format->vk_format != VK_FORMAT_A8_UNORM_KHR)
     {
         /* Redirect A8 to R8 so need to flag the R bit here.
          * There's just one component, so don't try to use partial masks. */
@@ -3317,7 +3317,7 @@ static HRESULT compute_input_layout_offsets(const struct d3d12_device *device,
 
 static unsigned int vkd3d_get_rt_format_swizzle(const struct vkd3d_format *format)
 {
-    if (format->dxgi_format == DXGI_FORMAT_A8_UNORM)
+    if (format->dxgi_format == DXGI_FORMAT_A8_UNORM && format->vk_format != VK_FORMAT_A8_UNORM_KHR)
         return VKD3D_SWIZZLE(VKD3D_SWIZZLE_W, VKD3D_SWIZZLE_X, VKD3D_SWIZZLE_Y, VKD3D_SWIZZLE_Z);
 
     return VKD3D_NO_SWIZZLE;
@@ -4119,6 +4119,7 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
             graphics->null_attachment_mask |= 1u << i;
             graphics->cached_desc.ps_output_swizzle[i] = VKD3D_NO_SWIZZLE;
             graphics->rtv_formats[i] = VK_FORMAT_UNDEFINED;
+            format = NULL;
         }
         else if ((format = vkd3d_get_format(device, desc->rtv_formats.RTFormats[i], false)))
         {
@@ -4147,7 +4148,7 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
             goto fail;
         }
 
-        blend_attachment_from_d3d12(&graphics->blend_attachments[i], rt_desc, desc->rtv_formats.RTFormats[i]);
+        blend_attachment_from_d3d12(&graphics->blend_attachments[i], rt_desc, format);
 
         if (graphics->null_attachment_mask & (1u << i))
             memset(&graphics->blend_attachments[i], 0, sizeof(graphics->blend_attachments[i]));
