@@ -411,6 +411,10 @@ enum vkd3d_shader_quirk
 
     /* For shaders which are bugged when you opt-in to 16-bit. */
     VKD3D_SHADER_QUIRK_FORCE_MIN16_AS_32BIT = (1 << 11),
+
+    /* Ensure that unwritten mesh output indices generate no garbage primitives.
+     * Only applies to shaders where this can be trivially done. */
+    VKD3D_SHADER_QUIRK_MESH_INDEX_OUTPUT_WORKAROUND = (1 << 12),
 };
 
 struct vkd3d_shader_quirk_hash
