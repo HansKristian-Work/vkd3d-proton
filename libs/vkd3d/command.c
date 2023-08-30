@@ -6585,8 +6585,16 @@ static bool d3d12_command_list_update_index_buffer(struct d3d12_command_list *li
 
     if (list->index_buffer.is_dirty)
     {
-        VK_CALL(vkCmdBindIndexBuffer(list->vk_command_buffer, list->index_buffer.buffer,
-                list->index_buffer.offset, list->index_buffer.vk_type));
+        if (list->device->device_info.maintenance_5_features.maintenance5)
+        {
+            VK_CALL(vkCmdBindIndexBuffer2KHR(list->vk_command_buffer, list->index_buffer.buffer,
+                    list->index_buffer.offset, list->index_buffer.size, list->index_buffer.vk_type));
+        }
+        else
+        {
+            VK_CALL(vkCmdBindIndexBuffer(list->vk_command_buffer, list->index_buffer.buffer,
+                    list->index_buffer.offset, list->index_buffer.vk_type));
+        }
         list->index_buffer.is_dirty = false;
     }
 
@@ -9467,6 +9475,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(d3d12_command_
         resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, view->BufferLocation);
         list->index_buffer.buffer = resource->vk_buffer;
         list->index_buffer.offset = view->BufferLocation - resource->va;
+        list->index_buffer.size = view->SizeInBytes;
         list->index_buffer.is_dirty = true;
     }
     else

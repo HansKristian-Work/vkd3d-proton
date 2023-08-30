@@ -2664,6 +2664,7 @@ struct d3d12_command_list
     {
         VkBuffer buffer;
         VkDeviceSize offset;
+        VkDeviceSize size;
         DXGI_FORMAT dxgi_format;
         VkIndexType vk_type;
         bool is_dirty;
