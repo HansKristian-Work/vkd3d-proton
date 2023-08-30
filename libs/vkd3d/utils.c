@@ -89,7 +89,7 @@ static const struct vkd3d_format vkd3d_formats[] =
     {DXGI_FORMAT_R8_UINT,               VK_FORMAT_R8_UINT,                  1,  1, 1,  1, COLOR, 1, UINT},
     {DXGI_FORMAT_R8_SNORM,              VK_FORMAT_R8_SNORM,                 1,  1, 1,  1, COLOR, 1},
     {DXGI_FORMAT_R8_SINT,               VK_FORMAT_R8_SINT,                  1,  1, 1,  1, COLOR, 1, SINT},
-    {DXGI_FORMAT_A8_UNORM,              VK_FORMAT_R8_UNORM,                 1,  1, 1,  1, COLOR, 1},
+    {DXGI_FORMAT_A8_UNORM,              VK_FORMAT_A8_UNORM_KHR,             1,  1, 1,  1, COLOR, 1},
     {DXGI_FORMAT_B8G8R8A8_UNORM,        VK_FORMAT_B8G8R8A8_UNORM,           4,  1, 1,  1, COLOR, 1},
     {DXGI_FORMAT_B8G8R8X8_UNORM,        VK_FORMAT_B8G8R8A8_UNORM,           4,  1, 1,  1, COLOR, 1},
     {DXGI_FORMAT_B8G8R8A8_TYPELESS,     VK_FORMAT_B8G8R8A8_UNORM,           4,  1, 1,  1, COLOR, 1, TYPELESS},
@@ -504,9 +504,42 @@ static HRESULT vkd3d_init_formats(struct d3d12_device *device)
     VkFormatProperties properties;
     DXGI_FORMAT dxgi_format;
     unsigned int i, j;
+    bool emulate_a8;
 
     if (!(formats = vkd3d_calloc(VKD3D_MAX_DXGI_FORMAT + 1, sizeof(*formats))))
         return E_OUTOFMEMORY;
+
+    if (device->device_info.maintenance_5_features.maintenance5)
+    {
+        const VkFormatFeatureFlags a8_required_features =
+                VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT |
+                VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT |
+                VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
+                VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT |
+                VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT |
+                VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT |
+                VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT;
+
+        VkFormatProperties a8_properties, r8_properties;
+        VkFormatFeatureFlags r8_unique_features;
+
+        VK_CALL(vkGetPhysicalDeviceFormatProperties(device->vk_physical_device,
+                VK_FORMAT_A8_UNORM_KHR, &a8_properties));
+        VK_CALL(vkGetPhysicalDeviceFormatProperties(device->vk_physical_device,
+                VK_FORMAT_R8_UNORM, &r8_properties));
+
+        /* Only use the native A8_UNORM format if support is at least as good
+         * as for the R8_UNORM fallback format for relevant features. */
+        r8_unique_features = (r8_properties.optimalTilingFeatures | r8_properties.bufferFeatures) &
+                ~(a8_properties.optimalTilingFeatures | a8_properties.bufferFeatures);
+
+        emulate_a8 = (r8_unique_features & a8_required_features) != 0;
+    }
+    else
+        emulate_a8 = true;
+
+    if (emulate_a8)
+        WARN("Mapping VK_FORMAT_A8_UNORM_KHR to VK_FORMAT_R8_UNORM.\n");
 
     for (i = 0; i < ARRAY_SIZE(vkd3d_formats); ++i)
     {
@@ -514,6 +547,12 @@ static HRESULT vkd3d_init_formats(struct d3d12_device *device)
         dxgi_format = vkd3d_formats[i].dxgi_format;
         format = &formats[dxgi_format];
         *format = vkd3d_formats[i];
+
+        if (format->vk_format == VK_FORMAT_A8_UNORM_KHR && emulate_a8)
+        {
+            format->vk_format = VK_FORMAT_R8_UNORM;
+            format->is_emulated = true;
+        }
 
         VK_CALL(vkGetPhysicalDeviceFormatProperties(device->vk_physical_device,
                 format->vk_format, &properties));
