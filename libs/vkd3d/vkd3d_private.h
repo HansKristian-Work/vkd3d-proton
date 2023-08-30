@@ -123,6 +123,7 @@ struct vkd3d_vulkan_info
     bool KHR_external_semaphore_win32;
     bool KHR_present_wait;
     bool KHR_present_id;
+    bool KHR_maintenance5;
     /* EXT device extensions */
     bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;
@@ -4004,6 +4005,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceDescriptorBufferPropertiesEXT descriptor_buffer_properties;
     VkPhysicalDeviceGraphicsPipelineLibraryPropertiesEXT graphics_pipeline_library_properties;
     VkPhysicalDeviceMemoryDecompressionPropertiesNV memory_decompression_properties;
+    VkPhysicalDeviceMaintenance5PropertiesKHR maintenance_5_properties;
 
     VkPhysicalDeviceProperties2KHR properties2;
 
@@ -4046,6 +4048,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceDynamicRenderingUnusedAttachmentsFeaturesEXT dynamic_rendering_unused_attachments_features;
     VkPhysicalDeviceMemoryDecompressionFeaturesNV memory_decompression_features;
     VkPhysicalDeviceDeviceGeneratedCommandsComputeFeaturesNV device_generated_commands_compute_features_nv;
+    VkPhysicalDeviceMaintenance5FeaturesKHR maintenance_5_features;
 
     VkPhysicalDeviceFeatures2 features2;
 

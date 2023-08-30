@@ -288,6 +288,12 @@ VK_DEVICE_EXT_PFN(vkQueuePresentKHR)
 /* VK_KHR_ray_tracing_maintenance1 */
 VK_DEVICE_EXT_PFN(vkCmdTraceRaysIndirect2KHR)
 
+/* VK_KHR_maintenance5 */
+VK_DEVICE_EXT_PFN(vkCmdBindIndexBuffer2KHR)
+VK_DEVICE_EXT_PFN(vkGetRenderingAreaGranularityKHR)
+VK_DEVICE_EXT_PFN(vkGetDeviceImageSubresourceLayoutKHR)
+VK_DEVICE_EXT_PFN(vkGetImageSubresourceLayout2KHR)
+
 /* VK_AMD_buffer_marker */
 VK_DEVICE_EXT_PFN(vkCmdWriteBufferMarkerAMD)
 VK_DEVICE_EXT_PFN(vkCmdWriteBufferMarker2AMD)

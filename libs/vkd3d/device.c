@@ -69,6 +69,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_FRAGMENT_SHADER_BARYCENTRIC, KHR_fragment_shader_barycentric),
     VK_EXTENSION(KHR_PRESENT_ID, KHR_present_id),
     VK_EXTENSION(KHR_PRESENT_WAIT, KHR_present_wait),
+    VK_EXTENSION(KHR_MAINTENANCE_5, KHR_maintenance5),
 #ifdef _WIN32
     VK_EXTENSION(KHR_EXTERNAL_MEMORY_WIN32, KHR_external_memory_win32),
     VK_EXTENSION(KHR_EXTERNAL_SEMAPHORE_WIN32, KHR_external_semaphore_win32),
@@ -1605,6 +1606,14 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->present_wait_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR;
         vk_prepend_struct(&info->features2, &info->present_wait_features);
+    }
+
+    if (vulkan_info->KHR_maintenance5)
+    {
+        info->maintenance_5_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES_KHR;
+        info->maintenance_5_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_PROPERTIES_KHR;
+        vk_prepend_struct(&info->features2, &info->maintenance_5_features);
+        vk_prepend_struct(&info->properties2, &info->maintenance_5_properties);
     }
 
     if (vulkan_info->EXT_descriptor_buffer)
