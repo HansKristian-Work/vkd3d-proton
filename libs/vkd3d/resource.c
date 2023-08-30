@@ -4134,7 +4134,7 @@ static void vkd3d_set_view_swizzle_for_format(VkComponentMapping *components,
         }
     }
 
-    if (format->dxgi_format == DXGI_FORMAT_A8_UNORM)
+    if (format->dxgi_format == DXGI_FORMAT_A8_UNORM && format->vk_format != VK_FORMAT_A8_UNORM_KHR)
     {
         if (allowed_swizzle)
         {
