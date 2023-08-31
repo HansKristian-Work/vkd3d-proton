@@ -4600,6 +4600,10 @@ void d3d12_desc_create_cbv_embedded(vkd3d_cpu_descriptor_va_t desc_va,
 
     /* For robustness purposes. If someone tries to access a UBO as an image,
      * it should translate to a NULL descriptor. */
+
+    /* See vkd3d_bindless_state_init_null_descriptor_payloads for details.
+     * Use UNIFORM_BUFFER template here, since we've already prepared the desired NULL payload
+     * at the typed offset. */
     d3d12_descriptor_heap_write_null_descriptor_template_embedded_partial(device, desc_va,
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, device->bindless_state.descriptor_buffer_packed_raw_buffer_offset);
 
@@ -5925,6 +5929,9 @@ static void vkd3d_create_texture_uav_embedded(vkd3d_cpu_descriptor_va_t desc_va,
      * 32 bytes, but reading an image as SSBO is far less common than reading buffers as images. */
     if (device->bindless_state.flags & VKD3D_BINDLESS_MUTABLE_EMBEDDED_PACKED_METADATA)
     {
+        /* See vkd3d_bindless_state_init_null_descriptor_payloads for details.
+         * Use STORAGE_IMAGE template here, since we've already prepared the desired NULL payload
+         * at the raw offset. */
         d3d12_descriptor_heap_write_null_descriptor_template_embedded_partial(device, desc_va,
                 VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, device->bindless_state.descriptor_buffer_packed_raw_buffer_offset,
                 device->device_info.descriptor_buffer_properties.robustStorageBufferDescriptorSize);
