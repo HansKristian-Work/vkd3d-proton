@@ -6152,13 +6152,27 @@ static void vkd3d_bindless_state_init_null_descriptor_payloads(struct vkd3d_bind
     for (i = 0; i < ARRAY_SIZE(types); i++)
     {
         payload = vkd3d_bindless_state_get_null_descriptor_payload(bindless_state, types[i].vk_descriptor_type);
-        get_info.type = types[i].vk_descriptor_type;
+
+        /* When we write a NULL descriptor for a given type, we actually need to embed multiple NULL descriptors
+         * of different types if we're using embedded mutable.
+         * On many GPUs, a NULL descriptor is just zero memory, but not necessarily the case.
+         * Write UBO -> also write a NULL texel buffer in the first bytes.
+         * Write SRV/UAV buffer -> Write a NULL texel buffer template.
+         * That template conveniently has both texel buffer + SSBO NULL descriptors.
+         *   Note that there is no SSBO template since it's ambiguous whether to use SAMPLED or STORAGE_TEXEL_BUFFER.
+         * Write storage image -> potentially place a NULL SSBO in the upper half. */
 
         if ((bindless_state->flags & VKD3D_BINDLESS_MUTABLE_EMBEDDED) &&
                 types[i].vk_descriptor_type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)
         {
+            get_info.type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+            VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info,
+                    device->device_info.descriptor_buffer_properties.robustUniformTexelBufferDescriptorSize,
+                    payload));
             payload += bindless_state->descriptor_buffer_packed_raw_buffer_offset;
         }
+
+        get_info.type = types[i].vk_descriptor_type;
 
         VK_CALL(vkGetDescriptorEXT(device->vk_device, &get_info, types[i].size, payload));
 
