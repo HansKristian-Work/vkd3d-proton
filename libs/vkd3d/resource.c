@@ -1211,7 +1211,10 @@ struct vkd3d_view *vkd3d_view_map_create_view(struct vkd3d_view_map *view_map,
         /* If we start emitting too many typed SRVs, we will eventually crash on NV, since
          * VkBufferView objects appear to consume GPU resources. */
         if ((view_map->map.used_count % 1024) == 0)
-            ERR("Intense view map pressure! Got %u views in hash map %p.\n", view_map->map.used_count, &view_map->map);
+        {
+            WARN("Intense view map pressure! Got %u views in hash map %p. This may lead to out-of-memory errors in the extreme case.\n",
+                    view_map->map.used_count, &view_map->map);
+        }
 
         view = e->view;
         rw_spinlock_release_write(&view_map->spinlock);
