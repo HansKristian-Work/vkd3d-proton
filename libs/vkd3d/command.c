@@ -11804,7 +11804,11 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
     if (require_patch)
         WARN("Template requires patching :(\n");
 
+    /* Makes RGP captures easier to read. */
+    d3d12_command_list_debug_mark_begin_region(list, generated.pipelineBindPoint == VK_PIPELINE_BIND_POINT_GRAPHICS ?
+            "ExecuteIndirect (graphics)" : "ExecuteIndirect (compute)");
     VK_CALL(vkCmdExecuteGeneratedCommandsNV(list->vk_command_buffer, VK_FALSE, &generated));
+    d3d12_command_list_debug_mark_end_region(list);
 
     /* Need to clear state to zero if it was part of a command signature. */
     for (i = 0; i < signature->desc.NumArgumentDescs; i++)
