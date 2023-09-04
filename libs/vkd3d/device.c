@@ -391,6 +391,7 @@ static VkBool32 VKAPI_PTR vkd3d_debug_messenger_callback(
      * - Pipeline layout limits on NV which are not relevant here.
      * - SPV_EXT_buffer_device_address shenanigans (need to fix glslang).
      * - Sample count mismatch in fallback copy shaders.
+     * - Threading error in WaitPresentKHR (false positive).
      */
     unsigned int i;
     static const uint32_t ignored_ids[] = {
@@ -401,6 +402,7 @@ static VkBool32 VKAPI_PTR vkd3d_debug_messenger_callback(
         0x8189c842u,
         0x3d492883u,
         0x1608dec0u,
+        0x141cb623u,
     };
 
     for (i = 0; i < ARRAY_SIZE(ignored_ids); i++)
@@ -408,9 +410,9 @@ static VkBool32 VKAPI_PTR vkd3d_debug_messenger_callback(
             return VK_FALSE;
 
     if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
-        ERR("%s\n", debugstr_a(callback_data->pMessage));
+        ERR("%s\n", callback_data->pMessage);
     else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
-        WARN("%s\n", debugstr_a(callback_data->pMessage));
+        WARN("%s\n", callback_data->pMessage);
 
     (void)userdata;
     (void)message_types;
