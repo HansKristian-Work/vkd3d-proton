@@ -5054,6 +5054,6 @@ HANDLE vkd3d_open_kmt_handle(HANDLE kmt_handle);
 #define VKD3D_DRIVER_VERSION_MAJOR_NV(v) ((v) >> 22)
 #define VKD3D_DRIVER_VERSION_MINOR_NV(v) (((v) >> 14) & 0xff)
 #define VKD3D_DRIVER_VERSION_PATCH_NV(v) (((v) >>  6) & 0xff)
-#define VKD3D_DRIVER_VERSION_MAKE_NV(major, minor, patch) (((major) << 22) | ((minor) << 14) | ((patch) << 6))
+#define VKD3D_DRIVER_VERSION_MAKE_NV(major, minor, patch) (((uint32_t)(major) << 22) | ((uint32_t)(minor) << 14) | ((uint32_t)(patch) << 6))
 
 #endif  /* __VKD3D_PRIVATE_H */
