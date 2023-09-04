@@ -3566,8 +3566,6 @@ static bool vk_render_pass_barrier_from_view(struct d3d12_command_list *list,
 
     memset(vk_barrier, 0, sizeof(*vk_barrier));
     vk_barrier->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    vk_barrier->srcStageMask = stages;
-    vk_barrier->dstStageMask = stages;
 
     if (mode == VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN)
     {
@@ -3616,6 +3614,9 @@ static bool vk_render_pass_barrier_from_view(struct d3d12_command_list *list,
             }
         }
     }
+
+    vk_barrier->srcStageMask = stages;
+    vk_barrier->dstStageMask = stages;
 
     /* The common case for color attachments is that this is a no-op.
      * An exception here is color attachment with SIMULTANEOUS use, where we need to decay to COMMON state.
