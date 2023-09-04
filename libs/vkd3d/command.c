@@ -11592,8 +11592,12 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         if (!d3d12_command_list_update_compute_pipeline(list))
             return;
     }
-    else if (!d3d12_command_list_update_graphics_pipeline(list, signature->pipeline_type))
-        return;
+    else
+    {
+        d3d12_command_list_promote_dsv_layout(list);
+        if (!d3d12_command_list_update_graphics_pipeline(list, signature->pipeline_type))
+            return;
+    }
 
     bindings = signature->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE ?
           &list->compute_bindings : &list->graphics_bindings;
