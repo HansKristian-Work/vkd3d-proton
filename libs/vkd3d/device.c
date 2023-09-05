@@ -100,6 +100,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_PAGEABLE_DEVICE_LOCAL_MEMORY, EXT_pageable_device_local_memory),
     VK_EXTENSION(EXT_MEMORY_PRIORITY, EXT_memory_priority),
     VK_EXTENSION(EXT_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS, EXT_dynamic_rendering_unused_attachments),
+    VK_EXTENSION(EXT_HOST_IMAGE_COPY, EXT_host_image_copy),
     /* AMD extensions */
     VK_EXTENSION(AMD_BUFFER_MARKER, AMD_buffer_marker),
     VK_EXTENSION(AMD_DEVICE_COHERENT_MEMORY, AMD_device_coherent_memory),
@@ -1373,6 +1374,16 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     info->features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     info->properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
 
+    /** Some property structs use dynamically sized arrays, so query the required sizes first */
+    if (vulkan_info->EXT_host_image_copy)
+    {
+        info->host_image_copy_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_IMAGE_COPY_PROPERTIES_EXT;
+        vk_prepend_struct(&info->properties2, &info->host_image_copy_properties);
+    }
+
+    if (info->properties2.pNext)
+        VK_CALL(vkGetPhysicalDeviceProperties2(device->vk_physical_device, &info->properties2));
+
     info->vulkan_1_1_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
     vk_prepend_struct(&info->features2, &info->vulkan_1_1_features);
     info->vulkan_1_1_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES;
@@ -1690,8 +1701,24 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->properties2, &info->memory_decompression_properties);
     }
 
+    if (vulkan_info->EXT_host_image_copy)
+    {
+        info->host_image_copy_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_IMAGE_COPY_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->host_image_copy_features);
+
+        /* The property struct was added to the pNext chain earlier to query array sizes */
+        info->host_image_copy_properties.pCopySrcLayouts = vkd3d_calloc(info->host_image_copy_properties.copySrcLayoutCount, sizeof(VkImageLayout));
+        info->host_image_copy_properties.pCopyDstLayouts = vkd3d_calloc(info->host_image_copy_properties.copyDstLayoutCount, sizeof(VkImageLayout));
+    }
+
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
     VK_CALL(vkGetPhysicalDeviceProperties2(device->vk_physical_device, &info->properties2));
+}
+
+static void vkd3d_physical_device_info_cleanup(struct vkd3d_physical_device_info *info)
+{
+    vkd3d_free(info->host_image_copy_properties.pCopySrcLayouts);
+    vkd3d_free(info->host_image_copy_properties.pCopyDstLayouts);
 }
 
 static void vkd3d_trace_physical_device_properties(const VkPhysicalDeviceProperties *properties)
@@ -2648,13 +2675,14 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     if (FAILED(hr = vkd3d_init_device_caps(device, create_info, &device->device_info)))
     {
         vkd3d_free(user_extension_supported);
-        return hr;
+        goto cleanup_device_info;
     }
 
     if (!(extensions = vkd3d_calloc(extension_count, sizeof(*extensions))))
     {
         vkd3d_free(user_extension_supported);
-        return E_OUTOFMEMORY;
+        hr = E_OUTOFMEMORY;
+        goto cleanup_device_info;
     }
 
     /* Create device */
@@ -2688,7 +2716,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     {
         ERR("Failed to create Vulkan device, vr %d.\n", vr);
         vkd3d_free((void *)extensions);
-        return hresult_from_vk_result(vr);
+        hr = hresult_from_vk_result(vr);
+        goto cleanup_device_info;
     }
 
     if (FAILED(hr = vkd3d_load_vk_device_procs(&device->vk_procs, vk_procs, vk_device)))
@@ -2696,7 +2725,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
         ERR("Failed to load device procs, hr %#x.\n", hr);
         if (device->vk_procs.vkDestroyDevice)
             device->vk_procs.vkDestroyDevice(vk_device, NULL);
-        return hr;
+        goto cleanup_device_info;
     }
 
     device->vk_device = vk_device;
@@ -2705,7 +2734,7 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     {
         ERR("Failed to create queues, hr %#x.\n", hr);
         device->vk_procs.vkDestroyDevice(vk_device, NULL);
-        return hr;
+        goto cleanup_device_info;
     }
 
     device->vk_info.extension_count = device_info.enabledExtensionCount;
@@ -2713,6 +2742,10 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
 
     TRACE("Created Vulkan device %p.\n", vk_device);
 
+    return hr;
+
+cleanup_device_info:
+    vkd3d_physical_device_info_cleanup(&device->device_info);
     return hr;
 }
 
@@ -3189,6 +3222,7 @@ static void d3d12_device_destroy(struct d3d12_device *device)
 #endif
 
     vkd3d_free((void *)device->vk_info.extension_names);
+    vkd3d_physical_device_info_cleanup(&device->device_info);
     VK_CALL(vkDestroyDevice(device->vk_device, NULL));
     rwlock_destroy(&device->fragment_output_lock);
     rwlock_destroy(&device->vertex_input_lock);
@@ -8035,6 +8069,7 @@ out_free_private_store:
     vkd3d_private_store_destroy(&device->private_store);
 out_free_vk_resources:
     d3d12_device_destroy_vkd3d_queues(device);
+    vkd3d_physical_device_info_cleanup(&device->device_info);
     vk_procs = &device->vk_procs;
     VK_CALL(vkDestroyDevice(device->vk_device, NULL));
 out_free_instance:
