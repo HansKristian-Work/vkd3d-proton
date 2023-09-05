@@ -1830,6 +1830,8 @@ static void d3d12_command_list_mark_as_invalid(struct d3d12_command_list *list,
     list->is_valid = false;
 }
 
+static void d3d12_command_list_debug_mark_begin_region(struct d3d12_command_list *list, const char *tag);
+
 static HRESULT d3d12_command_list_begin_command_buffer(struct d3d12_command_list *list)
 {
     struct d3d12_device *device = list->device;
@@ -1847,6 +1849,8 @@ static HRESULT d3d12_command_list_begin_command_buffer(struct d3d12_command_list
         WARN("Failed to begin command buffer, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
     }
+
+    d3d12_command_list_debug_mark_begin_region(list, "CommandList");
 
     list->is_recording = true;
     list->is_valid = true;
@@ -4877,6 +4881,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
         WARN("Command list is not in the recording state.\n");
         return E_FAIL;
     }
+
+    d3d12_command_list_debug_mark_end_region(list); /* CommandList region */
 
     /* Ensure that any non-temporal writes from CopyDescriptors are ordered properly. */
     if (d3d12_device_use_embedded_mutable_descriptors(list->device))
@@ -8649,7 +8655,23 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                  * command buffer. The docs mention an implementation strategy where we can do this optimization.
                  * This is very handy when handling back-to-back ExecuteIndirects(). */
                 if (transition->StateAfter == D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT)
+                {
+                    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) && list->device->vk_info.EXT_debug_utils)
+                    {
+                        const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+                        VkDebugUtilsLabelEXT label;
+
+                        label.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+                        label.pNext = NULL;
+                        label.pLabelName = "IndirectArgument barrier";
+                        label.color[0] = 1.0f;
+                        label.color[1] = 1.0f;
+                        label.color[2] = 0.0f;
+                        label.color[3] = 0.0f;
+                        VK_CALL(vkCmdInsertDebugUtilsLabelEXT(list->vk_command_buffer, &label));
+                    }
                     list->execute_indirect.has_observed_transition_to_indirect = true;
+                }
 
                 if (!is_valid_resource_state(transition->StateBefore))
                 {
