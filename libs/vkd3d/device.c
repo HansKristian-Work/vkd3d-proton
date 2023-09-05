@@ -2960,6 +2960,29 @@ uint64_t d3d12_device_get_descriptor_heap_gpu_va(struct d3d12_device *device, D3
     return va;
 }
 
+bool d3d12_device_supports_host_image_copy(struct d3d12_device *device, VkImageLayout layout)
+{
+    bool supports_layout_src = false;
+    bool supports_layout_dst = false;
+
+    if (!device->device_info.host_image_copy_features.hostImageCopy)
+        return false;
+
+    for (uint32_t i = 0; i < device->device_info.host_image_copy_properties.copySrcLayoutCount; i++)
+    {
+        if ((supports_layout_src = (device->device_info.host_image_copy_properties.pCopySrcLayouts[i] == layout)))
+            break;
+    }
+
+    for (uint32_t i = 0; i < device->device_info.host_image_copy_properties.copyDstLayoutCount; i++)
+    {
+        if ((supports_layout_dst = (device->device_info.host_image_copy_properties.pCopyDstLayouts[i] == layout)))
+            break;
+    }
+
+    return supports_layout_src && supports_layout_dst;
+}
+
 void d3d12_device_return_descriptor_heap_gpu_va(struct d3d12_device *device, uint64_t va)
 {
     /* Fixup the magic shift we used when allocating. */

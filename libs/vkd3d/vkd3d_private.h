@@ -4267,6 +4267,7 @@ HRESULT d3d12_device_get_query_pool(struct d3d12_device *device, uint32_t type_i
 void d3d12_device_return_query_pool(struct d3d12_device *device, const struct vkd3d_query_pool *pool);
 
 uint64_t d3d12_device_get_descriptor_heap_gpu_va(struct d3d12_device *device, D3D12_DESCRIPTOR_HEAP_TYPE type);
+bool d3d12_device_supports_host_image_copy(struct d3d12_device *device, VkImageLayout layout);
 void d3d12_device_return_descriptor_heap_gpu_va(struct d3d12_device *device, uint64_t va);
 
 static inline bool d3d12_device_uses_descriptor_buffers(const struct d3d12_device *device)
