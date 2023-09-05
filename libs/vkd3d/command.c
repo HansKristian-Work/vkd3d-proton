@@ -11583,6 +11583,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
     VkMemoryBarrier2 barrier;
     bool require_ibo_update;
     bool require_patch;
+    const char *tag;
     unsigned int i;
     HRESULT hr;
 
@@ -11805,8 +11806,21 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         WARN("Template requires patching :(\n");
 
     /* Makes RGP captures easier to read. */
-    d3d12_command_list_debug_mark_begin_region(list, generated.pipelineBindPoint == VK_PIPELINE_BIND_POINT_GRAPHICS ?
-            "ExecuteIndirect (graphics)" : "ExecuteIndirect (compute)");
+    if (generated.pipelineBindPoint == VK_PIPELINE_BIND_POINT_GRAPHICS)
+    {
+        if (count_buffer)
+            tag = "EI (gfx, indirect count)";
+        else
+            tag = "EI (gfx, direct count)";
+    }
+    else
+    {
+        if (count_buffer)
+            tag = "EI (compute, indirect count)";
+        else
+            tag = "EI (compute, direct count)";
+    }
+    d3d12_command_list_debug_mark_begin_region(list, tag);
     VK_CALL(vkCmdExecuteGeneratedCommandsNV(list->vk_command_buffer, VK_FALSE, &generated));
     d3d12_command_list_debug_mark_end_region(list);
 
