@@ -521,27 +521,35 @@ static bool vkd3d_format_allows_shader_copies(DXGI_FORMAT dxgi_format)
 static bool vkd3d_format_check_usage_support(struct d3d12_device *device, VkFormat format, VkImageUsageFlags usage, VkImageTiling tiling)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkFormatFeatureFlags required_flags, supported_flags;
-    VkFormatProperties format_properties;
+    VkFormatFeatureFlags2 required_flags, supported_flags;
+    VkFormatProperties3 format_properties_3;
+    VkFormatProperties2 format_properties;
 
-    VK_CALL(vkGetPhysicalDeviceFormatProperties(device->vk_physical_device, format, &format_properties));
+    memset(&format_properties_3, 0, sizeof(format_properties_3));
+    format_properties_3.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3;
+
+    memset(&format_properties, 0, sizeof(format_properties));
+    format_properties.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2;
+    format_properties.pNext = &format_properties_3;
+
+    VK_CALL(vkGetPhysicalDeviceFormatProperties2(device->vk_physical_device, format, &format_properties));
 
     supported_flags = tiling == VK_IMAGE_TILING_LINEAR
-            ? format_properties.linearTilingFeatures
-            : format_properties.optimalTilingFeatures;
+            ? format_properties_3.linearTilingFeatures
+            : format_properties_3.optimalTilingFeatures;
 
     required_flags = 0;
 
     if (usage & VK_IMAGE_USAGE_SAMPLED_BIT)
-        required_flags |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+        required_flags |= VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT;
     if (usage & VK_IMAGE_USAGE_STORAGE_BIT)
-        required_flags |= VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
+        required_flags |= VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT;
     if (usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
-        required_flags |= VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;
+        required_flags |= VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT;
     if (usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
-        required_flags |= VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        required_flags |= VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT;
     if (usage & VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)
-        required_flags |= VK_FORMAT_FEATURE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
+        required_flags |= VK_FORMAT_FEATURE_2_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
 
     return (supported_flags & required_flags) == required_flags;
 }
