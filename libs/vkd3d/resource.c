@@ -893,6 +893,16 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
         allocation_info->Alignment = max(requirements.memoryRequirements.alignment, allocation_info->Alignment);
     }
 
+    /* We don't know at this point whether the image will be host-visible or not.
+     * D3D12 does not permit host-visible VRS images, so ignore that case. */
+    if (device->device_info.host_image_copy_features.hostImageCopy)
+    {
+        create_info.image_info.usage |= VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT;
+        VK_CALL(vkGetDeviceImageMemoryRequirements(device->vk_device, &requirement_info, &requirements));
+        allocation_info->SizeInBytes = max(requirements.memoryRequirements.size, allocation_info->SizeInBytes);
+        allocation_info->Alignment = max(requirements.memoryRequirements.alignment, allocation_info->Alignment);
+    }
+
     /* Do not report alignments greater than DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT
      * since that might confuse apps. Instead, pad the allocation so that we can
      * align the image ourselves. */
