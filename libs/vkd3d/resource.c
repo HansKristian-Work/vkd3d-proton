@@ -8293,18 +8293,40 @@ void vkd3d_memory_info_cleanup(struct vkd3d_memory_info *info,
 HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
         struct d3d12_device *device)
 {
+    VkMemoryPropertyFlags buffer_sysmem_flags, sampled_sysmem_flags, rt_ds_sysmem_flags;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkDeviceBufferMemoryRequirements buffer_requirement_info;
     VkDeviceImageMemoryRequirements image_requirement_info;
     VkMemoryRequirements2 memory_requirements;
     struct vkd3d_memory_topology topology;
     VkBufferCreateInfo buffer_info;
+    uint32_t non_cpu_combined_mask;
     VkImageCreateInfo image_info;
+    uint32_t cpu_combined_mask;
     uint32_t sampled_type_mask;
     uint32_t host_visible_mask;
     uint32_t buffer_type_mask;
     uint32_t rt_ds_type_mask;
     uint32_t i;
+
+    const VkImageUsageFlags image_usage_sampled =
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+            VK_IMAGE_USAGE_SAMPLED_BIT |
+            VK_IMAGE_USAGE_STORAGE_BIT;
+
+    const VkImageUsageFlags image_usage_rt =
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+            VK_IMAGE_USAGE_SAMPLED_BIT |
+            VK_IMAGE_USAGE_STORAGE_BIT;
+
+    const VkImageUsageFlags image_usage_ds =
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+            VK_IMAGE_USAGE_SAMPLED_BIT;
 
     vkd3d_memory_info_get_topology(&topology, device);
     info->upload_heap_memory_properties =
@@ -8364,35 +8386,20 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     image_info.arrayLayers = 1;
     image_info.samples = VK_SAMPLE_COUNT_1_BIT;
     image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-            VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-            VK_IMAGE_USAGE_SAMPLED_BIT |
-            VK_IMAGE_USAGE_STORAGE_BIT;
+    image_info.usage = image_usage_sampled;
     image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     VK_CALL(vkGetDeviceImageMemoryRequirements(device->vk_device, &image_requirement_info, &memory_requirements));
     sampled_type_mask = memory_requirements.memoryRequirements.memoryTypeBits;
 
-    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    image_info.format = VK_FORMAT_R8G8B8A8_UNORM;
-    image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-            VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-            VK_IMAGE_USAGE_SAMPLED_BIT |
-            VK_IMAGE_USAGE_STORAGE_BIT;
+    image_info.usage = image_usage_rt;
 
     VK_CALL(vkGetDeviceImageMemoryRequirements(device->vk_device, &image_requirement_info, &memory_requirements));
     rt_ds_type_mask = memory_requirements.memoryRequirements.memoryTypeBits;
 
-    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     image_info.format = VK_FORMAT_D32_SFLOAT_S8_UINT;
-    image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-            VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
-            VK_IMAGE_USAGE_SAMPLED_BIT;
+    image_info.usage = image_usage_ds;
 
     VK_CALL(vkGetDeviceImageMemoryRequirements(device->vk_device, &image_requirement_info, &memory_requirements));
     rt_ds_type_mask &= memory_requirements.memoryRequirements.memoryTypeBits;
@@ -8401,22 +8408,107 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     info->non_cpu_accessible_domain.sampled_type_mask = sampled_type_mask;
     info->non_cpu_accessible_domain.rt_ds_type_mask = rt_ds_type_mask;
 
+    non_cpu_combined_mask = buffer_type_mask & sampled_type_mask & rt_ds_type_mask;
+
     host_visible_mask = 0;
     for (i = 0; i < device->memory_properties.memoryTypeCount; i++)
         if (device->memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
             host_visible_mask |= 1u << i;
 
-    /* We don't create images in host-visible memory anymore, only buffers */
+    /* When using linear staging buffers, we don't create host-visible images at all */
     info->cpu_accessible_domain.buffer_type_mask = buffer_type_mask & host_visible_mask;
     info->cpu_accessible_domain.sampled_type_mask = buffer_type_mask & host_visible_mask;
     info->cpu_accessible_domain.rt_ds_type_mask = buffer_type_mask & host_visible_mask;
 
-    TRACE("Device supports buffers on memory types 0x%#x.\n", buffer_type_mask);
-    TRACE("Device supports textures on memory types 0x%#x.\n", sampled_type_mask);
-    TRACE("Device supports render targets on memory types 0x%#x.\n", rt_ds_type_mask);
-    TRACE("Device supports CPU visible textures on memory types 0x%#x.\n",
+    if (device->device_info.host_image_copy_features.hostImageCopy)
+    {
+        bool enable_host_copy = true;
+
+        image_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+        image_info.usage = VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT | image_usage_sampled;
+
+        VK_CALL(vkGetDeviceImageMemoryRequirements(device->vk_device, &image_requirement_info, &memory_requirements));
+        sampled_type_mask = memory_requirements.memoryRequirements.memoryTypeBits;
+
+        image_info.usage = VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT | image_usage_rt;
+
+        VK_CALL(vkGetDeviceImageMemoryRequirements(device->vk_device, &image_requirement_info, &memory_requirements));
+        rt_ds_type_mask = memory_requirements.memoryRequirements.memoryTypeBits;
+
+        image_info.format = VK_FORMAT_D32_SFLOAT_S8_UINT;
+        image_info.usage = VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT | image_usage_ds;
+
+        VK_CALL(vkGetDeviceImageMemoryRequirements(device->vk_device, &image_requirement_info, &memory_requirements));
+        rt_ds_type_mask &= memory_requirements.memoryRequirements.memoryTypeBits;
+
+        /* Do not enable the host image copy path if doing so would regress TIER_2 heaps. */
+        if (non_cpu_combined_mask && !(cpu_combined_mask = (buffer_type_mask & sampled_type_mask & rt_ds_type_mask)))
+        {
+            WARN("Disabling host image copies due to memory type overlap.\n");
+            enable_host_copy = false;
+        }
+
+        /* Also verify that there is at least one coherent memory type and one cached memory
+         * type in system memory that can support host-visible images, if the same level of
+         * support is present for buffers. This is relevant on NVIDIA where host-visible
+         * images are only supported on HVV. */
+        if (enable_host_copy)
+        {
+            buffer_sysmem_flags = 0;
+            sampled_sysmem_flags = 0;
+            rt_ds_sysmem_flags = 0;
+
+            for (i = 0; i < device->memory_properties.memoryTypeCount; i++)
+            {
+                if (vkd3d_memory_topology_is_uma_like(&topology) ||
+                        !(device->memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
+                {
+                    if (buffer_type_mask & (1u << i))
+                        buffer_sysmem_flags |= device->memory_properties.memoryTypes[i].propertyFlags;
+
+                    if (sampled_type_mask & (1u << i))
+                        sampled_sysmem_flags |= device->memory_properties.memoryTypes[i].propertyFlags;
+
+                    if (rt_ds_type_mask & (1u << i))
+                        rt_ds_sysmem_flags |= device->memory_properties.memoryTypes[i].propertyFlags;
+                }
+            }
+
+            buffer_sysmem_flags &= VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                    VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+
+            if ((sampled_sysmem_flags & buffer_sysmem_flags) != buffer_sysmem_flags ||
+                    (rt_ds_sysmem_flags & buffer_sysmem_flags) != buffer_sysmem_flags)
+            {
+                WARN("Disabling host image copies, no suitable system memory types found.\n");
+                enable_host_copy = false;
+            }
+        }
+
+        /* Switch over memory types once host image copy is actually implemented */
+#if 0
+        if (enable_host_copy)
+        {
+            info->cpu_accessible_domain.sampled_type_mask = sampled_type_mask & host_visible_mask;
+            info->cpu_accessible_domain.rt_ds_type_mask = rt_ds_type_mask & host_visible_mask;
+        }
+        else
+#endif
+        {
+            /* Disable use of the host image copy feature altogether */
+            device->device_info.host_image_copy_features.hostImageCopy = false;
+        }
+    }
+
+    TRACE("Device supports buffers on memory types %#x.\n", info->non_cpu_accessible_domain.buffer_type_mask);
+    TRACE("Device supports textures on memory types %#x.\n", info->non_cpu_accessible_domain.sampled_type_mask);
+    TRACE("Device supports render targets on memory types %#x.\n", info->non_cpu_accessible_domain.rt_ds_type_mask);
+    TRACE("Device supports CPU visible buffers on memory types %#x.\n",
+          info->cpu_accessible_domain.buffer_type_mask);
+    TRACE("Device supports CPU visible textures on memory types %#x.\n",
           info->cpu_accessible_domain.sampled_type_mask);
-    TRACE("Device supports CPU visible render targets on memory types 0x%#x.\n",
+    TRACE("Device supports CPU visible render targets on memory types %#x.\n",
           info->cpu_accessible_domain.rt_ds_type_mask);
     return S_OK;
 }
