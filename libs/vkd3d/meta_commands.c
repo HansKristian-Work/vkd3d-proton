@@ -411,15 +411,15 @@ static void d3d12_meta_command_exec_dstorage(struct d3d12_meta_command *meta_com
     push_args.scratch_va = parameters->scratch_buffer_va;
     push_args.stream_count = parameters->stream_count;
 
-    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+    VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
             meta_ops->dstorage.vk_emit_nv_memory_decompression_workgroups_pipeline));
 
-    VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
             meta_ops->dstorage.vk_emit_nv_memory_decompression_regions_layout,
             VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_args), &push_args));
 
     workgroup_count = vkd3d_compute_workgroup_count(parameters->stream_count, 32);
-    VK_CALL(vkCmdDispatch(list->vk_command_buffer, workgroup_count, 1, 1));
+    VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, workgroup_count, 1, 1));
 
     /* Iterate over individual streams and dispatch another compute shader
      * that emits the actual VkDecompressMemoryRegionNV structures. */
@@ -436,20 +436,20 @@ static void d3d12_meta_command_exec_dstorage(struct d3d12_meta_command *meta_com
     dep_info.memoryBarrierCount = 1;
     dep_info.pMemoryBarriers = &vk_barrier;
 
-    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
-    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+    VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
             meta_ops->dstorage.vk_emit_nv_memory_decompression_regions_pipeline));
 
     for (i = 0; i < parameters->stream_count; i++)
     {
         push_args.stream_index = i;
 
-        VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
                 meta_ops->dstorage.vk_emit_nv_memory_decompression_regions_layout,
                 VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_args), &push_args));
 
-        VK_CALL(vkCmdDispatchIndirect(list->vk_command_buffer, scratch_buffer->vk_buffer,
+        VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, scratch_buffer->vk_buffer,
                 scratch_offset + workgroup_data_offset + i * sizeof(VkDispatchIndirectCommand)));
     }
 
@@ -459,9 +459,9 @@ static void d3d12_meta_command_exec_dstorage(struct d3d12_meta_command *meta_com
     vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
     vk_barrier.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
 
-    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
-    VK_CALL(vkCmdDecompressMemoryIndirectCountNV(list->vk_command_buffer,
+    VK_CALL(vkCmdDecompressMemoryIndirectCountNV(list->cmd.vk_command_buffer,
             push_args.scratch_va + offsetof(struct d3d12_meta_command_dstorage_scratch_header, regions),
             push_args.scratch_va, sizeof(VkDecompressMemoryRegionNV)));
 
@@ -472,7 +472,7 @@ static void d3d12_meta_command_exec_dstorage(struct d3d12_meta_command *meta_com
     vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT;
 
-    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
     VKD3D_BREADCRUMB_COMMAND(DSTORAGE);
 }

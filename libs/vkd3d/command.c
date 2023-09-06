@@ -1844,7 +1844,7 @@ static HRESULT d3d12_command_list_begin_command_buffer(struct d3d12_command_list
     begin_info.flags = 0;
     begin_info.pInheritanceInfo = NULL;
 
-    if ((vr = VK_CALL(vkBeginCommandBuffer(list->vk_command_buffer, &begin_info))) < 0)
+    if ((vr = VK_CALL(vkBeginCommandBuffer(list->cmd.vk_command_buffer, &begin_info))) < 0)
     {
         WARN("Failed to begin command buffer, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
@@ -1881,22 +1881,27 @@ static HRESULT d3d12_command_allocator_allocate_command_buffer(struct d3d12_comm
     command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     command_buffer_info.commandBufferCount = 1;
 
+    memset(&list->cmd, 0, sizeof(list->cmd));
+    list->cmd.indirect_meta = &list->cmd.iterations[0].indirect_meta;
+
     if ((vr = VK_CALL(vkAllocateCommandBuffers(device->vk_device, &command_buffer_info,
-            &list->vk_command_buffer))) < 0)
+            &list->cmd.iterations[0].vk_command_buffer))) < 0)
     {
         WARN("Failed to allocate Vulkan command buffer, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
     }
 
-    list->vk_init_commands = VK_NULL_HANDLE;
+    list->cmd.vk_command_buffer = list->cmd.iterations[0].vk_command_buffer;
     list->vk_queue_flags = allocator->vk_queue_flags;
 
     if (FAILED(hr = d3d12_command_list_begin_command_buffer(list)))
     {
         VK_CALL(vkFreeCommandBuffers(device->vk_device, allocator->vk_command_pool,
-                1, &list->vk_command_buffer));
+                1, &list->cmd.vk_command_buffer));
         return hr;
     }
+
+    list->cmd.iteration_count = 1;
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
@@ -1924,7 +1929,7 @@ static HRESULT d3d12_command_allocator_allocate_init_command_buffer(struct d3d12
 
     TRACE("allocator %p, list %p.\n", allocator, list);
 
-    if (list->vk_init_commands)
+    if (list->cmd.vk_init_commands)
         return S_OK;
 
     command_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -1934,7 +1939,7 @@ static HRESULT d3d12_command_allocator_allocate_init_command_buffer(struct d3d12
     command_buffer_info.commandBufferCount = 1;
 
     if ((vr = VK_CALL(vkAllocateCommandBuffers(device->vk_device, &command_buffer_info,
-            &list->vk_init_commands))) < 0)
+            &list->cmd.iterations[0].vk_init_commands))) < 0)
     {
         WARN("Failed to allocate Vulkan command buffer, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
@@ -1945,13 +1950,68 @@ static HRESULT d3d12_command_allocator_allocate_init_command_buffer(struct d3d12
     begin_info.flags = 0;
     begin_info.pInheritanceInfo = NULL;
 
-    if ((vr = VK_CALL(vkBeginCommandBuffer(list->vk_init_commands, &begin_info))) < 0)
+    if ((vr = VK_CALL(vkBeginCommandBuffer(list->cmd.iterations[0].vk_init_commands, &begin_info))) < 0)
     {
         WARN("Failed to begin command buffer, vr %d.\n", vr);
         VK_CALL(vkFreeCommandBuffers(device->vk_device, allocator->vk_command_pool,
-                1, &list->vk_init_commands));
+                1, &list->cmd.iterations[0].vk_init_commands));
         return hresult_from_vk_result(vr);
     }
+
+    list->cmd.vk_init_commands = list->cmd.iterations[0].vk_init_commands;
+
+    return S_OK;
+}
+
+static HRESULT d3d12_command_allocator_allocate_init_post_indirect_command_buffer(
+        struct d3d12_command_allocator *allocator, struct d3d12_command_list *list)
+{
+    struct d3d12_device *device = allocator->device;
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkCommandBufferAllocateInfo command_buffer_info;
+    struct d3d12_command_list_iteration *iteration;
+    VkCommandBufferBeginInfo begin_info;
+    VkResult vr;
+
+    TRACE("allocator %p, list %p.\n", allocator, list);
+
+    if (list->cmd.vk_init_commands_post_indirect_barrier)
+        return S_OK;
+
+    assert(list->cmd.iteration_count != 0);
+    iteration = &list->cmd.iterations[list->cmd.iteration_count - 1];
+    assert(!iteration->vk_init_commands);
+
+    command_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    command_buffer_info.pNext = NULL;
+    command_buffer_info.commandPool = allocator->vk_command_pool;
+    command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    command_buffer_info.commandBufferCount = 1;
+
+    if ((vr = VK_CALL(vkAllocateCommandBuffers(device->vk_device, &command_buffer_info,
+            &iteration->vk_init_commands))) < 0)
+    {
+        WARN("Failed to allocate Vulkan command buffer, vr %d.\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.pNext = NULL;
+    begin_info.flags = 0;
+    begin_info.pInheritanceInfo = NULL;
+
+    if ((vr = VK_CALL(vkBeginCommandBuffer(iteration->vk_init_commands, &begin_info))) < 0)
+    {
+        WARN("Failed to begin command buffer, vr %d.\n", vr);
+        VK_CALL(vkFreeCommandBuffers(device->vk_device, allocator->vk_command_pool,
+                1, &iteration->vk_init_commands));
+        return hresult_from_vk_result(vr);
+    }
+
+    /* If we're still on the first iteration, we've also initialized the normal init commands buffer. */
+    list->cmd.vk_init_commands_post_indirect_barrier = iteration->vk_init_commands;
+    if (list->cmd.iteration_count == 1)
+        list->cmd.vk_init_commands = iteration->vk_init_commands;
 
     return S_OK;
 }
@@ -1979,13 +2039,17 @@ static void d3d12_command_allocator_free_vk_command_buffer(struct d3d12_command_
 static void d3d12_command_allocator_free_command_buffer(struct d3d12_command_allocator *allocator,
         struct d3d12_command_list *list)
 {
+    unsigned int i;
     TRACE("allocator %p, list %p.\n", allocator, list);
 
     if (allocator->current_command_list == list)
         allocator->current_command_list = NULL;
 
-    d3d12_command_allocator_free_vk_command_buffer(allocator, list->vk_command_buffer);
-    d3d12_command_allocator_free_vk_command_buffer(allocator, list->vk_init_commands);
+    for (i = 0; i < list->cmd.iteration_count; i++)
+    {
+        d3d12_command_allocator_free_vk_command_buffer(allocator, list->cmd.iterations[i].vk_command_buffer);
+        d3d12_command_allocator_free_vk_command_buffer(allocator, list->cmd.iterations[i].vk_init_commands);
+    }
 }
 
 static bool d3d12_command_allocator_add_view(struct d3d12_command_allocator *allocator,
@@ -2018,8 +2082,7 @@ static void d3d12_command_list_allocator_destroyed(struct d3d12_command_list *li
     TRACE("list %p.\n", list);
 
     list->allocator = NULL;
-    list->vk_command_buffer = VK_NULL_HANDLE;
-    list->vk_init_commands = VK_NULL_HANDLE;
+    memset(&list->cmd, 0, sizeof(list->cmd));
 }
 
 static void d3d12_command_allocator_free_resources(struct d3d12_command_allocator *allocator,
@@ -2795,7 +2858,7 @@ static void d3d12_command_list_clear_attachment_inline(struct d3d12_command_list
     {
         if (vk_rect_from_d3d12(&rects[i], &vk_clear_rect.rect, &full_rect))
         {
-            VK_CALL(vkCmdClearAttachments(list->vk_command_buffer,
+            VK_CALL(vkCmdClearAttachments(list->cmd.vk_command_buffer,
                     1, &vk_clear_attachment, 1, &vk_clear_rect));
         }
     }
@@ -2826,7 +2889,7 @@ static void d3d12_command_list_resolve_buffer_copy_writes(struct d3d12_command_l
         dep_info.memoryBarrierCount = 1;
         dep_info.pMemoryBarriers = &vk_barrier;
 
-        VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
         list->tracked_copy_buffer_count = 0;
     }
@@ -3248,7 +3311,7 @@ static void d3d12_command_list_debug_mark_label(struct d3d12_command_list *list,
         label.color[1] = g;
         label.color[2] = b;
         label.color[3] = a;
-        VK_CALL(vkCmdInsertDebugUtilsLabelEXT(list->vk_command_buffer, &label));
+        VK_CALL(vkCmdInsertDebugUtilsLabelEXT(list->cmd.vk_command_buffer, &label));
     }
 }
 
@@ -3267,7 +3330,7 @@ static void d3d12_command_list_debug_mark_begin_region(
         label.color[1] = 1.0f;
         label.color[2] = 1.0f;
         label.color[3] = 1.0f;
-        VK_CALL(vkCmdBeginDebugUtilsLabelEXT(list->vk_command_buffer, &label));
+        VK_CALL(vkCmdBeginDebugUtilsLabelEXT(list->cmd.vk_command_buffer, &label));
     }
 }
 
@@ -3275,7 +3338,7 @@ static void d3d12_command_list_debug_mark_end_region(struct d3d12_command_list *
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) && list->device->vk_info.EXT_debug_utils)
-        VK_CALL(vkCmdEndDebugUtilsLabelEXT(list->vk_command_buffer));
+        VK_CALL(vkCmdEndDebugUtilsLabelEXT(list->cmd.vk_command_buffer));
 }
 
 static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *list, struct d3d12_resource *resource,
@@ -3478,10 +3541,10 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     if (dep_info.imageMemoryBarrierCount)
     {
         VKD3D_BREADCRUMB_TAG("clear-barrier");
-        VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
     }
 
-    VK_CALL(vkCmdBeginRendering(list->vk_command_buffer, &rendering_info));
+    VK_CALL(vkCmdBeginRendering(list->cmd.vk_command_buffer, &rendering_info));
 
     if (!clear_op)
     {
@@ -3489,7 +3552,7 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
                 clear_aspects, clear_value, rect_count, rects);
     }
 
-    VK_CALL(vkCmdEndRendering(list->vk_command_buffer));
+    VK_CALL(vkCmdEndRendering(list->cmd.vk_command_buffer));
 
     VKD3D_BREADCRUMB_TAG("clear-view-cookie");
     VKD3D_BREADCRUMB_AUX64(view->cookie);
@@ -3573,7 +3636,7 @@ static void d3d12_command_list_discard_attachment_barrier(struct d3d12_command_l
     dep_info.imageMemoryBarrierCount = 1;
     dep_info.pImageMemoryBarriers = &barrier;
 
-    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 }
 
 enum vkd3d_render_pass_transition_mode
@@ -3775,7 +3838,7 @@ static void d3d12_command_list_flush_subresource_updates(struct d3d12_command_li
     dep_info.memoryBarrierCount = 1;
     dep_info.pMemoryBarriers = &barrier;
 
-    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
     for (i = 0; i < list->subresource_tracking_count; i++)
     {
@@ -3801,7 +3864,7 @@ static void d3d12_command_list_flush_subresource_updates(struct d3d12_command_li
         copy_info.regionCount = 1;
         copy_info.pRegions = &copy_region;
 
-        VK_CALL(vkCmdCopyImageToBuffer2(list->vk_command_buffer, &copy_info));
+        VK_CALL(vkCmdCopyImageToBuffer2(list->cmd.vk_command_buffer, &copy_info));
     }
 
     list->subresource_tracking_count = 0;
@@ -3881,7 +3944,7 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
     if (!dep_info.imageMemoryBarrierCount)
         return;
 
-    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 }
 
 static inline bool d3d12_query_type_is_indexed(D3D12_QUERY_TYPE type)
@@ -3921,10 +3984,10 @@ static void d3d12_command_list_begin_active_query(struct d3d12_command_list *lis
     if (d3d12_query_type_is_indexed(query->type))
     {
         unsigned int stream = query->type - D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0;
-        VK_CALL(vkCmdBeginQueryIndexedEXT(list->vk_command_buffer, query->vk_pool, query->vk_index, flags, stream));
+        VK_CALL(vkCmdBeginQueryIndexedEXT(list->cmd.vk_command_buffer, query->vk_pool, query->vk_index, flags, stream));
     }
     else
-        VK_CALL(vkCmdBeginQuery(list->vk_command_buffer, query->vk_pool, query->vk_index, flags));
+        VK_CALL(vkCmdBeginQuery(list->cmd.vk_command_buffer, query->vk_pool, query->vk_index, flags));
 
     query->state = VKD3D_ACTIVE_QUERY_BEGUN;
 }
@@ -3938,10 +4001,10 @@ static void d3d12_command_list_end_active_query(struct d3d12_command_list *list,
     if (d3d12_query_type_is_indexed(query->type))
     {
         unsigned int stream = query->type - D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0;
-        VK_CALL(vkCmdEndQueryIndexedEXT(list->vk_command_buffer, query->vk_pool, query->vk_index, stream));
+        VK_CALL(vkCmdEndQueryIndexedEXT(list->cmd.vk_command_buffer, query->vk_pool, query->vk_index, stream));
     }
     else
-        VK_CALL(vkCmdEndQuery(list->vk_command_buffer, query->vk_pool, query->vk_index));
+        VK_CALL(vkCmdEndQuery(list->cmd.vk_command_buffer, query->vk_pool, query->vk_index));
 
     query->state = VKD3D_ACTIVE_QUERY_ENDED;
 }
@@ -4213,7 +4276,7 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
     {
         const struct resolve_entry *r = &resolves[i];
 
-        VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer,
+        VK_CALL(vkCmdCopyQueryPoolResults(list->cmd.vk_command_buffer,
             r->query_pool, r->first_query, r->query_count,
             resolve_buffer.buffer, resolve_buffer.offset + r->offset,
             r->stride, VK_QUERY_RESULT_WAIT_BIT | VK_QUERY_RESULT_64_BIT));
@@ -4293,7 +4356,7 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
     {
         unsigned int count = min(2048, list->pending_queries_count - i);
 
-        VK_CALL(vkCmdUpdateBuffer(list->vk_command_buffer, entry_buffer.buffer,
+        VK_CALL(vkCmdUpdateBuffer(list->cmd.vk_command_buffer, entry_buffer.buffer,
                 sizeof(struct query_entry) * i + entry_buffer.offset,
                 sizeof(struct query_entry) * count, &query_list[i]));
     }
@@ -4310,7 +4373,7 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
     dep_info.memoryBarrierCount = 1;
     dep_info.pMemoryBarriers = &vk_barrier;
 
-    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
     /* Gather virtual query results and store
      * them in the query heap's buffer */
@@ -4324,7 +4387,7 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
                 d->heap->desc.Type, &gather_pipeline)))
             goto cleanup;
 
-        VK_CALL(vkCmdBindPipeline(list->vk_command_buffer,
+        VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer,
                 VK_PIPELINE_BIND_POINT_COMPUTE, gather_pipeline.vk_pipeline));
 
         args.dst_va = d->heap->va;
@@ -4334,12 +4397,12 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
 
         entry_offset += d->virtual_query_count;
 
-        VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
                 gather_pipeline.vk_pipeline_layout,
                 VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(args), &args));
 
         workgroup_count = vkd3d_compute_workgroup_count(d->unique_query_count, VKD3D_QUERY_OP_WORKGROUP_SIZE);
-        VK_CALL(vkCmdDispatch(list->vk_command_buffer, workgroup_count, 1, 1));
+        VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, workgroup_count, 1, 1));
     }
 
     vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
@@ -4347,7 +4410,7 @@ static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list 
     vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_COPY_BIT;
     vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_TRANSFER_READ_BIT;
 
-    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
     list->pending_queries_count = 0;
     result = true;
@@ -4375,13 +4438,13 @@ static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list
 
     if (list->xfb_enabled)
     {
-        VK_CALL(vkCmdEndTransformFeedbackEXT(list->vk_command_buffer, 0, ARRAY_SIZE(list->so_counter_buffers),
+        VK_CALL(vkCmdEndTransformFeedbackEXT(list->cmd.vk_command_buffer, 0, ARRAY_SIZE(list->so_counter_buffers),
                 list->so_counter_buffers, list->so_counter_buffer_offsets));
     }
 
     if (list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE)
     {
-        VK_CALL(vkCmdEndRendering(list->vk_command_buffer));
+        VK_CALL(vkCmdEndRendering(list->cmd.vk_command_buffer));
         d3d12_command_list_debug_mark_end_region(list);
     }
 
@@ -4411,7 +4474,7 @@ static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list
         dep_info.memoryBarrierCount = 1;
         dep_info.pMemoryBarriers = &vk_barrier;
 
-        VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
         list->xfb_enabled = false;
     }
@@ -4862,7 +4925,7 @@ static HRESULT d3d12_command_list_batch_reset_query_pools(struct d3d12_command_l
         if (FAILED(hr = d3d12_command_allocator_allocate_init_command_buffer(list->allocator, list)))
             return hr;
 
-        VK_CALL(vkCmdResetQueryPool(list->vk_init_commands,
+        VK_CALL(vkCmdResetQueryPool(list->cmd.vk_init_commands,
                 range->vk_pool, range->index, range->count));
     }
 
@@ -4872,45 +4935,51 @@ static HRESULT d3d12_command_list_batch_reset_query_pools(struct d3d12_command_l
 static HRESULT d3d12_command_list_build_init_commands(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const struct d3d12_command_list_iteration *iteration;
     VkDependencyInfo dep_info;
     VkMemoryBarrier2 barrier;
+    unsigned int i;
     VkResult vr;
     HRESULT hr;
 
     if (FAILED(hr = d3d12_command_list_batch_reset_query_pools(list)))
         return hr;
 
-    if (!list->vk_init_commands)
-        return S_OK;
-
-    if (list->execute_indirect.need_compute_to_indirect_barrier)
+    for (i = 0; i < list->cmd.iteration_count; i++)
     {
-        /* We've patched an indirect command stream here, so do the final barrier now. */
-        memset(&barrier, 0, sizeof(barrier));
-        barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        barrier.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
-        barrier.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+        iteration = &list->cmd.iterations[i];
+        if (!iteration->vk_init_commands)
+            continue;
 
-        if (list->execute_indirect.need_compute_to_cbv_barrier)
+        if (iteration->indirect_meta.need_compute_to_indirect_barrier)
         {
-            barrier.dstAccessMask |= VK_ACCESS_2_UNIFORM_READ_BIT;
-            barrier.dstStageMask |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            /* We've patched an indirect command stream here, so do the final barrier now. */
+            memset(&barrier, 0, sizeof(barrier));
+            barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+            barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+            barrier.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+            barrier.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+
+            if (iteration->indirect_meta.need_compute_to_cbv_barrier)
+            {
+                barrier.dstAccessMask |= VK_ACCESS_2_UNIFORM_READ_BIT;
+                barrier.dstStageMask |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            }
+
+            memset(&dep_info, 0, sizeof(dep_info));
+            dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep_info.memoryBarrierCount = 1;
+            dep_info.pMemoryBarriers = &barrier;
+
+            VK_CALL(vkCmdPipelineBarrier2(iteration->vk_init_commands, &dep_info));
         }
 
-        memset(&dep_info, 0, sizeof(dep_info));
-        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep_info.memoryBarrierCount = 1;
-        dep_info.pMemoryBarriers = &barrier;
-
-        VK_CALL(vkCmdPipelineBarrier2(list->vk_init_commands, &dep_info));
-    }
-
-    if ((vr = VK_CALL(vkEndCommandBuffer(list->vk_init_commands))) < 0)
-    {
-        WARN("Failed to end command buffer, vr %d.\n", vr);
-        return hresult_from_vk_result(vr);
+        if ((vr = VK_CALL(vkEndCommandBuffer(iteration->vk_init_commands))) < 0)
+        {
+            WARN("Failed to end command buffer, vr %d.\n", vr);
+            return hresult_from_vk_result(vr);
+        }
     }
 
     return S_OK;
@@ -4937,12 +5006,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
     if (d3d12_device_use_embedded_mutable_descriptors(list->device))
         vkd3d_memcpy_non_temporal_barrier();
 
+    /* TODO: Revisit this w.r.t. splitting VkCommandBuffer */
     d3d12_command_list_end_current_render_pass(list, false);
     d3d12_command_list_end_transfer_batch(list);
     d3d12_command_list_flush_rtas_batch(list);
 
     if (list->predicate_enabled)
-        VK_CALL(vkCmdEndConditionalRenderingEXT(list->vk_command_buffer));
+        VK_CALL(vkCmdEndConditionalRenderingEXT(list->cmd.vk_command_buffer));
 
     if (!d3d12_command_list_gather_pending_queries(list))
         d3d12_command_list_mark_as_invalid(list, "Failed to gather virtual queries.\n");
@@ -4965,7 +5035,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
     if (FAILED(hr = d3d12_command_list_build_init_commands(list)))
         return hr;
 
-    if ((vr = VK_CALL(vkEndCommandBuffer(list->vk_command_buffer))) < 0)
+    if ((vr = VK_CALL(vkEndCommandBuffer(list->cmd.vk_command_buffer))) < 0)
     {
         WARN("Failed to end command buffer, vr %d.\n", vr);
         return hresult_from_vk_result(vr);
@@ -5240,10 +5310,6 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     list->wbi_batch.batch_len = 0;
     list->query_resolve_count = 0;
 
-    list->execute_indirect.need_compute_to_indirect_barrier = false;
-    list->execute_indirect.need_compute_to_cbv_barrier = false;
-    list->execute_indirect.has_observed_transition_to_indirect = false;
-
     d3d12_command_list_clear_rtas_batch(list);
 }
 
@@ -5424,7 +5490,7 @@ static bool d3d12_command_list_update_compute_pipeline(struct d3d12_command_list
 
     if (list->command_buffer_pipeline != list->state->compute.vk_pipeline)
     {
-        VK_CALL(vkCmdBindPipeline(list->vk_command_buffer,
+        VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer,
                 vk_bind_point_from_pipeline_type(list->state->pipeline_type),
                 list->state->compute.vk_pipeline));
         list->command_buffer_pipeline = list->state->compute.vk_pipeline;
@@ -5451,7 +5517,7 @@ static bool d3d12_command_list_update_raygen_pipeline(struct d3d12_command_list 
 
     if (list->command_buffer_pipeline != list->rt_state->pipeline)
     {
-        VK_CALL(vkCmdBindPipeline(list->vk_command_buffer,
+        VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer,
                 VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
                 list->rt_state->pipeline));
         list->command_buffer_pipeline = list->rt_state->pipeline;
@@ -5465,7 +5531,7 @@ static bool d3d12_command_list_update_raygen_pipeline(struct d3d12_command_list 
     if (stack_size_dirty)
     {
         /* Pipeline stack size is part of the PSO, not any command buffer state for some reason ... */
-        VK_CALL(vkCmdSetRayTracingPipelineStackSizeKHR(list->vk_command_buffer,
+        VK_CALL(vkCmdSetRayTracingPipelineStackSizeKHR(list->cmd.vk_command_buffer,
                 list->rt_state->pipeline_stack_size));
         list->dynamic_state.pipeline_stack_size = list->rt_state->pipeline_stack_size;
     }
@@ -5553,7 +5619,7 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
 
     if (list->command_buffer_pipeline != vk_pipeline)
     {
-        VK_CALL(vkCmdBindPipeline(list->vk_command_buffer,
+        VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer,
                 vk_bind_point_from_pipeline_type(list->state->pipeline_type),
                 vk_pipeline));
 
@@ -5605,7 +5671,7 @@ static void d3d12_command_list_update_descriptor_table_offsets(struct d3d12_comm
     /* Set descriptor offsets */
     if (push_stages)
     {
-        VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
                 layout, push_stages,
                 root_signature->descriptor_table_offset,
                 root_signature->descriptor_table_count * sizeof(uint32_t),
@@ -5680,7 +5746,7 @@ static void d3d12_command_list_update_descriptor_buffers(struct d3d12_command_li
         global_buffers[1].usage = list->device->global_descriptor_buffer.sampler.usage;
         global_buffers[1].address = list->descriptor_heap.buffers.heap_va_sampler;
 
-        VK_CALL(vkCmdBindDescriptorBuffersEXT(list->vk_command_buffer,
+        VK_CALL(vkCmdBindDescriptorBuffersEXT(list->cmd.vk_command_buffer,
                 ARRAY_SIZE(global_buffers), global_buffers));
 
         list->descriptor_heap.buffers.heap_dirty = false;
@@ -5704,7 +5770,7 @@ static void d3d12_command_list_update_descriptor_heaps(struct d3d12_command_list
         /* Prefer binding everything in one go. There is no risk of null descriptor sets here. */
         if (bindings->descriptor_heap_dirty_mask)
         {
-            VK_CALL(vkCmdSetDescriptorBufferOffsetsEXT(list->vk_command_buffer, vk_bind_point,
+            VK_CALL(vkCmdSetDescriptorBufferOffsetsEXT(list->cmd.vk_command_buffer, vk_bind_point,
                     layout, 0, bindless_state->set_count,
                     bindless_state->vk_descriptor_buffer_indices,
                     list->descriptor_heap.buffers.vk_offsets));
@@ -5719,7 +5785,7 @@ static void d3d12_command_list_update_descriptor_heaps(struct d3d12_command_list
 
             if (list->descriptor_heap.sets.vk_sets[heap_index])
             {
-                VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, vk_bind_point,
+                VK_CALL(vkCmdBindDescriptorSets(list->cmd.vk_command_buffer, vk_bind_point,
                         layout, heap_index, 1,
                         &list->descriptor_heap.sets.vk_sets[heap_index], 0, NULL));
             }
@@ -5736,14 +5802,14 @@ static void d3d12_command_list_update_static_samplers(struct d3d12_command_list 
 
     if (bindings->static_sampler_set)
     {
-        VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, vk_bind_point,
+        VK_CALL(vkCmdBindDescriptorSets(list->cmd.vk_command_buffer, vk_bind_point,
                 layout,
                 root_signature->sampler_descriptor_set,
                 1, &bindings->static_sampler_set, 0, NULL));
     }
     else if (root_signature->vk_sampler_descriptor_layout)
     {
-        VK_CALL(vkCmdBindDescriptorBufferEmbeddedSamplersEXT(list->vk_command_buffer, vk_bind_point,
+        VK_CALL(vkCmdBindDescriptorBufferEmbeddedSamplersEXT(list->cmd.vk_command_buffer, vk_bind_point,
                 layout, root_signature->sampler_descriptor_set));
     }
 
@@ -5770,7 +5836,7 @@ static void d3d12_command_list_update_root_constants(struct d3d12_command_list *
         root_parameter_index = vkd3d_bitmask_iter64(&bindings->root_constant_dirty_mask);
         root_constant = root_signature_get_32bit_constants(root_signature, root_parameter_index);
 
-        VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
                 layout, push_stages,
                 root_constant->constant_index * sizeof(uint32_t),
                 root_constant->constant_count * sizeof(uint32_t),
@@ -5922,7 +5988,7 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
     }
     else if (va_count && push_stages)
     {
-        VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
                 layout, push_stages,
                 0, va_count * sizeof(*root_parameter_data.root_descriptor_vas),
                 root_parameter_data.root_descriptor_vas));
@@ -5930,7 +5996,7 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
 
     if (descriptor_write_count)
     {
-        VK_CALL(vkCmdPushDescriptorSetKHR(list->vk_command_buffer, vk_bind_point,
+        VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, vk_bind_point,
                 layout, root_signature->root_descriptor_set,
                 descriptor_write_count, descriptor_writes));
     }
@@ -6077,7 +6143,7 @@ static bool d3d12_command_list_update_raygen_state(struct d3d12_command_list *li
     {
         if (list->rt_state->local_static_sampler.desc_set)
         {
-            VK_CALL(vkCmdBindDescriptorSets(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
+            VK_CALL(vkCmdBindDescriptorSets(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
                     list->rt_state->local_static_sampler.pipeline_layout,
                     list->rt_state->local_static_sampler.set_index,
                     1, &list->rt_state->local_static_sampler.desc_set,
@@ -6085,7 +6151,7 @@ static bool d3d12_command_list_update_raygen_state(struct d3d12_command_list *li
         }
         else
         {
-            VK_CALL(vkCmdBindDescriptorBufferEmbeddedSamplersEXT(list->vk_command_buffer,
+            VK_CALL(vkCmdBindDescriptorBufferEmbeddedSamplersEXT(list->cmd.vk_command_buffer,
                     VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
                     list->rt_state->local_static_sampler.pipeline_layout,
                     list->rt_state->local_static_sampler.set_index));
@@ -6111,13 +6177,13 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
     {
         if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT)
         {
-            VK_CALL(vkCmdSetViewportWithCount(list->vk_command_buffer,
+            VK_CALL(vkCmdSetViewportWithCount(list->cmd.vk_command_buffer,
                     dyn_state->viewport_count, dyn_state->viewports));
         }
 
         if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR)
         {
-            VK_CALL(vkCmdSetScissorWithCount(list->vk_command_buffer,
+            VK_CALL(vkCmdSetScissorWithCount(list->cmd.vk_command_buffer,
                     dyn_state->viewport_count, dyn_state->scissors));
         }
     }
@@ -6129,52 +6195,52 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
         static const VkRect2D dummy_rect = { { 0, 0 }, { 0, 0 } };
 
         if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_VIEWPORT)
-            VK_CALL(vkCmdSetViewportWithCount(list->vk_command_buffer, 1, &dummy_vp));
+            VK_CALL(vkCmdSetViewportWithCount(list->cmd.vk_command_buffer, 1, &dummy_vp));
         if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR)
-            VK_CALL(vkCmdSetScissorWithCount(list->vk_command_buffer, 1, &dummy_rect));
+            VK_CALL(vkCmdSetScissorWithCount(list->cmd.vk_command_buffer, 1, &dummy_rect));
     }
 
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_BLEND_CONSTANTS)
     {
-        VK_CALL(vkCmdSetBlendConstants(list->vk_command_buffer,
+        VK_CALL(vkCmdSetBlendConstants(list->cmd.vk_command_buffer,
                 dyn_state->blend_constants));
     }
 
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE)
     {
-        VK_CALL(vkCmdSetStencilReference(list->vk_command_buffer,
+        VK_CALL(vkCmdSetStencilReference(list->cmd.vk_command_buffer,
                 VK_STENCIL_FRONT_AND_BACK, dyn_state->stencil_reference));
     }
 
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_DEPTH_WRITE_ENABLE)
     {
-        VK_CALL(vkCmdSetDepthWriteEnable(list->vk_command_buffer,
+        VK_CALL(vkCmdSetDepthWriteEnable(list->cmd.vk_command_buffer,
                 (dyn_state->dsv_plane_write_enable & (1u << 0)) ? VK_TRUE : VK_FALSE));
     }
 
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_STENCIL_WRITE_MASK)
     {
         /* Binding read-only DSV for stencil disable stencil writes. */
-        VK_CALL(vkCmdSetStencilWriteMask(list->vk_command_buffer,
+        VK_CALL(vkCmdSetStencilWriteMask(list->cmd.vk_command_buffer,
                 VK_STENCIL_FRONT_AND_BACK,
                 (dyn_state->dsv_plane_write_enable & (1u << 1)) ? dyn_state->stencil_write_mask : 0));
     }
 
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS)
     {
-        VK_CALL(vkCmdSetDepthBounds(list->vk_command_buffer,
+        VK_CALL(vkCmdSetDepthBounds(list->cmd.vk_command_buffer,
                 dyn_state->min_depth_bounds, dyn_state->max_depth_bounds));
     }
 
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_TOPOLOGY)
     {
-        VK_CALL(vkCmdSetPrimitiveTopology(list->vk_command_buffer,
+        VK_CALL(vkCmdSetPrimitiveTopology(list->cmd.vk_command_buffer,
                 dyn_state->vk_primitive_topology));
     }
 
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_PATCH_CONTROL_POINTS)
     {
-        VK_CALL(vkCmdSetPatchControlPointsEXT(list->vk_command_buffer,
+        VK_CALL(vkCmdSetPatchControlPointsEXT(list->cmd.vk_command_buffer,
                 dyn_state->primitive_topology - D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST + 1));
     }
 
@@ -6183,7 +6249,7 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
         /* The primitive restart dynamic state is only present if the PSO
          * has a strip cut value, so we only need to check if the
          * current primitive topology is a strip type. */
-        VK_CALL(vkCmdSetPrimitiveRestartEnable(list->vk_command_buffer,
+        VK_CALL(vkCmdSetPrimitiveRestartEnable(list->cmd.vk_command_buffer,
                 vk_primitive_topology_supports_restart(dyn_state->vk_primitive_topology)));
     }
 
@@ -6223,7 +6289,7 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
                 }
             }
 
-            VK_CALL(vkCmdBindVertexBuffers2(list->vk_command_buffer,
+            VK_CALL(vkCmdBindVertexBuffers2(list->cmd.vk_command_buffer,
                     range.offset, range.count,
                     dyn_state->vertex_buffers + range.offset,
                     dyn_state->vertex_offsets + range.offset,
@@ -6234,7 +6300,7 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
 
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_FRAGMENT_SHADING_RATE)
     {
-        VK_CALL(vkCmdSetFragmentShadingRateKHR(list->vk_command_buffer,
+        VK_CALL(vkCmdSetFragmentShadingRateKHR(list->cmd.vk_command_buffer,
                 &dyn_state->fragment_shading_rate.fragment_size,
                 dyn_state->fragment_shading_rate.combiner_ops));
     }
@@ -6288,7 +6354,7 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
         d3d12_command_list_emit_render_pass_transition(list, VKD3D_RENDER_PASS_TRANSITION_MODE_BEGIN);
 
     d3d12_command_list_debug_mark_begin_region(list, "RenderPass");
-    VK_CALL(vkCmdBeginRendering(list->vk_command_buffer, &list->rendering_info.info));
+    VK_CALL(vkCmdBeginRendering(list->cmd.vk_command_buffer, &list->rendering_info.info));
 
     list->rendering_info.state_flags |= VKD3D_RENDERING_ACTIVE;
     list->rendering_info.state_flags &= ~VKD3D_RENDERING_SUSPENDED;
@@ -6296,7 +6362,7 @@ static bool d3d12_command_list_begin_render_pass(struct d3d12_command_list *list
     graphics = &list->state->graphics;
     if (graphics->xfb_enabled)
     {
-        VK_CALL(vkCmdBeginTransformFeedbackEXT(list->vk_command_buffer, 0, ARRAY_SIZE(list->so_counter_buffers),
+        VK_CALL(vkCmdBeginTransformFeedbackEXT(list->cmd.vk_command_buffer, 0, ARRAY_SIZE(list->so_counter_buffers),
                 list->so_counter_buffers, list->so_counter_buffer_offsets));
 
         list->xfb_enabled = true;
@@ -6358,18 +6424,18 @@ static bool d3d12_command_list_emit_multi_dispatch_indirect_count(struct d3d12_c
     d3d12_command_list_end_current_render_pass(list, false);
     d3d12_command_list_end_transfer_batch(list);
 
-    if (!list->execute_indirect.has_observed_transition_to_indirect)
+    d3d12_command_allocator_allocate_init_post_indirect_command_buffer(list->allocator, list);
+    vk_patch_cmd_buffer = list->cmd.vk_init_commands_post_indirect_barrier;
+
+    if (vk_patch_cmd_buffer == list->cmd.vk_command_buffer)
     {
-        /* Fast path, throw the resolve to the init command buffer. */
-        d3d12_command_allocator_allocate_init_command_buffer(list->allocator, list);
-        vk_patch_cmd_buffer = list->vk_init_commands;
-        list->execute_indirect.need_compute_to_indirect_barrier = true;
+        d3d12_command_list_invalidate_current_pipeline(list, true);
+        d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
     }
     else
     {
-        vk_patch_cmd_buffer = list->vk_command_buffer;
-        d3d12_command_list_invalidate_current_pipeline(list, true);
-        d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
+        list->cmd.indirect_meta->need_compute_to_indirect_barrier = true;
+        list->cmd.indirect_meta->need_compute_to_cbv_barrier = true;
     }
 
     args.indirect_va = indirect_args;
@@ -6388,7 +6454,7 @@ static bool d3d12_command_list_emit_multi_dispatch_indirect_count(struct d3d12_c
             vkd3d_compute_workgroup_count(max_commands, vkd3d_meta_get_multi_dispatch_indirect_workgroup_size()),
             1, 1));
 
-    if (vk_patch_cmd_buffer == list->vk_command_buffer)
+    if (vk_patch_cmd_buffer == list->cmd.vk_command_buffer)
     {
         memset(&dep_info, 0, sizeof(dep_info));
         dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
@@ -6460,19 +6526,18 @@ static bool d3d12_command_list_emit_multi_dispatch_indirect_count_state(struct d
     args.stride_words = stride / sizeof(uint32_t);
     args.dispatch_offset_words = signature->state_template.compute.dispatch_offset_words;
 
-    if (!list->execute_indirect.has_observed_transition_to_indirect)
+    d3d12_command_allocator_allocate_init_post_indirect_command_buffer(list->allocator, list);
+    vk_patch_cmd_buffer = list->cmd.vk_init_commands_post_indirect_barrier;
+
+    if (vk_patch_cmd_buffer == list->cmd.vk_command_buffer)
     {
-        /* Fast path, throw the resolve to the init command buffer. */
-        d3d12_command_allocator_allocate_init_command_buffer(list->allocator, list);
-        vk_patch_cmd_buffer = list->vk_init_commands;
-        list->execute_indirect.need_compute_to_indirect_barrier = true;
-        list->execute_indirect.need_compute_to_cbv_barrier = true;
+        d3d12_command_list_invalidate_current_pipeline(list, true);
+        d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
     }
     else
     {
-        vk_patch_cmd_buffer = list->vk_command_buffer;
-        d3d12_command_list_invalidate_current_pipeline(list, true);
-        d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
+        list->cmd.indirect_meta->need_compute_to_indirect_barrier = true;
+        list->cmd.indirect_meta->need_compute_to_cbv_barrier = true;
     }
 
     VK_CALL(vkCmdBindPipeline(vk_patch_cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
@@ -6483,7 +6548,7 @@ static bool d3d12_command_list_emit_multi_dispatch_indirect_count_state(struct d
 
     VK_CALL(vkCmdDispatch(vk_patch_cmd_buffer, max_commands, 1, 1));
 
-    if (vk_patch_cmd_buffer == list->vk_command_buffer)
+    if (vk_patch_cmd_buffer == list->cmd.vk_command_buffer)
     {
         memset(&dep_info, 0, sizeof(dep_info));
         dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
@@ -6531,12 +6596,12 @@ static bool d3d12_command_list_emit_predicated_command(struct d3d12_command_list
     args.src_arg_va = indirect_args;
     args.args = *direct_args;
 
-    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+    VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
             pipeline_info.vk_pipeline));
-    VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
             pipeline_info.vk_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
             0, sizeof(args), &args));
-    VK_CALL(vkCmdDispatch(list->vk_command_buffer, 1, 1, 1));
+    VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, 1, 1, 1));
 
     memset(&vk_barrier, 0, sizeof(vk_barrier));
     vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
@@ -6550,7 +6615,7 @@ static bool d3d12_command_list_emit_predicated_command(struct d3d12_command_list
     dep_info.memoryBarrierCount = 1;
     dep_info.pMemoryBarriers = &vk_barrier;
 
-    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
     return true;
 }
 
@@ -6586,10 +6651,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawInstanced(d3d12_command_lis
     }
 
     if (!list->predicate_va)
-        VK_CALL(vkCmdDraw(list->vk_command_buffer, vertex_count_per_instance,
+        VK_CALL(vkCmdDraw(list->cmd.vk_command_buffer, vertex_count_per_instance,
                 instance_count, start_vertex_location, start_instance_location));
     else
-        VK_CALL(vkCmdDrawIndirect(list->vk_command_buffer, scratch.buffer, scratch.offset, 1, 0));
+        VK_CALL(vkCmdDrawIndirect(list->cmd.vk_command_buffer, scratch.buffer, scratch.offset, 1, 0));
 
     VKD3D_BREADCRUMB_AUX32(vertex_count_per_instance);
     VKD3D_BREADCRUMB_AUX32(instance_count);
@@ -6619,12 +6684,12 @@ static bool d3d12_command_list_update_index_buffer(struct d3d12_command_list *li
     {
         if (list->device->device_info.maintenance_5_features.maintenance5)
         {
-            VK_CALL(vkCmdBindIndexBuffer2KHR(list->vk_command_buffer, list->index_buffer.buffer,
+            VK_CALL(vkCmdBindIndexBuffer2KHR(list->cmd.vk_command_buffer, list->index_buffer.buffer,
                     list->index_buffer.offset, list->index_buffer.size, list->index_buffer.vk_type));
         }
         else
         {
-            VK_CALL(vkCmdBindIndexBuffer(list->vk_command_buffer, list->index_buffer.buffer,
+            VK_CALL(vkCmdBindIndexBuffer(list->cmd.vk_command_buffer, list->index_buffer.buffer,
                     list->index_buffer.offset, list->index_buffer.vk_type));
         }
         list->index_buffer.is_dirty = false;
@@ -6671,10 +6736,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(d3d12_comm
     d3d12_command_list_check_index_buffer_strip_cut_value(list);
 
     if (!list->predicate_va)
-        VK_CALL(vkCmdDrawIndexed(list->vk_command_buffer, index_count_per_instance,
+        VK_CALL(vkCmdDrawIndexed(list->cmd.vk_command_buffer, index_count_per_instance,
                 instance_count, start_vertex_location, base_vertex_location, start_instance_location));
     else
-        VK_CALL(vkCmdDrawIndexedIndirect(list->vk_command_buffer, scratch.buffer, scratch.offset, 1, 0));
+        VK_CALL(vkCmdDrawIndexedIndirect(list->cmd.vk_command_buffer, scratch.buffer, scratch.offset, 1, 0));
 
     VKD3D_BREADCRUMB_AUX32(index_count_per_instance);
     VKD3D_BREADCRUMB_AUX32(instance_count);
@@ -6713,9 +6778,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(d3d12_command_list_ifa
     }
 
     if (!list->predicate_va)
-        VK_CALL(vkCmdDispatch(list->vk_command_buffer, x, y, z));
+        VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, x, y, z));
     else
-        VK_CALL(vkCmdDispatchIndirect(list->vk_command_buffer, scratch.buffer, scratch.offset));
+        VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, scratch.buffer, scratch.offset));
 
     VKD3D_BREADCRUMB_AUX32(x);
     VKD3D_BREADCRUMB_AUX32(y);
@@ -6769,7 +6834,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_
 
     d3d12_command_list_mark_copy_buffer_write(list, copy_info.dstBuffer, buffer_copy.dstOffset, buffer_copy.size,
             !!(dst_resource->flags & VKD3D_RESOURCE_RESERVED));
-    VK_CALL(vkCmdCopyBuffer2(list->vk_command_buffer, &copy_info));
+    VK_CALL(vkCmdCopyBuffer2(list->cmd.vk_command_buffer, &copy_info));
 
     VKD3D_BREADCRUMB_COMMAND(COPY);
 }
@@ -7049,7 +7114,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
     vk_image_barriers[1].image = src_resource->res.vk_image;
     vk_image_barriers[1].subresourceRange = vk_subresource_range_from_layers(&region->srcSubresource);
 
-    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
     VKD3D_BREADCRUMB_TAG("Image -> Image");
     VKD3D_BREADCRUMB_RESOURCE(src_resource);
@@ -7067,7 +7132,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         copy_info.regionCount = 1;
         copy_info.pRegions = region;
 
-        VK_CALL(vkCmdCopyImage2(list->vk_command_buffer, &copy_info));
+        VK_CALL(vkCmdCopyImage2(list->cmd.vk_command_buffer, &copy_info));
     }
     else
     {
@@ -7196,16 +7261,16 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         vk_descriptor_write.pTexelBufferView = NULL;
 
         d3d12_command_list_debug_mark_begin_region(list, "CopyRenderPass");
-        VK_CALL(vkCmdBeginRendering(list->vk_command_buffer, &rendering_info));
-        VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_info.vk_pipeline));
-        VK_CALL(vkCmdSetViewport(list->vk_command_buffer, 0, 1, &viewport));
-        VK_CALL(vkCmdSetScissor(list->vk_command_buffer, 0, 1, &rendering_info.renderArea));
-        VK_CALL(vkCmdPushDescriptorSetKHR(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+        VK_CALL(vkCmdBeginRendering(list->cmd.vk_command_buffer, &rendering_info));
+        VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_info.vk_pipeline));
+        VK_CALL(vkCmdSetViewport(list->cmd.vk_command_buffer, 0, 1, &viewport));
+        VK_CALL(vkCmdSetScissor(list->cmd.vk_command_buffer, 0, 1, &rendering_info.renderArea));
+        VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                 pipeline_info.vk_pipeline_layout, 0, 1, &vk_descriptor_write));
-        VK_CALL(vkCmdPushConstants(list->vk_command_buffer, pipeline_info.vk_pipeline_layout,
+        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer, pipeline_info.vk_pipeline_layout,
                 VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_args), &push_args));
-        VK_CALL(vkCmdDraw(list->vk_command_buffer, 3, region->dstSubresource.layerCount, 0, 0));
-        VK_CALL(vkCmdEndRendering(list->vk_command_buffer));
+        VK_CALL(vkCmdDraw(list->cmd.vk_command_buffer, 3, region->dstSubresource.layerCount, 0, 0));
+        VK_CALL(vkCmdEndRendering(list->cmd.vk_command_buffer));
         d3d12_command_list_debug_mark_end_region(list);
 
 cleanup:
@@ -7229,7 +7294,7 @@ cleanup:
     vk_image_barriers[1].oldLayout = src_layout;
     vk_image_barriers[1].newLayout = src_resource->common_layout;
 
-    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
     if (dst_resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
         d3d12_command_list_update_subresource_data(list, dst_resource, region->dstSubresource);
@@ -7487,7 +7552,7 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
         VKD3D_BREADCRUMB_RESOURCE(dst_resource);
         VKD3D_BREADCRUMB_BUFFER_IMAGE_COPY(&info->copy.buffer_image);
 
-        VK_CALL(vkCmdCopyImageToBuffer2(list->vk_command_buffer, &copy_info));
+        VK_CALL(vkCmdCopyImageToBuffer2(list->cmd.vk_command_buffer, &copy_info));
 
         d3d12_command_list_transition_image_layout_with_global_memory_barrier(list, batch, src_resource->res.vk_image,
                 &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_NONE,
@@ -7511,7 +7576,7 @@ static void d3d12_command_list_copy_texture_region(struct d3d12_command_list *li
         VKD3D_BREADCRUMB_RESOURCE(dst_resource);
         VKD3D_BREADCRUMB_BUFFER_IMAGE_COPY(&info->copy.buffer_image);
 
-        VK_CALL(vkCmdCopyBufferToImage2(list->vk_command_buffer, &copy_info));
+        VK_CALL(vkCmdCopyBufferToImage2(list->cmd.vk_command_buffer, &copy_info));
 
         d3d12_command_list_transition_image_layout(list, batch, dst_resource->res.vk_image,
                 &info->copy.buffer_image.imageSubresource, VK_PIPELINE_STAGE_2_COPY_BIT,
@@ -7656,7 +7721,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
 
         d3d12_command_list_mark_copy_buffer_write(list, copy_info.dstBuffer, vk_buffer_copy.dstOffset, vk_buffer_copy.size,
                 !!(dst_resource->flags & VKD3D_RESOURCE_RESERVED));
-        VK_CALL(vkCmdCopyBuffer2(list->vk_command_buffer, &copy_info));
+        VK_CALL(vkCmdCopyBuffer2(list->cmd.vk_command_buffer, &copy_info));
     }
     else
     {
@@ -7747,7 +7812,7 @@ static void d3d12_command_list_end_wbi_batch(struct d3d12_command_list *list)
 
             if (flush)
             {
-                VK_CALL(vkCmdUpdateBuffer(list->vk_command_buffer,
+                VK_CALL(vkCmdUpdateBuffer(list->cmd.vk_command_buffer,
                         list->wbi_batch.buffers[first], list->wbi_batch.offsets[first],
                         (next - first) * sizeof(uint32_t), &list->wbi_batch.values[first]));
 
@@ -7756,7 +7821,7 @@ static void d3d12_command_list_end_wbi_batch(struct d3d12_command_list *list)
         }
         else
         {
-            VK_CALL(vkCmdWriteBufferMarkerAMD(list->vk_command_buffer,
+            VK_CALL(vkCmdWriteBufferMarkerAMD(list->cmd.vk_command_buffer,
                     list->wbi_batch.stages[i], list->wbi_batch.buffers[i],
                     list->wbi_batch.offsets[i], list->wbi_batch.values[i]));
         }
@@ -7868,7 +7933,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
             d3d12_command_list_reset_buffer_copy_tracking(list);
         }
 
-        VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
         buffer_image_copy.bufferRowLength = tile_shape->WidthInTexels;
         buffer_image_copy.bufferImageHeight = tile_shape->HeightInTexels;
@@ -7900,7 +7965,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
                 /* Resolve hazards after the image to buffer copy since we're doing an image barrier anyways. */
                 dep_info.memoryBarrierCount = 1;
 
-                VK_CALL(vkCmdCopyImageToBuffer2(list->vk_command_buffer, &copy_info));
+                VK_CALL(vkCmdCopyImageToBuffer2(list->cmd.vk_command_buffer, &copy_info));
             }
             else
             {
@@ -7914,7 +7979,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
                 copy_info.regionCount = 1;
                 copy_info.pRegions = &buffer_image_copy;
 
-                VK_CALL(vkCmdCopyBufferToImage2(list->vk_command_buffer, &copy_info));
+                VK_CALL(vkCmdCopyBufferToImage2(list->cmd.vk_command_buffer, &copy_info));
             }
         }
 
@@ -7923,7 +7988,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
         vk_image_barrier.oldLayout = vk_image_layout;
         vk_image_barrier.newLayout = tiled_res->common_layout;
 
-        VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
     }
     else
     {
@@ -7951,7 +8016,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
 
         d3d12_command_list_mark_copy_buffer_write(list, copy_info.dstBuffer, buffer_copy.dstOffset, buffer_copy.size,
                 !!((copy_to_buffer ? linear_res : tiled_res)->flags & VKD3D_RESOURCE_RESERVED));
-        VK_CALL(vkCmdCopyBuffer2(list->vk_command_buffer, &copy_info));
+        VK_CALL(vkCmdCopyBuffer2(list->cmd.vk_command_buffer, &copy_info));
     }
 
     VKD3D_BREADCRUMB_COMMAND(COPY_TILES);
@@ -8050,7 +8115,7 @@ static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *li
     dep_info.imageMemoryBarrierCount = ARRAY_SIZE(vk_image_barriers);
     dep_info.pImageMemoryBarriers = vk_image_barriers;
 
-    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
     resolve_info.sType = VK_STRUCTURE_TYPE_RESOLVE_IMAGE_INFO_2;
     resolve_info.pNext = NULL;
@@ -8061,7 +8126,7 @@ static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *li
     resolve_info.regionCount = 1;
     resolve_info.pRegions = resolve;
 
-    VK_CALL(vkCmdResolveImage2(list->vk_command_buffer, &resolve_info));
+    VK_CALL(vkCmdResolveImage2(list->cmd.vk_command_buffer, &resolve_info));
 
     vk_image_barriers[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
     vk_image_barriers[0].dstAccessMask = VK_ACCESS_2_NONE;
@@ -8073,7 +8138,7 @@ static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *li
     vk_image_barriers[1].oldLayout = src_layout;
     vk_image_barriers[1].newLayout = src_resource->common_layout;
 
-    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
     if (dst_resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
         d3d12_command_list_update_subresource_data(list, dst_resource, resolve->dstSubresource);
@@ -8668,7 +8733,7 @@ static void d3d12_command_list_barrier_batch_end(struct d3d12_command_list *list
 
     if (dep_info.imageMemoryBarrierCount || dep_info.memoryBarrierCount)
     {
-        VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
         batch->vk_memory_barrier.srcStageMask = 0;
         batch->vk_memory_barrier.srcAccessMask = 0;
@@ -8840,7 +8905,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                 if (transition->StateAfter == D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT)
                 {
                     d3d12_command_list_debug_mark_label(list, "Indirect Argument barrier", 1.0f, 1.0f, 0.0f, 1.0f);
-                    list->execute_indirect.has_observed_transition_to_indirect = true;
+                    /* Any indirect patching commands now have to go to normal command buffer, unless we split the sequence. */
+                    list->cmd.vk_init_commands_post_indirect_barrier = list->cmd.vk_command_buffer;
                 }
 
                 if (!is_valid_resource_state(transition->StateBefore))
@@ -9785,7 +9851,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SOSetTargets(d3d12_command_list
         else
         {
             if (count)
-                VK_CALL(vkCmdBindTransformFeedbackBuffersEXT(list->vk_command_buffer, first, count, buffers, offsets, sizes));
+                VK_CALL(vkCmdBindTransformFeedbackBuffersEXT(list->cmd.vk_command_buffer, first, count, buffers, offsets, sizes));
             count = 0;
             first = start_slot + i + 1;
 
@@ -9797,7 +9863,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SOSetTargets(d3d12_command_list
     }
 
     if (count)
-        VK_CALL(vkCmdBindTransformFeedbackBuffersEXT(list->vk_command_buffer, first, count, buffers, offsets, sizes));
+        VK_CALL(vkCmdBindTransformFeedbackBuffersEXT(list->cmd.vk_command_buffer, first, count, buffers, offsets, sizes));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_command_list_iface *iface,
@@ -10226,9 +10292,9 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     /* clear full resource if no rects are specified */
     curr_rect = full_rect;
 
-    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer,
+    VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer,
             VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.vk_pipeline));
-    VK_CALL(vkCmdPushDescriptorSetKHR(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+    VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
             pipeline.vk_pipeline_layout, 0, 1, &write_set));
 
     for (i = 0; i < rect_count || !i; i++)
@@ -10259,11 +10325,11 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
             clear_args.extent.width = curr_rect.right - clear_args.offset.x;
             clear_args.extent.height = curr_rect.bottom - clear_args.offset.y;
 
-            VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+            VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
                     pipeline.vk_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
                     0, sizeof(clear_args), &clear_args));
 
-            VK_CALL(vkCmdDispatch(list->vk_command_buffer,
+            VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer,
                     min(workgroup_count.width - j, max_workgroup_count),
                     workgroup_count.height, workgroup_count.depth));
         }
@@ -10363,9 +10429,9 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     write_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
     write_set.pTexelBufferView = &vk_buffer_view;
 
-    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer,
+    VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer,
             VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.vk_pipeline));
-    VK_CALL(vkCmdPushDescriptorSetKHR(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+    VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
             pipeline.vk_pipeline_layout, 0, 1, &write_set));
 
     clear_args.clear_color = *clear_value;
@@ -10374,11 +10440,11 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     clear_args.extent.width = element_count;
     clear_args.extent.height = 1;
 
-    VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
             pipeline.vk_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
             0, sizeof(clear_args), &clear_args));
 
-    VK_CALL(vkCmdDispatch(list->vk_command_buffer,
+    VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer,
             vkd3d_compute_workgroup_count(element_count, workgroup_size.width), 1, 1));
 
     /* Insert barrier to make the buffer clear visible, but also to make the
@@ -10396,7 +10462,7 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     barrier.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
     barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_TRANSFER_READ_BIT;
 
-    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
     copy_region.sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2;
     copy_region.pNext = NULL;
@@ -10463,7 +10529,7 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
             else
                 copy_region.imageSubresource.baseArrayLayer = base_layer + j;
 
-            VK_CALL(vkCmdCopyBufferToImage2(list->vk_command_buffer, &copy_info));
+            VK_CALL(vkCmdCopyBufferToImage2(list->cmd.vk_command_buffer, &copy_info));
         }
     }
 
@@ -10472,7 +10538,7 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     barrier.dstStageMask = vk_queue_shader_stages(list->vk_queue_flags);
     barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
 
-    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
     d3d12_command_list_debug_mark_end_region(list);
 }
@@ -11146,7 +11212,7 @@ static void d3d12_command_list_execute_query_resolve(struct d3d12_command_list *
 
         d3d12_command_list_mark_copy_buffer_write(list, copy_info.dstBuffer, copy_region.dstOffset, copy_region.size,
                 !!(entry->dst_buffer->flags & VKD3D_RESOURCE_RESERVED));
-        VK_CALL(vkCmdCopyBuffer2(list->vk_command_buffer, &copy_info));
+        VK_CALL(vkCmdCopyBuffer2(list->cmd.vk_command_buffer, &copy_info));
     }
     else
     {
@@ -11228,16 +11294,16 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(d3d12_command_list_i
         d3d12_command_list_end_current_render_pass(list, true);
 
         if (!d3d12_command_list_reset_query(list, query_heap->vk_query_pool, index))
-            VK_CALL(vkCmdResetQueryPool(list->vk_command_buffer, query_heap->vk_query_pool, index, 1));
+            VK_CALL(vkCmdResetQueryPool(list->cmd.vk_command_buffer, query_heap->vk_query_pool, index, 1));
 
         if (d3d12_query_type_is_indexed(type))
         {
             unsigned int stream_index = type - D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0;
-            VK_CALL(vkCmdBeginQueryIndexedEXT(list->vk_command_buffer,
+            VK_CALL(vkCmdBeginQueryIndexedEXT(list->cmd.vk_command_buffer,
                     query_heap->vk_query_pool, index, flags, stream_index));
         }
         else
-            VK_CALL(vkCmdBeginQuery(list->vk_command_buffer, query_heap->vk_query_pool, index, flags));
+            VK_CALL(vkCmdBeginQuery(list->cmd.vk_command_buffer, query_heap->vk_query_pool, index, flags));
     }
 }
 
@@ -11264,21 +11330,21 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(d3d12_command_list_ifa
         if (d3d12_query_type_is_indexed(type))
         {
             unsigned int stream_index = type - D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0;
-            VK_CALL(vkCmdEndQueryIndexedEXT(list->vk_command_buffer,
+            VK_CALL(vkCmdEndQueryIndexedEXT(list->cmd.vk_command_buffer,
                     query_heap->vk_query_pool, index, stream_index));
         }
         else
-            VK_CALL(vkCmdEndQuery(list->vk_command_buffer, query_heap->vk_query_pool, index));
+            VK_CALL(vkCmdEndQuery(list->cmd.vk_command_buffer, query_heap->vk_query_pool, index));
     }
     else if (type == D3D12_QUERY_TYPE_TIMESTAMP)
     {
         if (!d3d12_command_list_reset_query(list, query_heap->vk_query_pool, index))
         {
             d3d12_command_list_end_current_render_pass(list, true);
-            VK_CALL(vkCmdResetQueryPool(list->vk_command_buffer, query_heap->vk_query_pool, index, 1));
+            VK_CALL(vkCmdResetQueryPool(list->cmd.vk_command_buffer, query_heap->vk_query_pool, index, 1));
         }
 
-        VK_CALL(vkCmdWriteTimestamp2(list->vk_command_buffer,
+        VK_CALL(vkCmdWriteTimestamp2(list->cmd.vk_command_buffer,
                 VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, query_heap->vk_query_pool, index));
     }
     else
@@ -11315,9 +11381,9 @@ static void d3d12_command_list_resolve_binary_occlusion_queries(struct d3d12_com
 
     d3d12_command_list_reset_buffer_copy_tracking(list);
 
-    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
-    VK_CALL(vkCmdBindPipeline(list->vk_command_buffer,
+    VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer,
             VK_PIPELINE_BIND_POINT_COMPUTE,
             query_ops->vk_resolve_binary_pipeline));
 
@@ -11325,19 +11391,19 @@ static void d3d12_command_list_resolve_binary_occlusion_queries(struct d3d12_com
     args.src_va = src_va;
     args.query_count = count;
 
-    VK_CALL(vkCmdPushConstants(list->vk_command_buffer,
+    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
             query_ops->vk_resolve_pipeline_layout,
             VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(args), &args));
 
     workgroup_count = vkd3d_compute_workgroup_count(count, VKD3D_QUERY_OP_WORKGROUP_SIZE);
-    VK_CALL(vkCmdDispatch(list->vk_command_buffer, workgroup_count, 1, 1));
+    VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, workgroup_count, 1, 1));
 
     vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
     vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
     vk_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
 
-    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_list_iface *iface,
@@ -11391,7 +11457,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
         d3d12_command_list_mark_copy_buffer_write(list, buffer->res.vk_buffer,
                 buffer->mem.offset + aligned_dst_buffer_offset, sizeof(uint64_t),
                 !!(buffer->flags & VKD3D_RESOURCE_RESERVED));
-        VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer, query_heap->vk_query_pool,
+        VK_CALL(vkCmdCopyQueryPoolResults(list->cmd.vk_command_buffer, query_heap->vk_query_pool,
                 start_index, query_count, buffer->res.vk_buffer, buffer->mem.offset + aligned_dst_buffer_offset,
                 stride, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
     }
@@ -11428,7 +11494,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
         return;
 
     if (list->predicate_enabled)
-        VK_CALL(vkCmdEndConditionalRenderingEXT(list->vk_command_buffer));
+        VK_CALL(vkCmdEndConditionalRenderingEXT(list->cmd.vk_command_buffer));
 
     if (resource)
     {
@@ -11453,11 +11519,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
         resolve_args.dst_va = scratch.va;
         resolve_args.invert = operation != D3D12_PREDICATION_OP_EQUAL_ZERO;
 
-        VK_CALL(vkCmdBindPipeline(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+        VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
                 predicate_ops->vk_resolve_pipeline));
-        VK_CALL(vkCmdPushConstants(list->vk_command_buffer, predicate_ops->vk_resolve_pipeline_layout,
+        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer, predicate_ops->vk_resolve_pipeline_layout,
                 VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(resolve_args), &resolve_args));
-        VK_CALL(vkCmdDispatch(list->vk_command_buffer, 1, 1, 1));
+        VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, 1, 1, 1));
 
         memset(&vk_barrier, 0, sizeof(vk_barrier));
         vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
@@ -11482,10 +11548,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
         dep_info.memoryBarrierCount = 1;
         dep_info.pMemoryBarriers = &vk_barrier;
 
-        VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
         if (list->predicate_enabled)
-            VK_CALL(vkCmdBeginConditionalRenderingEXT(list->vk_command_buffer, &begin_info));
+            VK_CALL(vkCmdBeginConditionalRenderingEXT(list->cmd.vk_command_buffer, &begin_info));
     }
     else
     {
@@ -11646,7 +11712,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginEvent(d3d12_command_list_i
     for (i = 0; i < 4; i++)
         label.color[i] = 1.0f;
 
-    VK_CALL(vkCmdBeginDebugUtilsLabelEXT(list->vk_command_buffer, &label));
+    VK_CALL(vkCmdBeginDebugUtilsLabelEXT(list->cmd.vk_command_buffer, &label));
     vkd3d_free(label_str);
 }
 
@@ -11660,7 +11726,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndEvent(d3d12_command_list_ifa
     if (!list->device->vk_info.EXT_debug_utils)
         return;
 
-    VK_CALL(vkCmdEndDebugUtilsLabelEXT(list->vk_command_buffer));
+    VK_CALL(vkCmdEndDebugUtilsLabelEXT(list->cmd.vk_command_buffer));
 }
 
 STATIC_ASSERT(sizeof(VkDispatchIndirectCommand) == sizeof(D3D12_DISPATCH_ARGUMENTS));
@@ -11725,9 +11791,9 @@ static void d3d12_command_list_execute_indirect_state_template_compute(
      * update root parameters per command. */
     for (i = 0; i < max_command_count; i++)
     {
-        VK_CALL(vkCmdPushDescriptorSetKHR(list->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+        VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
                 vk_layout, write_set, 1, &write));
-        VK_CALL(vkCmdDispatchIndirect(list->vk_command_buffer, dispatch_scratch.buffer, dispatch_scratch.offset));
+        VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, dispatch_scratch.buffer, dispatch_scratch.offset));
 
         VKD3D_BREADCRUMB_AUX32(i);
         VKD3D_BREADCRUMB_COMMAND(EXECUTE_INDIRECT_UNROLL_COMPUTE);
@@ -11893,19 +11959,16 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
                     &vkd3d_implicit_instance_count, vkd3d_memory_order_relaxed) - 1;
         }
 
-        if (!list->execute_indirect.has_observed_transition_to_indirect)
+        d3d12_command_allocator_allocate_init_post_indirect_command_buffer(list->allocator, list);
+        vk_patch_cmd_buffer = list->cmd.vk_init_commands_post_indirect_barrier;
+
+        if (vk_patch_cmd_buffer == list->cmd.vk_command_buffer)
         {
-            /* Fast path, throw the template resolve to the init command buffer. */
-            d3d12_command_allocator_allocate_init_command_buffer(list->allocator, list);
-            vk_patch_cmd_buffer = list->vk_init_commands;
-            list->execute_indirect.need_compute_to_indirect_barrier = true;
-        }
-        else
-        {
-            vk_patch_cmd_buffer = list->vk_command_buffer;
             d3d12_command_list_end_current_render_pass(list, true);
             d3d12_command_list_invalidate_current_pipeline(list, true);
         }
+        else
+            list->cmd.indirect_meta->need_compute_to_indirect_barrier = true;
 
         VK_CALL(vkCmdPushConstants(vk_patch_cmd_buffer, signature->state_template.dgc.pipeline.vk_pipeline_layout,
                 VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(patch_args), &patch_args));
@@ -11917,7 +11980,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
          * We'll nop out the workgroup early based on direct count, and the number of threads should be trivial either way. */
         VK_CALL(vkCmdDispatch(vk_patch_cmd_buffer, max_command_count, 1, 1));
 
-        if (vk_patch_cmd_buffer == list->vk_command_buffer)
+        if (vk_patch_cmd_buffer == list->cmd.vk_command_buffer)
         {
             memset(&dep_info, 0, sizeof(dep_info));
             dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
@@ -12022,7 +12085,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
             tag = "EI (compute, direct count)";
     }
     d3d12_command_list_debug_mark_begin_region(list, tag);
-    VK_CALL(vkCmdExecuteGeneratedCommandsNV(list->vk_command_buffer, VK_FALSE, &generated));
+    VK_CALL(vkCmdExecuteGeneratedCommandsNV(list->cmd.vk_command_buffer, VK_FALSE, &generated));
     d3d12_command_list_debug_mark_end_region(list);
 
     /* Need to clear state to zero if it was part of a command signature. */
@@ -12226,13 +12289,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
 
                 if (count_buffer || list->predicate_va)
                 {
-                    VK_CALL(vkCmdDrawIndirectCount(list->vk_command_buffer, arg_impl->res.vk_buffer,
+                    VK_CALL(vkCmdDrawIndirectCount(list->cmd.vk_command_buffer, arg_impl->res.vk_buffer,
                             arg_buffer_offset + arg_impl->mem.offset, scratch.buffer, scratch.offset,
                             max_command_count, signature_desc->ByteStride));
                 }
                 else
                 {
-                    VK_CALL(vkCmdDrawIndirect(list->vk_command_buffer, arg_impl->res.vk_buffer,
+                    VK_CALL(vkCmdDrawIndirect(list->cmd.vk_command_buffer, arg_impl->res.vk_buffer,
                             arg_buffer_offset + arg_impl->mem.offset, max_command_count, signature_desc->ByteStride));
                 }
                 break;
@@ -12251,13 +12314,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
 
                 if (count_buffer || list->predicate_va)
                 {
-                    VK_CALL(vkCmdDrawIndexedIndirectCount(list->vk_command_buffer, arg_impl->res.vk_buffer,
+                    VK_CALL(vkCmdDrawIndexedIndirectCount(list->cmd.vk_command_buffer, arg_impl->res.vk_buffer,
                             arg_buffer_offset + arg_impl->mem.offset, scratch.buffer, scratch.offset,
                             max_command_count, signature_desc->ByteStride));
                 }
                 else
                 {
-                    VK_CALL(vkCmdDrawIndexedIndirect(list->vk_command_buffer, arg_impl->res.vk_buffer,
+                    VK_CALL(vkCmdDrawIndexedIndirect(list->cmd.vk_command_buffer, arg_impl->res.vk_buffer,
                             arg_buffer_offset + arg_impl->mem.offset, max_command_count, signature_desc->ByteStride));
                 }
                 break;
@@ -12271,13 +12334,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
 
                 if (count_buffer || list->predicate_va)
                 {
-                    VK_CALL(vkCmdDrawMeshTasksIndirectCountEXT(list->vk_command_buffer, arg_impl->res.vk_buffer,
+                    VK_CALL(vkCmdDrawMeshTasksIndirectCountEXT(list->cmd.vk_command_buffer, arg_impl->res.vk_buffer,
                             arg_buffer_offset  + arg_impl->mem.offset, scratch.buffer, scratch.offset,
                             max_command_count, signature_desc->ByteStride));
                 }
                 else
                 {
-                    VK_CALL(vkCmdDrawMeshTasksIndirectEXT(list->vk_command_buffer,
+                    VK_CALL(vkCmdDrawMeshTasksIndirectEXT(list->cmd.vk_command_buffer,
                             scratch.buffer, scratch.offset, 1, 0));
                 }
                 break;
@@ -12293,7 +12356,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                  * Not the most useful feature ever, but it has to work. */
                 for (i = 0; i < max_command_count; i++)
                 {
-                    VK_CALL(vkCmdDispatchIndirect(list->vk_command_buffer, scratch.buffer, scratch.offset));
+                    VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, scratch.buffer, scratch.offset));
                     VKD3D_BREADCRUMB_AUX32(i);
                     VKD3D_BREADCRUMB_COMMAND(EXECUTE_INDIRECT_UNROLL_COMPUTE);
                     scratch.offset += unrolled_stride;
@@ -12322,7 +12385,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                     break;
                 }
 
-                VK_CALL(vkCmdTraceRaysIndirect2KHR(list->vk_command_buffer, scratch.va));
+                VK_CALL(vkCmdTraceRaysIndirect2KHR(list->cmd.vk_command_buffer, scratch.va));
                 break;
 
             default:
@@ -12578,7 +12641,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_WriteBufferImmediate(d3d12_comm
         }
         else
         {
-            VK_CALL(vkCmdWriteBufferMarkerAMD(list->vk_command_buffer, stage,
+            VK_CALL(vkCmdWriteBufferMarkerAMD(list->cmd.vk_command_buffer, stage,
                     resource->vk_buffer, offset, parameters[i].Value));
         }
 
@@ -12752,7 +12815,7 @@ static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list)
     d3d12_command_list_end_current_render_pass(list, true);
     d3d12_command_list_end_transfer_batch(list);
 
-    VK_CALL(vkCmdBuildAccelerationStructuresKHR(list->vk_command_buffer,
+    VK_CALL(vkCmdBuildAccelerationStructuresKHR(list->cmd.vk_command_buffer,
             rtas_batch->build_info_count, rtas_batch->build_infos, rtas_batch->range_ptrs));
 
     d3d12_command_list_clear_rtas_batch(list);
@@ -12801,7 +12864,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
         dep_info.memoryBarrierCount = 1;
         dep_info.pMemoryBarriers = &vk_barrier;
 
-        VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
     }
 
     rtas_batch->build_type = desc->Inputs.Type;
@@ -13076,7 +13139,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchRays(d3d12_command_list
     }
 
     /* TODO: Is DispatchRays predicated? */
-    VK_CALL(vkCmdTraceRaysKHR(list->vk_command_buffer,
+    VK_CALL(vkCmdTraceRaysKHR(list->cmd.vk_command_buffer,
             &raygen_table, &miss_table, &hit_table, &callable_table,
             desc->Width, desc->Height, desc->Depth));
 
@@ -13218,9 +13281,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchMesh(d3d12_command_list
     }
 
     if (!list->predicate_va)
-        VK_CALL(vkCmdDrawMeshTasksEXT(list->vk_command_buffer, x, y, z));
+        VK_CALL(vkCmdDrawMeshTasksEXT(list->cmd.vk_command_buffer, x, y, z));
     else
-        VK_CALL(vkCmdDrawMeshTasksIndirectEXT(list->vk_command_buffer, scratch.buffer, scratch.offset, 1, 0));
+        VK_CALL(vkCmdDrawMeshTasksIndirectEXT(list->cmd.vk_command_buffer, scratch.buffer, scratch.offset, 1, 0));
 }
 
 static bool d3d12_barrier_invalidates_indirect_arguments(D3D12_BARRIER_SYNC sync, D3D12_BARRIER_ACCESS access)
@@ -13430,7 +13493,8 @@ static void d3d12_command_list_process_enhanced_barrier_global(struct d3d12_comm
     if (d3d12_barrier_invalidates_indirect_arguments(barrier->SyncAfter, barrier->AccessAfter))
     {
         d3d12_command_list_debug_mark_label(list, "Indirect Argument barrier", 1.0f, 1.0f, 0.0f, 1.0f);
-        list->execute_indirect.has_observed_transition_to_indirect = true;
+        /* Any indirect patching commands now have to go to normal command buffer, unless we split the sequence. */
+        list->cmd.vk_init_commands_post_indirect_barrier = list->cmd.vk_command_buffer;
     }
 
     if (barrier->SyncBefore & (D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE))
@@ -14255,6 +14319,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     unsigned int *breadcrumb_indices;
 #endif
     LONG **outstanding;
+    unsigned int iter;
     unsigned int i, j;
     HRESULT hr;
 
@@ -14271,7 +14336,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         return;
     }
 
-    num_command_buffers = command_list_count + 1;
+    /* ExecuteCommandLists submission barrier buffer */
+    num_command_buffers = 1;
 
     for (i = 0; i < command_list_count; ++i)
     {
@@ -14283,8 +14349,13 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
             return;
         }
 
-        if (cmd_list->vk_init_commands)
+        for (iter = 0; iter < cmd_list->cmd.iteration_count; iter++)
+        {
+            if (cmd_list->cmd.iterations[iter].vk_init_commands)
+                num_command_buffers++;
+            assert(cmd_list->cmd.iterations[iter].vk_command_buffer);
             num_command_buffers++;
+        }
     }
 
     if (!(buffers = vkd3d_calloc(num_command_buffers, sizeof(*buffers))))
@@ -14332,16 +14403,19 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         outstanding[i] = cmd_list->outstanding_submissions_count;
         InterlockedIncrement(outstanding[i]);
 
-        if (cmd_list->vk_init_commands)
+        for (iter = 0; iter < cmd_list->cmd.iteration_count; iter++)
         {
+            if (cmd_list->cmd.iterations[iter].vk_init_commands)
+            {
+                buffer = &buffers[j++];
+                buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+                buffer->commandBuffer = cmd_list->cmd.iterations[iter].vk_init_commands;
+            }
+
             buffer = &buffers[j++];
             buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-            buffer->commandBuffer = cmd_list->vk_init_commands;
+            buffer->commandBuffer = cmd_list->cmd.iterations[iter].vk_command_buffer;
         }
-
-        buffer = &buffers[j++];
-        buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-        buffer->commandBuffer = cmd_list->vk_command_buffer;
 
         if (cmd_list->debug_capture)
             sub.execute.debug_capture = true;

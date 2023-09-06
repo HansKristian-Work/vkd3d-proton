@@ -60,7 +60,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_GetVulkanHandle(d3
     if (!pVkCommandBuffer)
         return E_INVALIDARG;
 
-    *pVkCommandBuffer = command_list->vk_command_buffer;
+    *pVkCommandBuffer = command_list->cmd.vk_command_buffer;
+    /* TODO: Do we need to block any attempt to split command buffers here?
+     * Might be a problem if DLSS implementation caches the VkCommandBuffer across DLSS invocations. */
     return S_OK;
 }
 
@@ -100,7 +102,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_LaunchCubinShaderE
     launchInfo.pExtras = config;
     
     vk_procs = &command_list->device->vk_procs;
-    VK_CALL(vkCmdCuLaunchKernelNVX(command_list->vk_command_buffer, &launchInfo));
+    VK_CALL(vkCmdCuLaunchKernelNVX(command_list->cmd.vk_command_buffer, &launchInfo));
     return S_OK;
 }
 

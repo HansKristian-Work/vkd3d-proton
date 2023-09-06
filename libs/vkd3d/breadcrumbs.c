@@ -601,11 +601,11 @@ void vkd3d_breadcrumb_tracer_begin_command_list(struct d3d12_command_list *list)
         cmd.type = VKD3D_BREADCRUMB_COMMAND_SET_BOTTOM_MARKER;
         vkd3d_breadcrumb_tracer_add_command(list, &cmd);
 
-        VK_CALL(vkCmdSetCheckpointNV(list->vk_command_buffer, NV_ENCODE_CHECKPOINT(context, trace->counter)));
+        VK_CALL(vkCmdSetCheckpointNV(list->cmd.vk_command_buffer, NV_ENCODE_CHECKPOINT(context, trace->counter)));
     }
     else if (list->device->vk_info.AMD_buffer_marker)
     {
-        VK_CALL(vkCmdWriteBufferMarkerAMD(list->vk_command_buffer,
+        VK_CALL(vkCmdWriteBufferMarkerAMD(list->cmd.vk_command_buffer,
                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                 breadcrumb_tracer->host_buffer,
                 context * sizeof(struct vkd3d_breadcrumb_counter) +
@@ -661,7 +661,7 @@ void vkd3d_breadcrumb_tracer_signal(struct d3d12_command_list *list)
         vkd3d_breadcrumb_tracer_add_command(list, &cmd);
         TRACE("Breadcrumb signal bottom-of-pipe context %u -> %u\n", context, cmd.count);
 
-        VK_CALL(vkCmdSetCheckpointNV(list->vk_command_buffer, NV_ENCODE_CHECKPOINT(context, trace->counter)));
+        VK_CALL(vkCmdSetCheckpointNV(list->cmd.vk_command_buffer, NV_ENCODE_CHECKPOINT(context, trace->counter)));
     }
     else if (list->device->vk_info.AMD_buffer_marker)
     {
@@ -670,7 +670,7 @@ void vkd3d_breadcrumb_tracer_signal(struct d3d12_command_list *list)
         vkd3d_breadcrumb_tracer_add_command(list, &cmd);
         TRACE("Breadcrumb signal bottom-of-pipe context %u -> %u\n", context, cmd.count);
 
-        VK_CALL(vkCmdWriteBufferMarkerAMD(list->vk_command_buffer,
+        VK_CALL(vkCmdWriteBufferMarkerAMD(list->cmd.vk_command_buffer,
                 VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
                 breadcrumb_tracer->host_buffer,
                 context * sizeof(struct vkd3d_breadcrumb_counter) +
@@ -684,7 +684,7 @@ void vkd3d_breadcrumb_tracer_signal(struct d3d12_command_list *list)
         vkd3d_breadcrumb_tracer_add_command(list, &cmd);
         TRACE("Breadcrumb signal top-of-pipe context %u -> %u\n", context, cmd.count);
 
-        VK_CALL(vkCmdWriteBufferMarkerAMD(list->vk_command_buffer,
+        VK_CALL(vkCmdWriteBufferMarkerAMD(list->cmd.vk_command_buffer,
                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                 breadcrumb_tracer->host_buffer,
                 context * sizeof(struct vkd3d_breadcrumb_counter) +
@@ -723,18 +723,18 @@ void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list)
 
     if (list->device->vk_info.NV_device_diagnostic_checkpoints)
     {
-        VK_CALL(vkCmdSetCheckpointNV(list->vk_command_buffer, NV_ENCODE_CHECKPOINT(context, trace->counter)));
+        VK_CALL(vkCmdSetCheckpointNV(list->cmd.vk_command_buffer, NV_ENCODE_CHECKPOINT(context, trace->counter)));
     }
     else if (list->device->vk_info.AMD_buffer_marker)
     {
-        VK_CALL(vkCmdWriteBufferMarkerAMD(list->vk_command_buffer,
+        VK_CALL(vkCmdWriteBufferMarkerAMD(list->cmd.vk_command_buffer,
                 VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
                 breadcrumb_tracer->host_buffer,
                 context * sizeof(struct vkd3d_breadcrumb_counter) +
                         offsetof(struct vkd3d_breadcrumb_counter, begin_marker),
                 trace->counter));
 
-        VK_CALL(vkCmdWriteBufferMarkerAMD(list->vk_command_buffer,
+        VK_CALL(vkCmdWriteBufferMarkerAMD(list->cmd.vk_command_buffer,
                 VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
                 breadcrumb_tracer->host_buffer,
                 context * sizeof(struct vkd3d_breadcrumb_counter) +
@@ -751,7 +751,7 @@ void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list)
     dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
     dep_info.memoryBarrierCount = 1;
     dep_info.pMemoryBarriers = &vk_barrier;
-    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
     cmd.count = trace->counter;
     cmd.type = VKD3D_BREADCRUMB_COMMAND_SET_TOP_MARKER;
