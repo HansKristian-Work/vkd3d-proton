@@ -7990,6 +7990,15 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
             case D3D12_QUERY_HEAP_TYPE_COPY_QUEUE_TIMESTAMP:
                 pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
                 pool_info.pipelineStatistics = 0;
+
+                /* Works around GPU hang in Remnant II. There is a possible out of bound read
+                 * on resolve which can be worked around like this. */
+                if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS) &&
+                        device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
+                {
+                    WARN("Working around query heap bug.\n");
+                    pool_info.queryCount++;
+                }
                 break;
 
             case D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS:
