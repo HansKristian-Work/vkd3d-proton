@@ -2723,7 +2723,9 @@ struct d3d12_command_list
     bool xfb_enabled;
 
     bool predicate_enabled;
-    VkDeviceAddress predicate_va;
+    VkDeviceAddress predicate_fallback_va;
+    VkBuffer predicate_vk_buffer;
+    VkDeviceSize predicate_vk_buffer_offset;
 
     /* This is VK_NULL_HANDLE when we are no longer sure which pipeline to bind,
      * if this is NULL, we might need to lookup a pipeline key in order to bind the correct pipeline. */
