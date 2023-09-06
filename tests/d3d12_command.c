@@ -2110,6 +2110,482 @@ void test_execute_indirect_multi_dispatch(void)
     destroy_test_context(&context);
 }
 
+void test_execute_indirect_state_predication(void)
+{
+    D3D12_INDIRECT_ARGUMENT_DESC argument_descs[2];
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_COMMAND_SIGNATURE_DESC sig_desc;
+    ID3D12CommandSignature *sig_compute;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_params[3];
+    ID3D12Resource *indirect_graphics;
+    ID3D12Resource *indirect_compute;
+    ID3D12Resource *indirect_counts;
+    ID3D12Resource *indirect_copy;
+    struct test_context_desc desc;
+    ID3D12PipelineState *pso_comp;
+    ID3D12PipelineState *pso_gfx;
+    ID3D12CommandSignature *sig;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *output;
+    D3D12_VIEWPORT vp;
+    unsigned int i, j;
+    D3D12_RECT sci;
+    HRESULT hr;
+
+    /* Tests predication feature alongside ExecuteIndirect templates,
+     * but also considers our internal implementation details w.r.t.
+     * adding extra predication for performance. */
+
+    struct draw_arguments
+    {
+        uint32_t value;
+        D3D12_DRAW_ARGUMENTS draw;
+    };
+
+    struct dispatch_arguments
+    {
+        uint32_t value;
+        D3D12_DISPATCH_ARGUMENTS dispatch;
+    };
+
+#if 0
+    cbuffer C0 : register(b0)
+    {
+        uint offset;
+    };
+
+    cbuffer C1 : register(b1)
+    {
+        uint multiplier;
+    };
+
+    RWStructuredBuffer<uint> U : register(u0);
+
+    float4 vs_main(uint vid : SV_VertexID) : SV_Position
+    {
+            float2 pos;
+            pos.x = float(vid & 1) * 4.0 - 1.0;
+            pos.y = float(vid & 2) * 2.0 - 1.0;
+            return float4(pos.x, pos.y, 0.0, 1.0);
+    }
+
+        void ps_main()
+    {
+        uint o;
+        InterlockedAdd(U[offset], multiplier, o);
+    }
+#endif
+    static const DWORD vs_code[] =
+    {
+        0x43425844, 0xd55024ac, 0xd6bde7be, 0x8e69c8d0, 0x7c420f5c, 0x00000001, 0x00000178, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000006, 0x00000001, 0x00000000, 0x00000101, 0x565f5653, 0x65747265, 0x00444978,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x505f5653, 0x7469736f, 0x006e6f69, 0x58454853, 0x000000dc, 0x00010050,
+        0x00000037, 0x0100086a, 0x04000060, 0x00101012, 0x00000000, 0x00000006, 0x04000067, 0x001020f2,
+        0x00000000, 0x00000001, 0x02000068, 0x00000001, 0x0a000001, 0x00100032, 0x00000000, 0x00101006,
+        0x00000000, 0x00004002, 0x00000001, 0x00000002, 0x00000000, 0x00000000, 0x05000056, 0x00100032,
+        0x00000000, 0x00100046, 0x00000000, 0x09000032, 0x00102012, 0x00000000, 0x0010000a, 0x00000000,
+        0x00004001, 0x40800000, 0x00004001, 0xbf800000, 0x09000032, 0x00102022, 0x00000000, 0x0010001a,
+        0x00000000, 0x00004001, 0x40000000, 0x00004001, 0xbf800000, 0x08000036, 0x001020c2, 0x00000000,
+        0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x3f800000, 0x0100003e,
+    };
+
+    static const DWORD ps_code[] =
+    {
+        0x43425844, 0x1d17e84a, 0x6e8ac53e, 0x6892c752, 0xde28987a, 0x00000001, 0x000000e8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000094, 0x00000050, 0x00000025, 0x0100086a,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x04000059, 0x00208e46, 0x00000001, 0x00000001,
+        0x0400009e, 0x0011e000, 0x00000000, 0x00000004, 0x02000068, 0x00000001, 0x06000036, 0x00100012,
+        0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x05000036, 0x00100022, 0x00000000, 0x00004001,
+        0x00000000, 0x080000ad, 0x0011e000, 0x00000000, 0x00100046, 0x00000000, 0x0020800a, 0x00000001,
+        0x00000000, 0x0100003e,
+    };
+
+    static const DWORD cs_code[] =
+    {
+#if 0
+    cbuffer C0 : register(b0)
+    {
+            uint offset;
+    };
+
+    cbuffer C1 : register(b1)
+    {
+            uint multiplier;
+    };
+
+    RWStructuredBuffer<uint> U : register(u0);
+
+    [numthreads(1, 1, 1)]
+    void main()
+    {
+            uint o;
+            InterlockedAdd(U[offset], multiplier, o);
+    }
+#endif
+        0x43425844, 0x5a66c2bf, 0x0970d204, 0x92950097, 0x539d92eb, 0x00000001, 0x000000f8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x000000a4, 0x00050050, 0x00000029, 0x0100086a,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x04000059, 0x00208e46, 0x00000001, 0x00000001,
+        0x0400009e, 0x0011e000, 0x00000000, 0x00000004, 0x02000068, 0x00000001, 0x0400009b, 0x00000001,
+        0x00000001, 0x00000001, 0x06000036, 0x00100012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000,
+        0x05000036, 0x00100022, 0x00000000, 0x00004001, 0x00000000, 0x080000ad, 0x0011e000, 0x00000000,
+        0x00100046, 0x00000000, 0x0020800a, 0x00000001, 0x00000000, 0x0100003e,
+    };
+
+    static const D3D12_SHADER_BYTECODE vs_code_dxbc = SHADER_BYTECODE(vs_code);
+    static const D3D12_SHADER_BYTECODE ps_code_dxbc = SHADER_BYTECODE(ps_code);
+    static const D3D12_SHADER_BYTECODE cs_code_dxbc = SHADER_BYTECODE(cs_code);
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_render_target = true;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_params, 0, sizeof(rs_params));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_params);
+    rs_desc.pParameters = rs_params;
+
+    rs_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_params[0].Constants.Num32BitValues = 1;
+    rs_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rs_params[1].Descriptor.ShaderRegister = 1;
+    rs_params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    memset(argument_descs, 0, sizeof(argument_descs));
+    argument_descs[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT;
+    argument_descs[0].Constant.RootParameterIndex = 0;
+    argument_descs[0].Constant.Num32BitValuesToSet = 1;
+    argument_descs[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
+
+    memset(&sig_desc, 0, sizeof(sig_desc));
+    sig_desc.pArgumentDescs = argument_descs;
+    sig_desc.NumArgumentDescs = ARRAY_SIZE(argument_descs);
+    sig_desc.ByteStride = sizeof(struct draw_arguments);
+
+    if (FAILED(hr = ID3D12Device_CreateCommandSignature(context.device, &sig_desc, context.root_signature,
+            &IID_ID3D12CommandSignature, (void **)&sig)))
+    {
+        skip("Implementation does not support DGC, skipping test.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    argument_descs[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+    sig_desc.ByteStride = sizeof(struct dispatch_arguments);
+
+    if (FAILED(hr = ID3D12Device_CreateCommandSignature(context.device, &sig_desc, context.root_signature,
+            &IID_ID3D12CommandSignature, (void **)&sig_compute)))
+    {
+        skip("Implementation does not support DGCC, skipping test.\n");
+        ID3D12CommandSignature_Release(sig);
+        destroy_test_context(&context);
+        return;
+    }
+
+    pso_comp = create_compute_pipeline_state(context.device, context.root_signature, cs_code_dxbc);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature, DXGI_FORMAT_UNKNOWN, &vs_code_dxbc, &ps_code_dxbc, NULL);
+    pso_desc.DepthStencilState.DepthEnable = FALSE;
+    pso_desc.DepthStencilState.StencilEnable = FALSE;
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso_gfx);
+
+    {
+        uint32_t counts[256] = { 0 };
+        for (i = 0; i < ARRAY_SIZE(counts) / 2; i++)
+            counts[i] = i;
+        indirect_counts = create_upload_buffer(context.device, sizeof(counts), counts);
+        indirect_copy = create_default_buffer(context.device, sizeof(counts), D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+    }
+
+    {
+        /* Test various ways to observe empty draws. Go beyond 32 so we can test behavior for larger dispatches as well. */
+        struct draw_arguments draws[128] = {{0}};
+        for (i = 0; i < ARRAY_SIZE(draws); i++)
+        {
+            draws[i].value = i * 4;
+            if (i & 1)
+                draws[i].draw.VertexCountPerInstance = 3;
+            else
+                draws[i].draw.InstanceCount = 40;
+        }
+
+        /* Let only the last one be a real draw. */
+        draws[ARRAY_SIZE(draws) - 1].draw.VertexCountPerInstance = 3;
+        draws[ARRAY_SIZE(draws) - 1].draw.InstanceCount = 40;
+        indirect_graphics = create_upload_buffer(context.device, sizeof(draws), draws);
+    }
+
+    {
+        /* Test various ways to observe empty dispatches. */
+        struct dispatch_arguments dispatches[128] = {{0}};
+        for (i = 0; i < ARRAY_SIZE(dispatches); i++)
+        {
+            dispatches[i].value = i * 4;
+            switch (i & 3)
+            {
+                case 0:
+                    dispatches[i].dispatch.ThreadGroupCountX = 1;
+                    dispatches[i].dispatch.ThreadGroupCountY = 1;
+                    break;
+
+                case 1:
+                    dispatches[i].dispatch.ThreadGroupCountX = 1;
+                    dispatches[i].dispatch.ThreadGroupCountZ = 1;
+                    break;
+
+                default:
+                    dispatches[i].dispatch.ThreadGroupCountY = 1;
+                    dispatches[i].dispatch.ThreadGroupCountZ = 1;
+                    break;
+            }
+        }
+
+        dispatches[ARRAY_SIZE(dispatches) - 1].dispatch.ThreadGroupCountX = 10;
+        dispatches[ARRAY_SIZE(dispatches) - 1].dispatch.ThreadGroupCountY = 10;
+        dispatches[ARRAY_SIZE(dispatches) - 1].dispatch.ThreadGroupCountZ = 10;
+        indirect_compute = create_upload_buffer(context.device, sizeof(dispatches), dispatches);
+    }
+
+    /* Graphics */
+    {
+        output = create_default_buffer(context.device, 64 * 1024, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+        set_viewport(&vp, 0, 0, 1, 1, 0, 1);
+        set_rect(&sci, 0, 0, 1, 1);
+        ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+        ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &sci);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, pso_gfx);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(indirect_counts) + 256);
+
+        for (i = 0; i < 6; i++)
+        {
+            if (i == 0)
+                ID3D12GraphicsCommandList_SetPredication(context.list, NULL, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+            else if (i == 1)
+                ID3D12GraphicsCommandList_SetPredication(context.list, indirect_counts, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+            else if (i == 2)
+                ID3D12GraphicsCommandList_SetPredication(context.list, indirect_counts, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+            else if (i == 5)
+                ID3D12GraphicsCommandList_SetPredication(context.list, indirect_copy, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+            /* inherit predication in i == 3 */
+
+            ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 0) * sizeof(uint32_t));
+            /* Hammer hard to study profiler. */
+            for (j = 0; j < 1024; j++)
+                ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig, 127, indirect_graphics, 0, NULL, 0); /* should do nothing, and should be culled out */
+            ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 1) * sizeof(uint32_t));
+            ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig, 128, indirect_graphics, 0, NULL, 0); /* last draw will do something, verify we actually check all draws when we cull */
+            ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 2) * sizeof(uint32_t));
+            ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig, 1, indirect_graphics, 127 * sizeof(struct draw_arguments), NULL, 0); /* same, but only 1 draw */
+            ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 3) * sizeof(uint32_t));
+
+            if (i > 2)
+                ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig, 1, indirect_graphics, 127 * sizeof(struct draw_arguments), indirect_copy, 0); /* same, but indirect count */
+            else
+                ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig, 1, indirect_graphics, 127 * sizeof(struct draw_arguments), indirect_counts, 4); /* same, but indirect count */
+
+            if (i == 2)
+            {
+                /* Check if predication persists across an INDIRECT_ARGUMENT barrier */
+                ID3D12GraphicsCommandList_SetPredication(context.list, NULL, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+                ID3D12GraphicsCommandList_CopyBufferRegion(context.list, indirect_copy, 0, indirect_counts, 0, 8);
+                ID3D12GraphicsCommandList_SetPredication(context.list, indirect_counts, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+            }
+            else if (i == 3)
+            {
+                ID3D12GraphicsCommandList_SetPredication(context.list, NULL, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                ID3D12GraphicsCommandList_CopyBufferRegion(context.list, indirect_copy, 0, indirect_counts, 512, 8); /* copy a 0 count here. Copy to same location to make sure the indirect count caches get flushed. */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+            }
+            else if (i == 4)
+            {
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                ID3D12GraphicsCommandList_CopyBufferRegion(context.list, indirect_copy, 0, indirect_counts, 32, 8); /* copy a non-zero count here. Copy to same location to make sure the indirect count caches get flushed. */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+            }
+            else if (i == 5)
+            {
+                /* Stress test to make sure we stop splitting at some point. */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+            }
+        }
+
+        ID3D12GraphicsCommandList_SetPredication(context.list, NULL, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+        transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+
+        for (i = 0; i < 128; i++)
+        {
+            uint32_t expected_w;
+            struct uvec4 value;
+            uint32_t expected;
+
+            for (j = 0; j < 6; j++)
+            {
+                value = *get_readback_uvec4(&rb, i + 128 * j, 0);
+
+                expected = i == 127 ? 40 : 0; /* Number of instances (i.e. pixels) drawn */
+                expected *= 64; /* multiplier from root CBV */
+
+                if (j == 2 || j == 3)
+                    expected = 0; /* predicated away */
+
+                /* In iteration 5, we copied a zero indirect count. */
+                expected_w = j == 4 ? 0 : expected;
+
+                /* of the gang of 4 draws, the first one should not do anything */
+                ok(value.x == 0 && value.y == expected && value.z == expected && value.w == expected_w,
+                        "Iteration %u, draw output %u: expected {%u, %u, %u, %u}, got {%u, %u, %u, %u}.\n", j, i, 0,
+                        expected, expected, expected,
+                        value.x, value.y, value.z, value.w);
+            }
+        }
+
+        release_resource_readback(&rb);
+        ID3D12Resource_Release(output);
+    }
+
+    /* Compute */
+    {
+        output = create_default_buffer(context.device, 64 * 1024, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetComputeRootConstantBufferView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(indirect_counts) + 256);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, pso_comp);
+
+        for (i = 0; i < 6; i++)
+        {
+            if (i == 0)
+                ID3D12GraphicsCommandList_SetPredication(context.list, NULL, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+            else if (i == 1)
+                ID3D12GraphicsCommandList_SetPredication(context.list, indirect_counts, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+            else if (i == 2)
+                ID3D12GraphicsCommandList_SetPredication(context.list, indirect_counts, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+            else if (i == 5)
+                ID3D12GraphicsCommandList_SetPredication(context.list, indirect_copy, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+            /* inherit predication in i == 3 */
+
+            ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 0) * sizeof(uint32_t));
+            /* Hammer this really hard, so we can stare at profiler. */
+            for (j = 0; j < 1024; j++)
+                ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig_compute, 127, indirect_compute, 0, NULL, 0); /* should do nothing, and should be culled out */
+            ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 1) * sizeof(uint32_t));
+            ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig_compute, 128, indirect_compute, 0, NULL, 0); /* last draw will do something, verify we actually check all draws when we cull */
+            ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 2) * sizeof(uint32_t));
+            ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig_compute, 1, indirect_compute, 127 * sizeof(struct dispatch_arguments), NULL, 0); /* same, but only 1 draw */
+            ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 3) * sizeof(uint32_t));
+
+            if (i > 2)
+                ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig_compute, 1, indirect_compute, 127 * sizeof(struct dispatch_arguments), indirect_copy, 0); /* same, but indirect count */
+            else
+                ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig_compute, 1, indirect_compute, 127 * sizeof(struct dispatch_arguments), indirect_counts, 4); /* same, but indirect count */
+
+            if (i == 2)
+            {
+                /* Check if predication persists across an INDIRECT_ARGUMENT barrier */
+                ID3D12GraphicsCommandList_SetPredication(context.list, NULL, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+                ID3D12GraphicsCommandList_CopyBufferRegion(context.list, indirect_copy, 0, indirect_counts, 0, 8);
+                ID3D12GraphicsCommandList_SetPredication(context.list, indirect_counts, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+            }
+            else if (i == 3)
+            {
+                ID3D12GraphicsCommandList_SetPredication(context.list, NULL, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                ID3D12GraphicsCommandList_CopyBufferRegion(context.list, indirect_copy, 0, indirect_counts, 512, 8); /* copy a 0 count here. Copy to same location to make sure the indirect count caches get flushed. */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+            }
+            else if (i == 4)
+            {
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                ID3D12GraphicsCommandList_CopyBufferRegion(context.list, indirect_copy, 0, indirect_counts, 32, 8); /* copy a non-zero count here. Copy to same location to make sure the indirect count caches get flushed. */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+            }
+            else if (i == 5)
+            {
+                /* Stress test to make sure we stop splitting at some point. */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+            }
+        }
+
+        ID3D12GraphicsCommandList_SetPredication(context.list, NULL, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+        transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+
+        for (i = 0; i < 128; i++)
+        {
+            struct uvec4 value;
+            uint32_t expected;
+            uint32_t expected_w;
+
+            for (j = 0; j < 6; j++)
+            {
+                value = *get_readback_uvec4(&rb, i + 128 * j, 0);
+
+                expected = i == 127 ? 1000 : 0; /* Number of workgroups drawn */
+                expected *= 64; /* multiplier from root CBV */
+
+                if (j == 2 || j == 3)
+                    expected = 0; /* predicated away */
+
+                /* In iteration 5, we copied a zero indirect count. */
+                expected_w = j == 4 ? 0 : expected;
+
+                /* of the gang of 4 dispatches, the first one should not do anything */
+                ok(value.x == 0 && value.y == expected && value.z == expected && value.w == expected_w,
+                    "Iteration %u, draw output %u: expected {%u, %u, %u, %u}, got {%u, %u, %u, %u}.\n", j, i, 0,
+                    expected, expected, expected,
+                    value.x, value.y, value.z, value.w);
+            }
+        }
+
+        release_resource_readback(&rb);
+        ID3D12Resource_Release(output);
+    }
+
+    ID3D12CommandSignature_Release(sig);
+    ID3D12CommandSignature_Release(sig_compute);
+    ID3D12Resource_Release(indirect_counts);
+    ID3D12Resource_Release(indirect_graphics);
+    ID3D12Resource_Release(indirect_compute);
+    ID3D12Resource_Release(indirect_copy);
+    ID3D12PipelineState_Release(pso_comp);
+    ID3D12PipelineState_Release(pso_gfx);
+    destroy_test_context(&context);
+}
+
 void test_execute_indirect_state(void)
 {
     static const struct vec4 values = { 1000.0f, 2000.0f, 3000.0f, 4000.0f };
