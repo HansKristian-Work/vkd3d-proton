@@ -144,6 +144,7 @@ decl_test(test_resolve_query_data_in_different_command_list);
 decl_test(test_resolve_query_data_in_reordered_command_list);
 decl_test(test_execute_indirect);
 decl_test(test_execute_indirect_state);
+decl_test(test_execute_indirect_state_predication);
 decl_test(test_execute_indirect_multi_dispatch);
 decl_test(test_execute_indirect_multi_dispatch_root_constants);
 decl_test(test_execute_indirect_multi_dispatch_root_descriptors);
