@@ -269,7 +269,7 @@ static void vkd3d_acceleration_structure_end_barrier(struct d3d12_command_list *
     dep_info.memoryBarrierCount = 1;
     dep_info.pMemoryBarriers = &barrier;
 
-    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 }
 
 static void vkd3d_acceleration_structure_write_postbuild_info(
@@ -324,7 +324,7 @@ static void vkd3d_acceleration_structure_write_postbuild_info(
         /* TODO: CURRENT_SIZE is something we cannot query in Vulkan, so
          * we'll need to keep around a buffer to handle this.
          * For now, just clear to 0. */
-        VK_CALL(vkCmdFillBuffer(list->vk_command_buffer, vk_buffer, offset,
+        VK_CALL(vkCmdFillBuffer(list->cmd.vk_command_buffer, vk_buffer, offset,
                 sizeof(uint64_t), 0));
         return;
     }
@@ -338,9 +338,9 @@ static void vkd3d_acceleration_structure_write_postbuild_info(
 
     d3d12_command_list_reset_query(list, vk_query_pool, vk_query_index);
 
-    VK_CALL(vkCmdWriteAccelerationStructuresPropertiesKHR(list->vk_command_buffer,
+    VK_CALL(vkCmdWriteAccelerationStructuresPropertiesKHR(list->cmd.vk_command_buffer,
             1, &vk_acceleration_structure, vk_query_type, vk_query_pool, vk_query_index));
-    VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer,
+    VK_CALL(vkCmdCopyQueryPoolResults(list->cmd.vk_command_buffer,
             vk_query_pool, vk_query_index, 1,
             vk_buffer, offset, stride,
             VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
@@ -359,10 +359,10 @@ static void vkd3d_acceleration_structure_write_postbuild_info(
 
             d3d12_command_list_reset_query(list, vk_query_pool, vk_query_index);
 
-            VK_CALL(vkCmdWriteAccelerationStructuresPropertiesKHR(list->vk_command_buffer,
+            VK_CALL(vkCmdWriteAccelerationStructuresPropertiesKHR(list->cmd.vk_command_buffer,
                     1, &vk_acceleration_structure, VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_BOTTOM_LEVEL_POINTERS_KHR,
                     vk_query_pool, vk_query_index));
-            VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer,
+            VK_CALL(vkCmdCopyQueryPoolResults(list->cmd.vk_command_buffer,
                     vk_query_pool, vk_query_index, 1,
                     vk_buffer, offset + sizeof(uint64_t), stride,
                     VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
@@ -370,7 +370,7 @@ static void vkd3d_acceleration_structure_write_postbuild_info(
         else
         {
             FIXME("NumBottomLevelPointers will always return 0.\n");
-            VK_CALL(vkCmdFillBuffer(list->vk_command_buffer, vk_buffer, offset + sizeof(uint64_t),
+            VK_CALL(vkCmdFillBuffer(list->cmd.vk_command_buffer, vk_buffer, offset + sizeof(uint64_t),
                     sizeof(uint64_t), 0));
         }
     }
@@ -401,7 +401,7 @@ void vkd3d_acceleration_structure_emit_postbuild_info(
     dep_info.memoryBarrierCount = 1;
     dep_info.pMemoryBarriers = &barrier;
 
-    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
     stride = desc->InfoType == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION ?
             2 * sizeof(uint64_t) : sizeof(uint64_t);
@@ -448,7 +448,7 @@ void vkd3d_acceleration_structure_emit_immediate_postbuild_info(
     dep_info.memoryBarrierCount = 1;
     dep_info.pMemoryBarriers = &barrier;
 
-    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
     /* Could optimize a bit by batching more aggressively, but no idea if it's going to help in practice. */
     for (i = 0; i < count; i++)
@@ -503,5 +503,5 @@ void vkd3d_acceleration_structure_copy(
     info.dst = dst_as;
     info.src = src_as;
     if (convert_copy_mode(mode, &info.mode))
-        VK_CALL(vkCmdCopyAccelerationStructureKHR(list->vk_command_buffer, &info));
+        VK_CALL(vkCmdCopyAccelerationStructureKHR(list->cmd.vk_command_buffer, &info));
 }
