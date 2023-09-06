@@ -2647,6 +2647,45 @@ union vkd3d_descriptor_heap_state
     } sets;
 };
 
+struct d3d12_command_list_iteration_indirect_meta
+{
+    bool need_compute_to_indirect_barrier;
+    bool need_compute_to_cbv_barrier;
+};
+
+struct d3d12_command_list_iteration
+{
+    VkCommandBuffer vk_command_buffer;
+    VkCommandBuffer vk_init_commands;
+    struct d3d12_command_list_iteration_indirect_meta indirect_meta;
+};
+
+/* TODO: increase. */
+#define VKD3D_MAX_COMMAND_LIST_SEQUENCES 1
+
+struct d3d12_command_list_sequence
+{
+    /* A command list can be split into multiple sequences of
+     * init -> command -> init -> command.
+     * This facilitates batching.
+     * Command stream can be split on e.g. INDIRECT_ARGUMENT resource state.
+     * This allows us to hoist predication CS streams nicely even in cases
+     * where INDIRECT_ARGUMENT barriers appear in the stream. */
+    struct d3d12_command_list_iteration iterations[VKD3D_MAX_COMMAND_LIST_SEQUENCES];
+    unsigned int iteration_count;
+
+    /* Emit normal commands here. */
+    VkCommandBuffer vk_command_buffer;
+    /* For various commands which should be thrown to the start of ID3D12CommandList. */
+    VkCommandBuffer vk_init_commands;
+    /* For any command which is sensitive to INDIRECT_ARGUMENT barriers.
+     * If equal to vk_command_buffer, it means it is not possible to split command buffers, and
+     * we must use vk_command_buffer with appropriate barriers. */
+    VkCommandBuffer vk_init_commands_post_indirect_barrier;
+
+    struct d3d12_command_list_iteration_indirect_meta *indirect_meta;
+};
+
 struct d3d12_command_list
 {
     d3d12_command_list_iface ID3D12GraphicsCommandList_iface;
@@ -2671,15 +2710,7 @@ struct d3d12_command_list
         bool is_dirty;
     } index_buffer;
 
-    struct
-    {
-        bool has_observed_transition_to_indirect;
-        bool need_compute_to_indirect_barrier;
-        bool need_compute_to_cbv_barrier;
-    } execute_indirect;
-
-    VkCommandBuffer vk_command_buffer;
-    VkCommandBuffer vk_init_commands;
+    struct d3d12_command_list_sequence cmd;
 
     struct d3d12_rtv_desc rtvs[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct d3d12_rtv_desc dsv;
