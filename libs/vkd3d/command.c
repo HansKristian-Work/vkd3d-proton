@@ -3233,6 +3233,25 @@ static bool d3d12_resource_may_alias_other_resources(struct d3d12_resource *reso
     return true;
 }
 
+static void d3d12_command_list_debug_mark_label(struct d3d12_command_list *list, const char *tag,
+        float r, float g, float b, float a)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkDebugUtilsLabelEXT label;
+
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) && list->device->vk_info.EXT_debug_utils)
+    {
+        label.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+        label.pNext = NULL;
+        label.pLabelName = tag;
+        label.color[0] = r;
+        label.color[1] = g;
+        label.color[2] = b;
+        label.color[3] = a;
+        VK_CALL(vkCmdInsertDebugUtilsLabelEXT(list->vk_command_buffer, &label));
+    }
+}
+
 static void d3d12_command_list_debug_mark_begin_region(
         struct d3d12_command_list *list, const char *tag)
 {
@@ -8287,13 +8306,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
     if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) && state &&
             list->device->vk_info.EXT_debug_utils)
     {
-        const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-        VkDebugUtilsLabelEXT label;
         char buffer[1024];
-
-        memset(&label, 0, sizeof(label));
-        label.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
-        label.pLabelName = "?";
+        float r, g, b, a;
 
         if (state->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
         {
@@ -8302,11 +8316,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
                     state->compute.code.meta.hash,
                     state->compute.code_debug.debug_entry_point_name ?
                             state->compute.code_debug.debug_entry_point_name : "N/A");
-            label.color[0] = 1.0f;
-            label.color[1] = 0.5f;
-            label.color[2] = 0.0f;
-            label.color[3] = 1.0f;
-            label.pLabelName = buffer;
+            r = 1.0f;
+            g = 0.5f;
+            b = 0.0f;
+            a = 1.0f;
         }
         else if (state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS ||
                 state->pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS)
@@ -8323,13 +8336,21 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
                                 state->graphics.code_debug[i].debug_entry_point_name : "N/A");
             }
 
-            label.color[0] = 0.0f;
-            label.color[1] = 0.0f;
-            label.color[2] = 1.0f;
-            label.color[3] = 1.0f;
-            label.pLabelName = buffer;
+            r = 0.0f;
+            g = 0.0f;
+            b = 1.0f;
+            a = 1.0f;
         }
-        VK_CALL(vkCmdInsertDebugUtilsLabelEXT(list->vk_command_buffer, &label));
+        else
+        {
+            strcpy(buffer, "?");
+            r = 0.0f;
+            g = 0.0f;
+            b = 0.0f;
+            a = 1.0f;
+        }
+
+        d3d12_command_list_debug_mark_label(list, buffer, r, g, b, a);
     }
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
@@ -8818,20 +8839,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                  * This is very handy when handling back-to-back ExecuteIndirects(). */
                 if (transition->StateAfter == D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT)
                 {
-                    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) && list->device->vk_info.EXT_debug_utils)
-                    {
-                        const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-                        VkDebugUtilsLabelEXT label;
-
-                        label.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
-                        label.pNext = NULL;
-                        label.pLabelName = "IndirectArgument barrier";
-                        label.color[0] = 1.0f;
-                        label.color[1] = 1.0f;
-                        label.color[2] = 0.0f;
-                        label.color[3] = 0.0f;
-                        VK_CALL(vkCmdInsertDebugUtilsLabelEXT(list->vk_command_buffer, &label));
-                    }
+                    d3d12_command_list_debug_mark_label(list, "Indirect Argument barrier", 1.0f, 1.0f, 0.0f, 1.0f);
                     list->execute_indirect.has_observed_transition_to_indirect = true;
                 }
 
@@ -11594,10 +11602,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetMarker(d3d12_command_list_if
         UINT metadata, const void *data, UINT size)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkDebugUtilsLabelEXT label;
     char *label_str;
-    unsigned int i;
 
     if (!list->device->vk_info.EXT_debug_utils)
         return;
@@ -11609,13 +11614,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetMarker(d3d12_command_list_if
         return;
     }
 
-    label.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
-    label.pNext = NULL;
-    label.pLabelName = label_str;
-    for (i = 0; i < 4; i++)
-        label.color[i] = 1.0f;
-
-    VK_CALL(vkCmdInsertDebugUtilsLabelEXT(list->vk_command_buffer, &label));
+    d3d12_command_list_debug_mark_label(list, label_str, 1.0f, 1.0f, 1.0f, 1.0f);
     vkd3d_free(label_str);
 }
 
@@ -13429,7 +13428,10 @@ static void d3d12_command_list_process_enhanced_barrier_global(struct d3d12_comm
     dst_access = vk_access_flags_from_d3d12_barrier(barrier->AccessAfter);
 
     if (d3d12_barrier_invalidates_indirect_arguments(barrier->SyncAfter, barrier->AccessAfter))
+    {
+        d3d12_command_list_debug_mark_label(list, "Indirect Argument barrier", 1.0f, 1.0f, 0.0f, 1.0f);
         list->execute_indirect.has_observed_transition_to_indirect = true;
+    }
 
     if (barrier->SyncBefore & (D3D12_BARRIER_SYNC_ALL | D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE))
         d3d12_command_list_flush_rtas_batch(list);
