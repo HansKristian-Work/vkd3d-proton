@@ -5249,7 +5249,9 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
     list->xfb_enabled = false;
 
     list->predicate_enabled = false;
-    list->predicate_va = 0;
+    list->predicate_fallback_va = 0;
+    list->predicate_vk_buffer = VK_NULL_HANDLE;
+    list->predicate_vk_buffer_offset = 0;
 
     list->index_buffer.buffer = VK_NULL_HANDLE;
 
@@ -6591,7 +6593,7 @@ static bool d3d12_command_list_emit_predicated_command(struct d3d12_command_list
     d3d12_command_list_invalidate_current_pipeline(list, true);
     d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
 
-    args.predicate_va = list->predicate_va;
+    args.predicate_va = list->predicate_fallback_va;
     args.dst_arg_va = scratch->va;
     args.src_arg_va = indirect_args;
     args.args = *direct_args;
@@ -6632,7 +6634,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawInstanced(d3d12_command_lis
             iface, vertex_count_per_instance, instance_count,
             start_vertex_location, start_instance_location);
 
-    if (list->predicate_va)
+    if (list->predicate_fallback_va)
     {
         union vkd3d_predicate_command_direct_args args;
         args.draw.vertexCount = vertex_count_per_instance;
@@ -6650,7 +6652,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawInstanced(d3d12_command_lis
         return;
     }
 
-    if (!list->predicate_va)
+    if (!list->predicate_fallback_va)
         VK_CALL(vkCmdDraw(list->cmd.vk_command_buffer, vertex_count_per_instance,
                 instance_count, start_vertex_location, start_instance_location));
     else
@@ -6714,7 +6716,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(d3d12_comm
     if (!d3d12_command_list_update_index_buffer(list))
         return;
 
-    if (list->predicate_va)
+    if (list->predicate_fallback_va)
     {
         union vkd3d_predicate_command_direct_args args;
         args.draw_indexed.indexCount = index_count_per_instance;
@@ -6735,7 +6737,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(d3d12_comm
 
     d3d12_command_list_check_index_buffer_strip_cut_value(list);
 
-    if (!list->predicate_va)
+    if (!list->predicate_fallback_va)
         VK_CALL(vkCmdDrawIndexed(list->cmd.vk_command_buffer, index_count_per_instance,
                 instance_count, start_vertex_location, base_vertex_location, start_instance_location));
     else
@@ -6758,7 +6760,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(d3d12_command_list_ifa
 
     TRACE("iface %p, x %u, y %u, z %u.\n", iface, x, y, z);
 
-    if (list->predicate_va)
+    if (list->predicate_fallback_va)
     {
         union vkd3d_predicate_command_direct_args args;
         args.dispatch.x = x;
@@ -6777,7 +6779,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(d3d12_command_list_ifa
         return;
     }
 
-    if (!list->predicate_va)
+    if (!list->predicate_fallback_va)
         VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, x, y, z));
     else
         VK_CALL(vkCmdDispatchIndirect(list->cmd.vk_command_buffer, scratch.buffer, scratch.offset));
@@ -11535,12 +11537,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
             vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_CONDITIONAL_RENDERING_BIT_EXT;
             vk_barrier.dstAccessMask = VK_ACCESS_2_CONDITIONAL_RENDERING_READ_BIT_EXT;
             list->predicate_enabled = true;
+            list->predicate_vk_buffer = scratch.buffer;
+            list->predicate_vk_buffer_offset = scratch.offset;
         }
         else
         {
             vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
             vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-            list->predicate_va = scratch.va;
+            list->predicate_fallback_va = scratch.va;
         }
 
         memset(&dep_info, 0, sizeof(dep_info));
@@ -11556,7 +11560,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPredication(d3d12_command_li
     else
     {
         list->predicate_enabled = false;
-        list->predicate_va = 0;
+        list->predicate_fallback_va = 0;
+        list->predicate_vk_buffer = VK_NULL_HANDLE;
+        list->predicate_vk_buffer_offset = 0;
     }
 }
 
@@ -12164,7 +12170,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
     if (!max_command_count)
         return;
 
-    if ((count_buffer || list->predicate_va) && !list->device->device_info.vulkan_1_2_features.drawIndirectCount)
+    if ((count_buffer || list->predicate_fallback_va) && !list->device->device_info.vulkan_1_2_features.drawIndirectCount)
     {
         FIXME("Count buffers not supported by Vulkan implementation.\n");
         return;
@@ -12182,7 +12188,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
     if (sig_impl->requires_state_template)
     {
         /* Complex execute indirect path. */
-        if (list->predicate_va)
+        if (list->predicate_fallback_va)
             FIXME("Predicated ExecuteIndirect with state template not supported yet. Ignoring predicate.\n");
 
         if (sig_impl->requires_state_template_dgc)
@@ -12212,7 +12218,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
     {
         const D3D12_INDIRECT_ARGUMENT_DESC *arg_desc = &signature_desc->pArgumentDescs[i];
 
-        if (list->predicate_va)
+        if (list->predicate_fallback_va)
         {
             union vkd3d_predicate_command_direct_args args;
             enum vkd3d_predicate_command_type type;
@@ -12287,7 +12293,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                     break;
                 }
 
-                if (count_buffer || list->predicate_va)
+                if (count_buffer || list->predicate_fallback_va)
                 {
                     VK_CALL(vkCmdDrawIndirectCount(list->cmd.vk_command_buffer, arg_impl->res.vk_buffer,
                             arg_buffer_offset + arg_impl->mem.offset, scratch.buffer, scratch.offset,
@@ -12312,7 +12318,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
 
                 d3d12_command_list_check_index_buffer_strip_cut_value(list);
 
-                if (count_buffer || list->predicate_va)
+                if (count_buffer || list->predicate_fallback_va)
                 {
                     VK_CALL(vkCmdDrawIndexedIndirectCount(list->cmd.vk_command_buffer, arg_impl->res.vk_buffer,
                             arg_buffer_offset + arg_impl->mem.offset, scratch.buffer, scratch.offset,
@@ -12332,7 +12338,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                     break;
                 }
 
-                if (count_buffer || list->predicate_va)
+                if (count_buffer || list->predicate_fallback_va)
                 {
                     VK_CALL(vkCmdDrawMeshTasksIndirectCountEXT(list->cmd.vk_command_buffer, arg_impl->res.vk_buffer,
                             arg_buffer_offset  + arg_impl->mem.offset, scratch.buffer, scratch.offset,
@@ -13263,7 +13269,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchMesh(d3d12_command_list
 
     TRACE("iface %p, x %u, y %u, z %u.\n", iface, x, y, z);
 
-    if (list->predicate_va)
+    if (list->predicate_fallback_va)
     {
         union vkd3d_predicate_command_direct_args args;
         args.dispatch.x = x;
@@ -13280,7 +13286,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchMesh(d3d12_command_list
         return;
     }
 
-    if (!list->predicate_va)
+    if (!list->predicate_fallback_va)
         VK_CALL(vkCmdDrawMeshTasksEXT(list->cmd.vk_command_buffer, x, y, z));
     else
         VK_CALL(vkCmdDrawMeshTasksIndirectEXT(list->cmd.vk_command_buffer, scratch.buffer, scratch.offset, 1, 0));
