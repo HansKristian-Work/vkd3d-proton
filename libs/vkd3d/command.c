@@ -1831,6 +1831,8 @@ static void d3d12_command_list_mark_as_invalid(struct d3d12_command_list *list,
 }
 
 static void d3d12_command_list_debug_mark_begin_region(struct d3d12_command_list *list, const char *tag);
+static void d3d12_command_list_debug_mark_label(struct d3d12_command_list *list, const char *tag,
+        float r, float g, float b, float a);
 
 static HRESULT d3d12_command_list_begin_command_buffer(struct d3d12_command_list *list)
 {
@@ -1998,6 +2000,16 @@ static void d3d12_command_list_begin_new_sequence(struct d3d12_command_list *lis
     d3d12_command_list_invalidate_all_state(list);
     /* Extra special consideration since we're starting a fresh command buffer. */
     list->descriptor_heap.buffers.heap_dirty = true;
+    d3d12_command_list_debug_mark_label(list, "Split", 0.0f, 0.0f, 0.0f, 1.0f);
+}
+
+static void d3d12_command_list_consider_new_sequence(struct d3d12_command_list *list)
+{
+    if (list->cmd.vk_command_buffer == list->cmd.vk_init_commands_post_indirect_barrier &&
+            vkd3d_atomic_uint32_load_explicit(&list->device->device_has_dgc_templates, vkd3d_memory_order_relaxed))
+    {
+        d3d12_command_list_begin_new_sequence(list);
+    }
 }
 
 static HRESULT d3d12_command_allocator_allocate_init_command_buffer(struct d3d12_command_allocator *allocator,
@@ -9213,6 +9225,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
     VKD3D_BREADCRUMB_COMMAND(BARRIER);
 
     d3d12_command_list_debug_mark_end_region(list);
+    d3d12_command_list_consider_new_sequence(list);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ExecuteBundle(d3d12_command_list_iface *iface,
@@ -13781,6 +13794,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_Barrier(d3d12_command_list_ifac
     d3d12_command_list_barrier_batch_end(list, &batch);
     VKD3D_BREADCRUMB_COMMAND(BARRIER);
     d3d12_command_list_debug_mark_end_region(list);
+    d3d12_command_list_consider_new_sequence(list);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_OMSetFrontAndBackStencilRef(d3d12_command_list_iface *iface, UINT FrontStencilRef, UINT BackStencilRef)
@@ -16767,6 +16781,10 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
             if (FAILED(hr = d3d12_command_signature_init_state_template_compute(object, desc, root_signature, device)))
                 goto err;
         }
+
+        /* Heuristic. If game uses fancy execute indirect we're more inclined to split command buffers
+         * for optimal reordering. */
+        vkd3d_atomic_uint32_store_explicit(&device->device_has_dgc_templates, 1, vkd3d_memory_order_relaxed);
     }
     else
         object->argument_buffer_offset = argument_buffer_offset;
