@@ -1918,6 +1918,77 @@ static HRESULT d3d12_command_allocator_allocate_command_buffer(struct d3d12_comm
     return S_OK;
 }
 
+static void d3d12_command_list_invalidate_all_state(struct d3d12_command_list *list);
+static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list, bool suspend);
+
+static void d3d12_command_list_begin_new_sequence(struct d3d12_command_list *list)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkConditionalRenderingBeginInfoEXT conditional_begin_info;
+    VkCommandBufferAllocateInfo command_buffer_info;
+    struct d3d12_command_list_iteration *iteration;
+    VkCommandBufferBeginInfo begin_info;
+    VkResult vr;
+
+    if (list->cmd.iteration_count >= VKD3D_MAX_COMMAND_LIST_SEQUENCES)
+        return;
+
+    iteration = &list->cmd.iterations[list->cmd.iteration_count];
+    command_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    command_buffer_info.pNext = NULL;
+    command_buffer_info.commandPool = list->allocator->vk_command_pool;
+    command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    command_buffer_info.commandBufferCount = 1;
+
+    if ((vr = VK_CALL(vkAllocateCommandBuffers(list->device->vk_device,
+            &command_buffer_info, &iteration->vk_command_buffer))) < 0)
+    {
+        ERR("Failed to allocate Vulkan command buffer, vr %d.\n", vr);
+        /* Not fatal, but we don't get to split. */
+        return;
+    }
+
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.pNext = NULL;
+    begin_info.flags = 0;
+    begin_info.pInheritanceInfo = NULL;
+    if ((vr = VK_CALL(vkBeginCommandBuffer(iteration->vk_command_buffer, &begin_info))) < 0)
+    {
+        VK_CALL(vkFreeCommandBuffers(list->device->vk_device, list->allocator->vk_command_pool,
+                1, &iteration->vk_command_buffer));
+        ERR("Failed to begin Vulkan command buffer, vr %d.\n", vr);
+        return;
+    }
+
+    /* Some things we *have* to end now because API says so.
+     * Most cleanup can be deferred to Close(). */
+    d3d12_command_list_end_current_render_pass(list, true);
+    if (list->predicate_enabled)
+        VK_CALL(vkCmdEndConditionalRenderingEXT(list->cmd.vk_command_buffer));
+
+    if ((vr = VK_CALL(vkEndCommandBuffer(list->cmd.vk_command_buffer)) < 0))
+        ERR("Failed to end command buffer, vr %d.\n", vr);
+
+    list->cmd.vk_command_buffer = iteration->vk_command_buffer;
+    list->cmd.vk_init_commands_post_indirect_barrier = VK_NULL_HANDLE;
+    list->cmd.iteration_count++;
+
+    if (list->predicate_enabled)
+    {
+        /* Rearm the conditional rendering. */
+        conditional_begin_info.sType = VK_STRUCTURE_TYPE_CONDITIONAL_RENDERING_BEGIN_INFO_EXT;
+        conditional_begin_info.pNext = NULL;
+        conditional_begin_info.buffer = list->predicate_vk_buffer;
+        conditional_begin_info.offset = list->predicate_vk_buffer_offset;
+        conditional_begin_info.flags = 0;
+        VK_CALL(vkCmdBeginConditionalRenderingEXT(list->cmd.vk_command_buffer, &conditional_begin_info));
+    }
+
+    d3d12_command_list_invalidate_all_state(list);
+    /* Extra special consideration since we're starting a fresh command buffer. */
+    list->descriptor_heap.buffers.heap_dirty = true;
+}
+
 static HRESULT d3d12_command_allocator_allocate_init_command_buffer(struct d3d12_command_allocator *allocator,
         struct d3d12_command_list *list)
 {
@@ -5322,7 +5393,7 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     d3d12_command_list_reset_internal_state(list);
 }
 
-static inline void d3d12_command_list_invalidate_all_state(struct d3d12_command_list *list)
+static void d3d12_command_list_invalidate_all_state(struct d3d12_command_list *list)
 {
     d3d12_command_list_invalidate_current_pipeline(list, true);
     d3d12_command_list_invalidate_root_parameters(list, &list->graphics_bindings, true, NULL);
