@@ -12083,6 +12083,10 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
     {
         if (!d3d12_command_list_update_compute_pipeline(list))
             return;
+
+        /* Needed for workarounds later. */
+        if (!(list->vk_queue_flags & VK_QUEUE_GRAPHICS_BIT))
+            list->cmd.uses_dgc_compute_in_async_compute = true;
     }
     else
     {
@@ -14610,6 +14614,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 #endif
 
     sub.execute.debug_capture = false;
+    sub.execute.split_submission = false;
 
     num_transitions = 0;
 
@@ -14650,6 +14655,14 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
         if (cmd_list->debug_capture)
             sub.execute.debug_capture = true;
+
+        /* Submission logic for IB fallbacks seems to have exposed something ... very dodgy in RADV. */
+        if (cmd_list->cmd.uses_dgc_compute_in_async_compute &&
+                !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS) &&
+                command_queue->device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV)
+        {
+            sub.execute.split_submission = true;
+        }
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
         if (breadcrumb_indices)
@@ -15320,12 +15333,64 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
     *timeline_value = pool->timeline_value;
 }
 
+static VkResult d3d12_command_queue_submit_split_locked(struct d3d12_device *device,
+        VkQueue vk_queue, uint32_t num_submits, const VkSubmitInfo2 *submits)
+{
+    /* Ugly workaround when needed. Never submit more than one command buffer at a time. */
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    const VkSubmitInfo2 *input_submission;
+    VkSubmitInfo2 split_submission;
+    uint32_t submit_index;
+    uint32_t cmd_index;
+    uint32_t num_cmds;
+    VkResult vr;
+
+    memset(&split_submission, 0, sizeof(split_submission));
+    split_submission.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+
+    for (submit_index = 0; submit_index < num_submits; submit_index++)
+    {
+        input_submission = &submits[submit_index];
+
+        if (input_submission->commandBufferInfoCount > 1)
+        {
+            num_cmds = input_submission->commandBufferInfoCount;
+            split_submission.pSignalSemaphoreInfos = input_submission->pSignalSemaphoreInfos;
+            split_submission.pWaitSemaphoreInfos = input_submission->pWaitSemaphoreInfos;
+            split_submission.commandBufferInfoCount = 1;
+
+            for (cmd_index = 0; cmd_index < num_cmds; cmd_index++)
+            {
+                split_submission.pCommandBufferInfos =
+                        &input_submission->pCommandBufferInfos[cmd_index];
+                split_submission.signalSemaphoreInfoCount =
+                        cmd_index + 1 == num_cmds ? input_submission->signalSemaphoreInfoCount : 0;
+                split_submission.waitSemaphoreInfoCount =
+                        cmd_index == 0 ? input_submission->waitSemaphoreInfoCount : 0;
+
+                if ((vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, &split_submission, VK_NULL_HANDLE))) < 0)
+                {
+                    ERR("Failed to submit queue(s), vr %d.\n", vr);
+                    return vr;
+                }
+            }
+        }
+        else if ((vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, input_submission, VK_NULL_HANDLE))) < 0)
+        {
+            ERR("Failed to submit queue(s), vr %d.\n", vr);
+            return vr;
+        }
+    }
+
+	return VK_SUCCESS;
+}
+
 static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queue,
         const VkCommandBufferSubmitInfo *cmd, UINT count,
         const VkCommandBufferSubmitInfo *transition_cmd,
         const VkSemaphoreSubmitInfo *transition_semaphore,
         LONG **submission_counters, size_t num_submission_counters,
-        bool debug_capture)
+        bool debug_capture, bool split_submissions)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
     struct vkd3d_queue *vkd3d_queue = command_queue->vkd3d_queue;
@@ -15401,7 +15466,9 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     (void)debug_capture;
 #endif
 
-    if ((vr = VK_CALL(vkQueueSubmit2(vk_queue, num_submits, submit_desc, VK_NULL_HANDLE))) < 0)
+    if (split_submissions)
+        vr = d3d12_command_queue_submit_split_locked(command_queue->device, vk_queue, num_submits, submit_desc);
+    else if ((vr = VK_CALL(vkQueueSubmit2(vk_queue, num_submits, submit_desc, VK_NULL_HANDLE))) < 0)
         ERR("Failed to submit queue(s), vr %d.\n", vr);
 
     VKD3D_DEVICE_REPORT_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
@@ -15887,7 +15954,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
                     &transition_cmd, &transition_semaphore,
                     submission.execute.outstanding_submissions_counters,
                     submission.execute.outstanding_submissions_counter_count,
-                    submission.execute.debug_capture);
+                    submission.execute.debug_capture, submission.execute.split_submission);
 
             /* command_queue_execute takes ownership of the outstanding_submission_counters allocation.
              * The atomic counters are decremented when the submission is observed to be freed.
