@@ -2660,8 +2660,7 @@ struct d3d12_command_list_iteration
     struct d3d12_command_list_iteration_indirect_meta indirect_meta;
 };
 
-/* TODO: increase. */
-#define VKD3D_MAX_COMMAND_LIST_SEQUENCES 1
+#define VKD3D_MAX_COMMAND_LIST_SEQUENCES 4
 
 struct d3d12_command_list_sequence
 {
