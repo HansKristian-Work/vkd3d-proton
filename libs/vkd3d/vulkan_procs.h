@@ -354,6 +354,13 @@ VK_DEVICE_EXT_PFN(vkCmdDecompressMemoryIndirectCountNV)
 /* VK_EXT_device_fault */
 VK_DEVICE_EXT_PFN(vkGetDeviceFaultInfoEXT)
 
+/* VK_NV_low_latency2 */
+VK_DEVICE_EXT_PFN(vkSetLatencySleepModeNV)
+VK_DEVICE_EXT_PFN(vkLatencySleepNV)
+VK_DEVICE_EXT_PFN(vkSetLatencyMarkerNV)
+VK_DEVICE_EXT_PFN(vkGetLatencyTimingsNV)
+VK_DEVICE_EXT_PFN(vkQueueNotifyOutOfBandNV)
+
 #undef VK_INSTANCE_PFN
 #undef VK_INSTANCE_EXT_PFN
 #undef VK_DEVICE_PFN

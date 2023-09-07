@@ -54,3 +54,18 @@ interface ID3D12DXVKInteropDevice : IUnknown
     HRESULT LockCommandQueue(ID3D12CommandQueue *queue);
     HRESULT UnlockCommandQueue(ID3D12CommandQueue *queue);
 }
+
+[
+    uuid(f3112584-41f9-348d-a59b-00b7e1d285d6),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3DLowLatencyDevice : IUnknown
+{
+    BOOL SupportsLowLatency();
+    HRESULT LatencySleep();
+    HRESULT SetLatencySleepMode(BOOL low_latency_mode, BOOL low_latency_boost, UINT32 minimum_interval_us);
+    HRESULT SetLatencyMarker(UINT64 frameID, UINT32 markerType);
+    HRESULT GetLatencyInfo(D3D12_LATENCY_RESULTS *latency_results);
+}

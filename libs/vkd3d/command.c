@@ -219,6 +219,26 @@ fail_destroy_mutex:
     return hr;
 }
 
+void vkd3d_set_queue_out_of_band(struct d3d12_device *device, struct vkd3d_queue *queue)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkOutOfBandQueueTypeInfoNV queue_info;
+
+    if (!device->vk_info.NV_low_latency2)
+        return;
+
+    memset(&queue_info, 0, sizeof(queue_info));
+    queue_info.sType = VK_STRUCTURE_TYPE_OUT_OF_BAND_QUEUE_TYPE_INFO_NV;
+    queue_info.pNext = NULL;
+    queue_info.queueType = VK_OUT_OF_BAND_QUEUE_TYPE_RENDER_NV;
+
+    VK_CALL(vkQueueNotifyOutOfBandNV(queue->vk_queue, &queue_info));
+
+    queue_info.queueType = VK_OUT_OF_BAND_QUEUE_TYPE_PRESENT_NV;
+
+    VK_CALL(vkQueueNotifyOutOfBandNV(queue->vk_queue, &queue_info));
+}
+
 static void vkd3d_queue_flush_waiters(struct vkd3d_queue *vkd3d_queue,
         struct vkd3d_fence_worker *worker,
         const struct vkd3d_vk_device_procs *vk_procs);
@@ -16597,12 +16617,14 @@ static struct d3d12_command_list *d3d12_command_list_from_iface(ID3D12CommandLis
 }
 
 /* ID3D12CommandQueue */
+extern ULONG STDMETHODCALLTYPE d3d12_command_queue_vkd3d_ext_AddRef(d3d12_command_queue_vkd3d_ext_iface *iface);
+
 static inline struct d3d12_command_queue *impl_from_ID3D12CommandQueue(ID3D12CommandQueue *iface)
 {
     return CONTAINING_RECORD(iface, struct d3d12_command_queue, ID3D12CommandQueue_iface);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_command_queue_QueryInterface(ID3D12CommandQueue *iface,
+HRESULT STDMETHODCALLTYPE d3d12_command_queue_QueryInterface(ID3D12CommandQueue *iface,
         REFIID riid, void **object)
 {
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
@@ -16621,6 +16643,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_QueryInterface(ID3D12Comman
         return S_OK;
     }
 
+    if (IsEqualGUID(riid, &IID_ID3D12CommandQueueExt))
+    {
+        struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
+        d3d12_command_queue_vkd3d_ext_AddRef(&command_queue->ID3D12CommandQueueExt_iface);
+        *object = &command_queue->ID3D12CommandQueueExt_iface;
+        return S_OK;
+    }
+
     if (IsEqualGUID(riid, &IID_IDXGIVkSwapChainFactory))
     {
         struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
@@ -16635,7 +16665,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_QueryInterface(ID3D12Comman
     return E_NOINTERFACE;
 }
 
-static ULONG STDMETHODCALLTYPE d3d12_command_queue_AddRef(ID3D12CommandQueue *iface)
+ULONG STDMETHODCALLTYPE d3d12_command_queue_AddRef(ID3D12CommandQueue *iface)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
     ULONG refcount = InterlockedIncrement(&command_queue->refcount);
@@ -16645,7 +16675,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_queue_AddRef(ID3D12CommandQueue *if
     return refcount;
 }
 
-static ULONG STDMETHODCALLTYPE d3d12_command_queue_Release(ID3D12CommandQueue *iface)
+ULONG STDMETHODCALLTYPE d3d12_command_queue_Release(ID3D12CommandQueue *iface)
 {
     struct d3d12_command_queue *command_queue = impl_from_ID3D12CommandQueue(iface);
     ULONG refcount = InterlockedDecrement(&command_queue->refcount);
@@ -17138,6 +17168,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     sub.execute.cmd_count = num_command_buffers;
     sub.execute.command_allocators = allocators;
     sub.execute.num_command_allocators = command_list_count;
+    sub.execute.low_latency_frame_id = command_queue->device->frame_markers.render;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     sub.execute.breadcrumb_indices = breadcrumb_indices;
     sub.execute.breadcrumb_indices_count = breadcrumb_indices ? command_list_count : 0;
@@ -17300,6 +17331,8 @@ static D3D12_COMMAND_QUEUE_DESC * STDMETHODCALLTYPE d3d12_command_queue_GetDesc(
     *desc = command_queue->desc;
     return desc;
 }
+
+extern CONST_VTBL struct ID3D12CommandQueueExtVtbl d3d12_command_queue_vkd3d_ext_vtbl;
 
 static CONST_VTBL struct ID3D12CommandQueueVtbl d3d12_command_queue_vtbl =
 {
@@ -17813,10 +17846,12 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         const VkSemaphoreSubmitInfo *transition_semaphore,
         struct d3d12_command_allocator **command_allocators, size_t num_command_allocators,
         struct vkd3d_queue_timeline_trace_cookie timeline_cookie,
-        bool debug_capture, bool split_submissions)
+        uint64_t low_latency_frame_id, bool debug_capture, bool split_submissions)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
     struct vkd3d_queue *vkd3d_queue = command_queue->vkd3d_queue;
+    VkLatencySubmissionPresentIdNV latency_submit_present_info;
+    struct dxgi_vk_swap_chain *low_latency_swapchain;
     VkSemaphoreSubmitInfo signal_semaphore_info;
     VkSemaphoreSubmitInfo binary_semaphore_info;
     VkSubmitInfo2 submit_desc[4];
@@ -17899,6 +17934,27 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         submit_desc[num_submits + 1].waitSemaphoreInfoCount = 1;
         submit_desc[num_submits + 1].pWaitSemaphoreInfos = &binary_semaphore_info;
         num_submits += 2;
+    }
+
+    if (command_queue->device->vk_info.NV_low_latency2)
+    {
+        spinlock_acquire(&command_queue->device->low_latency_swapchain_spinlock);
+        if ((low_latency_swapchain = command_queue->device->swapchain_info.low_latency_swapchain))
+            dxgi_vk_swap_chain_incref(low_latency_swapchain);
+        spinlock_release(&command_queue->device->low_latency_swapchain_spinlock);
+
+        if (low_latency_swapchain && dxgi_vk_swap_chain_low_latency_enabled(low_latency_swapchain))
+        {
+            latency_submit_present_info.sType = VK_STRUCTURE_TYPE_LATENCY_SUBMISSION_PRESENT_ID_NV;
+            latency_submit_present_info.pNext = NULL;
+            latency_submit_present_info.presentID = low_latency_frame_id;
+
+            for (i = 0; i < num_submits; i++)
+                submit_desc[i].pNext = &latency_submit_present_info;
+        }
+
+        if (low_latency_swapchain)
+            dxgi_vk_swap_chain_decref(low_latency_swapchain);
     }
 
 #ifdef VKD3D_ENABLE_RENDERDOC
@@ -18403,7 +18459,9 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
                     submission.execute.command_allocators,
                     submission.execute.num_command_allocators,
                     submission.execute.timeline_cookie,
-                    submission.execute.debug_capture, submission.execute.split_submission);
+                    submission.execute.low_latency_frame_id,
+                    submission.execute.debug_capture,
+                    submission.execute.split_submission);
 
             /* command_queue_execute takes ownership of the
              * outstanding_submission_counters and queue_timeline_indices allocations.
@@ -18466,6 +18524,7 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
     int rc;
 
     queue->ID3D12CommandQueue_iface.lpVtbl = &d3d12_command_queue_vtbl;
+    queue->ID3D12CommandQueueExt_iface.lpVtbl = &d3d12_command_queue_vkd3d_ext_vtbl;
     queue->refcount = 1;
 
     queue->desc = *desc;
@@ -18594,6 +18653,7 @@ void vkd3d_enqueue_initial_transition(ID3D12CommandQueue *queue, ID3D12Resource 
 
     memset(&sub, 0, sizeof(sub));
     sub.type = VKD3D_SUBMISSION_EXECUTE;
+    sub.execute.low_latency_frame_id = d3d12_queue->device->frame_markers.render;
     sub.execute.transition_count = 1;
     sub.execute.transitions = vkd3d_malloc(sizeof(*sub.execute.transitions));
     sub.execute.transitions[0].type = VKD3D_INITIAL_TRANSITION_TYPE_RESOURCE;
