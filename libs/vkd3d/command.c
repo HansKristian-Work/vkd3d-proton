@@ -6671,6 +6671,7 @@ static bool d3d12_command_list_emit_predicated_command(struct d3d12_command_list
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_predicate_command_info pipeline_info;
     struct vkd3d_predicate_command_args args;
+    VkCommandBuffer vk_patch_cmd_buffer;
     VkMemoryBarrier2 vk_barrier;
     VkDependencyInfo dep_info;
 
@@ -6681,36 +6682,46 @@ static bool d3d12_command_list_emit_predicated_command(struct d3d12_command_list
             pipeline_info.data_size, sizeof(uint32_t), ~0u, scratch))
         return false;
 
-    d3d12_command_list_end_current_render_pass(list, true);
+    d3d12_command_allocator_allocate_init_post_indirect_command_buffer(list->allocator, list);
+    vk_patch_cmd_buffer = list->cmd.vk_init_commands_post_indirect_barrier;
 
-    d3d12_command_list_invalidate_current_pipeline(list, true);
-    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
+    if (vk_patch_cmd_buffer == list->cmd.vk_command_buffer)
+        d3d12_command_list_end_current_render_pass(list, true);
 
     args.predicate_va = list->predication.va;
     args.dst_arg_va = scratch->va;
     args.src_arg_va = indirect_args;
     args.args = *direct_args;
 
-    VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+    VK_CALL(vkCmdBindPipeline(vk_patch_cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
             pipeline_info.vk_pipeline));
-    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
+    VK_CALL(vkCmdPushConstants(vk_patch_cmd_buffer,
             pipeline_info.vk_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
             0, sizeof(args), &args));
-    VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, 1, 1, 1));
+    VK_CALL(vkCmdDispatch(vk_patch_cmd_buffer, 1, 1, 1));
 
-    memset(&vk_barrier, 0, sizeof(vk_barrier));
-    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
-    vk_barrier.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+    if (vk_patch_cmd_buffer == list->cmd.vk_command_buffer)
+    {
+        memset(&vk_barrier, 0, sizeof(vk_barrier));
+        vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+        vk_barrier.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
 
-    memset(&dep_info, 0, sizeof(dep_info));
-    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep_info.memoryBarrierCount = 1;
-    dep_info.pMemoryBarriers = &vk_barrier;
+        memset(&dep_info, 0, sizeof(dep_info));
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.memoryBarrierCount = 1;
+        dep_info.pMemoryBarriers = &vk_barrier;
 
-    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+
+        d3d12_command_list_invalidate_current_pipeline(list, true);
+        d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
+    }
+    else
+        list->cmd.indirect_meta->need_compute_to_indirect_barrier = true;
+
     return true;
 }
 
