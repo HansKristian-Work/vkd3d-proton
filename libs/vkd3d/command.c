@@ -11985,6 +11985,8 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const VkPhysicalDeviceDeviceGeneratedCommandsPropertiesNV *props;
+    VkConditionalRenderingBeginInfoEXT conditional_begin_info;
+    struct vkd3d_scratch_allocation predication_allocation;
     struct vkd3d_scratch_allocation preprocess_allocation;
     struct vkd3d_scratch_allocation stream_allocation;
     struct vkd3d_scratch_allocation count_allocation;
@@ -11993,15 +11995,57 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
     VkGeneratedCommandsInfoNV generated;
     VkCommandBuffer vk_patch_cmd_buffer;
     VkIndirectCommandsStreamNV stream;
+    bool require_custom_predication;
     VkDeviceSize preprocess_size;
     VkPipeline current_pipeline;
     VkDependencyInfo dep_info;
     VkMemoryBarrier2 barrier;
+    bool suspend_predication;
     bool require_ibo_update;
     bool require_patch;
     const char *tag;
     unsigned int i;
     HRESULT hr;
+
+    require_custom_predication = false;
+    suspend_predication = false;
+
+    if (list->predication.va)
+    {
+        /* Predication works on NV driver here, so we assume it's intended by spec.
+         * It does not work on RADV yet, so we'll fold predication in with our optimization work which
+         * generates a predicate anyway. */
+        if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS) &&
+                list->device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV)
+        {
+            union vkd3d_predicate_command_direct_args args;
+            enum vkd3d_predicate_command_type type;
+            VkDeviceAddress count_va;
+            suspend_predication = list->predication.enabled_on_command_buffer;
+
+            if (count_buffer)
+            {
+                count_va = count_buffer->res.va + count_buffer_offset;
+                type = VKD3D_PREDICATE_COMMAND_DRAW_INDIRECT_COUNT;
+            }
+            else
+            {
+                count_va = 0;
+                type = VKD3D_PREDICATE_COMMAND_DRAW_INDIRECT;
+                args.draw_count = max_command_count;
+            }
+
+            d3d12_command_list_emit_predicated_command(list, type, count_va, &args, &predication_allocation);
+            require_custom_predication = true;
+        }
+    }
+
+    if (suspend_predication)
+    {
+        /* Have to begin/end predication outside a render pass. */
+        d3d12_command_list_end_current_render_pass(list, true);
+        VK_CALL(vkCmdEndConditionalRenderingEXT(list->cmd.vk_command_buffer));
+    }
 
     /* To build device generated commands, we need to know the pipeline we're going to render with. */
     if (signature->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
@@ -12176,7 +12220,12 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
     generated.sequencesIndexBuffer = VK_NULL_HANDLE;
     generated.sequencesIndexOffset = 0;
 
-    if (count_buffer)
+    if (require_custom_predication)
+    {
+        generated.sequencesCountBuffer = predication_allocation.buffer;
+        generated.sequencesCountOffset = predication_allocation.offset;
+    }
+    else if (count_buffer)
     {
         if (require_patch)
         {
@@ -12280,6 +12329,20 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
      * invalidate all state. Unclear exactly which state is invalidated though ...
      * Treat it as a meta shader. We need to nuke all state after running execute generated commands. */
     d3d12_command_list_invalidate_all_state(list);
+
+    if (suspend_predication)
+    {
+        /* Have to begin/end predication outside a render pass. */
+        d3d12_command_list_end_current_render_pass(list, true);
+
+        /* Rearm the conditional rendering. */
+        conditional_begin_info.sType = VK_STRUCTURE_TYPE_CONDITIONAL_RENDERING_BEGIN_INFO_EXT;
+        conditional_begin_info.pNext = NULL;
+        conditional_begin_info.buffer = list->predication.vk_buffer;
+        conditional_begin_info.offset = list->predication.vk_buffer_offset;
+        conditional_begin_info.flags = 0;
+        VK_CALL(vkCmdBeginConditionalRenderingEXT(list->cmd.vk_command_buffer, &conditional_begin_info));
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_list_iface *iface,
@@ -12321,10 +12384,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
 
     if (sig_impl->requires_state_template)
     {
-        /* Complex execute indirect path. */
-        if (list->predication.fallback_enabled)
-            FIXME("Predicated ExecuteIndirect with state template not supported yet. Ignoring predicate.\n");
-
         if (sig_impl->requires_state_template_dgc)
         {
             d3d12_command_list_execute_indirect_state_template_dgc(list, sig_impl,
@@ -12356,7 +12415,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
         {
             union vkd3d_predicate_command_direct_args args;
             enum vkd3d_predicate_command_type type;
-            VkDeviceSize indirect_va;
+            VkDeviceAddress indirect_va;
 
             switch (arg_desc->Type)
             {
