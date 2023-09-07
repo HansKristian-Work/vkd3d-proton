@@ -2749,6 +2749,9 @@ struct d3d12_command_list
     struct d3d12_command_allocator *allocator;
     struct d3d12_device *device;
 
+    VkBuffer so_buffers[D3D12_SO_BUFFER_SLOT_COUNT];
+    VkDeviceSize so_buffer_offsets[D3D12_SO_BUFFER_SLOT_COUNT];
+    VkDeviceSize so_buffer_sizes[D3D12_SO_BUFFER_SLOT_COUNT];
     VkBuffer so_counter_buffers[D3D12_SO_BUFFER_SLOT_COUNT];
     VkDeviceSize so_counter_buffer_offsets[D3D12_SO_BUFFER_SLOT_COUNT];
 
