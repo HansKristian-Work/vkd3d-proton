@@ -1928,6 +1928,7 @@ static void d3d12_command_list_begin_new_sequence(struct d3d12_command_list *lis
     VkCommandBufferAllocateInfo command_buffer_info;
     struct d3d12_command_list_iteration *iteration;
     VkCommandBufferBeginInfo begin_info;
+    unsigned int i;
     VkResult vr;
 
     if (list->cmd.iteration_count >= VKD3D_MAX_COMMAND_LIST_SEQUENCES)
@@ -1973,6 +1974,15 @@ static void d3d12_command_list_begin_new_sequence(struct d3d12_command_list *lis
     list->cmd.vk_init_commands_post_indirect_barrier = VK_NULL_HANDLE;
     list->cmd.indirect_meta = &list->cmd.iterations[list->cmd.iteration_count].indirect_meta;
     list->cmd.iteration_count++;
+
+    for (i = 0; i < ARRAY_SIZE(list->so_buffers); i++)
+    {
+        if (list->so_buffers[i])
+        {
+            VK_CALL(vkCmdBindTransformFeedbackBuffersEXT(list->cmd.vk_command_buffer, i, 1,
+                    &list->so_buffers[i], &list->so_buffer_offsets[i], &list->so_buffer_sizes[i]));
+        }
+    }
 
     if (list->predicate_enabled)
     {
@@ -5356,6 +5366,9 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
     list->rt_state = NULL;
     list->active_pipeline_type = VKD3D_PIPELINE_TYPE_NONE;
 
+    memset(list->so_buffers, 0, sizeof(list->so_buffers));
+    memset(list->so_buffer_offsets, 0, sizeof(list->so_buffer_offsets));
+    memset(list->so_buffer_sizes, 0, sizeof(list->so_buffer_sizes));
     memset(list->so_counter_buffers, 0, sizeof(list->so_counter_buffers));
     memset(list->so_counter_buffer_offsets, 0, sizeof(list->so_counter_buffer_offsets));
 
@@ -9918,6 +9931,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_SOSetTargets(d3d12_command_list
             sizes[count] = views[i].SizeInBytes;
 
             resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, views[i].BufferFilledSizeLocation);
+            list->so_buffers[start_slot + i] = resource->vk_buffer;
+            list->so_buffer_offsets[start_slot + i] = views[i].BufferLocation - resource->va;
+            list->so_buffer_sizes[start_slot + i] = views[i].SizeInBytes;
             list->so_counter_buffers[start_slot + i] = resource->vk_buffer;
             list->so_counter_buffer_offsets[start_slot + i] = views[i].BufferFilledSizeLocation - resource->va;
             ++count;
@@ -9929,6 +9945,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_SOSetTargets(d3d12_command_list
             count = 0;
             first = start_slot + i + 1;
 
+            list->so_buffers[start_slot + i] = VK_NULL_HANDLE;
+            list->so_buffer_offsets[start_slot + i] = 0;
+            list->so_buffer_sizes[start_slot + i] = 0;
             list->so_counter_buffers[start_slot + i] = VK_NULL_HANDLE;
             list->so_counter_buffer_offsets[start_slot + i] = 0;
 
