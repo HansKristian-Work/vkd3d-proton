@@ -49,6 +49,13 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_factory_QueryInterface(IDXGI
     return ID3D12CommandQueue_QueryInterface(&chain->queue->ID3D12CommandQueue_iface, riid, object);
 }
 
+struct low_latency_state
+{
+    bool mode;
+    bool boost;
+    uint32_t minimum_interval_us;
+};
+
 struct dxgi_vk_swap_chain_present_request
 {
     uint64_t begin_frame_time_ns;
@@ -58,6 +65,9 @@ struct dxgi_vk_swap_chain_present_request
     DXGI_COLOR_SPACE_TYPE dxgi_color_space_type;
     DXGI_VK_HDR_METADATA dxgi_hdr_metadata;
     uint32_t swap_interval;
+    uint64_t low_latency_frame_id;
+    struct low_latency_state requested_low_latency_state;
+    bool low_latency_update_requested;
     bool modifies_hdr_metadata;
 };
 
@@ -73,6 +83,7 @@ struct dxgi_vk_swap_chain
     struct d3d12_command_queue *queue;
 
     LONG refcount;
+    LONG internal_refcount;
     DXGI_SWAP_CHAIN_DESC1 desc;
 
     vkd3d_native_sync_handle frame_latency_event;
@@ -84,6 +95,9 @@ struct dxgi_vk_swap_chain
     UINT frame_latency_internal;
     bool frame_latency_internal_is_static;
     VkSurfaceKHR vk_surface;
+
+    struct low_latency_state requested_low_latency_state;
+    bool low_latency_update_requested;
 
     bool debug_latency;
     bool swapchain_maintenance1;
@@ -146,6 +160,21 @@ struct dxgi_vk_swap_chain
         VkPresentModeKHR unlocked_present_mode;
         bool compatible_unlocked_present_mode;
         bool present_mode_forces_fifo;
+
+        /* Info about the current low latency state of the swapchain */
+        uint32_t low_latency_present_mode_count;
+        VkPresentModeKHR low_latency_present_modes[16];
+
+        pthread_mutex_t low_latency_swapchain_lock;
+        pthread_mutex_t low_latency_state_update_lock;
+
+        VkSemaphore low_latency_sem;
+        uint64_t low_latency_sem_value;
+
+        uint64_t previous_application_frame_id;
+        bool using_application_frame_id;
+
+        struct low_latency_state low_latency_state;
     } present;
 
     struct dxgi_vk_swap_chain_present_request request, request_ring[DXGI_MAX_SWAP_CHAIN_BUFFERS];
@@ -390,6 +419,13 @@ static void dxgi_vk_swap_chain_cleanup(struct dxgi_vk_swap_chain *chain)
     for (i = 0; i < ARRAY_SIZE(chain->present.vk_swapchain_fences); i++)
         VK_CALL(vkDestroyFence(chain->queue->device->vk_device, chain->present.vk_swapchain_fences[i], NULL));
 
+    if (chain->queue->device->vk_info.NV_low_latency2)
+    {
+        VK_CALL(vkDestroySemaphore(chain->queue->device->vk_device, chain->present.low_latency_sem, NULL));
+        pthread_mutex_destroy(&chain->present.low_latency_swapchain_lock);
+        pthread_mutex_destroy(&chain->present.low_latency_state_update_lock);
+    }
+
     VK_CALL(vkDestroySwapchainKHR(chain->queue->device->vk_device, chain->present.vk_swapchain, NULL));
 
     for (i = 0; i < ARRAY_SIZE(chain->user.backbuffers); i++)
@@ -414,14 +450,23 @@ static ULONG STDMETHODCALLTYPE dxgi_vk_swap_chain_AddRef(IDXGIVkSwapChain *iface
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
     UINT refcount = InterlockedIncrement(&chain->refcount);
+
     TRACE("iface %p, refcount %u\n", iface, refcount);
+
+    if (refcount == 1)
+    {
+        dxgi_vk_swap_chain_incref(chain);
+        ID3D12CommandQueue_AddRef(&chain->queue->ID3D12CommandQueue_iface);
+        d3d12_device_register_swapchain(chain->queue->device, chain);
+    }
+
     return refcount;
 }
 
 static ULONG STDMETHODCALLTYPE dxgi_vk_swap_chain_Release(IDXGIVkSwapChain *iface)
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
-    struct d3d12_command_queue *queue = chain->queue;
+    struct d3d12_device *device = chain->queue->device;
     UINT refcount;
 
     refcount = InterlockedDecrement(&chain->refcount);
@@ -429,11 +474,16 @@ static ULONG STDMETHODCALLTYPE dxgi_vk_swap_chain_Release(IDXGIVkSwapChain *ifac
 
     if (!refcount)
     {
+        /* Calling this from the submission thread will result in a deadlock, so
+         * drain the swapchain queue now. */
         dxgi_vk_swap_chain_drain_queue(chain);
-        dxgi_vk_swap_chain_cleanup(chain);
-        vkd3d_free(chain);
-        ID3D12CommandQueue_Release(&queue->ID3D12CommandQueue_iface);
+
+        if (device->vk_info.NV_low_latency2)
+            d3d12_device_remove_swapchain(device, chain);
+
+        dxgi_vk_swap_chain_decref(chain);
     }
+
     return refcount;
 }
 
@@ -873,7 +923,22 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain *if
     request->dxgi_hdr_metadata = chain->user.dxgi_hdr_metadata;
     request->modifies_hdr_metadata = chain->user.modifies_hdr_metadata;
     request->begin_frame_time_ns = chain->user.begin_frame_time_ns;
+    request->low_latency_frame_id = chain->queue->device->frame_markers.present;
     chain->user.modifies_hdr_metadata = false;
+
+    if (chain->queue->device->vk_info.NV_low_latency2)
+    {
+        pthread_mutex_lock(&chain->present.low_latency_state_update_lock);
+        request->requested_low_latency_state = chain->requested_low_latency_state;
+        request->low_latency_update_requested = chain->low_latency_update_requested;
+        chain->low_latency_update_requested = false;
+        pthread_mutex_unlock(&chain->present.low_latency_state_update_lock);
+    }
+    else
+    {
+        memset(&request->requested_low_latency_state, 0, sizeof(request->requested_low_latency_state));
+        request->low_latency_update_requested = false;
+    }
 
     /* Need to process this task in queue thread to deal with wait-before-signal.
      * All interesting works happens in the callback. */
@@ -1236,6 +1301,12 @@ static void dxgi_vk_swap_chain_destroy_swapchain_in_present_task(struct dxgi_vk_
     if (!chain->present.vk_swapchain)
         return;
 
+    /* If we are going to destroy the swapchain and the device supports VK_NV_low_latency2
+     * take the low latency lock. This ensures none of the other NV low latency functions
+     * will attempt to use the stale swapchain handle. */
+    if (chain->queue->device->vk_info.NV_low_latency2)
+        pthread_mutex_lock(&chain->present.low_latency_swapchain_lock);
+
     if (chain->swapchain_maintenance1)
     {
         dxgi_vk_swap_chain_drain_swapchain_fences(chain);
@@ -1268,6 +1339,9 @@ static void dxgi_vk_swap_chain_destroy_swapchain_in_present_task(struct dxgi_vk_
     chain->present.present_id_valid = false;
     chain->present.present_id = 0;
     chain->present.current_backbuffer_index = UINT32_MAX;
+
+    if (chain->queue->device->vk_info.NV_low_latency2)
+        pthread_mutex_unlock(&chain->present.low_latency_swapchain_lock);
 }
 
 static VkColorSpaceKHR convert_color_space(DXGI_COLOR_SPACE_TYPE dxgi_color_space)
@@ -1448,10 +1522,63 @@ static bool dxgi_vk_swap_chain_find_compatible_unlocked_present_mode(
     return true;
 }
 
+static bool dxgi_vk_swap_chain_can_use_app_frame_id(struct dxgi_vk_swap_chain *chain)
+{
+    return chain->present.low_latency_state.mode &&
+        chain->request.low_latency_frame_id > chain->present.previous_application_frame_id;
+}
+
+static void dxgi_vk_swap_chain_set_low_latency_state(struct dxgi_vk_swap_chain *chain, struct low_latency_state *low_latency_state)
+{
+    /* It is possible that the Vulkan swapchain does not exist when the application sets
+     * the low latency state. If that is the case, just update the present latency state
+     * and it will be set during dxgi_vk_swap_chain_recreate_swapchain_in_present_task. */
+    if (chain->present.vk_swapchain)
+    {
+        const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
+        VkLatencySleepModeInfoNV latency_sleep_mode_info;
+
+        memset(&latency_sleep_mode_info, 0, sizeof(latency_sleep_mode_info));
+        latency_sleep_mode_info.sType = VK_STRUCTURE_TYPE_LATENCY_SLEEP_MODE_INFO_NV;
+        latency_sleep_mode_info.pNext = NULL;
+
+        latency_sleep_mode_info.lowLatencyMode = low_latency_state->mode;
+        latency_sleep_mode_info.lowLatencyBoost = low_latency_state->boost;
+        latency_sleep_mode_info.minimumIntervalUs = low_latency_state->minimum_interval_us;
+
+        VK_CALL(vkSetLatencySleepModeNV(chain->queue->device->vk_device, chain->present.vk_swapchain, &latency_sleep_mode_info));
+    }
+
+    chain->present.low_latency_state = *low_latency_state;
+}
+
+static void dxgi_vk_swap_chain_low_latency_state_update(struct dxgi_vk_swap_chain *chain)
+{
+    if (chain->request.low_latency_update_requested)
+    {
+        /* If the application is changing the low latency mode reset the previously used app frame id. */
+        if (chain->present.low_latency_state.mode != chain->request.requested_low_latency_state.mode)
+            chain->present.previous_application_frame_id = 0;
+
+        dxgi_vk_swap_chain_set_low_latency_state(chain, &chain->request.requested_low_latency_state);
+    }
+
+    /* Transitioning from using the id maintained by the present task to the application frame id, and
+     * vice versa requires recreating the swapchain to ensure the present id is valid. It is also possible
+     * for an application to stop providing low latency frame ids. If that happens we are now responsible
+     * for ensuring the present id is always incrementing. */
+    if (chain->present.using_application_frame_id != dxgi_vk_swap_chain_can_use_app_frame_id(chain))
+    {
+        chain->present.using_application_frame_id = dxgi_vk_swap_chain_can_use_app_frame_id(chain);
+        chain->present.force_swapchain_recreation = true;
+    }
+}
+
 static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk_swap_chain *chain)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     VkPhysicalDevice vk_physical_device = chain->queue->device->vk_physical_device;
+    VkSwapchainLatencyCreateInfoNV swapchain_latency_create_info;
     VkSwapchainPresentModesCreateInfoEXT present_modes_info;
     VkDevice vk_device = chain->queue->device->vk_device;
     VkCommandPoolCreateInfo command_pool_create_info;
@@ -1573,12 +1700,33 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
     swapchain_create_info.imageExtent.height = max(swapchain_create_info.imageExtent.height, surface_caps.minImageExtent.height);
     swapchain_create_info.imageExtent.height = min(swapchain_create_info.imageExtent.height, surface_caps.maxImageExtent.height);
 
+    if (chain->queue->device->vk_info.NV_low_latency2)
+    {
+        memset(&swapchain_latency_create_info, 0, sizeof(swapchain_latency_create_info));
+        swapchain_latency_create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_LATENCY_CREATE_INFO_NV;
+        swapchain_latency_create_info.pNext = NULL;
+        swapchain_latency_create_info.latencyModeEnable = true;
+        vk_prepend_struct(&swapchain_create_info, &swapchain_latency_create_info);
+    }
+
+    if (chain->queue->device->vk_info.NV_low_latency2)
+        pthread_mutex_lock(&chain->present.low_latency_swapchain_lock);
+
     vr = VK_CALL(vkCreateSwapchainKHR(vk_device, &swapchain_create_info, NULL, &chain->present.vk_swapchain));
     if (vr < 0)
     {
         ERR("Failed to create swapchain, vr %d.\n", vr);
         chain->present.vk_swapchain = VK_NULL_HANDLE;
+        if (chain->queue->device->vk_info.NV_low_latency2)
+            pthread_mutex_unlock(&chain->present.low_latency_swapchain_lock);
         return;
+    }
+
+    /* If low latency is supported restore the current low latency state now */
+    if (chain->queue->device->vk_info.NV_low_latency2)
+    {
+        dxgi_vk_swap_chain_set_low_latency_state(chain, &chain->present.low_latency_state);
+        pthread_mutex_unlock(&chain->present.low_latency_swapchain_lock);
     }
 
     chain->present.backbuffer_count = ARRAY_SIZE(chain->present.vk_backbuffer_images);
@@ -2081,11 +2229,21 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
      * Non-FIFO swapchains will pump their frame latency handles through the fallback path of blit command being done.
      * Especially on Xwayland, the present ID is updated when images actually hit on-screen due to MAILBOX behavior.
      * This would unnecessarily stall our progress. */
-    if (chain->wait_thread.active && !chain->present.present_id_valid && swapchain_is_fifo)
+    if (chain->wait_thread.active && !chain->present.present_id_valid &&
+        (swapchain_is_fifo || chain->present.low_latency_state.mode))
     {
-        /* If we recreate swapchain, we still want to maintain a monotonically increasing counter here for
-         * profiling purposes. */
-        chain->present.present_id = chain->present.complete_count + 1;
+        if (chain->present.using_application_frame_id)
+        {
+            chain->present.present_id = chain->request.low_latency_frame_id;
+            chain->present.previous_application_frame_id = chain->request.low_latency_frame_id;
+        }
+        else
+        {
+            /* If we recreate swapchain, we still want to maintain a monotonically increasing counter here for
+             * profiling purposes. */
+            chain->present.present_id = chain->present.complete_count + 1;
+        }
+
         present_id.sType = VK_STRUCTURE_TYPE_PRESENT_ID_KHR;
         present_id.pNext = NULL;
         present_id.swapchainCount = 1;
@@ -2214,6 +2372,9 @@ static void dxgi_vk_swap_chain_present_callback(void *chain_)
     if (chain->request.modifies_hdr_metadata)
         dxgi_vk_swap_chain_set_hdr_metadata(chain);
 
+    if (chain->queue->device->vk_info.NV_low_latency2)
+        dxgi_vk_swap_chain_low_latency_state_update(chain);
+
     /* If no QueuePresentKHRs successfully commits a present ID, we'll fallback to a normal queue signal. */
     chain->present.present_id_valid = false;
 
@@ -2222,8 +2383,10 @@ static void dxgi_vk_swap_chain_present_callback(void *chain_)
      * TODO: Propose VK_EXT_present_interval. */
     present_count = max(1u, chain->request.swap_interval);
 
-    /* If we hit the legacy way of synchronizing with swapchain, blitting multiple times would be horrible. */
-    if (!chain->wait_thread.active)
+    /* If we hit the legacy way of synchronizing with swapchain, blitting multiple times would be horrible.
+     * Also if low latency mode is enabled only do a single present iteration to avoid falling off the application
+     * provided frame id path. */
+    if (!chain->wait_thread.active || chain->present.low_latency_state.mode)
         present_count = 1;
 
     for (i = 0; i < present_count; i++)
@@ -2374,6 +2537,80 @@ static HRESULT dxgi_vk_swap_chain_init_waiter_thread(struct dxgi_vk_swap_chain *
     return S_OK;
 }
 
+static HRESULT dxgi_vk_swap_chain_init_low_latency(struct dxgi_vk_swap_chain* chain)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
+    VkPhysicalDevice vk_physical_device = chain->queue->device->vk_physical_device;
+
+    VkLatencySurfaceCapabilitiesNV latency_surface_caps;
+    VkSemaphoreTypeCreateInfoKHR semaphore_type_info;
+    VkPhysicalDeviceSurfaceInfo2KHR surface_info;
+    VkSurfaceCapabilities2KHR surface_caps;
+    VkSemaphoreCreateInfo semaphore_info;
+    VkResult vr;
+
+    chain->present.low_latency_present_mode_count = 0;
+
+    chain->present.low_latency_sem = VK_NULL_HANDLE;
+    chain->present.low_latency_sem_value = 0;
+
+    chain->present.previous_application_frame_id = 0;
+    chain->present.using_application_frame_id = false;
+
+    chain->present.low_latency_state.mode = false;
+    chain->present.low_latency_state.boost = false;
+    chain->present.low_latency_state.minimum_interval_us = 0;
+
+    if (chain->queue->device->vk_info.NV_low_latency2)
+    {
+        memset(&surface_info, 0, sizeof(surface_info));
+        surface_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR;
+        surface_info.pNext = NULL;
+        surface_info.surface = chain->vk_surface;
+
+        memset(&latency_surface_caps, 0, sizeof(latency_surface_caps));
+        latency_surface_caps.sType = VK_STRUCTURE_TYPE_LATENCY_SURFACE_CAPABILITIES_NV;
+        latency_surface_caps.presentModeCount = ARRAY_SIZE(chain->present.low_latency_present_modes);
+        latency_surface_caps.pPresentModes = chain->present.low_latency_present_modes;
+
+        memset(&surface_caps, 0, sizeof(surface_caps));
+        surface_caps.sType = VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR;
+        surface_caps.pNext = &latency_surface_caps;
+
+        if ((vr = VK_CALL(vkGetPhysicalDeviceSurfaceCapabilities2KHR(vk_physical_device, &surface_info,
+                &surface_caps))) < 0)
+        {
+            ERR("Failed to query latency surface capabilities count, vr %d.\n", vr);
+            return hresult_from_vk_result(vr);
+        }
+
+        chain->present.low_latency_present_mode_count = latency_surface_caps.presentModeCount;
+
+        memset(&semaphore_type_info, 0, sizeof(semaphore_type_info));
+        semaphore_type_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO_KHR;
+        semaphore_type_info.pNext = NULL;
+        semaphore_type_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE_KHR;
+        semaphore_type_info.initialValue = 0;
+
+        memset(&semaphore_info, 0, sizeof(semaphore_info));
+        semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        semaphore_info.pNext = &semaphore_type_info;
+        semaphore_info.flags = 0;
+
+        if ((vr = VK_CALL(vkCreateSemaphore(chain->queue->device->vk_device, &semaphore_info,
+                NULL, &chain->present.low_latency_sem))) < 0)
+        {
+            ERR("Failed to create semaphore, vr %d.\n", vr);
+            return hresult_from_vk_result(vr);
+        }
+
+        pthread_mutex_init(&chain->present.low_latency_swapchain_lock, NULL);
+        pthread_mutex_init(&chain->present.low_latency_state_update_lock, NULL);
+    }
+
+    return S_OK;
+}
+
 static HRESULT dxgi_vk_swap_chain_init(struct dxgi_vk_swap_chain *chain, IDXGIVkSurfaceFactory *pFactory,
         const DXGI_SWAP_CHAIN_DESC1 *pDesc, struct d3d12_command_queue *queue)
 {
@@ -2381,6 +2618,7 @@ static HRESULT dxgi_vk_swap_chain_init(struct dxgi_vk_swap_chain *chain, IDXGIVk
 
     chain->IDXGIVkSwapChain_iface.lpVtbl = &dxgi_vk_swap_chain_vtbl;
     chain->refcount = 1;
+    chain->internal_refcount = 1;
     chain->queue = queue;
     chain->desc = *pDesc;
 
@@ -2400,6 +2638,9 @@ static HRESULT dxgi_vk_swap_chain_init(struct dxgi_vk_swap_chain *chain, IDXGIVk
         goto err;
 
     if (FAILED(hr = dxgi_vk_swap_chain_init_waiter_thread(chain)))
+        goto err;
+
+    if (FAILED(hr = dxgi_vk_swap_chain_init_low_latency(chain)))
         goto err;
 
     ID3D12CommandQueue_AddRef(&queue->ID3D12CommandQueue_iface);
@@ -2429,6 +2670,9 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_factory_CreateSwapChain(IDXG
         return hr;
     }
 
+    if (chain->queue->device->vk_info.NV_low_latency2)
+        d3d12_device_register_swapchain(chain->queue->device, chain);
+
     *ppSwapchain = &chain->IDXGIVkSwapChain_iface;
     return S_OK;
 }
@@ -2443,6 +2687,181 @@ static CONST_VTBL struct IDXGIVkSwapChainFactoryVtbl dxgi_vk_swap_chain_factory_
     /* IDXGIVkSwapChain methods */
     dxgi_vk_swap_chain_factory_CreateSwapChain,
 };
+
+bool dxgi_vk_swap_chain_low_latency_enabled(struct dxgi_vk_swap_chain* chain)
+{
+    return chain->present.low_latency_state.mode;
+}
+
+void dxgi_vk_swap_chain_latency_sleep(struct dxgi_vk_swap_chain* chain)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
+    VkLatencySleepInfoNV latency_sleep_info;
+    VkSemaphoreWaitInfo sem_wait_info;
+    bool should_sleep = false;
+
+    /* Increment the low latency sem value before the wait */
+    chain->present.low_latency_sem_value++;
+
+    memset(&latency_sleep_info, 0, sizeof(latency_sleep_info));
+    latency_sleep_info.sType = VK_STRUCTURE_TYPE_LATENCY_SLEEP_INFO_NV;
+    latency_sleep_info.pNext = NULL;
+    latency_sleep_info.signalSemaphore = chain->present.low_latency_sem;
+    latency_sleep_info.value = chain->present.low_latency_sem_value;
+
+    pthread_mutex_lock(&chain->present.low_latency_swapchain_lock);
+
+    if (chain->present.vk_swapchain)
+    {
+        should_sleep = true;
+        VK_CALL(vkLatencySleepNV(chain->queue->device->vk_device, chain->present.vk_swapchain, &latency_sleep_info));
+    }
+
+    pthread_mutex_unlock(&chain->present.low_latency_swapchain_lock);
+
+    if (should_sleep)
+    {
+        memset(&sem_wait_info, 0, sizeof(sem_wait_info));
+        sem_wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+        sem_wait_info.pNext = NULL;
+        sem_wait_info.flags = 0;
+        sem_wait_info.semaphoreCount = 1;
+        sem_wait_info.pSemaphores = &chain->present.low_latency_sem;
+        sem_wait_info.pValues = &chain->present.low_latency_sem_value;
+
+        VK_CALL(vkWaitSemaphores(chain->queue->device->vk_device, &sem_wait_info, UINT64_MAX));
+    }
+}
+
+void dxgi_vk_swap_chain_set_latency_sleep_mode(struct dxgi_vk_swap_chain* chain, bool low_latency_mode,
+	bool low_latency_boost, uint32_t minimum_interval_us)
+{
+    pthread_mutex_lock(&chain->present.low_latency_state_update_lock);
+
+    chain->requested_low_latency_state.mode = low_latency_mode;
+    chain->requested_low_latency_state.boost = low_latency_boost;
+    chain->requested_low_latency_state.minimum_interval_us = minimum_interval_us;
+
+    /* The actual call to vkSetLatencySleepModeNV will happen
+     * when the application calls Present and the requested low
+     * latency state is passed to the present task. */
+    chain->low_latency_update_requested = true;
+
+    pthread_mutex_unlock(&chain->present.low_latency_state_update_lock);
+}
+
+void dxgi_vk_swap_chain_set_latency_marker(struct dxgi_vk_swap_chain* chain, uint64_t frameID, VkLatencyMarkerNV marker)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
+    VkSetLatencyMarkerInfoNV latency_marker_info;
+
+    memset(&latency_marker_info, 0, sizeof(latency_marker_info));
+    latency_marker_info.sType = VK_STRUCTURE_TYPE_SET_LATENCY_MARKER_INFO_NV;
+    latency_marker_info.pNext = NULL;
+    latency_marker_info.presentID = frameID;
+    latency_marker_info.marker = marker;
+
+    pthread_mutex_lock(&chain->present.low_latency_swapchain_lock);
+
+    if (chain->present.vk_swapchain)
+        VK_CALL(vkSetLatencyMarkerNV(chain->queue->device->vk_device, chain->present.vk_swapchain, &latency_marker_info));
+
+    pthread_mutex_unlock(&chain->present.low_latency_swapchain_lock);
+}
+
+void dxgi_vk_swap_chain_get_latency_info(struct dxgi_vk_swap_chain* chain, D3D12_LATENCY_RESULTS *latency_results)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
+    VkLatencyTimingsFrameReportNV* frame_reports;
+    VkGetLatencyMarkerInfoNV marker_info;
+    uint32_t i;
+
+    pthread_mutex_lock(&chain->present.low_latency_swapchain_lock);
+
+    if (chain->present.vk_swapchain)
+    {
+        memset(&marker_info, 0, sizeof(marker_info));
+        marker_info.sType = VK_STRUCTURE_TYPE_GET_LATENCY_MARKER_INFO_NV;
+
+        VK_CALL(vkGetLatencyTimingsNV(chain->queue->device->vk_device, chain->present.vk_swapchain, &marker_info));
+
+        if (marker_info.timingCount >= 64)
+        {
+            marker_info.timingCount = 64;
+            frame_reports = vkd3d_calloc(marker_info.timingCount, sizeof(VkLatencyTimingsFrameReportNV));
+            for (i = 0; i < marker_info.timingCount; i++)
+                frame_reports[i].sType = VK_STRUCTURE_TYPE_LATENCY_TIMINGS_FRAME_REPORT_NV;
+
+            marker_info.pTimings = frame_reports;
+
+            VK_CALL(vkGetLatencyTimingsNV(chain->queue->device->vk_device, chain->present.vk_swapchain, &marker_info));
+
+            for (i = 0; i < marker_info.timingCount; i++)
+            {
+                latency_results->frame_reports[i].frameID = frame_reports[i].presentID - 1;
+                latency_results->frame_reports[i].inputSampleTime = frame_reports[i].inputSampleTimeUs;
+                latency_results->frame_reports[i].simStartTime = frame_reports[i].simStartTimeUs;
+                latency_results->frame_reports[i].simEndTime = frame_reports[i].simEndTimeUs;
+                latency_results->frame_reports[i].renderSubmitStartTime = frame_reports[i].renderSubmitStartTimeUs;
+                latency_results->frame_reports[i].renderSubmitEndTime = frame_reports[i].renderSubmitEndTimeUs;
+                latency_results->frame_reports[i].presentStartTime = frame_reports[i].presentStartTimeUs;
+                latency_results->frame_reports[i].presentEndTime = frame_reports[i].presentEndTimeUs;
+                latency_results->frame_reports[i].driverStartTime = frame_reports[i].driverStartTimeUs;
+                latency_results->frame_reports[i].driverEndTime = frame_reports[i].driverEndTimeUs;
+                latency_results->frame_reports[i].osRenderQueueStartTime = frame_reports[i].osRenderQueueStartTimeUs;
+                latency_results->frame_reports[i].osRenderQueueEndTime = frame_reports[i].osRenderQueueEndTimeUs;
+                latency_results->frame_reports[i].gpuRenderStartTime = frame_reports[i].gpuRenderStartTimeUs;
+                latency_results->frame_reports[i].gpuRenderEndTime = frame_reports[i].gpuRenderEndTimeUs;
+                latency_results->frame_reports[i].gpuActiveRenderTimeUs =
+                    frame_reports[i].gpuRenderEndTimeUs - frame_reports[i].gpuRenderStartTimeUs;
+                latency_results->frame_reports[i].gpuFrameTimeUs = 0;
+
+                if (i)
+                {
+                    latency_results->frame_reports[i].gpuFrameTimeUs =
+                        frame_reports[i].gpuRenderEndTimeUs - frame_reports[i - 1].gpuRenderEndTimeUs;
+                }
+            }
+
+            vkd3d_free(frame_reports);
+        }
+        else
+        {
+            /* If there are less than 64 frame reports, zero out the frame report
+             * buffer returned to the app. */
+            memset(latency_results->frame_reports, 0, sizeof(latency_results->frame_reports));
+        }
+    }
+
+    pthread_mutex_unlock(&chain->present.low_latency_swapchain_lock);
+}
+
+ULONG dxgi_vk_swap_chain_incref(struct dxgi_vk_swap_chain *chain)
+{
+    ULONG refcount = InterlockedIncrement(&chain->internal_refcount);
+
+    TRACE("%p increasing refcount to %u.\n", chain, refcount);
+
+    return refcount;
+}
+
+ULONG dxgi_vk_swap_chain_decref(struct dxgi_vk_swap_chain *chain)
+{
+    ULONG refcount = InterlockedDecrement(&chain->internal_refcount);
+
+    TRACE("%p decreasing refcount to %u.\n", chain, refcount);
+
+    if (!refcount)
+    {
+        struct d3d12_command_queue *queue = chain->queue;
+
+        dxgi_vk_swap_chain_cleanup(chain);
+        vkd3d_free(chain);
+        ID3D12CommandQueue_Release(&queue->ID3D12CommandQueue_iface);
+    }
+
+    return refcount;
+}
 
 HRESULT dxgi_vk_swap_chain_factory_init(struct d3d12_command_queue *queue, struct dxgi_vk_swap_chain_factory *chain)
 {
