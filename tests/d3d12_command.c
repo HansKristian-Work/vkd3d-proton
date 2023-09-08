@@ -2384,12 +2384,15 @@ void test_execute_indirect_state_predication(void)
                 ID3D12GraphicsCommandList_SetPredication(context.list, indirect_copy, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
             /* inherit predication in i == 3 */
 
+            /* Try to trigger sync issues. */
+            ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 1) * sizeof(uint32_t));
+            for (j = 0; j < 16; j++)
+                ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig, 128, indirect_graphics, 0, NULL, 0); /* last draw will do something, verify we actually check all draws when we cull */
+
             ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 0) * sizeof(uint32_t));
             /* Hammer hard to study profiler. */
             for (j = 0; j < 1024; j++)
                 ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig, 127, indirect_graphics, 0, NULL, 0); /* should do nothing, and should be culled out */
-            ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 1) * sizeof(uint32_t));
-            ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig, 128, indirect_graphics, 0, NULL, 0); /* last draw will do something, verify we actually check all draws when we cull */
             ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 2) * sizeof(uint32_t));
             ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig, 1, indirect_graphics, 127 * sizeof(struct draw_arguments), NULL, 0); /* same, but only 1 draw */
             ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 3) * sizeof(uint32_t));
@@ -2441,6 +2444,7 @@ void test_execute_indirect_state_predication(void)
 
         for (i = 0; i < 128; i++)
         {
+            uint32_t expected_y;
             uint32_t expected_w;
             struct uvec4 value;
             uint32_t expected;
@@ -2457,11 +2461,12 @@ void test_execute_indirect_state_predication(void)
 
                 /* In iteration 5, we copied a zero indirect count. */
                 expected_w = j == 4 ? 0 : expected;
+                expected_y = expected * 16;
 
                 /* of the gang of 4 draws, the first one should not do anything */
-                ok(value.x == 0 && value.y == expected && value.z == expected && value.w == expected_w,
+                ok(value.x == 0 && value.y == expected_y && value.z == expected && value.w == expected_w,
                         "Iteration %u, draw output %u: expected {%u, %u, %u, %u}, got {%u, %u, %u, %u}.\n", j, i, 0,
-                        expected, expected, expected,
+                        expected_y, expected, expected,
                         value.x, value.y, value.z, value.w);
             }
         }
@@ -2489,12 +2494,15 @@ void test_execute_indirect_state_predication(void)
                 ID3D12GraphicsCommandList_SetPredication(context.list, indirect_copy, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
             /* inherit predication in i == 3 */
 
+            /* Try to trigger any sync issues. */
+            ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 1) * sizeof(uint32_t));
+            for (j = 0; j < 16; j++)
+                ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig_compute, 128, indirect_compute, 0, NULL, 0); /* last draw will do something, verify we actually check all draws when we cull */
+
             ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 0) * sizeof(uint32_t));
             /* Hammer this really hard, so we can stare at profiler. */
             for (j = 0; j < 1024; j++)
                 ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig_compute, 127, indirect_compute, 0, NULL, 0); /* should do nothing, and should be culled out */
-            ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 1) * sizeof(uint32_t));
-            ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig_compute, 128, indirect_compute, 0, NULL, 0); /* last draw will do something, verify we actually check all draws when we cull */
             ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 2) * sizeof(uint32_t));
             ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig_compute, 1, indirect_compute, 127 * sizeof(struct dispatch_arguments), NULL, 0); /* same, but only 1 draw */
             ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 3) * sizeof(uint32_t));
@@ -2546,9 +2554,10 @@ void test_execute_indirect_state_predication(void)
 
         for (i = 0; i < 128; i++)
         {
+            uint32_t expected_y;
+            uint32_t expected_w;
             struct uvec4 value;
             uint32_t expected;
-            uint32_t expected_w;
 
             for (j = 0; j < 6; j++)
             {
@@ -2562,11 +2571,12 @@ void test_execute_indirect_state_predication(void)
 
                 /* In iteration 5, we copied a zero indirect count. */
                 expected_w = j == 4 ? 0 : expected;
+                expected_y = expected * 16;
 
                 /* of the gang of 4 dispatches, the first one should not do anything */
-                ok(value.x == 0 && value.y == expected && value.z == expected && value.w == expected_w,
+                ok(value.x == 0 && value.y == expected_y && value.z == expected && value.w == expected_w,
                     "Iteration %u, draw output %u: expected {%u, %u, %u, %u}, got {%u, %u, %u, %u}.\n", j, i, 0,
-                    expected, expected, expected,
+                    expected_y, expected, expected,
                     value.x, value.y, value.z, value.w);
             }
         }
