@@ -1,5 +1,85 @@
 # Change Log
 
+## 2.10
+
+This release rolls up a ton of bug fixes, game and driver workarounds, and other improvements.
+
+### Features
+
+#### DirectStorage MetaCommands
+
+We can now make use of `NV_memory_decompression` to implement
+GPU accelerated GDeflate compression in DirectStorage.
+This is demonstrated to work in Ratchet & Clank: Rift Apart.
+
+We also worked around an NV driver bug when using the fallback GDeflate shader.
+The fallback works on RADV.
+
+#### Enhanced Barriers
+
+NOTE: This isn't all that well tested because there are no games shipping with this yet to our knowledge.
+
+#### Device generated commands for compute
+
+With `NV_device_generated_commands_compute` we can efficiently implement
+Starfield's use of ExecuteIndirect which hammers multi-dispatch COMPUTE + root parameter changes.
+Previously, we would rely on a very slow workaround.
+
+NOTE: This feature is currently only enabled on RADV due to driver issues.
+
+#### Misc
+
+- Support Root Signature version 1.2
+- Implement Shader Model 6.7
+  - Includes all SM 6.7 features like AdvancedTextureOps, WaveOpsIncludeHelperLanes
+  - Caveat: Technically not Vulkan spec compliant implementation, but works fine on at least NV and RADV. Currently implemented as an opt-in option for now in case some game relies on it to work
+- Implement CreateSampler2
+- Expose inverted viewport / height feature
+- Implement RelaxedFormatCasting feature from Enhanced Barriers
+- Implement support for adjacency topologies
+- Support A8_UNORM format properly by using `VK_KHR_maintenance5`, allowing A8_UNORM UAVs to work correctly
+- Handle range checked index buffers correctly with `VK_KHR_maintenance5`
+
+#### New extension use
+
+- VK_EXT_dynamic_rendering_unused_attachments
+- VK_KHR_maintenance5
+- VK_NV_device_generated_commands_compute
+
+### Performance
+
+- Batch acceleration structure builds. Massively improves build performance on at least RADV.
+- Massively improve ExecuteIndirect performance when using COMPUTE + root parameter changes when `VK_NV_device_generated_commands_compute` is enabled.
+
+### Fixes
+
+- Fix root signature creation from DXIL library target (DXR) blobs
+- Fix some dual source blending PSOs scenarios. Fixes Star Wars Battlefront II
+- Implement wave operations in pixel shaders more strictly according to D3D12 rules
+- Fix spurious hangs in Ashes of Singularity when using shared fences and wait-before-signal
+- Fix PSO caching bug in mesh shaders. Fixes mesh shaders in Unreal Engine 5
+- Fix udiv remainder in DXBC, which fixed some Xenia bugs
+- Fix query heap tracking bug that was exposed by NV Streamline
+- Various DXIL -> SPIR-V fixes as usual
+- Rewrote descriptor set layouts to be more robust against application bugs
+  - Motivated by Armored Core VI bug (see below)
+  - Native D3D12 drivers are also robust against these application bugs :(
+
+### Workarounds
+
+- Workaround bad ReBAR performance in Age of Wonders 4
+- Remove workaround for `KHR_present_wait` on NV 535+ drivers
+- Workaround Starfield memory corruption issue where it does not correctly query for 4 KiB alignment
+- Disable ReBAR usage on Halo Infinite to workaround very poor CPU performance
+- Workaround Street Fighter 6 bug causing spurious GPU hangs
+  - Also appears to have worked around GPU hangs in Resident Evil 2
+- Workaround Armored Core VI bug causing GPU hang on Balteus fight in chapter 1
+- Workaround "firefly" glitches in Resident Evil 4 caused by dubious min16float usage
+- Workaround "firefly" glitches in Monster Hunter Rise caused by dubious shader requiring particular precise math
+- Workaround Unreal Engine 5 breaking if mesh shaders are exposed, but not barycentrics
+- Workaround NV driver bug with TIMESTAMP query heaps that could cause spurious GPU hangs
+- Workaround broken CFG code generation in Xenia's DXBC emitter
+
 ## 2.9
 
 This release rolls up various development happening over the last months.
