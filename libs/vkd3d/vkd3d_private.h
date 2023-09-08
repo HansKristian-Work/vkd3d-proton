@@ -3095,7 +3095,7 @@ struct d3d12_command_signature
     LONG refcount;
 
     D3D12_COMMAND_SIGNATURE_DESC desc;
-    uint32_t argument_buffer_offset;
+    uint32_t argument_buffer_offset_for_command;
 
     /* Complex command signatures require some work to stamp out device generated commands. */
     union
@@ -3819,11 +3819,18 @@ HRESULT vkd3d_query_ops_init(struct vkd3d_query_ops *meta_query_ops,
 void vkd3d_query_ops_cleanup(struct vkd3d_query_ops *meta_query_ops,
         struct d3d12_device *device);
 
+struct vkd3d_predicate_command_direct_args_execute_indirect
+{
+    uint32_t max_commands;
+    uint32_t stride_words;
+};
+
 union vkd3d_predicate_command_direct_args
 {
     VkDispatchIndirectCommand dispatch;
     VkDrawIndirectCommand draw;
     VkDrawIndexedIndirectCommand draw_indexed;
+    struct vkd3d_predicate_command_direct_args_execute_indirect execute_indirect;
     uint32_t draw_count;
 };
 
@@ -3843,6 +3850,8 @@ enum vkd3d_predicate_command_type
     VKD3D_PREDICATE_COMMAND_DRAW_INDIRECT_COUNT,
     VKD3D_PREDICATE_COMMAND_DISPATCH,
     VKD3D_PREDICATE_COMMAND_DISPATCH_INDIRECT,
+    VKD3D_PREDICATE_COMMAND_EXECUTE_INDIRECT_GRAPHICS,
+    VKD3D_PREDICATE_COMMAND_EXECUTE_INDIRECT_COMPUTE,
     VKD3D_PREDICATE_COMMAND_COUNT
 };
 
