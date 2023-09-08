@@ -1226,8 +1226,33 @@ HRESULT vkd3d_predicate_ops_init(struct vkd3d_predicate_ops *meta_predicate_ops,
         meta_predicate_ops->data_sizes[i] = spec_data[i].arg_count * sizeof(uint32_t);
     }
 
+    if (device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
+    {
+        uint32_t num_active_words;
+        spec_info.mapEntryCount = 1;
+        spec_info.dataSize = sizeof(uint32_t);
+        spec_info.pData = &num_active_words;
+
+        num_active_words = 2; /* vertex/indexCount and instanceCount */
+        if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_predicate_command_execute_indirect),
+                cs_predicate_command_execute_indirect,
+                meta_predicate_ops->vk_command_pipeline_layout, &spec_info, true,
+                &meta_predicate_ops->vk_command_pipelines[VKD3D_PREDICATE_COMMAND_EXECUTE_INDIRECT_GRAPHICS])) < 0)
+            goto fail;
+
+        num_active_words = 3; /* X, Y and Z */
+        if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_predicate_command_execute_indirect),
+                cs_predicate_command_execute_indirect,
+                meta_predicate_ops->vk_command_pipeline_layout, &spec_info, true,
+                &meta_predicate_ops->vk_command_pipelines[VKD3D_PREDICATE_COMMAND_EXECUTE_INDIRECT_COMPUTE])) < 0)
+            goto fail;
+
+        meta_predicate_ops->data_sizes[VKD3D_PREDICATE_COMMAND_EXECUTE_INDIRECT_GRAPHICS] = sizeof(uint32_t);
+        meta_predicate_ops->data_sizes[VKD3D_PREDICATE_COMMAND_EXECUTE_INDIRECT_COMPUTE] = sizeof(uint32_t);
+    }
+
     if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_resolve_predicate), cs_resolve_predicate,
-            meta_predicate_ops->vk_resolve_pipeline_layout, &spec_info, true, &meta_predicate_ops->vk_resolve_pipeline)) < 0)
+            meta_predicate_ops->vk_resolve_pipeline_layout, NULL, true, &meta_predicate_ops->vk_resolve_pipeline)) < 0)
         goto fail;
 
     return S_OK;
