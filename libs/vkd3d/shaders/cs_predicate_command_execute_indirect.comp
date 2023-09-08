@@ -1,0 +1,65 @@
+#version 450
+
+#extension GL_EXT_buffer_reference : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_vote : require
+
+layout(local_size_x = 32) in;
+
+layout(constant_id = 0) const uint c_words = 0;
+
+layout(std430, buffer_reference, buffer_reference_align = 4)
+readonly buffer src_args_t
+{
+    uint data[];
+};
+
+layout(std430, buffer_reference, buffer_reference_align = 4)
+writeonly buffer dst_count_t { uint data; };
+
+layout(push_constant)
+uniform u_info_t
+{
+    // Common header for predicate shaders
+    uvec2 dummy_predicate;
+    src_args_t arg_buffer;
+    dst_count_t dst_count;
+    // direct_args_execute_indirect
+    uint max_commands;
+    uint stride_words;
+};
+
+void main()
+{
+	// Could get fancy with spec constant workgroup size
+	// and subgroup_size_control, but that's somewhat overkill here.
+	if (gl_SubgroupID != 0)
+		return;
+
+	uvec4 ballot = subgroupBallot(true);
+	uint id = subgroupBallotExclusiveBitCount(ballot);
+	uint lane_count = subgroupBallotBitCount(ballot);
+
+	bool has_active_command = false;
+	for (uint i = 0; !has_active_command && i < max_commands; i += lane_count)
+	{
+		uint local_id = i + id;
+		bool is_active;
+
+		if (local_id < max_commands)
+		{
+			is_active = true;
+			for (uint j = 0; j < c_words && is_active; j++)
+				if (arg_buffer.data[local_id * stride_words + j] == 0)
+					is_active = false;
+		}
+		else
+			is_active = false;
+
+		has_active_command = subgroupAny(is_active);
+	}
+
+	if (subgroupElect())
+		dst_count.data = has_active_command ? max_commands : 0;
+}

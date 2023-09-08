@@ -12039,6 +12039,38 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
             require_custom_predication = true;
         }
     }
+    else if (!count_buffer && list->cmd.vk_command_buffer != list->cmd.vk_init_commands_post_indirect_barrier)
+    {
+        /* For non-indirect execute indirect, there's a high risk of individual draws and dispatches being empty,
+         * since the typical use case is atomic increment X workgroup count or instanceCount.
+         * Try to nop out the entire execution in one fell swoop.
+         * We can either use indirectCount = 0, or conditional rendering.
+         * indirectCount = 0 is easier to understand, works everywhere and slots nicely into the predication
+         * fallback code we have in place. */
+
+        /* Only attempt this if we can do it in a hoisted fashion. Otherwise, we're just introducing stalls
+         * which may as well be just as bad ... */
+
+        /* This makes sense on RADV since it will use indirectCount == 0 as a predicate to skip
+         * all pre-process work. Maybe it makes sense on NV, will need further investigation.
+         * This only applies to GFX queue on RADV, since async compute does not use INDIRECT_BUFFER directly. */
+        if (list->device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV &&
+                (list->vk_queue_flags & VK_QUEUE_GRAPHICS_BIT))
+        {
+            union vkd3d_predicate_command_direct_args args;
+            VkDeviceAddress indirect_va =
+                    arg_buffer->res.va + arg_buffer_offset + signature->argument_buffer_offset_for_command;
+            args.execute_indirect.max_commands = max_command_count;
+            args.execute_indirect.stride_words = signature->desc.ByteStride / sizeof(uint32_t);
+
+            d3d12_command_list_emit_predicated_command(list,
+                    signature->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE ?
+                            VKD3D_PREDICATE_COMMAND_EXECUTE_INDIRECT_COMPUTE :
+                            VKD3D_PREDICATE_COMMAND_EXECUTE_INDIRECT_GRAPHICS,
+                    indirect_va, &args, &predication_allocation);
+            require_custom_predication = true;
+        }
+    }
 
     if (suspend_predication)
     {
@@ -12405,7 +12437,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
 
     /* Temporary workaround, since we cannot parse non-draw arguments yet. Point directly
      * to the first argument. Should avoid hard crashes for now. */
-    arg_buffer_offset += sig_impl->argument_buffer_offset;
+    arg_buffer_offset += sig_impl->argument_buffer_offset_for_command;
 
     for (i = 0; i < signature_desc->NumArgumentDescs; ++i)
     {
@@ -16875,9 +16907,8 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
          * for optimal reordering. */
         vkd3d_atomic_uint32_store_explicit(&device->device_has_dgc_templates, 1, vkd3d_memory_order_relaxed);
     }
-    else
-        object->argument_buffer_offset = argument_buffer_offset;
 
+    object->argument_buffer_offset_for_command = argument_buffer_offset;
     d3d12_device_add_ref(object->device = device);
 
     TRACE("Created command signature %p.\n", object);
