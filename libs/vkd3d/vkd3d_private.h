@@ -2673,6 +2673,7 @@ struct d3d12_command_list_sequence
      * where INDIRECT_ARGUMENT barriers appear in the stream. */
     struct d3d12_command_list_iteration iterations[VKD3D_MAX_COMMAND_LIST_SEQUENCES];
     unsigned int iteration_count;
+    unsigned int active_non_inline_running_queries;
     bool uses_dgc_compute_in_async_compute;
 
     /* Emit normal commands here. */

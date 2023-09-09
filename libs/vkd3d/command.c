@@ -2008,7 +2008,11 @@ static void d3d12_command_list_consider_new_sequence(struct d3d12_command_list *
     if (list->cmd.vk_command_buffer == list->cmd.vk_init_commands_post_indirect_barrier &&
             vkd3d_atomic_uint32_load_explicit(&list->device->device_has_dgc_templates, vkd3d_memory_order_relaxed))
     {
-        d3d12_command_list_begin_new_sequence(list);
+        /* We could in theory virtualize these queries, but that is extreme overkill. */
+        if (list->cmd.active_non_inline_running_queries == 0)
+            d3d12_command_list_begin_new_sequence(list);
+        else
+            WARN("Avoiding split due to long running scoped query.\n");
     }
 }
 
@@ -11418,6 +11422,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginQuery(d3d12_command_list_i
         }
         else
             VK_CALL(vkCmdBeginQuery(list->cmd.vk_command_buffer, query_heap->vk_query_pool, index, flags));
+
+        list->cmd.active_non_inline_running_queries++;
     }
 }
 
@@ -11449,6 +11455,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(d3d12_command_list_ifa
         }
         else
             VK_CALL(vkCmdEndQuery(list->cmd.vk_command_buffer, query_heap->vk_query_pool, index));
+
+        list->cmd.active_non_inline_running_queries--;
+
+        /* Now might be a good time to split. */
+        if (list->cmd.active_non_inline_running_queries == 0)
+            d3d12_command_list_consider_new_sequence(list);
     }
     else if (type == D3D12_QUERY_TYPE_TIMESTAMP)
     {
