@@ -2005,7 +2005,9 @@ static void d3d12_command_list_begin_new_sequence(struct d3d12_command_list *lis
 
 static void d3d12_command_list_consider_new_sequence(struct d3d12_command_list *list)
 {
+    /* Not worth splitting if we're in the middle of a render pass already. */
     if (list->cmd.vk_command_buffer == list->cmd.vk_init_commands_post_indirect_barrier &&
+            !(list->rendering_info.state_flags & VKD3D_RENDERING_ACTIVE) &&
             vkd3d_atomic_uint32_load_explicit(&list->device->device_has_dgc_templates, vkd3d_memory_order_relaxed))
     {
         /* We could in theory virtualize these queries, but that is extreme overkill. */
@@ -9237,7 +9239,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
     VKD3D_BREADCRUMB_COMMAND(BARRIER);
 
     d3d12_command_list_debug_mark_end_region(list);
-    d3d12_command_list_consider_new_sequence(list);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_ExecuteBundle(d3d12_command_list_iface *iface,
@@ -11457,10 +11458,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_EndQuery(d3d12_command_list_ifa
             VK_CALL(vkCmdEndQuery(list->cmd.vk_command_buffer, query_heap->vk_query_pool, index));
 
         list->cmd.active_non_inline_running_queries--;
-
-        /* Now might be a good time to split. */
-        if (list->cmd.active_non_inline_running_queries == 0)
-            d3d12_command_list_consider_new_sequence(list);
     }
     else if (type == D3D12_QUERY_TYPE_TIMESTAMP)
     {
@@ -11997,6 +11994,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const VkPhysicalDeviceDeviceGeneratedCommandsPropertiesNV *props;
+    static const unsigned int max_direct_commands_for_split = 64;
     VkConditionalRenderingBeginInfoEXT conditional_begin_info;
     struct vkd3d_scratch_allocation predication_allocation;
     struct vkd3d_scratch_allocation preprocess_allocation;
@@ -12051,24 +12049,33 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
             require_custom_predication = true;
         }
     }
-    else if (!count_buffer && list->cmd.vk_command_buffer != list->cmd.vk_init_commands_post_indirect_barrier)
+    else if (!count_buffer && max_command_count <= max_direct_commands_for_split &&
+            signature->pipeline_type != VKD3D_PIPELINE_TYPE_COMPUTE &&
+            list->device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV &&
+            (list->vk_queue_flags & VK_QUEUE_GRAPHICS_BIT))
     {
-        /* For non-indirect execute indirect, there's a high risk of individual draws and dispatches being empty,
-         * since the typical use case is atomic increment X workgroup count or instanceCount.
-         * Try to nop out the entire execution in one fell swoop.
-         * We can either use indirectCount = 0, or conditional rendering.
-         * indirectCount = 0 is easier to understand, works everywhere and slots nicely into the predication
-         * fallback code we have in place. */
+        /* If we had indirect barriers earlier in the frame, now might be a good time to split. */
+        d3d12_command_list_consider_new_sequence(list);
 
-        /* Only attempt this if we can do it in a hoisted fashion. Otherwise, we're just introducing stalls
-         * which may as well be just as bad ... */
-
-        /* This makes sense on RADV since it will use indirectCount == 0 as a predicate to skip
-         * all pre-process work. Maybe it makes sense on NV, will need further investigation.
-         * This only applies to GFX queue on RADV, since async compute does not use INDIRECT_BUFFER directly. */
-        if (list->device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV &&
-                (list->vk_queue_flags & VK_QUEUE_GRAPHICS_BIT))
+        if (list->cmd.vk_command_buffer != list->cmd.vk_init_commands_post_indirect_barrier)
         {
+            /* For non-indirect execute indirect, there's a high risk of individual draws being empty,
+             * since the typical use case is atomic increment X workgroup count or instanceCount.
+             * Try to nop out the entire execution in one fell swoop.
+             * We can either use indirectCount = 0, or conditional rendering.
+             * indirectCount = 0 is easier to understand, works everywhere and slots nicely into the predication
+             * fallback code we have in place. */
+
+            /* Only attempt this if we can do it in a hoisted fashion. Otherwise, we're just introducing stalls
+             * which may as well be just as bad ... */
+
+            /* Only consider this for graphics. Graphics execute indirect is assumed
+             * to be the result of (occlusion) culling, which is very likely to cause empty draws.
+             * Compute is less likely, at least in the content we have looked at. */
+
+            /* This makes sense on RADV since it will use indirectCount == 0 as a predicate to skip
+             * all pre-process work. Maybe it makes sense on NV, will need further investigation.
+             * This only applies to GFX queue on RADV, since async compute does not use INDIRECT_BUFFER directly. */
             union vkd3d_predicate_command_direct_args args;
             VkDeviceAddress indirect_va =
                     arg_buffer->res.va + arg_buffer_offset + signature->argument_buffer_offset_for_command;
@@ -13931,7 +13938,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_Barrier(d3d12_command_list_ifac
     d3d12_command_list_barrier_batch_end(list, &batch);
     VKD3D_BREADCRUMB_COMMAND(BARRIER);
     d3d12_command_list_debug_mark_end_region(list);
-    d3d12_command_list_consider_new_sequence(list);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_OMSetFrontAndBackStencilRef(d3d12_command_list_iface *iface, UINT FrontStencilRef, UINT BackStencilRef)
