@@ -97,6 +97,14 @@ static HRESULT vkd3d_create_binary_semaphore(struct d3d12_device *device, VkSema
 
 static HRESULT vkd3d_create_timeline_semaphore(struct d3d12_device *device, uint64_t initial_value, bool shared, VkSemaphore *vk_semaphore);
 
+static bool vkd3d_driver_implicitly_syncs_host_readback(VkDriverId driver_id)
+{
+    return driver_id == VK_DRIVER_ID_MESA_RADV ||
+            driver_id == VK_DRIVER_ID_AMD_PROPRIETARY ||
+            driver_id == VK_DRIVER_ID_AMD_OPEN_SOURCE ||
+            driver_id == VK_DRIVER_ID_NVIDIA_PROPRIETARY;
+}
+
 HRESULT vkd3d_queue_create(struct d3d12_device *device, uint32_t family_index, uint32_t queue_index,
         const VkQueueFamilyProperties *properties, struct vkd3d_queue **queue)
 {
@@ -142,51 +150,56 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device, uint32_t family_index, u
 
     TRACE("Created queue %p for queue family index %u.\n", object, family_index);
 
-    /* Create a reusable full barrier command buffer. This is used in submissions
-     * to guarantee serialized behavior of Vulkan queues. */
-    pool_create_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    pool_create_info.pNext = NULL;
-    pool_create_info.flags = 0;
-    pool_create_info.queueFamilyIndex = family_index;
-    if ((vr = VK_CALL(vkCreateCommandPool(device->vk_device, &pool_create_info, NULL, &object->barrier_pool))))
+    /* Having a simultaneous use command buffer seems to cause problems. */
+    if (!vkd3d_driver_implicitly_syncs_host_readback(device->device_info.vulkan_1_2_properties.driverID))
     {
-        hr = hresult_from_vk_result(vr);
-        goto fail_destroy_mutex;
+        /* Create a reusable full barrier command buffer. This is used in submissions
+         * to guarantee serialized behavior of Vulkan queues. */
+        pool_create_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        pool_create_info.pNext = NULL;
+        pool_create_info.flags = 0;
+        pool_create_info.queueFamilyIndex = family_index;
+        if ((vr = VK_CALL(vkCreateCommandPool(device->vk_device, &pool_create_info, NULL, &object->barrier_pool))))
+        {
+            hr = hresult_from_vk_result(vr);
+            goto fail_destroy_mutex;
+        }
+
+        allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocate_info.pNext = NULL;
+        allocate_info.commandPool = object->barrier_pool;
+        allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocate_info.commandBufferCount = 1;
+        if ((vr = VK_CALL(
+                vkAllocateCommandBuffers(device->vk_device, &allocate_info, &object->barrier_command_buffer))))
+        {
+            hr = hresult_from_vk_result(vr);
+            goto fail_free_command_pool;
+        }
+
+        begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin_info.pNext = NULL;
+        /* It's not very meaningful to rebuild this command buffer over and over. */
+        begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+        begin_info.pInheritanceInfo = NULL;
+        VK_CALL(vkBeginCommandBuffer(object->barrier_command_buffer, &begin_info));
+
+        /* To avoid unnecessary tracking, just emit a host barrier on every submit. */
+        memset(&memory_barrier, 0, sizeof(memory_barrier));
+        memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        memory_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        memory_barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+        memory_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT | VK_PIPELINE_STAGE_2_HOST_BIT;
+        memory_barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_HOST_READ_BIT;
+
+        memset(&dep_info, 0, sizeof(dep_info));
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.memoryBarrierCount = 1;
+        dep_info.pMemoryBarriers = &memory_barrier;
+
+        VK_CALL(vkCmdPipelineBarrier2(object->barrier_command_buffer, &dep_info));
+        VK_CALL(vkEndCommandBuffer(object->barrier_command_buffer));
     }
-
-    allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocate_info.pNext = NULL;
-    allocate_info.commandPool = object->barrier_pool;
-    allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocate_info.commandBufferCount = 1;
-    if ((vr = VK_CALL(vkAllocateCommandBuffers(device->vk_device, &allocate_info, &object->barrier_command_buffer))))
-    {
-        hr = hresult_from_vk_result(vr);
-        goto fail_free_command_pool;
-    }
-
-    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin_info.pNext = NULL;
-    /* It's not very meaningful to rebuild this command buffer over and over. */
-    begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
-    begin_info.pInheritanceInfo = NULL;
-    VK_CALL(vkBeginCommandBuffer(object->barrier_command_buffer, &begin_info));
-
-    /* To avoid unnecessary tracking, just emit a host barrier on every submit. */
-    memset(&memory_barrier, 0, sizeof(memory_barrier));
-    memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-    memory_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-    memory_barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
-    memory_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT | VK_PIPELINE_STAGE_2_HOST_BIT;
-    memory_barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_HOST_READ_BIT;
-
-    memset(&dep_info, 0, sizeof(dep_info));
-    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep_info.memoryBarrierCount = 1;
-    dep_info.pMemoryBarriers = &memory_barrier;
-
-    VK_CALL(vkCmdPipelineBarrier2(object->barrier_command_buffer, &dep_info));
-    VK_CALL(vkEndCommandBuffer(object->barrier_command_buffer));
 
     if (FAILED(hr = vkd3d_create_binary_semaphore(device, &object->serializing_binary_semaphore)))
         goto fail_free_command_pool;
@@ -14591,7 +14604,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     }
 
     /* ExecuteCommandLists submission barrier buffer */
-    num_command_buffers = 1;
+    num_command_buffers = command_queue->vkd3d_queue->barrier_command_buffer ? 1 : 0;
 
     for (i = 0; i < command_list_count; ++i)
     {
@@ -14699,11 +14712,14 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 #endif
     }
 
-    /* Append a full GPU barrier between submissions.
-     * This command buffer is SIMULTANEOUS_BIT. */
-    buffer = &buffers[j++];
-    buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-    buffer->commandBuffer = command_queue->vkd3d_queue->barrier_command_buffer;
+    if (command_queue->vkd3d_queue->barrier_command_buffer)
+    {
+        /* Append a full GPU barrier between submissions.
+         * This command buffer is SIMULTANEOUS_BIT. */
+        buffer = &buffers[j++];
+        buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+        buffer->commandBuffer = command_queue->vkd3d_queue->barrier_command_buffer;
+    }
 
     if (command_list_count == 1 && num_transitions != 0)
     {
@@ -15414,7 +15430,8 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
     struct vkd3d_queue *vkd3d_queue = command_queue->vkd3d_queue;
     VkSemaphoreSubmitInfo signal_semaphore_info;
-    VkSubmitInfo2 submit_desc[2];
+    VkSemaphoreSubmitInfo binary_semaphore_info;
+    VkSubmitInfo2 submit_desc[4];
     uint32_t num_submits;
     VkQueue vk_queue;
     unsigned int i;
@@ -15472,6 +15489,27 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     submit_desc[num_submits - 1].pCommandBufferInfos = cmd;
     submit_desc[num_submits - 1].signalSemaphoreInfoCount = 1;
     submit_desc[num_submits - 1].pSignalSemaphoreInfos = &signal_semaphore_info;
+
+    /* Prefer binary semaphore since timeline signal -> wait pair can cause scheduling bubbles.
+     * Binary semaphores tend to be more well-behaved here since they can lower to kernel primitives more easily. */
+    if (!command_queue->vkd3d_queue->barrier_command_buffer)
+    {
+        binary_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+        binary_semaphore_info.pNext = NULL;
+        binary_semaphore_info.value = 0;
+        binary_semaphore_info.semaphore = command_queue->vkd3d_queue->serializing_binary_semaphore;
+        binary_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        binary_semaphore_info.deviceIndex = 0;
+
+        submit_desc[num_submits].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+        submit_desc[num_submits].signalSemaphoreInfoCount = 1;
+        submit_desc[num_submits].pSignalSemaphoreInfos = &binary_semaphore_info;
+
+        submit_desc[num_submits + 1].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+        submit_desc[num_submits + 1].waitSemaphoreInfoCount = 1;
+        submit_desc[num_submits + 1].pWaitSemaphoreInfos = &binary_semaphore_info;
+        num_submits += 2;
+    }
 
 #ifdef VKD3D_ENABLE_RENDERDOC
     /* For each submission we have marked to be captured, we will first need to filter it
