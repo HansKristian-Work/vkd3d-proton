@@ -3102,8 +3102,10 @@ static enum VkBlendFactor vk_blend_factor_from_d3d12_a8(D3D12_BLEND blend)
         case D3D12_BLEND_SRC_ALPHA_SAT:
             return VK_BLEND_FACTOR_ONE;
         case D3D12_BLEND_BLEND_FACTOR:
+        case D3D12_BLEND_ALPHA_FACTOR:
             return VK_BLEND_FACTOR_CONSTANT_ALPHA;
         case D3D12_BLEND_INV_BLEND_FACTOR:
+        case D3D12_BLEND_INV_ALPHA_FACTOR:
             return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA;
         case D3D12_BLEND_SRC1_COLOR:
         case D3D12_BLEND_SRC1_ALPHA:
@@ -3155,6 +3157,10 @@ static enum VkBlendFactor vk_blend_factor_from_d3d12(D3D12_BLEND blend)
             return VK_BLEND_FACTOR_SRC1_ALPHA;
         case D3D12_BLEND_INV_SRC1_ALPHA:
             return VK_BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA;
+        case D3D12_BLEND_ALPHA_FACTOR:
+            return VK_BLEND_FACTOR_CONSTANT_ALPHA;
+        case D3D12_BLEND_INV_ALPHA_FACTOR:
+            return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA;
         default:
             FIXME("Unhandled blend %#x.\n", blend);
             return VK_BLEND_FACTOR_ZERO;
