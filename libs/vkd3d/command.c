@@ -6374,10 +6374,8 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
 
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART)
     {
-        /* The primitive restart dynamic state is only present if the PSO
-         * has a strip cut value, so we only need to check if the
-         * current primitive topology is a strip type. */
         VK_CALL(vkCmdSetPrimitiveRestartEnable(list->cmd.vk_command_buffer,
+                dyn_state->index_buffer_strip_cut_value != D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED &&
                 vk_primitive_topology_supports_restart(dyn_state->vk_primitive_topology)));
     }
 
@@ -8600,6 +8598,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
             list->dynamic_state.depth_bias.clamp = state->graphics.rs_desc.depthBiasClamp;
             list->dynamic_state.depth_bias.slope_factor = state->graphics.rs_desc.depthBiasSlopeFactor;
             list->dynamic_state.dirty_flags |= VKD3D_DYNAMIC_STATE_DEPTH_BIAS;
+        }
+
+        /* Primitive restart is almost always dynamic since it depends on the dynamic topology,
+         * so we cannot rely on it being set in the explicit dynamic state flags. */
+        if (list->dynamic_state.index_buffer_strip_cut_value != state->graphics.index_buffer_strip_cut_value)
+        {
+            list->dynamic_state.index_buffer_strip_cut_value = state->graphics.index_buffer_strip_cut_value;
+            list->dynamic_state.dirty_flags |= VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART;
         }
     }
 
@@ -14020,8 +14026,16 @@ static void STDMETHODCALLTYPE d3d12_command_list_RSSetDepthBias(d3d12_command_li
 
 static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBufferStripCutValue(d3d12_command_list_iface *iface, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE IBStripCutValue)
 {
-    FIXME("iface %p, IBStripCutValue %u stub!\n", 
-        iface, IBStripCutValue);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct vkd3d_dynamic_state *dyn_state = &list->dynamic_state;
+
+    TRACE("iface %p, IBStripCutValue %u.\n", iface, IBStripCutValue);
+
+    if (dyn_state->index_buffer_strip_cut_value != IBStripCutValue)
+    {
+        dyn_state->index_buffer_strip_cut_value = IBStripCutValue;
+        dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART;
+    }
 }
 
 #define VKD3D_DECLARE_D3D12_GRAPHICS_COMMAND_LIST_VARIANT(name, set_table_variant) \
