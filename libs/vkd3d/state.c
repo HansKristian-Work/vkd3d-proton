@@ -2915,7 +2915,7 @@ static void rs_desc_from_d3d12(VkPipelineRasterizationStateCreateInfo *vk_desc,
     vk_desc->polygonMode = vk_polygon_mode_from_d3d12(d3d12_desc->FillMode);
     vk_desc->cullMode = vk_cull_mode_from_d3d12(d3d12_desc->CullMode);
     vk_desc->frontFace = d3d12_desc->FrontCounterClockwise ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;
-    vk_desc->depthBiasEnable = d3d12_desc->DepthBias || d3d12_desc->SlopeScaledDepthBias;
+    vk_desc->depthBiasEnable = d3d12_desc->DepthBias != 0.0f || d3d12_desc->SlopeScaledDepthBias != 0.0f;
     vk_desc->depthBiasConstantFactor = d3d12_desc->DepthBias;
     vk_desc->depthBiasClamp = d3d12_desc->DepthBiasClamp;
     vk_desc->depthBiasSlopeFactor = d3d12_desc->SlopeScaledDepthBias;
@@ -3543,6 +3543,8 @@ vkd3d_dynamic_state_list[] =
     { VKD3D_DYNAMIC_STATE_PATCH_CONTROL_POINTS,  VK_DYNAMIC_STATE_PATCH_CONTROL_POINTS_EXT },
     { VKD3D_DYNAMIC_STATE_DEPTH_WRITE_ENABLE,    VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE },
     { VKD3D_DYNAMIC_STATE_STENCIL_WRITE_MASK,    VK_DYNAMIC_STATE_STENCIL_WRITE_MASK },
+    { VKD3D_DYNAMIC_STATE_DEPTH_BIAS,            VK_DYNAMIC_STATE_DEPTH_BIAS },
+    { VKD3D_DYNAMIC_STATE_DEPTH_BIAS,            VK_DYNAMIC_STATE_DEPTH_BIAS_ENABLE },
 };
 
 uint32_t vkd3d_init_dynamic_state_array(VkDynamicState *dynamic_states, uint32_t dynamic_state_flags)
@@ -3796,8 +3798,10 @@ uint32_t d3d12_graphics_pipeline_state_get_dynamic_state_flags(struct d3d12_pipe
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     bool is_mesh_pipeline, is_tess_pipeline;
-    uint32_t dynamic_state_flags = 0;
+    uint32_t dynamic_state_flags;
     unsigned int i;
+
+    dynamic_state_flags = graphics->explicit_dynamic_states;
 
     is_mesh_pipeline = !!(graphics->stage_flags & VK_SHADER_STAGE_MESH_BIT_EXT);
     is_tess_pipeline = !!(graphics->stage_flags & VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT);
@@ -4566,6 +4570,12 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
         goto fail;
     }
 
+    /* Tests show that D3D12 drivers behave as if D3D12_PIPELINE_STATE_FLAG_DYNAMIC_DEPTH_BIAS
+     * was always set, however doing that would invalidate existing pipeline caches, so avoid
+     * this until proven necessary. */
+    if (desc->flags & D3D12_PIPELINE_STATE_FLAG_DYNAMIC_DEPTH_BIAS)
+        graphics->explicit_dynamic_states |= VKD3D_DYNAMIC_STATE_DEPTH_BIAS;
+
     return S_OK;
 
 fail:
@@ -4651,14 +4661,14 @@ static HRESULT d3d12_pipeline_state_init_static_pipeline(struct d3d12_pipeline_s
     if (create_library && has_gpl)
     {
         if (!(graphics->library = d3d12_pipeline_state_create_pipeline_variant(state, NULL, graphics->dsv_format,
-                state->vk_pso_cache, library_flags, &graphics->dynamic_state_flags)))
+                state->vk_pso_cache, library_flags, &graphics->pipeline_dynamic_states)))
             return E_OUTOFMEMORY;
     }
 
     if (can_compile_pipeline_early)
     {
         if (!(graphics->pipeline = d3d12_pipeline_state_create_pipeline_variant(state, NULL, graphics->dsv_format,
-                state->vk_pso_cache, 0, &graphics->dynamic_state_flags)))
+                state->vk_pso_cache, 0, &graphics->pipeline_dynamic_states)))
             return E_OUTOFMEMORY;
     }
     else
@@ -4687,7 +4697,7 @@ static HRESULT d3d12_pipeline_state_finish_graphics(struct d3d12_pipeline_state 
     /* If we cannot adjust control points dynamically,
      * we are at risk of having to recompile PSO with different number of control points. */
     if (graphics->primitive_topology_type == D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH &&
-            !(graphics->dynamic_state_flags & VKD3D_DYNAMIC_STATE_PATCH_CONTROL_POINTS))
+            !(graphics->pipeline_dynamic_states & VKD3D_DYNAMIC_STATE_PATCH_CONTROL_POINTS))
         state->pso_is_fully_dynamic = false;
 
     if (!state->pso_is_fully_dynamic)
@@ -5352,7 +5362,7 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
 
     /* It should be illegal to use different patch size for topology compared to pipeline, but be safe here. */
     if (dyn_state->vk_primitive_topology == VK_PRIMITIVE_TOPOLOGY_PATCH_LIST &&
-        !(graphics->dynamic_state_flags & VKD3D_DYNAMIC_STATE_PATCH_CONTROL_POINTS) &&
+        !(graphics->pipeline_dynamic_states & VKD3D_DYNAMIC_STATE_PATCH_CONTROL_POINTS) &&
         (dyn_state->primitive_topology - D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST + 1) != graphics->patch_vertex_count)
     {
         if (graphics->patch_vertex_count)
@@ -5365,7 +5375,7 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
         return VK_NULL_HANDLE;
     }
 
-    *dynamic_state_flags = state->graphics.dynamic_state_flags;
+    *dynamic_state_flags = state->graphics.pipeline_dynamic_states;
     return state->graphics.pipeline;
 }
 

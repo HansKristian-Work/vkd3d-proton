@@ -7381,7 +7381,7 @@ static void d3d12_device_caps_init_feature_options16(struct d3d12_device *device
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS16 *options16 = &device->d3d12_caps.options16;
 
-    options16->DynamicDepthBiasSupported = FALSE;
+    options16->DynamicDepthBiasSupported = TRUE;
     options16->GPUUploadHeapSupported = FALSE;
 }
 

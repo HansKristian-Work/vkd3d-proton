@@ -6350,6 +6350,16 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
                 dyn_state->min_depth_bounds, dyn_state->max_depth_bounds));
     }
 
+    if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_DEPTH_BIAS)
+    {
+        VK_CALL(vkCmdSetDepthBiasEnable(list->cmd.vk_command_buffer,
+                dyn_state->depth_bias.constant_factor != 0.0f ||
+                dyn_state->depth_bias.slope_factor != 0.0f));
+        VK_CALL(vkCmdSetDepthBias(list->cmd.vk_command_buffer,
+                dyn_state->depth_bias.constant_factor, dyn_state->depth_bias.clamp,
+                dyn_state->depth_bias.slope_factor));
+    }
+
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_TOPOLOGY)
     {
         VK_CALL(vkCmdSetPrimitiveTopology(list->cmd.vk_command_buffer,
@@ -8575,6 +8585,23 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
 #ifdef VKD3D_ENABLE_RENDERDOC
     vkd3d_renderdoc_command_list_check_capture(list, state);
 #endif
+
+    if (state && state->pipeline_type != VKD3D_PIPELINE_TYPE_COMPUTE)
+    {
+        /* For any optionally dynamic state, we need to re-apply the corresponding static state
+         * that the PSO was created with. If the same state was not dynamic in the previous
+         * pipeline, the state implicitly gets marked as dirty anyway so we can ignore that here. */
+        if ((state->graphics.explicit_dynamic_states & VKD3D_DYNAMIC_STATE_DEPTH_BIAS) &&
+                (list->dynamic_state.depth_bias.constant_factor != state->graphics.rs_desc.depthBiasConstantFactor ||
+                list->dynamic_state.depth_bias.clamp != state->graphics.rs_desc.depthBiasClamp ||
+                list->dynamic_state.depth_bias.slope_factor != state->graphics.rs_desc.depthBiasSlopeFactor))
+        {
+            list->dynamic_state.depth_bias.constant_factor = state->graphics.rs_desc.depthBiasConstantFactor;
+            list->dynamic_state.depth_bias.clamp = state->graphics.rs_desc.depthBiasClamp;
+            list->dynamic_state.depth_bias.slope_factor = state->graphics.rs_desc.depthBiasSlopeFactor;
+            list->dynamic_state.dirty_flags |= VKD3D_DYNAMIC_STATE_DEPTH_BIAS;
+        }
+    }
 
     if (list->state == state)
         return;
@@ -13975,8 +14002,20 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetFrontAndBackStencilRef(d3d
 
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetDepthBias(d3d12_command_list_iface *iface, FLOAT DepthBias, FLOAT DepthBiasClamp, FLOAT SlopeScaledDepthBias)
 {
-    FIXME("iface %p, DepthBias %f, DepthBiasClamp %f, SlopeScaledDepthBias %f stub!\n", 
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct vkd3d_dynamic_state *dyn_state = &list->dynamic_state;
+
+    TRACE("iface %p, DepthBias %f, DepthBiasClamp %f, SlopeScaledDepthBias %f.\n",
         iface, DepthBias, DepthBiasClamp, SlopeScaledDepthBias);
+
+    if (dyn_state->depth_bias.constant_factor != DepthBias || dyn_state->depth_bias.clamp != DepthBiasClamp ||
+            dyn_state->depth_bias.slope_factor != SlopeScaledDepthBias)
+    {
+        dyn_state->depth_bias.constant_factor = DepthBias;
+        dyn_state->depth_bias.clamp = DepthBiasClamp;
+        dyn_state->depth_bias.slope_factor = SlopeScaledDepthBias;
+        dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_DEPTH_BIAS;
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBufferStripCutValue(d3d12_command_list_iface *iface, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE IBStripCutValue)

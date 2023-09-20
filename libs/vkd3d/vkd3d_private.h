@@ -1815,6 +1815,7 @@ enum vkd3d_dynamic_state_flag
     VKD3D_DYNAMIC_STATE_PATCH_CONTROL_POINTS  = (1 << 9),
     VKD3D_DYNAMIC_STATE_DEPTH_WRITE_ENABLE    = (1 << 10),
     VKD3D_DYNAMIC_STATE_STENCIL_WRITE_MASK    = (1 << 11),
+    VKD3D_DYNAMIC_STATE_DEPTH_BIAS            = (1 << 12),
 };
 
 struct vkd3d_shader_debug_ring_spec_constants
@@ -1964,7 +1965,9 @@ struct d3d12_graphics_pipeline_state
     VkPipelineRasterizationDepthClipStateCreateInfoEXT rs_depth_clip_info;
     VkPipelineRasterizationStateStreamCreateInfoEXT rs_stream_info;
 
-    uint32_t dynamic_state_flags; /* vkd3d_dynamic_state_flag */
+    /* vkd3d_dynamic_state_flag */
+    uint32_t explicit_dynamic_states;
+    uint32_t pipeline_dynamic_states;
 
     VkPipelineLayout pipeline_layout;
     VkPipeline pipeline;
@@ -2425,6 +2428,13 @@ struct vkd3d_dynamic_state
     } stencil_front, stencil_back;
 
     uint32_t dsv_plane_write_enable;
+
+    struct
+    {
+        float constant_factor;
+        float clamp;
+        float slope_factor;
+    } depth_bias;
 
     float min_depth_bounds;
     float max_depth_bounds;
