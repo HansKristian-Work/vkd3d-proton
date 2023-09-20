@@ -7366,7 +7366,7 @@ static void d3d12_device_caps_init_feature_options14(struct d3d12_device *device
             device->d3d12_caps.max_shader_model >= D3D_SHADER_MODEL_6_7;
     options14->WriteableMSAATexturesSupported = device->d3d12_caps.max_shader_model >= D3D_SHADER_MODEL_6_7 &&
             device->device_info.features2.features.shaderStorageImageMultisample;
-    options14->IndependentFrontAndBackStencilRefMaskSupported = FALSE;
+    options14->IndependentFrontAndBackStencilRefMaskSupported = TRUE;
 }
 
 static void d3d12_device_caps_init_feature_options15(struct d3d12_device *device)
