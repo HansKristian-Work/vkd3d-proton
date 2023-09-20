@@ -7373,7 +7373,7 @@ static void d3d12_device_caps_init_feature_options15(struct d3d12_device *device
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS15 *options15 = &device->d3d12_caps.options15;
 
-    options15->TriangleFanSupported = FALSE;
+    options15->TriangleFanSupported = TRUE;
     options15->DynamicIndexBufferStripCutSupported = FALSE;
 }
 
