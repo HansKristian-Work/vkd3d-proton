@@ -2073,7 +2073,7 @@ struct d3d12_pipeline_state_desc
     D3D12_BLEND_DESC blend_state;
     UINT sample_mask;
     D3D12_RASTERIZER_DESC rasterizer_state;
-    D3D12_DEPTH_STENCIL_DESC1 depth_stencil_state;
+    D3D12_DEPTH_STENCIL_DESC2 depth_stencil_state;
     D3D12_INPUT_LAYOUT_DESC input_layout;
     D3D12_INDEX_BUFFER_STRIP_CUT_VALUE strip_cut_value;
     D3D12_PRIMITIVE_TOPOLOGY_TYPE primitive_topology_type;
@@ -2417,8 +2417,13 @@ struct vkd3d_dynamic_state
     VkRect2D scissors[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
 
     float blend_constants[4];
-    uint32_t stencil_reference;
-    uint32_t stencil_write_mask;
+
+    struct
+    {
+        uint8_t reference;
+        uint8_t write_mask;
+    } stencil_front, stencil_back;
+
     uint32_t dsv_plane_write_enable;
 
     float min_depth_bounds;

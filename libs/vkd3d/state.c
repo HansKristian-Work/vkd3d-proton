@@ -1672,22 +1672,57 @@ unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_
     return flags;
 }
 
-static void d3d12_promote_depth_stencil_desc(D3D12_DEPTH_STENCIL_DESC1 *out, const D3D12_DEPTH_STENCIL_DESC *in)
+static void d3d12_promote_depth_stencil_desc(D3D12_DEPTH_STENCIL_DESC2 *out, const D3D12_DEPTH_STENCIL_DESC *in)
 {
     out->DepthEnable = in->DepthEnable;
     out->DepthWriteMask = in->DepthWriteMask;
     out->DepthFunc = in->DepthFunc;
     out->StencilEnable = in->StencilEnable;
-    out->StencilReadMask = in->StencilReadMask;
-    out->StencilWriteMask = in->StencilWriteMask;
-    out->FrontFace = in->FrontFace;
-    out->BackFace = in->BackFace;
+
+    out->FrontFace.StencilFailOp = in->FrontFace.StencilFailOp;
+    out->FrontFace.StencilDepthFailOp = in->FrontFace.StencilDepthFailOp;
+    out->FrontFace.StencilPassOp = in->FrontFace.StencilPassOp;
+    out->FrontFace.StencilFunc = in->FrontFace.StencilFunc;
+    out->FrontFace.StencilReadMask = in->StencilReadMask;
+    out->FrontFace.StencilWriteMask = in->StencilWriteMask;
+
+    out->BackFace.StencilFailOp = in->BackFace.StencilFailOp;
+    out->BackFace.StencilDepthFailOp = in->BackFace.StencilDepthFailOp;
+    out->BackFace.StencilPassOp = in->BackFace.StencilPassOp;
+    out->BackFace.StencilFunc = in->BackFace.StencilFunc;
+    out->BackFace.StencilReadMask = in->StencilReadMask;
+    out->BackFace.StencilWriteMask = in->StencilWriteMask;
+
     out->DepthBoundsTestEnable = FALSE;
+}
+
+static void d3d12_promote_depth_stencil_desc1(D3D12_DEPTH_STENCIL_DESC2 *out, const D3D12_DEPTH_STENCIL_DESC1 *in)
+{
+    out->DepthEnable = in->DepthEnable;
+    out->DepthWriteMask = in->DepthWriteMask;
+    out->DepthFunc = in->DepthFunc;
+    out->StencilEnable = in->StencilEnable;
+
+    out->FrontFace.StencilFailOp = in->FrontFace.StencilFailOp;
+    out->FrontFace.StencilDepthFailOp = in->FrontFace.StencilDepthFailOp;
+    out->FrontFace.StencilPassOp = in->FrontFace.StencilPassOp;
+    out->FrontFace.StencilFunc = in->FrontFace.StencilFunc;
+    out->FrontFace.StencilReadMask = in->StencilReadMask;
+    out->FrontFace.StencilWriteMask = in->StencilWriteMask;
+
+    out->BackFace.StencilFailOp = in->BackFace.StencilFailOp;
+    out->BackFace.StencilDepthFailOp = in->BackFace.StencilDepthFailOp;
+    out->BackFace.StencilPassOp = in->BackFace.StencilPassOp;
+    out->BackFace.StencilFunc = in->BackFace.StencilFunc;
+    out->BackFace.StencilReadMask = in->StencilReadMask;
+    out->BackFace.StencilWriteMask = in->StencilWriteMask;
+
+    out->DepthBoundsTestEnable = in->DepthBoundsTestEnable;
 }
 
 static void d3d12_init_pipeline_state_desc(struct d3d12_pipeline_state_desc *desc)
 {
-    D3D12_DEPTH_STENCIL_DESC1 *ds_state = &desc->depth_stencil_state;
+    D3D12_DEPTH_STENCIL_DESC2 *ds_state = &desc->depth_stencil_state;
     D3D12_RASTERIZER_DESC *rs_state = &desc->rasterizer_state;
     D3D12_BLEND_DESC *blend_state = &desc->blend_state;
     DXGI_SAMPLE_DESC *sample_desc = &desc->sample_desc;
@@ -1696,12 +1731,13 @@ static void d3d12_init_pipeline_state_desc(struct d3d12_pipeline_state_desc *des
     ds_state->DepthEnable = TRUE;
     ds_state->DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
     ds_state->DepthFunc = D3D12_COMPARISON_FUNC_LESS;
-    ds_state->StencilReadMask = D3D12_DEFAULT_STENCIL_READ_MASK;
-    ds_state->StencilWriteMask = D3D12_DEFAULT_STENCIL_WRITE_MASK;
-    ds_state->FrontFace.StencilFunc = ds_state->BackFace.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS;
-    ds_state->FrontFace.StencilDepthFailOp = ds_state->BackFace.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
-    ds_state->FrontFace.StencilPassOp = ds_state->BackFace.StencilPassOp = D3D12_STENCIL_OP_KEEP;
-    ds_state->FrontFace.StencilFailOp = ds_state->BackFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;
+    ds_state->FrontFace.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    ds_state->FrontFace.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
+    ds_state->FrontFace.StencilPassOp = D3D12_STENCIL_OP_KEEP;
+    ds_state->FrontFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;
+    ds_state->FrontFace.StencilReadMask = D3D12_DEFAULT_STENCIL_READ_MASK;
+    ds_state->FrontFace.StencilWriteMask = D3D12_DEFAULT_STENCIL_WRITE_MASK;
+    ds_state->BackFace = ds_state->FrontFace;
 
     rs_state->FillMode = D3D12_FILL_MODE_SOLID;
     rs_state->CullMode = D3D12_CULL_MODE_BACK;
@@ -1875,8 +1911,10 @@ HRESULT vkd3d_pipeline_state_desc_from_d3d12_stream_desc(struct d3d12_pipeline_s
             VKD3D_HANDLE_SUBOBJECT(NODE_MASK, UINT, desc->node_mask);
             VKD3D_HANDLE_SUBOBJECT(CACHED_PSO, D3D12_CACHED_PIPELINE_STATE, desc->cached_pso.blob);
             VKD3D_HANDLE_SUBOBJECT(FLAGS, D3D12_PIPELINE_STATE_FLAGS, desc->flags);
-            VKD3D_HANDLE_SUBOBJECT(DEPTH_STENCIL1, D3D12_DEPTH_STENCIL_DESC1, desc->depth_stencil_state);
+            VKD3D_HANDLE_SUBOBJECT_EXPLICIT(DEPTH_STENCIL1, D3D12_DEPTH_STENCIL_DESC1,
+                    d3d12_promote_depth_stencil_desc1(&desc->depth_stencil_state, &subobject->data));
             VKD3D_HANDLE_SUBOBJECT(VIEW_INSTANCING, D3D12_VIEW_INSTANCING_DESC, desc->view_instancing_desc);
+            VKD3D_HANDLE_SUBOBJECT(DEPTH_STENCIL2, D3D12_DEPTH_STENCIL_DESC2, desc->depth_stencil_state);
 
             default:
                 ERR("Unhandled pipeline subobject type %u.\n", subobject_type);
@@ -2994,20 +3032,20 @@ enum VkCompareOp vk_compare_op_from_d3d12(D3D12_COMPARISON_FUNC op)
 }
 
 static void vk_stencil_op_state_from_d3d12(struct VkStencilOpState *vk_desc,
-        const D3D12_DEPTH_STENCILOP_DESC *d3d12_desc, uint32_t compare_mask, uint32_t write_mask)
+        const D3D12_DEPTH_STENCILOP_DESC1 *d3d12_desc)
 {
     vk_desc->failOp = vk_stencil_op_from_d3d12(d3d12_desc->StencilFailOp);
     vk_desc->passOp = vk_stencil_op_from_d3d12(d3d12_desc->StencilPassOp);
     vk_desc->depthFailOp = vk_stencil_op_from_d3d12(d3d12_desc->StencilDepthFailOp);
     vk_desc->compareOp = vk_compare_op_from_d3d12(d3d12_desc->StencilFunc);
-    vk_desc->compareMask = compare_mask;
-    vk_desc->writeMask = write_mask;
+    vk_desc->compareMask = d3d12_desc->StencilReadMask;
+    vk_desc->writeMask = d3d12_desc->StencilWriteMask;
     /* The stencil reference value is a dynamic state. Set by OMSetStencilRef(). */
     vk_desc->reference = 0;
 }
 
 static void ds_desc_from_d3d12(struct VkPipelineDepthStencilStateCreateInfo *vk_desc,
-        const D3D12_DEPTH_STENCIL_DESC1 *d3d12_desc)
+        const D3D12_DEPTH_STENCIL_DESC2 *d3d12_desc)
 {
     memset(vk_desc, 0, sizeof(*vk_desc));
     vk_desc->sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
@@ -3026,10 +3064,8 @@ static void ds_desc_from_d3d12(struct VkPipelineDepthStencilStateCreateInfo *vk_
     vk_desc->depthBoundsTestEnable = d3d12_desc->DepthBoundsTestEnable;
     if ((vk_desc->stencilTestEnable = d3d12_desc->StencilEnable))
     {
-        vk_stencil_op_state_from_d3d12(&vk_desc->front, &d3d12_desc->FrontFace,
-                d3d12_desc->StencilReadMask, d3d12_desc->StencilWriteMask);
-        vk_stencil_op_state_from_d3d12(&vk_desc->back, &d3d12_desc->BackFace,
-                d3d12_desc->StencilReadMask, d3d12_desc->StencilWriteMask);
+        vk_stencil_op_state_from_d3d12(&vk_desc->front, &d3d12_desc->FrontFace);
+        vk_stencil_op_state_from_d3d12(&vk_desc->back, &d3d12_desc->BackFace);
     }
     else
     {
@@ -3344,14 +3380,12 @@ static uint32_t d3d12_graphics_pipeline_state_get_plane_optimal_mask(
 
     if (dsv_format)
     {
-        assert(graphics->ds_desc.front.writeMask == graphics->ds_desc.back.writeMask);
-
         if ((aspects & VK_IMAGE_ASPECT_DEPTH_BIT) &&
                 ((graphics->ds_desc.depthTestEnable || graphics->ds_desc.depthBoundsTestEnable) && graphics->ds_desc.depthWriteEnable))
             plane_optimal_mask |= VKD3D_DEPTH_PLANE_OPTIMAL;
 
         if ((aspects & VK_IMAGE_ASPECT_STENCIL_BIT) &&
-                (graphics->ds_desc.stencilTestEnable && graphics->ds_desc.front.writeMask))
+                (graphics->ds_desc.stencilTestEnable && (graphics->ds_desc.front.writeMask | graphics->ds_desc.back.writeMask)))
             plane_optimal_mask |= VKD3D_STENCIL_PLANE_OPTIMAL;
 
         /* If our format does not have both aspects, use same state across the aspects so that we are more likely
@@ -3788,7 +3822,7 @@ uint32_t d3d12_graphics_pipeline_state_get_dynamic_state_flags(struct d3d12_pipe
     if (graphics->ds_desc.depthTestEnable && graphics->ds_desc.depthWriteEnable)
         dynamic_state_flags |= VKD3D_DYNAMIC_STATE_DEPTH_WRITE_ENABLE;
 
-    if (graphics->ds_desc.stencilTestEnable && graphics->ds_desc.front.writeMask)
+    if (graphics->ds_desc.stencilTestEnable && (graphics->ds_desc.front.writeMask | graphics->ds_desc.back.writeMask))
         dynamic_state_flags |= VKD3D_DYNAMIC_STATE_STENCIL_WRITE_MASK;
 
     for (i = 0; i < graphics->rt_count; i++)

@@ -6324,7 +6324,9 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE)
     {
         VK_CALL(vkCmdSetStencilReference(list->cmd.vk_command_buffer,
-                VK_STENCIL_FRONT_AND_BACK, dyn_state->stencil_reference));
+                VK_STENCIL_FACE_FRONT_BIT, dyn_state->stencil_front.reference));
+        VK_CALL(vkCmdSetStencilReference(list->cmd.vk_command_buffer,
+                VK_STENCIL_FACE_BACK_BIT, dyn_state->stencil_back.reference));
     }
 
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_DEPTH_WRITE_ENABLE)
@@ -6336,9 +6338,10 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_STENCIL_WRITE_MASK)
     {
         /* Binding read-only DSV for stencil disable stencil writes. */
-        VK_CALL(vkCmdSetStencilWriteMask(list->cmd.vk_command_buffer,
-                VK_STENCIL_FRONT_AND_BACK,
-                (dyn_state->dsv_plane_write_enable & (1u << 1)) ? dyn_state->stencil_write_mask : 0));
+        VK_CALL(vkCmdSetStencilWriteMask(list->cmd.vk_command_buffer, VK_STENCIL_FACE_FRONT_BIT,
+                (dyn_state->dsv_plane_write_enable & (1u << 1)) ? dyn_state->stencil_front.write_mask : 0));
+        VK_CALL(vkCmdSetStencilWriteMask(list->cmd.vk_command_buffer, VK_STENCIL_FACE_BACK_BIT,
+                (dyn_state->dsv_plane_write_enable & (1u << 1)) ? dyn_state->stencil_back.write_mask : 0));
     }
 
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_DEPTH_BOUNDS)
@@ -8427,9 +8430,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetStencilRef(d3d12_command_l
 
     TRACE("iface %p, stencil_ref %u.\n", iface, stencil_ref);
 
-    if (dyn_state->stencil_reference != stencil_ref)
+    if (dyn_state->stencil_front.reference != stencil_ref || dyn_state->stencil_back.reference != stencil_ref)
     {
-        dyn_state->stencil_reference = stencil_ref;
+        dyn_state->stencil_front.reference = stencil_ref;
+        dyn_state->stencil_back.reference = stencil_ref;
         dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE;
     }
 }
@@ -8465,7 +8469,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
     struct d3d12_pipeline_state *state = impl_from_ID3D12PipelineState(pipeline_state);
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct vkd3d_pipeline_bindings *bindings;
-    uint32_t stencil_write_mask;
     unsigned int i;
 
     TRACE("iface %p, pipeline_state %p.\n", iface, pipeline_state);
@@ -8604,10 +8607,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
 
     if (state->pipeline_type != VKD3D_PIPELINE_TYPE_COMPUTE)
     {
-        stencil_write_mask = state->graphics.ds_desc.front.writeMask;
-        if (list->dynamic_state.stencil_write_mask != stencil_write_mask)
+        if (list->dynamic_state.stencil_front.write_mask != state->graphics.ds_desc.front.writeMask ||
+                list->dynamic_state.stencil_back.write_mask != state->graphics.ds_desc.back.writeMask)
         {
-            list->dynamic_state.stencil_write_mask = stencil_write_mask;
+            list->dynamic_state.stencil_front.write_mask = state->graphics.ds_desc.front.writeMask;
+            list->dynamic_state.stencil_back.write_mask = state->graphics.ds_desc.back.writeMask;
             list->dynamic_state.dirty_flags |= VKD3D_DYNAMIC_STATE_STENCIL_WRITE_MASK;
         }
     }
@@ -13955,8 +13959,18 @@ static void STDMETHODCALLTYPE d3d12_command_list_Barrier(d3d12_command_list_ifac
 
 static void STDMETHODCALLTYPE d3d12_command_list_OMSetFrontAndBackStencilRef(d3d12_command_list_iface *iface, UINT FrontStencilRef, UINT BackStencilRef)
 {
-    FIXME("iface %p, FrontStencilRef %u, BackStencilRef %u stub!\n", 
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct vkd3d_dynamic_state *dyn_state = &list->dynamic_state;
+
+    TRACE("iface %p, FrontStencilRef %u, BackStencilRef %u.\n",
         iface, FrontStencilRef, BackStencilRef);
+
+    if (dyn_state->stencil_front.reference != FrontStencilRef || dyn_state->stencil_back.reference != BackStencilRef)
+    {
+        dyn_state->stencil_front.reference = FrontStencilRef;
+        dyn_state->stencil_back.reference = BackStencilRef;
+        dyn_state->dirty_flags |= VKD3D_DYNAMIC_STATE_STENCIL_REFERENCE;
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_RSSetDepthBias(d3d12_command_list_iface *iface, FLOAT DepthBias, FLOAT DepthBiasClamp, FLOAT SlopeScaledDepthBias)
