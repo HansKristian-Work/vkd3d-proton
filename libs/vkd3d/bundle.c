@@ -1662,9 +1662,31 @@ static void STDMETHODCALLTYPE d3d12_bundle_Barrier(d3d12_command_list_iface *ifa
     WARN("iface %p, NumBarrierGroups %u, D3D12_BARRIER_GROUP %p ignored!\n", iface, NumBarrierGroups, pBarrierGroups);
 }
 
+struct d3d12_om_set_front_and_back_stencil_ref_command
+{
+    struct d3d12_bundle_command command;
+    UINT stencil_ref_front;
+    UINT stencil_ref_back;
+};
+
+static void d3d12_bundle_exec_om_set_front_and_back_stencil_ref(d3d12_command_list_iface *list, const void *args_v)
+{
+    const struct d3d12_om_set_front_and_back_stencil_ref_command *args = args_v;
+
+    ID3D12GraphicsCommandList9_OMSetFrontAndBackStencilRef(list,
+            args->stencil_ref_front, args->stencil_ref_back);
+}
+
 static void STDMETHODCALLTYPE d3d12_bundle_OMSetFrontAndBackStencilRef(d3d12_command_list_iface *iface, UINT FrontStencilRef, UINT BackStencilRef)
 {
-    WARN("iface %p, FrontStencilRef %u, BackStencilRef %u ignored!\n", iface, FrontStencilRef, BackStencilRef);
+    struct d3d12_bundle *bundle = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_om_set_front_and_back_stencil_ref_command *args;
+
+    TRACE("iface %p, FrontStencilRef %u, BackStencilRef %u.\n", iface, FrontStencilRef, BackStencilRef);
+
+    args = d3d12_bundle_add_command(bundle, &d3d12_bundle_exec_om_set_front_and_back_stencil_ref, sizeof(*args));
+    args->stencil_ref_front = FrontStencilRef;
+    args->stencil_ref_back = BackStencilRef;
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_RSSetDepthBias(d3d12_command_list_iface *iface, FLOAT DepthBias, FLOAT DepthBiasClamp, FLOAT SlopeScaledDepthBias)
