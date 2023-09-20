@@ -3081,7 +3081,7 @@ static enum VkBlendFactor vk_blend_factor_from_d3d12_a8(D3D12_BLEND blend)
     }
 }
 
-static enum VkBlendFactor vk_blend_factor_from_d3d12(D3D12_BLEND blend, bool alpha)
+static enum VkBlendFactor vk_blend_factor_from_d3d12(D3D12_BLEND blend)
 {
     switch (blend)
     {
@@ -3108,12 +3108,8 @@ static enum VkBlendFactor vk_blend_factor_from_d3d12(D3D12_BLEND blend, bool alp
         case D3D12_BLEND_SRC_ALPHA_SAT:
             return VK_BLEND_FACTOR_SRC_ALPHA_SATURATE;
         case D3D12_BLEND_BLEND_FACTOR:
-            if (alpha)
-                return VK_BLEND_FACTOR_CONSTANT_ALPHA;
             return VK_BLEND_FACTOR_CONSTANT_COLOR;
         case D3D12_BLEND_INV_BLEND_FACTOR:
-            if (alpha)
-                return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA;
             return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;
         case D3D12_BLEND_SRC1_COLOR:
             return VK_BLEND_FACTOR_SRC1_COLOR;
@@ -3155,11 +3151,11 @@ static void blend_attachment_from_d3d12(struct VkPipelineColorBlendAttachmentSta
     if (d3d12_desc->BlendEnable && d3d12_desc->RenderTargetWriteMask)
     {
         vk_desc->blendEnable = VK_TRUE;
-        vk_desc->srcColorBlendFactor = vk_blend_factor_from_d3d12(d3d12_desc->SrcBlend, false);
-        vk_desc->dstColorBlendFactor = vk_blend_factor_from_d3d12(d3d12_desc->DestBlend, false);
+        vk_desc->srcColorBlendFactor = vk_blend_factor_from_d3d12(d3d12_desc->SrcBlend);
+        vk_desc->dstColorBlendFactor = vk_blend_factor_from_d3d12(d3d12_desc->DestBlend);
         vk_desc->colorBlendOp = vk_blend_op_from_d3d12(d3d12_desc->BlendOp);
-        vk_desc->srcAlphaBlendFactor = vk_blend_factor_from_d3d12(d3d12_desc->SrcBlendAlpha, true);
-        vk_desc->dstAlphaBlendFactor = vk_blend_factor_from_d3d12(d3d12_desc->DestBlendAlpha, true);
+        vk_desc->srcAlphaBlendFactor = vk_blend_factor_from_d3d12(d3d12_desc->SrcBlendAlpha);
+        vk_desc->dstAlphaBlendFactor = vk_blend_factor_from_d3d12(d3d12_desc->DestBlendAlpha);
         vk_desc->alphaBlendOp = vk_blend_op_from_d3d12(d3d12_desc->BlendOpAlpha);
 
         if (format && format->dxgi_format == DXGI_FORMAT_A8_UNORM && format->vk_format != VK_FORMAT_A8_UNORM_KHR)
