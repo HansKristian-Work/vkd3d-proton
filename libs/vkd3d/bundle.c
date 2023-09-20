@@ -1718,9 +1718,28 @@ static void STDMETHODCALLTYPE d3d12_bundle_RSSetDepthBias(d3d12_command_list_ifa
     args->slope_factor = SlopeScaledDepthBias;
 }
 
+struct d3d12_ia_set_index_buffer_strip_cut_value_command
+{
+    struct d3d12_bundle_command command;
+    D3D12_INDEX_BUFFER_STRIP_CUT_VALUE strip_cut_value;
+};
+
+static void d3d12_bundle_exec_ia_set_index_buffer_strip_cut_value(d3d12_command_list_iface *list, const void *args_v)
+{
+    const struct d3d12_ia_set_index_buffer_strip_cut_value_command *args = args_v;
+
+    ID3D12GraphicsCommandList9_IASetIndexBufferStripCutValue(list, args->strip_cut_value);
+}
+
 static void STDMETHODCALLTYPE d3d12_bundle_IASetIndexBufferStripCutValue(d3d12_command_list_iface *iface, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE IBStripCutValue)
 {
-    WARN("iface %p, IBStripCutValue %u ignored!\n", iface, IBStripCutValue);
+    struct d3d12_bundle *bundle = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_ia_set_index_buffer_strip_cut_value_command *args;
+
+    TRACE("iface %p, IBStripCutValue %u.\n", iface, IBStripCutValue);
+
+    args = d3d12_bundle_add_command(bundle, &d3d12_bundle_exec_ia_set_index_buffer_strip_cut_value, sizeof(*args));
+    args->strip_cut_value = IBStripCutValue;
 }
 
 static CONST_VTBL struct ID3D12GraphicsCommandList9Vtbl d3d12_bundle_vtbl =
