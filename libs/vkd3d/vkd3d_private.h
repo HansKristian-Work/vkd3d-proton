@@ -2436,6 +2436,8 @@ struct vkd3d_dynamic_state
         float slope_factor;
     } depth_bias;
 
+    D3D12_INDEX_BUFFER_STRIP_CUT_VALUE index_buffer_strip_cut_value;
+
     float min_depth_bounds;
     float max_depth_bounds;
 

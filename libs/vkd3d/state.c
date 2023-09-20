@@ -4576,6 +4576,10 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
     if (desc->flags & D3D12_PIPELINE_STATE_FLAG_DYNAMIC_DEPTH_BIAS)
         graphics->explicit_dynamic_states |= VKD3D_DYNAMIC_STATE_DEPTH_BIAS;
 
+    if ((desc->flags & D3D12_PIPELINE_STATE_FLAG_DYNAMIC_INDEX_BUFFER_STRIP_CUT) &&
+            state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS)
+        graphics->explicit_dynamic_states |= VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART;
+
     return S_OK;
 
 fail:
