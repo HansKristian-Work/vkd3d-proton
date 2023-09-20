@@ -1689,9 +1689,33 @@ static void STDMETHODCALLTYPE d3d12_bundle_OMSetFrontAndBackStencilRef(d3d12_com
     args->stencil_ref_back = BackStencilRef;
 }
 
+struct d3d12_rs_set_depth_bias_command
+{
+    struct d3d12_bundle_command command;
+    float constant_factor;
+    float clamp;
+    float slope_factor;
+};
+
+static void d3d12_bundle_exec_rs_set_depth_bias(d3d12_command_list_iface *list, const void *args_v)
+{
+    const struct d3d12_rs_set_depth_bias_command *args = args_v;
+
+    ID3D12GraphicsCommandList9_RSSetDepthBias(list,
+            args->constant_factor, args->clamp, args->slope_factor);
+}
+
 static void STDMETHODCALLTYPE d3d12_bundle_RSSetDepthBias(d3d12_command_list_iface *iface, FLOAT DepthBias, FLOAT DepthBiasClamp, FLOAT SlopeScaledDepthBias)
 {
-    WARN("iface %p, DepthBias %f, DepthBiasClamp %f, SlopeScaledDepthBias %f ignored!\n", iface, DepthBias, DepthBiasClamp, SlopeScaledDepthBias);
+    struct d3d12_bundle *bundle = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_rs_set_depth_bias_command *args;
+
+    TRACE("iface %p, DepthBias %f, DepthBiasClamp %f, SlopeScaledDepthBias %f.\n", iface, DepthBias, DepthBiasClamp, SlopeScaledDepthBias);
+
+    args = d3d12_bundle_add_command(bundle, &d3d12_bundle_exec_rs_set_depth_bias, sizeof(*args));
+    args->constant_factor = DepthBias;
+    args->clamp = DepthBiasClamp;
+    args->slope_factor = SlopeScaledDepthBias;
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_IASetIndexBufferStripCutValue(d3d12_command_list_iface *iface, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE IBStripCutValue)
