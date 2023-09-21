@@ -1623,6 +1623,26 @@ union d3d12_rasterizer_subobject
     void *dummy_align;
 };
 
+union d3d12_rasterizer1_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        D3D12_RASTERIZER_DESC1 rasterizer_desc;
+    };
+    void *dummy_align;
+};
+
+union d3d12_rasterizer2_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        D3D12_RASTERIZER_DESC2 rasterizer_desc;
+    };
+    void *dummy_align;
+};
+
 union d3d12_depth_stencil_subobject
 {
     struct
@@ -1729,6 +1749,16 @@ union d3d12_depth_stencil1_subobject
     {
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
         D3D12_DEPTH_STENCIL_DESC1 depth_stencil_desc;
+    };
+    void *dummy_align;
+};
+
+union d3d12_depth_stencil2_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        D3D12_DEPTH_STENCIL_DESC2 depth_stencil_desc;
     };
     void *dummy_align;
 };
