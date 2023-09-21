@@ -2233,3 +2233,400 @@ void test_dynamic_depth_stencil_write(void)
     ID3D12DescriptorHeap_Release(heap);
     destroy_test_context(&context);
 }
+
+void test_depth_stencil_front_and_back(void)
+{
+    D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle, rtv_handle;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS14 options14;
+    ID3D12GraphicsCommandList8 *command_list8;
+    ID3D12DescriptorHeap *rtv_heap, *dsv_heap;
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc;
+    D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
+    ID3D12PipelineState *pso_stencil_write;
+    ID3D12PipelineState *pso_stencil_read;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    struct test_context_desc desc;
+    D3D12_VERTEX_BUFFER_VIEW vbv;
+    struct test_context context;
+    float triangles[2][3][4];
+    ID3D12Resource *ds, *rt;
+    D3D12_VIEWPORT viewport;
+    ID3D12Device2 *device2;
+    ID3D12Resource *vbo;
+    D3D12_RECT scissor;
+    unsigned int i;
+    HRESULT hr;
+
+    static const DWORD vs_code[] =
+    {
+#if 0
+    float4 main(float4 pos : POSITION) : SV_Position
+    {
+        return pos;
+    }
+#endif
+        0x43425844, 0x1808c035, 0xc030df61, 0x84df42ec, 0xfc8e362e, 0x00000001, 0x000000dc, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x00000f0f, 0x49534f50, 0x4e4f4954, 0xababab00,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x505f5653, 0x7469736f, 0x006e6f69, 0x58454853, 0x00000040, 0x00010050,
+        0x00000010, 0x0100086a, 0x0300005f, 0x001010f2, 0x00000000, 0x04000067, 0x001020f2, 0x00000000,
+        0x00000001, 0x05000036, 0x001020f2, 0x00000000, 0x00101e46, 0x00000000, 0x0100003e,
+    };
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+    float4 main(bool is_front_face : SV_IsFrontFace) : SV_TARGET
+    {
+        return is_front_face ? float4(1.0f, 0.0f, 0.0f, 0.0f) : float4(0.0f, 1.0f, 0.0f, 0.0f);
+    }
+#endif
+        0x43425844, 0xfc6882f9, 0xb7f43ec2, 0x96a536df, 0xeb15543c, 0x00000001, 0x00000108, 0x00000003,
+        0x0000002c, 0x00000064, 0x00000098, 0x4e475349, 0x00000030, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000009, 0x00000001, 0x00000000, 0x00000101, 0x495f5653, 0x6f724673, 0x6146746e,
+        0xab006563, 0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000,
+        0x00000003, 0x00000000, 0x0000000f, 0x545f5653, 0x45475241, 0xabab0054, 0x58454853, 0x00000068,
+        0x00000050, 0x0000001a, 0x0100086a, 0x04000863, 0x00101012, 0x00000000, 0x00000009, 0x03000065,
+        0x001020f2, 0x00000000, 0x0f000037, 0x001020f2, 0x00000000, 0x00101006, 0x00000000, 0x00004002,
+        0x3f800000, 0x00000000, 0x00000000, 0x00000000, 0x00004002, 0x00000000, 0x3f800000, 0x00000000,
+        0x00000000, 0x0100003e,
+    };
+
+    static const union d3d12_root_signature_subobject root_signature_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE,
+        NULL, /* fill in dynamically */
+    }};
+
+    static const union d3d12_shader_bytecode_subobject vs_subobject = {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VS, { vs_code, sizeof(vs_code) } }};
+    static const union d3d12_shader_bytecode_subobject ps_subobject = {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, { ps_code, sizeof(ps_code) } }};
+
+    static const union d3d12_sample_mask_subobject sample_mask_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_MASK,
+        0xFFFFFFFFu
+    }};
+
+    static const union d3d12_blend_subobject blend_write_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_BLEND,
+        { FALSE, FALSE },
+    }};
+
+    static const union d3d12_blend_subobject blend_read_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_BLEND,
+        { FALSE, TRUE,
+            {{ TRUE, FALSE,
+                D3D12_BLEND_ONE, D3D12_BLEND_ONE, D3D12_BLEND_OP_ADD,
+                D3D12_BLEND_ONE, D3D12_BLEND_ONE, D3D12_BLEND_OP_ADD,
+                D3D12_LOGIC_OP_NOOP, 0xF }},
+        }
+    }};
+
+    static const union d3d12_rasterizer_subobject rasterizer_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER,
+        { D3D12_FILL_MODE_SOLID, D3D12_CULL_MODE_NONE,
+            FALSE, 0, 0.0f, 0.0f, TRUE, FALSE, FALSE, 0,
+            D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF },
+    }};
+
+    static const union d3d12_depth_stencil2_subobject depth_stencil_write_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL2,
+        { FALSE, D3D12_DEPTH_WRITE_MASK_ZERO, D3D12_COMPARISON_FUNC_ALWAYS, TRUE,
+            { D3D12_STENCIL_OP_REPLACE, D3D12_STENCIL_OP_REPLACE, D3D12_STENCIL_OP_REPLACE, D3D12_COMPARISON_FUNC_ALWAYS, 0x0F, 0x0F },
+            { D3D12_STENCIL_OP_REPLACE, D3D12_STENCIL_OP_REPLACE, D3D12_STENCIL_OP_REPLACE, D3D12_COMPARISON_FUNC_ALWAYS, 0xF0, 0xF0 } },
+    }};
+
+    static const union d3d12_depth_stencil2_subobject depth_stencil_read_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL2,
+        { FALSE, D3D12_DEPTH_WRITE_MASK_ZERO, D3D12_COMPARISON_FUNC_ALWAYS, TRUE,
+            { D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_COMPARISON_FUNC_EQUAL, 0x0F, 0x00 },
+            { D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_COMPARISON_FUNC_EQUAL, 0xF0, 0x00 } },
+    }};
+
+    static const D3D12_INPUT_ELEMENT_DESC input_elements[] =
+    {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+    };
+
+    static const union d3d12_input_layout_subobject input_layout_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_INPUT_LAYOUT,
+        { input_elements, ARRAY_SIZE(input_elements) },
+    }};
+
+    static const union d3d12_ib_strip_cut_value_subobject ib_strip_cut_value_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_IB_STRIP_CUT_VALUE,
+        D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,
+    }};
+
+    static const union d3d12_primitive_topology_subobject primitive_topology_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY,
+        D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
+    }};
+
+    static const union d3d12_render_target_formats_subobject render_target_formats_write_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS,
+        { { DXGI_FORMAT_UNKNOWN }, 0 },
+    }};
+
+    static const union d3d12_render_target_formats_subobject render_target_formats_read_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS,
+        { { DXGI_FORMAT_R8G8B8A8_UNORM }, 1 },
+    }};
+
+    static const union d3d12_depth_stencil_format_subobject depth_stencil_format_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL_FORMAT,
+        DXGI_FORMAT_D32_FLOAT_S8X24_UINT,
+    }};
+
+    static const union d3d12_sample_desc_subobject sample_desc_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_DESC,
+        { 1, 0 },
+    }};
+
+    struct
+    {
+        union d3d12_root_signature_subobject root_signature;
+        union d3d12_shader_bytecode_subobject vertex_shader;
+        union d3d12_blend_subobject blend;
+        union d3d12_sample_mask_subobject sample_mask;
+        union d3d12_rasterizer_subobject rasterizer;
+        union d3d12_depth_stencil2_subobject depth_stencil;
+        union d3d12_input_layout_subobject input_layout;
+        union d3d12_ib_strip_cut_value_subobject strip_cut;
+        union d3d12_primitive_topology_subobject primitive_topology;
+        union d3d12_render_target_formats_subobject render_target_formats;
+        union d3d12_depth_stencil_format_subobject depth_stencil_format;
+        union d3d12_sample_desc_subobject sample_desc;
+    }
+    pso_desc_write_stencil =
+    {
+        root_signature_subobject,
+        vs_subobject,
+        blend_write_subobject,
+        sample_mask_subobject,
+        rasterizer_subobject,
+        depth_stencil_write_subobject,
+        input_layout_subobject,
+        ib_strip_cut_value_subobject,
+        primitive_topology_subobject,
+        render_target_formats_write_subobject,
+        depth_stencil_format_subobject,
+        sample_desc_subobject,
+    };
+
+    struct
+    {
+        union d3d12_root_signature_subobject root_signature;
+        union d3d12_shader_bytecode_subobject vertex_shader;
+        union d3d12_shader_bytecode_subobject pixel_shader;
+        union d3d12_blend_subobject blend;
+        union d3d12_sample_mask_subobject sample_mask;
+        union d3d12_rasterizer_subobject rasterizer;
+        union d3d12_depth_stencil2_subobject depth_stencil;
+        union d3d12_input_layout_subobject input_layout;
+        union d3d12_ib_strip_cut_value_subobject strip_cut;
+        union d3d12_primitive_topology_subobject primitive_topology;
+        union d3d12_render_target_formats_subobject render_target_formats;
+        union d3d12_depth_stencil_format_subobject depth_stencil_format;
+        union d3d12_sample_desc_subobject sample_desc;
+    }
+    pso_desc_read_stencil =
+    {
+        root_signature_subobject,
+        vs_subobject,
+        ps_subobject,
+        blend_read_subobject,
+        sample_mask_subobject,
+        rasterizer_subobject,
+        depth_stencil_read_subobject,
+        input_layout_subobject,
+        ib_strip_cut_value_subobject,
+        primitive_topology_subobject,
+        render_target_formats_read_subobject,
+        depth_stencil_format_subobject,
+        sample_desc_subobject,
+    };
+
+    const D3D12_PIPELINE_STATE_STREAM_DESC pso_stream_write_stencil = { sizeof(pso_desc_write_stencil), &pso_desc_write_stencil };
+    const D3D12_PIPELINE_STATE_STREAM_DESC pso_stream_read_stencil = { sizeof(pso_desc_read_stencil), &pso_desc_read_stencil };
+
+    static const struct
+    {
+        uint8_t stencil_ref_front;
+        uint8_t stencil_ref_back;
+        bool use_two_sided;
+        uint32_t expected_color;
+    }
+    tests[] =
+    {
+        { 0x55, 0x00, false, 0x000000ff },
+        { 0xaa, 0x00, false, 0x0000ff00 },
+        { 0xff, 0xff, true,  0x00000000 },
+        { 0x55, 0x55, true,  0x000000ff },
+        { 0xaa, 0xaa, true,  0x0000ff00 },
+        { 0x55, 0xaa, true,  0x0000ffff },
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_render_target = true;
+    desc.no_root_signature = true;
+
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&options14, 0, sizeof(options14));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS14, &options14, sizeof(options14));
+
+    if (!options14.IndependentFrontAndBackStencilRefMaskSupported)
+    {
+        skip("IndependentFrontAndBackStencilRefMaskSupported not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (FAILED(ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device2, (void **)&device2)))
+    {
+        skip("ID3D12Device2 not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (FAILED(ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList8, (void **)&command_list8)))
+    {
+        skip("ID3D12GraphicsCommandList8 not supported.\n");
+        ID3D12Device2_Release(device2);
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    pso_desc_read_stencil.root_signature.root_signature = context.root_signature;
+    pso_desc_write_stencil.root_signature.root_signature = context.root_signature;
+
+    hr = ID3D12Device2_CreatePipelineState(device2, &pso_stream_write_stencil, &IID_ID3D12PipelineState, (void **)&pso_stencil_write);
+    ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", hr);
+    hr = ID3D12Device2_CreatePipelineState(device2, &pso_stream_read_stencil, &IID_ID3D12PipelineState, (void **)&pso_stencil_read);
+    ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", hr);
+
+    for (i = 0; i < 3; i++)
+    {
+        /* Front-facing triangle */
+        triangles[0][i][0] = i == 1 ? 3.0f : -1.0f;
+        triangles[0][i][1] = i == 2 ? 3.0f : -1.0f;
+        triangles[0][i][2] = 0.0f;
+        triangles[0][i][3] = 1.0f;
+
+        /* Back-facing triangle */
+        triangles[1][i][0] = i == 2 ? 3.0f : -1.0f;
+        triangles[1][i][1] = i == 1 ? 3.0f : -1.0f;
+        triangles[1][i][2] = 0.0f;
+        triangles[1][i][3] = 1.0f;
+    }
+
+    vbo = create_upload_buffer(context.device, sizeof(triangles), triangles);
+    vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vbo);
+    vbv.SizeInBytes = sizeof(triangles);
+    vbv.StrideInBytes = 4 * sizeof(float);
+
+    dsv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
+    rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+
+    ds = create_default_texture2d(context.device, 4, 4, 1, 1, DXGI_FORMAT_D32_FLOAT_S8X24_UINT, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+    rt = create_default_texture2d(context.device, 4, 4, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    memset(&dsv_desc, 0, sizeof(dsv_desc));
+    dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+    dsv_desc.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    dsv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(dsv_heap);
+    ID3D12Device_CreateDepthStencilView(context.device, ds, &dsv_desc, dsv_handle);
+
+    memset(&rtv_desc, 0, sizeof(rtv_desc));
+    rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+    rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    rtv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(rtv_heap);
+    ID3D12Device_CreateRenderTargetView(context.device, rt, &rtv_desc, rtv_handle);
+
+    viewport.TopLeftX = 0.0f;
+    viewport.TopLeftY = 0.0f;
+    viewport.Width = 4.0f;
+    viewport.Height = 4.0f;
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
+
+    scissor.left = 0;
+    scissor.top = 0;
+    scissor.right = 4;
+    scissor.bottom = 4;
+
+    /* This should write 0xa5 to the stencil buffer due to the write masks also being different per face */
+    ID3D12GraphicsCommandList8_ClearDepthStencilView(command_list8, dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0, 0, NULL);
+    ID3D12GraphicsCommandList8_OMSetRenderTargets(command_list8, 0, NULL, false, &dsv_handle);
+    ID3D12GraphicsCommandList8_OMSetFrontAndBackStencilRef(command_list8, 0x55, 0xaa);
+    ID3D12GraphicsCommandList8_SetGraphicsRootSignature(command_list8, context.root_signature);
+    ID3D12GraphicsCommandList8_SetPipelineState(command_list8, pso_stencil_write);
+    ID3D12GraphicsCommandList8_IASetPrimitiveTopology(command_list8, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList8_IASetVertexBuffers(command_list8, 0, 1, &vbv);
+    ID3D12GraphicsCommandList8_RSSetViewports(command_list8, 1, &viewport);
+    ID3D12GraphicsCommandList8_RSSetScissorRects(command_list8, 1, &scissor);
+
+    ID3D12GraphicsCommandList8_DrawInstanced(command_list8, 6, 1, 0, 0);
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        static const FLOAT black[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+        transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+        ID3D12GraphicsCommandList8_ClearRenderTargetView(command_list8, rtv_handle, black, 0, NULL);
+        ID3D12GraphicsCommandList8_OMSetRenderTargets(command_list8, 1, &rtv_handle, false, &dsv_handle);
+        ID3D12GraphicsCommandList8_SetGraphicsRootSignature(command_list8, context.root_signature);
+        ID3D12GraphicsCommandList8_SetPipelineState(command_list8, pso_stencil_read);
+        ID3D12GraphicsCommandList8_IASetPrimitiveTopology(command_list8, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList8_IASetVertexBuffers(command_list8, 0, 1, &vbv);
+        ID3D12GraphicsCommandList8_RSSetViewports(command_list8, 1, &viewport);
+        ID3D12GraphicsCommandList8_RSSetScissorRects(command_list8, 1, &scissor);
+
+        if (tests[i].use_two_sided)
+            ID3D12GraphicsCommandList8_OMSetFrontAndBackStencilRef(command_list8, tests[i].stencil_ref_front, tests[i].stencil_ref_back);
+        else
+            ID3D12GraphicsCommandList8_OMSetStencilRef(command_list8, tests[i].stencil_ref_front);
+
+        ID3D12GraphicsCommandList8_DrawInstanced(command_list8, 6, 1, 0, 0);
+
+        transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_uint(rt, 0, context.queue, context.list, tests[i].expected_color, 0);
+
+        reset_command_list(context.list, context.allocator);
+    }
+
+    ID3D12DescriptorHeap_Release(dsv_heap);
+    ID3D12DescriptorHeap_Release(rtv_heap);
+
+    ID3D12Resource_Release(ds);
+    ID3D12Resource_Release(rt);
+    ID3D12Resource_Release(vbo);
+
+    ID3D12PipelineState_Release(pso_stencil_write);
+    ID3D12PipelineState_Release(pso_stencil_read);
+
+    ID3D12GraphicsCommandList8_Release(command_list8);
+    ID3D12Device2_Release(device2);
+    destroy_test_context(&context);
+}
