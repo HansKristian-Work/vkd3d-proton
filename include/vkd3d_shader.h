@@ -411,6 +411,9 @@ enum vkd3d_shader_quirk
 
     /* For shaders which are bugged when you opt-in to 16-bit. */
     VKD3D_SHADER_QUIRK_FORCE_MIN16_AS_32BIT = (1 << 11),
+
+    /* Driver workaround hackery. Try to rewrite weird Grads to plain Bias. */
+    VKD3D_SHADER_QUIRK_REWRITE_GRAD_TO_BIAS = (1 << 12),
 };
 
 struct vkd3d_shader_quirk_hash
