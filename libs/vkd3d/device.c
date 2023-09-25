@@ -7389,7 +7389,7 @@ static void d3d12_device_caps_init_feature_options17(struct d3d12_device *device
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS17 *options17 = &device->d3d12_caps.options17;
 
-    options17->NonNormalizedCoordinateSamplersSupported = FALSE;
+    options17->NonNormalizedCoordinateSamplersSupported = TRUE;
     /* Debug-only feature, always reported to be false by the runtime */
     options17->ManualWriteTrackingResourceSupported = FALSE;
 }

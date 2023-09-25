@@ -6270,7 +6270,7 @@ HRESULT d3d12_create_static_sampler(struct d3d12_device *device,
     sampler_desc.minLod = desc->MinLOD;
     sampler_desc.maxLod = desc->MaxLOD;
     sampler_desc.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
-    sampler_desc.unnormalizedCoordinates = VK_FALSE;
+    sampler_desc.unnormalizedCoordinates = !!(desc->Flags & D3D12_SAMPLER_FLAG_NON_NORMALIZED_COORDINATES);
 
     if (d3d12_sampler_needs_border_color(desc->AddressU, desc->AddressV, desc->AddressW))
         sampler_desc.borderColor = vk_static_border_color_from_d3d12(desc->BorderColor);
@@ -6321,7 +6321,7 @@ static HRESULT d3d12_create_sampler(struct d3d12_device *device,
     sampler_desc.minLod = desc->MinLOD;
     sampler_desc.maxLod = desc->MaxLOD;
     sampler_desc.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
-    sampler_desc.unnormalizedCoordinates = VK_FALSE;
+    sampler_desc.unnormalizedCoordinates = !!(desc->Flags & D3D12_SAMPLER_FLAG_NON_NORMALIZED_COORDINATES);
 
     if (sampler_desc.maxAnisotropy < 1.0f)
         sampler_desc.anisotropyEnable = VK_FALSE;
