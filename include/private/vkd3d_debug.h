@@ -113,7 +113,7 @@ const char *debugstr_w(const WCHAR *wstr);
 #define TRACE_ON() (vkd3d_dbg_get_level(VKD3D_DBG_CHANNEL) == VKD3D_DBG_LEVEL_TRACE)
 #endif
 
-#define FIXME_ONCE VKD3D_DBG_LOG_ONCE(FIXME, WARN)
+#define FIXME_ONCE VKD3D_DBG_LOG_ONCE(FIXME, TRACE)
 
 static inline const char *debugstr_guid(const GUID *guid)
 {
