@@ -2573,3 +2573,133 @@ void test_pipeline_no_ps_nonzero_rts(void)
     destroy_depth_stencil(&ds);
     destroy_test_context(&context);
 }
+
+void test_topology_triangle_fan(void)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS15 options15;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_INPUT_LAYOUT_DESC input_layout_desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    struct test_context_desc desc;
+    D3D12_VERTEX_BUFFER_VIEW vbv;
+    struct test_context context;
+    ID3D12Resource *vbo;
+    HRESULT hr;
+
+    static const D3D12_INPUT_ELEMENT_DESC input_elements[] =
+    {
+        {"POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    };
+
+#if 0
+    float4 main(in float2 pos : POSITION) : SV_POSITION
+    {
+            return float4(pos, 0.0f, 1.0f);
+    }
+#endif
+    static const DWORD vs_code[] =
+    {
+        0x43425844, 0x5f60e33d, 0xceaefe52, 0xf0605a1b, 0x6174c3a2, 0x00000001, 0x000000fc, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x00000303, 0x49534f50, 0x4e4f4954, 0xababab00,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x505f5653, 0x5449534f, 0x004e4f49, 0x58454853, 0x00000060, 0x00010050,
+        0x00000018, 0x0100086a, 0x0300005f, 0x00101032, 0x00000000, 0x04000067, 0x001020f2, 0x00000000,
+        0x00000001, 0x05000036, 0x00102032, 0x00000000, 0x00101046, 0x00000000, 0x08000036, 0x001020c2,
+        0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x3f800000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE vs_bytecode = { &vs_code, sizeof(vs_code) };
+
+#if 0
+    float4 main() : SV_TARGET
+    {
+            return 0.5f.xxxx;
+    }
+#endif
+    static const DWORD ps_code[] =
+    {
+        0x43425844, 0x47e44c76, 0x613ff931, 0xe271e2f3, 0x54e2f1a9, 0x00000001, 0x000000b4, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x45475241, 0xabab0054, 0x58454853, 0x0000003c, 0x00000050, 0x0000000f,
+        0x0100086a, 0x03000065, 0x001020f2, 0x00000000, 0x08000036, 0x001020f2, 0x00000000, 0x00004002,
+        0x3f000000, 0x3f000000, 0x3f000000, 0x3f000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_bytecode = { &ps_code, sizeof(ps_code) };
+
+    static const float black[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+    static const float vertex_data[6][2] =
+    {
+        {  0.0f,  0.0f },
+        { -1.0f,  1.0f },
+        {  1.0f,  1.0f },
+        {  1.0f, -1.0f },
+        { -1.0f, -1.0f },
+        { -1.0f,  1.0f },
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_root_signature = true;
+
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&options15, 0, sizeof(options15));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS15, &options15, sizeof(options15));
+
+    if (!options15.TriangleFanSupported)
+    {
+        skip("Triangle fan topology not supported by device.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    vbo = create_upload_buffer(context.device, sizeof(vertex_data), vertex_data);
+    vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vbo);
+    vbv.SizeInBytes = sizeof(vertex_data);
+    vbv.StrideInBytes = 2 * sizeof(float);
+
+    memset(&input_layout_desc, 0, sizeof(input_layout_desc));
+    input_layout_desc.pInputElementDescs = input_elements;
+    input_layout_desc.NumElements = ARRAY_SIZE(input_elements);
+
+    /* Enable plain additive blending. If this was to be rendered with an
+     * incorrect topology, we'd observe overdraw or missing coverage. */
+    init_pipeline_state_desc(&pso_desc, context.root_signature,
+            DXGI_FORMAT_R8G8B8A8_UNORM, &vs_bytecode, &ps_bytecode,
+            &input_layout_desc);
+    pso_desc.BlendState.RenderTarget[0].BlendEnable = true;
+    pso_desc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
+    pso_desc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
+    pso_desc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+    pso_desc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+    pso_desc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ONE;
+    pso_desc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, black, 0, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, false, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLEFAN);
+    ID3D12GraphicsCommandList_IASetVertexBuffers(context.list, 0, 1, &vbv);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 6, 1, 0, 0);
+
+    transition_resource_state(context.list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_uint(context.render_target, 0, context.queue, context.list, 0x80808080u, 1);
+
+    ID3D12Resource_Release(vbo);
+
+    destroy_test_context(&context);
+}
