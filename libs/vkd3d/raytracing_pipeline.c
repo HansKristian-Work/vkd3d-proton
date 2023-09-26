@@ -1478,8 +1478,8 @@ static HRESULT d3d12_state_object_get_group_handles(struct d3d12_state_object *o
         if (vr)
             return hresult_from_vk_result(vr);
 
-        RT_TRACE("Queried export %zu, group handle %u -> { %016"PRIx64", %016"PRIx64", %016"PRIx64", %016"PRIx64" }\n",
-                i, group_index,
+        RT_TRACE("Queried export %zu, variant %u, group handle %u -> { %016"PRIx64", %016"PRIx64", %016"PRIx64", %016"PRIx64" }\n",
+                i, pipeline_variant_index, group_index,
                 *(const uint64_t *)(data->exports[i].identifier + 0),
                 *(const uint64_t *)(data->exports[i].identifier + 8),
                 *(const uint64_t *)(data->exports[i].identifier + 16),
