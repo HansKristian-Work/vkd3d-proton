@@ -6699,3 +6699,271 @@ void test_undefined_descriptor_heap_mismatch_types(void)
     ID3D12Resource_Release(output);
     destroy_test_context(&context);
 }
+
+void test_sampler_non_normalized_coordinates(void)
+{
+    ID3D12PipelineState *pso_static_sampler, *pso_sampler_descriptor;
+    ID3D12RootSignature *rs_static_sampler, *rs_sampler_descriptor;
+    ID3D12DescriptorHeap *sampler_heap, *srv_heap, *rtv_heap;
+    D3D12_FEATURE_DATA_ROOT_SIGNATURE rootsig_info;
+    D3D12_STATIC_SAMPLER_DESC1 static_sampler_desc;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS17 options17;
+    D3D12_DESCRIPTOR_RANGE1 descriptor_ranges[2];
+    D3D12_VERSIONED_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_ROOT_PARAMETER1 rs_params[2];
+    D3D12_SAMPLER_DESC2 sampler_desc;
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv;
+    D3D12_SUBRESOURCE_DATA subdata;
+    struct test_context_desc desc;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Device11 *device11;
+    ID3D12Resource *tex, *rt;
+    D3D12_VIEWPORT viewport;
+    unsigned int i, x, y;
+    D3D12_RECT scissor;
+    HRESULT hr;
+
+    static const FLOAT black[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+#if 0
+    SamplerState s : register(s0);
+    Texture2D<float> t : register(t0);
+
+    float4 main(float4 pos : SV_POSITION) : SV_TARGET
+    {
+            return t.Sample(s, pos.xy).xxxx;
+    }
+#endif
+    static DWORD ps_code[] =
+    {
+        0x43425844, 0x8add3d06, 0x20b05473, 0x2ada6bec, 0xeeb2f314, 0x00000001, 0x0000012c, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x5449534f, 0x004e4f49,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x45475241, 0xabab0054, 0x58454853, 0x00000090, 0x00000050,
+        0x00000024, 0x0100086a, 0x0300005a, 0x00106000, 0x00000000, 0x04001858, 0x00107000, 0x00000000,
+        0x00005555, 0x04002064, 0x00101032, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x02000068, 0x00000001, 0x8b000045, 0x800000c2, 0x00155543, 0x00100012, 0x00000000, 0x00101046,
+        0x00000000, 0x00107e46, 0x00000000, 0x00106000, 0x00000000, 0x05000036, 0x001020f2, 0x00000000,
+        0x00100006, 0x00000000, 0x0100003e,
+    };
+    const D3D12_SHADER_BYTECODE ps_bytecode = { ps_code, sizeof(ps_code) };
+
+    static uint8_t tex_data[4][4] =
+    {
+        { 0xff, 0xc0, 0x80, 0x40 },
+        { 0xc0, 0x80, 0x40, 0x20 },
+        { 0x80, 0x40, 0x20, 0x10 },
+        { 0x40, 0x20, 0x10, 0x00 },
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_root_signature = true;
+    desc.no_pipeline = true;
+    desc.no_render_target = true;
+
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&rootsig_info, 0, sizeof(rootsig_info));
+    rootsig_info.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_2;
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_ROOT_SIGNATURE, &options17, sizeof(options17));
+
+    if (rootsig_info.HighestVersion < D3D_ROOT_SIGNATURE_VERSION_1_2)
+    {
+        skip("Root signature version 1.2 not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&options17, 0, sizeof(options17));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS17, &options17, sizeof(options17));
+
+    if (!options17.NonNormalizedCoordinateSamplersSupported)
+    {
+        skip("Non-normalized sampler coordinates not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (FAILED(ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device11, (void **)&device11)))
+    {
+        skip("ID3D12Device11 not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&static_sampler_desc, 0, sizeof(static_sampler_desc));
+    static_sampler_desc.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    static_sampler_desc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    static_sampler_desc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    static_sampler_desc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    static_sampler_desc.BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+    static_sampler_desc.ShaderRegister = 0;
+    static_sampler_desc.RegisterSpace = 0;
+    static_sampler_desc.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    static_sampler_desc.Flags = D3D12_SAMPLER_FLAG_NON_NORMALIZED_COORDINATES;
+
+    memset(&sampler_desc, 0, sizeof(sampler_desc));
+    sampler_desc.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    sampler_desc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    sampler_desc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    sampler_desc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    sampler_desc.Flags = D3D12_SAMPLER_FLAG_NON_NORMALIZED_COORDINATES;
+
+    memset(descriptor_ranges, 0, sizeof(descriptor_ranges));
+    descriptor_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    descriptor_ranges[0].NumDescriptors = 1;
+    descriptor_ranges[0].BaseShaderRegister = 0;
+    descriptor_ranges[0].RegisterSpace = 0;
+    descriptor_ranges[0].OffsetInDescriptorsFromTableStart = 0;
+
+    descriptor_ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+    descriptor_ranges[1].NumDescriptors = 1;
+    descriptor_ranges[1].BaseShaderRegister = 0;
+    descriptor_ranges[1].RegisterSpace = 0;
+    descriptor_ranges[1].OffsetInDescriptorsFromTableStart = 0;
+
+    memset(rs_params, 0, sizeof(rs_params));
+    rs_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_params[0].DescriptorTable.NumDescriptorRanges = 1;
+    rs_params[0].DescriptorTable.pDescriptorRanges = &descriptor_ranges[0];
+    rs_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    rs_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_params[1].DescriptorTable.NumDescriptorRanges = 1;
+    rs_params[1].DescriptorTable.pDescriptorRanges = &descriptor_ranges[1];
+    rs_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_2;
+    rs_desc.Desc_1_2.NumParameters = 1;
+    rs_desc.Desc_1_2.pParameters = rs_params;
+    rs_desc.Desc_1_2.NumStaticSamplers = 1;
+    rs_desc.Desc_1_2.pStaticSamplers = &static_sampler_desc;
+
+    hr = create_versioned_root_signature(context.device, &rs_desc, &rs_static_sampler);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_2;
+    rs_desc.Desc_1_2.NumParameters = 2;
+    rs_desc.Desc_1_2.pParameters = rs_params;
+
+    hr = create_versioned_root_signature(context.device, &rs_desc, &rs_sampler_descriptor);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    init_pipeline_state_desc(&pso_desc, rs_static_sampler, DXGI_FORMAT_R8_UNORM, NULL, &ps_bytecode, NULL);
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso_static_sampler);
+    ok(SUCCEEDED(hr), "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    init_pipeline_state_desc(&pso_desc, rs_sampler_descriptor, DXGI_FORMAT_R8_UNORM, NULL, &ps_bytecode, NULL);
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso_sampler_descriptor);
+    ok(SUCCEEDED(hr), "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+    srv_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    sampler_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 1);
+
+    tex = create_default_texture(context.device, 4, 4, DXGI_FORMAT_R8_UNORM, 0, D3D12_RESOURCE_STATE_COPY_DEST);
+    ID3D12Device_CreateShaderResourceView(context.device, tex, NULL, get_cpu_descriptor_handle(&context, srv_heap, 0));
+
+    rt = create_default_texture(context.device, 4, 4, DXGI_FORMAT_R8_UNORM, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    rtv = get_cpu_rtv_handle(&context, rtv_heap, 0);
+    ID3D12Device_CreateRenderTargetView(context.device, rt, NULL, rtv);
+
+    ID3D12Device11_CreateSampler2(device11, &sampler_desc, get_cpu_sampler_handle(&context, sampler_heap, 0));
+
+    subdata.pData = tex_data;
+    subdata.RowPitch = 4;
+    subdata.SlicePitch = 16;
+    upload_texture_data(tex, &subdata, 1, context.queue, context.list);
+    reset_command_list(context.list, context.allocator);
+
+    transition_resource_state(context.list, tex,
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
+    viewport.TopLeftX = 0.0f;
+    viewport.TopLeftY = 0.0f;
+    viewport.Width = 4.0f;
+    viewport.Height = 4.0f;
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 0.0f;
+
+    scissor.left = 0;
+    scissor.top = 0;
+    scissor.right = 4;
+    scissor.bottom = 4;
+
+    for (i = 0; i < 2; i++)
+    {
+        ID3D12DescriptorHeap *descriptor_heaps[2];
+        descriptor_heaps[0] = srv_heap;
+        descriptor_heaps[1] = sampler_heap;
+
+        vkd3d_test_set_context("Test %u", i);
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &rtv, FALSE, NULL);
+        ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, rtv, black, 0, NULL);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1 + i, descriptor_heaps);
+
+        if (i == 0)
+        {
+            ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, rs_static_sampler);
+            ID3D12GraphicsCommandList_SetPipelineState(context.list, pso_static_sampler);
+        }
+        else
+        {
+            ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, rs_sampler_descriptor);
+            ID3D12GraphicsCommandList_SetPipelineState(context.list, pso_sampler_descriptor);
+
+            ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(context.list, 1,
+                    get_gpu_sampler_handle(&context, sampler_heap, 0));
+        }
+
+        ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(context.list, 0,
+                get_gpu_descriptor_handle(&context, srv_heap, 0));
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &scissor);
+        ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+        transition_resource_state(context.list, rt,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        get_texture_readback_with_command_list(rt, 0, &rb, context.queue, context.list);
+
+        for (y = 0; y < 4; y++)
+        {
+            for (x = 0; x < 4; x++)
+            {
+                uint8_t u8 = get_readback_uint8(&rb, x, y);
+                ok(u8 == tex_data[y][x], "Got %#x at %u,%u, expected %#x.\n", u8, x, y, tex_data[y][x]);
+            }
+        }
+
+        release_resource_readback(&rb);
+        reset_command_list(context.list, context.allocator);
+
+        transition_resource_state(context.list, rt,
+                D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    }
+
+    ID3D12Resource_Release(tex);
+    ID3D12Resource_Release(rt);
+
+    ID3D12DescriptorHeap_Release(rtv_heap);
+    ID3D12DescriptorHeap_Release(srv_heap);
+    ID3D12DescriptorHeap_Release(sampler_heap);
+
+    ID3D12PipelineState_Release(pso_static_sampler);
+    ID3D12PipelineState_Release(pso_sampler_descriptor);
+
+    ID3D12RootSignature_Release(rs_static_sampler);
+    ID3D12RootSignature_Release(rs_sampler_descriptor);
+
+    ID3D12Device11_Release(device11);
+    destroy_test_context(&context);
+}
