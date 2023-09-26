@@ -372,3 +372,4 @@ decl_test(test_instruction_msad_dxil);
 decl_test(test_depth_stencil_front_and_back);
 decl_test(test_topology_triangle_fan);
 decl_test(test_sampler_non_normalized_coordinates);
+decl_test(test_dynamic_depth_bias);
