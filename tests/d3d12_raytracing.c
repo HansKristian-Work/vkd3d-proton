@@ -4606,7 +4606,7 @@ void test_raytracing_multi_global_rs(void)
         rt_pso_factory_add_subobject_to_exports_association(&factory, rs_indices[i], 1, &exports[i].Name);
 
     pso = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
-    todo ok(!!pso, "Failed to compile PSO.\n");
+    ok(!!pso, "Failed to compile PSO.\n");
     if (!pso)
         goto pso_error;
 
