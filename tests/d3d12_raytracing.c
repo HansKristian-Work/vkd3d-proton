@@ -4278,7 +4278,7 @@ void test_raytracing_collection_identifiers(void)
     hr = ID3D12StateObject_QueryInterface(object, &IID_ID3D12StateObjectProperties, (void **)&props);
     ok(SUCCEEDED(hr), "Failed to query props interface, hr #%x.\n", hr);
     ident = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"main");
-    todo ok(!!ident, "Failed to query identifier for COLLECTION.\n");
+    ok(!!ident, "Failed to query identifier for COLLECTION.\n");
     if (ident)
         memcpy(collection_identifier, ident, sizeof(collection_identifier));
     ID3D12StateObjectProperties_Release(props);
@@ -4297,7 +4297,7 @@ void test_raytracing_collection_identifiers(void)
         memcpy(rtpso_identifier, ident, sizeof(collection_identifier));
     ID3D12StateObjectProperties_Release(props);
 
-    todo ok(memcmp(collection_identifier, rtpso_identifier, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES) == 0, "COLLECTION identifier does not match RTPSO identifier.\n");
+    ok(memcmp(collection_identifier, rtpso_identifier, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES) == 0, "COLLECTION identifier does not match RTPSO identifier.\n");
 
     if (object)
         ID3D12StateObject_Release(object);
