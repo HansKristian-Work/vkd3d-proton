@@ -187,7 +187,8 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         if (heap_type == D3D12_HEAP_TYPE_DEFAULT || !is_cpu_accessible_heap(heap_properties))
             buffer_info.usage |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR;
         /* This is always allowed. Used for vertex/index buffer inputs to RTAS build. */
-        buffer_info.usage |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+        buffer_info.usage |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
+                VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR;
     }
 
     if (heap_type == D3D12_HEAP_TYPE_UPLOAD)
@@ -8404,6 +8405,7 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
          * Enabling RTAS should not change acceptable memory mask, but to be safe ... */
         buffer_info.usage |=
                 VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
+                VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR |
                 VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
     }
 
