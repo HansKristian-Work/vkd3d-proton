@@ -113,6 +113,7 @@ static void d3d12_state_object_dec_ref(struct d3d12_state_object *state_object)
 static void d3d12_state_object_cleanup(struct d3d12_state_object *object)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &object->device->vk_procs;
+    struct d3d12_state_object_variant *variant;
     size_t i;
 
     for (i = 0; i < object->exports_count; i++)
@@ -127,24 +128,28 @@ static void d3d12_state_object_cleanup(struct d3d12_state_object *object)
         d3d12_state_object_dec_ref(object->collections[i]);
     vkd3d_free(object->collections);
 
-    if (object->global_root_signature)
-        d3d12_root_signature_dec_ref(object->global_root_signature);
-
-    VK_CALL(vkDestroyPipeline(object->device->vk_device, object->pipeline, NULL));
-    VK_CALL(vkDestroyPipeline(object->device->vk_device, object->pipeline_library, NULL));
-
-    if (object->local_static_sampler.owned_handles)
+    for (i = 0; i < object->pipelines_count; i++)
     {
-        VK_CALL(vkDestroyPipelineLayout(object->device->vk_device,
-                object->local_static_sampler.pipeline_layout, NULL));
-        VK_CALL(vkDestroyDescriptorSetLayout(object->device->vk_device,
-                object->local_static_sampler.set_layout, NULL));
-        if (object->local_static_sampler.desc_set)
+        variant = &object->pipelines[i];
+        VK_CALL(vkDestroyPipeline(object->device->vk_device, variant->pipeline, NULL));
+        VK_CALL(vkDestroyPipeline(object->device->vk_device, variant->pipeline_library, NULL));
+        if (variant->global_root_signature)
+            d3d12_root_signature_dec_ref(variant->global_root_signature);
+
+        if (variant->local_static_sampler.owned_handles)
         {
-            vkd3d_sampler_state_free_descriptor_set(&object->device->sampler_state, object->device,
-                    object->local_static_sampler.desc_set, object->local_static_sampler.desc_pool);
+            VK_CALL(vkDestroyPipelineLayout(object->device->vk_device,
+                    variant->local_static_sampler.pipeline_layout, NULL));
+            VK_CALL(vkDestroyDescriptorSetLayout(object->device->vk_device,
+                    variant->local_static_sampler.set_layout, NULL));
+            if (variant->local_static_sampler.desc_set)
+            {
+                vkd3d_sampler_state_free_descriptor_set(&object->device->sampler_state, object->device,
+                        variant->local_static_sampler.desc_set, variant->local_static_sampler.desc_pool);
+            }
         }
     }
+    vkd3d_free(object->pipelines);
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     vkd3d_free(object->breadcrumb_shaders);
@@ -441,10 +446,21 @@ struct d3d12_state_object_pipeline_data
     struct vkd3d_shader_debug_ring_spec_info *spec_info_buffer;
 };
 
+static void d3d12_state_object_pipeline_data_cleanup_modules(struct d3d12_state_object_pipeline_data *data,
+        struct d3d12_device *device)
+{
+    unsigned int i;
+    for (i = 0; i < data->stages_count; i++)
+    {
+        const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+        VK_CALL(vkDestroyShaderModule(device->vk_device, data->stages[i].module, NULL));
+    }
+    data->stages_count = 0;
+}
+
 static void d3d12_state_object_pipeline_data_cleanup(struct d3d12_state_object_pipeline_data *data,
         struct d3d12_device *device)
 {
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     unsigned int i;
 
     vkd3d_shader_dxil_free_library_entry_points(data->entry_points, data->entry_points_count);
@@ -464,8 +480,7 @@ static void d3d12_state_object_pipeline_data_cleanup(struct d3d12_state_object_p
     vkd3d_free(data->exports);
     vkd3d_free(data->groups);
 
-    for (i = 0; i < data->stages_count; i++)
-        VK_CALL(vkDestroyShaderModule(device->vk_device, data->stages[i].module, NULL));
+    d3d12_state_object_pipeline_data_cleanup_modules(data, device);
     vkd3d_free(data->stages);
 
     vkd3d_free(data->associations);
@@ -505,16 +520,6 @@ static HRESULT d3d12_state_object_add_collection(
         if (collection->exports[i].mangled_export)
             RT_TRACE("  Mangled export: %s\n", debugstr_w(collection->exports[i].mangled_export));
     }
-    RT_TRACE("  Global Root Signature compat hash: %016"PRIx64".\n",
-            collection->global_root_signature->compatibility_hash);
-
-    /* If a PSO only declares collections, but no pipelines, just inherit various state.
-     * Also, validates later that we have a match across different PSOs if we end up with mismatches. */
-    data->associations[data->associations_count].kind = VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE;
-    data->associations[data->associations_count].root_signature = collection->global_root_signature;
-    data->associations[data->associations_count].priority = VKD3D_ASSOCIATION_PRIORITY_INHERITED_COLLECTION;
-    data->associations[data->associations_count].export = NULL;
-    data->associations_count++;
 
     data->associations[data->associations_count].kind = VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_PIPELINE_CONFIG1;
     data->associations[data->associations_count].pipeline_config = collection->pipeline_config;
@@ -532,13 +537,7 @@ static HRESULT d3d12_state_object_add_collection(
     data->collections[data->collections_count].num_exports = num_exports;
     data->collections[data->collections_count].exports = exports;
 
-    vkd3d_array_reserve((void **)&data->vk_libraries, &data->vk_libraries_size,
-            data->vk_libraries_count + 1, sizeof(*data->vk_libraries));
-    data->vk_libraries[data->vk_libraries_count] =
-            data->collections[data->collections_count].object->pipeline_library;
-
     data->collections_count += 1;
-    data->vk_libraries_count += 1;
     return S_OK;
 }
 
@@ -1061,10 +1060,31 @@ static uint32_t d3d12_state_object_pipeline_data_find_entry_inner(
     return VK_SHADER_UNUSED_KHR;
 }
 
+static uint32_t d3d12_state_object_find_collection_variant(const struct d3d12_state_object_variant *variant,
+        const struct d3d12_state_object *collection)
+{
+    uint32_t i;
+
+    for (i = 0; i < collection->pipelines_count; i++)
+    {
+        if (d3d12_root_signature_is_compatible(
+                variant->global_root_signature, collection->pipelines[i].global_root_signature))
+        {
+            return i;
+        }
+    }
+
+    return UINT32_MAX;
+}
+
 static uint32_t d3d12_state_object_pipeline_data_find_entry(
         const struct d3d12_state_object_pipeline_data *data,
+        const struct d3d12_state_object_variant *variant,
+        unsigned int pipeline_variant_index,
         const WCHAR *import)
 {
+    const struct vkd3d_shader_library_entry_point *entry_point;
+    uint32_t variant_index;
     uint32_t offset = 0;
     uint32_t index;
     char *duped;
@@ -1075,21 +1095,38 @@ static uint32_t d3d12_state_object_pipeline_data_find_entry(
 
     index = d3d12_state_object_pipeline_data_find_entry_inner(data->entry_points, data->entry_points_count, import);
     if (index != VK_SHADER_UNUSED_KHR)
-        return index;
+    {
+        entry_point = &data->entry_points[index];
+        if (entry_point->pipeline_variant_index == pipeline_variant_index)
+            return entry_point->stage_index;
+        else
+            return VK_SHADER_UNUSED_KHR;
+    }
 
     offset += data->stages_count;
 
     /* Try to look in collections. We'll only find something in the ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL
-     * situation. Otherwise entry_points will be NULL. */
+     * situation. Otherwise, entry_points will be NULL. */
     for (i = 0; i < data->collections_count; i++)
     {
+        variant_index = d3d12_state_object_find_collection_variant(variant, data->collections[i].object);
+        if (variant_index == UINT32_MAX)
+            continue;
+
         index = d3d12_state_object_pipeline_data_find_entry_inner(data->collections[i].object->entry_points,
                 data->collections[i].object->entry_points_count,
                 import);
-        if (index != VK_SHADER_UNUSED_KHR)
-            return offset + index;
 
-        offset += data->collections[i].object->stages_count;
+        if (index != VK_SHADER_UNUSED_KHR)
+        {
+            entry_point = &data->collections[i].object->entry_points[index];
+            if (entry_point->pipeline_variant_index == variant_index)
+                return offset + entry_point->stage_index;
+            else
+                return VK_SHADER_UNUSED_KHR;
+        }
+
+        offset += data->collections[i].object->pipelines[variant_index].stages_count;
     }
 
     duped = vkd3d_strdup_w_utf8(import, 0);
@@ -1131,11 +1168,13 @@ static VkShaderModule create_shader_module(struct d3d12_device *device, const vo
 }
 
 static VkDeviceSize get_shader_stack_size(struct d3d12_state_object *object,
-        uint32_t index, VkShaderGroupShaderKHR shader)
+        uint32_t pipeline_variant_index, uint32_t index, VkShaderGroupShaderKHR shader)
 {
+    const struct d3d12_state_object_variant *variant = &object->pipelines[pipeline_variant_index];
     const struct vkd3d_vk_device_procs *vk_procs = &object->device->vk_procs;
     return VK_CALL(vkGetRayTracingShaderGroupStackSizeKHR(object->device->vk_device,
-            object->pipeline ? object->pipeline : object->pipeline_library, index, shader));
+            variant->pipeline ? variant->pipeline : variant->pipeline_library,
+            index, shader));
 }
 
 static VkDeviceSize d3d12_state_object_pipeline_data_compute_default_stack_size(
@@ -1401,6 +1440,8 @@ static HRESULT d3d12_state_object_get_group_handles(struct d3d12_state_object *o
         const struct d3d12_state_object_pipeline_data *data)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &object->device->vk_procs;
+    const struct d3d12_state_object_variant *variant;
+    unsigned int pipeline_variant_index;
     uint32_t collection_export;
     VkPipeline vk_pipeline;
     int collection_index;
@@ -1408,16 +1449,18 @@ static HRESULT d3d12_state_object_get_group_handles(struct d3d12_state_object *o
     VkResult vr;
     size_t i;
 
-    if (object->pipeline)
-        vk_pipeline = object->pipeline;
-    else if (object->device->device_info.pipeline_library_group_handles_features.pipelineLibraryGroupHandles)
-        vk_pipeline = object->pipeline_library;
-    else
-        vk_pipeline = VK_NULL_HANDLE;
-
     for (i = 0; i < data->exports_count; i++)
     {
-        group_index = data->exports[i].group_index;
+        pipeline_variant_index = data->exports[i].pipeline_variant_index;
+        variant = &object->pipelines[pipeline_variant_index];
+        group_index = data->exports[i].per_variant_group_index;
+
+        if (variant->pipeline)
+            vk_pipeline = variant->pipeline;
+        else if (object->device->device_info.pipeline_library_group_handles_features.pipelineLibraryGroupHandles)
+            vk_pipeline = variant->pipeline_library;
+        else
+            vk_pipeline = VK_NULL_HANDLE;
 
         if (vk_pipeline)
         {
@@ -1481,20 +1524,32 @@ static HRESULT d3d12_state_object_get_group_handles(struct d3d12_state_object *o
 
         if (data->exports[i].general_stage_index != VK_SHADER_UNUSED_KHR)
         {
-            data->exports[i].stack_size_general = get_shader_stack_size(object, group_index,
+            data->exports[i].stack_size_general = get_shader_stack_size(object,
+                    pipeline_variant_index, group_index,
                     VK_SHADER_GROUP_SHADER_GENERAL_KHR);
         }
         else
         {
             if (data->exports[i].anyhit_stage_index != VK_SHADER_UNUSED_KHR)
-                data->exports[i].stack_size_any = get_shader_stack_size(object, group_index,
+            {
+                data->exports[i].stack_size_any = get_shader_stack_size(object,
+                        pipeline_variant_index, group_index,
                         VK_SHADER_GROUP_SHADER_ANY_HIT_KHR);
+            }
+
             if (data->exports[i].closest_stage_index != VK_SHADER_UNUSED_KHR)
-                data->exports[i].stack_size_closest = get_shader_stack_size(object, group_index,
+            {
+                data->exports[i].stack_size_closest = get_shader_stack_size(object,
+                        pipeline_variant_index, group_index,
                         VK_SHADER_GROUP_SHADER_CLOSEST_HIT_KHR);
+            }
+
             if (data->exports[i].intersection_stage_index != VK_SHADER_UNUSED_KHR)
-                data->exports[i].stack_size_intersection = get_shader_stack_size(object, group_index,
+            {
+                data->exports[i].stack_size_intersection = get_shader_stack_size(object,
+                        pipeline_variant_index, group_index,
                         VK_SHADER_GROUP_SHADER_INTERSECTION_KHR);
+            }
         }
     }
 
@@ -1518,7 +1573,7 @@ static void d3d12_state_object_build_group_create_info(
 }
 
 static void d3d12_state_object_append_local_static_samplers(
-        struct d3d12_state_object *object,
+        struct d3d12_state_object_variant *variant,
         VkDescriptorSetLayoutBinding **out_vk_bindings, size_t *out_vk_bindings_size, size_t *out_vk_bindings_count,
         struct vkd3d_shader_resource_binding *local_bindings,
         const D3D12_STATIC_SAMPLER_DESC1 *sampler_desc, const VkSampler *vk_samplers,
@@ -1556,7 +1611,7 @@ static void d3d12_state_object_append_local_static_samplers(
         local_bindings[i].shader_visibility = vkd3d_shader_visibility_from_d3d12(sampler_desc[i].ShaderVisibility);
         local_bindings[i].flags = VKD3D_SHADER_BINDING_FLAG_IMAGE;
         local_bindings[i].binding.binding = j;
-        local_bindings[i].binding.set = object->local_static_sampler.set_index;
+        local_bindings[i].binding.set = variant->local_static_sampler.set_index;
     }
 
     *out_vk_bindings = vk_bindings;
@@ -1603,10 +1658,7 @@ static bool d3d12_state_object_pipeline_data_find_global_state_object(
              * we'd have to partition any RTPSO into N VkPipelines and select
              * the appropriate pipeline at DispatchRays() time based on the currently bound root signature ...
              * Leave this as a TODO until we observe that applications rely on this esoteric behavior. */
-            if (kind == VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE)
-                FIXME("Two entry points declare different global root signatures. This is currently unsupported.\n");
-            else
-                ERR("Mismatch in inherited associations for kind %u.\n", kind);
+            ERR("Mismatch in inherited associations for kind %u.\n", kind);
             return false;
         }
     }
@@ -1615,48 +1667,42 @@ static bool d3d12_state_object_pipeline_data_find_global_state_object(
     return true;
 }
 
-static bool d3d12_state_object_pipeline_data_find_global_state_objects(
-        struct d3d12_state_object_pipeline_data *data, struct d3d12_root_signature **out_root_signature,
+static HRESULT d3d12_state_object_pipeline_data_find_global_state_objects(
+        struct d3d12_state_object_pipeline_data *data,
         D3D12_RAYTRACING_SHADER_CONFIG *out_shader_config,
         D3D12_RAYTRACING_PIPELINE_CONFIG1 *out_pipeline_config)
 {
     const struct d3d12_state_object_association *pipeline_config = NULL;
-    const struct d3d12_state_object_association *root_signature = NULL;
     const struct d3d12_state_object_association *shader_config = NULL;
 
     if (!d3d12_state_object_pipeline_data_find_global_state_object(data,
-            VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE, &root_signature))
-        return false;
-
-    if (!d3d12_state_object_pipeline_data_find_global_state_object(data,
             VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_PIPELINE_CONFIG1, &pipeline_config))
-        return false;
+        return E_INVALIDARG;
 
     if (!d3d12_state_object_pipeline_data_find_global_state_object(data,
             VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_SHADER_CONFIG, &shader_config))
-        return false;
+        return E_INVALIDARG;
 
     if (!pipeline_config)
     {
         ERR("No pipeline config was declared or inherited. This is required state.\n");
-        return false;
+        return E_INVALIDARG;
     }
 
     if (!shader_config)
     {
         ERR("No shader config was declared or inherited. This is required state.\n");
-        return false;
+        return E_INVALIDARG;
     }
 
-    /* If every entry point declares no root signature, this is still okay. */
-    *out_root_signature = root_signature ? root_signature->root_signature : NULL;
     *out_pipeline_config = pipeline_config->pipeline_config;
     *out_shader_config = shader_config->shader_config;
 
-    return true;
+    return S_OK;
 }
 
-static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *object,
+static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_state_object *object,
+        unsigned pipeline_variant_index,
         struct d3d12_state_object_pipeline_data *data)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &object->device->vk_procs;
@@ -1668,17 +1714,15 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     VkRayTracingPipelineCreateInfoKHR pipeline_create_info;
     struct vkd3d_shader_resource_binding *local_bindings;
     struct vkd3d_shader_compile_arguments compile_args;
-    D3D12_RAYTRACING_PIPELINE_CONFIG1 pipeline_config;
     struct d3d12_state_object_collection *collection;
     VkPipelineDynamicStateCreateInfo dynamic_state;
     struct vkd3d_shader_library_entry_point *entry;
     struct d3d12_root_signature *global_signature;
-    struct d3d12_root_signature *local_signature;
-    D3D12_RAYTRACING_SHADER_CONFIG shader_config;
     const struct D3D12_HIT_GROUP_DESC *hit_group;
     struct d3d12_state_object_identifier *export;
     VkPipelineLibraryCreateInfoKHR library_info;
     size_t local_static_sampler_bindings_count;
+    struct d3d12_state_object_variant *variant;
     size_t local_static_sampler_bindings_size;
     VkPipelineShaderStageCreateInfo *stage;
     uint32_t pgroup_offset, pstage_offset;
@@ -1691,6 +1735,8 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
 
     static const VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_RAY_TRACING_PIPELINE_STACK_SIZE_KHR };
 
+    variant = &object->pipelines[pipeline_variant_index];
+
     memset(&compile_args, 0, sizeof(compile_args));
     compile_args.target_extensions = object->device->vk_info.shader_extensions;
     compile_args.target_extension_count = object->device->vk_info.shader_extension_count;
@@ -1700,7 +1746,6 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     /* Don't care about wave size promotion in RT. */
     compile_args.quirks = &vkd3d_shader_quirk_info;
 
-    /* TODO: Allow different root signatures per module. */
     memset(&shader_interface_info, 0, sizeof(shader_interface_info));
     shader_interface_info.min_ssbo_alignment = d3d12_device_get_ssbo_alignment(object->device);
 
@@ -1713,9 +1758,7 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     shader_interface_info.descriptor_size_sampler = d3d12_device_get_descriptor_handle_increment_size(
             object->device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
 
-    if (!d3d12_state_object_pipeline_data_find_global_state_objects(data,
-            &global_signature, &shader_config, &pipeline_config))
-        return E_INVALIDARG;
+    global_signature = variant->global_root_signature;
 
     if (global_signature)
     {
@@ -1732,7 +1775,6 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
         shader_interface_info.descriptor_qa_global_binding = &global_signature->descriptor_qa_global_info;
         shader_interface_info.descriptor_qa_heap_binding = &global_signature->descriptor_qa_heap_binding;
 #endif
-        d3d12_root_signature_inc_ref(object->global_root_signature = global_signature);
     }
     else
     {
@@ -1743,7 +1785,7 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
         if (FAILED(hr = d3d12_root_signature_create_empty(object->device, &default_global_root_signature)))
             return E_OUTOFMEMORY;
         global_signature = default_global_root_signature;
-        d3d12_root_signature_inc_ref(object->global_root_signature = global_signature);
+        d3d12_root_signature_inc_ref(variant->global_root_signature = global_signature);
         ID3D12RootSignature_Release(&default_global_root_signature->ID3D12RootSignature_iface);
     }
 
@@ -1753,14 +1795,27 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     local_static_sampler_bindings = NULL;
     local_static_sampler_bindings_count = 0;
     local_static_sampler_bindings_size = 0;
-    object->local_static_sampler.set_index = global_signature ? global_signature->raygen.num_set_layouts : 0;
+    variant->local_static_sampler.set_index = global_signature ? global_signature->raygen.num_set_layouts : 0;
 
     if (object->device->debug_ring.active)
         data->spec_info_buffer = vkd3d_calloc(data->entry_points_count, sizeof(*data->spec_info_buffer));
 
     for (i = 0; i < data->entry_points_count; i++)
     {
+        struct d3d12_root_signature *per_entry_global_signature;
+        struct d3d12_root_signature *local_signature;
+
         entry = &data->entry_points[i];
+
+        /* We have already compiled this entry point. */
+        if (entry->pipeline_variant_index != UINT32_MAX)
+            continue;
+
+        /* Skip any entry point that is incompatible, we'll compile it another iteration. */
+        per_entry_global_signature = d3d12_state_object_pipeline_data_get_root_signature(
+                VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE, data, entry);
+        if (!d3d12_root_signature_is_compatible(variant->global_root_signature, per_entry_global_signature))
+            continue;
 
         RT_TRACE("Compiling entry point: %s (stage = #%x).\n", debugstr_w(entry->plain_entry_point), entry->stage);
 
@@ -1784,7 +1839,7 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
                 local_bindings = vkd3d_malloc(sizeof(*local_bindings) * shader_interface_local_info.binding_count);
                 shader_interface_local_info.bindings = local_bindings;
 
-                d3d12_state_object_append_local_static_samplers(object,
+                d3d12_state_object_append_local_static_samplers(variant,
                         &local_static_sampler_bindings,
                         &local_static_sampler_bindings_size, &local_static_sampler_bindings_count,
                         local_bindings,
@@ -1820,7 +1875,8 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
             export = &data->exports[data->exports_count];
             export->mangled_export = entry->mangled_entry_point;
             export->plain_export = entry->plain_entry_point;
-            export->group_index = data->groups_count;
+            export->pipeline_variant_index = pipeline_variant_index;
+            export->per_variant_group_index = data->groups_count;
             export->general_stage_index = data->stages_count;
             export->closest_stage_index = VK_SHADER_UNUSED_KHR;
             export->anyhit_stage_index = VK_SHADER_UNUSED_KHR;
@@ -1828,6 +1884,7 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
             export->inherited_collection_index = -1;
             export->inherited_collection_export_index = 0;
             export->general_stage = entry->stage;
+
             entry->mangled_entry_point = NULL;
             entry->plain_entry_point = NULL;
 
@@ -1841,6 +1898,9 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
             data->exports_count++;
             data->groups_count++;
         }
+
+        entry->pipeline_variant_index = pipeline_variant_index;
+        entry->stage_index = data->stages_count;
 
         vkd3d_array_reserve((void **)&data->stages, &data->stages_size,
                 data->stages_count + 1, sizeof(*data->stages));
@@ -1918,24 +1978,30 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
 
         export = &data->exports[data->exports_count];
         export->mangled_export = NULL;
-        export->plain_export = vkd3d_wstrdup(hit_group->HitGroupExport);
-        export->group_index = data->groups_count;
+        export->per_variant_group_index = data->groups_count;
         export->general_stage = VK_SHADER_STAGE_ALL; /* ignored */
 
         export->general_stage_index = VK_SHADER_UNUSED_KHR;
         export->closest_stage_index =
-                d3d12_state_object_pipeline_data_find_entry(data, hit_group->ClosestHitShaderImport);
+                d3d12_state_object_pipeline_data_find_entry(data, variant,
+                        pipeline_variant_index, hit_group->ClosestHitShaderImport);
         export->intersection_stage_index =
-                d3d12_state_object_pipeline_data_find_entry(data, hit_group->IntersectionShaderImport);
+                d3d12_state_object_pipeline_data_find_entry(data, variant,
+                        pipeline_variant_index, hit_group->IntersectionShaderImport);
         export->anyhit_stage_index =
-                d3d12_state_object_pipeline_data_find_entry(data, hit_group->AnyHitShaderImport);
+                d3d12_state_object_pipeline_data_find_entry(data, variant,
+                        pipeline_variant_index, hit_group->AnyHitShaderImport);
 
-        if (hit_group->ClosestHitShaderImport && export->closest_stage_index == UINT32_MAX)
-            return E_INVALIDARG;
-        if (hit_group->IntersectionShaderImport && export->intersection_stage_index == UINT32_MAX)
-            return E_INVALIDARG;
-        if (hit_group->AnyHitShaderImport && export->anyhit_stage_index == UINT32_MAX)
-            return E_INVALIDARG;
+        /* If this hit group does not belong to this global root signature,
+         * we'll get VK_SHADER_UNUSED_KHR for the shader references. */
+        if ((hit_group->ClosestHitShaderImport && export->closest_stage_index == VK_SHADER_UNUSED_KHR) ||
+                (hit_group->IntersectionShaderImport && export->intersection_stage_index == VK_SHADER_UNUSED_KHR) ||
+                (hit_group->AnyHitShaderImport && export->anyhit_stage_index == VK_SHADER_UNUSED_KHR))
+        {
+            continue;
+        }
+
+        export->plain_export = vkd3d_wstrdup(hit_group->HitGroupExport);
 
         vkd3d_array_reserve((void **) &data->groups, &data->groups_size,
                 data->groups_count + 1, sizeof(*data->groups));
@@ -1945,6 +2011,9 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
                         VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR :
                         VK_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP_KHR,
                 export);
+
+        export->pipeline_variant_index = pipeline_variant_index;
+        export->per_variant_group_index = data->groups_count;
 
         export->inherited_collection_index = -1;
         export->inherited_collection_export_index = 0;
@@ -1960,7 +2029,20 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
 
     for (i = 0; i < data->collections_count; i++)
     {
+        const struct d3d12_state_object_variant *collection_variant;
+        uint32_t collection_variant_index;
         collection = &data->collections[i];
+
+        /* Only include pipeline libraries which are compatible with current global root signature. */
+        collection_variant_index = d3d12_state_object_find_collection_variant(variant, collection->object);
+        if (collection_variant_index == UINT32_MAX)
+            continue;
+
+        collection_variant = &collection->object->pipelines[collection_variant_index];
+
+        /* Skip degenerates. */
+        if (!collection_variant->pipeline_library)
+            continue;
 
         if (collection->num_exports)
             num_groups_to_export = collection->num_exports;
@@ -1970,15 +2052,23 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
         for (j = 0; j < num_groups_to_export; j++)
         {
             const struct d3d12_state_object_identifier *input_export;
+            uint32_t input_index;
+
             if (collection->num_exports == 0)
             {
+                input_export = &collection->object->exports[j];
+
+                /* An export might not be compatible with this global root signature. */
+                if (input_export->pipeline_variant_index != collection_variant_index)
+                    continue;
+
+                input_index = j;
                 vkd3d_array_reserve((void **)&data->exports, &data->exports_size,
                         data->exports_count + 1, sizeof(*data->exports));
 
                 export = &data->exports[data->exports_count];
                 memset(export, 0, sizeof(*export));
 
-                input_export = &collection->object->exports[j];
                 if (input_export->plain_export)
                     export->plain_export = vkd3d_wstrdup(input_export->plain_export);
                 if (input_export->mangled_export)
@@ -1988,19 +2078,24 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
             {
                 const WCHAR *original_export;
                 const WCHAR *subtype = NULL;
-                uint32_t index;
 
                 if (collection->exports[j].ExportToRename)
                     original_export = collection->exports[j].ExportToRename;
                 else
                     original_export = collection->exports[j].Name;
 
-                index = d3d12_state_object_get_export_index(collection->object, original_export, &subtype);
-                if (subtype || index == UINT32_MAX)
+                input_index = d3d12_state_object_get_export_index(collection->object, original_export, &subtype);
+                if (subtype || input_index == UINT32_MAX)
                 {
                     /* If we import things, but don't use them, this can happen. Just ignore it. */
                     continue;
                 }
+
+                input_export = &collection->object->exports[input_index];
+
+                /* An export might not be compatible with this global root signature. */
+                if (input_export->pipeline_variant_index != collection_variant_index)
+                    continue;
 
                 vkd3d_array_reserve((void **)&data->exports, &data->exports_size,
                         data->exports_count + 1, sizeof(*data->exports));
@@ -2010,10 +2105,7 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
 
                 export->plain_export = vkd3d_wstrdup(collection->exports[j].Name);
                 export->mangled_export = NULL;
-                input_export = &collection->object->exports[index];
             }
-
-            export->group_index = pgroup_offset + input_export->group_index;
 
             export->general_stage_index = input_export->general_stage_index;
             export->closest_stage_index = input_export->closest_stage_index;
@@ -2034,17 +2126,28 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
              * SBT pointer must be invariant as well as its contents.
              * Vulkan does not guarantee this without VK_EXT_pipeline_library_group_handles,
              * but we can validate and accept the pipeline if implementation happens to satisfy this rule. */
-            if (collection->object->type == D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE)
+            if (collection->object->type == D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE ||
+                    object->device->device_info.pipeline_library_group_handles_features.pipelineLibraryGroupHandles)
+            {
                 export->inherited_collection_index = (int)i;
+            }
             else
                 export->inherited_collection_index = -1;
-            export->inherited_collection_export_index = input_export->group_index;
+            export->inherited_collection_export_index = input_index;
+
+            export->pipeline_variant_index = pipeline_variant_index;
+            export->per_variant_group_index = pgroup_offset + input_export->per_variant_group_index;
 
             data->exports_count += 1;
         }
 
-        pgroup_offset += collection->object->exports_count;
-        pstage_offset += collection->object->stages_count;
+        vkd3d_array_reserve((void **)&data->vk_libraries, &data->vk_libraries_size,
+                data->vk_libraries_count + 1, sizeof(*data->vk_libraries));
+        data->vk_libraries[data->vk_libraries_count++] = collection_variant->pipeline_library;
+
+        /* Including a library implicitly adds all their pStages[] and pGroups[]. */
+        pgroup_offset += collection_variant->groups_count;
+        pstage_offset += collection_variant->stages_count;
     }
 
     if (local_static_sampler_bindings_count)
@@ -2059,14 +2162,14 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
             hash = hash_fnv1_iterate_u32(hash, local_static_sampler_bindings[i].stageFlags);
         }
 
-        object->local_static_sampler.compatibility_hash = hash;
-        object->local_static_sampler.owned_handles = true;
+        variant->local_static_sampler.compatibility_hash = hash;
+        variant->local_static_sampler.owned_handles = true;
 
         if (FAILED(hr = vkd3d_create_descriptor_set_layout(object->device, 0, local_static_sampler_bindings_count,
                 local_static_sampler_bindings,
                 VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT |
                         VK_DESCRIPTOR_SET_LAYOUT_CREATE_EMBEDDED_IMMUTABLE_SAMPLERS_BIT_EXT,
-                &object->local_static_sampler.set_layout)))
+                &variant->local_static_sampler.set_layout)))
         {
             vkd3d_free(local_static_sampler_bindings);
             return hr;
@@ -2077,13 +2180,13 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
         if (global_signature)
         {
             if (FAILED(hr = d3d12_root_signature_create_local_static_samplers_layout(global_signature,
-                    object->local_static_sampler.set_layout, &object->local_static_sampler.pipeline_layout)))
+                    variant->local_static_sampler.set_layout, &variant->local_static_sampler.pipeline_layout)))
                 return hr;
         }
         else
         {
-            if (FAILED(hr = vkd3d_create_pipeline_layout(object->device, 1, &object->local_static_sampler.set_layout,
-                    0, NULL, &object->local_static_sampler.pipeline_layout)))
+            if (FAILED(hr = vkd3d_create_pipeline_layout(object->device, 1, &variant->local_static_sampler.set_layout,
+                    0, NULL, &variant->local_static_sampler.pipeline_layout)))
                 return hr;
         }
 
@@ -2091,8 +2194,8 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
         if (!d3d12_device_uses_descriptor_buffers(object->device))
         {
             if (FAILED(hr = vkd3d_sampler_state_allocate_descriptor_set(&object->device->sampler_state,
-                    object->device, object->local_static_sampler.set_layout,
-                    &object->local_static_sampler.desc_set, &object->local_static_sampler.desc_pool)))
+                    object->device, variant->local_static_sampler.set_layout,
+                    &variant->local_static_sampler.desc_set, &variant->local_static_sampler.desc_pool)))
                 return hr;
         }
     }
@@ -2104,19 +2207,29 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     for (i = 0; i < data->collections_count; i++)
     {
         struct d3d12_state_object *child = data->collections[i].object;
+        const struct d3d12_state_object_variant *collection_variant;
+        uint32_t collection_variant_index;
 
-        if (child->local_static_sampler.pipeline_layout && !object->local_static_sampler.pipeline_layout)
+        /* Only include pipeline libraries which are compatible with current global root signature. */
+        collection_variant_index = d3d12_state_object_find_collection_variant(variant, child);
+        if (collection_variant_index == UINT32_MAX)
+            continue;
+
+        collection_variant = &child->pipelines[collection_variant_index];
+
+        if (collection_variant->local_static_sampler.pipeline_layout && !variant->local_static_sampler.pipeline_layout)
         {
             /* Borrow these handles. */
-            object->local_static_sampler.pipeline_layout = child->local_static_sampler.pipeline_layout;
-            object->local_static_sampler.desc_set = child->local_static_sampler.desc_set;
-            object->local_static_sampler.set_layout = child->local_static_sampler.set_layout;
-            object->local_static_sampler.compatibility_hash = child->local_static_sampler.compatibility_hash;
+            variant->local_static_sampler.pipeline_layout = collection_variant->local_static_sampler.pipeline_layout;
+            variant->local_static_sampler.desc_set = collection_variant->local_static_sampler.desc_set;
+            variant->local_static_sampler.set_layout = collection_variant->local_static_sampler.set_layout;
+            variant->local_static_sampler.compatibility_hash = collection_variant->local_static_sampler.compatibility_hash;
         }
 
-        if (child->local_static_sampler.pipeline_layout)
+        if (collection_variant->local_static_sampler.pipeline_layout)
         {
-            if (child->local_static_sampler.compatibility_hash != object->local_static_sampler.compatibility_hash)
+            if (collection_variant->local_static_sampler.compatibility_hash !=
+                    variant->local_static_sampler.compatibility_hash)
             {
                 FIXME("COLLECTION and RTPSO declares local static sampler set layouts with different definitions. "
                       "This is unsupported.\n");
@@ -2135,8 +2248,8 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
             (object->flags & D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS)) ?
             VK_PIPELINE_CREATE_LIBRARY_BIT_KHR : 0;
 
-    if (object->local_static_sampler.pipeline_layout)
-        pipeline_create_info.layout = object->local_static_sampler.pipeline_layout;
+    if (variant->local_static_sampler.pipeline_layout)
+        pipeline_create_info.layout = variant->local_static_sampler.pipeline_layout;
     else
         pipeline_create_info.layout = global_signature->raygen.vk_pipeline_layout;
 
@@ -2149,11 +2262,11 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     pipeline_create_info.pLibraryInfo = &library_info;
     pipeline_create_info.pLibraryInterface = &interface_create_info;
     pipeline_create_info.pDynamicState = &dynamic_state;
-    pipeline_create_info.maxPipelineRayRecursionDepth = pipeline_config.MaxTraceRecursionDepth;
+    pipeline_create_info.maxPipelineRayRecursionDepth = object->pipeline_config.MaxTraceRecursionDepth;
 
-    if (pipeline_config.Flags & D3D12_RAYTRACING_PIPELINE_FLAG_SKIP_TRIANGLES)
+    if (object->pipeline_config.Flags & D3D12_RAYTRACING_PIPELINE_FLAG_SKIP_TRIANGLES)
         pipeline_create_info.flags |= VK_PIPELINE_CREATE_RAY_TRACING_SKIP_TRIANGLES_BIT_KHR;
-    if (pipeline_config.Flags & D3D12_RAYTRACING_PIPELINE_FLAG_SKIP_PROCEDURAL_PRIMITIVES)
+    if (object->pipeline_config.Flags & D3D12_RAYTRACING_PIPELINE_FLAG_SKIP_PROCEDURAL_PRIMITIVES)
         pipeline_create_info.flags |= VK_PIPELINE_CREATE_RAY_TRACING_SKIP_AABBS_BIT_KHR;
 
     library_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LIBRARY_CREATE_INFO_KHR;
@@ -2161,18 +2274,25 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     library_info.libraryCount = data->vk_libraries_count;
     library_info.pLibraries = data->vk_libraries;
 
+    /* Degenerate RTPSO. Eliminate it.
+     * Can happen if we add a global root signature that is never referenced.
+     * No group is okay if we're exposing individual entry points with
+     * ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL_DEFINITIONS. */
+    if (pstage_offset == 0)
+        return S_OK;
+
     interface_create_info.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_INTERFACE_CREATE_INFO_KHR;
     interface_create_info.pNext = NULL;
-    interface_create_info.maxPipelineRayPayloadSize = shader_config.MaxPayloadSizeInBytes;
-    interface_create_info.maxPipelineRayHitAttributeSize = shader_config.MaxAttributeSizeInBytes;
+    interface_create_info.maxPipelineRayPayloadSize = object->shader_config.MaxPayloadSizeInBytes;
+    interface_create_info.maxPipelineRayHitAttributeSize = object->shader_config.MaxAttributeSizeInBytes;
 
-    if (pipeline_config.MaxTraceRecursionDepth >
+    if (object->pipeline_config.MaxTraceRecursionDepth >
             object->device->device_info.ray_tracing_pipeline_properties.maxRayRecursionDepth)
     {
         /* We cannot do anything about this, since we let sub-minspec devices through,
          * and this content actually tries to use recursion. */
         ERR("MaxTraceRecursionDepth %u exceeds device limit of %u.\n",
-                pipeline_config.MaxTraceRecursionDepth,
+                object->pipeline_config.MaxTraceRecursionDepth,
                 object->device->device_info.ray_tracing_pipeline_properties.maxRayRecursionDepth);
         return E_INVALIDARG;
     }
@@ -2191,7 +2311,7 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     vr = VK_CALL(vkCreateRayTracingPipelinesKHR(object->device->vk_device, VK_NULL_HANDLE,
             VK_NULL_HANDLE, 1, &pipeline_create_info, NULL,
             (pipeline_create_info.flags & VK_PIPELINE_CREATE_LIBRARY_BIT_KHR) ?
-                    &object->pipeline_library : &object->pipeline));
+                    &variant->pipeline_library : &variant->pipeline));
 
     if (vr == VK_SUCCESS && (object->flags & D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS) &&
             object->type == D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE)
@@ -2203,11 +2323,11 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
         pipeline_create_info.stageCount = 0;
         pipeline_create_info.groupCount = 0;
         library_info.libraryCount = 1;
-        library_info.pLibraries = &object->pipeline_library;
+        library_info.pLibraries = &variant->pipeline_library;
 
         /* Self-link the pipeline library. */
         vr = VK_CALL(vkCreateRayTracingPipelinesKHR(object->device->vk_device, VK_NULL_HANDLE,
-                VK_NULL_HANDLE, 1, &pipeline_create_info, NULL, &object->pipeline));
+                VK_NULL_HANDLE, 1, &pipeline_create_info, NULL, &variant->pipeline));
     }
 
     TRACE("Completed vkCreateRayTracingPipelinesKHR.\n");
@@ -2215,68 +2335,62 @@ static HRESULT d3d12_state_object_compile_pipeline(struct d3d12_state_object *ob
     if (vr)
         return hresult_from_vk_result(vr);
 
-    if (FAILED(hr = d3d12_state_object_get_group_handles(object, data)))
-        return hr;
-
-    if (object->type == D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE)
-    {
-        object->pipeline_stack_size = d3d12_state_object_pipeline_data_compute_default_stack_size(data,
-                &object->stack,
-                pipeline_create_info.maxPipelineRayRecursionDepth);
-    }
-    else
-    {
-        /* This should be 0 for COLLECTION objects. */
-        object->pipeline_stack_size = 0;
-    }
-
-    /* Pilfer the export table. */
-    object->exports = data->exports;
-    object->exports_size = data->exports_size;
-    object->exports_count = data->exports_count;
-    data->exports = NULL;
-    data->exports_size = 0;
-    data->exports_count = 0;
-
-    object->shader_config = shader_config;
-    object->pipeline_config = pipeline_config;
-
-    /* Spec says we need to hold a reference to the collection object, but it doesn't show up in API,
-     * so we must assume private reference. */
-    if (data->collections_count)
-    {
-        object->collections = vkd3d_malloc(data->collections_count * sizeof(*object->collections));
-        object->collections_count = data->collections_count;
-        for (i = 0; i < data->collections_count; i++)
-        {
-            object->collections[i] = data->collections[i].object;
-            d3d12_state_object_inc_ref(object->collections[i]);
-
-#ifdef VKD3D_ENABLE_BREADCRUMBS
-            vkd3d_array_reserve((void**)&object->breadcrumb_shaders, &object->breadcrumb_shaders_size,
-                    object->breadcrumb_shaders_count + object->collections[i]->breadcrumb_shaders_count,
-                    sizeof(*object->breadcrumb_shaders));
-            memcpy(object->breadcrumb_shaders + object->breadcrumb_shaders_count,
-                    object->collections[i]->breadcrumb_shaders,
-                    object->collections[i]->breadcrumb_shaders_count * sizeof(*object->breadcrumb_shaders));
-            object->breadcrumb_shaders_count += object->collections[i]->breadcrumb_shaders_count;
-#endif
-        }
-    }
-
-    /* Always set this, since parent needs to be able to offset pStages[]. */
-    object->stages_count = data->stages_count;
-
-    /* If parent object can depend on individual shaders, keep the entry point list around. */
-    if (object->flags & D3D12_STATE_OBJECT_FLAG_ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL_DEFINITIONS)
-    {
-        object->entry_points = data->entry_points;
-        object->entry_points_count = data->entry_points_count;
-        data->entry_points = NULL;
-        data->entry_points_count = 0;
-    }
+    /* Always set this, since parent needs to be able to offset pStages[] and pGroups[]. */
+    variant->stages_count = pstage_offset;
+    variant->groups_count = pgroup_offset;
 
     return S_OK;
+}
+
+static void d3d12_state_object_add_global_root_signature_variant(
+        struct d3d12_state_object *object, struct d3d12_root_signature *rs)
+{
+    unsigned int i;
+    for (i = 0; i < object->pipelines_count; i++)
+        if (d3d12_root_signature_is_compatible(object->pipelines[i].global_root_signature, rs))
+            return;
+
+    vkd3d_array_reserve((void **)&object->pipelines, &object->pipelines_size,
+            object->pipelines_count + 1, sizeof(*object->pipelines));
+    memset(&object->pipelines[object->pipelines_count], 0, sizeof(object->pipelines[object->pipelines_count]));
+    assert(rs);
+    d3d12_root_signature_inc_ref(object->pipelines[object->pipelines_count].global_root_signature = rs);
+    object->pipelines_count++;
+}
+
+static void d3d12_state_object_collect_variants(struct d3d12_state_object *object,
+        const struct d3d12_state_object_pipeline_data *data)
+{
+    const struct d3d12_state_object_variant *variant;
+    unsigned int i, j;
+
+    /* Always allocate an entry for NULL global root signature.
+     * If an entry point happens to be associated with NULL due to conflicts,
+     * we have a fallback. Usually, this variant will be eliminated after parsing. */
+    object->pipelines_count = 1;
+    vkd3d_array_reserve((void **)&object->pipelines, &object->pipelines_size,
+            object->pipelines_count, sizeof(*object->pipelines));
+    memset(&object->pipelines[0], 0, sizeof(object->pipelines[0]));
+
+    for (i = 0; i < data->associations_count; i++)
+        if (data->associations[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE)
+            d3d12_state_object_add_global_root_signature_variant(object, data->associations[i].root_signature);
+
+    /* Forward any global root signatures we pulled from a collection. */
+    for (i = 0; i < data->collections_count; i++)
+    {
+        for (j = 0; j < data->collections[i].object->pipelines_count; j++)
+        {
+            variant = &data->collections[i].object->pipelines[j];
+
+            /* Skip degenerates. */
+            if (variant->pipeline_library)
+            {
+                d3d12_state_object_add_global_root_signature_variant(
+                        object, variant->global_root_signature);
+            }
+        }
+    }
 }
 
 static HRESULT d3d12_state_object_init(struct d3d12_state_object *object,
@@ -2286,6 +2400,8 @@ static HRESULT d3d12_state_object_init(struct d3d12_state_object *object,
 {
     struct d3d12_state_object_pipeline_data data;
     HRESULT hr = S_OK;
+    unsigned int i;
+
     object->ID3D12StateObject_iface.lpVtbl = &d3d12_state_object_vtbl;
     object->ID3D12StateObjectProperties_iface.lpVtbl = &d3d12_state_object_properties_vtbl;
     object->refcount = 1;
@@ -2314,8 +2430,77 @@ static HRESULT d3d12_state_object_init(struct d3d12_state_object *object,
     if (FAILED(hr = d3d12_state_object_parse_subobjects(object, desc, parent, &data)))
         goto fail;
 
-    if (FAILED(hr = d3d12_state_object_compile_pipeline(object, &data)))
+    if (FAILED(hr = d3d12_state_object_pipeline_data_find_global_state_objects(&data,
+            &object->shader_config, &object->pipeline_config)))
         goto fail;
+
+    /* Figure out how many variants we need. We'll need one pipeline variant
+     * for every unique global root signature. */
+    d3d12_state_object_collect_variants(object, &data);
+
+    for (i = 0; i < object->pipelines_count; i++)
+    {
+        if (FAILED(hr = d3d12_state_object_compile_pipeline_variant(object, i, &data)))
+            goto fail;
+
+        d3d12_state_object_pipeline_data_cleanup_modules(&data, object->device);
+        data.groups_count = 0;
+        data.vk_libraries_count = 0;
+    }
+
+    if (FAILED(hr = d3d12_state_object_get_group_handles(object, &data)))
+        goto fail;
+
+    if (object->type == D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE)
+    {
+        object->pipeline_stack_size = d3d12_state_object_pipeline_data_compute_default_stack_size(&data,
+                &object->stack, object->pipeline_config.MaxTraceRecursionDepth);
+    }
+    else
+    {
+        /* This should be 0 for COLLECTION objects. */
+        object->pipeline_stack_size = 0;
+    }
+
+    /* Spec says we need to hold a reference to the collection object, but it doesn't show up in API,
+     * so we must assume private reference. */
+    if (data.collections_count)
+    {
+        object->collections = vkd3d_malloc(data.collections_count * sizeof(*object->collections));
+        object->collections_count = data.collections_count;
+        for (i = 0; i < data.collections_count; i++)
+        {
+            object->collections[i] = data.collections[i].object;
+            d3d12_state_object_inc_ref(object->collections[i]);
+
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+            vkd3d_array_reserve((void**)&object->breadcrumb_shaders, &object->breadcrumb_shaders_size,
+                    object->breadcrumb_shaders_count + object->collections[i]->breadcrumb_shaders_count,
+                    sizeof(*object->breadcrumb_shaders));
+            memcpy(object->breadcrumb_shaders + object->breadcrumb_shaders_count,
+                    object->collections[i]->breadcrumb_shaders,
+                    object->collections[i]->breadcrumb_shaders_count * sizeof(*object->breadcrumb_shaders));
+            object->breadcrumb_shaders_count += object->collections[i]->breadcrumb_shaders_count;
+#endif
+        }
+    }
+
+    /* Pilfer the export table. */
+    object->exports = data.exports;
+    object->exports_size = data.exports_size;
+    object->exports_count = data.exports_count;
+    data.exports = NULL;
+    data.exports_size = 0;
+    data.exports_count = 0;
+
+    /* If parent object can depend on individual shaders, keep the entry point list around. */
+    if (object->flags & D3D12_STATE_OBJECT_FLAG_ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL_DEFINITIONS)
+    {
+        object->entry_points = data.entry_points;
+        object->entry_points_count = data.entry_points_count;
+        data.entry_points = NULL;
+        data.entry_points_count = 0;
+    }
 
     if (FAILED(hr = vkd3d_private_store_init(&object->private_store)))
         goto fail;

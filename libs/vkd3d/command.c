@@ -5645,6 +5645,7 @@ static bool d3d12_command_list_update_raygen_pipeline(struct d3d12_command_list 
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     bool stack_size_dirty = false;
+    unsigned int i;
 
     if (list->current_pipeline != VK_NULL_HANDLE)
         return true;
@@ -5655,12 +5656,33 @@ static bool d3d12_command_list_update_raygen_pipeline(struct d3d12_command_list 
         return false;
     }
 
-    if (list->command_buffer_pipeline != list->rt_state->pipeline)
+    /* We need to bind the RTPSO that is compatible. */
+    list->rt_state_variant = NULL;
+    for (i = 0; i < list->rt_state->pipelines_count; i++)
+    {
+        if (d3d12_root_signature_is_compatible(
+                list->rt_state->pipelines[i].global_root_signature,
+                list->compute_bindings.root_signature))
+        {
+            /* We might have degenerate variants. */
+            if (list->rt_state->pipelines[i].pipeline)
+                list->rt_state_variant = &list->rt_state->pipelines[i];
+            break;
+        }
+    }
+
+    if (!list->rt_state_variant)
+    {
+        WARN("Global root signature compatible with the RTPSO.\n");
+        return false;
+    }
+
+    if (list->command_buffer_pipeline != list->rt_state_variant->pipeline)
     {
         VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer,
                 VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
-                list->rt_state->pipeline));
-        list->command_buffer_pipeline = list->rt_state->pipeline;
+                list->rt_state_variant->pipeline));
+        list->command_buffer_pipeline = list->rt_state_variant->pipeline;
         stack_size_dirty = true;
     }
     else
@@ -6325,22 +6347,22 @@ static bool d3d12_command_list_update_raygen_state(struct d3d12_command_list *li
     /* If we have a static sampler set for local root signatures, bind it now.
      * Don't bother with dirty tracking of this for time being.
      * Should be very rare that this path is even hit. */
-    if (list->rt_state->local_static_sampler.set_layout)
+    if (list->rt_state_variant->local_static_sampler.set_layout)
     {
-        if (list->rt_state->local_static_sampler.desc_set)
+        if (list->rt_state_variant->local_static_sampler.desc_set)
         {
             VK_CALL(vkCmdBindDescriptorSets(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
-                    list->rt_state->local_static_sampler.pipeline_layout,
-                    list->rt_state->local_static_sampler.set_index,
-                    1, &list->rt_state->local_static_sampler.desc_set,
+                    list->rt_state_variant->local_static_sampler.pipeline_layout,
+                    list->rt_state_variant->local_static_sampler.set_index,
+                    1, &list->rt_state_variant->local_static_sampler.desc_set,
                     0, NULL));
         }
         else
         {
             VK_CALL(vkCmdBindDescriptorBufferEmbeddedSamplersEXT(list->cmd.vk_command_buffer,
                     VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
-                    list->rt_state->local_static_sampler.pipeline_layout,
-                    list->rt_state->local_static_sampler.set_index));
+                    list->rt_state_variant->local_static_sampler.pipeline_layout,
+                    list->rt_state_variant->local_static_sampler.set_index));
         }
     }
 
@@ -9510,6 +9532,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootSignature(d3d12_c
 
     d3d12_command_list_set_root_signature(list, &list->compute_bindings,
             impl_from_ID3D12RootSignature(root_signature));
+
+    /* Changing compute root signature means we might have to bind a different RTPSO variant. */
+    if (list->rt_state)
+        d3d12_command_list_invalidate_current_pipeline(list, false);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature(d3d12_command_list_iface *iface,
