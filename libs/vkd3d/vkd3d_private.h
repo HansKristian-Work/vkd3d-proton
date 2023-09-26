@@ -1803,6 +1803,22 @@ static inline const struct d3d12_bind_point_layout *d3d12_root_signature_get_lay
     return NULL;
 }
 
+static inline bool d3d12_root_signature_is_compatible(
+        const struct d3d12_root_signature *a, const struct d3d12_root_signature *b)
+{
+    if (a && a->compatibility_hash == 0)
+        a = NULL;
+    if (b && b->compatibility_hash == 0)
+        b = NULL;
+
+    if (!a && !b)
+        return true;
+    else if ((!!a) != (!!b))
+        return false;
+    else
+        return a->compatibility_hash == b->compatibility_hash;
+}
+
 enum vkd3d_dynamic_state_flag
 {
     VKD3D_DYNAMIC_STATE_VIEWPORT              = (1 << 0),

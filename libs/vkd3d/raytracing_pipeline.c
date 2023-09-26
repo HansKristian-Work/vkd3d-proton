@@ -1237,11 +1237,7 @@ static bool d3d12_state_object_association_data_equal(const struct d3d12_state_o
             return memcmp(&a->shader_config, &b->shader_config, sizeof(a->shader_config)) == 0;
         case VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE:
         case VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE:
-            if (!a->root_signature && !b->root_signature)
-                return true;
-            if ((!!a->root_signature) != (!!b->root_signature))
-                return false;
-            return a->root_signature->compatibility_hash == b->root_signature->compatibility_hash;
+            return d3d12_root_signature_is_compatible(a->root_signature, b->root_signature);
 
         default:
             break;
