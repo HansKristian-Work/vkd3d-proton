@@ -2790,6 +2790,7 @@ struct d3d12_command_list
 
     struct d3d12_pipeline_state *state;
     struct d3d12_state_object *rt_state;
+    const struct d3d12_state_object_variant *rt_state_variant;
 
     struct d3d12_command_allocator *allocator;
     struct d3d12_device *device;
@@ -4545,8 +4546,11 @@ struct d3d12_state_object_identifier
     VkDeviceSize stack_size_any;
     VkDeviceSize stack_size_intersection;
 
-    /* The index into vkGetShaderStackSize and friends for pGroups[]. */
-    uint32_t group_index;
+    /* Index into object->pipelines[]. */
+    uint32_t pipeline_variant_index;
+    /* The index into vkGetShaderStackSize and friends for pGroups[].
+     * Unique per d3d12_state_object_variant */
+    uint32_t per_variant_group_index;
 
     /* For AddToStateObject(). We need to return the identifier pointer
      * for the parent, not the child. This makes it easy to validate that
@@ -4576,6 +4580,31 @@ struct d3d12_state_object_breadcrumb_shader
 };
 #endif
 
+struct d3d12_state_object_variant
+{
+    /* Can be bound. */
+    VkPipeline pipeline;
+    /* Can be used as a library. */
+    VkPipeline pipeline_library;
+    /* The global root signature associated with this variant. */
+    struct d3d12_root_signature *global_root_signature;
+
+    /* For offseting pStages and pGroups for COLLECTIONS. */
+    uint32_t stages_count;
+    uint32_t groups_count;
+
+    struct
+    {
+        VkDescriptorSetLayout set_layout;
+        VkPipelineLayout pipeline_layout;
+        VkDescriptorSet desc_set;
+        VkDescriptorPool desc_pool;
+        uint32_t set_index;
+        uint64_t compatibility_hash;
+        bool owned_handles;
+    } local_static_sampler;
+};
+
 struct d3d12_state_object
 {
     d3d12_state_object_iface ID3D12StateObject_iface;
@@ -4593,37 +4622,20 @@ struct d3d12_state_object
 
     struct vkd3d_shader_library_entry_point *entry_points;
     size_t entry_points_count;
-    size_t stages_count;
-    /* Normally stages_count == entry_points_count, but entry_points is the entry points we
-     * export externally, and stages_count matches pStages[] size for purposes of index fixups. */
 
-    /* Can be bound. */
-    VkPipeline pipeline;
-    /* Can be used as a library. */
-    VkPipeline pipeline_library;
+    struct d3d12_state_object_variant *pipelines;
+    size_t pipelines_size;
+    size_t pipelines_count;
 
     /* Can be inherited by AddToStateObject(). */
     D3D12_RAYTRACING_PIPELINE_CONFIG1 pipeline_config;
     D3D12_RAYTRACING_SHADER_CONFIG shader_config;
-
-    struct
-    {
-        VkDescriptorSetLayout set_layout;
-        VkPipelineLayout pipeline_layout;
-        VkDescriptorSet desc_set;
-        VkDescriptorPool desc_pool;
-        uint32_t set_index;
-        uint64_t compatibility_hash;
-        bool owned_handles;
-    } local_static_sampler;
 
     UINT64 pipeline_stack_size;
     struct d3d12_state_object_stack_info stack;
 
     struct d3d12_state_object **collections;
     size_t collections_count;
-
-    struct d3d12_root_signature *global_root_signature;
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     /* For breadcrumbs. */
