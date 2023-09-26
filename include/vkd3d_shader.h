@@ -931,6 +931,9 @@ struct vkd3d_shader_library_entry_point
     unsigned int identifier;
     VkShaderStageFlagBits stage;
 
+    uint32_t pipeline_variant_index;
+    uint32_t stage_index;
+
     /* For implementing the API, since it uses WCHAR despite C++ identifiers being ASCII ... */
     WCHAR *mangled_entry_point;
     WCHAR *plain_entry_point;

@@ -1604,6 +1604,8 @@ static bool vkd3d_dxil_build_entry(struct vkd3d_shader_library_entry_point *entr
     entry->real_entry_point = vkd3d_strdup(mangled_name);
     entry->debug_entry_point = vkd3d_strdup(demangled_name);
     entry->stage = convert_stage(stage);
+    entry->pipeline_variant_index = UINT32_MAX;
+    entry->stage_index = UINT32_MAX;
     return true;
 }
 
@@ -1818,6 +1820,8 @@ int vkd3d_shader_dxil_append_library_entry_points_and_subobjects(
                 new_entry.mangled_entry_point = NULL;
                 new_entry.identifier = identifier;
                 new_entry.stage = convert_stage(stage);
+                new_entry.pipeline_variant_index = UINT32_MAX;
+                new_entry.stage_index = UINT32_MAX;
                 ascii_entry = NULL;
 
                 vkd3d_array_reserve((void**)entry_points, entry_point_size,
