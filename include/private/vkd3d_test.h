@@ -175,7 +175,7 @@ static void
 vkd3d_test_check_ok(unsigned int line, bool result, const char *fmt, va_list args)
 {
     bool is_todo = vkd3d_test_state.todo_level && !vkd3d_test_platform_is_windows();
-    bool is_bug = vkd3d_test_state.bug_level && !vkd3d_test_platform_is_windows();
+    bool is_bug = vkd3d_test_state.bug_level;
 
     if (is_bug && vkd3d_test_state.bug_enabled)
     {
@@ -276,7 +276,7 @@ int main(int argc, char **argv)
     const char *exclude_list = getenv("VKD3D_TEST_EXCLUDE");
     const char *test_filter = getenv("VKD3D_TEST_FILTER");
     const char *debug_level = getenv("VKD3D_TEST_DEBUG");
-    char *test_platform = getenv("VKD3D_TEST_PLATFORM");
+    const char *test_platform = getenv("VKD3D_TEST_PLATFORM");
     const char *bug = getenv("VKD3D_TEST_BUG");
 
     memset(&vkd3d_test_state, 0, sizeof(vkd3d_test_state));
@@ -287,9 +287,18 @@ int main(int argc, char **argv)
 
     if (test_platform)
     {
-        test_platform = strdup(test_platform);
         vkd3d_test_platform = test_platform;
     }
+#ifdef _WIN32
+    else
+    {
+        HMODULE mod = GetModuleHandleA("ntdll.dll");
+        if (mod && GetProcAddress(mod, "wine_get_version"))
+            vkd3d_test_platform = "wine";
+        else
+            vkd3d_test_platform = "windows";
+    }
+#endif
 
     if (vkd3d_test_state.debug_level > 1)
         printf("Test platform: '%s'.\n", vkd3d_test_platform);
@@ -306,9 +315,6 @@ int main(int argc, char **argv)
             (unsigned long)vkd3d_test_state.skip_count,
             (unsigned long)vkd3d_test_state.todo_count,
             (unsigned long)vkd3d_test_state.bug_count);
-
-    if (test_platform)
-        free(test_platform);
 
     fflush(stdout);
     return vkd3d_test_state.failure_count != 0;
