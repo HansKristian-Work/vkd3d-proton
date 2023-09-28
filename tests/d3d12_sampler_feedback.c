@@ -431,3 +431,231 @@ void test_sampler_feedback_min_mip_level(void)
 #undef TEX_MIP_LEVELS_VIEW
 }
 
+void test_sampler_feedback_decode_encode_min_mip(void)
+{
+#define MIP_REGIONS_X 10
+#define MIP_REGIONS_Y 8
+#define MIP_REGIONS_FLAT (MIP_REGIONS_X * MIP_REGIONS_Y)
+#define MIP_REGION_WIDTH 8
+#define MIP_REGION_HEIGHT 8
+#define TEX_WIDTH (MIP_REGIONS_X * MIP_REGION_WIDTH)
+#define TEX_HEIGHT (MIP_REGIONS_Y * MIP_REGION_HEIGHT)
+#define LAYERS 4
+    static const uint8_t reference_data[MIP_REGIONS_FLAT + 4 /* padding for array test */] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 31, 32, 0xff, 0xff, 0xff};
+    D3D12_FEATURE_DATA_D3D12_OPTIONS7 features7;
+    ID3D12Resource *feedback_min_mip_single;
+    ID3D12Resource *feedback_min_mip_array;
+    struct test_context_desc context_desc;
+    ID3D12GraphicsCommandList1 *list1;
+    D3D12_HEAP_PROPERTIES heap_props;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *resolve_tex;
+    ID3D12Resource *upload_tex;
+    D3D12_RESOURCE_DESC1 desc;
+    ID3D12Resource *resolve;
+    ID3D12Resource *upload;
+    ID3D12Device8 *device8;
+    unsigned int x, y, i;
+    unsigned int iter;
+    HRESULT hr;
+
+    /* Funnily enough, resolve cannot be called in a COMPUTE or COPY queue. */
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS7, &features7, sizeof(features7))) ||
+            features7.SamplerFeedbackTier < D3D12_SAMPLER_FEEDBACK_TIER_0_9)
+    {
+        skip("Sampler feedback not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    hr = ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device8, (void **)&device8);
+    ok(SUCCEEDED(hr), "Failed to query Device8, hr #%x.\n", hr);
+    hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList1, (void **)&list1);
+    ok(SUCCEEDED(hr), "Failed to query GraphicsCommandList1, hr #%x.\n", hr);
+
+    memset(&desc, 0, sizeof(desc));
+    memset(&heap_props, 0, sizeof(heap_props));
+
+    heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.SampleDesc.Count = 1;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    desc.Width = TEX_WIDTH;
+    desc.Height = TEX_HEIGHT;
+    desc.MipLevels = 4;
+    desc.SamplerFeedbackMipRegion.Width = MIP_REGION_WIDTH;
+    desc.SamplerFeedbackMipRegion.Height = MIP_REGION_HEIGHT;
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    desc.Format = DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE;
+
+    desc.DepthOrArraySize = LAYERS;
+    hr = ID3D12Device8_CreateCommittedResource2(device8, &heap_props, D3D12_HEAP_FLAG_CREATE_NOT_ZEROED,
+            &desc, D3D12_RESOURCE_STATE_RESOLVE_DEST, NULL, NULL, &IID_ID3D12Resource, (void **)&feedback_min_mip_array);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+
+    desc.DepthOrArraySize = 1;
+    hr = ID3D12Device8_CreateCommittedResource2(device8, &heap_props, D3D12_HEAP_FLAG_CREATE_NOT_ZEROED,
+            &desc, D3D12_RESOURCE_STATE_RESOLVE_DEST, NULL, NULL, &IID_ID3D12Resource, (void **)&feedback_min_mip_single);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+
+    resolve = create_default_buffer(context.device, MIP_REGIONS_FLAT, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+    resolve_tex = create_default_texture2d(context.device, MIP_REGIONS_X, MIP_REGIONS_Y, LAYERS, 1, DXGI_FORMAT_R8_UINT, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    /* Check that we can store arbitrary data here. */
+    upload = create_upload_buffer(context.device, MIP_REGIONS_FLAT, reference_data);
+    upload_tex = create_default_texture2d(context.device, MIP_REGIONS_X, MIP_REGIONS_Y, LAYERS, 1, DXGI_FORMAT_R8_UINT, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    /* BUFFER decode encode */
+    {
+        /* Spec carves out a special case for decoding / encoding with buffers. Must not be arrayed, and the docs seem to imply the buffer is tightly packed. */
+
+        /* NV and AMD are non-compliant here. Spec says that transcoding should be transitive, but it is a lossy process. AMD's behavior makes slightly more sense than NV here. */
+        ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, feedback_min_mip_single, 0, 0, 0, upload, 0, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_ENCODE_SAMPLER_FEEDBACK);
+        transition_resource_state(context.list, feedback_min_mip_single, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+        ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, resolve, 0, 0, 0, feedback_min_mip_single, 0, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK);
+        transition_resource_state(context.list, resolve, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(resolve, DXGI_FORMAT_R8_UINT, &rb, context.queue, context.list);
+        for (i = 0; i < MIP_REGIONS_FLAT; i++)
+        {
+            uint8_t value = get_readback_uint8(&rb, i, 0);
+            uint8_t expected;
+
+            expected = reference_data[i];
+
+            if (is_nvidia_windows_device(context.device))
+            {
+                static const uint8_t reference_data_nv[MIP_REGIONS_FLAT] = { 0, 1, 1, 1, 3, 0xff, 0xff, 0xff, 0xff, 0xff, 1, 1, 1, 1, 3, 0xff, 0xff, 0xff };
+                /* NV behavior is extremely weird and non-regular. There seems to be a mix of clamping and swapping out with 0xff going on ... */
+                expected = reference_data_nv[i];
+            }
+            else if (is_amd_windows_device(context.device))
+            {
+                /* This is more reasonable. Theory is that each mip region gets a u32 mask of accessed mip levels. No bits sets -> not accessed.
+                 * Anything outside the u32 range is considered not accessed. */
+                if (expected >= 32)
+                    expected = 0xff;
+            }
+
+            ok(value == expected, "Value %u: Expected %u, got %u\n", i, expected, value);
+        }
+        release_resource_readback(&rb);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    /* TEXTURE decode encode. Array mode is extremely weird. */
+    for (iter = 0; iter < 2; iter++)
+    {
+        D3D12_SUBRESOURCE_DATA subdata;
+        bool resolve_all = iter == 1;
+
+        subdata.RowPitch = MIP_REGIONS_X;
+        subdata.SlicePitch = MIP_REGIONS_FLAT;
+        for (i = 0; i < LAYERS; i++)
+        {
+            subdata.pData = reference_data + i;
+            upload_texture_data_base(upload_tex, &subdata, i, 1, context.queue, context.list);
+            reset_command_list(context.list, context.allocator);
+        }
+
+        transition_resource_state(context.list, upload_tex, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+
+        /* On ENCODE, dst subresource is always -1, and source subresource index is the slice to resolve.
+         * This implies two rules: We can only resolve layer N to layer N, and layer size of source and dest must be the same. */
+        if (resolve_all)
+            ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, feedback_min_mip_array, UINT_MAX, 0, 0, upload_tex, UINT_MAX, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_ENCODE_SAMPLER_FEEDBACK);
+        else
+        {
+            for (i = 0; i < LAYERS; i++)
+                ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, feedback_min_mip_array, UINT_MAX, 0, 0, upload_tex, i, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_ENCODE_SAMPLER_FEEDBACK);
+        }
+
+        transition_resource_state(context.list, feedback_min_mip_array, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+        transition_resource_state(context.list, upload_tex, D3D12_RESOURCE_STATE_RESOLVE_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+        transition_resource_state(context.list, resolve_tex, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+
+        /* On DECODE, the rules flip, but here we test the other option which is to decode all array layers in one go. */
+        if (resolve_all)
+            ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, resolve_tex, UINT_MAX, 0, 0, feedback_min_mip_array, UINT_MAX, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK);
+        else
+        {
+            for (i = 0; i < LAYERS; i++)
+                ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, resolve_tex, i, 0, 0, feedback_min_mip_array, UINT_MAX, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK);
+        }
+
+        transition_resource_state(context.list, resolve_tex, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        transition_resource_state(context.list, feedback_min_mip_array, D3D12_RESOURCE_STATE_RESOLVE_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+
+        for (i = 0; i < LAYERS; i++)
+        {
+            bool has_non_zero_result = false;
+
+            get_texture_readback_with_command_list(resolve_tex, i, &rb, context.queue, context.list);
+            for (y = 0; y < MIP_REGIONS_Y; y++)
+            {
+                for (x = 0; x < MIP_REGIONS_X; x++)
+                {
+                    uint8_t value = get_readback_uint8(&rb, x, y);
+                    uint8_t expected;
+
+                    /* Make sure that NV cannot pass with all zero degenerate output. */
+                    if (value)
+                        has_non_zero_result = true;
+
+                    expected = reference_data[y * MIP_REGIONS_X + x + i];
+
+                    if (is_nvidia_windows_device(context.device))
+                    {
+                        /* Input is irregular to the point of being impossible to test. Only test conservatively, either we get a lower mip level, or not used at all. */
+                        ok(value <= expected || value == 0xff, "Slice %u, value %u, %u: Expected %u, got %u\n", i, x, y, expected, value);
+                    }
+                    else
+                    {
+                        if (is_amd_windows_device(context.device))
+                        {
+                            /* This is more reasonable. Theory is that each mip region gets a u32 mask of accessed mip levels. No bits sets -> not accessed.
+                             * Anything outside the u32 range is considered not accessed. */
+                            if (expected >= 32)
+                                expected = 0xff;
+                        }
+
+                        /* Accessing individual layers is broken on AMD. :( */
+                        bug_if(!resolve_all && is_amd_windows_device(context.device))
+                            ok(value == expected, "Slice %u, value %u, %u: Expected %u, got %u\n", i, x, y, expected, value);
+                    }
+                }
+            }
+
+            bug_if(!resolve_all && is_amd_windows_device(context.device))
+                ok(has_non_zero_result, "Unexpected full zero result.\n");
+            release_resource_readback(&rb);
+            reset_command_list(context.list, context.allocator);
+        }
+    }
+
+    ID3D12GraphicsCommandList1_Release(list1);
+    ID3D12Resource_Release(feedback_min_mip_single);
+    ID3D12Resource_Release(feedback_min_mip_array);
+    ID3D12Resource_Release(upload_tex);
+    ID3D12Resource_Release(resolve);
+    ID3D12Resource_Release(resolve_tex);
+    ID3D12Resource_Release(upload);
+    ID3D12Device8_Release(device8);
+    destroy_test_context(&context);
+#undef MIP_REGIONS_X
+#undef MIP_REGIONS_Y
+#undef MIP_REGIONS_FLAT
+#undef MIP_REGION_WIDTH
+#undef MIP_REGION_HEIGHT
+#undef TEX_WIDTH
+#undef TEX_HEIGHT
+#undef LAYERS
+}
