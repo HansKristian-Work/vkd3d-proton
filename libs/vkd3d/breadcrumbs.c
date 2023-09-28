@@ -712,6 +712,8 @@ void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list)
     struct vkd3d_breadcrumb_command_list_trace_context *trace;
     unsigned int context = list->breadcrumb_context_index;
     struct vkd3d_breadcrumb_command cmd;
+    VkMemoryBarrier2 vk_barrier;
+    VkDependencyInfo dep_info;
 
     if (context == UINT32_MAX)
         return;
@@ -739,6 +741,17 @@ void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list)
                         offsetof(struct vkd3d_breadcrumb_counter, end_marker),
                 trace->counter));
     }
+
+    /* Pure execution barrier to avoid breadcrumbs spilling between command lists. */
+    memset(&vk_barrier, 0, sizeof(vk_barrier));
+    memset(&dep_info, 0, sizeof(dep_info));
+    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.memoryBarrierCount = 1;
+    dep_info.pMemoryBarriers = &vk_barrier;
+    VK_CALL(vkCmdPipelineBarrier2(list->vk_command_buffer, &dep_info));
 
     cmd.count = trace->counter;
     cmd.type = VKD3D_BREADCRUMB_COMMAND_SET_TOP_MARKER;
