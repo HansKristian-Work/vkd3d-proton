@@ -3142,3 +3142,351 @@ void test_dynamic_depth_bias(void)
     ID3D12Device2_Release(device2);
     destroy_test_context(&context);
 }
+
+void test_dynamic_index_strip_cut(void)
+{
+    ID3D12PipelineState *pso_strip_cut_disabled_dynamic, *pso_strip_cut_enabled_dynamic;
+    ID3D12PipelineState *pso_strip_cut_disabled_static, *pso_strip_cut_enabled_static;
+    ID3D12Resource *index_buffer_16, *index_buffer_32, *uav_buffer;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS15 options15;
+    ID3D12GraphicsCommandList9 *command_list9;
+    D3D12_INDEX_BUFFER_VIEW ibv16, ibv32;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_params[2];
+    struct test_context_desc desc;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Device2 *device2;
+    unsigned int i;
+    HRESULT hr;
+
+#if 0
+    RWStructuredBuffer<uint> results : register(u0);
+
+    cbuffer push_args
+    {
+            uint test_index;
+            uint strip_cut_value;
+    };
+
+    float4 main(in uint id : SV_VERTEXID) : SV_POSITION
+    {
+            if (id == strip_cut_value)
+                    results[test_index] = 1u;
+
+            return 0.0f.xxxx;
+    }
+#endif
+    static const DWORD vs_code[] =
+    {
+        0x43425844, 0x9dd0904b, 0x852849c9, 0xea08c481, 0xde71b919, 0x00000001, 0x00000180, 0x00000004,
+        0x00000030, 0x00000064, 0x00000098, 0x00000170, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008,
+        0x00000020, 0x00000000, 0x00000006, 0x00000001, 0x00000000, 0x00000101, 0x565f5653, 0x45545245,
+        0x00444958, 0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001,
+        0x00000003, 0x00000000, 0x0000000f, 0x505f5653, 0x5449534f, 0x004e4f49, 0x58454853, 0x000000d0,
+        0x00010050, 0x00000034, 0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0400009e,
+        0x0011e000, 0x00000000, 0x00000004, 0x04000060, 0x00101012, 0x00000000, 0x00000006, 0x04000067,
+        0x001020f2, 0x00000000, 0x00000001, 0x02000068, 0x00000001, 0x08000020, 0x00100012, 0x00000000,
+        0x0010100a, 0x00000000, 0x0020801a, 0x00000000, 0x00000000, 0x0304001f, 0x0010000a, 0x00000000,
+        0x0a0000a8, 0x0011e012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x00004001, 0x00000000,
+        0x00004001, 0x00000001, 0x01000015, 0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0x00000000,
+        0x00000000, 0x00000000, 0x00000000, 0x0100003e, 0x30494653, 0x00000008, 0x00000004, 0x00000000,
+    };
+
+    static const union d3d12_root_signature_subobject root_signature_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE,
+        NULL, /* fill in dynamically */
+    } };
+
+    static const union d3d12_shader_bytecode_subobject vs_subobject = { { D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VS, { vs_code, sizeof(vs_code) } } };
+
+    static const union d3d12_sample_mask_subobject sample_mask_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_MASK,
+        0xFFFFFFFFu
+    } };
+
+    static const union d3d12_blend_subobject blend_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_BLEND,
+        { FALSE, FALSE },
+    } };
+
+    static const union d3d12_rasterizer_subobject rasterizer_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER,
+        { D3D12_FILL_MODE_SOLID, D3D12_CULL_MODE_NONE,
+            FALSE, 1, 0.0f, 1.0f, TRUE, FALSE, FALSE, 0,
+            D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF },
+    } };
+
+    static const union d3d12_depth_stencil_subobject depth_stencil_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL,
+        { FALSE, D3D12_DEPTH_WRITE_MASK_ZERO, D3D12_COMPARISON_FUNC_ALWAYS, FALSE, 0x00, 0x00,
+            { D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_COMPARISON_FUNC_ALWAYS },
+            { D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_COMPARISON_FUNC_ALWAYS } },
+    }};
+
+    static const union d3d12_input_layout_subobject input_layout_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_INPUT_LAYOUT,
+        { NULL, 0 },
+    } };
+
+    static const union d3d12_ib_strip_cut_value_subobject ib_strip_cut_disabled_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_IB_STRIP_CUT_VALUE,
+        D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,
+    } };
+
+    static const union d3d12_ib_strip_cut_value_subobject ib_strip_cut_enabled_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_IB_STRIP_CUT_VALUE,
+        D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF,
+    } };
+
+    static const union d3d12_primitive_topology_subobject primitive_topology_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY,
+        D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
+    } };
+
+    static const union d3d12_render_target_formats_subobject render_target_formats_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS,
+        { { DXGI_FORMAT_UNKNOWN }, 0 },
+    } };
+
+    static const union d3d12_depth_stencil_format_subobject depth_stencil_format_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL_FORMAT,
+        DXGI_FORMAT_UNKNOWN,
+    } };
+
+    static const union d3d12_sample_desc_subobject sample_desc_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_DESC,
+        { 1, 0 },
+    } };
+
+    static const union d3d12_flags_subobject flags_dynamic_strip_cut_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_FLAGS,
+        D3D12_PIPELINE_STATE_FLAG_DYNAMIC_INDEX_BUFFER_STRIP_CUT,
+    } };
+
+    static const union d3d12_flags_subobject flags_static_strip_cut_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_FLAGS,
+        D3D12_PIPELINE_STATE_FLAG_NONE,
+    } };
+
+    struct
+    {
+        union d3d12_root_signature_subobject root_signature;
+        union d3d12_shader_bytecode_subobject vertex_shader;
+        union d3d12_blend_subobject blend;
+        union d3d12_sample_mask_subobject sample_mask;
+        union d3d12_rasterizer_subobject rasterizer;
+        union d3d12_depth_stencil_subobject depth_stencil;
+        union d3d12_input_layout_subobject input_layout;
+        union d3d12_ib_strip_cut_value_subobject strip_cut;
+        union d3d12_primitive_topology_subobject primitive_topology;
+        union d3d12_render_target_formats_subobject render_target_formats;
+        union d3d12_depth_stencil_format_subobject depth_stencil_format;
+        union d3d12_sample_desc_subobject sample_desc;
+        union d3d12_flags_subobject flags_desc;
+    }
+    pso_desc =
+    {
+        root_signature_subobject,
+        vs_subobject,
+        blend_subobject,
+        sample_mask_subobject,
+        rasterizer_subobject,
+        depth_stencil_subobject,
+        input_layout_subobject,
+        ib_strip_cut_disabled_subobject,
+        primitive_topology_subobject,
+        render_target_formats_subobject,
+        depth_stencil_format_subobject,
+        sample_desc_subobject,
+        flags_static_strip_cut_subobject,
+    };
+
+    const D3D12_PIPELINE_STATE_STREAM_DESC pso_stream = { sizeof(pso_desc), &pso_desc };
+
+    const struct
+    {
+        ID3D12PipelineState **pipeline;
+        uint32_t index_buffer_bits;
+        D3D12_INDEX_BUFFER_STRIP_CUT_VALUE strip_cut_value;
+        bool set_dynamically;
+        uint32_t expected;
+    }
+    tests[] =
+    {
+        /* Test binding dynamic state pipeline to a fresh command list */
+        { &pso_strip_cut_enabled_dynamic,   16, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF,      false, 0 },
+        /* Test IASetIndexBufferStripCutValue behaviour */
+        { &pso_strip_cut_disabled_dynamic,  16, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,    false, 1 },
+        { NULL,                             16, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF,      true,  0 },
+        { NULL,                             32, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFFFFFF,  true,  0 },
+        { NULL,                             32, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,    true,  1 },
+        /* Test that re-binding the same PSO reapplies static PSO state. */
+        { &pso_strip_cut_disabled_dynamic,  16, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF,      true,  0 },
+        { &pso_strip_cut_disabled_dynamic,  16, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,    false, 1 },
+        /* Test that disabling strip cut dynamically works as well */
+        { &pso_strip_cut_enabled_dynamic,   16, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,    true,  1 },
+        /* Test switching between static and dynamic pipelines */
+        { &pso_strip_cut_enabled_static,    16, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF,      false, 0 },
+        { &pso_strip_cut_disabled_dynamic,  16, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,    false, 1 },
+        { &pso_strip_cut_disabled_static,   16, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,    false, 1 },
+        { &pso_strip_cut_enabled_dynamic,   16, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF,      false, 0 },
+    };
+
+    static const uint16_t index16_data[] = { 0u, 1u, 2u, 0xffffu,     3u, 4u, 5u };
+    static const uint32_t index32_data[] = { 0u, 1u, 2u, 0xffffffffu, 3u, 4u, 5u };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_render_target = true;
+
+    if (!init_test_context(&context, &desc))
+        return;
+
+    if (is_amd_windows_device(context.device))
+    {
+        skip("Dynamic index buffer strip cut is broken on AMD (native).\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&options15, 0, sizeof(options15));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS15, &options15, sizeof(options15));
+
+    if (!options15.DynamicIndexBufferStripCutSupported)
+    {
+        skip("DynamicIndexBufferStripCutSupported not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+    if (FAILED(ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device2, (void**)&device2)))
+    {
+        skip("ID3D12Device2 not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (FAILED(ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList9, (void**)&command_list9)))
+    {
+        skip("ID3D12GraphicsCommandList9 not supported.\n");
+        ID3D12Device2_Release(device2);
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&rs_params, 0, sizeof(rs_params));
+    rs_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_params[0].Descriptor.ShaderRegister = 0u;
+    rs_params[0].Descriptor.RegisterSpace = 0u;
+    rs_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+
+    rs_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_params[1].Constants.ShaderRegister = 0u;
+    rs_params[1].Constants.RegisterSpace = 0u;
+    rs_params[1].Constants.Num32BitValues = 2u;
+    rs_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_params);
+    rs_desc.pParameters = rs_params;
+    hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    pso_desc.root_signature.root_signature = context.root_signature;
+
+    /* Create pipelines with all possible permutations of dynamic/static strip
+     * cut values and strip cut being statically enabled/disabled, so that we
+     * can test behaviour of switching between states. */
+    pso_desc.strip_cut = ib_strip_cut_disabled_subobject;
+    pso_desc.flags_desc = flags_static_strip_cut_subobject;
+    hr = ID3D12Device2_CreatePipelineState(device2, &pso_stream, &IID_ID3D12PipelineState, (void **)&pso_strip_cut_disabled_static);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    pso_desc.flags_desc = flags_dynamic_strip_cut_subobject;
+    hr = ID3D12Device2_CreatePipelineState(device2, &pso_stream, &IID_ID3D12PipelineState, (void **)&pso_strip_cut_disabled_dynamic);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    pso_desc.strip_cut = ib_strip_cut_enabled_subobject;
+    pso_desc.flags_desc = flags_static_strip_cut_subobject;
+    hr = ID3D12Device2_CreatePipelineState(device2, &pso_stream, &IID_ID3D12PipelineState, (void **)&pso_strip_cut_enabled_static);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    pso_desc.flags_desc = flags_dynamic_strip_cut_subobject;
+    hr = ID3D12Device2_CreatePipelineState(device2, &pso_stream, &IID_ID3D12PipelineState, (void **)&pso_strip_cut_enabled_dynamic);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    index_buffer_16 = create_upload_buffer(context.device, sizeof(index16_data), index16_data);
+    index_buffer_32 = create_upload_buffer(context.device, sizeof(index32_data), index32_data);
+
+    uav_buffer = create_default_buffer(context.device, ARRAY_SIZE(tests) * sizeof(uint32_t),
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    ibv16.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(index_buffer_16);
+    ibv16.SizeInBytes = sizeof(index16_data);
+    ibv16.Format = DXGI_FORMAT_R16_UINT;
+
+    ibv32.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(index_buffer_32);
+    ibv32.SizeInBytes = sizeof(index32_data);
+    ibv32.Format = DXGI_FORMAT_R32_UINT;
+
+    ID3D12GraphicsCommandList9_SetGraphicsRootSignature(command_list9, context.root_signature);
+    ID3D12GraphicsCommandList9_SetGraphicsRootUnorderedAccessView(command_list9,
+            0, ID3D12Resource_GetGPUVirtualAddress(uav_buffer));
+    ID3D12GraphicsCommandList9_IASetPrimitiveTopology(command_list9, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    ID3D12GraphicsCommandList9_RSSetViewports(command_list9, 1, &context.viewport);
+    ID3D12GraphicsCommandList9_RSSetScissorRects(command_list9, 1, &context.scissor_rect);
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        if (tests[i].pipeline)
+            ID3D12GraphicsCommandList9_SetPipelineState(command_list9, *tests[i].pipeline);
+
+        ID3D12GraphicsCommandList9_SetGraphicsRoot32BitConstant(command_list9, 1, i, 0);
+        ID3D12GraphicsCommandList9_SetGraphicsRoot32BitConstant(command_list9, 1, tests[i].index_buffer_bits == 32 ? 0xffffffffu : 0xffffu, 1);
+        ID3D12GraphicsCommandList9_IASetIndexBuffer(command_list9, tests[i].index_buffer_bits == 32 ? &ibv32 : &ibv16);
+
+        if (tests[i].set_dynamically)
+            ID3D12GraphicsCommandList9_IASetIndexBufferStripCutValue(command_list9, tests[i].strip_cut_value);
+
+        ID3D12GraphicsCommandList9_DrawIndexedInstanced(command_list9,
+                ARRAY_SIZE(index16_data), 1, 0, 0, 0);
+    }
+
+    transition_resource_state(context.list, uav_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(uav_buffer, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        uint32_t value = get_readback_uint(&rb, i, 0, 0);
+        ok(tests[i].expected == value, "Got %u, expected %u at %u.\n", value, tests[i].expected, i);
+    }
+
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(uav_buffer);
+    ID3D12Resource_Release(index_buffer_16);
+    ID3D12Resource_Release(index_buffer_32);
+
+    ID3D12PipelineState_Release(pso_strip_cut_disabled_static);
+    ID3D12PipelineState_Release(pso_strip_cut_disabled_dynamic);
+    ID3D12PipelineState_Release(pso_strip_cut_enabled_static);
+    ID3D12PipelineState_Release(pso_strip_cut_enabled_dynamic);
+
+    ID3D12GraphicsCommandList9_Release(command_list9);
+    ID3D12Device2_Release(device2);
+    destroy_test_context(&context);
+}
