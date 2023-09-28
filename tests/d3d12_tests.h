@@ -377,3 +377,4 @@ decl_test(test_dynamic_index_strip_cut);
 decl_test(test_depth_bias_behaviour);
 decl_test(test_sampler_feedback_resource_creation);
 decl_test(test_sampler_feedback_min_mip_level);
+decl_test(test_sampler_feedback_decode_encode_min_mip);
