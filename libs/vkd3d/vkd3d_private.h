@@ -2075,7 +2075,7 @@ struct d3d12_pipeline_state_desc
     D3D12_STREAM_OUTPUT_DESC stream_output;
     D3D12_BLEND_DESC blend_state;
     UINT sample_mask;
-    D3D12_RASTERIZER_DESC rasterizer_state;
+    D3D12_RASTERIZER_DESC2 rasterizer_state;
     D3D12_DEPTH_STENCIL_DESC2 depth_stencil_state;
     D3D12_INPUT_LAYOUT_DESC input_layout;
     D3D12_INDEX_BUFFER_STRIP_CUT_VALUE strip_cut_value;

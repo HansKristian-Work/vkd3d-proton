@@ -7413,9 +7413,9 @@ static void d3d12_device_caps_init_feature_options19(struct d3d12_device *device
     options19->SupportedSampleCountsWithNoOutputs = 0x1;
     /* D3D12 expectations w.r.t. rounding match Vulkan spec */
     options19->PointSamplingAddressesNeverRoundUp = TRUE;
-    options19->RasterizerDesc2Supported = FALSE;
-    /* This depends on EXT_line_rasterization and RasterDesc2Supported */
-    options19->NarrowQuadrilateralLinesSupported = FALSE;
+    options19->RasterizerDesc2Supported = TRUE;
+    /* We default to a line width of 1.0 anyway */
+    options19->NarrowQuadrilateralLinesSupported = TRUE;
     options19->AnisoFilterWithPointMipSupported = TRUE;
     /* Report legacy D3D12 limits for now. Increasing descriptor count limits
      * would require changing changing descriptor set layouts, and more samplers

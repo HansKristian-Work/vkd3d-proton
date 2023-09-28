@@ -2623,8 +2623,7 @@ void vkd3d_pipeline_cache_compat_from_state_desc(struct vkd3d_pipeline_cache_com
         HF32(desc->rasterizer_state.DepthBiasClamp);
         HF32(desc->rasterizer_state.SlopeScaledDepthBias);
         H32(desc->rasterizer_state.DepthClipEnable);
-        H32(desc->rasterizer_state.MultisampleEnable);
-        H32(desc->rasterizer_state.AntialiasedLineEnable);
+        H32(desc->rasterizer_state.LineRasterizationMode);
         H32(desc->rasterizer_state.ForcedSampleCount);
         H32(desc->rasterizer_state.ConservativeRaster);
 

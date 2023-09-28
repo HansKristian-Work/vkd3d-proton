@@ -1672,6 +1672,47 @@ unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_
     return flags;
 }
 
+static D3D12_LINE_RASTERIZATION_MODE d3d12_line_rasteriztion_mode_from_legacy_state(BOOL MultisampleEnable, BOOL AntialiasedLineEnable)
+{
+    if (MultisampleEnable)
+        return D3D12_LINE_RASTERIZATION_MODE_QUADRILATERAL_WIDE;
+
+    if (AntialiasedLineEnable)
+        return D3D12_LINE_RASTERIZATION_MODE_ALPHA_ANTIALIASED;
+
+    return D3D12_LINE_RASTERIZATION_MODE_ALIASED;
+}
+
+static void d3d12_promote_rasterizer_desc(D3D12_RASTERIZER_DESC2 *out, const D3D12_RASTERIZER_DESC *in)
+{
+    out->FillMode = in->FillMode;
+    out->CullMode = in->CullMode;
+    out->FrontCounterClockwise = in->FrontCounterClockwise;
+    out->DepthBias = (FLOAT)in->DepthBias;
+    out->DepthBiasClamp = in->DepthBiasClamp;
+    out->SlopeScaledDepthBias = in->SlopeScaledDepthBias;
+    out->DepthClipEnable = in->DepthClipEnable;
+    out->LineRasterizationMode = d3d12_line_rasteriztion_mode_from_legacy_state(
+            in->MultisampleEnable, in->AntialiasedLineEnable);
+    out->ForcedSampleCount = in->ForcedSampleCount;
+    out->ConservativeRaster = in->ConservativeRaster;
+}
+
+static void d3d12_promote_rasterizer_desc1(D3D12_RASTERIZER_DESC2 *out, const D3D12_RASTERIZER_DESC1 *in)
+{
+    out->FillMode = in->FillMode;
+    out->CullMode = in->CullMode;
+    out->FrontCounterClockwise = in->FrontCounterClockwise;
+    out->DepthBias = in->DepthBias;
+    out->DepthBiasClamp = in->DepthBiasClamp;
+    out->SlopeScaledDepthBias = in->SlopeScaledDepthBias;
+    out->DepthClipEnable = in->DepthClipEnable;
+    out->LineRasterizationMode = d3d12_line_rasteriztion_mode_from_legacy_state(
+            in->MultisampleEnable, in->AntialiasedLineEnable);
+    out->ForcedSampleCount = in->ForcedSampleCount;
+    out->ConservativeRaster = in->ConservativeRaster;
+}
+
 static void d3d12_promote_depth_stencil_desc(D3D12_DEPTH_STENCIL_DESC2 *out, const D3D12_DEPTH_STENCIL_DESC *in)
 {
     out->DepthEnable = in->DepthEnable;
@@ -1723,7 +1764,7 @@ static void d3d12_promote_depth_stencil_desc1(D3D12_DEPTH_STENCIL_DESC2 *out, co
 static void d3d12_init_pipeline_state_desc(struct d3d12_pipeline_state_desc *desc)
 {
     D3D12_DEPTH_STENCIL_DESC2 *ds_state = &desc->depth_stencil_state;
-    D3D12_RASTERIZER_DESC *rs_state = &desc->rasterizer_state;
+    D3D12_RASTERIZER_DESC2 *rs_state = &desc->rasterizer_state;
     D3D12_BLEND_DESC *blend_state = &desc->blend_state;
     DXGI_SAMPLE_DESC *sample_desc = &desc->sample_desc;
 
@@ -1767,7 +1808,7 @@ HRESULT vkd3d_pipeline_state_desc_from_d3d12_graphics_desc(struct d3d12_pipeline
     desc->stream_output = d3d12_desc->StreamOutput;
     desc->blend_state = d3d12_desc->BlendState;
     desc->sample_mask = d3d12_desc->SampleMask;
-    desc->rasterizer_state = d3d12_desc->RasterizerState;
+    d3d12_promote_rasterizer_desc(&desc->rasterizer_state, &d3d12_desc->RasterizerState);
     d3d12_promote_depth_stencil_desc(&desc->depth_stencil_state, &d3d12_desc->DepthStencilState);
     desc->input_layout = d3d12_desc->InputLayout;
     desc->strip_cut_value = d3d12_desc->IBStripCutValue;
@@ -1899,7 +1940,8 @@ HRESULT vkd3d_pipeline_state_desc_from_d3d12_stream_desc(struct d3d12_pipeline_s
             VKD3D_HANDLE_SUBOBJECT(STREAM_OUTPUT, D3D12_STREAM_OUTPUT_DESC, desc->stream_output);
             VKD3D_HANDLE_SUBOBJECT(BLEND, D3D12_BLEND_DESC, desc->blend_state);
             VKD3D_HANDLE_SUBOBJECT(SAMPLE_MASK, UINT, desc->sample_mask);
-            VKD3D_HANDLE_SUBOBJECT(RASTERIZER, D3D12_RASTERIZER_DESC, desc->rasterizer_state);
+            VKD3D_HANDLE_SUBOBJECT_EXPLICIT(RASTERIZER, D3D12_RASTERIZER_DESC,
+                    d3d12_promote_rasterizer_desc(&desc->rasterizer_state, &subobject->data));
             VKD3D_HANDLE_SUBOBJECT_EXPLICIT(DEPTH_STENCIL, D3D12_DEPTH_STENCIL_DESC,
                     d3d12_promote_depth_stencil_desc(&desc->depth_stencil_state, &subobject->data));
             VKD3D_HANDLE_SUBOBJECT(INPUT_LAYOUT, D3D12_INPUT_LAYOUT_DESC, desc->input_layout);
@@ -1915,6 +1957,9 @@ HRESULT vkd3d_pipeline_state_desc_from_d3d12_stream_desc(struct d3d12_pipeline_s
                     d3d12_promote_depth_stencil_desc1(&desc->depth_stencil_state, &subobject->data));
             VKD3D_HANDLE_SUBOBJECT(VIEW_INSTANCING, D3D12_VIEW_INSTANCING_DESC, desc->view_instancing_desc);
             VKD3D_HANDLE_SUBOBJECT(DEPTH_STENCIL2, D3D12_DEPTH_STENCIL_DESC2, desc->depth_stencil_state);
+            VKD3D_HANDLE_SUBOBJECT_EXPLICIT(RASTERIZER1, D3D12_RASTERIZER_DESC1,
+                    d3d12_promote_rasterizer_desc1(&desc->rasterizer_state, &subobject->data));
+            VKD3D_HANDLE_SUBOBJECT(RASTERIZER2, D3D12_RASTERIZER_DESC2, desc->rasterizer_state);
 
             default:
                 ERR("Unhandled pipeline subobject type %u.\n", subobject_type);
@@ -2905,7 +2950,7 @@ static enum VkCullModeFlagBits vk_cull_mode_from_d3d12(D3D12_CULL_MODE mode)
 }
 
 static void rs_desc_from_d3d12(VkPipelineRasterizationStateCreateInfo *vk_desc,
-        const D3D12_RASTERIZER_DESC *d3d12_desc)
+        const D3D12_RASTERIZER_DESC2 *d3d12_desc)
 {
     vk_desc->sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     vk_desc->pNext = NULL;
@@ -2921,16 +2966,14 @@ static void rs_desc_from_d3d12(VkPipelineRasterizationStateCreateInfo *vk_desc,
     vk_desc->depthBiasSlopeFactor = d3d12_desc->SlopeScaledDepthBias;
     vk_desc->lineWidth = 1.0f;
 
-    if (d3d12_desc->MultisampleEnable)
-        FIXME_ONCE("Ignoring MultisampleEnable %#x.\n", d3d12_desc->MultisampleEnable);
-    if (d3d12_desc->AntialiasedLineEnable)
-        FIXME_ONCE("Ignoring AntialiasedLineEnable %#x.\n", d3d12_desc->AntialiasedLineEnable);
+    if (d3d12_desc->LineRasterizationMode != D3D12_LINE_RASTERIZATION_MODE_ALIASED)
+        FIXME_ONCE("Ignoring LineRasterizationMode %#x.\n", d3d12_desc->LineRasterizationMode);
     if (d3d12_desc->ForcedSampleCount)
         FIXME("Ignoring ForcedSampleCount %#x.\n", d3d12_desc->ForcedSampleCount);
 }
 
 static void rs_conservative_info_from_d3d12(VkPipelineRasterizationConservativeStateCreateInfoEXT *conservative_info,
-        VkPipelineRasterizationStateCreateInfo *vk_rs_desc, const D3D12_RASTERIZER_DESC *d3d12_desc)
+        VkPipelineRasterizationStateCreateInfo *vk_rs_desc, const D3D12_RASTERIZER_DESC2 *d3d12_desc)
 {
     if (d3d12_desc->ConservativeRaster == D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF)
         return;
@@ -2945,7 +2988,7 @@ static void rs_conservative_info_from_d3d12(VkPipelineRasterizationConservativeS
 }
 
 static void rs_depth_clip_info_from_d3d12(VkPipelineRasterizationDepthClipStateCreateInfoEXT *depth_clip_info,
-        VkPipelineRasterizationStateCreateInfo *vk_rs_desc, const D3D12_RASTERIZER_DESC *d3d12_desc)
+        VkPipelineRasterizationStateCreateInfo *vk_rs_desc, const D3D12_RASTERIZER_DESC2 *d3d12_desc)
 {
     vk_rs_desc->depthClampEnable = VK_TRUE;
 
