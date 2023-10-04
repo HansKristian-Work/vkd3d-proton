@@ -12214,15 +12214,14 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
             require_custom_predication = true;
         }
     }
-    else if (signature->state_template.dgc.layout_preprocess)
+
+    if (signature->state_template.dgc.layout_preprocess)
     {
         /* If driver can take advantage of preprocess, we can consider preprocessing explicitly if we can hoist it.
          * If we had indirect barriers earlier in the frame, now might be a good time to split. */
         d3d12_command_list_consider_new_sequence(list);
         if (list->cmd.vk_command_buffer != list->cmd.vk_init_commands_post_indirect_barrier)
             explicit_preprocess = true;
-
-        /* Don't bother with hoisting if we have predication, it's very rare anyway. */
     }
 
     if (suspend_predication)
@@ -12462,9 +12461,24 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
             d3d12_command_list_update_descriptors_post_indirect_buffer(list);
         }
 
+        /* Predication state also has to match. Also useful to nop out explicit preprocess too. */
+        if (list->predication.enabled_on_command_buffer)
+        {
+            conditional_begin_info.sType = VK_STRUCTURE_TYPE_CONDITIONAL_RENDERING_BEGIN_INFO_EXT;
+            conditional_begin_info.pNext = NULL;
+            conditional_begin_info.buffer = list->predication.vk_buffer;
+            conditional_begin_info.offset = list->predication.vk_buffer_offset;
+            conditional_begin_info.flags = 0;
+            VK_CALL(vkCmdBeginConditionalRenderingEXT(list->cmd.vk_init_commands_post_indirect_barrier,
+                    &conditional_begin_info));
+        }
+
         /* There are no requirements on bound state, except for pipeline. */
         VK_CALL(vkCmdPreprocessGeneratedCommandsNV(list->cmd.vk_init_commands_post_indirect_barrier, &generated));
         list->cmd.indirect_meta->need_preprocess_barrier = true;
+
+        if (list->predication.enabled_on_command_buffer)
+            VK_CALL(vkCmdEndConditionalRenderingEXT(list->cmd.vk_init_commands_post_indirect_barrier));
     }
 
     if (require_patch)
