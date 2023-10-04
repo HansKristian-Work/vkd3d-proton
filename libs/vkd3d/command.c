@@ -6252,6 +6252,52 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
     }
 }
 
+static void d3d12_command_list_update_descriptors_post_indirect_buffer(struct d3d12_command_list *list)
+{
+    /* Pretend for a moment that the post indirect buffer is the main command buffer.
+     * Set all dirty bits so we force-flush state to a different command buffer.
+     * Not the most elegant solution, but avoids us having to reimplement everything
+     * just to plumb thorugh a different set of dirty masks, etc. */
+    struct vkd3d_pipeline_bindings *bindings = d3d12_command_list_get_bindings(list, list->active_pipeline_type);
+    const struct d3d12_root_signature *rs = bindings->root_signature;
+    uint32_t old_root_descriptor_dirty_mask;
+    uint32_t old_descriptor_heap_dirty_mask;
+    uint32_t old_root_constant_dirty_mask;
+    VkCommandBuffer old_cmd_buffer;
+    bool old_heap_dirty = false;
+    uint32_t old_dirty_flags;
+
+    if (!rs)
+        return;
+
+    old_root_descriptor_dirty_mask = bindings->root_descriptor_dirty_mask;
+    old_descriptor_heap_dirty_mask = bindings->descriptor_heap_dirty_mask;
+    old_root_constant_dirty_mask = bindings->root_constant_dirty_mask;
+    old_dirty_flags = bindings->dirty_flags;
+    old_cmd_buffer = list->cmd.vk_command_buffer;
+    /* This is bad, but the current NV implementation does not actually
+     * do anything bad when rebinding descriptor buffers, so just roll with it.
+     * Can be fixed if necessary. */
+    if (d3d12_device_uses_descriptor_buffers(list->device))
+        old_heap_dirty = list->descriptor_heap.buffers.heap_dirty;
+
+    /* Override state. */
+    list->cmd.vk_command_buffer = list->cmd.vk_init_commands_post_indirect_barrier;
+    if (d3d12_device_uses_descriptor_buffers(list->device))
+        list->descriptor_heap.buffers.heap_dirty = true;
+    d3d12_command_list_invalidate_root_parameters(list, bindings, true, NULL);
+    d3d12_command_list_update_descriptors(list);
+
+    /* Restore state. */
+    bindings->root_descriptor_dirty_mask = old_root_descriptor_dirty_mask;
+    bindings->descriptor_heap_dirty_mask = old_descriptor_heap_dirty_mask;
+    bindings->root_constant_dirty_mask = old_root_constant_dirty_mask;
+    bindings->dirty_flags = old_dirty_flags;
+    list->cmd.vk_command_buffer = old_cmd_buffer;
+    if (d3d12_device_uses_descriptor_buffers(list->device))
+        list->descriptor_heap.buffers.heap_dirty = old_heap_dirty;
+}
+
 static bool d3d12_command_list_update_compute_state(struct d3d12_command_list *list)
 {
     d3d12_command_list_end_current_render_pass(list, false);
