@@ -2856,8 +2856,12 @@ HRESULT d3d12_device_get_scratch_buffer(struct d3d12_device *device, enum vkd3d_
     struct vkd3d_scratch_buffer *candidate;
     size_t i;
 
-    if (min_size > VKD3D_SCRATCH_BUFFER_SIZE)
+    if (min_size > pool->block_size)
+    {
+        FIXME("Requesting scratch buffer kind %u larger than limit (%"PRIu64" > %u). Expect bad performance.\n",
+                kind, min_size, pool->block_size);
         return d3d12_device_create_scratch_buffer(device, kind, min_size, memory_types, scratch);
+    }
 
     pthread_mutex_lock(&device->mutex);
 
@@ -2877,7 +2881,7 @@ HRESULT d3d12_device_get_scratch_buffer(struct d3d12_device *device, enum vkd3d_
     }
 
     pthread_mutex_unlock(&device->mutex);
-    return d3d12_device_create_scratch_buffer(device, kind, VKD3D_SCRATCH_BUFFER_SIZE, memory_types, scratch);
+    return d3d12_device_create_scratch_buffer(device, kind, pool->block_size, memory_types, scratch);
 }
 
 void d3d12_device_return_scratch_buffer(struct d3d12_device *device, enum vkd3d_scratch_pool_kind kind,
@@ -2886,7 +2890,7 @@ void d3d12_device_return_scratch_buffer(struct d3d12_device *device, enum vkd3d_
     struct d3d12_device_scratch_pool *pool = &device->scratch_pools[kind];
     pthread_mutex_lock(&device->mutex);
 
-    if (scratch->allocation.resource.size == VKD3D_SCRATCH_BUFFER_SIZE &&
+    if (scratch->allocation.resource.size == pool->block_size &&
             pool->scratch_buffer_count < VKD3D_SCRATCH_BUFFER_COUNT)
     {
         pool->scratch_buffers[pool->scratch_buffer_count++] = *scratch;
@@ -2896,6 +2900,7 @@ void d3d12_device_return_scratch_buffer(struct d3d12_device *device, enum vkd3d_
     {
         pthread_mutex_unlock(&device->mutex);
         d3d12_device_destroy_scratch_buffer(device, scratch);
+        WARN("Too many scratch buffers in flight, cannot recycle kind %u.\n", kind);
     }
 }
 
@@ -7866,6 +7871,23 @@ static void d3d12_device_replace_vtable(struct d3d12_device *device)
 extern CONST_VTBL struct ID3D12DeviceExtVtbl d3d12_device_vkd3d_ext_vtbl;
 extern CONST_VTBL struct ID3D12DXVKInteropDeviceVtbl d3d12_dxvk_interop_device_vtbl;
 
+static void vkd3d_scratch_pool_init(struct d3d12_device *device)
+{
+    unsigned int i;
+
+    for (i = 0; i < VKD3D_SCRATCH_POOL_KIND_COUNT; i++)
+        device->scratch_pools[i].block_size = VKD3D_SCRATCH_BUFFER_SIZE_DEFAULT;
+
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES) &&
+            device->device_info.device_generated_commands_compute_features_nv.deviceGeneratedCompute &&
+            device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
+    {
+        /* DGCC preprocess buffers are gigantic on NV. Starfield requires 27 MB for 4096 dispatches ... */
+        device->scratch_pools[VKD3D_SCRATCH_POOL_KIND_INDIRECT_PREPROCESS].block_size =
+                VKD3D_SCRATCH_BUFFER_SIZE_DGCC_PREPROCESS_NV;
+    }
+}
+
 static HRESULT d3d12_device_init(struct d3d12_device *device,
         struct vkd3d_instance *instance, const struct vkd3d_device_create_info *create_info)
 {
@@ -7958,6 +7980,8 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
 
     if (FAILED(hr = vkd3d_shader_debug_ring_init(&device->debug_ring, device)))
         goto out_cleanup_meta_ops;
+
+    vkd3d_scratch_pool_init(device);
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)

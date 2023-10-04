@@ -2277,7 +2277,8 @@ struct d3d12_descriptor_pool_cache
     size_t descriptor_pool_count;
 };
 
-#define VKD3D_SCRATCH_BUFFER_SIZE (1ull << 20)
+#define VKD3D_SCRATCH_BUFFER_SIZE_DEFAULT (1ull << 20)
+#define VKD3D_SCRATCH_BUFFER_SIZE_DGCC_PREPROCESS_NV (32ull << 20)
 #define VKD3D_SCRATCH_BUFFER_COUNT (32u)
 
 struct vkd3d_scratch_buffer
@@ -4194,6 +4195,7 @@ struct d3d12_device_scratch_pool
 {
     struct vkd3d_scratch_buffer scratch_buffers[VKD3D_SCRATCH_BUFFER_COUNT];
     size_t scratch_buffer_count;
+    VkDeviceSize block_size;
 };
 
 struct d3d12_device
