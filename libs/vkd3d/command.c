@@ -12220,7 +12220,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
          * If we had indirect barriers earlier in the frame, now might be a good time to split. */
         d3d12_command_list_consider_new_sequence(list);
         if (list->cmd.vk_command_buffer != list->cmd.vk_init_commands_post_indirect_barrier)
-            explicit_preprocess = signature->pipeline_type != VKD3D_PIPELINE_TYPE_COMPUTE;
+            explicit_preprocess = true;
 
         /* Don't bother with hoisting if we have predication, it's very rare anyway. */
     }
@@ -12452,15 +12452,19 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
 
     if (explicit_preprocess)
     {
-        if (signature->pipeline_type != VKD3D_PIPELINE_TYPE_COMPUTE)
+        d3d12_command_allocator_allocate_init_post_indirect_command_buffer(list->allocator, list);
+        VK_CALL(vkCmdBindPipeline(list->cmd.vk_init_commands_post_indirect_barrier,
+                generated.pipelineBindPoint, current_pipeline));
+
+        if (signature->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
         {
-            /* There are no requirements on bound state, except for pipeline. */
-            d3d12_command_allocator_allocate_init_post_indirect_command_buffer(list->allocator, list);
-            VK_CALL(vkCmdBindPipeline(list->cmd.vk_init_commands_post_indirect_barrier,
-                    generated.pipelineBindPoint, current_pipeline));
-            VK_CALL(vkCmdPreprocessGeneratedCommandsNV(list->cmd.vk_init_commands_post_indirect_barrier, &generated));
-            list->cmd.indirect_meta->need_preprocess_barrier = true;
+            /* Compute is a bit more stringent, we have to bind all state. */
+            d3d12_command_list_update_descriptors_post_indirect_buffer(list);
         }
+
+        /* There are no requirements on bound state, except for pipeline. */
+        VK_CALL(vkCmdPreprocessGeneratedCommandsNV(list->cmd.vk_init_commands_post_indirect_barrier, &generated));
+        list->cmd.indirect_meta->need_preprocess_barrier = true;
     }
 
     if (require_patch)
