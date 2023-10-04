@@ -3522,11 +3522,8 @@ bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent)
 
 static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D12_FEATURE_DATA_FORMAT_SUPPORT *data)
 {
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkFormatFeatureFlags2 image_features;
-    VkFormatProperties3 properties3;
     const struct vkd3d_format *format;
-    VkFormatProperties2 properties;
 
     data->Support1 = D3D12_FORMAT_SUPPORT1_NONE;
     data->Support2 = D3D12_FORMAT_SUPPORT2_NONE;
@@ -3538,20 +3535,11 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
         return E_INVALIDARG;
     }
 
-    properties.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2;
-    properties.pNext = NULL;
+    image_features = format->vk_format_features;
 
-    properties3.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3;
-    properties3.pNext = NULL;
-    vk_prepend_struct(&properties, &properties3);
-
-    VK_CALL(vkGetPhysicalDeviceFormatProperties2(device->vk_physical_device, format->vk_format, &properties));
-
-    image_features = properties3.linearTilingFeatures | properties3.optimalTilingFeatures;
-
-    if (properties.formatProperties.bufferFeatures)
+    if (format->vk_format_features_buffer)
         data->Support1 |= D3D12_FORMAT_SUPPORT1_BUFFER;
-    if (properties.formatProperties.bufferFeatures & VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT)
+    if (format->vk_format_features_buffer & VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT)
         data->Support1 |= D3D12_FORMAT_SUPPORT1_IA_VERTEX_BUFFER;
     if (data->Format == DXGI_FORMAT_R16_UINT || data->Format == DXGI_FORMAT_R32_UINT)
         data->Support1 |= D3D12_FORMAT_SUPPORT1_IA_INDEX_BUFFER;
