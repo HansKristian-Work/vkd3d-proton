@@ -518,32 +518,25 @@ static bool vkd3d_format_allows_shader_copies(DXGI_FORMAT dxgi_format)
     return false;
 }
 
-static bool vkd3d_format_check_usage_support(struct d3d12_device *device, VkFormat format, VkImageUsageFlags usage, VkImageTiling tiling)
+static bool vkd3d_format_needs_extended_usage(const struct vkd3d_format *format, VkImageUsageFlags usage)
 {
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkFormatFeatureFlags required_flags, supported_flags;
-    VkFormatProperties format_properties;
+    VkFormatFeatureFlags2 required_flags, supported_flags;
 
-    VK_CALL(vkGetPhysicalDeviceFormatProperties(device->vk_physical_device, format, &format_properties));
-
-    supported_flags = tiling == VK_IMAGE_TILING_LINEAR
-            ? format_properties.linearTilingFeatures
-            : format_properties.optimalTilingFeatures;
-
+    supported_flags = format->vk_format_features;
     required_flags = 0;
 
     if (usage & VK_IMAGE_USAGE_SAMPLED_BIT)
-        required_flags |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+        required_flags |= VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT;
     if (usage & VK_IMAGE_USAGE_STORAGE_BIT)
-        required_flags |= VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
+        required_flags |= VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT;
     if (usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
-        required_flags |= VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;
+        required_flags |= VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT;
     if (usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
-        required_flags |= VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        required_flags |= VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT;
     if (usage & VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)
-        required_flags |= VK_FORMAT_FEATURE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
+        required_flags |= VK_FORMAT_FEATURE_2_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
 
-    return (supported_flags & required_flags) == required_flags;
+    return (supported_flags & required_flags) != required_flags;
 }
 
 struct vkd3d_image_create_info
@@ -761,7 +754,7 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
     }
 
     if ((image_info->flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) &&
-            !vkd3d_format_check_usage_support(device, format->vk_format, image_info->usage, image_info->tiling))
+            vkd3d_format_needs_extended_usage(format, image_info->usage))
         image_info->flags |= VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
 
     if (sparse_resource)
