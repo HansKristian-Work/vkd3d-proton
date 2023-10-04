@@ -2279,7 +2279,9 @@ struct d3d12_descriptor_pool_cache
 
 #define VKD3D_SCRATCH_BUFFER_SIZE_DEFAULT (1ull << 20)
 #define VKD3D_SCRATCH_BUFFER_SIZE_DGCC_PREPROCESS_NV (32ull << 20)
-#define VKD3D_SCRATCH_BUFFER_COUNT (32u)
+#define VKD3D_SCRATCH_BUFFER_COUNT_DEFAULT (32u)
+#define VKD3D_SCRATCH_BUFFER_COUNT_INDIRECT_PREPROCESS (128u)
+#define VKD3D_MAX_SCRATCH_BUFFER_COUNT (128u)
 
 struct vkd3d_scratch_buffer
 {
@@ -4193,9 +4195,11 @@ typedef ID3D12DXVKInteropDevice d3d12_dxvk_interop_device_iface;
 
 struct d3d12_device_scratch_pool
 {
-    struct vkd3d_scratch_buffer scratch_buffers[VKD3D_SCRATCH_BUFFER_COUNT];
+    struct vkd3d_scratch_buffer scratch_buffers[VKD3D_MAX_SCRATCH_BUFFER_COUNT];
     size_t scratch_buffer_count;
+    size_t scratch_buffer_size;
     VkDeviceSize block_size;
+    unsigned int high_water_mark;
 };
 
 struct d3d12_device
