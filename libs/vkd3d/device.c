@@ -2891,9 +2891,20 @@ void d3d12_device_return_scratch_buffer(struct d3d12_device *device, enum vkd3d_
     pthread_mutex_lock(&device->mutex);
 
     if (scratch->allocation.resource.size == pool->block_size &&
-            pool->scratch_buffer_count < VKD3D_SCRATCH_BUFFER_COUNT)
+            pool->scratch_buffer_count < pool->scratch_buffer_size)
     {
         pool->scratch_buffers[pool->scratch_buffer_count++] = *scratch;
+        if (pool->scratch_buffer_count > pool->high_water_mark)
+        {
+            pool->high_water_mark = pool->scratch_buffer_count;
+
+            /* Warn if we're starting to fill up. Potential performance issue afoot. */
+            if (pool->high_water_mark > pool->scratch_buffer_size / 2)
+            {
+                WARN("New high water mark: %u scratch buffers in flight for kind %u (%"PRIu64" bytes).\n",
+                        pool->high_water_mark, kind, pool->high_water_mark * pool->block_size);
+            }
+        }
         pthread_mutex_unlock(&device->mutex);
     }
     else
@@ -7876,7 +7887,10 @@ static void vkd3d_scratch_pool_init(struct d3d12_device *device)
     unsigned int i;
 
     for (i = 0; i < VKD3D_SCRATCH_POOL_KIND_COUNT; i++)
+    {
         device->scratch_pools[i].block_size = VKD3D_SCRATCH_BUFFER_SIZE_DEFAULT;
+        device->scratch_pools[i].scratch_buffer_size = VKD3D_SCRATCH_BUFFER_COUNT_DEFAULT;
+    }
 
     if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES) &&
             device->device_info.device_generated_commands_compute_features_nv.deviceGeneratedCompute &&
@@ -7886,6 +7900,11 @@ static void vkd3d_scratch_pool_init(struct d3d12_device *device)
         device->scratch_pools[VKD3D_SCRATCH_POOL_KIND_INDIRECT_PREPROCESS].block_size =
                 VKD3D_SCRATCH_BUFFER_SIZE_DGCC_PREPROCESS_NV;
     }
+
+    /* DGC tends to be pretty spammy with indirect buffers.
+     * Tuned for Starfield which is the "worst case scenario" so far. */
+    device->scratch_pools[VKD3D_SCRATCH_POOL_KIND_INDIRECT_PREPROCESS].scratch_buffer_size =
+            VKD3D_SCRATCH_BUFFER_COUNT_INDIRECT_PREPROCESS;
 }
 
 static HRESULT d3d12_device_init(struct d3d12_device *device,
