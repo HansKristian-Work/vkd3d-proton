@@ -698,7 +698,7 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
 
     image_info->mipLevels = min(desc->MipLevels, max_miplevel_count(desc));
     image_info->samples = vk_samples_from_dxgi_sample_desc(&desc->SampleDesc);
-    image_info->tiling = VK_IMAGE_TILING_OPTIMAL;
+    image_info->tiling = format->vk_image_tiling;
     image_info->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     if (sparse_resource)
