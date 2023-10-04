@@ -444,19 +444,32 @@ static void vkd3d_cleanup_format_compatibility_lists(struct d3d12_device *device
     device->format_compatibility_list_count = 0;
 }
 
-static HRESULT vkd3d_init_depth_stencil_formats(struct d3d12_device *device)
+static void vkd3d_get_vk_format_properties(struct d3d12_device *device, VkFormat vk_format, VkFormatProperties3 *properties3)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkFormatProperties2 properties;
+
+    memset(properties3, 0, sizeof(*properties3));
+    properties3->sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3;
+
+    memset(&properties, 0, sizeof(properties));
+    properties.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2;
+    properties.pNext = properties3;
+
+    VK_CALL(vkGetPhysicalDeviceFormatProperties2(device->vk_physical_device, vk_format, &properties));
+}
+
+static HRESULT vkd3d_init_depth_stencil_formats(struct d3d12_device *device)
+{
     struct vkd3d_format *formats, *format;
-    VkFormatProperties d24s8_properties;
-    VkFormatProperties properties;
+    VkFormatProperties3 d24s8_properties;
+    VkFormatProperties3 properties;
     unsigned int i;
 
     if (!(formats = vkd3d_calloc(VKD3D_MAX_DXGI_FORMAT + 1, sizeof(*formats))))
         return E_OUTOFMEMORY;
 
-    VK_CALL(vkGetPhysicalDeviceFormatProperties(device->vk_physical_device,
-            VK_FORMAT_D24_UNORM_S8_UINT, &d24s8_properties));
+    vkd3d_get_vk_format_properties(device, VK_FORMAT_D24_UNORM_S8_UINT, &d24s8_properties);
 
     if (!(d24s8_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT))
     {
@@ -476,12 +489,13 @@ static HRESULT vkd3d_init_depth_stencil_formats(struct d3d12_device *device)
             format->is_emulated = true;
         }
 
-        VK_CALL(vkGetPhysicalDeviceFormatProperties(device->vk_physical_device,
-                format->vk_format, &properties));
+        vkd3d_get_vk_format_properties(device, format->vk_format, &properties);
 
         /* We cannot cast depth stencil formats in Vulkan, so features == castable. */
+        format->vk_image_tiling = VK_IMAGE_TILING_OPTIMAL;
         format->vk_format_features = properties.optimalTilingFeatures;
         format->vk_format_features_castable = properties.optimalTilingFeatures;
+        format->vk_format_features_buffer = 0;
     }
 
     device->depth_stencil_formats = formats;
@@ -498,10 +512,9 @@ static void vkd3d_cleanup_depth_stencil_formats(struct d3d12_device *device)
 
 static HRESULT vkd3d_init_formats(struct d3d12_device *device)
 {
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     const struct vkd3d_format_compatibility_list *list;
     struct vkd3d_format *formats, *format;
-    VkFormatProperties properties;
+    VkFormatProperties3 properties;
     DXGI_FORMAT dxgi_format;
     unsigned int i, j;
     bool emulate_a8;
@@ -520,13 +533,11 @@ static HRESULT vkd3d_init_formats(struct d3d12_device *device)
                 VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT |
                 VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT;
 
-        VkFormatProperties a8_properties, r8_properties;
+        VkFormatProperties3 a8_properties, r8_properties;
         VkFormatFeatureFlags r8_unique_features;
 
-        VK_CALL(vkGetPhysicalDeviceFormatProperties(device->vk_physical_device,
-                VK_FORMAT_A8_UNORM_KHR, &a8_properties));
-        VK_CALL(vkGetPhysicalDeviceFormatProperties(device->vk_physical_device,
-                VK_FORMAT_R8_UNORM, &r8_properties));
+        vkd3d_get_vk_format_properties(device, VK_FORMAT_A8_UNORM_KHR, &a8_properties);
+        vkd3d_get_vk_format_properties(device, VK_FORMAT_R8_UNORM, &r8_properties);
 
         /* Only use the native A8_UNORM format if support is at least as good
          * as for the R8_UNORM fallback format for relevant features. */
@@ -554,20 +565,32 @@ static HRESULT vkd3d_init_formats(struct d3d12_device *device)
             format->is_emulated = true;
         }
 
-        VK_CALL(vkGetPhysicalDeviceFormatProperties(device->vk_physical_device,
-                format->vk_format, &properties));
+        vkd3d_get_vk_format_properties(device, format->vk_format, &properties);
 
-        format->vk_format_features = properties.optimalTilingFeatures;
-        format->vk_format_features_castable = properties.optimalTilingFeatures;
+        if (properties.optimalTilingFeatures || !properties.linearTilingFeatures)
+        {
+            format->vk_image_tiling = VK_IMAGE_TILING_OPTIMAL;
+            format->vk_format_features = properties.optimalTilingFeatures;
+            format->vk_format_features_castable = properties.optimalTilingFeatures;
+        }
+        else
+        {
+            format->vk_image_tiling = VK_IMAGE_TILING_LINEAR;
+            format->vk_format_features = properties.linearTilingFeatures;
+            format->vk_format_features_castable = properties.linearTilingFeatures;
+        }
+
+        format->vk_format_features_buffer = properties.bufferFeatures;
 
         if (dxgi_format < device->format_compatibility_list_count)
         {
             list = &device->format_compatibility_lists[dxgi_format];
             for (j = 0; j < list->format_count; j++)
             {
-                VK_CALL(vkGetPhysicalDeviceFormatProperties(device->vk_physical_device,
-                        list->vk_formats[j], &properties));
-                format->vk_format_features_castable |= properties.optimalTilingFeatures;
+                vkd3d_get_vk_format_properties(device, list->vk_formats[j], &properties);
+                format->vk_format_features_castable |= format->vk_image_tiling == VK_IMAGE_TILING_OPTIMAL
+                        ? properties.optimalTilingFeatures
+                        : properties.linearTilingFeatures;
             }
         }
     }
