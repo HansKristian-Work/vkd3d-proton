@@ -521,27 +521,37 @@ static bool vkd3d_format_allows_shader_copies(DXGI_FORMAT dxgi_format)
 static bool vkd3d_format_check_usage_support(struct d3d12_device *device, VkFormat format, VkImageUsageFlags usage, VkImageTiling tiling)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkFormatFeatureFlags required_flags, supported_flags;
-    VkFormatProperties format_properties;
+    VkFormatFeatureFlags2 required_flags, supported_flags;
+    VkFormatProperties3 format_properties_3;
+    VkFormatProperties2 format_properties;
 
-    VK_CALL(vkGetPhysicalDeviceFormatProperties(device->vk_physical_device, format, &format_properties));
+    memset(&format_properties_3, 0, sizeof(format_properties_3));
+    format_properties_3.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3;
+
+    memset(&format_properties, 0, sizeof(format_properties));
+    format_properties.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2;
+    format_properties.pNext = &format_properties_3;
+
+    VK_CALL(vkGetPhysicalDeviceFormatProperties2(device->vk_physical_device, format, &format_properties));
 
     supported_flags = tiling == VK_IMAGE_TILING_LINEAR
-            ? format_properties.linearTilingFeatures
-            : format_properties.optimalTilingFeatures;
+            ? format_properties_3.linearTilingFeatures
+            : format_properties_3.optimalTilingFeatures;
 
     required_flags = 0;
 
     if (usage & VK_IMAGE_USAGE_SAMPLED_BIT)
-        required_flags |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+        required_flags |= VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT;
     if (usage & VK_IMAGE_USAGE_STORAGE_BIT)
-        required_flags |= VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
+        required_flags |= VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT;
     if (usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
-        required_flags |= VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;
+        required_flags |= VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT;
     if (usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
-        required_flags |= VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        required_flags |= VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT;
     if (usage & VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)
-        required_flags |= VK_FORMAT_FEATURE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
+        required_flags |= VK_FORMAT_FEATURE_2_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
+    if (usage & VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT)
+        required_flags |= VK_FORMAT_FEATURE_2_HOST_IMAGE_TRANSFER_BIT_EXT;
 
     return (supported_flags & required_flags) == required_flags;
 }
@@ -798,14 +808,26 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
 
     if (resource)
     {
+        resource->common_layout = vk_common_image_layout_from_d3d12_desc(device, desc);
+
         if (heap_properties && is_cpu_accessible_heap(heap_properties))
         {
-            /* Required for ReadFrom/WriteToSubresource */
-            resource->flags |= VKD3D_RESOURCE_SIMULTANEOUS_ACCESS;
-            resource->common_layout = VK_IMAGE_LAYOUT_GENERAL;
+            if (resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
+            {
+                /* Required for ReadFrom/WriteToSubresource */
+                resource->flags |= VKD3D_RESOURCE_SIMULTANEOUS_ACCESS;
+                resource->common_layout = VK_IMAGE_LAYOUT_GENERAL;
+            }
+            else
+            {
+                /* Fall back to GENERAL layout if the desired common layout
+                 * is not supported for host image copies */
+                if (!d3d12_device_supports_host_image_copy(device, resource->common_layout))
+                    resource->common_layout = VK_IMAGE_LAYOUT_GENERAL;
+
+                image_info->usage |= VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT;
+            }
         }
-        else
-            resource->common_layout = vk_common_image_layout_from_d3d12_desc(device, desc);
 
         if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS)
             resource->flags |= VKD3D_RESOURCE_SIMULTANEOUS_ACCESS;
@@ -888,6 +910,16 @@ HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
     if (create_info.image_info.usage & VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)
     {
         create_info.image_info.usage &= ~VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
+        VK_CALL(vkGetDeviceImageMemoryRequirements(device->vk_device, &requirement_info, &requirements));
+        allocation_info->SizeInBytes = max(requirements.memoryRequirements.size, allocation_info->SizeInBytes);
+        allocation_info->Alignment = max(requirements.memoryRequirements.alignment, allocation_info->Alignment);
+    }
+
+    /* We don't know at this point whether the image will be host-visible or not.
+     * D3D12 does not permit host-visible VRS images, so ignore that case. */
+    if (device->device_info.host_image_copy_features.hostImageCopy)
+    {
+        create_info.image_info.usage |= VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT;
         VK_CALL(vkGetDeviceImageMemoryRequirements(device->vk_device, &requirement_info, &requirements));
         allocation_info->SizeInBytes = max(requirements.memoryRequirements.size, allocation_info->SizeInBytes);
         allocation_info->Alignment = max(requirements.memoryRequirements.alignment, allocation_info->Alignment);
@@ -1907,13 +1939,40 @@ static D3D12_GPU_VIRTUAL_ADDRESS STDMETHODCALLTYPE d3d12_resource_GetGPUVirtualA
     return resource->res.va;
 }
 
+static void *vkd3d_allocate_subresource_memory(const struct vkd3d_format_footprint *format,
+        const VkExtent3D *extent, uint32_t *row_pitch_out, uint32_t *slice_pitch_out)
+{
+    uint32_t block_count_x, block_count_y, row_pitch, slice_pitch;
+
+    block_count_x = max(1u, (extent->width + format->block_width - 1) / (format->block_width << format->subsample_x_log2));
+    block_count_y = max(1u, (extent->height + format->block_height - 1) / (format->block_height << format->subsample_y_log2));
+
+    row_pitch = block_count_x * format->block_byte_count;
+    slice_pitch = block_count_y * row_pitch;
+
+    if (row_pitch_out)
+        *row_pitch_out = row_pitch;
+
+    if (slice_pitch_out)
+        *slice_pitch_out = slice_pitch;
+
+    return vkd3d_malloc(extent->depth * slice_pitch);
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(d3d12_resource_iface *iface,
         UINT dst_sub_resource, const D3D12_BOX *dst_box, const void *src_data,
         UINT src_row_pitch, UINT src_slice_pitch)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource2(iface);
+    const struct vkd3d_vk_device_procs *vk_procs = &resource->device->vk_procs;
     struct vkd3d_subresource_layout *subresource_layout;
     struct d3d12_device *device = resource->device;
+    struct vkd3d_format_footprint footprint;
+    uint32_t tmp_row_pitch, tmp_slice_pitch;
+    VkCopyMemoryToImageInfoEXT copy_info;
+    VkMemoryToImageCopyEXT copy_region;
+    VkImageSubresource vk_subresource;
+    uint32_t plane_idx;
     VkExtent3D extent;
     VkOffset3D offset;
     uint8_t *dst_data;
@@ -1966,20 +2025,74 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(d3d12_resourc
     extent.height = dst_box->bottom - dst_box->top;
     extent.depth = dst_box->back - dst_box->front;
 
-    subresource_layout = &resource->subresource_layouts[dst_sub_resource];
-    TRACE("Offset %#"PRIx64", row pitch %#"PRIx64", depth pitch %#"PRIx64".\n",
-            subresource_layout->offset, subresource_layout->row_pitch, subresource_layout->depth_pitch);
+    if (resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
+    {
+        subresource_layout = &resource->subresource_layouts[dst_sub_resource];
+        TRACE("Offset %#"PRIx64", row pitch %#"PRIx64", depth pitch %#"PRIx64".\n",
+                subresource_layout->offset, subresource_layout->row_pitch, subresource_layout->depth_pitch);
 
-    d3d12_resource_get_map_ptr(resource, (void **)&dst_data);
+        d3d12_resource_get_map_ptr(resource, (void **)&dst_data);
 
-    dst_data += subresource_layout->offset + vkd3d_format_get_data_offset(resource->format,
-            subresource_layout->row_pitch, subresource_layout->depth_pitch, offset.x, offset.y, offset.z);
+        dst_data += subresource_layout->offset + vkd3d_format_get_data_offset(resource->format,
+                subresource_layout->row_pitch, subresource_layout->depth_pitch, offset.x, offset.y, offset.z);
 
-    vkd3d_format_copy_data(resource->format, src_data, src_row_pitch, src_slice_pitch, dst_data,
-            subresource_layout->row_pitch, subresource_layout->depth_pitch, extent.width, extent.height, extent.depth);
+        vkd3d_format_copy_data(resource->format, src_data, src_row_pitch, src_slice_pitch, dst_data,
+                subresource_layout->row_pitch, subresource_layout->depth_pitch, extent.width, extent.height, extent.depth);
 
-    return vkd3d_memory_transfer_queue_write_subresource(&device->memory_transfers,
-            resource, dst_sub_resource, offset, extent);
+        return vkd3d_memory_transfer_queue_write_subresource(&device->memory_transfers,
+                resource, dst_sub_resource, offset, extent);
+    }
+    else
+    {
+        vk_subresource = d3d12_resource_get_vk_subresource(resource, dst_sub_resource, false);
+        plane_idx = dst_sub_resource / d3d12_resource_desc_get_sub_resource_count_per_plane(&resource->desc);
+        footprint = vkd3d_format_footprint_for_plane(resource->format, plane_idx);
+
+        dst_data = NULL;
+
+        memset(&copy_region, 0, sizeof(copy_region));
+        copy_region.sType = VK_STRUCTURE_TYPE_MEMORY_TO_IMAGE_COPY_EXT;
+        copy_region.imageSubresource = vk_subresource_layers_from_subresource(&vk_subresource);
+        copy_region.imageOffset = offset;
+        copy_region.imageExtent = extent;
+
+        if ((extent.height == 1 || (src_row_pitch && !(src_row_pitch % footprint.block_byte_count))) &&
+                (extent.depth == 1 || (src_slice_pitch && src_row_pitch && !(src_slice_pitch % src_row_pitch))))
+        {
+            copy_region.pHostPointer = src_data;
+
+            if (extent.height > 1)
+                copy_region.memoryRowLength = src_row_pitch / footprint.block_byte_count * footprint.block_width;
+
+            if (extent.depth > 1)
+                copy_region.memoryImageHeight = src_slice_pitch / src_row_pitch * footprint.block_height;
+        }
+        else
+        {
+            WARN("Slice and/or row pitches not aligned, performing temporary copy.\n");
+
+            dst_data = vkd3d_allocate_subresource_memory(&footprint, &extent, &tmp_row_pitch, &tmp_slice_pitch);
+
+            vkd3d_format_copy_data(resource->format, src_data, src_row_pitch, src_slice_pitch,
+                    dst_data, tmp_row_pitch, tmp_slice_pitch, extent.width, extent.height, extent.depth);
+
+            copy_region.pHostPointer = dst_data;
+        }
+
+        memset(&copy_info, 0, sizeof(copy_info));
+        copy_info.sType = VK_STRUCTURE_TYPE_COPY_MEMORY_TO_IMAGE_INFO_EXT;
+        copy_info.dstImage = resource->res.vk_image;
+        copy_info.dstImageLayout = resource->common_layout;
+        copy_info.regionCount = 1;
+        copy_info.pRegions = &copy_region;
+
+        VK_CALL(vkCopyMemoryToImageEXT(resource->device->vk_device, &copy_info));
+
+        if (dst_data)
+            vkd3d_free(dst_data);
+
+        return S_OK;
+    }
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(d3d12_resource_iface *iface,
@@ -1987,8 +2100,17 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(d3d12_resour
         UINT src_sub_resource, const D3D12_BOX *src_box)
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource2(iface);
+    const struct vkd3d_vk_device_procs *vk_procs = &resource->device->vk_procs;
     struct vkd3d_subresource_layout *subresource_layout;
+    struct vkd3d_format_footprint footprint;
+    uint32_t tmp_row_pitch, tmp_slice_pitch;
+    VkCopyImageToMemoryInfoEXT copy_info;
+    VkImageToMemoryCopyEXT copy_region;
+    VkImageSubresource vk_subresource;
+    uint32_t plane_idx;
     uint8_t *src_data;
+    VkExtent3D extent;
+    VkOffset3D offset;
     D3D12_BOX box;
 
     TRACE("iface %p, dst_data %p, dst_row_pitch %u, dst_slice_pitch %u, "
@@ -2030,18 +2152,80 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(d3d12_resour
         return E_NOTIMPL;
     }
 
-    subresource_layout = &resource->subresource_layouts[src_sub_resource];
-    TRACE("Offset %#"PRIx64", row pitch %#"PRIx64", depth pitch %#"PRIx64".\n",
-            subresource_layout->offset, subresource_layout->row_pitch, subresource_layout->depth_pitch);
+    offset.x = src_box->left;
+    offset.y = src_box->top;
+    offset.z = src_box->front;
 
-    d3d12_resource_get_map_ptr(resource, (void **)&src_data);
+    extent.width = src_box->right - src_box->left;
+    extent.height = src_box->bottom - src_box->top;
+    extent.depth = src_box->back - src_box->front;
 
-    src_data += subresource_layout->offset + vkd3d_format_get_data_offset(resource->format,
-            subresource_layout->row_pitch, subresource_layout->depth_pitch, src_box->left, src_box->top, src_box->front);
+    if (resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
+    {
+        subresource_layout = &resource->subresource_layouts[src_sub_resource];
+        TRACE("Offset %#"PRIx64", row pitch %#"PRIx64", depth pitch %#"PRIx64".\n",
+                subresource_layout->offset, subresource_layout->row_pitch, subresource_layout->depth_pitch);
 
-    vkd3d_format_copy_data(resource->format, src_data, subresource_layout->row_pitch,
-            subresource_layout->depth_pitch, dst_data, dst_row_pitch, dst_slice_pitch,
-            src_box->right - src_box->left, src_box->bottom - src_box->top, src_box->back - src_box->front);
+        d3d12_resource_get_map_ptr(resource, (void **)&src_data);
+
+        src_data += subresource_layout->offset + vkd3d_format_get_data_offset(resource->format,
+                subresource_layout->row_pitch, subresource_layout->depth_pitch, offset.x, offset.y, offset.z);
+
+        vkd3d_format_copy_data(resource->format, src_data, subresource_layout->row_pitch,
+                subresource_layout->depth_pitch, dst_data, dst_row_pitch, dst_slice_pitch,
+                extent.width, extent.height, extent.depth);
+    }
+    else
+    {
+        vk_subresource = d3d12_resource_get_vk_subresource(resource, src_sub_resource, false);
+        plane_idx = src_sub_resource / d3d12_resource_desc_get_sub_resource_count_per_plane(&resource->desc);
+        footprint = vkd3d_format_footprint_for_plane(resource->format, plane_idx);
+
+        src_data = NULL;
+
+        memset(&copy_region, 0, sizeof(copy_region));
+        copy_region.sType = VK_STRUCTURE_TYPE_IMAGE_TO_MEMORY_COPY_EXT;
+        copy_region.imageSubresource = vk_subresource_layers_from_subresource(&vk_subresource);
+        copy_region.imageOffset = offset;
+        copy_region.imageExtent = extent;
+
+        if ((extent.height == 1 || (dst_row_pitch && !(dst_row_pitch % footprint.block_byte_count))) &&
+                (extent.depth == 1 || (dst_slice_pitch && dst_row_pitch && !(dst_slice_pitch % dst_row_pitch))))
+        {
+            copy_region.pHostPointer = dst_data;
+
+            if (extent.height > 1)
+                copy_region.memoryRowLength = dst_row_pitch / footprint.block_byte_count * footprint.block_width;
+
+            if (extent.depth > 1)
+                copy_region.memoryImageHeight = dst_slice_pitch / dst_row_pitch * footprint.block_height;
+        }
+        else
+        {
+            WARN("Slice and/or row pitches not aligned, performing temporary copy.\n");
+
+            src_data = vkd3d_allocate_subresource_memory(&footprint, &extent, &tmp_row_pitch, &tmp_slice_pitch);
+
+            copy_region.pHostPointer = src_data;
+        }
+
+        memset(&copy_info, 0, sizeof(copy_info));
+        copy_info.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_MEMORY_INFO_EXT;
+        copy_info.srcImage = resource->res.vk_image;
+        copy_info.srcImageLayout = resource->common_layout;
+        copy_info.regionCount = 1;
+        copy_info.pRegions = &copy_region;
+
+        VK_CALL(vkCopyImageToMemoryEXT(resource->device->vk_device, &copy_info));
+
+        if (src_data)
+        {
+            vkd3d_format_copy_data(resource->format, src_data, tmp_row_pitch, tmp_slice_pitch,
+                    dst_data, dst_row_pitch, dst_slice_pitch, extent.width, extent.height, extent.depth);
+
+            vkd3d_free(src_data);
+        }
+    }
 
     return S_OK;
 }
@@ -3087,13 +3271,29 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
     if (!(flags & VKD3D_RESOURCE_RESERVED) && d3d12_resource_is_texture(object) &&
             is_cpu_accessible_heap(heap_properties))
     {
-        const UINT unsupported_flags = D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        bool use_host_image_copy = false;
 
-        object->flags |= VKD3D_RESOURCE_LINEAR_STAGING_COPY;
-        d3d12_resource_init_subresource_layouts(object, device);
+        if (device->device_info.host_image_copy_features.hostImageCopy)
+        {
+            /* Ensure that the format actually supports host image copies */
+            if (!(use_host_image_copy = vkd3d_format_check_usage_support(device,
+                    object->format->vk_format, VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT, VK_IMAGE_TILING_OPTIMAL)))
+            {
+                WARN("Host image copies not supported for format %u, using fallback.\n", object->format->vk_format);
+                object->flags |= VKD3D_RESOURCE_LINEAR_STAGING_COPY;
+            }
+        }
 
-        if ((desc->Flags & unsupported_flags) == unsupported_flags)
-            FIXME_ONCE("ReadFromSubresource may be buggy on host-visible images with ALLOW_SIMULTANEOUS_ACCESS | ALLOW_UNORDERED_ACCESS.\n");
+        if (!use_host_image_copy)
+        {
+            const UINT unsupported_flags = D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+            object->flags |= VKD3D_RESOURCE_LINEAR_STAGING_COPY;
+            d3d12_resource_init_subresource_layouts(object, device);
+
+            if ((desc->Flags & unsupported_flags) == unsupported_flags)
+                FIXME_ONCE("ReadFromSubresource may be buggy on host-visible images with ALLOW_SIMULTANEOUS_ACCESS | ALLOW_UNORDERED_ACCESS.\n");
+        }
     }
 
     if ((flags & VKD3D_RESOURCE_COMMITTED) &&
@@ -8302,18 +8502,40 @@ void vkd3d_memory_info_cleanup(struct vkd3d_memory_info *info,
 HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
         struct d3d12_device *device)
 {
+    VkMemoryPropertyFlags buffer_sysmem_flags, sampled_sysmem_flags, rt_ds_sysmem_flags;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkDeviceBufferMemoryRequirements buffer_requirement_info;
     VkDeviceImageMemoryRequirements image_requirement_info;
     VkMemoryRequirements2 memory_requirements;
     struct vkd3d_memory_topology topology;
     VkBufferCreateInfo buffer_info;
+    uint32_t non_cpu_combined_mask;
     VkImageCreateInfo image_info;
+    uint32_t cpu_combined_mask;
     uint32_t sampled_type_mask;
     uint32_t host_visible_mask;
     uint32_t buffer_type_mask;
     uint32_t rt_ds_type_mask;
     uint32_t i;
+
+    const VkImageUsageFlags image_usage_sampled =
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+            VK_IMAGE_USAGE_SAMPLED_BIT |
+            VK_IMAGE_USAGE_STORAGE_BIT;
+
+    const VkImageUsageFlags image_usage_rt =
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+            VK_IMAGE_USAGE_SAMPLED_BIT |
+            VK_IMAGE_USAGE_STORAGE_BIT;
+
+    const VkImageUsageFlags image_usage_ds =
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+            VK_IMAGE_USAGE_SAMPLED_BIT;
 
     vkd3d_memory_info_get_topology(&topology, device);
     info->upload_heap_memory_properties =
@@ -8373,35 +8595,20 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     image_info.arrayLayers = 1;
     image_info.samples = VK_SAMPLE_COUNT_1_BIT;
     image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-            VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-            VK_IMAGE_USAGE_SAMPLED_BIT |
-            VK_IMAGE_USAGE_STORAGE_BIT;
+    image_info.usage = image_usage_sampled;
     image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     VK_CALL(vkGetDeviceImageMemoryRequirements(device->vk_device, &image_requirement_info, &memory_requirements));
     sampled_type_mask = memory_requirements.memoryRequirements.memoryTypeBits;
 
-    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    image_info.format = VK_FORMAT_R8G8B8A8_UNORM;
-    image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-            VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-            VK_IMAGE_USAGE_SAMPLED_BIT |
-            VK_IMAGE_USAGE_STORAGE_BIT;
+    image_info.usage = image_usage_rt;
 
     VK_CALL(vkGetDeviceImageMemoryRequirements(device->vk_device, &image_requirement_info, &memory_requirements));
     rt_ds_type_mask = memory_requirements.memoryRequirements.memoryTypeBits;
 
-    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     image_info.format = VK_FORMAT_D32_SFLOAT_S8_UINT;
-    image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-            VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
-            VK_IMAGE_USAGE_SAMPLED_BIT;
+    image_info.usage = image_usage_ds;
 
     VK_CALL(vkGetDeviceImageMemoryRequirements(device->vk_device, &image_requirement_info, &memory_requirements));
     rt_ds_type_mask &= memory_requirements.memoryRequirements.memoryTypeBits;
@@ -8410,22 +8617,104 @@ HRESULT vkd3d_memory_info_init(struct vkd3d_memory_info *info,
     info->non_cpu_accessible_domain.sampled_type_mask = sampled_type_mask;
     info->non_cpu_accessible_domain.rt_ds_type_mask = rt_ds_type_mask;
 
+    non_cpu_combined_mask = buffer_type_mask & sampled_type_mask & rt_ds_type_mask;
+
     host_visible_mask = 0;
     for (i = 0; i < device->memory_properties.memoryTypeCount; i++)
         if (device->memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
             host_visible_mask |= 1u << i;
 
-    /* We don't create images in host-visible memory anymore, only buffers */
+    /* When using linear staging buffers, we don't create host-visible images at all */
     info->cpu_accessible_domain.buffer_type_mask = buffer_type_mask & host_visible_mask;
     info->cpu_accessible_domain.sampled_type_mask = buffer_type_mask & host_visible_mask;
     info->cpu_accessible_domain.rt_ds_type_mask = buffer_type_mask & host_visible_mask;
 
-    TRACE("Device supports buffers on memory types 0x%#x.\n", buffer_type_mask);
-    TRACE("Device supports textures on memory types 0x%#x.\n", sampled_type_mask);
-    TRACE("Device supports render targets on memory types 0x%#x.\n", rt_ds_type_mask);
-    TRACE("Device supports CPU visible textures on memory types 0x%#x.\n",
+    if (device->device_info.host_image_copy_features.hostImageCopy)
+    {
+        bool enable_host_copy = true;
+
+        image_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+        image_info.usage = VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT | image_usage_sampled;
+
+        VK_CALL(vkGetDeviceImageMemoryRequirements(device->vk_device, &image_requirement_info, &memory_requirements));
+        sampled_type_mask = memory_requirements.memoryRequirements.memoryTypeBits;
+
+        image_info.usage = VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT | image_usage_rt;
+
+        VK_CALL(vkGetDeviceImageMemoryRequirements(device->vk_device, &image_requirement_info, &memory_requirements));
+        rt_ds_type_mask = memory_requirements.memoryRequirements.memoryTypeBits;
+
+        image_info.format = VK_FORMAT_D32_SFLOAT_S8_UINT;
+        image_info.usage = VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT | image_usage_ds;
+
+        VK_CALL(vkGetDeviceImageMemoryRequirements(device->vk_device, &image_requirement_info, &memory_requirements));
+        rt_ds_type_mask &= memory_requirements.memoryRequirements.memoryTypeBits;
+
+        /* Do not enable the host image copy path if doing so would regress TIER_2 heaps. */
+        if (non_cpu_combined_mask && !(cpu_combined_mask = (buffer_type_mask & sampled_type_mask & rt_ds_type_mask)))
+        {
+            WARN("Disabling host image copies due to memory type overlap.\n");
+            enable_host_copy = false;
+        }
+
+        /* Also verify that there is at least one coherent memory type and one cached memory
+         * type in system memory that can support host-visible images, if the same level of
+         * support is present for buffers. This is relevant on NVIDIA where host-visible
+         * images are only supported on HVV. */
+        if (enable_host_copy)
+        {
+            buffer_sysmem_flags = 0;
+            sampled_sysmem_flags = 0;
+            rt_ds_sysmem_flags = 0;
+
+            for (i = 0; i < device->memory_properties.memoryTypeCount; i++)
+            {
+                if (vkd3d_memory_topology_is_uma_like(&topology) ||
+                        !(device->memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
+                {
+                    if (buffer_type_mask & (1u << i))
+                        buffer_sysmem_flags |= device->memory_properties.memoryTypes[i].propertyFlags;
+
+                    if (sampled_type_mask & (1u << i))
+                        sampled_sysmem_flags |= device->memory_properties.memoryTypes[i].propertyFlags;
+
+                    if (rt_ds_type_mask & (1u << i))
+                        rt_ds_sysmem_flags |= device->memory_properties.memoryTypes[i].propertyFlags;
+                }
+            }
+
+            buffer_sysmem_flags &= VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                    VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+
+            if ((sampled_sysmem_flags & buffer_sysmem_flags) != buffer_sysmem_flags ||
+                    (rt_ds_sysmem_flags & buffer_sysmem_flags) != buffer_sysmem_flags)
+            {
+                WARN("Disabling host image copies, no suitable system memory types found.\n");
+                enable_host_copy = false;
+            }
+        }
+
+        if (enable_host_copy)
+        {
+            info->cpu_accessible_domain.sampled_type_mask = sampled_type_mask & host_visible_mask;
+            info->cpu_accessible_domain.rt_ds_type_mask = rt_ds_type_mask & host_visible_mask;
+        }
+        else
+        {
+            /* Disable use of the host image copy feature altogether */
+            device->device_info.host_image_copy_features.hostImageCopy = false;
+        }
+    }
+
+    TRACE("Device supports buffers on memory types %#x.\n", info->non_cpu_accessible_domain.buffer_type_mask);
+    TRACE("Device supports textures on memory types %#x.\n", info->non_cpu_accessible_domain.sampled_type_mask);
+    TRACE("Device supports render targets on memory types %#x.\n", info->non_cpu_accessible_domain.rt_ds_type_mask);
+    TRACE("Device supports CPU visible buffers on memory types %#x.\n",
+          info->cpu_accessible_domain.buffer_type_mask);
+    TRACE("Device supports CPU visible textures on memory types %#x.\n",
           info->cpu_accessible_domain.sampled_type_mask);
-    TRACE("Device supports CPU visible render targets on memory types 0x%#x.\n",
+    TRACE("Device supports CPU visible render targets on memory types %#x.\n",
           info->cpu_accessible_domain.rt_ds_type_mask);
     return S_OK;
 }

@@ -265,6 +265,13 @@ VK_DEVICE_EXT_PFN(vkCmdDrawMeshTasksIndirectCountEXT)
 /* VK_EXT_hdr_metadata */
 VK_DEVICE_EXT_PFN(vkSetHdrMetadataEXT)
 
+/* VK_EXT_host_image_copy */
+VK_DEVICE_EXT_PFN(vkCopyMemoryToImageEXT)
+VK_DEVICE_EXT_PFN(vkCopyImageToImageEXT)
+VK_DEVICE_EXT_PFN(vkCopyImageToMemoryEXT)
+VK_DEVICE_EXT_PFN(vkTransitionImageLayoutEXT)
+VK_DEVICE_EXT_PFN(vkGetImageSubresourceLayout2EXT)
+
 /* VK_KHR_surface */
 VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceSurfacePresentModesKHR)
 VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceSurfaceSupportKHR)
