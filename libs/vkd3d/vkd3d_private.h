@@ -2673,6 +2673,7 @@ struct d3d12_command_list_iteration_indirect_meta
 {
     bool need_compute_to_indirect_barrier;
     bool need_compute_to_cbv_barrier;
+    bool need_preprocess_barrier;
 };
 
 struct d3d12_command_list_iteration
@@ -3129,7 +3130,8 @@ struct d3d12_command_signature
             VkBuffer buffer;
             VkDeviceAddress buffer_va;
             struct vkd3d_device_memory_allocation memory;
-            VkIndirectCommandsLayoutNV layout;
+            VkIndirectCommandsLayoutNV layout_implicit;
+            VkIndirectCommandsLayoutNV layout_preprocess;
             uint32_t stride;
             struct vkd3d_execute_indirect_info pipeline;
         } dgc;
