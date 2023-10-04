@@ -4756,6 +4756,13 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
                 *stages |= VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
                 *access |= VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
 
+                /* We might use preprocessing. */
+                if (list->device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
+                {
+                    *stages |= VK_PIPELINE_STAGE_2_COMMAND_PREPROCESS_BIT_NV;
+                    *access |= VK_ACCESS_2_COMMAND_PREPROCESS_READ_BIT_NV;
+                }
+
                 /* D3D12_RESOURCE_STATE_PREDICATION is an alias.
                  * Add SHADER_READ_BIT here since we might read the indirect buffer in compute for
                  * patching reasons. */
@@ -5079,6 +5086,24 @@ static HRESULT d3d12_command_list_build_init_commands(struct d3d12_command_list 
                 barrier.dstAccessMask |= VK_ACCESS_2_UNIFORM_READ_BIT;
                 barrier.dstStageMask |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
             }
+
+            memset(&dep_info, 0, sizeof(dep_info));
+            dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep_info.memoryBarrierCount = 1;
+            dep_info.pMemoryBarriers = &barrier;
+
+            VK_CALL(vkCmdPipelineBarrier2(iteration->vk_init_commands, &dep_info));
+        }
+
+        if (iteration->indirect_meta.need_preprocess_barrier)
+        {
+            memset(&barrier, 0, sizeof(barrier));
+            barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+            barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMMAND_PREPROCESS_BIT_NV;
+            barrier.srcAccessMask = VK_ACCESS_2_COMMAND_PREPROCESS_WRITE_BIT_NV;
+            /* vkCmdExecuteGeneratedCommands consumes in draw indirect stage. */
+            barrier.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+            barrier.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
 
             memset(&dep_info, 0, sizeof(dep_info));
             dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
@@ -11942,6 +11967,7 @@ static HRESULT d3d12_command_signature_allocate_stream_memory_for_list(
 static HRESULT d3d12_command_signature_allocate_preprocess_memory_for_list(
         struct d3d12_command_list *list,
         struct d3d12_command_signature *signature, VkPipeline render_pipeline,
+        bool explicit_preprocess,
         uint32_t max_command_count,
         struct vkd3d_scratch_allocation *allocation, VkDeviceSize *size);
 
@@ -12061,6 +12087,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
     VkDependencyInfo dep_info;
     VkMemoryBarrier2 barrier;
     bool suspend_predication;
+    bool explicit_preprocess;
     bool require_ibo_update;
     bool require_patch;
     const char *tag;
@@ -12069,6 +12096,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
 
     require_custom_predication = false;
     suspend_predication = false;
+    explicit_preprocess = false;
 
     if (list->predication.va)
     {
@@ -12140,6 +12168,16 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
             require_custom_predication = true;
         }
     }
+    else if (signature->state_template.dgc.layout_preprocess)
+    {
+        /* If driver can take advantage of preprocess, we can consider preprocessing explicitly if we can hoist it.
+         * If we had indirect barriers earlier in the frame, now might be a good time to split. */
+        d3d12_command_list_consider_new_sequence(list);
+        if (list->cmd.vk_command_buffer != list->cmd.vk_init_commands_post_indirect_barrier)
+            explicit_preprocess = signature->pipeline_type != VKD3D_PIPELINE_TYPE_COMPUTE;
+
+        /* Don't bother with hoisting if we have predication, it's very rare anyway. */
+    }
 
     if (suspend_predication)
     {
@@ -12173,14 +12211,6 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
     memset(&patch_args, 0, sizeof(patch_args));
     patch_args.debug_tag = 0; /* Modify to non-zero value as desired when debugging. */
 
-    if (FAILED(hr = d3d12_command_signature_allocate_preprocess_memory_for_list(
-            list, signature, current_pipeline,
-            max_command_count, &preprocess_allocation, &preprocess_size)))
-    {
-        WARN("Failed to allocate preprocess memory.\n");
-        return;
-    }
-
     /* If everything regarding alignment works out, we can just reuse the app indirect buffer instead. */
     require_ibo_update = false;
     require_patch = false;
@@ -12212,6 +12242,10 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
 
     if (require_patch)
     {
+        /* Patching does not really happen anymore on drivers, drop explicit preprocess in this path
+         * to reduce test burden. */
+        explicit_preprocess = false;
+
         if (FAILED(hr = d3d12_command_signature_allocate_stream_memory_for_list(
                 list, signature, max_command_count, &stream_allocation)))
         {
@@ -12310,12 +12344,22 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         return;
     }
 
+    if (FAILED(hr = d3d12_command_signature_allocate_preprocess_memory_for_list(
+            list, signature, current_pipeline, explicit_preprocess,
+            max_command_count, &preprocess_allocation, &preprocess_size)))
+    {
+        WARN("Failed to allocate preprocess memory.\n");
+        return;
+    }
+
     generated.sType = VK_STRUCTURE_TYPE_GENERATED_COMMANDS_INFO_NV;
     generated.pNext = NULL;
     generated.pipeline = list->current_pipeline;
     generated.pipelineBindPoint = signature->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE ?
             VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS;
-    generated.indirectCommandsLayout = signature->state_template.dgc.layout;
+    generated.indirectCommandsLayout = explicit_preprocess ?
+            signature->state_template.dgc.layout_preprocess :
+            signature->state_template.dgc.layout_implicit;
     generated.streamCount = 1;
     generated.pStreams = &stream;
     generated.preprocessBuffer = preprocess_allocation.buffer;
@@ -12360,6 +12404,19 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         stream.offset = arg_buffer->mem.offset + arg_buffer_offset;
     }
 
+    if (explicit_preprocess)
+    {
+        if (signature->pipeline_type != VKD3D_PIPELINE_TYPE_COMPUTE)
+        {
+            /* There are no requirements on bound state, except for pipeline. */
+            d3d12_command_allocator_allocate_init_post_indirect_command_buffer(list->allocator, list);
+            VK_CALL(vkCmdBindPipeline(list->cmd.vk_init_commands_post_indirect_barrier,
+                    generated.pipelineBindPoint, current_pipeline));
+            VK_CALL(vkCmdPreprocessGeneratedCommandsNV(list->cmd.vk_init_commands_post_indirect_barrier, &generated));
+            list->cmd.indirect_meta->need_preprocess_barrier = true;
+        }
+    }
+
     if (require_patch)
         WARN("Template requires patching :(\n");
 
@@ -12379,7 +12436,8 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
             tag = "EI (compute, direct count)";
     }
     d3d12_command_list_debug_mark_begin_region(list, tag);
-    VK_CALL(vkCmdExecuteGeneratedCommandsNV(list->cmd.vk_command_buffer, VK_FALSE, &generated));
+    VK_CALL(vkCmdExecuteGeneratedCommandsNV(list->cmd.vk_command_buffer,
+            explicit_preprocess ? VK_TRUE : VK_FALSE, &generated));
     d3d12_command_list_debug_mark_end_region(list);
 
     /* Need to clear state to zero if it was part of a command signature. */
@@ -13701,7 +13759,12 @@ static VkPipelineStageFlags2 vk_stage_flags_from_d3d12_barrier(struct d3d12_comm
         stages |= VK_PIPELINE_STAGE_2_RESOLVE_BIT;
 
     if (sync & D3D12_BARRIER_SYNC_EXECUTE_INDIRECT) /* PREDICATION is alias for EXECUTE_INDIRECT */
+    {
         stages |= VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        /* We might use explicit preprocess. */
+        if (list->device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
+            stages |= VK_PIPELINE_STAGE_2_COMMAND_PREPROCESS_BIT_NV;
+    }
 
     if (sync & D3D12_BARRIER_SYNC_COPY_RAYTRACING_ACCELERATION_STRUCTURE)
         stages |= VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR;
@@ -13719,7 +13782,7 @@ static VkPipelineStageFlags2 vk_stage_flags_from_d3d12_barrier(struct d3d12_comm
     return stages;
 }
 
-static VkAccessFlags2 vk_access_flags_from_d3d12_barrier(D3D12_BARRIER_ACCESS access)
+static VkAccessFlags2 vk_access_flags_from_d3d12_barrier(struct d3d12_command_list *list, D3D12_BARRIER_ACCESS access)
 {
     VkAccessFlags2 vk_access = 0;
 
@@ -13755,6 +13818,10 @@ static VkAccessFlags2 vk_access_flags_from_d3d12_barrier(D3D12_BARRIER_ACCESS ac
         /* Add SHADER_READ_BIT here since we might read the indirect buffer in compute for
          * patching reasons. */
         vk_access |= VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_READ_BIT;
+
+        /* We might use preprocessing. */
+        if (list->device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
+            vk_access |= VK_ACCESS_2_COMMAND_PREPROCESS_READ_BIT_NV;
     }
 
     if (access & (D3D12_BARRIER_ACCESS_COPY_DEST | D3D12_BARRIER_ACCESS_RESOLVE_DEST))
@@ -13791,8 +13858,8 @@ static void d3d12_command_list_process_enhanced_barrier_global(struct d3d12_comm
 
     src_stages = vk_stage_flags_from_d3d12_barrier(list, barrier->SyncBefore, barrier->AccessBefore);
     dst_stages = vk_stage_flags_from_d3d12_barrier(list, barrier->SyncAfter, barrier->AccessAfter);
-    src_access = vk_access_flags_from_d3d12_barrier(barrier->AccessBefore);
-    dst_access = vk_access_flags_from_d3d12_barrier(barrier->AccessAfter);
+    src_access = vk_access_flags_from_d3d12_barrier(list, barrier->AccessBefore);
+    dst_access = vk_access_flags_from_d3d12_barrier(list, barrier->AccessAfter);
 
     if (d3d12_barrier_invalidates_indirect_arguments(barrier->SyncAfter, barrier->AccessAfter))
     {
@@ -13904,8 +13971,8 @@ static void d3d12_command_list_process_enhanced_barrier_texture(struct d3d12_com
 
     vk_transition.srcStageMask = vk_stage_flags_from_d3d12_barrier(list, barrier->SyncBefore, barrier->AccessBefore);
     vk_transition.dstStageMask = vk_stage_flags_from_d3d12_barrier(list, barrier->SyncAfter, barrier->AccessAfter);
-    vk_transition.srcAccessMask = vk_access_flags_from_d3d12_barrier(barrier->AccessBefore);
-    vk_transition.dstAccessMask = vk_access_flags_from_d3d12_barrier(barrier->AccessAfter);
+    vk_transition.srcAccessMask = vk_access_flags_from_d3d12_barrier(list, barrier->AccessBefore);
+    vk_transition.dstAccessMask = vk_access_flags_from_d3d12_barrier(list, barrier->AccessAfter);
     vk_transition.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     vk_transition.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     vk_transition.image = resource->res.vk_image;
@@ -16320,7 +16387,10 @@ static void d3d12_command_signature_cleanup(struct d3d12_command_signature *sign
     {
         VK_CALL(vkDestroyBuffer(signature->device->vk_device, signature->state_template.dgc.buffer, NULL));
         vkd3d_free_device_memory(signature->device, &signature->state_template.dgc.memory);
-        VK_CALL(vkDestroyIndirectCommandsLayoutNV(signature->device->vk_device, signature->state_template.dgc.layout, NULL));
+        VK_CALL(vkDestroyIndirectCommandsLayoutNV(signature->device->vk_device,
+                signature->state_template.dgc.layout_implicit, NULL));
+        VK_CALL(vkDestroyIndirectCommandsLayoutNV(signature->device->vk_device,
+                signature->state_template.dgc.layout_preprocess, NULL));
     }
 
     vkd3d_private_store_destroy(&signature->private_store);
@@ -16480,8 +16550,20 @@ static HRESULT d3d12_command_signature_init_indirect_commands_layout(
         return E_NOTIMPL;
     }
 
+    /* Need two separate DGC layouts since if we set EXPLICIT_PREPROCESS, we must use preprocess if the flag is set.
+     * We don't always want to use explicit preprocess (especially when we cannot hoist), so pick the appropriate
+     * layout at ExecuteIndirect time. */
     vr = VK_CALL(vkCreateIndirectCommandsLayoutNV(device->vk_device, &create_info, NULL,
-            &signature->state_template.dgc.layout));
+            &signature->state_template.dgc.layout_implicit));
+    if (vr != VK_SUCCESS)
+        return hresult_from_vk_result(vr);
+
+    if (device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
+    {
+        create_info.flags = VK_INDIRECT_COMMANDS_LAYOUT_USAGE_EXPLICIT_PREPROCESS_BIT_NV;
+        vr = VK_CALL(vkCreateIndirectCommandsLayoutNV(device->vk_device, &create_info, NULL,
+                &signature->state_template.dgc.layout_preprocess));
+    }
     return hresult_from_vk_result(vr);
 }
 
@@ -16503,7 +16585,7 @@ static HRESULT d3d12_command_signature_allocate_stream_memory_for_list(
 
 static HRESULT d3d12_command_signature_allocate_preprocess_memory_for_list(
         struct d3d12_command_list *list,
-        struct d3d12_command_signature *signature, VkPipeline render_pipeline,
+        struct d3d12_command_signature *signature, VkPipeline render_pipeline, bool explicit_preprocess,
         uint32_t max_command_count,
         struct vkd3d_scratch_allocation *allocation, VkDeviceSize *size)
 {
@@ -16521,7 +16603,9 @@ static HRESULT d3d12_command_signature_allocate_preprocess_memory_for_list(
     info.pNext = NULL;
     info.maxSequencesCount = max_command_count;
     info.pipeline = render_pipeline;
-    info.indirectCommandsLayout = signature->state_template.dgc.layout;
+    info.indirectCommandsLayout = explicit_preprocess ?
+            signature->state_template.dgc.layout_preprocess :
+            signature->state_template.dgc.layout_implicit;
 
     if (max_command_count > list->device->device_info.device_generated_commands_properties_nv.maxIndirectSequenceCount)
     {
