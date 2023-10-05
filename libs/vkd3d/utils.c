@@ -519,6 +519,13 @@ static HRESULT vkd3d_init_formats(struct d3d12_device *device)
     unsigned int i, j;
     bool emulate_a8;
 
+    static const VkFormatFeatureFlags2 feature_mask =
+            VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
+            VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT |
+            VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT |
+            VK_FORMAT_FEATURE_TRANSFER_SRC_BIT |
+            VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
+
     if (!(formats = vkd3d_calloc(VKD3D_MAX_DXGI_FORMAT + 1, sizeof(*formats))))
         return E_OUTOFMEMORY;
 
@@ -567,7 +574,7 @@ static HRESULT vkd3d_init_formats(struct d3d12_device *device)
 
         vkd3d_get_vk_format_properties(device, format->vk_format, &properties);
 
-        if (properties.optimalTilingFeatures || !properties.linearTilingFeatures)
+        if ((properties.optimalTilingFeatures & feature_mask) || !(properties.linearTilingFeatures & feature_mask))
         {
             format->vk_image_tiling = VK_IMAGE_TILING_OPTIMAL;
             format->vk_format_features = properties.optimalTilingFeatures;
