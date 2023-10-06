@@ -382,3 +382,5 @@ decl_test(test_sampler_feedback_min_mip_level_array);
 decl_test(test_sampler_feedback_decode_encode_min_mip);
 decl_test(test_sampler_feedback_mip_used_region_level);
 decl_test(test_sampler_feedback_grad);
+decl_test(test_sampler_feedback_implicit_lod);
+decl_test(test_sampler_feedback_implicit_lod_bias);
