@@ -794,14 +794,14 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         if (heap_properties && is_cpu_accessible_heap(heap_properties))
         {
             /* Required for ReadFrom/WriteToSubresource */
-            resource->flags |= VKD3D_RESOURCE_SIMULTANEOUS_ACCESS;
+            resource->flags |= VKD3D_RESOURCE_GENERAL_LAYOUT;
             resource->common_layout = VK_IMAGE_LAYOUT_GENERAL;
         }
         else
             resource->common_layout = vk_common_image_layout_from_d3d12_desc(device, desc);
 
         if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS)
-            resource->flags |= VKD3D_RESOURCE_SIMULTANEOUS_ACCESS;
+            resource->flags |= VKD3D_RESOURCE_GENERAL_LAYOUT;
     }
 
     return S_OK;
@@ -3082,7 +3082,7 @@ static HRESULT d3d12_resource_create(struct d3d12_device *device, uint32_t flags
     {
         const UINT unsupported_flags = D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
-        object->flags |= VKD3D_RESOURCE_LINEAR_STAGING_COPY;
+        object->flags |= VKD3D_RESOURCE_LINEAR_STAGING_COPY | VKD3D_RESOURCE_GENERAL_LAYOUT;
         d3d12_resource_init_subresource_layouts(object, device);
 
         if ((desc->Flags & unsupported_flags) == unsupported_flags)
