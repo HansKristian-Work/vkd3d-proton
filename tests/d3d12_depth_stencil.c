@@ -2630,3 +2630,274 @@ void test_depth_stencil_front_and_back(void)
     ID3D12Device2_Release(device2);
     destroy_test_context(&context);
 }
+
+void test_depth_bias_behaviour(void)
+{
+    ID3D12Resource *ds_resource, *rt_resource, *rt_resource_no_bias;
+    D3D12_CPU_DESCRIPTOR_HANDLE dsv, rtv, rtv_no_bias;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS16 options16;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12DescriptorHeap *rtv_heap, *dsv_heap;
+    ID3D12GraphicsCommandList9 *command_list9;
+    struct resource_readback rb, rb_no_bias;
+    D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    struct test_context_desc desc;
+    struct test_context context;
+    ID3D12PipelineState *pso;
+    ID3D12RootSignature *rs;
+    D3D12_VIEWPORT viewport;
+    unsigned int i, j, x, y;
+    D3D12_RECT scissor;
+    HRESULT hr;
+
+    static const FLOAT black[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+#if 0
+    float4 main(in uint id : SV_VERTEXID) : SV_POSITION
+    {
+        float2 coords = float2((id << 1) & 2, id & 2);
+        return float4(coords * float2(2, -2) + float2(-1, 1), 0.5f + dot(coords, float2(0.15f, 0.25f)), 1);
+    }
+#endif
+    static const DWORD vs_code[] =
+    {
+        0x43425844, 0xc1a96b72, 0x7648bdc8, 0x125fcc4f, 0x939c2d5f, 0x00000001, 0x000001c4, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000006, 0x00000001, 0x00000000, 0x00000101, 0x565f5653, 0x45545245, 0x00444958,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x505f5653, 0x5449534f, 0x004e4f49, 0x58454853, 0x00000128, 0x00010050,
+        0x0000004a, 0x0100086a, 0x04000060, 0x00101012, 0x00000000, 0x00000006, 0x04000067, 0x001020f2,
+        0x00000000, 0x00000001, 0x02000068, 0x00000001, 0x0b00008c, 0x00100012, 0x00000000, 0x00004001,
+        0x00000001, 0x00004001, 0x00000001, 0x0010100a, 0x00000000, 0x00004001, 0x00000000, 0x07000001,
+        0x00100042, 0x00000000, 0x0010100a, 0x00000000, 0x00004001, 0x00000002, 0x05000056, 0x00100032,
+        0x00000000, 0x00100086, 0x00000000, 0x0a00000f, 0x00100042, 0x00000000, 0x00100046, 0x00000000,
+        0x00004002, 0x3e19999a, 0x3e800000, 0x00000000, 0x00000000, 0x0f000032, 0x00102032, 0x00000000,
+        0x00100046, 0x00000000, 0x00004002, 0x40000000, 0xc0000000, 0x00000000, 0x00000000, 0x00004002,
+        0xbf800000, 0x3f800000, 0x00000000, 0x00000000, 0x07000000, 0x00102042, 0x00000000, 0x0010002a,
+        0x00000000, 0x00004001, 0x3f000000, 0x05000036, 0x00102082, 0x00000000, 0x00004001, 0x3f800000,
+        0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE vs_bytecode = { vs_code, sizeof(vs_code) };
+
+#if 0
+    float main(in float4 pos : SV_POSITION) : SV_TARGET
+    {
+            return pos.z;
+    }
+#endif
+    static const DWORD ps_code[] =
+    {
+        0x43425844, 0xdbdee767, 0x85fbf4d9, 0x9781ced5, 0x3c760b53, 0x00000001, 0x000000dc, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000040f, 0x505f5653, 0x5449534f, 0x004e4f49,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x00000e01, 0x545f5653, 0x45475241, 0xabab0054, 0x58454853, 0x00000040, 0x00000050,
+        0x00000010, 0x0100086a, 0x04002064, 0x00101042, 0x00000000, 0x00000001, 0x03000065, 0x00102012,
+        0x00000000, 0x05000036, 0x00102012, 0x00000000, 0x0010102a, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_bytecode = { ps_code, sizeof(ps_code) };
+
+    const struct
+    {
+        DXGI_FORMAT dsv_format;
+        bool enable_depth_test;
+        INT depth_bias_constant;
+        FLOAT depth_bias_sloped;
+        D3D12_CPU_DESCRIPTOR_HANDLE *dsv_handle;
+    }
+    tests[] =
+    {
+        /* Check that we can observe depth bias via SV_Position in fragment shaders */
+        { DXGI_FORMAT_D32_FLOAT, true, 1, 0.0000f, &dsv },
+        { DXGI_FORMAT_D32_FLOAT, true, 0, 0.0001f, &dsv },
+        /* Test behaviour when depth test is disabled */
+        { DXGI_FORMAT_D32_FLOAT, false, 1, 0.0000f, &dsv },
+        { DXGI_FORMAT_D32_FLOAT, false, 0, 0.0001f, &dsv },
+        /* Test behaviour when depth test is enabled but no DSV is bound */
+        { DXGI_FORMAT_D32_FLOAT, true, 1, 0.0000f, NULL },
+        { DXGI_FORMAT_D32_FLOAT, true, 0, 0.0001f, NULL },
+        /* Test behaviour when no depth attachment is bound */
+        { DXGI_FORMAT_UNKNOWN, false, 1, 0.0000f, NULL },
+        { DXGI_FORMAT_UNKNOWN, false, 0, 0.0001f, NULL },
+        /* Test behaviour when depth test is enabled with dynamic DSV format */
+        { DXGI_FORMAT_UNKNOWN, true, 1, 0.0000f, &dsv },
+        { DXGI_FORMAT_UNKNOWN, true, 0, 0.0001f, &dsv },
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    desc.no_root_signature = true;
+    desc.no_pipeline = true;
+
+    if (!init_test_context(&context, &desc))
+        return;
+
+    ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList9, (void**)&command_list9);
+
+    memset(&options16, 0, sizeof(options16));
+
+    if (command_list9)
+        ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS16, &options16, sizeof(options16));
+
+    if (!options16.DynamicDepthBiasSupported)
+    {
+        skip("Skipping dynamic depth bias tests.\n");
+        destroy_test_context(&context);
+    }
+
+    ds_resource = create_default_texture2d(context.device, 4, 4, 1, 1, DXGI_FORMAT_D32_FLOAT,
+            D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+    rt_resource = create_default_texture2d(context.device, 4, 4, 1, 1, DXGI_FORMAT_R32_FLOAT,
+            D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    rt_resource_no_bias = create_default_texture2d(context.device, 4, 4, 1, 1, DXGI_FORMAT_R32_FLOAT,
+            D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    dsv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
+    rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 2);
+
+    memset(&dsv_desc, 0, sizeof(dsv_desc));
+    dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+    dsv_desc.Format = DXGI_FORMAT_D32_FLOAT;
+    dsv = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(dsv_heap);
+    ID3D12Device_CreateDepthStencilView(context.device, ds_resource, &dsv_desc, dsv);
+
+    memset(&rtv_desc, 0, sizeof(rtv_desc));
+    rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+    rtv_desc.Format = DXGI_FORMAT_R32_FLOAT;
+    rtv = get_cpu_rtv_handle(&context, rtv_heap, 0);
+    ID3D12Device_CreateRenderTargetView(context.device, rt_resource, &rtv_desc, rtv);
+    rtv_no_bias = get_cpu_rtv_handle(&context, rtv_heap, 1);
+    ID3D12Device_CreateRenderTargetView(context.device, rt_resource_no_bias, &rtv_desc, rtv_no_bias);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    hr = create_root_signature(context.device, &rs_desc, &rs);
+    ok(SUCCEEDED(hr), "Failed to create root signature, hr %#x.\n", hr);
+
+    viewport.TopLeftX = 0.0f;
+    viewport.TopLeftY = 0.0f;
+    viewport.Width = 4.0f;
+    viewport.Height = 4.0f;
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
+
+    scissor.left = 0;
+    scissor.top = 0;
+    scissor.right = 4;
+    scissor.bottom = 4;
+
+    /* Render reference image with no depth bias and no depth test enabled */
+    init_pipeline_state_desc(&pso_desc, rs, DXGI_FORMAT_R32_FLOAT, &vs_bytecode, &ps_bytecode, NULL);
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
+    ok(SUCCEEDED(hr), "Failed to create graphics pipeline, hr %#x.\n");
+
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &rtv_no_bias, FALSE, NULL);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &scissor);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &viewport);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, rs);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, pso);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, rt_resource_no_bias,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_texture_readback_with_command_list(rt_resource_no_bias, 0, &rb_no_bias, context.queue, context.list);
+    ID3D12PipelineState_Release(pso);
+
+    /* Run the specified tests and compare with the reference image */
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        for (j = 0; j < (options16.DynamicDepthBiasSupported ? 2 : 1); j++)
+        {
+            vkd3d_test_set_context("Test %u (%s)", i, j ? "dynamic" : "static");
+            reset_command_list(context.list, context.allocator);
+
+            if (i || j)
+            {
+                transition_resource_state(context.list, rt_resource,
+                        D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            }
+
+            pso_desc.DepthStencilState.DepthEnable = tests[i].enable_depth_test;
+            pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+            pso_desc.DSVFormat = tests[i].dsv_format;
+
+            if (j)
+            {
+                pso_desc.RasterizerState.DepthBias = 0;
+                pso_desc.RasterizerState.SlopeScaledDepthBias = 0.0f;
+                pso_desc.Flags = D3D12_PIPELINE_STATE_FLAG_DYNAMIC_DEPTH_BIAS;
+            }
+            else
+            {
+                pso_desc.RasterizerState.DepthBias = tests[i].depth_bias_constant;
+                pso_desc.RasterizerState.SlopeScaledDepthBias = tests[i].depth_bias_sloped;
+                pso_desc.Flags = 0;
+            }
+
+            hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
+            ok(SUCCEEDED(hr), "Failed to create graphics pipeline, hr %#x.\n");
+
+            ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &rtv, FALSE, tests[i].dsv_handle);
+            ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, rtv, black, 0, NULL);
+            ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &scissor);
+            ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &viewport);
+            ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, rs);
+            ID3D12GraphicsCommandList_SetPipelineState(context.list, pso);
+
+            if (j)
+            {
+                ID3D12GraphicsCommandList9_RSSetDepthBias(command_list9,
+                        tests[i].depth_bias_constant, 0.0f, tests[i].depth_bias_sloped);
+            }
+
+            ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+            transition_resource_state(context.list, rt_resource,
+                    D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            get_texture_readback_with_command_list(rt_resource, 0, &rb, context.queue, context.list);
+
+            for (y = 0; y < 4; y++)
+            {
+                for (x = 0; x < 4; x++)
+                {
+                    /* With no DSV, D3D12 drivers behave as if a D32 DSV was bound, but some
+                     * Vulkan drivers will instead treat constant depth bias like a raw float
+                     * which leads to very large offsets. This check is lenient, but still
+                     * catches undesired edge cases. */
+                    const float max_delta = 4.0f / 65536.0f;
+
+                    uint32_t got_uint = get_readback_uint(&rb, x, y, 0);
+                    uint32_t ref_uint = get_readback_uint(&rb_no_bias, x, y, 0);
+
+                    float got = get_readback_float(&rb, x, y);
+                    float ref = get_readback_float(&rb_no_bias, x, y);
+
+                    todo_if(!tests[i].dsv_handle && tests[i].depth_bias_constant && is_amd_vulkan_device(context.device))
+                    ok(got > ref && got < ref + max_delta, "Got %f (%#x), reference is %f (%#x) at (%u,%u).\n", got, got_uint, ref, ref_uint, x, y);
+                }
+            }
+
+            release_resource_readback(&rb);
+            ID3D12PipelineState_Release(pso);
+        }
+    }
+
+    release_resource_readback(&rb_no_bias);
+    ID3D12RootSignature_Release(rs);
+
+    ID3D12DescriptorHeap_Release(dsv_heap);
+    ID3D12DescriptorHeap_Release(rtv_heap);
+
+    ID3D12Resource_Release(ds_resource);
+    ID3D12Resource_Release(rt_resource);
+    ID3D12Resource_Release(rt_resource_no_bias);
+
+    if (command_list9)
+        ID3D12GraphicsCommandList9_Release(command_list9);
+
+    destroy_test_context(&context);
+}

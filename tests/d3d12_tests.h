@@ -374,3 +374,4 @@ decl_test(test_topology_triangle_fan);
 decl_test(test_sampler_non_normalized_coordinates);
 decl_test(test_dynamic_depth_bias);
 decl_test(test_dynamic_index_strip_cut);
+decl_test(test_depth_bias_behaviour);
