@@ -1347,10 +1347,12 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
             /* RADV's internal memory cache implementation (pipelineCache == VK_NULL_HANDLE)
              * is currently bugged and will bloat indefinitely.
              * Can be removed when RADV is fixed. */
-            if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV)
+            if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV &&
+                    info->properties2.properties.driverVersion < VK_MAKE_VERSION(23, 2, 0))
             {
                 if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_CURB_MEMORY_PSO_CACHE)
                 {
+                    INFO("Enabling CURB_MEMORY_PSO_CACHE workaround on RADV < 23.2.\n");
                     info->workarounds.force_dummy_pipeline_cache = true;
                 }
                 else if (info->properties2.properties.vendorID == 0x1002 &&
