@@ -5,7 +5,7 @@ The project serves as the development effort for Direct3D 12 support in [Proton]
 
 ## Upstream
 
-The original project is available at [WineHQ](https://source.winehq.org/git/vkd3d.git/).
+The original project is available at [WineHQ](https://gitlab.winehq.org/wine/vkd3d).
 
 ## Priorities
 
