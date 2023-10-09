@@ -384,3 +384,4 @@ decl_test(test_sampler_feedback_grad);
 decl_test(test_sampler_feedback_implicit_lod);
 decl_test(test_sampler_feedback_implicit_lod_bias);
 decl_test(test_sampler_feedback_npot_used_region);
+decl_test(test_sampler_feedback_npot_min_mip_level);
