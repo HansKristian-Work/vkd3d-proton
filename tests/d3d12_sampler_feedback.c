@@ -128,31 +128,8 @@ void test_sampler_feedback_resource_creation(void)
     ok(ref_count == 0, "Unexpected ref-count %u.\n", ref_count);
 }
 
-static void test_sampler_feedback_min_mip_level_inner(bool arrayed)
+static const BYTE cs_code_min_mip_level_non_array[] =
 {
-    D3D12_FEATURE_DATA_D3D12_OPTIONS7 features7;
-    D3D12_STATIC_SAMPLER_DESC static_sampler;
-    struct test_context_desc context_desc;
-    D3D12_DESCRIPTOR_RANGE desc_range[2];
-    ID3D12DescriptorHeap *desc_heap_cpu;
-    D3D12_ROOT_SIGNATURE_DESC rs_desc;
-    ID3D12GraphicsCommandList1 *list1;
-    D3D12_ROOT_PARAMETER rs_param[2];
-    D3D12_HEAP_PROPERTIES heap_props;
-    ID3D12DescriptorHeap *desc_heap;
-    ID3D12Resource *feedback_copy;
-    struct test_context context;
-    struct resource_readback rb;
-    D3D12_RESOURCE_DESC1 desc;
-    ID3D12Resource *resource;
-    ID3D12Resource *feedback;
-    ID3D12Resource *resolve;
-    ID3D12Device8 *device8;
-    unsigned int x, y, i;
-    HRESULT hr;
-
-    static const BYTE cs_code_non_array[] =
-    {
 #if 0
     Texture2D<float> T : register(t0);
     SamplerState S : register(s0);
@@ -223,11 +200,11 @@ static void test_sampler_feedback_min_mip_level_inner(bool arrayed)
         0x23, 0x06, 0x09, 0x00, 0x82, 0x60, 0xe0, 0x60, 0x48, 0x31, 0x4d, 0xcd, 0x88, 0x41, 0x02, 0x80, 0x20, 0x18, 0x38, 0x59, 0x52, 0x50, 0x94, 0x33, 0x62, 0x90, 0x00, 0x20, 0x08, 0x06, 0x8e, 0xa6,
         0x14, 0x55, 0xf5, 0x8c, 0x18, 0x24, 0x00, 0x08, 0x82, 0x81, 0xb3, 0x2d, 0x85, 0x65, 0x41, 0x23, 0x06, 0x07, 0x00, 0x82, 0x60, 0xb0, 0x74, 0x4b, 0x70, 0x8d, 0x26, 0x04, 0xc2, 0x68, 0x82, 0x00,
         0x8c, 0x26, 0x0c, 0xc1, 0x88, 0x41, 0x03, 0x80, 0x20, 0x18, 0x20, 0x62, 0xe0, 0x20, 0x87, 0x21, 0x04, 0x49, 0x32, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    };
-    static const D3D12_SHADER_BYTECODE cs_code_non_array_dxil = SHADER_BYTECODE(cs_code_non_array);
+};
+static const D3D12_SHADER_BYTECODE cs_code_min_mip_level_non_array_dxil = SHADER_BYTECODE(cs_code_min_mip_level_non_array);
 
-    static const BYTE cs_code_array[] =
-    {
+static const BYTE cs_code_min_mip_level_array[] =
+{
 #if 0
     Texture2DArray<float> T : register(t0);
     SamplerState S : register(s0);
@@ -299,8 +276,31 @@ static void test_sampler_feedback_min_mip_level_inner(bool arrayed)
         0x48, 0x31, 0x4d, 0xcd, 0x88, 0x41, 0x02, 0x80, 0x20, 0x18, 0x38, 0x59, 0x52, 0x50, 0x94, 0x33, 0x62, 0x90, 0x00, 0x20, 0x08, 0x06, 0x8e, 0xa6, 0x14, 0x55, 0xf5, 0x8c, 0x18, 0x24, 0x00, 0x08,
         0x82, 0x81, 0xb3, 0x2d, 0x85, 0x65, 0x41, 0x23, 0x06, 0x07, 0x00, 0x82, 0x60, 0xb0, 0x74, 0x4b, 0x70, 0x8d, 0x26, 0x04, 0xc2, 0x68, 0x82, 0x00, 0x8c, 0x26, 0x0c, 0xc1, 0x68, 0x02, 0x31, 0x8c,
         0x18, 0x34, 0x00, 0x08, 0x82, 0x01, 0x32, 0x06, 0x4f, 0x82, 0x1c, 0x83, 0x10, 0x28, 0x04, 0x02, 0x00, 0x00, 0x00, 0x00,
-    };
-    static const D3D12_SHADER_BYTECODE cs_code_array_dxil = SHADER_BYTECODE(cs_code_array);
+};
+static const D3D12_SHADER_BYTECODE cs_code_min_mip_level_array_dxil = SHADER_BYTECODE(cs_code_min_mip_level_array);
+
+static void test_sampler_feedback_min_mip_level_inner(bool arrayed)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS7 features7;
+    D3D12_STATIC_SAMPLER_DESC static_sampler;
+    struct test_context_desc context_desc;
+    D3D12_DESCRIPTOR_RANGE desc_range[2];
+    ID3D12DescriptorHeap *desc_heap_cpu;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    ID3D12GraphicsCommandList1 *list1;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    D3D12_HEAP_PROPERTIES heap_props;
+    ID3D12DescriptorHeap *desc_heap;
+    ID3D12Resource *feedback_copy;
+    struct test_context context;
+    struct resource_readback rb;
+    D3D12_RESOURCE_DESC1 desc;
+    ID3D12Resource *resource;
+    ID3D12Resource *feedback;
+    ID3D12Resource *resolve;
+    ID3D12Device8 *device8;
+    unsigned int x, y, i;
+    HRESULT hr;
 
 #define TEX_WIDTH 4096
 #define TEX_HEIGHT 2048
@@ -413,7 +413,7 @@ static void test_sampler_feedback_min_mip_level_inner(bool arrayed)
     rs_param[1].Constants.Num32BitValues = 4;
 
     create_root_signature(context.device, &rs_desc, &context.root_signature);
-    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, arrayed ? cs_code_array_dxil : cs_code_non_array_dxil);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, arrayed ? cs_code_min_mip_level_array_dxil : cs_code_min_mip_level_non_array_dxil);
     ok(!!context.pipeline_state, "Failed to create PSO.\n");
 
     desc_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 2);
@@ -530,6 +530,262 @@ static void test_sampler_feedback_min_mip_level_inner(bool arrayed)
 #undef TEX_MIP_LEVELS
 #undef TEX_MIP_LEVELS_VIEW
 #undef TEX_LAYERS
+}
+
+void test_sampler_feedback_npot_min_mip_level(void)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS7 features7;
+    D3D12_STATIC_SAMPLER_DESC static_sampler;
+    struct test_context_desc context_desc;
+    D3D12_DESCRIPTOR_RANGE desc_range[2];
+    ID3D12DescriptorHeap *desc_heap_cpu;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    ID3D12GraphicsCommandList1 *list1;
+    D3D12_ROOT_PARAMETER rs_param[2];
+    D3D12_HEAP_PROPERTIES heap_props;
+    ID3D12DescriptorHeap *desc_heap;
+    ID3D12Resource *feedback_copy;
+    struct test_context context;
+    struct resource_readback rb;
+    D3D12_RESOURCE_DESC1 desc;
+    ID3D12Resource *resource;
+    ID3D12Resource *feedback;
+    ID3D12Resource *resolve;
+    ID3D12Device8 *device8;
+    unsigned int x, y, i;
+    HRESULT hr;
+
+#define TEX_WIDTH (64 + 1)
+#define TEX_HEIGHT (64 + 1)
+#define MIP_REGION_WIDTH 4
+#define MIP_REGION_HEIGHT 4
+#define FEEDBACK_WIDTH ((TEX_WIDTH + MIP_REGION_WIDTH - 1) / MIP_REGION_WIDTH)
+#define FEEDBACK_HEIGHT ((TEX_HEIGHT + MIP_REGION_HEIGHT - 1) / MIP_REGION_HEIGHT)
+#define TEX_MIP_LEVELS 3
+#define FEEDBACK_PAD 8
+
+    static const float coords[][3] = {
+        { 0.749f, 0.749f, 0.0f }, /* Specifically chosen to expose bugged AMD behavior. */
+        { 0.5f, 0.5f, 1.0f },
+        { 0.49f, 0.49f, 2.0f },
+    };
+
+    uint8_t expected[FEEDBACK_HEIGHT + FEEDBACK_PAD][FEEDBACK_WIDTH + FEEDBACK_PAD];
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    {
+        unsigned int actual_feedback_height;
+        unsigned int actual_feedback_width;
+        int tile_x, tile_y;
+
+        /* AMD is broken and rounds down. */
+        if (is_amd_windows_device(context.device))
+        {
+            actual_feedback_height = TEX_HEIGHT / MIP_REGION_HEIGHT;
+            actual_feedback_width = TEX_WIDTH / MIP_REGION_WIDTH;
+        }
+        else
+        {
+            actual_feedback_height = FEEDBACK_HEIGHT;
+            actual_feedback_width = FEEDBACK_WIDTH;
+        }
+
+        for (y = 0; y < FEEDBACK_HEIGHT + FEEDBACK_PAD; y++)
+            for (x = 0; x < FEEDBACK_WIDTH + FEEDBACK_PAD; x++)
+                expected[y][x] = x < actual_feedback_width && y < actual_feedback_height ? 0xff : 0;
+
+        for (i = 0; i < ARRAY_SIZE(coords); i++)
+        {
+            int effective_lod = min((int)coords[i][2], TEX_MIP_LEVELS - 1);
+
+            if (is_amd_windows_device(context.device))
+            {
+                tile_x = (int)(coords[i][0] * actual_feedback_width);
+                tile_y = (int)(coords[i][1] * actual_feedback_height);
+
+                /* AMD just writes one texel here. */
+                expected[tile_y][tile_x] = min(expected[tile_y][tile_x], effective_lod);
+            }
+            else
+            {
+                int tile_start_x, tile_start_y, tile_end_x, tile_end_y;
+                float lo_coord_x, lo_coord_y, hi_coord_x, hi_coord_y;
+                tile_x = (int)(coords[i][0] * (TEX_WIDTH >> effective_lod)) / MIP_REGION_WIDTH;
+                tile_y = (int)(coords[i][1] * (TEX_HEIGHT >> effective_lod)) / MIP_REGION_HEIGHT;
+
+                /* NPOT behavior on NV is ... very interesting here. It seems like we take the footprint of a region in the lower LOD domain, and reproject it over the higher domain.
+                 * What happens here is that sometimes, LOD 1 touches 3x3 regions due to misalignment. This is similar issue that HiZ algorithms would run into. */
+
+                lo_coord_x = (tile_x * MIP_REGION_WIDTH) * ((float)TEX_WIDTH / (float)(TEX_WIDTH >> effective_lod));
+                lo_coord_y = (tile_y * MIP_REGION_WIDTH) * ((float)TEX_HEIGHT / (float)(TEX_HEIGHT >> effective_lod));
+                hi_coord_x = ((tile_x + 1) * MIP_REGION_WIDTH) * ((float)TEX_WIDTH / (float)(TEX_WIDTH >> effective_lod));
+                hi_coord_y = ((tile_y + 1) * MIP_REGION_WIDTH) * ((float)TEX_HEIGHT / (float)(TEX_HEIGHT >> effective_lod));
+
+                tile_start_x = (int)floorf(lo_coord_x / MIP_REGION_WIDTH);
+                tile_start_y = (int)floorf(lo_coord_y / MIP_REGION_HEIGHT);
+                tile_end_x = (int)ceilf(hi_coord_x / MIP_REGION_WIDTH);
+                tile_end_y = (int)ceilf(hi_coord_y / MIP_REGION_HEIGHT);
+
+                for (tile_y = tile_start_y; tile_y < tile_end_y; tile_y++)
+                    for (tile_x = tile_start_x; tile_x < tile_end_x; tile_x++)
+                        expected[tile_y][tile_x] = min(expected[tile_y][tile_x], effective_lod);
+            }
+        }
+    }
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS7, &features7, sizeof(features7))) ||
+        features7.SamplerFeedbackTier < D3D12_SAMPLER_FEEDBACK_TIER_0_9)
+    {
+        skip("Sampler feedback not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    hr = ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device8, (void **)&device8);
+    ok(SUCCEEDED(hr), "Failed to query Device8, hr #%x.\n", hr);
+    hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList1, (void **)&list1);
+    ok(SUCCEEDED(hr), "Failed to query GraphicsCommandList1, hr #%x.\n", hr);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(desc_range, 0, sizeof(desc_range));
+    memset(rs_param, 0, sizeof(rs_param));
+    memset(&static_sampler, 0, sizeof(static_sampler));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+    rs_desc.NumStaticSamplers = 1;
+    rs_desc.pStaticSamplers = &static_sampler;
+
+    static_sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    static_sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    static_sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    static_sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    static_sampler.MaxLOD = 1000.0f;
+
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_param[0].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(desc_range);
+    rs_param[0].DescriptorTable.pDescriptorRanges = desc_range;
+    desc_range[0].NumDescriptors = 1;
+    desc_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    desc_range[1].NumDescriptors = 1;
+    desc_range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    desc_range[1].OffsetInDescriptorsFromTableStart = 1;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_param[1].Constants.Num32BitValues = 3;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, cs_code_min_mip_level_non_array_dxil);
+    ok(!!context.pipeline_state, "Failed to create PSO.\n");
+
+    desc_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 2);
+    desc_heap_cpu = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+
+    resource = create_default_texture2d(context.device, TEX_WIDTH, TEX_HEIGHT, 1, TEX_MIP_LEVELS, DXGI_FORMAT_R8_UNORM, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    /* Pad so we can study edge behavior. */
+    resolve = create_default_texture2d(context.device, FEEDBACK_WIDTH + FEEDBACK_PAD, FEEDBACK_HEIGHT + FEEDBACK_PAD, 1, 1, DXGI_FORMAT_R8_UINT, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+
+    memset(&desc, 0, sizeof(desc));
+    memset(&heap_props, 0, sizeof(heap_props));
+
+    heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.SampleDesc.Count = 1;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    desc.Width = TEX_WIDTH;
+    desc.Height = TEX_HEIGHT;
+    desc.DepthOrArraySize = 1;
+    desc.MipLevels = TEX_MIP_LEVELS;
+    desc.SamplerFeedbackMipRegion.Width = MIP_REGION_WIDTH;
+    desc.SamplerFeedbackMipRegion.Height = MIP_REGION_HEIGHT;
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    desc.Format = DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE;
+    hr = ID3D12Device8_CreateCommittedResource2(device8, &heap_props, D3D12_HEAP_FLAG_CREATE_NOT_ZEROED, &desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL, NULL, &IID_ID3D12Resource, (void **)&feedback);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+    hr = ID3D12Device8_CreateCommittedResource2(device8, &heap_props, D3D12_HEAP_FLAG_CREATE_NOT_ZEROED, &desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, NULL, &IID_ID3D12Resource, (void **)&feedback_copy);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+
+    ID3D12Device8_CreateSamplerFeedbackUnorderedAccessView(device8, resource, feedback, ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(desc_heap));
+    ID3D12Device8_CreateSamplerFeedbackUnorderedAccessView(device8, resource, feedback, ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(desc_heap_cpu));
+
+    {
+        D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+        memset(&srv_desc, 0, sizeof(srv_desc));
+        srv_desc.Format = DXGI_FORMAT_R8_UNORM;
+        srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srv_desc.Texture2D.MipLevels = TEX_MIP_LEVELS; /* Verify that the SRV itself clamps the feedback that is written. */
+        ID3D12Device_CreateShaderResourceView(context.device, resource, &srv_desc, get_cpu_descriptor_handle(&context, desc_heap, 1));
+    }
+
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &desc_heap);
+
+    {
+        UINT zeroes[4] = { 0 }; /* Clear value is ignored. The actual clear value is opaque, but after a resolve, it should be 0xff. */
+        ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(context.list,
+            ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(desc_heap),
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(desc_heap_cpu),
+            feedback, zeroes, 0, NULL);
+        uav_barrier(context.list, feedback);
+    }
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(desc_heap));
+
+    for (i = 0; i < ARRAY_SIZE(coords); i++)
+    {
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(context.list, 1, 3, coords[i], 0);
+        ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+    }
+
+    transition_resource_state(context.list, feedback, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    /* CopyResource is allowed, but not by region. */
+    ID3D12GraphicsCommandList_CopyResource(context.list, feedback_copy, feedback);
+    transition_resource_state(context.list, feedback_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+    ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, resolve, UINT_MAX, 0, 0, feedback_copy, UINT_MAX, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK);
+    transition_resource_state(context.list, resolve, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(resolve, 0, &rb, context.queue, context.list);
+
+    for (y = 0; y < FEEDBACK_HEIGHT + FEEDBACK_PAD; y++)
+    {
+        for (x = 0; x < FEEDBACK_WIDTH + FEEDBACK_PAD; x++)
+        {
+            unsigned int value;
+            value = get_readback_uint8(&rb, x, y);
+            ok(value == expected[y][x], "Coord %u, %u: expected %u, got %u.\n", x, y, expected[y][x], value);
+        }
+    }
+
+    release_resource_readback(&rb);
+    reset_command_list(context.list, context.allocator);
+
+    ID3D12GraphicsCommandList1_Release(list1);
+    ID3D12Resource_Release(resource);
+    ID3D12Resource_Release(feedback);
+    ID3D12Resource_Release(feedback_copy);
+    ID3D12Resource_Release(resolve);
+    ID3D12DescriptorHeap_Release(desc_heap);
+    ID3D12DescriptorHeap_Release(desc_heap_cpu);
+    ID3D12Device8_Release(device8);
+    destroy_test_context(&context);
+#undef TEX_WIDTH
+#undef TEX_HEIGHT
+#undef MIP_REGION_WIDTH
+#undef MIP_REGION_HEIGHT
+#undef FEEDBACK_WIDTH
+#undef FEEDBACK_HEIGHT
+#undef TEX_MIP_LEVELS
+#undef TEX_MIP_LEVELS_VIEW
+#undef TEX_LAYERS
+#undef FEEDBACK_PAD
 }
 
 void test_sampler_feedback_min_mip_level(void)
