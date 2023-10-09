@@ -2110,6 +2110,34 @@ void test_execute_indirect_multi_dispatch(void)
     destroy_test_context(&context);
 }
 
+static void report_predication_timestamps(ID3D12CommandQueue *queue, ID3D12Resource *resource,
+        unsigned int num_timestamps, const char *tag)
+{
+    uint64_t min_delta = UINT64_MAX;
+    uint64_t max_delta = 0;
+    const uint64_t *ts;
+    unsigned int i;
+    uint64_t delta;
+    UINT64 ts_freq;
+
+    ID3D12Resource_Map(resource, 0, NULL, (void **)&ts);
+    ID3D12CommandQueue_GetTimestampFrequency(queue, &ts_freq);
+    for (i = 1; i < num_timestamps; i++)
+    {
+        delta = ts[i] - ts[i - 1];
+        max_delta = max(max_delta, delta);
+        min_delta = min(min_delta, delta);
+    }
+    printf("Maximum %s time: %.3f us.\n", tag,
+            1e6 * (double)max_delta / (double)ts_freq);
+    printf("Minimum %s time: %.3f us.\n", tag,
+            1e6 * (double)min_delta / (double)ts_freq);
+    delta = ts[num_timestamps - 1] - ts[0];
+    printf("Average %s time: %.3f us.\n", tag,
+            1e6 * (double)delta / (double)(ts_freq * (num_timestamps - 1)));
+    ID3D12Resource_Unmap(resource, 0, NULL);
+}
+
 void test_execute_indirect_state_predication(void)
 {
     D3D12_INDIRECT_ARGUMENT_DESC argument_descs[2];
@@ -2119,15 +2147,20 @@ void test_execute_indirect_state_predication(void)
     D3D12_ROOT_SIGNATURE_DESC rs_desc;
     D3D12_ROOT_PARAMETER rs_params[3];
     ID3D12Resource *indirect_graphics;
+    D3D12_QUERY_HEAP_DESC query_desc;
     ID3D12Resource *indirect_compute;
     ID3D12Resource *indirect_counts;
+    ID3D12Resource *query_readback;
     ID3D12Resource *indirect_copy;
     struct test_context_desc desc;
     ID3D12PipelineState *pso_comp;
     ID3D12PipelineState *pso_gfx;
+    unsigned int timestamp_index;
     ID3D12CommandSignature *sig;
     struct test_context context;
     struct resource_readback rb;
+    ID3D12QueryHeap *query_heap;
+
     ID3D12Resource *output;
     D3D12_VIEWPORT vp;
     unsigned int i, j;
@@ -2359,8 +2392,22 @@ void test_execute_indirect_state_predication(void)
         indirect_compute = create_upload_buffer(context.device, sizeof(dispatches), dispatches);
     }
 
+    memset(&query_desc, 0, sizeof(query_desc));
+    query_desc.Count = 64 * 1024;
+    query_desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+    ID3D12Device_CreateQueryHeap(context.device, &query_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
+    query_readback = create_readback_buffer(context.device, 64 * 1024 * sizeof(uint64_t));
+
     /* Graphics */
     {
+        timestamp_index = 0;
+        ID3D12GraphicsCommandList_EndQuery(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, timestamp_index++);
+
+        /* Make sure the first timestamp is ordered before any reordered preprocess work. */
+        ID3D12GraphicsCommandList_Close(context.list);
+        exec_command_list(context.queue, context.list);
+        ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+
         output = create_default_buffer(context.device, 64 * 1024, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
 
         set_viewport(&vp, 0, 0, 1, 1, 0, 1);
@@ -2387,12 +2434,18 @@ void test_execute_indirect_state_predication(void)
             /* Try to trigger sync issues. */
             ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 1) * sizeof(uint32_t));
             for (j = 0; j < 16; j++)
+            {
                 ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig, 128, indirect_graphics, 0, NULL, 0); /* last draw will do something, verify we actually check all draws when we cull */
+                ID3D12GraphicsCommandList_EndQuery(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, timestamp_index++);
+            }
 
             ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 0) * sizeof(uint32_t));
             /* Hammer hard to study profiler. */
             for (j = 0; j < 1024; j++)
+            {
                 ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig, 127, indirect_graphics, 0, NULL, 0); /* should do nothing, and should be culled out */
+                ID3D12GraphicsCommandList_EndQuery(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, timestamp_index++);
+            }
             ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 2) * sizeof(uint32_t));
             ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig, 1, indirect_graphics, 127 * sizeof(struct draw_arguments), NULL, 0); /* same, but only 1 draw */
             ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 3) * sizeof(uint32_t));
@@ -2401,6 +2454,8 @@ void test_execute_indirect_state_predication(void)
                 ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig, 1, indirect_graphics, 127 * sizeof(struct draw_arguments), indirect_copy, 0); /* same, but indirect count */
             else
                 ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig, 1, indirect_graphics, 127 * sizeof(struct draw_arguments), indirect_counts, 4); /* same, but indirect count */
+
+            ID3D12GraphicsCommandList_EndQuery(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, timestamp_index++);
 
             if (i == 2)
             {
@@ -2436,6 +2491,10 @@ void test_execute_indirect_state_predication(void)
                 transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
             }
         }
+
+        assert(timestamp_index <= 64 * 1024);
+        ID3D12GraphicsCommandList_ResolveQueryData(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, 0, timestamp_index,
+                query_readback, 0);
 
         ID3D12GraphicsCommandList_SetPredication(context.list, NULL, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
         transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -2473,27 +2532,25 @@ void test_execute_indirect_state_predication(void)
 
         release_resource_readback(&rb);
         ID3D12Resource_Release(output);
+
+        report_predication_timestamps(context.queue, query_readback, timestamp_index, "DGC");
     }
 
     /* Compute */
     {
-        D3D12_QUERY_HEAP_DESC query_desc;
-        unsigned int timestamp_index = 0;
-        ID3D12QueryHeap *query_heap;
-        ID3D12Resource *readback;
+        timestamp_index = 0;
+
+        ID3D12GraphicsCommandList_EndQuery(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, timestamp_index++);
+
+        /* Make sure the first timestamp is ordered before any reordered preprocess work. */
+        ID3D12GraphicsCommandList_Close(context.list);
+        exec_command_list(context.queue, context.list);
+        ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
 
         output = create_default_buffer(context.device, 64 * 1024, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
         ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
         ID3D12GraphicsCommandList_SetComputeRootConstantBufferView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(indirect_counts) + 256);
         ID3D12GraphicsCommandList_SetPipelineState(context.list, pso_comp);
-
-        memset(&query_desc, 0, sizeof(query_desc));
-        query_desc.Count = 64 * 1024;
-        query_desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
-        ID3D12Device_CreateQueryHeap(context.device, &query_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
-        readback = create_readback_buffer(context.device, 64 * 1024 * sizeof(uint64_t));
-
-        ID3D12GraphicsCommandList_EndQuery(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, timestamp_index++);
 
         for (i = 0; i < 6; i++)
         {
@@ -2570,7 +2627,8 @@ void test_execute_indirect_state_predication(void)
         }
 
         assert(timestamp_index <= 64 * 1024);
-        ID3D12GraphicsCommandList_ResolveQueryData(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, 0, timestamp_index, readback, 0);
+        ID3D12GraphicsCommandList_ResolveQueryData(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, 0, timestamp_index,
+                query_readback, 0);
 
         ID3D12GraphicsCommandList_SetPredication(context.list, NULL, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
         transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -2608,31 +2666,11 @@ void test_execute_indirect_state_predication(void)
 
         release_resource_readback(&rb);
         ID3D12Resource_Release(output);
-
-        {
-            uint64_t min_delta = UINT64_MAX;
-            uint64_t max_delta = 0;
-            const uint64_t *ts;
-            uint64_t delta;
-            UINT64 ts_freq;
-
-            ID3D12Resource_Map(readback, 0, NULL, (void **)&ts);
-            ID3D12CommandQueue_GetTimestampFrequency(context.queue, &ts_freq);
-            for (i = 1; i < timestamp_index; i++)
-            {
-                delta = ts[i] - ts[i - 1];
-                max_delta = max(max_delta, delta);
-                min_delta = min(min_delta, delta);
-            }
-            printf("Maximum DGCC time: %.3f us.\n", 1e6 * (double)max_delta / (double)ts_freq);
-            printf("Minimum DGCC time: %.3f us.\n", 1e6 * (double)min_delta / (double)ts_freq);
-            delta = ts[timestamp_index - 1] - ts[0];
-            printf("Average DGCC time: %.3f us.\n", 1e6 * (double)delta / (double)(ts_freq * (timestamp_index - 1)));
-            ID3D12Resource_Unmap(readback, 0, NULL);
-        }
-        ID3D12Resource_Release(readback);
-        ID3D12QueryHeap_Release(query_heap);
+        report_predication_timestamps(context.queue, query_readback, timestamp_index, "DGCC");
     }
+
+    ID3D12Resource_Release(query_readback);
+    ID3D12QueryHeap_Release(query_heap);
 
     ID3D12CommandSignature_Release(sig);
     ID3D12CommandSignature_Release(sig_compute);
