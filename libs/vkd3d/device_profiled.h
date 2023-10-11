@@ -242,7 +242,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource1_profiled(d3d
 static void STDMETHODCALLTYPE d3d12_device_CreateSamplerFeedbackUnorderedAccessView_profiled(d3d12_device_iface *iface,
         ID3D12Resource *target_resource, ID3D12Resource *feedback_resource, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
-    DEVICE_PROFILED_CALL(CreateSamplerFeedbackUnorderedAccessView, iface, target_resource, feedback_resource, descriptor);
+    DEVICE_PROFILED_CALL(CreateSamplerFeedbackUnorderedAccessView_default, iface, target_resource, feedback_resource, descriptor);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource3_profiled(d3d12_device_iface *iface,
