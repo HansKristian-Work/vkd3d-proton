@@ -789,6 +789,21 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         }
     }
 
+    /* Sampler feedback images are special.
+     * We need at least ceil(resolution / mip_region_size) of resolution.
+     * In our shader interface we also use the lower 4 bits to signal mip region size.
+     * We can pad the image size just fine since we won't write out of bounds. */
+    if (desc->Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE ||
+            desc->Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)
+    {
+        image_info->flags &= ~VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+        image_info->mipLevels = 1;
+        /* Force the specific usage flags we need. The runtime does not fail if we forget to add UAV usage. */
+        image_info->usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT |
+                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        image_info->extent = d3d12_resource_desc_get_padded_feedback_extent(desc);
+    }
+
     if (resource)
     {
         /* Cases where we need to force images into GENERAL layout at all times.

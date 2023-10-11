@@ -4842,6 +4842,49 @@ static inline unsigned int d3d12_resource_desc_get_layer_count(const D3D12_RESOU
     return desc->Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D ? desc->DepthOrArraySize : 1;
 }
 
+static inline void vk_extent_3d_from_d3d12_miplevel(VkExtent3D *extent,
+        const D3D12_RESOURCE_DESC1 *resource_desc, unsigned int miplevel_idx)
+{
+    extent->width = d3d12_resource_desc_get_width(resource_desc, miplevel_idx);
+    extent->height = d3d12_resource_desc_get_height(resource_desc, miplevel_idx);
+    extent->depth = d3d12_resource_desc_get_depth(resource_desc, miplevel_idx);
+}
+
+static inline VkExtent3D d3d12_resource_desc_get_active_feedback_extent(const D3D12_RESOURCE_DESC1 *desc,
+        unsigned int mip_level)
+{
+    VkExtent3D result;
+    vk_extent_3d_from_d3d12_miplevel(&result, desc, mip_level);
+    result.width = DIV_ROUND_UP(result.width, desc->SamplerFeedbackMipRegion.Width);
+    result.height = DIV_ROUND_UP(result.height, desc->SamplerFeedbackMipRegion.Height);
+    return result;
+}
+
+static inline VkExtent3D d3d12_resource_desc_get_padded_feedback_extent(const D3D12_RESOURCE_DESC1 *desc)
+{
+    const unsigned int ENCODED_REGION_ALIGNMENT = 16;
+    unsigned int lsb_width, lsb_height;
+    VkExtent3D result, active_result;
+
+    active_result = d3d12_resource_desc_get_active_feedback_extent(desc, 0);
+    lsb_width = vkd3d_log2i(desc->SamplerFeedbackMipRegion.Width);
+    lsb_height = vkd3d_log2i(desc->SamplerFeedbackMipRegion.Height);
+
+    /* Cute trick: Use the lower 4 bits of image size to signal mip region width / height.
+     * We don't rely on specific edge behavior anyway, so this is a neat way of
+     * doing it without changing the binding model *again* ... */
+    result.width = (active_result.width & ~(ENCODED_REGION_ALIGNMENT - 1)) | lsb_width;
+    result.height = (active_result.height & ~(ENCODED_REGION_ALIGNMENT - 1)) | lsb_height;
+    result.depth = 1;
+
+    if (result.width < active_result.width)
+        result.width += ENCODED_REGION_ALIGNMENT;
+    if (result.height < active_result.height)
+        result.height += ENCODED_REGION_ALIGNMENT;
+
+    return result;
+}
+
 static inline unsigned int d3d12_resource_desc_get_sub_resource_count_per_plane(const D3D12_RESOURCE_DESC1 *desc)
 {
     return d3d12_resource_desc_get_layer_count(desc) * desc->MipLevels;
