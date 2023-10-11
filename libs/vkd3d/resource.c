@@ -2410,6 +2410,54 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC1 *desc,
         return E_INVALIDARG;
     }
 
+    /* There are special validation rules for sampler feedback. */
+    if (d3d12_resource_desc_is_sampler_feedback(desc))
+    {
+        if (device->d3d12_caps.options7.SamplerFeedbackTier == D3D12_SAMPLER_FEEDBACK_TIER_NOT_SUPPORTED)
+        {
+            WARN("Sampler feedback not supported.\n");
+            return E_INVALIDARG;
+        }
+
+        if (desc->SamplerFeedbackMipRegion.Width < 4 || desc->SamplerFeedbackMipRegion.Height < 4)
+        {
+            WARN("Sampler feedback mip region must be at least 4x4.\n");
+            return E_INVALIDARG;
+        }
+
+        if (desc->SamplerFeedbackMipRegion.Depth > 1)
+        {
+            WARN("Sampler feedback mip region depth must be 0 or 1.\n");
+            return E_INVALIDARG;
+        }
+
+        if (desc->SamplerFeedbackMipRegion.Width * 2 > desc->Width ||
+                desc->SamplerFeedbackMipRegion.Height * 2 > desc->Height)
+        {
+            WARN("Sampler feedback mip region must not be larger than half the texture size.\n");
+            return E_INVALIDARG;
+        }
+
+        if ((desc->SamplerFeedbackMipRegion.Width & (desc->SamplerFeedbackMipRegion.Width - 1)) ||
+                (desc->SamplerFeedbackMipRegion.Height & (desc->SamplerFeedbackMipRegion.Height - 1)))
+        {
+            WARN("Sampler feedback mip region must be POT.\n");
+            return E_INVALIDARG;
+        }
+
+        if (desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL | D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET))
+        {
+            WARN("Sampler feedback image cannot declare RTV/DSV usage.\n");
+            return E_INVALIDARG;
+        }
+
+        if (desc->Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+        {
+            WARN("Sampler feedback image must be 2D.\n");
+            return E_INVALIDARG;
+        }
+    }
+
     switch (desc->Dimension)
     {
         case D3D12_RESOURCE_DIMENSION_BUFFER:
