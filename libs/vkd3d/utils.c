@@ -122,6 +122,9 @@ static const struct vkd3d_format vkd3d_formats[] =
     {DXGI_FORMAT_BC7_UNORM_SRGB,        VK_FORMAT_BC7_SRGB_BLOCK,           1,  4, 4, 16, COLOR, 1},
     {DXGI_FORMAT_B4G4R4A4_UNORM,        VK_FORMAT_A4R4G4B4_UNORM_PACK16,    2,  1, 1,  1, COLOR, 1},
     {DXGI_FORMAT_A4B4G4R4_UNORM,        VK_FORMAT_R4G4B4A4_UNORM_PACK16,    2,  1, 1,  1, COLOR, 1},
+
+    {DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE, VK_FORMAT_R32G32_UINT, 8,  1, 1,  1, COLOR, 1},
+    {DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE, VK_FORMAT_R32G32_UINT, 8,  1, 1,  1, COLOR, 1},
 };
 
 static const struct vkd3d_format_footprint depth_stencil_copy_footprints[] =
@@ -384,6 +387,13 @@ dxgi_format_compatibility_list[] =
             {DXGI_FORMAT_BC7_UNORM_SRGB}},
     {DXGI_FORMAT_BC7_UNORM_SRGB,
             {DXGI_FORMAT_BC7_UNORM}},
+
+    /* Internal implementation detail. We desire 64-bit atomics and R32G32 UAV will trigger that compat
+     * similar to other 64-bit images. */
+    {DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE,
+            {DXGI_FORMAT_R32G32_UINT}},
+    {DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE,
+            {DXGI_FORMAT_R32G32_UINT}},
 };
 
 void vkd3d_format_compatibility_list_add_format(struct vkd3d_format_compatibility_list *list, VkFormat vk_format)
