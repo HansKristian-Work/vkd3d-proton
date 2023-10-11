@@ -589,6 +589,8 @@ static const struct vkd3d_shader_quirk_hash re_hashes[] = {
     { 0xdb1593ced60da3f1ull, VKD3D_SHADER_QUIRK_REWRITE_GRAD_TO_BIAS },
     /* This shader hangs on Mesa main. */
     { 0x5784e9e2f7a76819ull, VKD3D_SHADER_QUIRK_REWRITE_GRAD_TO_BIAS },
+    /* This shader hangs on RDNA1 */
+    { 0x7b3cec4ba6d32cacull, VKD3D_SHADER_QUIRK_REWRITE_GRAD_TO_BIAS },
 };
 
 static const struct vkd3d_shader_quirk_info re_quirks = {
