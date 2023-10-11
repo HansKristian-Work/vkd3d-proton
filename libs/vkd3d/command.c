@@ -7120,14 +7120,6 @@ static void vk_image_subresource_layers_from_d3d12(VkImageSubresourceLayers *sub
     subresource->layerCount = 1;
 }
 
-static void vk_extent_3d_from_d3d12_miplevel(VkExtent3D *extent,
-        const D3D12_RESOURCE_DESC1 *resource_desc, unsigned int miplevel_idx)
-{
-    extent->width = d3d12_resource_desc_get_width(resource_desc, miplevel_idx);
-    extent->height = d3d12_resource_desc_get_height(resource_desc, miplevel_idx);
-    extent->depth = d3d12_resource_desc_get_depth(resource_desc, miplevel_idx);
-}
-
 static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy2 *copy,
         const D3D12_PLACED_SUBRESOURCE_FOOTPRINT *footprint, unsigned int sub_resource_idx,
         const D3D12_RESOURCE_DESC1 *image_desc, const struct vkd3d_format *src_format,
