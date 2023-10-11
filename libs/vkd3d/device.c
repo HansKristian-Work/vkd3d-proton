@@ -3537,6 +3537,15 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
         return E_INVALIDARG;
     }
 
+    /* Special opaque formats. TODO: Determine expected feature bits. */
+    if (data->Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE ||
+            data->Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)
+    {
+        data->Support1 = D3D12_FORMAT_SUPPORT1_TEXTURE2D | D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW;
+        data->Support2 = D3D12_FORMAT_SUPPORT2_SAMPLER_FEEDBACK;
+        return S_OK;
+    }
+
     image_features = format->vk_format_features;
 
     if (format->vk_format_features_buffer)
