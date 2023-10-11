@@ -6609,11 +6609,58 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource1(d3d12_device
     return return_interface(&object->ID3D12Resource_iface, &IID_ID3D12Resource, iid, resource);
 }
 
-static void STDMETHODCALLTYPE d3d12_device_CreateSamplerFeedbackUnorderedAccessView(d3d12_device_iface *iface,
+static void d3d12_device_create_sampler_feedback_desc(D3D12_UNORDERED_ACCESS_VIEW_DESC *uav_desc,
+        struct d3d12_resource *feedback)
+{
+    /* We really mean 64-bit here, but reusing the UAV path simplifies things. */
+    memset(uav_desc, 0, sizeof(*uav_desc));
+    uav_desc->Format = DXGI_FORMAT_R32G32_UINT;
+
+    if (feedback && feedback->desc.DepthOrArraySize > 1)
+    {
+        uav_desc->ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
+        uav_desc->Texture2DArray.ArraySize = feedback->desc.DepthOrArraySize;
+    }
+    else
+        uav_desc->ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+}
+
+static void STDMETHODCALLTYPE d3d12_device_CreateSamplerFeedbackUnorderedAccessView_default(d3d12_device_iface *iface,
         ID3D12Resource *target_resource, ID3D12Resource *feedback_resource, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
-    FIXME("iface %p, target_resource %p, feedback_resource %p, descriptor %#lx stub!\n",
+    struct d3d12_resource *feedback = impl_from_ID3D12Resource(feedback_resource);
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+
+    TRACE("iface %p, target_resource %p, feedback_resource %p, descriptor %#lx\n",
             iface, target_resource, feedback_resource, descriptor.ptr);
+
+    /* NULL paired resource means NULL descriptor.
+     * https://microsoft.github.io/DirectX-Specs/d3d/SamplerFeedback.html#null-feedback-map-binding-is-permitted */
+    if (!target_resource)
+        feedback = NULL;
+
+    d3d12_device_create_sampler_feedback_desc(&uav_desc, feedback);
+    d3d12_desc_create_uav(descriptor.ptr, device, feedback, NULL, &uav_desc);
+}
+
+static void STDMETHODCALLTYPE d3d12_device_CreateSamplerFeedbackUnorderedAccessView_embedded(d3d12_device_iface *iface,
+        ID3D12Resource *target_resource, ID3D12Resource *feedback_resource, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
+{
+    struct d3d12_resource *feedback = impl_from_ID3D12Resource(feedback_resource);
+    struct d3d12_device *device = impl_from_ID3D12Device(iface);
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+
+    TRACE("iface %p, target_resource %p, feedback_resource %p, descriptor %#lx\n",
+            iface, target_resource, feedback_resource, descriptor.ptr);
+
+    /* NULL paired resource means NULL descriptor.
+     * https://microsoft.github.io/DirectX-Specs/d3d/SamplerFeedback.html#null-feedback-map-binding-is-permitted */
+    if (!target_resource)
+        feedback = NULL;
+
+    d3d12_device_create_sampler_feedback_desc(&uav_desc, feedback);
+    d3d12_desc_create_uav_embedded(descriptor.ptr, device, feedback, NULL, &uav_desc);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_GetCopyableFootprints1(d3d12_device_iface *iface,
@@ -6994,7 +7041,7 @@ CONST_VTBL struct ID3D12Device12Vtbl d3d12_device_vtbl_##name = \
     d3d12_device_GetResourceAllocationInfo2, \
     d3d12_device_CreateCommittedResource2, \
     d3d12_device_CreatePlacedResource1, \
-    d3d12_device_CreateSamplerFeedbackUnorderedAccessView, \
+    d3d12_device_CreateSamplerFeedbackUnorderedAccessView_##create_desc, \
     d3d12_device_GetCopyableFootprints1, \
     /* ID3D12Device9 methods */ \
     d3d12_device_CreateShaderCacheSession, \
