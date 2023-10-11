@@ -7269,6 +7269,17 @@ static D3D12_MESH_SHADER_TIER d3d12_device_determine_mesh_shader_tier(struct d3d
     return D3D12_MESH_SHADER_TIER_1;
 }
 
+static D3D12_SAMPLER_FEEDBACK_TIER d3d12_device_determine_sampler_feedback_tier(struct d3d12_device *device)
+{
+    if (!device->device_info.features2.features.shaderInt64)
+        return D3D12_SAMPLER_FEEDBACK_TIER_NOT_SUPPORTED;
+    if (!device->device_info.shader_image_atomic_int64_features.shaderImageInt64Atomics)
+        return D3D12_SAMPLER_FEEDBACK_TIER_NOT_SUPPORTED;
+
+    /* Enough for FL 12.2. */
+    return D3D12_SAMPLER_FEEDBACK_TIER_0_9;
+}
+
 static void d3d12_device_caps_init_feature_options(struct d3d12_device *device)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
@@ -7435,7 +7446,7 @@ static void d3d12_device_caps_init_feature_options7(struct d3d12_device *device)
     D3D12_FEATURE_DATA_D3D12_OPTIONS7 *options7 = &device->d3d12_caps.options7;
 
     options7->MeshShaderTier = d3d12_device_determine_mesh_shader_tier(device);
-    options7->SamplerFeedbackTier = D3D12_SAMPLER_FEEDBACK_TIER_NOT_SUPPORTED;
+    options7->SamplerFeedbackTier = d3d12_device_determine_sampler_feedback_tier(device);
 }
 
 static void d3d12_device_caps_init_feature_options8(struct d3d12_device *device)
