@@ -3988,14 +3988,16 @@ struct vkd3d_sampler_feedback_resolve_args
 {
     uint32_t dst_x, dst_y;
     uint32_t width, height;
+    uint32_t mip_level;
 };
 
 struct vkd3d_sampler_feedback_resolve_ops
 {
     VkPipelineLayout vk_compute_encode_layout;
-    VkPipelineLayout vk_graphics_encode_layout;
     VkPipelineLayout vk_compute_decode_layout;
     VkPipelineLayout vk_graphics_decode_layout;
+    VkDescriptorSetLayout vk_decode_set_layout;
+    VkDescriptorSetLayout vk_encode_set_layout;
     VkPipeline vk_pipelines[VKD3D_SAMPLER_FEEDBACK_RESOLVE_COUNT];
 };
 
