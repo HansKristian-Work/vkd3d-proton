@@ -1,0 +1,19 @@
+#version 450
+layout(local_size_x = 8, local_size_y = 8) in;
+
+#extension GL_GOOGLE_include_directive : require
+#include "sampler_feedback_decode_min_mip.h"
+
+layout(set = 0, binding = 0, r8ui) uniform writeonly uimageBuffer OutputBuffer;
+
+void main()
+{
+	// First, fetch access for top mip. This is the simple case since we don't have to consider NPOT footprint spilling.
+	ivec2 icoord = ivec2(gl_GlobalInvocationID.xy);
+
+	if (any(greaterThanEqual(icoord, resolution)))
+		return;
+
+	int result = sampler_feedback_decode_min_mip(icoord, 0.0);
+	imageStore(OutputBuffer, icoord.y * resolution.x + icoord.x, uvec4(result));
+}
