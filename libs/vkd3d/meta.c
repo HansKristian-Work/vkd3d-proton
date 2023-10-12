@@ -149,16 +149,18 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
         VkPipelineLayout layout, VkFormat color_format, VkFormat ds_format, VkImageAspectFlags vk_aspect_mask,
         VkShaderModule vs_module, VkShaderModule fs_module,
         VkSampleCountFlagBits samples, const VkPipelineDepthStencilStateCreateInfo *ds_state,
-        const VkPipelineColorBlendStateCreateInfo *cb_state, const VkSpecializationInfo *spec_info,
+        const VkSpecializationInfo *spec_info,
         bool descriptor_buffer_compatible, VkPipeline *vk_pipeline)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &meta_ops->device->vk_procs;
+    VkPipelineColorBlendAttachmentState blend_attachment;
     VkPipelineShaderStageCreateInfo shader_stages[3];
     VkPipelineInputAssemblyStateCreateInfo ia_state;
     VkPipelineRasterizationStateCreateInfo rs_state;
     VkPipelineRenderingCreateInfoKHR rendering_info;
     VkPipelineVertexInputStateCreateInfo vi_state;
     VkPipelineMultisampleStateCreateInfo ms_state;
+    VkPipelineColorBlendStateCreateInfo cb_state;
     VkPipelineViewportStateCreateInfo vp_state;
     VkPipelineDynamicStateCreateInfo dyn_state;
     VkGraphicsPipelineCreateInfo pipeline_info;
@@ -231,6 +233,21 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
     rendering_info.depthAttachmentFormat = (vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT) ? ds_format : VK_FORMAT_UNDEFINED;
     rendering_info.stencilAttachmentFormat = (vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT) ? ds_format : VK_FORMAT_UNDEFINED;
 
+    memset(&blend_attachment, 0, sizeof(blend_attachment));
+    blend_attachment.blendEnable = VK_FALSE;
+    blend_attachment.colorWriteMask =
+            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    cb_state.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    cb_state.pNext = NULL;
+    cb_state.flags = 0;
+    cb_state.logicOpEnable = VK_FALSE;
+    cb_state.logicOp = VK_LOGIC_OP_NO_OP;
+    cb_state.attachmentCount = 1;
+    cb_state.pAttachments = &blend_attachment;
+    memset(&cb_state.blendConstants, 0, sizeof(cb_state.blendConstants));
+
     pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipeline_info.pNext = &rendering_info;
     pipeline_info.flags = 0;
@@ -243,7 +260,7 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
     pipeline_info.pRasterizationState = &rs_state;
     pipeline_info.pMultisampleState = &ms_state;
     pipeline_info.pDepthStencilState = ds_state;
-    pipeline_info.pColorBlendState = cb_state;
+    pipeline_info.pColorBlendState = rendering_info.colorAttachmentCount ? &cb_state : NULL;
     pipeline_info.pDynamicState = &dyn_state;
     pipeline_info.layout = layout;
     pipeline_info.renderPass = VK_NULL_HANDLE;
@@ -610,26 +627,12 @@ static HRESULT vkd3d_meta_create_swapchain_pipeline(struct vkd3d_meta_ops *meta_
         const struct vkd3d_swapchain_pipeline_key *key, struct vkd3d_swapchain_pipeline *pipeline)
 {
     struct vkd3d_swapchain_ops *meta_swapchain_ops = &meta_ops->swapchain;
-    VkPipelineColorBlendAttachmentState blend_att;
-    VkPipelineColorBlendStateCreateInfo cb_state;
     VkResult vr;
-
-    memset(&cb_state, 0, sizeof(cb_state));
-    memset(&blend_att, 0, sizeof(blend_att));
-    cb_state.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    cb_state.attachmentCount = 1;
-    cb_state.pAttachments = &blend_att;
-    blend_att.colorWriteMask =
-            VK_COLOR_COMPONENT_R_BIT |
-            VK_COLOR_COMPONENT_G_BIT |
-            VK_COLOR_COMPONENT_B_BIT |
-            VK_COLOR_COMPONENT_A_BIT;
 
     if ((vr = vkd3d_meta_create_graphics_pipeline(meta_ops,
             meta_swapchain_ops->vk_pipeline_layouts[key->filter], key->format, VK_FORMAT_UNDEFINED, VK_IMAGE_ASPECT_COLOR_BIT,
             meta_swapchain_ops->vk_vs_module, meta_swapchain_ops->vk_fs_module, 1,
-            NULL, &cb_state,
-            NULL, false, &pipeline->vk_pipeline)) < 0)
+            NULL, NULL, false, &pipeline->vk_pipeline)) < 0)
         return hresult_from_vk_result(vr);
 
     pipeline->key = *key;
@@ -640,9 +643,7 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
         const struct vkd3d_copy_image_pipeline_key *key, struct vkd3d_copy_image_pipeline *pipeline)
 {
     struct vkd3d_copy_image_ops *meta_copy_image_ops = &meta_ops->copy_image;
-    VkPipelineColorBlendAttachmentState blend_attachment;
     VkPipelineDepthStencilStateCreateInfo ds_state;
-    VkPipelineColorBlendStateCreateInfo cb_state;
     VkSpecializationInfo spec_info;
     VkShaderModule vk_module;
     bool has_depth_target;
@@ -710,21 +711,6 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
     ds_state.minDepthBounds = 0.0f;
     ds_state.maxDepthBounds = 1.0f;
 
-    memset(&blend_attachment, 0, sizeof(blend_attachment));
-    blend_attachment.blendEnable = VK_FALSE;
-    blend_attachment.colorWriteMask =
-            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-
-    cb_state.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    cb_state.pNext = NULL;
-    cb_state.flags = 0;
-    cb_state.logicOpEnable = VK_FALSE;
-    cb_state.logicOp = VK_LOGIC_OP_NO_OP;
-    cb_state.attachmentCount = 1;
-    cb_state.pAttachments = &blend_attachment;
-    memset(&cb_state.blendConstants, 0, sizeof(cb_state.blendConstants));
-
     /* Special path when copying stencil -> color. */
     if (key->format->vk_format == VK_FORMAT_R8_UINT)
     {
@@ -748,7 +734,7 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
             has_depth_target ? key->format->vk_format : VK_FORMAT_UNDEFINED,
             key->format->vk_aspect_mask,
             VK_NULL_HANDLE, vk_module, key->sample_count,
-            has_depth_target ? &ds_state : NULL, has_depth_target ? NULL : &cb_state,
+            has_depth_target ? &ds_state : NULL,
             &spec_info, true, &pipeline->vk_pipeline)) < 0)
         return hresult_from_vk_result(vr);
 
