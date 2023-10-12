@@ -12820,14 +12820,20 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_texture_view_desc dst_image_view_desc, src_view_desc;
     struct vkd3d_sampler_feedback_resolve_info pipeline_info;
+    struct vkd3d_sampler_feedback_resolve_decode_args args;
     struct vkd3d_view *dst_view = NULL, *src_view = NULL;
     struct vkd3d_buffer_view_desc dst_buffer_view_desc;
     unsigned int transcoded_width, transcoded_height;
+    VkWriteDescriptorSet vk_descriptor_writes[2];
+    VkRenderingAttachmentInfo attachment_info;
     VkImageMemoryBarrier2 vk_image_barrier;
+    VkDescriptorImageInfo vk_image_info;
     VkMemoryBarrier2 vk_memory_barrier;
     unsigned int num_mip_iterations;
     VkImageSubresource subresource;
+    VkRenderingInfo rendering_info;
     VkDependencyInfo dep_info;
+    VkViewport viewport;
     VkExtent3D extent;
     unsigned int i;
 
@@ -12902,6 +12908,7 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
     else
     {
         d3d12_command_list_invalidate_root_parameters(list, &list->graphics_bindings, true, &list->compute_bindings);
+
         memset(&dst_image_view_desc, 0, sizeof(dst_image_view_desc));
         dst_image_view_desc.image = dst->res.vk_image;
         dst_image_view_desc.format = vkd3d_get_format(list->device, DXGI_FORMAT_R8_UINT, false);
@@ -12910,6 +12917,24 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
         dst_image_view_desc.layer_idx = 0;
         dst_image_view_desc.layer_count = src->desc.DepthOrArraySize;
         dst_image_view_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+
+        memset(&vk_image_barrier, 0, sizeof(vk_image_barrier));
+        vk_image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        vk_image_barrier.image = dst->res.vk_image;
+        vk_image_barrier.oldLayout = dst->common_layout;
+        vk_image_barrier.newLayout = d3d12_resource_pick_layout(dst, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        vk_image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+        vk_image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        vk_image_barrier.srcAccessMask = 0;
+        vk_image_barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+        vk_image_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        vk_image_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+        memset(&dep_info, 0, sizeof(dep_info));
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.imageMemoryBarrierCount = 1;
+        dep_info.pImageMemoryBarriers = &vk_image_barrier;
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
         if (dst_subresource_index == UINT32_MAX)
         {
@@ -12946,6 +12971,35 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
             }
         }
 
+        memset(&rendering_info, 0, sizeof(rendering_info));
+        rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+        rendering_info.renderArea.offset.x = dst_x;
+        rendering_info.renderArea.offset.y = dst_y;
+        rendering_info.colorAttachmentCount = 1;
+        rendering_info.pColorAttachments = &attachment_info;
+        rendering_info.layerCount = dst_image_view_desc.layer_count;
+
+        memset(&attachment_info, 0, sizeof(attachment_info));
+        attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        attachment_info.imageLayout = vk_image_barrier.newLayout;
+        attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+        viewport.x = (float)rendering_info.renderArea.offset.x;
+        viewport.y = (float)rendering_info.renderArea.offset.y;
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+
+        vk_image_info.imageLayout = d3d12_resource_pick_layout(src, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        vk_image_info.sampler = VK_NULL_HANDLE;
+
+        memset(&vk_descriptor_writes[0], 0, sizeof(vk_descriptor_writes[0]));
+        vk_descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        vk_descriptor_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        vk_descriptor_writes[0].dstBinding = 1;
+        vk_descriptor_writes[0].pImageInfo = &vk_image_info;
+        vk_descriptor_writes[0].descriptorCount = 1;
+
         for (i = 0; i < num_mip_iterations; i++)
         {
             if (dst_view)
@@ -12965,9 +13019,63 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
             if (!vkd3d_create_texture_view(list->device, &dst_image_view_desc, &dst_view))
                 goto cleanup;
 
+            vk_extent_3d_from_d3d12_miplevel(&extent, &src->desc, src_view_desc.miplevel_idx);
+            transcoded_width = DIV_ROUND_UP(extent.width, src->desc.SamplerFeedbackMipRegion.Width);
+            transcoded_height = DIV_ROUND_UP(extent.height, src->desc.SamplerFeedbackMipRegion.Height);
+
+            /* Transcoded output doesn't have to cover everything. Cover minimum. */
+            vk_extent_3d_from_d3d12_miplevel(&extent, &dst->desc, dst_image_view_desc.miplevel_idx);
+            transcoded_width = min(transcoded_width, extent.width);
+            transcoded_height = min(transcoded_height, extent.height);
+
+            if (dst_x >= transcoded_width || dst_y >= transcoded_height)
+            {
+                WARN("Trying to decode out of bounds.\n");
+                goto cleanup;
+            }
+
+            transcoded_width -= dst_x;
+            transcoded_height -= dst_y;
+
+            /* Source rect is not allowed for MIN_MIP mode. */
+            if (src_rect && src->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)
+            {
+                transcoded_width = min((int)transcoded_width, src_rect->right - src_rect->left);
+                transcoded_height = min((int)transcoded_height, src_rect->bottom - src_rect->top);
+            }
+
+            attachment_info.imageView = dst_view->vk_image_view;
+            rendering_info.renderArea.extent.width = transcoded_width;
+            rendering_info.renderArea.extent.height = transcoded_height;
+
+            viewport.width = (float)rendering_info.renderArea.extent.width;
+            viewport.height = (float)rendering_info.renderArea.extent.height;
+
+            vk_image_info.imageView = src_view->vk_image_view;
+
+            VK_CALL(vkCmdBeginRendering(list->cmd.vk_command_buffer, &rendering_info));
+            VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    pipeline_info.vk_pipeline));
+            VK_CALL(vkCmdSetViewport(list->cmd.vk_command_buffer, 0, 1, &viewport));
+            VK_CALL(vkCmdSetScissor(list->cmd.vk_command_buffer, 0, 1, &rendering_info.renderArea));
+            VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    pipeline_info.vk_layout, 0, 1, vk_descriptor_writes));
+            VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer, pipeline_info.vk_layout,
+                    VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(args), &args));
+            VK_CALL(vkCmdDraw(list->cmd.vk_command_buffer, 3, dst_image_view_desc.layer_count, 0, 0));
+            VK_CALL(vkCmdEndRendering(list->cmd.vk_command_buffer));
+
             dst_image_view_desc.miplevel_idx++;
             src_view_desc.miplevel_idx++;
         }
+
+        vk_image_barrier.oldLayout = d3d12_resource_pick_layout(dst, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        vk_image_barrier.newLayout = dst->common_layout;
+        vk_image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        vk_image_barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+        vk_image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+        vk_image_barrier.dstAccessMask = 0;
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
     }
 
     /* Resolve does not count as a placed initialization,
