@@ -84,8 +84,9 @@ int sampler_feedback_decode_min_mip(ivec2 icoord, float layer)
 		// We need to intersect the LOD 0 region with the used region in a coarse LOD.
 		// For simple POT, this is a trivial 2x2 expansion.
 		// However, for NPOT, this gets ... hairy very quickly.
-		// It's possible that a lower LOD access can cause a 3x3 access in the highest LOD.
-		// Sample the lower LOD at each corner.
+		// It's possible that a lower LOD access can cause a 3x3 access in the higher LOD.
+		// Sample the lower LOD at each (approximate) corner to get a conservative estimate of access.
+		// This is intended to match NV behavior.
 
 		// Rescale the coordinates into coordinates matching lower resolution.
 		vec2 mip_resolution = vec2(max(paired_resolution >> i, ivec2(1)));
@@ -98,22 +99,26 @@ int sampler_feedback_decode_min_mip(ivec2 icoord, float layer)
 			break;
 		}
 
-		if (fetch_mip(vec2(c1.x, c0.y), i, layer))
+		if (any(notEqual(c0, c1)))
 		{
-			result = i;
-			break;
-		}
+			// Should only trigger for NPOT.
+			if (fetch_mip(vec2(c1.x, c0.y), i, layer))
+			{
+				result = i;
+				break;
+			}
 
-		if (fetch_mip(vec2(c0.x, c1.y), i, layer))
-		{
-			result = i;
-			break;
-		}
+			if (fetch_mip(vec2(c0.x, c1.y), i, layer))
+			{
+				result = i;
+				break;
+			}
 
-		if (fetch_mip(vec2(c1.x, c1.y), i, layer))
-		{
-			result = i;
-			break;
+			if (fetch_mip(vec2(c1.x, c1.y), i, layer))
+			{
+				result = i;
+				break;
+			}
 		}
 	}
 

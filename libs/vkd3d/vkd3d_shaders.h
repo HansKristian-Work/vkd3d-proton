@@ -60,5 +60,8 @@ enum vkd3d_meta_copy_mode
 #include <fs_copy_image_stencil.h>
 #include <vs_swapchain_fullscreen.h>
 #include <fs_swapchain_fullscreen.h>
+#include <cs_sampler_feedback_decode_buffer_min_mip.h>
+#include <fs_sampler_feedback_decode_image_min_mip.h>
+#include <fs_sampler_feedback_decode_image_mip_used.h>
 
 #endif  /* __VKD3D_SPV_SHADERS_H */
