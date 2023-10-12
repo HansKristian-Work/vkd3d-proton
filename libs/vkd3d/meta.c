@@ -278,8 +278,39 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
     return vr;
 }
 
+static void vkd3d_clear_uav_ops_cleanup(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    unsigned int i;
 
-HRESULT vkd3d_clear_uav_ops_init(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
+    struct vkd3d_clear_uav_pipelines *pipeline_sets[] =
+    {
+        &meta_clear_uav_ops->clear_float,
+        &meta_clear_uav_ops->clear_uint,
+    };
+
+    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_clear_uav_ops->vk_set_layout_buffer_raw, NULL));
+    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_clear_uav_ops->vk_set_layout_buffer, NULL));
+    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_clear_uav_ops->vk_set_layout_image, NULL));
+
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_clear_uav_ops->vk_pipeline_layout_buffer_raw, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_clear_uav_ops->vk_pipeline_layout_buffer, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_clear_uav_ops->vk_pipeline_layout_image, NULL));
+
+    for (i = 0; i < ARRAY_SIZE(pipeline_sets); i++)
+    {
+        VK_CALL(vkDestroyPipeline(device->vk_device, pipeline_sets[i]->buffer, NULL));
+        VK_CALL(vkDestroyPipeline(device->vk_device, pipeline_sets[i]->buffer_raw, NULL));
+        VK_CALL(vkDestroyPipeline(device->vk_device, pipeline_sets[i]->image_1d, NULL));
+        VK_CALL(vkDestroyPipeline(device->vk_device, pipeline_sets[i]->image_2d, NULL));
+        VK_CALL(vkDestroyPipeline(device->vk_device, pipeline_sets[i]->image_3d, NULL));
+        VK_CALL(vkDestroyPipeline(device->vk_device, pipeline_sets[i]->image_1d_array, NULL));
+        VK_CALL(vkDestroyPipeline(device->vk_device, pipeline_sets[i]->image_2d_array, NULL));
+    }
+}
+
+static HRESULT vkd3d_clear_uav_ops_init(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
         struct d3d12_device *device)
 {
     VkDescriptorSetLayoutBinding set_binding;
@@ -397,37 +428,6 @@ fail:
     return hresult_from_vk_result(vr);
 }
 
-void vkd3d_clear_uav_ops_cleanup(struct vkd3d_clear_uav_ops *meta_clear_uav_ops,
-        struct d3d12_device *device) {
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    unsigned int i;
-
-    struct vkd3d_clear_uav_pipelines* pipeline_sets[] =
-    {
-        &meta_clear_uav_ops->clear_float,
-        &meta_clear_uav_ops->clear_uint,
-    };
-
-    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_clear_uav_ops->vk_set_layout_buffer_raw, NULL));
-    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_clear_uav_ops->vk_set_layout_buffer, NULL));
-    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_clear_uav_ops->vk_set_layout_image, NULL));
-
-    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_clear_uav_ops->vk_pipeline_layout_buffer_raw, NULL));
-    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_clear_uav_ops->vk_pipeline_layout_buffer, NULL));
-    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_clear_uav_ops->vk_pipeline_layout_image, NULL));
-
-    for (i = 0; i < ARRAY_SIZE(pipeline_sets); i++)
-    {
-        VK_CALL(vkDestroyPipeline(device->vk_device, pipeline_sets[i]->buffer, NULL));
-        VK_CALL(vkDestroyPipeline(device->vk_device, pipeline_sets[i]->buffer_raw, NULL));
-        VK_CALL(vkDestroyPipeline(device->vk_device, pipeline_sets[i]->image_1d, NULL));
-        VK_CALL(vkDestroyPipeline(device->vk_device, pipeline_sets[i]->image_2d, NULL));
-        VK_CALL(vkDestroyPipeline(device->vk_device, pipeline_sets[i]->image_3d, NULL));
-        VK_CALL(vkDestroyPipeline(device->vk_device, pipeline_sets[i]->image_1d_array, NULL));
-        VK_CALL(vkDestroyPipeline(device->vk_device, pipeline_sets[i]->image_2d_array, NULL));
-    }
-}
-
 struct vkd3d_clear_uav_pipeline vkd3d_meta_get_clear_buffer_uav_pipeline(struct vkd3d_meta_ops *meta_ops,
         bool as_uint, bool raw)
 {
@@ -512,7 +512,31 @@ VkExtent3D vkd3d_meta_get_clear_image_uav_workgroup_size(VkImageViewType view_ty
     }
 }
 
-HRESULT vkd3d_copy_image_ops_init(struct vkd3d_copy_image_ops *meta_copy_image_ops,
+static void vkd3d_copy_image_ops_cleanup(struct vkd3d_copy_image_ops *meta_copy_image_ops,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    size_t i;
+
+    for (i = 0; i < meta_copy_image_ops->pipeline_count; i++)
+    {
+        struct vkd3d_copy_image_pipeline *pipeline = &meta_copy_image_ops->pipelines[i];
+
+        VK_CALL(vkDestroyPipeline(device->vk_device, pipeline->vk_pipeline, NULL));
+    }
+
+    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_copy_image_ops->vk_set_layout, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_copy_image_ops->vk_pipeline_layout, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_copy_image_ops->vk_fs_float_module, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_copy_image_ops->vk_fs_uint_module, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_copy_image_ops->vk_fs_stencil_module, NULL));
+
+    pthread_mutex_destroy(&meta_copy_image_ops->mutex);
+
+    vkd3d_free(meta_copy_image_ops->pipelines);
+}
+
+static HRESULT vkd3d_copy_image_ops_init(struct vkd3d_copy_image_ops *meta_copy_image_ops,
         struct d3d12_device *device)
 {
     VkDescriptorSetLayoutBinding set_binding;
@@ -580,30 +604,6 @@ HRESULT vkd3d_copy_image_ops_init(struct vkd3d_copy_image_ops *meta_copy_image_o
 fail:
     vkd3d_copy_image_ops_cleanup(meta_copy_image_ops, device);
     return hresult_from_vk_result(vr);
-}
-
-void vkd3d_copy_image_ops_cleanup(struct vkd3d_copy_image_ops *meta_copy_image_ops,
-        struct d3d12_device *device)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    size_t i;
-
-    for (i = 0; i < meta_copy_image_ops->pipeline_count; i++)
-    {
-        struct vkd3d_copy_image_pipeline *pipeline = &meta_copy_image_ops->pipelines[i];
-
-        VK_CALL(vkDestroyPipeline(device->vk_device, pipeline->vk_pipeline, NULL));
-    }
-
-    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_copy_image_ops->vk_set_layout, NULL));
-    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_copy_image_ops->vk_pipeline_layout, NULL));
-    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_copy_image_ops->vk_fs_float_module, NULL));
-    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_copy_image_ops->vk_fs_uint_module, NULL));
-    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_copy_image_ops->vk_fs_stencil_module, NULL));
-
-    pthread_mutex_destroy(&meta_copy_image_ops->mutex);
-
-    vkd3d_free(meta_copy_image_ops->pipelines);
 }
 
 static HRESULT vkd3d_meta_create_swapchain_pipeline(struct vkd3d_meta_ops *meta_ops,
@@ -890,7 +890,32 @@ static void vkd3d_meta_ops_common_cleanup(struct vkd3d_meta_ops_common *meta_ops
     VK_CALL(vkDestroyShaderModule(device->vk_device, meta_ops_common->vk_module_fullscreen_gs, NULL));
 }
 
-HRESULT vkd3d_swapchain_ops_init(struct vkd3d_swapchain_ops *meta_swapchain_ops, struct d3d12_device *device)
+static void vkd3d_swapchain_ops_cleanup(struct vkd3d_swapchain_ops *meta_swapchain_ops, struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    size_t i;
+
+    for (i = 0; i < meta_swapchain_ops->pipeline_count; i++)
+    {
+        struct vkd3d_swapchain_pipeline *pipeline = &meta_swapchain_ops->pipelines[i];
+
+        VK_CALL(vkDestroyPipeline(device->vk_device, pipeline->vk_pipeline, NULL));
+    }
+
+    for (i = 0; i < 2; i++)
+    {
+        VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_swapchain_ops->vk_set_layouts[i], NULL));
+        VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_swapchain_ops->vk_pipeline_layouts[i], NULL));
+    }
+
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_swapchain_ops->vk_vs_module, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_swapchain_ops->vk_fs_module, NULL));
+
+    pthread_mutex_destroy(&meta_swapchain_ops->mutex);
+    vkd3d_free(meta_swapchain_ops->pipelines);
+}
+
+static HRESULT vkd3d_swapchain_ops_init(struct vkd3d_swapchain_ops *meta_swapchain_ops, struct d3d12_device *device)
 {
     VkDescriptorSetLayoutBinding set_binding;
     unsigned int i;
@@ -953,31 +978,6 @@ fail:
     return hresult_from_vk_result(vr);
 }
 
-void vkd3d_swapchain_ops_cleanup(struct vkd3d_swapchain_ops *meta_swapchain_ops, struct d3d12_device *device)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    size_t i;
-
-    for (i = 0; i < meta_swapchain_ops->pipeline_count; i++)
-    {
-        struct vkd3d_swapchain_pipeline *pipeline = &meta_swapchain_ops->pipelines[i];
-
-        VK_CALL(vkDestroyPipeline(device->vk_device, pipeline->vk_pipeline, NULL));
-    }
-
-    for (i = 0; i < 2; i++)
-    {
-        VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_swapchain_ops->vk_set_layouts[i], NULL));
-        VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_swapchain_ops->vk_pipeline_layouts[i], NULL));
-    }
-
-    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_swapchain_ops->vk_vs_module, NULL));
-    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_swapchain_ops->vk_fs_module, NULL));
-
-    pthread_mutex_destroy(&meta_swapchain_ops->mutex);
-    vkd3d_free(meta_swapchain_ops->pipelines);
-}
-
 HRESULT vkd3d_meta_get_swapchain_pipeline(struct vkd3d_meta_ops *meta_ops,
         const struct vkd3d_swapchain_pipeline_key *key, struct vkd3d_swapchain_info *info)
 {
@@ -1029,7 +1029,20 @@ HRESULT vkd3d_meta_get_swapchain_pipeline(struct vkd3d_meta_ops *meta_ops,
     return S_OK;
 }
 
-HRESULT vkd3d_query_ops_init(struct vkd3d_query_ops *meta_query_ops,
+static void vkd3d_query_ops_cleanup(struct vkd3d_query_ops *meta_query_ops,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
+    VK_CALL(vkDestroyPipeline(device->vk_device, meta_query_ops->vk_gather_occlusion_pipeline, NULL));
+    VK_CALL(vkDestroyPipeline(device->vk_device, meta_query_ops->vk_gather_so_statistics_pipeline, NULL));
+
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_query_ops->vk_gather_pipeline_layout, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_query_ops->vk_resolve_pipeline_layout, NULL));
+    VK_CALL(vkDestroyPipeline(device->vk_device, meta_query_ops->vk_resolve_binary_pipeline, NULL));
+}
+
+static HRESULT vkd3d_query_ops_init(struct vkd3d_query_ops *meta_query_ops,
         struct d3d12_device *device)
 {
     VkPushConstantRange push_constant_range;
@@ -1079,19 +1092,6 @@ fail:
     return hresult_from_vk_result(vr);
 }
 
-void vkd3d_query_ops_cleanup(struct vkd3d_query_ops *meta_query_ops,
-        struct d3d12_device *device)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-
-    VK_CALL(vkDestroyPipeline(device->vk_device, meta_query_ops->vk_gather_occlusion_pipeline, NULL));
-    VK_CALL(vkDestroyPipeline(device->vk_device, meta_query_ops->vk_gather_so_statistics_pipeline, NULL));
-
-    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_query_ops->vk_gather_pipeline_layout, NULL));
-    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_query_ops->vk_resolve_pipeline_layout, NULL));
-    VK_CALL(vkDestroyPipeline(device->vk_device, meta_query_ops->vk_resolve_binary_pipeline, NULL));
-}
-
 bool vkd3d_meta_get_query_gather_pipeline(struct vkd3d_meta_ops *meta_ops,
         D3D12_QUERY_HEAP_TYPE heap_type, struct vkd3d_query_gather_info *info)
 {
@@ -1112,7 +1112,22 @@ bool vkd3d_meta_get_query_gather_pipeline(struct vkd3d_meta_ops *meta_ops,
     }
 }
 
-HRESULT vkd3d_multi_dispatch_indirect_ops_init(
+static void vkd3d_multi_dispatch_indirect_ops_cleanup(
+        struct vkd3d_multi_dispatch_indirect_ops *meta_multi_dispatch_indirect_ops,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VK_CALL(vkDestroyPipeline(device->vk_device,
+            meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_pipeline, NULL));
+    VK_CALL(vkDestroyPipeline(device->vk_device,
+            meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_state_pipeline, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device,
+            meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_layout, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device,
+            meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_state_layout, NULL));
+}
+
+static HRESULT vkd3d_multi_dispatch_indirect_ops_init(
         struct vkd3d_multi_dispatch_indirect_ops *meta_multi_dispatch_indirect_ops,
         struct d3d12_device *device)
 {
@@ -1153,22 +1168,21 @@ fail:
     return hresult_from_vk_result(vr);
 }
 
-void vkd3d_multi_dispatch_indirect_ops_cleanup(
-        struct vkd3d_multi_dispatch_indirect_ops *meta_multi_dispatch_indirect_ops,
+static void vkd3d_predicate_ops_cleanup(struct vkd3d_predicate_ops *meta_predicate_ops,
         struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VK_CALL(vkDestroyPipeline(device->vk_device,
-            meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_pipeline, NULL));
-    VK_CALL(vkDestroyPipeline(device->vk_device,
-            meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_state_pipeline, NULL));
-    VK_CALL(vkDestroyPipelineLayout(device->vk_device,
-            meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_layout, NULL));
-    VK_CALL(vkDestroyPipelineLayout(device->vk_device,
-            meta_multi_dispatch_indirect_ops->vk_multi_dispatch_indirect_state_layout, NULL));
+    size_t i;
+
+    for (i = 0; i < VKD3D_PREDICATE_COMMAND_COUNT; i++)
+        VK_CALL(vkDestroyPipeline(device->vk_device, meta_predicate_ops->vk_command_pipelines[i], NULL));
+    VK_CALL(vkDestroyPipeline(device->vk_device, meta_predicate_ops->vk_resolve_pipeline, NULL));
+
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_predicate_ops->vk_command_pipeline_layout, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_predicate_ops->vk_resolve_pipeline_layout, NULL));
 }
 
-HRESULT vkd3d_predicate_ops_init(struct vkd3d_predicate_ops *meta_predicate_ops,
+static HRESULT vkd3d_predicate_ops_init(struct vkd3d_predicate_ops *meta_predicate_ops,
         struct d3d12_device *device)
 {
     VkPushConstantRange push_constant_range;
@@ -1262,20 +1276,6 @@ fail:
     return hresult_from_vk_result(vr);
 }
 
-void vkd3d_predicate_ops_cleanup(struct vkd3d_predicate_ops *meta_predicate_ops,
-        struct d3d12_device *device)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    size_t i;
-
-    for (i = 0; i < VKD3D_PREDICATE_COMMAND_COUNT; i++)
-        VK_CALL(vkDestroyPipeline(device->vk_device, meta_predicate_ops->vk_command_pipelines[i], NULL));
-    VK_CALL(vkDestroyPipeline(device->vk_device, meta_predicate_ops->vk_resolve_pipeline, NULL));
-
-    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_predicate_ops->vk_command_pipeline_layout, NULL));
-    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_predicate_ops->vk_resolve_pipeline_layout, NULL));
-}
-
 void vkd3d_meta_get_predicate_pipeline(struct vkd3d_meta_ops *meta_ops,
         enum vkd3d_predicate_command_type command_type, struct vkd3d_predicate_command_info *info)
 {
@@ -1300,7 +1300,7 @@ void vkd3d_meta_get_multi_dispatch_indirect_state_pipeline(struct vkd3d_meta_ops
     info->vk_pipeline_layout = meta_ops->multi_dispatch_indirect.vk_multi_dispatch_indirect_state_layout;
 }
 
-HRESULT vkd3d_execute_indirect_ops_init(struct vkd3d_execute_indirect_ops *meta_indirect_ops,
+static HRESULT vkd3d_execute_indirect_ops_init(struct vkd3d_execute_indirect_ops *meta_indirect_ops,
         struct d3d12_device *device)
 {
     VkPushConstantRange push_constant_range;
@@ -1426,7 +1426,7 @@ out:
     return hr;
 }
 
-void vkd3d_execute_indirect_ops_cleanup(struct vkd3d_execute_indirect_ops *meta_indirect_ops,
+static void vkd3d_execute_indirect_ops_cleanup(struct vkd3d_execute_indirect_ops *meta_indirect_ops,
         struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
