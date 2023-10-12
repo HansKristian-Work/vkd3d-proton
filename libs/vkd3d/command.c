@@ -12755,6 +12755,234 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetSamplePositions(d3d12_comman
             iface, sample_count, pixel_count, sample_positions);
 }
 
+static bool d3d12_command_list_validate_sampler_feedback_transcode(
+        struct d3d12_resource *transcoded, struct d3d12_resource *feedback)
+{
+    if (feedback->desc.Format != DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE &&
+            feedback->desc.Format != DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)
+    {
+        WARN("Must decode SAMPLER_FEEDBACK formats.\n");
+        return false;
+    }
+
+    if (feedback->desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+    {
+        WARN("Source must be 2D texture.\n");
+        return false;
+    }
+
+    if (transcoded->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+    {
+        /* API restriction */
+        if (feedback->desc.Format != DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE ||
+                feedback->desc.DepthOrArraySize != 1)
+        {
+            WARN("Can only decode single-layer MIN_MIP to BUFFER.\n");
+            return false;
+        }
+    }
+    else if (transcoded->desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+    {
+        WARN("Can only decode TEXTURE2D.\n");
+        return false;
+    }
+    else
+    {
+        /* Creation dimensions must match if we're decoding texture <-> texture, even if we're just
+         * resolving a single subresource. */
+        if (transcoded->desc.DepthOrArraySize != feedback->desc.DepthOrArraySize)
+        {
+            WARN("ArraySize must match.\n");
+            return false;
+        }
+
+        if (feedback->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE &&
+                transcoded->desc.MipLevels != 1)
+        {
+            WARN("For MIN_MIP_OPAQUE, transcoded resource must be single mip.\n");
+            return false;
+        }
+        else if (feedback->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE &&
+                transcoded->desc.MipLevels != feedback->desc.MipLevels)
+        {
+            WARN("For MIP_REGION_USED, transcoded resource must match mip levels of feedback.\n");
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list *list,
+        struct d3d12_resource *dst, UINT dst_subresource_index, UINT dst_x, UINT dst_y,
+        struct d3d12_resource *src, const D3D12_RECT *src_rect)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct vkd3d_texture_view_desc dst_image_view_desc, src_view_desc;
+    struct vkd3d_sampler_feedback_resolve_info pipeline_info;
+    struct vkd3d_view *dst_view = NULL, *src_view = NULL;
+    struct vkd3d_buffer_view_desc dst_buffer_view_desc;
+    unsigned int transcoded_width, transcoded_height;
+    VkImageMemoryBarrier2 vk_image_barrier;
+    VkMemoryBarrier2 vk_memory_barrier;
+    unsigned int num_mip_iterations;
+    VkImageSubresource subresource;
+    VkDependencyInfo dep_info;
+    VkExtent3D extent;
+    unsigned int i;
+
+    /* ResolveSubresourceRegion must run in DIRECT queue, so we can rely on COLOR_ATTACHMENT.
+     * This avoids us having to add UAV usage to every R8_UINT image, we already add COLOR_ATTACHMENT
+     * due to STENCIL -> COLOR copy. */
+
+    if (!d3d12_command_list_validate_sampler_feedback_transcode(dst, src))
+        return;
+
+    memset(&src_view_desc, 0, sizeof(src_view_desc));
+    src_view_desc.image = dst->res.vk_image;
+    src_view_desc.format = vkd3d_get_format(list->device, DXGI_FORMAT_R8_UINT, false);
+    src_view_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+    src_view_desc.aspect_mask = VK_IMAGE_ASPECT_COLOR_BIT;
+    src_view_desc.image_usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    src_view_desc.layer_idx = 0;
+    src_view_desc.layer_count = src->desc.DepthOrArraySize;
+    src_view_desc.miplevel_idx = 0;
+    src_view_desc.miplevel_count = 1;
+
+    d3d12_command_list_invalidate_current_pipeline(list, true);
+    d3d12_command_list_update_descriptor_buffers(list);
+
+    if (dst->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+    {
+        vkd3d_meta_get_sampler_feedback_resolve_pipeline(&list->device->meta_ops,
+                VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIN_MIP_TO_BUFFER, &pipeline_info);
+
+        d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
+        src_view_desc.view_type = VK_IMAGE_VIEW_TYPE_2D;
+
+        vk_extent_3d_from_d3d12_miplevel(&extent, &src->desc, 0);
+        transcoded_width = DIV_ROUND_UP(extent.width, src->desc.SamplerFeedbackMipRegion.Width);
+        transcoded_height = DIV_ROUND_UP(extent.height, src->desc.SamplerFeedbackMipRegion.Height);
+
+        /* These make little to no sense for buffers ... Docs don't say anything about it. */
+        if (dst_x || dst_y)
+            FIXME_ONCE("Ignoring dst_x and dst_y.\n");
+
+        dst_buffer_view_desc.format = dst_image_view_desc.format;
+        dst_buffer_view_desc.size = transcoded_width * transcoded_height;
+        dst_buffer_view_desc.offset = dst->mem.offset;
+        dst_buffer_view_desc.buffer = dst->res.vk_buffer;
+
+        if (!vkd3d_create_texture_view(list->device, &src_view_desc, &src_view))
+            goto cleanup;
+        if (!vkd3d_create_buffer_view(list->device, &dst_buffer_view_desc, &dst_view))
+            goto cleanup;
+
+        /* MinMip does not support rect semantics, so go ahead. */
+
+        /* We're in RESOLVE_DEST state here, which means we need extra barrier to get us to COMPUTE. */
+        memset(&vk_memory_barrier, 0, sizeof(vk_memory_barrier));
+        vk_memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        vk_memory_barrier.srcStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+        vk_memory_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        vk_memory_barrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+
+        memset(&dep_info, 0, sizeof(dep_info));
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.memoryBarrierCount = 1;
+        dep_info.pMemoryBarriers = &vk_memory_barrier;
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+
+        vk_memory_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        vk_memory_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        vk_memory_barrier.dstStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+        vk_memory_barrier.dstAccessMask = VK_ACCESS_2_NONE;
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+    }
+    else
+    {
+        d3d12_command_list_invalidate_root_parameters(list, &list->graphics_bindings, true, &list->compute_bindings);
+        memset(&dst_image_view_desc, 0, sizeof(dst_image_view_desc));
+        dst_image_view_desc.image = dst->res.vk_image;
+        dst_image_view_desc.format = vkd3d_get_format(list->device, DXGI_FORMAT_R8_UINT, false);
+        dst_image_view_desc.aspect_mask = VK_IMAGE_ASPECT_COLOR_BIT;
+        dst_image_view_desc.image_usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+        dst_image_view_desc.layer_idx = 0;
+        dst_image_view_desc.layer_count = src->desc.DepthOrArraySize;
+        dst_image_view_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+
+        if (dst_subresource_index == UINT32_MAX)
+        {
+            /* We will resolve all layers + mips in one go. */
+            if (src->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE)
+                num_mip_iterations = 1;
+            else
+                num_mip_iterations = src->desc.MipLevels;
+        }
+        else
+        {
+            num_mip_iterations = 1;
+            if (src->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE)
+            {
+                dst_image_view_desc.layer_idx = dst_subresource_index;
+                dst_image_view_desc.layer_count = 1;
+                src_view_desc.layer_idx = dst_subresource_index;
+                src_view_desc.layer_count = 1;
+            }
+            else
+            {
+                /* Concrete mip level. */
+                subresource = vk_image_subresource_from_d3d12(dst_image_view_desc.format,
+                        dst_subresource_index, src->desc.MipLevels, src->desc.DepthOrArraySize, false);
+
+                src_view_desc.layer_idx = subresource.arrayLayer;
+                src_view_desc.miplevel_idx = subresource.mipLevel;
+                src_view_desc.layer_count = 1;
+                src_view_desc.miplevel_count = 1;
+                dst_image_view_desc.layer_idx = subresource.arrayLayer;
+                dst_image_view_desc.miplevel_idx = subresource.mipLevel;
+                dst_image_view_desc.layer_count = 1;
+                dst_image_view_desc.miplevel_count = 1;
+            }
+        }
+
+        for (i = 0; i < num_mip_iterations; i++)
+        {
+            if (dst_view)
+            {
+                vkd3d_view_decref(dst_view, list->device);
+                dst_view = NULL;
+            }
+
+            if (src_view)
+            {
+                vkd3d_view_decref(src_view, list->device);
+                src_view = NULL;
+            }
+
+            if (!vkd3d_create_texture_view(list->device, &src_view_desc, &src_view))
+                goto cleanup;
+            if (!vkd3d_create_texture_view(list->device, &dst_image_view_desc, &dst_view))
+                goto cleanup;
+
+            dst_image_view_desc.miplevel_idx++;
+            src_view_desc.miplevel_idx++;
+        }
+    }
+
+    /* Resolve does not count as a placed initialization,
+     * so don't try to be clever here and compute writes_full_subresource.
+     * It gets quite difficult to reason about since the dst subresource can be padded out. */
+    d3d12_command_list_track_resource_usage(list, src, true);
+    d3d12_command_list_track_resource_usage(list, dst, true);
+
+cleanup:
+    if (dst_view)
+        vkd3d_view_decref(dst_view, list->device);
+    if (src_view)
+        vkd3d_view_decref(src_view, list->device);
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(d3d12_command_list_iface *iface,
         ID3D12Resource *dst, UINT dst_sub_resource_idx, UINT dst_x, UINT dst_y,
         ID3D12Resource *src, UINT src_sub_resource_idx,
@@ -12776,6 +13004,27 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(d3d12_
 
     dst_resource = impl_from_ID3D12Resource(dst);
     src_resource = impl_from_ID3D12Resource(src);
+
+    /* Sampler feedback resolves are esoteric and need their own code paths. */
+    if (mode == D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK)
+    {
+        if (format != DXGI_FORMAT_R8_UINT)
+        {
+            WARN("Invalid format #%x for DECODE_SAMPLER_FEEDBACK.\n", format);
+            return;
+        }
+
+        /* src subresource index is intentionally dropped.
+         * For decode, we use the dst index instead to determine how to interpret the subresource index.
+         * This index is then context dependent on the format.
+         * -1: Decode all layer/mips.
+         * N: For MIN_MIP, decode array layer N. For MIP_USED, decode subresource N (specific mip/layer). */
+        d3d12_command_list_decode_sampler_feedback(list,
+                dst_resource, dst_sub_resource_idx, dst_x, dst_y,
+                src_resource, src_rect);
+
+        return;
+    }
 
     assert(d3d12_resource_is_texture(dst_resource));
     assert(d3d12_resource_is_texture(src_resource));
