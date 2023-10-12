@@ -276,7 +276,7 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
             vs_module ? vs_module : meta_ops->common.vk_module_fullscreen_vs,
             "main", NULL);
 
-    if (meta_ops->common.vk_module_fullscreen_gs)
+    if (meta_ops->common.vk_module_fullscreen_gs && vs_module == VK_NULL_HANDLE)
     {
         vkd3d_meta_make_shader_stage(&shader_stages[pipeline_info.stageCount++],
                 VK_SHADER_STAGE_GEOMETRY_BIT, meta_ops->common.vk_module_fullscreen_gs, "main", NULL);
