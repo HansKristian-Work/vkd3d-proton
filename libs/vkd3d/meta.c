@@ -1475,9 +1475,39 @@ static HRESULT vkd3d_sampler_feedback_ops_init(struct vkd3d_sampler_feedback_res
     VkDescriptorSetLayoutBinding decode_bindings[2];
     VkDescriptorSetLayoutBinding encode_bindings[3];
     VkPushConstantRange push_range;
+    VkPipelineLayout vk_layout;
     VkShaderModule vk_module;
     VkSampler vk_sampler;
+    unsigned int i;
     VkResult vr;
+
+    static const struct pipeline
+    {
+        enum vkd3d_sampler_feedback_resolve_type type;
+        const uint32_t *code;
+        size_t code_size;
+        bool is_encode;
+        bool is_compute;
+    } pipelines[] = {
+        {
+            VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIN_MIP_TO_BUFFER,
+            cs_sampler_feedback_decode_buffer_min_mip,
+            sizeof(cs_sampler_feedback_decode_buffer_min_mip),
+            false, true,
+        },
+        {
+            VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIN_MIP_TO_IMAGE,
+            fs_sampler_feedback_decode_image_min_mip,
+            sizeof(fs_sampler_feedback_decode_image_min_mip),
+            false, false,
+        },
+        {
+            VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIP_USED_TO_IMAGE,
+            fs_sampler_feedback_decode_image_mip_used,
+            sizeof(fs_sampler_feedback_decode_image_mip_used),
+            false, false,
+        },
+    };
 
     memset(decode_bindings, 0, sizeof(decode_bindings));
     memset(encode_bindings, 0, sizeof(encode_bindings));
@@ -1548,25 +1578,61 @@ static HRESULT vkd3d_sampler_feedback_ops_init(struct vkd3d_sampler_feedback_res
             &sampler_feedback_ops->vk_graphics_decode_layout)))
         return hresult_from_vk_result(vr);
 
-    if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_sampler_feedback_decode_buffer_min_mip),
-            cs_sampler_feedback_decode_buffer_min_mip, sampler_feedback_ops->vk_compute_decode_layout,
-            NULL, true, &sampler_feedback_ops->vk_pipelines[VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIN_MIP_TO_BUFFER])))
-        return hresult_from_vk_result(vr);
+    for (i = 0; i < ARRAY_SIZE(pipelines); i++)
+    {
+        if (pipelines[i].is_compute)
+        {
+            vk_layout = pipelines[i].is_encode ?
+                    sampler_feedback_ops->vk_compute_encode_layout :
+                    sampler_feedback_ops->vk_compute_decode_layout;
 
-    if ((vr = vkd3d_meta_create_shader_module(device,
-            fs_sampler_feedback_decode_image_min_mip,
-            sizeof(fs_sampler_feedback_decode_image_min_mip),
-            &vk_module)))
-        return hresult_from_vk_result(vr);
+            if ((vr = vkd3d_meta_create_compute_pipeline(device, pipelines[i].code_size,
+                    pipelines[i].code, vk_layout,
+                    NULL, true, &sampler_feedback_ops->vk_pipelines[pipelines[i].type])))
+                return hresult_from_vk_result(vr);
+        }
+        else
+        {
+            if ((vr = vkd3d_meta_create_shader_module(device, pipelines[i].code, pipelines[i].code_size, &vk_module)))
+                return hresult_from_vk_result(vr);
 
-    if ((vr = vkd3d_meta_create_graphics_pipeline(&device->meta_ops, sampler_feedback_ops->vk_graphics_decode_layout,
-            VK_FORMAT_R8_UINT, VK_FORMAT_UNDEFINED, VK_IMAGE_ASPECT_COLOR_BIT, VK_NULL_HANDLE, vk_module,
-            VK_SAMPLE_COUNT_1_BIT, NULL, NULL, true,
-            &sampler_feedback_ops->vk_pipelines[VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIN_MIP_TO_IMAGE])))
-        return hresult_from_vk_result(vr);
-    VK_CALL(vkDestroyShaderModule(device->vk_device, vk_module, NULL));
+            if ((vr = vkd3d_meta_create_graphics_pipeline(&device->meta_ops,
+                    sampler_feedback_ops->vk_graphics_decode_layout,
+                    VK_FORMAT_R8_UINT, VK_FORMAT_UNDEFINED, VK_IMAGE_ASPECT_COLOR_BIT, VK_NULL_HANDLE, vk_module,
+                    VK_SAMPLE_COUNT_1_BIT, NULL, NULL, true,
+                    &sampler_feedback_ops->vk_pipelines[pipelines[i].type])))
+            {
+                VK_CALL(vkDestroyShaderModule(device->vk_device, vk_module, NULL));
+                return hresult_from_vk_result(vr);
+            }
+
+            VK_CALL(vkDestroyShaderModule(device->vk_device, vk_module, NULL));
+        }
+    }
 
     return S_OK;
+}
+
+void vkd3d_meta_get_sampler_feedback_resolve_pipeline(struct vkd3d_meta_ops *meta_ops,
+        enum vkd3d_sampler_feedback_resolve_type type, struct vkd3d_sampler_feedback_resolve_info *info)
+{
+    info->vk_pipeline = meta_ops->sampler_feedback.vk_pipelines[type];
+
+    switch (type)
+    {
+        case VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIP_USED_TO_IMAGE:
+        case VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIN_MIP_TO_IMAGE:
+            info->vk_layout = meta_ops->sampler_feedback.vk_graphics_decode_layout;
+            break;
+
+        case VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIN_MIP_TO_BUFFER:
+            info->vk_layout = meta_ops->sampler_feedback.vk_compute_decode_layout;
+            break;
+
+        default:
+            info->vk_layout = meta_ops->sampler_feedback.vk_compute_encode_layout;
+            break;
+    }
 }
 
 static void vkd3d_sampler_feedback_ops_cleanup(struct vkd3d_sampler_feedback_resolve_ops *sampler_feedback_ops,
