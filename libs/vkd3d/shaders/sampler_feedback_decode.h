@@ -3,11 +3,14 @@
 
 layout(push_constant, std430) uniform Registers
 {
+	ivec2 src_offset;
+	ivec2 dst_offset;
 	ivec2 resolution;
 	ivec2 paired_resolution;
 	vec2 inv_paired_resolution;
 	vec2 inv_feedback_resolution;
 	int mip_levels;
+	int mip_level;
 };
 
 #ifdef ARRAY
@@ -41,14 +44,20 @@ bool fetch_mip(vec2 unnormalized_feedback_coord, int mip, float layer)
 		values = textureGather(Input, fcoord, 0);
 	}
 
-	// Shift down to get the mip level we care about.
+	// Shift down to get the mip level we care about. Every mip gets 4 bits of data.
+	// This is enough for 16 mips.
 	uvec4 per_mip_bits = bitfieldExtract(values, 4 * mip, 4);
 
 	// Check self-access and neighbor access.
 	// Clamp behavior is okay here. If we intend sample region (0, 0)
 	// there cannot be neighbor access unless we also have self-access,
 	// so false positive is not possible here.
-	return any(notEqual(per_mip_bits & uvec4(2u, 1u, 4u, 8u), uvec4(0)));
+
+	const uint HORIZ = 2;
+	const uint VERT = 4;
+	const uint DIAG = 8;
+	const uint SELF = 1;
+	return any(notEqual(per_mip_bits & uvec4(HORIZ, SELF, VERT, DIAG), uvec4(0)));
 }
 
 int sampler_feedback_decode_min_mip(ivec2 icoord, float layer)
@@ -63,10 +72,13 @@ int sampler_feedback_decode_min_mip(ivec2 icoord, float layer)
 	vec2 top_left_coord_normalized = top_left_coord * inv_paired_resolution;
 	vec2 bottom_right_coord_normalized = bottom_right_coord * inv_paired_resolution;
 
-	int result = 0xff;
-	if (fetch_mip(floor(top_left_coord), 0, layer))
-		result = 0;
+	// Flooring gets us the behavior we want.
+	// We'll sample exactly in-between 4 texel centers such that coordiate we floor becomes the bottom-right texel.
 
+	if (fetch_mip(vec2(icoord), 0, layer))
+		return 0;
+
+	int result = 0xff;
 	for (int i = 1; i < mip_levels; i++)
 	{
 		// We need to intersect the LOD 0 region with the used region in a coarse LOD.
@@ -106,6 +118,12 @@ int sampler_feedback_decode_min_mip(ivec2 icoord, float layer)
 	}
 
 	return result;
+}
+
+bool sampler_feedback_decode_mip_used(ivec2 icoord, int mip, float layer)
+{
+	// This is much simpler.
+	return fetch_mip(vec2(icoord + src_offset), mip, layer);
 }
 
 #endif
