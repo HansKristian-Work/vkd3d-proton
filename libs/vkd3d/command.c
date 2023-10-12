@@ -10422,6 +10422,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     D3D12_RECT full_rect, curr_rect;
     VkWriteDescriptorSet write_set;
     uint32_t max_workgroup_count;
+    bool sampler_feedback_clear;
 
     d3d12_command_list_track_resource_usage(list, resource, true);
     d3d12_command_list_end_current_render_pass(list, false);
@@ -10431,9 +10432,20 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
     d3d12_command_list_update_descriptor_buffers(list);
 
+    sampler_feedback_clear = d3d12_resource_desc_is_sampler_feedback(&resource->desc);
+
     max_workgroup_count = list->device->vk_info.device_limits.maxComputeWorkGroupCount[0];
 
-    clear_args.clear_color = *clear_color;
+    if (sampler_feedback_clear)
+    {
+        /* Clear color is ignored for sampler feedback. */
+        memset(&clear_args, 0, sizeof(clear_args));
+        /* Clear rect is also ignored. */
+        rect_count = 0;
+        rects = NULL;
+    }
+    else
+        clear_args.clear_color = *clear_color;
 
     write_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     write_set.pNext = NULL;
@@ -10509,6 +10521,13 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     full_rect.right = d3d12_resource_desc_get_width(&resource->desc, miplevel_idx);
     full_rect.top = 0;
     full_rect.bottom = d3d12_resource_desc_get_height(&resource->desc, miplevel_idx);
+
+    if (sampler_feedback_clear)
+    {
+        VkExtent3D padded = d3d12_resource_desc_get_padded_feedback_extent(&resource->desc);
+        full_rect.right = padded.width;
+        full_rect.bottom = padded.height;
+    }
 
     if (d3d12_resource_is_buffer(resource))
     {
