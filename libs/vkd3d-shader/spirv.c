@@ -11674,6 +11674,7 @@ void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
 {
     size_t spirv_words = code->size / sizeof(uint32_t);
     const uint32_t *spirv = code->code;
+    SpvExecutionMode execution_mode;
     SpvCapability capability;
     size_t offset = 5;
     uint32_t meta = 0;
@@ -11758,6 +11759,22 @@ void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
                 default:
                     break;
             }
+        }
+        else if (op == SpvOpExecutionMode && count == 3)
+        {
+            execution_mode = spirv[offset + 2];
+
+            if (execution_mode == SpvExecutionModeIsolines ||
+                    execution_mode == SpvExecutionModeOutputLineStrip ||
+                    execution_mode == SpvExecutionModeOutputLinesEXT)
+                meta |= VKD3D_SHADER_META_FLAG_EMITS_LINES;
+
+            if (execution_mode == SpvExecutionModeTriangles ||
+                    execution_mode == SpvExecutionModeQuads ||
+                    execution_mode == SpvExecutionModeOutputTriangleStrip ||
+                    execution_mode == SpvExecutionModeOutputTrianglesEXT)
+                meta |= VKD3D_SHADER_META_FLAG_EMITS_TRIANGLES;
+
         }
         else if (op == SpvOpFunction)
         {
