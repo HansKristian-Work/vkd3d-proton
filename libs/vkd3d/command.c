@@ -10361,8 +10361,7 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
     d3d12_command_list_update_descriptor_buffers(list);
 
-    sampler_feedback_clear = resource->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE ||
-            resource->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE;
+    sampler_feedback_clear = d3d12_resource_desc_is_sampler_feedback(&resource->desc);
 
     max_workgroup_count = list->device->vk_info.device_limits.maxComputeWorkGroupCount[0];
 
@@ -12765,8 +12764,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetSamplePositions(d3d12_comman
 static bool d3d12_command_list_validate_sampler_feedback_transcode(
         struct d3d12_resource *transcoded, struct d3d12_resource *feedback)
 {
-    if (feedback->desc.Format != DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE &&
-            feedback->desc.Format != DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)
+    if (!d3d12_resource_desc_is_sampler_feedback(&feedback->desc))
     {
         WARN("Must decode SAMPLER_FEEDBACK formats.\n");
         return false;

@@ -793,8 +793,7 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
      * We need at least ceil(resolution / mip_region_size) of resolution.
      * In our shader interface we also use the lower 4 bits to signal mip region size.
      * We can pad the image size just fine since we won't write out of bounds. */
-    if (desc->Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE ||
-            desc->Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)
+    if (d3d12_resource_desc_is_sampler_feedback(desc))
     {
         image_info->flags &= ~VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
         image_info->mipLevels = 1;
@@ -2426,8 +2425,7 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC1 *desc,
     }
 
     /* There are special validation rules for sampler feedback. */
-    if (desc->Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE ||
-            desc->Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE)
+    if (d3d12_resource_desc_is_sampler_feedback(desc))
     {
         if (device->d3d12_caps.options7.SamplerFeedbackTier == D3D12_SAMPLER_FEEDBACK_TIER_NOT_SUPPORTED)
         {
