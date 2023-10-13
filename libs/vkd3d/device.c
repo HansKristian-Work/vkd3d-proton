@@ -100,6 +100,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_PAGEABLE_DEVICE_LOCAL_MEMORY, EXT_pageable_device_local_memory),
     VK_EXTENSION(EXT_MEMORY_PRIORITY, EXT_memory_priority),
     VK_EXTENSION(EXT_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS, EXT_dynamic_rendering_unused_attachments),
+    VK_EXTENSION(EXT_LINE_RASTERIZATION, EXT_line_rasterization),
     /* AMD extensions */
     VK_EXTENSION(AMD_BUFFER_MARKER, AMD_buffer_marker),
     VK_EXTENSION(AMD_DEVICE_COHERENT_MEMORY, AMD_device_coherent_memory),
@@ -1692,6 +1693,14 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->dynamic_rendering_unused_attachments_features);
     }
 
+    if (vulkan_info->EXT_line_rasterization)
+    {
+        info->line_rasterization_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_FEATURES_EXT;
+        info->line_rasterization_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_PROPERTIES_EXT;
+        vk_prepend_struct(&info->features2, &info->line_rasterization_features);
+        vk_prepend_struct(&info->properties2, &info->line_rasterization_properties);
+    }
+
     if (vulkan_info->NV_memory_decompression)
     {
         info->memory_decompression_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_DECOMPRESSION_FEATURES_NV;
@@ -2102,6 +2111,10 @@ static void vkd3d_trace_physical_device_features(const struct vkd3d_physical_dev
     TRACE("    taskShader: %#x\n", info->mesh_shader_features.taskShader);
     TRACE("    multiviewMeshShader: %#x\n", info->mesh_shader_features.multiviewMeshShader);
     TRACE("    primitiveFragmentShadingRateMeshShader: %#x\n", info->mesh_shader_features.primitiveFragmentShadingRateMeshShader);
+
+    TRACE("  VkPhysicalDeviceLineRasterizationFeaturesEXT:\n");
+    TRACE("    rectangularLines: %u\n", info->line_rasterization_features.rectangularLines);
+    TRACE("    smoothLines: %u\n", info->line_rasterization_features.smoothLines);
 }
 
 static HRESULT vkd3d_init_device_extensions(struct d3d12_device *device,
@@ -2157,6 +2170,7 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     VkPhysicalDeviceAccelerationStructureFeaturesKHR *acceleration_structure;
+    VkPhysicalDeviceLineRasterizationFeaturesEXT *line_rasterization;
     VkPhysicalDeviceDescriptorBufferFeaturesEXT *descriptor_buffer;
     VkPhysicalDevice physical_device = device->vk_physical_device;
     struct vkd3d_vulkan_info *vulkan_info = &device->vk_info;
@@ -2252,6 +2266,12 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
 
     acceleration_structure = &physical_device_info->acceleration_structure_features;
     acceleration_structure->accelerationStructureCaptureReplay = VK_FALSE;
+
+    line_rasterization = &physical_device_info->line_rasterization_features;
+    line_rasterization->bresenhamLines = VK_FALSE;
+    line_rasterization->stippledRectangularLines = VK_FALSE;
+    line_rasterization->stippledBresenhamLines = VK_FALSE;
+    line_rasterization->stippledSmoothLines = VK_FALSE;
 
     /* Don't need or require this. Dynamic patch control points is nice, but not required. */
     physical_device_info->extended_dynamic_state2_features.extendedDynamicState2LogicOp = VK_FALSE;

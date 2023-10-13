@@ -150,6 +150,7 @@ struct vkd3d_vulkan_info
     bool EXT_pageable_device_local_memory;
     bool EXT_memory_priority;
     bool EXT_dynamic_rendering_unused_attachments;
+    bool EXT_line_rasterization;
     /* AMD device extensions */
     bool AMD_buffer_marker;
     bool AMD_device_coherent_memory;
@@ -4091,6 +4092,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceGraphicsPipelineLibraryPropertiesEXT graphics_pipeline_library_properties;
     VkPhysicalDeviceMemoryDecompressionPropertiesNV memory_decompression_properties;
     VkPhysicalDeviceMaintenance5PropertiesKHR maintenance_5_properties;
+    VkPhysicalDeviceLineRasterizationPropertiesEXT line_rasterization_properties;
 
     VkPhysicalDeviceProperties2KHR properties2;
 
@@ -4134,6 +4136,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceMemoryDecompressionFeaturesNV memory_decompression_features;
     VkPhysicalDeviceDeviceGeneratedCommandsComputeFeaturesNV device_generated_commands_compute_features_nv;
     VkPhysicalDeviceMaintenance5FeaturesKHR maintenance_5_features;
+    VkPhysicalDeviceLineRasterizationFeaturesEXT line_rasterization_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
