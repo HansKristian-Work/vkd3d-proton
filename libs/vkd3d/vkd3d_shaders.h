@@ -63,5 +63,8 @@ enum vkd3d_meta_copy_mode
 #include <cs_sampler_feedback_decode_buffer_min_mip.h>
 #include <fs_sampler_feedback_decode_image_min_mip.h>
 #include <fs_sampler_feedback_decode_image_mip_used.h>
+#include <cs_sampler_feedback_encode_buffer_min_mip.h>
+#include <cs_sampler_feedback_encode_image_min_mip.h>
+#include <cs_sampler_feedback_encode_image_mip_used.h>
 
 #endif  /* __VKD3D_SPV_SHADERS_H */

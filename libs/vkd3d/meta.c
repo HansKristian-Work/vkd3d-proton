@@ -1507,6 +1507,24 @@ static HRESULT vkd3d_sampler_feedback_ops_init(struct vkd3d_sampler_feedback_res
             sizeof(fs_sampler_feedback_decode_image_mip_used),
             false, false,
         },
+        {
+            VKD3D_SAMPLER_FEEDBACK_RESOLVE_BUFFER_TO_MIN_MIP,
+            cs_sampler_feedback_encode_buffer_min_mip,
+            sizeof(cs_sampler_feedback_encode_buffer_min_mip),
+            true, true,
+        },
+        {
+            VKD3D_SAMPLER_FEEDBACK_RESOLVE_IMAGE_TO_MIN_MIP,
+            cs_sampler_feedback_encode_image_min_mip,
+            sizeof(cs_sampler_feedback_encode_image_min_mip),
+            true, true,
+        },
+        {
+            VKD3D_SAMPLER_FEEDBACK_RESOLVE_IMAGE_TO_MIP_USED,
+            cs_sampler_feedback_encode_image_mip_used,
+            sizeof(cs_sampler_feedback_encode_image_mip_used),
+            true, true,
+        },
     };
 
     memset(decode_bindings, 0, sizeof(decode_bindings));
@@ -1534,7 +1552,7 @@ static HRESULT vkd3d_sampler_feedback_ops_init(struct vkd3d_sampler_feedback_res
     encode_bindings[1].binding = 1;
     encode_bindings[1].descriptorCount = 1;
     encode_bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    encode_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    encode_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     encode_bindings[1].pImmutableSamplers = &vk_sampler;
 
     encode_bindings[2].binding = 2;

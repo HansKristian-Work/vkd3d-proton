@@ -4001,11 +4001,8 @@ struct vkd3d_sampler_feedback_resolve_encode_args
     uint32_t src_x, src_y;
     uint32_t dst_x, dst_y;
     uint32_t resolve_width, resolve_height;
-    uint32_t paired_width, paired_height;
-    float inv_paired_width, inv_paired_height;
-    float inv_feedback_width, inv_feedback_height;
-    uint32_t num_mip_levels;
-    uint32_t mip_level;
+    uint32_t src_mip;
+    uint32_t dst_mip;
 };
 
 struct vkd3d_sampler_feedback_resolve_ops
