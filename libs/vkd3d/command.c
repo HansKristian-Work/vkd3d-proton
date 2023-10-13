@@ -12845,11 +12845,11 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
         return;
 
     memset(&src_view_desc, 0, sizeof(src_view_desc));
-    src_view_desc.image = dst->res.vk_image;
+    src_view_desc.image = src->res.vk_image;
     src_view_desc.format = vkd3d_get_format(list->device, DXGI_FORMAT_R32G32_UINT, false);
     src_view_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
     src_view_desc.aspect_mask = VK_IMAGE_ASPECT_COLOR_BIT;
-    src_view_desc.image_usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    src_view_desc.image_usage = VK_IMAGE_USAGE_SAMPLED_BIT;
     src_view_desc.layer_idx = 0;
     src_view_desc.layer_count = src->desc.DepthOrArraySize;
     src_view_desc.miplevel_idx = 0;
@@ -12912,13 +12912,19 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
     {
         d3d12_command_list_invalidate_root_parameters(list, &list->graphics_bindings, true, &list->compute_bindings);
 
+        vkd3d_meta_get_sampler_feedback_resolve_pipeline(&list->device->meta_ops,
+                src->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE ?
+                        VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIN_MIP_TO_IMAGE :
+                        VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIP_USED_TO_IMAGE, &pipeline_info);
+
         memset(&dst_image_view_desc, 0, sizeof(dst_image_view_desc));
         dst_image_view_desc.image = dst->res.vk_image;
         dst_image_view_desc.format = vkd3d_get_format(list->device, DXGI_FORMAT_R8_UINT, false);
         dst_image_view_desc.aspect_mask = VK_IMAGE_ASPECT_COLOR_BIT;
-        dst_image_view_desc.image_usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+        dst_image_view_desc.image_usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         dst_image_view_desc.layer_idx = 0;
         dst_image_view_desc.layer_count = src->desc.DepthOrArraySize;
+        dst_image_view_desc.miplevel_count = 1;
         dst_image_view_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
 
         memset(&vk_image_barrier, 0, sizeof(vk_image_barrier));
@@ -12932,12 +12938,7 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
         vk_image_barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
         vk_image_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         vk_image_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-
-        memset(&dep_info, 0, sizeof(dep_info));
-        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep_info.imageMemoryBarrierCount = 1;
-        dep_info.pImageMemoryBarriers = &vk_image_barrier;
-        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+        vk_image_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 
         if (dst_subresource_index == UINT32_MAX)
         {
@@ -12946,6 +12947,9 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
                 num_mip_iterations = 1;
             else
                 num_mip_iterations = src->desc.MipLevels;
+
+            vk_image_barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+            vk_image_barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
         }
         else
         {
@@ -12964,15 +12968,24 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
                         dst_subresource_index, src->desc.MipLevels, src->desc.DepthOrArraySize, false);
 
                 src_view_desc.layer_idx = subresource.arrayLayer;
-                src_view_desc.miplevel_idx = subresource.mipLevel;
                 src_view_desc.layer_count = 1;
-                src_view_desc.miplevel_count = 1;
                 dst_image_view_desc.layer_idx = subresource.arrayLayer;
                 dst_image_view_desc.miplevel_idx = subresource.mipLevel;
                 dst_image_view_desc.layer_count = 1;
                 dst_image_view_desc.miplevel_count = 1;
             }
+
+            vk_image_barrier.subresourceRange.baseArrayLayer = dst_image_view_desc.miplevel_idx;
+            vk_image_barrier.subresourceRange.baseMipLevel = dst_image_view_desc.layer_idx;
+            vk_image_barrier.subresourceRange.layerCount = 1;
+            vk_image_barrier.subresourceRange.levelCount = 1;
         }
+
+        memset(&dep_info, 0, sizeof(dep_info));
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.imageMemoryBarrierCount = 1;
+        dep_info.pImageMemoryBarriers = &vk_image_barrier;
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
         memset(&rendering_info, 0, sizeof(rendering_info));
         rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
@@ -13003,6 +13016,19 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
         vk_descriptor_writes[0].pImageInfo = &vk_image_info;
         vk_descriptor_writes[0].descriptorCount = 1;
 
+        memset(&args, 0, sizeof(args));
+        args.dst_x = dst_x;
+        args.dst_y = dst_y;
+
+        args.num_mip_levels = src->desc.MipLevels;
+        args.inv_paired_width = 1.0f / src->desc.Width;
+        args.inv_paired_height = 1.0f / src->desc.Height;
+        args.paired_width = src->desc.Width;
+        args.paired_height = src->desc.Height;
+        extent = d3d12_resource_desc_get_padded_feedback_extent(&src->desc);
+        args.inv_feedback_width = 1.0f / extent.width;
+        args.inv_feedback_height = 1.0f / extent.height;
+
         for (i = 0; i < num_mip_iterations; i++)
         {
             if (dst_view)
@@ -13022,9 +13048,9 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
             if (!vkd3d_create_texture_view(list->device, &dst_image_view_desc, &dst_view))
                 goto cleanup;
 
-            vk_extent_3d_from_d3d12_miplevel(&extent, &src->desc, src_view_desc.miplevel_idx);
-            transcoded_width = DIV_ROUND_UP(extent.width, src->desc.SamplerFeedbackMipRegion.Width);
-            transcoded_height = DIV_ROUND_UP(extent.height, src->desc.SamplerFeedbackMipRegion.Height);
+            extent = d3d12_resource_desc_get_active_feedback_extent(&src->desc, dst_image_view_desc.miplevel_idx);
+            transcoded_width = extent.width;
+            transcoded_height = extent.height;
 
             /* Transcoded output doesn't have to cover everything. Cover minimum. */
             vk_extent_3d_from_d3d12_miplevel(&extent, &dst->desc, dst_image_view_desc.miplevel_idx);
@@ -13045,7 +13071,13 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
             {
                 transcoded_width = min((int)transcoded_width, src_rect->right - src_rect->left);
                 transcoded_height = min((int)transcoded_height, src_rect->bottom - src_rect->top);
+                args.src_x = src_rect->left;
+                args.src_y = src_rect->top;
             }
+
+            args.resolve_width = transcoded_width;
+            args.resolve_height = transcoded_height;
+            args.mip_level = dst_image_view_desc.miplevel_idx;
 
             attachment_info.imageView = dst_view->vk_image_view;
             rendering_info.renderArea.extent.width = transcoded_width;
@@ -13069,7 +13101,6 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
             VK_CALL(vkCmdEndRendering(list->cmd.vk_command_buffer));
 
             dst_image_view_desc.miplevel_idx++;
-            src_view_desc.miplevel_idx++;
             d3d12_command_allocator_add_view(list->allocator, src_view);
             d3d12_command_allocator_add_view(list->allocator, dst_view);
         }

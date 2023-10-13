@@ -1537,7 +1537,7 @@ static HRESULT vkd3d_sampler_feedback_ops_init(struct vkd3d_sampler_feedback_res
     encode_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     encode_bindings[1].pImmutableSamplers = &vk_sampler;
 
-    encode_bindings[2].binding = 1;
+    encode_bindings[2].binding = 2;
     encode_bindings[2].descriptorCount = 1;
     encode_bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     encode_bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
