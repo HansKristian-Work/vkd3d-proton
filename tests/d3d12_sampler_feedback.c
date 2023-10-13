@@ -564,10 +564,16 @@ void test_sampler_feedback_npot_min_mip_level(void)
 #define TEX_MIP_LEVELS 3
 #define FEEDBACK_PAD 8
 
+    /* Stay away from mip region edges to avoid tripping the conservative vkd3d-proton implementation.
+     * To fix this, we need to add sampler information to dxil-spirv. */
     static const float coords[][3] = {
-        { 0.749f, 0.749f, 0.0f }, /* Specifically chosen to expose bugged AMD behavior. */
-        { 0.5f, 0.5f, 1.0f },
-        { 0.49f, 0.49f, 2.0f },
+        /* Specifically chosen to expose bugged AMD behavior.
+         * Should hit region (12, 12), but will hit region (11, 11) on AMD. */
+        { 0.749f, 0.749f, 0.0f },
+        /* Should hit region (4, 4) in LOD 1. */
+        { 34.5f / TEX_WIDTH, 34.5f / TEX_HEIGHT, 1.0f },
+        /* Should hit region (0, 0) in LOD 2. */
+        { 28.0f / TEX_WIDTH, 28.0f / TEX_HEIGHT, 2.0f },
     };
 
     uint8_t expected[FEEDBACK_HEIGHT + FEEDBACK_PAD][FEEDBACK_WIDTH + FEEDBACK_PAD];
