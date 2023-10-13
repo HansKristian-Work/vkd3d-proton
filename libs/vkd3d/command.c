@@ -12846,7 +12846,7 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
 
     memset(&src_view_desc, 0, sizeof(src_view_desc));
     src_view_desc.image = dst->res.vk_image;
-    src_view_desc.format = vkd3d_get_format(list->device, DXGI_FORMAT_R8_UINT, false);
+    src_view_desc.format = vkd3d_get_format(list->device, DXGI_FORMAT_R32G32_UINT, false);
     src_view_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
     src_view_desc.aspect_mask = VK_IMAGE_ASPECT_COLOR_BIT;
     src_view_desc.image_usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
@@ -12874,7 +12874,7 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
         if (dst_x || dst_y)
             FIXME_ONCE("Ignoring dst_x and dst_y.\n");
 
-        dst_buffer_view_desc.format = dst_image_view_desc.format;
+        dst_buffer_view_desc.format = vkd3d_get_format(list->device, DXGI_FORMAT_R8_UINT, false);
         dst_buffer_view_desc.size = transcoded_width * transcoded_height;
         dst_buffer_view_desc.offset = dst->mem.offset;
         dst_buffer_view_desc.buffer = dst->res.vk_buffer;
@@ -12904,6 +12904,9 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
         vk_memory_barrier.dstStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
         vk_memory_barrier.dstAccessMask = VK_ACCESS_2_NONE;
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+
+        d3d12_command_allocator_add_view(list->allocator, src_view);
+        d3d12_command_allocator_add_view(list->allocator, dst_view);
     }
     else
     {
@@ -13067,6 +13070,8 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
 
             dst_image_view_desc.miplevel_idx++;
             src_view_desc.miplevel_idx++;
+            d3d12_command_allocator_add_view(list->allocator, src_view);
+            d3d12_command_allocator_add_view(list->allocator, dst_view);
         }
 
         vk_image_barrier.oldLayout = d3d12_resource_pick_layout(dst, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
