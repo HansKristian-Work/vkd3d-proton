@@ -1445,7 +1445,23 @@ void test_sampler_feedback_npot_used_region(void)
                 u = (coords[i][0] + 0.5f) / TEX_WIDTH;
                 v = (coords[i][1] + 0.5f) / TEX_HEIGHT;
 
-                if (is_nvidia_windows_device(context.device))
+                if (is_amd_windows_device(context.device))
+                {
+                    /* AMD behavior is esoteric as well. AMD behavior seems to be that the feedback image is actually created in feedback resolution (rounded down!).
+                     * We compute coordinates for the feedback resolution directly instead. */
+                    int feedback_width_floor = (TEX_WIDTH / MIP_REGION_WIDTH) >> effective_lod;
+                    int feedback_height_floor = (TEX_HEIGHT / MIP_REGION_HEIGHT) >> effective_lod;
+
+                    /* Compute actual coordinate we'll access in the feedback texture directly (this is very wrong ...). */
+                    u *= (float)feedback_width_floor;
+                    v *= (float)feedback_height_floor;
+
+                    tile_x = (int)u;
+                    tile_y = (int)v;
+
+                    expected_output[effective_lod][tile_y][tile_x] = 0xff;
+                }
+                else
                 {
                     /* For MipUsed, the rules seem to be that we must compute the integer coordinate in the mip we're accessing,
                      * then convert that to a mip region coordinate. This is subtly different than MinMip. */
@@ -1465,22 +1481,8 @@ void test_sampler_feedback_npot_used_region(void)
                      * However, LOD 1 in the base texture can be e.g. 20x20. We are able to access pixels 8 and 9 in the 10x10 LOD1. Feedback for this pixel will be discarded
                      * since it's out of bounds in feedback space ... (._.). As long as the resolve destination texture is padded, it will show up in results. */
                     expected_output[effective_lod][tile_y][tile_x] = 0xff;
-                }
-                else if (is_amd_windows_device(context.device))
-                {
-                    /* AMD behavior is esoteric as well. AMD behavior seems to be that the feedback image is actually created in feedback resolution (rounded down!).
-                     * We compute coordinates for the feedback resolution directly instead. */
-                    int feedback_width_floor = (TEX_WIDTH / MIP_REGION_WIDTH) >> effective_lod;
-                    int feedback_height_floor = (TEX_HEIGHT / MIP_REGION_HEIGHT) >> effective_lod;
 
-                    /* Compute actual coordinate we'll access in the feedback texture directly (this is very wrong ...). */
-                    u *= (float)feedback_width_floor;
-                    v *= (float)feedback_height_floor;
-
-                    tile_x = (int)u;
-                    tile_y = (int)v;
-
-                    expected_output[effective_lod][tile_y][tile_x] = 0xff;
+                    /* vkd3d-proton tries to match NV behavior here. */
                 }
             }
         }
