@@ -2966,8 +2966,6 @@ static void rs_desc_from_d3d12(VkPipelineRasterizationStateCreateInfo *vk_desc,
     vk_desc->depthBiasSlopeFactor = d3d12_desc->SlopeScaledDepthBias;
     vk_desc->lineWidth = 1.0f;
 
-    if (d3d12_desc->LineRasterizationMode != D3D12_LINE_RASTERIZATION_MODE_ALIASED)
-        FIXME_ONCE("Ignoring LineRasterizationMode %#x.\n", d3d12_desc->LineRasterizationMode);
     if (d3d12_desc->ForcedSampleCount)
         FIXME("Ignoring ForcedSampleCount %#x.\n", d3d12_desc->ForcedSampleCount);
 }
@@ -3020,6 +3018,43 @@ static void rs_stream_info_from_d3d12(VkPipelineRasterizationStateStreamCreateIn
     stream_info->rasterizationStream = so_desc->RasterizedStream;
 
     vk_prepend_struct(vk_rs_desc, stream_info);
+}
+
+static void rs_line_info_from_d3d12(struct d3d12_device *device, VkPipelineRasterizationLineStateCreateInfoEXT *vk_line_info,
+        VkPipelineRasterizationStateCreateInfo *vk_rs_desc, const D3D12_RASTERIZER_DESC2 *d3d12_desc)
+{
+    vk_line_info->sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_LINE_STATE_CREATE_INFO_EXT;
+    vk_line_info->pNext = NULL;
+    vk_line_info->lineRasterizationMode = VK_LINE_RASTERIZATION_MODE_DEFAULT_EXT;
+
+    switch (d3d12_desc->LineRasterizationMode)
+    {
+        case D3D12_LINE_RASTERIZATION_MODE_ALIASED:
+            break;
+
+        case D3D12_LINE_RASTERIZATION_MODE_ALPHA_ANTIALIASED:
+            if (device->device_info.line_rasterization_features.smoothLines)
+                vk_line_info->lineRasterizationMode = VK_LINE_RASTERIZATION_MODE_RECTANGULAR_SMOOTH_EXT;
+            break;
+
+        case D3D12_LINE_RASTERIZATION_MODE_QUADRILATERAL_WIDE:
+            if (device->device_info.features2.features.wideLines)
+                vk_rs_desc->lineWidth = 1.4f;
+            /* fall through */
+
+        case D3D12_LINE_RASTERIZATION_MODE_QUADRILATERAL_NARROW:
+            if (device->device_info.line_rasterization_features.rectangularLines)
+                vk_line_info->lineRasterizationMode = VK_LINE_RASTERIZATION_MODE_RECTANGULAR_EXT;
+            break;
+    }
+
+    vk_line_info->stippledLineEnable = VK_FALSE;
+    vk_line_info->lineStippleFactor = 0;
+    vk_line_info->lineStipplePattern = 0;
+
+    /* Deliberately do not add this structure to the rasterization state pNext chain yet
+     * since we cannot know whether the pipeline actually renders lines, and using
+     * non-default line rasterization modes breaks triangle rendering on some drivers. */
 }
 
 static enum VkStencilOp vk_stencil_op_from_d3d12(D3D12_STENCIL_OP op)
@@ -4078,7 +4113,16 @@ static void d3d12_pipeline_state_graphics_handle_meta(struct d3d12_pipeline_stat
 {
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    uint32_t geometry_meta = 0;
     unsigned int i;
+
+    if (state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS)
+    {
+        if (graphics->primitive_topology_type == D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE)
+            geometry_meta = VKD3D_SHADER_META_FLAG_EMITS_LINES;
+        else if (graphics->primitive_topology_type == D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE)
+            geometry_meta = VKD3D_SHADER_META_FLAG_EMITS_TRIANGLES;
+    }
 
     for (i = 0; i < graphics->stage_count; i++)
     {
@@ -4108,7 +4152,20 @@ static void d3d12_pipeline_state_graphics_handle_meta(struct d3d12_pipeline_stat
             VK_CALL(vkGetShaderModuleIdentifierEXT(device->vk_device, graphics->stages[i].module,
                     &state->graphics.identifiers[i]));
         }
+
+        /* The last active geometry stage determines the output topology */
+        if (graphics->stages[i].stage == VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT ||
+                graphics->stages[i].stage == VK_SHADER_STAGE_GEOMETRY_BIT ||
+                graphics->stages[i].stage == VK_SHADER_STAGE_MESH_BIT_EXT)
+            geometry_meta = graphics->code[i].meta.flags;
     }
+
+    if ((geometry_meta & VKD3D_SHADER_META_FLAG_EMITS_TRIANGLES) &&
+            graphics->rs_desc.polygonMode == VK_POLYGON_MODE_LINE)
+        geometry_meta = VKD3D_SHADER_META_FLAG_EMITS_LINES;
+
+    if ((geometry_meta & VKD3D_SHADER_META_FLAG_EMITS_LINES) && device->vk_info.EXT_line_rasterization)
+        vk_prepend_struct(&graphics->rs_desc, &graphics->rs_line_info);
 }
 
 static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipeline_state *state,
@@ -4141,6 +4198,7 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
     }
     shader_stages_lut[] =
     {
+        /* Geometry stages must be listed in pipeline order */
         {VK_SHADER_STAGE_VERTEX_BIT,                  offsetof(struct d3d12_pipeline_state_desc, vs)},
         {VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,    offsetof(struct d3d12_pipeline_state_desc, hs)},
         {VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT, offsetof(struct d3d12_pipeline_state_desc, ds)},
@@ -4594,6 +4652,7 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
             || (graphics->xfb_enabled && so_desc->RasterizedStream == D3D12_SO_NO_RASTERIZED_STREAM))
         graphics->rs_desc.rasterizerDiscardEnable = VK_TRUE;
 
+    rs_line_info_from_d3d12(device, &graphics->rs_line_info, &graphics->rs_desc, &desc->rasterizer_state);
     rs_stream_info_from_d3d12(&graphics->rs_stream_info, &graphics->rs_desc, so_desc, vk_info);
     if (vk_info->EXT_conservative_rasterization)
         rs_conservative_info_from_d3d12(&graphics->rs_conservative_info, &graphics->rs_desc, &desc->rasterizer_state);

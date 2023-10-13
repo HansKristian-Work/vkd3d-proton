@@ -1965,6 +1965,7 @@ struct d3d12_graphics_pipeline_state
     VkPipelineRasterizationConservativeStateCreateInfoEXT rs_conservative_info;
     VkPipelineRasterizationDepthClipStateCreateInfoEXT rs_depth_clip_info;
     VkPipelineRasterizationStateStreamCreateInfoEXT rs_stream_info;
+    VkPipelineRasterizationLineStateCreateInfoEXT rs_line_info;
 
     /* vkd3d_dynamic_state_flag */
     uint32_t explicit_dynamic_states;
