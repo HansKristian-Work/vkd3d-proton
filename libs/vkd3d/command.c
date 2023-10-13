@@ -12870,6 +12870,28 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
     d3d12_command_list_update_descriptor_buffers(list);
     d3d12_command_list_debug_mark_begin_region(list, "SamplerFeedbackDecode");
 
+    memset(&args, 0, sizeof(args));
+    args.num_mip_levels = src->desc.MipLevels;
+    args.inv_paired_width = 1.0f / src->desc.Width;
+    args.inv_paired_height = 1.0f / src->desc.Height;
+    args.paired_width = src->desc.Width;
+    args.paired_height = src->desc.Height;
+    extent = d3d12_resource_desc_get_padded_feedback_extent(&src->desc);
+    args.inv_feedback_width = 1.0f / extent.width;
+    args.inv_feedback_height = 1.0f / extent.height;
+
+    /* Fill in image view later. */
+    vk_image_info.imageLayout = d3d12_resource_pick_layout(src, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    vk_image_info.sampler = VK_NULL_HANDLE;
+
+    memset(vk_descriptor_writes, 0, sizeof(vk_descriptor_writes));
+
+    vk_descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    vk_descriptor_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    vk_descriptor_writes[0].dstBinding = 1;
+    vk_descriptor_writes[0].pImageInfo = &vk_image_info;
+    vk_descriptor_writes[0].descriptorCount = 1;
+
     if (dst->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
     {
         vkd3d_meta_get_sampler_feedback_resolve_pipeline(&list->device->meta_ops,
@@ -12878,16 +12900,14 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
         d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
         src_view_desc.view_type = VK_IMAGE_VIEW_TYPE_2D;
 
-        vk_extent_3d_from_d3d12_miplevel(&extent, &src->desc, 0);
-        transcoded_width = DIV_ROUND_UP(extent.width, src->desc.SamplerFeedbackMipRegion.Width);
-        transcoded_height = DIV_ROUND_UP(extent.height, src->desc.SamplerFeedbackMipRegion.Height);
+        extent = d3d12_resource_desc_get_active_feedback_extent(&src->desc, 0);
 
         /* These make little to no sense for buffers ... Docs don't say anything about it. */
         if (dst_x || dst_y)
             FIXME_ONCE("Ignoring dst_x and dst_y.\n");
 
         dst_buffer_view_desc.format = vkd3d_get_format(list->device, DXGI_FORMAT_R8_UINT, false);
-        dst_buffer_view_desc.size = transcoded_width * transcoded_height;
+        dst_buffer_view_desc.size = extent.width * extent.height;
         dst_buffer_view_desc.offset = dst->mem.offset;
         dst_buffer_view_desc.buffer = dst->res.vk_buffer;
 
@@ -12896,20 +12916,47 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
         if (!vkd3d_create_buffer_view(list->device, &dst_buffer_view_desc, &dst_view))
             goto cleanup;
 
+        vk_image_info.imageView = src_view->vk_image_view;
+
+        vk_descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        vk_descriptor_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+        vk_descriptor_writes[1].dstBinding = 0;
+        vk_descriptor_writes[1].pTexelBufferView = &dst_view->vk_buffer_view;
+        vk_descriptor_writes[1].descriptorCount = 1;
+
+        args.resolve_width = extent.width;
+        args.resolve_height = extent.height;
+
         /* MinMip does not support rect semantics, so go ahead. */
 
-        /* We're in RESOLVE_DEST state here, which means we need extra barrier to get us to COMPUTE. */
+        /* We're in RESOLVE_DEST state here, which means we need extra barrier to get us to COMPUTE.
+         * Also, propagate SHADER_READ state since we're reading RESOLVE_SOURCE. */
         memset(&vk_memory_barrier, 0, sizeof(vk_memory_barrier));
         vk_memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
         vk_memory_barrier.srcStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
         vk_memory_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        vk_memory_barrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        vk_memory_barrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT;
 
         memset(&dep_info, 0, sizeof(dep_info));
         dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep_info.memoryBarrierCount = 1;
         dep_info.pMemoryBarriers = &vk_memory_barrier;
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+
+        VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                pipeline_info.vk_pipeline));
+        VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                pipeline_info.vk_layout, 0, ARRAY_SIZE(vk_descriptor_writes), vk_descriptor_writes));
+        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer, pipeline_info.vk_layout,
+                VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(args), &args));
+
+        extent.width = vkd3d_compute_workgroup_count(extent.width,
+                vkd3d_meta_get_sampler_feedback_workgroup_size().width);
+        extent.height = vkd3d_compute_workgroup_count(extent.height,
+                vkd3d_meta_get_sampler_feedback_workgroup_size().height);
+        extent.depth = vkd3d_compute_workgroup_count(extent.depth,
+                vkd3d_meta_get_sampler_feedback_workgroup_size().depth);
+        VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, extent.width, extent.height, extent.depth));
 
         vk_memory_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         vk_memory_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
@@ -12993,11 +13040,26 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
             vk_image_barrier.subresourceRange.levelCount = 1;
         }
 
+        /* If we transitioned to RESOLVE_SOURCE, we have not made the feedback image visible
+         * to FRAGMENT + SHADER_READ yet. */
+        memset(&vk_memory_barrier, 0, sizeof(vk_memory_barrier));
+        vk_memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        vk_memory_barrier.srcStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+        vk_memory_barrier.srcAccessMask = 0;
+        vk_memory_barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        vk_memory_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+
         memset(&dep_info, 0, sizeof(dep_info));
         dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep_info.imageMemoryBarrierCount = 1;
         dep_info.pImageMemoryBarriers = &vk_image_barrier;
+        dep_info.memoryBarrierCount = 1;
+        dep_info.pMemoryBarriers = &vk_memory_barrier;
+
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+
+        dep_info.memoryBarrierCount = 0;
+        dep_info.pMemoryBarriers = NULL;
 
         memset(&rendering_info, 0, sizeof(rendering_info));
         rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
@@ -13018,28 +13080,8 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
         viewport.minDepth = 0.0f;
         viewport.maxDepth = 1.0f;
 
-        vk_image_info.imageLayout = d3d12_resource_pick_layout(src, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        vk_image_info.sampler = VK_NULL_HANDLE;
-
-        memset(&vk_descriptor_writes[0], 0, sizeof(vk_descriptor_writes[0]));
-        vk_descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        vk_descriptor_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        vk_descriptor_writes[0].dstBinding = 1;
-        vk_descriptor_writes[0].pImageInfo = &vk_image_info;
-        vk_descriptor_writes[0].descriptorCount = 1;
-
-        memset(&args, 0, sizeof(args));
         args.dst_x = dst_x;
         args.dst_y = dst_y;
-
-        args.num_mip_levels = src->desc.MipLevels;
-        args.inv_paired_width = 1.0f / src->desc.Width;
-        args.inv_paired_height = 1.0f / src->desc.Height;
-        args.paired_width = src->desc.Width;
-        args.paired_height = src->desc.Height;
-        extent = d3d12_resource_desc_get_padded_feedback_extent(&src->desc);
-        args.inv_feedback_width = 1.0f / extent.width;
-        args.inv_feedback_height = 1.0f / extent.height;
 
         for (i = 0; i < num_mip_iterations; i++)
         {
