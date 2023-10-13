@@ -387,6 +387,13 @@ dxgi_format_compatibility_list[] =
             {DXGI_FORMAT_BC7_UNORM_SRGB}},
     {DXGI_FORMAT_BC7_UNORM_SRGB,
             {DXGI_FORMAT_BC7_UNORM}},
+
+    /* Internal implementation detail. We desire 64-bit atomics and R32G32 UAV will trigger that compat
+     * similar to other 64-bit images. */
+    {DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE,
+            {DXGI_FORMAT_R32G32_UINT}},
+    {DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE,
+            {DXGI_FORMAT_R32G32_UINT}},
 };
 
 void vkd3d_format_compatibility_list_add_format(struct vkd3d_format_compatibility_list *list, VkFormat vk_format)
