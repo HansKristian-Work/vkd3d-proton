@@ -10452,6 +10452,13 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     full_rect.top = 0;
     full_rect.bottom = d3d12_resource_desc_get_height(&resource->desc, miplevel_idx);
 
+    if (sampler_feedback_clear)
+    {
+        VkExtent3D padded = d3d12_resource_desc_get_padded_feedback_extent(&resource->desc);
+        full_rect.right = padded.width;
+        full_rect.bottom = padded.height;
+    }
+
     if (d3d12_resource_is_buffer(resource))
     {
         if (args->has_view)
