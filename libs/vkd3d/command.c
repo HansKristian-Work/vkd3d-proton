@@ -12864,6 +12864,7 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
     d3d12_command_list_update_descriptor_buffers(list);
+    d3d12_command_list_debug_mark_begin_region(list, "SamplerFeedbackDecode");
 
     if (dst->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
     {
@@ -13128,6 +13129,7 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
     d3d12_command_list_track_resource_usage(list, dst, true);
 
 cleanup:
+    d3d12_command_list_debug_mark_end_region(list);
     if (dst_view)
         vkd3d_view_decref(dst_view, list->device);
     if (src_view)
