@@ -76,12 +76,10 @@ idl_generator = generator(idl_compiler,
   arguments : [ '-h', '-o', '@OUTPUT@', '@INPUT@' ])
 
 glsl_compiler  = find_program('glslang', 'glslangValidator')
-glsl_args = [ '-V', '--target-env', 'vulkan1.3', '--vn', '@BASENAME@', '@INPUT@', '-o', '@OUTPUT@' ]
-if run_command(glsl_compiler, [ '--quiet', '--version' ], check : false).returncode() == 0
-    glsl_args += [ '--quiet' ]
-endif
+glsl_args = [ '-V', '--target-env', 'vulkan1.3', '--vn', '@BASENAME@', '@INPUT@', '-o', '@OUTPUT@', '--depfile', '@DEPFILE@', '--quiet' ]
 glsl_generator = generator(glsl_compiler,
   output    : [ '@BASENAME@.h' ],
+  depfile   : '@BASENAME@.h.d',
   arguments : glsl_args)
 
 threads_dep = dependency('threads')
