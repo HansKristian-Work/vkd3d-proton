@@ -2496,20 +2496,20 @@ static void test_sampler_feedback_implicit_lod_inner(bool biased)
     };
     static const D3D12_SHADER_BYTECODE ps_code_bias_dxil = SHADER_BYTECODE(ps_code_bias);
 
-#define TEX_WIDTH 256
-#define TEX_HEIGHT 256
-#define MIP_REGION_WIDTH 4
-#define MIP_REGION_HEIGHT 4
+#define TEX_WIDTH 2048
+#define TEX_HEIGHT 2048
+#define MIP_REGION_WIDTH 32
+#define MIP_REGION_HEIGHT 32
 #define FEEDBACK_WIDTH (TEX_WIDTH / MIP_REGION_WIDTH)
 #define FEEDBACK_HEIGHT (TEX_HEIGHT / MIP_REGION_HEIGHT)
 #define TEX_MIP_LEVELS 3
 
     static const int coords[][4] = {
-        { MIP_REGION_WIDTH * 0, MIP_REGION_HEIGHT * 0, 2, 0 }, /* Gradient of two texels -> LOD 1 */
-        { MIP_REGION_WIDTH * 4, MIP_REGION_HEIGHT * 0, 0, +14 }, /* Empty gradient with LOD bias -> LOD -inf still */
-        { MIP_REGION_WIDTH * 0, MIP_REGION_HEIGHT * 4, 2, -1 }, /* Negative bias -> LOD 0 */
-        { MIP_REGION_WIDTH * 4, MIP_REGION_HEIGHT * 4, 1, 8 }, /* Negative bias -> LOD 2 due to clamp */
-        { MIP_REGION_WIDTH * 8, MIP_REGION_HEIGHT * 4, 1, 1 }, /* LOD 1 due to bias */
+        { MIP_REGION_WIDTH * 0 + 16, MIP_REGION_HEIGHT * 0 + 16, 2, 0 }, /* Gradient of two texels -> LOD 1 */
+        { MIP_REGION_WIDTH * 4 + 16, MIP_REGION_HEIGHT * 0 + 16, 0, +14 }, /* Empty gradient with LOD bias -> LOD -inf still */
+        { MIP_REGION_WIDTH * 0 + 16, MIP_REGION_HEIGHT * 4 + 16, 2, -1 }, /* Negative bias -> LOD 0 */
+        { MIP_REGION_WIDTH * 4 + 16, MIP_REGION_HEIGHT * 4 + 16, 1, 8 }, /* Negative bias -> LOD 2 due to clamp */
+        { MIP_REGION_WIDTH * 8 + 16, MIP_REGION_HEIGHT * 4 + 16, 1, 1 }, /* LOD 1 due to bias */
     };
 
     uint8_t expected_amd_style[FEEDBACK_HEIGHT][FEEDBACK_WIDTH];
