@@ -1054,6 +1054,218 @@ void test_sampler_feedback_decode_encode_min_mip(void)
 #undef LAYERS
 }
 
+void test_sampler_feedback_decode_encode_mip_used(void)
+{
+#define MIP_REGIONS_X 16
+#define MIP_REGIONS_Y 16
+#define MIP_REGIONS_FLAT (MIP_REGIONS_X * MIP_REGIONS_Y)
+#define MIP_REGION_WIDTH 8
+#define MIP_REGION_HEIGHT 8
+#define TEX_WIDTH (MIP_REGIONS_X * MIP_REGION_WIDTH)
+#define TEX_HEIGHT (MIP_REGIONS_Y * MIP_REGION_HEIGHT)
+#define LAYERS 4
+#define LEVELS 3
+    D3D12_FEATURE_DATA_D3D12_OPTIONS7 features7;
+    struct test_context_desc context_desc;
+    ID3D12GraphicsCommandList1 *list1;
+    D3D12_HEAP_PROPERTIES heap_props;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *resolve_tex;
+    ID3D12Resource *upload_tex;
+    D3D12_RESOURCE_DESC1 desc;
+    ID3D12Resource *feedback;
+    unsigned int x, y, i, j;
+    ID3D12Device8 *device8;
+    unsigned int iter;
+    HRESULT hr;
+
+    /* Funnily enough, resolve cannot be called in a COMPUTE or COPY queue. */
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS7, &features7, sizeof(features7))) ||
+        features7.SamplerFeedbackTier < D3D12_SAMPLER_FEEDBACK_TIER_0_9)
+    {
+        skip("Sampler feedback not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    hr = ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device8, (void **)&device8);
+    ok(SUCCEEDED(hr), "Failed to query Device8, hr #%x.\n", hr);
+    hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList1, (void **)&list1);
+    ok(SUCCEEDED(hr), "Failed to query GraphicsCommandList1, hr #%x.\n", hr);
+
+    memset(&desc, 0, sizeof(desc));
+    memset(&heap_props, 0, sizeof(heap_props));
+
+    heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.SampleDesc.Count = 1;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    desc.Width = TEX_WIDTH;
+    desc.Height = TEX_HEIGHT;
+    desc.MipLevels = LEVELS;
+    desc.SamplerFeedbackMipRegion.Width = MIP_REGION_WIDTH;
+    desc.SamplerFeedbackMipRegion.Height = MIP_REGION_HEIGHT;
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    desc.Format = DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE;
+    desc.DepthOrArraySize = LAYERS;
+    hr = ID3D12Device8_CreateCommittedResource2(device8, &heap_props, D3D12_HEAP_FLAG_CREATE_NOT_ZEROED,
+            &desc, D3D12_RESOURCE_STATE_RESOLVE_DEST, NULL, NULL, &IID_ID3D12Resource, (void **)&feedback);
+    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
+
+    /* Add padding so we can test offsets. */
+    resolve_tex = create_default_texture2d(context.device, MIP_REGIONS_X * 4, MIP_REGIONS_Y * 4, LAYERS, LEVELS, DXGI_FORMAT_R8_UINT, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    /* Check that we can store arbitrary data here. */
+    upload_tex = create_default_texture2d(context.device, MIP_REGIONS_X, MIP_REGIONS_Y, LAYERS, LEVELS, DXGI_FORMAT_R8_UINT, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    /* TEXTURE decode encode. Array mode is extremely weird. */
+
+    for (i = 0; i < LAYERS * LEVELS; i++)
+    {
+        uint8_t reference_data[MIP_REGIONS_FLAT];
+        D3D12_SUBRESOURCE_DATA subdata;
+
+        for (j = 0; j < ARRAY_SIZE(reference_data); j++)
+        {
+            /* Test value 0, 255 and the values in between to see if there is consistent behavior in how TRUE is handled. */
+            reference_data[j] = j + i;
+
+            /* AMD and NV don't agree on what [1, 0xfe] means. For sanity, only test 0 and 0xff. */
+            if (reference_data[j] & 4)
+                reference_data[j] = 0xff;
+            else
+                reference_data[j] = 0;
+        }
+        subdata.pData = reference_data;
+        subdata.RowPitch = MIP_REGIONS_X;
+        subdata.SlicePitch = MIP_REGIONS_FLAT;
+        upload_texture_data_base(upload_tex, &subdata, i, 1, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    transition_resource_state(context.list, upload_tex, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+
+    ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, feedback, UINT_MAX, 0, 0, upload_tex, UINT_MAX, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_ENCODE_SAMPLER_FEEDBACK);
+
+    transition_resource_state(context.list, feedback, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+    transition_resource_state(context.list, resolve_tex, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+
+    /* DstX/DstY is completely broken. On NV, nothing happens. On AMD, shift is ignored. */
+    ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, resolve_tex, UINT_MAX, 0, 0, feedback, UINT_MAX, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK);
+    transition_resource_state(context.list, resolve_tex, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(context.list, feedback, D3D12_RESOURCE_STATE_RESOLVE_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+
+    for (i = 0; i < LAYERS * LEVELS; i++)
+    {
+        unsigned int level = i % LEVELS;
+        get_texture_readback_with_command_list(resolve_tex, i, &rb, context.queue, context.list);
+        for (y = 0; y < (MIP_REGIONS_Y >> level); y++)
+        {
+            for (x = 0; x < (MIP_REGIONS_X >> level); x++)
+            {
+                uint8_t value = get_readback_uint8(&rb, x, y);
+                uint8_t expected = (y * MIP_REGIONS_X + x + i) & 4 ? 0xff : 0;
+                ok(value == expected, "Subresource %u: (%u, %u): Expected %u, got %u.\n", i, x, y, expected, value);
+            }
+        }
+
+        release_resource_readback(&rb);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    /* See what happens when we have mismatch subresources. This seems to work. */
+    {
+        /* Target Layer = 1, Level = 1 with Level = 0, Layer = 0 as source. This should not work, but it does.
+         * Now DstX/Y works. */
+        ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, feedback, LEVELS + 1, 1, 2, upload_tex, 0, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_ENCODE_SAMPLER_FEEDBACK);
+        transition_resource_state(context.list, resolve_tex, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+        transition_resource_state(context.list, feedback, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+
+        /* Resolve single layer (layer = 2, level = 0), then read it back. */
+        ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, resolve_tex, LEVELS * 2, 3, 4, feedback, LEVELS + 1, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK);
+        transition_resource_state(context.list, resolve_tex, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        transition_resource_state(context.list, feedback, D3D12_RESOURCE_STATE_RESOLVE_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+
+        get_texture_readback_with_command_list(resolve_tex, LEVELS * 2, &rb, context.queue, context.list);
+        for (y = 0; y < (MIP_REGIONS_Y >> 1) - 2; y++)
+        {
+            for (x = 0; x < (MIP_REGIONS_X >> 1) - 1; x++)
+            {
+                uint8_t value = get_readback_uint8(&rb, x + 4, y + 6); /* We've shifted the image twice. */
+                uint8_t expected = (y * MIP_REGIONS_X + x) & 4 ? 0xff : 0;
+
+                /* This test only passes properly on AMD. */
+                bug_if(is_nvidia_windows_device(context.device))
+                    ok(value == expected, "(%u, %u): Expected %u, got %u.\n", x, y, expected, value);
+            }
+        }
+
+        release_resource_readback(&rb);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    /* Test source rect. */
+    {
+        const D3D12_RECT decode_rect = { 1, 2, 9, 10 };
+        const D3D12_RECT encode_rect = { 4, 0, 5, 1 };
+        ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, feedback, 0, decode_rect.left, decode_rect.top, upload_tex, 0, &encode_rect, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_ENCODE_SAMPLER_FEEDBACK);
+        transition_resource_state(context.list, resolve_tex, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+        transition_resource_state(context.list, feedback, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+
+        ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, resolve_tex, 0, 0, 0, feedback, 0, &decode_rect, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK);
+        transition_resource_state(context.list, resolve_tex, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        transition_resource_state(context.list, feedback, D3D12_RESOURCE_STATE_RESOLVE_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+
+        get_texture_readback_with_command_list(resolve_tex, 0, &rb, context.queue, context.list);
+        for (y = 0; y < MIP_REGIONS_Y; y++)
+        {
+            for (x = 0; x < MIP_REGIONS_X; x++)
+            {
+                uint8_t value = get_readback_uint8(&rb, x, y); /* We've shifted the image twice. */
+                uint8_t expected;
+
+                if (x == 0 && y == 0)
+                    expected = (encode_rect.top * MIP_REGIONS_X + encode_rect.left) & 4 ? 0xff : 0;
+                else if (x < (decode_rect.right - decode_rect.left) && y < (decode_rect.bottom - decode_rect.top))
+                    expected = ((y + decode_rect.top) * MIP_REGIONS_X + (x + decode_rect.left)) & 4 ? 0xff : 0;
+                else
+                    expected = (y * MIP_REGIONS_X + x) & 4 ? 0xff : 0;
+
+                ok(value == expected, "(%u, %u): Expected %u, got %u.\n", x, y, expected, value);
+            }
+        }
+
+        release_resource_readback(&rb);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    /* With MIP_USED region both dst and src subresource matters. */
+
+    ID3D12GraphicsCommandList1_Release(list1);
+    ID3D12Resource_Release(feedback);
+    ID3D12Resource_Release(upload_tex);
+    ID3D12Resource_Release(resolve_tex);
+    ID3D12Device8_Release(device8);
+    destroy_test_context(&context);
+#undef MIP_REGIONS_X
+#undef MIP_REGIONS_Y
+#undef MIP_REGIONS_FLAT
+#undef MIP_REGION_WIDTH
+#undef MIP_REGION_HEIGHT
+#undef TEX_WIDTH
+#undef TEX_HEIGHT
+#undef LAYERS
+#undef LEVELS
+}
+
 static const BYTE cs_code_level_used_region[] =
 {
 #if 0
