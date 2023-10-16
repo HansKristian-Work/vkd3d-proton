@@ -917,6 +917,12 @@ void test_sampler_feedback_decode_encode_min_mip(void)
                 if (expected >= 32)
                     expected = 0xff;
             }
+            else
+            {
+                /* vkd3d-proton assumption. */
+                if (expected > 14)
+                    expected = 0xff;
+            }
 
             ok(value == expected, "Value %u: Expected %u, got %u\n", i, expected, value);
         }
@@ -997,6 +1003,12 @@ void test_sampler_feedback_decode_encode_min_mip(void)
                             /* This is more reasonable. Theory is that each mip region gets a u32 mask of accessed mip levels. No bits sets -> not accessed.
                              * Anything outside the u32 range is considered not accessed. */
                             if (expected >= 32)
+                                expected = 0xff;
+                        }
+                        else
+                        {
+                            /* vkd3d-proton assumption. */
+                            if (expected > 14)
                                 expected = 0xff;
                         }
 
