@@ -894,9 +894,12 @@ void test_sampler_feedback_decode_encode_min_mip(void)
         /* Spec carves out a special case for decoding / encoding with buffers. Must not be arrayed, and the docs seem to imply the buffer is tightly packed. */
 
         /* NV and AMD are non-compliant here. Spec says that transcoding should be transitive, but it is a lossy process. AMD's behavior makes slightly more sense than NV here. */
-        ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, feedback_min_mip_single, 0, 0, 0, upload, 0, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_ENCODE_SAMPLER_FEEDBACK);
+
+        /* DstX/Y for buffers are ignored on NV, but not AMD. Inherit NV behavior here, it's the only one that makes some kind of sense ... */
+        /* SrcRect is ignored on NV (spec says it's not allowed for MIN_MIP), but not AMD. Inherit NV behavior here. */
+        ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, feedback_min_mip_single, UINT_MAX, 0, 0, upload, 0, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_ENCODE_SAMPLER_FEEDBACK);
         transition_resource_state(context.list, feedback_min_mip_single, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
-        ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, resolve, 0, 0, 0, feedback_min_mip_single, 0, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK);
+        ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, resolve, 0, 0, 0, feedback_min_mip_single, UINT_MAX, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK);
         transition_resource_state(context.list, resolve, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
         get_buffer_readback_with_command_list(resolve, DXGI_FORMAT_R8_UINT, &rb, context.queue, context.list);
         for (i = 0; i < MIP_REGIONS_FLAT; i++)
@@ -935,6 +938,7 @@ void test_sampler_feedback_decode_encode_min_mip(void)
     /* TEXTURE decode encode. Array mode is extremely weird. */
     for (iter = 0; iter < 2; iter++)
     {
+        D3D12_RECT rect = { 1, 0, 2, 3 };
         D3D12_SUBRESOURCE_DATA subdata;
         bool resolve_all = iter == 1;
 
@@ -951,12 +955,15 @@ void test_sampler_feedback_decode_encode_min_mip(void)
 
         /* On ENCODE, dst subresource is always -1, and source subresource index is the slice to resolve.
          * This implies two rules: We can only resolve layer N to layer N, and layer size of source and dest must be the same. */
+
+        /* DstX and DstY are completely ignored here by both NV and AMD (wtf ...). The test assumes that DstX/DstY is interpreted as 0. */
+        /* SrcRect is also silently ignored on both NV and AMD. */
         if (resolve_all)
-            ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, feedback_min_mip_array, UINT_MAX, 0, 0, upload_tex, UINT_MAX, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_ENCODE_SAMPLER_FEEDBACK);
+            ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, feedback_min_mip_array, UINT_MAX, 1, 1, upload_tex, UINT_MAX, &rect, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_ENCODE_SAMPLER_FEEDBACK);
         else
         {
             for (i = 0; i < LAYERS; i++)
-                ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, feedback_min_mip_array, UINT_MAX, 0, 0, upload_tex, i, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_ENCODE_SAMPLER_FEEDBACK);
+                ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, feedback_min_mip_array, UINT_MAX, 1, 1, upload_tex, i, &rect, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_ENCODE_SAMPLER_FEEDBACK);
         }
 
         transition_resource_state(context.list, feedback_min_mip_array, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
@@ -965,11 +972,11 @@ void test_sampler_feedback_decode_encode_min_mip(void)
 
         /* On DECODE, the rules flip, but here we test the other option which is to decode all array layers in one go. */
         if (resolve_all)
-            ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, resolve_tex, UINT_MAX, 0, 0, feedback_min_mip_array, UINT_MAX, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK);
+            ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, resolve_tex, UINT_MAX, 2, 2, feedback_min_mip_array, UINT_MAX, &rect, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK);
         else
         {
             for (i = 0; i < LAYERS; i++)
-                ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, resolve_tex, i, 0, 0, feedback_min_mip_array, UINT_MAX, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK);
+                ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, resolve_tex, i, 2, 2, feedback_min_mip_array, UINT_MAX, &rect, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK);
         }
 
         transition_resource_state(context.list, resolve_tex, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
