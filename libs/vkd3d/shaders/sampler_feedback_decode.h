@@ -78,8 +78,21 @@ int sampler_feedback_decode_min_mip(ivec2 icoord, float layer)
 	if (fetch_mip(vec2(icoord), 0, layer))
 		return 0;
 
+#ifdef ARRAY
+	ivec3 fetch_coord = ivec3(icoord, layer);
+#else
+	ivec2 fetch_coord = icoord;
+#endif
+
+	// Extract encoded min-mip. This serves as our starting min-bound.
 	int result = 0xff;
-	for (int i = 1; i < mip_levels; i++)
+	uint high_bits = texelFetch(Input, fetch_coord, 0).y >> 28;
+	if (high_bits > 0)
+		result = int(high_bits - 1);
+
+	int scan_mip_levels = min(mip_levels, result);
+
+	for (int i = 1; i < scan_mip_levels; i++)
 	{
 		// We need to intersect the LOD 0 region with the used region in a coarse LOD.
 		// For simple POT, this is a trivial 2x2 expansion.

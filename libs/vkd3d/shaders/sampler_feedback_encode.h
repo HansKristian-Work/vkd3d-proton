@@ -25,7 +25,7 @@ void sampler_feedback_encode_min_mip(ivec2 coord, int layer, uint value)
 	if (value > 14u)
 		value = 0xff;
 
-	uvec2 encoded_value = uvec2(0u, value == 0xff ? 0 : (value << 28));
+	uvec2 encoded_value = uvec2(0u, value == 0xff ? 0 : ((value + 1) << 28));
 	imageStore(Output, ivec3(coord + dst_offset, layer), encoded_value.xyxy);
 }
 
