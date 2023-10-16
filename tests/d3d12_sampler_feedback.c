@@ -481,7 +481,9 @@ static void test_sampler_feedback_min_mip_level_inner(bool arrayed)
 
     for (i = 0; i < ARRAY_SIZE(coords); i++)
     {
-        float normalized_coords[4] = { ((float)coords[i][0] + 0.5f) / TEX_WIDTH, ((float)coords[i][1] + 0.5f) / TEX_HEIGHT, (float)coords[i][2], (float)coords[i][3] };
+        /* Test if implementations use RTE rule or floor(v + 0.5) rule. If RTE rule is used (it is on AMD and NV at least), 0.5 should snap down to 0 instead of 1. */
+#define to_rte_center(v) (v % 2 == 0) ? ((float)(v) + 0.5f) : (float)(v)
+        float normalized_coords[4] = { ((float)coords[i][0] + 0.5f) / TEX_WIDTH, ((float)coords[i][1] + 0.5f) / TEX_HEIGHT, (float)coords[i][2], to_rte_center(coords[i][3]) };
         ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(context.list, 1, 4, normalized_coords, 0);
         ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
     }
