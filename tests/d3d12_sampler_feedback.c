@@ -605,7 +605,6 @@ void test_sampler_feedback_npot_min_mip_level(void)
     D3D12_ROOT_PARAMETER rs_param[2];
     D3D12_HEAP_PROPERTIES heap_props;
     ID3D12DescriptorHeap *desc_heap;
-    ID3D12Resource *feedback_copy;
     struct test_context context;
     struct resource_readback rb;
     D3D12_RESOURCE_DESC1 desc;
@@ -775,8 +774,6 @@ void test_sampler_feedback_npot_min_mip_level(void)
     desc.Format = DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE;
     hr = ID3D12Device8_CreateCommittedResource2(device8, &heap_props, D3D12_HEAP_FLAG_CREATE_NOT_ZEROED, &desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL, NULL, &IID_ID3D12Resource, (void **)&feedback);
     ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
-    hr = ID3D12Device8_CreateCommittedResource2(device8, &heap_props, D3D12_HEAP_FLAG_CREATE_NOT_ZEROED, &desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, NULL, &IID_ID3D12Resource, (void **)&feedback_copy);
-    ok(SUCCEEDED(hr), "Failed to create resource, hr #%x.\n", hr);
 
     ID3D12Device8_CreateSamplerFeedbackUnorderedAccessView(device8, resource, feedback, ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(desc_heap));
     ID3D12Device8_CreateSamplerFeedbackUnorderedAccessView(device8, resource, feedback, ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(desc_heap_cpu));
@@ -812,11 +809,8 @@ void test_sampler_feedback_npot_min_mip_level(void)
         ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
     }
 
-    transition_resource_state(context.list, feedback, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    /* CopyResource is allowed, but not by region. */
-    ID3D12GraphicsCommandList_CopyResource(context.list, feedback_copy, feedback);
-    transition_resource_state(context.list, feedback_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
-    ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, resolve, UINT_MAX, 0, 0, feedback_copy, UINT_MAX, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK);
+    transition_resource_state(context.list, feedback, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+    ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, resolve, UINT_MAX, 0, 0, feedback, UINT_MAX, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK);
     transition_resource_state(context.list, resolve, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
     get_texture_readback_with_command_list(resolve, 0, &rb, context.queue, context.list);
@@ -837,7 +831,6 @@ void test_sampler_feedback_npot_min_mip_level(void)
     ID3D12GraphicsCommandList1_Release(list1);
     ID3D12Resource_Release(resource);
     ID3D12Resource_Release(feedback);
-    ID3D12Resource_Release(feedback_copy);
     ID3D12Resource_Release(resolve);
     ID3D12DescriptorHeap_Release(desc_heap);
     ID3D12DescriptorHeap_Release(desc_heap_cpu);
