@@ -1576,27 +1576,25 @@ void test_sampler_feedback_mip_used_region_level(void)
     ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, resolve, UINT_MAX, 0, 0, feedback, UINT_MAX, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK);
     transition_resource_state(context.list, resolve, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
-    if (!is_nvidia_windows_device(context.device))
+    for (i = 0; i < TEX_MIP_LEVELS; i++)
     {
-        for (i = 0; i < TEX_MIP_LEVELS; i++)
-        {
-            get_texture_readback_with_command_list(resolve, i, &rb, context.queue, context.list);
+        get_texture_readback_with_command_list(resolve, i, &rb, context.queue, context.list);
 
-            for (y = 0; y < (FEEDBACK_HEIGHT >> i); y++)
+        for (y = 0; y < (FEEDBACK_HEIGHT >> i); y++)
+        {
+            for (x = 0; x < (FEEDBACK_WIDTH >> i); x++)
             {
-                for (x = 0; x < (FEEDBACK_WIDTH >> i); x++)
-                {
-                    unsigned int value;
-                    value = get_readback_uint8(&rb, x, y);
+                unsigned int value;
+                value = get_readback_uint8(&rb, x, y);
+
+                /* NV seems to drop writes on the floor. Seems related to WRAP mode. */
+                bug_if(is_nvidia_windows_device(context.device) && value == 0 && expected_output[i][y][x] == 0xff)
                     ok(value == expected_output[i][y][x], "Mip %u, Coord %u, %u: expected %u, got %u.\n", i, x, y, expected_output[i][y][x], value);
-                }
             }
-            release_resource_readback(&rb);
-            reset_command_list(context.list, context.allocator);
         }
+        release_resource_readback(&rb);
+        reset_command_list(context.list, context.allocator);
     }
-    else
-        skip("NVIDIA Windows is completely broken in this test. Skipping ...\n");
 
     ID3D12GraphicsCommandList1_Release(list1);
     ID3D12Resource_Release(resource);
