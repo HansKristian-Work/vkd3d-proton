@@ -128,6 +128,49 @@ void test_sampler_feedback_resource_creation(void)
     ok(ref_count == 0, "Unexpected ref-count %u.\n", ref_count);
 }
 
+void test_sampler_feedback_format_features(void)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS7 features7;
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT format;
+    ID3D12Device *device;
+    unsigned int i;
+    UINT ref_count;
+    HRESULT hr;
+
+    static const DXGI_FORMAT formats[] = {
+        DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE,
+        DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE,
+    };
+
+    device = create_device();
+    if (!device)
+        return;
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_OPTIONS7, &features7, sizeof(features7))) ||
+        features7.SamplerFeedbackTier < D3D12_SAMPLER_FEEDBACK_TIER_0_9)
+    {
+        skip("Sampler feedback not supported.\n");
+        ID3D12Device_Release(device);
+        return;
+    }
+
+    for (i = 0; i < ARRAY_SIZE(formats); i++)
+    {
+        format.Format = formats[i];
+        format.Support1 = UINT32_MAX;
+        format.Support2 = UINT32_MAX;
+
+        hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FORMAT_SUPPORT, &format, sizeof(format));
+        ok(SUCCEEDED(hr), "Failed to query for format features.\n", hr);
+
+        ok(format.Support1 == (D3D12_FORMAT_SUPPORT1_TEXTURE2D | D3D12_FORMAT_SUPPORT1_MIP), "Unexpected feature support #%x.\n", format.Support1);
+        ok(format.Support2 == D3D12_FORMAT_SUPPORT2_SAMPLER_FEEDBACK, "Unexpected feature support #%x.\n", format.Support2);
+    }
+
+    ref_count = ID3D12Device_Release(device);
+    ok(ref_count == 0, "Unexpected ref-count %u.\n", ref_count);
+}
+
 static const BYTE cs_code_min_mip_level_non_array[] =
 {
 #if 0
