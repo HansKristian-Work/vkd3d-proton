@@ -1852,7 +1852,10 @@ void test_sampler_feedback_npot_used_region(void)
                 {
                     unsigned int value;
                     value = get_readback_uint8(&rb, x, y);
-                    ok(value == expected_output[i][y][x], "Mip %u, Coord %u, %u: expected %u, got %u.\n", i, x, y, expected_output[i][y][x], value);
+
+                    /* Intel has many stray writes that should not exist. */
+                    bug_if(is_intel_windows_device(context.device) && value && expected_output[i][y][x] == 0)
+                        ok(value == expected_output[i][y][x], "Mip %u, Coord %u, %u: expected %u, got %u.\n", i, x, y, expected_output[i][y][x], value);
                 }
             }
             release_resource_readback(&rb);
