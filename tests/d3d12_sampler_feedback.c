@@ -3193,30 +3193,32 @@ void test_sampler_feedback_implicit_lod_aniso(void)
         float grad_y[2];
         float bias;
         unsigned expected_regions[3];
+        bool exact_nv;
+        bool exact_intel;
     } tests[] = {
         /* Sample a little left of the texel center of bottom-right texel in the mip region to avoid 0 weight scenario which is not well defined
          * (can trigger use or not, vkd3d-proton is conservative here but hardware tends to not be). */
-        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 1, 0 }, { 0, 1 }, 0, { 1, 0, 0 } },
-        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 1, 0 }, { 0, 1 }, 1.0f / 512.0f, { 1, 0, 0 } },
-        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 1, 0 }, { 0, 1 }, 1.0f / 256.0f, { 1, 1, 0 } }, /* Tri-linear should kick in here. */
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 1, 0 }, { 0, 1 }, 0, { 1, 0, 0 }, true, true },
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 1, 0 }, { 0, 1 }, 1.0f / 512.0f, { 1, 0, 0 }, true, true },
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 1, 0 }, { 0, 1 }, 1.0f / 256.0f, { 1, 1, 0 }, false, true }, /* Tri-linear should kick in here, but NV is bugged in aniso mode (or it's cheating ...) */
         /* Test different square rotations of gradient. */
-        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 2, 0 }, { 0, 1 }, 0, { 2, 0, 0 } },
-        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 1, 0 }, { 0, 2 }, 0, { 2, 0, 0 } },
-        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 0, 2 }, { 1, 0 }, 0, { 2, 0, 0 } },
-        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 0, 1 }, { 2, 0 }, 0, { 2, 0, 0 } },
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 2, 0 }, { 0, 1 }, 0, { 2, 0, 0 }, true, true },
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 1, 0 }, { 0, 2 }, 0, { 2, 0, 0 }, true, true },
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 0, 2 }, { 1, 0 }, 0, { 2, 0, 0 }, true, true },
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 0, 1 }, { 2, 0 }, 0, { 2, 0, 0 }, true, true },
 
         /* Test diagonal gradients. Study how LOD is computed. Vulkan is very fuzzy when it comes to how LOD is computed, only giving a lower and upper LOD bound.
          * D3D11 functional spec seems to mandate max(length(ddx), length(ddy)). Verify this. AMD seems to be accurate to spec, but not NV. */
 #define SQRT_1_2 0.70710678118f
 
 #define DECL_ROTATED(D, B, lod1) \
-        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { (D), (D) }, { -(D), (D) }, B, { 1, lod1 ? 1 : 0, 0 } }, \
-        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { -(D), (D) }, { -(D), -(D) }, B, { 1, lod1 ? 1 : 0, 0 } }, \
-        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { (D), -(D) }, { -(D), -(D) }, B, { 1, lod1 ? 1 : 0, 0 } }, \
-        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { (D), (D) }, { (D), -(D) }, B, { 1, lod1 ? 1 : 0, 0 } }
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { (D), (D) }, { -(D), (D) }, B, { 1, lod1 ? 1 : 0, 0 }, false, true }, \
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { -(D), (D) }, { -(D), -(D) }, B, { 1, lod1 ? 1 : 0, 0 }, false, true }, \
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { (D), -(D) }, { -(D), -(D) }, B, { 1, lod1 ? 1 : 0, 0 }, false, true }, \
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { (D), (D) }, { (D), -(D) }, B, { 1, lod1 ? 1 : 0, 0 }, false, true }
 
         DECL_ROTATED(SQRT_1_2, 0.0f, false),
-        DECL_ROTATED(SQRT_1_2, 0.01f, true), /* Should compute LOD > 0 and trigger tri-linear. */
+        DECL_ROTATED(SQRT_1_2, 0.01f, true), /* Should compute LOD > 0 and trigger tri-linear. NV is bugged, Intel / AMD is spec correct here. */
 
         /* Study boundary condition for aniso and filtering. Boundary seems to be +/- 0.5 * gradient, which fits nicely with bilinear being gradient = 1.
          * Test this assumption exhaustively for all integer aniso factors and some fractional values.
@@ -3224,33 +3226,33 @@ void test_sampler_feedback_implicit_lod_aniso(void)
          * Trying to reverse the exact method is futile, but this conservative estimate should be fine.
          * It's okay if vkd3d-proton is more conservative than hardware. (AMD is completely messed up here and will write neighbor mip regions.) */
 #define CONSERVATIVE_ANISO_EXTENT(rate, bias) (0.5f * exp2f(ceilf(log2f(rate)))) * exp2f(bias)
+#define RATE_IS_POT(rate) (exp2f(ceilf(log2f(rate))) == (rate))
 #define DECL_ANISO(rate) \
-        { { MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, 0) - 0.01f, MIP_REGION_HEIGHT - 0.51f }, { rate, 0 }, { 0, 1 }, 0, { 1, 0, 0 } }, \
-        { { MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, 0) + 0.01f, MIP_REGION_HEIGHT - 0.51f }, { rate, 0 }, { 0, 1 }, 0, { 2, 0, 0 } }
+        { { MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, 0) - 0.01f, MIP_REGION_HEIGHT - 0.51f }, { rate, 0 }, { 0, 1 }, 0, { 1, 0, 0 }, RATE_IS_POT(rate), RATE_IS_POT(rate) }, \
+        { { MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, 0) + 0.01f, MIP_REGION_HEIGHT - 0.51f }, { rate, 0 }, { 0, 1 }, 0, { 2, 0, 0 }, RATE_IS_POT(rate), RATE_IS_POT(rate) }
 
         DECL_ANISO(1), DECL_ANISO(2), DECL_ANISO(3), DECL_ANISO(4), DECL_ANISO(5), DECL_ANISO(6), DECL_ANISO(7), DECL_ANISO(8),
         DECL_ANISO(9), DECL_ANISO(10), DECL_ANISO(11), DECL_ANISO(12), DECL_ANISO(13), DECL_ANISO(14), DECL_ANISO(15), DECL_ANISO(16),
-
         DECL_ANISO(1.5f), DECL_ANISO(2.5f), DECL_ANISO(3.5f), DECL_ANISO(4.5f), DECL_ANISO(5.5f), DECL_ANISO(6.5f), DECL_ANISO(7.5f), DECL_ANISO(8.5f),
         DECL_ANISO(9.5f), DECL_ANISO(10.5f), DECL_ANISO(11.5f), DECL_ANISO(12.5f), DECL_ANISO(13.5f), DECL_ANISO(14.5f), DECL_ANISO(15.5f),
 
 #define DECL_ANISO_LOD1(rate) \
-        { { 2 * MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, 0) - 0.01f, MIP_REGION_HEIGHT - 0.51f }, { rate, 0 }, { 0, 2 }, 0, { 0, 1, 0 } }, \
-        { { 2 * MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, 0) + 0.01f, 2 * (MIP_REGION_HEIGHT - 0.51f) }, { rate, 0 }, { 0, 2 }, 0, { 0, 2, 0 } }
+        { { 2 * MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, 0) - 0.01f, MIP_REGION_HEIGHT - 0.51f }, { rate, 0 }, { 0, 2 }, 0, { 0, 1, 0 }, RATE_IS_POT(rate), RATE_IS_POT(rate) }, \
+        { { 2 * MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, 0) + 0.01f, 2 * (MIP_REGION_HEIGHT - 0.51f) }, { rate, 0 }, { 0, 2 }, 0, { 0, 2, 0 }, RATE_IS_POT(rate), RATE_IS_POT(rate) }
         DECL_ANISO_LOD1(2), DECL_ANISO_LOD1(3), DECL_ANISO_LOD1(4), DECL_ANISO_LOD1(5), DECL_ANISO_LOD1(6), DECL_ANISO_LOD1(7), DECL_ANISO_LOD1(8),
 
         /* Esoteric as all hell. It seems like LOD bias will stretch out the extent! */
 #undef DECL_ANISO_LOD1
 #define DECL_ANISO_LOD1(rate) \
-        { { 2 * MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, 1) - 0.01f, MIP_REGION_HEIGHT - 0.51f }, { rate, 0 }, { 0, 1 }, 1, { 0, 1, 0 } }, \
-        { { 2 * MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, 1) + 0.01f, 2 * (MIP_REGION_HEIGHT - 0.51f) }, { rate, 0 }, { 0, 1 }, 1, { 0, 2, 0 } }
+        { { 2 * MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, 1) - 0.01f, MIP_REGION_HEIGHT - 0.51f }, { rate, 0 }, { 0, 1 }, 1, { 0, 1, 0 }, RATE_IS_POT(rate), RATE_IS_POT(rate) }, \
+        { { 2 * MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, 1) + 0.01f, 2 * (MIP_REGION_HEIGHT - 0.51f) }, { rate, 0 }, { 0, 1 }, 1, { 0, 2, 0 }, RATE_IS_POT(rate), RATE_IS_POT(rate) }
         DECL_ANISO_LOD1(2), DECL_ANISO_LOD1(3), DECL_ANISO_LOD1(4), DECL_ANISO_LOD1(5), DECL_ANISO_LOD1(6), DECL_ANISO_LOD1(7), DECL_ANISO_LOD1(8),
 
         /* And negative LOD bias will shrink the footprint ... */
 #undef DECL_ANISO_LOD1
 #define DECL_ANISO_LOD1(rate) \
-        { { 2 * MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, -1) - 0.01f, MIP_REGION_HEIGHT - 0.51f }, { rate, 0 }, { 0, 2 }, -1, { 1, 0, 0 } }, \
-        { { 2 * MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, -1) + 0.01f, 2 * (MIP_REGION_HEIGHT - 0.51f) }, { rate, 0 }, { 0, 2 }, -1, { 2, 0, 0 } }
+        { { 2 * MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, -1) - 0.01f, MIP_REGION_HEIGHT - 0.51f }, { rate, 0 }, { 0, 2 }, -1, { 1, 0, 0 }, RATE_IS_POT(rate), RATE_IS_POT(rate) }, \
+        { { 2 * MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, -1) + 0.01f, 2 * (MIP_REGION_HEIGHT - 0.51f) }, { rate, 0 }, { 0, 2 }, -1, { 2, 0, 0 }, RATE_IS_POT(rate), RATE_IS_POT(rate) }
         DECL_ANISO_LOD1(2), DECL_ANISO_LOD1(3), DECL_ANISO_LOD1(4), DECL_ANISO_LOD1(5), DECL_ANISO_LOD1(6), DECL_ANISO_LOD1(7), DECL_ANISO_LOD1(8),
     };
 
@@ -3418,14 +3420,17 @@ void test_sampler_feedback_implicit_lod_aniso(void)
                 }
             }
 
-            if (is_nvidia_windows_device(context.device))
-            {
-                /* Real hardware can be tighter. */
-                ok(touched_count <= expected, "Mip %u, expected less-or-equal to %u, got %u.\n", j, expected, touched_count);
-            }
-            else
+            if ((is_intel_windows_device(context.device) && tests[i].exact_intel) ||
+                (is_nvidia_windows_device(context.device) && tests[i].exact_nv) ||
+                !vkd3d_test_platform_is_windows())
             {
                 ok(touched_count == expected, "Mip %u, expected %u, got %u.\n", j, expected, touched_count);
+            }
+            else if (!is_amd_windows_device(context.device))
+            {
+                /* AMD behavior is non-sensical since it checks filtering in mip region domain ... No point even testing this. */
+                /* Real hardware can be tighter. */
+                ok(touched_count <= expected, "Mip %u, expected less-or-equal to %u, got %u.\n", j, expected, touched_count);
             }
 
             release_resource_readback(&rb);
