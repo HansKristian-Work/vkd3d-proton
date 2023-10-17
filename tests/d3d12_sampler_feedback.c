@@ -1258,7 +1258,7 @@ void test_sampler_feedback_decode_encode_mip_used(void)
                 uint8_t expected = (y * MIP_REGIONS_X + x) & 4 ? 0xff : 0;
 
                 /* This test only passes properly on AMD. */
-                bug_if(is_nvidia_windows_device(context.device))
+                bug_if(is_nvidia_windows_device(context.device) || is_intel_windows_device(context.device))
                     ok(value == expected, "(%u, %u): Expected %u, got %u.\n", x, y, expected, value);
             }
         }
@@ -1294,7 +1294,8 @@ void test_sampler_feedback_decode_encode_mip_used(void)
                 else
                     expected = (y * MIP_REGIONS_X + x) & 4 ? 0xff : 0;
 
-                ok(value == expected, "(%u, %u): Expected %u, got %u.\n", x, y, expected, value);
+                bug_if(x == 0 && y == 0 && is_intel_windows_device(context.device))
+                    ok(value == expected, "(%u, %u): Expected %u, got %u.\n", x, y, expected, value);
             }
         }
 
