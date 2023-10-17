@@ -2958,8 +2958,8 @@ void test_sampler_feedback_implicit_lod_aniso(void)
     ID3D12Resource *resource;
     ID3D12Resource *feedback;
     ID3D12Resource *resolve;
+    unsigned int x, y, i, j;
     ID3D12Device8 *device8;
-    unsigned int x, y, i;
     D3D12_VIEWPORT vp;
     D3D12_RECT sci;
     HRESULT hr;
@@ -3123,20 +3123,78 @@ void test_sampler_feedback_implicit_lod_aniso(void)
 
 #define TEX_WIDTH 2048
 #define TEX_HEIGHT 2048
-#define MIP_REGION_WIDTH 32
-#define MIP_REGION_HEIGHT 32
+#define MIP_REGION_WIDTH 64 /* MIP_REGION_SIZE of 32 breaks on NV. Seems like it's part of the reserved set of mip region sizes in the NV Vulkan extension ... :') */
+#define MIP_REGION_HEIGHT 64
 #define FEEDBACK_WIDTH (TEX_WIDTH / MIP_REGION_WIDTH)
 #define FEEDBACK_HEIGHT (TEX_HEIGHT / MIP_REGION_HEIGHT)
 #define TEX_MIP_LEVELS 3
 
-    static const struct test
+    const struct test
     {
         float coord[2];
-        int grad_x[2];
-        int grad_y[2];
-        int bias;
+        float grad_x[2];
+        float grad_y[2];
+        float bias;
+        unsigned expected_regions[3];
     } tests[] = {
-        { { MIP_REGION_WIDTH - 8, MIP_REGION_HEIGHT - 8 }, { 1, 0 }, { 0, 1 }, 0 },
+        /* Sample a little left of the texel center of bottom-right texel in the mip region to avoid 0 weight scenario which is not well defined
+         * (can trigger use or not, vkd3d-proton is conservative here but hardware tends to not be). */
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 1, 0 }, { 0, 1 }, 0, { 1, 0, 0 } },
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 1, 0 }, { 0, 1 }, 1.0f / 512.0f, { 1, 0, 0 } },
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 1, 0 }, { 0, 1 }, 1.0f / 256.0f, { 1, 1, 0 } }, /* Tri-linear should kick in here. */
+        /* Test different square rotations of gradient. */
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 2, 0 }, { 0, 1 }, 0, { 2, 0, 0 } },
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 1, 0 }, { 0, 2 }, 0, { 2, 0, 0 } },
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 0, 2 }, { 1, 0 }, 0, { 2, 0, 0 } },
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 0, 1 }, { 2, 0 }, 0, { 2, 0, 0 } },
+
+        /* Test diagonal gradients. Study how LOD is computed. Vulkan is very fuzzy when it comes to how LOD is computed, only giving a lower and upper LOD bound.
+         * D3D11 functional spec seems to mandate max(length(ddx), length(ddy)). Verify this. AMD seems to be accurate to spec, but not NV. */
+#define SQRT_1_2 0.70710678118f
+
+#define DECL_ROTATED(D, B, lod1) \
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { (D), (D) }, { -(D), (D) }, B, { 1, lod1 ? 1 : 0, 0 } }, \
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { -(D), (D) }, { -(D), -(D) }, B, { 1, lod1 ? 1 : 0, 0 } }, \
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { (D), -(D) }, { -(D), -(D) }, B, { 1, lod1 ? 1 : 0, 0 } }, \
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { (D), (D) }, { (D), -(D) }, B, { 1, lod1 ? 1 : 0, 0 } }
+
+        DECL_ROTATED(SQRT_1_2, 0.0f, false),
+        DECL_ROTATED(SQRT_1_2, 0.01f, true), /* Should compute LOD > 0 and trigger tri-linear. */
+
+        /* Study boundary condition for aniso and filtering. Boundary seems to be +/- 0.5 * gradient, which fits nicely with bilinear being gradient = 1.
+         * Test this assumption exhaustively for all integer aniso factors and some fractional values.
+         * NV does not seem to use the Vulkan sampling pattern here ... The extent can widen depending on POT factors apparently.
+         * Trying to reverse the exact method is futile, but this conservative estimate should be fine.
+         * It's okay if vkd3d-proton is more conservative than hardware. (AMD is completely messed up here and will write neighbor mip regions.) */
+#define CONSERVATIVE_ANISO_EXTENT(rate, bias) (0.5f * exp2f(ceilf(log2f(rate)))) * exp2f(bias)
+#define DECL_ANISO(rate) \
+        { { MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, 0) - 0.01f, MIP_REGION_HEIGHT - 0.51f }, { rate, 0 }, { 0, 1 }, 0, { 1, 0, 0 } }, \
+        { { MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, 0) + 0.01f, MIP_REGION_HEIGHT - 0.51f }, { rate, 0 }, { 0, 1 }, 0, { 2, 0, 0 } }
+
+        DECL_ANISO(1), DECL_ANISO(2), DECL_ANISO(3), DECL_ANISO(4), DECL_ANISO(5), DECL_ANISO(6), DECL_ANISO(7), DECL_ANISO(8),
+        DECL_ANISO(9), DECL_ANISO(10), DECL_ANISO(11), DECL_ANISO(12), DECL_ANISO(13), DECL_ANISO(14), DECL_ANISO(15), DECL_ANISO(16),
+
+        DECL_ANISO(1.5f), DECL_ANISO(2.5f), DECL_ANISO(3.5f), DECL_ANISO(4.5f), DECL_ANISO(5.5f), DECL_ANISO(6.5f), DECL_ANISO(7.5f), DECL_ANISO(8.5f),
+        DECL_ANISO(9.5f), DECL_ANISO(10.5f), DECL_ANISO(11.5f), DECL_ANISO(12.5f), DECL_ANISO(13.5f), DECL_ANISO(14.5f), DECL_ANISO(15.5f),
+
+#define DECL_ANISO_LOD1(rate) \
+        { { 2 * MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, 0) - 0.01f, MIP_REGION_HEIGHT - 0.51f }, { rate, 0 }, { 0, 2 }, 0, { 0, 1, 0 } }, \
+        { { 2 * MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, 0) + 0.01f, 2 * (MIP_REGION_HEIGHT - 0.51f) }, { rate, 0 }, { 0, 2 }, 0, { 0, 2, 0 } }
+        DECL_ANISO_LOD1(2), DECL_ANISO_LOD1(3), DECL_ANISO_LOD1(4), DECL_ANISO_LOD1(5), DECL_ANISO_LOD1(6), DECL_ANISO_LOD1(7), DECL_ANISO_LOD1(8),
+
+        /* Esoteric as all hell. It seems like LOD bias will stretch out the extent! */
+#undef DECL_ANISO_LOD1
+#define DECL_ANISO_LOD1(rate) \
+        { { 2 * MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, 1) - 0.01f, MIP_REGION_HEIGHT - 0.51f }, { rate, 0 }, { 0, 1 }, 1, { 0, 1, 0 } }, \
+        { { 2 * MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, 1) + 0.01f, 2 * (MIP_REGION_HEIGHT - 0.51f) }, { rate, 0 }, { 0, 1 }, 1, { 0, 2, 0 } }
+        DECL_ANISO_LOD1(2), DECL_ANISO_LOD1(3), DECL_ANISO_LOD1(4), DECL_ANISO_LOD1(5), DECL_ANISO_LOD1(6), DECL_ANISO_LOD1(7), DECL_ANISO_LOD1(8),
+
+        /* And negative LOD bias will shrink the footprint ... */
+#undef DECL_ANISO_LOD1
+#define DECL_ANISO_LOD1(rate) \
+        { { 2 * MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, -1) - 0.01f, MIP_REGION_HEIGHT - 0.51f }, { rate, 0 }, { 0, 2 }, -1, { 1, 0, 0 } }, \
+        { { 2 * MIP_REGION_WIDTH - CONSERVATIVE_ANISO_EXTENT(rate, -1) + 0.01f, 2 * (MIP_REGION_HEIGHT - 0.51f) }, { rate, 0 }, { 0, 2 }, -1, { 2, 0, 0 } }
+        DECL_ANISO_LOD1(2), DECL_ANISO_LOD1(3), DECL_ANISO_LOD1(4), DECL_ANISO_LOD1(5), DECL_ANISO_LOD1(6), DECL_ANISO_LOD1(7), DECL_ANISO_LOD1(8),
     };
 
     uint8_t expected[TEX_MIP_LEVELS][FEEDBACK_HEIGHT][FEEDBACK_WIDTH];
@@ -3174,6 +3232,7 @@ void test_sampler_feedback_implicit_lod_aniso(void)
     static_sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
     static_sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
     static_sampler.Filter = D3D12_FILTER_ANISOTROPIC;
+    static_sampler.MaxAnisotropy = 16;
     static_sampler.MaxLOD = 1000.0f;
 
     rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
@@ -3256,6 +3315,7 @@ void test_sampler_feedback_implicit_lod_aniso(void)
         ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
         ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(context.list, 0, ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(desc_heap));
         ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        /* Test behavior with helpers. Hint: AMD kinda breaks down here ... */
         set_viewport(&vp, 0, 0, 1, 1, 0, 1);
         set_rect(&sci, 0, 0, 1, 1);
         ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
@@ -3265,11 +3325,11 @@ void test_sampler_feedback_implicit_lod_aniso(void)
             float normalized_coords[7] = {
                 tests[i].coord[0] / TEX_WIDTH,
                 tests[i].coord[1] / TEX_HEIGHT,
-                (float)tests[i].grad_x[0] / TEX_WIDTH,
-                (float)tests[i].grad_x[1] / TEX_HEIGHT,
-                (float)tests[i].grad_y[0] / TEX_WIDTH,
-                (float)tests[i].grad_y[1] / TEX_HEIGHT,
-                (float)tests[i].bias,
+                tests[i].grad_x[0] / TEX_WIDTH,
+                tests[i].grad_x[1] / TEX_HEIGHT,
+                tests[i].grad_y[0] / TEX_WIDTH,
+                tests[i].grad_y[1] / TEX_HEIGHT,
+                tests[i].bias,
             };
             ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(context.list, 1, ARRAY_SIZE(normalized_coords), normalized_coords, 0);
             ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
@@ -3282,18 +3342,33 @@ void test_sampler_feedback_implicit_lod_aniso(void)
         transition_resource_state(context.list, resolve, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
         transition_resource_state(context.list, feedback, D3D12_RESOURCE_STATE_RESOLVE_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
-        for (i = 0; i < TEX_MIP_LEVELS; i++)
+        for (j = 0; j < TEX_MIP_LEVELS; j++)
         {
-            get_texture_readback_with_command_list(resolve, i, &rb, context.queue, context.list);
+            unsigned int touched_count = 0;
+            unsigned int expected;
 
-            for (y = 0; y < (FEEDBACK_HEIGHT >> i); y++)
+            expected = tests[i].expected_regions[j];
+            get_texture_readback_with_command_list(resolve, j, &rb, context.queue, context.list);
+
+            for (y = 0; y < (FEEDBACK_HEIGHT >> j); y++)
             {
-                for (x = 0; x < (FEEDBACK_WIDTH >> i); x++)
+                for (x = 0; x < (FEEDBACK_WIDTH >> j); x++)
                 {
                     unsigned int value;
                     value = get_readback_uint8(&rb, x, y);
-                    ok(value == expected[i][y][x], "Mip %u, Coord %u, %u: expected %u, got %u.\n", i, x, y, expected[i][y][x], value);
+                    if (value)
+                        touched_count++;
                 }
+            }
+
+            if (is_nvidia_windows_device(context.device))
+            {
+                /* Real hardware can be tighter. */
+                ok(touched_count <= expected, "Mip %u, expected less-or-equal to %u, got %u.\n", j, expected, touched_count);
+            }
+            else
+            {
+                ok(touched_count == expected, "Mip %u, expected %u, got %u.\n", j, expected, touched_count);
             }
 
             release_resource_readback(&rb);
