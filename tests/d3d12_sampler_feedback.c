@@ -968,6 +968,8 @@ void test_sampler_feedback_decode_encode_min_mip(void)
 
             expected = reference_data[i];
 
+            /* Arc behavior is also extremely unhinged. Just skip checking since it writes something to all 80 mip regions ... */
+
             if (is_nvidia_windows_device(context.device))
             {
                 static const uint8_t reference_data_nv[MIP_REGIONS_FLAT] = { 0, 1, 1, 1, 3, 0xff, 0xff, 0xff, 0xff, 0xff, 1, 1, 1, 1, 3, 0xff, 0xff, 0xff };
@@ -988,7 +990,8 @@ void test_sampler_feedback_decode_encode_min_mip(void)
                     expected = 0xff;
             }
 
-            ok(value == expected, "Value %u: Expected %u, got %u\n", i, expected, value);
+            bug_if(is_intel_windows_device(context.device))
+                ok(value == expected, "Value %u: Expected %u, got %u\n", i, expected, value);
         }
         release_resource_readback(&rb);
         reset_command_list(context.list, context.allocator);
@@ -1081,13 +1084,13 @@ void test_sampler_feedback_decode_encode_min_mip(void)
                         }
 
                         /* Accessing individual layers is broken on AMD. :( */
-                        bug_if(!resolve_all && is_amd_windows_device(context.device))
+                        bug_if(is_intel_windows_device(context.device) || (!resolve_all && is_amd_windows_device(context.device)))
                             ok(value == expected, "Slice %u, value %u, %u: Expected %u, got %u\n", i, x, y, expected, value);
                     }
                 }
             }
 
-            bug_if(!resolve_all && is_amd_windows_device(context.device))
+            bug_if(is_intel_windows_device(context.device) || (!resolve_all && is_amd_windows_device(context.device)))
                 ok(has_non_zero_result, "Unexpected full zero result.\n");
             release_resource_readback(&rb);
             reset_command_list(context.list, context.allocator);
