@@ -78,7 +78,7 @@ void test_sampler_feedback_resource_creation(void)
 
     heap_desc.SizeInBytes = 1024 * 1024;
     heap_desc.Properties = heap_props;
-    heap_desc.Flags = D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
+    heap_desc.Flags = D3D12_HEAP_FLAG_CREATE_NOT_ZEROED | D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
     hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
     ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n");
 
@@ -379,13 +379,25 @@ static void test_sampler_feedback_min_mip_level_inner(bool arrayed)
     memset(expected_amd_style, 0xff, sizeof(expected_amd_style));
     memset(expected_nv_style, 0xff, sizeof(expected_nv_style));
 
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+    if (!init_test_context(&context, &context_desc))
+        return;
+
     {
         int inner_x, inner_y;
         int tile_x, tile_y;
+        int view_levels;
+
+        /* We technically have to provide all levels in the view (TIER_0_9),
+         * but NV and AMD respect the SRV, Intel does not. */
+        view_levels = is_intel_windows_device(context.device) ? TEX_MIP_LEVELS : TEX_MIP_LEVELS_VIEW;
 
         for (i = 0; i < ARRAY_SIZE(coords); i++)
         {
-            int effective_lod = min(coords[i][2], TEX_MIP_LEVELS_VIEW - 1);
+            int effective_lod = min(coords[i][2], view_levels - 1);
             int layer = arrayed ? coords[i][3] : 0;
 
             tile_x = (coords[i][0] % TEX_WIDTH) / MIP_REGION_WIDTH;
@@ -406,13 +418,6 @@ static void test_sampler_feedback_min_mip_level_inner(bool arrayed)
             }
         }
     }
-
-    memset(&context_desc, 0, sizeof(context_desc));
-    context_desc.no_pipeline = true;
-    context_desc.no_render_target = true;
-    context_desc.no_root_signature = true;
-    if (!init_test_context(&context, &context_desc))
-        return;
 
     if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS7, &features7, sizeof(features7))) ||
             features7.SamplerFeedbackTier < D3D12_SAMPLER_FEEDBACK_TIER_0_9)
@@ -531,12 +536,23 @@ static void test_sampler_feedback_min_mip_level_inner(bool arrayed)
         ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
     }
 
-    transition_resource_state(context.list, feedback, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    /* CopyResource is allowed, but not by region. */
-    ID3D12GraphicsCommandList_CopyResource(context.list, feedback_copy, feedback);
-    transition_resource_state(context.list, feedback_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
-    ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, resolve, UINT_MAX, 0, 0, feedback_copy, UINT_MAX, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK);
+    if (is_intel_windows_device(context.device))
+    {
+        /* CopyResource hangs GPU (yes, really ...) */
+        transition_resource_state(context.list, feedback, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+        ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, resolve, UINT_MAX, 0, 0, feedback, UINT_MAX, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK);
+    }
+    else
+    {
+        transition_resource_state(context.list, feedback, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        /* CopyResource is allowed, but not by region. */
+        ID3D12GraphicsCommandList_CopyResource(context.list, feedback_copy, feedback);
+        transition_resource_state(context.list, feedback_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+
+        ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, resolve, UINT_MAX, 0, 0, feedback_copy, UINT_MAX, NULL, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK);
+    }
     transition_resource_state(context.list, resolve, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
 
     for (i = 0; i < (arrayed ? TEX_LAYERS : 1); i++)
     {
