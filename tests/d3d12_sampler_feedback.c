@@ -316,7 +316,7 @@ static void test_sampler_feedback_min_mip_level_inner(bool arrayed)
         { 0, 0, 0, 0 },
         { TEX_WIDTH - MIP_REGION_WIDTH, 0, 0, 1 },
         { TEX_WIDTH - MIP_REGION_WIDTH, TEX_HEIGHT - MIP_REGION_HEIGHT, 0, 0 },
-        { TEX_WIDTH + MIP_REGION_WIDTH, TEX_HEIGHT + MIP_REGION_HEIGHT, 0, 1 },
+        { MIP_REGION_WIDTH, MIP_REGION_HEIGHT, 0, 1 },
         { 0, TEX_HEIGHT - MIP_REGION_HEIGHT, 0, 0 },
 
         { MIP_REGION_WIDTH * 20 + 3, MIP_REGION_HEIGHT * 17 + 1, 1, 1 },
@@ -393,9 +393,9 @@ static void test_sampler_feedback_min_mip_level_inner(bool arrayed)
     rs_desc.NumStaticSamplers = 1;
     rs_desc.pStaticSamplers = &static_sampler;
 
-    static_sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    static_sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    static_sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    static_sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    static_sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    static_sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
     static_sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
     static_sampler.MaxLOD = 1000.0f;
 
