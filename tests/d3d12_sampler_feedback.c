@@ -1432,7 +1432,7 @@ void test_sampler_feedback_mip_used_region_level(void)
 #define FEEDBACK_WIDTH (TEX_WIDTH / MIP_REGION_WIDTH)
 #define FEEDBACK_HEIGHT (TEX_HEIGHT / MIP_REGION_HEIGHT)
 #define TEX_MIP_LEVELS 6
-#define TEX_MIP_LEVELS_VIEW (TEX_MIP_LEVELS - 1)
+#define TEX_MIP_LEVELS_VIEW TEX_MIP_LEVELS
 
     static const int coords[][3] = {
         { 0, 0, 0 },
