@@ -365,7 +365,6 @@ static void test_sampler_feedback_min_mip_level_inner(bool arrayed)
         { MIP_REGION_WIDTH * 20 + 3, MIP_REGION_HEIGHT * 17 + 1, 1, 1 },
         { MIP_REGION_WIDTH * 21 + 5, MIP_REGION_HEIGHT * 19 + 4, 2, 0 },
         { MIP_REGION_WIDTH * 22 + 7, MIP_REGION_HEIGHT * 25 + 2, 3, 1 },
-
         { MIP_REGION_WIDTH * 2, MIP_REGION_HEIGHT * 3, TEX_MIP_LEVELS_VIEW }
     };
 
@@ -2794,7 +2793,7 @@ static void test_sampler_feedback_implicit_lod_inner(bool biased)
         { MIP_REGION_WIDTH * 0 + 16, MIP_REGION_HEIGHT * 0 + 16, 2, 0 }, /* Gradient of two texels -> LOD 1 */
         { MIP_REGION_WIDTH * 4 + 16, MIP_REGION_HEIGHT * 0 + 16, 0, +14 }, /* Empty gradient with LOD bias -> LOD -inf still */
         { MIP_REGION_WIDTH * 0 + 16, MIP_REGION_HEIGHT * 4 + 16, 2, -1 }, /* Negative bias -> LOD 0 */
-        { MIP_REGION_WIDTH * 4 + 16, MIP_REGION_HEIGHT * 4 + 16, 1, 8 }, /* Negative bias -> LOD 2 due to clamp */
+        { MIP_REGION_WIDTH * 4 + 16, MIP_REGION_HEIGHT * 4 + 16, 1, 3 }, /* Positive bias -> LOD 2 due to clamp */
         { MIP_REGION_WIDTH * 8 + 16, MIP_REGION_HEIGHT * 4 + 16, 1, 1 }, /* LOD 1 due to bias */
     };
 
@@ -3199,7 +3198,9 @@ void test_sampler_feedback_implicit_lod_aniso(void)
          * (can trigger use or not, vkd3d-proton is conservative here but hardware tends to not be). */
         { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 1, 0 }, { 0, 1 }, 0, { 1, 0, 0 }, true, true },
         { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 1, 0 }, { 0, 1 }, 1.0f / 512.0f, { 1, 0, 0 }, true, true },
-        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 1, 0 }, { 0, 1 }, 1.0f / 256.0f, { 1, 1, 0 }, false, true }, /* Tri-linear should kick in here, but NV is bugged in aniso mode (or it's cheating ...) */
+        /* Tri-linear should kick in here, but NV is mildly bugged in aniso mode (or it's cheating with LOD snapping ...).
+         * Use a larger LOD bias than we should need to trigger it. Also shift the texel a bit to account for our conservative aniso extent in vkd3d-proton. */
+        { { MIP_REGION_WIDTH - 1.51f, MIP_REGION_HEIGHT - 1.51f }, { 1, 0 }, { 0, 1 }, 1.5f / 256.0f, { 1, 1, 0 }, false, true },
         /* Test different square rotations of gradient. */
         { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 2, 0 }, { 0, 1 }, 0, { 2, 0, 0 }, true, true },
         { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 1, 0 }, { 0, 2 }, 0, { 2, 0, 0 }, true, true },
@@ -3217,7 +3218,7 @@ void test_sampler_feedback_implicit_lod_aniso(void)
         { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { (D), (D) }, { (D), -(D) }, B, { 1, lod1 ? 1 : 0, 0 }, false, true }
 
         DECL_ROTATED(SQRT_1_2, 0.0f, false),
-        DECL_ROTATED(SQRT_1_2, 0.01f, true), /* Should compute LOD > 0 and trigger tri-linear. NV is bugged, Intel / AMD is spec correct here. */
+        DECL_ROTATED(SQRT_1_2, 0.05f, true), /* Should compute LOD > 0 and trigger tri-linear. */
 
         /* Study boundary condition for aniso and filtering. Boundary seems to be +/- 0.5 * gradient, which fits nicely with bilinear being gradient = 1.
          * Test this assumption exhaustively for all integer aniso factors and some fractional values.
