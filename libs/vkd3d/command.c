@@ -12869,7 +12869,7 @@ static bool d3d12_command_list_validate_sampler_feedback_transcode(
 }
 
 static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list *list,
-        struct d3d12_resource *dst, UINT dst_x, UINT dst_y,
+        struct d3d12_resource *dst, UINT dst_subresource_index, UINT dst_x, UINT dst_y,
         struct d3d12_resource *src, UINT src_subresource_index, const D3D12_RECT *src_rect)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -12894,6 +12894,22 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
 
     if (!d3d12_command_list_validate_sampler_feedback_transcode(src, dst))
         return;
+
+    /* Fixup subresource indices. */
+    if (dst->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE)
+    {
+        /* src index controls what we're doing. dst_subresource_index should always be UINT_MAX according to docs. */
+        dst_subresource_index = src_subresource_index;
+    }
+    else
+    {
+        /* Having mismatched all / concrete subresources breaks native drivers. Fix it up to not blow up.
+         * Otherwise, it is permissible to mismatch in MIP_USED mode. */
+        if (src_subresource_index != UINT32_MAX && dst_subresource_index == UINT32_MAX)
+            dst_subresource_index = src_subresource_index;
+        else if (dst_subresource_index != UINT32_MAX && src_subresource_index == UINT32_MAX)
+            src_subresource_index = dst_subresource_index;
+    }
 
     memset(&dst_view_desc, 0, sizeof(dst_view_desc));
     dst_view_desc.image = dst->res.vk_image;
@@ -12949,9 +12965,10 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
 
         extent = d3d12_resource_desc_get_active_feedback_extent(&dst->desc, 0);
 
-        /* These make little to no sense for buffers ... Docs don't say anything about it. */
+        /* These make little to no sense for buffers ... Docs don't say anything about it.
+         * They are ignored on some drivers, and treated as image offsets on AMD ... :< */
         if (dst_x || dst_y)
-            FIXME_ONCE("Ignoring dst_x and dst_y.\n");
+            WARN("Ignoring dst_x and dst_y.\n");
 
         src_buffer_view_desc.format = vkd3d_get_format(list->device, DXGI_FORMAT_R8_UINT, false);
         src_buffer_view_desc.size = extent.width * extent.height;
@@ -13034,12 +13051,17 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
                 subresource = vk_image_subresource_from_d3d12(src_image_view_desc.format,
                         src_subresource_index, src->desc.MipLevels, src->desc.DepthOrArraySize, false);
 
-                dst_view_desc.layer_idx = subresource.arrayLayer;
-                dst_view_desc.layer_count = 1;
                 src_image_view_desc.layer_idx = subresource.arrayLayer;
                 src_image_view_desc.miplevel_idx = subresource.mipLevel;
                 src_image_view_desc.layer_count = 1;
                 src_image_view_desc.miplevel_count = 1;
+                /* src_mip is implied by the view itself. */
+
+                subresource = vk_image_subresource_from_d3d12(dst_view_desc.format,
+                        dst_subresource_index, dst->desc.MipLevels, dst->desc.DepthOrArraySize, false);
+                dst_view_desc.layer_idx = subresource.arrayLayer;
+                dst_view_desc.layer_count = 1;
+                args.dst_mip = subresource.mipLevel;
             }
         }
 
@@ -13059,31 +13081,39 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
         vk_descriptor_writes[1].pImageInfo = &vk_image_info[1];
         vk_descriptor_writes[1].descriptorCount = 1;
 
-        args.dst_x = dst_x;
-        args.dst_y = dst_y;
+        if (dst->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)
+        {
+            args.dst_x = dst_x;
+            args.dst_y = dst_y;
+        }
+        else if (dst_x || dst_y)
+        {
+            /* These are ignored on all drivers for MIN_MIP. */
+            WARN("Ignoring dst_x and dst_y.\n");
+            dst_x = 0;
+            dst_y = 0;
+        }
 
         for (i = 0; i < num_mip_iterations; i++)
         {
-            extent = d3d12_resource_desc_get_active_feedback_extent(&dst->desc, src_image_view_desc.miplevel_idx);
+            extent = d3d12_resource_desc_get_active_feedback_extent(&dst->desc, args.dst_mip);
             transcoded_width = extent.width;
             transcoded_height = extent.height;
+            if (dst_x >= transcoded_width || dst_y >= transcoded_height)
+            {
+                WARN("Trying to encode out of bounds.\n");
+                goto cleanup;
+            }
+            transcoded_width -= dst_x;
+            transcoded_height -= dst_y;
 
             /* Transcoded output doesn't have to cover everything. Cover minimum. */
             vk_extent_3d_from_d3d12_miplevel(&extent, &src->desc, src_image_view_desc.miplevel_idx);
             transcoded_width = min(transcoded_width, extent.width);
             transcoded_height = min(transcoded_height, extent.height);
 
-            if (dst_x >= transcoded_width || dst_y >= transcoded_height)
-            {
-                WARN("Trying to encode out of bounds.\n");
-                goto cleanup;
-            }
-
-            transcoded_width -= dst_x;
-            transcoded_height -= dst_y;
-
             /* Source rect is not allowed for MIN_MIP mode. */
-            if (src_rect && src->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)
+            if (dst->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE && src_rect)
             {
                 transcoded_width = min((int)transcoded_width, src_rect->right - src_rect->left);
                 transcoded_height = min((int)transcoded_height, src_rect->bottom - src_rect->top);
@@ -13105,7 +13135,7 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
                     vkd3d_meta_get_sampler_feedback_workgroup_size().width);
             extent.height = vkd3d_compute_workgroup_count(args.resolve_height,
                     vkd3d_meta_get_sampler_feedback_workgroup_size().height);
-            extent.depth = 1;
+            extent.depth = dst_view_desc.layer_count;
             VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, extent.width, extent.height, extent.depth));
 
             VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
@@ -13135,7 +13165,7 @@ cleanup:
 
 static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list *list,
         struct d3d12_resource *dst, UINT dst_subresource_index, UINT dst_x, UINT dst_y,
-        struct d3d12_resource *src, const D3D12_RECT *src_rect)
+        struct d3d12_resource *src, UINT src_subresource_index, const D3D12_RECT *src_rect)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_texture_view_desc dst_image_view_desc, src_view_desc;
@@ -13163,6 +13193,22 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
 
     if (!d3d12_command_list_validate_sampler_feedback_transcode(dst, src))
         return;
+
+    /* Fixup subresource indices. */
+    if (src->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE)
+    {
+        /* dst index controls what we're doing. src_subresource_index should always be UINT_MAX according to docs. */
+        src_subresource_index = dst_subresource_index;
+    }
+    else
+    {
+        /* Having mismatched all / concrete subresources breaks native drivers. Fix it up to not blow up.
+         * Otherwise, it is permissible to mismatch in MIP_USED mode. */
+        if (src_subresource_index != UINT32_MAX && dst_subresource_index == UINT32_MAX)
+            dst_subresource_index = src_subresource_index;
+        else if (dst_subresource_index != UINT32_MAX && src_subresource_index == UINT32_MAX)
+            src_subresource_index = dst_subresource_index;
+    }
 
     memset(&src_view_desc, 0, sizeof(src_view_desc));
     src_view_desc.image = src->res.vk_image;
@@ -13211,9 +13257,10 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
 
         extent = d3d12_resource_desc_get_active_feedback_extent(&src->desc, 0);
 
-        /* These make little to no sense for buffers ... Docs don't say anything about it. */
+        /* These make little to no sense for buffers ... Docs don't say anything about it.
+         * They are ignored on some drivers. */
         if (dst_x || dst_y)
-            FIXME_ONCE("Ignoring dst_x and dst_y.\n");
+            WARN("Ignoring dst_x and dst_y.\n");
 
         dst_buffer_view_desc.format = vkd3d_get_format(list->device, DXGI_FORMAT_R8_UINT, false);
         dst_buffer_view_desc.size = extent.width * extent.height;
@@ -13318,6 +13365,7 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
 
             vk_image_barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
             vk_image_barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+            args.mip_level = 0;
         }
         else
         {
@@ -13326,21 +13374,26 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
             {
                 dst_image_view_desc.layer_idx = dst_subresource_index;
                 dst_image_view_desc.layer_count = 1;
-                src_view_desc.layer_idx = dst_subresource_index;
+                src_view_desc.layer_idx = src_subresource_index;
                 src_view_desc.layer_count = 1;
+                args.mip_level = 0; /* We iterate over all mips in one pass. */
             }
             else
             {
-                /* Concrete mip level. */
+                /* Concrete mip level. They can mismatch. */
                 subresource = vk_image_subresource_from_d3d12(dst_image_view_desc.format,
                         dst_subresource_index, dst->desc.MipLevels, dst->desc.DepthOrArraySize, false);
-
-                src_view_desc.layer_idx = subresource.arrayLayer;
-                src_view_desc.layer_count = 1;
                 dst_image_view_desc.layer_idx = subresource.arrayLayer;
                 dst_image_view_desc.miplevel_idx = subresource.mipLevel;
                 dst_image_view_desc.layer_count = 1;
                 dst_image_view_desc.miplevel_count = 1;
+
+                subresource = vk_image_subresource_from_d3d12(src_view_desc.format,
+                        src_subresource_index, src->desc.MipLevels, src->desc.DepthOrArraySize, false);
+                src_view_desc.layer_idx = subresource.arrayLayer;
+                src_view_desc.layer_count = 1;
+                /* The feedback image is not actually mip-mapped. */
+                args.mip_level = subresource.mipLevel;
             }
 
             vk_image_barrier.subresourceRange.baseArrayLayer = dst_image_view_desc.layer_idx;
@@ -13354,6 +13407,19 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
         dep_info.imageMemoryBarrierCount = 1;
         dep_info.pImageMemoryBarriers = &vk_image_barrier;
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+
+        if (src->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)
+        {
+            args.dst_x = dst_x;
+            args.dst_y = dst_y;
+        }
+        else if (dst_x || dst_y)
+        {
+            /* These are ignored on all drivers for MIN_MIP. */
+            WARN("Ignoring dst_x and dst_y.\n");
+            dst_x = 0;
+            dst_y = 0;
+        }
 
         memset(&rendering_info, 0, sizeof(rendering_info));
         rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
@@ -13374,9 +13440,6 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
         viewport.minDepth = 0.0f;
         viewport.maxDepth = 1.0f;
 
-        args.dst_x = dst_x;
-        args.dst_y = dst_y;
-
         for (i = 0; i < num_mip_iterations; i++)
         {
             if (dst_view)
@@ -13396,26 +13459,24 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
             if (!vkd3d_create_texture_view(list->device, &dst_image_view_desc, &dst_view))
                 goto cleanup;
 
-            extent = d3d12_resource_desc_get_active_feedback_extent(&src->desc, dst_image_view_desc.miplevel_idx);
-            transcoded_width = extent.width;
-            transcoded_height = extent.height;
-
             /* Transcoded output doesn't have to cover everything. Cover minimum. */
             vk_extent_3d_from_d3d12_miplevel(&extent, &dst->desc, dst_image_view_desc.miplevel_idx);
-            transcoded_width = min(transcoded_width, extent.width);
-            transcoded_height = min(transcoded_height, extent.height);
-
+            transcoded_width = extent.width;
+            transcoded_height = extent.height;
             if (dst_x >= transcoded_width || dst_y >= transcoded_height)
             {
                 WARN("Trying to decode out of bounds.\n");
                 goto cleanup;
             }
-
             transcoded_width -= dst_x;
             transcoded_height -= dst_y;
 
-            /* Source rect is not allowed for MIN_MIP mode. */
-            if (src_rect && src->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)
+            extent = d3d12_resource_desc_get_active_feedback_extent(&src->desc, args.mip_level);
+            transcoded_width = min(transcoded_width, extent.width);
+            transcoded_height = min(transcoded_height, extent.height);
+
+            /* Source rect is not allowed for MIN_MIP mode. It is actively ignored. */
+            if (src->desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE && src_rect)
             {
                 transcoded_width = min((int)transcoded_width, src_rect->right - src_rect->left);
                 transcoded_height = min((int)transcoded_height, src_rect->bottom - src_rect->top);
@@ -13425,7 +13486,6 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
 
             args.resolve_width = transcoded_width;
             args.resolve_height = transcoded_height;
-            args.mip_level = dst_image_view_desc.miplevel_idx;
 
             attachment_info.imageView = dst_view->vk_image_view;
             rendering_info.renderArea.extent.width = transcoded_width;
@@ -13449,6 +13509,7 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
             VK_CALL(vkCmdEndRendering(list->cmd.vk_command_buffer));
 
             dst_image_view_desc.miplevel_idx++;
+            args.mip_level++;
             d3d12_command_allocator_add_view(list->allocator, src_view);
             d3d12_command_allocator_add_view(list->allocator, dst_view);
         }
@@ -13507,14 +13568,16 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(d3d12_
             return;
         }
 
-        /* src subresource index is intentionally dropped.
-         * For decode, we use the dst index instead to determine how to interpret the subresource index.
+        /* For decode, we use the dst index instead to determine how to interpret the subresource index
+         * in MIN_MIP mode.
          * This index is then context dependent on the format.
          * -1: Decode all layer/mips.
-         * N: For MIN_MIP, decode array layer N. For MIP_USED, decode subresource N (specific mip/layer). */
+         * N: For MIN_MIP, decode array layer N.
+         * For MIP_USED, decode subresource N (specific mip/layer).
+         * Spec is vague if it's allowed to have mismatching subresource IDX, but it works on native drivers. */
         d3d12_command_list_decode_sampler_feedback(list,
                 dst_resource, dst_sub_resource_idx, dst_x, dst_y,
-                src_resource, src_rect);
+                src_resource, src_sub_resource_idx, src_rect);
 
         return;
     }
@@ -13527,7 +13590,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(d3d12_
         }
 
         d3d12_command_list_encode_sampler_feedback(list,
-                dst_resource, dst_x, dst_y,
+                dst_resource, dst_sub_resource_idx, dst_x, dst_y,
                 src_resource, src_sub_resource_idx, src_rect);
 
         return;
