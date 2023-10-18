@@ -1111,11 +1111,11 @@ void test_sampler_feedback_decode_encode_min_mip(void)
 
 void test_sampler_feedback_decode_encode_mip_used(void)
 {
-#define MIP_REGIONS_X 16
-#define MIP_REGIONS_Y 16
+#define MIP_REGIONS_X 16u
+#define MIP_REGIONS_Y 16u
 #define MIP_REGIONS_FLAT (MIP_REGIONS_X * MIP_REGIONS_Y)
-#define MIP_REGION_WIDTH 8
-#define MIP_REGION_HEIGHT 8
+#define MIP_REGION_WIDTH 8u
+#define MIP_REGION_HEIGHT 8u
 #define TEX_WIDTH (MIP_REGIONS_X * MIP_REGION_WIDTH)
 #define TEX_HEIGHT (MIP_REGIONS_Y * MIP_REGION_HEIGHT)
 #define LAYERS 4
@@ -1132,7 +1132,6 @@ void test_sampler_feedback_decode_encode_mip_used(void)
     ID3D12Resource *feedback;
     unsigned int x, y, i, j;
     ID3D12Device8 *device8;
-    unsigned int iter;
     HRESULT hr;
 
     /* Funnily enough, resolve cannot be called in a COMPUTE or COPY queue. */
@@ -1269,8 +1268,8 @@ void test_sampler_feedback_decode_encode_mip_used(void)
 
     /* Test source rect. */
     {
-        const D3D12_RECT decode_rect = { 1, 2, 9, 10 };
-        const D3D12_RECT encode_rect = { 4, 0, 5, 1 };
+        D3D12_RECT decode_rect = { 1, 2, 9, 10 };
+        D3D12_RECT encode_rect = { 4, 0, 5, 1 };
         ID3D12GraphicsCommandList1_ResolveSubresourceRegion(list1, feedback, 0, decode_rect.left, decode_rect.top, upload_tex, 0, &encode_rect, DXGI_FORMAT_R8_UINT, D3D12_RESOLVE_MODE_ENCODE_SAMPLER_FEEDBACK);
         transition_resource_state(context.list, resolve_tex, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
         transition_resource_state(context.list, feedback, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
@@ -1289,7 +1288,7 @@ void test_sampler_feedback_decode_encode_mip_used(void)
 
                 if (x == 0 && y == 0)
                     expected = (encode_rect.top * MIP_REGIONS_X + encode_rect.left) & 4 ? 0xff : 0;
-                else if (x < (decode_rect.right - decode_rect.left) && y < (decode_rect.bottom - decode_rect.top))
+                else if ((int)x < (decode_rect.right - decode_rect.left) && (int)y < (decode_rect.bottom - decode_rect.top))
                     expected = ((y + decode_rect.top) * MIP_REGIONS_X + (x + decode_rect.left)) & 4 ? 0xff : 0;
                 else
                     expected = (y * MIP_REGIONS_X + x) & 4 ? 0xff : 0;
@@ -3178,10 +3177,10 @@ void test_sampler_feedback_implicit_lod_aniso(void)
     };
     static const D3D12_SHADER_BYTECODE ps_code_bias_dxil = SHADER_BYTECODE(ps_code_bias);
 
-#define TEX_WIDTH 2048
-#define TEX_HEIGHT 2048
-#define MIP_REGION_WIDTH 64 /* MIP_REGION_SIZE of 32 breaks on NV. Seems like it's part of the reserved set of mip region sizes in the NV Vulkan extension ... :') */
-#define MIP_REGION_HEIGHT 64
+#define TEX_WIDTH 2048u
+#define TEX_HEIGHT 2048u
+#define MIP_REGION_WIDTH 64u /* MIP_REGION_SIZE of 32 breaks on NV. Seems like it's part of the reserved set of mip region sizes in the NV Vulkan extension ... :') */
+#define MIP_REGION_HEIGHT 64u
 #define FEEDBACK_WIDTH (TEX_WIDTH / MIP_REGION_WIDTH)
 #define FEEDBACK_HEIGHT (TEX_HEIGHT / MIP_REGION_HEIGHT)
 #define TEX_MIP_LEVELS 3
