@@ -1,0 +1,18 @@
+#version 450
+layout(local_size_x = 8, local_size_y = 8) in;
+
+#extension GL_GOOGLE_include_directive : require
+#include "sampler_feedback_encode.h"
+
+layout(set = 0, binding = 2) uniform utextureBuffer InputBuffer;
+
+void main()
+{
+	ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+	if (all(lessThan(coord, resolution)))
+	{
+		uint value = texelFetch(InputBuffer, int(coord.y * resolution.x + coord.x)).x;
+		sampler_feedback_encode_min_mip(coord, 0, value);
+	}
+}
+
