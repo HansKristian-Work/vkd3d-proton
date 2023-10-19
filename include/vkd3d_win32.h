@@ -28,6 +28,12 @@
 #include <vulkan/vulkan.h>
 #include "private/vulkan_private_extensions.h"
 
+/* Upstream MinGW headers don't have all DXGI_FORMAT types, force our own header. */
+#ifdef __MINGW32__
+#include <vkd3d_dxgiformat.h>
+#define __dxgiformat_h__
+#endif
+
 #include <dxgi1_6.h>
 
 /* We already included regular DXGI...
