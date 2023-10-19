@@ -1,0 +1,19 @@
+#version 450
+layout(local_size_x = 8, local_size_y = 8) in;
+
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_samplerless_texture_functions : require
+#include "sampler_feedback_encode.h"
+
+layout(set = 0, binding = 1) uniform utexture2DArray InputBuffer;
+
+void main()
+{
+	ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+	if (all(lessThan(coord, resolution)))
+	{
+		uint value = texelFetch(InputBuffer, ivec3(coord + src_offset, gl_WorkGroupID.z), src_mip).x;
+		sampler_feedback_encode_mip_used(coord, int(gl_WorkGroupID.z), value != 0);
+	}
+}
+

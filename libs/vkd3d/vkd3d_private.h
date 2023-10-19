@@ -3861,6 +3861,17 @@ enum vkd3d_predicate_command_type
     VKD3D_PREDICATE_COMMAND_COUNT
 };
 
+enum vkd3d_sampler_feedback_resolve_type
+{
+    VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIN_MIP_TO_BUFFER,
+    VKD3D_SAMPLER_FEEDBACK_RESOLVE_BUFFER_TO_MIN_MIP,
+    VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIN_MIP_TO_IMAGE,
+    VKD3D_SAMPLER_FEEDBACK_RESOLVE_IMAGE_TO_MIN_MIP,
+    VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIP_USED_TO_IMAGE,
+    VKD3D_SAMPLER_FEEDBACK_RESOLVE_IMAGE_TO_MIP_USED,
+    VKD3D_SAMPLER_FEEDBACK_RESOLVE_COUNT
+};
+
 struct vkd3d_predicate_command_info
 {
     VkPipelineLayout vk_pipeline_layout;
@@ -3971,6 +3982,43 @@ struct vkd3d_meta_ops_common
     VkShaderModule vk_module_fullscreen_gs;
 };
 
+struct vkd3d_sampler_feedback_resolve_info
+{
+    VkPipelineLayout vk_layout;
+    VkPipeline vk_pipeline;
+};
+
+struct vkd3d_sampler_feedback_resolve_decode_args
+{
+    uint32_t src_x, src_y;
+    uint32_t dst_x, dst_y;
+    uint32_t resolve_width, resolve_height;
+    uint32_t paired_width, paired_height;
+    float inv_paired_width, inv_paired_height;
+    float inv_feedback_width, inv_feedback_height;
+    uint32_t num_mip_levels;
+    uint32_t mip_level;
+};
+
+struct vkd3d_sampler_feedback_resolve_encode_args
+{
+    uint32_t src_x, src_y;
+    uint32_t dst_x, dst_y;
+    uint32_t resolve_width, resolve_height;
+    uint32_t src_mip;
+    uint32_t dst_mip;
+};
+
+struct vkd3d_sampler_feedback_resolve_ops
+{
+    VkPipelineLayout vk_compute_encode_layout;
+    VkPipelineLayout vk_compute_decode_layout;
+    VkPipelineLayout vk_graphics_decode_layout;
+    VkDescriptorSetLayout vk_decode_set_layout;
+    VkDescriptorSetLayout vk_encode_set_layout;
+    VkPipeline vk_pipelines[VKD3D_SAMPLER_FEEDBACK_RESOLVE_COUNT];
+};
+
 struct vkd3d_meta_ops
 {
     struct d3d12_device *device;
@@ -3983,6 +4031,7 @@ struct vkd3d_meta_ops
     struct vkd3d_execute_indirect_ops execute_indirect;
     struct vkd3d_multi_dispatch_indirect_ops multi_dispatch_indirect;
     struct vkd3d_dstorage_ops dstorage;
+    struct vkd3d_sampler_feedback_resolve_ops sampler_feedback;
 };
 
 HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device);
@@ -4027,6 +4076,15 @@ static inline uint32_t vkd3d_meta_get_multi_dispatch_indirect_workgroup_size(voi
 
 HRESULT vkd3d_meta_get_execute_indirect_pipeline(struct vkd3d_meta_ops *meta_ops,
         uint32_t patch_command_count, struct vkd3d_execute_indirect_info *info);
+
+void vkd3d_meta_get_sampler_feedback_resolve_pipeline(struct vkd3d_meta_ops *meta_ops,
+        enum vkd3d_sampler_feedback_resolve_type type, struct vkd3d_sampler_feedback_resolve_info *info);
+
+static inline VkExtent3D vkd3d_meta_get_sampler_feedback_workgroup_size(void)
+{
+    VkExtent3D result = { 8, 8, 1 };
+    return result;
+}
 
 enum vkd3d_time_domain_flag
 {
