@@ -4783,9 +4783,29 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
                 break;
 
             case D3D12_RESOURCE_STATE_RESOLVE_DEST:
+                if (d3d12_resource_desc_is_sampler_feedback(&resource->desc))
+                {
+                    /* ENCODE is always done with compute. */
+                    *stages |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                }
+                else
+                {
+                    /* Needs COPY stage for D3D12_RESOLVE_MODE_DECOMPRESS */
+                    *stages |= VK_PIPELINE_STAGE_2_RESOLVE_BIT | VK_PIPELINE_STAGE_2_COPY_BIT;
+                }
+                break;
+
             case D3D12_RESOURCE_STATE_RESOLVE_SOURCE:
-                /* Needs COPY stage for D3D12_RESOLVE_MODE_DECOMPRESS */
-                *stages |= VK_PIPELINE_STAGE_2_RESOLVE_BIT | VK_PIPELINE_STAGE_2_COPY_BIT;
+                if (d3d12_resource_desc_is_sampler_feedback(&resource->desc))
+                {
+                    /* We can decode in either fragment or compute paths. */
+                    *stages |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+                }
+                else
+                {
+                    /* Needs COPY stage for D3D12_RESOLVE_MODE_DECOMPRESS */
+                    *stages |= VK_PIPELINE_STAGE_2_RESOLVE_BIT | VK_PIPELINE_STAGE_2_COPY_BIT;
+                }
                 break;
 
             case D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE:
@@ -8748,6 +8768,18 @@ VkImageLayout vk_image_layout_from_d3d12_resource_state(
             else
                 return resource->common_layout;
 
+        case D3D12_RESOURCE_STATE_RESOLVE_DEST:
+            if (d3d12_resource_desc_is_sampler_feedback(&resource->desc))
+                return VK_IMAGE_LAYOUT_GENERAL;
+            else
+                return resource->common_layout;
+
+        case D3D12_RESOURCE_STATE_RESOLVE_SOURCE:
+            if (d3d12_resource_desc_is_sampler_feedback(&resource->desc))
+                return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            else
+                return resource->common_layout;
+
         default:
             /* For TRANSFER or RESOLVE states, we transition in and out of common state since we have to
              * handle implicit sync anyways and TRANSFER can decay/promote. */
@@ -8783,6 +8815,18 @@ static VkImageLayout vk_image_layout_from_d3d12_barrier(
              * and we treat WRITE and READ more or less the same. */
             if (list)
                 return d3d12_command_list_get_depth_stencil_resource_layout(list, resource, NULL);
+            else
+                return resource->common_layout;
+
+        case D3D12_BARRIER_LAYOUT_RESOLVE_DEST:
+            if (d3d12_resource_desc_is_sampler_feedback(&resource->desc))
+                return VK_IMAGE_LAYOUT_GENERAL;
+            else
+                return resource->common_layout;
+
+        case D3D12_BARRIER_LAYOUT_RESOLVE_SOURCE:
+            if (d3d12_resource_desc_is_sampler_feedback(&resource->desc))
+                return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             else
                 return resource->common_layout;
 
@@ -13828,10 +13872,14 @@ static VkPipelineStageFlags2 vk_stage_flags_from_d3d12_barrier(struct d3d12_comm
     if (sync & D3D12_BARRIER_SYNC_RAYTRACING)
         stages |= VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
 
-    if (sync & (D3D12_BARRIER_SYNC_COPY | D3D12_BARRIER_SYNC_RESOLVE))
+    if (sync & D3D12_BARRIER_SYNC_COPY)
         stages |= VK_PIPELINE_STAGE_2_COPY_BIT;
+
     if (sync & D3D12_BARRIER_SYNC_RESOLVE)
-        stages |= VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+    {
+        stages |= VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                VK_PIPELINE_STAGE_2_RESOLVE_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    }
 
     if (sync & D3D12_BARRIER_SYNC_EXECUTE_INDIRECT) /* PREDICATION is alias for EXECUTE_INDIRECT */
     {
@@ -13899,10 +13947,14 @@ static VkAccessFlags2 vk_access_flags_from_d3d12_barrier(struct d3d12_command_li
             vk_access |= VK_ACCESS_2_COMMAND_PREPROCESS_READ_BIT_NV;
     }
 
-    if (access & (D3D12_BARRIER_ACCESS_COPY_DEST | D3D12_BARRIER_ACCESS_RESOLVE_DEST))
+    if (access & D3D12_BARRIER_ACCESS_COPY_DEST)
         vk_access |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    if (access & (D3D12_BARRIER_ACCESS_COPY_SOURCE | D3D12_BARRIER_ACCESS_RESOLVE_SOURCE))
+    if (access & D3D12_BARRIER_ACCESS_COPY_SOURCE)
         vk_access |= VK_ACCESS_2_TRANSFER_READ_BIT;
+    if (access & D3D12_BARRIER_ACCESS_RESOLVE_DEST)
+        vk_access |= VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+    if (access & D3D12_BARRIER_ACCESS_RESOLVE_SOURCE)
+        vk_access |= VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_SHADER_READ_BIT;
     if (access & D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_READ)
         vk_access |= VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
     if (access & D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE)
