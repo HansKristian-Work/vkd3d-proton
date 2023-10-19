@@ -7941,6 +7941,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
     VkCopyBufferInfo2 copy_info;
     VkImageCopy2 vk_image_copy;
     unsigned int layer_count;
+    unsigned int level_count;
     unsigned int i;
 
     TRACE("iface %p, dst_resource %p, src_resource %p.\n", iface, dst, src);
@@ -7986,13 +7987,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
     else
     {
         layer_count = d3d12_resource_desc_get_layer_count(&dst_resource->desc);
+        level_count = d3d12_resource_desc_get_active_level_count(&dst_resource->desc);
 
         assert(d3d12_resource_is_texture(dst_resource));
         assert(d3d12_resource_is_texture(src_resource));
-        assert(dst_resource->desc.MipLevels == src_resource->desc.MipLevels);
+        assert(level_count == d3d12_resource_desc_get_active_level_count(&src_resource->desc));
         assert(layer_count == d3d12_resource_desc_get_layer_count(&src_resource->desc));
 
-        for (i = 0; i < dst_resource->desc.MipLevels; ++i)
+        for (i = 0; i < level_count; ++i)
         {
             if (!vk_image_copy_from_d3d12(&vk_image_copy, i, i,
                     &src_resource->desc, &dst_resource->desc, src_resource->format, dst_resource->format, NULL, 0, 0, 0))
@@ -8000,6 +8002,10 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
                 WARN("Degenerate copy for level %u, skipping.\n", i);
                 continue;
             }
+
+            /* Copying sampler feedback is only allowed in CopyResource. */
+            if (d3d12_resource_desc_is_sampler_feedback(&src_resource->desc))
+                vk_image_copy.extent = d3d12_resource_desc_get_padded_feedback_extent(&src_resource->desc);
 
             vk_image_copy.dstSubresource.layerCount = layer_count;
             vk_image_copy.srcSubresource.layerCount = layer_count;
