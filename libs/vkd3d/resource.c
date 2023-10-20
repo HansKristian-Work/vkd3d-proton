@@ -542,10 +542,20 @@ static bool vkd3d_format_needs_extended_usage(const struct vkd3d_format *format,
 struct vkd3d_image_create_info
 {
     struct vkd3d_format_compatibility_list format_compat_list;
+    VkImageCompressionControlEXT image_compression_control;
     VkExternalMemoryImageCreateInfo external_info;
     VkImageFormatListCreateInfo format_list;
     VkImageCreateInfo image_info;
 };
+
+static bool d3d12_device_should_use_image_compression_control(struct d3d12_device *device)
+{
+    /* NV does not support this extension, but if they did, we wouldn't want to use it.
+     * NV does not implement compression in a way where we would want to work around issues like this.
+     * Disabling compression would likely not work around anything. */
+    return device->device_info.image_compression_control_features.imageCompressionControl &&
+            device->device_info.vulkan_1_2_properties.driverID != VK_DRIVER_ID_NVIDIA_PROPRIETARY;
+}
 
 static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
@@ -553,6 +563,7 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
         struct vkd3d_image_create_info *create_info)
 {
+    VkImageCompressionControlEXT *image_compression_control = &create_info->image_compression_control;
     struct vkd3d_format_compatibility_list *compat_list = &create_info->format_compat_list;
     VkExternalMemoryImageCreateInfo *external_info = &create_info->external_info;
     VkImageFormatListCreateInfo *format_list = &create_info->format_list;
@@ -560,6 +571,7 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
     VkImageCreateInfo *image_info = &create_info->image_info;
     const bool sparse_resource = !heap_properties;
     const struct vkd3d_format *format;
+    bool disable_compression;
     bool use_concurrent;
     unsigned int i;
 
@@ -592,19 +604,49 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         external_info->sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
         external_info->pNext = NULL;
         external_info->handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
-
-        image_info->pNext = external_info;
+        vk_prepend_struct(image_info, external_info);
     }
+
+    disable_compression = false;
+
+    /* D3D12 rules for placed resources are such that only RTV / DSV usage requires initialization.
+     * UAV is left out which means that pure UAV resources are not really possible to enable DCC on.
+     * This was fixed in enhanced barriers to also require discards on UAV, but we don't consider that case yet.
+     * No games ship EB, so there is no point in tuning for that yet.
+     * Application bugs in this area are rampant either way. On RADV at least, compression is not enabled for pure STORAGE
+     * images anyway, so this is mostly to avoid future regressions.
+     * What we really "want" here is a way to say that layouts don't matter, and disabling compression
+     * is the pragmatic way to work around this, but there's only so much we can do when faced with bugged apps. */
+    if (!(desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL | D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)))
+        disable_compression = true;
+
+    /* Can be a performance tweak, or app workaround.
+     * On AMD native drivers, UAV + RTV usage tends to disable compression, but RADV tends to enable it.
+     * This is another source of application bugs. Give us an escape hatch as needed. */
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DISABLE_UAV_COMPRESSION) &&
+            (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS))
+        disable_compression = true;
+
+    /* Mostly for debugging, but could be relevant for app workarounds too. */
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DISABLE_DEPTH_COMPRESSION) &&
+            (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
+        disable_compression = true;
+
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DISABLE_COLOR_COMPRESSION) &&
+            !(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
+        disable_compression = true;
 
     if (!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
     {
-        if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_SIMULTANEOUS_UAV_SUPPRESS_COMPRESSION) &&
-                (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS) &&
-                (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS))
+        if (disable_compression ||
+                ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DISABLE_SIMULTANEOUS_UAV_COMPRESSION) &&
+                        (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS) &&
+                        (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)))
         {
             /* SIMULTANEOUS_ACCESS heavily implies that we should disable compression.
              * There is no way to do this from within Vulkan, but best effort is full mutable format,
-             * which works around issues on RDNA2 at least.
+             * which works around issues on RDNA2 at least. But it is not enough on RDNA3 (full MUTABLE is DCC compat),
+             * so image_compression_control it is.
              * This works around a Witcher 3 game bug with SSR on High where DCC metadata clears
              * races with UAV write.
              * In terms of D3D12 spec, we are not required to disable compression since there can only be
@@ -616,6 +658,7 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
              * For now, keep this as a specific workaround until we understand the problem scope better. */
             image_info->flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
             memset(compat_list, 0, sizeof(*compat_list));
+            disable_compression = true;
         }
         else
         {
@@ -634,12 +677,22 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
             if (requires_format_list)
             {
                 format_list->sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO_KHR;
-                format_list->pNext = image_info->pNext;
+                format_list->pNext = NULL;
                 format_list->viewFormatCount = compat_list->format_count;
                 format_list->pViewFormats = compat_list->vk_formats;
-                image_info->pNext = format_list;
+                vk_prepend_struct(image_info, format_list);
             }
         }
+    }
+
+    if (disable_compression && d3d12_device_should_use_image_compression_control(device))
+    {
+        image_compression_control->sType = VK_STRUCTURE_TYPE_IMAGE_COMPRESSION_CONTROL_EXT;
+        image_compression_control->pNext = NULL;
+        image_compression_control->flags = VK_IMAGE_COMPRESSION_DISABLED_EXT;
+        image_compression_control->compressionControlPlaneCount = 0;
+        image_compression_control->pFixedRateFlags = NULL;
+        vk_prepend_struct(image_info, image_compression_control);
     }
 
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D
