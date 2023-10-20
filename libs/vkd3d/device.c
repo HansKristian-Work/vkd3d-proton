@@ -101,6 +101,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_MEMORY_PRIORITY, EXT_memory_priority),
     VK_EXTENSION(EXT_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS, EXT_dynamic_rendering_unused_attachments),
     VK_EXTENSION(EXT_LINE_RASTERIZATION, EXT_line_rasterization),
+    VK_EXTENSION(EXT_IMAGE_COMPRESSION_CONTROL, EXT_image_compression_control),
     /* AMD extensions */
     VK_EXTENSION(AMD_BUFFER_MARKER, AMD_buffer_marker),
     VK_EXTENSION(AMD_DEVICE_COHERENT_MEMORY, AMD_device_coherent_memory),
@@ -529,7 +530,7 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     /* Dead Space (2023) (1693980) */
     { VKD3D_STRING_COMPARE_EXACT, "Dead Space.exe", VKD3D_CONFIG_FLAG_FORCE_DEDICATED_IMAGE_ALLOCATION, 0 },
     /* Witcher 3 (2023) (292030) */
-    { VKD3D_STRING_COMPARE_EXACT, "witcher3.exe", VKD3D_CONFIG_FLAG_SIMULTANEOUS_UAV_SUPPRESS_COMPRESSION, 0 },
+    { VKD3D_STRING_COMPARE_EXACT, "witcher3.exe", VKD3D_CONFIG_FLAG_DISABLE_SIMULTANEOUS_UAV_COMPRESSION, 0 },
     /* Age of Wonders 4 (1669000). Extremely stuttery performance with ReBAR. */
     { VKD3D_STRING_COMPARE_EXACT, "AOW4.exe", VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0 },
     /* Starfield (1716740) */
@@ -826,6 +827,10 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"curb_memory_pso_cache", VKD3D_CONFIG_FLAG_CURB_MEMORY_PSO_CACHE},
     {"enable_experimental_features", VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES},
     {"reject_padded_small_resource_alignment", VKD3D_CONFIG_FLAG_REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT},
+    {"disable_simultaneous_uav_compression", VKD3D_CONFIG_FLAG_DISABLE_SIMULTANEOUS_UAV_COMPRESSION},
+    {"disable_uav_compression", VKD3D_CONFIG_FLAG_DISABLE_UAV_COMPRESSION},
+    {"disable_depth_compression", VKD3D_CONFIG_FLAG_DISABLE_DEPTH_COMPRESSION},
+    {"disable_color_compression", VKD3D_CONFIG_FLAG_DISABLE_COLOR_COMPRESSION},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -1699,6 +1704,13 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->line_rasterization_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_PROPERTIES_EXT;
         vk_prepend_struct(&info->features2, &info->line_rasterization_features);
         vk_prepend_struct(&info->properties2, &info->line_rasterization_properties);
+    }
+
+    if (vulkan_info->EXT_image_compression_control)
+    {
+        info->image_compression_control_features.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_COMPRESSION_CONTROL_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->image_compression_control_features);
     }
 
     if (vulkan_info->NV_memory_decompression)
