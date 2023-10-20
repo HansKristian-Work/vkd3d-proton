@@ -12303,7 +12303,9 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         }
     }
 
-    if (signature->state_template.dgc.layout_preprocess)
+    /* If we have custom predication, we would need to introduce a barrier to synchronize with the
+     * new indirect count, which is not desirable. */
+    if (!require_custom_predication && signature->state_template.dgc.layout_preprocess)
     {
         /* If driver can take advantage of preprocess, we can consider preprocessing explicitly if we can hoist it.
          * If we had indirect barriers earlier in the frame, now might be a good time to split. */
