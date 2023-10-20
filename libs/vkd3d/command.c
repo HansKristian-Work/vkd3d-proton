@@ -17527,12 +17527,9 @@ static HRESULT d3d12_command_signature_init_indirect_commands_layout(
     if (vr != VK_SUCCESS)
         return hresult_from_vk_result(vr);
 
-    if (device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
-    {
-        create_info.flags = VK_INDIRECT_COMMANDS_LAYOUT_USAGE_EXPLICIT_PREPROCESS_BIT_NV;
-        vr = VK_CALL(vkCreateIndirectCommandsLayoutNV(device->vk_device, &create_info, NULL,
-                &signature->state_template.dgc.layout_preprocess));
-    }
+    create_info.flags = VK_INDIRECT_COMMANDS_LAYOUT_USAGE_EXPLICIT_PREPROCESS_BIT_NV;
+    vr = VK_CALL(vkCreateIndirectCommandsLayoutNV(device->vk_device, &create_info, NULL,
+            &signature->state_template.dgc.layout_preprocess));
     return hresult_from_vk_result(vr);
 }
 
