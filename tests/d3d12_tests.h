@@ -320,6 +320,7 @@ decl_test(test_mesh_shader_rendering);
 decl_test(test_mesh_shader_execute_indirect);
 decl_test(test_mesh_shader_execute_indirect_state);
 decl_test(test_amplification_shader);
+decl_test(test_amplification_shader_execute_indirect_state);
 decl_test(test_advanced_cbv_layout);
 decl_test(test_shader_waveop_maximal_convergence);
 decl_test(test_uav_3d_sliced_view);
