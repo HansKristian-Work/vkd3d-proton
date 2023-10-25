@@ -16901,6 +16901,13 @@ static HRESULT d3d12_command_signature_init_state_template_dgc(struct d3d12_comm
         VKD3D_PATCH_COMMAND_TOKEN_COPY_FIRST_INSTANCE,
     };
 
+    static const enum vkd3d_patch_command_token draw_mesh_types[] =
+    {
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_MESH_TASKS_X,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_MESH_TASKS_Y,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_MESH_TASKS_Z,
+    };
+
     static const enum vkd3d_patch_command_token va_types[] =
     {
         VKD3D_PATCH_COMMAND_TOKEN_COPY_ROOT_VA_LO,
@@ -16910,8 +16917,7 @@ static HRESULT d3d12_command_signature_init_state_template_dgc(struct d3d12_comm
     static const VkIndexType vk_index_types[] = { VK_INDEX_TYPE_UINT32, VK_INDEX_TYPE_UINT16 };
     static const uint32_t d3d_index_types[] = { DXGI_FORMAT_R32_UINT, DXGI_FORMAT_R16_UINT };
 
-    bind_point_layout = signature->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE ?
-            &root_signature->compute : &root_signature->graphics;
+    bind_point_layout = d3d12_root_signature_get_layout(root_signature, signature->pipeline_type);
 
     for (i = 0; i < desc->NumArgumentDescs; i++)
     {
@@ -17061,6 +17067,17 @@ static HRESULT d3d12_command_signature_init_state_template_dgc(struct d3d12_comm
                 dst_word_offset = token.offset / sizeof(uint32_t);
                 generic_u32_copy_count = sizeof(VkDrawIndexedIndirectCommand) / sizeof(uint32_t);
                 generic_u32_copy_types = draw_indexed_types;
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH:
+                token.tokenType = VK_INDIRECT_COMMANDS_TOKEN_TYPE_DRAW_MESH_TASKS_NV;
+                required_alignment = sizeof(uint32_t);
+                stream_stride = align(stream_stride, required_alignment);
+                token.offset = stream_stride;
+                stream_stride += sizeof(VkDrawMeshTasksIndirectCommandEXT);
+                dst_word_offset = token.offset / sizeof(uint32_t);
+                generic_u32_copy_count = sizeof(VkDrawMeshTasksIndirectCommandEXT) / sizeof(uint32_t);
+                generic_u32_copy_types = draw_mesh_types;
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
