@@ -1914,7 +1914,7 @@ void test_mesh_shader_execute_indirect_state(void)
     ID3D12Resource *output;
     ID3D12Device2 *device2;
     D3D12_RECT scissor;
-    unsigned int i;
+    unsigned int i, j;
     HRESULT hr;
 
 #if 0
@@ -2086,17 +2086,28 @@ void test_mesh_shader_execute_indirect_state(void)
             D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF },
     } };
 
+    struct test_data
+    {
+        uint32_t prims;
+        uint32_t va[2];
+        uint32_t mesh_groups[3];
+        uint32_t indirect_count;
+    };
+
     struct
     {
-        uint32_t data[7];
+        struct test_data data;
         bool indirect_count;
-        uint32_t expected;
     }
     tests[] =
     {
-        {{5, 0, 0, 2, 3, 4, 0}, false, 6 * 2 * 3 * 4},
-        {{5, 0, 0, 2, 3, 4, 0}, true, 0},
-        {{2, 0, 0, 8, 7, 5, 2 /* clamped to 1 */}, true, 3 * 8 * 7 * 5},
+        {{5, {0, 0}, {0, 3, 4}, 5}, false},
+        {{4, {0, 0}, {4, 3, 4}, 6}, false},
+        {{3, {0, 0}, {1, 0, 0}, 2}, false},
+        {{5, {0, 0}, {2, 3, 8}, 8}, true},
+        {{4, {0, 0}, {4, 3, 6}, 3}, true},
+        {{3, {0, 0}, {1, 3, 0}, 0}, true},
+        {{6, {0, 0}, {2, 3, 4}, 8}, true},
     };
 
     struct {
@@ -2136,8 +2147,6 @@ void test_mesh_shader_execute_indirect_state(void)
     hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList6, (void **)&command_list6);
     ok(SUCCEEDED(hr), "Failed to query ID3D12GraphicsCommandList6.\n");
 
-    indirect_buffer = create_default_buffer(context.device, sizeof(tests[0].data), D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
-
     memset(&root_signature_desc, 0, sizeof(root_signature_desc));
     memset(root_parameters, 0, sizeof(root_parameters));
     root_signature_desc.NumParameters = ARRAY_SIZE(root_parameters);
@@ -2153,7 +2162,7 @@ void test_mesh_shader_execute_indirect_state(void)
     ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
 
     memset(&command_signature_desc, 0, sizeof(command_signature_desc));
-    command_signature_desc.ByteStride = sizeof(tests[0].data);
+    command_signature_desc.ByteStride = sizeof(struct test_data);
     command_signature_desc.NumArgumentDescs = ARRAY_SIZE(indirect_argument_desc);
     command_signature_desc.pArgumentDescs = indirect_argument_desc;
 
@@ -2179,31 +2188,48 @@ void test_mesh_shader_execute_indirect_state(void)
 
     output = create_default_buffer(context.device, sizeof(tests) * sizeof(uint32_t), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
+    {
+        struct test_data test_data[128];
+        memset(test_data, 0, sizeof(test_data));
+        for (i = 0; i < ARRAY_SIZE(tests); i++)
+            test_data[i] = tests[i].data;
+
+        for (i = 0; i < ARRAY_SIZE(test_data); i++)
+        {
+            D3D12_GPU_VIRTUAL_ADDRESS va = ID3D12Resource_GetGPUVirtualAddress(output) + i * sizeof(uint32_t);
+            memcpy(test_data[i].va, &va, sizeof(va));
+        }
+
+        indirect_buffer = create_upload_buffer(context.device, sizeof(test_data), test_data);
+    }
+
     for (i = 0; i < ARRAY_SIZE(tests); i++)
     {
-        D3D12_GPU_VIRTUAL_ADDRESS va = ID3D12Resource_GetGPUVirtualAddress(output) + i * sizeof(uint32_t);
-        memcpy(&tests[i].data[1], &va, sizeof(va));
-        upload_buffer_data(indirect_buffer, 0, sizeof(tests[i].data), tests[i].data, context.queue, context.list);
-
-        reset_command_list(context.list, context.allocator);
-        transition_resource_state(context.list, indirect_buffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
         ID3D12GraphicsCommandList6_SetGraphicsRootSignature(command_list6, root_signature);
         ID3D12GraphicsCommandList6_SetPipelineState(command_list6, pipeline_state);
         set_viewport(&viewport, 0, 0, 1, 1, 0, 1);
         set_rect(&scissor, 0, 0, 1, 1);
         ID3D12GraphicsCommandList6_RSSetViewports(command_list6, 1, &viewport);
         ID3D12GraphicsCommandList6_RSSetScissorRects(command_list6, 1, &scissor);
-        ID3D12GraphicsCommandList6_ExecuteIndirect(command_list6, command_signature, 1, indirect_buffer, 0,
-            tests[i].indirect_count ? indirect_buffer : NULL, tests[i].indirect_count ? (sizeof(tests[i].data) - sizeof(uint32_t)) : 0);
-
-        transition_resource_state(context.list, indirect_buffer, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+        ID3D12GraphicsCommandList6_ExecuteIndirect(command_list6, command_signature,
+            tests[i].indirect_count ? 64 : tests[i].data.indirect_count,
+            indirect_buffer, sizeof(struct test_data) * i,
+            tests[i].indirect_count ? indirect_buffer : NULL,
+            tests[i].indirect_count ? (sizeof(struct test_data) * i + offsetof(struct test_data, indirect_count)) : 0);
     }
 
     transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_buffer_readback_with_command_list(output, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
 
-    for (i = 0; i < ARRAY_SIZE(tests); i++)
-        ok(get_readback_uint(&rb, i, 0, 0) == tests[i].expected, "Test %u: expected %u, got %u.\n", i, tests[i].expected, get_readback_uint(&rb, i, 0, 0));
+    {
+        uint32_t expected[128] = { 0 };
+        for (i = 0; i < ARRAY_SIZE(tests); i++)
+            for (j = 0; j < tests[i].data.indirect_count; j++)
+                expected[i + j] += (tests[i + j].data.prims + 1) * tests[i + j].data.mesh_groups[0] * tests[i + j].data.mesh_groups[1] * tests[i + j].data.mesh_groups[2];
+
+        for (i = 0; i < ARRAY_SIZE(tests); i++)
+            ok(get_readback_uint(&rb, i, 0, 0) == expected[i], "Index %u: expected %u, got %u.\n", i, expected[i], get_readback_uint(&rb, i, 0, 0));
+    }
 
     release_resource_readback(&rb);
 
