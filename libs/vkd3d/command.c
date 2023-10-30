@@ -13267,6 +13267,29 @@ static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list)
     d3d12_command_list_end_current_render_pass(list, true);
     d3d12_command_list_end_transfer_batch(list);
 
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_SYNCHRONIZE_COMPUTE_BLAS) &&
+            rtas_batch->build_type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL)
+    {
+        VkMemoryBarrier2 vk_memory_barrier;
+        VkDependencyInfo dep_info;
+
+        memset(&vk_memory_barrier, 0, sizeof(vk_memory_barrier));
+        memset(&dep_info, 0, sizeof(dep_info));
+
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.memoryBarrierCount = 1;
+        dep_info.pMemoryBarriers = &vk_memory_barrier;
+
+        vk_memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        vk_memory_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        vk_memory_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        vk_memory_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+        /* Inputs to BLAS build are SHADER_READ_BIT. */
+        vk_memory_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+    }
+
     VK_CALL(vkCmdBuildAccelerationStructuresKHR(list->cmd.vk_command_buffer,
             rtas_batch->build_info_count, rtas_batch->build_infos, rtas_batch->range_ptrs));
 

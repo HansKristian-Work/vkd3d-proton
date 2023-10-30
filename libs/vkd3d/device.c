@@ -533,7 +533,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     /* Dead Space (2023) (1693980) */
     { VKD3D_STRING_COMPARE_EXACT, "Dead Space.exe", VKD3D_CONFIG_FLAG_FORCE_DEDICATED_IMAGE_ALLOCATION, 0 },
     /* Witcher 3 (2023) (292030) */
-    { VKD3D_STRING_COMPARE_EXACT, "witcher3.exe", VKD3D_CONFIG_FLAG_DISABLE_SIMULTANEOUS_UAV_COMPRESSION, 0 },
+    { VKD3D_STRING_COMPARE_EXACT, "witcher3.exe",
+            VKD3D_CONFIG_FLAG_DISABLE_SIMULTANEOUS_UAV_COMPRESSION | VKD3D_CONFIG_FLAG_SYNCHRONIZE_COMPUTE_BLAS, 0 },
     /* Age of Wonders 4 (1669000). Extremely stuttery performance with ReBAR. */
     { VKD3D_STRING_COMPARE_EXACT, "AOW4.exe", VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0 },
     /* Starfield (1716740) */
