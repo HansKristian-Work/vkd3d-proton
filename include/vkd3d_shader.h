@@ -74,6 +74,7 @@ enum vkd3d_shader_meta_flags
     VKD3D_SHADER_META_FLAG_USES_RASTERIZER_ORDERED_VIEWS = 1 << 13,
     VKD3D_SHADER_META_FLAG_EMITS_LINES = 1 << 14,
     VKD3D_SHADER_META_FLAG_EMITS_TRIANGLES = 1 << 15,
+    VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_AFTER_DISPATCH = 1 << 16,
 };
 
 struct vkd3d_shader_meta
@@ -419,6 +420,9 @@ enum vkd3d_shader_quirk
 
     /* Driver workarounds. Force loops to not be unrolled with SPIR-V control masks. */
     VKD3D_SHADER_QUIRK_FORCE_LOOP = (1 << 13),
+
+    /* Requests META_FLAG_FORCE_COMPUTE_BARRIER_AFTER_DISPATCH to be set in shader meta. */
+    VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER = (1 << 14),
 };
 
 struct vkd3d_shader_quirk_hash
