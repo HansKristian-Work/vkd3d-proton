@@ -88,6 +88,8 @@ static const char *vkd3d_breadcrumb_command_type_to_str(enum vkd3d_breadcrumb_co
             return "vbo";
         case VKD3D_BREADCRUMB_COMMAND_IBO:
             return "ibo";
+        case VKD3D_BREADCRUMB_COMMAND_ROOT_TABLE:
+            return "root_table";
         case VKD3D_BREADCRUMB_COMMAND_ROOT_DESC:
             return "root_desc";
         case VKD3D_BREADCRUMB_COMMAND_ROOT_CONST:
