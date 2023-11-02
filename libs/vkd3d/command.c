@@ -9571,7 +9571,7 @@ static inline void d3d12_command_list_set_descriptor_table_embedded(struct d3d12
 
     VKD3D_BREADCRUMB_AUX32(index);
     VKD3D_BREADCRUMB_AUX32(bindings->descriptor_tables[index]);
-    VKD3D_BREADCRUMB_TAG("DescriptorTable [param, offset]");
+    VKD3D_BREADCRUMB_COMMAND_STATE(ROOT_TABLE);
 }
 
 static inline void d3d12_command_list_set_descriptor_table(struct d3d12_command_list *list,
@@ -9589,6 +9589,10 @@ static inline void d3d12_command_list_set_descriptor_table(struct d3d12_command_
         if (root_signature->hoist_info.num_desc)
             bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_HOISTED_DESCRIPTORS;
     }
+
+    VKD3D_BREADCRUMB_AUX32(index);
+    VKD3D_BREADCRUMB_AUX32(bindings->descriptor_tables[index]);
+    VKD3D_BREADCRUMB_COMMAND_STATE(ROOT_TABLE);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootDescriptorTable_embedded_64_16(
