@@ -9279,6 +9279,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                 preserve_resource = impl_from_ID3D12Resource(uav->pResource);
 
                 VKD3D_BREADCRUMB_AUX64(preserve_resource ? preserve_resource->res.cookie : 0);
+                VKD3D_BREADCRUMB_AUX64(preserve_resource ? preserve_resource->mem.resource.cookie : 0);
                 VKD3D_BREADCRUMB_TAG("UAV Barrier");
 
                 /* The only way to synchronize an RTAS is UAV barriers,
@@ -9943,7 +9944,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(d3d12_command_
         const D3D12_INDEX_BUFFER_VIEW *view)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const struct vkd3d_unique_resource *resource;
+    const struct vkd3d_unique_resource *resource = NULL;
     enum VkIndexType index_type;
 
     TRACE("iface %p, view %p.\n", iface, view);
@@ -9987,6 +9988,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(d3d12_command_
     VKD3D_BREADCRUMB_AUX32(index_type == VK_INDEX_TYPE_UINT32 ? 32 : 16);
     VKD3D_BREADCRUMB_AUX64(view->BufferLocation);
     VKD3D_BREADCRUMB_AUX64(view->SizeInBytes);
+    VKD3D_BREADCRUMB_AUX64(resource ? resource->cookie : 0);
     VKD3D_BREADCRUMB_COMMAND_STATE(IBO);
 }
 
@@ -9995,7 +9997,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(d3d12_comman
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct vkd3d_dynamic_state *dyn_state = &list->dynamic_state;
-    const struct vkd3d_unique_resource *resource;
+    const struct vkd3d_unique_resource *resource = NULL;
     uint32_t vbo_invalidate_mask;
     bool invalidate = false;
     unsigned int i;
@@ -10020,12 +10022,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(d3d12_comman
         VkDeviceSize offset;
         VkDeviceSize size;
         uint32_t stride;
-
-        VKD3D_BREADCRUMB_AUX32(start_slot + i);
-        VKD3D_BREADCRUMB_AUX64(views[i].BufferLocation);
-        VKD3D_BREADCRUMB_AUX32(views[i].StrideInBytes);
-        VKD3D_BREADCRUMB_AUX64(views[i].SizeInBytes);
-        VKD3D_BREADCRUMB_COMMAND_STATE(VBO);
 
         if (views[i].BufferLocation)
         {
@@ -10052,6 +10048,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(d3d12_comman
             size = 0;
             stride = VKD3D_NULL_BUFFER_SIZE;
         }
+
+        VKD3D_BREADCRUMB_AUX32(start_slot + i);
+        VKD3D_BREADCRUMB_AUX64(views[i].BufferLocation);
+        VKD3D_BREADCRUMB_AUX32(views[i].StrideInBytes);
+        VKD3D_BREADCRUMB_AUX64(views[i].SizeInBytes);
+        VKD3D_BREADCRUMB_AUX64(resource ? resource->cookie : 0);
+        VKD3D_BREADCRUMB_COMMAND_STATE(VBO);
 
         invalidate |= dyn_state->vertex_strides[start_slot + i] != stride;
         dyn_state->vertex_strides[start_slot + i] = stride;
