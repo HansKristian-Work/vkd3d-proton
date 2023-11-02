@@ -6979,6 +6979,42 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(d3d12_comm
     VKD3D_BREADCRUMB_COMMAND(DRAW_INDEXED);
 }
 
+static void d3d12_command_list_check_compute_barrier(struct d3d12_command_list *list)
+{
+    bool force_barrier =
+            !!(list->state->compute.code.meta.flags & VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_AFTER_DISPATCH);
+
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    if (vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(&list->device->breadcrumb_tracer,
+            list->state->compute.code.meta.hash))
+    {
+        force_barrier = true;
+    }
+#endif
+
+    if (force_barrier)
+    {
+        const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+        VkMemoryBarrier2 vk_barrier;
+        VkDependencyInfo dep_info;
+
+        memset(&vk_barrier, 0, sizeof(vk_barrier));
+        memset(&dep_info, 0, sizeof(dep_info));
+        vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        vk_barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.memoryBarrierCount = 1;
+        dep_info.pMemoryBarriers = &vk_barrier;
+
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+        VKD3D_BREADCRUMB_TAG("ForceBarrier");
+    }
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(d3d12_command_list_iface *iface,
         UINT x, UINT y, UINT z)
 {
@@ -7016,6 +7052,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(d3d12_command_list_ifa
     VKD3D_BREADCRUMB_AUX32(y);
     VKD3D_BREADCRUMB_AUX32(z);
     VKD3D_BREADCRUMB_COMMAND(DISPATCH);
+
+    d3d12_command_list_check_compute_barrier(list);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_list_iface *iface,
@@ -12850,6 +12888,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
     }
 
     VKD3D_BREADCRUMB_COMMAND(EXECUTE_INDIRECT);
+
+    if (list->state && list->state->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
+        d3d12_command_list_check_compute_barrier(list);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_AtomicCopyBufferUINT(d3d12_command_list_iface *iface,

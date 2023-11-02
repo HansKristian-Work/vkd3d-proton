@@ -3260,6 +3260,7 @@ static void d3d12_device_destroy(struct d3d12_device *device)
     vkd3d_memory_info_cleanup(&device->memory_info, device);
     vkd3d_shader_debug_ring_cleanup(&device->debug_ring, device);
 #ifdef VKD3D_ENABLE_BREADCRUMBS
+    vkd3d_breadcrumb_tracer_cleanup_barrier_hashes(&device->breadcrumb_tracer);
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
         vkd3d_breadcrumb_tracer_cleanup(&device->breadcrumb_tracer, device);
 #endif
@@ -8194,6 +8195,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     vkd3d_scratch_pool_init(device);
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
+    vkd3d_breadcrumb_tracer_init_barrier_hashes(&device->breadcrumb_tracer);
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
         if (FAILED(hr = vkd3d_breadcrumb_tracer_init(&device->breadcrumb_tracer, device)))
             goto out_cleanup_debug_ring;
@@ -8244,6 +8246,7 @@ out_cleanup_breadcrumb_tracer:
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
         vkd3d_breadcrumb_tracer_cleanup(&device->breadcrumb_tracer, device);
 out_cleanup_debug_ring:
+    vkd3d_breadcrumb_tracer_cleanup_barrier_hashes(&device->breadcrumb_tracer);
 #endif
     vkd3d_shader_debug_ring_cleanup(&device->debug_ring, device);
 out_cleanup_meta_ops:

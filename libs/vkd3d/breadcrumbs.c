@@ -108,6 +108,18 @@ static const char *vkd3d_breadcrumb_command_type_to_str(enum vkd3d_breadcrumb_co
     }
 }
 
+void vkd3d_breadcrumb_tracer_init_barrier_hashes(struct vkd3d_breadcrumb_tracer *tracer)
+{
+    pthread_mutex_init(&tracer->barrier_hash_lock, NULL);
+    vkd3d_breadcrumb_tracer_update_barrier_hashes(tracer);
+}
+
+void vkd3d_breadcrumb_tracer_cleanup_barrier_hashes(struct vkd3d_breadcrumb_tracer *tracer)
+{
+    pthread_mutex_destroy(&tracer->barrier_hash_lock);
+    vkd3d_free(tracer->barrier_hashes);
+}
+
 HRESULT vkd3d_breadcrumb_tracer_init(struct vkd3d_breadcrumb_tracer *tracer, struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -758,4 +770,52 @@ void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list)
     vkd3d_breadcrumb_tracer_add_command(list, &cmd);
     cmd.type = VKD3D_BREADCRUMB_COMMAND_SET_BOTTOM_MARKER;
     vkd3d_breadcrumb_tracer_add_command(list, &cmd);
+}
+
+void vkd3d_breadcrumb_tracer_update_barrier_hashes(struct vkd3d_breadcrumb_tracer *tracer)
+{
+    char env[VKD3D_PATH_MAX];
+    vkd3d_shader_hash_t hash;
+    uint32_t new_count;
+    char line[17];
+    FILE *file;
+
+    if (vkd3d_get_env_var("VKD3D_BARRIER_HASHES", env, sizeof(env)))
+    {
+        file = fopen(env, "r");
+        if (file)
+        {
+            pthread_mutex_lock(&tracer->barrier_hash_lock);
+            new_count = 0;
+            while (fgets(line, sizeof(line), file))
+            {
+                hash = strtoull(line, NULL, 16);
+                vkd3d_array_reserve((void **)&tracer->barrier_hashes, &tracer->barrier_hashes_size,
+                        new_count + 1, sizeof(*tracer->barrier_hashes));
+                tracer->barrier_hashes[new_count++] = hash;
+            }
+            vkd3d_atomic_uint32_store_explicit(&tracer->barrier_hashes_count, new_count, vkd3d_memory_order_relaxed);
+            pthread_mutex_unlock(&tracer->barrier_hash_lock);
+            fclose(file);
+        }
+        else
+            vkd3d_atomic_uint32_store_explicit(&tracer->barrier_hashes_count, 0, vkd3d_memory_order_relaxed);
+    }
+}
+
+bool vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(struct vkd3d_breadcrumb_tracer *tracer, vkd3d_shader_hash_t hash)
+{
+    bool ret = false;
+    size_t i;
+
+    /* Avoid taking lock every dispatch when we're not explicitly using the feature.
+     * Ordering is not relevant, since if we decide to look at hashes, we take full locks anyway. */
+    if (vkd3d_atomic_uint32_load_explicit(&tracer->barrier_hashes_count, vkd3d_memory_order_relaxed) != 0)
+    {
+        pthread_mutex_lock(&tracer->barrier_hash_lock);
+        for (i = 0; i < tracer->barrier_hashes_count && !ret; i++)
+            ret = tracer->barrier_hashes[i] == hash;
+        pthread_mutex_unlock(&tracer->barrier_hash_lock);
+    }
+    return ret;
 }

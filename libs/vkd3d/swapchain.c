@@ -1943,6 +1943,10 @@ static void dxgi_vk_swap_chain_present_callback(void *chain_)
         if (vkd3d_native_sync_handle_is_valid(chain->present_request_done_event))
             vkd3d_native_sync_handle_signal(chain->present_request_done_event);
     }
+
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    vkd3d_breadcrumb_tracer_update_barrier_hashes(&chain->queue->device->breadcrumb_tracer);
+#endif
 }
 
 static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
