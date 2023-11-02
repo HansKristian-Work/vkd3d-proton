@@ -11644,6 +11644,8 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
         return VKD3D_ERROR;
 
     vkd3d_shader_extract_feature_meta(spirv);
+    if (compiler->quirks & VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER)
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_AFTER_DISPATCH;
 
     return VKD3D_OK;
 }
