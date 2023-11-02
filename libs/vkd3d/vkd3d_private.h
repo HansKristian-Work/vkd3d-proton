@@ -3346,10 +3346,17 @@ struct vkd3d_breadcrumb_tracer
     size_t trace_context_index;
 
     pthread_mutex_t lock;
+
+    pthread_mutex_t barrier_hash_lock;
+    vkd3d_shader_hash_t *barrier_hashes;
+    size_t barrier_hashes_size;
+    uint32_t barrier_hashes_count;
 };
 
 HRESULT vkd3d_breadcrumb_tracer_init(struct vkd3d_breadcrumb_tracer *tracer, struct d3d12_device *device);
+void vkd3d_breadcrumb_tracer_init_barrier_hashes(struct vkd3d_breadcrumb_tracer *tracer);
 void vkd3d_breadcrumb_tracer_cleanup(struct vkd3d_breadcrumb_tracer *tracer, struct d3d12_device *device);
+void vkd3d_breadcrumb_tracer_cleanup_barrier_hashes(struct vkd3d_breadcrumb_tracer *tracer);
 unsigned int vkd3d_breadcrumb_tracer_allocate_command_list(struct vkd3d_breadcrumb_tracer *tracer,
         struct d3d12_command_list *list, struct d3d12_command_allocator *allocator);
 /* Command allocator keeps a list of allocated breadcrumb command lists. */
@@ -3364,6 +3371,10 @@ void vkd3d_breadcrumb_tracer_signal(struct d3d12_command_list *list);
 void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list);
 void vkd3d_breadcrumb_tracer_link_submission(struct d3d12_command_list *list,
         struct d3d12_command_list *prev, struct d3d12_command_list *next);
+
+void vkd3d_breadcrumb_tracer_update_barrier_hashes(struct vkd3d_breadcrumb_tracer *tracer);
+bool vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(
+        struct vkd3d_breadcrumb_tracer *device, vkd3d_shader_hash_t hash);
 
 #define VKD3D_BREADCRUMB_FLUSH_BATCHES(list) do { \
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \
