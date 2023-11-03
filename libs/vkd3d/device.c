@@ -2327,6 +2327,10 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
 
     acceleration_structure = &physical_device_info->acceleration_structure_features;
     acceleration_structure->accelerationStructureCaptureReplay = VK_FALSE;
+    acceleration_structure->accelerationStructureHostCommands = VK_FALSE;
+    acceleration_structure->accelerationStructureIndirectBuild = VK_FALSE;
+    physical_device_info->ray_tracing_pipeline_features.rayTracingPipelineShaderGroupHandleCaptureReplay = VK_FALSE;
+    physical_device_info->ray_tracing_pipeline_features.rayTracingPipelineShaderGroupHandleCaptureReplayMixed = VK_FALSE;
 
     line_rasterization = &physical_device_info->line_rasterization_features;
     line_rasterization->bresenhamLines = VK_FALSE;
