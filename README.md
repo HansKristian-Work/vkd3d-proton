@@ -144,8 +144,8 @@ commas or semicolons.
     - `vk_debug` - enables Vulkan debug extensions and loads validation layer.
     - `skip_application_workarounds` - Skips all application workarounds.
       For debugging purposes.
-    - `dxr` - Enables DXR support if supported by device.
-    - `dxr11` - Enables DXR tier 1.1 support if supported by device.
+    - `nodxr` - Disables DXR support.
+    - `dxr` - DXR is normally enabled automatically. This config forces it to be enabled even when considered unsafe.
     - `force_static_cbv` - Unsafe speed hack on NVIDIA. May or may not give a significant performance uplift.
     - `single_queue` - Do not use asynchronous compute or transfer queues.
     - `no_upload_hvv` - Blocks any attempt to use host-visible VRAM (large/resizable BAR) for the UPLOAD heap.
