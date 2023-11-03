@@ -631,6 +631,18 @@ static const struct vkd3d_shader_quirk_info lotf_quirks = {
     lotf_hashes, ARRAY_SIZE(lotf_hashes), 0,
 };
 
+static const struct vkd3d_shader_quirk_hash witcher3_hashes[] = {
+    /* In DXR path, the game will write VBO data in a CS which is then followed
+     * by a VS -> tess -> geom pass that writes out data to a UAV in the GS.
+     * There appears to be missing synchronization here by game (no UAV -> VBO barrier) and
+     * forcing barriers fixes a ton of glitches on both NV and RADV. */
+    { 0x2c16686e5d9b04a8, VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER },
+};
+
+static const struct vkd3d_shader_quirk_info witcher3_quirks = {
+    witcher3_hashes, ARRAY_SIZE(witcher3_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -650,6 +662,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "MonsterHunterRise.exe", &mhr_quirks },
     /* Lords of the Fallen (1501750) */
     { VKD3D_STRING_COMPARE_EXACT, "LOTF2-Win64-Shipping.exe", &lotf_quirks },
+    /* Witcher 3 (2023) (292030) */
+    { VKD3D_STRING_COMPARE_EXACT, "witcher3.exe", &witcher3_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     /* MSVC fails to compile empty array. */
