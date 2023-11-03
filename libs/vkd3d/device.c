@@ -41,6 +41,7 @@ struct vkd3d_optional_extension_info
     const char *extension_name;
     ptrdiff_t vulkan_info_offset;
     uint64_t enable_config_flags;
+    uint64_t disable_config_flags;
 };
 
 #define VK_EXTENSION(name, member) \
@@ -48,6 +49,8 @@ struct vkd3d_optional_extension_info
 
 #define VK_EXTENSION_COND(name, member, required_flags) \
         {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member), required_flags}
+#define VK_EXTENSION_DISABLE_COND(name, member, disable_flags) \
+        {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member), 0, disable_flags}
 
 static const struct vkd3d_optional_extension_info optional_instance_extensions[] =
 {
@@ -60,11 +63,11 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     /* KHR extensions */
     VK_EXTENSION(KHR_PUSH_DESCRIPTOR, KHR_push_descriptor),
     VK_EXTENSION(KHR_PIPELINE_LIBRARY, KHR_pipeline_library),
-    VK_EXTENSION_COND(KHR_RAY_TRACING_PIPELINE, KHR_ray_tracing_pipeline, VKD3D_CONFIG_FLAG_DXR),
-    VK_EXTENSION_COND(KHR_ACCELERATION_STRUCTURE, KHR_acceleration_structure, VKD3D_CONFIG_FLAG_DXR),
-    VK_EXTENSION_COND(KHR_DEFERRED_HOST_OPERATIONS, KHR_deferred_host_operations, VKD3D_CONFIG_FLAG_DXR),
-    VK_EXTENSION_COND(KHR_RAY_QUERY, KHR_ray_query, VKD3D_CONFIG_FLAG_DXR11),
-    VK_EXTENSION_COND(KHR_RAY_TRACING_MAINTENANCE_1, KHR_ray_tracing_maintenance1, VKD3D_CONFIG_FLAG_DXR11),
+    VK_EXTENSION_DISABLE_COND(KHR_RAY_TRACING_PIPELINE, KHR_ray_tracing_pipeline, VKD3D_CONFIG_FLAG_NO_DXR),
+    VK_EXTENSION_DISABLE_COND(KHR_ACCELERATION_STRUCTURE, KHR_acceleration_structure, VKD3D_CONFIG_FLAG_NO_DXR),
+    VK_EXTENSION_DISABLE_COND(KHR_DEFERRED_HOST_OPERATIONS, KHR_deferred_host_operations, VKD3D_CONFIG_FLAG_NO_DXR),
+    VK_EXTENSION_DISABLE_COND(KHR_RAY_QUERY, KHR_ray_query, VKD3D_CONFIG_FLAG_NO_DXR),
+    VK_EXTENSION_DISABLE_COND(KHR_RAY_TRACING_MAINTENANCE_1, KHR_ray_tracing_maintenance1, VKD3D_CONFIG_FLAG_NO_DXR),
     VK_EXTENSION(KHR_FRAGMENT_SHADING_RATE, KHR_fragment_shading_rate),
     VK_EXTENSION(KHR_FRAGMENT_SHADER_BARYCENTRIC, KHR_fragment_shader_barycentric),
     VK_EXTENSION(KHR_PRESENT_ID, KHR_present_id),
@@ -93,7 +96,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_HDR_METADATA, EXT_hdr_metadata),
     VK_EXTENSION(EXT_SHADER_MODULE_IDENTIFIER, EXT_shader_module_identifier),
     VK_EXTENSION(EXT_DESCRIPTOR_BUFFER, EXT_descriptor_buffer),
-    VK_EXTENSION_COND(EXT_PIPELINE_LIBRARY_GROUP_HANDLES, EXT_pipeline_library_group_handles, VKD3D_CONFIG_FLAG_DXR),
+    VK_EXTENSION_DISABLE_COND(EXT_PIPELINE_LIBRARY_GROUP_HANDLES, EXT_pipeline_library_group_handles, VKD3D_CONFIG_FLAG_NO_DXR),
     VK_EXTENSION(EXT_IMAGE_SLICED_VIEW_OF_3D, EXT_image_sliced_view_of_3d),
     VK_EXTENSION(EXT_GRAPHICS_PIPELINE_LIBRARY, EXT_graphics_pipeline_library),
     VK_EXTENSION(EXT_FRAGMENT_SHADER_INTERLOCK, EXT_fragment_shader_interlock),
@@ -184,12 +187,15 @@ static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensio
 
     for (i = 0; i < optional_extension_count; ++i)
     {
+        uint64_t disable_flags = optional_extensions[i].disable_config_flags;
         const char *extension_name = optional_extensions[i].extension_name;
         uint64_t enable_flags = optional_extensions[i].enable_config_flags;
         ptrdiff_t offset = optional_extensions[i].vulkan_info_offset;
         bool *supported = (void *)((uintptr_t)vulkan_info + offset);
 
         if (enable_flags && !(vkd3d_config_flags & enable_flags))
+            continue;
+        if (disable_flags && (vkd3d_config_flags & disable_flags))
             continue;
 
         if ((*supported = has_extension(extensions, count, extension_name)))
@@ -452,6 +458,8 @@ enum vkd3d_application_feature_override
     VKD3D_APPLICATION_FEATURE_OVERRIDE_NONE = 0,
     VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE,
     VKD3D_APPLICATION_FEATURE_DISABLE_DGCC_NV,
+    VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK,
+    VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0,
 };
 
 static enum vkd3d_application_feature_override vkd3d_application_feature_override;
@@ -518,10 +526,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
             0, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
     { VKD3D_STRING_COMPARE_EXACT, "re7.exe",
             VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
-    /* Control (870780).
-     * Control.exe is the launcher - it doesn't dispaly anything and defaults to DX11 if DXR is not supported. */
-    { VKD3D_STRING_COMPARE_EXACT, "Control.exe", VKD3D_CONFIG_FLAG_DXR, 0 },
-    { VKD3D_STRING_COMPARE_EXACT, "Control_DX12.exe", VKD3D_CONFIG_FLAG_DXR, 0 },
+    /* Control (870780). Control fails to detect DXR if 1.1 is exposed. */
+    { VKD3D_STRING_COMPARE_EXACT, "Control_DX12.exe", 0, 0, VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0 },
     /* Lost Judgment (2058190) */
     { VKD3D_STRING_COMPARE_EXACT, "LostJudgment.exe", VKD3D_CONFIG_FLAG_FORCE_INITIAL_TRANSITION, 0 },
     /* Marvel's Spider-Man Remastered (1817070) */
@@ -813,8 +819,8 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"skip_application_workarounds", VKD3D_CONFIG_FLAG_SKIP_APPLICATION_WORKAROUNDS},
     {"debug_utils", VKD3D_CONFIG_FLAG_DEBUG_UTILS},
     {"force_static_cbv", VKD3D_CONFIG_FLAG_FORCE_STATIC_CBV},
-    {"dxr", VKD3D_CONFIG_FLAG_DXR | VKD3D_CONFIG_FLAG_DXR11},
-    {"dxr11", VKD3D_CONFIG_FLAG_DXR | VKD3D_CONFIG_FLAG_DXR11}, /* Alias for compat reasons */
+    {"dxr", VKD3D_CONFIG_FLAG_DXR},
+    {"nodxr", VKD3D_CONFIG_FLAG_NO_DXR},
     {"single_queue", VKD3D_CONFIG_FLAG_SINGLE_QUEUE},
     {"descriptor_qa_checks", VKD3D_CONFIG_FLAG_DESCRIPTOR_QA_CHECKS},
     {"no_upload_hvv", VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV},
@@ -1321,6 +1327,13 @@ bool d3d12_device_supports_required_subgroup_size_for_stage(
     return (device->device_info.vulkan_1_3_properties.requiredSubgroupSizeStages & stage) != 0;
 }
 
+static bool d3d12_device_is_steam_deck(const struct d3d12_device *device)
+{
+    return device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_MESA_RADV &&
+            device->device_info.properties2.properties.vendorID == 0x1002 &&
+            device->device_info.properties2.properties.deviceID == 0x163f;
+}
+
 static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_device_info *info,
         struct d3d12_device *device)
 {
@@ -1403,8 +1416,7 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
                     INFO("Enabling CURB_MEMORY_PSO_CACHE workaround on RADV < 23.2.\n");
                     info->workarounds.force_dummy_pipeline_cache = true;
                 }
-                else if (info->properties2.properties.vendorID == 0x1002 &&
-                        info->properties2.properties.deviceID == 0x163f)
+                else if (d3d12_device_is_steam_deck(device))
                 {
                     WARN("Forcing CURB_MEMORY_PSO_CACHE workaround on Steam Deck.\n");
                     info->workarounds.force_dummy_pipeline_cache = true;
@@ -7100,13 +7112,8 @@ static D3D12_RAYTRACING_TIER d3d12_device_determine_ray_tracing_tier(struct d3d1
 
         if (supports_vbo_formats)
         {
-            if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DXR)
-            {
-                INFO("DXR support enabled.\n");
-                tier = D3D12_RAYTRACING_TIER_1_0;
-            }
-            else
-                INFO("Could enable DXR, but VKD3D_CONFIG=dxr is not used.\n");
+            INFO("DXR support enabled.\n");
+            tier = D3D12_RAYTRACING_TIER_1_0;
         }
     }
 
@@ -7760,6 +7767,23 @@ static void d3d12_device_caps_override_application(struct d3d12_device *device)
                 device->d3d12_caps.options7.SamplerFeedbackTier = D3D12_SAMPLER_FEEDBACK_TIER_1_0;
                 INFO("DXR enabled. Application also requires Mesh/Sampler feedback to be exposed (but unused). "
                      "Enabling these features automatically.\n");
+            }
+            break;
+
+        case VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK:
+            /* For games which automatically enable RT even on Deck, leading to very poor performance by default. */
+            if (d3d12_device_is_steam_deck(device) && !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_DXR))
+            {
+                INFO("Disabling automatic enablement of DXR on Deck.\n");
+                device->d3d12_caps.options5.RaytracingTier = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
+            }
+            break;
+
+        case VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0:
+            if (device->d3d12_caps.options5.RaytracingTier > D3D12_RAYTRACING_TIER_1_0)
+            {
+                INFO("Limiting reported DXR tier to 1.0.\n");
+                device->d3d12_caps.options5.RaytracingTier = D3D12_RAYTRACING_TIER_1_0;
             }
             break;
 
