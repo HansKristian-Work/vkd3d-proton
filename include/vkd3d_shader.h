@@ -416,6 +416,9 @@ enum vkd3d_shader_quirk
 
     /* Driver workaround hackery. Try to rewrite weird Grads to plain Bias. */
     VKD3D_SHADER_QUIRK_REWRITE_GRAD_TO_BIAS = (1 << 12),
+
+    /* Driver workarounds. Force loops to not be unrolled with SPIR-V control masks. */
+    VKD3D_SHADER_QUIRK_FORCE_LOOP = (1 << 13),
 };
 
 struct vkd3d_shader_quirk_hash
