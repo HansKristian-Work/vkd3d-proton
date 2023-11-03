@@ -619,9 +619,19 @@ static const struct vkd3d_shader_quirk_info mhr_quirks = {
     mhr_hashes, ARRAY_SIZE(mhr_hashes), 0,
 };
 
+static const struct vkd3d_shader_quirk_hash lotf_hashes[] = {
+    /* Temporarily works around RADV bug. GPU will hang on these
+     * due to a miscompilation of some loops. */
+    { 0x99d322acc782d539, VKD3D_SHADER_QUIRK_FORCE_LOOP },
+    { 0x21456c748ae88ea9, VKD3D_SHADER_QUIRK_FORCE_LOOP },
+    { 0x710945244ce6ac3e, VKD3D_SHADER_QUIRK_FORCE_LOOP },
+};
+
+static const struct vkd3d_shader_quirk_info lotf_quirks = {
+    lotf_hashes, ARRAY_SIZE(lotf_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
-    /* Unreal Engine 4 */
-    { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
     /* F1 2019 (928600) */
@@ -638,6 +648,10 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "re4.exe", &re4_quirks },
     /* Monster Hunter Rise (1446780) */
     { VKD3D_STRING_COMPARE_EXACT, "MonsterHunterRise.exe", &mhr_quirks },
+    /* Lords of the Fallen (1501750) */
+    { VKD3D_STRING_COMPARE_EXACT, "LOTF2-Win64-Shipping.exe", &lotf_quirks },
+    /* Unreal Engine 4 */
+    { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     /* MSVC fails to compile empty array. */
     { VKD3D_STRING_COMPARE_NEVER, NULL, NULL },
 };
