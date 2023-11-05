@@ -619,18 +619,6 @@ static const struct vkd3d_shader_quirk_info mhr_quirks = {
     mhr_hashes, ARRAY_SIZE(mhr_hashes), 0,
 };
 
-static const struct vkd3d_shader_quirk_hash lotf_hashes[] = {
-    /* Temporarily works around RADV bug. GPU will hang on these
-     * due to a miscompilation of some loops. */
-    { 0x99d322acc782d539, VKD3D_SHADER_QUIRK_FORCE_LOOP },
-    { 0x21456c748ae88ea9, VKD3D_SHADER_QUIRK_FORCE_LOOP },
-    { 0x710945244ce6ac3e, VKD3D_SHADER_QUIRK_FORCE_LOOP },
-};
-
-static const struct vkd3d_shader_quirk_info lotf_quirks = {
-    lotf_hashes, ARRAY_SIZE(lotf_hashes), 0,
-};
-
 static const struct vkd3d_shader_quirk_hash witcher3_hashes[] = {
     /* In DXR path, the game will write VBO data in a CS which is then followed
      * by a VS -> tess -> geom pass that writes out data to a UAV in the GS.
@@ -660,8 +648,6 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "re4.exe", &re4_quirks },
     /* Monster Hunter Rise (1446780) */
     { VKD3D_STRING_COMPARE_EXACT, "MonsterHunterRise.exe", &mhr_quirks },
-    /* Lords of the Fallen (1501750) */
-    { VKD3D_STRING_COMPARE_EXACT, "LOTF2-Win64-Shipping.exe", &lotf_quirks },
     /* Witcher 3 (2023) (292030) */
     { VKD3D_STRING_COMPARE_EXACT, "witcher3.exe", &witcher3_quirks },
     /* Unreal Engine 4 */
