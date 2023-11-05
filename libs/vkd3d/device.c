@@ -661,7 +661,7 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* Monster Hunter Rise (1446780) */
     { VKD3D_STRING_COMPARE_EXACT, "MonsterHunterRise.exe", &mhr_quirks },
     /* Lords of the Fallen (1501750) */
-    { VKD3D_STRING_COMPARE_EXACT, "LOTF2-Win64-Shipping.exe", &lotf_quirks },
+    { VKD3D_STRING_COMPARE_STARTS_WITH, "LOTF2-Win64-", &lotf_quirks },
     /* Witcher 3 (2023) (292030) */
     { VKD3D_STRING_COMPARE_EXACT, "witcher3.exe", &witcher3_quirks },
     /* Unreal Engine 4 */
