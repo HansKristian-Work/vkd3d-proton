@@ -1371,10 +1371,12 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
         {
             bool broken_version_linux, broken_version_windows;
             /* A lot of drivers were broken until 535.43.15 (Linux) and 537.72 (Windows). */
+            /* The 545-drivers, 545.23.06 and 545.29.02 so far, are also broken on Linux. */
 
             broken_version_linux =
-                    info->properties2.properties.driverVersion >= VKD3D_DRIVER_VERSION_MAKE_NV(535, 43, 0) &&
-                    info->properties2.properties.driverVersion < VKD3D_DRIVER_VERSION_MAKE_NV(535, 43, 15);
+                    VKD3D_DRIVER_VERSION_MAJOR_NV(info->properties2.properties.driverVersion) == 545 ||
+                    (info->properties2.properties.driverVersion >= VKD3D_DRIVER_VERSION_MAKE_NV(535, 43, 0) &&
+                        info->properties2.properties.driverVersion < VKD3D_DRIVER_VERSION_MAKE_NV(535, 43, 15));
 
             broken_version_windows =
                     info->properties2.properties.driverVersion >= VKD3D_DRIVER_VERSION_MAKE_NV(537, 0, 0) &&
@@ -1389,7 +1391,7 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
                 if (vkd3d_application_feature_override == VKD3D_APPLICATION_FEATURE_DISABLE_DGCC_NV)
                     WARN("Disabling NV_dgcc due to bug in specific game.\n");
                 else
-                    WARN("Disabling NV_dgcc due to bug in initial beta release.\n");
+                    WARN("Disabling NV_dgcc due to bug in driver version.\n");
             }
         }
 
