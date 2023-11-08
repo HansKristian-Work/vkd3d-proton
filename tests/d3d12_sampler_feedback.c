@@ -3198,9 +3198,10 @@ void test_sampler_feedback_implicit_lod_aniso(void)
          * (can trigger use or not, vkd3d-proton is conservative here but hardware tends to not be). */
         { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 1, 0 }, { 0, 1 }, 0, { 1, 0, 0 }, true, true },
         { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 1, 0 }, { 0, 1 }, 1.0f / 512.0f, { 1, 0, 0 }, true, true },
-        /* Tri-linear should kick in here, but NV is mildly bugged in aniso mode (or it's cheating with LOD snapping ...).
-         * Use a larger LOD bias than we should need to trigger it. Also shift the texel a bit to account for our conservative aniso extent in vkd3d-proton. */
-        { { MIP_REGION_WIDTH - 1.51f, MIP_REGION_HEIGHT - 1.51f }, { 1, 0 }, { 0, 1 }, 1.5f / 256.0f, { 1, 1, 0 }, false, true },
+        /* Tri-linear aniso is out of spec on most implementations. They try really hard to snap to integer LOD.
+         * Use a larger LOD bias than we should need to trigger it.
+         * Also shift the texel a bit to account for our conservative aniso extent in vkd3d-proton. */
+        { { MIP_REGION_WIDTH - 1.51f, MIP_REGION_HEIGHT - 1.51f }, { 1, 0 }, { 0, 1 }, 80.0f / 256.0f, { 1, 1, 0 }, true, true },
         /* Test different square rotations of gradient. */
         { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 2, 0 }, { 0, 1 }, 0, { 2, 0, 0 }, true, true },
         { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { 1, 0 }, { 0, 2 }, 0, { 2, 0, 0 }, true, true },
@@ -3212,13 +3213,13 @@ void test_sampler_feedback_implicit_lod_aniso(void)
 #define SQRT_1_2 0.70710678118f
 
 #define DECL_ROTATED(D, B, lod1) \
-        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { (D), (D) }, { -(D), (D) }, B, { 1, lod1 ? 1 : 0, 0 }, false, true }, \
-        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { -(D), (D) }, { -(D), -(D) }, B, { 1, lod1 ? 1 : 0, 0 }, false, true }, \
-        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { (D), -(D) }, { -(D), -(D) }, B, { 1, lod1 ? 1 : 0, 0 }, false, true }, \
-        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { (D), (D) }, { (D), -(D) }, B, { 1, lod1 ? 1 : 0, 0 }, false, true }
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { (D), (D) }, { -(D), (D) }, B, { 1, lod1 ? 1 : 0, 0 }, true, true }, \
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { -(D), (D) }, { -(D), -(D) }, B, { 1, lod1 ? 1 : 0, 0 }, true, true }, \
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { (D), -(D) }, { -(D), -(D) }, B, { 1, lod1 ? 1 : 0, 0 }, true, true }, \
+        { { MIP_REGION_WIDTH - 0.51f, MIP_REGION_HEIGHT - 0.51f }, { (D), (D) }, { (D), -(D) }, B, { 1, lod1 ? 1 : 0, 0 }, true, true }
 
         DECL_ROTATED(SQRT_1_2, 0.0f, false),
-        DECL_ROTATED(SQRT_1_2, 0.05f, true), /* Should compute LOD > 0 and trigger tri-linear. */
+        DECL_ROTATED(SQRT_1_2, 0.4f, true), /* Should compute LOD > 0 and trigger tri-linear. */
 
         /* Study boundary condition for aniso and filtering. Boundary seems to be +/- 0.5 * gradient, which fits nicely with bilinear being gradient = 1.
          * Test this assumption exhaustively for all integer aniso factors and some fractional values.
