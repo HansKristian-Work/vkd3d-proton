@@ -7621,6 +7621,9 @@ static void d3d12_device_caps_init_feature_level(struct d3d12_device *device)
         caps->max_feature_level = D3D_FEATURE_LEVEL_12_2;
 
     TRACE("Max feature level: %#x.\n", caps->max_feature_level);
+
+    if (caps->max_feature_level >= D3D_FEATURE_LEVEL_12_2)
+        INFO("DX Ultimate supported!\n");
 }
 
 static void d3d12_device_caps_shader_model_override(struct d3d12_device *device)
