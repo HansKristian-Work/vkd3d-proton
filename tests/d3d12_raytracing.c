@@ -4773,3 +4773,171 @@ pso_error:
             ID3D12StateObject_Release(collections[i]);
     destroy_raytracing_test_context(&context);
 }
+
+void test_raytracing_deferred_compilation(void)
+{
+    struct raytracing_test_context context;
+    ID3D12StateObjectProperties *props;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_DESCRIPTOR_RANGE rs_range;
+    D3D12_ROOT_PARAMETER rs_param;
+    struct rt_pso_factory factory;
+    ID3D12StateObject *collection;
+    ID3D12RootSignature *rs_alt;
+    const void *invariant_ident;
+    ID3D12StateObject *rtpso;
+    ID3D12RootSignature *rs;
+    ID3D12Device *device;
+    const void *ident;
+
+    if (!init_raytracing_test_context(&context, D3D12_RAYTRACING_TIER_1_0))
+        return;
+
+    device = context.context.device;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE;
+    rs_desc.NumParameters = 1;
+    rs_desc.pParameters = &rs_param;
+    memset(&rs_param, 0, sizeof(rs_param));
+    rs_param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    create_root_signature(device, &rs_desc, &rs);
+
+    rs_param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_param.DescriptorTable.NumDescriptorRanges = 1;
+    rs_param.DescriptorTable.pDescriptorRanges = &rs_range;
+
+    memset(&rs_range, 0, sizeof(rs_range));
+    rs_range.BaseShaderRegister = 1;
+    rs_range.NumDescriptors = 4;
+    rs_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    create_root_signature(device, &rs_desc, &rs_alt);
+
+    /* Native behavior: Any shader group that can be successfully compiled will be compiled and you can query identifiers.
+     * If there are unsatisfied dependencies, the compilation is deferred until link time. */
+    {
+        D3D12_EXPORT_DESC exp = { NULL };
+        unsigned int index;
+        LPCWSTR name;
+
+        rt_pso_factory_init(&factory);
+        rt_pso_factory_add_dxil_library(&factory, get_dummy_raygen_rt_lib(), 0, NULL);
+        rt_pso_factory_add_shader_config(&factory, 4, 4);
+        rt_pso_factory_add_pipeline_config(&factory, 1);
+        rt_pso_factory_add_state_object_config(&factory, D3D12_STATE_OBJECT_FLAG_ALLOW_LOCAL_DEPENDENCIES_ON_EXTERNAL_DEFINITIONS);
+        exp.Name = u"Entry3";
+        rt_pso_factory_add_dxil_library(&factory, get_default_assignment_bindings_rt_lib(), 1, &exp);
+        /* We must be careful not to give "main" export an association, or we cannot override it later. */
+        index = rt_pso_factory_add_local_root_signature(&factory, rs_alt);
+        name = u"Entry3";
+        rt_pso_factory_add_subobject_to_exports_association(&factory, index, 1, &name);
+        collection = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_COLLECTION);
+
+        ok(!!collection, "Failed to create collection.\n");
+
+        if (collection)
+        {
+            ID3D12StateObject_QueryInterface(collection, &IID_ID3D12StateObjectProperties, (void **)&props);
+            ident = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"main");
+            ok(!ident, "Did not expect identifier in collection.\n");
+            invariant_ident = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"Entry3");
+            /* Unclear from spec if this is okay or not. */
+            todo ok(!!invariant_ident, "Expected identifier in collection.\n");
+            ID3D12StateObjectProperties_Release(props);
+
+            rt_pso_factory_init(&factory);
+            rt_pso_factory_add_existing_collection(&factory, collection, 0, NULL);
+            rt_pso_factory_add_local_root_signature(&factory, rs);
+            rtpso = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
+
+            ok(!!rtpso, "Failed to create RTPSO.\n");
+
+            if (rtpso)
+            {
+                ID3D12StateObject_QueryInterface(rtpso, &IID_ID3D12StateObjectProperties, (void **)&props);
+                ident = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"main");
+                ok(!!ident, "Expected valid identifier.\n");
+                ident = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"Entry3");
+                ok(!!ident, "Expected valid identifier.\n");
+                bug_if(is_amd_windows_device(device))
+                    ok(!invariant_ident || ident == invariant_ident, "Expected invariant identifier for Entry3.\n");
+                ID3D12StateObjectProperties_Release(props);
+                ID3D12StateObject_Release(rtpso);
+            }
+            ID3D12StateObject_Release(collection);
+        }
+    }
+
+    ID3D12RootSignature_Release(rs_alt);
+
+    memset(&rs_range, 0, sizeof(rs_range));
+    rs_range.BaseShaderRegister = 0;
+    rs_range.RegisterSpace = 1;
+    rs_range.NumDescriptors = 2;
+    rs_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+    create_root_signature(device, &rs_desc, &rs_alt);
+
+    {
+        D3D12_HIT_GROUP_DESC hit_desc = { 0 };
+        D3D12_EXPORT_DESC exp[2] = {{ 0 }};
+        unsigned int index;
+        LPCWSTR name;
+
+        rt_pso_factory_init(&factory);
+        rt_pso_factory_add_dxil_library(&factory, get_dummy_raygen_rt_lib(), 0, NULL);
+
+        exp[0].ExportToRename = u"RayClosest";
+        exp[0].Name = u"Closest";
+        exp[1].ExportToRename = u"RayAnyTriangle";
+        exp[1].Name = u"AnyHit";
+
+        rt_pso_factory_add_dxil_library(&factory, get_default_rt_lib(), ARRAY_SIZE(exp), exp);
+
+        hit_desc.AnyHitShaderImport = u"AnyHit";
+        hit_desc.ClosestHitShaderImport = u"Closest";
+        hit_desc.HitGroupExport = u"HitGroup";
+        hit_desc.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
+        rt_pso_factory_add_hit_group(&factory, &hit_desc);
+
+        /* Have to provide the local root signature here, or runtime complains that Closest / AnyHit see conflicting associations, which is kinda bogus ... */
+        index = rt_pso_factory_add_local_root_signature(&factory, rs_alt);
+        name = u"Closest";
+        rt_pso_factory_add_subobject_to_exports_association(&factory, index, 1, &name);
+
+        rt_pso_factory_add_state_object_config(&factory, D3D12_STATE_OBJECT_FLAG_ALLOW_LOCAL_DEPENDENCIES_ON_EXTERNAL_DEFINITIONS);
+        collection = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_COLLECTION);
+
+        ok(!!collection, "Failed to create collection.\n");
+
+        if (collection)
+        {
+            rt_pso_factory_init(&factory);
+            rt_pso_factory_add_shader_config(&factory, 16, 16);
+            rt_pso_factory_add_pipeline_config(&factory, 1);
+            rt_pso_factory_add_existing_collection(&factory, collection, 0, NULL);
+            index = rt_pso_factory_add_local_root_signature(&factory, rs);
+            name = u"main";
+            rt_pso_factory_add_subobject_to_exports_association(&factory, index, 1, &name);
+
+            rtpso = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
+
+            ok(!!rtpso, "Failed to create RTPSO.\n");
+
+            if (rtpso)
+            {
+                ID3D12StateObject_QueryInterface(rtpso, &IID_ID3D12StateObjectProperties, (void **)&props);
+                ident = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"main");
+                ok(!!ident, "Expected valid identifier.\n");
+                ident = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"HitGroup");
+                ok(!!ident, "Expected valid identifier.\n");
+                ID3D12StateObjectProperties_Release(props);
+                ID3D12StateObject_Release(rtpso);
+            }
+            ID3D12StateObject_Release(collection);
+        }
+    }
+
+    ID3D12RootSignature_Release(rs);
+    ID3D12RootSignature_Release(rs_alt);
+    destroy_raytracing_test_context(&context);
+}
