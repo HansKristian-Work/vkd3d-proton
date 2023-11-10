@@ -972,6 +972,7 @@ static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *obj
              * but STATE_OBJECT_CONFIG doesn't change any functionality or compatibility rules really,
              * so just append flags. */
             const uint32_t supported_flags =
+                    D3D12_STATE_OBJECT_FLAG_ALLOW_LOCAL_DEPENDENCIES_ON_EXTERNAL_DEFINITIONS |
                     D3D12_STATE_OBJECT_FLAG_ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL_DEFINITIONS |
                     D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS;
             const D3D12_STATE_OBJECT_CONFIG *object_config = obj->pDesc;
@@ -980,6 +981,13 @@ static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *obj
             {
                 FIXME("Object config flag #%x is not supported.\n", object->flags);
                 return E_INVALIDARG;
+            }
+
+            /* Need to ignore these flags on RTPSOs to avoid us doing funny things. */
+            if (object->type == D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE)
+            {
+                object->flags &= ~(D3D12_STATE_OBJECT_FLAG_ALLOW_LOCAL_DEPENDENCIES_ON_EXTERNAL_DEFINITIONS |
+                        D3D12_STATE_OBJECT_FLAG_ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL_DEFINITIONS);
             }
 
             RT_TRACE("%p || STATE_OBJECT_CONFIG: #%x.\n", obj->pDesc, object_config->Flags);
