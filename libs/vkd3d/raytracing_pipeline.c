@@ -564,6 +564,13 @@ static void d3d12_state_object_pipeline_data_cleanup(struct d3d12_state_object_p
 
     for (i = 0; i < data->associations_count; i++)
     {
+        if ((data->associations[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE ||
+                data->associations[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE) &&
+                data->associations[i].root_signature)
+        {
+            d3d12_root_signature_dec_ref(data->associations[i].root_signature);
+        }
+
         if (data->has_deep_duplication)
             vkd3d_free((void*)data->associations[i].export);
     }
@@ -704,6 +711,8 @@ static void d3d12_state_object_set_association_data(struct d3d12_state_object_as
             types.global_root_signature = object->pDesc;
             association->root_signature =
                     impl_from_ID3D12RootSignature(types.global_root_signature->pGlobalRootSignature);
+            if (association->root_signature)
+                d3d12_root_signature_inc_ref(association->root_signature);
             break;
 
         case D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE:
@@ -711,6 +720,8 @@ static void d3d12_state_object_set_association_data(struct d3d12_state_object_as
             types.local_root_signature = object->pDesc;
             association->root_signature =
                     impl_from_ID3D12RootSignature(types.local_root_signature->pLocalRootSignature);
+            if (association->root_signature)
+                d3d12_root_signature_inc_ref(association->root_signature);
             break;
 
         case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG:
@@ -800,6 +811,9 @@ static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *obj
                     data->associations[data->associations_count].root_signature->compatibility_hash,
                     association_priority);
 
+            /* Hold reference in case we need to duplicate the data structure due to compile defer. */
+            if (data->associations[data->associations_count].root_signature)
+                d3d12_root_signature_inc_ref(data->associations[data->associations_count].root_signature);
             data->associations_count++;
             break;
         }
@@ -952,6 +966,8 @@ static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *obj
                     case VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE:
                         data->associations[data->associations_count].root_signature =
                                 data->subobject_root_signatures[root_signature_index];
+                        if (data->associations[data->associations_count].root_signature)
+                            d3d12_root_signature_inc_ref(data->associations[data->associations_count].root_signature);
                         break;
 
                     case VKD3D_SHADER_SUBOBJECT_KIND_RAYTRACING_PIPELINE_CONFIG1:
