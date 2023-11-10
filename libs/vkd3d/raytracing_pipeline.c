@@ -653,7 +653,7 @@ static HRESULT d3d12_state_object_add_collection(
         return E_OUTOFMEMORY;
 
     if (!vkd3d_array_reserve((void **)&data->associations, &data->associations_size,
-            data->associations_count + 3, sizeof(*data->associations)))
+            data->associations_count + 2, sizeof(*data->associations)))
         return E_OUTOFMEMORY;
 
     RT_TRACE("EXISTING_COLLECTION:\n");
