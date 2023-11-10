@@ -4678,6 +4678,8 @@ struct d3d12_state_object_variant
     } local_static_sampler;
 };
 
+struct d3d12_state_object_pipeline_data;
+
 struct d3d12_state_object
 {
     d3d12_state_object_iface ID3D12StateObject_iface;
@@ -4709,6 +4711,8 @@ struct d3d12_state_object
 
     struct d3d12_state_object **collections;
     size_t collections_count;
+
+    struct d3d12_state_object_pipeline_data *deferred_data;
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     /* For breadcrumbs. */
