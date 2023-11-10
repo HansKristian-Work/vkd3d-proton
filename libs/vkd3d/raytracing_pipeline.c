@@ -2033,8 +2033,22 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_state_ob
                     data->exports_count + 1, sizeof(*data->exports));
 
             export = &data->exports[data->exports_count];
-            export->mangled_export = entry->mangled_entry_point;
-            export->plain_export = entry->plain_entry_point;
+
+            if (object->flags & D3D12_STATE_OBJECT_FLAG_ALLOW_LOCAL_DEPENDENCIES_ON_EXTERNAL_DEFINITIONS)
+            {
+                /* Cannot pilfer since we might have to keep entry[] alive. */
+                export->mangled_export = entry->mangled_entry_point ? vkd3d_wstrdup(entry->mangled_entry_point) : NULL;
+                export->plain_export = entry->plain_entry_point ? vkd3d_wstrdup(entry->plain_entry_point) : NULL;
+            }
+            else
+            {
+                /* Pilfer */
+                export->mangled_export = entry->mangled_entry_point;
+                export->plain_export = entry->plain_entry_point;
+                entry->mangled_entry_point = NULL;
+                entry->plain_entry_point = NULL;
+            }
+
             export->pipeline_variant_index = pipeline_variant_index;
             export->per_variant_group_index = data->groups_count;
             export->general_stage_index = data->stages_count;
@@ -2044,9 +2058,6 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_state_ob
             export->inherited_collection_index = -1;
             export->inherited_collection_export_index = 0;
             export->general_stage = entry->stage;
-
-            entry->mangled_entry_point = NULL;
-            entry->plain_entry_point = NULL;
 
             vkd3d_array_reserve((void **) &data->groups, &data->groups_size,
                     data->groups_count + 1, sizeof(*data->groups));
