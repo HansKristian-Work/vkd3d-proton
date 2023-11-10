@@ -573,6 +573,66 @@ static void d3d12_state_object_pipeline_data_cleanup(struct d3d12_state_object_p
     d3d12_state_object_pipeline_data_cleanup_compile_temporaries(data, device);
 }
 
+static void *dup_memory(const void *data, size_t size)
+{
+    /* TODO: Should consider a linear allocator here so we can just yoink,
+     * but only one known game hits this case, so ... eh. */
+    void *new_data = vkd3d_malloc(size);
+    if (new_data)
+        memcpy(new_data, data, size);
+    return new_data;
+}
+
+static struct d3d12_state_object_pipeline_data *d3d12_state_object_pipeline_data_defer(
+        struct d3d12_state_object_pipeline_data *old_data,
+        struct d3d12_device *device)
+{
+    struct d3d12_state_object_pipeline_data *data;
+    unsigned int i;
+
+    /* hit_groups and dxil_libraries need deep copies since they currently only reference app-provided memory. */
+    data = dup_memory(old_data, sizeof(*old_data));
+    data->has_deep_duplication = true;
+
+    for (i = 0; i < data->hit_groups_count; i++)
+    {
+        D3D12_HIT_GROUP_DESC *desc;
+        data->hit_groups[i] = dup_memory(data->hit_groups[i], sizeof(*data->hit_groups[i]));
+        desc = (D3D12_HIT_GROUP_DESC *)data->hit_groups[i];
+        if (desc->HitGroupExport)
+            desc->HitGroupExport = vkd3d_wstrdup(desc->HitGroupExport);
+        if (desc->AnyHitShaderImport)
+            desc->AnyHitShaderImport = vkd3d_wstrdup(desc->AnyHitShaderImport);
+        if (desc->ClosestHitShaderImport)
+            desc->ClosestHitShaderImport = vkd3d_wstrdup(desc->ClosestHitShaderImport);
+        if (desc->IntersectionShaderImport)
+            desc->IntersectionShaderImport = vkd3d_wstrdup(desc->IntersectionShaderImport);
+    }
+
+    for (i = 0; i < data->dxil_libraries_count; i++)
+    {
+        D3D12_DXIL_LIBRARY_DESC *desc;
+        data->dxil_libraries[i] = dup_memory(data->dxil_libraries[i], sizeof(*data->dxil_libraries[i]));
+        desc = (D3D12_DXIL_LIBRARY_DESC *)data->dxil_libraries[i];
+
+        desc->DXILLibrary.pShaderBytecode = dup_memory(desc->DXILLibrary.pShaderBytecode, desc->DXILLibrary.BytecodeLength);
+        /* We have already parsed the module entry points and subobjects.
+         * Only thing we need to do is to keep the raw DXIL alive for later. */
+        desc->NumExports = 0;
+        desc->pExports = NULL;
+    }
+
+    for (i = 0; i < data->associations_count; i++)
+        if (data->associations[i].export)
+            data->associations[i].export = vkd3d_wstrdup(data->associations[i].export);
+
+    /* Some data structures are not needed after we have parsed the RTPSO.
+     * Clean them up early, so we're not wasting memory. */
+    d3d12_state_object_pipeline_data_cleanup_compile_temporaries(data, device);
+
+    return data;
+}
+
 #define VKD3D_ASSOCIATION_PRIORITY_INHERITED_COLLECTION 0
 #define VKD3D_ASSOCIATION_PRIORITY_DXIL_SUBOBJECT 1
 #define VKD3D_ASSOCIATION_PRIORITY_DXIL_SUBOBJECT_ASSIGNMENT_DEFAULT 2
