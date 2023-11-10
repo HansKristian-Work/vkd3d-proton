@@ -778,7 +778,7 @@ static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *obj
 
             for (i = 0; i < data->subobjects_count; i++)
             {
-                if (vkd3d_export_strequal_mixed(association->SubobjectToAssociate, data->subobjects[i].name))
+                if (vkd3d_export_strequal(association->SubobjectToAssociate, data->subobjects[i].name))
                     break;
 
                 if (data->subobjects[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE ||

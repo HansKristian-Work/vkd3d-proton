@@ -966,14 +966,17 @@ enum vkd3d_shader_subobject_kind
 struct vkd3d_shader_library_subobject
 {
     enum vkd3d_shader_subobject_kind kind;
-    unsigned int dxil_identifier;
 
     /* All const pointers here point directly to the DXBC blob,
      * so they do not need to be freed.
      * Fortunately for us, the C strings are zero-terminated in the blob itself. */
 
-    /* In the blob, ASCII is used as identifier, where API uses wide strings, sigh ... */
-    const char *name;
+    /* In the blob, ASCII is used as identifier, where API uses wide strings, sigh ...
+     * We need to dup this name for deferred COLLECTIONS, so use wchar instead. */
+    WCHAR *name;
+
+    /* If true, any pointers below are just borrowed. */
+    bool borrowed_payloads;
 
     union
     {
@@ -987,7 +990,8 @@ struct vkd3d_shader_library_subobject
 
         struct
         {
-            const void *data;
+            /* Duped because of deferred COLLECTIONS. */
+            void *data;
             size_t size;
         } payload;
     } data;
