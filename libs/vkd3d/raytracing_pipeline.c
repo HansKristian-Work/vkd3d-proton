@@ -110,6 +110,9 @@ static void d3d12_state_object_dec_ref(struct d3d12_state_object *state_object)
     }
 }
 
+static void d3d12_state_object_pipeline_data_cleanup(struct d3d12_state_object_pipeline_data *data,
+        struct d3d12_device *device);
+
 static void d3d12_state_object_cleanup(struct d3d12_state_object *object)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &object->device->vk_procs;
@@ -122,11 +125,21 @@ static void d3d12_state_object_cleanup(struct d3d12_state_object *object)
         vkd3d_free(object->exports[i].plain_export);
     }
     vkd3d_free(object->exports);
+    object->exports = NULL;
+    object->exports_count = 0;
+    object->exports_size = 0;
+
     vkd3d_free(object->entry_points);
+    object->entry_points = NULL;
+    object->entry_points_count = 0;
+    /* This is pilfered from data struct, and we don't copy the size. */
 
     for (i = 0; i < object->collections_count; i++)
         d3d12_state_object_dec_ref(object->collections[i]);
     vkd3d_free(object->collections);
+    object->collections = NULL;
+    object->collections_count = 0;
+    /* This is pilfered from data struct, and we don't copy the size. */
 
     for (i = 0; i < object->pipelines_count; i++)
     {
@@ -150,9 +163,22 @@ static void d3d12_state_object_cleanup(struct d3d12_state_object *object)
         }
     }
     vkd3d_free(object->pipelines);
+    object->pipelines = NULL;
+    object->pipelines_count = 0;
+    object->pipelines_size = 0;
+
+    if (object->deferred_data)
+    {
+        d3d12_state_object_pipeline_data_cleanup(object->deferred_data, object->device);
+        vkd3d_free(object->deferred_data);
+        object->deferred_data = NULL;
+    }
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     vkd3d_free(object->breadcrumb_shaders);
+    object->breadcrumb_shaders = NULL;
+    object->breadcrumb_shaders_count = 0;
+    object->breadcrumb_shaders_size = 0;
 #endif
 }
 
@@ -444,6 +470,7 @@ struct d3d12_state_object_pipeline_data
     size_t vk_libraries_count;
 
     struct vkd3d_shader_debug_ring_spec_info *spec_info_buffer;
+    bool has_deep_duplication;
 };
 
 static void d3d12_state_object_pipeline_data_cleanup_modules(struct d3d12_state_object_pipeline_data *data,
@@ -458,19 +485,17 @@ static void d3d12_state_object_pipeline_data_cleanup_modules(struct d3d12_state_
     data->stages_count = 0;
 }
 
-static void d3d12_state_object_pipeline_data_cleanup(struct d3d12_state_object_pipeline_data *data,
+static void d3d12_state_object_pipeline_data_cleanup_compile_temporaries(struct d3d12_state_object_pipeline_data *data,
         struct d3d12_device *device)
 {
     unsigned int i;
 
-    vkd3d_shader_dxil_free_library_entry_points(data->entry_points, data->entry_points_count);
-    vkd3d_shader_dxil_free_library_subobjects(data->subobjects, data->subobjects_count);
-    vkd3d_free((void*)data->hit_groups);
-    vkd3d_free((void*)data->dxil_libraries);
-
     for (i = 0; i < data->subobject_root_signatures_count; i++)
         d3d12_root_signature_dec_ref(data->subobject_root_signatures[i]);
     vkd3d_free(data->subobject_root_signatures);
+    data->subobject_root_signatures = NULL;
+    data->subobject_root_signatures_count = 0;
+    data->subobject_root_signatures_size = 0;
 
     for (i = 0; i < data->exports_count; i++)
     {
@@ -478,15 +503,74 @@ static void d3d12_state_object_pipeline_data_cleanup(struct d3d12_state_object_p
         vkd3d_free(data->exports[i].plain_export);
     }
     vkd3d_free(data->exports);
+    data->exports = NULL;
+    data->exports_count = 0;
+    data->exports_size = 0;
+
     vkd3d_free(data->groups);
+    data->groups = NULL;
+    data->groups_count = 0;
+    data->groups_size = 0;
 
     d3d12_state_object_pipeline_data_cleanup_modules(data, device);
     vkd3d_free(data->stages);
+    data->stages = 0;
+    data->stages_count = 0;
+    data->stages_size = 0;
+
+    vkd3d_free(data->collections);
+    data->collections = NULL;
+    data->collections_count = 0;
+    data->collections_size = 0;
+
+    vkd3d_free(data->vk_libraries);
+    data->vk_libraries = NULL;
+    data->vk_libraries_count = 0;
+    data->vk_libraries_size = 0;
+
+    vkd3d_free(data->spec_info_buffer);
+    data->spec_info_buffer = NULL;
+}
+
+static void d3d12_state_object_pipeline_data_cleanup(struct d3d12_state_object_pipeline_data *data,
+        struct d3d12_device *device)
+{
+    unsigned int i;
+
+    vkd3d_shader_dxil_free_library_entry_points(data->entry_points, data->entry_points_count);
+    vkd3d_shader_dxil_free_library_subobjects(data->subobjects, data->subobjects_count);
+
+    if (data->has_deep_duplication)
+    {
+        /* TODO: Should consider a linear allocator here so we can just yoink,
+         * but only one known game hits this case, so ... eh. */
+        for (i = 0; i < data->hit_groups_count; i++)
+        {
+            vkd3d_free((void*)data->hit_groups[i]->AnyHitShaderImport);
+            vkd3d_free((void*)data->hit_groups[i]->ClosestHitShaderImport);
+            vkd3d_free((void*)data->hit_groups[i]->IntersectionShaderImport);
+            vkd3d_free((void*)data->hit_groups[i]->HitGroupExport);
+            vkd3d_free((void*)data->hit_groups[i]);
+        }
+
+        for (i = 0; i < data->dxil_libraries_count; i++)
+        {
+            vkd3d_free((void*)data->dxil_libraries[i]->DXILLibrary.pShaderBytecode);
+            vkd3d_free((void*)data->dxil_libraries[i]);
+        }
+    }
+    vkd3d_free((void*)data->hit_groups);
+    vkd3d_free((void*)data->dxil_libraries);
+
+    for (i = 0; i < data->associations_count; i++)
+    {
+        if (data->has_deep_duplication)
+            vkd3d_free((void*)data->associations[i].export);
+    }
 
     vkd3d_free(data->associations);
-    vkd3d_free(data->collections);
-    vkd3d_free(data->vk_libraries);
-    vkd3d_free(data->spec_info_buffer);
+
+    d3d12_state_object_pipeline_data_cleanup_compile_temporaries(data, device);
 }
 
 #define VKD3D_ASSOCIATION_PRIORITY_INHERITED_COLLECTION 0
