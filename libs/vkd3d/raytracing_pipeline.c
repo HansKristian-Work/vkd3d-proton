@@ -2681,8 +2681,28 @@ static HRESULT d3d12_state_object_init(struct d3d12_state_object *object,
     return S_OK;
 
 fail:
-    d3d12_state_object_pipeline_data_cleanup(&data, object->device);
-    d3d12_state_object_cleanup(object);
+    if (object->flags & D3D12_STATE_OBJECT_FLAG_ALLOW_LOCAL_DEPENDENCIES_ON_EXTERNAL_DEFINITIONS)
+    {
+        /* If we allow local dependencies on external definitions, it's very plausible we'll fail
+         * a compilation. Defer this compilation. Need to keep alive what we parsed,
+         * and hand that over to any pipeline that includes the collection.
+         * Native drivers tend to compile what they can up-front, but partially compiling a pipeline
+         * will be too painful and there seems to be no spec requirement to do that, so
+         * we'll do the easiest thing. If we can compile everything, go for it. Otherwise, punt to link time. */
+        WARN("Deferring compilation of COLLECTION due to ALLOW_LOCAL_DEPENDENCIES_ON_EXTERNAL_DEFINITIONS.\n");
+        d3d12_state_object_cleanup(object);
+        object->deferred_data = d3d12_state_object_pipeline_data_defer(&data, object->device);
+        if (FAILED(hr = vkd3d_private_store_init(&object->private_store)))
+            d3d12_state_object_cleanup(object);
+        else
+            d3d12_device_add_ref(object->device);
+    }
+    else
+    {
+        d3d12_state_object_pipeline_data_cleanup(&data, object->device);
+        d3d12_state_object_cleanup(object);
+    }
+
     return hr;
 }
 
