@@ -1,5 +1,87 @@
 # Change Log
 
+## 2.11
+
+This release rolls up a bunch of features, perf improvements and bug fixes / workarounds as usual.
+
+### Features
+
+#### DXR enabled by default
+
+`VKD3D_CONFIG=dxr` is default now, and no longer needed.
+There are some special cases where DXR is not enabled by default. The only such current example is
+"Hellblade: Senua's Sacrifice" on Deck which force-enables DXR if it is supported, even on Deck.
+New semantics are:
+
+- `dxr`: Force-enable DXR, even when it is considered unsafe
+- `nodxr`: Disable DXR
+- `dxr11`: Removed. `dxr` already implied DXR 1.1 anyway
+
+#### Sampler feedback
+
+This feature was the last feature required for FL 12.2 and is implemented through emulation.
+As demonstrated in the [implementation docs](https://github.com/HansKristian-Work/vkd3d-proton/blob/master/docs/sampler_feedback.md), all
+native implementations of this feature are fundamentally broken in some way.
+There's also no known game that ships requiring this feature, so we just consider this a checkbox feature.
+
+#### DX Ultimate (FL 12.2) now exposed by default
+
+On RDNA2+ and Turing+ we can finally expose the DX Ultimate feature set!
+
+#### Misc
+
+- Implement a bunch of missing "Vulkan-on-D3D12" features
+  - IndependentFrontAndBackStencilRefMaskSupported
+  - TriangleFanSupported
+  - DynamicIndexBufferStripCutSupported
+  - DynamicDepthBiasSupported
+  - NonNormalizedCoordinateSamplersSupported
+  - MismatchingOutputDimensionsSupported
+  - PointSamplingAddressesNeverRoundUp
+  - RasterizerDesc2Supported
+    - Explicit line rasterization mode
+  - NarrowQuadrilateralLinesSupported
+  - AnisoFilterWithPointMipSupported
+- Implement missing MSAD instruction in DXIL, allowing FSR3 to run
+- Implement some esoteric DXR features
+  - Implement support for multiple mismatching global root signatures in DXR
+    - Fixes crash in Battlefield V
+  - Implement support for LOCAL_ON_EXTERNAL dependencies in DXR
+    - Fixes DXR in Warhammer: Darktide
+- Implement support for ExecuteIndirect + Mesh shaders with state changes
+  - Currently unused by games
+
+### Performance
+
+- Improve performance of NV_device_generated_commands and NV_device_generated_commands_compute by
+  reordering and batching command preprocessing
+  - We have observed 15% FPS gains in Halo Infinite on RADV
+  - 1-2% in Starfield in some test locations
+  - Needs pending Mesa work to land to take advantage of this improvement
+- Tune memory allocation patterns for DGC preprocess buffers
+  - Avoids a lot of allocation churn
+  - Greatly reduces CPU overhead on NV
+
+### Workarounds
+
+- Work around RADV bug causing GPU hang in RE4: Separate Ways DLC
+- Work around RADV bug causing GPU hang in Lords of the Fallen
+- Work around Witcher 3 bug causing broken shadows and GPU hangs when enabling DXR
+- Work around Cyberpunk 2077 bug when RT is enabled, where game would cause spurious GPU hangs due to accessing descriptor heap out of bounds
+- Work around Windjammers 2 bug causing random crashes on startup
+- Add support for VK_EXT_image_compression_control to allow for more fine-grained workarounds for broken games running on RADV
+- Enable NV_device_generated_commands_compute on latest NV beta drivers
+  - 545.x drivers are still disabled until a fix can be confirmed on shipping drivers
+- Remove CURB_MEMORY_PSO_CACHE workaround on Mesa 23.2+
+  - Should reduce overhead in PSO creation
+
+### Fixes
+
+- Misc dxil-spirv changes to fix various bugs in game shaders as usual
+- Fix Jurassic World Evolution 2 crashing when enabling DXR
+- Fix some deprecation warnings in Meson build system
+  - Some submodule locations moved, which may cause minor disruption
+
 ## 2.10
 
 This release rolls up a ton of bug fixes, game and driver workarounds, and other improvements.
