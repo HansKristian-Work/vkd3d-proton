@@ -96,6 +96,8 @@ endif
 
 add_project_arguments(vkd3d_compiler.get_supported_arguments([
     '-fvisibility=hidden',
+    '-msse',
+    '-msse2',
     # For some reason, the use of VLAs isn't in all+extra+pedantic
     # We don't want to use these accidentally from consts...
     '-Wvla',
@@ -132,6 +134,18 @@ if not vkd3d_is_msvc
   # work properly as well as avoiding a memcpy from the Wine loader.
   if vkd3d_compiler.has_link_argument('-Wl,--file-alignment=4096')
     add_global_link_arguments('-Wl,--file-alignment=4096', language : [ 'c', 'cpp' ])
+  endif
+endif
+
+if vkd3d_platform == 'windows'
+  if vkd3d_compiler.has_link_argument('-static')
+    add_global_link_arguments('-static', language : [ 'c', 'cpp' ])
+  endif
+  if vkd3d_compiler.has_link_argument('-static-libgcc')
+    add_global_link_arguments('-static-libgcc', language : [ 'c', 'cpp' ])
+  endif
+  if vkd3d_compiler.has_link_argument('-static-libstdc++')
+    add_global_link_arguments('-static-libstdc++', language : [ 'cpp' ])
   endif
 endif
 

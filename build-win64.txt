@@ -6,8 +6,6 @@ strip = 'x86_64-w64-mingw32-strip'
 widl-mingw-tools-fallback = 'x86_64-w64-mingw32-widl'
 
 [properties]
-c_link_args = ['-static', '-static-libgcc']
-cpp_link_args = ['-static', '-static-libgcc', '-static-libstdc++']
 needs_exe_wrapper = true
 
 [host_machine]
