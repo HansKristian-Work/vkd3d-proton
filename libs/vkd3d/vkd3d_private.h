@@ -2023,6 +2023,43 @@ struct vkd3d_pipeline_cache_compatibility
     uint64_t dxbc_blob_hashes[VKD3D_MAX_SHADER_STAGES];
 };
 
+struct d3d12_descriptor_copy_template_entry
+{
+    uint16_t dst_offset_words;
+    uint8_t constant_offset;
+    uint8_t table_index;
+    uint8_t set_index;
+    uint8_t count;
+};
+
+#define VKD3D_MAX_HOISTED_DESCRIPTORS 16
+/* Common case is VS + PS, MS + PS, CS.
+ * Ignore hoisting outside these (tess/geom/task) to keep memory usage low and number of sets. */
+#define VKD3D_MAX_HOIST_SHADER_STAGES 2
+
+struct d3d12_descriptor_copy_template
+{
+    struct d3d12_descriptor_copy_template_entry entries[VKD3D_MAX_HOIST_SHADER_STAGES * VKD3D_MAX_HOISTED_DESCRIPTORS];
+    unsigned int num_entries;
+
+    /* For descriptor hoisting. Each pipeline stage gets its own set. */
+    VkDescriptorSetLayout vk_hoist_descriptor_sets[VKD3D_MAX_HOIST_SHADER_STAGES];
+    VkPipelineLayout vk_hoist_descriptor_set_layout;
+
+    /* On draw time if table offsets are out of date:
+     * - Allocate descriptor_allocation_words from d3d12_command_list_descriptor_copy_batch::descriptor_buffer.
+     * - Allocate num_entries from d3d12_command_list_descriptor_copy_batch::host_buffer.
+     * - vkCmdBindDescriptorBufferOffsets(offsets = descriptor_offsets + alloc offset,
+     *                                    first_hoist_set_index, num_hoist_sets).
+     * - Resolve constant_offset / table_index from command list state into src_offset.
+     * - Resolve dst_offset_words + alloc offset into dst_offset.
+     * - Copy set_index / count. */
+    VkDeviceSize descriptor_offsets[VKD3D_MAX_HOIST_SHADER_STAGES];
+    VkDeviceSize descriptor_allocation_size;
+    unsigned int num_hoist_sets;
+    unsigned int first_hoist_set_index;
+};
+
 /* ID3D12PipelineState */
 struct d3d12_pipeline_state
 {
@@ -2046,6 +2083,8 @@ struct d3d12_pipeline_state
     bool root_signature_compat_hash_is_dxbc_derived;
     bool pso_is_loaded_from_cached_blob;
     bool pso_is_fully_dynamic;
+
+    struct d3d12_descriptor_copy_template hoist_template;
 
     struct vkd3d_private_store private_store;
 };
@@ -2311,6 +2350,14 @@ struct vkd3d_scratch_buffer
 {
     struct vkd3d_memory_allocation allocation;
     VkDeviceSize offset;
+};
+
+struct vkd3d_scratch_allocation
+{
+    VkBuffer buffer;
+    VkDeviceSize offset;
+    VkDeviceAddress va;
+    void *host_ptr;
 };
 
 #define VKD3D_QUERY_TYPE_INDEX_OCCLUSION (0u)
@@ -2728,6 +2775,39 @@ struct d3d12_command_list_sequence
     struct d3d12_command_list_iteration_indirect_meta *indirect_meta;
 };
 
+#define VKD3D_DESCRIPTOR_COPY_BATCH_DESCRIPTOR_BUFFER_SIZE (64 * 1024)
+#define VKD3D_DESCRIPTOR_COPY_BATCH_NUM_COPIES ((64 * 1024) / sizeof(struct d3d12_command_list_descriptor_copy_word))
+
+/* Represents a copy where we do:
+ * for i in range(count):
+ *   store_u32(descriptor_buffer + (dst_offset + i) * sizeof(uint32_t),
+ *             load_u32(base_va[set_index] + (src_offset + i) * sizeof(uint32_t)));
+ */
+struct d3d12_command_list_descriptor_copy_word
+{
+    uint32_t src_offset;
+    uint16_t dst_offset;
+    uint8_t set_index;
+    uint8_t count;
+};
+
+/* A batch is started when application sets descriptor heap. */
+struct d3d12_command_list_descriptor_copy_batch
+{
+    /* Represents the descriptor heaps. */
+    VkDeviceAddress base_va[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+    /* Used to detect OOB descriptor copies. Can replace with null descriptor. */
+    uint32_t num_descriptors[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+
+    /* Holds VKD3D_DESCRIPTOR_COPY_BATCH_WORDS * sizeof(uint32_t) worth of descriptors. */
+    struct vkd3d_scratch_buffer descriptor_buffer;
+    /* Holds VKD3D_DESCRIPTOR_COPY_BATCH_NUM_WORD_COPIES worth of d3d12_command_list_descriptor_copy_word. */
+    struct vkd3d_scratch_buffer host_buffer;
+
+    unsigned int descriptor_buffer_offset;
+    unsigned int num_copies;
+};
+
 struct d3d12_command_list
 {
     d3d12_command_list_iface ID3D12GraphicsCommandList_iface;
@@ -2753,6 +2833,10 @@ struct d3d12_command_list
     } index_buffer;
 
     struct d3d12_command_list_sequence cmd;
+
+    struct d3d12_command_list_descriptor_copy_batch *copy_batches;
+    size_t copy_batches_count;
+    size_t copy_batches_size;
 
     struct d3d12_rtv_desc rtvs[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct d3d12_rtv_desc dsv;

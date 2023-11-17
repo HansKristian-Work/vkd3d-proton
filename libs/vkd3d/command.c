@@ -2698,14 +2698,6 @@ HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
     return S_OK;
 }
 
-struct vkd3d_scratch_allocation
-{
-    VkBuffer buffer;
-    VkDeviceSize offset;
-    VkDeviceAddress va;
-    void *host_ptr;
-};
-
 static bool d3d12_command_allocator_allocate_scratch_memory(struct d3d12_command_allocator *allocator,
         enum vkd3d_scratch_pool_kind kind,
         VkDeviceSize size, VkDeviceSize alignment, uint32_t memory_types,
