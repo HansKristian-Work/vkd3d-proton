@@ -67,6 +67,7 @@
 typedef ID3D12Fence1 d3d12_fence_iface;
 
 struct d3d12_command_list;
+struct d3d12_command_allocator;
 struct d3d12_device;
 struct d3d12_resource;
 
@@ -207,8 +208,8 @@ struct vkd3d_waiting_fence
     d3d12_fence_iface *fence;
     VkSemaphore submission_timeline;
     uint64_t value;
-    LONG **submission_counters;
-    size_t num_submission_counts;
+    struct d3d12_command_allocator **command_allocators;
+    size_t num_command_allocators;
     bool signal;
 };
 
@@ -2349,6 +2350,7 @@ struct d3d12_command_allocator
 {
     ID3D12CommandAllocator ID3D12CommandAllocator_iface;
     LONG refcount;
+    LONG internal_refcount;
 
     D3D12_COMMAND_LIST_TYPE type;
     VkQueueFlags vk_queue_flags;
@@ -2375,8 +2377,6 @@ struct d3d12_command_allocator
     size_t query_pool_count;
 
     struct vkd3d_query_pool active_query_pools[VKD3D_VIRTUAL_QUERY_TYPE_COUNT];
-
-    LONG outstanding_submissions_count;
 
     struct d3d12_command_list *current_command_list;
     struct d3d12_device *device;
@@ -2793,6 +2793,7 @@ struct d3d12_command_list
     const struct d3d12_state_object_variant *rt_state_variant;
 
     struct d3d12_command_allocator *allocator;
+    struct d3d12_command_allocator *submit_allocator;
     struct d3d12_device *device;
 
     VkBuffer so_buffers[D3D12_SO_BUFFER_SLOT_COUNT];
@@ -2816,8 +2817,6 @@ struct d3d12_command_list
     struct vkd3d_active_query *pending_queries;
     size_t pending_queries_size;
     size_t pending_queries_count;
-
-    LONG *outstanding_submissions_count;
 
     const struct vkd3d_descriptor_metadata_view *cbv_srv_uav_descriptors_view;
 
@@ -3009,9 +3008,9 @@ struct d3d12_command_queue_submission_signal
 struct d3d12_command_queue_submission_execute
 {
     VkCommandBufferSubmitInfo *cmd;
-    LONG **outstanding_submissions_counters;
+    struct d3d12_command_allocator **command_allocators;
     UINT cmd_count;
-    UINT outstanding_submissions_counter_count;
+    UINT num_command_allocators;
 
     struct vkd3d_initial_transition *transitions;
     size_t transition_count;

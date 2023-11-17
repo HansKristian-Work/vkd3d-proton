@@ -35,6 +35,7 @@ static void d3d12_shared_fence_inc_ref(struct d3d12_shared_fence *fence);
 static void d3d12_shared_fence_dec_ref(struct d3d12_shared_fence *fence);
 static void d3d12_fence_iface_inc_ref(d3d12_fence_iface *iface);
 static void d3d12_fence_iface_dec_ref(d3d12_fence_iface *iface);
+static ULONG d3d12_command_allocator_dec_ref(struct d3d12_command_allocator *allocator);
 
 #define MAX_BATCHED_IMAGE_BARRIERS 16
 struct d3d12_command_list_barrier_batch
@@ -325,7 +326,7 @@ static void vkd3d_queue_reset_wait_count_locked(struct vkd3d_queue *vkd3d_queue)
 
 static HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worker,
         d3d12_fence_iface *fence, VkSemaphore timeline, uint64_t value, bool signal,
-        LONG **submission_counters, size_t num_submission_counts);
+        struct d3d12_command_allocator **command_allocators, size_t num_command_allocators);
 
 static void vkd3d_queue_push_waiters_to_worker_locked(struct vkd3d_queue *vkd3d_queue,
         struct vkd3d_fence_worker *worker,
@@ -469,7 +470,7 @@ static HRESULT vkd3d_create_timeline_semaphore(struct d3d12_device *device, uint
 
 static HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worker,
         d3d12_fence_iface *fence, VkSemaphore timeline, uint64_t value, bool signal,
-        LONG **submission_counters, size_t num_submission_counts)
+        struct d3d12_command_allocator **command_allocators, size_t num_command_allocators)
 {
     struct vkd3d_waiting_fence *waiting_fence;
     size_t i;
@@ -480,9 +481,9 @@ static HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worke
     if ((rc = pthread_mutex_lock(&worker->mutex)))
     {
         ERR("Failed to lock mutex, error %d.\n", rc);
-        for (i = 0; i < num_submission_counts; i++)
-            InterlockedDecrement(submission_counters[i]);
-        vkd3d_free(submission_counters);
+        for (i = 0; i < num_command_allocators; i++)
+            d3d12_command_allocator_dec_ref(command_allocators[i]);
+        vkd3d_free(command_allocators);
         return hresult_from_errno(rc);
     }
 
@@ -491,9 +492,9 @@ static HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worke
     {
         ERR("Failed to add GPU timeline semaphore.\n");
         pthread_mutex_unlock(&worker->mutex);
-        for (i = 0; i < num_submission_counts; i++)
-            InterlockedDecrement(submission_counters[i]);
-        vkd3d_free(submission_counters);
+        for (i = 0; i < num_command_allocators; i++)
+            d3d12_command_allocator_dec_ref(command_allocators[i]);
+        vkd3d_free(command_allocators);
         return E_OUTOFMEMORY;
     }
 
@@ -505,8 +506,8 @@ static HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worke
     waiting_fence->submission_timeline = timeline;
     waiting_fence->value = value;
     waiting_fence->signal = signal;
-    waiting_fence->submission_counters = submission_counters;
-    waiting_fence->num_submission_counts = num_submission_counts;
+    waiting_fence->command_allocators = command_allocators;
+    waiting_fence->num_command_allocators = num_command_allocators;
     ++worker->enqueued_fence_count;
 
     pthread_cond_signal(&worker->cond);
@@ -517,9 +518,9 @@ static HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worke
 static void vkd3d_waiting_fence_release_submissions(const struct vkd3d_waiting_fence *fence)
 {
     size_t i;
-    for (i = 0; i < fence->num_submission_counts; i++)
-        InterlockedDecrement(fence->submission_counters[i]);
-    vkd3d_free(fence->submission_counters);
+    for (i = 0; i < fence->num_command_allocators; i++)
+        d3d12_command_allocator_dec_ref(fence->command_allocators[i]);
+    vkd3d_free(fence->command_allocators);
 }
 
 static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *worker, const struct vkd3d_waiting_fence *fence)
@@ -574,7 +575,7 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
     /* Submission release should only be paired with an execute command.
      * Such execute commands can be paired with a d3d12_fence_dec_ref(),
      * but no signalling operation. */
-    assert(!fence->num_submission_counts || !fence->signal);
+    assert(!fence->num_command_allocators || !fence->signal);
     vkd3d_waiting_fence_release_submissions(fence);
 }
 
@@ -1928,7 +1929,6 @@ static HRESULT d3d12_command_allocator_allocate_command_buffer(struct d3d12_comm
 #endif
 
     allocator->current_command_list = list;
-    list->outstanding_submissions_count = &allocator->outstanding_submissions_count;
 
     return S_OK;
 }
@@ -2195,6 +2195,7 @@ static void d3d12_command_list_allocator_destroyed(struct d3d12_command_list *li
     TRACE("list %p.\n", list);
 
     list->allocator = NULL;
+    list->submit_allocator = NULL;
     memset(&list->cmd, 0, sizeof(list->cmd));
 }
 
@@ -2255,6 +2256,11 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_QueryInterface(ID3D12Co
     return E_NOINTERFACE;
 }
 
+static ULONG d3d12_command_allocator_inc_ref(struct d3d12_command_allocator *allocator)
+{
+    return InterlockedIncrement(&allocator->internal_refcount);
+}
+
 static ULONG STDMETHODCALLTYPE d3d12_command_allocator_AddRef(ID3D12CommandAllocator *iface)
 {
     struct d3d12_command_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
@@ -2262,17 +2268,21 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_AddRef(ID3D12CommandAlloc
 
     TRACE("%p increasing refcount to %u.\n", allocator, refcount);
 
+    if (refcount == 1)
+    {
+        d3d12_command_allocator_inc_ref(allocator);
+        d3d12_device_add_ref(allocator->device);
+    }
+
     return refcount;
 }
 
-static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllocator *iface)
+static ULONG d3d12_command_allocator_dec_ref(struct d3d12_command_allocator *allocator)
 {
-    struct d3d12_command_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
-    ULONG refcount = InterlockedDecrement(&allocator->refcount);
     unsigned int i, j;
-    LONG pending;
+    ULONG refcount;
 
-    TRACE("%p decreasing refcount to %u.\n", allocator, refcount);
+    refcount = InterlockedDecrement(&allocator->internal_refcount);
 
     if (!refcount)
     {
@@ -2280,13 +2290,6 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
         const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
 
         vkd3d_private_store_destroy(&allocator->private_store);
-
-        if ((pending = vkd3d_atomic_uint32_load_explicit(&allocator->outstanding_submissions_count, vkd3d_memory_order_acquire)) != 0)
-        {
-            /* Nothing we can do about this other than report the error. Might find some game bugs! */
-            ERR("Attempting to free command allocator, but there are still %u pending submissions!\n",
-                    (unsigned int)allocator->outstanding_submissions_count);
-        }
 
         if (allocator->current_command_list)
             d3d12_command_list_allocator_destroyed(allocator->current_command_list);
@@ -2350,6 +2353,30 @@ static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllo
 #endif
 
         vkd3d_free(allocator);
+    }
+
+    return refcount;
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_command_allocator_Release(ID3D12CommandAllocator *iface)
+{
+    struct d3d12_command_allocator *allocator = impl_from_ID3D12CommandAllocator(iface);
+    ULONG refcount = InterlockedDecrement(&allocator->refcount);
+    unsigned int pending;
+
+    TRACE("%p decreasing refcount to %u.\n", allocator, refcount);
+
+    if (!refcount)
+    {
+        struct d3d12_device *device = allocator->device;
+        pending = d3d12_command_allocator_dec_ref(allocator);
+
+        /* If this does not go to zero, it means that there are still command lists in flight. */
+        if (pending != 0)
+        {
+            ERR("Released all public references, but there are still %u pending command lists "
+                "awaiting execution from command allocator iface %p! Deferring release.\n", pending, iface);
+        }
 
         d3d12_device_release(device);
     }
@@ -2404,7 +2431,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
     const struct vkd3d_vk_device_procs *vk_procs;
     struct d3d12_command_list *list;
     struct d3d12_device *device;
-    LONG pending;
+    LONG internal_refs;
     VkResult vr;
     size_t i, j;
 
@@ -2421,7 +2448,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
         TRACE("Resetting command list %p.\n", list);
     }
 
-    if ((pending = vkd3d_atomic_uint32_load_explicit(&allocator->outstanding_submissions_count, vkd3d_memory_order_acquire)) != 0)
+    /* We only expect there to be only one internal ref live, the public refcount. */
+    if ((internal_refs = vkd3d_atomic_uint32_load_explicit(&allocator->internal_refcount, vkd3d_memory_order_acquire)) > 1)
     {
         /* HACK: There are currently command lists waiting to be submitted to the queue in the submission threads.
          * Buggy application, but work around this by not resetting the command pool this time.
@@ -2433,7 +2461,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_allocator_Reset(ID3D12CommandAllo
 
         /* Runtime appears to detect this case, but does not return E_FAIL for whatever reason anymore. */
         ERR("There are still %u pending command lists awaiting execution from command allocator iface %p!\n",
-            (unsigned int)pending, iface);
+            (unsigned int)(internal_refs - 1), iface);
         return S_OK;
     }
 
@@ -2565,7 +2593,7 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     queue_family = d3d12_device_get_vkd3d_queue_family(device, type);
     allocator->ID3D12CommandAllocator_iface.lpVtbl = &d3d12_command_allocator_vtbl;
     allocator->refcount = 1;
-    allocator->outstanding_submissions_count = 0;
+    allocator->internal_refcount = 1;
     allocator->type = type;
     allocator->vk_queue_flags = queue_family->vk_queue_flags;
 
@@ -5202,6 +5230,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
     if (list->allocator)
     {
         d3d12_command_allocator_free_command_buffer(list->allocator, list);
+        list->submit_allocator = list->allocator;
         list->allocator = NULL;
     }
 
@@ -5469,6 +5498,7 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     list->tracked_copy_buffer_count = 0;
     list->wbi_batch.batch_len = 0;
     list->query_resolve_count = 0;
+    list->submit_allocator = NULL;
 
     d3d12_command_list_clear_rtas_batch(list);
 }
@@ -15683,12 +15713,12 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     struct vkd3d_initial_transition *transitions;
     size_t num_transitions, num_command_buffers;
     VkCommandBufferSubmitInfo *buffers, *buffer;
+    struct d3d12_command_allocator **allocators;
     struct d3d12_command_queue_submission sub;
     struct d3d12_command_list *cmd_list;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     unsigned int *breadcrumb_indices;
 #endif
-    LONG **outstanding;
     unsigned int iter;
     unsigned int i, j;
     HRESULT hr;
@@ -15734,7 +15764,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         return;
     }
 
-    if (!(outstanding = vkd3d_calloc(command_list_count, sizeof(*outstanding))))
+    if (!(allocators = vkd3d_calloc(command_list_count, sizeof(*allocators))))
     {
         ERR("Failed to allocate outstanding submissions count.\n");
         vkd3d_free(buffers);
@@ -15757,11 +15787,23 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     {
         cmd_list = unsafe_impl_from_ID3D12CommandList(command_lists[i]);
 
-        if (cmd_list->is_recording)
+        if (cmd_list->is_recording || !cmd_list->submit_allocator)
         {
-            d3d12_device_mark_as_removed(command_queue->device, DXGI_ERROR_INVALID_CALL,
-                    "Command list %p is in recording state.\n", command_lists[i]);
-            vkd3d_free(outstanding);
+            if (cmd_list->is_recording)
+            {
+                d3d12_device_mark_as_removed(command_queue->device, DXGI_ERROR_INVALID_CALL,
+                        "Command list %p is in recording state.\n", command_lists[i]);
+            }
+            else
+            {
+                d3d12_device_mark_as_removed(command_queue->device, DXGI_ERROR_INVALID_CALL,
+                        "Command list %p is not associated with an allocator.\n", command_lists[i]);
+            }
+
+            for (j = 0; j < i; j++)
+                d3d12_command_allocator_dec_ref(allocators[j]);
+
+            vkd3d_free(allocators);
             vkd3d_free(buffers);
 #ifdef VKD3D_ENABLE_BREADCRUMBS
             vkd3d_free(breadcrumb_indices);
@@ -15771,8 +15813,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
         num_transitions += cmd_list->init_transitions_count;
 
-        outstanding[i] = cmd_list->outstanding_submissions_count;
-        InterlockedIncrement(outstanding[i]);
+        allocators[i] = cmd_list->submit_allocator;
+        d3d12_command_allocator_inc_ref(allocators[i]);
 
         for (iter = 0; iter < cmd_list->cmd.iteration_count; iter++)
         {
@@ -15857,8 +15899,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     sub.type = VKD3D_SUBMISSION_EXECUTE;
     sub.execute.cmd = buffers;
     sub.execute.cmd_count = num_command_buffers;
-    sub.execute.outstanding_submissions_counters = outstanding;
-    sub.execute.outstanding_submissions_counter_count = command_list_count;
+    sub.execute.command_allocators = allocators;
+    sub.execute.num_command_allocators = command_list_count;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     sub.execute.breadcrumb_indices = breadcrumb_indices;
     sub.execute.breadcrumb_indices_count = breadcrumb_indices ? command_list_count : 0;
@@ -16527,7 +16569,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         const VkCommandBufferSubmitInfo *cmd, UINT count,
         const VkCommandBufferSubmitInfo *transition_cmd,
         const VkSemaphoreSubmitInfo *transition_semaphore,
-        LONG **submission_counters, size_t num_submission_counters,
+        struct d3d12_command_allocator **command_allocators, size_t num_command_allocators,
         bool debug_capture, bool split_submissions)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
@@ -16575,9 +16617,9 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     if (!(vk_queue = vkd3d_queue_acquire(vkd3d_queue)))
     {
         ERR("Failed to acquire queue %p.\n", vkd3d_queue);
-        for (i = 0; i < num_submission_counters; i++)
-            InterlockedDecrement(submission_counters[i]);
-        vkd3d_free(submission_counters);
+        for (i = 0; i < num_command_allocators; i++)
+            d3d12_command_allocator_dec_ref(command_allocators[i]);
+        vkd3d_free(command_allocators);
         return;
     }
 
@@ -16647,12 +16689,12 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
      *   If there are pending submissions waiting, we are expected to ignore the reset.
      *   We will report a failure in this case. Some games run into this.
      */
-    if (vr == VK_SUCCESS && num_submission_counters)
+    if (vr == VK_SUCCESS && num_command_allocators)
     {
         if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker,
                 NULL, vkd3d_queue->submission_timeline,
                 signal_semaphore_info.value, false,
-                submission_counters, num_submission_counters)))
+                command_allocators, num_command_allocators)))
         {
             ERR("Failed to enqueue timeline semaphore.\n");
         }
@@ -17112,8 +17154,8 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
             d3d12_command_queue_execute(queue, submission.execute.cmd,
                     submission.execute.cmd_count,
                     &transition_cmd, &transition_semaphore,
-                    submission.execute.outstanding_submissions_counters,
-                    submission.execute.outstanding_submissions_counter_count,
+                    submission.execute.command_allocators,
+                    submission.execute.num_command_allocators,
                     submission.execute.debug_capture, submission.execute.split_submission);
 
             /* command_queue_execute takes ownership of the outstanding_submission_counters allocation.
