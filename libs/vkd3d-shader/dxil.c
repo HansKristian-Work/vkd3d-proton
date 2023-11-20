@@ -803,6 +803,23 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         }
     }
 
+    if ((quirks & VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS) &&
+            (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER))
+    {
+        /* Checking for RAW_VA_ALIAS_DESCRIPTOR_BUFFER is technically not needed,
+         * but only RADV is affected here and NV miscompiles shaders if you only query OpArrayLength
+         * from a descriptor buffer SSBO. */
+        struct dxil_spv_option_descriptor_heap_robustness helper = { { DXIL_SPV_OPTION_DESCRIPTOR_HEAP_ROBUSTNESS },
+                DXIL_SPV_TRUE };
+
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            WARN("dxil-spirv does not support DESCRIPTOR_HEAP_ROBUSTNESS.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
     if (compiler_args)
     {
         for (i = 0; i < compiler_args->target_extension_count; i++)
@@ -1419,6 +1436,23 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
         {
             WARN("dxil-spirv does not support BRANCH_CONTROL.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
+    if ((quirks & VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS) &&
+            (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER))
+    {
+        /* Checking for RAW_VA_ALIAS_DESCRIPTOR_BUFFER is technically not needed,
+         * but only RADV is affected here and NV miscompiles shaders if you only query OpArrayLength
+         * from a descriptor buffer SSBO. */
+        struct dxil_spv_option_descriptor_heap_robustness helper = { { DXIL_SPV_OPTION_DESCRIPTOR_HEAP_ROBUSTNESS },
+                DXIL_SPV_TRUE };
+
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            WARN("dxil-spirv does not support DESCRIPTOR_HEAP_ROBUSTNESS.\n");
             ret = VKD3D_ERROR_NOT_IMPLEMENTED;
             goto end;
         }

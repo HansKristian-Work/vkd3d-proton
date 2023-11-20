@@ -423,6 +423,9 @@ enum vkd3d_shader_quirk
 
     /* Requests META_FLAG_FORCE_COMPUTE_BARRIER_AFTER_DISPATCH to be set in shader meta. */
     VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER = (1 << 14),
+
+    /* Range check every descriptor heap access with dynamic index and robustness check it. */
+    VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS = (1 << 15),
 };
 
 struct vkd3d_shader_quirk_hash
