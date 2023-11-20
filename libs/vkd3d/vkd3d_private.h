@@ -1663,7 +1663,6 @@ struct d3d12_bind_point_layout
     VkPushConstantRange push_constant_range;
 };
 
-#define VKD3D_MAX_HOISTED_DESCRIPTORS 16
 struct vkd3d_descriptor_hoist_desc
 {
     uint32_t table_index;
@@ -2032,7 +2031,6 @@ struct d3d12_descriptor_copy_template_entry
     uint8_t count;
 };
 
-#define VKD3D_MAX_HOISTED_DESCRIPTORS 16
 /* Common case is VS + PS, MS + PS, CS.
  * Ignore hoisting outside these (tess/geom/task) to keep memory usage low and number of sets. */
 #define VKD3D_MAX_HOIST_SHADER_STAGES 2

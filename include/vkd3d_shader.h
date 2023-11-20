@@ -77,6 +77,16 @@ enum vkd3d_shader_meta_flags
     VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_AFTER_DISPATCH = 1 << 16,
 };
 
+/* Tweaked to make the meta struct a nice and round 64 bytes. */
+#define VKD3D_MAX_HOISTED_DESCRIPTORS 15
+
+struct vkd3d_shader_meta_hoisted_desc
+{
+    uint16_t table_index : 6; /* API limit */
+    uint16_t constant_offset : 7; /* 128 offset from table should be more than enough ... */
+    uint16_t vk_descriptor_type : 3; /* The standard descriptor types we care about fit into 3 bits as-is. */
+};
+
 struct vkd3d_shader_meta
 {
     vkd3d_shader_hash_t hash;
@@ -84,8 +94,10 @@ struct vkd3d_shader_meta
     unsigned int patch_vertex_count; /* Relevant for HS. May be 0, in which case the patch vertex count is not known. */
     unsigned int cs_required_wave_size; /* If non-zero, force a specific CS subgroup size. */
     uint32_t flags; /* vkd3d_shader_meta_flags */
+    struct vkd3d_shader_meta_hoisted_desc hoist_desc[VKD3D_MAX_HOISTED_DESCRIPTORS];
+    uint16_t num_hoisted_descriptors;
 };
-STATIC_ASSERT(sizeof(struct vkd3d_shader_meta) == 32);
+STATIC_ASSERT(sizeof(struct vkd3d_shader_meta) == 64);
 
 struct vkd3d_shader_code
 {
@@ -220,6 +232,7 @@ enum vkd3d_shader_interface_flag
     VKD3D_SHADER_INTERFACE_DESCRIPTOR_QA_BUFFER             = 0x00000010u,
     /* In this model, use descriptor_size_cbv_srv_uav as array stride for raw VA buffer. */
     VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER   = 0x00000020u,
+    VKD3D_SHADER_INTERFACE_HOIST_DESCRIPTORS                = 0x00000040u,
 };
 
 struct vkd3d_shader_stage_io_entry
@@ -278,6 +291,7 @@ struct vkd3d_shader_interface_info
     /* Used for either VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER or local root signatures. */
     uint32_t descriptor_size_cbv_srv_uav;
     uint32_t descriptor_size_sampler;
+    uint32_t hoist_descriptor_set_index;
 };
 
 struct vkd3d_shader_descriptor_table

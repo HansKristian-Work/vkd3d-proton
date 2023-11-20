@@ -181,7 +181,7 @@ VkResult vkd3d_create_pipeline_cache(struct d3d12_device *device,
     return VK_CALL(vkCreatePipelineCache(device->vk_device, &info, NULL, cache));
 }
 
-#define VKD3D_CACHE_BLOB_VERSION MAKE_MAGIC('V','K','B',3)
+#define VKD3D_CACHE_BLOB_VERSION MAKE_MAGIC('V','K','B',4)
 
 enum vkd3d_pipeline_blob_chunk_type
 {
@@ -1314,8 +1314,8 @@ struct vkd3d_serialized_pipeline_toc_entry
 };
 STATIC_ASSERT(sizeof(struct vkd3d_serialized_pipeline_toc_entry) == 16);
 
-#define VKD3D_PIPELINE_LIBRARY_VERSION_TOC MAKE_MAGIC('V','K','L',4)
-#define VKD3D_PIPELINE_LIBRARY_VERSION_STREAM MAKE_MAGIC('V','K','S',4)
+#define VKD3D_PIPELINE_LIBRARY_VERSION_TOC MAKE_MAGIC('V','K','L',5)
+#define VKD3D_PIPELINE_LIBRARY_VERSION_STREAM MAKE_MAGIC('V','K','S',5)
 
 struct vkd3d_serialized_pipeline_library_toc
 {
