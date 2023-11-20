@@ -451,6 +451,12 @@ static HRESULT d3d12_root_signature_info_count_descriptors(struct d3d12_root_sig
     return S_OK;
 }
 
+static bool d3d12_root_signature_may_require_global_heap_binding(void)
+{
+    /* Robustness purposes, we may access the global heap out of band of the root signature. */
+    return d3d12_descriptor_heap_require_padding_descriptors();
+}
+
 static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_info *info,
         struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC2 *desc)
 {
@@ -463,7 +469,8 @@ static HRESULT d3d12_root_signature_info_from_desc(struct d3d12_root_signature_i
     local_root_signature = !!(desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
 
     /* Need to emit bindings for the magic internal table binding. */
-    if (desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED)
+    if (d3d12_root_signature_may_require_global_heap_binding() ||
+            (desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED))
     {
         d3d12_root_signature_info_count_srv_uav_table(info, device);
         d3d12_root_signature_info_count_srv_uav_table(info, device);
@@ -799,7 +806,8 @@ static HRESULT d3d12_root_signature_init_root_descriptor_tables(struct d3d12_roo
 
     local_root_signature = !!(desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
 
-    if (desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED)
+    if (d3d12_root_signature_may_require_global_heap_binding() ||
+            (desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED))
         d3d12_root_signature_init_cbv_srv_uav_heap_bindings(root_signature, context);
     if (desc->Flags & D3D12_ROOT_SIGNATURE_FLAG_SAMPLER_HEAP_DIRECTLY_INDEXED)
         d3d12_root_signature_init_sampler_heap_bindings(root_signature, context);
