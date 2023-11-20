@@ -2041,8 +2041,8 @@ struct d3d12_descriptor_copy_template
     unsigned int num_entries;
 
     /* For descriptor hoisting. Each pipeline stage gets its own set. */
-    VkDescriptorSetLayout vk_hoist_descriptor_sets[VKD3D_MAX_HOIST_SHADER_STAGES];
-    VkPipelineLayout vk_hoist_descriptor_set_layout;
+    VkDescriptorSetLayout vk_hoist_descriptor_set_layouts[VKD3D_MAX_HOIST_SHADER_STAGES];
+    VkPipelineLayout vk_hoist_descriptor_layout;
 
     /* On draw time if table offsets are out of date:
      * - Allocate descriptor_allocation_words from d3d12_command_list_descriptor_copy_batch::descriptor_buffer.

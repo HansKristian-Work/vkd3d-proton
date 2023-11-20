@@ -2248,6 +2248,7 @@ void d3d12_pipeline_state_dec_ref(struct d3d12_pipeline_state *state)
     struct d3d12_device *device = state->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     ULONG refcount = InterlockedDecrement(&state->internal_refcount);
+    unsigned int i;
 
     if (!refcount)
     {
@@ -2264,6 +2265,10 @@ void d3d12_pipeline_state_dec_ref(struct d3d12_pipeline_state *state)
 
         if (state->root_signature)
             d3d12_root_signature_dec_ref(state->root_signature);
+
+        for (i = 0; i < ARRAY_SIZE(state->hoist_template.vk_hoist_descriptor_set_layouts); i++)
+            VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, state->hoist_template.vk_hoist_descriptor_set_layouts[i], NULL));
+        VK_CALL(vkDestroyPipelineLayout(device->vk_device, state->hoist_template.vk_hoist_descriptor_layout, NULL));
 
         if (state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS || state->pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS)
             d3d12_pipeline_state_free_cached_desc(&state->graphics.cached_desc);
