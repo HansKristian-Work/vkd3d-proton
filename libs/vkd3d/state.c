@@ -1518,6 +1518,68 @@ HRESULT d3d12_root_signature_create_local_static_samplers_layout(struct d3d12_ro
     return S_OK;
 }
 
+static HRESULT d3d12_root_signature_create_hoisted_descriptor_set_layout(
+        const struct d3d12_root_signature *root_signature,
+        VkShaderStageFlagBits stage, const struct vkd3d_shader_meta_hoisted_desc *descs, unsigned int num_descs,
+        VkDescriptorSetLayout *vk_set_layout)
+{
+    VkDescriptorSetLayoutBinding bindings[VKD3D_MAX_HOISTED_DESCRIPTORS];
+    unsigned int i;
+
+    for (i = 0; i < num_descs; i++)
+    {
+        bindings[i].descriptorType = (VkDescriptorType)descs[i].vk_descriptor_type;
+        bindings[i].descriptorCount = 1;
+        bindings[i].binding = i;
+        bindings[i].pImmutableSamplers = NULL;
+        bindings[i].stageFlags = stage;
+    }
+
+    return vkd3d_create_descriptor_set_layout(root_signature->device, 0,
+            num_descs, bindings, VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
+            vk_set_layout);
+}
+
+HRESULT d3d12_root_signature_create_hoisted_descriptor_layout(
+        const struct d3d12_root_signature *root_signature, const struct d3d12_bind_point_layout *layout,
+        VkShaderStageFlagBits first_stage, const struct vkd3d_shader_meta_hoisted_desc *first_set, unsigned int first_set_count,
+        VkShaderStageFlagBits second_stage, const struct vkd3d_shader_meta_hoisted_desc *second_set, unsigned int second_set_count,
+        struct d3d12_descriptor_copy_template *copy_template)
+{
+    VkDescriptorSetLayout set_layouts[VKD3D_MAX_DESCRIPTOR_SETS + VKD3D_MAX_HOIST_SHADER_STAGES];
+    unsigned int num_sets;
+    unsigned int i;
+    HRESULT hr;
+
+    if (first_set_count == 0 && second_set_count == 0)
+        return S_OK;
+
+    /* Have to create the gap descriptor set layout. */
+    if (FAILED(hr = d3d12_root_signature_create_hoisted_descriptor_set_layout(root_signature,
+            first_stage, first_set, first_set_count, &copy_template->vk_hoist_descriptor_set_layouts[0])))
+        return hr;
+
+    if (second_set_count && FAILED(hr = d3d12_root_signature_create_hoisted_descriptor_set_layout(root_signature,
+            second_stage, second_set, second_set_count, &copy_template->vk_hoist_descriptor_set_layouts[1])))
+        return hr;
+
+    for (i = 0; i < layout->num_set_layouts; i++)
+        set_layouts[i] = root_signature->set_layouts[i];
+
+    num_sets = layout->num_set_layouts;
+    set_layouts[num_sets++] = copy_template->vk_hoist_descriptor_set_layouts[0];
+    if (second_set_count)
+        set_layouts[num_sets++] = copy_template->vk_hoist_descriptor_set_layouts[1];
+
+    if (FAILED(hr = vkd3d_create_pipeline_layout(root_signature->device,
+            num_sets, set_layouts,
+            layout->push_constant_range.stageFlags ? 1 : 0, &layout->push_constant_range,
+            &copy_template->vk_hoist_descriptor_layout)))
+        return hr;
+
+    return S_OK;
+}
+
 static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signature,
         struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC2 *desc)
 {
@@ -2440,6 +2502,8 @@ static void d3d12_pipeline_state_init_shader_interface(struct d3d12_pipeline_sta
         struct vkd3d_shader_interface_info *shader_interface)
 {
     const struct d3d12_root_signature *root_signature = state->root_signature;
+    const struct d3d12_bind_point_layout *layout;
+
     memset(shader_interface, 0, sizeof(*shader_interface));
     shader_interface->flags = d3d12_root_signature_get_shader_interface_flags(root_signature, state->pipeline_type);
     shader_interface->min_ssbo_alignment = d3d12_device_get_ssbo_alignment(device);
@@ -2459,6 +2523,18 @@ static void d3d12_pipeline_state_init_shader_interface(struct d3d12_pipeline_sta
             device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     shader_interface->descriptor_size_sampler = d3d12_device_get_descriptor_handle_increment_size(
             device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+
+    /* Ignore tess, geom and task. Only bother with the common cases to keep number of sets down. */
+    if (stage == VK_SHADER_STAGE_VERTEX_BIT || stage == VK_SHADER_STAGE_MESH_BIT_EXT ||
+            stage == VK_SHADER_STAGE_FRAGMENT_BIT || stage == VK_SHADER_STAGE_COMPUTE_BIT)
+    {
+        layout = d3d12_root_signature_get_layout(root_signature, state->pipeline_type);
+        shader_interface->flags |= VKD3D_SHADER_INTERFACE_HOIST_DESCRIPTORS;
+        shader_interface->hoist_descriptor_set_index = layout->num_set_layouts;
+        /* Make the set only depend on the root signature. */
+        if (stage == VK_SHADER_STAGE_FRAGMENT_BIT)
+            shader_interface->hoist_descriptor_set_index++;
+    }
 
     if (stage == VK_SHADER_STAGE_MESH_BIT_EXT)
     {

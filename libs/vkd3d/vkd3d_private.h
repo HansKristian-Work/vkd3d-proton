@@ -1757,6 +1757,16 @@ unsigned int d3d12_root_signature_get_shader_interface_flags(const struct d3d12_
         enum vkd3d_pipeline_type pipeline_type);
 HRESULT d3d12_root_signature_create_local_static_samplers_layout(struct d3d12_root_signature *root_signature,
         VkDescriptorSetLayout vk_set_layout, VkPipelineLayout *vk_pipeline_layout);
+
+struct d3d12_descriptor_copy_template;
+HRESULT d3d12_root_signature_create_hoisted_descriptor_layout(
+        const struct d3d12_root_signature *root_signature, const struct d3d12_bind_point_layout *layout,
+        VkShaderStageFlagBits first_stage, const struct vkd3d_shader_meta_hoisted_desc *first_set,
+        unsigned int first_set_count,
+        VkShaderStageFlagBits second_stage, const struct vkd3d_shader_meta_hoisted_desc *second_set,
+        unsigned int second_set_count,
+        struct d3d12_descriptor_copy_template *copy_template);
+
 HRESULT vkd3d_create_pipeline_layout(struct d3d12_device *device,
         unsigned int set_layout_count, const VkDescriptorSetLayout *set_layouts,
         unsigned int push_constant_count, const VkPushConstantRange *push_constants,
