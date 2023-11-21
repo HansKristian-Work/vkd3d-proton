@@ -5398,8 +5398,10 @@ static void d3d12_command_list_init_default_descriptor_buffers(struct d3d12_comm
 {
     if (d3d12_device_uses_descriptor_buffers(list->device))
     {
-        list->descriptor_heap.buffers.heap_va_resource = list->device->global_descriptor_buffer.resource.va;
-        list->descriptor_heap.buffers.heap_va_sampler = list->device->global_descriptor_buffer.sampler.va;
+        list->descriptor_heap.buffers.heap_va[0] = list->device->global_descriptor_buffer.resource.va;
+        list->descriptor_heap.buffers.heap_va[1] = list->device->global_descriptor_buffer.sampler.va;
+        list->descriptor_heap.buffers.mapped[0] = NULL;
+        list->descriptor_heap.buffers.mapped[1] = NULL;
         list->descriptor_heap.buffers.vk_buffer_resource = list->device->global_descriptor_buffer.resource.vk_buffer;
         list->descriptor_heap.buffers.heap_dirty = true;
     }
@@ -5927,7 +5929,10 @@ static void d3d12_command_list_update_descriptor_buffers(struct d3d12_command_li
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkDescriptorBufferBindingPushDescriptorBufferHandleEXT buffer_handle;
-    VkDescriptorBufferBindingInfoEXT global_buffers[2];
+    struct d3d12_command_list_descriptor_copy_batch *batch;
+    VkDescriptorBufferBindingInfoEXT global_buffers[3];
+    uint32_t num_global_buffers;
+    unsigned int i;
 
     if (d3d12_device_uses_descriptor_buffers(list->device) &&
             list->descriptor_heap.buffers.heap_dirty)
@@ -5935,7 +5940,7 @@ static void d3d12_command_list_update_descriptor_buffers(struct d3d12_command_li
         global_buffers[0].sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT;
         global_buffers[0].pNext = NULL;
         global_buffers[0].usage = list->device->global_descriptor_buffer.resource.usage;
-        global_buffers[0].address = list->descriptor_heap.buffers.heap_va_resource;
+        global_buffers[0].address = list->descriptor_heap.buffers.heap_va[0];
 
         if (global_buffers[0].usage & VK_BUFFER_USAGE_PUSH_DESCRIPTORS_DESCRIPTOR_BUFFER_BIT_EXT)
         {
@@ -5948,10 +5953,53 @@ static void d3d12_command_list_update_descriptor_buffers(struct d3d12_command_li
         global_buffers[1].sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT;
         global_buffers[1].pNext = NULL;
         global_buffers[1].usage = list->device->global_descriptor_buffer.sampler.usage;
-        global_buffers[1].address = list->descriptor_heap.buffers.heap_va_sampler;
+        global_buffers[1].address = list->descriptor_heap.buffers.heap_va[1];
+
+        num_global_buffers = 2;
+
+        /* if (using hoisting) */
+        {
+            /* If we're doing hoisting, allocate a new chunk now. */
+            vkd3d_array_reserve((void **)&list->copy_batches, &list->copy_batches_size,
+                    list->copy_batches_count + 1, sizeof(*list->copy_batches));
+            batch = &list->copy_batches[list->copy_batches_count++];
+
+            d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+                    VKD3D_SCRATCH_POOL_KIND_DESCRIPTOR_BUFFER,
+                    VKD3D_DESCRIPTOR_COPY_BATCH_DESCRIPTOR_BUFFER_SIZE,
+                    list->device->device_info.descriptor_buffer_properties.descriptorBufferOffsetAlignment,
+                    ~0u, &batch->descriptor_buffer);
+
+            d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+                    VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD,
+                    VKD3D_DESCRIPTOR_COPY_BATCH_NUM_COPIES, 64,
+                    ~0u, &batch->host_buffer);
+
+            batch->descriptor_buffer_offset = 0;
+            batch->num_copies = 0;
+
+            for (i = 0; i < list->device->bindless_state.set_count; i++)
+            {
+                unsigned int buffer_index = list->device->bindless_state.vk_descriptor_buffer_indices[i];
+                /*batch->heaps[i].base_va = global_buffers[buffer_index].address + list->descriptor_heap.buffers.vk_payload_offsets[i];*/
+                /* HACK: Use CPU side copy for now. */
+                batch->heaps[i].base_va = (VkDeviceAddress)
+                        ((uint8_t *)list->descriptor_heap.buffers.mapped[buffer_index] + list->descriptor_heap.buffers.vk_payload_offsets[i]);
+                batch->heaps[i].num_descriptors = list->descriptor_heap.buffers.vk_descriptor_count_for_buffer_index[buffer_index];
+                batch->heaps[i].stride_words = list->descriptor_heap.buffers.vk_descriptor_stride_words[i];
+            }
+
+            global_buffers[num_global_buffers].sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT;
+            global_buffers[num_global_buffers].pNext = NULL;
+            global_buffers[num_global_buffers].usage =
+                    VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+                    VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT;
+            global_buffers[num_global_buffers].address = batch->descriptor_buffer.va;
+            num_global_buffers++;
+        }
 
         VK_CALL(vkCmdBindDescriptorBuffersEXT(list->cmd.vk_command_buffer,
-                ARRAY_SIZE(global_buffers), global_buffers));
+                num_global_buffers, global_buffers));
 
         list->descriptor_heap.buffers.heap_dirty = false;
     }
@@ -5977,7 +6025,7 @@ static void d3d12_command_list_update_descriptor_heaps(struct d3d12_command_list
             VK_CALL(vkCmdSetDescriptorBufferOffsetsEXT(list->cmd.vk_command_buffer, vk_bind_point,
                     layout, 0, bindless_state->set_count,
                     bindless_state->vk_descriptor_buffer_indices,
-                    list->descriptor_heap.buffers.vk_offsets));
+                    list->descriptor_heap.buffers.vk_bind_offsets));
             bindings->descriptor_heap_dirty_mask = 0;
         }
     }
@@ -9517,8 +9565,8 @@ static void d3d12_command_list_set_descriptor_heaps_buffers(struct d3d12_command
     struct d3d12_desc_split d;
     unsigned int i, j;
 
-    current_resource_va = list->descriptor_heap.buffers.heap_va_resource;
-    current_sampler_va = list->descriptor_heap.buffers.heap_va_sampler;
+    current_resource_va = list->descriptor_heap.buffers.heap_va[0];
+    current_sampler_va = list->descriptor_heap.buffers.heap_va[1];
 
     for (i = 0; i < heap_count; i++)
     {
@@ -9530,8 +9578,10 @@ static void d3d12_command_list_set_descriptor_heaps_buffers(struct d3d12_command
 
         if (heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
         {
-            list->descriptor_heap.buffers.heap_va_resource = heap->descriptor_buffer.va;
+            list->descriptor_heap.buffers.heap_va[0] = heap->descriptor_buffer.va;
+            list->descriptor_heap.buffers.mapped[0] = heap->descriptor_buffer.host_allocation;
             list->descriptor_heap.buffers.vk_buffer_resource = heap->descriptor_buffer.vk_buffer;
+            list->descriptor_heap.buffers.vk_descriptor_count_for_buffer_index[0] = heap->desc.NumDescriptors;
 
             if (!d3d12_device_use_embedded_mutable_descriptors(list->device))
             {
@@ -9542,16 +9592,27 @@ static void d3d12_command_list_set_descriptor_heaps_buffers(struct d3d12_command
         }
         else if (heap->desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
         {
-            list->descriptor_heap.buffers.heap_va_sampler = heap->descriptor_buffer.va;
+            list->descriptor_heap.buffers.heap_va[1] = heap->descriptor_buffer.va;
+            list->descriptor_heap.buffers.mapped[1] = heap->descriptor_buffer.host_allocation;
+            list->descriptor_heap.buffers.vk_descriptor_count_for_buffer_index[1] = heap->desc.NumDescriptors;
         }
 
         for (j = 0; j < bindless_state->set_count; j++)
+        {
             if (bindless_state->set_info[j].heap_type == heap->desc.Type)
-                list->descriptor_heap.buffers.vk_offsets[j] = heap->descriptor_buffer.offsets[set_index++];
+            {
+                list->descriptor_heap.buffers.vk_bind_offsets[j] = heap->descriptor_buffer.offsets[set_index];
+                list->descriptor_heap.buffers.vk_payload_offsets[j] =
+                        heap->descriptor_buffer.offsets[set_index] + bindless_state->set_info[j].host_mapping_offset;
+                list->descriptor_heap.buffers.vk_descriptor_stride_words[j] =
+                        bindless_state->set_info[j].host_mapping_descriptor_size / sizeof(uint32_t);
+                set_index++;
+            }
+        }
     }
 
-    if (current_resource_va == list->descriptor_heap.buffers.heap_va_resource &&
-            current_sampler_va == list->descriptor_heap.buffers.heap_va_sampler)
+    if (current_resource_va == list->descriptor_heap.buffers.heap_va[0] &&
+            current_sampler_va == list->descriptor_heap.buffers.heap_va[1])
         return;
 
     list->descriptor_heap.buffers.heap_dirty = true;

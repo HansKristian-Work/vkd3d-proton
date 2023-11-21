@@ -653,6 +653,7 @@ struct vkd3d_allocate_heap_memory_info
     void *host_ptr;
     uint32_t extra_allocation_flags;
     float vk_memory_priority;
+    VkBufferUsageFlags explicit_global_buffer_usage;
 };
 
 struct vkd3d_allocate_resource_memory_info
@@ -2398,6 +2399,7 @@ enum vkd3d_scratch_pool_kind
     VKD3D_SCRATCH_POOL_KIND_DEVICE_STORAGE = 0,
     VKD3D_SCRATCH_POOL_KIND_INDIRECT_PREPROCESS,
     VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD,
+    VKD3D_SCRATCH_POOL_KIND_DESCRIPTOR_BUFFER,
     VKD3D_SCRATCH_POOL_KIND_COUNT
 };
 
@@ -2728,12 +2730,15 @@ union vkd3d_descriptor_heap_state
 {
     struct
     {
-        VkDeviceAddress heap_va_resource;
-        VkDeviceAddress heap_va_sampler;
+        VkDeviceAddress heap_va[2];
+        void *mapped[2];
+        uint32_t vk_descriptor_count_for_buffer_index[2];
         VkBuffer vk_buffer_resource;
         bool heap_dirty;
 
-        VkDeviceSize vk_offsets[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+        VkDeviceSize vk_bind_offsets[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+        uint32_t vk_payload_offsets[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+        uint32_t vk_descriptor_stride_words[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
     } buffers;
 
     struct
@@ -2802,15 +2807,19 @@ struct d3d12_command_list_descriptor_copy_word
 /* A batch is started when application sets descriptor heap. */
 struct d3d12_command_list_descriptor_copy_batch
 {
-    /* Represents the descriptor heaps. */
-    VkDeviceAddress base_va[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
-    /* Used to detect OOB descriptor copies. Can replace with null descriptor. */
-    uint32_t num_descriptors[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
+    /* Represents the descriptor heaps. When descriptor heaps are rebound (rare),
+     * need to start a new batch. */
+    struct
+    {
+        VkDeviceAddress base_va;
+        uint32_t num_descriptors;
+        uint32_t stride_words;
+    } heaps[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
 
     /* Holds VKD3D_DESCRIPTOR_COPY_BATCH_WORDS * sizeof(uint32_t) worth of descriptors. */
-    struct vkd3d_scratch_buffer descriptor_buffer;
+    struct vkd3d_scratch_allocation descriptor_buffer;
     /* Holds VKD3D_DESCRIPTOR_COPY_BATCH_NUM_WORD_COPIES worth of d3d12_command_list_descriptor_copy_word. */
-    struct vkd3d_scratch_buffer host_buffer;
+    struct vkd3d_scratch_allocation host_buffer;
 
     unsigned int descriptor_buffer_offset;
     unsigned int num_copies;

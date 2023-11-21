@@ -2898,6 +2898,7 @@ static HRESULT d3d12_device_create_scratch_buffer(struct d3d12_device *device, e
         alloc_info.heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS | D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
         alloc_info.extra_allocation_flags = VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH;
         alloc_info.vk_memory_priority = vkd3d_convert_to_vk_prio(D3D12_RESIDENCY_PRIORITY_NORMAL);
+        alloc_info.explicit_global_buffer_usage = 0;
 
         if (FAILED(hr = vkd3d_allocate_heap_memory(device, &device->memory_allocator,
                 &alloc_info, &scratch->allocation)))
@@ -2935,6 +2936,31 @@ static HRESULT d3d12_device_create_scratch_buffer(struct d3d12_device *device, e
         alloc_info.heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS | D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
         alloc_info.extra_allocation_flags = VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH;
         alloc_info.vk_memory_priority = vkd3d_convert_to_vk_prio(D3D12_RESIDENCY_PRIORITY_NORMAL);
+        alloc_info.explicit_global_buffer_usage = 0;
+
+        if (FAILED(hr = vkd3d_allocate_heap_memory(device, &device->memory_allocator,
+                &alloc_info, &scratch->allocation)))
+            return hr;
+    }
+    else if (kind == VKD3D_SCRATCH_POOL_KIND_DESCRIPTOR_BUFFER)
+    {
+        struct vkd3d_allocate_heap_memory_info alloc_info;
+
+        /* We only care about memory types for INDIRECT_PREPROCESS. */
+        assert(memory_types == ~0u);
+
+        memset(&alloc_info, 0, sizeof(alloc_info));
+        alloc_info.heap_desc.Properties.Type = D3D12_HEAP_TYPE_UPLOAD; /* TODO: DEFAULT */
+        alloc_info.heap_desc.SizeInBytes = size;
+        alloc_info.heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+        alloc_info.heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS | D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
+        alloc_info.extra_allocation_flags =
+                VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH;
+        alloc_info.vk_memory_priority = vkd3d_convert_to_vk_prio(D3D12_RESIDENCY_PRIORITY_NORMAL);
+        alloc_info.explicit_global_buffer_usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+                VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT |
+                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 
         if (FAILED(hr = vkd3d_allocate_heap_memory(device, &device->memory_allocator,
                 &alloc_info, &scratch->allocation)))
