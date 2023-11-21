@@ -318,15 +318,20 @@ static dxil_spv_bool dxil_srv_remap(void *userdata, const dxil_spv_d3d_binding *
             vk_binding->offset_binding.set = shader_interface_info->offset_buffer_binding->set;
             vk_binding->offset_binding.binding = shader_interface_info->offset_buffer_binding->binding;
         }
-        else
-        {
-            dxil_remap_check_hoist(shader_interface_info, remap, d3d_binding, &vk_binding->buffer_binding,
-                    VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER);
-        }
     }
 
-    return dxil_remap(remap, VKD3D_SHADER_DESCRIPTOR_TYPE_SRV,
-            d3d_binding, &vk_binding->buffer_binding, resource_flags);
+    if (!dxil_remap(remap, VKD3D_SHADER_DESCRIPTOR_TYPE_SRV,
+            d3d_binding, &vk_binding->buffer_binding, resource_flags))
+        return DXIL_SPV_FALSE;
+
+    if (!(shader_interface_info->flags & VKD3D_SHADER_INTERFACE_TYPED_OFFSET_BUFFER))
+    {
+        dxil_remap_check_hoist(shader_interface_info, remap, d3d_binding, &vk_binding->buffer_binding,
+                d3d_binding->kind == DXIL_SPV_RESOURCE_KIND_TYPED_BUFFER ?
+                        VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER : VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+    }
+
+    return DXIL_SPV_TRUE;
 }
 
 static dxil_spv_bool dxil_sampler_remap(void *userdata, const dxil_spv_d3d_binding *d3d_binding,
@@ -506,7 +511,8 @@ static dxil_spv_bool dxil_uav_remap(void *userdata, const dxil_spv_uav_d3d_bindi
         {
             dxil_remap_check_hoist(shader_interface_info, remap,
                     &d3d_binding->d3d_binding, &vk_binding->buffer_binding,
-                    VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER);
+                    d3d_binding->d3d_binding.kind == DXIL_SPV_RESOURCE_KIND_TYPED_BUFFER ?
+                            VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
         }
     }
 
