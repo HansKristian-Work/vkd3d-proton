@@ -79,6 +79,7 @@ enum vkd3d_shader_meta_flags
 
 /* Tweaked to make the meta struct a nice and round 64 bytes. */
 #define VKD3D_MAX_HOISTED_DESCRIPTORS 15
+#define VKD3D_MAX_HOISTED_DESCRIPTOR_CONSTANT_OFFSET (1 << 7)
 
 struct vkd3d_shader_meta_hoisted_desc
 {
