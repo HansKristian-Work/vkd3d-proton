@@ -5972,8 +5972,8 @@ static void d3d12_command_list_update_descriptor_buffers(struct d3d12_command_li
 
             d3d12_command_allocator_allocate_scratch_memory(list->allocator,
                     VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD,
-                    VKD3D_DESCRIPTOR_COPY_BATCH_NUM_COPIES, 64,
-                    ~0u, &batch->host_buffer);
+                    VKD3D_DESCRIPTOR_COPY_BATCH_NUM_COPIES * sizeof(struct d3d12_command_list_descriptor_copy_word),
+                    64, ~0u, &batch->host_buffer);
 
             batch->descriptor_buffer_offset = 0;
             batch->num_copies = 0;
