@@ -8929,25 +8929,27 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
     list->state = state;
     list->rt_state = NULL;
 
-    if (!state || list->active_pipeline_type != state->pipeline_type)
+    if (!state)
     {
-        if (state)
-        {
-            bindings = d3d12_command_list_get_bindings(list, state->pipeline_type);
-            if (bindings->root_signature)
-            {
-                /* We might have clobbered push constants in the new bind point,
-                 * invalidate all state which can affect push constants.
-                 * We might also change the pipeline layout, in case we switch between mesh and legacy graphics.
-                 * In this scenario, the push constant layout will be incompatible due to stage
-                 * differences, so everything must be rebound. */
-                d3d12_command_list_invalidate_root_parameters(list, bindings, true, NULL);
-            }
+        list->active_pipeline_type = VKD3D_PIPELINE_TYPE_NONE;
+        return;
+    }
 
-            list->active_pipeline_type = state->pipeline_type;
+    bindings = d3d12_command_list_get_bindings(list, state->pipeline_type);
+
+    if (list->active_pipeline_type != state->pipeline_type)
+    {
+        if (bindings->root_signature)
+        {
+            /* We might have clobbered push constants in the new bind point,
+             * invalidate all state which can affect push constants.
+             * We might also change the pipeline layout, in case we switch between mesh and legacy graphics.
+             * In this scenario, the push constant layout will be incompatible due to stage
+             * differences, so everything must be rebound. */
+            d3d12_command_list_invalidate_root_parameters(list, bindings, true, NULL);
         }
-        else
-            list->active_pipeline_type = VKD3D_PIPELINE_TYPE_NONE;
+
+        list->active_pipeline_type = state->pipeline_type;
     }
 
     if (state->pipeline_type != VKD3D_PIPELINE_TYPE_COMPUTE)
@@ -8964,7 +8966,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
     /* TODO: It's possible we can use some kind of compatibilty hash of the hoist descriptor
      * to avoid hoisting, but changing pipeline without modifying the root table parameters
      * is very awkward. */
-    if (state && state->hoist_template.num_hoist_sets)
+    if (state->hoist_template.num_hoist_sets)
         bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_HOISTED_BUFFER_DESCRIPTORS;
     else
         bindings->dirty_flags &= ~VKD3D_PIPELINE_DIRTY_HOISTED_BUFFER_DESCRIPTORS;
