@@ -1551,6 +1551,7 @@ static HRESULT d3d12_root_signature_create_hoisted_descriptor_set_layout(
             &vk_set_layout)))
         return hr;
 
+    /* Align this to simplify the algorithm that checks for exhaustion. */
     copy_template->descriptor_allocation_size = align(
             copy_template->descriptor_allocation_size,
             device->device_info.descriptor_buffer_properties.descriptorBufferOffsetAlignment);
@@ -1619,6 +1620,7 @@ HRESULT d3d12_root_signature_create_hoisted_descriptor_layout(
 {
     VkDescriptorSetLayout set_layouts[VKD3D_MAX_DESCRIPTOR_SETS + VKD3D_MAX_HOIST_SHADER_STAGES];
     unsigned int num_sets;
+    uint64_t table_mask;
     unsigned int i;
     HRESULT hr;
 
@@ -1651,6 +1653,23 @@ HRESULT d3d12_root_signature_create_hoisted_descriptor_layout(
             layout->push_constant_range.stageFlags ? 1 : 0, &layout->push_constant_range,
             &copy_template->vk_hoist_descriptor_layout)))
         return hr;
+
+    table_mask = 0;
+    for (i = 0; i < copy_template->num_entries; i++)
+        table_mask |= 1ull << copy_template->entries[i].table_index;
+
+    /* Compute a mask for which root parameter indices we're sensitive to,
+     * so we don't flush hoisted buffer descriptors more than we need to.
+     * Use root parameter index rather than table index since it's slower to look up table index
+     * than just checking root parameter directly. */
+    for (i = 0; i < root_signature->parameter_count; i++)
+    {
+        if (root_signature->parameters[i].parameter_type == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE &&
+                (table_mask & (1ull << root_signature->parameters[i].descriptor_table.table_index)))
+        {
+            copy_template->hoist_root_parameter_index_mask |= 1ull << i;
+        }
+    }
 
     return S_OK;
 }

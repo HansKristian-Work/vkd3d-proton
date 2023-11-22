@@ -4647,6 +4647,8 @@ static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_l
         bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_STATIC_SAMPLER_SET;
     if (bindings->root_signature->hoist_info.num_desc)
         bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_HOISTED_PUSH_DESCRIPTORS;
+    if (list->state && list->state->hoist_template.num_hoist_sets)
+        bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_HOISTED_BUFFER_DESCRIPTORS;
 
     d3d12_command_list_invalidate_push_constants(bindings);
 
@@ -5887,6 +5889,66 @@ static void d3d12_command_list_update_descriptor_table_offsets(struct d3d12_comm
     bindings->dirty_flags &= ~VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS;
 }
 
+static void d3d12_command_list_update_hoisted_buffer_descriptors(struct d3d12_command_list *list,
+        struct vkd3d_pipeline_bindings *bindings,
+        VkPipelineBindPoint vk_bind_point)
+{
+    const struct d3d12_root_signature *root_signature = bindings->root_signature;
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const struct d3d12_descriptor_copy_template *copy_template;
+    struct d3d12_command_list_descriptor_copy_desc *copy_desc;
+    const struct d3d12_descriptor_copy_template_entry *entry;
+    struct d3d12_command_list_descriptor_copy_batch *batch;
+    static const uint32_t vk_buffer_indices[2] = { 2, 2 };
+    const struct vkd3d_shader_descriptor_table *table;
+    uint32_t table_offsets[D3D12_MAX_ROOT_COST];
+    unsigned int root_parameter_index;
+    uint64_t descriptor_table_mask;
+    VkDeviceSize vk_offsets[2];
+    uint16_t base_dst_offset;
+    unsigned int i;
+
+    assert(list->copy_batches_count);
+    batch = &list->copy_batches[list->copy_batches_count - 1];
+    copy_template = &list->state->hoist_template;
+
+    copy_desc = batch->host_buffer.host_ptr;
+    copy_desc += batch->num_copies;
+
+    descriptor_table_mask = copy_template->hoist_root_parameter_index_mask;
+
+    while (descriptor_table_mask)
+    {
+        root_parameter_index = vkd3d_bitmask_iter64(&descriptor_table_mask);
+        table = root_signature_get_descriptor_table(root_signature, root_parameter_index);
+        table_offsets[table->table_index] = bindings->descriptor_tables[root_parameter_index];
+    }
+
+    base_dst_offset = batch->descriptor_buffer_offset / sizeof(uint32_t);
+
+    for (i = 0; i < copy_template->num_entries; i++)
+    {
+        entry = &copy_template->entries[i];
+        copy_desc->set_index = entry->set_index;
+        copy_desc->count = entry->count;
+        copy_desc->src_offset = table_offsets[entry->table_index] + entry->constant_offset;
+        copy_desc->dst_offset = base_dst_offset + entry->dst_offset_words;
+        batch->num_copies++;
+    }
+
+    for (i = 0; i < copy_template->num_hoist_sets; i++)
+        vk_offsets[i] = batch->descriptor_buffer_offset + copy_template->descriptor_offsets[i];
+
+    /* This pipeline layout is compatible with the root signature so pushing here will not disturb anything. */
+    VK_CALL(vkCmdSetDescriptorBufferOffsetsEXT(list->cmd.vk_command_buffer, vk_bind_point,
+            copy_template->vk_hoist_descriptor_layout,
+            copy_template->first_hoist_set_index, copy_template->num_hoist_sets,
+            vk_buffer_indices, vk_offsets));
+
+    batch->descriptor_buffer_offset += copy_template->descriptor_allocation_size;
+    bindings->dirty_flags &= ~VKD3D_PIPELINE_DIRTY_HOISTED_BUFFER_DESCRIPTORS;
+}
+
 static void vk_write_descriptor_set_from_root_descriptor(struct d3d12_command_list *list,
         VkWriteDescriptorSet *vk_descriptor_write, const struct vkd3d_shader_root_parameter *root_parameter,
         const struct vkd3d_root_descriptor_info *descriptor)
@@ -5972,7 +6034,7 @@ static void d3d12_command_list_update_descriptor_buffers(struct d3d12_command_li
 
             d3d12_command_allocator_allocate_scratch_memory(list->allocator,
                     VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD,
-                    VKD3D_DESCRIPTOR_COPY_BATCH_NUM_COPIES * sizeof(struct d3d12_command_list_descriptor_copy_word),
+                    VKD3D_DESCRIPTOR_COPY_BATCH_NUM_COPIES * sizeof(struct d3d12_command_list_descriptor_copy_desc),
                     64, ~0u, &batch->host_buffer);
 
             batch->descriptor_buffer_offset = 0;
@@ -6310,6 +6372,27 @@ static void d3d12_command_list_update_hoisted_push_descriptors(struct d3d12_comm
     bindings->dirty_flags &= ~VKD3D_PIPELINE_DIRTY_HOISTED_PUSH_DESCRIPTORS;
 }
 
+static void d3d12_command_list_reserve_hoisted_buffer_descriptor(struct d3d12_command_list *list,
+        struct vkd3d_pipeline_bindings *bindings)
+{
+    assert(list->state);
+    assert(list->state->hoist_template.num_hoist_sets);
+
+    /* Check if we have exhausted the current batch. */
+    if (list->copy_batches_count == 0 ||
+            (list->state->hoist_template.descriptor_allocation_size +
+                    list->copy_batches[list->copy_batches_count - 1].descriptor_buffer_offset >
+                    VKD3D_DESCRIPTOR_COPY_BATCH_DESCRIPTOR_BUFFER_SIZE) ||
+            (list->state->hoist_template.num_entries + list->copy_batches[list->copy_batches_count - 1].num_copies >
+                    VKD3D_DESCRIPTOR_COPY_BATCH_NUM_COPIES))
+    {
+        list->descriptor_heap.buffers.heap_dirty = true;
+        bindings->descriptor_heap_dirty_mask |= ~0u;
+        /* d3d12_command_list_update_descriptor_heaps will be called.
+         * Since heap_dirty it set it will rebind descriptor buffers, and ensure misc descriptor state is marked dirty. */
+    }
+}
+
 static void d3d12_command_list_update_descriptors(struct d3d12_command_list *list)
 {
     struct vkd3d_pipeline_bindings *bindings = d3d12_command_list_get_bindings(list, list->active_pipeline_type);
@@ -6327,6 +6410,9 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
     push_stages = bind_point_layout->vk_push_stages;
 
     vk_bind_point = vk_bind_point_from_pipeline_type(list->active_pipeline_type);
+
+    if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_HOISTED_BUFFER_DESCRIPTORS)
+        d3d12_command_list_reserve_hoisted_buffer_descriptor(list, bindings);
 
     if (bindings->descriptor_heap_dirty_mask)
         d3d12_command_list_update_descriptor_heaps(list, bindings, vk_bind_point, layout);
@@ -6362,6 +6448,9 @@ static void d3d12_command_list_update_descriptors(struct d3d12_command_list *lis
         if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS)
             d3d12_command_list_update_descriptor_table_offsets(list, bindings, layout, push_stages);
     }
+
+    if (bindings->dirty_flags & VKD3D_PIPELINE_DIRTY_HOISTED_BUFFER_DESCRIPTORS)
+        d3d12_command_list_update_hoisted_buffer_descriptors(list, bindings, vk_bind_point);
 }
 
 static void d3d12_command_list_update_descriptors_post_indirect_buffer(struct d3d12_command_list *list)
@@ -8867,6 +8956,14 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
             list->dynamic_state.dirty_flags |= VKD3D_DYNAMIC_STATE_STENCIL_WRITE_MASK;
         }
     }
+
+    /* TODO: It's possible we can use some kind of compatibilty hash of the hoist descriptor
+     * to avoid hoisting, but changing pipeline without modifying the root table parameters
+     * is very awkward. */
+    if (state && state->hoist_template.num_hoist_sets)
+        bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_HOISTED_BUFFER_DESCRIPTORS;
+    else
+        bindings->dirty_flags &= ~VKD3D_PIPELINE_DIRTY_HOISTED_BUFFER_DESCRIPTORS;
 }
 
 VkImageLayout vk_image_layout_from_d3d12_resource_state(
@@ -9728,7 +9825,12 @@ static inline void d3d12_command_list_set_descriptor_table_embedded(struct d3d12
     if (root_signature)
     {
         if (root_signature->descriptor_table_count)
+        {
             bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS;
+            if (list->state && (list->state->hoist_template.hoist_root_parameter_index_mask & (1ull << index)))
+                bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_HOISTED_BUFFER_DESCRIPTORS;
+        }
+
         if (root_signature->hoist_info.num_desc)
             bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_HOISTED_PUSH_DESCRIPTORS;
     }
@@ -9749,7 +9851,12 @@ static inline void d3d12_command_list_set_descriptor_table(struct d3d12_command_
     if (root_signature)
     {
         if (root_signature->descriptor_table_count)
+        {
             bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_DESCRIPTOR_TABLE_OFFSETS;
+            if (list->state && (list->state->hoist_template.hoist_root_parameter_index_mask & (1ull << index)))
+                bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_HOISTED_BUFFER_DESCRIPTORS;
+        }
+
         if (root_signature->hoist_info.num_desc)
             bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_HOISTED_PUSH_DESCRIPTORS;
     }
@@ -14499,6 +14606,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState1(d3d12_command
         }
     }
 #endif
+
+    list->compute_bindings.dirty_flags &= ~VKD3D_PIPELINE_DIRTY_HOISTED_BUFFER_DESCRIPTORS;
 }
 
 static VkStridedDeviceAddressRegionKHR convert_strided_range(

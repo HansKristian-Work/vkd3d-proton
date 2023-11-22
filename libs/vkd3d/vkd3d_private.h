@@ -2067,6 +2067,7 @@ struct d3d12_descriptor_copy_template
     VkDeviceSize descriptor_allocation_size;
     unsigned int num_hoist_sets;
     unsigned int first_hoist_set_index;
+    uint64_t hoist_root_parameter_index_mask;
 };
 
 /* ID3D12PipelineState */
@@ -2790,14 +2791,14 @@ struct d3d12_command_list_sequence
 };
 
 #define VKD3D_DESCRIPTOR_COPY_BATCH_DESCRIPTOR_BUFFER_SIZE (64 * 1024)
-#define VKD3D_DESCRIPTOR_COPY_BATCH_NUM_COPIES ((64 * 1024) / sizeof(struct d3d12_command_list_descriptor_copy_word))
+#define VKD3D_DESCRIPTOR_COPY_BATCH_NUM_COPIES ((64 * 1024) / sizeof(struct d3d12_command_list_descriptor_copy_desc))
 
 /* Represents a copy where we do:
  * for i in range(count):
  *   store_u32(descriptor_buffer + (dst_offset + i) * sizeof(uint32_t),
  *             load_u32(base_va[set_index] + (src_offset + i) * sizeof(uint32_t)));
  */
-struct d3d12_command_list_descriptor_copy_word
+struct d3d12_command_list_descriptor_copy_desc
 {
     uint32_t src_offset;
     uint16_t dst_offset;
