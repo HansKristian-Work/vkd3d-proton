@@ -269,7 +269,7 @@ static void dxil_remap_check_hoist(
             vk_binding->bindless.heap_root_offset < VKD3D_MAX_HOISTED_DESCRIPTOR_CONSTANT_OFFSET)
     {
         hoisted = &remap->meta->hoist_desc[remap->meta->num_hoisted_descriptors];
-        hoisted->table_index = vk_binding->root_constant_index -
+        hoisted->table_index = vk_binding->root_constant_index + remap->num_root_descriptors * 2 -
                 shader_interface_info->descriptor_tables.offset / sizeof(uint32_t);
         hoisted->constant_offset = vk_binding->bindless.heap_root_offset;
         hoisted->vk_descriptor_type = vk_descriptor_type;
