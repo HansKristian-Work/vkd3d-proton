@@ -5935,6 +5935,8 @@ static void d3d12_command_list_update_hoisted_buffer_descriptors(struct d3d12_co
         copy_desc->count = entry->count;
         copy_desc->src_offset = table_offsets[entry->table_index] + entry->constant_offset;
         copy_desc->dst_offset = base_dst_offset + entry->dst_offset_words;
+
+        copy_desc++;
         batch->num_copies++;
     }
 
@@ -15870,6 +15872,25 @@ static void STDMETHODCALLTYPE d3d12_command_queue_CopyTileMappings(ID3D12Command
     d3d12_command_queue_add_submission(command_queue, &sub);
 }
 
+static void d3d12_command_list_descriptor_copy_batch_flush_cpu(struct d3d12_command_list_descriptor_copy_batch *batch)
+{
+    /* Emulate what we intend to do in async compute. */
+    const struct d3d12_command_list_descriptor_copy_desc *src = batch->host_buffer.host_ptr;
+    uint32_t *dst = batch->descriptor_buffer.host_ptr;
+    VkDeviceAddress va;
+    unsigned int i;
+
+    for (i = 0; i < batch->num_copies; i++, src++)
+    {
+        if (src->src_offset < batch->heaps[src->set_index].num_descriptors)
+        {
+            va = batch->heaps[src->set_index].base_va +
+                    src->src_offset * batch->heaps[src->set_index].stride_words * sizeof(uint32_t);
+            memcpy(dst + src->dst_offset, (const void *)va, src->count * sizeof(uint32_t));
+        }
+    }
+}
+
 static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12CommandQueue *iface,
         UINT command_list_count, ID3D12CommandList * const *command_lists)
 {
@@ -15993,6 +16014,10 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
             buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
             buffer->commandBuffer = cmd_list->cmd.iterations[iter].vk_command_buffer;
         }
+
+        /* TODO: Move this to GPU timeline */
+        for (iter = 0; iter < cmd_list->copy_batches_count; iter++)
+            d3d12_command_list_descriptor_copy_batch_flush_cpu(&cmd_list->copy_batches[iter]);
 
         if (cmd_list->debug_capture)
             sub.execute.debug_capture = true;
