@@ -2754,6 +2754,8 @@ struct d3d12_command_list
 
     struct d3d12_command_list_sequence cmd;
 
+    bool is_inside_render_pass;
+    D3D12_RENDER_PASS_FLAGS render_pass_flags;
     struct d3d12_rtv_desc rtvs[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct d3d12_rtv_desc dsv;
     uint32_t dsv_plane_optimal_mask;

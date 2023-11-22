@@ -5203,6 +5203,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
     if (!d3d12_command_list_gather_pending_queries(list))
         d3d12_command_list_mark_as_invalid(list, "Failed to gather virtual queries.\n");
 
+    if (list->is_inside_render_pass)
+        d3d12_command_list_mark_as_invalid(list, "Close called with an active render pass.\n");
+
     /* If we have kept some DSV resources in optimal layout throughout the command buffer,
      * now is the time to decay them. */
     d3d12_command_list_decay_optimal_dsv_resources(list);
@@ -5421,6 +5424,8 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
 
     list->index_buffer.dxgi_format = DXGI_FORMAT_UNKNOWN;
 
+    list->is_inside_render_pass = false;
+    list->render_pass_flags = 0;
     memset(list->rtvs, 0, sizeof(list->rtvs));
     memset(&list->dsv, 0, sizeof(list->dsv));
     list->dsv_layout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -5553,7 +5558,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearState(d3d12_command_list_i
         ID3D12PipelineState *pipeline_state)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+
     TRACE("iface %p, pipline_state %p!\n", iface, pipeline_state);
+
+    if (list->is_inside_render_pass)
+        d3d12_command_list_mark_as_invalid(list, "ClearState called within a render pass.\n");
+
     d3d12_command_list_end_current_render_pass(list, false);
     d3d12_command_list_reset_api_state(list, pipeline_state);
 }
@@ -7074,6 +7084,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(d3d12_command_list_ifa
 
     TRACE("iface %p, x %u, y %u, z %u.\n", iface, x, y, z);
 
+    if (list->is_inside_render_pass)
+        d3d12_command_list_mark_as_invalid(list, "Dispatch called within a render pass.\n");
+
     if (list->predication.fallback_enabled)
     {
         union vkd3d_predicate_command_direct_args args;
@@ -7118,6 +7131,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_
     TRACE("iface %p, dst_resource %p, dst_offset %#"PRIx64", src_resource %p, "
             "src_offset %#"PRIx64", byte_count %#"PRIx64".\n",
             iface, dst, dst_offset, src, src_offset, byte_count);
+
+    if (list->is_inside_render_pass)
+        d3d12_command_list_mark_as_invalid(list, "CopyBufferRegion called within a render pass.\n");
 
     vk_procs = &list->device->vk_procs;
 
@@ -7928,6 +7944,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTextureRegion(d3d12_command
     TRACE("iface %p, dst %p, dst_x %u, dst_y %u, dst_z %u, src %p, src_box %p.\n",
             iface, dst, dst_x, dst_y, dst_z, src, src_box);
 
+    if (list->is_inside_render_pass)
+        d3d12_command_list_mark_as_invalid(list, "CopyTextureRegion called within a render pass.\n");
+
     if (src_box && !validate_d3d12_box(src_box))
     {
         WARN("Empty box %s.\n", debug_d3d12_box(src_box));
@@ -8002,6 +8021,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
     unsigned int i;
 
     TRACE("iface %p, dst_resource %p, src_resource %p.\n", iface, dst, src);
+
+    if (list->is_inside_render_pass)
+        d3d12_command_list_mark_as_invalid(list, "CopyResource called within a render pass.\n");
 
     vk_procs = &list->device->vk_procs;
 
@@ -8188,6 +8210,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
             "buffer %p, buffer_offset %#"PRIx64", flags %#x.\n",
             iface, tiled_resource, region_coord, region_size,
             buffer, buffer_offset, flags);
+
+    if (list->is_inside_render_pass)
+        d3d12_command_list_mark_as_invalid(list, "CopyTiles called within a render pass.\n");
 
     d3d12_command_list_end_current_render_pass(list, true);
     d3d12_command_list_end_transfer_batch(list);
@@ -9028,6 +9053,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
 
     TRACE("iface %p, dst_resource %p, dst_sub_resource_idx %u, src_resource %p, src_sub_resource_idx %u, "
             "format %#x.\n", iface, dst, dst_sub_resource_idx, src, src_sub_resource_idx, format);
+
+    if (list->is_inside_render_pass)
+        d3d12_command_list_mark_as_invalid(list, "ResolveSubresource called within a render pass.\n");
 
     dst_resource = impl_from_ID3D12Resource(dst);
     src_resource = impl_from_ID3D12Resource(src);
@@ -10822,6 +10850,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
             iface, render_target_descriptor_count, render_target_descriptors,
             single_descriptor_handle, depth_stencil_descriptor);
 
+    if (list->is_inside_render_pass)
+        d3d12_command_list_mark_as_invalid(list, "OMSetRenderTargets called within a render pass.\n");
+
     d3d12_command_list_invalidate_rendering_info(list);
     d3d12_command_list_end_current_render_pass(list, false);
 
@@ -11050,6 +11081,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearDepthStencilView(d3d12_com
     TRACE("iface %p, dsv %#lx, flags %#x, depth %.8e, stencil 0x%02x, rect_count %u, rects %p.\n",
             iface, dsv.ptr, flags, depth, stencil, rect_count, rects);
 
+    if (list->is_inside_render_pass)
+        d3d12_command_list_mark_as_invalid(list, "ClearDepthStencilView called within a render pass.\n");
+
     if (flags & D3D12_CLEAR_FLAG_DEPTH)
         clear_aspects |= VK_IMAGE_ASPECT_DEPTH_BIT;
 
@@ -11077,6 +11111,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearRenderTargetView(d3d12_com
 
     TRACE("iface %p, rtv %#lx, color %p, rect_count %u, rects %p.\n",
             iface, rtv.ptr, color, rect_count, rects);
+
+    if (list->is_inside_render_pass)
+        d3d12_command_list_mark_as_invalid(list, "ClearRenderTargetView called within a render pass.\n");
 
     if (rtv_desc->format->type == VKD3D_FORMAT_TYPE_UINT)
     {
@@ -11699,6 +11736,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
     TRACE("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p.\n",
             iface, gpu_handle.ptr, cpu_handle.ptr, resource, values, rect_count, rects);
 
+    if (list->is_inside_render_pass)
+        d3d12_command_list_mark_as_invalid(list, "ClearUnorderedAccessViewUint called within a render pass.\n");
+
     memcpy(color.uint32, values, sizeof(color.uint32));
 
     metadata = d3d12_desc_decode_metadata(list->device, cpu_handle.ptr);
@@ -11825,6 +11865,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewFloat(d
     TRACE("iface %p, gpu_handle %#"PRIx64", cpu_handle %lx, resource %p, values %p, rect_count %u, rects %p.\n",
             iface, gpu_handle.ptr, cpu_handle.ptr, resource, values, rect_count, rects);
 
+    if (list->is_inside_render_pass)
+        d3d12_command_list_mark_as_invalid(list, "ClearUnorderedAccessViewFloat called within a render pass.\n");
+
     metadata = d3d12_desc_decode_metadata(list->device, cpu_handle.ptr);
     memcpy(color.float32, values, sizeof(color.float32));
     resource_impl = impl_from_ID3D12Resource(resource);
@@ -11918,6 +11961,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
     bool full_discard;
 
     TRACE("iface %p, resource %p, region %p.\n", iface, resource, region);
+
+    if (list->is_inside_render_pass)
+        d3d12_command_list_mark_as_invalid(list, "DiscardResource called within a render pass.\n");
 
     /* This method is only supported on DIRECT and COMPUTE queues,
      * but we only implement it for render targets, so ignore it
@@ -12383,6 +12429,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
             "dst_buffer %p, aligned_dst_buffer_offset %#"PRIx64".\n",
             iface, heap, type, start_index, query_count,
             dst_buffer, aligned_dst_buffer_offset);
+
+    if (list->is_inside_render_pass)
+        d3d12_command_list_mark_as_invalid(list, "ResolveQueryData called within a render pass.\n");
 
     /* Some games call this with a query_count of 0.
      * Avoid ending the render pass and doing worthless tracking. */
@@ -14337,6 +14386,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(d3d12_
             iface, dst, dst_sub_resource_idx, dst_x, dst_y,
             src, src_sub_resource_idx, src_rect, format, mode);
 
+    if (list->is_inside_render_pass)
+        d3d12_command_list_mark_as_invalid(list, "ResolveSubresourceRegion called within a render pass.\n");
+
     dst_resource = impl_from_ID3D12Resource(dst);
     src_resource = impl_from_ID3D12Resource(src);
 
@@ -14588,13 +14640,35 @@ static void STDMETHODCALLTYPE d3d12_command_list_BeginRenderPass(d3d12_command_l
         UINT rt_count, const D3D12_RENDER_PASS_RENDER_TARGET_DESC *render_targets,
         const D3D12_RENDER_PASS_DEPTH_STENCIL_DESC *depth_stencil, D3D12_RENDER_PASS_FLAGS flags)
 {
-    FIXME("iface %p, rt_count %u, render_targets %p, depth_stencil %p, flags %#x stub!\n",
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+
+    TRACE("iface %p, rt_count %u, render_targets %p, depth_stencil %p, flags %#x.\n",
             iface, rt_count, render_targets, depth_stencil, flags);
+
+    if (list->is_inside_render_pass)
+    {
+        d3d12_command_list_mark_as_invalid(list, "BeginRenderPass called inside a render pass.\n");
+        return;
+    }
+
+    list->is_inside_render_pass = true;
+    list->render_pass_flags = flags;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_EndRenderPass(d3d12_command_list_iface *iface)
 {
-    FIXME("iface %p stub!\n", iface);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+
+    TRACE("iface %p.\n", iface);
+
+    if (!list->is_inside_render_pass)
+    {
+        d3d12_command_list_mark_as_invalid(list, "EndRenderPass called outside a render pass.\n");
+        return;
+    }
+
+    list->is_inside_render_pass = false;
+    list->render_pass_flags = 0;
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_InitializeMetaCommand(d3d12_command_list_iface *iface,
@@ -14747,6 +14821,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_BuildRaytracingAccelerationStru
 
     TRACE("iface %p, desc %p, num_postbuild_info_descs %u, postbuild_info_descs %p\n",
             iface, desc, num_postbuild_info_descs, postbuild_info_descs);
+
+    if (list->is_inside_render_pass)
+        d3d12_command_list_mark_as_invalid(list, "BuildRaytracingAccelerationStructure called within a render pass.\n");
 
     if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
     {
@@ -14924,6 +15001,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_EmitRaytracingAccelerationStruc
     TRACE("iface %p, desc %p, num_acceleration_structures %u, src_data %p\n",
             iface, desc, num_acceleration_structures, src_data);
 
+    if (list->is_inside_render_pass)
+        d3d12_command_list_mark_as_invalid(list, "EmitRaytracingAccelerationStructurePostbuildInfo called within a render pass.\n");
+
     if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
     {
         WARN("Acceleration structure is not supported. Calling this is invalid.\n");
@@ -14945,6 +15025,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
 
     TRACE("iface %p, dst_data %#"PRIx64", src_data %#"PRIx64", mode %u\n",
           iface, dst_data, src_data, mode);
+
+    if (list->is_inside_render_pass)
+        d3d12_command_list_mark_as_invalid(list, "CopyRaytracingAccelerationStructure called within a render pass.\n");
 
     if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
     {
@@ -15025,6 +15108,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchRays(d3d12_command_list
     VkStridedDeviceAddressRegionKHR hit_table;
 
     TRACE("iface %p, desc %p\n", iface, desc);
+
+    if (list->is_inside_render_pass)
+        d3d12_command_list_mark_as_invalid(list, "DispatchRays called within a render pass.\n");
 
     if (!d3d12_device_supports_ray_tracing_tier_1_0(list->device))
     {
