@@ -4648,8 +4648,6 @@ static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_l
         bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_STATIC_SAMPLER_SET;
     if (bindings->root_signature->hoist_info.num_desc)
         bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_HOISTED_PUSH_DESCRIPTORS;
-    if (list->state && list->state->hoist_template.num_hoist_sets)
-        bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_HOISTED_BUFFER_DESCRIPTORS;
 
     d3d12_command_list_invalidate_push_constants(bindings);
 
@@ -4657,6 +4655,8 @@ static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_l
     {
         struct d3d12_device *device = bindings->root_signature->device;
         bindings->descriptor_heap_dirty_mask = (1ull << device->bindless_state.set_count) - 1;
+        if (list->state && list->state->hoist_template.num_hoist_sets)
+            bindings->dirty_flags |= VKD3D_PIPELINE_DIRTY_HOISTED_BUFFER_DESCRIPTORS;
     }
 }
 
