@@ -6210,6 +6210,42 @@ static bool vkd3d_bindless_supports_embedded_packed_metadata(struct d3d12_device
             vkd3d_bindless_get_mutable_descriptor_type_size(device);
 }
 
+static bool vkd3d_bindless_descriptor_size_supports_descriptor_buffer_hoisting(uint32_t size)
+{
+    return size % 4 == 0 && size >= 4;
+}
+
+static bool vkd3d_bindless_supports_descriptor_buffer_hoisting(struct d3d12_device *device, uint32_t flags)
+{
+    const VkPhysicalDeviceDescriptorBufferPropertiesEXT *props;
+    if (d3d12_device_uses_descriptor_buffers(device) &&
+            (flags & VKD3D_BINDLESS_RAW_SSBO) &&
+            !(flags & VKD3D_SSBO_OFFSET_BUFFER))
+    {
+        props = &device->device_info.descriptor_buffer_properties;
+        if (!vkd3d_bindless_descriptor_size_supports_descriptor_buffer_hoisting(props->samplerDescriptorSize) ||
+                !vkd3d_bindless_descriptor_size_supports_descriptor_buffer_hoisting(props->sampledImageDescriptorSize) ||
+                !vkd3d_bindless_descriptor_size_supports_descriptor_buffer_hoisting(props->storageImageDescriptorSize) ||
+                !vkd3d_bindless_descriptor_size_supports_descriptor_buffer_hoisting(props->robustStorageBufferDescriptorSize) ||
+                !vkd3d_bindless_descriptor_size_supports_descriptor_buffer_hoisting(props->robustUniformBufferDescriptorSize) ||
+                !vkd3d_bindless_descriptor_size_supports_descriptor_buffer_hoisting(props->robustUniformTexelBufferDescriptorSize) ||
+                !vkd3d_bindless_descriptor_size_supports_descriptor_buffer_hoisting(props->robustStorageTexelBufferDescriptorSize))
+            return false;
+
+        if (props->maxDescriptorBufferBindings < 3 ||
+                props->maxResourceDescriptorBufferBindings < 2 ||
+                props->maxSamplerDescriptorBufferBindings < 2 ||
+                !props->bufferlessPushDescriptors)
+            return false;
+
+        /* If we pass all these tests, we're on an implementation that does not really care if we rebind descriptor buffers,
+         * because we're not using true descriptor heaps. */
+        return true;
+    }
+    else
+        return false;
+}
+
 bool vkd3d_bindless_supports_embedded_mutable_type(struct d3d12_device *device, uint32_t flags)
 {
     const VkPhysicalDeviceDescriptorBufferPropertiesEXT *props = &device->device_info.descriptor_buffer_properties;
@@ -6501,6 +6537,9 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
     {
         flags |= VKD3D_BINDLESS_MUTABLE_TYPE_SPLIT_RAW_TYPED;
     }
+
+    if (vkd3d_bindless_supports_descriptor_buffer_hoisting(device, flags))
+        flags |= VKD3D_BINDLESS_HOIST_DESCRIPTOR_BUFFER;
 
     return flags;
 }
