@@ -6023,7 +6023,7 @@ static void d3d12_command_list_update_descriptor_buffers(struct d3d12_command_li
 
         num_global_buffers = 2;
 
-        /* if (using hoisting) */
+        if (list->device->bindless_state.flags & VKD3D_BINDLESS_HOIST_DESCRIPTOR_BUFFER)
         {
             /* If we're doing hoisting, allocate a new chunk now. */
             vkd3d_array_reserve((void **)&list->copy_batches, &list->copy_batches_size,

@@ -1671,6 +1671,16 @@ HRESULT d3d12_root_signature_create_hoisted_descriptor_layout(
         }
     }
 
+    /* If the first set is empty, don't push an offset to it.
+     * VVL gets a bit confused when you push a buffer offset to an empty set layout. */
+    if (first_set_count == 0)
+    {
+        assert(copy_template->num_hoist_sets == 2);
+        copy_template->num_hoist_sets -= 1;
+        copy_template->first_hoist_set_index += 1;
+        copy_template->descriptor_offsets[0] = copy_template->descriptor_offsets[1];
+    }
+
     return S_OK;
 }
 
@@ -2618,16 +2628,20 @@ static void d3d12_pipeline_state_init_shader_interface(struct d3d12_pipeline_sta
     shader_interface->descriptor_size_sampler = d3d12_device_get_descriptor_handle_increment_size(
             device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
 
-    /* Ignore tess, geom and task. Only bother with the common cases to keep number of sets down. */
-    if (/*stage == VK_SHADER_STAGE_VERTEX_BIT || stage == VK_SHADER_STAGE_MESH_BIT_EXT ||
-            stage == VK_SHADER_STAGE_FRAGMENT_BIT || */stage == VK_SHADER_STAGE_COMPUTE_BIT)
+    if (device->bindless_state.flags & VKD3D_BINDLESS_HOIST_DESCRIPTOR_BUFFER)
     {
-        layout = d3d12_root_signature_get_layout(root_signature, state->pipeline_type);
-        shader_interface->flags |= VKD3D_SHADER_INTERFACE_HOIST_DESCRIPTORS;
-        shader_interface->hoist_descriptor_set_index = layout->num_set_layouts;
-        /* Make the set only depend on the root signature. */
-        if (stage == VK_SHADER_STAGE_FRAGMENT_BIT)
-            shader_interface->hoist_descriptor_set_index++;
+        /* Ignore tess, geom and task, which are all quite rare.
+         * Only bother with the common cases to keep number of sets down. */
+        if (stage == VK_SHADER_STAGE_VERTEX_BIT || stage == VK_SHADER_STAGE_MESH_BIT_EXT ||
+                stage == VK_SHADER_STAGE_FRAGMENT_BIT || stage == VK_SHADER_STAGE_COMPUTE_BIT)
+        {
+            layout = d3d12_root_signature_get_layout(root_signature, state->pipeline_type);
+            shader_interface->flags |= VKD3D_SHADER_INTERFACE_HOIST_DESCRIPTORS;
+            shader_interface->hoist_descriptor_set_index = layout->num_set_layouts;
+            /* Make the set only depend on the root signature. */
+            if (stage == VK_SHADER_STAGE_FRAGMENT_BIT)
+                shader_interface->hoist_descriptor_set_index++;
+        }
     }
 
     if (stage == VK_SHADER_STAGE_MESH_BIT_EXT)
@@ -4936,6 +4950,10 @@ static HRESULT d3d12_pipeline_state_init_graphics_spirv(struct d3d12_pipeline_st
     /* At this point, we will have valid meta structures set up.
      * Deduce further PSO information from these structs. */
     d3d12_pipeline_state_graphics_handle_meta(state, device);
+
+    if (FAILED(hr = d3d12_pipeline_state_create_hoisted_pipeline_layout(state)))
+        return hr;
+
     return S_OK;
 }
 
@@ -4990,6 +5008,10 @@ static HRESULT d3d12_pipeline_state_init_static_pipeline(struct d3d12_pipeline_s
 
         graphics->pipeline_layout = state->root_signature->graphics.vk_pipeline_layout;
     }
+
+    /* Override the pipeline layout if we hoist descriptor buffers. */
+    if (state->hoist_template.vk_hoist_descriptor_layout)
+        graphics->pipeline_layout = state->hoist_template.vk_hoist_descriptor_layout;
 
     graphics->pipeline = VK_NULL_HANDLE;
     graphics->library = VK_NULL_HANDLE;
