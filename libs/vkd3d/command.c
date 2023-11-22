@@ -5996,6 +5996,7 @@ static void d3d12_command_list_update_descriptor_buffers(struct d3d12_command_li
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkDescriptorBufferBindingPushDescriptorBufferHandleEXT buffer_handle;
     struct d3d12_command_list_descriptor_copy_batch *batch;
+    struct d3d12_command_list_descriptor_copy_heap *heaps;
     VkDescriptorBufferBindingInfoEXT global_buffers[3];
     uint32_t num_global_buffers;
     unsigned int i;
@@ -6041,18 +6042,25 @@ static void d3d12_command_list_update_descriptor_buffers(struct d3d12_command_li
                     VKD3D_DESCRIPTOR_COPY_BATCH_NUM_COPIES * sizeof(struct d3d12_command_list_descriptor_copy_desc),
                     64, ~0u, &batch->host_buffer);
 
+            d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+                    VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD,
+                    sizeof(struct d3d12_command_list_descriptor_copy_heap) * VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS,
+                    64, ~0u, &batch->host_meta_buffer);
+
             batch->descriptor_buffer_offset = 0;
             batch->num_copies = 0;
+            heaps = batch->host_meta_buffer.host_ptr;
 
             for (i = 0; i < list->device->bindless_state.set_count; i++)
             {
                 unsigned int buffer_index = list->device->bindless_state.vk_descriptor_buffer_indices[i];
                 /*batch->heaps[i].base_va = global_buffers[buffer_index].address + list->descriptor_heap.buffers.vk_payload_offsets[i];*/
                 /* HACK: Use CPU side copy for now. */
-                batch->heaps[i].base_va = (VkDeviceAddress)
-                        ((uint8_t *)list->descriptor_heap.buffers.mapped[buffer_index] + list->descriptor_heap.buffers.vk_payload_offsets[i]);
-                batch->heaps[i].num_descriptors = list->descriptor_heap.buffers.vk_descriptor_count_for_buffer_index[buffer_index];
-                batch->heaps[i].stride_words = list->descriptor_heap.buffers.vk_descriptor_stride_words[i];
+                heaps[i].base_va = (VkDeviceAddress)
+                        ((uint8_t *)list->descriptor_heap.buffers.mapped[buffer_index] +
+                                list->descriptor_heap.buffers.vk_payload_offsets[i]);
+                heaps[i].num_descriptors = list->descriptor_heap.buffers.vk_descriptor_count_for_buffer_index[buffer_index];
+                heaps[i].stride_words = list->descriptor_heap.buffers.vk_descriptor_stride_words[i];
             }
 
             global_buffers[num_global_buffers].sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT;
@@ -15877,6 +15885,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_CopyTileMappings(ID3D12Command
 static void d3d12_command_list_descriptor_copy_batch_flush_cpu(struct d3d12_command_list_descriptor_copy_batch *batch)
 {
     /* Emulate what we intend to do in async compute. */
+    const struct d3d12_command_list_descriptor_copy_heap *heaps = batch->host_meta_buffer.host_ptr;
     const struct d3d12_command_list_descriptor_copy_desc *src = batch->host_buffer.host_ptr;
     uint32_t *dst = batch->descriptor_buffer.host_ptr;
     VkDeviceAddress va;
@@ -15884,10 +15893,10 @@ static void d3d12_command_list_descriptor_copy_batch_flush_cpu(struct d3d12_comm
 
     for (i = 0; i < batch->num_copies; i++, src++)
     {
-        if (src->src_offset < batch->heaps[src->set_index].num_descriptors)
+        if (src->src_offset < heaps[src->set_index].num_descriptors)
         {
-            va = batch->heaps[src->set_index].base_va +
-                    src->src_offset * batch->heaps[src->set_index].stride_words * sizeof(uint32_t);
+            va = heaps[src->set_index].base_va +
+                    src->src_offset * heaps[src->set_index].stride_words * sizeof(uint32_t);
             memcpy(dst + src->dst_offset, (const void *)va, src->count * sizeof(uint32_t));
         }
     }

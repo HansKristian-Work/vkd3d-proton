@@ -2806,22 +2806,24 @@ struct d3d12_command_list_descriptor_copy_desc
     uint8_t count;
 };
 
+struct d3d12_command_list_descriptor_copy_heap
+{
+    VkDeviceAddress base_va;
+    uint32_t num_descriptors;
+    uint32_t stride_words;
+};
+
 /* A batch is started when application sets descriptor heap. */
 struct d3d12_command_list_descriptor_copy_batch
 {
-    /* Represents the descriptor heaps. When descriptor heaps are rebound (rare),
-     * need to start a new batch. */
-    struct
-    {
-        VkDeviceAddress base_va;
-        uint32_t num_descriptors;
-        uint32_t stride_words;
-    } heaps[VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS];
-
     /* Holds VKD3D_DESCRIPTOR_COPY_BATCH_WORDS * sizeof(uint32_t) worth of descriptors. */
     struct vkd3d_scratch_allocation descriptor_buffer;
     /* Holds VKD3D_DESCRIPTOR_COPY_BATCH_NUM_WORD_COPIES worth of d3d12_command_list_descriptor_copy_word. */
     struct vkd3d_scratch_allocation host_buffer;
+
+    /* Holds heaps members, VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS.
+     * We have to dynamically index, so we cannot use push constants. */
+    struct vkd3d_scratch_allocation host_meta_buffer;
 
     unsigned int descriptor_buffer_offset;
     unsigned int num_copies;
