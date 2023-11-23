@@ -1629,7 +1629,10 @@ HRESULT d3d12_root_signature_create_hoisted_descriptor_layout(
     HRESULT hr;
 
     if (first_set_count == 0 && second_set_count == 0)
+    {
+        INFO ("Hoisting 0 descriptors!\n");
         return S_OK;
+    }
 
     copy_template->first_hoist_set_index = layout->num_set_layouts;
 
@@ -1684,6 +1687,8 @@ HRESULT d3d12_root_signature_create_hoisted_descriptor_layout(
         copy_template->first_hoist_set_index += 1;
         copy_template->descriptor_offsets[0] = copy_template->descriptor_offsets[1];
     }
+
+    INFO("Hoisting %u descriptors!\n", copy_template->num_entries);
 
     return S_OK;
 }
