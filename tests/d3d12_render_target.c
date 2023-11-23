@@ -1026,3 +1026,895 @@ void test_rendering_no_attachments_layers(void)
     destroy_test_context(&context);
 }
 
+void test_renderpass_validation(void)
+{
+    D3D12_RENDER_PASS_RENDER_TARGET_DESC rtv_infos[2];
+    D3D12_FEATURE_DATA_D3D12_OPTIONS18 options18;
+    ID3D12GraphicsCommandList4 *command_list4;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    ID3D12CommandAllocator *allocator;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12DescriptorHeap *rtv_heap;
+    ID3D12Resource *rt[4], *ds;
+    ID3D12Device* device;
+    unsigned int i;
+    HRESULT hr;
+
+    static const FLOAT black[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+    if (!(device = create_device()))
+        return;
+
+    memset(&options18, 0, sizeof(options18));
+    ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_OPTIONS18, &options18, sizeof(options18));
+
+    if (!options18.RenderPassesValid)
+    {
+        skip("Render passes not supported.\n");
+        ID3D12Device_Release(device);
+        return;
+    }
+
+    hr = ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &IID_ID3D12CommandAllocator, (void**)&allocator);
+    ok(hr == S_OK, "Failed to create command allocator, hr %#x.\n");
+
+    hr = ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+        allocator, NULL, &IID_ID3D12GraphicsCommandList4, (void**)&command_list4);
+
+    if (FAILED(hr))
+    {
+        skip("ID3D12GraphicsCommandList4 not supported.\n");
+        ID3D12Device_Release(device);
+        return;
+    }
+
+    rtv_heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, ARRAY_SIZE(rt));
+
+    /* Create dummy resources to bind as render targets */
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_desc.Width = 4;
+    resource_desc.Height = 4;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, 0, &resource_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void**)&rt[0]);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+
+    resource_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, 0, &resource_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void**)&rt[1]);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+
+    resource_desc.Width = 16;
+    resource_desc.Height = 16;
+
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, 0, &resource_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void**)&rt[2]);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+
+    resource_desc.SampleDesc.Count = 4;
+
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, 0, &resource_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void**)&rt[3]);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+
+    resource_desc.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+    hr = ID3D12Device_CreateCommittedResource(device, &heap_properties, 0, &resource_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE, NULL, &IID_ID3D12Resource, (void**)&ds);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(rt); i++)
+        ID3D12Device_CreateRenderTargetView(device, rt[i], NULL, get_cpu_handle(device, rtv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, i));
+
+    /* Test whether beginning a render pass with no attachments is allowed */
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 0, NULL, NULL, 0);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+    hr = ID3D12GraphicsCommandList4_Close(command_list4);
+    ok(SUCCEEDED(hr), "Got hr %#x, expected S_OK.\n", hr);
+    ID3D12GraphicsCommandList4_Release(command_list4);
+
+    /* Test that binding a simple RTV works */
+    ID3D12CommandAllocator_Reset(allocator);
+    ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+        allocator, NULL, &IID_ID3D12GraphicsCommandList4, (void**)&command_list4);
+
+    memset(rtv_infos, 0, sizeof(rtv_infos));
+
+    for (i = 0; i < ARRAY_SIZE(rtv_infos); i++)
+    {
+        rtv_infos[i].cpuDescriptor = get_cpu_handle(device, rtv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, i);
+        rtv_infos[i].BeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_PRESERVE;
+        rtv_infos[i].EndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_PRESERVE;
+    }
+
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 1, rtv_infos, NULL, 0);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+    hr = ID3D12GraphicsCommandList4_Close(command_list4);
+    ok(SUCCEEDED(hr), "Got hr %#x, expected S_OK.\n", hr);
+    ID3D12GraphicsCommandList4_Release(command_list4);
+
+    /* Test that not matching BeginRenderPass and EndRenderPass fails */
+    ID3D12CommandAllocator_Reset(allocator);
+    ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+        allocator, NULL, &IID_ID3D12GraphicsCommandList4, (void**)&command_list4);
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 1, rtv_infos, NULL, 0);
+    hr = ID3D12GraphicsCommandList4_Close(command_list4);
+    ok(FAILED(hr), "Got hr %#x, expected E_FAIL.\n", hr);
+    ID3D12GraphicsCommandList4_Release(command_list4);
+
+    ID3D12CommandAllocator_Reset(allocator);
+    ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+        allocator, NULL, &IID_ID3D12GraphicsCommandList4, (void**)&command_list4);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+    hr = ID3D12GraphicsCommandList4_Close(command_list4);
+    ok(FAILED(hr), "Got hr %#x, expected E_INVALIDARG.\n", hr);
+    ID3D12GraphicsCommandList4_Release(command_list4);
+
+    ID3D12CommandAllocator_Reset(allocator);
+    ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+        allocator, NULL, &IID_ID3D12GraphicsCommandList4, (void**)&command_list4);
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 1, rtv_infos, NULL, 0);
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 1, rtv_infos, NULL, 0);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+    hr = ID3D12GraphicsCommandList4_Close(command_list4);
+    ok(FAILED(hr), "Got hr %#x, expected E_INVALIDARG.\n", hr);
+    ID3D12GraphicsCommandList4_Release(command_list4);
+
+    ID3D12CommandAllocator_Reset(allocator);
+    ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+        allocator, NULL, &IID_ID3D12GraphicsCommandList4, (void**)&command_list4);
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 1, rtv_infos, NULL, 0);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+    hr = ID3D12GraphicsCommandList4_Close(command_list4);
+    ok(FAILED(hr), "Got hr %#x, expected E_INVALIDARG.\n", hr);
+    ID3D12GraphicsCommandList4_Release(command_list4);
+
+    /* Test consecutive render pass validation with suspend/resume flags */
+    ID3D12CommandAllocator_Reset(allocator);
+    ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+        allocator, NULL, &IID_ID3D12GraphicsCommandList4, (void**)&command_list4);
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 2, rtv_infos, NULL, D3D12_RENDER_PASS_FLAG_SUSPENDING_PASS);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 2, rtv_infos, NULL, D3D12_RENDER_PASS_FLAG_SUSPENDING_PASS | D3D12_RENDER_PASS_FLAG_RESUMING_PASS);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+    /* Changing the render target order is explicitly allowed */
+    for (i = 0; i < 2; i++)
+        rtv_infos[i].cpuDescriptor = get_cpu_handle(device, rtv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1 - i);
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 2, rtv_infos, NULL, D3D12_RENDER_PASS_FLAG_RESUMING_PASS);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+    /* This is invalid, but not checked by the runtime */
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 2, rtv_infos, NULL, D3D12_RENDER_PASS_FLAG_RESUMING_PASS);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+    hr = ID3D12GraphicsCommandList4_Close(command_list4);
+    ok(SUCCEEDED(hr), "Got hr %#x, expected S_OK.\n", hr);
+    ID3D12GraphicsCommandList4_Release(command_list4);
+
+    ID3D12CommandAllocator_Reset(allocator);
+    ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+        allocator, NULL, &IID_ID3D12GraphicsCommandList4, (void**)&command_list4);
+    /* Changing render targets in any way is not permited for suspend/resume within the same command list */
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 1, rtv_infos, NULL, D3D12_RENDER_PASS_FLAG_SUSPENDING_PASS);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 2, rtv_infos, NULL, D3D12_RENDER_PASS_FLAG_RESUMING_PASS);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+    hr = ID3D12GraphicsCommandList4_Close(command_list4);
+    todo ok(FAILED(hr), "Got hr %#x, expected E_INVALIDARG.\n", hr);
+    ID3D12GraphicsCommandList4_Release(command_list4);
+
+    ID3D12CommandAllocator_Reset(allocator);
+    ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+        allocator, NULL, &IID_ID3D12GraphicsCommandList4, (void**)&command_list4);
+    /* Unlike resume after resume, suspend after suspend is checked by the runtime */
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 2, rtv_infos, NULL, D3D12_RENDER_PASS_FLAG_SUSPENDING_PASS);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 2, rtv_infos, NULL, D3D12_RENDER_PASS_FLAG_SUSPENDING_PASS);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+    hr = ID3D12GraphicsCommandList4_Close(command_list4);
+    todo ok(FAILED(hr), "Got hr %#x, expected E_INVALIDARG.\n", hr);
+    ID3D12GraphicsCommandList4_Release(command_list4);
+
+    /* Test that executing certain commands during a render pass fails */
+    ID3D12CommandAllocator_Reset(allocator);
+    ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+        allocator, NULL, &IID_ID3D12GraphicsCommandList4, (void**)&command_list4);
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 2, rtv_infos, NULL, 0);
+    ID3D12GraphicsCommandList4_ClearRenderTargetView(command_list4, get_cpu_handle(device, rtv_heap, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 0), black, 0, NULL);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+    hr = ID3D12GraphicsCommandList4_Close(command_list4);
+    ok(FAILED(hr), "Got hr %#x, expected E_FAIL.\n", hr);
+    ID3D12GraphicsCommandList4_Release(command_list4);
+
+    /* Barriers inside render passes, GPU work occuring between render passes with
+     * PRESERVE_LOCAL or suspend/resume flags are not validated by the runtime. */
+
+    ID3D12CommandAllocator_Release(allocator);
+
+    for (i = 0; i < ARRAY_SIZE(rt); i++)
+        ID3D12Resource_Release(rt[i]);
+
+    ID3D12Resource_Release(ds);
+
+    ID3D12DescriptorHeap_Release(rtv_heap);
+
+    ID3D12Device_Release(device);
+}
+
+void test_renderpass_rendering(void)
+{
+    D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_SUBRESOURCE_PARAMETERS rtv_resolves[5];
+    D3D12_RENDER_PASS_RENDER_TARGET_DESC rtv_infos[3];
+    D3D12_RENDER_PASS_DEPTH_STENCIL_DESC dsv_info;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS18 options18;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12GraphicsCommandList4 *command_list4;
+    ID3D12DescriptorHeap *rtv_heap, *dsv_heap;
+    D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    ID3D12RootSignature *root_signature;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12PipelineState *pso, *pso_ms;
+    ID3D12Resource *rt, *rt_ms, *ds;
+    struct test_context_desc desc;
+    D3D12_ROOT_PARAMETER rs_param;
+    struct resource_readback rb;
+    struct test_context context;
+    D3D12_VIEWPORT viewport;
+    unsigned int i, x, y;
+    D3D12_RECT scissor;
+    HRESULT hr;
+
+    static const float black[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    static const float white[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    static const float red[]   = { 1.0f, 0.0f, 0.0f, 1.0f };
+    static const float green[] = { 0.0f, 1.0f, 0.0f, 1.0f };
+    static const float blue[]  = { 0.0f, 0.0f, 1.0f, 1.0f };
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+    cbuffer color_t : register(b0)
+    {
+        float depth;
+        uint3 colors;
+        uint sample_mask;
+    }
+
+    struct out_t
+    {
+        float d : SV_Depth;
+        float4 a : SV_Target0;
+        float4 b : SV_Target1;
+        float4 c : SV_Target2;
+        uint sm : SV_Coverage;
+    };
+
+    float4 unpack_unorm(uint un)
+    {
+        return float4((un >>  0) & 0xff, (un >>  8) & 0xff,
+                (un >> 16) & 0xff, (un >> 24) & 0xff) / 255.0f;
+    }
+
+    out_t main()
+    {
+        out_t result;
+        result.d = depth;
+        result.a = unpack_unorm(colors.x);
+        result.b = unpack_unorm(colors.y);
+        result.c = unpack_unorm(colors.z);
+        result.sm = sample_mask;
+        return result;
+    }
+#endif
+        0x43425844, 0x19e95b1b, 0x8933e8f2, 0xf2efe245, 0xbd578427, 0x00000001, 0x00000374, 0x00000003,
+        0x0000002c, 0x0000003c, 0x000000e4, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x000000a0, 0x00000005, 0x00000008, 0x00000080, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x00000080, 0x00000001, 0x00000000, 0x00000003, 0x00000001, 0x0000000f, 0x00000080,
+        0x00000002, 0x00000000, 0x00000003, 0x00000002, 0x0000000f, 0x0000008a, 0x00000000, 0x00000000,
+        0x00000001, 0xffffffff, 0x00000e01, 0x00000096, 0x00000000, 0x00000000, 0x00000003, 0xffffffff,
+        0x00000e01, 0x545f5653, 0x65677261, 0x56530074, 0x766f435f, 0x67617265, 0x56530065, 0x7065445f,
+        0xab006874, 0x58454853, 0x00000288, 0x00000050, 0x000000a2, 0x0100086a, 0x04000059, 0x00208e46,
+        0x00000000, 0x00000002, 0x03000065, 0x001020f2, 0x00000000, 0x03000065, 0x001020f2, 0x00000001,
+        0x03000065, 0x001020f2, 0x00000002, 0x02000065, 0x0000f000, 0x02000065, 0x0000c001, 0x02000068,
+        0x00000004, 0x05000036, 0x0000c001, 0x0020800a, 0x00000000, 0x00000000, 0x1000008a, 0x001000f2,
+        0x00000000, 0x00004002, 0x00000008, 0x00000008, 0x00000008, 0x00000008, 0x00004002, 0x00000008,
+        0x00000010, 0x00000008, 0x00000010, 0x00208a56, 0x00000000, 0x00000000, 0x05000056, 0x00100062,
+        0x00000001, 0x00100106, 0x00000000, 0x05000056, 0x00100062, 0x00000000, 0x00100ba6, 0x00000000,
+        0x0b000001, 0x00100072, 0x00000002, 0x00208796, 0x00000000, 0x00000000, 0x00004002, 0x000000ff,
+        0x000000ff, 0x000000ff, 0x00000000, 0x05000056, 0x00100012, 0x00000001, 0x0010000a, 0x00000002,
+        0x0b000055, 0x00100072, 0x00000003, 0x00208796, 0x00000000, 0x00000000, 0x00004002, 0x00000018,
+        0x00000018, 0x00000018, 0x00000000, 0x05000056, 0x00100082, 0x00000001, 0x0010000a, 0x00000003,
+        0x0a000038, 0x001020f2, 0x00000000, 0x00100e46, 0x00000001, 0x00004002, 0x3b808081, 0x3b808081,
+        0x3b808081, 0x3b808081, 0x05000056, 0x00100012, 0x00000000, 0x0010001a, 0x00000002, 0x05000056,
+        0x00100012, 0x00000001, 0x0010002a, 0x00000002, 0x05000056, 0x00100082, 0x00000000, 0x0010001a,
+        0x00000003, 0x05000056, 0x00100082, 0x00000001, 0x0010002a, 0x00000003, 0x0a000038, 0x001020f2,
+        0x00000001, 0x00100e46, 0x00000000, 0x00004002, 0x3b808081, 0x3b808081, 0x3b808081, 0x3b808081,
+        0x1000008a, 0x00100032, 0x00000000, 0x00004002, 0x00000008, 0x00000008, 0x00000000, 0x00000000,
+        0x00004002, 0x00000008, 0x00000010, 0x00000000, 0x00000000, 0x00208ff6, 0x00000000, 0x00000000,
+        0x05000056, 0x00100062, 0x00000001, 0x00100106, 0x00000000, 0x0a000038, 0x001020f2, 0x00000002,
+        0x00100e46, 0x00000001, 0x00004002, 0x3b808081, 0x3b808081, 0x3b808081, 0x3b808081, 0x05000036,
+        0x0000f001, 0x0020800a, 0x00000000, 0x00000001, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+
+    struct
+    {
+        float depth;
+        uint32_t colors[3];
+        uint32_t sample_mask;
+    } shader_args;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    desc.no_root_signature = true;
+    desc.no_pipeline = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&options18, 0, sizeof(options18));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS18, &options18, sizeof(options18));
+
+    if (!options18.RenderPassesValid)
+    {
+        skip("Render passes not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList4, (void**)&command_list4);
+
+    if (FAILED(hr))
+    {
+        skip("ID3D12GraphicsCommandList4 not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Width = 4;
+    resource_desc.Height = 4;
+    resource_desc.DepthOrArraySize = 3;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+    resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    resource_desc.SampleDesc.Count = 1;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
+            D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET,
+            NULL, &IID_ID3D12Resource, (void**)&rt);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n");
+
+    resource_desc.Alignment = D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
+    resource_desc.SampleDesc.Count = 4;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
+            D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET,
+            NULL, &IID_ID3D12Resource, (void**)&rt_ms);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n");
+
+    resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
+            D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE,
+            NULL, &IID_ID3D12Resource, (void**)&ds);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n");
+
+    rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 8);
+    dsv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
+
+    viewport.TopLeftX = 0.0f;
+    viewport.TopLeftY = 0.0f;
+    viewport.Width = 4.0f;
+    viewport.Height = 4.0f;
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
+
+    scissor.left = 0;
+    scissor.top = 0;
+    scissor.right = 4;
+    scissor.bottom = 4;
+
+    memset(&rs_param, 0, sizeof(rs_param));
+    rs_param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_param.Constants.Num32BitValues = sizeof(shader_args) / sizeof(uint32_t);
+    rs_param.Constants.ShaderRegister = 0;
+    rs_param.Constants.RegisterSpace = 0;
+    rs_param.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = 1;
+    rs_desc.pParameters = &rs_param;
+    create_root_signature(context.device, &rs_desc, &root_signature);
+
+    init_pipeline_state_desc(&pso_desc, root_signature, 0, NULL, &ps, NULL);
+    pso_desc.NumRenderTargets = 3;
+    pso_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    pso_desc.RTVFormats[1] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    pso_desc.RTVFormats[2] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    pso_desc.BlendState.RenderTarget[0].RenderTargetWriteMask = 0xf;
+    pso_desc.BlendState.RenderTarget[1].RenderTargetWriteMask = 0xf;
+    pso_desc.BlendState.RenderTarget[2].RenderTargetWriteMask = 0xf;
+    pso_desc.DepthStencilState.DepthEnable = true;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    pso_desc.DepthStencilState.StencilEnable = TRUE;
+    pso_desc.DepthStencilState.StencilWriteMask = 0xff;
+    pso_desc.DepthStencilState.FrontFace.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    pso_desc.DepthStencilState.FrontFace.StencilDepthFailOp = D3D12_STENCIL_OP_REPLACE;
+    pso_desc.DepthStencilState.FrontFace.StencilFailOp = D3D12_STENCIL_OP_REPLACE;
+    pso_desc.DepthStencilState.FrontFace.StencilPassOp = D3D12_STENCIL_OP_REPLACE;
+    pso_desc.DepthStencilState.BackFace = pso_desc.DepthStencilState.FrontFace;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&pso);
+    ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+
+    pso_desc.SampleDesc.Count = 4;
+    pso_desc.SampleMask = 0xf;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&pso_ms);
+    ok(hr == S_OK, "Failed to create state, hr %#x.\n", hr);
+
+    memset(&rtv_desc, 0, sizeof(rtv_desc));
+    rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+    for (i = 0; i < 3; i++)
+    {
+        rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
+        rtv_desc.Texture2DArray.MipSlice = 0;
+        rtv_desc.Texture2DArray.FirstArraySlice = i;
+        rtv_desc.Texture2DArray.ArraySize = 1;
+        ID3D12Device_CreateRenderTargetView(context.device, rt, &rtv_desc,
+                get_cpu_rtv_handle(&context, rtv_heap, i));
+
+        rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMSARRAY;
+        rtv_desc.Texture2DMSArray.FirstArraySlice = i;
+        rtv_desc.Texture2DMSArray.ArraySize = 1;
+        ID3D12Device_CreateRenderTargetView(context.device, rt_ms, &rtv_desc,
+                get_cpu_rtv_handle(&context, rtv_heap, i + 4));
+    }
+
+    rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
+    rtv_desc.Texture2DArray.MipSlice = 0;
+    rtv_desc.Texture2DArray.FirstArraySlice = 0;
+    rtv_desc.Texture2DArray.ArraySize = 3;
+    ID3D12Device_CreateRenderTargetView(context.device, rt, &rtv_desc,
+            get_cpu_rtv_handle(&context, rtv_heap, 3));
+
+    rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMSARRAY;
+    rtv_desc.Texture2DMSArray.FirstArraySlice = 0;
+    rtv_desc.Texture2DMSArray.ArraySize = 3;
+    ID3D12Device_CreateRenderTargetView(context.device, rt_ms, &rtv_desc,
+            get_cpu_rtv_handle(&context, rtv_heap, 7));
+
+    memset(&dsv_desc, 0, sizeof(dsv_desc));
+    dsv_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+    dsv_desc.Texture2D.MipSlice = 0;
+    ID3D12Device_CreateDepthStencilView(context.device, ds, &dsv_desc,
+            get_cpu_dsv_handle(&context, dsv_heap, 0));
+
+    viewport.TopLeftX = 0.0f;
+    viewport.TopLeftY = 0.0f;
+    viewport.Width = 4.0f;
+    viewport.Height = 4.0f;
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
+
+    scissor.left = 0;
+    scissor.top = 0;
+    scissor.right = 4;
+    scissor.bottom = 4;
+
+    /* Initialize all render target subresources */
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, get_cpu_rtv_handle(&context, rtv_heap, 3), white, 0, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, get_cpu_rtv_handle(&context, rtv_heap, 7), white, 0, NULL);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, get_cpu_dsv_handle(&context, dsv_heap, 0),
+            D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0xff, 0, NULL);
+
+    /* Test basic clear and preserve load ops */
+    memset(rtv_infos, 0, sizeof(rtv_infos));
+
+    for (i = 0; i < ARRAY_SIZE(rtv_infos); i++)
+    {
+        rtv_infos[i].cpuDescriptor = get_cpu_rtv_handle(&context, rtv_heap, i);
+        rtv_infos[i].BeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_PRESERVE;
+        rtv_infos[i].BeginningAccess.Clear.ClearValue.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        rtv_infos[i].EndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_PRESERVE;
+    }
+
+    rtv_infos[0].BeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR;
+    memcpy(rtv_infos[0].BeginningAccess.Clear.ClearValue.Color, green, sizeof(green));
+
+    rtv_infos[2].BeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR;
+    memcpy(rtv_infos[2].BeginningAccess.Clear.ClearValue.Color, red, sizeof(red));
+
+    memset(&dsv_info, 0, sizeof(dsv_info));
+    dsv_info.cpuDescriptor = get_cpu_dsv_handle(&context, dsv_heap, 0);
+    dsv_info.DepthBeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR;
+    dsv_info.DepthBeginningAccess.Clear.ClearValue.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    dsv_info.DepthBeginningAccess.Clear.ClearValue.DepthStencil.Depth = 0.5f;
+    dsv_info.StencilBeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR;
+    dsv_info.StencilBeginningAccess.Clear.ClearValue.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    dsv_info.StencilBeginningAccess.Clear.ClearValue.DepthStencil.Stencil = 0x55;
+    dsv_info.DepthEndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_PRESERVE;
+    dsv_info.StencilEndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_PRESERVE;
+
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, ARRAY_SIZE(rtv_infos), rtv_infos, &dsv_info, 0);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+
+    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(rt, 0, context.queue, context.list, 0xff00ff00u, 0);
+    reset_command_list(context.list, context.allocator);
+    check_sub_resource_uint(rt, 1, context.queue, context.list, 0xffffffffu, 0);
+    reset_command_list(context.list, context.allocator);
+    check_sub_resource_uint(rt, 2, context.queue, context.list, 0xff0000ffu, 0);
+    reset_command_list(context.list, context.allocator);
+    check_sub_resource_float(ds, 0, context.queue, context.list, 0.5f, 0.0f);
+    reset_command_list(context.list, context.allocator);
+    check_sub_resource_uint8(ds, 1, context.queue, context.list, 0x55, 0);
+    reset_command_list(context.list, context.allocator);
+
+    /* Test rendering with a render pass */
+    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+
+    for (i = 0; i < ARRAY_SIZE(rtv_infos); i++)
+    {
+        rtv_infos[i].BeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR;
+        memcpy(&rtv_infos[i].BeginningAccess.Clear.ClearValue.Color, &black, sizeof(black));
+    }
+
+    dsv_info.DepthBeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR;
+    dsv_info.DepthBeginningAccess.Clear.ClearValue.DepthStencil.Depth = 0.0f;
+    dsv_info.StencilBeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR;
+    dsv_info.StencilBeginningAccess.Clear.ClearValue.DepthStencil.Stencil = 0x00;
+
+    shader_args.depth = 1.0f;
+    shader_args.colors[0] = 0xff0000ff;
+    shader_args.colors[1] = 0xff00ff00;
+    shader_args.colors[2] = 0xffff0000;
+    shader_args.sample_mask = ~0u;
+
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, ARRAY_SIZE(rtv_infos), rtv_infos, &dsv_info, 0);
+    ID3D12GraphicsCommandList4_IASetPrimitiveTopology(command_list4, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList4_RSSetViewports(command_list4, 1, &viewport);
+    ID3D12GraphicsCommandList4_RSSetScissorRects(command_list4, 1, &scissor);
+    ID3D12GraphicsCommandList4_OMSetStencilRef(command_list4, 0xff);
+    ID3D12GraphicsCommandList4_SetGraphicsRootSignature(command_list4, root_signature);
+    ID3D12GraphicsCommandList4_SetPipelineState(command_list4, pso);
+    ID3D12GraphicsCommandList4_SetGraphicsRoot32BitConstants(command_list4,
+            0, sizeof(shader_args) / sizeof(uint32_t), &shader_args, 0);
+    ID3D12GraphicsCommandList4_DrawInstanced(command_list4, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+
+    /* Ensure that render targets are unbound after the render pass */
+    shader_args.depth = 0.5f;
+    shader_args.colors[0] = 0xdeadbeef;
+    shader_args.colors[1] = 0xdeadbeef;
+    shader_args.colors[2] = 0xdeadbeef;
+
+    ID3D12GraphicsCommandList4_SetGraphicsRoot32BitConstants(command_list4,
+            0, sizeof(shader_args) / sizeof(uint32_t), &shader_args, 0);
+    ID3D12GraphicsCommandList4_DrawInstanced(command_list4, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(rt, 0, context.queue, context.list, 0xff0000ff, 0);
+    reset_command_list(context.list, context.allocator);
+    check_sub_resource_uint(rt, 1, context.queue, context.list, 0xff00ff00, 0);
+    reset_command_list(context.list, context.allocator);
+    check_sub_resource_uint(rt, 2, context.queue, context.list, 0xffff0000, 0);
+    reset_command_list(context.list, context.allocator);
+    check_sub_resource_float(ds, 0, context.queue, context.list, 1.0f, 0.0f);
+    reset_command_list(context.list, context.allocator);
+    check_sub_resource_uint8(ds, 1, context.queue, context.list, 0xff, 0);
+    reset_command_list(context.list, context.allocator);
+
+    /* Test clearing depth and stencil aspects indiviually */
+    dsv_info.DepthBeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR;
+    dsv_info.DepthBeginningAccess.Clear.ClearValue.DepthStencil.Depth = 0.5f;
+    dsv_info.StencilBeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_PRESERVE;
+    dsv_info.StencilBeginningAccess.Clear.ClearValue.DepthStencil.Stencil = 0x00;
+
+    transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, ARRAY_SIZE(rtv_infos), rtv_infos, &dsv_info, 0);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+
+    transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_float(ds, 0, context.queue, context.list, 0.5f, 0.0f);
+    reset_command_list(context.list, context.allocator);
+    check_sub_resource_uint8(ds, 1, context.queue, context.list, 0xff, 0);
+    reset_command_list(context.list, context.allocator);
+
+    dsv_info.DepthBeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_PRESERVE;
+    dsv_info.DepthBeginningAccess.Clear.ClearValue.DepthStencil.Depth = 1.0f;
+    dsv_info.StencilBeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR;
+    dsv_info.StencilBeginningAccess.Clear.ClearValue.DepthStencil.Stencil = 0x40;
+
+    transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, ARRAY_SIZE(rtv_infos), rtv_infos, &dsv_info, 0);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+
+    transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_float(ds, 0, context.queue, context.list, 0.5f, 0.0f);
+    reset_command_list(context.list, context.allocator);
+    check_sub_resource_uint8(ds, 1, context.queue, context.list, 0x40, 0);
+    reset_command_list(context.list, context.allocator);
+
+    /* Test clear behaviour with SUSPEND/RESUME flags */
+    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    rtv_infos[0].BeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR;
+    memcpy(&rtv_infos[0].BeginningAccess.Clear.ClearValue.Color, &blue, sizeof(green));
+
+    shader_args.colors[0] = 0xff00ff00u;
+
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 1, rtv_infos, NULL, D3D12_RENDER_PASS_FLAG_SUSPENDING_PASS);
+    ID3D12GraphicsCommandList4_IASetPrimitiveTopology(command_list4, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList4_RSSetViewports(command_list4, 1, &viewport);
+    ID3D12GraphicsCommandList4_RSSetScissorRects(command_list4, 1, &scissor);
+    ID3D12GraphicsCommandList4_OMSetStencilRef(command_list4, 0xff);
+    ID3D12GraphicsCommandList4_SetGraphicsRootSignature(command_list4, root_signature);
+    ID3D12GraphicsCommandList4_SetPipelineState(command_list4, pso);
+    ID3D12GraphicsCommandList4_SetGraphicsRoot32BitConstants(command_list4,
+            0, sizeof(shader_args) / sizeof(uint32_t), &shader_args, 0);
+    ID3D12GraphicsCommandList4_DrawInstanced(command_list4, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 1, rtv_infos, NULL, D3D12_RENDER_PASS_FLAG_RESUMING_PASS);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+
+    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(rt, 0, context.queue, context.list, 0xff00ff00, 0);
+    reset_command_list(context.list, context.allocator);
+
+    /* Test bind-to-rasterizer behaviour of different beginning access types */
+    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    rtv_infos[0].BeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR;
+    rtv_infos[0].EndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_PRESERVE;
+    memcpy(rtv_infos[0].BeginningAccess.Clear.ClearValue.Color, white, sizeof(white));
+    rtv_infos[1].BeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR;
+    rtv_infos[1].EndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_PRESERVE_LOCAL_RENDER;
+    memcpy(rtv_infos[1].BeginningAccess.Clear.ClearValue.Color, white, sizeof(white));
+    rtv_infos[2].BeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR;
+    rtv_infos[2].EndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_PRESERVE_LOCAL_SRV;
+    memcpy(rtv_infos[2].BeginningAccess.Clear.ClearValue.Color, white, sizeof(white));
+
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, ARRAY_SIZE(rtv_infos), rtv_infos, NULL, 0);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+
+    transition_sub_resource_state(context.list, rt, 2, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
+    ID3D12GraphicsCommandList4_IASetPrimitiveTopology(command_list4, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList4_RSSetViewports(command_list4, 1, &viewport);
+    ID3D12GraphicsCommandList4_RSSetScissorRects(command_list4, 1, &scissor);
+    ID3D12GraphicsCommandList4_OMSetStencilRef(command_list4, 0xff);
+    ID3D12GraphicsCommandList4_SetGraphicsRootSignature(command_list4, root_signature);
+    ID3D12GraphicsCommandList4_SetPipelineState(command_list4, pso);
+
+    rtv_infos[0].BeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_NO_ACCESS;
+    rtv_infos[0].EndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_NO_ACCESS;
+    rtv_infos[1].BeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_PRESERVE_LOCAL_RENDER;
+    rtv_infos[1].EndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_PRESERVE_LOCAL_SRV;
+    rtv_infos[2].BeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_PRESERVE_LOCAL_SRV;
+    rtv_infos[2].EndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_DISCARD;
+
+    shader_args.colors[0] = 0xff00ff00u;
+    shader_args.colors[1] = 0xdeadbeefu;
+    shader_args.colors[2] = 0xdeadbeefu;
+
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, ARRAY_SIZE(rtv_infos), rtv_infos, NULL, 0);
+    ID3D12GraphicsCommandList4_SetGraphicsRoot32BitConstants(command_list4,
+            0, sizeof(shader_args) / sizeof(uint32_t), &shader_args, 0);
+    ID3D12GraphicsCommandList4_DrawInstanced(command_list4, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+
+    transition_sub_resource_state(context.list, rt, 1, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    transition_sub_resource_state(context.list, rt, 2, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    rtv_infos[0].BeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_PRESERVE;
+    rtv_infos[0].EndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_PRESERVE;
+    rtv_infos[1].BeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_PRESERVE_LOCAL_SRV;
+    rtv_infos[1].EndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_PRESERVE;
+    rtv_infos[2].BeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_DISCARD;
+    rtv_infos[2].EndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_PRESERVE;
+
+    shader_args.colors[0] = 0xffff00ffu;
+    shader_args.colors[1] = 0xffff0000u;
+    shader_args.colors[2] = 0xdeadbeefu;
+
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, ARRAY_SIZE(rtv_infos), rtv_infos, NULL, 0);
+    ID3D12GraphicsCommandList4_SetGraphicsRoot32BitConstants(command_list4,
+            0, sizeof(shader_args) / sizeof(uint32_t), &shader_args, 0);
+    ID3D12GraphicsCommandList4_DrawInstanced(command_list4, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+
+    transition_sub_resource_state(context.list, rt, 0, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_sub_resource_state(context.list, rt, 1, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_sub_resource_state(context.list, rt, 2, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(rt, 0, context.queue, context.list, 0xffff00ff, 0);
+    reset_command_list(context.list, context.allocator);
+    check_sub_resource_uint(rt, 1, context.queue, context.list, 0xff00ff00, 0);
+    reset_command_list(context.list, context.allocator);
+    check_sub_resource_uint(rt, 2, context.queue, context.list, 0xffff0000, 0);
+    reset_command_list(context.list, context.allocator);
+
+    /* Test render pass resolves */
+    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+
+    for (i = 0; i < ARRAY_SIZE(rtv_infos); i++)
+    {
+        rtv_infos[i].cpuDescriptor = get_cpu_rtv_handle(&context, rtv_heap, 4 + i);
+        rtv_infos[i].BeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_DISCARD;
+        rtv_infos[i].EndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_RESOLVE;
+        rtv_infos[i].EndingAccess.Resolve.pSrcResource = rt_ms;
+        rtv_infos[i].EndingAccess.Resolve.pDstResource = rt;
+        rtv_infos[i].EndingAccess.Resolve.SubresourceCount = 1;
+        rtv_infos[i].EndingAccess.Resolve.pSubresourceParameters = &rtv_resolves[i];
+        rtv_infos[i].EndingAccess.Resolve.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        rtv_infos[i].EndingAccess.Resolve.PreserveResolveSource = TRUE;
+
+        rtv_resolves[i].SrcSubresource = i;
+        rtv_resolves[i].DstSubresource = i;
+        rtv_resolves[i].DstX = 0;
+        rtv_resolves[i].DstY = 0;
+        rtv_resolves[i].SrcRect.left = 0;
+        rtv_resolves[i].SrcRect.top = 0;
+        rtv_resolves[i].SrcRect.right = 4;
+        rtv_resolves[i].SrcRect.bottom = 4;
+    }
+
+    rtv_infos[0].EndingAccess.Resolve.ResolveMode = D3D12_RESOLVE_MODE_MIN;
+    rtv_infos[1].EndingAccess.Resolve.ResolveMode = D3D12_RESOLVE_MODE_MAX;
+    rtv_infos[2].EndingAccess.Resolve.ResolveMode = D3D12_RESOLVE_MODE_AVERAGE;
+
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, ARRAY_SIZE(rtv_infos), rtv_infos, NULL, 0);
+    ID3D12GraphicsCommandList4_IASetPrimitiveTopology(command_list4, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList4_RSSetViewports(command_list4, 1, &viewport);
+    ID3D12GraphicsCommandList4_RSSetScissorRects(command_list4, 1, &scissor);
+    ID3D12GraphicsCommandList4_SetGraphicsRootSignature(command_list4, root_signature);
+    ID3D12GraphicsCommandList4_SetPipelineState(command_list4, pso_ms);
+
+    for (i = 0; i < 4; i++)
+    {
+        shader_args.depth = (float)i / 3.0f;
+        shader_args.colors[0] = (85 * i) << 0;
+        shader_args.colors[1] = (85 * i) << 8;
+        shader_args.colors[2] = (85 * i) << 16;
+        shader_args.sample_mask = 1u << (i ^ 1);
+
+        ID3D12GraphicsCommandList4_OMSetStencilRef(command_list4, 16 * i + 8);
+        ID3D12GraphicsCommandList4_SetGraphicsRoot32BitConstants(command_list4,
+                0, sizeof(shader_args) / sizeof(uint32_t), &shader_args, 0);
+        ID3D12GraphicsCommandList4_DrawInstanced(command_list4, 3, 1, 0, 0);
+    }
+
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+
+    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    /* For some reason the resolved image (sometimes) seems to get partially
+     * discarded on RADV */
+    bug_if(is_radv_device(context.device))
+    check_sub_resource_uint(rt, 0, context.queue, context.list, 0x00000000, 0);
+    reset_command_list(context.list, context.allocator);
+    bug_if(is_radv_device(context.device))
+    check_sub_resource_uint(rt, 1, context.queue, context.list, 0x0000ff00, 0);
+    reset_command_list(context.list, context.allocator);
+    check_sub_resource_uint(rt, 2, context.queue, context.list, 0x00800000, 0x10000);
+    reset_command_list(context.list, context.allocator);
+
+    /* Test per-subresource resolve areas */
+    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, get_cpu_rtv_handle(&context, rtv_heap, 3), white, 0, NULL);
+
+    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+
+    for (i = 0; i < 3; i++)
+    {
+        rtv_resolves[i].SrcSubresource = i;
+        rtv_resolves[i].DstSubresource = i;
+        rtv_resolves[i].DstX = i == 1 ? 1 : 0;
+        rtv_resolves[i].DstY = i == 1 ? 2 : 0;
+        rtv_resolves[i].SrcRect.left = i == 2 ? 2 : 0;
+        rtv_resolves[i].SrcRect.top = i == 2 ? 1 : 0;
+        rtv_resolves[i].SrcRect.right = rtv_resolves[i].SrcRect.left + 2;
+        rtv_resolves[i].SrcRect.bottom = rtv_resolves[i].SrcRect.top + 2;
+    }
+
+    rtv_infos[0].cpuDescriptor = get_cpu_rtv_handle(&context, rtv_heap, 7);
+    rtv_infos[0].BeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_PRESERVE;
+    rtv_infos[0].EndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_RESOLVE;
+    rtv_infos[0].EndingAccess.Resolve.pSrcResource = rt_ms;
+    rtv_infos[0].EndingAccess.Resolve.pDstResource = rt;
+    rtv_infos[0].EndingAccess.Resolve.SubresourceCount = 3;
+    rtv_infos[0].EndingAccess.Resolve.pSubresourceParameters = &rtv_resolves[0];
+    rtv_infos[0].EndingAccess.Resolve.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    rtv_infos[0].EndingAccess.Resolve.ResolveMode = D3D12_RESOLVE_MODE_AVERAGE;
+    rtv_infos[0].EndingAccess.Resolve.PreserveResolveSource = TRUE;
+
+    ID3D12GraphicsCommandList4_BeginRenderPass(command_list4, 1, rtv_infos, NULL, 0);
+    ID3D12GraphicsCommandList4_EndRenderPass(command_list4);
+
+    transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    for (i = 0; i < 3; i++)
+    {
+        uint32_t multiplier = 1u << (8 * i);
+
+        get_texture_readback_with_command_list(rt, i, &rb, context.queue, context.list);
+
+        for (x = 0; x < 4; x++)
+        {
+            for (y = 0; y < 4; y++)
+            {
+                uint32_t got = get_readback_uint(&rb, x, y, 0);
+                bool inside = x >= rtv_resolves[i].DstX && y >= rtv_resolves[i].DstY &&
+                        x < rtv_resolves[i].DstX + rtv_resolves[i].SrcRect.right - rtv_resolves[i].SrcRect.left &&
+                        y < rtv_resolves[i].DstY + rtv_resolves[i].SrcRect.bottom - rtv_resolves[i].SrcRect.top;
+
+                if (inside)
+                {
+                    ok(got >= (0x7f * multiplier) && got <= (0x81 * multiplier),
+                            "Got %#x, expected %#x at (%u,%u,%u).\n", got, 0x80 * multiplier, x, y, i);
+                }
+                else
+                    ok(got == 0xffffffffu, "Got %#x, expected %#x at (%u,%u,%u).\n", got, 0xffffffffu, x, y, i);
+            }
+        }
+
+        release_resource_readback(&rb);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    ID3D12DescriptorHeap_Release(rtv_heap);
+    ID3D12DescriptorHeap_Release(dsv_heap);
+
+    ID3D12Resource_Release(rt);
+    ID3D12Resource_Release(ds);
+    ID3D12Resource_Release(rt_ms);
+
+    ID3D12PipelineState_Release(pso);
+    ID3D12PipelineState_Release(pso_ms);
+    ID3D12RootSignature_Release(root_signature);
+
+    ID3D12GraphicsCommandList4_Release(command_list4);
+
+    destroy_test_context(&context);
+}
