@@ -3482,9 +3482,9 @@ static void d3d12_command_list_debug_mark_end_region(struct d3d12_command_list *
         VK_CALL(vkCmdEndDebugUtilsLabelEXT(list->cmd.vk_command_buffer));
 }
 
-static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *list, struct d3d12_resource *resource,
+static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, struct d3d12_resource *resource,
         struct vkd3d_view *view, VkImageAspectFlags clear_aspects, const VkClearValue *clear_value, UINT rect_count,
-        const D3D12_RECT *rects, bool is_bound)
+        const D3D12_RECT *rects, VkAttachmentLoadOp load_op)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkRenderingAttachmentInfo attachment_info, stencil_attachment_info;
@@ -3536,7 +3536,7 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
 
     if (clear_aspects & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
     {
-        initial_layouts[0] = is_bound ? list->dsv_layout : d3d12_command_list_get_depth_stencil_resource_layout(list, resource, NULL);
+        initial_layouts[0] = d3d12_command_list_get_depth_stencil_resource_layout(list, resource, NULL);
 
         if (separate_ds_layouts)
         {
@@ -3685,15 +3685,18 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
     }
 
-    VK_CALL(vkCmdBeginRendering(list->cmd.vk_command_buffer, &rendering_info));
-
-    if (!clear_op)
+    if (load_op == VK_ATTACHMENT_LOAD_OP_CLEAR)
     {
-        d3d12_command_list_clear_attachment_inline(list, resource, view, 0,
-                clear_aspects, clear_value, rect_count, rects);
-    }
+        VK_CALL(vkCmdBeginRendering(list->cmd.vk_command_buffer, &rendering_info));
 
-    VK_CALL(vkCmdEndRendering(list->cmd.vk_command_buffer));
+        if (!clear_op)
+        {
+            d3d12_command_list_clear_attachment_inline(list, resource, view, 0,
+                    clear_aspects, clear_value, rect_count, rects);
+        }
+
+        VK_CALL(vkCmdEndRendering(list->cmd.vk_command_buffer));
+    }
 
     VKD3D_BREADCRUMB_TAG("clear-view-cookie");
     VKD3D_BREADCRUMB_COOKIE(view->cookie);
@@ -11047,8 +11050,9 @@ static void d3d12_command_list_clear_attachment(struct d3d12_command_list *list,
          * a sub-region of the image, or one of the aspects to clear
          * uses a read-only layout in the current render pass */
         d3d12_command_list_end_current_render_pass(list, false);
-        d3d12_command_list_clear_attachment_pass(list, resource, view,
-                clear_aspects, clear_value, rect_count, rects, false);
+        d3d12_command_list_load_attachment(list, resource, view,
+                clear_aspects, clear_value, rect_count, rects,
+                VK_ATTACHMENT_LOAD_OP_CLEAR);
     }
     else
     {
