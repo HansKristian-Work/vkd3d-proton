@@ -10836,16 +10836,80 @@ static void STDMETHODCALLTYPE d3d12_command_list_SOSetTargets(d3d12_command_list
         VK_CALL(vkCmdBindTransformFeedbackBuffersEXT(list->cmd.vk_command_buffer, first, count, buffers, offsets, sizes));
 }
 
+static void d3d12_command_list_recompute_fb_size(struct d3d12_command_list *list)
+{
+    const VkPhysicalDeviceLimits *limits = &list->device->vk_info.device_limits;
+    const struct d3d12_rtv_desc *rtv_desc;
+    unsigned int i;
+
+    list->fb_width = limits->maxFramebufferWidth;
+    list->fb_height = limits->maxFramebufferHeight;
+    list->fb_layer_count = limits->maxFramebufferLayers;
+
+    for (i = 0; i < ARRAY_SIZE(list->rtvs); i++)
+    {
+        rtv_desc = &list->rtvs[i];
+
+        if (rtv_desc->resource)
+        {
+            list->fb_width = min(list->fb_width, rtv_desc->width);
+            list->fb_height = min(list->fb_height, rtv_desc->height);
+            list->fb_layer_count = min(list->fb_layer_count, rtv_desc->layer_count);
+        }
+    }
+
+    rtv_desc = &list->dsv;
+
+    if (rtv_desc->resource)
+    {
+        list->fb_width = min(list->fb_width, rtv_desc->width);
+        list->fb_height = min(list->fb_height, rtv_desc->height);
+        list->fb_layer_count = min(list->fb_layer_count, rtv_desc->layer_count);
+    }
+}
+
+static void d3d12_command_list_invalidate_ds_state(struct d3d12_command_list *list, VkFormat prev_dsv_format)
+{
+    const struct d3d12_graphics_pipeline_state *graphics;
+    unsigned int next_dsv_plane_write_enable;
+    VkFormat next_dsv_format;
+
+    next_dsv_format = list->dsv.format ? list->dsv.format->vk_format : VK_FORMAT_UNDEFINED;
+    next_dsv_plane_write_enable = list->dsv.plane_write_enable;
+
+    if (d3d12_pipeline_state_is_graphics(list->state))
+    {
+       graphics = &list->state->graphics;
+
+        if (prev_dsv_format != next_dsv_format &&
+                d3d12_graphics_pipeline_state_has_unknown_dsv_format_with_test(graphics))
+        {
+            /* If we change the NULL-ness of the depth-stencil attachment, we are
+             * at risk of having to use fallback pipelines. Invalidate the pipeline
+             * since we'll have to refresh the VkRenderingInfo and VkPipeline. */
+            d3d12_command_list_invalidate_current_pipeline(list, false);
+        }
+    }
+
+    /* The DSV flags affect write masks. */
+    if (next_dsv_plane_write_enable != list->dynamic_state.dsv_plane_write_enable)
+    {
+        uint32_t delta = next_dsv_plane_write_enable ^ list->dynamic_state.dsv_plane_write_enable;
+        if (delta & (1u << 0))
+            list->dynamic_state.dirty_flags |= VKD3D_DYNAMIC_STATE_DEPTH_WRITE_ENABLE;
+        if (delta & (1u << 1))
+            list->dynamic_state.dirty_flags |= VKD3D_DYNAMIC_STATE_STENCIL_WRITE_MASK;
+        list->dynamic_state.dsv_plane_write_enable = next_dsv_plane_write_enable;
+    }
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_command_list_iface *iface,
         UINT render_target_descriptor_count, const D3D12_CPU_DESCRIPTOR_HANDLE *render_target_descriptors,
         BOOL single_descriptor_handle, const D3D12_CPU_DESCRIPTOR_HANDLE *depth_stencil_descriptor)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
-    const VkPhysicalDeviceLimits *limits = &list->device->vk_info.device_limits;
-    const struct d3d12_graphics_pipeline_state *graphics;
-    unsigned int next_dsv_plane_write_enable = 0;
-    VkFormat prev_dsv_format, next_dsv_format;
     const struct d3d12_rtv_desc *rtv_desc;
+    VkFormat prev_dsv_format;
     unsigned int i;
 
     TRACE("iface %p, render_target_descriptor_count %u, render_target_descriptors %p, "
@@ -10866,12 +10930,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
         render_target_descriptor_count = ARRAY_SIZE(list->rtvs);
     }
 
-    list->fb_width = limits->maxFramebufferWidth;
-    list->fb_height = limits->maxFramebufferHeight;
-    list->fb_layer_count = limits->maxFramebufferLayers;
-
     prev_dsv_format = list->dsv.format ? list->dsv.format->vk_format : VK_FORMAT_UNDEFINED;
-    next_dsv_format = VK_FORMAT_UNDEFINED;
 
     memset(list->rtvs, 0, sizeof(list->rtvs));
     memset(&list->dsv, 0, sizeof(list->dsv));
@@ -10904,9 +10963,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
         VKD3D_BREADCRUMB_TAG("RTV bind");
 
         list->rtvs[i] = *rtv_desc;
-        list->fb_width = min(list->fb_width, rtv_desc->width);
-        list->fb_height = min(list->fb_height, rtv_desc->height);
-        list->fb_layer_count = min(list->fb_layer_count, rtv_desc->layer_count);
     }
 
     if (depth_stencil_descriptor)
@@ -10915,11 +10971,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
                 && rtv_desc->resource)
         {
             list->dsv = *rtv_desc;
-            list->fb_width = min(list->fb_width, rtv_desc->width);
-            list->fb_height = min(list->fb_height, rtv_desc->height);
-            list->fb_layer_count = min(list->fb_layer_count, rtv_desc->layer_count);
-            next_dsv_plane_write_enable = rtv_desc->plane_write_enable;
-            next_dsv_format = rtv_desc->format->vk_format;
 
             VKD3D_BREADCRUMB_COOKIE(rtv_desc->view->cookie);
             VKD3D_BREADCRUMB_TAG("DSV bind");
@@ -10930,30 +10981,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
         }
     }
 
-    if (d3d12_pipeline_state_is_graphics(list->state))
-    {
-        graphics = &list->state->graphics;
-
-        if (prev_dsv_format != next_dsv_format &&
-                d3d12_graphics_pipeline_state_has_unknown_dsv_format_with_test(graphics))
-        {
-            /* If we change the NULL-ness of the depth-stencil attachment, we are
-             * at risk of having to use fallback pipelines. Invalidate the pipeline
-             * since we'll have to refresh the VkRenderingInfo and VkPipeline. */
-            d3d12_command_list_invalidate_current_pipeline(list, false);
-        }
-    }
-
-    /* The DSV flags affect write masks. */
-    if (next_dsv_plane_write_enable != list->dynamic_state.dsv_plane_write_enable)
-    {
-        uint32_t delta = next_dsv_plane_write_enable ^ list->dynamic_state.dsv_plane_write_enable;
-        if (delta & (1u << 0))
-            list->dynamic_state.dirty_flags |= VKD3D_DYNAMIC_STATE_DEPTH_WRITE_ENABLE;
-        if (delta & (1u << 1))
-            list->dynamic_state.dirty_flags |= VKD3D_DYNAMIC_STATE_STENCIL_WRITE_MASK;
-        list->dynamic_state.dsv_plane_write_enable = next_dsv_plane_write_enable;
-    }
+    d3d12_command_list_invalidate_ds_state(list, prev_dsv_format);
+    d3d12_command_list_recompute_fb_size(list);
 }
 
 static bool d3d12_rect_fully_covers_region(const D3D12_RECT *a, const D3D12_RECT *b)
