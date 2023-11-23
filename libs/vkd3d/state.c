@@ -6250,6 +6250,7 @@ static bool vkd3d_bindless_supports_descriptor_buffer_hoisting(struct d3d12_devi
 {
     const VkPhysicalDeviceDescriptorBufferPropertiesEXT *props;
     if (d3d12_device_uses_descriptor_buffers(device) &&
+            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DESCRIPTOR_HOISTING) &&
             (flags & VKD3D_BINDLESS_RAW_SSBO) &&
             !(flags & VKD3D_SSBO_OFFSET_BUFFER))
     {

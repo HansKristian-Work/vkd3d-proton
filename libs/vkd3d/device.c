@@ -867,6 +867,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"disable_uav_compression", VKD3D_CONFIG_FLAG_DISABLE_UAV_COMPRESSION},
     {"disable_depth_compression", VKD3D_CONFIG_FLAG_DISABLE_DEPTH_COMPRESSION},
     {"disable_color_compression", VKD3D_CONFIG_FLAG_DISABLE_COLOR_COMPRESSION},
+    {"descriptor_hoisting", VKD3D_CONFIG_FLAG_DESCRIPTOR_HOISTING},
 };
 
 static void vkd3d_config_flags_init_once(void)
