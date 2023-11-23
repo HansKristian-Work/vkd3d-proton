@@ -1669,6 +1669,45 @@ static void vkd3d_sampler_feedback_ops_cleanup(struct vkd3d_sampler_feedback_res
         VK_CALL(vkDestroyPipeline(device->vk_device, sampler_feedback_ops->vk_pipelines[i], NULL));
 }
 
+static HRESULT vkd3d_descriptor_copy_ops_init(struct vkd3d_descriptor_copy_ops *copy_ops,
+        struct d3d12_device *device)
+{
+    VkPushConstantRange push_range;
+    VkResult vr;
+
+    push_range.offset = 0;
+    push_range.size = sizeof(struct vkd3d_descriptor_copy_meta_args);
+    push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    if ((vr = vkd3d_meta_create_pipeline_layout(device,
+            0, NULL,
+            1, &push_range,
+            &copy_ops->vk_pipeline_layout)))
+        return hresult_from_vk_result(vr);
+
+    /* Only called in ancillary command buffers. No need to consider descriptor buffers. */
+    if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_copy_descriptors),
+            cs_copy_descriptors, copy_ops->vk_pipeline_layout,
+            NULL, false, &copy_ops->vk_pipeline)))
+        return hresult_from_vk_result(vr);
+
+    return S_OK;
+}
+
+static void vkd3d_descriptor_copy_ops_cleanup(struct vkd3d_descriptor_copy_ops *copy_ops,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, copy_ops->vk_pipeline_layout, NULL));
+    VK_CALL(vkDestroyPipeline(device->vk_device, copy_ops->vk_pipeline, NULL));
+}
+
+void vkd3d_meta_get_descriptor_copy_pipeline(struct vkd3d_meta_ops *meta_ops,
+        struct vkd3d_descriptor_copy_info *info)
+{
+    info->vk_pipeline = meta_ops->descriptor_copy.vk_pipeline;
+    info->vk_pipeline_layout = meta_ops->descriptor_copy.vk_pipeline_layout;
+}
+
 HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device)
 {
     HRESULT hr;
@@ -1706,8 +1745,13 @@ HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device
     if (FAILED(hr = vkd3d_sampler_feedback_ops_init(&meta_ops->sampler_feedback, device)))
         goto fail_sampler_feedback;
 
+    if (FAILED(hr = vkd3d_descriptor_copy_ops_init(&meta_ops->descriptor_copy, device)))
+        goto fail_descriptor_copy;
+
     return S_OK;
 
+fail_descriptor_copy:
+    vkd3d_sampler_feedback_ops_cleanup(&meta_ops->sampler_feedback, device);
 fail_sampler_feedback:
     vkd3d_dstorage_ops_cleanup(&meta_ops->dstorage, device);
 fail_dstorage_ops:
@@ -1732,6 +1776,7 @@ fail_common:
 
 HRESULT vkd3d_meta_ops_cleanup(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device)
 {
+    vkd3d_descriptor_copy_ops_cleanup(&meta_ops->descriptor_copy, device);
     vkd3d_sampler_feedback_ops_cleanup(&meta_ops->sampler_feedback, device);
     vkd3d_dstorage_ops_cleanup(&meta_ops->dstorage, device);
     vkd3d_multi_dispatch_indirect_ops_cleanup(&meta_ops->multi_dispatch_indirect, device);

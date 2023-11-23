@@ -1,7 +1,7 @@
 #version 450
 #extension GL_EXT_buffer_reference : require
 
-layout(local_size_x = 64) in;
+layout(local_size_x = 32) in;
 
 layout(buffer_reference_align = 4, buffer_reference, std430) readonly buffer SourceHeap
 {

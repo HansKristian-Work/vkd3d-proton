@@ -5175,9 +5175,9 @@ static void d3d12_command_list_finish_descriptor_copy_batch(struct d3d12_command
 
         transition = &list->init_transitions[list->init_transitions_count++];
         transition->type = VKD3D_INITIAL_TRANSITION_DESCRIPTOR_COPY_BATCH;
-        transition->descriptor_copy_batch.descriptor_buffer_va = (VkDeviceAddress)list->descriptor_copy_batch.descriptor_buffer.host_ptr;
-        transition->descriptor_copy_batch.host_buffer_va = (VkDeviceAddress)list->descriptor_copy_batch.host_buffer.host_ptr;
-        transition->descriptor_copy_batch.host_meta_va = (VkDeviceAddress)list->descriptor_copy_batch.host_meta_buffer.host_ptr;
+        transition->descriptor_copy_batch.descriptor_buffer_va = list->descriptor_copy_batch.descriptor_buffer.va;
+        transition->descriptor_copy_batch.host_buffer_va = list->descriptor_copy_batch.host_buffer.va;
+        transition->descriptor_copy_batch.host_meta_va = list->descriptor_copy_batch.host_meta_buffer.va;
         transition->descriptor_copy_batch.num_copies = list->descriptor_copy_batch.num_copies;
 
         memset(&list->descriptor_copy_batch, 0, sizeof(list->descriptor_copy_batch));
@@ -16053,17 +16053,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         buffer->commandBuffer = command_queue->vkd3d_queue->barrier_command_buffer;
     }
 
-    if (command_list_count == 1 && num_transitions != 0)
-    {
-        /* Pilfer directly. */
-        cmd_list = unsafe_impl_from_ID3D12CommandList(command_lists[0]);
-        sub.execute.transitions = cmd_list->init_transitions;
-        sub.execute.transition_count = cmd_list->init_transitions_count;
-        cmd_list->init_transitions = NULL;
-        cmd_list->init_transitions_count = 0;
-        cmd_list->init_transitions_size = 0;
-    }
-    else if (num_transitions != 0)
+    if (num_transitions != 0)
     {
         sub.execute.transitions = vkd3d_malloc(num_transitions * sizeof(*sub.execute.transitions));
         sub.execute.transition_count = num_transitions;
@@ -16618,6 +16608,20 @@ static void d3d12_command_queue_init_query_heap(struct d3d12_device *device, VkC
     }
 }
 
+static void d3d12_command_queue_copy_descriptor_batch(struct d3d12_device *device,
+        VkCommandBuffer vk_cmd_buffer, const struct vkd3d_descriptor_copy_meta_args *args)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct vkd3d_descriptor_copy_info info;
+
+    vkd3d_meta_get_descriptor_copy_pipeline(&device->meta_ops, &info);
+    VK_CALL(vkCmdBindPipeline(vk_cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, info.vk_pipeline));
+    VK_CALL(vkCmdPushConstants(vk_cmd_buffer, info.vk_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+            0, sizeof(*args), args));
+    VK_CALL(vkCmdDispatch(vk_cmd_buffer, vkd3d_compute_workgroup_count(args->num_copies,
+            vkd3d_meta_get_descriptor_copy_workgroup_size()), 1, 1));
+}
+
 static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue_transition_pool *pool,
         struct d3d12_device *device, const struct vkd3d_initial_transition *transitions, size_t count,
         VkCommandBuffer *vk_cmd_buffer, uint64_t *timeline_value)
@@ -16626,12 +16630,14 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
     const struct vkd3d_initial_transition *transition;
     VkCommandBufferBeginInfo begin_info;
     unsigned int command_index;
+    bool need_descriptor_copy;
     VkDependencyInfo dep_info;
     uint32_t need_transition;
     size_t i;
 
     pool->barriers_count = 0;
     pool->query_heaps_count = 0;
+    need_descriptor_copy = false;
 
     if (!count)
     {
@@ -16662,35 +16668,16 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
                 break;
 
             case VKD3D_INITIAL_TRANSITION_DESCRIPTOR_COPY_BATCH:
-            {
-                /* Emulate what we intend to do in async compute. */
-                uint32_t *dst = (void *)transition->descriptor_copy_batch.descriptor_buffer_va;
-                const struct d3d12_command_list_descriptor_copy_desc *src =
-                        (const void *)transition->descriptor_copy_batch.host_buffer_va;
-                const struct d3d12_command_list_descriptor_copy_heap *heaps =
-                        (const void *)transition->descriptor_copy_batch.host_meta_va;
-                VkDeviceAddress va;
-                unsigned int j;
-
-                for (j = 0; j < transition->descriptor_copy_batch.num_copies; j++, src++)
-                {
-                    if (src->src_offset < heaps[src->set_index].num_descriptors)
-                    {
-                        va = heaps[src->set_index].base_va +
-                                src->src_offset * heaps[src->set_index].stride_words * sizeof(uint32_t);
-                        memcpy(dst + src->dst_offset, (const void *)va, src->count * sizeof(uint32_t));
-                    }
-                }
-
+                /* Deal with it later once we have figured out which command buffer to work on. */
+                need_descriptor_copy = true;
                 break;
-            }
 
             default:
                 ERR("Unhandled transition type %u.\n", transition->type);
         }
     }
 
-    if (!pool->barriers_count && !pool->query_heaps_count)
+    if (!pool->barriers_count && !pool->query_heaps_count && !need_descriptor_copy)
     {
         *vk_cmd_buffer = VK_NULL_HANDLE;
         return;
@@ -16714,10 +16701,16 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
     dep_info.imageMemoryBarrierCount = pool->barriers_count;
     dep_info.pImageMemoryBarriers = pool->barriers;
 
-    VK_CALL(vkCmdPipelineBarrier2(pool->cmd[command_index], &dep_info));
+    if (pool->barriers_count)
+        VK_CALL(vkCmdPipelineBarrier2(pool->cmd[command_index], &dep_info));
 
     for (i = 0; i < pool->query_heaps_count; i++)
         d3d12_command_queue_init_query_heap(device, pool->cmd[command_index], pool->query_heaps[i]);
+
+    for (i = 0; i < count; i++)
+        if (transitions[i].type == VKD3D_INITIAL_TRANSITION_DESCRIPTOR_COPY_BATCH)
+            d3d12_command_queue_copy_descriptor_batch(device, pool->cmd[command_index], &transitions[i].descriptor_copy_batch);
+
     VK_CALL(vkEndCommandBuffer(pool->cmd[command_index]));
 
     *vk_cmd_buffer = pool->cmd[command_index];

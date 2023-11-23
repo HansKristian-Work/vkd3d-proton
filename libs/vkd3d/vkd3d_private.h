@@ -2547,7 +2547,7 @@ enum vkd3d_initial_transition_type
     VKD3D_INITIAL_TRANSITION_DESCRIPTOR_COPY_BATCH,
 };
 
-struct d3d12_command_list_descriptor_copy_batch_meta_args
+struct vkd3d_descriptor_copy_meta_args
 {
     VkDeviceAddress descriptor_buffer_va;
     VkDeviceAddress host_buffer_va;
@@ -2566,7 +2566,7 @@ struct vkd3d_initial_transition
             bool perform_initial_transition;
         } resource;
         struct d3d12_query_heap *query_heap;
-        struct d3d12_command_list_descriptor_copy_batch_meta_args descriptor_copy_batch;
+        struct vkd3d_descriptor_copy_meta_args descriptor_copy_batch;
     };
 };
 
@@ -4164,6 +4164,18 @@ struct vkd3d_sampler_feedback_resolve_ops
     VkPipeline vk_pipelines[VKD3D_SAMPLER_FEEDBACK_RESOLVE_COUNT];
 };
 
+struct vkd3d_descriptor_copy_info
+{
+    VkPipeline vk_pipeline;
+    VkPipelineLayout vk_pipeline_layout;
+};
+
+struct vkd3d_descriptor_copy_ops
+{
+    VkPipelineLayout vk_pipeline_layout;
+    VkPipeline vk_pipeline;
+};
+
 struct vkd3d_meta_ops
 {
     struct d3d12_device *device;
@@ -4177,6 +4189,7 @@ struct vkd3d_meta_ops
     struct vkd3d_multi_dispatch_indirect_ops multi_dispatch_indirect;
     struct vkd3d_dstorage_ops dstorage;
     struct vkd3d_sampler_feedback_resolve_ops sampler_feedback;
+    struct vkd3d_descriptor_copy_ops descriptor_copy;
 };
 
 HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device);
@@ -4230,6 +4243,14 @@ static inline VkExtent3D vkd3d_meta_get_sampler_feedback_workgroup_size(void)
     VkExtent3D result = { 8, 8, 1 };
     return result;
 }
+
+static inline uint32_t vkd3d_meta_get_descriptor_copy_workgroup_size(void)
+{
+    return 32;
+}
+
+void vkd3d_meta_get_descriptor_copy_pipeline(struct vkd3d_meta_ops *meta_ops,
+        struct vkd3d_descriptor_copy_info *info);
 
 enum vkd3d_time_domain_flag
 {
