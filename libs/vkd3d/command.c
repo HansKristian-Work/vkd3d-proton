@@ -6066,11 +6066,7 @@ static void d3d12_command_list_update_descriptor_buffers(struct d3d12_command_li
             for (i = 0; i < list->device->bindless_state.set_count; i++)
             {
                 unsigned int buffer_index = list->device->bindless_state.vk_descriptor_buffer_indices[i];
-                /*batch->heaps[i].base_va = global_buffers[buffer_index].address + list->descriptor_heap.buffers.vk_payload_offsets[i];*/
-                /* HACK: Use CPU side copy for now. */
-                heaps[i].base_va = (VkDeviceAddress)
-                        ((uint8_t *)list->descriptor_heap.buffers.mapped[buffer_index] +
-                                list->descriptor_heap.buffers.vk_payload_offsets[i]);
+                heaps[i].base_va = global_buffers[buffer_index].address + list->descriptor_heap.buffers.vk_payload_offsets[i];
                 heaps[i].num_descriptors = list->descriptor_heap.buffers.vk_descriptor_count_for_buffer_index[buffer_index];
                 heaps[i].stride_words = list->descriptor_heap.buffers.vk_descriptor_stride_words[i];
             }
@@ -16629,6 +16625,7 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     const struct vkd3d_initial_transition *transition;
     VkCommandBufferBeginInfo begin_info;
+    VkMemoryBarrier2 vk_barrier;
     unsigned int command_index;
     bool need_descriptor_copy;
     VkDependencyInfo dep_info;
@@ -16710,6 +16707,23 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
     for (i = 0; i < count; i++)
         if (transitions[i].type == VKD3D_INITIAL_TRANSITION_DESCRIPTOR_COPY_BATCH)
             d3d12_command_queue_copy_descriptor_batch(device, pool->cmd[command_index], &transitions[i].descriptor_copy_batch);
+
+    if (need_descriptor_copy)
+    {
+        memset(&vk_barrier, 0, sizeof(vk_barrier));
+        vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        vk_barrier.dstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        vk_barrier.dstAccessMask = VK_ACCESS_2_DESCRIPTOR_BUFFER_READ_BIT_EXT;
+
+        memset(&dep_info, 0, sizeof(dep_info));
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.memoryBarrierCount = 1;
+        dep_info.pMemoryBarriers = &vk_barrier;
+
+        VK_CALL(vkCmdPipelineBarrier2(pool->cmd[command_index], &dep_info));
+    }
 
     VK_CALL(vkEndCommandBuffer(pool->cmd[command_index]));
 

@@ -1672,8 +1672,10 @@ static void vkd3d_sampler_feedback_ops_cleanup(struct vkd3d_sampler_feedback_res
 static HRESULT vkd3d_descriptor_copy_ops_init(struct vkd3d_descriptor_copy_ops *copy_ops,
         struct d3d12_device *device)
 {
+    struct vkd3d_shader_debug_ring_spec_info debug_ring_info;
     VkPushConstantRange push_range;
     VkResult vr;
+    bool debug;
 
     push_range.offset = 0;
     push_range.size = sizeof(struct vkd3d_descriptor_copy_meta_args);
@@ -1684,10 +1686,15 @@ static HRESULT vkd3d_descriptor_copy_ops_init(struct vkd3d_descriptor_copy_ops *
             &copy_ops->vk_pipeline_layout)))
         return hresult_from_vk_result(vr);
 
+    debug = device->debug_ring.active;
+
+    if (debug)
+        vkd3d_shader_debug_ring_init_spec_constant(device, &debug_ring_info, UINT64_MAX);
+
     /* Only called in ancillary command buffers. No need to consider descriptor buffers. */
     if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_copy_descriptors),
             cs_copy_descriptors, copy_ops->vk_pipeline_layout,
-            NULL, false, &copy_ops->vk_pipeline)))
+            debug ? &debug_ring_info.spec_info : NULL, false, &copy_ops->vk_pipeline)))
         return hresult_from_vk_result(vr);
 
     return S_OK;

@@ -1,5 +1,8 @@
 #version 450
 #extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : require
+#extension GL_GOOGLE_include_directive : require
+#include "../../../include/shader-debug/debug_channel.h"
 
 layout(local_size_x = 32) in;
 
@@ -46,6 +49,7 @@ layout(push_constant, std430) uniform Registers
 
 void main()
 {
+	DEBUG_CHANNEL_INIT(gl_GlobalInvocationID);
 	uint index = gl_GlobalInvocationID.x;
 	if (index < registers.num_copies)
 	{
@@ -55,8 +59,12 @@ void main()
 		uint set_index = bitfieldExtract(src_copy.dst_offset_set_index_count, 16, 8);
 		uint word_count = bitfieldExtract(src_copy.dst_offset_set_index_count, 24, 8);
 
+		DEBUG_CHANNEL_MSG(int(dst_offset), int(set_index), int(word_count));
+
 		BoundHeap heap_meta = registers.meta.heaps[set_index];
 		bool in_bounds = src_copy.src_offset < heap_meta.num_descriptors;
+
+		DEBUG_CHANNEL_MSG(int(src_copy.src_offset), int(heap_meta.num_descriptors));
 
 		if (in_bounds)
 		{
