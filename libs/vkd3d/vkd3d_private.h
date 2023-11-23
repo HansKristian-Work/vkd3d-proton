@@ -2544,6 +2544,15 @@ enum vkd3d_initial_transition_type
 {
     VKD3D_INITIAL_TRANSITION_TYPE_RESOURCE,
     VKD3D_INITIAL_TRANSITION_TYPE_QUERY_HEAP,
+    VKD3D_INITIAL_TRANSITION_DESCRIPTOR_COPY_BATCH,
+};
+
+struct d3d12_command_list_descriptor_copy_batch_meta_args
+{
+    VkDeviceAddress descriptor_buffer_va;
+    VkDeviceAddress host_buffer_va;
+    VkDeviceAddress host_meta_va;
+    uint32_t num_copies;
 };
 
 struct vkd3d_initial_transition
@@ -2557,6 +2566,7 @@ struct vkd3d_initial_transition
             bool perform_initial_transition;
         } resource;
         struct d3d12_query_heap *query_heap;
+        struct d3d12_command_list_descriptor_copy_batch_meta_args descriptor_copy_batch;
     };
 };
 
@@ -2854,10 +2864,7 @@ struct d3d12_command_list
     } index_buffer;
 
     struct d3d12_command_list_sequence cmd;
-
-    struct d3d12_command_list_descriptor_copy_batch *copy_batches;
-    size_t copy_batches_count;
-    size_t copy_batches_size;
+    struct d3d12_command_list_descriptor_copy_batch descriptor_copy_batch;
 
     struct d3d12_rtv_desc rtvs[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct d3d12_rtv_desc dsv;

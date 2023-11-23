@@ -1918,7 +1918,6 @@ static HRESULT d3d12_command_allocator_allocate_command_buffer(struct d3d12_comm
     }
 
     list->cmd.iteration_count = 1;
-    list->copy_batches_count = 0;
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
@@ -5011,7 +5010,6 @@ ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_iface *ifa
         vkd3d_free(list->dsv_resource_tracking);
         vkd3d_free(list->subresource_tracking);
         vkd3d_free(list->query_resolves);
-        vkd3d_free(list->copy_batches);
         hash_map_free(&list->query_resolve_lut);
         d3d12_command_list_free_rtas_batch(list);
 
@@ -5167,6 +5165,25 @@ static HRESULT d3d12_command_list_build_init_commands(struct d3d12_command_list 
     return S_OK;
 }
 
+static void d3d12_command_list_finish_descriptor_copy_batch(struct d3d12_command_list *list)
+{
+    if (list->descriptor_copy_batch.num_copies)
+    {
+        struct vkd3d_initial_transition *transition;
+        vkd3d_array_reserve((void**)&list->init_transitions, &list->init_transitions_size,
+                list->init_transitions_count + 1, sizeof(*list->init_transitions));
+
+        transition = &list->init_transitions[list->init_transitions_count++];
+        transition->type = VKD3D_INITIAL_TRANSITION_DESCRIPTOR_COPY_BATCH;
+        transition->descriptor_copy_batch.descriptor_buffer_va = (VkDeviceAddress)list->descriptor_copy_batch.descriptor_buffer.host_ptr;
+        transition->descriptor_copy_batch.host_buffer_va = (VkDeviceAddress)list->descriptor_copy_batch.host_buffer.host_ptr;
+        transition->descriptor_copy_batch.host_meta_va = (VkDeviceAddress)list->descriptor_copy_batch.host_meta_buffer.host_ptr;
+        transition->descriptor_copy_batch.num_copies = list->descriptor_copy_batch.num_copies;
+
+        memset(&list->descriptor_copy_batch, 0, sizeof(list->descriptor_copy_batch));
+    }
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_iface *iface)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
@@ -5192,6 +5209,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
     d3d12_command_list_end_current_render_pass(list, false);
     d3d12_command_list_end_transfer_batch(list);
     d3d12_command_list_flush_rtas_batch(list);
+    d3d12_command_list_finish_descriptor_copy_batch(list);
 
     if (list->predication.enabled_on_command_buffer)
         VK_CALL(vkCmdEndConditionalRenderingEXT(list->cmd.vk_command_buffer));
@@ -5497,6 +5515,7 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     list->wbi_batch.batch_len = 0;
     list->query_resolve_count = 0;
     list->submit_allocator = NULL;
+    memset(&list->descriptor_copy_batch, 0, sizeof(list->descriptor_copy_batch));
 
     d3d12_command_list_clear_rtas_batch(list);
 }
@@ -5910,8 +5929,7 @@ static void d3d12_command_list_update_hoisted_buffer_descriptors(struct d3d12_co
     uint16_t base_dst_offset;
     unsigned int i;
 
-    assert(list->copy_batches_count);
-    batch = &list->copy_batches[list->copy_batches_count - 1];
+    batch = &list->descriptor_copy_batch;
     copy_template = &list->state->hoist_template;
 
     copy_desc = batch->host_buffer.host_ptr;
@@ -5995,7 +6013,6 @@ static void d3d12_command_list_update_descriptor_buffers(struct d3d12_command_li
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkDescriptorBufferBindingPushDescriptorBufferHandleEXT buffer_handle;
-    struct d3d12_command_list_descriptor_copy_batch *batch;
     struct d3d12_command_list_descriptor_copy_heap *heaps;
     VkDescriptorBufferBindingInfoEXT global_buffers[3];
     uint32_t num_global_buffers;
@@ -6026,30 +6043,25 @@ static void d3d12_command_list_update_descriptor_buffers(struct d3d12_command_li
 
         if (list->device->bindless_state.flags & VKD3D_BINDLESS_HOIST_DESCRIPTOR_BUFFER)
         {
-            /* If we're doing hoisting, allocate a new chunk now. */
-            vkd3d_array_reserve((void **)&list->copy_batches, &list->copy_batches_size,
-                    list->copy_batches_count + 1, sizeof(*list->copy_batches));
-            batch = &list->copy_batches[list->copy_batches_count++];
+            d3d12_command_list_finish_descriptor_copy_batch(list);
 
             d3d12_command_allocator_allocate_scratch_memory(list->allocator,
                     VKD3D_SCRATCH_POOL_KIND_DESCRIPTOR_BUFFER,
                     VKD3D_DESCRIPTOR_COPY_BATCH_DESCRIPTOR_BUFFER_SIZE,
                     list->device->device_info.descriptor_buffer_properties.descriptorBufferOffsetAlignment,
-                    ~0u, &batch->descriptor_buffer);
+                    ~0u, &list->descriptor_copy_batch.descriptor_buffer);
 
             d3d12_command_allocator_allocate_scratch_memory(list->allocator,
                     VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD,
                     VKD3D_DESCRIPTOR_COPY_BATCH_NUM_COPIES * sizeof(struct d3d12_command_list_descriptor_copy_desc),
-                    64, ~0u, &batch->host_buffer);
+                    64, ~0u, &list->descriptor_copy_batch.host_buffer);
 
             d3d12_command_allocator_allocate_scratch_memory(list->allocator,
                     VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD,
                     sizeof(struct d3d12_command_list_descriptor_copy_heap) * VKD3D_MAX_BINDLESS_DESCRIPTOR_SETS,
-                    64, ~0u, &batch->host_meta_buffer);
+                    64, ~0u, &list->descriptor_copy_batch.host_meta_buffer);
 
-            batch->descriptor_buffer_offset = 0;
-            batch->num_copies = 0;
-            heaps = batch->host_meta_buffer.host_ptr;
+            heaps = list->descriptor_copy_batch.host_meta_buffer.host_ptr;
 
             for (i = 0; i < list->device->bindless_state.set_count; i++)
             {
@@ -6068,7 +6080,7 @@ static void d3d12_command_list_update_descriptor_buffers(struct d3d12_command_li
             global_buffers[num_global_buffers].usage =
                     VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
                     VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT;
-            global_buffers[num_global_buffers].address = batch->descriptor_buffer.va;
+            global_buffers[num_global_buffers].address = list->descriptor_copy_batch.descriptor_buffer.va;
             num_global_buffers++;
         }
 
@@ -6391,12 +6403,11 @@ static void d3d12_command_list_reserve_hoisted_buffer_descriptor(struct d3d12_co
     assert(list->state->hoist_template.num_hoist_sets);
 
     /* Check if we have exhausted the current batch. */
-    if (list->copy_batches_count == 0 ||
-            (list->state->hoist_template.descriptor_allocation_size +
-                    list->copy_batches[list->copy_batches_count - 1].descriptor_buffer_offset >
-                    VKD3D_DESCRIPTOR_COPY_BATCH_DESCRIPTOR_BUFFER_SIZE) ||
-            (list->state->hoist_template.num_entries + list->copy_batches[list->copy_batches_count - 1].num_copies >
-                    VKD3D_DESCRIPTOR_COPY_BATCH_NUM_COPIES))
+    if ((list->state->hoist_template.descriptor_allocation_size +
+            list->descriptor_copy_batch.descriptor_buffer_offset >
+            VKD3D_DESCRIPTOR_COPY_BATCH_DESCRIPTOR_BUFFER_SIZE) ||
+        (list->state->hoist_template.num_entries + list->descriptor_copy_batch.num_copies >
+                VKD3D_DESCRIPTOR_COPY_BATCH_NUM_COPIES))
     {
         list->descriptor_heap.buffers.heap_dirty = true;
         bindings->descriptor_heap_dirty_mask |= ~0u;
@@ -15882,26 +15893,6 @@ static void STDMETHODCALLTYPE d3d12_command_queue_CopyTileMappings(ID3D12Command
     d3d12_command_queue_add_submission(command_queue, &sub);
 }
 
-static void d3d12_command_list_descriptor_copy_batch_flush_cpu(struct d3d12_command_list_descriptor_copy_batch *batch)
-{
-    /* Emulate what we intend to do in async compute. */
-    const struct d3d12_command_list_descriptor_copy_heap *heaps = batch->host_meta_buffer.host_ptr;
-    const struct d3d12_command_list_descriptor_copy_desc *src = batch->host_buffer.host_ptr;
-    uint32_t *dst = batch->descriptor_buffer.host_ptr;
-    VkDeviceAddress va;
-    unsigned int i;
-
-    for (i = 0; i < batch->num_copies; i++, src++)
-    {
-        if (src->src_offset < heaps[src->set_index].num_descriptors)
-        {
-            va = heaps[src->set_index].base_va +
-                    src->src_offset * heaps[src->set_index].stride_words * sizeof(uint32_t);
-            memcpy(dst + src->dst_offset, (const void *)va, src->count * sizeof(uint32_t));
-        }
-    }
-}
-
 static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12CommandQueue *iface,
         UINT command_list_count, ID3D12CommandList * const *command_lists)
 {
@@ -16025,10 +16016,6 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
             buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
             buffer->commandBuffer = cmd_list->cmd.iterations[iter].vk_command_buffer;
         }
-
-        /* TODO: Move this to GPU timeline */
-        for (iter = 0; iter < cmd_list->copy_batches_count; iter++)
-            d3d12_command_list_descriptor_copy_batch_flush_cpu(&cmd_list->copy_batches[iter]);
 
         if (cmd_list->debug_capture)
             sub.execute.debug_capture = true;
@@ -16673,6 +16660,30 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
                 if (!vkd3d_atomic_uint32_exchange_explicit(&transition->query_heap->initialized, 1, vkd3d_memory_order_relaxed))
                     d3d12_command_queue_transition_pool_add_query_heap(pool, transition->query_heap);
                 break;
+
+            case VKD3D_INITIAL_TRANSITION_DESCRIPTOR_COPY_BATCH:
+            {
+                /* Emulate what we intend to do in async compute. */
+                uint32_t *dst = (void *)transition->descriptor_copy_batch.descriptor_buffer_va;
+                const struct d3d12_command_list_descriptor_copy_desc *src =
+                        (const void *)transition->descriptor_copy_batch.host_buffer_va;
+                const struct d3d12_command_list_descriptor_copy_heap *heaps =
+                        (const void *)transition->descriptor_copy_batch.host_meta_va;
+                VkDeviceAddress va;
+                unsigned int j;
+
+                for (j = 0; j < transition->descriptor_copy_batch.num_copies; j++, src++)
+                {
+                    if (src->src_offset < heaps[src->set_index].num_descriptors)
+                    {
+                        va = heaps[src->set_index].base_va +
+                                src->src_offset * heaps[src->set_index].stride_words * sizeof(uint32_t);
+                        memcpy(dst + src->dst_offset, (const void *)va, src->count * sizeof(uint32_t));
+                    }
+                }
+
+                break;
+            }
 
             default:
                 ERR("Unhandled transition type %u.\n", transition->type);
