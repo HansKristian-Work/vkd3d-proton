@@ -1600,9 +1600,13 @@ static HRESULT d3d12_root_signature_create_hoisted_descriptor_set_layout(
                 return E_INVALIDARG;
         }
 
-        vkd3d_bindless_state_find_binding(&device->bindless_state, bindless_flags, &binding);
-        entry->set_index = binding.set;
-        entry->count = vkd3d_get_descriptor_size_for_type(root_signature->device, bindings[i].descriptorType) / sizeof(uint32_t);
+        if (vkd3d_bindless_state_find_binding(&device->bindless_state, bindless_flags, &binding))
+        {
+            entry->set_index = binding.set;
+            entry->count = vkd3d_get_descriptor_size_for_type(root_signature->device, bindings[i].descriptorType) / sizeof(uint32_t);
+        }
+        else
+            return E_INVALIDARG;
 
         VK_CALL(vkGetDescriptorSetLayoutBindingOffsetEXT(device->vk_device, vk_set_layout, i, &desc_offset));
         entry->dst_offset_words = (copy_template->descriptor_offsets[copy_template->num_hoist_sets] + desc_offset) / sizeof(uint32_t);
@@ -2948,7 +2952,7 @@ static void vkd3d_report_pipeline_creation_feedback_results(const VkPipelineCrea
 static HRESULT d3d12_pipeline_state_create_hoisted_pipeline_layout(struct d3d12_pipeline_state *state)
 {
     const struct vkd3d_shader_meta *metas[2] = { NULL };
-    VkShaderStageFlagBits stages[2];
+    VkShaderStageFlagBits stages[2] = { 0 };
     unsigned int i;
 
     if (state->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
