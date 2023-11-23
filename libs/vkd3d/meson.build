@@ -40,7 +40,9 @@ vkd3d_shaders =[
   'shaders/fs_sampler_feedback_decode_image_mip_used.frag',
   'shaders/cs_sampler_feedback_encode_buffer_min_mip.comp',
   'shaders/cs_sampler_feedback_encode_image_min_mip.comp',
-  'shaders/cs_sampler_feedback_encode_image_mip_used.comp'
+  'shaders/cs_sampler_feedback_encode_image_mip_used.comp',
+
+  'shaders/cs_copy_descriptors.comp',
 ]
 
 vkd3d_src = [

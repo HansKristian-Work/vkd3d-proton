@@ -1,0 +1,88 @@
+#version 450
+#extension GL_EXT_buffer_reference : require
+
+layout(local_size_x = 64) in;
+
+layout(buffer_reference_align = 4, buffer_reference, std430) readonly buffer SourceHeap
+{
+	uint data[];
+};
+
+layout(buffer_reference_align = 4, buffer_reference, std430) writeonly buffer DestHeap
+{
+	uint data[];
+};
+
+struct BoundHeap
+{
+	SourceHeap heap;
+	uint num_descriptors;
+	uint stride_words;
+};
+
+layout(buffer_reference_align = 64, buffer_reference, std430) readonly buffer HostMeta
+{
+	BoundHeap heaps[];
+};
+
+struct DescriptorCopy
+{
+	uint src_offset;
+	uint dst_offset_set_index_count;
+};
+
+layout(buffer_reference_align = 64, buffer_reference, std430) readonly buffer CopyBuffer
+{
+	DescriptorCopy copies[];
+};
+
+layout(push_constant, std430) uniform Registers
+{
+	DestHeap dst;
+	CopyBuffer src;
+	HostMeta meta;
+	uint num_copies;
+} registers;
+
+void main()
+{
+	uint index = gl_GlobalInvocationID.x;
+	if (index < registers.num_copies)
+	{
+		restrict DestHeap dst = registers.dst;
+		DescriptorCopy src_copy = registers.src.copies[index];
+		uint dst_offset = bitfieldExtract(src_copy.dst_offset_set_index_count, 0, 16);
+		uint set_index = bitfieldExtract(src_copy.dst_offset_set_index_count, 16, 8);
+		uint word_count = bitfieldExtract(src_copy.dst_offset_set_index_count, 24, 8);
+
+		BoundHeap heap_meta = registers.meta.heaps[set_index];
+		bool in_bounds = src_copy.src_offset < heap_meta.num_descriptors;
+
+		if (in_bounds)
+		{
+			uint src_offset = src_copy.src_offset * heap_meta.stride_words;
+			// We know count is not 0.
+			uint i = 0;
+			do
+			{
+				dst.data[dst_offset] = heap_meta.heap.data[src_offset];
+				i++;
+				dst_offset++;
+				src_offset++;
+			} while (i < word_count);
+		}
+		else
+		{
+			// memset. Technically not a valid null descriptor, but in practice, it's good enough.
+			// It's UB to access OOB anyways, so we should never hit this path *and* have an application actually access the descriptor.
+			// If we really care, we can pass down null payloads.
+			uint i = 0;
+			do
+			{
+				dst.data[dst_offset] = 0;
+				i++;
+				dst_offset++;
+			} while (i < word_count);
+		}
+	}
+}
