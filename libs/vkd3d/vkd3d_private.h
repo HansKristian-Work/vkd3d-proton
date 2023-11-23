@@ -2687,6 +2687,16 @@ union vkd3d_descriptor_heap_state
     } sets;
 };
 
+struct d3d12_rtv_resolve
+{
+    struct d3d12_resource *src_resource;
+    struct d3d12_resource *dst_resource;
+    uint32_t region_index;
+    uint32_t region_count;
+    DXGI_FORMAT format;
+    D3D12_RESOLVE_MODE mode;
+};
+
 struct d3d12_command_list_iteration_indirect_meta
 {
     bool need_compute_to_indirect_barrier;
@@ -2758,6 +2768,15 @@ struct d3d12_command_list
     D3D12_RENDER_PASS_FLAGS render_pass_flags;
     struct d3d12_rtv_desc rtvs[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct d3d12_rtv_desc dsv;
+
+    struct d3d12_rtv_resolve *rtv_resolves;
+    size_t rtv_resolve_size;
+    size_t rtv_resolve_count;
+
+    VkImageResolve2 *rtv_resolve_regions;
+    size_t rtv_resolve_region_size;
+    size_t rtv_resolve_region_count;
+
     uint32_t dsv_plane_optimal_mask;
     VkImageLayout dsv_layout;
     unsigned int fb_width;
