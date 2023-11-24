@@ -7522,6 +7522,9 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
+        if (pipeline_info.needs_stencil_mask)
+            attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+
         memset(&rendering_info, 0, sizeof(rendering_info));
         rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
         rendering_info.renderArea.offset.x = region->dstOffset.x;
@@ -7552,6 +7555,7 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         viewport.minDepth = 0.0f;
         viewport.maxDepth = 1.0f;
 
+        memset(&push_args, 0, sizeof(push_args));
         push_args.offset.x = region->srcOffset.x - region->dstOffset.x;
         push_args.offset.y = region->srcOffset.y - region->dstOffset.y;
 
@@ -7577,9 +7581,25 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
         VK_CALL(vkCmdSetScissor(list->cmd.vk_command_buffer, 0, 1, &rendering_info.renderArea));
         VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                 pipeline_info.vk_pipeline_layout, 0, 1, &vk_descriptor_write));
-        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer, pipeline_info.vk_pipeline_layout,
-                VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_args), &push_args));
-        VK_CALL(vkCmdDraw(list->cmd.vk_command_buffer, 3, region->dstSubresource.layerCount, 0, 0));
+
+        if (pipeline_info.needs_stencil_mask)
+        {
+            for (i = 0; i < 8; i++)
+            {
+                push_args.bit_mask = 1u << i;
+                VK_CALL(vkCmdSetStencilWriteMask(list->cmd.vk_command_buffer, VK_STENCIL_FACE_FRONT_AND_BACK, push_args.bit_mask));
+                VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer, pipeline_info.vk_pipeline_layout,
+                        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_args), &push_args));
+                VK_CALL(vkCmdDraw(list->cmd.vk_command_buffer, 3, region->dstSubresource.layerCount, 0, 0));
+            }
+        }
+        else
+        {
+            VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer, pipeline_info.vk_pipeline_layout,
+                    VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push_args), &push_args));
+            VK_CALL(vkCmdDraw(list->cmd.vk_command_buffer, 3, region->dstSubresource.layerCount, 0, 0));
+        }
+
         VK_CALL(vkCmdEndRendering(list->cmd.vk_command_buffer));
         d3d12_command_list_debug_mark_end_region(list);
 
@@ -7754,19 +7774,6 @@ static bool d3d12_command_list_init_copy_texture_region(struct d3d12_command_lis
                 src_box, dst_x, dst_y, dst_z))
         {
             WARN("Degenerate copy, skipping.\n");
-            return false;
-        }
-
-        /* If aspect masks do not match, we have to use fallback copies with a render pass, and there
-         * is no standard way to write to stencil without fallbacks.
-         * Checking aspect masks here is equivalent to checking formats. vkCmdCopyImage can only be
-         * used for compatible formats and depth stencil formats are only compatible with themselves. */
-        if (out->dst_format->vk_aspect_mask != out->src_format->vk_aspect_mask &&
-                (out->copy.image.dstSubresource.aspectMask & VK_IMAGE_ASPECT_STENCIL_BIT) &&
-                !list->device->vk_info.EXT_shader_stencil_export)
-        {
-            FIXME("Destination depth-stencil format %#x is not supported for STENCIL dst copy with render pass fallback.\n",
-                    out->dst_format->dxgi_format);
             return false;
         }
 
