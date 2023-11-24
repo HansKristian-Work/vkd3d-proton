@@ -16470,9 +16470,13 @@ static void d3d12_command_queue_signal_shared(struct d3d12_command_queue *comman
 struct d3d12_command_queue_transition_pool
 {
     VkCommandBuffer cmd[VKD3D_COMMAND_QUEUE_NUM_TRANSITION_BUFFERS];
+    VkCommandBuffer async_cmd[VKD3D_COMMAND_QUEUE_NUM_TRANSITION_BUFFERS];
     VkCommandPool pool;
+    VkCommandPool async_pool;
     VkSemaphore timeline;
     uint64_t timeline_value;
+    VkSemaphore async_timeline;
+    uint64_t async_timeline_value;
 
     VkImageMemoryBarrier2 *barriers;
     size_t barriers_size;
@@ -16502,6 +16506,15 @@ static HRESULT d3d12_command_queue_transition_pool_init(struct d3d12_command_que
     if ((vr = VK_CALL(vkCreateCommandPool(queue->device->vk_device, &pool_info, NULL, &pool->pool))))
         return hresult_from_vk_result(vr);
 
+    if (queue->device->memory_transfers.vkd3d_queue->vk_queue != queue->vkd3d_queue->vk_queue)
+    {
+        /* When we don't need to perform initializations in a serialized fashion, we can do the work on the
+         * memory transfer queue out of bounds instead. */
+        pool_info.queueFamilyIndex = queue->device->memory_transfers.vkd3d_queue->vk_family_index;
+        if ((vr = VK_CALL(vkCreateCommandPool(queue->device->vk_device, &pool_info, NULL, &pool->async_pool))))
+            return hresult_from_vk_result(vr);
+    }
+
     alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     alloc_info.pNext = NULL;
     alloc_info.commandPool = pool->pool;
@@ -16513,11 +16526,20 @@ static HRESULT d3d12_command_queue_transition_pool_init(struct d3d12_command_que
     if (FAILED(hr = vkd3d_create_timeline_semaphore(queue->device, 0, false, &pool->timeline)))
         return hr;
 
+    if (pool->async_pool)
+    {
+        alloc_info.commandPool = pool->async_pool;
+        if ((vr = VK_CALL(vkAllocateCommandBuffers(queue->device->vk_device, &alloc_info, pool->async_cmd))))
+            return hresult_from_vk_result(vr);
+        if (FAILED(hr = vkd3d_create_timeline_semaphore(queue->device, 0, false, &pool->async_timeline)))
+            return hr;
+    }
+
     return S_OK;
 }
 
 static void d3d12_command_queue_transition_pool_wait(struct d3d12_command_queue_transition_pool *pool,
-        struct d3d12_device *device, uint64_t value)
+        struct d3d12_device *device, VkSemaphore timeline, uint64_t value)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkSemaphoreWaitInfo wait_info;
@@ -16526,7 +16548,7 @@ static void d3d12_command_queue_transition_pool_wait(struct d3d12_command_queue_
     wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
     wait_info.pNext = NULL;
     wait_info.flags = 0;
-    wait_info.pSemaphores = &pool->timeline;
+    wait_info.pSemaphores = &timeline;
     wait_info.semaphoreCount = 1;
     wait_info.pValues = &value;
     vr = VK_CALL(vkWaitSemaphores(device->vk_device, &wait_info, ~(uint64_t)0));
@@ -16537,9 +16559,12 @@ static void d3d12_command_queue_transition_pool_deinit(struct d3d12_command_queu
         struct d3d12_device *device)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    d3d12_command_queue_transition_pool_wait(pool, device, pool->timeline_value);
+    d3d12_command_queue_transition_pool_wait(pool, device, pool->timeline, pool->timeline_value);
+    d3d12_command_queue_transition_pool_wait(pool, device, pool->async_timeline, pool->async_timeline_value);
     VK_CALL(vkDestroyCommandPool(device->vk_device, pool->pool, NULL));
+    VK_CALL(vkDestroyCommandPool(device->vk_device, pool->async_pool, NULL));
     VK_CALL(vkDestroySemaphore(device->vk_device, pool->timeline, NULL));
+    VK_CALL(vkDestroySemaphore(device->vk_device, pool->async_timeline, NULL));
     vkd3d_free(pool->barriers);
     vkd3d_free((void*)pool->query_heaps);
 }
@@ -16618,14 +16643,57 @@ static void d3d12_command_queue_copy_descriptor_batch(struct d3d12_device *devic
             vkd3d_meta_get_descriptor_copy_workgroup_size()), 1, 1));
 }
 
+static void d3d12_command_queue_transition_pool_submit_async(struct d3d12_command_queue_transition_pool *pool,
+        struct d3d12_device *device, VkCommandBuffer vk_cmd_buffer)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkSemaphoreSubmitInfo async_semaphore;
+    VkCommandBufferSubmitInfo cmd;
+    VkSubmitInfo2 submit;
+    VkQueue vk_queue;
+    VkResult vr;
+
+    vk_queue = vkd3d_queue_acquire(device->memory_transfers.vkd3d_queue);
+    if (!vk_queue)
+    {
+        ERR("Failed to acquire memory transfer queue.\n");
+        return;
+    }
+
+    memset(&cmd, 0, sizeof(cmd));
+    cmd.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+    cmd.commandBuffer = vk_cmd_buffer;
+
+    memset(&async_semaphore, 0, sizeof(async_semaphore));
+    async_semaphore.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    async_semaphore.semaphore = pool->async_timeline;
+    async_semaphore.value = pool->async_timeline_value;
+
+    memset(&submit, 0, sizeof(submit));
+    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submit.pSignalSemaphoreInfos = &async_semaphore;
+    submit.signalSemaphoreInfoCount = 1;
+    submit.commandBufferInfoCount = 1;
+    submit.pCommandBufferInfos = &cmd;
+    vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, &submit, NULL));
+    vkd3d_queue_release(device->memory_transfers.vkd3d_queue);
+    if (vr < 0)
+        ERR("Failed to submit async transition, vr %d.\n", vr);
+    VKD3D_DEVICE_REPORT_BREADCRUMB_IF(device, vr == VK_ERROR_DEVICE_LOST);
+}
+
 static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue_transition_pool *pool,
         struct d3d12_device *device, const struct vkd3d_initial_transition *transitions, size_t count,
-        VkCommandBuffer *vk_cmd_buffer, uint64_t *timeline_value)
+        VkCommandBuffer *out_vk_cmd_buffer, VkSemaphoreSubmitInfo *out_semaphore)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     const struct vkd3d_initial_transition *transition;
     VkCommandBufferBeginInfo begin_info;
+    uint64_t *target_timeline_value;
+    VkCommandBuffer vk_cmd_buffer;
+    VkSemaphore *target_timeline;
     VkMemoryBarrier2 vk_barrier;
+    bool need_synchronous_init;
     unsigned int command_index;
     bool need_descriptor_copy;
     VkDependencyInfo dep_info;
@@ -16635,10 +16703,13 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
     pool->barriers_count = 0;
     pool->query_heaps_count = 0;
     need_descriptor_copy = false;
+    need_synchronous_init = false;
 
     if (!count)
     {
-        *vk_cmd_buffer = VK_NULL_HANDLE;
+        *out_vk_cmd_buffer = VK_NULL_HANDLE;
+        out_semaphore->semaphore = VK_NULL_HANDLE;
+        out_semaphore->value = 0;
         return;
     }
 
@@ -16656,7 +16727,14 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
                         0, vkd3d_memory_order_relaxed);
 
                 if (need_transition && transition->resource.perform_initial_transition)
+                {
+                    /* If we're initializing committed resources, there's no need to do the transition in a synchronized way.
+                     * Can punt that to async queue. For placed resources, we may have to do it synchronized due to aliasing rules
+                     * and ExecuteCommandLists having implicit sync between them. */
+                    if (d3d12_resource_may_alias_other_resources(transition->resource.resource))
+                        need_synchronous_init = true;
                     d3d12_command_queue_transition_pool_add_barrier(pool, transition->resource.resource);
+                }
                 break;
 
             case VKD3D_INITIAL_TRANSITION_TYPE_QUERY_HEAP:
@@ -16676,22 +16754,46 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
 
     if (!pool->barriers_count && !pool->query_heaps_count && !need_descriptor_copy)
     {
-        *vk_cmd_buffer = VK_NULL_HANDLE;
+        *out_vk_cmd_buffer = VK_NULL_HANDLE;
+        out_semaphore->semaphore = VK_NULL_HANDLE;
+        out_semaphore->value = 0;
         return;
     }
 
-    pool->timeline_value++;
-    command_index = pool->timeline_value % VKD3D_COMMAND_QUEUE_NUM_TRANSITION_BUFFERS;
+    if (!pool->async_pool)
+        need_synchronous_init = true;
 
-    if (pool->timeline_value > VKD3D_COMMAND_QUEUE_NUM_TRANSITION_BUFFERS)
-        d3d12_command_queue_transition_pool_wait(pool, device, pool->timeline_value - VKD3D_COMMAND_QUEUE_NUM_TRANSITION_BUFFERS);
+    if (need_synchronous_init)
+    {
+        target_timeline = &pool->timeline;
+        target_timeline_value = &pool->timeline_value;
+    }
+    else
+    {
+        target_timeline = &pool->async_timeline;
+        target_timeline_value = &pool->async_timeline_value;
+    }
+
+    (*target_timeline_value)++;
+    command_index = *target_timeline_value % VKD3D_COMMAND_QUEUE_NUM_TRANSITION_BUFFERS;
+
+    if (*target_timeline_value > VKD3D_COMMAND_QUEUE_NUM_TRANSITION_BUFFERS)
+    {
+        d3d12_command_queue_transition_pool_wait(pool, device,
+                *target_timeline, *target_timeline_value - VKD3D_COMMAND_QUEUE_NUM_TRANSITION_BUFFERS);
+    }
+
+    if (need_synchronous_init)
+        vk_cmd_buffer = pool->cmd[command_index];
+    else
+        vk_cmd_buffer = pool->async_cmd[command_index];
 
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin_info.pNext = NULL;
     begin_info.pInheritanceInfo = NULL;
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    VK_CALL(vkResetCommandBuffer(pool->cmd[command_index], 0));
-    VK_CALL(vkBeginCommandBuffer(pool->cmd[command_index], &begin_info));
+    VK_CALL(vkResetCommandBuffer(vk_cmd_buffer, 0));
+    VK_CALL(vkBeginCommandBuffer(vk_cmd_buffer, &begin_info));
 
     memset(&dep_info, 0, sizeof(dep_info));
     dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
@@ -16699,16 +16801,16 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
     dep_info.pImageMemoryBarriers = pool->barriers;
 
     if (pool->barriers_count)
-        VK_CALL(vkCmdPipelineBarrier2(pool->cmd[command_index], &dep_info));
+        VK_CALL(vkCmdPipelineBarrier2(vk_cmd_buffer, &dep_info));
 
     for (i = 0; i < pool->query_heaps_count; i++)
-        d3d12_command_queue_init_query_heap(device, pool->cmd[command_index], pool->query_heaps[i]);
+        d3d12_command_queue_init_query_heap(device, vk_cmd_buffer, pool->query_heaps[i]);
 
     for (i = 0; i < count; i++)
         if (transitions[i].type == VKD3D_INITIAL_TRANSITION_DESCRIPTOR_COPY_BATCH)
-            d3d12_command_queue_copy_descriptor_batch(device, pool->cmd[command_index], &transitions[i].descriptor_copy_batch);
+            d3d12_command_queue_copy_descriptor_batch(device, vk_cmd_buffer, &transitions[i].descriptor_copy_batch);
 
-    if (need_descriptor_copy)
+    if (need_descriptor_copy && need_synchronous_init)
     {
         memset(&vk_barrier, 0, sizeof(vk_barrier));
         vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
@@ -16722,13 +16824,24 @@ static void d3d12_command_queue_transition_pool_build(struct d3d12_command_queue
         dep_info.memoryBarrierCount = 1;
         dep_info.pMemoryBarriers = &vk_barrier;
 
-        VK_CALL(vkCmdPipelineBarrier2(pool->cmd[command_index], &dep_info));
+        VK_CALL(vkCmdPipelineBarrier2(vk_cmd_buffer, &dep_info));
     }
 
-    VK_CALL(vkEndCommandBuffer(pool->cmd[command_index]));
+    VK_CALL(vkEndCommandBuffer(vk_cmd_buffer));
 
-    *vk_cmd_buffer = pool->cmd[command_index];
-    *timeline_value = pool->timeline_value;
+    if (need_synchronous_init)
+    {
+        *out_vk_cmd_buffer = vk_cmd_buffer;
+        out_semaphore->semaphore = pool->timeline;
+        out_semaphore->value = pool->timeline_value;
+    }
+    else
+    {
+        d3d12_command_queue_transition_pool_submit_async(pool, device, vk_cmd_buffer);
+        *out_vk_cmd_buffer = VK_NULL_HANDLE;
+        out_semaphore->semaphore = pool->async_timeline;
+        out_semaphore->value = pool->async_timeline_value;
+    }
 }
 
 static VkResult d3d12_command_queue_submit_split_locked(struct d3d12_device *device,
@@ -16830,6 +16943,13 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     else
     {
         num_submits = 1;
+
+        /* If we did a transition, but in the async queue, wait for it here. */
+        if (transition_semaphore->value)
+        {
+            submit_desc[0].waitSemaphoreInfoCount = 1;
+            submit_desc[0].pWaitSemaphoreInfos = transition_semaphore;
+        }
     }
 
     if (!(vk_queue = vkd3d_queue_acquire(vkd3d_queue)))
@@ -17360,14 +17480,13 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
 
             memset(&transition_semaphore, 0, sizeof(transition_semaphore));
             transition_semaphore.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-            transition_semaphore.semaphore = pool.timeline;
             transition_semaphore.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
             d3d12_command_queue_transition_pool_build(&pool, queue->device,
                     submission.execute.transitions,
                     submission.execute.transition_count,
                     &transition_cmd.commandBuffer,
-                    &transition_semaphore.value);
+                    &transition_semaphore);
 
             d3d12_command_queue_execute(queue, submission.execute.cmd,
                     submission.execute.cmd_count,
