@@ -3752,6 +3752,7 @@ struct vkd3d_clear_uav_pipeline
 struct vkd3d_copy_image_args
 {
     VkOffset2D offset;
+    uint32_t bit_mask;
 };
 
 struct vkd3d_copy_image_info
@@ -3759,6 +3760,7 @@ struct vkd3d_copy_image_info
     VkDescriptorSetLayout vk_set_layout;
     VkPipelineLayout vk_pipeline_layout;
     VkPipeline vk_pipeline;
+    bool needs_stencil_mask;
 };
 
 struct vkd3d_copy_image_pipeline_key

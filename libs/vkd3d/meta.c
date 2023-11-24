@@ -620,6 +620,15 @@ static HRESULT vkd3d_copy_image_ops_init(struct vkd3d_copy_image_ops *meta_copy_
             goto fail;
         }
     }
+    else
+    {
+        if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_copy_image_stencil_no_export),
+                &meta_copy_image_ops->vk_fs_stencil_module)) < 0)
+        {
+            ERR("Failed to create shader modules, vr %d.\n", vr);
+            goto fail;
+        }
+    }
 
     return S_OK;
 
@@ -649,10 +658,18 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
 {
     struct vkd3d_copy_image_ops *meta_copy_image_ops = &meta_ops->copy_image;
     VkPipelineDepthStencilStateCreateInfo ds_state;
+    unsigned int dynamic_state_count;
     VkSpecializationInfo spec_info;
     VkShaderModule vk_module;
     bool has_depth_target;
     VkResult vr;
+
+    static const VkDynamicState dynamic_states[] =
+    {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR,
+        VK_DYNAMIC_STATE_STENCIL_WRITE_MASK,
+    };
 
     struct spec_data
     {
@@ -679,6 +696,9 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
         return E_INVALIDARG;
     }
 
+    /* Ignore stencil state unless it is explicitly required */
+    dynamic_state_count = ARRAY_SIZE(dynamic_states) - 1;
+
     spec_info.mapEntryCount = ARRAY_SIZE(map_entries);
     spec_info.pMapEntries = map_entries;
     spec_info.dataSize = sizeof(spec_data);
@@ -697,7 +717,7 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
     if (key->dst_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT)
     {
         ds_state.stencilTestEnable = VK_TRUE;
-        ds_state.front.reference = 0;
+        ds_state.front.reference = 0xff;
         ds_state.front.writeMask = 0xff;
         ds_state.front.compareMask = 0xff;
         ds_state.front.passOp = VK_STENCIL_OP_REPLACE;
@@ -726,6 +746,9 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
     {
         /* FragStencilRef path. */
         vk_module = meta_copy_image_ops->vk_fs_stencil_module;
+
+        if (!meta_ops->device->vk_info.EXT_shader_stencil_export)
+            dynamic_state_count = ARRAY_SIZE(dynamic_states);
     }
     else
     {
@@ -740,7 +763,8 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
             key->format->vk_aspect_mask,
             VK_NULL_HANDLE, vk_module, key->sample_count,
             has_depth_target ? &ds_state : NULL,
-            0, NULL, &spec_info, true, &pipeline->vk_pipeline)) < 0)
+            dynamic_state_count, dynamic_states,
+            &spec_info, true, &pipeline->vk_pipeline)) < 0)
         return hresult_from_vk_result(vr);
 
     pipeline->key = *key;
@@ -764,6 +788,8 @@ HRESULT vkd3d_meta_get_copy_image_pipeline(struct vkd3d_meta_ops *meta_ops,
 
     info->vk_set_layout = meta_copy_image_ops->vk_set_layout;
     info->vk_pipeline_layout = meta_copy_image_ops->vk_pipeline_layout;
+    info->needs_stencil_mask = key->dst_aspect_mask == VK_IMAGE_ASPECT_STENCIL_BIT &&
+            !meta_ops->device->vk_info.EXT_shader_stencil_export;
 
     for (i = 0; i < meta_copy_image_ops->pipeline_count; i++)
     {
