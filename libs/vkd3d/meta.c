@@ -147,10 +147,9 @@ static VkResult vkd3d_meta_create_compute_pipeline(struct d3d12_device *device,
 
 static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_ops,
         VkPipelineLayout layout, VkFormat color_format, VkFormat ds_format, VkImageAspectFlags vk_aspect_mask,
-        VkShaderModule vs_module, VkShaderModule fs_module,
-        VkSampleCountFlagBits samples, const VkPipelineDepthStencilStateCreateInfo *ds_state,
-        const VkSpecializationInfo *spec_info,
-        bool descriptor_buffer_compatible, VkPipeline *vk_pipeline)
+        VkShaderModule vs_module, VkShaderModule fs_module, VkSampleCountFlagBits samples,
+        const VkPipelineDepthStencilStateCreateInfo *ds_state, uint32_t dynamic_state_count, const VkDynamicState *dynamic_states,
+        const VkSpecializationInfo *spec_info, bool descriptor_buffer_compatible, VkPipeline *vk_pipeline)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &meta_ops->device->vk_procs;
     VkPipelineColorBlendAttachmentState blend_attachment;
@@ -167,11 +166,17 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
     const uint32_t sample_mask = 0xFFFFFFFF;
     VkResult vr;
 
-    static const VkDynamicState dynamic_states[] =
+    static const VkDynamicState common_dynamic_states[] =
     {
         VK_DYNAMIC_STATE_VIEWPORT,
         VK_DYNAMIC_STATE_SCISSOR,
     };
+
+    if (!dynamic_state_count)
+    {
+        dynamic_state_count = ARRAY_SIZE(common_dynamic_states);
+        dynamic_states = common_dynamic_states;
+    }
 
     vi_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     vi_state.pNext = NULL;
@@ -222,7 +227,7 @@ static VkResult vkd3d_meta_create_graphics_pipeline(struct vkd3d_meta_ops *meta_
     dyn_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     dyn_state.pNext = NULL;
     dyn_state.flags = 0;
-    dyn_state.dynamicStateCount = ARRAY_SIZE(dynamic_states);
+    dyn_state.dynamicStateCount = dynamic_state_count;
     dyn_state.pDynamicStates = dynamic_states;
 
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
@@ -632,7 +637,7 @@ static HRESULT vkd3d_meta_create_swapchain_pipeline(struct vkd3d_meta_ops *meta_
     if ((vr = vkd3d_meta_create_graphics_pipeline(meta_ops,
             meta_swapchain_ops->vk_pipeline_layouts[key->filter], key->format, VK_FORMAT_UNDEFINED, VK_IMAGE_ASPECT_COLOR_BIT,
             meta_swapchain_ops->vk_vs_module, meta_swapchain_ops->vk_fs_module, 1,
-            NULL, NULL, false, &pipeline->vk_pipeline)) < 0)
+            NULL, 0, NULL, NULL, false, &pipeline->vk_pipeline)) < 0)
         return hresult_from_vk_result(vr);
 
     pipeline->key = *key;
@@ -735,7 +740,7 @@ static HRESULT vkd3d_meta_create_copy_image_pipeline(struct vkd3d_meta_ops *meta
             key->format->vk_aspect_mask,
             VK_NULL_HANDLE, vk_module, key->sample_count,
             has_depth_target ? &ds_state : NULL,
-            &spec_info, true, &pipeline->vk_pipeline)) < 0)
+            0, NULL, &spec_info, true, &pipeline->vk_pipeline)) < 0)
         return hresult_from_vk_result(vr);
 
     pipeline->key = *key;
@@ -1617,7 +1622,7 @@ static HRESULT vkd3d_sampler_feedback_ops_init(struct vkd3d_sampler_feedback_res
             if ((vr = vkd3d_meta_create_graphics_pipeline(&device->meta_ops,
                     sampler_feedback_ops->vk_graphics_decode_layout,
                     VK_FORMAT_R8_UINT, VK_FORMAT_UNDEFINED, VK_IMAGE_ASPECT_COLOR_BIT, VK_NULL_HANDLE, vk_module,
-                    VK_SAMPLE_COUNT_1_BIT, NULL, NULL, true,
+                    VK_SAMPLE_COUNT_1_BIT, NULL, 0, NULL, NULL, true,
                     &sampler_feedback_ops->vk_pipelines[pipelines[i].type])))
             {
                 VK_CALL(vkDestroyShaderModule(device->vk_device, vk_module, NULL));
