@@ -23,6 +23,7 @@ vkd3d_shaders =[
   'shaders/fs_copy_image_float.frag',
   'shaders/fs_copy_image_uint.frag',
   'shaders/fs_copy_image_stencil.frag',
+  'shaders/fs_copy_image_stencil_no_export.frag',
 
   'shaders/gs_fullscreen.geom',
   'shaders/vs_fullscreen.vert',
