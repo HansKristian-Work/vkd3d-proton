@@ -8345,121 +8345,539 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
     VKD3D_BREADCRUMB_COMMAND(COPY_TILES);
 }
 
-static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *list,
-        struct d3d12_resource *dst_resource, struct d3d12_resource *src_resource,
-        const VkImageResolve2KHR *resolve, DXGI_FORMAT format, D3D12_RESOLVE_MODE mode)
+enum vkd3d_resolve_path
 {
-    const struct vkd3d_vk_device_procs *vk_procs;
-    VkImageMemoryBarrier2 vk_image_barriers[2];
-    const struct vkd3d_format *vk_format;
-    VkImageLayout dst_layout, src_layout;
-    const struct d3d12_device *device;
-    VkResolveImageInfo2 resolve_info;
-    bool writes_full_subresource;
-    bool writes_full_resource;
-    VkDependencyInfo dep_info;
+    VKD3D_RESOLVE_PATH_UNSUPPORTED,
+    VKD3D_RESOLVE_PATH_DIRECT,
+    VKD3D_RESOLVE_PATH_RENDER_PASS_ATTACHMENT,
+    VKD3D_RESOLVE_PATH_RENDER_PASS_PIPELINE,
+};
+
+static VkResolveModeFlagBits vk_resolve_mode_from_d3d12(D3D12_RESOLVE_MODE mode)
+{
+    switch (mode)
+    {
+        case D3D12_RESOLVE_MODE_AVERAGE:
+            return VK_RESOLVE_MODE_AVERAGE_BIT;
+
+        case D3D12_RESOLVE_MODE_MIN:
+            return VK_RESOLVE_MODE_MIN_BIT;
+
+        case D3D12_RESOLVE_MODE_MAX:
+            return VK_RESOLVE_MODE_MAX_BIT;
+
+        default:
+            ERR("Unhandled resolve mode %u.\n", mode);
+            return VK_RESOLVE_MODE_NONE;
+    }
+}
+
+static const struct vkd3d_format *d3d12_command_list_get_resolve_format(struct d3d12_command_list *list,
+        const struct d3d12_resource *dst_resource, const struct d3d12_resource *src_resource, DXGI_FORMAT format)
+{
+    /* Depth-stencil formats require special care since the app will need to
+     * pass in the stencil plane as subresource 1, but may also use a format
+     * for which we only have one aspect flag set. Just ignore the explicit
+     * format in that case so that we always know the full aspect mask. */
+    if (dst_resource->format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+        return dst_resource->format;
+
+    if (dst_resource->format->type != VKD3D_FORMAT_TYPE_TYPELESS)
+        return dst_resource->format;
+
+    if (src_resource->format->type != VKD3D_FORMAT_TYPE_TYPELESS)
+        return src_resource->format;
+
+    return vkd3d_format_from_d3d12_resource_desc(list->device, &dst_resource->desc, format);
+}
+
+enum vkd3d_resolve_path d3d12_command_list_select_resolve_path(struct d3d12_command_list *list,
+        struct d3d12_resource *dst_resource, struct d3d12_resource *src_resource, uint32_t region_count,
+        const VkImageResolve2 *regions, DXGI_FORMAT format, D3D12_RESOLVE_MODE mode)
+{
+    const struct vkd3d_format *vkd3d_format = d3d12_command_list_get_resolve_format(list, dst_resource, src_resource, format);
+    enum vkd3d_resolve_path path;
     unsigned int i;
 
-    if (mode != D3D12_RESOLVE_MODE_AVERAGE)
+    if (dst_resource->format->vk_aspect_mask != src_resource->format->vk_aspect_mask)
     {
-        FIXME("Resolve mode %u is not yet supported.\n", mode);
+        /* Mismatched aspects may happen with some typeless formats */
+        path = VKD3D_RESOLVE_PATH_RENDER_PASS_PIPELINE;
+    }
+    else if (vkd3d_format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+    {
+        /* The direct path only supports color images with the AVERAGE mode */
+        path = VKD3D_RESOLVE_PATH_RENDER_PASS_ATTACHMENT;
+    }
+    else if (mode != D3D12_RESOLVE_MODE_AVERAGE)
+    {
+        /* Vulkan only supports SAMPLE_ZERO for color images for which D3D12 does
+         * not even have an equivalent, we can only implement this in shaders. */
+        path = VKD3D_RESOLVE_PATH_RENDER_PASS_PIPELINE;
+    }
+    else if (dst_resource->format->type == VKD3D_FORMAT_TYPE_TYPELESS ||
+            src_resource->format->type == VKD3D_FORMAT_TYPE_TYPELESS)
+    {
+        /* Prefer the direct path even for typeless formats if possible */
+        if (vkd3d_format->vk_format == dst_resource->format->vk_format &&
+                vkd3d_format->vk_format == src_resource->format->vk_format)
+            path = VKD3D_RESOLVE_PATH_DIRECT;
+        else
+            path = VKD3D_RESOLVE_PATH_RENDER_PASS_ATTACHMENT;
+    }
+    else
+        path = VKD3D_RESOLVE_PATH_DIRECT;
+
+    /* The attachment path has a number of restrictions that may require us to fall
+     * back to the shader-based path. */
+    if (path == VKD3D_RESOLVE_PATH_RENDER_PASS_ATTACHMENT)
+    {
+        if (!(src_resource->desc.Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)))
+        {
+            /* If the source image somehow cannot be bound for rendering, use the
+             * shader path since that will work for all source images. */
+            path = VKD3D_RESOLVE_PATH_RENDER_PASS_PIPELINE;
+        }
+        else if (vkd3d_format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+        {
+            /* Ensure that the required depth and stencil resolve modes are supported */
+            const VkPhysicalDeviceVulkan12Properties *vk12 = &list->device->device_info.vulkan_1_2_properties;
+            VkResolveModeFlagBits vk_mode = vk_resolve_mode_from_d3d12(mode);
+            bool supports_render_pass_resolve = vk12->independentResolveNone;
+
+            for (i = 0; i < region_count && supports_render_pass_resolve; i++)
+            {
+                if (regions[i].dstSubresource.aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT)
+                    supports_render_pass_resolve &= !!(vk12->supportedDepthResolveModes & vk_mode);
+                if (regions[i].dstSubresource.aspectMask & VK_IMAGE_ASPECT_STENCIL_BIT)
+                    supports_render_pass_resolve &= !!(vk12->supportedStencilResolveModes & vk_mode);
+            }
+
+            if (!supports_render_pass_resolve)
+                path = VKD3D_RESOLVE_PATH_RENDER_PASS_PIPELINE;
+        }
+    }
+
+    /* Attachment resolves cannot be used with an offset */
+    if (path == VKD3D_RESOLVE_PATH_RENDER_PASS_ATTACHMENT)
+    {
+        for (i = 0; i < region_count; i++)
+        {
+            if (regions[i].srcOffset.x != regions[i].dstOffset.x ||
+                    regions[i].srcOffset.y != regions[i].dstOffset.y)
+            {
+                path = VKD3D_RESOLVE_PATH_RENDER_PASS_PIPELINE;
+                break;
+            }
+        }
+    }
+
+    /* All alternative code paths require render target usage for the destination image */
+    if (path != VKD3D_RESOLVE_PATH_DIRECT &&
+            !(dst_resource->desc.Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)))
+    {
+        FIXME("Selected resolve path %u for mode %u, format %u, but destination image cannot be used as a render target.\n",
+                path, mode, format);
+        path = VKD3D_RESOLVE_PATH_UNSUPPORTED;
+    }
+
+    return path;
+}
+
+static void d3d12_get_resolve_barrier_for_dst_resource(struct d3d12_resource *resource, const VkImageResolve2 *region,
+        enum vkd3d_resolve_path path, bool post_resolve, VkImageLayout outside_layout, VkPipelineStageFlags2 outside_stages,
+        VkAccessFlags2 outside_access, VkImageMemoryBarrier2 *barrier)
+{
+    VkPipelineStageFlags2 resolve_stages;
+    VkAccessFlags2 resolve_access;
+    VkImageLayout resolve_layout;
+    bool writes_full_subresource;
+
+    writes_full_subresource = d3d12_image_copy_writes_full_subresource(
+            resource, &region->extent, &region->dstSubresource);
+
+    if (path == VKD3D_RESOLVE_PATH_DIRECT)
+    {
+        resolve_layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        resolve_stages = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+        resolve_access = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    }
+    else
+    {
+        if (resource->format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+        {
+            resolve_layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            resolve_stages = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+            resolve_access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        }
+        else
+        {
+            resolve_layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            resolve_stages = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            resolve_access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+        }
+    }
+
+    memset(barrier, 0, sizeof(*barrier));
+    barrier->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+
+    if (post_resolve)
+    {
+        barrier->srcStageMask = resolve_stages;
+        barrier->srcAccessMask = resolve_access;
+        barrier->dstStageMask = outside_stages;
+        barrier->dstAccessMask = outside_access;
+        barrier->oldLayout = resolve_layout;
+        barrier->newLayout = outside_layout;
+    }
+    else
+    {
+        barrier->srcStageMask = outside_stages;
+        barrier->srcAccessMask = VK_ACCESS_2_NONE;
+        barrier->dstStageMask = resolve_stages;
+        barrier->dstAccessMask = resolve_access;
+        barrier->oldLayout = writes_full_subresource ? VK_IMAGE_LAYOUT_UNDEFINED : outside_layout;
+        barrier->newLayout = resolve_layout;
+    }
+
+    barrier->srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier->dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier->image = resource->res.vk_image;
+    barrier->subresourceRange = vk_subresource_range_from_layers(&region->dstSubresource);
+}
+
+static void d3d12_get_resolve_barrier_for_src_resource(struct d3d12_resource *resource, const VkImageResolve2 *region,
+        enum vkd3d_resolve_path path, bool post_resolve, VkImageLayout outside_layout, VkPipelineStageFlags2 outside_stages,
+        VkAccessFlags2 outside_access, VkImageMemoryBarrier2 *barrier)
+{
+    VkPipelineStageFlags2 resolve_stages;
+    VkAccessFlags2 resolve_access;
+    VkImageLayout resolve_layout;
+
+    if (path == VKD3D_RESOLVE_PATH_DIRECT)
+    {
+        resolve_layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        resolve_stages = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+        resolve_access = VK_ACCESS_2_TRANSFER_READ_BIT;
+    }
+    else if (path == VKD3D_RESOLVE_PATH_RENDER_PASS_ATTACHMENT)
+    {
+        if (resource->format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+        {
+            resolve_layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            resolve_stages = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+            resolve_access = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+        }
+        else
+        {
+            resolve_layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            resolve_stages = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            resolve_access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT;
+        }
+    }
+    else
+    {
+        resolve_layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        resolve_stages = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        resolve_access = VK_ACCESS_2_SHADER_READ_BIT;
+    }
+
+    memset(barrier, 0, sizeof(*barrier));
+    barrier->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+
+    if (post_resolve)
+    {
+        barrier->srcStageMask = resolve_stages;
+        barrier->srcAccessMask = resolve_access;
+        barrier->dstStageMask = outside_stages;
+        barrier->dstAccessMask = outside_access;
+        barrier->oldLayout = resolve_layout;
+        barrier->newLayout = outside_layout;
+    }
+    else
+    {
+        barrier->srcStageMask = outside_stages;
+        barrier->srcAccessMask = VK_ACCESS_2_NONE;
+        barrier->dstStageMask = resolve_stages;
+        barrier->dstAccessMask = resolve_access;
+        barrier->oldLayout = outside_layout;
+        barrier->newLayout = resolve_layout;
+    }
+
+    barrier->srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier->dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier->image = resource->res.vk_image;
+    barrier->subresourceRange = vk_subresource_range_from_layers(&region->srcSubresource);
+}
+
+static void d3d12_command_list_execute_resolve(struct d3d12_command_list *list,
+        struct d3d12_resource *dst_resource, struct d3d12_resource *src_resource,
+        uint32_t region_count, const VkImageResolve2 *regions, DXGI_FORMAT format,
+        D3D12_RESOLVE_MODE mode, enum vkd3d_resolve_path path)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct vkd3d_resolve_image_pipeline_key resolve_pipeline_key;
+    struct vkd3d_texture_view_desc dst_view_desc, src_view_desc;
+    struct vkd3d_resolve_image_info resolve_pipeline_info;
+    struct vkd3d_resolve_image_args resolve_args;
+    VkRenderingAttachmentInfo attachment_info;
+    VkWriteDescriptorSet vk_descriptor_write;
+    struct vkd3d_view *dst_view, *src_view;
+    const struct vkd3d_format *vk_format;
+    VkDescriptorImageInfo vk_image_info;
+    VkResolveImageInfo2 resolve_info;
+    VkRenderingInfo rendering_info;
+    VkViewport viewport;
+    unsigned int i, j;
+
+    if (path == VKD3D_RESOLVE_PATH_DIRECT)
+    {
+        memset(&resolve_info, 0, sizeof(resolve_info));
+        resolve_info.sType = VK_STRUCTURE_TYPE_RESOLVE_IMAGE_INFO_2;
+        resolve_info.srcImage = src_resource->res.vk_image;
+        resolve_info.srcImageLayout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        resolve_info.dstImage = dst_resource->res.vk_image;
+        resolve_info.dstImageLayout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        resolve_info.regionCount = region_count;
+        resolve_info.pRegions = regions;
+
+        VK_CALL(vkCmdResolveImage2(list->cmd.vk_command_buffer, &resolve_info));
+    }
+    else
+    {
+        d3d12_command_list_invalidate_current_pipeline(list, true);
+        d3d12_command_list_invalidate_root_parameters(list, &list->graphics_bindings, true, &list->compute_bindings);
+        d3d12_command_list_update_descriptor_buffers(list);
+
+        vk_format = d3d12_command_list_get_resolve_format(list, dst_resource, src_resource, format);
+
+        memset(&attachment_info, 0, sizeof(attachment_info));
+        attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+
+        memset(&rendering_info, 0, sizeof(rendering_info));
+        rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+
+        if (vk_format->vk_aspect_mask & VK_IMAGE_ASPECT_COLOR_BIT)
+        {
+            rendering_info.colorAttachmentCount = 1;
+            rendering_info.pColorAttachments = &attachment_info;
+
+            if (path == VKD3D_RESOLVE_PATH_RENDER_PASS_ATTACHMENT)
+            {
+                attachment_info.imageLayout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+                attachment_info.resolveImageLayout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            }
+            else
+                attachment_info.imageLayout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        }
+        else
+        {
+            if (path == VKD3D_RESOLVE_PATH_RENDER_PASS_ATTACHMENT)
+            {
+                attachment_info.imageLayout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+                attachment_info.resolveImageLayout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            }
+            else
+                attachment_info.imageLayout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+        }
+
+        for (i = 0; i < region_count; i++)
+        {
+            const VkImageResolve2 *region = &regions[i];
+
+            rendering_info.renderArea.offset.x = region->dstOffset.x;
+            rendering_info.renderArea.offset.y = region->dstOffset.y;
+            rendering_info.renderArea.extent.width = region->extent.width;
+            rendering_info.renderArea.extent.height = region->extent.height;
+            rendering_info.layerCount = region->dstSubresource.layerCount;
+            rendering_info.pDepthAttachment = (region->dstSubresource.aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT) ? &attachment_info : NULL;
+            rendering_info.pStencilAttachment = (region->dstSubresource.aspectMask & VK_IMAGE_ASPECT_STENCIL_BIT) ? &attachment_info : NULL;
+
+            if (path == VKD3D_RESOLVE_PATH_RENDER_PASS_ATTACHMENT)
+                attachment_info.resolveMode = vk_resolve_mode_from_d3d12(mode);
+
+            memset(&dst_view_desc, 0, sizeof(dst_view_desc));
+            dst_view_desc.image = dst_resource->res.vk_image;
+            dst_view_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+            dst_view_desc.format = vk_format;
+            dst_view_desc.miplevel_idx = region->dstSubresource.mipLevel;
+            dst_view_desc.miplevel_count = 1;
+            dst_view_desc.layer_idx = region->dstSubresource.baseArrayLayer;
+            dst_view_desc.layer_count = region->dstSubresource.layerCount;
+            dst_view_desc.aspect_mask = vk_format->vk_aspect_mask;
+            dst_view_desc.image_usage = (vk_format->vk_aspect_mask & VK_IMAGE_ASPECT_COLOR_BIT) ?
+                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT : VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+
+            memset(&src_view_desc, 0, sizeof(src_view_desc));
+            src_view_desc.image = src_resource->res.vk_image;
+            src_view_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+            src_view_desc.format = vk_format;
+            src_view_desc.miplevel_idx = region->srcSubresource.mipLevel;
+            src_view_desc.miplevel_count = 1;
+            src_view_desc.layer_idx = region->srcSubresource.baseArrayLayer;
+            src_view_desc.layer_count = region->srcSubresource.layerCount;
+
+            if (path == VKD3D_RESOLVE_PATH_RENDER_PASS_ATTACHMENT)
+            {
+                src_view_desc.aspect_mask = vk_format->vk_aspect_mask;
+                src_view_desc.image_usage = dst_view_desc.image_usage;
+            }
+            else
+            {
+                src_view_desc.aspect_mask = region->srcSubresource.aspectMask;
+                src_view_desc.image_usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+                src_view_desc.allowed_swizzle = true;
+            }
+
+            if (!vkd3d_create_texture_view(list->device, &dst_view_desc, &dst_view) ||
+                    !vkd3d_create_texture_view(list->device, &src_view_desc, &src_view))
+            {
+                ERR("Failed to create image views.\n");
+                goto cleanup;
+            }
+
+            if (!d3d12_command_allocator_add_view(list->allocator, dst_view) ||
+                    !d3d12_command_allocator_add_view(list->allocator, src_view))
+            {
+                ERR("Failed to add views.\n");
+                goto cleanup;
+            }
+
+            if (path == VKD3D_RESOLVE_PATH_RENDER_PASS_ATTACHMENT)
+            {
+                attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+                attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
+                attachment_info.imageView = src_view->vk_image_view;
+                attachment_info.resolveImageView = dst_view->vk_image_view;
+            }
+            else
+            {
+                memset(&resolve_pipeline_key, 0, sizeof(resolve_pipeline_key));
+                resolve_pipeline_key.format = vk_format;
+                resolve_pipeline_key.dst_aspect = (VkImageAspectFlagBits)region->dstSubresource.aspectMask;
+                resolve_pipeline_key.mode = mode;
+
+                if (FAILED(vkd3d_meta_get_resolve_image_pipeline(&list->device->meta_ops, &resolve_pipeline_key, &resolve_pipeline_info)))
+                {
+                    ERR("Failed to get resolve pipeline.\n");
+                    return;
+                }
+
+                attachment_info.loadOp = resolve_pipeline_info.needs_stencil_mask
+                        ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+                attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+                attachment_info.imageView = dst_view->vk_image_view;
+            }
+
+            VK_CALL(vkCmdBeginRendering(list->cmd.vk_command_buffer, &rendering_info));
+
+            if (path == VKD3D_RESOLVE_PATH_RENDER_PASS_PIPELINE)
+            {
+                viewport.x = (float)region->dstOffset.x;
+                viewport.y = (float)region->dstOffset.y;
+                viewport.width = (float)region->extent.width;
+                viewport.height = (float)region->extent.height;
+                viewport.minDepth = 0.0f;
+                viewport.maxDepth = 1.0f;
+
+                memset(&resolve_args, 0, sizeof(resolve_args));
+                resolve_args.offset.x = region->srcOffset.x - region->dstOffset.x;
+                resolve_args.offset.y = region->srcOffset.y - region->dstOffset.y;
+
+                memset(&vk_image_info, 0, sizeof(vk_image_info));
+                vk_image_info.imageView = src_view->vk_image_view;
+                vk_image_info.imageLayout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+                memset(&vk_descriptor_write, 0, sizeof(vk_descriptor_write));
+                vk_descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                vk_descriptor_write.dstBinding = 0;
+                vk_descriptor_write.dstArrayElement = 0;
+                vk_descriptor_write.descriptorCount = 1;
+                vk_descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+                vk_descriptor_write.pImageInfo = &vk_image_info;
+
+                VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, resolve_pipeline_info.vk_pipeline));
+                VK_CALL(vkCmdSetViewport(list->cmd.vk_command_buffer, 0, 1, &viewport));
+                VK_CALL(vkCmdSetScissor(list->cmd.vk_command_buffer, 0, 1, &rendering_info.renderArea));
+                VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        resolve_pipeline_info.vk_pipeline_layout, 0, 1, &vk_descriptor_write));
+
+                if (resolve_pipeline_info.needs_stencil_mask)
+                {
+                    for (j = 0; j < 8; j++)
+                    {
+                        resolve_args.bit_mask = 1u << j;
+                        VK_CALL(vkCmdSetStencilWriteMask(list->cmd.vk_command_buffer, VK_STENCIL_FACE_FRONT_AND_BACK, resolve_args.bit_mask));
+                        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer, resolve_pipeline_info.vk_pipeline_layout,
+                                VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(resolve_args), &resolve_args));
+                        VK_CALL(vkCmdDraw(list->cmd.vk_command_buffer, 3, region->dstSubresource.layerCount, 0, 0));
+                    }
+                }
+                else
+                {
+                    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer, resolve_pipeline_info.vk_pipeline_layout,
+                            VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(resolve_args), &resolve_args));
+                    VK_CALL(vkCmdDraw(list->cmd.vk_command_buffer, 3, region->dstSubresource.layerCount, 0, 0));
+                }
+            }
+
+            VK_CALL(vkCmdEndRendering(list->cmd.vk_command_buffer));
+
+cleanup:
+            if (dst_view)
+                vkd3d_view_decref(dst_view, list->device);
+            if (src_view)
+                vkd3d_view_decref(src_view, list->device);
+        }
+    }
+}
+
+static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *list,
+        struct d3d12_resource *dst_resource, struct d3d12_resource *src_resource,
+        const VkImageResolve2 *resolve, DXGI_FORMAT format, D3D12_RESOLVE_MODE mode)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkImageMemoryBarrier2 vk_image_barriers[2];
+    enum vkd3d_resolve_path path;
+    VkDependencyInfo dep_info;
+    bool writes_full_resource;
+
+    path = d3d12_command_list_select_resolve_path(list, dst_resource, src_resource, 1, resolve, format, mode);
+
+    if (path == VKD3D_RESOLVE_PATH_UNSUPPORTED)
+    {
+        FIXME("Unsupported combination of resolve parameters.\n");
         return;
     }
 
-    if (mode == D3D12_RESOLVE_MODE_AVERAGE && (dst_resource->format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT))
-    {
-        FIXME("AVERAGE resolve on DEPTH aspect is not supported yet.\n");
-        return;
-    }
-
-    device = list->device;
-    vk_procs = &device->vk_procs;
     d3d12_command_list_end_current_render_pass(list, false);
     d3d12_command_list_end_transfer_batch(list);
-
-    if (dst_resource->format->type == VKD3D_FORMAT_TYPE_TYPELESS || src_resource->format->type == VKD3D_FORMAT_TYPE_TYPELESS)
-    {
-        if (!(vk_format = vkd3d_format_from_d3d12_resource_desc(device, &dst_resource->desc, format)))
-        {
-            WARN("Invalid format %#x.\n", format);
-            return;
-        }
-        if (dst_resource->format->vk_format != src_resource->format->vk_format || dst_resource->format->vk_format != vk_format->vk_format)
-        {
-            FIXME("Not implemented for typeless resources.\n");
-            return;
-        }
-    }
-
-    /* Resolve of depth/stencil images is not supported in Vulkan. */
-    if ((dst_resource->format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
-            || (src_resource->format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)))
-    {
-        FIXME("Resolve of depth/stencil images is not implemented yet.\n");
-        return;
-    }
-
-    dst_layout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    src_layout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-
-    memset(vk_image_barriers, 0, sizeof(vk_image_barriers));
-
-    for (i = 0; i < ARRAY_SIZE(vk_image_barriers); i++)
-    {
-        vk_image_barriers[i].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        vk_image_barriers[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        vk_image_barriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        vk_image_barriers[i].srcStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
-        vk_image_barriers[i].dstStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
-    }
-
-    writes_full_subresource = d3d12_image_copy_writes_full_subresource(dst_resource,
-            &resolve->extent, &resolve->dstSubresource);
-
-    writes_full_resource = writes_full_subresource && d3d12_resource_get_sub_resource_count(dst_resource) == 1;
-
-    d3d12_command_list_track_resource_usage(list, dst_resource, !writes_full_resource);
-    d3d12_command_list_track_resource_usage(list, src_resource, true);
-
-    vk_image_barriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    vk_image_barriers[0].oldLayout = writes_full_subresource ? VK_IMAGE_LAYOUT_UNDEFINED : dst_resource->common_layout;
-    vk_image_barriers[0].newLayout = dst_layout;
-    vk_image_barriers[0].image = dst_resource->res.vk_image;
-    vk_image_barriers[0].subresourceRange = vk_subresource_range_from_layers(&resolve->dstSubresource);
-
-    vk_image_barriers[1].dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-    vk_image_barriers[1].oldLayout = src_resource->common_layout;
-    vk_image_barriers[1].newLayout = src_layout;
-    vk_image_barriers[1].image = src_resource->res.vk_image;
-    vk_image_barriers[1].subresourceRange = vk_subresource_range_from_layers(&resolve->srcSubresource);
 
     memset(&dep_info, 0, sizeof(dep_info));
     dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
     dep_info.imageMemoryBarrierCount = ARRAY_SIZE(vk_image_barriers);
     dep_info.pImageMemoryBarriers = vk_image_barriers;
 
+    d3d12_get_resolve_barrier_for_dst_resource(dst_resource, resolve, path, false, dst_resource->common_layout,
+            VK_PIPELINE_STAGE_2_RESOLVE_BIT, VK_ACCESS_2_NONE, &vk_image_barriers[0]);
+    d3d12_get_resolve_barrier_for_src_resource(src_resource, resolve, path, false, src_resource->common_layout,
+            VK_PIPELINE_STAGE_2_RESOLVE_BIT, VK_ACCESS_2_NONE, &vk_image_barriers[1]);
+
     VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
-    resolve_info.sType = VK_STRUCTURE_TYPE_RESOLVE_IMAGE_INFO_2;
-    resolve_info.pNext = NULL;
-    resolve_info.srcImage = src_resource->res.vk_image;
-    resolve_info.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    resolve_info.dstImage = dst_resource->res.vk_image;
-    resolve_info.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    resolve_info.regionCount = 1;
-    resolve_info.pRegions = resolve;
+    writes_full_resource = d3d12_image_copy_writes_full_subresource(
+            dst_resource, &resolve->extent, &resolve->dstSubresource) &&
+            d3d12_resource_get_sub_resource_count(dst_resource) == 1;
 
-    VK_CALL(vkCmdResolveImage2(list->cmd.vk_command_buffer, &resolve_info));
+    d3d12_command_list_track_resource_usage(list, dst_resource, !writes_full_resource);
+    d3d12_command_list_track_resource_usage(list, src_resource, true);
 
-    vk_image_barriers[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    vk_image_barriers[0].dstAccessMask = VK_ACCESS_2_NONE;
-    vk_image_barriers[0].oldLayout = dst_layout;
-    vk_image_barriers[0].newLayout = dst_resource->common_layout;
+    d3d12_command_list_execute_resolve(list, dst_resource, src_resource, 1, resolve, format, mode, path);
 
-    vk_image_barriers[1].srcAccessMask = VK_ACCESS_2_NONE;
-    vk_image_barriers[1].dstAccessMask = VK_ACCESS_2_NONE;
-    vk_image_barriers[1].oldLayout = src_layout;
-    vk_image_barriers[1].newLayout = src_resource->common_layout;
+    d3d12_get_resolve_barrier_for_dst_resource(dst_resource, resolve, path, true, dst_resource->common_layout,
+            VK_PIPELINE_STAGE_2_RESOLVE_BIT, VK_ACCESS_2_NONE, &vk_image_barriers[0]);
+    d3d12_get_resolve_barrier_for_src_resource(src_resource, resolve, path, true, src_resource->common_layout,
+            VK_PIPELINE_STAGE_2_RESOLVE_BIT, VK_ACCESS_2_NONE, &vk_image_barriers[1]);
 
     VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
@@ -8475,7 +8893,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     struct d3d12_resource *dst_resource, *src_resource;
-    VkImageResolve2KHR vk_image_resolve;
+    VkImageResolve2 vk_image_resolve;
 
     TRACE("iface %p, dst_resource %p, dst_sub_resource_idx %u, src_resource %p, src_sub_resource_idx %u, "
             "format %#x.\n", iface, dst, dst_sub_resource_idx, src, src_sub_resource_idx, format);
@@ -13861,7 +14279,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(d3d12_
 
     if (mode == D3D12_RESOLVE_MODE_AVERAGE || mode == D3D12_RESOLVE_MODE_MIN || mode == D3D12_RESOLVE_MODE_MAX)
     {
-        VkImageResolve2KHR vk_image_resolve;
+        VkImageResolve2 vk_image_resolve;
         vk_image_resolve.sType = VK_STRUCTURE_TYPE_IMAGE_RESOLVE_2_KHR;
         vk_image_resolve.pNext = NULL;
         vk_image_resolve.srcSubresource = src_subresource;
