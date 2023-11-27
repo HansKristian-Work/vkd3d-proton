@@ -3793,6 +3793,51 @@ struct vkd3d_copy_image_ops
     size_t pipeline_count;
 };
 
+struct vkd3d_resolve_image_args
+{
+    VkOffset2D offset;
+    uint32_t bit_mask;
+};
+
+struct vkd3d_resolve_image_info
+{
+    VkDescriptorSetLayout vk_set_layout;
+    VkPipelineLayout vk_pipeline_layout;
+    VkPipeline vk_pipeline;
+    bool needs_stencil_mask;
+};
+
+struct vkd3d_resolve_image_pipeline_key
+{
+    const struct vkd3d_format *format;
+    VkImageAspectFlagBits dst_aspect;
+    D3D12_RESOLVE_MODE mode;
+};
+
+struct vkd3d_resolve_image_pipeline
+{
+    struct vkd3d_resolve_image_pipeline_key key;
+
+    VkPipeline vk_pipeline;
+};
+
+struct vkd3d_resolve_image_ops
+{
+    VkDescriptorSetLayout vk_set_layout;
+    VkPipelineLayout vk_pipeline_layout;
+    VkShaderModule vk_fs_float_module;
+    VkShaderModule vk_fs_uint_module;
+    VkShaderModule vk_fs_sint_module;
+    VkShaderModule vk_fs_depth_module;
+    VkShaderModule vk_fs_stencil_module;
+
+    pthread_mutex_t mutex;
+
+    struct vkd3d_resolve_image_pipeline *pipelines;
+    size_t pipelines_size;
+    size_t pipeline_count;
+};
+
 struct vkd3d_swapchain_pipeline_key
 {
     VkPipelineBindPoint bind_point;
@@ -4060,6 +4105,7 @@ struct vkd3d_meta_ops
     struct vkd3d_meta_ops_common common;
     struct vkd3d_clear_uav_ops clear_uav;
     struct vkd3d_copy_image_ops copy_image;
+    struct vkd3d_resolve_image_ops resolve_image;
     struct vkd3d_swapchain_ops swapchain;
     struct vkd3d_query_ops query;
     struct vkd3d_predicate_ops predicate;
@@ -4090,6 +4136,8 @@ VkImageViewType vkd3d_meta_get_copy_image_view_type(D3D12_RESOURCE_DIMENSION dim
 const struct vkd3d_format *vkd3d_meta_get_copy_image_attachment_format(struct vkd3d_meta_ops *meta_ops,
         const struct vkd3d_format *dst_format, const struct vkd3d_format *src_format,
         VkImageAspectFlags dst_aspect, VkImageAspectFlags src_aspect);
+HRESULT vkd3d_meta_get_resolve_image_pipeline(struct vkd3d_meta_ops *meta_ops,
+        const struct vkd3d_resolve_image_pipeline_key *key, struct vkd3d_resolve_image_info *info);
 HRESULT vkd3d_meta_get_swapchain_pipeline(struct vkd3d_meta_ops *meta_ops,
         const struct vkd3d_swapchain_pipeline_key *key, struct vkd3d_swapchain_info *info);
 
