@@ -873,6 +873,279 @@ const struct vkd3d_format *vkd3d_meta_get_copy_image_attachment_format(struct vk
     return vkd3d_get_format(meta_ops->device, dxgi_format, false);
 }
 
+static void vkd3d_resolve_image_ops_cleanup(struct vkd3d_resolve_image_ops *meta_resolve_image_ops, struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    unsigned int i;
+
+    for (i = 0; i < meta_resolve_image_ops->pipeline_count; i++)
+        VK_CALL(vkDestroyPipeline(device->vk_device, meta_resolve_image_ops->pipelines[i].vk_pipeline, NULL));
+
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_resolve_image_ops->vk_fs_float_module, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_resolve_image_ops->vk_fs_uint_module, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_resolve_image_ops->vk_fs_sint_module, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_resolve_image_ops->vk_fs_depth_module, NULL));
+    VK_CALL(vkDestroyShaderModule(device->vk_device, meta_resolve_image_ops->vk_fs_stencil_module, NULL));
+    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_resolve_image_ops->vk_set_layout, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_resolve_image_ops->vk_pipeline_layout, NULL));
+
+    pthread_mutex_destroy(&meta_resolve_image_ops->mutex);
+
+    vkd3d_free(meta_resolve_image_ops->pipelines);
+}
+
+static HRESULT vkd3d_resolve_image_ops_init(struct vkd3d_resolve_image_ops *meta_resolve_image_ops, struct d3d12_device *device)
+{
+    VkDescriptorSetLayoutBinding set_binding;
+    VkPushConstantRange push_constant_range;
+    VkResult vr;
+    int rc;
+
+    memset(meta_resolve_image_ops, 0, sizeof(*meta_resolve_image_ops));
+
+    if ((rc = pthread_mutex_init(&meta_resolve_image_ops->mutex, NULL)))
+    {
+        ERR("Failed to initialize mutex, error %d.\n", rc);
+        return hresult_from_errno(rc);
+    }
+
+    set_binding.binding = 0;
+    set_binding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    set_binding.descriptorCount = 1;
+    set_binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    set_binding.pImmutableSamplers = NULL;
+
+    if ((vr = vkd3d_meta_create_descriptor_set_layout(device, 1, &set_binding, true, &meta_resolve_image_ops->vk_set_layout)) < 0)
+    {
+        ERR("Failed to create descriptor set layout, vr %d.\n", vr);
+        goto fail;
+    }
+
+    push_constant_range.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    push_constant_range.offset = 0;
+    push_constant_range.size = sizeof(struct vkd3d_resolve_image_args);
+
+    if ((vr = vkd3d_meta_create_pipeline_layout(device, 1, &meta_resolve_image_ops->vk_set_layout,
+            1, &push_constant_range, &meta_resolve_image_ops->vk_pipeline_layout)))
+    {
+        ERR("Failed to create pipeline layout, vr %d.\n", vr);
+        goto fail;
+    }
+
+    if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_resolve_color_float),
+            &meta_resolve_image_ops->vk_fs_float_module)) < 0)
+    {
+        ERR("Failed to create shader modules, vr %d.\n", vr);
+        goto fail;
+    }
+
+    if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_resolve_color_uint),
+            &meta_resolve_image_ops->vk_fs_uint_module)) < 0)
+    {
+        ERR("Failed to create shader modules, vr %d.\n", vr);
+        goto fail;
+    }
+
+    if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_resolve_color_sint),
+            &meta_resolve_image_ops->vk_fs_sint_module)) < 0)
+    {
+        ERR("Failed to create shader modules, vr %d.\n", vr);
+        goto fail;
+    }
+
+    if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_resolve_depth),
+            &meta_resolve_image_ops->vk_fs_depth_module)) < 0)
+    {
+        ERR("Failed to create shader modules, vr %d.\n", vr);
+        goto fail;
+    }
+
+    if (device->vk_info.EXT_shader_stencil_export)
+    {
+        if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_resolve_stencil),
+                &meta_resolve_image_ops->vk_fs_stencil_module)) < 0)
+        {
+            ERR("Failed to create shader modules, vr %d.\n", vr);
+            goto fail;
+        }
+    }
+    else
+    {
+        if ((vr = vkd3d_meta_create_shader_module(device, SPIRV_CODE(fs_resolve_stencil_no_export),
+                &meta_resolve_image_ops->vk_fs_stencil_module)) < 0)
+        {
+            ERR("Failed to create shader modules, vr %d.\n", vr);
+            goto fail;
+        }
+    }
+
+    return S_OK;
+
+fail:
+    vkd3d_resolve_image_ops_cleanup(meta_resolve_image_ops, device);
+    return hresult_from_vk_result(vr);
+}
+
+static HRESULT vkd3d_meta_create_resolve_image_pipeline(struct vkd3d_meta_ops *meta_ops,
+        const struct vkd3d_resolve_image_pipeline_key *key, struct vkd3d_resolve_image_pipeline *pipeline)
+{
+    struct vkd3d_resolve_image_ops *meta_resolve_image_ops = &meta_ops->resolve_image;
+    VkPipelineDepthStencilStateCreateInfo ds_state;
+    unsigned int dynamic_state_count;
+    VkSpecializationInfo spec_info;
+    VkShaderModule vk_module;
+    bool has_depth_target;
+    VkResult vr;
+
+    static const VkDynamicState dynamic_states[] =
+    {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR,
+        VK_DYNAMIC_STATE_STENCIL_WRITE_MASK,
+    };
+
+    struct spec_data
+    {
+        D3D12_RESOLVE_MODE mode;
+    } spec_data;
+
+    static const VkSpecializationMapEntry map_entries[] =
+    {
+        { 0, offsetof(struct spec_data, mode), sizeof(spec_data.mode) },
+    };
+
+    spec_data.mode = key->mode;
+
+    /* Ignore stencil state unless it is explicitly required */
+    dynamic_state_count = ARRAY_SIZE(dynamic_states) - 1;
+
+    spec_info.mapEntryCount = ARRAY_SIZE(map_entries);
+    spec_info.pMapEntries = map_entries;
+    spec_info.dataSize = sizeof(spec_data);
+    spec_info.pData = &spec_data;
+
+    has_depth_target = key->format->vk_aspect_mask != VK_IMAGE_ASPECT_COLOR_BIT;
+
+    memset(&ds_state, 0, sizeof(ds_state));
+    ds_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    ds_state.depthTestEnable = key->dst_aspect == VK_IMAGE_ASPECT_DEPTH_BIT;
+    ds_state.depthWriteEnable = ds_state.depthTestEnable;
+    ds_state.depthCompareOp = VK_COMPARE_OP_ALWAYS;
+    ds_state.minDepthBounds = 0.0f;
+    ds_state.maxDepthBounds = 1.0f;
+
+    if (key->dst_aspect == VK_IMAGE_ASPECT_STENCIL_BIT)
+    {
+        ds_state.stencilTestEnable = VK_TRUE;
+        ds_state.front.reference = 0xff;
+        ds_state.front.writeMask = 0xff;
+        ds_state.front.compareMask = 0xff;
+        ds_state.front.passOp = VK_STENCIL_OP_REPLACE;
+        ds_state.front.failOp = VK_STENCIL_OP_KEEP;
+        ds_state.front.depthFailOp = VK_STENCIL_OP_KEEP;
+        ds_state.front.compareOp = VK_COMPARE_OP_ALWAYS;
+        ds_state.back = ds_state.front;
+
+        vk_module = meta_resolve_image_ops->vk_fs_stencil_module;
+
+        if (!meta_ops->device->vk_info.EXT_shader_stencil_export)
+            dynamic_state_count = ARRAY_SIZE(dynamic_states);
+    }
+    else if (key->dst_aspect == VK_IMAGE_ASPECT_DEPTH_BIT)
+    {
+        vk_module = meta_resolve_image_ops->vk_fs_depth_module;
+    }
+    else
+    {
+        switch (key->format->type)
+        {
+            case VKD3D_FORMAT_TYPE_TYPELESS:
+                ERR("Typeless format not supported as a resolve target.\n");
+                return E_INVALIDARG;
+
+            case VKD3D_FORMAT_TYPE_SINT:
+                vk_module = meta_resolve_image_ops->vk_fs_sint_module;
+                break;
+
+            case VKD3D_FORMAT_TYPE_UINT:
+                vk_module = meta_resolve_image_ops->vk_fs_uint_module;
+                break;
+
+            default:
+                vk_module = meta_resolve_image_ops->vk_fs_float_module;
+                break;
+        }
+    }
+
+    if ((vr = vkd3d_meta_create_graphics_pipeline(meta_ops,
+            meta_resolve_image_ops->vk_pipeline_layout,
+            has_depth_target ? VK_FORMAT_UNDEFINED : key->format->vk_format,
+            has_depth_target ? key->format->vk_format : VK_FORMAT_UNDEFINED,
+            key->format->vk_aspect_mask,
+            VK_NULL_HANDLE, vk_module, VK_SAMPLE_COUNT_1_BIT,
+            has_depth_target ? &ds_state : NULL,
+            dynamic_state_count, dynamic_states,
+            &spec_info, true, &pipeline->vk_pipeline)) < 0)
+        return hresult_from_vk_result(vr);
+
+    pipeline->key = *key;
+    return S_OK;
+}
+
+HRESULT vkd3d_meta_get_resolve_image_pipeline(struct vkd3d_meta_ops *meta_ops,
+        const struct vkd3d_resolve_image_pipeline_key *key, struct vkd3d_resolve_image_info *info)
+{
+    struct vkd3d_resolve_image_ops *meta_resolve_image_ops = &meta_ops->resolve_image;
+    struct vkd3d_resolve_image_pipeline *pipeline;
+    HRESULT hr;
+    size_t i;
+    int rc;
+
+    if ((rc = pthread_mutex_lock(&meta_resolve_image_ops->mutex)))
+    {
+        ERR("Failed to lock mutex, error %d.\n", rc);
+        return hresult_from_errno(rc);
+    }
+
+    info->vk_set_layout = meta_resolve_image_ops->vk_set_layout;
+    info->vk_pipeline_layout = meta_resolve_image_ops->vk_pipeline_layout;
+    info->needs_stencil_mask = key->dst_aspect == VK_IMAGE_ASPECT_STENCIL_BIT &&
+            !meta_ops->device->vk_info.EXT_shader_stencil_export;
+
+    for (i = 0; i < meta_resolve_image_ops->pipeline_count; i++)
+    {
+        pipeline = &meta_resolve_image_ops->pipelines[i];
+
+        if (!memcmp(key, &pipeline->key, sizeof(*key)))
+        {
+            info->vk_pipeline = pipeline->vk_pipeline;
+            pthread_mutex_unlock(&meta_resolve_image_ops->mutex);
+            return S_OK;
+        }
+    }
+
+    if (!vkd3d_array_reserve((void **)&meta_resolve_image_ops->pipelines, &meta_resolve_image_ops->pipelines_size,
+            meta_resolve_image_ops->pipeline_count + 1, sizeof(*meta_resolve_image_ops->pipelines)))
+    {
+        ERR("Failed to reserve space for pipeline.\n");
+        return E_OUTOFMEMORY;
+    }
+
+    pipeline = &meta_resolve_image_ops->pipelines[meta_resolve_image_ops->pipeline_count];
+
+    if (FAILED(hr = vkd3d_meta_create_resolve_image_pipeline(meta_ops, key, pipeline)))
+    {
+        pthread_mutex_unlock(&meta_resolve_image_ops->mutex);
+        return hr;
+    }
+
+    info->vk_pipeline = pipeline->vk_pipeline;
+
+    meta_resolve_image_ops->pipeline_count += 1;
+    pthread_mutex_unlock(&meta_resolve_image_ops->mutex);
+    return S_OK;
+}
+
 static HRESULT vkd3d_meta_ops_common_init(struct vkd3d_meta_ops_common *meta_ops_common, struct d3d12_device *device)
 {
     VkResult vr;
@@ -1716,6 +1989,9 @@ HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device
     if (FAILED(hr = vkd3d_copy_image_ops_init(&meta_ops->copy_image, device)))
         goto fail_copy_image_ops;
 
+    if (FAILED(hr = vkd3d_resolve_image_ops_init(&meta_ops->resolve_image, device)))
+        goto fail_resolve_image_ops;
+
     if (FAILED(hr = vkd3d_swapchain_ops_init(&meta_ops->swapchain, device)))
         goto fail_swapchain_ops;
 
@@ -1752,6 +2028,8 @@ fail_predicate_ops:
 fail_query_ops:
     vkd3d_swapchain_ops_cleanup(&meta_ops->swapchain, device);
 fail_swapchain_ops:
+    vkd3d_resolve_image_ops_cleanup(&meta_ops->resolve_image, device);
+fail_resolve_image_ops:
     vkd3d_copy_image_ops_cleanup(&meta_ops->copy_image, device);
 fail_copy_image_ops:
     vkd3d_clear_uav_ops_cleanup(&meta_ops->clear_uav, device);
@@ -1771,6 +2049,7 @@ HRESULT vkd3d_meta_ops_cleanup(struct vkd3d_meta_ops *meta_ops, struct d3d12_dev
     vkd3d_query_ops_cleanup(&meta_ops->query, device);
     vkd3d_swapchain_ops_cleanup(&meta_ops->swapchain, device);
     vkd3d_copy_image_ops_cleanup(&meta_ops->copy_image, device);
+    vkd3d_resolve_image_ops_cleanup(&meta_ops->resolve_image, device);
     vkd3d_clear_uav_ops_cleanup(&meta_ops->clear_uav, device);
     vkd3d_meta_ops_common_cleanup(&meta_ops->common, device);
     return S_OK;
