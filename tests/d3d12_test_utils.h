@@ -1392,6 +1392,12 @@ static inline D3D12_CPU_DESCRIPTOR_HANDLE get_cpu_rtv_handle(struct test_context
     return get_cpu_handle(context->device, heap, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, offset);
 }
 
+static inline D3D12_CPU_DESCRIPTOR_HANDLE get_cpu_dsv_handle(struct test_context *context,
+        ID3D12DescriptorHeap *heap, unsigned int offset)
+{
+    return get_cpu_handle(context->device, heap, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, offset);
+}
+
 static inline D3D12_GPU_DESCRIPTOR_HANDLE get_gpu_descriptor_handle(struct test_context *context,
         ID3D12DescriptorHeap *heap, unsigned int offset)
 {
