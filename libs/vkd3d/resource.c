@@ -770,7 +770,8 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         image_info->usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
     if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
         image_info->usage |= VK_IMAGE_USAGE_STORAGE_BIT;
-    if (!(desc->Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))
+    /* Multisample resolve may require shader access */
+    if (!(desc->Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) || desc->SampleDesc.Count > 1)
         image_info->usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
 
     /* Additional usage flags for shader-based copies */
@@ -2383,7 +2384,7 @@ static HRESULT d3d12_resource_validate_usage(const D3D12_RESOURCE_DESC1 *desc,
         required_image_flags |= VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;
     if (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
         required_image_flags |= VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
-    if (!(desc->Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))
+    if (!(desc->Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) || desc->SampleDesc.Count > 1)
         required_image_flags |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
 
     if (desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
