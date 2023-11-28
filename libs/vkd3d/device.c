@@ -867,6 +867,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"disable_uav_compression", VKD3D_CONFIG_FLAG_DISABLE_UAV_COMPRESSION},
     {"disable_depth_compression", VKD3D_CONFIG_FLAG_DISABLE_DEPTH_COMPRESSION},
     {"disable_color_compression", VKD3D_CONFIG_FLAG_DISABLE_COLOR_COMPRESSION},
+    {"descriptor_hoisting", VKD3D_CONFIG_FLAG_DESCRIPTOR_HOISTING},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -2898,6 +2899,7 @@ static HRESULT d3d12_device_create_scratch_buffer(struct d3d12_device *device, e
         alloc_info.heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS | D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
         alloc_info.extra_allocation_flags = VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH;
         alloc_info.vk_memory_priority = vkd3d_convert_to_vk_prio(D3D12_RESIDENCY_PRIORITY_NORMAL);
+        alloc_info.explicit_global_buffer_usage = 0;
 
         if (FAILED(hr = vkd3d_allocate_heap_memory(device, &device->memory_allocator,
                 &alloc_info, &scratch->allocation)))
@@ -2935,6 +2937,31 @@ static HRESULT d3d12_device_create_scratch_buffer(struct d3d12_device *device, e
         alloc_info.heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS | D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
         alloc_info.extra_allocation_flags = VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH;
         alloc_info.vk_memory_priority = vkd3d_convert_to_vk_prio(D3D12_RESIDENCY_PRIORITY_NORMAL);
+        alloc_info.explicit_global_buffer_usage = 0;
+
+        if (FAILED(hr = vkd3d_allocate_heap_memory(device, &device->memory_allocator,
+                &alloc_info, &scratch->allocation)))
+            return hr;
+    }
+    else if (kind == VKD3D_SCRATCH_POOL_KIND_DESCRIPTOR_BUFFER)
+    {
+        struct vkd3d_allocate_heap_memory_info alloc_info;
+
+        /* We only care about memory types for INDIRECT_PREPROCESS. */
+        assert(memory_types == ~0u);
+
+        memset(&alloc_info, 0, sizeof(alloc_info));
+        alloc_info.heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+        alloc_info.heap_desc.SizeInBytes = size;
+        alloc_info.heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+        alloc_info.heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS | D3D12_HEAP_FLAG_CREATE_NOT_ZEROED;
+        alloc_info.extra_allocation_flags =
+                VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH;
+        alloc_info.vk_memory_priority = vkd3d_convert_to_vk_prio(D3D12_RESIDENCY_PRIORITY_NORMAL);
+        alloc_info.explicit_global_buffer_usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+                VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT |
+                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 
         if (FAILED(hr = vkd3d_allocate_heap_memory(device, &device->memory_allocator,
                 &alloc_info, &scratch->allocation)))
@@ -8301,11 +8328,11 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if (FAILED(hr = vkd3d_sampler_state_init(&device->sampler_state, device)))
         goto out_cleanup_view_map;
 
-    if (FAILED(hr = vkd3d_meta_ops_init(&device->meta_ops, device)))
+    if (FAILED(hr = vkd3d_shader_debug_ring_init(&device->debug_ring, device)))
         goto out_cleanup_sampler_state;
 
-    if (FAILED(hr = vkd3d_shader_debug_ring_init(&device->debug_ring, device)))
-        goto out_cleanup_meta_ops;
+    if (FAILED(hr = vkd3d_meta_ops_init(&device->meta_ops, device)))
+        goto out_cleanup_debug_ring;
 
     vkd3d_scratch_pool_init(device);
 
@@ -8313,7 +8340,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     vkd3d_breadcrumb_tracer_init_barrier_hashes(&device->breadcrumb_tracer);
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
         if (FAILED(hr = vkd3d_breadcrumb_tracer_init(&device->breadcrumb_tracer, device)))
-            goto out_cleanup_debug_ring;
+            goto out_cleanup_meta_ops;
 #endif
 
     if (vkd3d_descriptor_debug_active_qa_checks())
@@ -8360,12 +8387,12 @@ out_cleanup_breadcrumb_tracer:
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
         vkd3d_breadcrumb_tracer_cleanup(&device->breadcrumb_tracer, device);
-out_cleanup_debug_ring:
+out_cleanup_meta_ops:
     vkd3d_breadcrumb_tracer_cleanup_barrier_hashes(&device->breadcrumb_tracer);
 #endif
-    vkd3d_shader_debug_ring_cleanup(&device->debug_ring, device);
-out_cleanup_meta_ops:
     vkd3d_meta_ops_cleanup(&device->meta_ops, device);
+out_cleanup_debug_ring:
+    vkd3d_shader_debug_ring_cleanup(&device->debug_ring, device);
 out_cleanup_sampler_state:
     vkd3d_sampler_state_cleanup(&device->sampler_state, device);
 out_cleanup_view_map:

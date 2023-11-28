@@ -280,6 +280,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap, struct d3d12_device *dev
     alloc_info.heap_desc = heap->desc;
     alloc_info.host_ptr = host_address;
     alloc_info.extra_allocation_flags = 0;
+    alloc_info.explicit_global_buffer_usage = 0;
 
     if (FAILED(hr = vkd3d_private_store_init(&heap->private_store)))
         return hr;

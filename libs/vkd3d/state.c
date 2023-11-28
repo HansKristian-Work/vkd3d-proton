@@ -1518,6 +1518,181 @@ HRESULT d3d12_root_signature_create_local_static_samplers_layout(struct d3d12_ro
     return S_OK;
 }
 
+static uint32_t vkd3d_get_descriptor_size_for_type(struct d3d12_device *device, VkDescriptorType vk_descriptor_type);
+
+static HRESULT d3d12_root_signature_create_hoisted_descriptor_set_layout(
+        const struct d3d12_root_signature *root_signature,
+        VkShaderStageFlagBits stage, const struct vkd3d_shader_meta_hoisted_desc *descs, unsigned int num_descs,
+        struct d3d12_descriptor_copy_template *copy_template)
+{
+    struct d3d12_device *device = root_signature->device;
+
+    VkDescriptorSetLayoutBinding bindings[VKD3D_MAX_HOISTED_DESCRIPTORS];
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct d3d12_descriptor_copy_template_entry *entry;
+    struct vkd3d_shader_descriptor_binding binding;
+    VkDescriptorSetLayout vk_set_layout;
+    VkDeviceSize desc_offset;
+    uint32_t bindless_flags;
+    unsigned int i;
+    HRESULT hr;
+
+    for (i = 0; i < num_descs; i++)
+    {
+        bindings[i].descriptorType = (VkDescriptorType)descs[i].vk_descriptor_type;
+        bindings[i].descriptorCount = 1;
+        bindings[i].binding = i;
+        bindings[i].pImmutableSamplers = NULL;
+        bindings[i].stageFlags = stage;
+    }
+
+    if (FAILED(hr = vkd3d_create_descriptor_set_layout(root_signature->device, 0,
+            num_descs, bindings, VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
+            &vk_set_layout)))
+        return hr;
+
+    /* Align this to simplify the algorithm that checks for exhaustion. */
+    copy_template->descriptor_allocation_size = align(
+            copy_template->descriptor_allocation_size,
+            device->device_info.descriptor_buffer_properties.descriptorBufferOffsetAlignment);
+    copy_template->descriptor_offsets[copy_template->num_hoist_sets] = copy_template->descriptor_allocation_size;
+    VK_CALL(vkGetDescriptorSetLayoutSizeEXT(device->vk_device, vk_set_layout, &desc_offset));
+    copy_template->descriptor_allocation_size += desc_offset;
+
+    for (i = 0; i < num_descs; i++)
+    {
+        entry = &copy_template->entries[copy_template->num_entries++];
+        entry->constant_offset = descs[i].constant_offset;
+        entry->table_index = descs[i].table_index;
+
+        switch (bindings[i].descriptorType)
+        {
+            case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+                bindless_flags = VKD3D_BINDLESS_SET_IMAGE | VKD3D_BINDLESS_SET_SRV;
+                break;
+
+            case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+                bindless_flags = VKD3D_BINDLESS_SET_IMAGE | VKD3D_BINDLESS_SET_UAV;
+                break;
+
+            case VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:
+                bindless_flags = VKD3D_BINDLESS_SET_BUFFER | VKD3D_BINDLESS_SET_SRV;
+                break;
+
+            case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:
+                bindless_flags = VKD3D_BINDLESS_SET_BUFFER | VKD3D_BINDLESS_SET_UAV;
+                break;
+
+            case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+                bindless_flags = VKD3D_BINDLESS_SET_SRV | VKD3D_BINDLESS_SET_UAV | VKD3D_BINDLESS_SET_RAW_SSBO;
+                break;
+
+            case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+                bindless_flags = VKD3D_BINDLESS_SET_CBV;
+                break;
+
+            case VK_DESCRIPTOR_TYPE_SAMPLER:
+                bindless_flags = VKD3D_BINDLESS_SET_SAMPLER;
+                break;
+
+            default:
+                WARN("Unknown descriptor type %u.\n", bindings[i].descriptorType);
+                return E_INVALIDARG;
+        }
+
+        if (vkd3d_bindless_state_find_binding(&device->bindless_state, bindless_flags, &binding))
+        {
+            entry->set_index = binding.set;
+            entry->count = vkd3d_get_descriptor_size_for_type(root_signature->device, bindings[i].descriptorType) / sizeof(uint32_t);
+        }
+        else
+            return E_INVALIDARG;
+
+        VK_CALL(vkGetDescriptorSetLayoutBindingOffsetEXT(device->vk_device, vk_set_layout, i, &desc_offset));
+        entry->dst_offset_words = (copy_template->descriptor_offsets[copy_template->num_hoist_sets] + desc_offset) / sizeof(uint32_t);
+    }
+
+    copy_template->vk_hoist_descriptor_set_layouts[copy_template->num_hoist_sets++] = vk_set_layout;
+    return S_OK;
+}
+
+HRESULT d3d12_root_signature_create_hoisted_descriptor_layout(
+        const struct d3d12_root_signature *root_signature, const struct d3d12_bind_point_layout *layout,
+        VkShaderStageFlagBits first_stage, const struct vkd3d_shader_meta_hoisted_desc *first_set, unsigned int first_set_count,
+        VkShaderStageFlagBits second_stage, const struct vkd3d_shader_meta_hoisted_desc *second_set, unsigned int second_set_count,
+        struct d3d12_descriptor_copy_template *copy_template)
+{
+    VkDescriptorSetLayout set_layouts[VKD3D_MAX_DESCRIPTOR_SETS + VKD3D_MAX_HOIST_SHADER_STAGES];
+    unsigned int num_sets;
+    uint64_t table_mask;
+    unsigned int i;
+    HRESULT hr;
+
+    if (first_set_count == 0 && second_set_count == 0)
+    {
+        INFO ("Hoisting 0 descriptors!\n");
+        return S_OK;
+    }
+
+    copy_template->first_hoist_set_index = layout->num_set_layouts;
+
+    /* Have to create the gap descriptor set layout. */
+    if (FAILED(hr = d3d12_root_signature_create_hoisted_descriptor_set_layout(root_signature,
+            first_stage, first_set, first_set_count,
+            copy_template)))
+        return hr;
+
+    if (second_set_count && FAILED(hr = d3d12_root_signature_create_hoisted_descriptor_set_layout(root_signature,
+            second_stage, second_set, second_set_count,
+            copy_template)))
+        return hr;
+
+    for (i = 0; i < layout->num_set_layouts; i++)
+        set_layouts[i] = root_signature->set_layouts[i];
+
+    num_sets = layout->num_set_layouts;
+
+    for (i = 0; i < copy_template->num_hoist_sets; i++)
+        set_layouts[num_sets++] = copy_template->vk_hoist_descriptor_set_layouts[i];
+
+    if (FAILED(hr = vkd3d_create_pipeline_layout(root_signature->device,
+            num_sets, set_layouts,
+            layout->push_constant_range.stageFlags ? 1 : 0, &layout->push_constant_range,
+            &copy_template->vk_hoist_descriptor_layout)))
+        return hr;
+
+    table_mask = 0;
+    for (i = 0; i < copy_template->num_entries; i++)
+        table_mask |= 1ull << copy_template->entries[i].table_index;
+
+    /* Compute a mask for which root parameter indices we're sensitive to,
+     * so we don't flush hoisted buffer descriptors more than we need to.
+     * Use root parameter index rather than table index since it's slower to look up table index
+     * than just checking root parameter directly. */
+    for (i = 0; i < root_signature->parameter_count; i++)
+    {
+        if (root_signature->parameters[i].parameter_type == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE &&
+                (table_mask & (1ull << root_signature->parameters[i].descriptor_table.table_index)))
+        {
+            copy_template->hoist_root_parameter_index_mask |= 1ull << i;
+        }
+    }
+
+    /* If the first set is empty, don't push an offset to it.
+     * VVL gets a bit confused when you push a buffer offset to an empty set layout. */
+    if (first_set_count == 0)
+    {
+        assert(copy_template->num_hoist_sets == 2);
+        copy_template->num_hoist_sets -= 1;
+        copy_template->first_hoist_set_index += 1;
+        copy_template->descriptor_offsets[0] = copy_template->descriptor_offsets[1];
+    }
+
+    INFO("Hoisting %u descriptors!\n", copy_template->num_entries);
+
+    return S_OK;
+}
+
 static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signature,
         struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC2 *desc)
 {
@@ -2248,6 +2423,7 @@ void d3d12_pipeline_state_dec_ref(struct d3d12_pipeline_state *state)
     struct d3d12_device *device = state->device;
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     ULONG refcount = InterlockedDecrement(&state->internal_refcount);
+    unsigned int i;
 
     if (!refcount)
     {
@@ -2264,6 +2440,10 @@ void d3d12_pipeline_state_dec_ref(struct d3d12_pipeline_state *state)
 
         if (state->root_signature)
             d3d12_root_signature_dec_ref(state->root_signature);
+
+        for (i = 0; i < ARRAY_SIZE(state->hoist_template.vk_hoist_descriptor_set_layouts); i++)
+            VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, state->hoist_template.vk_hoist_descriptor_set_layouts[i], NULL));
+        VK_CALL(vkDestroyPipelineLayout(device->vk_device, state->hoist_template.vk_hoist_descriptor_layout, NULL));
 
         if (state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS || state->pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS)
             d3d12_pipeline_state_free_cached_desc(&state->graphics.cached_desc);
@@ -2435,6 +2615,8 @@ static void d3d12_pipeline_state_init_shader_interface(struct d3d12_pipeline_sta
         struct vkd3d_shader_interface_info *shader_interface)
 {
     const struct d3d12_root_signature *root_signature = state->root_signature;
+    const struct d3d12_bind_point_layout *layout;
+
     memset(shader_interface, 0, sizeof(*shader_interface));
     shader_interface->flags = d3d12_root_signature_get_shader_interface_flags(root_signature, state->pipeline_type);
     shader_interface->min_ssbo_alignment = d3d12_device_get_ssbo_alignment(device);
@@ -2454,6 +2636,22 @@ static void d3d12_pipeline_state_init_shader_interface(struct d3d12_pipeline_sta
             device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     shader_interface->descriptor_size_sampler = d3d12_device_get_descriptor_handle_increment_size(
             device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+
+    if (device->bindless_state.flags & VKD3D_BINDLESS_HOIST_DESCRIPTOR_BUFFER)
+    {
+        /* Ignore tess, geom and task, which are all quite rare.
+         * Only bother with the common cases to keep number of sets down. */
+        if (stage == VK_SHADER_STAGE_VERTEX_BIT || stage == VK_SHADER_STAGE_MESH_BIT_EXT ||
+                stage == VK_SHADER_STAGE_FRAGMENT_BIT || stage == VK_SHADER_STAGE_COMPUTE_BIT)
+        {
+            layout = d3d12_root_signature_get_layout(root_signature, state->pipeline_type);
+            shader_interface->flags |= VKD3D_SHADER_INTERFACE_HOIST_DESCRIPTORS;
+            shader_interface->hoist_descriptor_set_index = layout->num_set_layouts;
+            /* Make the set only depend on the root signature. */
+            if (stage == VK_SHADER_STAGE_FRAGMENT_BIT)
+                shader_interface->hoist_descriptor_set_index++;
+        }
+    }
 
     if (stage == VK_SHADER_STAGE_MESH_BIT_EXT)
     {
@@ -2756,6 +2954,42 @@ static void vkd3d_report_pipeline_creation_feedback_results(const VkPipelineCrea
     }
 }
 
+static HRESULT d3d12_pipeline_state_create_hoisted_pipeline_layout(struct d3d12_pipeline_state *state)
+{
+    const struct vkd3d_shader_meta *metas[2] = { NULL };
+    VkShaderStageFlagBits stages[2] = { 0 };
+    unsigned int i;
+
+    if (state->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
+    {
+        metas[0] = &state->compute.code.meta;
+        stages[0] = VK_SHADER_STAGE_COMPUTE_BIT;
+    }
+    else
+    {
+        for (i = 0; i < state->graphics.stage_count; i++)
+        {
+            if (state->graphics.stages[i].stage == VK_SHADER_STAGE_VERTEX_BIT ||
+                    state->graphics.stages[i].stage == VK_SHADER_STAGE_MESH_BIT_EXT)
+            {
+                stages[0] = state->graphics.stages[i].stage;
+                metas[0] = &state->graphics.code[i].meta;
+            }
+            else if (state->graphics.stages[i].stage == VK_SHADER_STAGE_FRAGMENT_BIT)
+            {
+                stages[1] = state->graphics.stages[i].stage;
+                metas[1] = &state->graphics.code[i].meta;
+            }
+        }
+    }
+
+    return d3d12_root_signature_create_hoisted_descriptor_layout(state->root_signature,
+            d3d12_root_signature_get_layout(state->root_signature, state->pipeline_type),
+            stages[0], metas[0] ? metas[0]->hoist_desc : NULL, metas[0] ? metas[0]->num_hoisted_descriptors : 0,
+            stages[1], metas[1] ? metas[1]->hoist_desc : NULL, metas[1] ? metas[1]->num_hoisted_descriptors : 0,
+            &state->hoist_template);
+}
+
 static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
         struct d3d12_device *device,
         const D3D12_SHADER_BYTECODE *code)
@@ -2808,7 +3042,14 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
                 &state->compute.identifier));
     }
 
-    pipeline_info.layout = state->root_signature->compute.vk_pipeline_layout;
+    if (FAILED(hr = d3d12_pipeline_state_create_hoisted_pipeline_layout(state)))
+        return hr;
+
+    if (state->hoist_template.vk_hoist_descriptor_layout)
+        pipeline_info.layout = state->hoist_template.vk_hoist_descriptor_layout;
+    else
+        pipeline_info.layout = state->root_signature->compute.vk_pipeline_layout;
+
     pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_info.basePipelineIndex = -1;
 
@@ -4718,6 +4959,10 @@ static HRESULT d3d12_pipeline_state_init_graphics_spirv(struct d3d12_pipeline_st
     /* At this point, we will have valid meta structures set up.
      * Deduce further PSO information from these structs. */
     d3d12_pipeline_state_graphics_handle_meta(state, device);
+
+    if (FAILED(hr = d3d12_pipeline_state_create_hoisted_pipeline_layout(state)))
+        return hr;
+
     return S_OK;
 }
 
@@ -4772,6 +5017,10 @@ static HRESULT d3d12_pipeline_state_init_static_pipeline(struct d3d12_pipeline_s
 
         graphics->pipeline_layout = state->root_signature->graphics.vk_pipeline_layout;
     }
+
+    /* Override the pipeline layout if we hoist descriptor buffers. */
+    if (state->hoist_template.vk_hoist_descriptor_layout)
+        graphics->pipeline_layout = state->hoist_template.vk_hoist_descriptor_layout;
 
     graphics->pipeline = VK_NULL_HANDLE;
     graphics->library = VK_NULL_HANDLE;
@@ -5992,6 +6241,43 @@ static bool vkd3d_bindless_supports_embedded_packed_metadata(struct d3d12_device
             vkd3d_bindless_get_mutable_descriptor_type_size(device);
 }
 
+static bool vkd3d_bindless_descriptor_size_supports_descriptor_buffer_hoisting(uint32_t size)
+{
+    return size % 4 == 0 && size >= 4;
+}
+
+static bool vkd3d_bindless_supports_descriptor_buffer_hoisting(struct d3d12_device *device, uint32_t flags)
+{
+    const VkPhysicalDeviceDescriptorBufferPropertiesEXT *props;
+    if (d3d12_device_uses_descriptor_buffers(device) &&
+            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DESCRIPTOR_HOISTING) &&
+            (flags & VKD3D_BINDLESS_RAW_SSBO) &&
+            !(flags & VKD3D_SSBO_OFFSET_BUFFER))
+    {
+        props = &device->device_info.descriptor_buffer_properties;
+        if (!vkd3d_bindless_descriptor_size_supports_descriptor_buffer_hoisting(props->samplerDescriptorSize) ||
+                !vkd3d_bindless_descriptor_size_supports_descriptor_buffer_hoisting(props->sampledImageDescriptorSize) ||
+                !vkd3d_bindless_descriptor_size_supports_descriptor_buffer_hoisting(props->storageImageDescriptorSize) ||
+                !vkd3d_bindless_descriptor_size_supports_descriptor_buffer_hoisting(props->robustStorageBufferDescriptorSize) ||
+                !vkd3d_bindless_descriptor_size_supports_descriptor_buffer_hoisting(props->robustUniformBufferDescriptorSize) ||
+                !vkd3d_bindless_descriptor_size_supports_descriptor_buffer_hoisting(props->robustUniformTexelBufferDescriptorSize) ||
+                !vkd3d_bindless_descriptor_size_supports_descriptor_buffer_hoisting(props->robustStorageTexelBufferDescriptorSize))
+            return false;
+
+        if (props->maxDescriptorBufferBindings < 3 ||
+                props->maxResourceDescriptorBufferBindings < 2 ||
+                props->maxSamplerDescriptorBufferBindings < 2 ||
+                !props->bufferlessPushDescriptors)
+            return false;
+
+        /* If we pass all these tests, we're on an implementation that does not really care if we rebind descriptor buffers,
+         * because we're not using true descriptor heaps. */
+        return true;
+    }
+    else
+        return false;
+}
+
 bool vkd3d_bindless_supports_embedded_mutable_type(struct d3d12_device *device, uint32_t flags)
 {
     const VkPhysicalDeviceDescriptorBufferPropertiesEXT *props = &device->device_info.descriptor_buffer_properties;
@@ -6284,6 +6570,9 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
         flags |= VKD3D_BINDLESS_MUTABLE_TYPE_SPLIT_RAW_TYPED;
     }
 
+    if (vkd3d_bindless_supports_descriptor_buffer_hoisting(device, flags))
+        flags |= VKD3D_BINDLESS_HOIST_DESCRIPTOR_BUFFER;
+
     return flags;
 }
 
@@ -6572,42 +6861,6 @@ bool vkd3d_bindless_state_find_binding(const struct vkd3d_bindless_state *bindle
     }
 
     return false;
-}
-
-struct vkd3d_descriptor_binding vkd3d_bindless_state_find_set(const struct vkd3d_bindless_state *bindless_state, uint32_t flags)
-{
-    struct vkd3d_descriptor_binding binding;
-    D3D12_DESCRIPTOR_HEAP_TYPE heap_type;
-    unsigned int i, set_index = 0;
-
-    heap_type = flags & VKD3D_BINDLESS_SET_SAMPLER
-            ? D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER
-            : D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-
-    for (i = 0; i < bindless_state->set_count; i++)
-    {
-        const struct vkd3d_bindless_set_info *set_info = &bindless_state->set_info[i];
-
-        if (set_info->heap_type == heap_type)
-        {
-            if ((set_info->flags & flags) == flags)
-            {
-                binding.set = set_index;
-                binding.binding = set_info->binding_index;
-
-                if (flags & VKD3D_BINDLESS_SET_EXTRA_MASK)
-                    binding.binding = vkd3d_bindless_state_get_extra_binding_index(flags, set_info->flags);
-                return binding;
-            }
-
-            set_index++;
-        }
-    }
-
-    ERR("No set found for flags %#x.", flags);
-    binding.set = 0;
-    binding.binding = 0;
-    return binding;
 }
 
 uint32_t vkd3d_bindless_state_find_set_info_index(const struct vkd3d_bindless_state *bindless_state, uint32_t flags)
