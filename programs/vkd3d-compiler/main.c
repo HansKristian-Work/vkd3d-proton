@@ -166,7 +166,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    hr = vkd3d_shader_compile_dxbc(&dxbc, &spirv, options.compiler_options, NULL, NULL);
+    hr = vkd3d_shader_compile_dxbc(&dxbc, &spirv, NULL, options.compiler_options, NULL, NULL);
     vkd3d_shader_free_shader_code(&dxbc);
     if (FAILED(hr))
     {

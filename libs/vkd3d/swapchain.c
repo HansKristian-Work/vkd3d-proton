@@ -202,19 +202,19 @@ static void dxgi_vk_swap_chain_drain_queue(struct dxgi_vk_swap_chain *chain)
 static void dxgi_vk_swap_chain_drain_blit_semaphore(struct dxgi_vk_swap_chain *chain, uint64_t value)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
-    VkSemaphoreWaitInfoKHR wait_info;
+    VkSemaphoreWaitInfo wait_info;
     VkResult vr;
 
     if (!value)
         return;
 
-    wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO_KHR;
+    wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
     wait_info.pNext = NULL;
     wait_info.flags = 0;
     wait_info.pSemaphores = &chain->present.vk_blit_semaphore;
     wait_info.pValues = &value;
     wait_info.semaphoreCount = 1;
-    vr = VK_CALL(vkWaitSemaphoresKHR(chain->queue->device->vk_device, &wait_info, UINT64_MAX));
+    vr = VK_CALL(vkWaitSemaphores(chain->queue->device->vk_device, &wait_info, UINT64_MAX));
     if (vr)
         ERR("Failed to wait for present semaphore, vr %d.\n", vr);
 }
@@ -358,7 +358,7 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_GetDevice(IDXGIVkSwapChain *
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
     TRACE("iface %p\n", iface);
-    return ID3D12Device10_QueryInterface(&chain->queue->device->ID3D12Device_iface, riid, object);
+    return ID3D12Device12_QueryInterface(&chain->queue->device->ID3D12Device_iface, riid, object);
 }
 
 static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_GetImage(IDXGIVkSwapChain *iface, UINT BufferId, REFIID riid, void **object)
@@ -448,7 +448,7 @@ static HRESULT dxgi_vk_swap_chain_allocate_user_buffer(struct dxgi_vk_swap_chain
     heap_props.VisibleNodeMask = 1;
 
     return d3d12_resource_create_committed(device, &resource_desc, &heap_props, D3D12_HEAP_FLAG_NONE,
-            D3D12_RESOURCE_STATE_PRESENT, NULL, NULL, ppResource);
+            D3D12_RESOURCE_STATE_PRESENT, NULL, 0, NULL, NULL, ppResource);
 }
 
 static HRESULT dxgi_vk_swap_chain_reallocate_user_buffers(struct dxgi_vk_swap_chain *chain)
@@ -648,7 +648,7 @@ static float convert_max_luminance(UINT dxgi_luminance)
 
 static float convert_min_luminance(UINT dxgi_luminance)
 {
-    return dxgi_luminance / 0.0001f;
+    return dxgi_luminance * 0.0001f;
 }
 
 static float convert_level(UINT16 dxgi_level)
@@ -993,7 +993,7 @@ static HRESULT dxgi_vk_swap_chain_init_sync_objects(struct dxgi_vk_swap_chain *c
     char env[8];
     HRESULT hr;
 
-    if (FAILED(hr = ID3D12Device10_CreateFence(&chain->queue->device->ID3D12Device_iface, 0,
+    if (FAILED(hr = ID3D12Device12_CreateFence(&chain->queue->device->ID3D12Device_iface, 0,
             D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence1, (void**)&chain->present.frame_latency_fence)))
     {
         WARN("Failed to create frame latency fence, hr %#x.\n", hr);
@@ -1431,26 +1431,26 @@ static bool request_needs_swapchain_recreation(const struct dxgi_vk_swap_chain_p
 static void dxgi_vk_swap_chain_present_signal_blit_semaphore(struct dxgi_vk_swap_chain *chain)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
-    VkTimelineSemaphoreSubmitInfoKHR timeline_info;
-    VkSubmitInfo submit_info;
+    VkSemaphoreSubmitInfo signal_semaphore_info;
+    VkSubmitInfo2 submit_info;
     VkQueue vk_queue;
     VkResult vr;
 
     chain->present.blit_count += 1;
 
-    memset(&submit_info, 0, sizeof(submit_info));
-    memset(&timeline_info, 0, sizeof(timeline_info));
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.pNext = &timeline_info;
-    submit_info.pSignalSemaphores = &chain->present.vk_blit_semaphore;
-    submit_info.signalSemaphoreCount = 1;
+    memset(&signal_semaphore_info, 0, sizeof(signal_semaphore_info));
+    signal_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    signal_semaphore_info.semaphore = chain->present.vk_blit_semaphore;
+    signal_semaphore_info.value = chain->present.blit_count;
+    signal_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
-    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR;
-    timeline_info.signalSemaphoreValueCount = 1;
-    timeline_info.pSignalSemaphoreValues = &chain->present.blit_count;
+    memset(&submit_info, 0, sizeof(submit_info));
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submit_info.signalSemaphoreInfoCount = 1;
+    submit_info.pSignalSemaphoreInfos = &signal_semaphore_info;
 
     vk_queue = vkd3d_queue_acquire(chain->queue->vkd3d_queue);
-    vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
+    vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
     vkd3d_queue_release(chain->queue->vkd3d_queue);
 
     if (vr)
@@ -1463,12 +1463,13 @@ static void dxgi_vk_swap_chain_present_signal_blit_semaphore(struct dxgi_vk_swap
 static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *chain, VkCommandBuffer vk_cmd, uint32_t swapchain_index)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
-    VkRenderingAttachmentInfoKHR attachment_info;
-    VkImageMemoryBarrier image_barrier;
-    VkRenderingInfoKHR rendering_info;
+    VkRenderingAttachmentInfo attachment_info;
+    VkImageMemoryBarrier2 image_barrier;
     VkDescriptorImageInfo image_info;
     VkWriteDescriptorSet write_info;
     struct d3d12_resource *resource;
+    VkRenderingInfo rendering_info;
+    VkDependencyInfo dep_info;
     VkViewport viewport;
     bool blank_present;
 
@@ -1514,19 +1515,22 @@ static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *cha
         viewport.height = chain->present.backbuffer_height;
     }
 
-    image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    image_barrier.pNext = NULL;
-    image_barrier.srcAccessMask = 0;
-    image_barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    image_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.imageMemoryBarrierCount = 1;
+    dep_info.pImageMemoryBarriers = &image_barrier;
+
+    /* srcStage = NONE since we're using fences to acquire WSI. */
+    memset(&image_barrier, 0, sizeof(image_barrier));
+    image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    image_barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
     image_barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     image_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     image_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     image_barrier.image = chain->present.vk_backbuffer_images[swapchain_index];
     image_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    image_barrier.subresourceRange.baseMipLevel = 0;
     image_barrier.subresourceRange.levelCount = 1;
-    image_barrier.subresourceRange.baseArrayLayer = 0;
     image_barrier.subresourceRange.layerCount = 1;
 
     if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) &&
@@ -1543,13 +1547,8 @@ static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *cha
         VK_CALL(vkCmdBeginDebugUtilsLabelEXT(vk_cmd, &label));
     }
 
-    /* srcStage = TOP_OF_PIPE since we're using fences to acquire WSI. */
-    VK_CALL(vkCmdPipelineBarrier(vk_cmd,
-                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                0, 0, NULL, 0, NULL, 1, &image_barrier));
-
-    VK_CALL(vkCmdBeginRenderingKHR(vk_cmd, &rendering_info));
+    VK_CALL(vkCmdPipelineBarrier2(vk_cmd, &dep_info));
+    VK_CALL(vkCmdBeginRendering(vk_cmd, &rendering_info));
 
     if (!blank_present)
     {
@@ -1578,17 +1577,16 @@ static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *cha
         VK_CALL(vkCmdDraw(vk_cmd, 3, 1, 0, 0));
     }
 
-    VK_CALL(vkCmdEndRenderingKHR(vk_cmd));
+    VK_CALL(vkCmdEndRendering(vk_cmd));
 
-    image_barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    image_barrier.dstAccessMask = 0;
+    image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    image_barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+    image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+    image_barrier.dstAccessMask = VK_ACCESS_2_NONE;
     image_barrier.oldLayout = image_barrier.newLayout;
     image_barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
-    VK_CALL(vkCmdPipelineBarrier(vk_cmd,
-                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                0, 0, NULL, 0, NULL, 1, &image_barrier));
+    VK_CALL(vkCmdPipelineBarrier2(vk_cmd, &dep_info));
 
     if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) &&
             chain->queue->device->vk_info.EXT_debug_utils)
@@ -1602,10 +1600,12 @@ static bool dxgi_vk_swap_chain_submit_blit(struct dxgi_vk_swap_chain *chain, uin
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     VkDevice vk_device = chain->queue->device->vk_device;
     VkSemaphoreCreateInfo semaphore_create_info;
+    VkSemaphoreSubmitInfo signal_semaphore_info;
     VkCommandBufferAllocateInfo allocate_info;
+    VkCommandBufferSubmitInfo cmd_buffer_info;
     VkCommandBufferBeginInfo cmd_begin_info;
     VkFenceCreateInfo fence_create_info;
-    VkSubmitInfo submit_info;
+    VkSubmitInfo2 submit_info;
     VkCommandBuffer vk_cmd;
     VkQueue vk_queue;
     VkResult vr;
@@ -1680,15 +1680,24 @@ static bool dxgi_vk_swap_chain_submit_blit(struct dxgi_vk_swap_chain *chain, uin
     dxgi_vk_swap_chain_record_render_pass(chain, vk_cmd, swapchain_index);
     VK_CALL(vkEndCommandBuffer(vk_cmd));
 
+    memset(&signal_semaphore_info, 0, sizeof(signal_semaphore_info));
+    signal_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    signal_semaphore_info.semaphore = chain->present.vk_release_semaphores[swapchain_index];
+    signal_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+    memset(&cmd_buffer_info, 0, sizeof(cmd_buffer_info));
+    cmd_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+    cmd_buffer_info.commandBuffer = vk_cmd;
+
     memset(&submit_info, 0, sizeof(submit_info));
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.pCommandBuffers = &vk_cmd;
-    submit_info.commandBufferCount = 1;
-    submit_info.signalSemaphoreCount = 1;
-    submit_info.pSignalSemaphores = &chain->present.vk_release_semaphores[swapchain_index];
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submit_info.commandBufferInfoCount = 1;
+    submit_info.pCommandBufferInfos = &cmd_buffer_info;
+    submit_info.signalSemaphoreInfoCount = 1;
+    submit_info.pSignalSemaphoreInfos = &signal_semaphore_info;
 
     vk_queue = vkd3d_queue_acquire(chain->queue->vkd3d_queue);
-    vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, chain->present.vk_blit_fences[swapchain_index]));
+    vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, &submit_info, chain->present.vk_blit_fences[swapchain_index]));
     vkd3d_queue_release(chain->queue->vkd3d_queue);
     VKD3D_DEVICE_REPORT_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
     if (vr < 0)
@@ -1934,6 +1943,10 @@ static void dxgi_vk_swap_chain_present_callback(void *chain_)
         if (vkd3d_native_sync_handle_is_valid(chain->present_request_done_event))
             vkd3d_native_sync_handle_signal(chain->present_request_done_event);
     }
+
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    vkd3d_breadcrumb_tracer_update_barrier_hashes(&chain->queue->device->breadcrumb_tracer);
+#endif
 }
 
 static void *dxgi_vk_swap_chain_wait_worker(void *chain_)

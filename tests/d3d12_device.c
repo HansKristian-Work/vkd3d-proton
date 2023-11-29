@@ -299,6 +299,20 @@ void test_check_feature_support(void)
             || root_signature.HighestVersion == D3D_ROOT_SIGNATURE_VERSION_1_1,
             "Got unexpected root signature feature version %#x.\n", root_signature.HighestVersion);
 
+    root_signature.HighestVersion = 0;
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ROOT_SIGNATURE,
+            &root_signature, sizeof(root_signature));
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(root_signature.HighestVersion == 0, "Got unexpected root signature feature version %#x.\n",
+            root_signature.HighestVersion);
+
+    root_signature.HighestVersion = 0xdeadbeef;
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_ROOT_SIGNATURE,
+            &root_signature, sizeof(root_signature));
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+    ok(root_signature.HighestVersion == 0xdeadbeef, "Got unexpected root signature feature version %#x.\n",
+            root_signature.HighestVersion);
+
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
@@ -1084,6 +1098,44 @@ void test_reset_command_allocator(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+void test_object_interface_null_cases(void)
+{
+    ID3D12Device *device;
+    ID3D12Fence *fence;
+    HRESULT hr;
+    UINT ref;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence);
+    ok(SUCCEEDED(hr), "Failed to create fence, hr #%x.\n", hr);
+
+    hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, NULL);
+    ok(hr == S_FALSE, "Unexpected hr #%x.\n", hr);
+
+    /* S_FALSE is returned even for bogus requested interfaces. */
+    hr = ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Heap, NULL);
+    ok(hr == S_FALSE, "Unexpected hr #%x.\n", hr);
+
+    /* E_POINTER is always returned if QueryInterface ppOutput is NULL. */
+    hr = ID3D12Fence_QueryInterface(fence, &IID_IUnknown, NULL);
+    ok(hr == E_POINTER, "Unexpected hr #%x.\n", hr);
+
+    hr = ID3D12Fence_QueryInterface(fence, &IID_ID3D12Fence, NULL);
+    ok(hr == E_POINTER, "Unexpected hr #%x.\n", hr);
+
+    hr = ID3D12Fence_QueryInterface(fence, &IID_ID3D12Heap, NULL);
+    ok(hr == E_POINTER, "Unexpected hr #%x.\n", hr);
+
+    ID3D12Fence_Release(fence);
+    ref = ID3D12Device_Release(device);
+    ok(ref == 0, "Unexpected ref-count %u\n", ref);
+}
+
 void test_object_interface(void)
 {
     D3D12_DESCRIPTOR_HEAP_DESC descriptor_heap_desc;
@@ -1354,11 +1406,14 @@ void test_object_interface(void)
         hr = ID3D12Object_GetPrivateData(object, &WKPDID_D3DDebugObjectName, &size, NULL);
         ok(hr == DXGI_ERROR_NOT_FOUND, "Got unexpected hr %#x.\n", hr);
 
+#if 0
+        /* NULL name crashes on Windows 11 22621. */
         hr = ID3D12Object_SetName(object, NULL);
         ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
         hr = ID3D12Object_GetPrivateData(object, &WKPDID_D3DDebugObjectNameW, &size, NULL);
         ok(hr == DXGI_ERROR_NOT_FOUND, "Got unexpected hr %#x.\n", hr);
+#endif
 
         hr = ID3D12Object_SetPrivateData(object, &WKPDID_D3DDebugObjectName, sizeof(terminated_name_a), terminated_name_a);
         ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
@@ -1502,4 +1557,45 @@ void test_enumerate_meta_commands(void)
 
     refcount = ID3D12Device5_Release(device5);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
+}
+
+void test_vtable_origins(void)
+{
+#ifdef _WIN32
+    HMODULE d3d12core_module, vtable_module;
+    MEMORY_BASIC_INFORMATION info;
+    ID3D12Device *device;
+    SIZE_T ret;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    /* Skip this test if running on an older version of
+     * Windows from before the D3D12 + D3D12Core split. */
+    if (!(d3d12core_module = GetModuleHandleA("d3d12core")))
+    {
+        skip("No D3D12Core module, skipping.\n");
+        ID3D12Device_Release(device);
+        return;
+    }
+
+    ret = VirtualQuery(device->lpVtbl, &info, sizeof(info));
+    ok(ret, "VirtualQuery of ID3D12Device VTable failed.\n");
+    if (!ret)
+    {
+        skip("VirtualQuery failed, skipping vtable test.\n");
+        ID3D12Device_Release(device);
+        return;
+    }
+
+    vtable_module = (HMODULE)info.AllocationBase;
+
+    /* Ensure the vtable for ID3D12Device comes from D3D12Core.dll */
+    ok(vtable_module == d3d12core_module, "VTable for ID3D12Device not provided by D3D12Core.\n");
+
+    ID3D12Device_Release(device);
+#endif
 }

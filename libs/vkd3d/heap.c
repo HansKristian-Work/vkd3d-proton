@@ -28,6 +28,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_QueryInterface(d3d12_heap_iface *ifa
 {
     TRACE("iface %p, iid %s, object %p.\n", iface, debugstr_guid(iid), object);
 
+    if (!object)
+        return E_POINTER;
+
     if (IsEqualGUID(iid, &IID_ID3D12Heap)
             || IsEqualGUID(iid, &IID_ID3D12Heap1)
             || IsEqualGUID(iid, &IID_ID3D12Pageable)
@@ -35,7 +38,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_heap_QueryInterface(d3d12_heap_iface *ifa
             || IsEqualGUID(iid, &IID_ID3D12Object)
             || IsEqualGUID(iid, &IID_IUnknown))
     {
-        ID3D12Heap_AddRef(iface);
+        ID3D12Heap1_AddRef(iface);
         *object = iface;
         return S_OK;
     }
@@ -259,6 +262,10 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap, struct d3d12_device *dev
     heap->refcount = 1;
     heap->desc = *desc;
     heap->device = device;
+    heap->priority.allows_dynamic_residency = false;
+    spinlock_init(&heap->priority.spinlock);
+    heap->priority.d3d12priority = D3D12_RESIDENCY_PRIORITY_NORMAL;
+    heap->priority.residency_count = 1;
 
     if (!heap->desc.Properties.CreationNodeMask)
         heap->desc.Properties.CreationNodeMask = 1;
@@ -277,12 +284,38 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap, struct d3d12_device *dev
     if (FAILED(hr = vkd3d_private_store_init(&heap->private_store)))
         return hr;
 
+    if (device->device_info.memory_priority_features.memoryPriority)
+    {
+        /* this clause isn't trying to reproduce some precise d3d12 behavior,
+           though it's hinted in the public docs that a similar prioritization
+           is done there... and it seems like a good idea anyway. :) */
+        if (heap->desc.Flags & D3D12_HEAP_FLAG_DENY_NON_RT_DS_TEXTURES)
+        {
+            uint32_t adjust = vkd3d_get_priority_adjust(heap->desc.SizeInBytes);
+            heap->priority.d3d12priority = D3D12_RESIDENCY_PRIORITY_HIGH | adjust;
+        }
+
+        if (device->device_info.pageable_device_memory_features.pageableDeviceLocalMemory)
+        {
+            if (heap->desc.Flags & D3D12_HEAP_FLAG_CREATE_NOT_RESIDENT)
+                heap->priority.residency_count = 0;
+        }
+    }
+
+    alloc_info.vk_memory_priority = heap->priority.residency_count ?
+        vkd3d_convert_to_vk_prio(heap->priority.d3d12priority) : 0.f;
+
     if (FAILED(hr = vkd3d_allocate_heap_memory(device,
             &device->memory_allocator, &alloc_info, &heap->allocation)))
     {
         vkd3d_private_store_destroy(&heap->private_store);
         return hr;
     }
+
+    heap->priority.allows_dynamic_residency = 
+        device->device_info.pageable_device_memory_features.pageableDeviceLocalMemory &&
+        heap->allocation.chunk == NULL /* not suballocated */ &&
+        (device->memory_properties.memoryTypes[heap->allocation.device_allocation.vk_memory_type].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
     d3d12_device_add_ref(heap->device);
     return S_OK;

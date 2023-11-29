@@ -25,6 +25,7 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include "vkd3d_string.h"
 
 /* pthread_t is passed by value in some functions,
  * which implies we need pthread_t to be a pointer type here. */
@@ -35,7 +36,7 @@ struct pthread
     void * (*routine)(void *);
     void *arg;
 
-    HMODULE d3d12_reference;
+    HMODULE d3d12core_reference;
     HMODULE dxgi_reference;
 };
 typedef struct pthread *pthread_t;
@@ -61,22 +62,26 @@ static DWORD WINAPI win32_thread_wrapper_routine(void *arg)
     pthread_t thread = arg;
     thread->routine(thread->arg);
 
-    /* If a game unloads d3d12.dll or dxgi.dll while there are live device references (yikes),
+    /* If a game unloads d3d12core.dll or dxgi.dll while there are live device references (yikes),
      * we risk that one of our internal threads are running. This is bad obviously.
      * Works around a crash in Like a Dragon: Ishin! when pipeline cache is used.
      * The fix is to hold references to any dependent code while running threads.
-     * We can limit all this jank to the thread implementation. */
+     * We can limit all this jank to the thread implementation.
+     *
+     * After the update to d3d12core.dll split, this is extremely unlikely to cause problems
+     * since applications will release d3d12.dll, not d3d12core.dll. d3d12.dll does nothing interesting anymore,
+     * but releasing dxgi.dll is still a hypothetical risk. */
     if (thread->dxgi_reference)
     {
         TRACE("Releasing module reference for dxgi.dll: %p.\n", thread->dxgi_reference);
         FreeLibrary(thread->dxgi_reference);
     }
 
-    /* We are executing in d3d12.dll here, so we have to use the atomic FreeLibraryAndExit thread to make this work. */
-    if (thread->d3d12_reference)
+    /* We are executing in d3d12core.dll here, so we have to use the atomic FreeLibraryAndExit thread to make this work. */
+    if (thread->d3d12core_reference)
     {
-        TRACE("Releasing module reference for d3d12.dll and exiting thread: %p.\n", thread->d3d12_reference);
-        FreeLibraryAndExitThread(thread->d3d12_reference, 0);
+        TRACE("Releasing module reference for d3d12core.dll and exiting thread: %p.\n", thread->d3d12core_reference);
+        FreeLibraryAndExitThread(thread->d3d12core_reference, 0);
     }
 
     /* Otherwise, fall back to the implicit ExitThread(). */
@@ -94,12 +99,12 @@ static inline int pthread_create(pthread_t *out_thread, void *attr, void * (*thr
     thread->arg = arg;
 
     /* Need GetModuleHandleEx which lets us get a refcount. */
-    if (!GetModuleHandleExA(0, "d3d12.dll", &thread->d3d12_reference))
-        thread->d3d12_reference = NULL;
+    if (!GetModuleHandleExA(0, "d3d12core.dll", &thread->d3d12core_reference))
+        thread->d3d12core_reference = NULL;
     if (!GetModuleHandleExA(0, "dxgi.dll", &thread->dxgi_reference))
         thread->dxgi_reference = NULL;
 
-    TRACE("Module reference for d3d12.dll: %p.\n", thread->d3d12_reference);
+    TRACE("Module reference for d3d12core.dll: %p.\n", thread->d3d12core_reference);
     TRACE("Module reference for dxgi.dll: %p.\n", thread->dxgi_reference);
 
     thread->thread = CreateThread(NULL, 0, win32_thread_wrapper_routine, thread, 0, &thread->id);
@@ -107,8 +112,8 @@ static inline int pthread_create(pthread_t *out_thread, void *attr, void * (*thr
     {
         if (thread->dxgi_reference)
             FreeLibrary(thread->dxgi_reference);
-        if (thread->d3d12_reference)
-            FreeLibrary(thread->d3d12_reference);
+        if (thread->d3d12core_reference)
+            FreeLibrary(thread->d3d12core_reference);
         vkd3d_free(thread);
         return -1;
     }
@@ -252,10 +257,28 @@ static inline int condvar_reltime_wait_timeout_seconds(condvar_reltime_t *cond, 
         return -1;
 }
 
+typedef HRESULT (WINAPI *PFN_SetThreadDescription)(HANDLE, PCWSTR);
+
 static inline void vkd3d_set_thread_name(const char *name)
 {
-    VKD3D_PROFILE_THREAD_NAME(name);
-    (void)name;
+    PFN_SetThreadDescription set_thread_description;
+    HMODULE module;
+    WCHAR *wname;
+
+    module = GetModuleHandleA("kernel32.dll");
+    if (module)
+    {
+        set_thread_description = (void*)GetProcAddress(module, "SetThreadDescription");
+        if (set_thread_description)
+        {
+            wname = vkd3d_dup_entry_point(name);
+            if (wname)
+            {
+                set_thread_description(GetCurrentThread(), wname);
+                vkd3d_free(wname);
+            }
+        }
+    }
 }
 
 typedef INIT_ONCE pthread_once_t;

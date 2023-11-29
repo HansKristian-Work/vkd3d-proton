@@ -35,3 +35,22 @@ interface ID3D12DeviceExt : IUnknown
     HRESULT CaptureUAVInfo(D3D12_UAV_INFO *uav_info);
 }
 
+[
+    uuid(39da4e09-bd1c-4198-9fae-86bbe3be41fd),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12DXVKInteropDevice : IUnknown
+{
+    HRESULT GetDXGIAdapter(REFIID iid, void **object);
+    HRESULT GetInstanceExtensions(UINT *extension_count, const char **extensions);
+    HRESULT GetDeviceExtensions(UINT *extension_count, const char **extensions);
+    HRESULT GetDeviceFeatures(const VkPhysicalDeviceFeatures2 **features);
+    HRESULT GetVulkanHandles(VkInstance *vk_instance, VkPhysicalDevice *vk_physical_device, VkDevice *vk_device);
+    HRESULT GetVulkanQueueInfo(ID3D12CommandQueue *queue, VkQueue *vk_queue, UINT32 *vk_queue_family);
+    void GetVulkanImageLayout(ID3D12Resource *resource, D3D12_RESOURCE_STATES state, VkImageLayout *vk_layout);
+    HRESULT GetVulkanResourceInfo(ID3D12Resource *resource, UINT64 *vk_handle, UINT64 *buffer_offset);
+    HRESULT LockCommandQueue(ID3D12CommandQueue *queue);
+    HRESULT UnlockCommandQueue(ID3D12CommandQueue *queue);
+}

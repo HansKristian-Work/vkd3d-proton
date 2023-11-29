@@ -52,6 +52,12 @@ static const char *vkd3d_breadcrumb_command_type_to_str(enum vkd3d_breadcrumb_co
             return "execute_indirect";
         case VKD3D_BREADCRUMB_COMMAND_EXECUTE_INDIRECT_TEMPLATE:
             return "execute_indirect_template";
+        case VKD3D_BREADCRUMB_COMMAND_EXECUTE_INDIRECT_PATCH_COMPUTE:
+            return "execute_indirect_patch_compute";
+        case VKD3D_BREADCRUMB_COMMAND_EXECUTE_INDIRECT_PATCH_STATE_COMPUTE:
+            return "execute_indirect_patch_state_compute";
+        case VKD3D_BREADCRUMB_COMMAND_EXECUTE_INDIRECT_UNROLL_COMPUTE:
+            return "execute_indirect_unroll_compute";
         case VKD3D_BREADCRUMB_COMMAND_COPY:
             return "copy";
         case VKD3D_BREADCRUMB_COMMAND_COPY_TILES:
@@ -82,6 +88,8 @@ static const char *vkd3d_breadcrumb_command_type_to_str(enum vkd3d_breadcrumb_co
             return "vbo";
         case VKD3D_BREADCRUMB_COMMAND_IBO:
             return "ibo";
+        case VKD3D_BREADCRUMB_COMMAND_ROOT_TABLE:
+            return "root_table";
         case VKD3D_BREADCRUMB_COMMAND_ROOT_DESC:
             return "root_desc";
         case VKD3D_BREADCRUMB_COMMAND_ROOT_CONST:
@@ -94,10 +102,24 @@ static const char *vkd3d_breadcrumb_command_type_to_str(enum vkd3d_breadcrumb_co
             return "clear_inline";
         case VKD3D_BREADCRUMB_COMMAND_CLEAR_PASS:
             return "clear_pass";
+        case VKD3D_BREADCRUMB_COMMAND_DSTORAGE:
+            return "dstorage";
 
         default:
             return "?";
     }
+}
+
+void vkd3d_breadcrumb_tracer_init_barrier_hashes(struct vkd3d_breadcrumb_tracer *tracer)
+{
+    pthread_mutex_init(&tracer->barrier_hash_lock, NULL);
+    vkd3d_breadcrumb_tracer_update_barrier_hashes(tracer);
+}
+
+void vkd3d_breadcrumb_tracer_cleanup_barrier_hashes(struct vkd3d_breadcrumb_tracer *tracer)
+{
+    pthread_mutex_destroy(&tracer->barrier_hash_lock);
+    vkd3d_free(tracer->barrier_hashes);
 }
 
 HRESULT vkd3d_breadcrumb_tracer_init(struct vkd3d_breadcrumb_tracer *tracer, struct d3d12_device *device)
@@ -593,11 +615,11 @@ void vkd3d_breadcrumb_tracer_begin_command_list(struct d3d12_command_list *list)
         cmd.type = VKD3D_BREADCRUMB_COMMAND_SET_BOTTOM_MARKER;
         vkd3d_breadcrumb_tracer_add_command(list, &cmd);
 
-        VK_CALL(vkCmdSetCheckpointNV(list->vk_command_buffer, NV_ENCODE_CHECKPOINT(context, trace->counter)));
+        VK_CALL(vkCmdSetCheckpointNV(list->cmd.vk_command_buffer, NV_ENCODE_CHECKPOINT(context, trace->counter)));
     }
     else if (list->device->vk_info.AMD_buffer_marker)
     {
-        VK_CALL(vkCmdWriteBufferMarkerAMD(list->vk_command_buffer,
+        VK_CALL(vkCmdWriteBufferMarkerAMD(list->cmd.vk_command_buffer,
                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                 breadcrumb_tracer->host_buffer,
                 context * sizeof(struct vkd3d_breadcrumb_counter) +
@@ -653,7 +675,7 @@ void vkd3d_breadcrumb_tracer_signal(struct d3d12_command_list *list)
         vkd3d_breadcrumb_tracer_add_command(list, &cmd);
         TRACE("Breadcrumb signal bottom-of-pipe context %u -> %u\n", context, cmd.count);
 
-        VK_CALL(vkCmdSetCheckpointNV(list->vk_command_buffer, NV_ENCODE_CHECKPOINT(context, trace->counter)));
+        VK_CALL(vkCmdSetCheckpointNV(list->cmd.vk_command_buffer, NV_ENCODE_CHECKPOINT(context, trace->counter)));
     }
     else if (list->device->vk_info.AMD_buffer_marker)
     {
@@ -662,7 +684,7 @@ void vkd3d_breadcrumb_tracer_signal(struct d3d12_command_list *list)
         vkd3d_breadcrumb_tracer_add_command(list, &cmd);
         TRACE("Breadcrumb signal bottom-of-pipe context %u -> %u\n", context, cmd.count);
 
-        VK_CALL(vkCmdWriteBufferMarkerAMD(list->vk_command_buffer,
+        VK_CALL(vkCmdWriteBufferMarkerAMD(list->cmd.vk_command_buffer,
                 VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
                 breadcrumb_tracer->host_buffer,
                 context * sizeof(struct vkd3d_breadcrumb_counter) +
@@ -676,7 +698,7 @@ void vkd3d_breadcrumb_tracer_signal(struct d3d12_command_list *list)
         vkd3d_breadcrumb_tracer_add_command(list, &cmd);
         TRACE("Breadcrumb signal top-of-pipe context %u -> %u\n", context, cmd.count);
 
-        VK_CALL(vkCmdWriteBufferMarkerAMD(list->vk_command_buffer,
+        VK_CALL(vkCmdWriteBufferMarkerAMD(list->cmd.vk_command_buffer,
                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                 breadcrumb_tracer->host_buffer,
                 context * sizeof(struct vkd3d_breadcrumb_counter) +
@@ -704,6 +726,8 @@ void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list)
     struct vkd3d_breadcrumb_command_list_trace_context *trace;
     unsigned int context = list->breadcrumb_context_index;
     struct vkd3d_breadcrumb_command cmd;
+    VkMemoryBarrier2 vk_barrier;
+    VkDependencyInfo dep_info;
 
     if (context == UINT32_MAX)
         return;
@@ -713,18 +737,18 @@ void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list)
 
     if (list->device->vk_info.NV_device_diagnostic_checkpoints)
     {
-        VK_CALL(vkCmdSetCheckpointNV(list->vk_command_buffer, NV_ENCODE_CHECKPOINT(context, trace->counter)));
+        VK_CALL(vkCmdSetCheckpointNV(list->cmd.vk_command_buffer, NV_ENCODE_CHECKPOINT(context, trace->counter)));
     }
     else if (list->device->vk_info.AMD_buffer_marker)
     {
-        VK_CALL(vkCmdWriteBufferMarkerAMD(list->vk_command_buffer,
+        VK_CALL(vkCmdWriteBufferMarkerAMD(list->cmd.vk_command_buffer,
                 VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
                 breadcrumb_tracer->host_buffer,
                 context * sizeof(struct vkd3d_breadcrumb_counter) +
                         offsetof(struct vkd3d_breadcrumb_counter, begin_marker),
                 trace->counter));
 
-        VK_CALL(vkCmdWriteBufferMarkerAMD(list->vk_command_buffer,
+        VK_CALL(vkCmdWriteBufferMarkerAMD(list->cmd.vk_command_buffer,
                 VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
                 breadcrumb_tracer->host_buffer,
                 context * sizeof(struct vkd3d_breadcrumb_counter) +
@@ -732,9 +756,68 @@ void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list)
                 trace->counter));
     }
 
+    /* Pure execution barrier to avoid breadcrumbs spilling between command lists. */
+    memset(&vk_barrier, 0, sizeof(vk_barrier));
+    memset(&dep_info, 0, sizeof(dep_info));
+    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.memoryBarrierCount = 1;
+    dep_info.pMemoryBarriers = &vk_barrier;
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+
     cmd.count = trace->counter;
     cmd.type = VKD3D_BREADCRUMB_COMMAND_SET_TOP_MARKER;
     vkd3d_breadcrumb_tracer_add_command(list, &cmd);
     cmd.type = VKD3D_BREADCRUMB_COMMAND_SET_BOTTOM_MARKER;
     vkd3d_breadcrumb_tracer_add_command(list, &cmd);
+}
+
+void vkd3d_breadcrumb_tracer_update_barrier_hashes(struct vkd3d_breadcrumb_tracer *tracer)
+{
+    char env[VKD3D_PATH_MAX];
+    vkd3d_shader_hash_t hash;
+    uint32_t new_count;
+    char line[17];
+    FILE *file;
+
+    if (vkd3d_get_env_var("VKD3D_BARRIER_HASHES", env, sizeof(env)))
+    {
+        file = fopen(env, "r");
+        if (file)
+        {
+            pthread_mutex_lock(&tracer->barrier_hash_lock);
+            new_count = 0;
+            while (fgets(line, sizeof(line), file))
+            {
+                hash = strtoull(line, NULL, 16);
+                vkd3d_array_reserve((void **)&tracer->barrier_hashes, &tracer->barrier_hashes_size,
+                        new_count + 1, sizeof(*tracer->barrier_hashes));
+                tracer->barrier_hashes[new_count++] = hash;
+            }
+            vkd3d_atomic_uint32_store_explicit(&tracer->barrier_hashes_count, new_count, vkd3d_memory_order_relaxed);
+            pthread_mutex_unlock(&tracer->barrier_hash_lock);
+            fclose(file);
+        }
+        else
+            vkd3d_atomic_uint32_store_explicit(&tracer->barrier_hashes_count, 0, vkd3d_memory_order_relaxed);
+    }
+}
+
+bool vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(struct vkd3d_breadcrumb_tracer *tracer, vkd3d_shader_hash_t hash)
+{
+    bool ret = false;
+    size_t i;
+
+    /* Avoid taking lock every dispatch when we're not explicitly using the feature.
+     * Ordering is not relevant, since if we decide to look at hashes, we take full locks anyway. */
+    if (vkd3d_atomic_uint32_load_explicit(&tracer->barrier_hashes_count, vkd3d_memory_order_relaxed) != 0)
+    {
+        pthread_mutex_lock(&tracer->barrier_hash_lock);
+        for (i = 0; i < tracer->barrier_hashes_count && !ret; i++)
+            ret = tracer->barrier_hashes[i] == hash;
+        pthread_mutex_unlock(&tracer->barrier_hash_lock);
+    }
+    return ret;
 }

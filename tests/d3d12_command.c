@@ -490,6 +490,172 @@ void test_fractional_viewports(void)
     destroy_test_context(&context);
 }
 
+void test_negative_viewports(void)
+{
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    D3D12_FEATURE_DATA_D3D12_OPTIONS13 options13;
+    ID3D12GraphicsCommandList *command_list;
+    D3D12_INPUT_LAYOUT_DESC input_layout;
+    struct test_context_desc desc;
+    D3D12_VERTEX_BUFFER_VIEW vbv;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12CommandQueue *queue;
+    D3D12_VIEWPORT viewport;
+    ID3D12Device *device;
+    ID3D12Resource *vb;
+    unsigned int x, y;
+    HRESULT hr;
+
+    static const DWORD vs_code[] =
+    {
+#if 0
+        void main(in float4 in_position : POSITION,
+                in float2 in_texcoord : TEXCOORD,
+                out float4 position : SV_Position,
+                out float2 texcoord : TEXCOORD)
+        {
+            position = in_position;
+            texcoord = in_texcoord;
+        }
+#endif
+        0x43425844, 0x4df282ca, 0x85c8bbfc, 0xd44ad19f, 0x1158be97, 0x00000001, 0x00000148, 0x00000003,
+        0x0000002c, 0x00000080, 0x000000d8, 0x4e475349, 0x0000004c, 0x00000002, 0x00000008, 0x00000038,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x00000f0f, 0x00000041, 0x00000000, 0x00000000,
+        0x00000003, 0x00000001, 0x00000303, 0x49534f50, 0x4e4f4954, 0x58455400, 0x524f4f43, 0xabab0044,
+        0x4e47534f, 0x00000050, 0x00000002, 0x00000008, 0x00000038, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x00000044, 0x00000000, 0x00000000, 0x00000003, 0x00000001, 0x00000c03,
+        0x505f5653, 0x7469736f, 0x006e6f69, 0x43584554, 0x44524f4f, 0xababab00, 0x52444853, 0x00000068,
+        0x00010040, 0x0000001a, 0x0300005f, 0x001010f2, 0x00000000, 0x0300005f, 0x00101032, 0x00000001,
+        0x04000067, 0x001020f2, 0x00000000, 0x00000001, 0x03000065, 0x00102032, 0x00000001, 0x05000036,
+        0x001020f2, 0x00000000, 0x00101e46, 0x00000000, 0x05000036, 0x00102032, 0x00000001, 0x00101046,
+        0x00000001, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE vs = {vs_code, sizeof(vs_code)};
+    static const DWORD ps_code[] =
+    {
+#if 0
+        float4 main(float4 position : SV_Position,
+                float2 texcoord : TEXCOORD) : SV_Target
+        {
+            return float4(position.xyz, texcoord.y);
+        }
+#endif
+        0x43425844, 0x07ec126b, 0x6a8e9d8d, 0xb63d0841, 0xa5e0efc5, 0x00000001, 0x00000120, 0x00000003,
+        0x0000002c, 0x00000084, 0x000000b8, 0x4e475349, 0x00000050, 0x00000002, 0x00000008, 0x00000038,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000070f, 0x00000044, 0x00000000, 0x00000000,
+        0x00000003, 0x00000001, 0x00000203, 0x505f5653, 0x7469736f, 0x006e6f69, 0x43584554, 0x44524f4f,
+        0xababab00, 0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000,
+        0x00000003, 0x00000000, 0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000060,
+        0x00000050, 0x00000018, 0x0100086a, 0x04002064, 0x00101072, 0x00000000, 0x00000001, 0x03001062,
+        0x00101022, 0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x05000036, 0x00102072, 0x00000000,
+        0x00101246, 0x00000000, 0x05000036, 0x00102082, 0x00000000, 0x0010101a, 0x00000001, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
+    static const D3D12_INPUT_ELEMENT_DESC layout_desc[] =
+    {
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 16, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    };
+    static const struct
+    {
+        struct vec4 position;
+        struct vec2 texcoord;
+    }
+    quad[] =
+    {
+        {{-1.0f,  1.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+        {{-1.0f, -1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+        {{ 1.0f,  1.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+        {{ 1.0f, -1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    command_list = context.list;
+    queue = context.queue;
+    device = context.device;
+
+    memset(&options13, 0, sizeof(options13));
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_OPTIONS13, &options13, sizeof(options13));
+    ok(SUCCEEDED(hr), "OPTIONS13 is not supported by runtime.\n");
+
+    if (!options13.InvertedViewportHeightFlipsYSupported)
+    {
+        skip("Device does not support negative viewport height.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    context.root_signature = create_empty_root_signature(context.device,
+            D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    input_layout.pInputElementDescs = layout_desc;
+    input_layout.NumElements = ARRAY_SIZE(layout_desc);
+
+    context.pipeline_state = create_pipeline_state(context.device,
+            context.root_signature, desc.rt_format, &vs, &ps, &input_layout);
+
+    vb = create_upload_buffer(context.device, sizeof(quad), quad);
+
+    vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vb);
+    vbv.StrideInBytes = sizeof(quad[0]);
+    vbv.SizeInBytes = sizeof(quad);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, context.rtv, white, 0, NULL);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(command_list, 1, &context.rtv, false, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    ID3D12GraphicsCommandList_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+
+    for (y = 0; y < context.render_target_desc.Height; y += context.render_target_desc.Height / 2)
+    {
+        for (x = 0; x < context.render_target_desc.Width; x += context.render_target_desc.Width / 2)
+        {
+            set_viewport(&viewport, x, context.render_target_desc.Height - y,
+                context.render_target_desc.Width / 2, -(float)(context.render_target_desc.Height / 2), 1.0f, 0.0f);
+            ID3D12GraphicsCommandList_RSSetViewports(command_list, 1, &viewport);
+            ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 1, &vbv);
+            ID3D12GraphicsCommandList_DrawInstanced(command_list, 4, 1, 0, 0);
+        }
+    }
+
+    transition_resource_state(command_list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, queue, command_list);
+    for (y = 0; y < rb.height; ++y)
+    {
+        for (x = 0; x < rb.width; ++x)
+        {
+            const struct vec4 *actual = get_readback_vec4(&rb, x, y);
+            struct vec2 expected_fragcoord = {x + 0.5f, y + 0.5f};
+            float expected_texcoord_y = (((y % (rb.height / 2)) * 2.0f + 1.0f) / rb.height);
+            float expected_depth = expected_texcoord_y;
+            ok(compare_float(actual->x, expected_fragcoord.x, 0) && compare_float(actual->y, expected_fragcoord.y, 0),
+                    "Got fragcoord {%.8e, %.8e}, expected {%.8e, %.8e} at (%u, %u).\n",
+                    actual->x, actual->y, expected_fragcoord.x, expected_fragcoord.y, x, y);
+            ok(compare_float(actual->z, expected_depth, 2),
+                    "Got depth {%.2f}, expected {%.2f} at (%u, %u).\n",
+                    actual->z, expected_depth, x, y);
+            ok(compare_float(actual->w, expected_texcoord_y, 2),
+                    "Got texcoord {%.2f}, expected {%.2f} at (%u, %u).\n",
+                    actual->w, expected_texcoord_y, x, y);
+        }
+    }
+    release_resource_readback(&rb);
+
+    reset_command_list(command_list, context.allocator);
+
+    ID3D12Resource_Release(vb);
+    destroy_test_context(&context);
+}
+
 void test_scissor(void)
 {
     ID3D12GraphicsCommandList *command_list;
@@ -1449,6 +1615,1074 @@ void test_vbv_stride_edge_cases(void)
     destroy_test_context(&context);
 }
 
+void test_execute_indirect_multi_dispatch_root_descriptors(void)
+{
+    const unsigned int max_indirect_count = 5;
+    D3D12_INDIRECT_ARGUMENT_DESC arguments[2];
+    D3D12_ROOT_PARAMETER root_params[1];
+    ID3D12CommandSignature *signature;
+    D3D12_COMMAND_SIGNATURE_DESC desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Resource *indirect;
+    unsigned int test_index;
+    ID3D12Resource *output;
+    unsigned int iteration;
+    unsigned int i;
+    HRESULT hr;
+
+    struct test_data
+    {
+        uint32_t dispatch_counts[4];
+        struct
+        {
+            D3D12_GPU_VIRTUAL_ADDRESS va;
+            uint32_t wg_x, wg_y, wg_z;
+        } dispatches[16];
+    } indirect_data = {
+        { 2, 7, 4, 13 },
+        {
+            { 0, 2, 3, 4 },
+            { 0, 5, 6, 7 },
+            { 0, 8, 9, 10 },
+            { 0, 11, 3, 12 },
+            { 0, 6, 13, 14 },
+            { 0, 13, 14, 15 },
+            { 0, 16, 17, 18 },
+            { 0, 19, 18, 7 },
+            { 0, 2, 3, 4 },
+            { 0, 5, 6, 7 },
+            { 0, 8, 9, 10 },
+            { 0, 11, 3, 12 },
+            { 0, 6, 13, 14 },
+            { 0, 13, 14, 15 },
+            { 0, 16, 17, 18 },
+            { 0, 19, 18, 7 },
+        },
+    };
+
+    uint32_t expected_counts[ARRAY_SIZE(indirect_data.dispatches)] = { 0 };
+
+    static const DWORD cs_code_dxbc[] =
+    {
+#if 0
+    RWStructuredBuffer<uint> RWBuf : register(u0);
+
+    [numthreads(1, 1, 1)]
+    void main()
+    {
+            uint o;
+            InterlockedAdd(RWBuf[0], 1, o);
+    }
+#endif
+        0x43425844, 0x9de05180, 0xc4ce6696, 0x888b971b, 0x17d7d33f, 0x00000001, 0x000000ac, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000058, 0x00050050, 0x00000016, 0x0100086a,
+        0x0400009e, 0x0011e000, 0x00000000, 0x00000004, 0x0400009b, 0x00000001, 0x00000001, 0x00000001,
+        0x0a0000ad, 0x0011e000, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+        0x00004001, 0x00000001, 0x0100003e,
+    };
+
+    static const D3D12_SHADER_BYTECODE cs_code = SHADER_BYTECODE(cs_code_dxbc);
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    desc.ByteStride = sizeof(indirect_data.dispatches[0]);
+    desc.NodeMask = 0;
+    desc.NumArgumentDescs = ARRAY_SIZE(arguments);
+    desc.pArgumentDescs = arguments;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(root_params, 0, sizeof(root_params));
+    rs_desc.NumParameters = ARRAY_SIZE(root_params);
+    rs_desc.pParameters = root_params;
+    root_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, cs_code);
+
+    memset(arguments, 0, sizeof(arguments));
+    arguments[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_UNORDERED_ACCESS_VIEW;
+    arguments[0].UnorderedAccessView.RootParameterIndex = 0;
+    arguments[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+    hr = ID3D12Device_CreateCommandSignature(context.device, &desc, context.root_signature, &IID_ID3D12CommandSignature, (void **)&signature);
+    if (FAILED(hr))
+        signature = NULL;
+    todo ok(SUCCEEDED(hr), "Failed to create command signature, hr #%x.\n", hr);
+
+    output = create_default_buffer(context.device, ARRAY_SIZE(indirect_data.dispatches) * 4, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    for (i = 0; i < ARRAY_SIZE(indirect_data.dispatches); i++)
+        indirect_data.dispatches[i].va = ID3D12Resource_GetGPUVirtualAddress(output) + 4 * i;
+
+    indirect = create_upload_buffer(context.device, sizeof(indirect_data), &indirect_data);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+
+    for (test_index = 0; test_index < 8 && signature; test_index++)
+    {
+        iteration = test_index & 3;
+
+        if (test_index < 4)
+        {
+            /* Multi-dispatch, direct count. */
+            ID3D12GraphicsCommandList_ExecuteIndirect(context.list, signature, indirect_data.dispatch_counts[iteration],
+                    indirect, offsetof(struct test_data, dispatches[test_index]), NULL, 0);
+        }
+        else
+        {
+            /* Indirect count style. */
+            ID3D12GraphicsCommandList_ExecuteIndirect(context.list, signature, max_indirect_count,
+                    indirect, offsetof(struct test_data, dispatches[test_index]),
+                    indirect, offsetof(struct test_data, dispatch_counts[iteration]));
+        }
+
+        if (test_index == 6)
+        {
+            /* Test case with late indirect update. Just make sure we can exercise both
+             * code paths. */
+            transition_resource_state(context.list, indirect, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT,
+                    D3D12_RESOURCE_STATE_COPY_SOURCE);
+            transition_resource_state(context.list, indirect, D3D12_RESOURCE_STATE_COPY_SOURCE,
+                    D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
+        }
+    }
+
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (test_index = 0; test_index < 8; test_index++)
+    {
+        unsigned int num_dispatches;
+        iteration = test_index & 3;
+        num_dispatches = test_index < 4 ?
+            indirect_data.dispatch_counts[iteration] :
+            min(indirect_data.dispatch_counts[iteration], max_indirect_count);
+
+        for (i = test_index; i < num_dispatches + test_index; i++)
+        {
+            expected_counts[i] +=
+                indirect_data.dispatches[i].wg_x *
+                indirect_data.dispatches[i].wg_y *
+                indirect_data.dispatches[i].wg_z;
+        }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(indirect_data.dispatches); i++)
+    {
+        uint32_t value;
+        value = get_readback_uint(&rb, i, 0, 0);
+        todo_if(!signature) ok(value == expected_counts[i], "Value %u: Expected %u, got %u.\n", i, expected_counts[i], value);
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(indirect);
+    ID3D12Resource_Release(output);
+    if (signature)
+        ID3D12CommandSignature_Release(signature);
+
+    destroy_test_context(&context);
+}
+
+void test_execute_indirect_multi_dispatch_root_constants(void)
+{
+    const unsigned int max_indirect_count = 5;
+    D3D12_INDIRECT_ARGUMENT_DESC arguments[2];
+    D3D12_ROOT_PARAMETER root_params[2];
+    ID3D12CommandSignature *signature;
+    D3D12_COMMAND_SIGNATURE_DESC desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Resource *indirect;
+    unsigned int test_index;
+    ID3D12Resource *output;
+    unsigned int iteration;
+    HRESULT hr;
+
+    static const uint32_t indirect_data[] = {
+        1, 8, 3, 6, /* indirect multi dispatch counts */
+        13, 10, 20, 30, /* root constant u32 + dispatch group counts */
+        14, 11, 21, 31,
+        15, 0, 22, 32,
+        16, 13, 23, 0,
+        17, 10, 20, 30,
+        18, 11, 21, 31,
+        19, 12, 22, 32,
+        20, 13, 23, 33,
+        21, 10, 20, 30,
+        22, 11, 21, 31,
+        23, 12, 22, 32,
+        24, 13, 23, 33,
+        25, 10, 20, 30,
+        26, 11, 21, 31,
+        27, 12, 22, 32,
+        28, 13, 23, 33,
+    };
+
+    static const DWORD cs_code_dxbc[] =
+    {
+#if 0
+    RWStructuredBuffer<uint> RWBuf : register(u0);
+    cbuffer C : register(b0) { uint4 v; };
+
+    [numthreads(1, 1, 1)]
+    void main()
+    {
+            uint o;
+            InterlockedAdd(RWBuf[0], v.x | v.y | v.z | v.w, o);
+    }
+#endif
+        0x43425844, 0x7a70560a, 0x4aa2793e, 0x14ed39f7, 0xa8aea1d3, 0x00000001, 0x00000128, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x000000d4, 0x00050050, 0x00000035, 0x0100086a,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0400009e, 0x0011e000, 0x00000000, 0x00000004,
+        0x02000068, 0x00000001, 0x0400009b, 0x00000001, 0x00000001, 0x00000001, 0x0900003c, 0x00100012,
+        0x00000000, 0x0020801a, 0x00000000, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0800003c,
+        0x00100012, 0x00000000, 0x0010000a, 0x00000000, 0x0020802a, 0x00000000, 0x00000000, 0x0800003c,
+        0x00100012, 0x00000000, 0x0010000a, 0x00000000, 0x0020803a, 0x00000000, 0x00000000, 0x0a0000ad,
+        0x0011e000, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0010000a,
+        0x00000000, 0x0100003e,
+    };
+
+    static const D3D12_SHADER_BYTECODE cs_code = SHADER_BYTECODE(cs_code_dxbc);
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    desc.ByteStride = sizeof(uint32_t) + sizeof(D3D12_DISPATCH_ARGUMENTS);
+    desc.NodeMask = 0;
+    desc.NumArgumentDescs = ARRAY_SIZE(arguments);
+    desc.pArgumentDescs = arguments;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(root_params, 0, sizeof(root_params));
+    rs_desc.NumParameters = ARRAY_SIZE(root_params);
+    rs_desc.pParameters = root_params;
+    root_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_params[1].Constants.Num32BitValues = 4;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, cs_code);
+
+    memset(arguments, 0, sizeof(arguments));
+    arguments[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT;
+    arguments[0].Constant.RootParameterIndex = 1;
+    arguments[0].Constant.Num32BitValuesToSet = 1;
+    arguments[0].Constant.DestOffsetIn32BitValues = 2;
+    arguments[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+    hr = ID3D12Device_CreateCommandSignature(context.device, &desc, context.root_signature, &IID_ID3D12CommandSignature, (void **)&signature);
+    if (FAILED(hr))
+        signature = NULL;
+    todo ok(SUCCEEDED(hr), "Failed to create command signature, hr #%x.\n", hr);
+
+    output = create_default_buffer(context.device, 8 * 4, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    indirect = create_upload_buffer(context.device, sizeof(indirect_data), indirect_data);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+
+    for (test_index = 0; test_index < 8 && signature; test_index++)
+    {
+        iteration = test_index & 3;
+
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0,
+            ID3D12Resource_GetGPUVirtualAddress(output) + 4 * test_index);
+
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(context.list, 1, 1, 0);
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(context.list, 1, 2, 1);
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(context.list, 1, 3, 2);
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstant(context.list, 1, 4, 3);
+
+        if (test_index < 4)
+        {
+            /* Multi-dispatch, direct count. */
+            ID3D12GraphicsCommandList_ExecuteIndirect(context.list, signature, indirect_data[iteration], indirect, 16 + 16 * test_index, NULL, 0);
+        }
+        else
+        {
+            /* Indirect count style. */
+            ID3D12GraphicsCommandList_ExecuteIndirect(context.list, signature, max_indirect_count,
+                indirect, 16 + 16 * test_index,
+                indirect, 4 * iteration);
+        }
+
+        /* Also test behavior for cleared root constant state. cbv.z should be cleared to 0 here. */
+        ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+
+        if (test_index == 6)
+        {
+            /* Test case with late indirect update. Just make sure we can exercise both
+             * code paths. */
+            transition_resource_state(context.list, indirect, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT,
+                    D3D12_RESOURCE_STATE_COPY_SOURCE);
+            transition_resource_state(context.list, indirect, D3D12_RESOURCE_STATE_COPY_SOURCE,
+                    D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
+        }
+    }
+
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (test_index = 0; test_index < 8; test_index++)
+    {
+        unsigned int num_dispatches, expected, expected_cbv, value, i;
+        iteration = test_index & 3;
+        num_dispatches = test_index < 4 ? indirect_data[iteration] : min(indirect_data[iteration], max_indirect_count);
+        expected = 0;
+
+        for (i = test_index; i < num_dispatches + test_index; i++)
+        {
+            expected_cbv = 1 | 2 | 4; /* x, y and w elements are untouched. */
+            expected_cbv |= indirect_data[4 + 4 * i + 0];
+
+            expected += expected_cbv *
+                    indirect_data[4 + 4 * i + 1] *
+                    indirect_data[4 + 4 * i + 2] *
+                    indirect_data[4 + 4 * i + 3];
+        }
+        expected += 7; /* For the single 1, 1, 1 dispatch. */
+        value = get_readback_uint(&rb, test_index, 0, 0);
+        todo_if(!signature) ok(value == expected, "Iteration %u: Expected %u, got %u.\n", test_index, expected, value);
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(indirect);
+    ID3D12Resource_Release(output);
+    if (signature)
+        ID3D12CommandSignature_Release(signature);
+
+    destroy_test_context(&context);
+}
+
+void test_execute_indirect_multi_dispatch(void)
+{
+    const unsigned int max_indirect_count = 5;
+    D3D12_INDIRECT_ARGUMENT_DESC arguments[1];
+    ID3D12CommandSignature *signature;
+    D3D12_COMMAND_SIGNATURE_DESC desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER root_param;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Resource *indirect;
+    unsigned int test_index;
+    ID3D12Resource *output;
+    unsigned int iteration;
+    HRESULT hr;
+
+    /* Simple multi dispatch indirect without state changes. */
+
+    static const uint32_t indirect_data[] = {
+        1, 8, 3, 6, /* indirect multi dispatch counts */
+        10, 20, 30, /* dispatch group counts */
+        11, 21, 31,
+        0, 22, 32,
+        13, 23, 0,
+        10, 20, 30,
+        11, 21, 31,
+        12, 22, 32,
+        13, 23, 33,
+        10, 20, 30,
+        11, 21, 31,
+        12, 22, 32,
+        13, 23, 33,
+        10, 20, 30,
+        11, 21, 31,
+        12, 22, 32,
+        13, 23, 33,
+    };
+
+    static const DWORD cs_code_dxbc[] =
+    {
+#if 0
+    RWStructuredBuffer<uint> RWBuf : register(u0);
+
+    [numthreads(1, 1, 1)]
+    void main()
+    {
+            uint o;
+            InterlockedAdd(RWBuf[0], 1, o);
+    }
+#endif
+        0x43425844, 0x9de05180, 0xc4ce6696, 0x888b971b, 0x17d7d33f, 0x00000001, 0x000000ac, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000058, 0x00050050, 0x00000016, 0x0100086a,
+        0x0400009e, 0x0011e000, 0x00000000, 0x00000004, 0x0400009b, 0x00000001, 0x00000001, 0x00000001,
+        0x0a0000ad, 0x0011e000, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+        0x00004001, 0x00000001, 0x0100003e,
+    };
+
+    static const D3D12_SHADER_BYTECODE cs_code = SHADER_BYTECODE(cs_code_dxbc);
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(&root_param, 0, sizeof(root_param));
+    rs_desc.NumParameters = 1;
+    rs_desc.pParameters = &root_param;
+    root_param.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, cs_code);
+
+    desc.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS);
+    desc.NodeMask = 0;
+    desc.NumArgumentDescs = ARRAY_SIZE(arguments);
+    desc.pArgumentDescs = arguments;
+
+    memset(arguments, 0, sizeof(arguments));
+    arguments[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+    hr = ID3D12Device_CreateCommandSignature(context.device, &desc, NULL, &IID_ID3D12CommandSignature, (void **)&signature);
+    ok(SUCCEEDED(hr), "Failed to create command signature, hr #%x.\n", hr);
+
+    output = create_default_buffer(context.device, 8 * 4, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    indirect = create_upload_buffer(context.device, sizeof(indirect_data), indirect_data);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+
+    for (test_index = 0; test_index < 8; test_index++)
+    {
+        iteration = test_index & 3;
+
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 0,
+                ID3D12Resource_GetGPUVirtualAddress(output) + 4 * test_index);
+
+        if (test_index < 4)
+        {
+            /* Multi-dispatch, direct count. */
+            ID3D12GraphicsCommandList_ExecuteIndirect(context.list, signature, indirect_data[iteration], indirect, 16 + 12 * test_index, NULL, 0);
+        }
+        else
+        {
+            /* Indirect count style. */
+            ID3D12GraphicsCommandList_ExecuteIndirect(context.list, signature, max_indirect_count,
+                    indirect, 16 + 12 * test_index,
+                    indirect, 4 * iteration);
+        }
+
+        if (test_index == 6)
+        {
+            /* Test case with late indirect update. Just make sure we can exercise both
+             * code paths. */
+            transition_resource_state(context.list, indirect, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT,
+                    D3D12_RESOURCE_STATE_COPY_SOURCE);
+            transition_resource_state(context.list, indirect, D3D12_RESOURCE_STATE_COPY_SOURCE,
+                    D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
+        }
+    }
+
+    transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (test_index = 0; test_index < 8; test_index++)
+    {
+        unsigned int num_dispatches, expected, value, i;
+        iteration = test_index & 3;
+        num_dispatches = test_index < 4 ? indirect_data[iteration] : min(indirect_data[iteration], max_indirect_count);
+        expected = 0;
+        for (i = test_index; i < num_dispatches + test_index; i++)
+        {
+            expected += indirect_data[4 + 3 * i + 0] *
+                    indirect_data[4 + 3 * i + 1] *
+                    indirect_data[4 + 3 * i + 2];
+        }
+        value = get_readback_uint(&rb, test_index, 0, 0);
+        ok(value == expected, "Iteration %u: Expected %u, got %u.\n", test_index, expected, value);
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(indirect);
+    ID3D12Resource_Release(output);
+    ID3D12CommandSignature_Release(signature);
+
+    destroy_test_context(&context);
+}
+
+static void report_predication_timestamps(ID3D12CommandQueue *queue, ID3D12Resource *resource,
+        unsigned int num_timestamps, const char *tag)
+{
+    uint64_t min_delta = UINT64_MAX;
+    uint64_t max_delta = 0;
+    const uint64_t *ts;
+    unsigned int i;
+    uint64_t delta;
+    UINT64 ts_freq;
+
+    ID3D12Resource_Map(resource, 0, NULL, (void **)&ts);
+    ID3D12CommandQueue_GetTimestampFrequency(queue, &ts_freq);
+    for (i = 1; i < num_timestamps; i++)
+    {
+        delta = ts[i] - ts[i - 1];
+        max_delta = max(max_delta, delta);
+        min_delta = min(min_delta, delta);
+    }
+    printf("Maximum %s time: %.3f us.\n", tag,
+            1e6 * (double)max_delta / (double)ts_freq);
+    printf("Minimum %s time: %.3f us.\n", tag,
+            1e6 * (double)min_delta / (double)ts_freq);
+    delta = ts[num_timestamps - 1] - ts[0];
+    printf("Average %s time: %.3f us.\n", tag,
+            1e6 * (double)delta / (double)(ts_freq * (num_timestamps - 1)));
+    ID3D12Resource_Unmap(resource, 0, NULL);
+}
+
+void test_execute_indirect_state_predication(void)
+{
+    D3D12_INDIRECT_ARGUMENT_DESC argument_descs[2];
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_COMMAND_SIGNATURE_DESC sig_desc;
+    ID3D12CommandSignature *sig_compute;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_params[3];
+    ID3D12Resource *indirect_graphics;
+    D3D12_QUERY_HEAP_DESC query_desc;
+    ID3D12Resource *indirect_compute;
+    ID3D12Resource *indirect_counts;
+    ID3D12Resource *query_readback;
+    ID3D12Resource *indirect_copy;
+    struct test_context_desc desc;
+    ID3D12PipelineState *pso_comp;
+    ID3D12PipelineState *pso_gfx;
+    unsigned int timestamp_index;
+    ID3D12CommandSignature *sig;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12QueryHeap *query_heap;
+
+    ID3D12Resource *output;
+    D3D12_VIEWPORT vp;
+    unsigned int i, j;
+    D3D12_RECT sci;
+    HRESULT hr;
+
+    /* Tests predication feature alongside ExecuteIndirect templates,
+     * but also considers our internal implementation details w.r.t.
+     * adding extra predication for performance. */
+
+    struct draw_arguments
+    {
+        uint32_t value;
+        D3D12_DRAW_ARGUMENTS draw;
+    };
+
+    struct dispatch_arguments
+    {
+        uint32_t value;
+        D3D12_DISPATCH_ARGUMENTS dispatch;
+    };
+
+#if 0
+    cbuffer C0 : register(b0)
+    {
+        uint offset;
+    };
+
+    cbuffer C1 : register(b1)
+    {
+        uint multiplier;
+    };
+
+    RWStructuredBuffer<uint> U : register(u0);
+
+    float4 vs_main(uint vid : SV_VertexID) : SV_Position
+    {
+            float2 pos;
+            pos.x = float(vid & 1) * 4.0 - 1.0;
+            pos.y = float(vid & 2) * 2.0 - 1.0;
+            return float4(pos.x, pos.y, 0.0, 1.0);
+    }
+
+        void ps_main()
+    {
+        uint o;
+        InterlockedAdd(U[offset], multiplier, o);
+    }
+#endif
+    static const DWORD vs_code[] =
+    {
+        0x43425844, 0xd55024ac, 0xd6bde7be, 0x8e69c8d0, 0x7c420f5c, 0x00000001, 0x00000178, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000006, 0x00000001, 0x00000000, 0x00000101, 0x565f5653, 0x65747265, 0x00444978,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x505f5653, 0x7469736f, 0x006e6f69, 0x58454853, 0x000000dc, 0x00010050,
+        0x00000037, 0x0100086a, 0x04000060, 0x00101012, 0x00000000, 0x00000006, 0x04000067, 0x001020f2,
+        0x00000000, 0x00000001, 0x02000068, 0x00000001, 0x0a000001, 0x00100032, 0x00000000, 0x00101006,
+        0x00000000, 0x00004002, 0x00000001, 0x00000002, 0x00000000, 0x00000000, 0x05000056, 0x00100032,
+        0x00000000, 0x00100046, 0x00000000, 0x09000032, 0x00102012, 0x00000000, 0x0010000a, 0x00000000,
+        0x00004001, 0x40800000, 0x00004001, 0xbf800000, 0x09000032, 0x00102022, 0x00000000, 0x0010001a,
+        0x00000000, 0x00004001, 0x40000000, 0x00004001, 0xbf800000, 0x08000036, 0x001020c2, 0x00000000,
+        0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x3f800000, 0x0100003e,
+    };
+
+    static const DWORD ps_code[] =
+    {
+        0x43425844, 0x1d17e84a, 0x6e8ac53e, 0x6892c752, 0xde28987a, 0x00000001, 0x000000e8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000094, 0x00000050, 0x00000025, 0x0100086a,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x04000059, 0x00208e46, 0x00000001, 0x00000001,
+        0x0400009e, 0x0011e000, 0x00000000, 0x00000004, 0x02000068, 0x00000001, 0x06000036, 0x00100012,
+        0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x05000036, 0x00100022, 0x00000000, 0x00004001,
+        0x00000000, 0x080000ad, 0x0011e000, 0x00000000, 0x00100046, 0x00000000, 0x0020800a, 0x00000001,
+        0x00000000, 0x0100003e,
+    };
+
+    static const DWORD cs_code[] =
+    {
+#if 0
+    cbuffer C0 : register(b0)
+    {
+            uint offset;
+    };
+
+    cbuffer C1 : register(b1)
+    {
+            uint multiplier;
+    };
+
+    RWStructuredBuffer<uint> U : register(u0);
+
+    [numthreads(1, 1, 1)]
+    void main()
+    {
+            uint o;
+            InterlockedAdd(U[offset], multiplier, o);
+    }
+#endif
+        0x43425844, 0x5a66c2bf, 0x0970d204, 0x92950097, 0x539d92eb, 0x00000001, 0x000000f8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x000000a4, 0x00050050, 0x00000029, 0x0100086a,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x04000059, 0x00208e46, 0x00000001, 0x00000001,
+        0x0400009e, 0x0011e000, 0x00000000, 0x00000004, 0x02000068, 0x00000001, 0x0400009b, 0x00000001,
+        0x00000001, 0x00000001, 0x06000036, 0x00100012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000,
+        0x05000036, 0x00100022, 0x00000000, 0x00004001, 0x00000000, 0x080000ad, 0x0011e000, 0x00000000,
+        0x00100046, 0x00000000, 0x0020800a, 0x00000001, 0x00000000, 0x0100003e,
+    };
+
+    static const D3D12_SHADER_BYTECODE vs_code_dxbc = SHADER_BYTECODE(vs_code);
+    static const D3D12_SHADER_BYTECODE ps_code_dxbc = SHADER_BYTECODE(ps_code);
+    static const D3D12_SHADER_BYTECODE cs_code_dxbc = SHADER_BYTECODE(cs_code);
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_render_target = true;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_params, 0, sizeof(rs_params));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_params);
+    rs_desc.pParameters = rs_params;
+
+    rs_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_params[0].Constants.Num32BitValues = 1;
+    rs_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rs_params[1].Descriptor.ShaderRegister = 1;
+    rs_params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    memset(argument_descs, 0, sizeof(argument_descs));
+    argument_descs[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT;
+    argument_descs[0].Constant.RootParameterIndex = 0;
+    argument_descs[0].Constant.Num32BitValuesToSet = 1;
+    argument_descs[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
+
+    memset(&sig_desc, 0, sizeof(sig_desc));
+    sig_desc.pArgumentDescs = argument_descs;
+    sig_desc.NumArgumentDescs = ARRAY_SIZE(argument_descs);
+    sig_desc.ByteStride = sizeof(struct draw_arguments);
+
+    if (FAILED(hr = ID3D12Device_CreateCommandSignature(context.device, &sig_desc, context.root_signature,
+            &IID_ID3D12CommandSignature, (void **)&sig)))
+    {
+        skip("Implementation does not support DGC, skipping test.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    argument_descs[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+    sig_desc.ByteStride = sizeof(struct dispatch_arguments);
+
+    if (FAILED(hr = ID3D12Device_CreateCommandSignature(context.device, &sig_desc, context.root_signature,
+            &IID_ID3D12CommandSignature, (void **)&sig_compute)))
+    {
+        skip("Implementation does not support DGCC, skipping test.\n");
+        ID3D12CommandSignature_Release(sig);
+        destroy_test_context(&context);
+        return;
+    }
+
+    pso_comp = create_compute_pipeline_state(context.device, context.root_signature, cs_code_dxbc);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature, DXGI_FORMAT_UNKNOWN, &vs_code_dxbc, &ps_code_dxbc, NULL);
+    pso_desc.DepthStencilState.DepthEnable = FALSE;
+    pso_desc.DepthStencilState.StencilEnable = FALSE;
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso_gfx);
+
+    {
+        uint32_t counts[256] = { 0 };
+        for (i = 0; i < ARRAY_SIZE(counts) / 2; i++)
+            counts[i] = i;
+        indirect_counts = create_upload_buffer(context.device, sizeof(counts), counts);
+        indirect_copy = create_default_buffer(context.device, sizeof(counts), D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+    }
+
+    {
+        /* Test various ways to observe empty draws. Go beyond 32 so we can test behavior for larger dispatches as well. */
+        struct draw_arguments draws[128] = {{0}};
+        for (i = 0; i < ARRAY_SIZE(draws); i++)
+        {
+            draws[i].value = i * 4;
+            if (i & 1)
+                draws[i].draw.VertexCountPerInstance = 3;
+            else
+                draws[i].draw.InstanceCount = 40;
+        }
+
+        /* Let only the last one be a real draw. */
+        draws[ARRAY_SIZE(draws) - 1].draw.VertexCountPerInstance = 3;
+        draws[ARRAY_SIZE(draws) - 1].draw.InstanceCount = 40;
+        indirect_graphics = create_upload_buffer(context.device, sizeof(draws), draws);
+    }
+
+    {
+        /* Test various ways to observe empty dispatches. */
+        struct dispatch_arguments dispatches[128] = {{0}};
+        for (i = 0; i < ARRAY_SIZE(dispatches); i++)
+        {
+            dispatches[i].value = i * 4;
+            switch (i & 3)
+            {
+                case 0:
+                    dispatches[i].dispatch.ThreadGroupCountX = 1;
+                    dispatches[i].dispatch.ThreadGroupCountY = 1;
+                    break;
+
+                case 1:
+                    dispatches[i].dispatch.ThreadGroupCountX = 1;
+                    dispatches[i].dispatch.ThreadGroupCountZ = 1;
+                    break;
+
+                default:
+                    dispatches[i].dispatch.ThreadGroupCountY = 1;
+                    dispatches[i].dispatch.ThreadGroupCountZ = 1;
+                    break;
+            }
+        }
+
+        dispatches[ARRAY_SIZE(dispatches) - 1].dispatch.ThreadGroupCountX = 10;
+        dispatches[ARRAY_SIZE(dispatches) - 1].dispatch.ThreadGroupCountY = 10;
+        dispatches[ARRAY_SIZE(dispatches) - 1].dispatch.ThreadGroupCountZ = 10;
+        indirect_compute = create_upload_buffer(context.device, sizeof(dispatches), dispatches);
+    }
+
+    memset(&query_desc, 0, sizeof(query_desc));
+    query_desc.Count = 64 * 1024;
+    query_desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+    ID3D12Device_CreateQueryHeap(context.device, &query_desc, &IID_ID3D12QueryHeap, (void **)&query_heap);
+    query_readback = create_readback_buffer(context.device, 64 * 1024 * sizeof(uint64_t));
+
+    /* Graphics */
+    {
+        timestamp_index = 0;
+        ID3D12GraphicsCommandList_EndQuery(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, timestamp_index++);
+
+        /* Make sure the first timestamp is ordered before any reordered preprocess work. */
+        ID3D12GraphicsCommandList_Close(context.list);
+        exec_command_list(context.queue, context.list);
+        ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+
+        output = create_default_buffer(context.device, 64 * 1024, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+
+        set_viewport(&vp, 0, 0, 1, 1, 0, 1);
+        set_rect(&sci, 0, 0, 1, 1);
+        ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+        ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &sci);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, pso_gfx);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(indirect_counts) + 256);
+
+        for (i = 0; i < 6; i++)
+        {
+            if (i == 0)
+                ID3D12GraphicsCommandList_SetPredication(context.list, NULL, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+            else if (i == 1)
+                ID3D12GraphicsCommandList_SetPredication(context.list, indirect_counts, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+            else if (i == 2)
+                ID3D12GraphicsCommandList_SetPredication(context.list, indirect_counts, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+            else if (i == 5)
+                ID3D12GraphicsCommandList_SetPredication(context.list, indirect_copy, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+            /* inherit predication in i == 3 */
+
+            /* Try to trigger sync issues. */
+            ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 1) * sizeof(uint32_t));
+            for (j = 0; j < 16; j++)
+            {
+                ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig, 128, indirect_graphics, 0, NULL, 0); /* last draw will do something, verify we actually check all draws when we cull */
+                ID3D12GraphicsCommandList_EndQuery(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, timestamp_index++);
+            }
+
+            ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 0) * sizeof(uint32_t));
+            /* Hammer hard to study profiler. */
+            for (j = 0; j < 1024; j++)
+            {
+                ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig, 127, indirect_graphics, 0, NULL, 0); /* should do nothing, and should be culled out */
+                ID3D12GraphicsCommandList_EndQuery(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, timestamp_index++);
+            }
+            ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 2) * sizeof(uint32_t));
+            ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig, 1, indirect_graphics, 127 * sizeof(struct draw_arguments), NULL, 0); /* same, but only 1 draw */
+            ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 3) * sizeof(uint32_t));
+
+            if (i > 2)
+                ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig, 1, indirect_graphics, 127 * sizeof(struct draw_arguments), indirect_copy, 0); /* same, but indirect count */
+            else
+                ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig, 1, indirect_graphics, 127 * sizeof(struct draw_arguments), indirect_counts, 4); /* same, but indirect count */
+
+            ID3D12GraphicsCommandList_EndQuery(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, timestamp_index++);
+
+            if (i == 2)
+            {
+                /* Check if predication persists across an INDIRECT_ARGUMENT barrier */
+                ID3D12GraphicsCommandList_SetPredication(context.list, NULL, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+                ID3D12GraphicsCommandList_CopyBufferRegion(context.list, indirect_copy, 0, indirect_counts, 0, 8);
+                ID3D12GraphicsCommandList_SetPredication(context.list, indirect_counts, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+            }
+            else if (i == 3)
+            {
+                ID3D12GraphicsCommandList_SetPredication(context.list, NULL, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                ID3D12GraphicsCommandList_CopyBufferRegion(context.list, indirect_copy, 0, indirect_counts, 512, 8); /* copy a 0 count here. Copy to same location to make sure the indirect count caches get flushed. */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+            }
+            else if (i == 4)
+            {
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                ID3D12GraphicsCommandList_CopyBufferRegion(context.list, indirect_copy, 0, indirect_counts, 32, 8); /* copy a non-zero count here. Copy to same location to make sure the indirect count caches get flushed. */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+            }
+            else if (i == 5)
+            {
+                /* Stress test to make sure we stop splitting at some point. */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+            }
+        }
+
+        assert(timestamp_index <= 64 * 1024);
+        ID3D12GraphicsCommandList_ResolveQueryData(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, 0, timestamp_index,
+                query_readback, 0);
+
+        ID3D12GraphicsCommandList_SetPredication(context.list, NULL, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+        transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+
+        for (i = 0; i < 128; i++)
+        {
+            uint32_t expected_y;
+            uint32_t expected_w;
+            struct uvec4 value;
+            uint32_t expected;
+
+            for (j = 0; j < 6; j++)
+            {
+                value = *get_readback_uvec4(&rb, i + 128 * j, 0);
+
+                expected = i == 127 ? 40 : 0; /* Number of instances (i.e. pixels) drawn */
+                expected *= 64; /* multiplier from root CBV */
+
+                if (j == 2 || j == 3)
+                    expected = 0; /* predicated away */
+
+                /* In iteration 5, we copied a zero indirect count. */
+                expected_w = j == 4 ? 0 : expected;
+                expected_y = expected * 16;
+
+                /* of the gang of 4 draws, the first one should not do anything */
+                ok(value.x == 0 && value.y == expected_y && value.z == expected && value.w == expected_w,
+                        "Iteration %u, draw output %u: expected {%u, %u, %u, %u}, got {%u, %u, %u, %u}.\n", j, i, 0,
+                        expected_y, expected, expected,
+                        value.x, value.y, value.z, value.w);
+            }
+        }
+
+        release_resource_readback(&rb);
+        ID3D12Resource_Release(output);
+
+        report_predication_timestamps(context.queue, query_readback, timestamp_index, "DGC");
+    }
+
+    /* Compute */
+    {
+        timestamp_index = 0;
+
+        ID3D12GraphicsCommandList_EndQuery(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, timestamp_index++);
+
+        /* Make sure the first timestamp is ordered before any reordered preprocess work. */
+        ID3D12GraphicsCommandList_Close(context.list);
+        exec_command_list(context.queue, context.list);
+        ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+
+        output = create_default_buffer(context.device, 64 * 1024, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetComputeRootConstantBufferView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(indirect_counts) + 256);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, pso_comp);
+
+        for (i = 0; i < 6; i++)
+        {
+            if (i == 0)
+                ID3D12GraphicsCommandList_SetPredication(context.list, NULL, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+            else if (i == 1)
+                ID3D12GraphicsCommandList_SetPredication(context.list, indirect_counts, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+            else if (i == 2)
+                ID3D12GraphicsCommandList_SetPredication(context.list, indirect_counts, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+            else if (i == 5)
+                ID3D12GraphicsCommandList_SetPredication(context.list, indirect_copy, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+            /* inherit predication in i == 3 */
+
+            /* Try to trigger any sync issues. */
+            ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 1) * sizeof(uint32_t));
+            for (j = 0; j < 16; j++)
+            {
+                ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig_compute, 128, indirect_compute, 0, NULL, 0); /* last draw will do something, verify we actually check all draws when we cull */
+                ID3D12GraphicsCommandList_EndQuery(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, timestamp_index++);
+            }
+
+            ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 0) * sizeof(uint32_t));
+            /* Hammer this really hard, so we can stare at profiler. */
+            for (j = 0; j < 1024; j++)
+            {
+                ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig_compute, 127, indirect_compute, 0, NULL, 0); /* should do nothing, and should be culled out */
+                ID3D12GraphicsCommandList_EndQuery(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, timestamp_index++);
+            }
+            ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 2) * sizeof(uint32_t));
+            ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig_compute, 1, indirect_compute, 127 * sizeof(struct dispatch_arguments), NULL, 0); /* same, but only 1 draw */
+            ID3D12GraphicsCommandList_EndQuery(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, timestamp_index++);
+            ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(output) + (i * 512 + 3) * sizeof(uint32_t));
+
+            if (i > 2)
+                ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig_compute, 1, indirect_compute, 127 * sizeof(struct dispatch_arguments), indirect_copy, 0); /* same, but indirect count */
+            else
+                ID3D12GraphicsCommandList_ExecuteIndirect(context.list, sig_compute, 1, indirect_compute, 127 * sizeof(struct dispatch_arguments), indirect_counts, 4); /* same, but indirect count */
+
+            ID3D12GraphicsCommandList_EndQuery(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, timestamp_index++);
+
+            if (i == 2)
+            {
+                /* Check if predication persists across an INDIRECT_ARGUMENT barrier */
+                ID3D12GraphicsCommandList_SetPredication(context.list, NULL, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+                ID3D12GraphicsCommandList_CopyBufferRegion(context.list, indirect_copy, 0, indirect_counts, 0, 8);
+                ID3D12GraphicsCommandList_SetPredication(context.list, indirect_counts, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+            }
+            else if (i == 3)
+            {
+                ID3D12GraphicsCommandList_SetPredication(context.list, NULL, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                ID3D12GraphicsCommandList_CopyBufferRegion(context.list, indirect_copy, 0, indirect_counts, 512, 8); /* copy a 0 count here. Copy to same location to make sure the indirect count caches get flushed. */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+            }
+            else if (i == 4)
+            {
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                ID3D12GraphicsCommandList_CopyBufferRegion(context.list, indirect_copy, 0, indirect_counts, 32, 8); /* copy a non-zero count here. Copy to same location to make sure the indirect count caches get flushed. */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+            }
+            else if (i == 5)
+            {
+                /* Stress test to make sure we stop splitting at some point. */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_DEST);
+                transition_resource_state(context.list, indirect_copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT); /* --- split --- */
+            }
+        }
+
+        assert(timestamp_index <= 64 * 1024);
+        ID3D12GraphicsCommandList_ResolveQueryData(context.list, query_heap, D3D12_QUERY_TYPE_TIMESTAMP, 0, timestamp_index,
+                query_readback, 0);
+
+        ID3D12GraphicsCommandList_SetPredication(context.list, NULL, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+        transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+
+        for (i = 0; i < 128; i++)
+        {
+            uint32_t expected_y;
+            uint32_t expected_w;
+            struct uvec4 value;
+            uint32_t expected;
+
+            for (j = 0; j < 6; j++)
+            {
+                value = *get_readback_uvec4(&rb, i + 128 * j, 0);
+
+                expected = i == 127 ? 1000 : 0; /* Number of workgroups drawn */
+                expected *= 64; /* multiplier from root CBV */
+
+                if (j == 2 || j == 3)
+                    expected = 0; /* predicated away */
+
+                /* In iteration 5, we copied a zero indirect count. */
+                expected_w = j == 4 ? 0 : expected;
+                expected_y = expected * 16;
+
+                /* of the gang of 4 dispatches, the first one should not do anything */
+                ok(value.x == 0 && value.y == expected_y && value.z == expected && value.w == expected_w,
+                    "Iteration %u, draw output %u: expected {%u, %u, %u, %u}, got {%u, %u, %u, %u}.\n", j, i, 0,
+                    expected_y, expected, expected,
+                    value.x, value.y, value.z, value.w);
+            }
+        }
+
+        release_resource_readback(&rb);
+        ID3D12Resource_Release(output);
+        report_predication_timestamps(context.queue, query_readback, timestamp_index, "DGCC");
+    }
+
+    ID3D12Resource_Release(query_readback);
+    ID3D12QueryHeap_Release(query_heap);
+
+    ID3D12CommandSignature_Release(sig);
+    ID3D12CommandSignature_Release(sig_compute);
+    ID3D12Resource_Release(indirect_counts);
+    ID3D12Resource_Release(indirect_graphics);
+    ID3D12Resource_Release(indirect_compute);
+    ID3D12Resource_Release(indirect_copy);
+    ID3D12PipelineState_Release(pso_comp);
+    ID3D12PipelineState_Release(pso_gfx);
+    destroy_test_context(&context);
+}
+
 void test_execute_indirect_state(void)
 {
     static const struct vec4 values = { 1000.0f, 2000.0f, 3000.0f, 4000.0f };
@@ -2010,13 +3244,17 @@ void test_execute_indirect_state(void)
 
 #define UNALIGNED_ARGUMENT_BUFFER_OFFSET (64 * 1024 + 4)
 #define UNALIGNED_COUNT_BUFFER_OFFSET (128 * 1024 + 4)
+#define OVERSIZED_COUNT_BUFFER_OFFSET (128 * 1024 + 8)
 #define ALIGNED_COUNT_BUFFER_OFFSET (128 * 1024 + 4 * 1024)
         {
+            const uint32_t large_value = 1024;
             uint8_t *ptr;
+
             ID3D12Resource_Map(argument_buffer, 0, NULL, (void**)&ptr);
             memcpy(ptr, tests[i].argument_buffer_data, tests[i].argument_buffer_size);
             memcpy(ptr + UNALIGNED_ARGUMENT_BUFFER_OFFSET, tests[i].argument_buffer_data, tests[i].argument_buffer_size);
             memcpy(ptr + UNALIGNED_COUNT_BUFFER_OFFSET, &tests[i].api_max_count, sizeof(tests[i].api_max_count));
+            memcpy(ptr + OVERSIZED_COUNT_BUFFER_OFFSET, &large_value, sizeof(large_value));
             memcpy(ptr + ALIGNED_COUNT_BUFFER_OFFSET, &tests[i].api_max_count, sizeof(tests[i].api_max_count));
             ID3D12Resource_Unmap(argument_buffer, 0, NULL);
         }
@@ -2061,6 +3299,10 @@ void test_execute_indirect_state(void)
         ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature, 1024,
                 argument_buffer, UNALIGNED_ARGUMENT_BUFFER_OFFSET,
                 argument_buffer, UNALIGNED_COUNT_BUFFER_OFFSET);
+        /* Test equivalent call with indirect count, but indirect count which needs to be clamped. */
+        ID3D12GraphicsCommandList_ExecuteIndirect(command_list, command_signature, tests[i].api_max_count,
+                argument_buffer, UNALIGNED_ARGUMENT_BUFFER_OFFSET,
+                argument_buffer, OVERSIZED_COUNT_BUFFER_OFFSET);
         /* Test equivalent, but now with late transition to INDIRECT. */
         ID3D12GraphicsCommandList_CopyResource(command_list, argument_buffer_late, argument_buffer);
         transition_resource_state(command_list, argument_buffer_late, D3D12_RESOURCE_STATE_COPY_DEST,
@@ -2085,7 +3327,7 @@ void test_execute_indirect_state(void)
         get_buffer_readback_with_command_list(streamout_buffer, DXGI_FORMAT_R32G32B32A32_FLOAT, &rb, queue, command_list);
         reset_command_list(command_list, context.allocator);
 
-        expected_output_size = (tests[i].expected_output_count * 3 + 2) * sizeof(struct vec4);
+        expected_output_size = (tests[i].expected_output_count * 4 + 2) * sizeof(struct vec4);
         size = get_readback_uint(&rb, 0, 0, 0);
         ok(size == expected_output_size, "Expected size %u, got %u.\n", expected_output_size, size);
 
@@ -2097,10 +3339,14 @@ void test_execute_indirect_state(void)
                     j, v->x, v->y, v->z, v->w, expect->x, expect->y, expect->z, expect->w);
 
             v = get_readback_vec4(&rb, j + tests[i].expected_output_count + 1, 0);
-            ok(compare_vec4(v, expect, 0), "Element (indirect count) %u failed: (%f, %f, %f, %f) != (%f, %f, %f, %f)\n",
+            ok(compare_vec4(v, expect, 0), "Element (clamped count) %u failed: (%f, %f, %f, %f) != (%f, %f, %f, %f)\n",
                     j, v->x, v->y, v->z, v->w, expect->x, expect->y, expect->z, expect->w);
 
             v = get_readback_vec4(&rb, j + 2 * tests[i].expected_output_count + 1, 0);
+            ok(compare_vec4(v, expect, 0), "Element (indirect count) %u failed: (%f, %f, %f, %f) != (%f, %f, %f, %f)\n",
+                    j, v->x, v->y, v->z, v->w, expect->x, expect->y, expect->z, expect->w);
+
+            v = get_readback_vec4(&rb, j + 3 * tests[i].expected_output_count + 1, 0);
             ok(compare_vec4(v, expect, 0), "Element (late latch) %u failed: (%f, %f, %f, %f) != (%f, %f, %f, %f)\n",
                     j, v->x, v->y, v->z, v->w, expect->x, expect->y, expect->z, expect->w);
         }
@@ -2135,7 +3381,7 @@ void test_execute_indirect_state(void)
 
         for (j = 0; j < 2; j++)
         {
-            v = get_readback_vec4(&rb, j + 1 + 3 * tests[i].expected_output_count, 0);
+            v = get_readback_vec4(&rb, j + 1 + 4 * tests[i].expected_output_count, 0);
             expect = &expect_reset_state[j];
             ok(compare_vec4(v, expect, 0), "Post-reset element %u failed: (%f, %f, %f, %f) != (%f, %f, %f, %f)\n",
                     j, v->x, v->y, v->z, v->w, expect->x, expect->y, expect->z, expect->w);
@@ -4769,3 +6015,193 @@ void test_conservative_rasterization_dxil(void)
     test_conservative_rasterization(true);
 }
 
+void test_uninit_root_parameters(void)
+{
+    D3D12_DESCRIPTOR_RANGE table_range[1];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_params[3];
+    ID3D12DescriptorHeap *desc_heap;
+    struct test_context context;
+    ID3D12RootSignature *alt_rs;
+    struct resource_readback rb;
+    ID3D12Resource *buf[4];
+    ID3D12Resource *output;
+    unsigned int i, j;
+
+    static const DWORD cs_code[] =
+    {
+#if 0
+    Buffer<float4> T : register(t0);
+    RWStructuredBuffer<float4> U : register(u0);
+    cbuffer C : register(b0)
+    {
+            float4 v;
+    };
+
+    [numthreads(1, 1, 1)]
+    void main(uint thr : SV_DispatchThreadID)
+    {
+            U[thr] = T.Load(thr) + v;
+    }
+#endif
+        0x43425844, 0x6ef24b9b, 0xb10f5510, 0x55b976be, 0xf57e9c8f, 0x00000001, 0x00000114, 0x00000003,
+        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x000000c0, 0x00050050, 0x00000030, 0x0100086a,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x04000858, 0x00107000, 0x00000000, 0x00005555,
+        0x0400009e, 0x0011e000, 0x00000000, 0x00000010, 0x0200005f, 0x00020012, 0x02000068, 0x00000001,
+        0x0400009b, 0x00000001, 0x00000001, 0x00000001, 0x8800002d, 0x80000042, 0x00155543, 0x001000f2,
+        0x00000000, 0x00020006, 0x00107e46, 0x00000000, 0x08000000, 0x001000f2, 0x00000000, 0x00100e46,
+        0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x080000a8, 0x0011e0f2, 0x00000000, 0x0002000a,
+        0x00004001, 0x00000000, 0x00100e46, 0x00000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE cs_code_dxbc = SHADER_BYTECODE(cs_code);
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_params, 0, sizeof(rs_params));
+    memset(table_range, 0, sizeof(table_range));
+
+    rs_desc.NumParameters = ARRAY_SIZE(rs_params);
+    rs_desc.pParameters = rs_params;
+    rs_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_params[0].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(table_range);
+    rs_params[0].DescriptorTable.pDescriptorRanges = table_range;
+    table_range[0].NumDescriptors = 4;
+    table_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    rs_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_params[2].Constants.Num32BitValues = ARRAY_SIZE(buf);
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    rs_params[2].Constants.Num32BitValues += 2;
+    create_root_signature(context.device, &rs_desc, &alt_rs);
+    context.pipeline_state = create_compute_pipeline_state(context.device, context.root_signature, cs_code_dxbc);
+
+    desc_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, ARRAY_SIZE(buf));
+
+    for (i = 0; i < ARRAY_SIZE(buf); i++)
+    {
+        D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu_h;
+        float data[4];
+
+        for (j = 0; j < 4; j++)
+            data[j] = (float)(4 * i + 1 + j);
+        buf[i] = create_upload_buffer(context.device, sizeof(data), data);
+
+        srv_desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+        srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        srv_desc.Buffer.FirstElement = 0;
+        srv_desc.Buffer.Flags = 0;
+        srv_desc.Buffer.NumElements = 1;
+        srv_desc.Buffer.StructureByteStride = 0;
+        cpu_h = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(desc_heap);
+        cpu_h.ptr += ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) * i;
+        ID3D12Device_CreateShaderResourceView(context.device, buf[i], &srv_desc, cpu_h);
+    }
+
+    output = create_default_buffer(context.device, 4096, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    /* First, check to see what happens when we let stale 32-bit constants and descriptor heap tables pass through a SetRootSignature call. */
+    {
+        D3D12_GPU_DESCRIPTOR_HANDLE gpu_h = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(desc_heap);
+        const struct vec4 expected = { 15.0f, 26.0f, 37.0f, 48.0f };
+        const float data[4] = { 10, 20, 30, 40 };
+        const struct vec4 *value;
+
+        gpu_h.ptr += ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &desc_heap);
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, alt_rs);
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, gpu_h);
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output));
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(context.list, 2, 4, data, 0);
+
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+        ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+
+        transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+
+        /* Setting a new root signature does not clear out any state. This does not even trigger a warning, but it can hang AMD GPUs ... */
+        value = get_readback_vec4(&rb, 0, 0);
+        ok(compare_vec4(value, &expected, 0), "Expected (%f, %f, %f, %f), got (%f, %f, %f, %f).\n",
+                expected.x, expected.y, expected.z, expected.w,
+                value->x, value->y, value->z, value->w);
+        release_resource_readback(&rb);
+    }
+
+    /* Try not setting root constants. Expect zeroed state. */
+    {
+        D3D12_GPU_DESCRIPTOR_HANDLE gpu_h = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(desc_heap);
+        const struct vec4 expected = { 5.0f, 6.0f, 7.0f, 8.0f };
+        const struct vec4 *value;
+
+        gpu_h.ptr += ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &desc_heap);
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, gpu_h);
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output) + 16);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+        ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+
+        transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+
+        /* Setting a new root signature does not clear out any state. This does not even trigger a warning, but it can hang AMD GPUs ... */
+        value = get_readback_vec4(&rb, 1, 0);
+        ok(compare_vec4(value, &expected, 0), "Expected (%f, %f, %f, %f), got (%f, %f, %f, %f).\n",
+                expected.x, expected.y, expected.z, expected.w,
+                value->x, value->y, value->z, value->w);
+        release_resource_readback(&rb);
+    }
+
+    /* See what happens on ClearState(). It should be equivalent to a Reset(), i.e. cleared state. */
+    {
+        D3D12_GPU_DESCRIPTOR_HANDLE gpu_h = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(desc_heap);
+        const struct vec4 expected = { 5.0f, 6.0f, 7.0f, 8.0f };
+        const float data[4] = { 10, 20, 30, 40 };
+        const struct vec4 *value;
+
+        gpu_h.ptr += ID3D12Device_GetDescriptorHandleIncrementSize(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &desc_heap);
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, alt_rs);
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, gpu_h);
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output));
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(context.list, 2, 4, data, 0);
+
+        /* Root parameter state is cleared to zero in ClearState. Have to set table + root descriptor or weird things happen. */
+        ID3D12GraphicsCommandList_ClearState(context.list, NULL);
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &desc_heap);
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0, gpu_h);
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output) + 32);
+
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+        ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+
+        transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(output, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+
+        value = get_readback_vec4(&rb, 2, 0);
+        ok(compare_vec4(value, &expected, 0), "Expected (%f, %f, %f, %f), got (%f, %f, %f, %f).\n",
+                expected.x, expected.y, expected.z, expected.w,
+                value->x, value->y, value->z, value->w);
+        release_resource_readback(&rb);
+    }
+
+    ID3D12RootSignature_Release(alt_rs);
+    ID3D12Resource_Release(output);
+    for (i = 0; i < ARRAY_SIZE(buf); i++)
+        ID3D12Resource_Release(buf[i]);
+    ID3D12DescriptorHeap_Release(desc_heap);
+    destroy_test_context(&context);
+}

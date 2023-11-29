@@ -57,6 +57,14 @@ enum vkd3d_dbg_channel
     VKD3D_DBG_CHANNEL_COUNT
 };
 
+void vkd3d_dbg_disable_debug_file(void);
+
+#ifdef VKD3D_DEBUG_NO_FILE
+#define VKD3D_DBG_DISABLE_DEBUG_FILE() vkd3d_dbg_disable_debug_file()
+#else
+#define VKD3D_DBG_DISABLE_DEBUG_FILE() ((void)0)
+#endif
+
 enum vkd3d_dbg_level vkd3d_dbg_get_level(enum vkd3d_dbg_channel channel);
 
 void vkd3d_dbg_printf(enum vkd3d_dbg_channel channel, enum vkd3d_dbg_level level, const char *function,
@@ -83,6 +91,7 @@ const char *debugstr_w(const WCHAR *wstr);
         VKD3D_DBG_PRINTF
 
 #define VKD3D_DBG_PRINTF(...) \
+        VKD3D_DBG_DISABLE_DEBUG_FILE(); \
         vkd3d_dbg_printf(vkd3d_dbg_channel, vkd3d_dbg_level, __FUNCTION__, __VA_ARGS__); } while (0)
 
 #ifndef TRACE
@@ -104,7 +113,7 @@ const char *debugstr_w(const WCHAR *wstr);
 #define TRACE_ON() (vkd3d_dbg_get_level(VKD3D_DBG_CHANNEL) == VKD3D_DBG_LEVEL_TRACE)
 #endif
 
-#define FIXME_ONCE VKD3D_DBG_LOG_ONCE(FIXME, WARN)
+#define FIXME_ONCE VKD3D_DBG_LOG_ONCE(FIXME, TRACE)
 
 static inline const char *debugstr_guid(const GUID *guid)
 {

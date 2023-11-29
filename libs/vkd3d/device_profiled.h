@@ -64,21 +64,21 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateRootSignature_profiled(d3d12
 static void STDMETHODCALLTYPE d3d12_device_CreateConstantBufferView_profiled(d3d12_device_iface *iface,
         const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
-    DEVICE_PROFILED_CALL(CreateConstantBufferView, iface, desc, descriptor);
+    DEVICE_PROFILED_CALL(CreateConstantBufferView_default, iface, desc, descriptor);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateShaderResourceView_profiled(d3d12_device_iface *iface,
         ID3D12Resource *resource, const D3D12_SHADER_RESOURCE_VIEW_DESC *desc,
         D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
-    DEVICE_PROFILED_CALL(CreateShaderResourceView, iface, resource, desc, descriptor);
+    DEVICE_PROFILED_CALL(CreateShaderResourceView_default, iface, resource, desc, descriptor);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateUnorderedAccessView_profiled(d3d12_device_iface *iface,
         ID3D12Resource *resource, ID3D12Resource *counter_resource,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
-    DEVICE_PROFILED_CALL(CreateUnorderedAccessView, iface, resource, counter_resource, desc, descriptor);
+    DEVICE_PROFILED_CALL(CreateUnorderedAccessView_default, iface, resource, counter_resource, desc, descriptor);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CreateRenderTargetView_profiled(d3d12_device_iface *iface,
@@ -98,7 +98,13 @@ static void STDMETHODCALLTYPE d3d12_device_CreateDepthStencilView_profiled(d3d12
 static void STDMETHODCALLTYPE d3d12_device_CreateSampler_profiled(d3d12_device_iface *iface,
         const D3D12_SAMPLER_DESC *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
-    DEVICE_PROFILED_CALL(CreateSampler, iface, desc, descriptor);
+    DEVICE_PROFILED_CALL(CreateSampler_default, iface, desc, descriptor);
+}
+
+static void STDMETHODCALLTYPE d3d12_device_CreateSampler2_profiled(d3d12_device_iface *iface,
+        const D3D12_SAMPLER_DESC2 *desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
+{
+    DEVICE_PROFILED_CALL(CreateSampler2_default, iface, desc, descriptor);
 }
 
 static void STDMETHODCALLTYPE d3d12_device_CopyDescriptors_profiled(d3d12_device_iface *iface,
@@ -146,7 +152,7 @@ static void STDMETHODCALLTYPE d3d12_device_CopyDescriptorsSimple_profiled(d3d12_
 {
     VKD3D_REGION_DECL(CopyDescriptorsSimple);
     VKD3D_REGION_BEGIN(CopyDescriptorsSimple);
-    d3d12_device_CopyDescriptorsSimple(iface, descriptor_count, dst_descriptor_range_offset,
+    d3d12_device_CopyDescriptorsSimple_default(iface, descriptor_count, dst_descriptor_range_offset,
             src_descriptor_range_offset, descriptor_heap_type);
     VKD3D_REGION_END_ITERATIONS(CopyDescriptorsSimple, descriptor_count);
 }
@@ -236,14 +242,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource1_profiled(d3d
 static void STDMETHODCALLTYPE d3d12_device_CreateSamplerFeedbackUnorderedAccessView_profiled(d3d12_device_iface *iface,
         ID3D12Resource *target_resource, ID3D12Resource *feedback_resource, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
 {
-    DEVICE_PROFILED_CALL(CreateSamplerFeedbackUnorderedAccessView, iface, target_resource, feedback_resource, descriptor);
+    DEVICE_PROFILED_CALL(CreateSamplerFeedbackUnorderedAccessView_default, iface, target_resource, feedback_resource, descriptor);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource3_profiled(d3d12_device_iface *iface,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
         const D3D12_RESOURCE_DESC1 *desc, D3D12_BARRIER_LAYOUT initial_layout,
         const D3D12_CLEAR_VALUE *optimized_clear_value, ID3D12ProtectedResourceSession *protected_session,
-        UINT32 num_castable_formats, DXGI_FORMAT *castable_formats, REFIID iid, void **resource)
+        UINT32 num_castable_formats, const DXGI_FORMAT *castable_formats, REFIID iid, void **resource)
 {
     DEVICE_PROFILED_CALL_HRESULT(CreateCommittedResource3, iface, heap_properties, heap_flags, desc, initial_layout,
             optimized_clear_value, protected_session, num_castable_formats, castable_formats,
@@ -253,7 +259,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource3_profiled(
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource2_profiled(d3d12_device_iface *iface,
         ID3D12Heap *heap, UINT64 heap_offset, const D3D12_RESOURCE_DESC1 *desc, D3D12_BARRIER_LAYOUT initial_layout,
         const D3D12_CLEAR_VALUE *optimized_clear_value, UINT32 num_castable_formats,
-        DXGI_FORMAT *castable_formats, REFIID iid, void **resource)
+        const DXGI_FORMAT *castable_formats, REFIID iid, void **resource)
 {
     DEVICE_PROFILED_CALL_HRESULT(CreatePlacedResource2, iface, heap, heap_offset, desc, initial_layout, optimized_clear_value,
             num_castable_formats, castable_formats, iid, resource);
@@ -262,13 +268,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreatePlacedResource2_profiled(d3d
 static HRESULT STDMETHODCALLTYPE d3d12_device_CreateReservedResource2_profiled(d3d12_device_iface *iface,
         const D3D12_RESOURCE_DESC *desc, D3D12_BARRIER_LAYOUT initial_layout, const D3D12_CLEAR_VALUE *optimized_clear_value,
         ID3D12ProtectedResourceSession *protected_session, UINT32 num_castable_formats,
-        DXGI_FORMAT *castable_formats, REFIID iid, void **resource)
+        const DXGI_FORMAT *castable_formats, REFIID iid, void **resource)
 {
     DEVICE_PROFILED_CALL_HRESULT(CreateReservedResource2, iface, desc, initial_layout, optimized_clear_value, protected_session,
             num_castable_formats, castable_formats, iid, resource);
 }
 
-CONST_VTBL struct ID3D12Device10Vtbl d3d12_device_vtbl_profiled =
+CONST_VTBL struct ID3D12Device12Vtbl d3d12_device_vtbl_profiled =
 {
     /* IUnknown methods */
     d3d12_device_QueryInterface,
@@ -362,6 +368,10 @@ CONST_VTBL struct ID3D12Device10Vtbl d3d12_device_vtbl_profiled =
     d3d12_device_CreateCommittedResource3_profiled,
     d3d12_device_CreatePlacedResource2_profiled,
     d3d12_device_CreateReservedResource2_profiled,
+    /* ID3D12Device11 methods */
+    d3d12_device_CreateSampler2_profiled,
+    /* ID3D12Device12 methods */
+    d3d12_device_GetResourceAllocationInfo3,
 };
 
 #endif

@@ -1,0 +1,56 @@
+#version 450
+#extension GL_EXT_buffer_reference : require
+
+layout(local_size_x = 32) in;
+
+layout(buffer_reference_align = 4, std430, buffer_reference) readonly buffer Indirect
+{
+	uint values[];
+};
+
+layout(buffer_reference_align = 4, std430, buffer_reference) writeonly buffer IndirectOutput
+{
+	uint values[];
+};
+
+layout(buffer_reference_align = 4, std430, buffer_reference) readonly buffer IndirectCount
+{
+	uint value;
+};
+
+layout(push_constant) uniform Registers
+{
+	Indirect indirect;
+	IndirectCount count;
+	IndirectOutput out_dispatch;
+	uint stride_words;
+	uint max_commands;
+};
+
+void main()
+{
+	uint cmd_index = gl_GlobalInvocationID.x;
+	if (cmd_index >= max_commands)
+		return;
+
+	uint indirect_count = count.value;
+
+	uint offset = cmd_index * stride_words;
+	uvec3 wgs;
+	if (cmd_index < indirect_count)
+	{
+		wgs = uvec3(indirect.values[offset + 0],
+				indirect.values[offset + 1],
+				indirect.values[offset + 2]);
+	}
+	else
+	{
+		wgs = uvec3(0);
+	}
+
+	out_dispatch.values[3 * cmd_index + 0] = wgs.x;
+	out_dispatch.values[3 * cmd_index + 1] = wgs.y;
+	out_dispatch.values[3 * cmd_index + 2] = wgs.z;
+}
+
+

@@ -189,7 +189,16 @@ static dxil_spv_bool dxil_remap_inner(
 
                 /* Acceleration structures are mapped to SSBO uvec2[] array instead of normal heap. */
                 if (d3d_binding->kind == DXIL_SPV_RESOURCE_KIND_RT_ACCELERATION_STRUCTURE)
+                {
                     vk_binding->descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_SSBO;
+                }
+                else if (descriptor_type == VKD3D_SHADER_DESCRIPTOR_TYPE_UAV &&
+                        (binding->flags & VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER) &&
+                        !(binding->flags & VKD3D_SHADER_BINDING_FLAG_RAW_VA))
+                {
+                    /* Force texel buffer path for UAV counters if we need to. */
+                    vk_binding->descriptor_type = DXIL_SPV_VULKAN_DESCRIPTOR_TYPE_TEXEL_BUFFER;
+                }
             }
             else
             {
@@ -544,17 +553,19 @@ static bool dxil_match_shader_stage(dxil_spv_shader_stage blob_stage, VkShaderSt
 
 int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv,
+        struct vkd3d_shader_code_debug *spirv_debug,
         const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_compile_arguments *compiler_args)
 {
+    dxil_spv_option_denorm_preserve_support denorm_preserve = {{ DXIL_SPV_OPTION_DENORM_PRESERVE_SUPPORT }};
     struct vkd3d_dxil_remap_userdata remap_userdata;
-    unsigned int non_raw_va_binding_count = 0;
     unsigned int raw_va_binding_count = 0;
     unsigned int num_root_descriptors = 0;
     unsigned int root_constant_words = 0;
     dxil_spv_converter converter = NULL;
     dxil_spv_parsed_blob blob = NULL;
     dxil_spv_compiled_spirv compiled;
+    unsigned int heuristic_wave_size;
     dxil_spv_shader_stage stage;
     unsigned int i, j, max_size;
     vkd3d_shader_hash_t hash;
@@ -567,12 +578,17 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     memset(&spirv->meta, 0, sizeof(spirv->meta));
     hash = vkd3d_shader_hash(dxbc);
     spirv->meta.hash = hash;
-    if (vkd3d_shader_replace(hash, &spirv->code, &spirv->size))
+
+    /* Cannot replace mesh shaders until we have reflected the IO layout. */
+    if (shader_interface_info->stage != VK_SHADER_STAGE_MESH_BIT_EXT &&
+            vkd3d_shader_replace(hash, &spirv->code, &spirv->size))
     {
         spirv->meta.flags |= VKD3D_SHADER_META_FLAG_REPLACED;
         return ret;
     }
     quirks = vkd3d_shader_compile_arguments_select_quirks(compiler_args, hash);
+    if (quirks & VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER)
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_AFTER_DISPATCH;
 
     dxil_spv_begin_thread_allocator_context();
 
@@ -614,27 +630,11 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
 
     for (i = 0; i < shader_interface_info->binding_count; i++)
     {
-        /* Bindless UAV counters are implemented as physical storage buffer pointers.
-         * For simplicity, dxil-spirv only accepts either fully RAW VA, or all non-raw VA. */
-        if ((shader_interface_info->bindings[i].flags &
-             (VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER | VKD3D_SHADER_BINDING_FLAG_BINDLESS)) ==
-            (VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER | VKD3D_SHADER_BINDING_FLAG_BINDLESS))
-        {
-            if (shader_interface_info->bindings[i].flags & VKD3D_SHADER_BINDING_FLAG_RAW_VA)
-                raw_va_binding_count++;
-            else
-                non_raw_va_binding_count++;
-        }
+        if (shader_interface_info->bindings[i].flags & VKD3D_SHADER_BINDING_FLAG_RAW_VA)
+            raw_va_binding_count++;
 
         if (vkd3d_shader_binding_is_root_descriptor(&shader_interface_info->bindings[i]))
             num_root_descriptors++;
-    }
-
-    if (raw_va_binding_count && non_raw_va_binding_count)
-    {
-        ERR("dxil-spirv currently cannot mix and match bindless UAV counters with RAW VA and texel buffer.\n");
-        ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-        goto end;
     }
 
     /* Root constants come after root descriptors. Offset the counts. */
@@ -728,6 +728,21 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
     }
 #endif
 
+    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER)
+    {
+        const struct dxil_spv_option_physical_address_descriptor_indexing helper =
+                { { DXIL_SPV_OPTION_PHYSICAL_ADDRESS_DESCRIPTOR_INDEXING },
+                    shader_interface_info->descriptor_size_cbv_srv_uav / sizeof(VkDeviceAddress),
+                    0 };
+
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support PHYSICAL_ADDRESS_DESCRIPTOR_INDEXING.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
     {
         const struct dxil_spv_option_bindless_offset_buffer_layout helper =
                 { { DXIL_SPV_OPTION_BINDLESS_OFFSET_BUFFER_LAYOUT },
@@ -748,6 +763,61 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         sprintf(buffer, "%016"PRIx64".dxil", spirv->meta.hash);
         if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
             WARN("dxil-spirv does not support SHADER_SOURCE_FILE.\n");
+    }
+
+    {
+        const struct dxil_spv_option_precise_control helper =
+                { { DXIL_SPV_OPTION_PRECISE_CONTROL },
+                        (quirks & VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH) ? DXIL_SPV_TRUE : DXIL_SPV_FALSE,
+                        DXIL_SPV_FALSE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            WARN("dxil-spirv does not support PRECISE_CONTROL.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
+    {
+        const struct dxil_spv_option_subgroup_properties helper =
+                { { DXIL_SPV_OPTION_SUBGROUP_PROPERTIES },
+                        compiler_args->min_subgroup_size,
+                        compiler_args->max_subgroup_size };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            WARN("dxil-spirv does not support SUBGROUP_PROPERTIES.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
+    if (quirks & VKD3D_SHADER_QUIRK_FORCE_LOOP)
+    {
+        struct dxil_spv_option_branch_control helper = { { DXIL_SPV_OPTION_BRANCH_CONTROL } };
+        helper.force_loop = DXIL_SPV_TRUE;
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            WARN("dxil-spirv does not support BRANCH_CONTROL.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
+    if ((quirks & VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS) &&
+            (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER))
+    {
+        /* Checking for RAW_VA_ALIAS_DESCRIPTOR_BUFFER is technically not needed,
+         * but only RADV is affected here and NV miscompiles shaders if you only query OpArrayLength
+         * from a descriptor buffer SSBO. */
+        struct dxil_spv_option_descriptor_heap_robustness helper = { { DXIL_SPV_OPTION_DESCRIPTOR_HEAP_ROBUSTNESS },
+                DXIL_SPV_TRUE };
+
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            WARN("dxil-spirv does not support DESCRIPTOR_HEAP_ROBUSTNESS.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
     }
 
     if (compiler_args)
@@ -821,16 +891,41 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
             }
             else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_MIN_PRECISION_IS_NATIVE_16BIT)
             {
-                static const dxil_spv_option_min_precision_native_16bit helper =
-                        { { DXIL_SPV_OPTION_MIN_PRECISION_NATIVE_16BIT }, DXIL_SPV_TRUE };
+                if (!(quirks & VKD3D_SHADER_QUIRK_FORCE_MIN16_AS_32BIT))
+                {
+                    static const dxil_spv_option_min_precision_native_16bit helper =
+                            { { DXIL_SPV_OPTION_MIN_PRECISION_NATIVE_16BIT }, DXIL_SPV_TRUE };
 
+                    if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                    {
+                        ERR("dxil-spirv does not support MIN_PRECISION_NATIVE_16BIT.\n");
+                        ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+                        goto end;
+                    }
+                }
+            }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP16_DENORM_PRESERVE)
+                denorm_preserve.supports_float16_denorm_preserve = DXIL_SPV_TRUE;
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP64_DENORM_PRESERVE)
+                denorm_preserve.supports_float64_denorm_preserve = DXIL_SPV_TRUE;
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_SUBGROUP_PARTITIONED_NV)
+            {
+                static const dxil_spv_option_subgroup_partitioned_nv helper =
+                        { { DXIL_SPV_OPTION_SUBGROUP_PARTITIONED_NV }, DXIL_SPV_TRUE };
                 if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
                 {
-                    ERR("dxil-spirv does not support MIN_PRECISION_NATIVE_16BIT.\n");
+                    ERR("dxil-spirv does not support SUBGROUP_PARTITIONED_NV.\n");
                     ret = VKD3D_ERROR_NOT_IMPLEMENTED;
                     goto end;
                 }
             }
+        }
+
+        if (dxil_spv_converter_add_option(converter, &denorm_preserve.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support DENORM_PRESERVE_SUPPORT.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
         }
 
         if (compiler_args->dual_source_blending)
@@ -889,6 +984,30 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         }
     }
 
+    if (quirks & VKD3D_SHADER_QUIRK_FORCE_SUBGROUP_SIZE_1)
+    {
+        const dxil_spv_option_force_subgroup_size helper =
+                { { DXIL_SPV_OPTION_FORCE_SUBGROUP_SIZE }, 1, DXIL_SPV_FALSE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support FORCE_SUBGROUP_SIZE_1.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
+    if (quirks & VKD3D_SHADER_QUIRK_REWRITE_GRAD_TO_BIAS)
+    {
+        const dxil_spv_option_sample_grad_optimization_control helper =
+                { { DXIL_SPV_OPTION_SAMPLE_GRAD_OPTIMIZATION_CONTROL }, DXIL_SPV_TRUE, DXIL_SPV_TRUE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support SAMPLE_GRAD_OPTIMIZATION_CONTROL.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
     remap_userdata.shader_interface_info = shader_interface_info;
     remap_userdata.shader_interface_local_info = NULL;
     remap_userdata.num_root_descriptors = num_root_descriptors;
@@ -923,23 +1042,50 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         goto end;
     }
 
-    if (!(code = vkd3d_malloc(compiled.size)))
+    /* Late replacement for mesh shaders. */
+    if (shader_interface_info->stage == VK_SHADER_STAGE_MESH_BIT_EXT &&
+            vkd3d_shader_replace(hash, &spirv->code, &spirv->size))
     {
-        ret = VKD3D_ERROR_OUT_OF_MEMORY;
-        goto end;
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_REPLACED;
+    }
+    else
+    {
+        if (!(code = vkd3d_malloc(compiled.size)))
+        {
+            ret = VKD3D_ERROR_OUT_OF_MEMORY;
+            goto end;
+        }
+
+        memcpy(code, compiled.data, compiled.size);
+        spirv->code = code;
+        spirv->size = compiled.size;
     }
 
-    memcpy(code, compiled.data, compiled.size);
-    spirv->code = code;
-    spirv->size = compiled.size;
-    if (dxil_spv_converter_uses_subgroup_size(converter) == DXIL_SPV_TRUE)
-        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_USES_SUBGROUP_SIZE;
+    if (spirv_debug)
+    {
+        dxil_spv_converter_get_compiled_entry_point(converter, &spirv_debug->debug_entry_point_name);
+        spirv_debug->debug_entry_point_name = vkd3d_strdup(spirv_debug->debug_entry_point_name);
+    }
+
     dxil_spv_converter_get_compute_workgroup_dimensions(converter,
             &spirv->meta.cs_workgroup_size[0],
             &spirv->meta.cs_workgroup_size[1],
             &spirv->meta.cs_workgroup_size[2]);
     dxil_spv_converter_get_patch_vertex_count(converter, &spirv->meta.patch_vertex_count);
     dxil_spv_converter_get_compute_required_wave_size(converter, &spirv->meta.cs_required_wave_size);
+
+    if (compiler_args->promote_wave_size_heuristics)
+    {
+        dxil_spv_converter_get_compute_heuristic_max_wave_size(converter, &heuristic_wave_size);
+        if (quirks & VKD3D_SHADER_QUIRK_FORCE_MAX_WAVE32)
+            heuristic_wave_size = 32;
+
+        if (heuristic_wave_size && !spirv->meta.cs_required_wave_size &&
+                compiler_args->max_subgroup_size > heuristic_wave_size &&
+                compiler_args->min_subgroup_size <= heuristic_wave_size)
+            spirv->meta.cs_required_wave_size = heuristic_wave_size;
+    }
+
     vkd3d_shader_extract_feature_meta(spirv);
     vkd3d_shader_dump_spirv_shader(hash, spirv);
 
@@ -952,17 +1098,16 @@ end:
 
 int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         const char *export, const char *demangled_export,
-        struct vkd3d_shader_code *spirv,
+        struct vkd3d_shader_code *spirv, struct vkd3d_shader_code_debug *spirv_debug,
         const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_interface_local_info *shader_interface_local_info,
         const struct vkd3d_shader_compile_arguments *compiler_args)
 {
+    dxil_spv_option_denorm_preserve_support denorm_preserve = {{ DXIL_SPV_OPTION_DENORM_PRESERVE_SUPPORT }};
     const struct vkd3d_shader_push_constant_buffer *record_constant_buffer;
     const struct vkd3d_shader_resource_binding *resource_binding;
     const struct vkd3d_shader_root_parameter *root_parameter;
     struct vkd3d_dxil_remap_userdata remap_userdata;
-    unsigned int non_raw_va_binding_count = 0;
-    unsigned int raw_va_binding_count = 0;
     unsigned int num_root_descriptors = 0;
     unsigned int root_constant_words = 0;
     dxil_spv_converter converter = NULL;
@@ -971,6 +1116,7 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     unsigned int i, j, max_size;
     vkd3d_shader_hash_t hash;
     int ret = VKD3D_OK;
+    uint32_t quirks;
     void *code;
 
     dxil_spv_set_thread_log_callback(vkd3d_dxil_log_callback, NULL);
@@ -978,6 +1124,10 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     memset(&spirv->meta, 0, sizeof(spirv->meta));
     hash = vkd3d_shader_hash(dxil);
     spirv->meta.hash = hash;
+
+    quirks = vkd3d_shader_compile_arguments_select_quirks(compiler_args, hash);
+    if (quirks & VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER)
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_AFTER_DISPATCH;
 
     /* For user provided (not mangled) export names, just inherit that name. */
     if (!demangled_export)
@@ -1021,22 +1171,8 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         root_constant_words = max_size;
 
     for (i = 0; i < shader_interface_info->binding_count; i++)
-    {
-        /* Bindless UAV counters are implemented as physical storage buffer pointers.
-         * For simplicity, dxil-spirv only accepts either fully RAW VA, or all non-raw VA. */
-        if ((shader_interface_info->bindings[i].flags &
-             (VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER | VKD3D_SHADER_BINDING_FLAG_BINDLESS)) ==
-            (VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER | VKD3D_SHADER_BINDING_FLAG_BINDLESS))
-        {
-            if (shader_interface_info->bindings[i].flags & VKD3D_SHADER_BINDING_FLAG_RAW_VA)
-                raw_va_binding_count++;
-            else
-                non_raw_va_binding_count++;
-        }
-
         if (vkd3d_shader_binding_is_root_descriptor(&shader_interface_info->bindings[i]))
             num_root_descriptors++;
-    }
 
     /* Push local root parameters. We cannot rely on callbacks here
      * since the local root signature has a physical layout in ShaderRecordKHR
@@ -1124,13 +1260,6 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
                 ret = VKD3D_ERROR_INVALID_ARGUMENT;
                 goto end;
         }
-    }
-
-    if (raw_va_binding_count && non_raw_va_binding_count)
-    {
-        ERR("dxil-spirv currently cannot mix and match bindless UAV counters with RAW VA and texel buffer.\n");
-        ret = VKD3D_ERROR_NOT_IMPLEMENTED;
-        goto end;
     }
 
     /* Root constants come after root descriptors. Offset the counts. */
@@ -1227,11 +1356,26 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     {
         const struct dxil_spv_option_sbt_descriptor_size_log2 helper =
                 { { DXIL_SPV_OPTION_SBT_DESCRIPTOR_SIZE_LOG2 },
-                    vkd3d_bitmask_tzcnt32(shader_interface_local_info->descriptor_size),
-                    vkd3d_bitmask_tzcnt32(shader_interface_local_info->descriptor_size) };
+                    vkd3d_bitmask_tzcnt32(shader_interface_info->descriptor_size_cbv_srv_uav),
+                    vkd3d_bitmask_tzcnt32(shader_interface_info->descriptor_size_sampler) };
         if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
         {
             ERR("dxil-spirv does not support SBT_DESCRIPTOR_SIZE_LOG2.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
+    if (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER)
+    {
+        const struct dxil_spv_option_physical_address_descriptor_indexing helper =
+                { { DXIL_SPV_OPTION_PHYSICAL_ADDRESS_DESCRIPTOR_INDEXING },
+                    shader_interface_info->descriptor_size_cbv_srv_uav / sizeof(VkDeviceAddress),
+                    0 };
+
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support PHYSICAL_ADDRESS_DESCRIPTOR_INDEXING.\n");
             ret = VKD3D_ERROR_NOT_IMPLEMENTED;
             goto end;
         }
@@ -1257,6 +1401,61 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         snprintf(buffer, sizeof(buffer), "%016"PRIx64".%s.dxil", spirv->meta.hash, export);
         if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
             WARN("dxil-spirv does not support SHADER_SOURCE_FILE.\n");
+    }
+
+    {
+        const struct dxil_spv_option_precise_control helper =
+                { { DXIL_SPV_OPTION_PRECISE_CONTROL },
+                        (quirks & VKD3D_SHADER_QUIRK_FORCE_NOCONTRACT_MATH) ? DXIL_SPV_TRUE : DXIL_SPV_FALSE,
+                        DXIL_SPV_FALSE };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            WARN("dxil-spirv does not support PRECISE_CONTROL.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
+    {
+        const struct dxil_spv_option_subgroup_properties helper =
+                { { DXIL_SPV_OPTION_SUBGROUP_PROPERTIES },
+                        compiler_args->min_subgroup_size,
+                        compiler_args->max_subgroup_size };
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            WARN("dxil-spirv does not support SUBGROUP_PROPERTIES.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
+    if (quirks & VKD3D_SHADER_QUIRK_FORCE_LOOP)
+    {
+        struct dxil_spv_option_branch_control helper = { { DXIL_SPV_OPTION_BRANCH_CONTROL } };
+        helper.force_loop = DXIL_SPV_TRUE;
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            WARN("dxil-spirv does not support BRANCH_CONTROL.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
+    }
+
+    if ((quirks & VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS) &&
+            (shader_interface_info->flags & VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER))
+    {
+        /* Checking for RAW_VA_ALIAS_DESCRIPTOR_BUFFER is technically not needed,
+         * but only RADV is affected here and NV miscompiles shaders if you only query OpArrayLength
+         * from a descriptor buffer SSBO. */
+        struct dxil_spv_option_descriptor_heap_robustness helper = { { DXIL_SPV_OPTION_DESCRIPTOR_HEAP_ROBUSTNESS },
+                DXIL_SPV_TRUE };
+
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            WARN("dxil-spirv does not support DESCRIPTOR_HEAP_ROBUSTNESS.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
+        }
     }
 
     if (compiler_args)
@@ -1322,17 +1521,42 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
             }
             else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_MIN_PRECISION_IS_NATIVE_16BIT)
             {
-                static const dxil_spv_option_min_precision_native_16bit helper =
-                        { { DXIL_SPV_OPTION_MIN_PRECISION_NATIVE_16BIT }, DXIL_SPV_TRUE };
+                if (!(quirks & VKD3D_SHADER_QUIRK_FORCE_MIN16_AS_32BIT))
+                {
+                    static const dxil_spv_option_min_precision_native_16bit helper =
+                            { {DXIL_SPV_OPTION_MIN_PRECISION_NATIVE_16BIT }, DXIL_SPV_TRUE };
 
+                    if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                    {
+                        ERR("dxil-spirv does not support MIN_PRECISION_NATIVE_16BIT.\n");
+                        ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+                        goto end;
+                    }
+                }
+            }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP16_DENORM_PRESERVE)
+                denorm_preserve.supports_float16_denorm_preserve = DXIL_SPV_TRUE;
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP64_DENORM_PRESERVE)
+                denorm_preserve.supports_float64_denorm_preserve = DXIL_SPV_TRUE;
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_SUBGROUP_PARTITIONED_NV)
+            {
+                static const dxil_spv_option_subgroup_partitioned_nv helper =
+                        { { DXIL_SPV_OPTION_SUBGROUP_PARTITIONED_NV }, DXIL_SPV_TRUE };
                 if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
                 {
-                    ERR("dxil-spirv does not support MIN_PRECISION_NATIVE_16BIT.\n");
+                    ERR("dxil-spirv does not support SUBGROUP_PARTITIONED_NV.\n");
                     ret = VKD3D_ERROR_NOT_IMPLEMENTED;
                     goto end;
                 }
             }
         }
+    }
+
+    if (dxil_spv_converter_add_option(converter, &denorm_preserve.base) != DXIL_SPV_SUCCESS)
+    {
+        ERR("dxil-spirv does not support DENORM_PRESERVE_SUPPORT.\n");
+        ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+        goto end;
     }
 
     dxil_spv_converter_set_entry_point(converter, export);
@@ -1369,8 +1593,11 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
     memcpy(code, compiled.data, compiled.size);
     spirv->code = code;
     spirv->size = compiled.size;
-    if (dxil_spv_converter_uses_subgroup_size(converter) == DXIL_SPV_TRUE)
-        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_USES_SUBGROUP_SIZE;
+
+    /* Nothing useful here for now. */
+    if (spirv_debug)
+        memset(spirv_debug, 0, sizeof(*spirv_debug));
+
     vkd3d_shader_extract_feature_meta(spirv);
 
     if (demangled_export)
@@ -1403,20 +1630,30 @@ void vkd3d_shader_dxil_free_library_subobjects(struct vkd3d_shader_library_subob
 
     for (i = 0; i < count; i++)
     {
-        if (subobjects[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_SUBOBJECT_TO_EXPORTS_ASSOCIATION)
+        if (!subobjects[i].borrowed_payloads)
         {
-            for (j = 0; j < subobjects[i].data.association.NumExports; j++)
-                vkd3d_free((void*)subobjects[i].data.association.pExports[j]);
-            vkd3d_free((void*)subobjects[i].data.association.pExports);
-            vkd3d_free((void*)subobjects[i].data.association.SubobjectToAssociate);
+            if (subobjects[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_SUBOBJECT_TO_EXPORTS_ASSOCIATION)
+            {
+                for (j = 0; j < subobjects[i].data.association.NumExports; j++)
+                    vkd3d_free((void *) subobjects[i].data.association.pExports[j]);
+                vkd3d_free((void *) subobjects[i].data.association.pExports);
+                vkd3d_free((void *) subobjects[i].data.association.SubobjectToAssociate);
+            }
+            else if (subobjects[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_HIT_GROUP)
+            {
+                vkd3d_free((void *) subobjects[i].data.hit_group.HitGroupExport);
+                vkd3d_free((void *) subobjects[i].data.hit_group.AnyHitShaderImport);
+                vkd3d_free((void *) subobjects[i].data.hit_group.ClosestHitShaderImport);
+                vkd3d_free((void *) subobjects[i].data.hit_group.IntersectionShaderImport);
+            }
+            else if (subobjects[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE ||
+                    subobjects[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE)
+            {
+                vkd3d_free(subobjects[i].data.payload.data);
+            }
         }
-        else if (subobjects[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_HIT_GROUP)
-        {
-            vkd3d_free((void*)subobjects[i].data.hit_group.HitGroupExport);
-            vkd3d_free((void*)subobjects[i].data.hit_group.AnyHitShaderImport);
-            vkd3d_free((void*)subobjects[i].data.hit_group.ClosestHitShaderImport);
-            vkd3d_free((void*)subobjects[i].data.hit_group.IntersectionShaderImport);
-        }
+
+        vkd3d_free(subobjects[i].name);
     }
 
     vkd3d_free(subobjects);
@@ -1465,6 +1702,8 @@ static bool vkd3d_dxil_build_entry(struct vkd3d_shader_library_entry_point *entr
     entry->real_entry_point = vkd3d_strdup(mangled_name);
     entry->debug_entry_point = vkd3d_strdup(demangled_name);
     entry->stage = convert_stage(stage);
+    entry->pipeline_variant_index = UINT32_MAX;
+    entry->stage_index = UINT32_MAX;
     return true;
 }
 
@@ -1476,14 +1715,15 @@ static void vkd3d_shader_dxil_copy_subobject(unsigned int identifier,
 
     /* Reuse same enums as DXIL. */
     subobject->kind = (enum vkd3d_shader_subobject_kind)dxil_subobject->kind;
-    subobject->name = dxil_subobject->subobject_name;
-    subobject->dxil_identifier = identifier;
+    subobject->name = vkd3d_dup_entry_point(dxil_subobject->subobject_name);
+    subobject->borrowed_payloads = false;
 
     switch (dxil_subobject->kind)
     {
         case DXIL_SPV_RDAT_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE:
         case DXIL_SPV_RDAT_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE:
-            subobject->data.payload.data = dxil_subobject->payload;
+            subobject->data.payload.data = vkd3d_malloc(dxil_subobject->payload_size);
+            memcpy(subobject->data.payload.data, dxil_subobject->payload, dxil_subobject->payload_size);
             subobject->data.payload.size = dxil_subobject->payload_size;
             break;
 
@@ -1536,6 +1776,62 @@ static void vkd3d_shader_dxil_copy_subobject(unsigned int identifier,
             FIXME("Unrecognized RDAT subobject type: %u.\n", dxil_subobject->kind);
             break;
     }
+}
+
+int vkd3d_shader_dxil_find_global_root_signature_subobject(const void *dxbc, size_t size,
+        struct vkd3d_shader_code *code)
+{
+    dxil_spv_parsed_blob blob = NULL;
+    dxil_spv_rdat_subobject rdat;
+    unsigned int i, rdat_count;
+    int found_index = -1;
+    int ret = VKD3D_OK;
+
+    dxil_spv_set_thread_log_callback(vkd3d_dxil_log_callback, NULL);
+    dxil_spv_begin_thread_allocator_context();
+
+    if (dxil_spv_parse_dxil_blob(dxbc, size, &blob) != DXIL_SPV_SUCCESS)
+    {
+        ret = VKD3D_ERROR_INVALID_ARGUMENT;
+        goto end;
+    }
+
+    rdat_count = dxil_spv_parsed_blob_get_num_rdat_subobjects(blob);
+
+    for (i = 0; i < rdat_count; i++)
+    {
+        dxil_spv_parsed_blob_get_rdat_subobject(blob, i, &rdat);
+        if (rdat.kind == DXIL_SPV_RDAT_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE)
+        {
+            if (found_index >= 0)
+            {
+                /* Ambiguous. Must fail. */
+                ret = VKD3D_ERROR_INVALID_ARGUMENT;
+                goto end;
+            }
+
+            found_index = (int)i;
+        }
+    }
+
+    if (found_index < 0)
+    {
+        ret = VKD3D_ERROR_INVALID_ARGUMENT;
+        goto end;
+    }
+
+    dxil_spv_parsed_blob_get_rdat_subobject(blob, found_index, &rdat);
+    memset(code, 0, sizeof(*code));
+
+    /* These point directly to blob. */
+    code->code = rdat.payload;
+    code->size = rdat.payload_size;
+
+end:
+    if (blob)
+        dxil_spv_parsed_blob_free(blob);
+    dxil_spv_end_thread_allocator_context();
+    return ret;
 }
 
 int vkd3d_shader_dxil_append_library_entry_points_and_subobjects(
@@ -1623,6 +1919,8 @@ int vkd3d_shader_dxil_append_library_entry_points_and_subobjects(
                 new_entry.mangled_entry_point = NULL;
                 new_entry.identifier = identifier;
                 new_entry.stage = convert_stage(stage);
+                new_entry.pipeline_variant_index = UINT32_MAX;
+                new_entry.stage_index = UINT32_MAX;
                 ascii_entry = NULL;
 
                 vkd3d_array_reserve((void**)entry_points, entry_point_size,

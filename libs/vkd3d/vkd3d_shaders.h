@@ -42,18 +42,30 @@ enum vkd3d_meta_copy_mode
 #include <cs_clear_uav_image_3d_float.h>
 #include <cs_clear_uav_image_3d_uint.h>
 #include <cs_predicate_command.h>
+#include <cs_predicate_command_execute_indirect.h>
 #include <cs_resolve_binary_queries.h>
 #include <cs_resolve_predicate.h>
 #include <cs_resolve_query.h>
+#include <cs_emit_nv_memory_decompression_regions.h>
+#include <cs_emit_nv_memory_decompression_workgroups.h>
 #include <cs_execute_indirect_patch.h>
 #include <cs_execute_indirect_patch_debug_ring.h>
+#include <cs_execute_indirect_multi_dispatch.h>
+#include <cs_execute_indirect_multi_dispatch_state.h>
 #include <vs_fullscreen_layer.h>
 #include <vs_fullscreen.h>
 #include <gs_fullscreen.h>
 #include <fs_copy_image_float.h>
 #include <fs_copy_image_uint.h>
 #include <fs_copy_image_stencil.h>
+#include <fs_copy_image_stencil_no_export.h>
 #include <vs_swapchain_fullscreen.h>
 #include <fs_swapchain_fullscreen.h>
+#include <cs_sampler_feedback_decode_buffer_min_mip.h>
+#include <fs_sampler_feedback_decode_image_min_mip.h>
+#include <fs_sampler_feedback_decode_image_mip_used.h>
+#include <cs_sampler_feedback_encode_buffer_min_mip.h>
+#include <cs_sampler_feedback_encode_image_min_mip.h>
+#include <cs_sampler_feedback_encode_image_mip_used.h>
 
 #endif  /* __VKD3D_SPV_SHADERS_H */

@@ -22,8 +22,22 @@
 #include <vkd3d_types.h>
 
 #ifndef VKD3D_NO_WIN32_TYPES
+# define COBJMACROS
 # include <vkd3d_windows.h>
+
+# define WIDL_C_INLINE_WRAPPERS
+
+# ifdef __MINGW32__
+/* Workaround for MinGW-tools WIDL when using inline wrappers.
+ * FORCEINLINE is extern which conflicts. It is okay to override it here.
+ * All relevant system headers have been included. */
+#  undef FORCEINLINE
+#  define FORCEINLINE inline
+# endif
+
 # include <vkd3d_d3d12.h>
+# include <vkd3d_core_interface.h>
+# undef WIDL_C_INLINE_WRAPPERS
 #endif  /* VKD3D_NO_WIN32_TYPES */
 
 #ifndef VKD3D_NO_VULKAN_H
@@ -34,8 +48,8 @@
 # include "private/vulkan_private_extensions.h"
 #endif  /* VKD3D_NO_VULKAN_H */
 
-#define VKD3D_MIN_API_VERSION VK_API_VERSION_1_1
-#define VKD3D_MAX_API_VERSION VK_API_VERSION_1_1
+#define VKD3D_MIN_API_VERSION VK_API_VERSION_1_3
+#define VKD3D_MAX_API_VERSION VK_API_VERSION_1_3
 
 #ifdef __cplusplus
 extern "C" {
@@ -48,11 +62,14 @@ extern "C" {
 #define VKD3D_CONFIG_FLAG_DXR (1ull << 4)
 #define VKD3D_CONFIG_FLAG_SINGLE_QUEUE (1ull << 5)
 #define VKD3D_CONFIG_FLAG_DESCRIPTOR_QA_CHECKS (1ull << 6)
+#define VKD3D_CONFIG_FLAG_NO_DXR (1ull << 7)
+/* Bit 8 is vacant */
 #define VKD3D_CONFIG_FLAG_FORCE_MINIMUM_SUBGROUP_SIZE (1ull << 9)
 #define VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV (1ull << 10)
 #define VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET (1ull << 11)
+/* Bit 12 is vacant */
 #define VKD3D_CONFIG_FLAG_FORCE_HOST_CACHED (1ull << 13)
-#define VKD3D_CONFIG_FLAG_DXR11 (1ull << 14)
+/* Bit 14 is vacant */
 #define VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION (1ull << 15)
 #define VKD3D_CONFIG_FLAG_GLOBAL_PIPELINE_CACHE (1ull << 16)
 #define VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_NO_SERIALIZE_SPIRV (1ull << 17)
@@ -75,7 +92,15 @@ extern "C" {
 #define VKD3D_CONFIG_FLAG_FORCE_INITIAL_TRANSITION (1ull << 34)
 #define VKD3D_CONFIG_FLAG_FORCE_DEDICATED_IMAGE_ALLOCATION (1ull << 35)
 #define VKD3D_CONFIG_FLAG_BREADCRUMBS_TRACE (1ull << 36)
-#define VKD3D_CONFIG_FLAG_SIMULTANEOUS_UAV_SUPPRESS_COMPRESSION (1ull << 37)
+#define VKD3D_CONFIG_FLAG_DISABLE_SIMULTANEOUS_UAV_COMPRESSION (1ull << 37)
+#define VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES (1ull << 38)
+#define VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS (1ull << 39)
+#define VKD3D_CONFIG_FLAG_CURB_MEMORY_PSO_CACHE (1ull << 40)
+#define VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES (1ull << 41)
+#define VKD3D_CONFIG_FLAG_REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT (1ull << 42)
+#define VKD3D_CONFIG_FLAG_DISABLE_UAV_COMPRESSION (1ull << 43)
+#define VKD3D_CONFIG_FLAG_DISABLE_DEPTH_COMPRESSION (1ull << 44)
+#define VKD3D_CONFIG_FLAG_DISABLE_COLOR_COMPRESSION (1ull << 45)
 
 struct vkd3d_instance;
 

@@ -62,42 +62,60 @@ VK_DEVICE_PFN(vkAllocateCommandBuffers)
 VK_DEVICE_PFN(vkAllocateDescriptorSets)
 VK_DEVICE_PFN(vkAllocateMemory)
 VK_DEVICE_PFN(vkBeginCommandBuffer)
+VK_DEVICE_PFN(vkBindBufferMemory2)
+VK_DEVICE_PFN(vkBindImageMemory2)
 VK_DEVICE_PFN(vkCmdBeginQuery)
+VK_DEVICE_PFN(vkCmdBeginRendering)
 VK_DEVICE_PFN(vkCmdBindDescriptorSets)
 VK_DEVICE_PFN(vkCmdBindIndexBuffer)
 VK_DEVICE_PFN(vkCmdBindPipeline)
 VK_DEVICE_PFN(vkCmdBindVertexBuffers)
+VK_DEVICE_PFN(vkCmdBindVertexBuffers2)
+VK_DEVICE_PFN(vkCmdBlitImage2)
 VK_DEVICE_PFN(vkCmdClearAttachments)
 VK_DEVICE_PFN(vkCmdClearColorImage)
 VK_DEVICE_PFN(vkCmdClearDepthStencilImage)
+VK_DEVICE_PFN(vkCmdCopyBuffer2)
+VK_DEVICE_PFN(vkCmdCopyBufferToImage2)
+VK_DEVICE_PFN(vkCmdCopyImage2)
+VK_DEVICE_PFN(vkCmdCopyImageToBuffer2)
 VK_DEVICE_PFN(vkCmdCopyQueryPoolResults)
 VK_DEVICE_PFN(vkCmdDispatch)
 VK_DEVICE_PFN(vkCmdDispatchIndirect)
 VK_DEVICE_PFN(vkCmdDraw)
 VK_DEVICE_PFN(vkCmdDrawIndexed)
 VK_DEVICE_PFN(vkCmdDrawIndexedIndirect)
+VK_DEVICE_PFN(vkCmdDrawIndexedIndirectCount)
 VK_DEVICE_PFN(vkCmdDrawIndirect)
+VK_DEVICE_PFN(vkCmdDrawIndirectCount)
 VK_DEVICE_PFN(vkCmdEndQuery)
+VK_DEVICE_PFN(vkCmdEndRendering)
 VK_DEVICE_PFN(vkCmdExecuteCommands)
 VK_DEVICE_PFN(vkCmdFillBuffer)
 VK_DEVICE_PFN(vkCmdNextSubpass)
-VK_DEVICE_PFN(vkCmdPipelineBarrier)
+VK_DEVICE_PFN(vkCmdPipelineBarrier2)
 VK_DEVICE_PFN(vkCmdPushConstants)
-VK_DEVICE_PFN(vkCmdResetEvent)
+VK_DEVICE_PFN(vkCmdResetEvent2)
 VK_DEVICE_PFN(vkCmdResetQueryPool)
+VK_DEVICE_PFN(vkCmdResolveImage2)
 VK_DEVICE_PFN(vkCmdSetBlendConstants)
 VK_DEVICE_PFN(vkCmdSetDepthBias)
+VK_DEVICE_PFN(vkCmdSetDepthBiasEnable)
 VK_DEVICE_PFN(vkCmdSetDepthBounds)
-VK_DEVICE_PFN(vkCmdSetEvent)
+VK_DEVICE_PFN(vkCmdSetEvent2)
 VK_DEVICE_PFN(vkCmdSetLineWidth)
+VK_DEVICE_PFN(vkCmdSetPrimitiveRestartEnable)
+VK_DEVICE_PFN(vkCmdSetPrimitiveTopology)
 VK_DEVICE_PFN(vkCmdSetScissor)
+VK_DEVICE_PFN(vkCmdSetScissorWithCount)
 VK_DEVICE_PFN(vkCmdSetStencilCompareMask)
 VK_DEVICE_PFN(vkCmdSetStencilReference)
 VK_DEVICE_PFN(vkCmdSetStencilWriteMask)
 VK_DEVICE_PFN(vkCmdSetViewport)
+VK_DEVICE_PFN(vkCmdSetViewportWithCount)
 VK_DEVICE_PFN(vkCmdUpdateBuffer)
-VK_DEVICE_PFN(vkCmdWaitEvents)
-VK_DEVICE_PFN(vkCmdWriteTimestamp)
+VK_DEVICE_PFN(vkCmdWaitEvents2)
+VK_DEVICE_PFN(vkCmdWriteTimestamp2)
 VK_DEVICE_PFN(vkCreateBuffer)
 VK_DEVICE_PFN(vkCreateBufferView)
 VK_DEVICE_PFN(vkCreateCommandPool)
@@ -139,9 +157,13 @@ VK_DEVICE_PFN(vkFlushMappedMemoryRanges)
 VK_DEVICE_PFN(vkFreeCommandBuffers)
 VK_DEVICE_PFN(vkFreeDescriptorSets)
 VK_DEVICE_PFN(vkFreeMemory)
+VK_DEVICE_PFN(vkGetBufferDeviceAddress)
 VK_DEVICE_PFN(vkGetBufferMemoryRequirements)
 VK_DEVICE_PFN(vkGetBufferMemoryRequirements2)
 VK_DEVICE_PFN(vkGetDescriptorSetLayoutSupport)
+VK_DEVICE_PFN(vkGetDeviceBufferMemoryRequirements)
+VK_DEVICE_PFN(vkGetDeviceImageMemoryRequirements)
+VK_DEVICE_PFN(vkGetDeviceImageSparseMemoryRequirements)
 VK_DEVICE_PFN(vkGetDeviceMemoryCommitment)
 VK_DEVICE_PFN(vkGetDeviceQueue)
 VK_DEVICE_PFN(vkGetEventStatus)
@@ -153,11 +175,12 @@ VK_DEVICE_PFN(vkGetImageSparseMemoryRequirements2)
 VK_DEVICE_PFN(vkGetImageSubresourceLayout)
 VK_DEVICE_PFN(vkGetPipelineCacheData)
 VK_DEVICE_PFN(vkGetQueryPoolResults)
+VK_DEVICE_PFN(vkGetSemaphoreCounterValue)
 VK_DEVICE_PFN(vkInvalidateMappedMemoryRanges)
 VK_DEVICE_PFN(vkMapMemory)
 VK_DEVICE_PFN(vkMergePipelineCaches)
 VK_DEVICE_PFN(vkQueueBindSparse)
-VK_DEVICE_PFN(vkQueueSubmit)
+VK_DEVICE_PFN(vkQueueSubmit2)
 VK_DEVICE_PFN(vkQueueWaitIdle)
 VK_DEVICE_PFN(vkResetCommandBuffer)
 VK_DEVICE_PFN(vkResetCommandPool)
@@ -165,26 +188,30 @@ VK_DEVICE_PFN(vkResetDescriptorPool)
 VK_DEVICE_PFN(vkResetEvent)
 VK_DEVICE_PFN(vkResetFences)
 VK_DEVICE_PFN(vkSetEvent)
+VK_DEVICE_PFN(vkSignalSemaphore)
 VK_DEVICE_PFN(vkUnmapMemory)
 VK_DEVICE_PFN(vkUpdateDescriptorSets)
 VK_DEVICE_PFN(vkWaitForFences)
+VK_DEVICE_PFN(vkWaitSemaphores)
+VK_DEVICE_PFN(vkCmdSetDepthWriteEnable)
+
 VK_DEVICE_PFN(vkCreateBufferViewJUICE)
 VK_DEVICE_PFN(vkBindBufferViewJUICE)
 VK_DEVICE_PFN(vkBindImageViewJUICE)
 
-/* VK_KHR_buffer_device_address */
-VK_DEVICE_EXT_PFN(vkGetBufferDeviceAddressKHR)
-VK_DEVICE_EXT_PFN(vkGetBufferOpaqueCaptureAddressKHR)
-VK_DEVICE_EXT_PFN(vkGetDeviceMemoryOpaqueCaptureAddressKHR)
-
-/* VK_KHR_timeline_semaphore */
-VK_DEVICE_EXT_PFN(vkGetSemaphoreCounterValueKHR)
-VK_DEVICE_EXT_PFN(vkWaitSemaphoresKHR)
-VK_DEVICE_EXT_PFN(vkSignalSemaphoreKHR)
-
-/* VK_KHR_draw_indirect_count */
-VK_DEVICE_EXT_PFN(vkCmdDrawIndirectCountKHR)
-VK_DEVICE_EXT_PFN(vkCmdDrawIndexedIndirectCountKHR)
+///* VK_KHR_buffer_device_address */
+//VK_DEVICE_EXT_PFN(vkGetBufferDeviceAddressKHR)
+//VK_DEVICE_EXT_PFN(vkGetBufferOpaqueCaptureAddressKHR)
+//VK_DEVICE_EXT_PFN(vkGetDeviceMemoryOpaqueCaptureAddressKHR)
+//
+///* VK_KHR_timeline_semaphore */
+//VK_DEVICE_EXT_PFN(vkGetSemaphoreCounterValueKHR)
+//VK_DEVICE_EXT_PFN(vkWaitSemaphoresKHR)
+//VK_DEVICE_EXT_PFN(vkSignalSemaphoreKHR)
+//
+///* VK_KHR_draw_indirect_count */
+//VK_DEVICE_EXT_PFN(vkCmdDrawIndirectCountKHR)
+//VK_DEVICE_EXT_PFN(vkCmdDrawIndexedIndirectCountKHR)
 
 /* VK_KHR_push_descriptor */
 VK_DEVICE_EXT_PFN(vkCmdPushDescriptorSetKHR)
@@ -209,23 +236,6 @@ VK_DEVICE_EXT_PFN(vkCmdCopyAccelerationStructureKHR)
 /* VK_KHR_fragment_shading_rate */
 VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceFragmentShadingRatesKHR)
 VK_DEVICE_EXT_PFN(vkCmdSetFragmentShadingRateKHR)
-
-/* VK_KHR_bind_memory2 */
-VK_DEVICE_EXT_PFN(vkBindBufferMemory2KHR)
-VK_DEVICE_EXT_PFN(vkBindImageMemory2KHR)
-
-/* VK_KHR_copy_commands2 */
-VK_DEVICE_EXT_PFN(vkCmdBlitImage2KHR)
-VK_DEVICE_EXT_PFN(vkCmdCopyBuffer2KHR)
-VK_DEVICE_EXT_PFN(vkCmdCopyBufferToImage2KHR)
-VK_DEVICE_EXT_PFN(vkCmdCopyImage2KHR)
-VK_DEVICE_EXT_PFN(vkCmdCopyImageToBuffer2KHR)
-VK_DEVICE_EXT_PFN(vkCmdResolveImage2KHR)
-
-/* VK_KHR_maintenance4 */
-VK_DEVICE_EXT_PFN(vkGetDeviceBufferMemoryRequirementsKHR)
-VK_DEVICE_EXT_PFN(vkGetDeviceImageMemoryRequirementsKHR)
-VK_DEVICE_EXT_PFN(vkGetDeviceImageSparseMemoryRequirementsKHR)
 
 #ifdef VK_KHR_external_memory_win32
 /* VK_KHR_external_memory_win32 */
@@ -260,14 +270,7 @@ VK_DEVICE_EXT_PFN(vkCmdBindTransformFeedbackBuffersEXT)
 VK_DEVICE_EXT_PFN(vkCmdEndQueryIndexedEXT)
 VK_DEVICE_EXT_PFN(vkCmdEndTransformFeedbackEXT)
 
-/* VK_EXT_extended_dynamic_state */
-VK_DEVICE_EXT_PFN(vkCmdBindVertexBuffers2EXT)
-VK_DEVICE_EXT_PFN(vkCmdSetPrimitiveTopologyEXT)
-VK_DEVICE_EXT_PFN(vkCmdSetScissorWithCountEXT)
-VK_DEVICE_EXT_PFN(vkCmdSetViewportWithCountEXT)
-
 /* VK_EXT_extended_dynamic_state2 */
-VK_DEVICE_EXT_PFN(vkCmdSetPrimitiveRestartEnableEXT)
 VK_DEVICE_EXT_PFN(vkCmdSetPatchControlPointsEXT)
 
 /* VK_EXT_external_memory_host */
@@ -301,19 +304,23 @@ VK_DEVICE_EXT_PFN(vkGetSwapchainImagesKHR)
 VK_DEVICE_EXT_PFN(vkAcquireNextImageKHR)
 VK_DEVICE_EXT_PFN(vkQueuePresentKHR)
 
-/* VK_KHR_dynamic_rendering */
-VK_DEVICE_EXT_PFN(vkCmdBeginRenderingKHR)
-VK_DEVICE_EXT_PFN(vkCmdEndRenderingKHR)
-
 /* VK_KHR_ray_tracing_maintenance1 */
 VK_DEVICE_EXT_PFN(vkCmdTraceRaysIndirect2KHR)
 
+/* VK_KHR_maintenance5 */
+VK_DEVICE_EXT_PFN(vkCmdBindIndexBuffer2KHR)
+VK_DEVICE_EXT_PFN(vkGetRenderingAreaGranularityKHR)
+VK_DEVICE_EXT_PFN(vkGetDeviceImageSubresourceLayoutKHR)
+VK_DEVICE_EXT_PFN(vkGetImageSubresourceLayout2KHR)
+
 /* VK_AMD_buffer_marker */
 VK_DEVICE_EXT_PFN(vkCmdWriteBufferMarkerAMD)
+VK_DEVICE_EXT_PFN(vkCmdWriteBufferMarker2AMD)
 
 /* VK_NV_device_diagnostic_checkpoints */
 VK_DEVICE_EXT_PFN(vkCmdSetCheckpointNV)
 VK_DEVICE_EXT_PFN(vkGetQueueCheckpointDataNV)
+VK_DEVICE_EXT_PFN(vkGetQueueCheckpointData2NV)
 
 /* VK_NVX_binary_import */
 VK_DEVICE_EXT_PFN(vkCreateCuModuleNVX)
@@ -335,6 +342,7 @@ VK_DEVICE_EXT_PFN(vkCreateIndirectCommandsLayoutNV)
 VK_DEVICE_EXT_PFN(vkDestroyIndirectCommandsLayoutNV)
 VK_DEVICE_EXT_PFN(vkGetGeneratedCommandsMemoryRequirementsNV)
 VK_DEVICE_EXT_PFN(vkCmdExecuteGeneratedCommandsNV)
+VK_DEVICE_EXT_PFN(vkCmdPreprocessGeneratedCommandsNV)
 
 /* VK_EXT_shader_module_identifier */
 VK_DEVICE_EXT_PFN(vkGetShaderModuleIdentifierEXT)
@@ -349,6 +357,13 @@ VK_DEVICE_EXT_PFN(vkCmdBindDescriptorBufferEmbeddedSamplersEXT)
 VK_DEVICE_EXT_PFN(vkCmdSetDescriptorBufferOffsetsEXT)
 VK_DEVICE_EXT_PFN(vkGetDescriptorSetLayoutSizeEXT)
 VK_DEVICE_EXT_PFN(vkGetDescriptorSetLayoutBindingOffsetEXT)
+
+/* VK_EXT_pageable_device_local_memory */
+VK_DEVICE_EXT_PFN(vkSetDeviceMemoryPriorityEXT)
+
+/* VK_NV_memory_decompression */
+VK_DEVICE_EXT_PFN(vkCmdDecompressMemoryNV)
+VK_DEVICE_EXT_PFN(vkCmdDecompressMemoryIndirectCountNV)
 
 #undef VK_INSTANCE_PFN
 #undef VK_INSTANCE_EXT_PFN

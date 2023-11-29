@@ -52,6 +52,8 @@ typedef int HRESULT;
 
 # define DXGI_ERROR_NOT_FOUND _HRESULT_TYPEDEF_(0x887a0002)
 # define DXGI_ERROR_MORE_DATA _HRESULT_TYPEDEF_(0x887a0003)
+# define DXGI_ERROR_UNSUPPORTED _HRESULT_TYPEDEF_(0x887a0004)
+# define DXGI_ERROR_DEVICE_REMOVED _HRESULT_TYPEDEF_(0x887a0005)
 
 /* Basic types */
 typedef unsigned char BYTE;
@@ -171,16 +173,7 @@ typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 # define CONTAINING_RECORD(address, type, field) \
         ((type *)((char *)(address) - offsetof(type, field)))
 
-# ifdef __x86_64__
-#  define __stdcall __attribute__((ms_abi))
-# else
-#  if (__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 2)) || defined(__APPLE__)
-#   define __stdcall __attribute__((__stdcall__)) __attribute__((__force_align_arg_pointer__))
-#  else
-#   define __stdcall __attribute__((__stdcall__))
-#  endif
-# endif
-
+# define __stdcall
 # define WINAPI __stdcall
 # define STDMETHODCALLTYPE __stdcall
 
@@ -208,9 +201,11 @@ typedef struct SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 # if defined(__cplusplus) && !defined(CINTERFACE)
 #  define REFIID const IID &
 #  define REFGUID const GUID &
+#  define REFCLSID const GUID &
 # else
 #  define REFIID const IID * const
 #  define REFGUID const GUID * const
+#  define REFCLSID const GUID * const
 # endif
 
 #if defined(__cplusplus) && !defined(CINTERFACE)

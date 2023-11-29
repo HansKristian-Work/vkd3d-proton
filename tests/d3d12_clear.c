@@ -719,6 +719,8 @@ void test_clear_unordered_access_view_image(void)
         {DXGI_FORMAT_B8G8R8A8_UNORM,  1, 1, 0, 0, 1, 0, {{0}},
                 {0, 0, 0x3f000080 /* 0.5f + epsilon */, 0x3f800000 /* 1.0f */}, 0xff000080, true},
         {DXGI_FORMAT_B8G8R8A8_UNORM,  1, 1, 0, 0, 1, 0, {{0}}, {1, 2, 3, 4}, 0x04010203},
+        {DXGI_FORMAT_A8_UNORM,        1, 1, 0, 0, 1, 0, {{0}}, {0, 0, 0, 0x3f000080 /* 0.5f + epsilon */}, 0x80, true},
+        {DXGI_FORMAT_A8_UNORM,        1, 1, 0, 0, 1, 0, {{0}}, {1, 2, 3, 4}, 4},
     };
 
     static const struct
@@ -910,7 +912,14 @@ void test_clear_unordered_access_view_image(void)
                                 && layer < tests[i].first_layer + tests[i].layer_count;
 
                     expected_colour = is_inside ? tests[i].expected : clear_value[0];
-                    actual_colour = get_readback_uint(&rb, x, y, z);
+                    actual_colour = 0xdeadbeef;
+
+                    switch (format_size(tests[i].format))
+                    {
+                        case 4: actual_colour = get_readback_uint(&rb, x, y, z); break;
+                        case 2: actual_colour = get_readback_uint16(&rb, x, y); break;
+                        case 1: actual_colour = get_readback_uint8(&rb, x, y); break;
+                    }
                     success = compare_color(actual_colour, expected_colour, tests[i].is_float ? 1 : 0);
 
                     ok(success, "At layer %u, (%u,%u,%u), expected %#x, got %#x.\n",

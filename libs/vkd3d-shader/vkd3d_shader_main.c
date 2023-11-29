@@ -363,7 +363,9 @@ static int vkd3d_shader_validate_shader_type(enum vkd3d_shader_type type, VkShad
 }
 
 int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_shader_code *spirv, unsigned int compiler_options,
+        struct vkd3d_shader_code *spirv,
+        struct vkd3d_shader_code_debug *spirv_debug,
+        unsigned int compiler_options,
         const struct vkd3d_shader_interface_info *shader_interface_info,
         const struct vkd3d_shader_compile_arguments *compile_args)
 {
@@ -383,7 +385,7 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
     /* DXIL is handled externally through dxil-spirv. */
     if (shader_is_dxil(dxbc->code, dxbc->size))
     {
-        return vkd3d_shader_compile_dxil(dxbc, spirv, shader_interface_info, compile_args);
+        return vkd3d_shader_compile_dxil(dxbc, spirv, spirv_debug, shader_interface_info, compile_args);
     }
 
     memset(&spirv->meta, 0, sizeof(spirv->meta));
@@ -456,6 +458,9 @@ int vkd3d_shader_compile_dxbc(const struct vkd3d_shader_code *dxbc,
 
     if (ret == 0)
         vkd3d_shader_dump_spirv_shader(hash, spirv);
+
+    if (spirv_debug)
+        memset(spirv_debug, 0, sizeof(*spirv_debug));
 
     vkd3d_dxbc_compiler_destroy(spirv_compiler);
     vkd3d_shader_scan_destroy(&scan_info);
@@ -697,6 +702,14 @@ void vkd3d_shader_free_shader_code(struct vkd3d_shader_code *shader_code)
     vkd3d_free((void *)shader_code->code);
 }
 
+void vkd3d_shader_free_shader_code_debug(struct vkd3d_shader_code_debug *shader_code)
+{
+    if (!shader_code)
+        return;
+
+    vkd3d_free((void *)shader_code->debug_entry_point_name);
+}
+
 static void vkd3d_shader_free_root_signature_v_1_0(struct vkd3d_root_signature_desc *root_signature)
 {
     unsigned int i;
@@ -731,6 +744,23 @@ static void vkd3d_shader_free_root_signature_v_1_1(struct vkd3d_root_signature_d
     memset(root_signature, 0, sizeof(*root_signature));
 }
 
+static void vkd3d_shader_free_root_signature_v_1_2(struct vkd3d_root_signature_desc2 *root_signature)
+{
+    unsigned int i;
+
+    for (i = 0; i < root_signature->parameter_count; ++i)
+    {
+        const struct vkd3d_root_parameter1 *parameter = &root_signature->parameters[i];
+
+        if (parameter->parameter_type == VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
+            vkd3d_free((void *)parameter->descriptor_table.descriptor_ranges);
+    }
+    vkd3d_free((void *)root_signature->parameters);
+    vkd3d_free((void *)root_signature->static_samplers);
+
+    memset(root_signature, 0, sizeof(*root_signature));
+}
+
 void vkd3d_shader_free_root_signature(struct vkd3d_versioned_root_signature_desc *desc)
 {
     if (desc->version == VKD3D_ROOT_SIGNATURE_VERSION_1_0)
@@ -740,6 +770,10 @@ void vkd3d_shader_free_root_signature(struct vkd3d_versioned_root_signature_desc
     else if (desc->version == VKD3D_ROOT_SIGNATURE_VERSION_1_1)
     {
         vkd3d_shader_free_root_signature_v_1_1(&desc->v_1_1);
+    }
+    else if (desc->version == VKD3D_ROOT_SIGNATURE_VERSION_1_2)
+    {
+        vkd3d_shader_free_root_signature_v_1_2(&desc->v_1_2);
     }
     else if (desc->version)
     {

@@ -31,7 +31,7 @@
 
 /* Uncomment when testing against Agility SDK debug layers. */
 #if 0
-__declspec(dllexport) extern const UINT D3D12SDKVersion = 608;
+__declspec(dllexport) extern const UINT D3D12SDKVersion = 610;
 __declspec(dllexport) extern const char *D3D12SDKPath = u8".\\D3D12\\";
 #endif
 
@@ -43,6 +43,7 @@ START_TEST(d3d12)
 
     parse_args(argc, argv);
     enable_d3d12_debug_layer(argc, argv);
+    enable_feature_level_override(argc, argv);
     init_adapter_info();
 
     pfn_D3D12CreateVersionedRootSignatureDeserializer = get_d3d12_pfn(D3D12CreateVersionedRootSignatureDeserializer);

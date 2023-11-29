@@ -21,19 +21,6 @@
 
 #define RT_TRACE TRACE
 
-void vkd3d_acceleration_structure_build_info_cleanup(
-        struct vkd3d_acceleration_structure_build_info *info)
-{
-    if (info->primitive_counts != info->primitive_counts_stack)
-        vkd3d_free(info->primitive_counts);
-    if (info->geometries != info->geometries_stack)
-        vkd3d_free(info->geometries);
-    if (info->build_range_ptrs != info->build_range_ptr_stack)
-        vkd3d_free((void *)info->build_range_ptrs);
-    if (info->build_ranges != info->build_range_stack)
-        vkd3d_free(info->build_ranges);
-}
-
 static VkBuildAccelerationStructureFlagsKHR d3d12_build_flags_to_vk(
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS flags)
 {
@@ -65,21 +52,32 @@ static VkGeometryFlagsKHR d3d12_geometry_flags_to_vk(D3D12_RAYTRACING_GEOMETRY_F
     return vk_flags;
 }
 
-bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *device,
-        struct vkd3d_acceleration_structure_build_info *info,
+uint32_t vkd3d_acceleration_structure_get_geometry_count(
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc)
 {
+    if (desc->Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL)
+        return 1;
+    else
+        return desc->NumDescs;
+}
+
+bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *device,
+        const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
+        VkAccelerationStructureBuildGeometryInfoKHR *build_info,
+        VkAccelerationStructureGeometryKHR *geometry_infos,
+        VkAccelerationStructureBuildRangeInfoKHR *range_infos,
+        uint32_t *primitive_counts)
+{
     VkAccelerationStructureGeometryTrianglesDataKHR *triangles;
-    VkAccelerationStructureBuildGeometryInfoKHR *build_info;
     VkAccelerationStructureGeometryAabbsDataKHR *aabbs;
     const D3D12_RAYTRACING_GEOMETRY_DESC *geom_desc;
     bool have_triangles, have_aabbs;
+    uint32_t primitive_count;
     unsigned int i;
 
     RT_TRACE("Converting inputs.\n");
     RT_TRACE("=====================\n");
 
-    build_info = &info->build_info;
     memset(build_info, 0, sizeof(*build_info));
     build_info->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
 
@@ -104,51 +102,48 @@ bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *devi
     else
         build_info->mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
 
-    info->geometries = info->geometries_stack;
-    info->primitive_counts = info->primitive_counts_stack;
-    info->build_ranges = info->build_range_stack;
-    info->build_range_ptrs = info->build_range_ptr_stack;
-
     if (desc->Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL)
     {
-        memset(info->geometries, 0, sizeof(*info->geometries));
-        info->geometries[0].sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
-        info->geometries[0].geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
-        info->geometries[0].geometry.instances.sType =
+        memset(geometry_infos, 0, sizeof(*geometry_infos));
+        geometry_infos[0].sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+        geometry_infos[0].geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
+        geometry_infos[0].geometry.instances.sType =
                 VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
-        info->geometries[0].geometry.instances.arrayOfPointers =
+        geometry_infos[0].geometry.instances.arrayOfPointers =
                 desc->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS ? VK_TRUE : VK_FALSE;
-        info->geometries[0].geometry.instances.data.deviceAddress = desc->InstanceDescs;
+        geometry_infos[0].geometry.instances.data.deviceAddress = desc->InstanceDescs;
 
-        info->primitive_counts = info->primitive_counts_stack;
-        info->primitive_counts[0] = desc->NumDescs;
+        if (primitive_counts)
+            primitive_counts[0] = desc->NumDescs;
+
+        if (range_infos)
+        {
+            range_infos[0].primitiveCount = desc->NumDescs;
+            range_infos[0].firstVertex = 0;
+            range_infos[0].primitiveOffset = 0;
+            range_infos[0].transformOffset = 0;
+        }
+
         build_info->geometryCount = 1;
         RT_TRACE("  ArrayOfPointers: %u.\n",
                 desc->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS ? 1 : 0);
-        RT_TRACE("  NumDescs: %u.\n", info->primitive_counts[0]);
+        RT_TRACE("  NumDescs: %u.\n", desc->NumDescs);
     }
     else
     {
         have_triangles = false;
         have_aabbs = false;
 
-        if (desc->NumDescs <= VKD3D_BUILD_INFO_STACK_COUNT)
-        {
-            memset(info->geometries, 0, sizeof(*info->geometries) * desc->NumDescs);
-            memset(info->primitive_counts, 0, sizeof(*info->primitive_counts) * desc->NumDescs);
-        }
-        else
-        {
-            info->geometries = vkd3d_calloc(desc->NumDescs, sizeof(*info->geometries));
-            info->primitive_counts = vkd3d_calloc(desc->NumDescs, sizeof(*info->primitive_counts));
-            info->build_ranges = vkd3d_malloc(desc->NumDescs * sizeof(*info->build_ranges));
-            info->build_range_ptrs = vkd3d_malloc(desc->NumDescs * sizeof(*info->build_range_ptrs));
-        }
+        memset(geometry_infos, 0, sizeof(*geometry_infos) * desc->NumDescs);
+
+        if (primitive_counts)
+            memset(primitive_counts, 0, sizeof(*primitive_counts) * desc->NumDescs);
+
         build_info->geometryCount = desc->NumDescs;
 
         for (i = 0; i < desc->NumDescs; i++)
         {
-            info->geometries[i].sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+            geometry_infos[i].sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
             RT_TRACE(" Geom %u:\n", i);
 
             if (desc->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS)
@@ -162,7 +157,7 @@ bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *devi
                 RT_TRACE("  PointerToArray\n");
             }
 
-            info->geometries[i].flags = d3d12_geometry_flags_to_vk(geom_desc->Flags);
+            geometry_infos[i].flags = d3d12_geometry_flags_to_vk(geom_desc->Flags);
             RT_TRACE("  Flags = #%x\n", geom_desc->Flags);
 
             switch (geom_desc->Type)
@@ -176,8 +171,8 @@ bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *devi
                     }
                     have_triangles = true;
 
-                    info->geometries[i].geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-                    triangles = &info->geometries[i].geometry.triangles;
+                    geometry_infos[i].geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
+                    triangles = &geometry_infos[i].geometry.triangles;
                     triangles->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
                     triangles->indexData.deviceAddress = geom_desc->Triangles.IndexBuffer;
                     if (geom_desc->Triangles.IndexFormat != DXGI_FORMAT_UNKNOWN)
@@ -188,7 +183,7 @@ bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *devi
                         triangles->indexType =
                                 geom_desc->Triangles.IndexFormat == DXGI_FORMAT_R16_UINT ?
                                         VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
-                        info->primitive_counts[i] = geom_desc->Triangles.IndexCount / 3;
+                        primitive_count = geom_desc->Triangles.IndexCount / 3;
                         RT_TRACE("  Indexed : Index count = %u (%u bits)\n",
                                 geom_desc->Triangles.IndexCount,
                                 triangles->indexType == VK_INDEX_TYPE_UINT16 ? 16 : 32);
@@ -197,7 +192,7 @@ bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *devi
                     }
                     else
                     {
-                        info->primitive_counts[i] = geom_desc->Triangles.VertexCount / 3;
+                        primitive_count = geom_desc->Triangles.VertexCount / 3;
                         triangles->indexType = VK_INDEX_TYPE_NONE_KHR;
                         RT_TRACE("  Triangle list : Vertex count: %u\n", geom_desc->Triangles.VertexCount);
                     }
@@ -223,12 +218,12 @@ bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *devi
                     }
                     have_aabbs = true;
 
-                    info->geometries[i].geometryType = VK_GEOMETRY_TYPE_AABBS_KHR;
-                    aabbs = &info->geometries[i].geometry.aabbs;
+                    geometry_infos[i].geometryType = VK_GEOMETRY_TYPE_AABBS_KHR;
+                    aabbs = &geometry_infos[i].geometry.aabbs;
                     aabbs->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_AABBS_DATA_KHR;
                     aabbs->stride = geom_desc->AABBs.AABBs.StrideInBytes;
                     aabbs->data.deviceAddress = geom_desc->AABBs.AABBs.StartAddress;
-                    info->primitive_counts[i] = geom_desc->AABBs.AABBCount;
+                    primitive_count = geom_desc->AABBs.AABBCount;
                     RT_TRACE("  AABB stride: %"PRIu64" bytes\n", geom_desc->AABBs.AABBs.StrideInBytes);
                     break;
 
@@ -237,20 +232,20 @@ bool vkd3d_acceleration_structure_convert_inputs(const struct d3d12_device *devi
                     return false;
             }
 
-            RT_TRACE("  Primitive count %u.\n", info->primitive_counts[i]);
+            if (primitive_counts)
+                primitive_counts[i] = primitive_count;
+
+            if (range_infos)
+            {
+                range_infos[i].primitiveCount = primitive_count;
+                range_infos[i].firstVertex = 0;
+                range_infos[i].primitiveOffset = 0;
+                range_infos[i].transformOffset = 0;
+            }
+
+            RT_TRACE("  Primitive count %u.\n", primitive_count);
         }
     }
-
-    for (i = 0; i < build_info->geometryCount; i++)
-    {
-        info->build_range_ptrs[i] = &info->build_ranges[i];
-        info->build_ranges[i].primitiveCount = info->primitive_counts[i];
-        info->build_ranges[i].firstVertex = 0;
-        info->build_ranges[i].primitiveOffset = 0;
-        info->build_ranges[i].transformOffset = 0;
-    }
-
-    build_info->pGeometries = info->geometries;
 
     RT_TRACE("=====================\n");
     return true;
@@ -260,17 +255,21 @@ static void vkd3d_acceleration_structure_end_barrier(struct d3d12_command_list *
 {
     /* We resolve the query in TRANSFER, but DXR expects UNORDERED_ACCESS. */
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkMemoryBarrier barrier;
+    VkDependencyInfo dep_info;
+    VkMemoryBarrier2 barrier;
 
-    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    barrier.pNext = NULL;
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.dstAccessMask = 0;
+    memset(&barrier, 0, sizeof(barrier));
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    barrier.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+    barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
-    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-            VK_PIPELINE_STAGE_TRANSFER_BIT,
-            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,
-            1, &barrier, 0, NULL, 0, NULL));
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.memoryBarrierCount = 1;
+    dep_info.pMemoryBarriers = &barrier;
+
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 }
 
 static void vkd3d_acceleration_structure_write_postbuild_info(
@@ -325,7 +324,7 @@ static void vkd3d_acceleration_structure_write_postbuild_info(
         /* TODO: CURRENT_SIZE is something we cannot query in Vulkan, so
          * we'll need to keep around a buffer to handle this.
          * For now, just clear to 0. */
-        VK_CALL(vkCmdFillBuffer(list->vk_command_buffer, vk_buffer, offset,
+        VK_CALL(vkCmdFillBuffer(list->cmd.vk_command_buffer, vk_buffer, offset,
                 sizeof(uint64_t), 0));
         return;
     }
@@ -339,9 +338,9 @@ static void vkd3d_acceleration_structure_write_postbuild_info(
 
     d3d12_command_list_reset_query(list, vk_query_pool, vk_query_index);
 
-    VK_CALL(vkCmdWriteAccelerationStructuresPropertiesKHR(list->vk_command_buffer,
+    VK_CALL(vkCmdWriteAccelerationStructuresPropertiesKHR(list->cmd.vk_command_buffer,
             1, &vk_acceleration_structure, vk_query_type, vk_query_pool, vk_query_index));
-    VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer,
+    VK_CALL(vkCmdCopyQueryPoolResults(list->cmd.vk_command_buffer,
             vk_query_pool, vk_query_index, 1,
             vk_buffer, offset, stride,
             VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
@@ -360,10 +359,10 @@ static void vkd3d_acceleration_structure_write_postbuild_info(
 
             d3d12_command_list_reset_query(list, vk_query_pool, vk_query_index);
 
-            VK_CALL(vkCmdWriteAccelerationStructuresPropertiesKHR(list->vk_command_buffer,
+            VK_CALL(vkCmdWriteAccelerationStructuresPropertiesKHR(list->cmd.vk_command_buffer,
                     1, &vk_acceleration_structure, VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_BOTTOM_LEVEL_POINTERS_KHR,
                     vk_query_pool, vk_query_index));
-            VK_CALL(vkCmdCopyQueryPoolResults(list->vk_command_buffer,
+            VK_CALL(vkCmdCopyQueryPoolResults(list->cmd.vk_command_buffer,
                     vk_query_pool, vk_query_index, 1,
                     vk_buffer, offset + sizeof(uint64_t), stride,
                     VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
@@ -371,7 +370,7 @@ static void vkd3d_acceleration_structure_write_postbuild_info(
         else
         {
             FIXME("NumBottomLevelPointers will always return 0.\n");
-            VK_CALL(vkCmdFillBuffer(list->vk_command_buffer, vk_buffer, offset + sizeof(uint64_t),
+            VK_CALL(vkCmdFillBuffer(list->cmd.vk_command_buffer, vk_buffer, offset + sizeof(uint64_t),
                     sizeof(uint64_t), 0));
         }
     }
@@ -385,20 +384,24 @@ void vkd3d_acceleration_structure_emit_postbuild_info(
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkAccelerationStructureKHR vk_acceleration_structure;
-    VkMemoryBarrier barrier;
+    VkDependencyInfo dep_info;
+    VkMemoryBarrier2 barrier;
     VkDeviceSize stride;
     uint32_t i;
 
-    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    barrier.pNext = NULL;
-    barrier.srcAccessMask = 0;
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-
     /* We resolve the query in TRANSFER, but DXR expects UNORDERED_ACCESS. */
-    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
-            1, &barrier, 0, NULL, 0, NULL));
+    memset(&barrier, 0, sizeof(barrier));
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    barrier.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+    barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.memoryBarrierCount = 1;
+    dep_info.pMemoryBarriers = &barrier;
+
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
     stride = desc->InfoType == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION ?
             2 * sizeof(uint64_t) : sizeof(uint64_t);
@@ -425,22 +428,27 @@ void vkd3d_acceleration_structure_emit_immediate_postbuild_info(
      * but we need to emit them for Vulkan. */
 
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkMemoryBarrier barrier;
+    VkDependencyInfo dep_info;
+    VkMemoryBarrier2 barrier;
     uint32_t i;
 
-    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    barrier.pNext = NULL;
-    barrier.srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+    memset(&barrier, 0, sizeof(barrier));
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
     /* The query accesses STRUCTURE_READ_BIT in BUILD_BIT stage. */
-    barrier.dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR | VK_PIPELINE_STAGE_2_COPY_BIT;
+    barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_TRANSFER_WRITE_BIT;
 
     /* Writing to the result buffer is supposed to happen in UNORDERED_ACCESS on DXR for
      * some bizarre reason, so we have to satisfy a transfer barrier.
      * Have to basically do a full stall to make this work ... */
-    VK_CALL(vkCmdPipelineBarrier(list->vk_command_buffer,
-            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-            VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR | VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
-            1, &barrier, 0, NULL, 0, NULL));
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.memoryBarrierCount = 1;
+    dep_info.pMemoryBarriers = &barrier;
+
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
     /* Could optimize a bit by batching more aggressively, but no idea if it's going to help in practice. */
     for (i = 0; i < count; i++)
@@ -495,5 +503,5 @@ void vkd3d_acceleration_structure_copy(
     info.dst = dst_as;
     info.src = src_as;
     if (convert_copy_mode(mode, &info.mode))
-        VK_CALL(vkCmdCopyAccelerationStructureKHR(list->vk_command_buffer, &info));
+        VK_CALL(vkCmdCopyAccelerationStructureKHR(list->cmd.vk_command_buffer, &info));
 }

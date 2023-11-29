@@ -1831,6 +1831,7 @@ enum vkd3d_spirv_extension
     VKD3D_SPV_EXT_SHADER_STENCIL_EXPORT         = 0x00000020,
     VKD3D_SPV_EXT_FRAGMENT_FULLY_COVERED        = 0x00000040,
     VKD3D_SPV_EXT_FRAGMENT_SHADER_INTERLOCK     = 0x00000080,
+    VKD3D_SPV_KHR_FLOAT_CONTROLS                = 0x00000100,
 };
 
 struct vkd3d_spirv_extension_info
@@ -1848,6 +1849,7 @@ static const struct vkd3d_spirv_extension_info vkd3d_spirv_extensions[] =
     {VKD3D_SPV_EXT_SHADER_STENCIL_EXPORT,       "SPV_EXT_shader_stencil_export"},
     {VKD3D_SPV_EXT_FRAGMENT_FULLY_COVERED,      "SPV_EXT_fragment_fully_covered"},
     {VKD3D_SPV_EXT_FRAGMENT_SHADER_INTERLOCK,   "SPV_EXT_fragment_shader_interlock"},
+    {VKD3D_SPV_KHR_FLOAT_CONTROLS,              "SPV_KHR_float_controls"},
 };
 
 struct vkd3d_spirv_capability_extension_mapping
@@ -1867,6 +1869,7 @@ static const struct vkd3d_spirv_capability_extension_mapping vkd3d_spirv_capabil
     {SpvCapabilityFragmentFullyCoveredEXT,                VKD3D_SPV_EXT_FRAGMENT_FULLY_COVERED},
     {SpvCapabilityFragmentShaderPixelInterlockEXT,        VKD3D_SPV_EXT_FRAGMENT_SHADER_INTERLOCK},
     {SpvCapabilityFragmentShaderSampleInterlockEXT,       VKD3D_SPV_EXT_FRAGMENT_SHADER_INTERLOCK},
+    {SpvCapabilityDenormPreserve,                         VKD3D_SPV_KHR_FLOAT_CONTROLS},
 };
 
 static bool vkd3d_spirv_compile_module(struct vkd3d_spirv_builder *builder,
@@ -6122,6 +6125,22 @@ static void vkd3d_dxbc_compiler_emit_dcl_global_flags(struct vkd3d_dxbc_compiler
     {
         vkd3d_spirv_enable_capability(builder, SpvCapabilityFloat64);
         flags &= ~(VKD3DSGF_ENABLE_DOUBLE_PRECISION_FLOAT_OPS | VKD3DSGF_ENABLE_11_1_DOUBLE_EXTENSIONS);
+
+        if (compiler->compile_args)
+        {
+            uint32_t literal = 64;
+            unsigned int i;
+
+            for (i = 0; i < compiler->compile_args->target_extension_count; i++)
+            {
+                if (compiler->compile_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_FP64_DENORM_PRESERVE)
+                {
+                    vkd3d_dxbc_compiler_emit_execution_mode(compiler, SpvExecutionModeDenormPreserve, &literal, 1);
+                    vkd3d_spirv_enable_capability(builder, SpvCapabilityDenormPreserve);
+                    break;
+                }
+            }
+        }
     }
 
     if (flags & ~(VKD3DSGF_REFACTORING_ALLOWED | VKD3DSGF_ENABLE_RAW_AND_STRUCTURED_BUFFERS))
@@ -8360,7 +8379,7 @@ static void vkd3d_dxbc_compiler_emit_imad(struct vkd3d_dxbc_compiler *compiler,
 static void vkd3d_dxbc_compiler_emit_udiv(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
-    uint32_t type_id, val_id, src0_id, src1_id, condition_id, uint_max_id;
+    uint32_t type_id, src0_id, src1_id, condition_id, uint_max_id, quotient_val_id = 0, remainder_val_id = 0;
     struct vkd3d_spirv_builder *builder = &compiler->spirv_builder;
     const struct vkd3d_shader_dst_param *dst = instruction->dst;
     const struct vkd3d_shader_src_param *src = instruction->src;
@@ -8379,11 +8398,9 @@ static void vkd3d_dxbc_compiler_emit_udiv(struct vkd3d_dxbc_compiler *compiler,
         uint_max_id = vkd3d_dxbc_compiler_get_constant_uint_vector(compiler,
                 0xffffffff, component_count);
 
-        val_id = vkd3d_spirv_build_op_udiv(builder, type_id, src0_id, src1_id);
+        quotient_val_id = vkd3d_spirv_build_op_udiv(builder, type_id, src0_id, src1_id);
         /* The SPIR-V spec says: "The resulting value is undefined if Operand 2 is 0." */
-        val_id = vkd3d_spirv_build_op_select(builder, type_id, condition_id, val_id, uint_max_id);
-
-        vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst[0], val_id);
+        quotient_val_id = vkd3d_spirv_build_op_select(builder, type_id, condition_id, quotient_val_id, uint_max_id);
     }
 
     if (dst[1].reg.type != VKD3DSPR_NULL)
@@ -8402,11 +8419,17 @@ static void vkd3d_dxbc_compiler_emit_udiv(struct vkd3d_dxbc_compiler *compiler,
                     0xffffffff, component_count);
         }
 
-        val_id = vkd3d_spirv_build_op_umod(builder, type_id, src0_id, src1_id);
+        remainder_val_id = vkd3d_spirv_build_op_umod(builder, type_id, src0_id, src1_id);
         /* The SPIR-V spec says: "The resulting value is undefined if Operand 2 is 0." */
-        val_id = vkd3d_spirv_build_op_select(builder, type_id, condition_id, val_id, uint_max_id);
-
-        vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst[1], val_id);
+        remainder_val_id = vkd3d_spirv_build_op_select(builder, type_id, condition_id, remainder_val_id, uint_max_id);
+    }
+    if (dst[0].reg.type != VKD3DSPR_NULL) 
+    {        
+        vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst[0], quotient_val_id);
+    }
+    if (dst[1].reg.type != VKD3DSPR_NULL)
+    {
+        vkd3d_dxbc_compiler_emit_store_dst(compiler, &dst[1], remainder_val_id);
     }
 }
 
@@ -9305,6 +9328,19 @@ static uint32_t vkd3d_dxbc_compiler_get_resource_index(struct vkd3d_dxbc_compile
                 descriptor_qa_args, ARRAY_SIZE(descriptor_qa_args));
     }
 #endif
+
+    /* The physical VAs might not be tightly packed, so apply that here.
+     * Important that we apply this stride after descriptor QA check. */
+    if ((binding->flags & VKD3D_SHADER_BINDING_FLAG_RAW_VA) &&
+            (binding->flags & VKD3D_SHADER_BINDING_FLAG_AUX_BUFFER) &&
+            (compiler->shader_interface.flags & VKD3D_SHADER_INTERFACE_RAW_VA_ALIAS_DESCRIPTOR_BUFFER))
+    {
+        index_id = vkd3d_spirv_build_op_imul(builder,
+                vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1),
+                vkd3d_dxbc_compiler_get_constant_uint(compiler,
+                        compiler->shader_interface.descriptor_size_cbv_srv_uav / sizeof(VkDeviceAddress)),
+                index_id);
+    }
 
     /* AMD drivers rely on the index being marked as nonuniform */
     if (reg->modifier == VKD3DSPRM_NONUNIFORM)
@@ -11105,9 +11141,36 @@ static bool is_dcl_instruction(enum VKD3D_SHADER_INSTRUCTION_HANDLER handler_idx
             || handler_idx == VKD3DSIH_HS_DECLS;
 }
 
+static bool is_scope_generating_control_flow_instruction(enum VKD3D_SHADER_INSTRUCTION_HANDLER handler)
+{
+    /* Ignore continue, break, ret and any unconditional branches which don't logically generate new labels on their own.
+     * In some Xenia shaders, there is questionable back-to-back continue + continue, followed by break.
+     * If we've terminated a block, just ignore it.
+     * Technically, if there are if/endif pairs after a continue or break, it might be more
+     * correct to track shadow control flow scopes and ignore code until we pop out of the shadow stack,
+     * but this is silly and should only be considered if actually needed. */
+    switch (handler)
+    {
+        case VKD3DSIH_CASE:
+        case VKD3DSIH_DEFAULT:
+        case VKD3DSIH_ELSE:
+        case VKD3DSIH_ENDIF:
+        case VKD3DSIH_ENDLOOP:
+        case VKD3DSIH_ENDSWITCH:
+        case VKD3DSIH_IF:
+        case VKD3DSIH_LOOP:
+        case VKD3DSIH_SWITCH:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
 int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         const struct vkd3d_shader_instruction *instruction)
 {
+    const struct vkd3d_control_flow_info *cf_info;
     int ret = VKD3D_OK;
 
     if (!is_dcl_instruction(instruction->handler_idx) && !compiler->after_declarations_section)
@@ -11115,6 +11178,13 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         compiler->after_declarations_section = true;
         vkd3d_dxbc_compiler_emit_main_prolog(compiler);
     }
+
+    /* Some Xenia shaders are broken and emit instructions after ending control flow in a block.
+     * Just ignore these instructions. */
+    cf_info = compiler->control_flow_depth
+            ? &compiler->control_flow_info[compiler->control_flow_depth - 1] : NULL;
+    if (cf_info && !cf_info->inside_block && !is_scope_generating_control_flow_instruction(instruction->handler_idx))
+        return VKD3D_OK;
 
     switch (instruction->handler_idx)
     {
@@ -11574,6 +11644,8 @@ int vkd3d_dxbc_compiler_generate_spirv(struct vkd3d_dxbc_compiler *compiler,
         return VKD3D_ERROR;
 
     vkd3d_shader_extract_feature_meta(spirv);
+    if (compiler->quirks & VKD3D_SHADER_QUIRK_FORCE_COMPUTE_BARRIER)
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_AFTER_DISPATCH;
 
     return VKD3D_OK;
 }
@@ -11604,6 +11676,7 @@ void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
 {
     size_t spirv_words = code->size / sizeof(uint32_t);
     const uint32_t *spirv = code->code;
+    SpvExecutionMode execution_mode;
     SpvCapability capability;
     size_t offset = 5;
     uint32_t meta = 0;
@@ -11674,9 +11747,36 @@ void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
                     meta |= VKD3D_SHADER_META_FLAG_USES_RASTERIZER_ORDERED_VIEWS;
                     break;
 
+                case SpvCapabilityGroupNonUniform:
+                case SpvCapabilityGroupNonUniformVote:
+                case SpvCapabilityGroupNonUniformArithmetic:
+                case SpvCapabilityGroupNonUniformBallot:
+                case SpvCapabilityGroupNonUniformShuffle:
+                case SpvCapabilityGroupNonUniformShuffleRelative:
+                case SpvCapabilityGroupNonUniformClustered:
+                case SpvCapabilityGroupNonUniformQuad:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_SUBGROUP_OPERATIONS;
+                    break;
+
                 default:
                     break;
             }
+        }
+        else if (op == SpvOpExecutionMode && count == 3)
+        {
+            execution_mode = spirv[offset + 2];
+
+            if (execution_mode == SpvExecutionModeIsolines ||
+                    execution_mode == SpvExecutionModeOutputLineStrip ||
+                    execution_mode == SpvExecutionModeOutputLinesEXT)
+                meta |= VKD3D_SHADER_META_FLAG_EMITS_LINES;
+
+            if (execution_mode == SpvExecutionModeTriangles ||
+                    execution_mode == SpvExecutionModeQuads ||
+                    execution_mode == SpvExecutionModeOutputTriangleStrip ||
+                    execution_mode == SpvExecutionModeOutputTrianglesEXT)
+                meta |= VKD3D_SHADER_META_FLAG_EMITS_TRIANGLES;
+
         }
         else if (op == SpvOpFunction)
         {

@@ -12,7 +12,10 @@ vkd3d_shaders =[
   'shaders/cs_clear_uav_image_2d_uint.comp',
   'shaders/cs_clear_uav_image_3d_float.comp',
   'shaders/cs_clear_uav_image_3d_uint.comp',
+  'shaders/cs_emit_nv_memory_decompression_regions.comp',
+  'shaders/cs_emit_nv_memory_decompression_workgroups.comp',
   'shaders/cs_predicate_command.comp',
+  'shaders/cs_predicate_command_execute_indirect.comp',
   'shaders/cs_resolve_binary_queries.comp',
   'shaders/cs_resolve_predicate.comp',
   'shaders/cs_resolve_query.comp',
@@ -20,6 +23,7 @@ vkd3d_shaders =[
   'shaders/fs_copy_image_float.frag',
   'shaders/fs_copy_image_uint.frag',
   'shaders/fs_copy_image_stencil.frag',
+  'shaders/fs_copy_image_stencil_no_export.frag',
 
   'shaders/gs_fullscreen.geom',
   'shaders/vs_fullscreen.vert',
@@ -29,6 +33,15 @@ vkd3d_shaders =[
   'shaders/fs_swapchain_fullscreen.frag',
   'shaders/cs_execute_indirect_patch.comp',
   'shaders/cs_execute_indirect_patch_debug_ring.comp',
+  'shaders/cs_execute_indirect_multi_dispatch.comp',
+  'shaders/cs_execute_indirect_multi_dispatch_state.comp',
+
+  'shaders/cs_sampler_feedback_decode_buffer_min_mip.comp',
+  'shaders/fs_sampler_feedback_decode_image_min_mip.frag',
+  'shaders/fs_sampler_feedback_decode_image_mip_used.frag',
+  'shaders/cs_sampler_feedback_encode_buffer_min_mip.comp',
+  'shaders/cs_sampler_feedback_encode_image_min_mip.comp',
+  'shaders/cs_sampler_feedback_encode_image_mip_used.comp'
 ]
 
 vkd3d_src = [
@@ -41,6 +54,7 @@ vkd3d_src = [
   'heap.c',
   'memory.c',
   'meta.c',
+  'meta_commands.c',
   'resource.c',
   'state.c',
   'utils.c',

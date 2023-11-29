@@ -150,13 +150,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootSignature_profil
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRootDescriptorTable_profiled(d3d12_command_list_iface *iface,
         UINT root_parameter_index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
 {
-    COMMAND_LIST_PROFILED_CALL(SetComputeRootDescriptorTable, iface, root_parameter_index, base_descriptor);
+    COMMAND_LIST_PROFILED_CALL(SetComputeRootDescriptorTable_default, iface, root_parameter_index, base_descriptor);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetGraphicsRootDescriptorTable_profiled(d3d12_command_list_iface *iface,
         UINT root_parameter_index, D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
 {
-    COMMAND_LIST_PROFILED_CALL(SetGraphicsRootDescriptorTable, iface, root_parameter_index, base_descriptor);
+    COMMAND_LIST_PROFILED_CALL(SetGraphicsRootDescriptorTable_default, iface, root_parameter_index, base_descriptor);
 }
 
 static void STDMETHODCALLTYPE d3d12_command_list_SetComputeRoot32BitConstant_profiled(d3d12_command_list_iface *iface,
@@ -464,7 +464,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DispatchMesh_profiled(d3d12_com
     COMMAND_LIST_PROFILED_CALL(DispatchMesh, iface, x, y, z);
 }
 
-static void STDMETHODCALLTYPE d3d12_command_list_Barrier_profiled(d3d12_command_list_iface *iface, UINT32 NumBarrierGroups, const void *pBarrierGroups)
+static void STDMETHODCALLTYPE d3d12_command_list_Barrier_profiled(d3d12_command_list_iface *iface, UINT32 NumBarrierGroups, const D3D12_BARRIER_GROUP *pBarrierGroups)
 {
     COMMAND_LIST_PROFILED_CALL(Barrier, iface, NumBarrierGroups, pBarrierGroups);
 }

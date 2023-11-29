@@ -53,6 +53,9 @@ void vkd3d_descriptor_debug_unregister_heap(uint64_t cookie);
 void vkd3d_descriptor_debug_register_resource_cookie(
         struct vkd3d_descriptor_qa_global_info *global_info,
         uint64_t cookie, const D3D12_RESOURCE_DESC1 *desc);
+void vkd3d_descriptor_debug_register_query_heap_cookie(
+        struct vkd3d_descriptor_qa_global_info *global_info,
+        uint64_t cookie, const D3D12_QUERY_HEAP_DESC *desc);
 void vkd3d_descriptor_debug_register_allocation_cookie(
         struct vkd3d_descriptor_qa_global_info *global_info,
         uint64_t cookie, const struct vkd3d_allocate_memory_info *info);
@@ -83,6 +86,7 @@ VkDeviceSize vkd3d_descriptor_debug_heap_info_size(unsigned int num_descriptors)
 #define vkd3d_descriptor_debug_register_heap(heap, cookie, desc) ((void)0)
 #define vkd3d_descriptor_debug_unregister_heap(cookie) ((void)0)
 #define vkd3d_descriptor_debug_register_resource_cookie(global_info, cookie, desc) ((void)0)
+#define vkd3d_descriptor_debug_register_query_heap_cookie(global_info, cookie, desc) ((void)0)
 #define vkd3d_descriptor_debug_register_allocation_cookie(global_info, cookie, info) ((void)0)
 #define vkd3d_descriptor_debug_register_view_cookie(global_info, cookie, resource_cookie) ((void)0)
 #define vkd3d_descriptor_debug_unregister_cookie(global_info, cookie) ((void)0)

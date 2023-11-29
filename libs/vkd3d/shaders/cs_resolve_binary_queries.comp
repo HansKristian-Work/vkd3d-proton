@@ -1,18 +1,17 @@
 #version 450
 
-#extension GL_ARB_gpu_shader_int64 : require
 #extension GL_EXT_buffer_reference : require
 
 layout(local_size_x = 64) in;
 
 layout(std430, buffer_reference, buffer_reference_align = 8)
 writeonly buffer dst_buffer_t {
-  uint64_t queries[];
+  uvec2 queries[];
 };
 
 layout(std430, buffer_reference, buffer_reference_align = 8)
 readonly buffer src_buffer_t {
-  uint64_t queries[];
+  uvec2 queries[];
 };
 
 layout(push_constant)
@@ -26,5 +25,5 @@ void main() {
   uint thread_id = gl_GlobalInvocationID.x;
 
   if (thread_id < query_count)
-    dst_buffer.queries[thread_id] = min(src_buffer.queries[thread_id], uint64_t(1u));
+    dst_buffer.queries[thread_id] = any(notEqual(src_buffer.queries[thread_id], uvec2(0))) ? uvec2(1, 0) : uvec2(0);
 }

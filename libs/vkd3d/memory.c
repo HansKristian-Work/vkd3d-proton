@@ -222,9 +222,9 @@ static bool vkd3d_memory_transfer_queue_wait_semaphore(struct vkd3d_memory_trans
         uint64_t wait_value, uint64_t timeout)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &queue->device->vk_procs;
+    uint64_t old_value, new_value = 0;
     VkSemaphoreWaitInfo wait_info;
-    uint64_t old_value, new_value;
-    VkResult vr;
+    VkResult vr = VK_TIMEOUT;
 
     old_value = vkd3d_atomic_uint64_load_explicit(&queue->last_known_value, vkd3d_memory_order_acquire);
 
@@ -233,19 +233,21 @@ static bool vkd3d_memory_transfer_queue_wait_semaphore(struct vkd3d_memory_trans
 
     if (timeout)
     {
-        wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO_KHR;
+        wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
         wait_info.pNext = NULL;
         wait_info.flags = 0;
         wait_info.semaphoreCount = 1;
         wait_info.pSemaphores = &queue->vk_semaphore;
         wait_info.pValues = &wait_value;
 
-        vr = VK_CALL(vkWaitSemaphoresKHR(queue->device->vk_device, &wait_info, timeout));
-        new_value = wait_value;
+        vr = VK_CALL(vkWaitSemaphores(queue->device->vk_device, &wait_info, timeout));
+        if (vr == VK_SUCCESS)
+            new_value = wait_value;
     }
-    else
+
+    if (vr != VK_SUCCESS)
     {
-        vr = VK_CALL(vkGetSemaphoreCounterValueKHR(queue->device->vk_device,
+        vr = VK_CALL(vkGetSemaphoreCounterValue(queue->device->vk_device,
                 queue->vk_semaphore, &new_value));
     }
 
@@ -271,21 +273,22 @@ static bool vkd3d_memory_transfer_queue_wait_semaphore(struct vkd3d_memory_trans
 
 static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_transfer_queue *queue)
 {
-    const VkPipelineStageFlags vk_stage_mask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
     const struct vkd3d_vk_device_procs *vk_procs = &queue->device->vk_procs;
     const struct vkd3d_subresource_layout *subresource_layout;
-    VkTimelineSemaphoreSubmitInfoKHR timeline_info;
     VkCopyBufferToImageInfo2 buffer_to_image_copy;
     struct vkd3d_queue_family_info *queue_family;
+    VkSemaphoreSubmitInfo signal_semaphore_info;
+    VkCommandBufferSubmitInfo cmd_buffer_info;
     struct vkd3d_format_footprint footprint;
     VkCommandBufferBeginInfo begin_info;
-    VkImageMemoryBarrier image_barrier;
+    VkImageMemoryBarrier2 image_barrier;
     VkImageSubresource vk_subresource;
     uint32_t queue_mask, queue_index;
     VkBufferImageCopy2 copy_region;
     VkCommandBuffer vk_cmd_buffer;
     VkDeviceSize buffer_offset;
-    VkSubmitInfo submit_info;
+    VkDependencyInfo dep_info;
+    VkSubmitInfo2 submit_info;
     bool need_transition;
     uint32_t plane_idx;
     VkQueue vk_queue;
@@ -330,6 +333,11 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
         return hresult_from_vk_result(vr);
     }
 
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.imageMemoryBarrierCount = 1;
+    dep_info.pImageMemoryBarriers = &image_barrier;
+
     for (i = 0; i < queue->transfer_count; i++)
     {
         const struct vkd3d_memory_transfer_info *transfer = &queue->transfers[i];
@@ -351,12 +359,10 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
 
                 if (need_transition && vk_image_memory_barrier_for_initial_transition(transfer->resource, &image_barrier))
                 {
-                    image_barrier.dstAccessMask |= VK_ACCESS_TRANSFER_WRITE_BIT;
+                    image_barrier.dstStageMask |= VK_PIPELINE_STAGE_2_COPY_BIT;
+                    image_barrier.dstAccessMask |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
 
-                    VK_CALL(vkCmdPipelineBarrier(vk_cmd_buffer,
-                            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                            VK_PIPELINE_STAGE_TRANSFER_BIT,
-                            0, 0, NULL, 0, NULL, 1, &image_barrier));
+                    VK_CALL(vkCmdPipelineBarrier2(vk_cmd_buffer, &dep_info));
                 }
 
                 vk_subresource = d3d12_resource_get_vk_subresource(transfer->resource, transfer->subresource_idx, false);
@@ -384,7 +390,7 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
                 buffer_to_image_copy.regionCount = 1;
                 buffer_to_image_copy.pRegions = &copy_region;
 
-                VK_CALL(vkCmdCopyBufferToImage2KHR(vk_cmd_buffer, &buffer_to_image_copy));
+                VK_CALL(vkCmdCopyBufferToImage2(vk_cmd_buffer, &buffer_to_image_copy));
 
                 vkd3d_memory_transfer_queue_track_resource_locked(queue,
                         transfer->resource, queue->next_signal_value);
@@ -398,24 +404,27 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
         return hresult_from_vk_result(vr);
     }
 
-
     if (!(vk_queue = vkd3d_queue_acquire(queue->vkd3d_queue)))
         return E_FAIL;
 
-    memset(&timeline_info, 0, sizeof(timeline_info));
-    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR;
-    timeline_info.signalSemaphoreValueCount = 1;
-    timeline_info.pSignalSemaphoreValues = &queue->next_signal_value;
+    memset(&cmd_buffer_info, 0, sizeof(cmd_buffer_info));
+    cmd_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+    cmd_buffer_info.commandBuffer = vk_cmd_buffer;
+
+    memset(&signal_semaphore_info, 0, sizeof(signal_semaphore_info));
+    signal_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    signal_semaphore_info.semaphore = queue->vk_semaphore;
+    signal_semaphore_info.value = queue->next_signal_value;
+    signal_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
 
     memset(&submit_info, 0, sizeof(submit_info));
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.pNext = &timeline_info;
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &vk_cmd_buffer;
-    submit_info.signalSemaphoreCount = 1;
-    submit_info.pSignalSemaphores = &queue->vk_semaphore;
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submit_info.commandBufferInfoCount = 1;
+    submit_info.pCommandBufferInfos = &cmd_buffer_info;
+    submit_info.signalSemaphoreInfoCount = 1;
+    submit_info.pSignalSemaphoreInfos = &signal_semaphore_info;
 
-    vr = VK_CALL(vkQueueSubmit(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
+    vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
     vkd3d_queue_release(queue->vkd3d_queue);
 
     VKD3D_DEVICE_REPORT_BREADCRUMB_IF(queue->device, vr == VK_ERROR_DEVICE_LOST);
@@ -427,18 +436,6 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
     }
 
     /* Stall future submissions on other queues until the clear has finished */
-    memset(&timeline_info, 0, sizeof(timeline_info));
-    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR;
-    timeline_info.waitSemaphoreValueCount = 1;
-    timeline_info.pWaitSemaphoreValues = &queue->next_signal_value;
-
-    memset(&submit_info, 0, sizeof(submit_info));
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.pNext = &timeline_info;
-    submit_info.waitSemaphoreCount = 1;
-    submit_info.pWaitSemaphores = &queue->vk_semaphore;
-    submit_info.pWaitDstStageMask = &vk_stage_mask;
-
     queue_mask = queue->device->unique_queue_mask;
 
     while (queue_mask)
@@ -1061,6 +1058,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
         struct vkd3d_memory_allocator *allocator, const struct vkd3d_allocate_memory_info *info)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkMemoryPriorityAllocateInfoEXT priority_info;
     VkD3D12HeapCreateInfoJUICE heap_create_info;
     VkMemoryRequirements memory_requirements;
     VkMemoryAllocateFlagsInfo flags_info;
@@ -1068,6 +1066,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     VkBindBufferMemoryInfo bind_info;
     void *host_ptr = info->host_ptr;
     uint32_t type_mask;
+    bool request_bda;
     VkResult vr;
     HRESULT hr;
 
@@ -1077,6 +1076,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     allocation->heap_type = info->heap_properties.Type;
     allocation->heap_flags = info->heap_flags;
     allocation->flags = info->flags;
+    allocation->explicit_global_buffer_usage = info->explicit_global_buffer_usage;
 
     /* This also sort of validates the heap description,
      * so we want to do this before creating any objects */
@@ -1091,12 +1091,29 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
 
     if (allocation->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER)
     {
-        /* If requested, create a buffer covering the entire allocation
-         * and derive the exact memory requirements from that. Any buffer
-         * resources are just going to use this buffer with an offset. */
-        if (FAILED(hr = vkd3d_create_global_buffer(device, info->memory_requirements.size,
-                &info->heap_properties, info->heap_flags, &allocation->resource.vk_buffer)))
-            return hr;
+        if (info->explicit_global_buffer_usage)
+        {
+            /* If we only need specific buffer usages (used purely to clear memory for example),
+             * we can relax buffer usage and help tools. If we only use TRANSFER usage, it's trivial
+             * to prove if a VkBuffer has ever been used. With BDA and bindless, not so much ... */
+            if (FAILED(hr = vkd3d_create_buffer_explicit_usage(device,
+                    info->explicit_global_buffer_usage,
+                    info->memory_requirements.size,
+                    &allocation->resource.vk_buffer)))
+                return hr;
+
+            request_bda = !!(info->explicit_global_buffer_usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+        }
+        else
+        {
+            request_bda = true;
+            /* If requested, create a buffer covering the entire allocation
+             * and derive the exact memory requirements from that. Any buffer
+             * resources are just going to use this buffer with an offset. */
+            if (FAILED(hr = vkd3d_create_global_buffer(device, info->memory_requirements.size,
+                    &info->heap_properties, info->heap_flags, &allocation->resource.vk_buffer)))
+                return hr;
+        }
 
         VK_CALL(vkGetBufferMemoryRequirements(device->vk_device,
                 allocation->resource.vk_buffer, &memory_requirements));
@@ -1108,6 +1125,8 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
         /* Respect existing memory requirements since there may not
          * be any buffer resource to get memory requirements from. */
         memory_requirements = info->memory_requirements;
+        assert(!info->explicit_global_buffer_usage);
+        request_bda = false;
     }
 
     /* If an allocation is a dedicated fallback allocation,
@@ -1128,10 +1147,10 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     flags_info.pNext = &heap_create_info;
     flags_info.flags = 0;
 
-    if (allocation->resource.vk_buffer)
+    if (allocation->resource.vk_buffer && request_bda)
     {
         allocation->flags |= VKD3D_ALLOCATION_FLAG_GPU_ADDRESS;
-        flags_info.flags |= VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR;
+        flags_info.flags |= VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
     }
 
     allocation->resource.size = info->memory_requirements.size;
@@ -1146,6 +1165,15 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
             VK_CALL(vkDestroyBuffer(device->vk_device, allocation->resource.vk_buffer, NULL));
             return E_INVALIDARG;
         }
+    }
+
+    if (device->device_info.memory_priority_features.memoryPriority &&
+        (type_flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
+    {
+        priority_info.sType = VK_STRUCTURE_TYPE_MEMORY_PRIORITY_ALLOCATE_INFO_EXT;
+        priority_info.pNext = NULL;
+        priority_info.priority = info->vk_memory_priority;
+        vk_prepend_struct(&flags_info, &priority_info);
     }
 
     if (host_ptr)
@@ -1204,7 +1232,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
         bind_info.memory = allocation->device_allocation.vk_memory;
         bind_info.memoryOffset = 0;
 
-        if ((vr = VK_CALL(vkBindBufferMemory2KHR(device->vk_device, 1, &bind_info))) < 0)
+        if ((vr = VK_CALL(vkBindBufferMemory2(device->vk_device, 1, &bind_info))) < 0)
         {
             ERR("Failed to bind buffer memory, vr %d.\n", vr);
             vkd3d_memory_allocation_free(allocation, device, allocator);
@@ -1214,6 +1242,9 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
         /* Assign GPU address as necessary. */
         if (allocation->flags & VKD3D_ALLOCATION_FLAG_GPU_ADDRESS)
         {
+            assert(allocation->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER);
+            assert(request_bda);
+
             if (FAILED(hr = vkd3d_allocation_assign_gpu_address(allocation, device, allocator)))
             {
                 vkd3d_memory_allocation_free(allocation, device, allocator);
@@ -1503,7 +1534,9 @@ void vkd3d_memory_allocator_cleanup(struct vkd3d_memory_allocator *allocator, st
 
 static HRESULT vkd3d_memory_allocator_try_add_chunk(struct vkd3d_memory_allocator *allocator, struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, uint32_t type_mask,
-        VkMemoryPropertyFlags optional_properties, struct vkd3d_memory_chunk **chunk)
+        VkMemoryPropertyFlags optional_properties,
+        VkBufferUsageFlags explicit_global_buffer_usage,
+        struct vkd3d_memory_chunk **chunk)
 {
     struct vkd3d_allocate_memory_info alloc_info;
     struct vkd3d_memory_chunk *object;
@@ -1517,9 +1550,13 @@ static HRESULT vkd3d_memory_allocator_try_add_chunk(struct vkd3d_memory_allocato
     alloc_info.heap_flags = heap_flags;
     alloc_info.flags = VKD3D_ALLOCATION_FLAG_NO_FALLBACK;
     alloc_info.optional_memory_properties = optional_properties;
+    alloc_info.vk_memory_priority = vkd3d_convert_to_vk_prio(D3D12_RESIDENCY_PRIORITY_NORMAL);
 
     if (!(heap_flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
+    {
         alloc_info.flags |= VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER;
+        alloc_info.explicit_global_buffer_usage = explicit_global_buffer_usage;
+    }
 
     if (!vkd3d_array_reserve((void**)&allocator->chunks, &allocator->chunks_size,
             allocator->chunks_count + 1, sizeof(*allocator->chunks)))
@@ -1539,6 +1576,7 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
         struct d3d12_device *device, const VkMemoryRequirements *memory_requirements, uint32_t type_mask,
         VkMemoryPropertyFlags optional_properties,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
+        VkBufferUsageFlags explicit_global_buffer_usage,
         struct vkd3d_memory_allocation *allocation)
 {
     const D3D12_HEAP_FLAGS heap_flag_mask = ~(D3D12_HEAP_FLAG_CREATE_NOT_ZEROED | D3D12_HEAP_FLAG_CREATE_NOT_RESIDENT);
@@ -1555,6 +1593,7 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
         /* Match flags since otherwise the backing buffer
          * may not support our required usage flags */
         if (chunk->allocation.heap_type != heap_properties->Type ||
+                chunk->allocation.explicit_global_buffer_usage != explicit_global_buffer_usage ||
                 chunk->allocation.heap_flags != (heap_flags & heap_flag_mask))
             continue;
 
@@ -1569,7 +1608,8 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
     /* Try allocating a new chunk on one of the supported memory type
      * before the caller falls back to potentially slower memory */
     if (FAILED(hr = vkd3d_memory_allocator_try_add_chunk(allocator, device, heap_properties,
-            heap_flags & heap_flag_mask, type_mask, optional_properties, &chunk)))
+            heap_flags & heap_flag_mask, type_mask, optional_properties,
+            explicit_global_buffer_usage, &chunk)))
         return hr;
 
     return vkd3d_memory_chunk_allocate_range(chunk, memory_requirements, allocation);
@@ -1605,7 +1645,7 @@ static HRESULT vkd3d_suballocate_memory(struct d3d12_device *device, struct vkd3
     uint32_t required_mask, optional_mask;
     VkMemoryPropertyFlags type_flags;
     HRESULT hr;
-    
+
     if (FAILED(hr = vkd3d_select_memory_flags(device, &info->heap_properties, &type_flags)))
         return hr;
 
@@ -1617,14 +1657,15 @@ static HRESULT vkd3d_suballocate_memory(struct d3d12_device *device, struct vkd3
 
     hr = vkd3d_memory_allocator_try_suballocate_memory(allocator, device,
             &memory_requirements, optional_mask, 0, &info->heap_properties,
-            info->heap_flags, allocation);
+            info->heap_flags, info->explicit_global_buffer_usage, allocation);
 
     if (FAILED(hr) && (required_mask & ~optional_mask))
     {
         hr = vkd3d_memory_allocator_try_suballocate_memory(allocator, device,
                 &memory_requirements, required_mask & ~optional_mask,
                 optional_flags,
-                &info->heap_properties, info->heap_flags, allocation);
+                &info->heap_properties, info->heap_flags, info->explicit_global_buffer_usage,
+                allocation);
     }
 
     pthread_mutex_unlock(&allocator->mutex);
@@ -1644,6 +1685,19 @@ static inline bool vkd3d_driver_implicitly_clears(VkDriverId driver_id)
         default:
             return false;
     }
+}
+
+bool vkd3d_allocate_image_memory_prefers_dedicated(struct d3d12_device *device,
+        D3D12_HEAP_FLAGS heap_flags, const VkMemoryRequirements *requirements)
+{
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_DEDICATED_IMAGE_ALLOCATION)
+        return true;
+
+    /* If we don't need to sub-allocate, and we don't need to clear any buffers
+     * there is no need to allocate a GLOBAL_BUFFER. */
+    return requirements->size >= VKD3D_VA_BLOCK_SIZE &&
+            (vkd3d_driver_implicitly_clears(device->device_info.vulkan_1_2_properties.driverID) ||
+                    (heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED));
 }
 
 HRESULT vkd3d_allocate_memory(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
@@ -1673,7 +1727,7 @@ HRESULT vkd3d_allocate_memory(struct d3d12_device *device, struct vkd3d_memory_a
      * RADV definitely does this, and it seems like NV also does it.
      * TODO: an extension for this would be nice. */
     implementation_implicitly_clears =
-            vkd3d_driver_implicitly_clears(device->device_info.driver_properties.driverID) &&
+            vkd3d_driver_implicitly_clears(device->device_info.vulkan_1_2_properties.driverID) &&
             !suballocate;
 
     needs_clear = !implementation_implicitly_clears &&
@@ -1720,6 +1774,7 @@ HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_mem
     alloc_info.heap_properties = info->heap_desc.Properties;
     alloc_info.heap_flags = info->heap_desc.Flags;
     alloc_info.host_ptr = info->host_ptr;
+    alloc_info.vk_memory_priority = info->vk_memory_priority;
 
     alloc_info.flags |= info->extra_allocation_flags;
     if (!(info->heap_desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
@@ -1781,7 +1836,7 @@ HRESULT vkd3d_allocate_internal_buffer_memory(struct d3d12_device *device, VkBuf
 
     flags_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
     flags_info.pNext = NULL;
-    flags_info.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR;
+    flags_info.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
 
     VK_CALL(vkGetBufferMemoryRequirements(device->vk_device, vk_buffer, &memory_requirements));
 
@@ -1797,7 +1852,7 @@ HRESULT vkd3d_allocate_internal_buffer_memory(struct d3d12_device *device, VkBuf
     bind_info.memory = allocation->vk_memory;
     bind_info.memoryOffset = 0;
 
-    if (FAILED(vr = VK_CALL(vkBindBufferMemory2KHR(device->vk_device, 1, &bind_info))))
+    if (FAILED(vr = VK_CALL(vkBindBufferMemory2(device->vk_device, 1, &bind_info))))
         return hresult_from_vk_result(vr);
 
     return hr;

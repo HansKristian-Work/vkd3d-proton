@@ -22,7 +22,7 @@
 
 #include <errno.h>
 
-#define VKD3D_MAX_DXGI_FORMAT DXGI_FORMAT_B4G4R4A4_UNORM
+#define VKD3D_MAX_DXGI_FORMAT DXGI_FORMAT_A4B4G4R4_UNORM
 
 #define COLOR         (VK_IMAGE_ASPECT_COLOR_BIT)
 #define DEPTH         (VK_IMAGE_ASPECT_DEPTH_BIT)
@@ -89,7 +89,7 @@ static const struct vkd3d_format vkd3d_formats[] =
     {DXGI_FORMAT_R8_UINT,               VK_FORMAT_R8_UINT,                  1,  1, 1,  1, COLOR, 1, UINT},
     {DXGI_FORMAT_R8_SNORM,              VK_FORMAT_R8_SNORM,                 1,  1, 1,  1, COLOR, 1},
     {DXGI_FORMAT_R8_SINT,               VK_FORMAT_R8_SINT,                  1,  1, 1,  1, COLOR, 1, SINT},
-    {DXGI_FORMAT_A8_UNORM,              VK_FORMAT_R8_UNORM,                 1,  1, 1,  1, COLOR, 1},
+    {DXGI_FORMAT_A8_UNORM,              VK_FORMAT_A8_UNORM_KHR,             1,  1, 1,  1, COLOR, 1},
     {DXGI_FORMAT_B8G8R8A8_UNORM,        VK_FORMAT_B8G8R8A8_UNORM,           4,  1, 1,  1, COLOR, 1},
     {DXGI_FORMAT_B8G8R8X8_UNORM,        VK_FORMAT_B8G8R8A8_UNORM,           4,  1, 1,  1, COLOR, 1},
     {DXGI_FORMAT_B8G8R8A8_TYPELESS,     VK_FORMAT_B8G8R8A8_UNORM,           4,  1, 1,  1, COLOR, 1, TYPELESS},
@@ -120,7 +120,11 @@ static const struct vkd3d_format vkd3d_formats[] =
     {DXGI_FORMAT_BC7_TYPELESS,          VK_FORMAT_BC7_UNORM_BLOCK,          1,  4, 4, 16, COLOR, 1, TYPELESS},
     {DXGI_FORMAT_BC7_UNORM,             VK_FORMAT_BC7_UNORM_BLOCK,          1,  4, 4, 16, COLOR, 1},
     {DXGI_FORMAT_BC7_UNORM_SRGB,        VK_FORMAT_BC7_SRGB_BLOCK,           1,  4, 4, 16, COLOR, 1},
-    {DXGI_FORMAT_B4G4R4A4_UNORM,        VK_FORMAT_A4R4G4B4_UNORM_PACK16_EXT,2,  1, 1,  1, COLOR, 1},
+    {DXGI_FORMAT_B4G4R4A4_UNORM,        VK_FORMAT_A4R4G4B4_UNORM_PACK16,    2,  1, 1,  1, COLOR, 1},
+    {DXGI_FORMAT_A4B4G4R4_UNORM,        VK_FORMAT_R4G4B4A4_UNORM_PACK16,    2,  1, 1,  1, COLOR, 1},
+
+    {DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE, VK_FORMAT_R32G32_UINT, 8,  1, 1,  1, COLOR, 1},
+    {DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE, VK_FORMAT_R32G32_UINT, 8,  1, 1,  1, COLOR, 1},
 };
 
 static const struct vkd3d_format_footprint depth_stencil_copy_footprints[] =
@@ -312,22 +316,21 @@ dxgi_format_compatibility_list[] =
             DXGI_FORMAT_R16_UINT},
 
     {DXGI_FORMAT_R8_TYPELESS,
-            {DXGI_FORMAT_R8_UINT, DXGI_FORMAT_R8_SINT, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_SNORM, DXGI_FORMAT_A8_UNORM},
+            {DXGI_FORMAT_R8_UINT, DXGI_FORMAT_R8_SINT, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_SNORM},
             DXGI_FORMAT_R8_UINT},
     {DXGI_FORMAT_R8_UINT,
-            {DXGI_FORMAT_R8_SINT, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_SNORM, DXGI_FORMAT_A8_UNORM},
+            {DXGI_FORMAT_R8_SINT, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_SNORM},
             DXGI_FORMAT_R8_UINT},
     {DXGI_FORMAT_R8_SINT,
-            {DXGI_FORMAT_R8_UINT, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_SNORM, DXGI_FORMAT_A8_UNORM},
+            {DXGI_FORMAT_R8_UINT, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_SNORM},
             DXGI_FORMAT_R8_UINT},
     {DXGI_FORMAT_R8_UNORM,
-            {DXGI_FORMAT_R8_UINT, DXGI_FORMAT_R8_SINT, DXGI_FORMAT_A8_UNORM},
+            {DXGI_FORMAT_R8_UINT, DXGI_FORMAT_R8_SINT},
             DXGI_FORMAT_R8_UINT},
     {DXGI_FORMAT_R8_SNORM,
             {DXGI_FORMAT_R8_UINT, DXGI_FORMAT_R8_SINT},
             DXGI_FORMAT_R8_UINT},
-    {DXGI_FORMAT_A8_UNORM,
-            {DXGI_FORMAT_R8_UINT, DXGI_FORMAT_R8_SINT, DXGI_FORMAT_R8_UNORM},
+    {DXGI_FORMAT_A8_UNORM, {DXGI_FORMAT_UNKNOWN},
             DXGI_FORMAT_R8_UINT},
 
     {DXGI_FORMAT_B8G8R8A8_TYPELESS,
@@ -384,6 +387,13 @@ dxgi_format_compatibility_list[] =
             {DXGI_FORMAT_BC7_UNORM_SRGB}},
     {DXGI_FORMAT_BC7_UNORM_SRGB,
             {DXGI_FORMAT_BC7_UNORM}},
+
+    /* Internal implementation detail. We desire 64-bit atomics and R32G32 UAV will trigger that compat
+     * similar to other 64-bit images. */
+    {DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE,
+            {DXGI_FORMAT_R32G32_UINT}},
+    {DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE,
+            {DXGI_FORMAT_R32G32_UINT}},
 };
 
 void vkd3d_format_compatibility_list_add_format(struct vkd3d_format_compatibility_list *list, VkFormat vk_format)
@@ -396,8 +406,10 @@ void vkd3d_format_compatibility_list_add_format(struct vkd3d_format_compatibilit
 
     if (!found)
     {
-        assert(list->format_count < ARRAY_SIZE(list->vk_formats));
-        list->vk_formats[list->format_count++] = vk_format;
+        if (list->format_count < ARRAY_SIZE(list->vk_formats))
+            list->vk_formats[list->format_count++] = vk_format;
+        else
+            WARN("Format compatiblity list overflowed.\n");
     }
 }
 
@@ -410,9 +422,6 @@ static HRESULT vkd3d_init_format_compatibility_lists(struct d3d12_device *device
 
     device->format_compatibility_list_count = 0;
     device->format_compatibility_lists = NULL;
-
-    if (!device->vk_info.KHR_image_format_list)
-        return S_OK;
 
     count = 0;
     for (i = 0; i < ARRAY_SIZE(dxgi_format_compatibility_list); ++i)
@@ -433,7 +442,6 @@ static HRESULT vkd3d_init_format_compatibility_lists(struct d3d12_device *device
             vkd3d_format_compatibility_list_add_format(dst, vkd3d_get_vk_format(src->view_formats[j]));
     }
 
-
     device->format_compatibility_list_count = count;
     device->format_compatibility_lists = lists;
     return S_OK;
@@ -447,20 +455,34 @@ static void vkd3d_cleanup_format_compatibility_lists(struct d3d12_device *device
     device->format_compatibility_list_count = 0;
 }
 
-static HRESULT vkd3d_init_depth_stencil_formats(struct d3d12_device *device)
+static void vkd3d_get_vk_format_properties(struct d3d12_device *device, VkFormat vk_format, VkFormatProperties3 *properties3)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkFormatProperties2 properties;
+
+    memset(properties3, 0, sizeof(*properties3));
+    properties3->sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3;
+
+    memset(&properties, 0, sizeof(properties));
+    properties.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2;
+    properties.pNext = properties3;
+
+    VK_CALL(vkGetPhysicalDeviceFormatProperties2(device->vk_physical_device, vk_format, &properties));
+}
+
+static HRESULT vkd3d_init_depth_stencil_formats(struct d3d12_device *device)
+{
     struct vkd3d_format *formats, *format;
-    VkFormatProperties properties;
+    VkFormatProperties3 d24s8_properties;
+    VkFormatProperties3 properties;
     unsigned int i;
 
     if (!(formats = vkd3d_calloc(VKD3D_MAX_DXGI_FORMAT + 1, sizeof(*formats))))
         return E_OUTOFMEMORY;
 
-    VK_CALL(vkGetPhysicalDeviceFormatProperties(device->vk_physical_device,
-            VK_FORMAT_D24_UNORM_S8_UINT, &properties));
+    vkd3d_get_vk_format_properties(device, VK_FORMAT_D24_UNORM_S8_UINT, &d24s8_properties);
 
-    if (!(properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT))
+    if (!(d24s8_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT))
     {
         /* AMD doesn't support VK_FORMAT_D24_UNORM_S8_UINT. */
         WARN("Mapping VK_FORMAT_D24_UNORM_S8_UINT to VK_FORMAT_D32_SFLOAT_S8_UINT.\n");
@@ -472,11 +494,19 @@ static HRESULT vkd3d_init_depth_stencil_formats(struct d3d12_device *device)
         format = &formats[vkd3d_depth_stencil_formats[i].dxgi_format];
         *format = vkd3d_depth_stencil_formats[i];
         if (format->vk_format == VK_FORMAT_D24_UNORM_S8_UINT &&
-            !(properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT))
+            !(d24s8_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT))
         {
             format->vk_format = VK_FORMAT_D32_SFLOAT_S8_UINT;
             format->is_emulated = true;
         }
+
+        vkd3d_get_vk_format_properties(device, format->vk_format, &properties);
+
+        /* We cannot cast depth stencil formats in Vulkan, so features == castable. */
+        format->vk_image_tiling = VK_IMAGE_TILING_OPTIMAL;
+        format->vk_format_features = properties.optimalTilingFeatures;
+        format->vk_format_features_castable = properties.optimalTilingFeatures;
+        format->vk_format_features_buffer = 0;
     }
 
     device->depth_stencil_formats = formats;
@@ -493,16 +523,94 @@ static void vkd3d_cleanup_depth_stencil_formats(struct d3d12_device *device)
 
 static HRESULT vkd3d_init_formats(struct d3d12_device *device)
 {
-    struct vkd3d_format *formats;
-    unsigned int i;
+    const struct vkd3d_format_compatibility_list *list;
+    struct vkd3d_format *formats, *format;
+    VkFormatProperties3 properties;
+    DXGI_FORMAT dxgi_format;
+    unsigned int i, j;
+    bool emulate_a8;
+
+    static const VkFormatFeatureFlags2 feature_mask =
+            VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
+            VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT |
+            VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT |
+            VK_FORMAT_FEATURE_TRANSFER_SRC_BIT |
+            VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
 
     if (!(formats = vkd3d_calloc(VKD3D_MAX_DXGI_FORMAT + 1, sizeof(*formats))))
         return E_OUTOFMEMORY;
 
+    if (device->device_info.maintenance_5_features.maintenance5)
+    {
+        const VkFormatFeatureFlags a8_required_features =
+                VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT |
+                VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT |
+                VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
+                VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT |
+                VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT |
+                VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT |
+                VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT;
+
+        VkFormatProperties3 a8_properties, r8_properties;
+        VkFormatFeatureFlags r8_unique_features;
+
+        vkd3d_get_vk_format_properties(device, VK_FORMAT_A8_UNORM_KHR, &a8_properties);
+        vkd3d_get_vk_format_properties(device, VK_FORMAT_R8_UNORM, &r8_properties);
+
+        /* Only use the native A8_UNORM format if support is at least as good
+         * as for the R8_UNORM fallback format for relevant features. */
+        r8_unique_features = (r8_properties.optimalTilingFeatures | r8_properties.bufferFeatures) &
+                ~(a8_properties.optimalTilingFeatures | a8_properties.bufferFeatures);
+
+        emulate_a8 = (r8_unique_features & a8_required_features) != 0;
+    }
+    else
+        emulate_a8 = true;
+
+    if (emulate_a8)
+        WARN("Mapping VK_FORMAT_A8_UNORM_KHR to VK_FORMAT_R8_UNORM.\n");
+
     for (i = 0; i < ARRAY_SIZE(vkd3d_formats); ++i)
     {
         assert(vkd3d_formats[i].dxgi_format <= VKD3D_MAX_DXGI_FORMAT);
-        formats[vkd3d_formats[i].dxgi_format] = vkd3d_formats[i];
+        dxgi_format = vkd3d_formats[i].dxgi_format;
+        format = &formats[dxgi_format];
+        *format = vkd3d_formats[i];
+
+        if (format->vk_format == VK_FORMAT_A8_UNORM_KHR && emulate_a8)
+        {
+            format->vk_format = VK_FORMAT_R8_UNORM;
+            format->is_emulated = true;
+        }
+
+        vkd3d_get_vk_format_properties(device, format->vk_format, &properties);
+
+        if ((properties.optimalTilingFeatures & feature_mask) || !(properties.linearTilingFeatures & feature_mask))
+        {
+            format->vk_image_tiling = VK_IMAGE_TILING_OPTIMAL;
+            format->vk_format_features = properties.optimalTilingFeatures;
+            format->vk_format_features_castable = properties.optimalTilingFeatures;
+        }
+        else
+        {
+            format->vk_image_tiling = VK_IMAGE_TILING_LINEAR;
+            format->vk_format_features = properties.linearTilingFeatures;
+            format->vk_format_features_castable = properties.linearTilingFeatures;
+        }
+
+        format->vk_format_features_buffer = properties.bufferFeatures;
+
+        if (dxgi_format < device->format_compatibility_list_count)
+        {
+            list = &device->format_compatibility_lists[dxgi_format];
+            for (j = 0; j < list->format_count; j++)
+            {
+                vkd3d_get_vk_format_properties(device, list->vk_formats[j], &properties);
+                format->vk_format_features_castable |= format->vk_image_tiling == VK_IMAGE_TILING_OPTIMAL
+                        ? properties.optimalTilingFeatures
+                        : properties.linearTilingFeatures;
+            }
+        }
     }
 
     device->formats = formats;
@@ -650,6 +758,67 @@ VkFormat vkd3d_get_vk_format(DXGI_FORMAT format)
     return VK_FORMAT_UNDEFINED;
 }
 
+/* Get some size-based low bits for memory prioritization in the same
+   way as d3d12; d3d12 bumps certain resource priorities to
+   D3D12_RESIDENCY_PRIORITY_HIGH + size-based bits (10MB resolution)
+   see: https://learn.microsoft.com/en-us/windows/win32/direct3d12/residency#default-priority-algorithm */
+uint32_t vkd3d_get_priority_adjust(VkDeviceSize size)
+{
+    return min((size / (10 * 1048576)), 0xffffUL);
+}
+
+static float vkd3d_lerp_u32_to_float(uint32_t uval, uint32_t ustart, uint32_t uend, float fstart, float fend)
+{
+    float a;
+
+    if (uval <= ustart) return fstart;
+    else if (uval >= uend) return fend;
+
+    a = (float)(uval - ustart) / (float)(uend - ustart);
+    return fstart * (1.0f - a) + (fend * a);
+}
+
+/* map from 32-bit d3d prio to float (0..1) vk prio. */
+float vkd3d_convert_to_vk_prio(D3D12_RESIDENCY_PRIORITY d3d12prio)
+{
+    float result;
+
+    /* align D3D12_RESIDENCY_PRIORITY_NORMAL (the default d3d12 prio) with
+       0.5 (the default vk prio) so neither kind wins without explicit prio */
+    if (d3d12prio <= D3D12_RESIDENCY_PRIORITY_NORMAL)
+    {
+        result = vkd3d_lerp_u32_to_float(d3d12prio,
+            0, D3D12_RESIDENCY_PRIORITY_NORMAL,
+            0.001f, 0.500f);
+    }
+    else if (d3d12prio <= D3D12_RESIDENCY_PRIORITY_HIGH)
+    {
+        result = vkd3d_lerp_u32_to_float(d3d12prio,
+            D3D12_RESIDENCY_PRIORITY_NORMAL, D3D12_RESIDENCY_PRIORITY_HIGH,
+            0.500f, 0.700f);
+    }
+    else if (d3d12prio <= D3D12_RESIDENCY_PRIORITY_HIGH+0xffff)
+    {
+        result = vkd3d_lerp_u32_to_float(d3d12prio,
+            D3D12_RESIDENCY_PRIORITY_HIGH, D3D12_RESIDENCY_PRIORITY_HIGH+0xffff,
+            0.700f, 0.800f);
+    }
+    else
+    {
+        result = vkd3d_lerp_u32_to_float(d3d12prio,
+            D3D12_RESIDENCY_PRIORITY_HIGH+0xffff, UINT32_MAX,
+            0.800f, 1.000f);
+    }
+
+    /* Note: A naive conversion from a UINT32 d3d priority to a float32 vk priority
+       loses around 9 of the 16 lower-order bits which encode size-based subranking
+       in the D3D12_RESIDENCY_PRIORITY_HIGH to HIGH+0xffff domain.  The above expansion
+       of that domain into a proportionally wider range works around this. */
+
+    /* 0.0f is reserved for explicitly evicted resources */
+    return max(min(result, 1.f), 0.001f);
+}
+
 DXGI_FORMAT vkd3d_get_dxgi_format(VkFormat format)
 {
     DXGI_FORMAT dxgi_format;
@@ -749,6 +918,13 @@ HRESULT return_interface(void *iface, REFIID iface_iid,
 {
     IUnknown *unknown = iface;
     HRESULT hr;
+
+    /* Don't check IID here, we always have to return S_FALSE. */
+    if (!object)
+    {
+        IUnknown_Release(unknown);
+        return S_FALSE;
+    }
 
     if (IsEqualGUID(iface_iid, requested_iid))
     {
@@ -889,6 +1065,7 @@ const char *debug_dxgi_format(DXGI_FORMAT format)
         ENUM_NAME(DXGI_FORMAT_V408)
         ENUM_NAME(DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE)
         ENUM_NAME(DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)
+        ENUM_NAME(DXGI_FORMAT_A4B4G4R4_UNORM)
         ENUM_NAME(DXGI_FORMAT_FORCE_UINT)
     }
     #undef ENUM_NAME

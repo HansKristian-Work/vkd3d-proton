@@ -75,6 +75,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_bundle_allocator_QueryInterface(ID3D12Com
 {
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
+    if (!object)
+        return E_POINTER;
+
     if (IsEqualGUID(riid, &IID_ID3D12CommandAllocator)
             || IsEqualGUID(riid, &IID_ID3D12Pageable)
             || IsEqualGUID(riid, &IID_ID3D12DeviceChild)
@@ -254,6 +257,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_bundle_QueryInterface(d3d12_command_list_
         REFIID iid, void **object)
 {
     TRACE("iface %p, iid %s, object %p.\n", iface, debugstr_guid(iid), object);
+
+    if (!object)
+        return E_POINTER;
 
     if (IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList)
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList1)
@@ -1090,7 +1096,7 @@ static void d3d12_bundle_exec_ia_set_vertex_buffers(d3d12_command_list_iface *li
 {
     const struct d3d12_ia_set_vertex_buffers_command *args = args_v;
 
-    ID3D12GraphicsCommandList5_IASetVertexBuffers(list, args->start_slot, args->view_count, args->views);
+    ID3D12GraphicsCommandList9_IASetVertexBuffers(list, args->start_slot, args->view_count, args->views);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_IASetVertexBuffers(d3d12_command_list_iface *iface,
@@ -1651,24 +1657,89 @@ static void STDMETHODCALLTYPE d3d12_bundle_DispatchMesh(d3d12_command_list_iface
     args->z = z;
 }
 
-static void STDMETHODCALLTYPE d3d12_bundle_Barrier(d3d12_command_list_iface *iface, UINT32 NumBarrierGroups, const void *pBarrierGroups)
+static void STDMETHODCALLTYPE d3d12_bundle_Barrier(d3d12_command_list_iface *iface, UINT32 NumBarrierGroups, const D3D12_BARRIER_GROUP *pBarrierGroups)
 {
     WARN("iface %p, NumBarrierGroups %u, D3D12_BARRIER_GROUP %p ignored!\n", iface, NumBarrierGroups, pBarrierGroups);
 }
 
+struct d3d12_om_set_front_and_back_stencil_ref_command
+{
+    struct d3d12_bundle_command command;
+    UINT stencil_ref_front;
+    UINT stencil_ref_back;
+};
+
+static void d3d12_bundle_exec_om_set_front_and_back_stencil_ref(d3d12_command_list_iface *list, const void *args_v)
+{
+    const struct d3d12_om_set_front_and_back_stencil_ref_command *args = args_v;
+
+    ID3D12GraphicsCommandList9_OMSetFrontAndBackStencilRef(list,
+            args->stencil_ref_front, args->stencil_ref_back);
+}
+
 static void STDMETHODCALLTYPE d3d12_bundle_OMSetFrontAndBackStencilRef(d3d12_command_list_iface *iface, UINT FrontStencilRef, UINT BackStencilRef)
 {
-    WARN("iface %p, FrontStencilRef %u, BackStencilRef %u ignored!\n", iface, FrontStencilRef, BackStencilRef);
+    struct d3d12_bundle *bundle = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_om_set_front_and_back_stencil_ref_command *args;
+
+    TRACE("iface %p, FrontStencilRef %u, BackStencilRef %u.\n", iface, FrontStencilRef, BackStencilRef);
+
+    args = d3d12_bundle_add_command(bundle, &d3d12_bundle_exec_om_set_front_and_back_stencil_ref, sizeof(*args));
+    args->stencil_ref_front = FrontStencilRef;
+    args->stencil_ref_back = BackStencilRef;
+}
+
+struct d3d12_rs_set_depth_bias_command
+{
+    struct d3d12_bundle_command command;
+    float constant_factor;
+    float clamp;
+    float slope_factor;
+};
+
+static void d3d12_bundle_exec_rs_set_depth_bias(d3d12_command_list_iface *list, const void *args_v)
+{
+    const struct d3d12_rs_set_depth_bias_command *args = args_v;
+
+    ID3D12GraphicsCommandList9_RSSetDepthBias(list,
+            args->constant_factor, args->clamp, args->slope_factor);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_RSSetDepthBias(d3d12_command_list_iface *iface, FLOAT DepthBias, FLOAT DepthBiasClamp, FLOAT SlopeScaledDepthBias)
 {
-    WARN("iface %p, DepthBias %f, DepthBiasClamp %f, SlopeScaledDepthBias %f ignored!\n", iface, DepthBias, DepthBiasClamp, SlopeScaledDepthBias);
+    struct d3d12_bundle *bundle = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_rs_set_depth_bias_command *args;
+
+    TRACE("iface %p, DepthBias %f, DepthBiasClamp %f, SlopeScaledDepthBias %f.\n", iface, DepthBias, DepthBiasClamp, SlopeScaledDepthBias);
+
+    args = d3d12_bundle_add_command(bundle, &d3d12_bundle_exec_rs_set_depth_bias, sizeof(*args));
+    args->constant_factor = DepthBias;
+    args->clamp = DepthBiasClamp;
+    args->slope_factor = SlopeScaledDepthBias;
+}
+
+struct d3d12_ia_set_index_buffer_strip_cut_value_command
+{
+    struct d3d12_bundle_command command;
+    D3D12_INDEX_BUFFER_STRIP_CUT_VALUE strip_cut_value;
+};
+
+static void d3d12_bundle_exec_ia_set_index_buffer_strip_cut_value(d3d12_command_list_iface *list, const void *args_v)
+{
+    const struct d3d12_ia_set_index_buffer_strip_cut_value_command *args = args_v;
+
+    ID3D12GraphicsCommandList9_IASetIndexBufferStripCutValue(list, args->strip_cut_value);
 }
 
 static void STDMETHODCALLTYPE d3d12_bundle_IASetIndexBufferStripCutValue(d3d12_command_list_iface *iface, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE IBStripCutValue)
 {
-    WARN("iface %p, IBStripCutValue %u ignored!\n", iface, IBStripCutValue);
+    struct d3d12_bundle *bundle = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_ia_set_index_buffer_strip_cut_value_command *args;
+
+    TRACE("iface %p, IBStripCutValue %u.\n", iface, IBStripCutValue);
+
+    args = d3d12_bundle_add_command(bundle, &d3d12_bundle_exec_ia_set_index_buffer_strip_cut_value, sizeof(*args));
+    args->strip_cut_value = IBStripCutValue;
 }
 
 static CONST_VTBL struct ID3D12GraphicsCommandList9Vtbl d3d12_bundle_vtbl =

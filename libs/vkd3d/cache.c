@@ -1460,13 +1460,16 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_library_QueryInterface(d3d12_pip
 {
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
 
+    if (!object)
+        return E_POINTER;
+
     if (IsEqualGUID(riid, &IID_ID3D12PipelineLibrary)
             || IsEqualGUID(riid, &IID_ID3D12PipelineLibrary1)
             || IsEqualGUID(riid, &IID_ID3D12DeviceChild)
             || IsEqualGUID(riid, &IID_ID3D12Object)
             || IsEqualGUID(riid, &IID_IUnknown))
     {
-        ID3D12PipelineLibrary_AddRef(iface);
+        ID3D12PipelineLibrary1_AddRef(iface);
         *object = iface;
         return S_OK;
     }
@@ -2553,6 +2556,8 @@ void vkd3d_pipeline_cache_compat_from_state_desc(struct vkd3d_pipeline_cache_com
 {
     const D3D12_SHADER_BYTECODE *code_list[] = {
         &desc->vs,
+        &desc->as,
+        &desc->ms,
         &desc->hs,
         &desc->ds,
         &desc->gs,
@@ -2618,8 +2623,7 @@ void vkd3d_pipeline_cache_compat_from_state_desc(struct vkd3d_pipeline_cache_com
         HF32(desc->rasterizer_state.DepthBiasClamp);
         HF32(desc->rasterizer_state.SlopeScaledDepthBias);
         H32(desc->rasterizer_state.DepthClipEnable);
-        H32(desc->rasterizer_state.MultisampleEnable);
-        H32(desc->rasterizer_state.AntialiasedLineEnable);
+        H32(desc->rasterizer_state.LineRasterizationMode);
         H32(desc->rasterizer_state.ForcedSampleCount);
         H32(desc->rasterizer_state.ConservativeRaster);
 
@@ -2628,16 +2632,18 @@ void vkd3d_pipeline_cache_compat_from_state_desc(struct vkd3d_pipeline_cache_com
         H32(desc->depth_stencil_state.DepthWriteMask);
         H32(desc->depth_stencil_state.DepthFunc);
         H32(desc->depth_stencil_state.StencilEnable);
-        H32(desc->depth_stencil_state.StencilReadMask);
-        H32(desc->depth_stencil_state.StencilWriteMask);
         H32(desc->depth_stencil_state.FrontFace.StencilFailOp);
         H32(desc->depth_stencil_state.FrontFace.StencilDepthFailOp);
         H32(desc->depth_stencil_state.FrontFace.StencilPassOp);
         H32(desc->depth_stencil_state.FrontFace.StencilFunc);
+        H32(desc->depth_stencil_state.FrontFace.StencilReadMask);
+        H32(desc->depth_stencil_state.FrontFace.StencilWriteMask);
         H32(desc->depth_stencil_state.BackFace.StencilFailOp);
         H32(desc->depth_stencil_state.BackFace.StencilDepthFailOp);
         H32(desc->depth_stencil_state.BackFace.StencilPassOp);
         H32(desc->depth_stencil_state.BackFace.StencilFunc);
+        H32(desc->depth_stencil_state.BackFace.StencilReadMask);
+        H32(desc->depth_stencil_state.BackFace.StencilWriteMask);
         H32(desc->depth_stencil_state.DepthBoundsTestEnable);
 
         /* Input layout. */

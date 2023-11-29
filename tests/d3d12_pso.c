@@ -196,6 +196,7 @@ void test_create_graphics_pipeline_state(void)
 {
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc;
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
     ID3D12RootSignature *root_signature;
     ID3D12PipelineState *pipeline_state;
     ID3D12Device *device, *tmp_device;
@@ -282,10 +283,15 @@ void test_create_graphics_pipeline_state(void)
     blend->IndependentBlendEnable = false;
     blend->RenderTarget[0].BlendEnable = false;
     blend->RenderTarget[0].LogicOpEnable = true;
-    hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
-            &IID_ID3D12PipelineState, (void **)&pipeline_state);
-    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
-    ID3D12PipelineState_Release(pipeline_state);
+
+    if (SUCCEEDED(ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options))) &&
+            options.OutputMergerLogicOp)
+    {
+        hr = ID3D12Device_CreateGraphicsPipelineState(device, &pso_desc,
+                &IID_ID3D12PipelineState, (void **) &pipeline_state);
+        ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+        ID3D12PipelineState_Release(pipeline_state);
+    }
 
     /* IndependentBlendEnable must be set to false when logic operations are enabled. */
     blend->IndependentBlendEnable = true;
@@ -1633,8 +1639,6 @@ static void test_dual_source_blending(bool use_dxil)
         0x62, 0x90, 0x00, 0x20, 0x08, 0x06, 0x49, 0x19, 0x48, 0x60, 0xf0, 0x3d, 0xc2, 0x88, 0x41, 0x02, 0x80, 0x20, 0x18, 0x24, 0x65, 0x20, 0x81, 0xc1, 0xd7, 0x04, 0x18, 0x0e, 0x04, 0x00, 0x05, 0x00,
         0x00, 0x00, 0xc5, 0x01, 0x91, 0x8e, 0xec, 0xb7, 0x38, 0xcc, 0x9e, 0x7f, 0xc7, 0xe2, 0xba, 0xd9, 0x5c, 0x96, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     };
-    static const DWORD ps_code_3rt_dxbc[] =
-    {
 #if 0
     float4 c0;
     float4 c1;
@@ -1646,6 +1650,152 @@ static void test_dual_source_blending(bool use_dxil)
         o2 = 1.0.xxxx;
     }
 #endif
+    static const BYTE ps_code_3rt_dxil[] =
+    {
+        0x44, 0x58, 0x42, 0x43, 0x71, 0x86, 0x12, 0x42, 0x18, 0x38, 0x41, 0x3c, 0x58, 0xfb, 0x1e, 0xe6, 0x52, 0xe5, 0x85, 0xd5, 0x01, 0x00, 0x00, 0x00,
+        0x24, 0x0d, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x00, 0x4c, 0x00, 0x00, 0x00, 0x5c, 0x00, 0x00, 0x00, 0xd8, 0x00, 0x00, 0x00,
+        0x80, 0x01, 0x00, 0x00, 0x10, 0x07, 0x00, 0x00, 0x2c, 0x07, 0x00, 0x00, 0x53, 0x46, 0x49, 0x30, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x49, 0x53, 0x47, 0x31, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x4f, 0x53, 0x47, 0x31,
+        0x74, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x68, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x40, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x68, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x0f, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x68, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
+        0x02, 0x00, 0x00, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x53, 0x56, 0x5f, 0x54, 0x61, 0x72, 0x67, 0x65, 0x74, 0x00, 0x00, 0x00,
+        0x50, 0x53, 0x56, 0x30, 0xa0, 0x00, 0x00, 0x00, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x18, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x44, 0x10, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x01, 0x44, 0x10, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01, 0x02, 0x44, 0x10, 0x03, 0x00, 0x00, 0x00,
+        0x53, 0x54, 0x41, 0x54, 0x88, 0x05, 0x00, 0x00, 0x60, 0x00, 0x00, 0x00, 0x62, 0x01, 0x00, 0x00, 0x44, 0x58, 0x49, 0x4c, 0x00, 0x01, 0x00, 0x00,
+        0x10, 0x00, 0x00, 0x00, 0x70, 0x05, 0x00, 0x00, 0x42, 0x43, 0xc0, 0xde, 0x21, 0x0c, 0x00, 0x00, 0x59, 0x01, 0x00, 0x00, 0x0b, 0x82, 0x20, 0x00,
+        0x02, 0x00, 0x00, 0x00, 0x13, 0x00, 0x00, 0x00, 0x07, 0x81, 0x23, 0x91, 0x41, 0xc8, 0x04, 0x49, 0x06, 0x10, 0x32, 0x39, 0x92, 0x01, 0x84, 0x0c,
+        0x25, 0x05, 0x08, 0x19, 0x1e, 0x04, 0x8b, 0x62, 0x80, 0x14, 0x45, 0x02, 0x42, 0x92, 0x0b, 0x42, 0xa4, 0x10, 0x32, 0x14, 0x38, 0x08, 0x18, 0x4b,
+        0x0a, 0x32, 0x52, 0x88, 0x48, 0x90, 0x14, 0x20, 0x43, 0x46, 0x88, 0xa5, 0x00, 0x19, 0x32, 0x42, 0xe4, 0x48, 0x0e, 0x90, 0x91, 0x22, 0xc4, 0x50,
+        0x41, 0x51, 0x81, 0x8c, 0xe1, 0x83, 0xe5, 0x8a, 0x04, 0x29, 0x46, 0x06, 0x51, 0x18, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x1b, 0x88, 0xe0, 0xff,
+        0xff, 0xff, 0xff, 0x07, 0x40, 0xda, 0x60, 0x08, 0xff, 0xff, 0xff, 0xff, 0x3f, 0x00, 0x12, 0x50, 0x01, 0x00, 0x00, 0x00, 0x49, 0x18, 0x00, 0x00,
+        0x02, 0x00, 0x00, 0x00, 0x13, 0x82, 0x60, 0x42, 0x20, 0x00, 0x00, 0x00, 0x89, 0x20, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x32, 0x22, 0x48, 0x09,
+        0x20, 0x64, 0x85, 0x04, 0x93, 0x22, 0xa4, 0x84, 0x04, 0x93, 0x22, 0xe3, 0x84, 0xa1, 0x90, 0x14, 0x12, 0x4c, 0x8a, 0x8c, 0x0b, 0x84, 0xa4, 0x4c,
+        0x10, 0x54, 0x23, 0x00, 0x25, 0x00, 0x14, 0xe6, 0x08, 0xc0, 0x60, 0x8e, 0x00, 0x99, 0x01, 0x28, 0x06, 0x18, 0x63, 0x90, 0x42, 0xe6, 0xa8, 0xe1,
+        0xf2, 0x27, 0xec, 0x21, 0x24, 0x9f, 0xdb, 0xa8, 0x62, 0x25, 0x26, 0xbf, 0xb8, 0x6d, 0x44, 0x94, 0x52, 0x0a, 0x91, 0x7b, 0x86, 0xcb, 0x9f, 0xb0,
+        0x87, 0x90, 0xfc, 0x10, 0x68, 0x86, 0x85, 0x40, 0x41, 0x2a, 0x04, 0x1a, 0x6a, 0xd0, 0x9a, 0x23, 0x08, 0x8a, 0xa1, 0x06, 0x19, 0xa3, 0x91, 0x1b,
+        0x08, 0x18, 0x46, 0x20, 0x8a, 0x99, 0x10, 0x32, 0x38, 0x05, 0x76, 0x78, 0x07, 0x71, 0x08, 0x07, 0x76, 0x98, 0x07, 0x24, 0xc4, 0x48, 0x32, 0x05,
+        0x06, 0x00, 0x00, 0x00, 0x13, 0x14, 0x72, 0xc0, 0x87, 0x74, 0x60, 0x87, 0x36, 0x68, 0x87, 0x79, 0x68, 0x03, 0x72, 0xc0, 0x87, 0x0d, 0xaf, 0x50,
+        0x0e, 0x6d, 0xd0, 0x0e, 0x7a, 0x50, 0x0e, 0x6d, 0x00, 0x0f, 0x7a, 0x30, 0x07, 0x72, 0xa0, 0x07, 0x73, 0x20, 0x07, 0x6d, 0x90, 0x0e, 0x71, 0xa0,
+        0x07, 0x73, 0x20, 0x07, 0x6d, 0x90, 0x0e, 0x78, 0xa0, 0x07, 0x73, 0x20, 0x07, 0x6d, 0x90, 0x0e, 0x71, 0x60, 0x07, 0x7a, 0x30, 0x07, 0x72, 0xd0,
+        0x06, 0xe9, 0x30, 0x07, 0x72, 0xa0, 0x07, 0x73, 0x20, 0x07, 0x6d, 0x90, 0x0e, 0x76, 0x40, 0x07, 0x7a, 0x60, 0x07, 0x74, 0xd0, 0x06, 0xe6, 0x10,
+        0x07, 0x76, 0xa0, 0x07, 0x73, 0x20, 0x07, 0x6d, 0x60, 0x0e, 0x73, 0x20, 0x07, 0x7a, 0x30, 0x07, 0x72, 0xd0, 0x06, 0xe6, 0x60, 0x07, 0x74, 0xa0,
+        0x07, 0x76, 0x40, 0x07, 0x6d, 0xe0, 0x0e, 0x78, 0xa0, 0x07, 0x71, 0x60, 0x07, 0x7a, 0x30, 0x07, 0x72, 0xa0, 0x07, 0x76, 0x40, 0x07, 0x43, 0x9e,
+        0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x86, 0x3c, 0x06, 0x10, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x0c, 0x79, 0x16, 0x20, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0xf2, 0x38, 0x40, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x90, 0x05, 0x02, 0x00, 0x00, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x32, 0x1e, 0x98, 0x14, 0x19, 0x11, 0x4c, 0x90, 0x8c, 0x09, 0x26, 0x47,
+        0xc6, 0x04, 0x43, 0x1a, 0x25, 0x30, 0x02, 0x50, 0x0c, 0x05, 0x54, 0x06, 0xe5, 0x50, 0x12, 0x05, 0x52, 0x1e, 0x45, 0x50, 0x30, 0x85, 0x41, 0xa4,
+        0x24, 0x0a, 0x64, 0x04, 0xa0, 0x10, 0xa8, 0xd5, 0x00, 0xc9, 0x19, 0x00, 0x9a, 0x33, 0x00, 0x44, 0xc7, 0x12, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00,
+        0x79, 0x18, 0x00, 0x00, 0x74, 0x00, 0x00, 0x00, 0x1a, 0x03, 0x4c, 0x90, 0x46, 0x02, 0x13, 0x44, 0x8f, 0x0c, 0x6f, 0xec, 0xed, 0x4d, 0x0c, 0x24,
+        0xc6, 0xe5, 0xc6, 0x45, 0x46, 0x26, 0x46, 0xc6, 0x85, 0x06, 0x06, 0x04, 0xa5, 0x0c, 0x86, 0x66, 0xc6, 0x8c, 0x26, 0x2c, 0x46, 0x26, 0x65, 0x43,
+        0x10, 0x4c, 0x10, 0x06, 0x62, 0x82, 0x30, 0x14, 0x1b, 0x84, 0x81, 0xd8, 0x20, 0x10, 0x04, 0x05, 0xb8, 0xb9, 0x09, 0xc2, 0x60, 0x6c, 0x18, 0x0e,
+        0x84, 0x98, 0x20, 0x4c, 0x16, 0x11, 0x92, 0x23, 0xb6, 0x37, 0xb1, 0x30, 0xb6, 0xb9, 0x09, 0xc2, 0x70, 0x6c, 0x40, 0x08, 0x65, 0x21, 0x88, 0x81,
+        0x01, 0x36, 0x04, 0xcd, 0x06, 0x02, 0x00, 0x1c, 0x60, 0x82, 0x20, 0x55, 0x14, 0xc6, 0x60, 0x26, 0x08, 0x03, 0x32, 0x41, 0x18, 0x92, 0x09, 0xc2,
+        0xa0, 0x4c, 0x10, 0x1a, 0x6a, 0x03, 0x82, 0x44, 0x12, 0x31, 0x51, 0x54, 0x45, 0x61, 0x2c, 0x66, 0x82, 0x30, 0x2c, 0x1b, 0x10, 0xe4, 0x92, 0xb0,
+        0x89, 0xa2, 0xaa, 0x0d, 0x03, 0x63, 0x65, 0x1b, 0x06, 0x02, 0xd2, 0x26, 0x08, 0x02, 0xb0, 0x01, 0xd8, 0x30, 0x10, 0x5d, 0xb7, 0x21, 0xf0, 0x36,
+        0x0c, 0x03, 0xf7, 0x4d, 0x10, 0xa8, 0x6b, 0x43, 0x10, 0x06, 0x24, 0xda, 0xc2, 0xd2, 0xdc, 0x98, 0x4c, 0x59, 0x7d, 0x51, 0x85, 0xc9, 0x9d, 0x95,
+        0xd1, 0x4d, 0x10, 0x08, 0x68, 0x82, 0x40, 0x44, 0x1b, 0x02, 0x62, 0x82, 0x40, 0x48, 0x13, 0x04, 0x62, 0x9a, 0x20, 0x0c, 0xcc, 0x06, 0x41, 0x52,
+        0x83, 0x0d, 0x0b, 0x41, 0x06, 0x65, 0x60, 0x06, 0x67, 0x80, 0x06, 0x43, 0x1a, 0x10, 0x68, 0xb0, 0x06, 0x1b, 0x82, 0x61, 0xc3, 0x32, 0x90, 0x41,
+        0x19, 0x98, 0x41, 0x1b, 0xa0, 0xc1, 0x90, 0x06, 0x03, 0x1a, 0xac, 0xc1, 0x04, 0x61, 0x68, 0x36, 0x04, 0x6f, 0xb0, 0x61, 0x79, 0x03, 0x32, 0x28,
+        0x03, 0x33, 0x80, 0x03, 0x34, 0x18, 0xd2, 0xe0, 0x0d, 0xd0, 0x60, 0x0d, 0x36, 0x0c, 0x6c, 0xe0, 0x06, 0x71, 0xb0, 0x61, 0x00, 0xe4, 0x00, 0xd8,
+        0x50, 0x70, 0x63, 0x30, 0x07, 0x0f, 0xc0, 0x22, 0xcd, 0x6d, 0x8e, 0x6e, 0x6e, 0x82, 0x30, 0x38, 0x34, 0xe6, 0xd2, 0xce, 0xbe, 0xe6, 0xe8, 0x26,
+        0x08, 0xc3, 0xb3, 0x81, 0xa8, 0x03, 0x3b, 0xb8, 0x03, 0x3c, 0xa8, 0xc2, 0xc6, 0x66, 0xd7, 0xe6, 0x92, 0x46, 0x56, 0xe6, 0x46, 0x37, 0x25, 0x08,
+        0xaa, 0x90, 0xe1, 0xb9, 0xd8, 0x95, 0xc9, 0xcd, 0xa5, 0xbd, 0xb9, 0x4d, 0x09, 0x88, 0x26, 0x64, 0x78, 0x2e, 0x76, 0x61, 0x6c, 0x76, 0x65, 0x72,
+        0x53, 0x82, 0xa2, 0x0e, 0x19, 0x9e, 0xcb, 0x1c, 0x5a, 0x18, 0x59, 0x99, 0x5c, 0xd3, 0x1b, 0x59, 0x19, 0xdb, 0x94, 0x00, 0x29, 0x43, 0x86, 0xe7,
+        0x22, 0x57, 0x36, 0xf7, 0x56, 0x27, 0x37, 0x56, 0x36, 0x37, 0x25, 0x70, 0x2a, 0x91, 0xe1, 0xb9, 0xd0, 0xe5, 0xc1, 0x95, 0x05, 0xb9, 0xb9, 0xbd,
+        0xd1, 0x85, 0xd1, 0xa5, 0xbd, 0xb9, 0xcd, 0x4d, 0x11, 0xb4, 0xaf, 0x0e, 0x19, 0x9e, 0x8b, 0x5d, 0x5a, 0xd9, 0x5d, 0x12, 0xd9, 0x14, 0x5d, 0x18,
+        0x5d, 0xd9, 0x94, 0x20, 0x0c, 0xea, 0x90, 0xe1, 0xb9, 0x94, 0xb9, 0xd1, 0xc9, 0xe5, 0x41, 0xbd, 0xa5, 0xb9, 0xd1, 0xcd, 0x4d, 0x09, 0xe6, 0xa0,
+        0x0b, 0x19, 0x9e, 0xcb, 0xd8, 0x5b, 0x9d, 0x1b, 0x5d, 0x99, 0xdc, 0xdc, 0x94, 0x00, 0x0f, 0x00, 0x79, 0x18, 0x00, 0x00, 0x49, 0x00, 0x00, 0x00,
+        0x33, 0x08, 0x80, 0x1c, 0xc4, 0xe1, 0x1c, 0x66, 0x14, 0x01, 0x3d, 0x88, 0x43, 0x38, 0x84, 0xc3, 0x8c, 0x42, 0x80, 0x07, 0x79, 0x78, 0x07, 0x73,
+        0x98, 0x71, 0x0c, 0xe6, 0x00, 0x0f, 0xed, 0x10, 0x0e, 0xf4, 0x80, 0x0e, 0x33, 0x0c, 0x42, 0x1e, 0xc2, 0xc1, 0x1d, 0xce, 0xa1, 0x1c, 0x66, 0x30,
+        0x05, 0x3d, 0x88, 0x43, 0x38, 0x84, 0x83, 0x1b, 0xcc, 0x03, 0x3d, 0xc8, 0x43, 0x3d, 0x8c, 0x03, 0x3d, 0xcc, 0x78, 0x8c, 0x74, 0x70, 0x07, 0x7b,
+        0x08, 0x07, 0x79, 0x48, 0x87, 0x70, 0x70, 0x07, 0x7a, 0x70, 0x03, 0x76, 0x78, 0x87, 0x70, 0x20, 0x87, 0x19, 0xcc, 0x11, 0x0e, 0xec, 0x90, 0x0e,
+        0xe1, 0x30, 0x0f, 0x6e, 0x30, 0x0f, 0xe3, 0xf0, 0x0e, 0xf0, 0x50, 0x0e, 0x33, 0x10, 0xc4, 0x1d, 0xde, 0x21, 0x1c, 0xd8, 0x21, 0x1d, 0xc2, 0x61,
+        0x1e, 0x66, 0x30, 0x89, 0x3b, 0xbc, 0x83, 0x3b, 0xd0, 0x43, 0x39, 0xb4, 0x03, 0x3c, 0xbc, 0x83, 0x3c, 0x84, 0x03, 0x3b, 0xcc, 0xf0, 0x14, 0x76,
+        0x60, 0x07, 0x7b, 0x68, 0x07, 0x37, 0x68, 0x87, 0x72, 0x68, 0x07, 0x37, 0x80, 0x87, 0x70, 0x90, 0x87, 0x70, 0x60, 0x07, 0x76, 0x28, 0x07, 0x76,
+        0xf8, 0x05, 0x76, 0x78, 0x87, 0x77, 0x80, 0x87, 0x5f, 0x08, 0x87, 0x71, 0x18, 0x87, 0x72, 0x98, 0x87, 0x79, 0x98, 0x81, 0x2c, 0xee, 0xf0, 0x0e,
+        0xee, 0xe0, 0x0e, 0xf5, 0xc0, 0x0e, 0xec, 0x30, 0x03, 0x62, 0xc8, 0xa1, 0x1c, 0xe4, 0xa1, 0x1c, 0xcc, 0xa1, 0x1c, 0xe4, 0xa1, 0x1c, 0xdc, 0x61,
+        0x1c, 0xca, 0x21, 0x1c, 0xc4, 0x81, 0x1d, 0xca, 0x61, 0x06, 0xd6, 0x90, 0x43, 0x39, 0xc8, 0x43, 0x39, 0x98, 0x43, 0x39, 0xc8, 0x43, 0x39, 0xb8,
+        0xc3, 0x38, 0x94, 0x43, 0x38, 0x88, 0x03, 0x3b, 0x94, 0xc3, 0x2f, 0xbc, 0x83, 0x3c, 0xfc, 0x82, 0x3b, 0xd4, 0x03, 0x3b, 0xb0, 0xc3, 0x8c, 0xc8,
+        0x21, 0x07, 0x7c, 0x70, 0x03, 0x72, 0x10, 0x87, 0x73, 0x70, 0x03, 0x7b, 0x08, 0x07, 0x79, 0x60, 0x87, 0x70, 0xc8, 0x87, 0x77, 0xa8, 0x07, 0x7a,
+        0x00, 0x00, 0x00, 0x00, 0x71, 0x20, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x26, 0xb0, 0x0d, 0x97, 0xef, 0x3c, 0xbe, 0x10, 0x50, 0x45, 0x41, 0x44,
+        0xa5, 0x03, 0x0c, 0x25, 0x61, 0x00, 0x02, 0xe6, 0x17, 0xb7, 0x6d, 0x03, 0xd2, 0x70, 0xf9, 0xce, 0xe3, 0x0b, 0x11, 0x01, 0x4c, 0x44, 0x08, 0x34,
+        0xc3, 0x42, 0x58, 0x40, 0x35, 0x5c, 0xbe, 0xf3, 0xf8, 0xd2, 0xe4, 0x44, 0x04, 0x4a, 0x4d, 0x0f, 0x35, 0xf9, 0xc5, 0x6d, 0x1b, 0x00, 0xc1, 0x00,
+        0x48, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x48, 0x41, 0x53, 0x48, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xcc, 0x54, 0x7e, 0xc9,
+        0xba, 0xab, 0x79, 0x37, 0x5b, 0x08, 0xa0, 0x69, 0x4c, 0xcc, 0x08, 0x23, 0x44, 0x58, 0x49, 0x4c, 0xf0, 0x05, 0x00, 0x00, 0x60, 0x00, 0x00, 0x00,
+        0x7c, 0x01, 0x00, 0x00, 0x44, 0x58, 0x49, 0x4c, 0x00, 0x01, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0xd8, 0x05, 0x00, 0x00, 0x42, 0x43, 0xc0, 0xde,
+        0x21, 0x0c, 0x00, 0x00, 0x73, 0x01, 0x00, 0x00, 0x0b, 0x82, 0x20, 0x00, 0x02, 0x00, 0x00, 0x00, 0x13, 0x00, 0x00, 0x00, 0x07, 0x81, 0x23, 0x91,
+        0x41, 0xc8, 0x04, 0x49, 0x06, 0x10, 0x32, 0x39, 0x92, 0x01, 0x84, 0x0c, 0x25, 0x05, 0x08, 0x19, 0x1e, 0x04, 0x8b, 0x62, 0x80, 0x14, 0x45, 0x02,
+        0x42, 0x92, 0x0b, 0x42, 0xa4, 0x10, 0x32, 0x14, 0x38, 0x08, 0x18, 0x4b, 0x0a, 0x32, 0x52, 0x88, 0x48, 0x90, 0x14, 0x20, 0x43, 0x46, 0x88, 0xa5,
+        0x00, 0x19, 0x32, 0x42, 0xe4, 0x48, 0x0e, 0x90, 0x91, 0x22, 0xc4, 0x50, 0x41, 0x51, 0x81, 0x8c, 0xe1, 0x83, 0xe5, 0x8a, 0x04, 0x29, 0x46, 0x06,
+        0x51, 0x18, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x1b, 0x88, 0xe0, 0xff, 0xff, 0xff, 0xff, 0x07, 0x40, 0xda, 0x60, 0x08, 0xff, 0xff, 0xff, 0xff,
+        0x3f, 0x00, 0x12, 0x50, 0x01, 0x00, 0x00, 0x00, 0x49, 0x18, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x13, 0x82, 0x60, 0x42, 0x20, 0x00, 0x00, 0x00,
+        0x89, 0x20, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x32, 0x22, 0x48, 0x09, 0x20, 0x64, 0x85, 0x04, 0x93, 0x22, 0xa4, 0x84, 0x04, 0x93, 0x22, 0xe3,
+        0x84, 0xa1, 0x90, 0x14, 0x12, 0x4c, 0x8a, 0x8c, 0x0b, 0x84, 0xa4, 0x4c, 0x10, 0x54, 0x23, 0x00, 0x25, 0x00, 0x14, 0xe6, 0x08, 0xc0, 0x60, 0x8e,
+        0x00, 0x99, 0x01, 0x28, 0x06, 0x18, 0x63, 0x90, 0x42, 0xe6, 0xa8, 0xe1, 0xf2, 0x27, 0xec, 0x21, 0x24, 0x9f, 0xdb, 0xa8, 0x62, 0x25, 0x26, 0xbf,
+        0xb8, 0x6d, 0x44, 0x94, 0x52, 0x0a, 0x91, 0x7b, 0x86, 0xcb, 0x9f, 0xb0, 0x87, 0x90, 0xfc, 0x10, 0x68, 0x86, 0x85, 0x40, 0x41, 0x2a, 0x04, 0x1a,
+        0x6a, 0xd0, 0x9a, 0x23, 0x08, 0x8a, 0xa1, 0x06, 0x19, 0xa3, 0x91, 0x1b, 0x08, 0x18, 0x46, 0x20, 0x8a, 0x99, 0x10, 0x32, 0x38, 0x05, 0x76, 0x78,
+        0x07, 0x71, 0x08, 0x07, 0x76, 0x98, 0x07, 0x24, 0xc4, 0x48, 0x32, 0x05, 0x06, 0x00, 0x00, 0x00, 0x13, 0x14, 0x72, 0xc0, 0x87, 0x74, 0x60, 0x87,
+        0x36, 0x68, 0x87, 0x79, 0x68, 0x03, 0x72, 0xc0, 0x87, 0x0d, 0xaf, 0x50, 0x0e, 0x6d, 0xd0, 0x0e, 0x7a, 0x50, 0x0e, 0x6d, 0x00, 0x0f, 0x7a, 0x30,
+        0x07, 0x72, 0xa0, 0x07, 0x73, 0x20, 0x07, 0x6d, 0x90, 0x0e, 0x71, 0xa0, 0x07, 0x73, 0x20, 0x07, 0x6d, 0x90, 0x0e, 0x78, 0xa0, 0x07, 0x73, 0x20,
+        0x07, 0x6d, 0x90, 0x0e, 0x71, 0x60, 0x07, 0x7a, 0x30, 0x07, 0x72, 0xd0, 0x06, 0xe9, 0x30, 0x07, 0x72, 0xa0, 0x07, 0x73, 0x20, 0x07, 0x6d, 0x90,
+        0x0e, 0x76, 0x40, 0x07, 0x7a, 0x60, 0x07, 0x74, 0xd0, 0x06, 0xe6, 0x10, 0x07, 0x76, 0xa0, 0x07, 0x73, 0x20, 0x07, 0x6d, 0x60, 0x0e, 0x73, 0x20,
+        0x07, 0x7a, 0x30, 0x07, 0x72, 0xd0, 0x06, 0xe6, 0x60, 0x07, 0x74, 0xa0, 0x07, 0x76, 0x40, 0x07, 0x6d, 0xe0, 0x0e, 0x78, 0xa0, 0x07, 0x71, 0x60,
+        0x07, 0x7a, 0x30, 0x07, 0x72, 0xa0, 0x07, 0x76, 0x40, 0x07, 0x43, 0x9e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x86,
+        0x3c, 0x06, 0x10, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x79, 0x16, 0x20, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x18, 0xf2, 0x38, 0x40, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x90, 0x05, 0x02, 0x00, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00,
+        0x32, 0x1e, 0x98, 0x14, 0x19, 0x11, 0x4c, 0x90, 0x8c, 0x09, 0x26, 0x47, 0xc6, 0x04, 0x43, 0x1a, 0x25, 0x30, 0x02, 0x50, 0x0e, 0xc5, 0x50, 0x40,
+        0x65, 0x50, 0x1e, 0x45, 0x40, 0xa4, 0x24, 0x0a, 0x64, 0x04, 0xa0, 0x10, 0x68, 0xce, 0x00, 0x10, 0x1d, 0x4b, 0x00, 0x18, 0x00, 0x00, 0x00, 0x00,
+        0x79, 0x18, 0x00, 0x00, 0x4f, 0x00, 0x00, 0x00, 0x1a, 0x03, 0x4c, 0x90, 0x46, 0x02, 0x13, 0x44, 0x8f, 0x0c, 0x6f, 0xec, 0xed, 0x4d, 0x0c, 0x24,
+        0xc6, 0xe5, 0xc6, 0x45, 0x46, 0x26, 0x46, 0xc6, 0x85, 0x06, 0x06, 0x04, 0xa5, 0x0c, 0x86, 0x66, 0xc6, 0x8c, 0x26, 0x2c, 0x46, 0x26, 0x65, 0x43,
+        0x10, 0x4c, 0x10, 0x06, 0x62, 0x82, 0x30, 0x14, 0x1b, 0x84, 0x81, 0x98, 0x20, 0x0c, 0xc6, 0x06, 0x61, 0x30, 0x28, 0xc0, 0xcd, 0x4d, 0x10, 0x86,
+        0x63, 0xc3, 0x80, 0x24, 0xc4, 0x04, 0x61, 0x82, 0x08, 0x4c, 0x10, 0x06, 0x64, 0x03, 0x42, 0x2c, 0x0c, 0x41, 0x0c, 0x0d, 0xb0, 0x21, 0x70, 0x36,
+        0x10, 0x00, 0xf0, 0x00, 0x13, 0x04, 0x2a, 0xda, 0x10, 0x44, 0x13, 0x04, 0x01, 0x20, 0xd1, 0x16, 0x96, 0xe6, 0xc6, 0x64, 0xca, 0xea, 0x8b, 0x2a,
+        0x4c, 0xee, 0xac, 0x8c, 0x6e, 0x82, 0x40, 0x30, 0x13, 0x04, 0xa2, 0xd9, 0x10, 0x10, 0x13, 0x04, 0xc2, 0x99, 0x20, 0x10, 0xcf, 0x04, 0x61, 0x48,
+        0x26, 0x08, 0x83, 0xb2, 0x41, 0xd8, 0xb8, 0x0d, 0x0b, 0x51, 0x59, 0x17, 0x96, 0x0d, 0x1a, 0x91, 0x75, 0x1b, 0x82, 0x61, 0xc3, 0x32, 0x54, 0xd6,
+        0xf5, 0x65, 0x83, 0x36, 0x64, 0xdd, 0x04, 0x61, 0x58, 0x36, 0x04, 0x61, 0xb0, 0x61, 0x09, 0x83, 0xca, 0xba, 0xc4, 0x20, 0x1b, 0xb4, 0x30, 0xc8,
+        0xba, 0x0d, 0x83, 0x07, 0x06, 0x63, 0xb0, 0x61, 0x00, 0xc8, 0x00, 0xd8, 0x50, 0x4c, 0x54, 0x19, 0x40, 0x40, 0x15, 0x36, 0x36, 0xbb, 0x36, 0x97,
+        0x34, 0xb2, 0x32, 0x37, 0xba, 0x29, 0x41, 0x50, 0x85, 0x0c, 0xcf, 0xc5, 0xae, 0x4c, 0x6e, 0x2e, 0xed, 0xcd, 0x6d, 0x4a, 0x40, 0x34, 0x21, 0xc3,
+        0x73, 0xb1, 0x0b, 0x63, 0xb3, 0x2b, 0x93, 0x9b, 0x12, 0x18, 0x75, 0xc8, 0xf0, 0x5c, 0xe6, 0xd0, 0xc2, 0xc8, 0xca, 0xe4, 0x9a, 0xde, 0xc8, 0xca,
+        0xd8, 0xa6, 0x04, 0x49, 0x19, 0x32, 0x3c, 0x17, 0xb9, 0xb2, 0xb9, 0xb7, 0x3a, 0xb9, 0xb1, 0xb2, 0xb9, 0x29, 0xc1, 0x53, 0x87, 0x0c, 0xcf, 0xc5,
+        0x2e, 0xad, 0xec, 0x2e, 0x89, 0x6c, 0x8a, 0x2e, 0x8c, 0xae, 0x6c, 0x4a, 0x10, 0xd5, 0x21, 0xc3, 0x73, 0x29, 0x73, 0xa3, 0x93, 0xcb, 0x83, 0x7a,
+        0x4b, 0x73, 0xa3, 0x9b, 0x9b, 0x12, 0x94, 0x01, 0x00, 0x00, 0x00, 0x00, 0x79, 0x18, 0x00, 0x00, 0x49, 0x00, 0x00, 0x00, 0x33, 0x08, 0x80, 0x1c,
+        0xc4, 0xe1, 0x1c, 0x66, 0x14, 0x01, 0x3d, 0x88, 0x43, 0x38, 0x84, 0xc3, 0x8c, 0x42, 0x80, 0x07, 0x79, 0x78, 0x07, 0x73, 0x98, 0x71, 0x0c, 0xe6,
+        0x00, 0x0f, 0xed, 0x10, 0x0e, 0xf4, 0x80, 0x0e, 0x33, 0x0c, 0x42, 0x1e, 0xc2, 0xc1, 0x1d, 0xce, 0xa1, 0x1c, 0x66, 0x30, 0x05, 0x3d, 0x88, 0x43,
+        0x38, 0x84, 0x83, 0x1b, 0xcc, 0x03, 0x3d, 0xc8, 0x43, 0x3d, 0x8c, 0x03, 0x3d, 0xcc, 0x78, 0x8c, 0x74, 0x70, 0x07, 0x7b, 0x08, 0x07, 0x79, 0x48,
+        0x87, 0x70, 0x70, 0x07, 0x7a, 0x70, 0x03, 0x76, 0x78, 0x87, 0x70, 0x20, 0x87, 0x19, 0xcc, 0x11, 0x0e, 0xec, 0x90, 0x0e, 0xe1, 0x30, 0x0f, 0x6e,
+        0x30, 0x0f, 0xe3, 0xf0, 0x0e, 0xf0, 0x50, 0x0e, 0x33, 0x10, 0xc4, 0x1d, 0xde, 0x21, 0x1c, 0xd8, 0x21, 0x1d, 0xc2, 0x61, 0x1e, 0x66, 0x30, 0x89,
+        0x3b, 0xbc, 0x83, 0x3b, 0xd0, 0x43, 0x39, 0xb4, 0x03, 0x3c, 0xbc, 0x83, 0x3c, 0x84, 0x03, 0x3b, 0xcc, 0xf0, 0x14, 0x76, 0x60, 0x07, 0x7b, 0x68,
+        0x07, 0x37, 0x68, 0x87, 0x72, 0x68, 0x07, 0x37, 0x80, 0x87, 0x70, 0x90, 0x87, 0x70, 0x60, 0x07, 0x76, 0x28, 0x07, 0x76, 0xf8, 0x05, 0x76, 0x78,
+        0x87, 0x77, 0x80, 0x87, 0x5f, 0x08, 0x87, 0x71, 0x18, 0x87, 0x72, 0x98, 0x87, 0x79, 0x98, 0x81, 0x2c, 0xee, 0xf0, 0x0e, 0xee, 0xe0, 0x0e, 0xf5,
+        0xc0, 0x0e, 0xec, 0x30, 0x03, 0x62, 0xc8, 0xa1, 0x1c, 0xe4, 0xa1, 0x1c, 0xcc, 0xa1, 0x1c, 0xe4, 0xa1, 0x1c, 0xdc, 0x61, 0x1c, 0xca, 0x21, 0x1c,
+        0xc4, 0x81, 0x1d, 0xca, 0x61, 0x06, 0xd6, 0x90, 0x43, 0x39, 0xc8, 0x43, 0x39, 0x98, 0x43, 0x39, 0xc8, 0x43, 0x39, 0xb8, 0xc3, 0x38, 0x94, 0x43,
+        0x38, 0x88, 0x03, 0x3b, 0x94, 0xc3, 0x2f, 0xbc, 0x83, 0x3c, 0xfc, 0x82, 0x3b, 0xd4, 0x03, 0x3b, 0xb0, 0xc3, 0x8c, 0xc8, 0x21, 0x07, 0x7c, 0x70,
+        0x03, 0x72, 0x10, 0x87, 0x73, 0x70, 0x03, 0x7b, 0x08, 0x07, 0x79, 0x60, 0x87, 0x70, 0xc8, 0x87, 0x77, 0xa8, 0x07, 0x7a, 0x00, 0x00, 0x00, 0x00,
+        0x71, 0x20, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x26, 0xb0, 0x0d, 0x97, 0xef, 0x3c, 0xbe, 0x10, 0x50, 0x45, 0x41, 0x44, 0xa5, 0x03, 0x0c, 0x25,
+        0x61, 0x00, 0x02, 0xe6, 0x17, 0xb7, 0x6d, 0x03, 0xd2, 0x70, 0xf9, 0xce, 0xe3, 0x0b, 0x11, 0x01, 0x4c, 0x44, 0x08, 0x34, 0xc3, 0x42, 0x58, 0x40,
+        0x35, 0x5c, 0xbe, 0xf3, 0xf8, 0xd2, 0xe4, 0x44, 0x04, 0x4a, 0x4d, 0x0f, 0x35, 0xf9, 0xc5, 0x6d, 0x1b, 0x00, 0xc1, 0x00, 0x48, 0x03, 0x00, 0x00,
+        0x61, 0x20, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x13, 0x04, 0x41, 0x2c, 0x10, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x34, 0x4a, 0xa1, 0xec,
+        0x4a, 0x8e, 0x48, 0x11, 0x94, 0x40, 0x19, 0x50, 0x1b, 0x01, 0xa0, 0x32, 0x46, 0x00, 0x82, 0x20, 0x88, 0x7f, 0x00, 0x00, 0x23, 0x06, 0x09, 0x00,
+        0x82, 0x60, 0xe0, 0x5c, 0x46, 0x51, 0x55, 0xc2, 0x88, 0xc1, 0x01, 0x80, 0x20, 0x18, 0x2c, 0x19, 0x12, 0x58, 0xa3, 0x09, 0x01, 0x30, 0x9a, 0x20,
+        0x04, 0xa3, 0x09, 0x83, 0x30, 0x9a, 0x40, 0x0c, 0x23, 0x06, 0x09, 0x00, 0x82, 0x60, 0x60, 0x7c, 0xce, 0xb6, 0x49, 0xc4, 0x88, 0x41, 0x02, 0x80,
+        0x20, 0x18, 0x18, 0x9f, 0xb3, 0x6d, 0xca, 0x30, 0x62, 0x90, 0x00, 0x20, 0x08, 0x06, 0xc6, 0xe7, 0x6c, 0xdb, 0x22, 0x8c, 0x18, 0x24, 0x00, 0x08,
+        0x82, 0x81, 0xf1, 0x39, 0xdb, 0x96, 0x04, 0x23, 0x06, 0x07, 0x00, 0x82, 0x60, 0xb0, 0x78, 0x8d, 0xc1, 0x8d, 0x26, 0x04, 0xc0, 0x68, 0x82, 0x10,
+        0x8c, 0x26, 0x0c, 0xc2, 0x68, 0x02, 0x31, 0x8c, 0x18, 0x24, 0x00, 0x08, 0x82, 0x81, 0x41, 0x06, 0x53, 0x18, 0x80, 0xc1, 0x45, 0x8c, 0x18, 0x24,
+        0x00, 0x08, 0x82, 0x81, 0x41, 0x06, 0x53, 0x18, 0x80, 0xc1, 0x33, 0x8c, 0x18, 0x24, 0x00, 0x08, 0x82, 0x81, 0x41, 0x06, 0x53, 0x18, 0x80, 0x01,
+        0x24, 0x8c, 0x18, 0x24, 0x00, 0x08, 0x82, 0x81, 0x41, 0x06, 0x53, 0x18, 0x80, 0x81, 0x13, 0x8c, 0x18, 0x24, 0x00, 0x08, 0x82, 0x81, 0x41, 0x06,
+        0x93, 0x06, 0x06, 0x17, 0x33, 0x62, 0x90, 0x00, 0x20, 0x08, 0x06, 0x06, 0x19, 0x4c, 0x1a, 0x18, 0x3c, 0xcc, 0x88, 0x41, 0x02, 0x80, 0x20, 0x18,
+        0x18, 0x64, 0x30, 0x69, 0x60, 0x00, 0x31, 0x23, 0x06, 0x09, 0x00, 0x82, 0x60, 0x60, 0x90, 0xc1, 0xa4, 0x81, 0x81, 0xc3, 0x20, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00
+    };
+    static const DWORD ps_code_3rt_dxbc[] =
+    {
         0x43425844, 0xe1e2c26b, 0x10d9607c, 0x4a0f0786, 0xc368f603, 0x00000001, 0x0000013c, 0x00000003,
         0x0000002c, 0x0000003c, 0x000000a0, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
         0x0000005c, 0x00000003, 0x00000008, 0x00000050, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
@@ -1661,7 +1811,10 @@ static void test_dual_source_blending(bool use_dxil)
         use_dxil ? (const void*)ps_code_dxil : (const void*)ps_code_dxbc,
         use_dxil ? sizeof(ps_code_dxil) : sizeof(ps_code_dxbc)
     };
-    static const D3D12_SHADER_BYTECODE ps_3rt = SHADER_BYTECODE(ps_code_3rt_dxbc);
+    const D3D12_SHADER_BYTECODE ps_3rt = {
+        use_dxil ? (const void*)ps_code_3rt_dxil : (const void*)ps_code_3rt_dxbc,
+        use_dxil ? sizeof(ps_code_3rt_dxil) : sizeof(ps_code_3rt_dxbc)
+    };
     static const struct
     {
         struct
@@ -1750,18 +1903,21 @@ static void test_dual_source_blending(bool use_dxil)
     ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
     ID3D12PipelineState_Release(context.pipeline_state);
 
-    if (!use_dxil)
-    {
-        /* If we try to write to o2 however, this must fail. */
-        pso_desc.PS = ps_3rt;
-        hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
-            &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
-        ok(hr == E_INVALIDARG, "Unexpected result, hr %#x.\n", hr);
-        pso_desc.PS = ps;
-    }
+    /* If we try to write to o2 however, this must fail. */
+    pso_desc.PS = ps_3rt;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+        &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
+    ok(hr == E_INVALIDARG, "Unexpected result, hr %#x.\n", hr);
 
+    /* Writing to unused RTs is allowed if they aren't bound to the PSO. */
     pso_desc.NumRenderTargets = 1;
     pso_desc.RTVFormats[2] = DXGI_FORMAT_UNKNOWN;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+        &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+    ID3D12PipelineState_Release(context.pipeline_state);
+
+    pso_desc.PS = ps;
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
     ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
@@ -2415,5 +2571,1276 @@ void test_pipeline_no_ps_nonzero_rts(void)
     ID3D12Resource_Release(vbo);
     ID3D12DescriptorHeap_Release(rtv);
     destroy_depth_stencil(&ds);
+    destroy_test_context(&context);
+}
+
+void test_topology_triangle_fan(void)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS15 options15;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_INPUT_LAYOUT_DESC input_layout_desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    struct test_context_desc desc;
+    D3D12_VERTEX_BUFFER_VIEW vbv;
+    struct test_context context;
+    ID3D12Resource *vbo;
+    HRESULT hr;
+
+    static const D3D12_INPUT_ELEMENT_DESC input_elements[] =
+    {
+        {"POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    };
+
+#if 0
+    float4 main(in float2 pos : POSITION) : SV_POSITION
+    {
+            return float4(pos, 0.0f, 1.0f);
+    }
+#endif
+    static const DWORD vs_code[] =
+    {
+        0x43425844, 0x5f60e33d, 0xceaefe52, 0xf0605a1b, 0x6174c3a2, 0x00000001, 0x000000fc, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x00000303, 0x49534f50, 0x4e4f4954, 0xababab00,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x505f5653, 0x5449534f, 0x004e4f49, 0x58454853, 0x00000060, 0x00010050,
+        0x00000018, 0x0100086a, 0x0300005f, 0x00101032, 0x00000000, 0x04000067, 0x001020f2, 0x00000000,
+        0x00000001, 0x05000036, 0x00102032, 0x00000000, 0x00101046, 0x00000000, 0x08000036, 0x001020c2,
+        0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x3f800000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE vs_bytecode = { &vs_code, sizeof(vs_code) };
+
+#if 0
+    float4 main() : SV_TARGET
+    {
+            return 0.5f.xxxx;
+    }
+#endif
+    static const DWORD ps_code[] =
+    {
+        0x43425844, 0x47e44c76, 0x613ff931, 0xe271e2f3, 0x54e2f1a9, 0x00000001, 0x000000b4, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x45475241, 0xabab0054, 0x58454853, 0x0000003c, 0x00000050, 0x0000000f,
+        0x0100086a, 0x03000065, 0x001020f2, 0x00000000, 0x08000036, 0x001020f2, 0x00000000, 0x00004002,
+        0x3f000000, 0x3f000000, 0x3f000000, 0x3f000000, 0x0100003e,
+    };
+    static const D3D12_SHADER_BYTECODE ps_bytecode = { &ps_code, sizeof(ps_code) };
+
+    static const float black[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+    static const float vertex_data[6][2] =
+    {
+        {  0.0f,  0.0f },
+        { -1.0f,  1.0f },
+        {  1.0f,  1.0f },
+        {  1.0f, -1.0f },
+        { -1.0f, -1.0f },
+        { -1.0f,  1.0f },
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_root_signature = true;
+
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&options15, 0, sizeof(options15));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS15, &options15, sizeof(options15));
+
+    if (!options15.TriangleFanSupported)
+    {
+        skip("Triangle fan topology not supported by device.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    vbo = create_upload_buffer(context.device, sizeof(vertex_data), vertex_data);
+    vbv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(vbo);
+    vbv.SizeInBytes = sizeof(vertex_data);
+    vbv.StrideInBytes = 2 * sizeof(float);
+
+    memset(&input_layout_desc, 0, sizeof(input_layout_desc));
+    input_layout_desc.pInputElementDescs = input_elements;
+    input_layout_desc.NumElements = ARRAY_SIZE(input_elements);
+
+    /* Enable plain additive blending. If this was to be rendered with an
+     * incorrect topology, we'd observe overdraw or missing coverage. */
+    init_pipeline_state_desc(&pso_desc, context.root_signature,
+            DXGI_FORMAT_R8G8B8A8_UNORM, &vs_bytecode, &ps_bytecode,
+            &input_layout_desc);
+    pso_desc.BlendState.RenderTarget[0].BlendEnable = true;
+    pso_desc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
+    pso_desc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
+    pso_desc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+    pso_desc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+    pso_desc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ONE;
+    pso_desc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
+            &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, black, 0, NULL);
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, false, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLEFAN);
+    ID3D12GraphicsCommandList_IASetVertexBuffers(context.list, 0, 1, &vbv);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 6, 1, 0, 0);
+
+    transition_resource_state(context.list, context.render_target,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_uint(context.render_target, 0, context.queue, context.list, 0x80808080u, 1);
+
+    ID3D12Resource_Release(vbo);
+
+    destroy_test_context(&context);
+}
+
+void test_dynamic_depth_bias(void)
+{
+    ID3D12PipelineState *pso_with_bias, *pso_no_bias, *pso_static_bias;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS16 options16;
+    ID3D12GraphicsCommandList9 *command_list9;
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc;
+    D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle;
+    D3D12_QUERY_HEAP_DESC query_heap_desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    ID3D12Resource *ds, *query_buffer;
+    ID3D12DescriptorHeap *dsv_heap;
+    struct test_context_desc desc;
+    D3D12_ROOT_PARAMETER rs_param;
+    const uint64_t *readback_data;
+    struct test_context context;
+    ID3D12QueryHeap *query_heap;
+    D3D12_VIEWPORT viewport;
+    ID3D12Device2 *device2;
+    D3D12_RECT scissor;
+    unsigned int i;
+    HRESULT hr;
+
+    struct
+    {
+        float depth;
+        float slope;
+    } push_args;
+
+#if 0
+    SamplerState s : register(s0);
+    Texture2D<float> t : register(t0);
+
+    cbuffer params : register(b0)
+    {
+            float depth;
+            float slope;
+    };
+
+    float4 main(in uint id : SV_VERTEXID) : SV_POSITION
+    {
+            float2 coords = float2((id << 1) & 2, id & 2);
+            return float4(coords * float2(2, -2) + float2(-1, 1), depth + slope * coords.y, 1);
+    }
+#endif
+    static const DWORD vs_code[] =
+    {
+        0x43425844, 0x9430038e, 0x95fbf076, 0xc92d448d, 0xaa5babfb, 0x00000001, 0x000001bc, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000006, 0x00000001, 0x00000000, 0x00000101, 0x565f5653, 0x45545245, 0x00444958,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x505f5653, 0x5449534f, 0x004e4f49, 0x58454853, 0x00000120, 0x00010050,
+        0x00000048, 0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x04000060, 0x00101012,
+        0x00000000, 0x00000006, 0x04000067, 0x001020f2, 0x00000000, 0x00000001, 0x02000068, 0x00000001,
+        0x0b00008c, 0x00100012, 0x00000000, 0x00004001, 0x00000001, 0x00004001, 0x00000001, 0x0010100a,
+        0x00000000, 0x00004001, 0x00000000, 0x07000001, 0x00100042, 0x00000000, 0x0010100a, 0x00000000,
+        0x00004001, 0x00000002, 0x05000056, 0x00100032, 0x00000000, 0x00100086, 0x00000000, 0x0f000032,
+        0x00102032, 0x00000000, 0x00100046, 0x00000000, 0x00004002, 0x40000000, 0xc0000000, 0x00000000,
+        0x00000000, 0x00004002, 0xbf800000, 0x3f800000, 0x00000000, 0x00000000, 0x0b000032, 0x00102042,
+        0x00000000, 0x0020801a, 0x00000000, 0x00000000, 0x0010001a, 0x00000000, 0x0020800a, 0x00000000,
+        0x00000000, 0x05000036, 0x00102082, 0x00000000, 0x00004001, 0x3f800000, 0x0100003e
+    };
+
+    static const union d3d12_root_signature_subobject root_signature_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE,
+        NULL, /* fill in dynamically */
+    } };
+
+    static const union d3d12_shader_bytecode_subobject vs_subobject = { { D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VS, { vs_code, sizeof(vs_code) } } };
+
+    static const union d3d12_sample_mask_subobject sample_mask_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_MASK,
+        0xFFFFFFFFu
+    } };
+
+    static const union d3d12_blend_subobject blend_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_BLEND,
+        { FALSE, FALSE },
+    } };
+
+    static const union d3d12_rasterizer_subobject rasterizer_with_bias_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER,
+        { D3D12_FILL_MODE_SOLID, D3D12_CULL_MODE_NONE,
+            FALSE, 1, 0.0f, 1.0f, TRUE, FALSE, FALSE, 0,
+            D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF },
+    } };
+
+    static const union d3d12_rasterizer_subobject rasterizer_no_bias_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER,
+        { D3D12_FILL_MODE_SOLID, D3D12_CULL_MODE_NONE,
+            FALSE, 0, 0.0f, 0.0f, TRUE, FALSE, FALSE, 0,
+            D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF },
+    } };
+
+    static const union d3d12_depth_stencil_subobject depth_stencil_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL,
+        { TRUE, D3D12_DEPTH_WRITE_MASK_ALL, D3D12_COMPARISON_FUNC_GREATER, FALSE, 0x00, 0x00,
+            { D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_COMPARISON_FUNC_ALWAYS },
+            { D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_COMPARISON_FUNC_ALWAYS } },
+    } };
+
+    static const union d3d12_input_layout_subobject input_layout_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_INPUT_LAYOUT,
+        { NULL, 0 },
+    } };
+
+    static const union d3d12_ib_strip_cut_value_subobject ib_strip_cut_value_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_IB_STRIP_CUT_VALUE,
+        D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,
+    } };
+
+    static const union d3d12_primitive_topology_subobject primitive_topology_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY,
+        D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
+    } };
+
+    static const union d3d12_render_target_formats_subobject render_target_formats_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS,
+        { { DXGI_FORMAT_UNKNOWN }, 0 },
+    } };
+
+    static const union d3d12_depth_stencil_format_subobject depth_stencil_format_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL_FORMAT,
+        DXGI_FORMAT_D32_FLOAT,
+    } };
+
+    static const union d3d12_sample_desc_subobject sample_desc_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_DESC,
+        { 1, 0 },
+    } };
+
+    static const union d3d12_flags_subobject flags_dynamic_bias_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_FLAGS,
+        D3D12_PIPELINE_STATE_FLAG_DYNAMIC_DEPTH_BIAS,
+    } };
+
+    static const union d3d12_flags_subobject flags_static_bias_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_FLAGS,
+        D3D12_PIPELINE_STATE_FLAG_NONE,
+    } };
+
+    struct
+    {
+        union d3d12_root_signature_subobject root_signature;
+        union d3d12_shader_bytecode_subobject vertex_shader;
+        union d3d12_blend_subobject blend;
+        union d3d12_sample_mask_subobject sample_mask;
+        union d3d12_rasterizer_subobject rasterizer;
+        union d3d12_depth_stencil_subobject depth_stencil;
+        union d3d12_input_layout_subobject input_layout;
+        union d3d12_ib_strip_cut_value_subobject strip_cut;
+        union d3d12_primitive_topology_subobject primitive_topology;
+        union d3d12_render_target_formats_subobject render_target_formats;
+        union d3d12_depth_stencil_format_subobject depth_stencil_format;
+        union d3d12_sample_desc_subobject sample_desc;
+        union d3d12_flags_subobject flags_desc;
+    }
+    pso_desc =
+    {
+        root_signature_subobject,
+        vs_subobject,
+        blend_subobject,
+        sample_mask_subobject,
+        rasterizer_with_bias_subobject,
+        depth_stencil_subobject,
+        input_layout_subobject,
+        ib_strip_cut_value_subobject,
+        primitive_topology_subobject,
+        render_target_formats_subobject,
+        depth_stencil_format_subobject,
+        sample_desc_subobject,
+        flags_dynamic_bias_subobject,
+    };
+
+    const D3D12_PIPELINE_STATE_STREAM_DESC pso_stream = { sizeof(pso_desc), &pso_desc };
+
+    struct
+    {
+        uint64_t expected;
+        bool broken_on_amd;
+        bool is_todo;
+        bool test_skipped;
+    }
+    tests[] =
+    {
+        { 1 },
+        { 1, false, true },
+        { 1 },
+        { 0 },
+        { 1 },
+        { 1 },
+        { 0 },
+        { 1, true },
+        { 1, false, true, true },
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_render_target = true;
+
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&options16, 0, sizeof(options16));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS16, &options16, sizeof(options16));
+
+    if (!options16.DynamicDepthBiasSupported)
+    {
+        skip("DynamicDepthBiasSupported not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (FAILED(ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device2, (void**)&device2)))
+    {
+        skip("ID3D12Device2 not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (FAILED(ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList9, (void**)&command_list9)))
+    {
+        skip("ID3D12GraphicsCommandList9 not supported.\n");
+        ID3D12Device2_Release(device2);
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&rs_param, 0, sizeof(rs_param));
+    rs_param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_param.Constants.Num32BitValues = sizeof(push_args) / sizeof(uint32_t);
+    rs_param.ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = 1;
+    rs_desc.pParameters = &rs_param;
+    hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    pso_desc.root_signature.root_signature = context.root_signature;
+
+    hr = ID3D12Device2_CreatePipelineState(device2, &pso_stream, &IID_ID3D12PipelineState, (void**)&pso_with_bias);
+    ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", hr);
+
+    pso_desc.rasterizer = rasterizer_no_bias_subobject;
+
+    hr = ID3D12Device2_CreatePipelineState(device2, &pso_stream, &IID_ID3D12PipelineState, (void**)&pso_no_bias);
+    ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", hr);
+
+    pso_desc.rasterizer = rasterizer_with_bias_subobject;
+    pso_desc.flags_desc = flags_static_bias_subobject;
+
+    hr = ID3D12Device2_CreatePipelineState(device2, &pso_stream, &IID_ID3D12PipelineState, (void**)&pso_static_bias);
+    ok(hr == S_OK, "Failed to create pipeline state, hr %#x.\n", hr);
+
+    dsv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
+    ds = create_default_texture2d(context.device, 4, 4, 1, 1, DXGI_FORMAT_D32_FLOAT, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+
+    memset(&dsv_desc, 0, sizeof(dsv_desc));
+    dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+    dsv_desc.Format = DXGI_FORMAT_D32_FLOAT;
+    dsv_handle = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(dsv_heap);
+    ID3D12Device_CreateDepthStencilView(context.device, ds, &dsv_desc, dsv_handle);
+
+    memset(&query_heap_desc, 0, sizeof(query_heap_desc));
+    query_heap_desc.Type = D3D12_QUERY_HEAP_TYPE_OCCLUSION;
+    query_heap_desc.Count = ARRAY_SIZE(tests);
+
+    hr = ID3D12Device_CreateQueryHeap(context.device, &query_heap_desc, &IID_ID3D12QueryHeap, (void**)&query_heap);
+    ok(hr == S_OK, "Failed to create query heap, hr %#x.\n", hr);
+
+    query_buffer = create_readback_buffer(context.device, sizeof(uint64_t) * query_heap_desc.Count);
+
+    viewport.TopLeftX = 0.0f;
+    viewport.TopLeftY = 0.0f;
+    viewport.Width = 4.0f;
+    viewport.Height = 4.0f;
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
+
+    scissor.left = 0;
+    scissor.top = 0;
+    scissor.right = 4;
+    scissor.bottom = 4;
+
+    ID3D12GraphicsCommandList9_OMSetRenderTargets(command_list9, 0, NULL, false, &dsv_handle);
+    ID3D12GraphicsCommandList9_SetGraphicsRootSignature(command_list9, context.root_signature);
+    ID3D12GraphicsCommandList9_IASetPrimitiveTopology(command_list9, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList9_RSSetViewports(command_list9, 1, &viewport);
+    ID3D12GraphicsCommandList9_RSSetScissorRects(command_list9, 1, &scissor);
+
+    /* We start with a positive depth bias, so the first draw should pass */
+    ID3D12GraphicsCommandList9_ClearDepthStencilView(command_list9, dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.5f, 0, 0, NULL);
+    ID3D12GraphicsCommandList9_SetPipelineState(command_list9, pso_with_bias);
+
+    push_args.depth = 0.5f;
+    push_args.slope = 0.0f;
+    ID3D12GraphicsCommandList9_SetGraphicsRoot32BitConstants(command_list9, 0, sizeof(push_args) / sizeof(uint32_t), &push_args, 0);
+
+    ID3D12GraphicsCommandList9_BeginQuery(command_list9, query_heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION, 0);
+    ID3D12GraphicsCommandList9_DrawInstanced(command_list9, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList9_EndQuery(command_list9, query_heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION, 0);
+
+    /* Changing the dynamic depth bias and then rebinding the same pipeline does
+     * not override the dynamic depth bias, even though the spec says it should. */
+    ID3D12GraphicsCommandList9_RSSetDepthBias(command_list9, 2.0f, 0.0f, 0.0f);
+    ID3D12GraphicsCommandList9_SetPipelineState(command_list9, pso_with_bias);
+
+    ID3D12GraphicsCommandList9_BeginQuery(command_list9, query_heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION, 1);
+    ID3D12GraphicsCommandList9_DrawInstanced(command_list9, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList9_EndQuery(command_list9, query_heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION, 1);
+
+    /* Binding a different pipeline does override any dynamically set depth bias,
+     * so the second draw should fail. */
+    ID3D12GraphicsCommandList9_ClearDepthStencilView(command_list9, dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.5f, 0, 0, NULL);
+    ID3D12GraphicsCommandList9_SetPipelineState(command_list9, pso_no_bias);
+    ID3D12GraphicsCommandList9_RSSetDepthBias(command_list9, 1.0f, 0.0f, 0.0f);
+
+    ID3D12GraphicsCommandList9_BeginQuery(command_list9, query_heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION, 2);
+    ID3D12GraphicsCommandList9_DrawInstanced(command_list9, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList9_EndQuery(command_list9, query_heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION, 2);
+
+    ID3D12GraphicsCommandList9_RSSetDepthBias(command_list9, 2.0f, 0.0f, 0.0f);
+    ID3D12GraphicsCommandList9_SetPipelineState(command_list9, pso_with_bias);
+
+    ID3D12GraphicsCommandList9_BeginQuery(command_list9, query_heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION, 3);
+    ID3D12GraphicsCommandList9_DrawInstanced(command_list9, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList9_EndQuery(command_list9, query_heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION, 3);
+
+    /* Ensure that slope-scaled depth bias and depth bias clamp also apply */
+    ID3D12GraphicsCommandList9_ClearDepthStencilView(command_list9, dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0, 0, NULL);
+
+    push_args.depth = 0.5f;
+    push_args.slope = 0.25f;
+    ID3D12GraphicsCommandList9_SetGraphicsRoot32BitConstants(command_list9, 0, sizeof(push_args) / sizeof(uint32_t), &push_args, 0);
+
+    ID3D12GraphicsCommandList9_RSSetDepthBias(command_list9, 0.0f, 0.0f, 0.0f);
+    ID3D12GraphicsCommandList9_DrawInstanced(command_list9, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList9_RSSetDepthBias(command_list9, 0.0f, 0.0001f, 0.01f);
+
+    ID3D12GraphicsCommandList9_BeginQuery(command_list9, query_heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION, 4);
+    ID3D12GraphicsCommandList9_DrawInstanced(command_list9, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList9_EndQuery(command_list9, query_heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION, 4);
+
+    /* Reset clamp, this should still pass */
+    ID3D12GraphicsCommandList9_RSSetDepthBias(command_list9, 0.0f, 0.0f, 0.01f);
+
+    ID3D12GraphicsCommandList9_BeginQuery(command_list9, query_heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION, 5);
+    ID3D12GraphicsCommandList9_DrawInstanced(command_list9, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList9_EndQuery(command_list9, query_heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION, 5);
+
+    /* Reset everything to zero, this should now fail */
+    ID3D12GraphicsCommandList9_RSSetDepthBias(command_list9, 0.0f, 0.0f, 0.0f);
+
+    ID3D12GraphicsCommandList9_BeginQuery(command_list9, query_heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION, 6);
+    ID3D12GraphicsCommandList9_DrawInstanced(command_list9, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList9_EndQuery(command_list9, query_heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION, 6);
+
+    /* Ensure that binding a pipeline without the dynamic depth bias flag ignores
+     * any previously set dynamic depth bias. This is broken on AMD native. */
+    ID3D12GraphicsCommandList9_ClearDepthStencilView(command_list9, dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.5f, 0, 0, NULL);
+    ID3D12GraphicsCommandList9_RSSetDepthBias(command_list9, 0.0f, 0.0f, 0.0f);
+    ID3D12GraphicsCommandList9_SetPipelineState(command_list9, pso_static_bias);
+
+    push_args.depth = 0.5f;
+    push_args.slope = 0.0f;
+    ID3D12GraphicsCommandList9_SetGraphicsRoot32BitConstants(command_list9, 0, sizeof(push_args) / sizeof(uint32_t), &push_args, 0);
+
+    ID3D12GraphicsCommandList9_BeginQuery(command_list9, query_heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION, 7);
+    ID3D12GraphicsCommandList9_DrawInstanced(command_list9, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList9_EndQuery(command_list9, query_heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION, 7);
+
+#if 0
+    /* Spec says that calling RSSetDepthBias with a pipeline that does not enable
+     * dynamic depth bias is undefined behaviour and might lead to device reset,
+     * so do not test that here, however both AMD and Nvidia drivers are robust
+     * here and will in fact apply the depth bias set via RSSetDepthBias. */
+    ID3D12GraphicsCommandList9_RSSetDepthBias(command_list9, 2.0f, 0.0f, 0.0f);
+
+    ID3D12GraphicsCommandList9_BeginQuery(command_list9, query_heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION, 8);
+    ID3D12GraphicsCommandList9_DrawInstanced(command_list9, 3, 1, 0, 0);
+    ID3D12GraphicsCommandList9_EndQuery(command_list9, query_heap, D3D12_QUERY_TYPE_BINARY_OCCLUSION, 8);
+
+    tests[8].test_skipped = false;
+#endif
+
+    /* Resolve and check occlusion query data */
+    ID3D12GraphicsCommandList9_ResolveQueryData(command_list9, query_heap,
+            D3D12_QUERY_TYPE_BINARY_OCCLUSION, 0, query_heap_desc.Count, query_buffer, 0);
+
+    hr = ID3D12GraphicsCommandList9_Close(command_list9);
+    ok(hr == S_OK, "Failed to close command list, hr %#x.\n", hr);
+
+    exec_command_list(context.queue, context.list);
+    wait_queue_idle(context.device, context.queue);
+
+    hr = ID3D12Resource_Map(query_buffer, 0, NULL, (void**)&readback_data);
+    ok(hr == S_OK, "Failed to map readback buffer, hr %#x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        vkd3d_test_set_context("Test %u", i);
+
+        if (tests[i].test_skipped)
+            continue;
+
+        todo_if(tests[i].is_todo)
+        bug_if(tests[i].broken_on_amd && is_amd_windows_device(context.device))
+        ok(readback_data[i] == tests[i].expected, "Got %"PRIu64", expected %"PRIu64".\n",
+                readback_data[i], tests[i].expected);
+    }
+
+    ID3D12QueryHeap_Release(query_heap);
+    ID3D12DescriptorHeap_Release(dsv_heap);
+
+    ID3D12Resource_Release(query_buffer);
+    ID3D12Resource_Release(ds);
+
+    ID3D12PipelineState_Release(pso_with_bias);
+    ID3D12PipelineState_Release(pso_no_bias);
+    ID3D12PipelineState_Release(pso_static_bias);
+
+    ID3D12GraphicsCommandList9_Release(command_list9);
+    ID3D12Device2_Release(device2);
+    destroy_test_context(&context);
+}
+
+void test_dynamic_index_strip_cut(void)
+{
+    ID3D12PipelineState *pso_strip_cut_disabled_dynamic, *pso_strip_cut_enabled_dynamic;
+    ID3D12PipelineState *pso_strip_cut_disabled_static, *pso_strip_cut_enabled_static;
+    ID3D12Resource *index_buffer_16, *index_buffer_32, *uav_buffer;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS15 options15;
+    ID3D12GraphicsCommandList9 *command_list9;
+    D3D12_INDEX_BUFFER_VIEW ibv16, ibv32;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_params[2];
+    struct test_context_desc desc;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Device2 *device2;
+    unsigned int i;
+    HRESULT hr;
+
+#if 0
+    RWStructuredBuffer<uint> results : register(u0);
+
+    cbuffer push_args
+    {
+            uint test_index;
+            uint strip_cut_value;
+    };
+
+    float4 main(in uint id : SV_VERTEXID) : SV_POSITION
+    {
+            if (id == strip_cut_value)
+                    results[test_index] = 1u;
+
+            return 0.0f.xxxx;
+    }
+#endif
+    static const DWORD vs_code[] =
+    {
+        0x43425844, 0x9dd0904b, 0x852849c9, 0xea08c481, 0xde71b919, 0x00000001, 0x00000180, 0x00000004,
+        0x00000030, 0x00000064, 0x00000098, 0x00000170, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008,
+        0x00000020, 0x00000000, 0x00000006, 0x00000001, 0x00000000, 0x00000101, 0x565f5653, 0x45545245,
+        0x00444958, 0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001,
+        0x00000003, 0x00000000, 0x0000000f, 0x505f5653, 0x5449534f, 0x004e4f49, 0x58454853, 0x000000d0,
+        0x00010050, 0x00000034, 0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0400009e,
+        0x0011e000, 0x00000000, 0x00000004, 0x04000060, 0x00101012, 0x00000000, 0x00000006, 0x04000067,
+        0x001020f2, 0x00000000, 0x00000001, 0x02000068, 0x00000001, 0x08000020, 0x00100012, 0x00000000,
+        0x0010100a, 0x00000000, 0x0020801a, 0x00000000, 0x00000000, 0x0304001f, 0x0010000a, 0x00000000,
+        0x0a0000a8, 0x0011e012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x00004001, 0x00000000,
+        0x00004001, 0x00000001, 0x01000015, 0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0x00000000,
+        0x00000000, 0x00000000, 0x00000000, 0x0100003e, 0x30494653, 0x00000008, 0x00000004, 0x00000000,
+    };
+
+    static const union d3d12_root_signature_subobject root_signature_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE,
+        NULL, /* fill in dynamically */
+    } };
+
+    static const union d3d12_shader_bytecode_subobject vs_subobject = { { D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VS, { vs_code, sizeof(vs_code) } } };
+
+    static const union d3d12_sample_mask_subobject sample_mask_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_MASK,
+        0xFFFFFFFFu
+    } };
+
+    static const union d3d12_blend_subobject blend_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_BLEND,
+        { FALSE, FALSE },
+    } };
+
+    static const union d3d12_rasterizer_subobject rasterizer_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER,
+        { D3D12_FILL_MODE_SOLID, D3D12_CULL_MODE_NONE,
+            FALSE, 1, 0.0f, 1.0f, TRUE, FALSE, FALSE, 0,
+            D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF },
+    } };
+
+    static const union d3d12_depth_stencil_subobject depth_stencil_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL,
+        { FALSE, D3D12_DEPTH_WRITE_MASK_ZERO, D3D12_COMPARISON_FUNC_ALWAYS, FALSE, 0x00, 0x00,
+            { D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_COMPARISON_FUNC_ALWAYS },
+            { D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_COMPARISON_FUNC_ALWAYS } },
+    }};
+
+    static const union d3d12_input_layout_subobject input_layout_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_INPUT_LAYOUT,
+        { NULL, 0 },
+    } };
+
+    static const union d3d12_ib_strip_cut_value_subobject ib_strip_cut_disabled_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_IB_STRIP_CUT_VALUE,
+        D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,
+    } };
+
+    static const union d3d12_ib_strip_cut_value_subobject ib_strip_cut_enabled_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_IB_STRIP_CUT_VALUE,
+        D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF,
+    } };
+
+    static const union d3d12_primitive_topology_subobject primitive_topology_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY,
+        D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
+    } };
+
+    static const union d3d12_render_target_formats_subobject render_target_formats_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS,
+        { { DXGI_FORMAT_UNKNOWN }, 0 },
+    } };
+
+    static const union d3d12_depth_stencil_format_subobject depth_stencil_format_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL_FORMAT,
+        DXGI_FORMAT_UNKNOWN,
+    } };
+
+    static const union d3d12_sample_desc_subobject sample_desc_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_DESC,
+        { 1, 0 },
+    } };
+
+    static const union d3d12_flags_subobject flags_dynamic_strip_cut_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_FLAGS,
+        D3D12_PIPELINE_STATE_FLAG_DYNAMIC_INDEX_BUFFER_STRIP_CUT,
+    } };
+
+    static const union d3d12_flags_subobject flags_static_strip_cut_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_FLAGS,
+        D3D12_PIPELINE_STATE_FLAG_NONE,
+    } };
+
+    struct
+    {
+        union d3d12_root_signature_subobject root_signature;
+        union d3d12_shader_bytecode_subobject vertex_shader;
+        union d3d12_blend_subobject blend;
+        union d3d12_sample_mask_subobject sample_mask;
+        union d3d12_rasterizer_subobject rasterizer;
+        union d3d12_depth_stencil_subobject depth_stencil;
+        union d3d12_input_layout_subobject input_layout;
+        union d3d12_ib_strip_cut_value_subobject strip_cut;
+        union d3d12_primitive_topology_subobject primitive_topology;
+        union d3d12_render_target_formats_subobject render_target_formats;
+        union d3d12_depth_stencil_format_subobject depth_stencil_format;
+        union d3d12_sample_desc_subobject sample_desc;
+        union d3d12_flags_subobject flags_desc;
+    }
+    pso_desc =
+    {
+        root_signature_subobject,
+        vs_subobject,
+        blend_subobject,
+        sample_mask_subobject,
+        rasterizer_subobject,
+        depth_stencil_subobject,
+        input_layout_subobject,
+        ib_strip_cut_disabled_subobject,
+        primitive_topology_subobject,
+        render_target_formats_subobject,
+        depth_stencil_format_subobject,
+        sample_desc_subobject,
+        flags_static_strip_cut_subobject,
+    };
+
+    const D3D12_PIPELINE_STATE_STREAM_DESC pso_stream = { sizeof(pso_desc), &pso_desc };
+
+    const struct
+    {
+        ID3D12PipelineState **pipeline;
+        uint32_t index_buffer_bits;
+        D3D12_INDEX_BUFFER_STRIP_CUT_VALUE strip_cut_value;
+        bool set_dynamically;
+        uint32_t expected;
+    }
+    tests[] =
+    {
+        /* Test binding dynamic state pipeline to a fresh command list */
+        { &pso_strip_cut_enabled_dynamic,   16, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF,      false, 0 },
+        /* Test IASetIndexBufferStripCutValue behaviour */
+        { &pso_strip_cut_disabled_dynamic,  16, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,    false, 1 },
+        { NULL,                             16, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF,      true,  0 },
+        { NULL,                             32, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFFFFFF,  true,  0 },
+        { NULL,                             32, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,    true,  1 },
+        /* Test that re-binding the same PSO reapplies static PSO state. */
+        { &pso_strip_cut_disabled_dynamic,  16, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF,      true,  0 },
+        { &pso_strip_cut_disabled_dynamic,  16, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,    false, 1 },
+        /* Test that disabling strip cut dynamically works as well */
+        { &pso_strip_cut_enabled_dynamic,   16, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,    true,  1 },
+        /* Test switching between static and dynamic pipelines */
+        { &pso_strip_cut_enabled_static,    16, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF,      false, 0 },
+        { &pso_strip_cut_disabled_dynamic,  16, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,    false, 1 },
+        { &pso_strip_cut_disabled_static,   16, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,    false, 1 },
+        { &pso_strip_cut_enabled_dynamic,   16, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF,      false, 0 },
+    };
+
+    static const uint16_t index16_data[] = { 0u, 1u, 2u, 0xffffu,     3u, 4u, 5u };
+    static const uint32_t index32_data[] = { 0u, 1u, 2u, 0xffffffffu, 3u, 4u, 5u };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_render_target = true;
+
+    if (!init_test_context(&context, &desc))
+        return;
+
+    if (is_amd_windows_device(context.device))
+    {
+        skip("Dynamic index buffer strip cut is broken on AMD (native).\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&options15, 0, sizeof(options15));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS15, &options15, sizeof(options15));
+
+    if (!options15.DynamicIndexBufferStripCutSupported)
+    {
+        skip("DynamicIndexBufferStripCutSupported not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+    if (FAILED(ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device2, (void**)&device2)))
+    {
+        skip("ID3D12Device2 not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    if (FAILED(ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList9, (void**)&command_list9)))
+    {
+        skip("ID3D12GraphicsCommandList9 not supported.\n");
+        ID3D12Device2_Release(device2);
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&rs_params, 0, sizeof(rs_params));
+    rs_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_params[0].Descriptor.ShaderRegister = 0u;
+    rs_params[0].Descriptor.RegisterSpace = 0u;
+    rs_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+
+    rs_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_params[1].Constants.ShaderRegister = 0u;
+    rs_params[1].Constants.RegisterSpace = 0u;
+    rs_params[1].Constants.Num32BitValues = 2u;
+    rs_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_params);
+    rs_desc.pParameters = rs_params;
+    hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    pso_desc.root_signature.root_signature = context.root_signature;
+
+    /* Create pipelines with all possible permutations of dynamic/static strip
+     * cut values and strip cut being statically enabled/disabled, so that we
+     * can test behaviour of switching between states. */
+    pso_desc.strip_cut = ib_strip_cut_disabled_subobject;
+    pso_desc.flags_desc = flags_static_strip_cut_subobject;
+    hr = ID3D12Device2_CreatePipelineState(device2, &pso_stream, &IID_ID3D12PipelineState, (void **)&pso_strip_cut_disabled_static);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    pso_desc.flags_desc = flags_dynamic_strip_cut_subobject;
+    hr = ID3D12Device2_CreatePipelineState(device2, &pso_stream, &IID_ID3D12PipelineState, (void **)&pso_strip_cut_disabled_dynamic);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    pso_desc.strip_cut = ib_strip_cut_enabled_subobject;
+    pso_desc.flags_desc = flags_static_strip_cut_subobject;
+    hr = ID3D12Device2_CreatePipelineState(device2, &pso_stream, &IID_ID3D12PipelineState, (void **)&pso_strip_cut_enabled_static);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    pso_desc.flags_desc = flags_dynamic_strip_cut_subobject;
+    hr = ID3D12Device2_CreatePipelineState(device2, &pso_stream, &IID_ID3D12PipelineState, (void **)&pso_strip_cut_enabled_dynamic);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    index_buffer_16 = create_upload_buffer(context.device, sizeof(index16_data), index16_data);
+    index_buffer_32 = create_upload_buffer(context.device, sizeof(index32_data), index32_data);
+
+    uav_buffer = create_default_buffer(context.device, ARRAY_SIZE(tests) * sizeof(uint32_t),
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    ibv16.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(index_buffer_16);
+    ibv16.SizeInBytes = sizeof(index16_data);
+    ibv16.Format = DXGI_FORMAT_R16_UINT;
+
+    ibv32.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(index_buffer_32);
+    ibv32.SizeInBytes = sizeof(index32_data);
+    ibv32.Format = DXGI_FORMAT_R32_UINT;
+
+    ID3D12GraphicsCommandList9_SetGraphicsRootSignature(command_list9, context.root_signature);
+    ID3D12GraphicsCommandList9_SetGraphicsRootUnorderedAccessView(command_list9,
+            0, ID3D12Resource_GetGPUVirtualAddress(uav_buffer));
+    ID3D12GraphicsCommandList9_IASetPrimitiveTopology(command_list9, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    ID3D12GraphicsCommandList9_RSSetViewports(command_list9, 1, &context.viewport);
+    ID3D12GraphicsCommandList9_RSSetScissorRects(command_list9, 1, &context.scissor_rect);
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        if (tests[i].pipeline)
+            ID3D12GraphicsCommandList9_SetPipelineState(command_list9, *tests[i].pipeline);
+
+        ID3D12GraphicsCommandList9_SetGraphicsRoot32BitConstant(command_list9, 1, i, 0);
+        ID3D12GraphicsCommandList9_SetGraphicsRoot32BitConstant(command_list9, 1, tests[i].index_buffer_bits == 32 ? 0xffffffffu : 0xffffu, 1);
+        ID3D12GraphicsCommandList9_IASetIndexBuffer(command_list9, tests[i].index_buffer_bits == 32 ? &ibv32 : &ibv16);
+
+        if (tests[i].set_dynamically)
+            ID3D12GraphicsCommandList9_IASetIndexBufferStripCutValue(command_list9, tests[i].strip_cut_value);
+
+        ID3D12GraphicsCommandList9_DrawIndexedInstanced(command_list9,
+                ARRAY_SIZE(index16_data), 1, 0, 0, 0);
+    }
+
+    transition_resource_state(context.list, uav_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(uav_buffer, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        uint32_t value = get_readback_uint(&rb, i, 0, 0);
+        ok(tests[i].expected == value, "Got %u, expected %u at %u.\n", value, tests[i].expected, i);
+    }
+
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(uav_buffer);
+    ID3D12Resource_Release(index_buffer_16);
+    ID3D12Resource_Release(index_buffer_32);
+
+    ID3D12PipelineState_Release(pso_strip_cut_disabled_static);
+    ID3D12PipelineState_Release(pso_strip_cut_disabled_dynamic);
+    ID3D12PipelineState_Release(pso_strip_cut_enabled_static);
+    ID3D12PipelineState_Release(pso_strip_cut_enabled_dynamic);
+
+    ID3D12GraphicsCommandList9_Release(command_list9);
+    ID3D12Device2_Release(device2);
+    destroy_test_context(&context);
+}
+
+void test_line_rasterization(void)
+{
+    const FLOAT white[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    D3D12_FEATURE_DATA_D3D12_OPTIONS19 options19;
+    D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    ID3D12DescriptorHeap *rtv_heap;
+    struct test_context_desc desc;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12PipelineState *pso;
+    D3D12_VIEWPORT viewport;
+    ID3D12Device2 *device2;
+    unsigned int i, x, y;
+    ID3D12Resource *rt;
+    D3D12_RECT scissor;
+    uint16_t coverage;
+    bool has_alpha;
+    HRESULT hr;
+
+#if 0
+    float4 main(in uint id : SV_VERTEXID) : SV_POSITION
+    {
+        float x = float(id) * 2.0f - 1.0f;
+        return float4(x, x * 0.55f, 0.0f, 1.0f);
+    }
+#endif
+    static const DWORD vs_code[] =
+    {
+        0x43425844, 0xe50f7952, 0xe97783ee, 0x9e0be37d, 0x1ebc42a5, 0x00000001, 0x0000015c, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000006, 0x00000001, 0x00000000, 0x00000101, 0x565f5653, 0x45545245, 0x00444958,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x505f5653, 0x5449534f, 0x004e4f49, 0x58454853, 0x000000c0, 0x00010050,
+        0x00000030, 0x0100086a, 0x04000060, 0x00101012, 0x00000000, 0x00000006, 0x04000067, 0x001020f2,
+        0x00000000, 0x00000001, 0x02000068, 0x00000001, 0x05000056, 0x00100012, 0x00000000, 0x0010100a,
+        0x00000000, 0x09000032, 0x00100012, 0x00000000, 0x0010000a, 0x00000000, 0x00004001, 0x40000000,
+        0x00004001, 0xbf800000, 0x07000038, 0x00102022, 0x00000000, 0x0010000a, 0x00000000, 0x00004001,
+        0x3f0ccccd, 0x05000036, 0x00102012, 0x00000000, 0x0010000a, 0x00000000, 0x08000036, 0x001020c2,
+        0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x3f800000, 0x0100003e,
+    };
+
+#if 0
+    float4 main() : SV_TARGET
+    {
+            return float4(0.0f.xxx, 1.0f);
+    }
+#endif
+    static const DWORD ps_code[] =
+    {
+        0x43425844, 0x30eae862, 0x9f6e83a9, 0xc82bb0e2, 0x23ff6513, 0x00000001, 0x000000b4, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x45475241, 0xabab0054, 0x58454853, 0x0000003c, 0x00000050, 0x0000000f,
+        0x0100086a, 0x03000065, 0x001020f2, 0x00000000, 0x08000036, 0x001020f2, 0x00000000, 0x00004002,
+        0x00000000, 0x00000000, 0x00000000, 0x3f800000, 0x0100003e,
+    };
+
+    static const union d3d12_root_signature_subobject root_signature_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE,
+        NULL, /* fill in dynamically */
+    } };
+
+    static const union d3d12_shader_bytecode_subobject vs_subobject = { { D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VS, { vs_code, sizeof(vs_code) } } };
+    static const union d3d12_shader_bytecode_subobject ps_subobject = { { D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, { ps_code, sizeof(ps_code) } } };
+
+    static const union d3d12_sample_mask_subobject sample_mask_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_MASK,
+        0xFFFFFFFFu
+    } };
+
+    static const union d3d12_blend_subobject blend_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_BLEND,
+        { FALSE, TRUE, { { TRUE, FALSE,
+            D3D12_BLEND_SRC_ALPHA, D3D12_BLEND_INV_SRC_ALPHA, D3D12_BLEND_OP_ADD,
+            D3D12_BLEND_SRC_ALPHA, D3D12_BLEND_INV_SRC_ALPHA, D3D12_BLEND_OP_ADD,
+            D3D12_LOGIC_OP_NOOP, 0xfu } } },
+    } };
+
+    static const union d3d12_rasterizer_subobject rasterizer_plain_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER,
+        { D3D12_FILL_MODE_SOLID, D3D12_CULL_MODE_NONE,
+            FALSE, 0, 0.0f, 0.0f, TRUE, FALSE, FALSE, 0,
+            D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF },
+    } };
+
+    static const union d3d12_rasterizer2_subobject rasterizer_desc2_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER2,
+        { D3D12_FILL_MODE_SOLID, D3D12_CULL_MODE_NONE,
+            FALSE, 0, 0.0f, 0.0f, TRUE,
+            D3D12_LINE_RASTERIZATION_MODE_ALIASED, 0,
+            D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF },
+    } };
+
+    static const union d3d12_depth_stencil_subobject depth_stencil_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL,
+        { FALSE, D3D12_DEPTH_WRITE_MASK_ZERO, D3D12_COMPARISON_FUNC_ALWAYS, FALSE, 0x00, 0x00,
+            { D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_COMPARISON_FUNC_ALWAYS },
+            { D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_COMPARISON_FUNC_ALWAYS } },
+    } };
+
+    static const union d3d12_input_layout_subobject input_layout_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_INPUT_LAYOUT,
+        { NULL, 0 },
+    } };
+
+    static const union d3d12_ib_strip_cut_value_subobject ib_strip_cut_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_IB_STRIP_CUT_VALUE,
+        D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,
+    } };
+
+    static const union d3d12_primitive_topology_subobject primitive_topology_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY,
+        D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE,
+    } };
+
+    static const union d3d12_render_target_formats_subobject render_target_formats_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS,
+        { { DXGI_FORMAT_R8_UNORM }, 1 },
+    } };
+
+    static const union d3d12_depth_stencil_format_subobject depth_stencil_format_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL_FORMAT,
+        DXGI_FORMAT_UNKNOWN,
+    } };
+
+    static const union d3d12_sample_desc_subobject sample_desc_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_DESC,
+        { 1, 0 },
+    } };
+
+    struct
+    {
+        union d3d12_root_signature_subobject root_signature;
+        union d3d12_shader_bytecode_subobject vertex_shader;
+        union d3d12_shader_bytecode_subobject pixel_shader;
+        union d3d12_blend_subobject blend;
+        union d3d12_sample_mask_subobject sample_mask;
+        union d3d12_rasterizer_subobject rasterizer;
+        union d3d12_depth_stencil_subobject depth_stencil;
+        union d3d12_input_layout_subobject input_layout;
+        union d3d12_ib_strip_cut_value_subobject strip_cut;
+        union d3d12_primitive_topology_subobject primitive_topology;
+        union d3d12_render_target_formats_subobject render_target_formats;
+        union d3d12_depth_stencil_format_subobject depth_stencil_format;
+        union d3d12_sample_desc_subobject sample_desc;
+    }
+    pso_rs_plain_desc =
+    {
+        root_signature_subobject,
+        vs_subobject,
+        ps_subobject,
+        blend_subobject,
+        sample_mask_subobject,
+        rasterizer_plain_subobject,
+        depth_stencil_subobject,
+        input_layout_subobject,
+        ib_strip_cut_subobject,
+        primitive_topology_subobject,
+        render_target_formats_subobject,
+        depth_stencil_format_subobject,
+        sample_desc_subobject,
+    };
+
+    struct
+    {
+        union d3d12_root_signature_subobject root_signature;
+        union d3d12_shader_bytecode_subobject vertex_shader;
+        union d3d12_shader_bytecode_subobject pixel_shader;
+        union d3d12_blend_subobject blend;
+        union d3d12_sample_mask_subobject sample_mask;
+        union d3d12_rasterizer2_subobject rasterizer;
+        union d3d12_depth_stencil_subobject depth_stencil;
+        union d3d12_input_layout_subobject input_layout;
+        union d3d12_ib_strip_cut_value_subobject strip_cut;
+        union d3d12_primitive_topology_subobject primitive_topology;
+        union d3d12_render_target_formats_subobject render_target_formats;
+        union d3d12_depth_stencil_format_subobject depth_stencil_format;
+        union d3d12_sample_desc_subobject sample_desc;
+    }
+    pso_rs_desc2_desc =
+    {
+        root_signature_subobject,
+        vs_subobject,
+        ps_subobject,
+        blend_subobject,
+        sample_mask_subobject,
+        rasterizer_desc2_subobject,
+        depth_stencil_subobject,
+        input_layout_subobject,
+        ib_strip_cut_subobject,
+        primitive_topology_subobject,
+        render_target_formats_subobject,
+        depth_stencil_format_subobject,
+        sample_desc_subobject,
+    };
+
+    const D3D12_PIPELINE_STATE_STREAM_DESC pso_rs_plain_stream = { sizeof(pso_rs_plain_desc), &pso_rs_plain_desc };
+    const D3D12_PIPELINE_STATE_STREAM_DESC pso_rs_desc2_stream = { sizeof(pso_rs_desc2_desc), &pso_rs_desc2_desc };
+
+    struct
+    {
+        const D3D12_PIPELINE_STATE_STREAM_DESC *pso_stream;
+        uint16_t min_coverage;
+        uint16_t max_coverage;
+        bool expected_alpha;
+        bool antialiased_line_enable;
+        bool multisample_enable;
+        D3D12_LINE_RASTERIZATION_MODE line_raster_mode;
+    }
+    tests[] =
+    {
+        /* AMD and Nvidia behave differently w.r.t. line rasterization */
+        { &pso_rs_plain_stream, 0x03c0u, 0x03c0u, false, false, false },
+        { &pso_rs_plain_stream, 0x13c8u, 0x17e8u, true,  true,  false },
+        { &pso_rs_plain_stream, 0x03c0u, 0x17e8u, false, false, true  },
+        { &pso_rs_plain_stream, 0x03c0u, 0x17e8u, false, true,  true  },
+        /* Explicit line rasterization states last, we skip all tests if these are unsupported. */
+        { &pso_rs_desc2_stream, 0x03c0u, 0x03c0u, false, false, false, D3D12_LINE_RASTERIZATION_MODE_ALIASED },
+        { &pso_rs_desc2_stream, 0x03c0u, 0x03c0u, false, false, false, D3D12_LINE_RASTERIZATION_MODE_QUADRILATERAL_NARROW },
+        { &pso_rs_desc2_stream, 0x03c0u, 0x17e8u, false, false, false, D3D12_LINE_RASTERIZATION_MODE_QUADRILATERAL_WIDE },
+        { &pso_rs_desc2_stream, 0x13c8u, 0x17e8u, true,  false, false, D3D12_LINE_RASTERIZATION_MODE_ALPHA_ANTIALIASED },
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.no_render_target = true;
+
+    if (!init_test_context(&context, &desc))
+        return;
+
+    if (FAILED(ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device2, (void**)&device2)))
+    {
+        skip("ID3D12Device2 not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    memset(&options19, 0, sizeof(options19));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS19, &options19, sizeof(options19));
+
+    rt = create_default_texture2d(context.device, 4, 4, 1, 1, DXGI_FORMAT_R8_UNORM, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+    rtv_handle = get_cpu_rtv_handle(&context, rtv_heap, 0);
+
+    memset(&rtv_desc, 0, sizeof(rtv_desc));
+    rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+    rtv_desc.Format = DXGI_FORMAT_R8_UNORM;
+    ID3D12Device_CreateRenderTargetView(context.device, rt, &rtv_desc, rtv_handle);
+
+    viewport.TopLeftX = 0.0f;
+    viewport.TopLeftY = 0.0f;
+    viewport.Width = 4.0f;
+    viewport.Height = 4.0f;
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
+
+    scissor.left = 0;
+    scissor.top = 0;
+    scissor.right = 4;
+    scissor.bottom = 4;
+
+    pso_rs_plain_desc.root_signature.root_signature = context.root_signature;
+    pso_rs_desc2_desc.root_signature.root_signature = context.root_signature;
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        vkd3d_test_set_context("Test %u", i);
+
+        if (tests[i].pso_stream == &pso_rs_desc2_stream && !options19.RasterizerDesc2Supported)
+        {
+            skip("D3D12_RASTERIZER_DESC2 not supported.\n");
+            break;
+        }
+
+        if (tests[i].line_raster_mode == D3D12_LINE_RASTERIZATION_MODE_QUADRILATERAL_NARROW &&
+                !options19.NarrowQuadrilateralLinesSupported)
+        {
+            skip("D3D12_LINE_RASTERIZATION_MODE_QUADRILATERAL_NARROW not supported.\n");
+            continue;
+        }
+
+        pso_rs_plain_desc.rasterizer.rasterizer_desc.AntialiasedLineEnable = tests[i].antialiased_line_enable;
+        pso_rs_plain_desc.rasterizer.rasterizer_desc.MultisampleEnable = tests[i].multisample_enable;
+
+        pso_rs_desc2_desc.rasterizer.rasterizer_desc.LineRasterizationMode = tests[i].line_raster_mode;
+
+        hr = ID3D12Device2_CreatePipelineState(device2, tests[i].pso_stream, &IID_ID3D12PipelineState, (void**)&pso);
+        ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+        transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &rtv_handle, false, NULL);
+        ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, rtv_handle, white, 0, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, pso);
+        ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &scissor);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_LINELIST);
+        ID3D12GraphicsCommandList_DrawInstanced(context.list, 2, 1, 0, 0);
+
+        transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        get_texture_readback_with_command_list(rt, 0, &rb, context.queue, context.list);
+
+        has_alpha = 0;
+        coverage = 0;
+
+        for (y = 0; y < 4; y++)
+        {
+            for (x = 0; x < 4; x++)
+            {
+                uint8_t pixel = get_readback_uint8(&rb, x, y);
+                has_alpha |= pixel && pixel < 0xff;
+
+                if (pixel < 0xff)
+                    coverage |= 1u << (4 * y + x);
+            }
+        }
+
+        ok(!(tests[i].min_coverage & ~coverage) && !(coverage & ~tests[i].max_coverage),
+                "Got coverage %#x, expected range is %#x - %#x.\n", coverage, tests[i].min_coverage, tests[i].max_coverage);
+
+        bug_if(tests[i].expected_alpha && is_amd_windows_device(context.device))
+        ok(has_alpha == tests[i].expected_alpha, "Got alpha %u, expected %u.\n", has_alpha, tests[i].expected_alpha);
+
+        release_resource_readback(&rb);
+        reset_command_list(context.list, context.allocator);
+
+        ID3D12PipelineState_Release(pso);
+    }
+
+    ID3D12DescriptorHeap_Release(rtv_heap);
+    ID3D12Resource_Release(rt);
+    ID3D12Device2_Release(device2);
     destroy_test_context(&context);
 }

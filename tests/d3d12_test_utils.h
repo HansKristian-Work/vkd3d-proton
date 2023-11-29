@@ -151,6 +151,40 @@ static inline ID3D12Resource *create_placed_buffer_(unsigned int line, ID3D12Dev
     return buffer;
 }
 
+#define create_placed_buffer2(a, b, c, d, e) create_placed_buffer2_(__LINE__, a, b, c, d, e)
+static inline ID3D12Resource *create_placed_buffer2_(unsigned int line, ID3D12Device *device,
+        ID3D12Heap *heap, size_t offset, size_t size, D3D12_RESOURCE_FLAGS resource_flags)
+{
+    D3D12_RESOURCE_DESC1 resource_desc;
+    ID3D12Device10 *device10;
+    ID3D12Resource *buffer;
+    HRESULT hr;
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = size;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = resource_flags;
+
+    hr = ID3D12Device_QueryInterface(device, &IID_ID3D12Device10, (void **)&device10);
+    assert_that_(line)(SUCCEEDED(hr), "Failed to query device10 interface.\n");
+    if (FAILED(hr))
+        return NULL;
+
+    hr = ID3D12Device10_CreatePlacedResource2(device10, heap, offset, &resource_desc,
+            D3D12_BARRIER_LAYOUT_UNDEFINED, NULL, 0, NULL, &IID_ID3D12Resource, (void **)&buffer);
+    assert_that_(line)(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+    ID3D12Device10_Release(device10);
+    return buffer;
+}
+
 #define create_buffer(a, b, c, d, e) create_buffer_(__LINE__, a, b, c, d, e)
 static inline ID3D12Resource *create_buffer_(unsigned int line, ID3D12Device *device,
         D3D12_HEAP_TYPE heap_type, size_t size, D3D12_RESOURCE_FLAGS resource_flags,
@@ -183,12 +217,59 @@ static inline ID3D12Resource *create_buffer_(unsigned int line, ID3D12Device *de
     return buffer;
 }
 
+#define create_buffer2(a, b, c, d) create_buffer2_(__LINE__, a, b, c, d)
+static inline ID3D12Resource *create_buffer2_(unsigned int line, ID3D12Device *device,
+    D3D12_HEAP_TYPE heap_type, size_t size, D3D12_RESOURCE_FLAGS resource_flags)
+{
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC1 resource_desc;
+    ID3D12Device10 *device10;
+    ID3D12Resource *buffer;
+    HRESULT hr;
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = heap_type;
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Alignment = 0;
+    resource_desc.Width = size;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.SampleDesc.Quality = 0;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    resource_desc.Flags = resource_flags;
+
+    hr = ID3D12Device_QueryInterface(device, &IID_ID3D12Device10, (void **)&device10);
+    assert_that_(line)(SUCCEEDED(hr), "Failed to query device10 interface.\n");
+    if (FAILED(hr))
+        return NULL;
+
+    hr = ID3D12Device10_CreateCommittedResource3(device10, &heap_properties,
+            D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_BARRIER_LAYOUT_UNDEFINED,
+            NULL, NULL, 0, NULL, &IID_ID3D12Resource, (void **)&buffer);
+    assert_that_(line)(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+    ID3D12Device10_Release(device10);
+    return buffer;
+}
+
 #define create_readback_buffer(a, b) create_readback_buffer_(__LINE__, a, b)
 static inline ID3D12Resource *create_readback_buffer_(unsigned int line, ID3D12Device *device,
         size_t size)
 {
     return create_buffer_(line, device, D3D12_HEAP_TYPE_READBACK, size,
             D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+}
+
+#define create_readback_buffer2(a, b) create_readback_buffer2_(__LINE__, a, b)
+static inline ID3D12Resource *create_readback_buffer2_(unsigned int line, ID3D12Device *device,
+        size_t size)
+{
+    return create_buffer2_(line, device, D3D12_HEAP_TYPE_READBACK, size,
+            D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE);
 }
 
 #define update_buffer_data(a, b, c, d) update_buffer_data_(__LINE__, a, b, c, d)
@@ -214,6 +295,19 @@ static inline ID3D12Resource *create_upload_buffer_(unsigned int line, ID3D12Dev
 
     buffer = create_buffer_(line, device, D3D12_HEAP_TYPE_UPLOAD, size,
             D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ);
+    if (data)
+        update_buffer_data_(line, buffer, 0, size, data);
+    return buffer;
+}
+
+#define create_upload_buffer2(a, b, c) create_upload_buffer2_(__LINE__, a, b, c)
+static inline ID3D12Resource *create_upload_buffer2_(unsigned int line, ID3D12Device *device,
+        size_t size, const void *data)
+{
+    ID3D12Resource *buffer;
+
+    buffer = create_buffer2_(line, device, D3D12_HEAP_TYPE_UPLOAD, size,
+            D3D12_RESOURCE_FLAG_NONE);
     if (data)
         update_buffer_data_(line, buffer, 0, size, data);
     return buffer;
@@ -633,6 +727,14 @@ static inline ID3D12Resource *create_default_buffer_(unsigned int line, ID3D12De
             resource_flags, initial_resource_state);
 }
 
+#define create_default_buffer2(a, b, c) create_default_buffer2_(__LINE__, a, b, c)
+static inline ID3D12Resource *create_default_buffer2_(unsigned int line, ID3D12Device *device,
+    size_t size, D3D12_RESOURCE_FLAGS resource_flags)
+{
+    return create_buffer2_(line, device, D3D12_HEAP_TYPE_DEFAULT, size,
+            resource_flags);
+}
+
 static inline ID3D12Resource *create_default_texture_(unsigned int line, ID3D12Device *device,
         D3D12_RESOURCE_DIMENSION dimension, unsigned int width, unsigned int height,
         unsigned int depth_or_array_size, unsigned int miplevel_count, DXGI_FORMAT format,
@@ -664,6 +766,43 @@ static inline ID3D12Resource *create_default_texture_(unsigned int line, ID3D12D
     return texture;
 }
 
+static inline ID3D12Resource *create_default_texture_enhanced_(unsigned int line, ID3D12Device *device,
+        D3D12_RESOURCE_DIMENSION dimension, unsigned int width, unsigned int height,
+        unsigned int depth_or_array_size, unsigned int miplevel_count, DXGI_FORMAT format,
+        D3D12_RESOURCE_FLAGS flags, D3D12_BARRIER_LAYOUT initial_layout)
+{
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_RESOURCE_DESC1 resource_desc;
+    ID3D12Device10 *device10;
+    ID3D12Resource *texture;
+    HRESULT hr;
+
+    assert(dimension != D3D12_RESOURCE_DIMENSION_BUFFER);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    if (FAILED(ID3D12Device_QueryInterface(device, &IID_ID3D12Device10, (void **)&device10)))
+        return NULL;
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = dimension;
+    resource_desc.Width = width;
+    resource_desc.Height = height;
+    resource_desc.DepthOrArraySize = depth_or_array_size;
+    resource_desc.MipLevels = miplevel_count;
+    resource_desc.Format = format;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.Flags = flags;
+    hr = ID3D12Device10_CreateCommittedResource3(device10, &heap_properties, D3D12_HEAP_FLAG_NONE,
+        &resource_desc, initial_layout, NULL, NULL, 0, NULL, &IID_ID3D12Resource, (void **)&texture);
+    ok_(line)(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+
+    ID3D12Device10_Release(device10);
+
+    return texture;
+}
+
 #define create_default_texture(a, b, c, d, e, f) create_default_texture2d_(__LINE__, a, b, c, 1, 1, d, e, f)
 #define create_default_texture2d(a, b, c, d, e, f, g, h) create_default_texture2d_(__LINE__, a, b, c, d, e, f, g, h)
 static inline ID3D12Resource *create_default_texture2d_(unsigned int line, ID3D12Device *device,
@@ -674,6 +813,16 @@ static inline ID3D12Resource *create_default_texture2d_(unsigned int line, ID3D1
             width, height, array_size, miplevel_count, format, flags, initial_state);
 }
 
+#define create_default_texture_enhanced(a, b, c, d, e, f) create_default_texture2d_enhanced_(__LINE__, a, b, c, 1, 1, d, e, f)
+#define create_default_texture2d_enhanced(a, b, c, d, e, f, g, h) create_default_texture2d_enhanced_(__LINE__, a, b, c, d, e, f, g, h)
+static inline ID3D12Resource *create_default_texture2d_enhanced_(unsigned int line, ID3D12Device *device,
+    unsigned int width, unsigned int height, unsigned int array_size, unsigned int miplevel_count,
+    DXGI_FORMAT format, D3D12_RESOURCE_FLAGS flags, D3D12_BARRIER_LAYOUT initial_layout)
+{
+    return create_default_texture_enhanced_(line, device, D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+        width, height, array_size, miplevel_count, format, flags, initial_layout);
+}
+
 #define create_default_texture3d(a, b, c, d, e, f, g, h) create_default_texture3d_(__LINE__, a, b, c, d, e, f, g, h)
 static inline ID3D12Resource *create_default_texture3d_(unsigned int line, ID3D12Device *device,
         unsigned int width, unsigned int height, unsigned int depth, unsigned int miplevel_count,
@@ -681,6 +830,15 @@ static inline ID3D12Resource *create_default_texture3d_(unsigned int line, ID3D1
 {
     return create_default_texture_(line, device, D3D12_RESOURCE_DIMENSION_TEXTURE3D,
             width, height, depth, miplevel_count, format, flags, initial_state);
+}
+
+#define create_default_texture3d_enhanced(a, b, c, d, e, f, g, h) create_default_texture3d_enhanced_(__LINE__, a, b, c, d, e, f, g, h)
+static inline ID3D12Resource *create_default_texture3d_enhanced_(unsigned int line, ID3D12Device *device,
+    unsigned int width, unsigned int height, unsigned int depth, unsigned int miplevel_count,
+    DXGI_FORMAT format, D3D12_RESOURCE_FLAGS flags, D3D12_BARRIER_LAYOUT initial_layout)
+{
+    return create_default_texture_enhanced_(line, device, D3D12_RESOURCE_DIMENSION_TEXTURE3D,
+        width, height, depth, miplevel_count, format, flags, initial_layout);
 }
 
 static inline HRESULT create_root_signature(ID3D12Device *device, const D3D12_ROOT_SIGNATURE_DESC *desc,
@@ -1293,6 +1451,10 @@ void upload_buffer_data_(unsigned int line, ID3D12Resource *buffer, size_t offse
 void upload_texture_data_(unsigned int line, ID3D12Resource *texture,
         const D3D12_SUBRESOURCE_DATA *data, unsigned int sub_resource_count,
         ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list);
+void upload_texture_data_base_(unsigned int line, ID3D12Resource *texture,
+        const D3D12_SUBRESOURCE_DATA *data,
+        unsigned int first_subresource, unsigned int sub_resource_count,
+        ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list);
 void init_readback(struct resource_readback *rb, ID3D12Resource *buffer,
         uint64_t buffer_size, uint64_t width, uint64_t height, unsigned int depth, uint64_t row_pitch);
 
@@ -1379,6 +1541,7 @@ void destroy_depth_stencil_(unsigned int line, struct depth_stencil_resource *ds
 #define check_alignment(a, b) check_alignment_(__LINE__, a, b)
 #define upload_buffer_data(a, b, c, d, e, f) upload_buffer_data_(__LINE__, a, b, c, d, e, f)
 #define upload_texture_data(a, b, c, d, e) upload_texture_data_(__LINE__, a, b, c, d, e)
+#define upload_texture_data_base(a, b, c, d, e, f) upload_texture_data_base_(__LINE__, a, b, c, d, e, f)
 #define check_readback_data_float(a, b, c, d) check_readback_data_float_(__LINE__, a, b, c, d)
 #define check_sub_resource_float(a, b, c, d, e, f) check_sub_resource_float_(__LINE__, a, b, c, d, e, f)
 #define check_readback_data_uint8(a, b, c, d) check_readback_data_uint8_(__LINE__, a, b, c, d)
@@ -1456,6 +1619,26 @@ union d3d12_rasterizer_subobject
     {
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
         D3D12_RASTERIZER_DESC rasterizer_desc;
+    };
+    void *dummy_align;
+};
+
+union d3d12_rasterizer1_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        D3D12_RASTERIZER_DESC1 rasterizer_desc;
+    };
+    void *dummy_align;
+};
+
+union d3d12_rasterizer2_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        D3D12_RASTERIZER_DESC2 rasterizer_desc;
     };
     void *dummy_align;
 };
@@ -1566,6 +1749,16 @@ union d3d12_depth_stencil1_subobject
     {
         D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
         D3D12_DEPTH_STENCIL_DESC1 depth_stencil_desc;
+    };
+    void *dummy_align;
+};
+
+union d3d12_depth_stencil2_subobject
+{
+    struct
+    {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type;
+        D3D12_DEPTH_STENCIL_DESC2 depth_stencil_desc;
     };
     void *dummy_align;
 };

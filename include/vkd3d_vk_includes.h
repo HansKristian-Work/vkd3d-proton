@@ -28,12 +28,15 @@
     typedef UINT64 VkSurfaceKHR;
 #endif 
 
+typedef struct VkPhysicalDeviceFeatures2 VkPhysicalDeviceFeatures2;
 typedef struct VkPhysicalDevice_T *VkPhysicalDevice;
 typedef struct VkCommandBuffer_T *VkCommandBuffer;
 typedef struct VkInstance_T *VkInstance;
 typedef struct VkDevice_T *VkDevice;
+typedef struct VkQueue_T *VkQueue;
 
 typedef enum VkResult VkResult;
+typedef enum VkImageLayout VkImageLayout;
 
 typedef enum D3D12_VK_EXTENSION
 {

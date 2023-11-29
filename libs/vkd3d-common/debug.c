@@ -57,6 +57,12 @@ static unsigned int vkd3d_dbg_level[VKD3D_DBG_CHANNEL_COUNT];
 static spinlock_t vkd3d_dbg_initialized;
 static pthread_once_t vkd3d_dbg_once = PTHREAD_ONCE_INIT;
 static FILE *vkd3d_log_file;
+static bool vkd3d_disable_file;
+
+void vkd3d_dbg_disable_debug_file(void)
+{
+    vkd3d_disable_file = true;
+}
 
 #ifdef _WIN32
 typedef int (*PFN_wine_log)(const char *);
@@ -102,7 +108,7 @@ static void vkd3d_dbg_init_once(void)
         vkd3d_dbg_buffer.buffer = malloc(vkd3d_dbg_buffer.size);
     }
 
-    if (vkd3d_get_env_var("VKD3D_LOG_FILE", vkd3d_debug, sizeof(vkd3d_debug)))
+    if (!vkd3d_disable_file && vkd3d_get_env_var("VKD3D_LOG_FILE", vkd3d_debug, sizeof(vkd3d_debug)))
     {
         /* Avoid extra formatting overhead when using buffered. */
         vkd3d_log_file = fopen(vkd3d_debug, vkd3d_dbg_buffer.buffer ? "wb" : "w");
@@ -142,14 +148,16 @@ enum vkd3d_dbg_level vkd3d_dbg_get_level(enum vkd3d_dbg_channel channel)
 
 void vkd3d_dbg_printf(enum vkd3d_dbg_channel channel, enum vkd3d_dbg_level level, const char *function, const char *fmt, ...)
 {
-    FILE *log_file = vkd3d_log_file ? vkd3d_log_file : stderr;
     static spinlock_t spin;
     unsigned int tid;
+    FILE *log_file;
     va_list args;
 
     if (vkd3d_dbg_get_level(channel) < level)
         return;
     assert(level < ARRAY_SIZE(debug_level_names));
+
+    log_file = vkd3d_log_file ? vkd3d_log_file : stderr;
 
     va_start(args, fmt);
     tid = vkd3d_get_current_thread_id();

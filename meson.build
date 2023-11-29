@@ -1,4 +1,4 @@
-project('vkd3d-proton', ['c'], version : '2.8', meson_version : '>= 0.49', default_options : [
+project('vkd3d-proton', ['c'], version : '2.11', meson_version : '>= 0.49', default_options : [
   'warning_level=2',
 ])
 
@@ -75,18 +75,21 @@ vkd3d_private_includes  = include_directories(vkd3d_private_includes)
 vkd3d_shader_private_includes = [ './libs/vkd3d-shader' ]
 vkd3d_shader_private_includes = include_directories(vkd3d_shader_private_includes)
 
-idl_compiler  = find_program('widl')
+idl_compiler  = find_program('widl', required : false)
+# widl-stable is used on Debian. If cross-file defines widl-mingw-tools-fallback, that will also be attempted.
+if not idl_compiler.found()
+  idl_compiler  = find_program('widl-stable', 'widl-mingw-tools-fallback')
+endif
+
 idl_generator = generator(idl_compiler,
   output    : [ '@BASENAME@.h' ],
   arguments : [ '-h', '-o', '@OUTPUT@', '@INPUT@' ])
 
-glsl_compiler  = find_program('glslangValidator')
-glsl_args = [ '-V', '--target-env', 'vulkan1.1', '--vn', '@BASENAME@', '@INPUT@', '-o', '@OUTPUT@' ]
-if run_command(glsl_compiler, [ '--quiet', '--version' ], check : false).returncode() == 0
-    glsl_args += [ '--quiet' ]
-endif
+glsl_compiler  = find_program('glslang', 'glslangValidator')
+glsl_args = [ '-V', '--target-env', 'vulkan1.3', '--vn', '@BASENAME@', '@INPUT@', '-o', '@OUTPUT@', '--depfile', '@DEPFILE@', '--quiet' ]
 glsl_generator = generator(glsl_compiler,
   output    : [ '@BASENAME@.h' ],
+  depfile   : '@BASENAME@.h.d',
   arguments : glsl_args)
 
 threads_dep = dependency('threads')
@@ -103,6 +106,8 @@ endif
 
 add_project_arguments(vkd3d_compiler.get_supported_arguments([
     '-fvisibility=hidden',
+    '-msse',
+    '-msse2',
     # For some reason, the use of VLAs isn't in all+extra+pedantic
     # We don't want to use these accidentally from consts...
     '-Wvla',
@@ -139,6 +144,18 @@ if not vkd3d_is_msvc
   # work properly as well as avoiding a memcpy from the Wine loader.
   if vkd3d_compiler.has_link_argument('-Wl,--file-alignment=4096')
     add_global_link_arguments('-Wl,--file-alignment=4096', language : [ 'c', 'cpp' ])
+  endif
+endif
+
+if vkd3d_platform == 'windows'
+  if vkd3d_compiler.has_link_argument('-static')
+    add_global_link_arguments('-static', language : [ 'c', 'cpp' ])
+  endif
+  if vkd3d_compiler.has_link_argument('-static-libgcc')
+    add_global_link_arguments('-static-libgcc', language : [ 'c', 'cpp' ])
+  endif
+  if vkd3d_compiler.has_link_argument('-static-libstdc++')
+    add_global_link_arguments('-static-libstdc++', language : [ 'cpp' ])
   endif
 endif
 

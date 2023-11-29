@@ -2724,6 +2724,24 @@ static int shader_parse_root_parameters1(struct root_signature_parser_context *c
     return VKD3D_OK;
 }
 
+static void shader_parse_static_sampler_payload_base(const char **ptr,
+        struct vkd3d_static_sampler_desc *sampler_desc)
+{
+    read_uint32(ptr, &sampler_desc->filter);
+    read_uint32(ptr, &sampler_desc->address_u);
+    read_uint32(ptr, &sampler_desc->address_v);
+    read_uint32(ptr, &sampler_desc->address_w);
+    read_float(ptr, &sampler_desc->mip_lod_bias);
+    read_uint32(ptr, &sampler_desc->max_anisotropy);
+    read_uint32(ptr, &sampler_desc->comparison_func);
+    read_uint32(ptr, &sampler_desc->border_color);
+    read_float(ptr, &sampler_desc->min_lod);
+    read_float(ptr, &sampler_desc->max_lod);
+    read_uint32(ptr, &sampler_desc->shader_register);
+    read_uint32(ptr, &sampler_desc->register_space);
+    read_uint32(ptr, &sampler_desc->shader_visibility);
+}
+
 static int shader_parse_static_samplers(struct root_signature_parser_context *context,
         unsigned int offset, unsigned int count, struct vkd3d_static_sampler_desc *sampler_descs)
 {
@@ -2738,20 +2756,28 @@ static int shader_parse_static_samplers(struct root_signature_parser_context *co
     ptr = &context->data[offset];
 
     for (i = 0; i < count; ++i)
+        shader_parse_static_sampler_payload_base(&ptr, &sampler_descs[i]);
+
+    return VKD3D_OK;
+}
+
+static int shader_parse_static_samplers1(struct root_signature_parser_context *context,
+        unsigned int offset, unsigned int count, struct vkd3d_static_sampler_desc1 *sampler_descs)
+{
+    const char *ptr;
+    unsigned int i;
+
+    if (!require_space(offset, 14 * count, sizeof(DWORD), context->data_size))
     {
-        read_uint32(&ptr, &sampler_descs[i].filter);
-        read_uint32(&ptr, &sampler_descs[i].address_u);
-        read_uint32(&ptr, &sampler_descs[i].address_v);
-        read_uint32(&ptr, &sampler_descs[i].address_w);
-        read_float(&ptr, &sampler_descs[i].mip_lod_bias);
-        read_uint32(&ptr, &sampler_descs[i].max_anisotropy);
-        read_uint32(&ptr, &sampler_descs[i].comparison_func);
-        read_uint32(&ptr, &sampler_descs[i].border_color);
-        read_float(&ptr, &sampler_descs[i].min_lod);
-        read_float(&ptr, &sampler_descs[i].max_lod);
-        read_uint32(&ptr, &sampler_descs[i].shader_register);
-        read_uint32(&ptr, &sampler_descs[i].register_space);
-        read_uint32(&ptr, &sampler_descs[i].shader_visibility);
+        WARN("Invalid data size %#x (offset %u, count %u).\n", context->data_size, offset, count);
+        return VKD3D_ERROR_INVALID_ARGUMENT;
+    }
+    ptr = &context->data[offset];
+
+    for (i = 0; i < count; ++i)
+    {
+        shader_parse_static_sampler_payload_base(&ptr, (struct vkd3d_static_sampler_desc *)&sampler_descs[i]);
+        read_uint32(&ptr, &sampler_descs[i].flags);
     }
 
     return VKD3D_OK;
@@ -2761,6 +2787,7 @@ int vkd3d_shader_parse_root_signature_raw(const char *data, unsigned int data_si
         struct vkd3d_versioned_root_signature_desc *desc,
         vkd3d_shader_hash_t *compatibility_hash)
 {
+    struct vkd3d_root_signature_desc2 *v_1_2 = &desc->v_1_2;
     struct vkd3d_root_signature_desc *v_1_0 = &desc->v_1_0;
     struct root_signature_parser_context context;
     unsigned int count, offset, version;
@@ -2780,7 +2807,7 @@ int vkd3d_shader_parse_root_signature_raw(const char *data, unsigned int data_si
 
     read_uint32(&ptr, &version);
     TRACE("Version %#x.\n", version);
-    if (version != VKD3D_ROOT_SIGNATURE_VERSION_1_0 && version != VKD3D_ROOT_SIGNATURE_VERSION_1_1)
+    if (!vkd3d_root_signature_version_is_supported(version))
     {
         FIXME("Unknown version %#x.\n", version);
         return VKD3D_ERROR_INVALID_ARGUMENT;
@@ -2808,7 +2835,7 @@ int vkd3d_shader_parse_root_signature_raw(const char *data, unsigned int data_si
     {
         struct vkd3d_root_signature_desc1 *v_1_1 = &desc->v_1_1;
 
-        assert(version == VKD3D_ROOT_SIGNATURE_VERSION_1_1);
+        assert(version == VKD3D_ROOT_SIGNATURE_VERSION_1_1 || version == VKD3D_ROOT_SIGNATURE_VERSION_1_2);
 
         v_1_1->parameter_count = count;
         if (v_1_1->parameter_count)
@@ -2826,15 +2853,33 @@ int vkd3d_shader_parse_root_signature_raw(const char *data, unsigned int data_si
     read_uint32(&ptr, &offset);
     TRACE("Static sampler count %u, offset %u.\n", count, offset);
 
-    v_1_0->static_sampler_count = count;
-    if (v_1_0->static_sampler_count)
+    if (version == VKD3D_ROOT_SIGNATURE_VERSION_1_2)
     {
-        struct vkd3d_static_sampler_desc *samplers;
-        if (!(samplers = vkd3d_calloc(v_1_0->static_sampler_count, sizeof(*samplers))))
-            return VKD3D_ERROR_OUT_OF_MEMORY;
-        v_1_0->static_samplers = samplers;
-        if ((ret = shader_parse_static_samplers(&context, offset, count, samplers)) < 0)
-            return ret;
+        v_1_2->static_sampler_count = count;
+        if (v_1_2->static_sampler_count)
+        {
+            struct vkd3d_static_sampler_desc1 *samplers;
+            if (!(samplers = vkd3d_calloc(v_1_2->static_sampler_count, sizeof(*samplers))))
+                return VKD3D_ERROR_OUT_OF_MEMORY;
+            v_1_2->static_samplers = samplers;
+            if ((ret = shader_parse_static_samplers1(&context, offset, count, samplers)) < 0)
+                return ret;
+        }
+    }
+    else
+    {
+        assert(version == VKD3D_ROOT_SIGNATURE_VERSION_1_0 || version == VKD3D_ROOT_SIGNATURE_VERSION_1_1);
+
+        v_1_0->static_sampler_count = count;
+        if (v_1_0->static_sampler_count)
+        {
+            struct vkd3d_static_sampler_desc *samplers;
+            if (!(samplers = vkd3d_calloc(v_1_0->static_sampler_count, sizeof(*samplers))))
+                return VKD3D_ERROR_OUT_OF_MEMORY;
+            v_1_0->static_samplers = samplers;
+            if ((ret = shader_parse_static_samplers(&context, offset, count, samplers)) < 0)
+                return ret;
+        }
     }
 
     read_uint32(&ptr, &v_1_0->flags);
@@ -2876,7 +2921,15 @@ int vkd3d_shader_parse_root_signature(const struct vkd3d_shader_code *dxbc,
         return ret;
 
     if (!raw_payload.code)
-        return VKD3D_ERROR;
+    {
+        /* This might be a DXIL lib target in which case we have to parse subobjects. */
+        if (!shader_is_dxil(dxbc->code, dxbc->size))
+            return VKD3D_ERROR;
+
+        /* Payload subobjects do not own any memory, they point directly to blob. No need to free. */
+        if ((ret = vkd3d_shader_dxil_find_global_root_signature_subobject(dxbc->code, dxbc->size, &raw_payload)))
+            return ret;
+    }
 
     if ((ret = vkd3d_shader_parse_root_signature_raw(raw_payload.code, raw_payload.size,
             root_signature, compatibility_hash)) < 0)
@@ -2931,13 +2984,27 @@ static unsigned int versioned_root_signature_get_static_sampler_count(const stru
         return desc->v_1_1.static_sampler_count;
 }
 
-static const struct vkd3d_static_sampler_desc *versioned_root_signature_get_static_samplers(
-        const struct vkd3d_versioned_root_signature_desc *desc)
+static const struct vkd3d_static_sampler_desc *versioned_root_signature_get_static_sampler(
+        const struct vkd3d_versioned_root_signature_desc *desc, unsigned int index)
 {
     if (desc->version == VKD3D_ROOT_SIGNATURE_VERSION_1_0)
-        return desc->v_1_0.static_samplers;
+        return &desc->v_1_0.static_samplers[index];
+    else if (desc->version == VKD3D_ROOT_SIGNATURE_VERSION_1_1)
+        return &desc->v_1_1.static_samplers[index];
     else
-        return desc->v_1_1.static_samplers;
+    {
+        /* STATIC_SAMPLER1 just appends flags member. */
+        return (const struct vkd3d_static_sampler_desc *)&desc->v_1_2.static_samplers[index];
+    }
+}
+
+static const struct vkd3d_static_sampler_desc1 *versioned_root_signature_get_static_sampler1(
+        const struct vkd3d_versioned_root_signature_desc *desc, unsigned int index)
+{
+    if (desc->version < VKD3D_ROOT_SIGNATURE_VERSION_1_2)
+        return NULL;
+    else
+        return &desc->v_1_2.static_samplers[index];
 }
 
 static unsigned int versioned_root_signature_get_flags(const struct vkd3d_versioned_root_signature_desc *desc)
@@ -3188,37 +3255,45 @@ static int shader_write_root_parameters(struct root_signature_writer_context *co
 static int shader_write_static_samplers(struct root_signature_writer_context *context,
         const struct vkd3d_versioned_root_signature_desc *desc)
 {
-    const struct vkd3d_static_sampler_desc *samplers = versioned_root_signature_get_static_samplers(desc);
+    const struct vkd3d_static_sampler_desc1 *sampler1;
+    const struct vkd3d_static_sampler_desc *sampler;
     unsigned int i;
 
     for (i = 0; i < versioned_root_signature_get_static_sampler_count(desc); ++i)
     {
-        if (!write_dword(context, samplers[i].filter))
+        sampler = versioned_root_signature_get_static_sampler(desc, i);
+        if (!write_dword(context, sampler->filter))
             return VKD3D_ERROR_OUT_OF_MEMORY;
-        if (!write_dword(context, samplers[i].address_u))
+        if (!write_dword(context, sampler->address_u))
             return VKD3D_ERROR_OUT_OF_MEMORY;
-        if (!write_dword(context, samplers[i].address_v))
+        if (!write_dword(context, sampler->address_v))
             return VKD3D_ERROR_OUT_OF_MEMORY;
-        if (!write_dword(context, samplers[i].address_w))
+        if (!write_dword(context, sampler->address_w))
             return VKD3D_ERROR_OUT_OF_MEMORY;
-        if (!write_float(context, samplers[i].mip_lod_bias))
+        if (!write_float(context, sampler->mip_lod_bias))
             return VKD3D_ERROR_OUT_OF_MEMORY;
-        if (!write_dword(context, samplers[i].max_anisotropy))
+        if (!write_dword(context, sampler->max_anisotropy))
             return VKD3D_ERROR_OUT_OF_MEMORY;
-        if (!write_dword(context, samplers[i].comparison_func))
+        if (!write_dword(context, sampler->comparison_func))
             return VKD3D_ERROR_OUT_OF_MEMORY;
-        if (!write_dword(context, samplers[i].border_color))
+        if (!write_dword(context, sampler->border_color))
             return VKD3D_ERROR_OUT_OF_MEMORY;
-        if (!write_float(context, samplers[i].min_lod))
+        if (!write_float(context, sampler->min_lod))
             return VKD3D_ERROR_OUT_OF_MEMORY;
-        if (!write_float(context, samplers[i].max_lod))
+        if (!write_float(context, sampler->max_lod))
             return VKD3D_ERROR_OUT_OF_MEMORY;
-        if (!write_dword(context, samplers[i].shader_register))
+        if (!write_dword(context, sampler->shader_register))
             return VKD3D_ERROR_OUT_OF_MEMORY;
-        if (!write_dword(context, samplers[i].register_space))
+        if (!write_dword(context, sampler->register_space))
             return VKD3D_ERROR_OUT_OF_MEMORY;
-        if (!write_dword(context, samplers[i].shader_visibility))
+        if (!write_dword(context, sampler->shader_visibility))
             return VKD3D_ERROR_OUT_OF_MEMORY;
+        if (desc->version >= VKD3D_ROOT_SIGNATURE_VERSION_1_2)
+        {
+            sampler1 = versioned_root_signature_get_static_sampler1(desc, i);
+            if (!write_dword(context, sampler1->flags))
+                return VKD3D_ERROR_OUT_OF_MEMORY;
+        }
     }
 
     return VKD3D_OK;
@@ -3361,8 +3436,7 @@ int vkd3d_shader_serialize_root_signature(const struct vkd3d_versioned_root_sign
 
     TRACE("root_signature %p, dxbc %p.\n", root_signature, dxbc);
 
-    if (root_signature->version != VKD3D_ROOT_SIGNATURE_VERSION_1_0
-            && root_signature->version != VKD3D_ROOT_SIGNATURE_VERSION_1_1)
+    if (!vkd3d_root_signature_version_is_supported(root_signature->version))
     {
         WARN("Root signature version %#x not supported.\n", root_signature->version);
         return VKD3D_ERROR_INVALID_ARGUMENT;
@@ -3477,14 +3551,33 @@ fail:
     return ret;
 }
 
+static void convert_static_sampler_to_v_1_0(struct vkd3d_static_sampler_desc *dst,
+        const struct vkd3d_static_sampler_desc1 *src)
+{
+    /* Just drop the flags field. This is not an error in the runtime. */
+    memcpy(dst, src, sizeof(*dst));
+}
+
+static void convert_static_sampler_to_v_1_2(struct vkd3d_static_sampler_desc1 *dst,
+        const struct vkd3d_static_sampler_desc *src)
+{
+    memcpy(dst, src, sizeof(*src));
+    dst->flags = VKD3D_SAMPLER_FLAG_NONE;
+}
+
 static int convert_root_signature_to_v1_0(struct vkd3d_versioned_root_signature_desc *dst,
         const struct vkd3d_versioned_root_signature_desc *src)
 {
+    const struct vkd3d_root_signature_desc2 *src_desc2 = &src->v_1_2;
     const struct vkd3d_root_signature_desc1 *src_desc = &src->v_1_1;
     struct vkd3d_root_signature_desc *dst_desc = &dst->v_1_0;
     struct vkd3d_static_sampler_desc *samplers = NULL;
     struct vkd3d_root_parameter *parameters = NULL;
+    unsigned int i;
     int ret;
+
+    /* v1.1 and v1.2 are identical for root parameters. */
+    assert(src->version == VKD3D_ROOT_SIGNATURE_VERSION_1_1 || src->version == VKD3D_ROOT_SIGNATURE_VERSION_1_2);
 
     if ((dst_desc->parameter_count = src_desc->parameter_count))
     {
@@ -3504,7 +3597,15 @@ static int convert_root_signature_to_v1_0(struct vkd3d_versioned_root_signature_
             ret = VKD3D_ERROR_OUT_OF_MEMORY;
             goto fail;
         }
-        memcpy(samplers, src_desc->static_samplers, src_desc->static_sampler_count * sizeof(*samplers));
+
+        if (src->version == VKD3D_ROOT_SIGNATURE_VERSION_1_2)
+        {
+            /* Silently drop the flags field. This is not an error in the runtime. */
+            for (i = 0; i < src_desc2->static_sampler_count; i++)
+                convert_static_sampler_to_v_1_0(&samplers[i], &src_desc2->static_samplers[i]);
+        }
+        else
+            memcpy(samplers, src_desc->static_samplers, src_desc->static_sampler_count * sizeof(*samplers));
     }
     dst_desc->static_samplers = samplers;
     dst_desc->flags = src_desc->flags;
@@ -3532,6 +3633,59 @@ static void free_descriptor_ranges1(const struct vkd3d_root_parameter1 *paramete
         if (p->parameter_type == VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
             vkd3d_free((void *)p->descriptor_table.descriptor_ranges);
     }
+}
+
+static int dup_root_parameters_v_1_1(struct vkd3d_root_parameter1 *dst,
+        const struct vkd3d_root_parameter1 *src, unsigned int count)
+{
+    struct vkd3d_descriptor_range1 *ranges;
+    unsigned int i;
+    int ret;
+
+    for (i = 0; i < count; ++i)
+    {
+        const struct vkd3d_root_parameter1 *src_param = &src[i];
+        struct vkd3d_root_parameter1 *dst_param = &dst[i];
+
+        dst_param->parameter_type = src_param->parameter_type;
+        switch (src_param->parameter_type)
+        {
+            case VKD3D_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+                ranges = NULL;
+                if ((dst_param->descriptor_table.descriptor_range_count = src_param->descriptor_table.descriptor_range_count))
+                {
+                    if (!(ranges = vkd3d_calloc(src_param->descriptor_table.descriptor_range_count, sizeof(*ranges))))
+                    {
+                        ret = VKD3D_ERROR_OUT_OF_MEMORY;
+                        goto fail;
+                    }
+                    memcpy(ranges, src_param->descriptor_table.descriptor_ranges, sizeof(*ranges) *
+                            src_param->descriptor_table.descriptor_range_count);
+                }
+                dst_param->descriptor_table.descriptor_ranges = ranges;
+                break;
+            case VKD3D_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
+                dst_param->constants = src_param->constants;
+                break;
+            case VKD3D_ROOT_PARAMETER_TYPE_CBV:
+            case VKD3D_ROOT_PARAMETER_TYPE_SRV:
+            case VKD3D_ROOT_PARAMETER_TYPE_UAV:
+                dst_param->descriptor = src_param->descriptor;
+                break;
+            default:
+                WARN("Invalid root parameter type %#x.\n", src_param->parameter_type);
+                ret = VKD3D_ERROR_INVALID_ARGUMENT;
+                goto fail;
+
+        }
+        dst_param->shader_visibility = src_param->shader_visibility;
+    }
+
+    return VKD3D_OK;
+
+fail:
+    free_descriptor_ranges1(dst, i);
+    return ret;
 }
 
 static int convert_root_parameters_to_v_1_1(struct vkd3d_root_parameter1 *dst,
@@ -3601,11 +3755,15 @@ fail:
 static int convert_root_signature_to_v1_1(struct vkd3d_versioned_root_signature_desc *dst,
         const struct vkd3d_versioned_root_signature_desc *src)
 {
+    const struct vkd3d_root_signature_desc2 *src_desc2 = &src->v_1_2;
     const struct vkd3d_root_signature_desc *src_desc = &src->v_1_0;
     struct vkd3d_root_signature_desc1 *dst_desc = &dst->v_1_1;
     struct vkd3d_static_sampler_desc *samplers = NULL;
     struct vkd3d_root_parameter1 *parameters = NULL;
+    unsigned int i;
     int ret;
+
+    assert(src->version == VKD3D_ROOT_SIGNATURE_VERSION_1_0 || src->version == VKD3D_ROOT_SIGNATURE_VERSION_1_2);
 
     if ((dst_desc->parameter_count = src_desc->parameter_count))
     {
@@ -3614,8 +3772,21 @@ static int convert_root_signature_to_v1_1(struct vkd3d_versioned_root_signature_
             ret = VKD3D_ERROR_OUT_OF_MEMORY;
             goto fail;
         }
-        if ((ret = convert_root_parameters_to_v_1_1(parameters, src_desc->parameters, src_desc->parameter_count)) < 0)
-            goto fail;
+
+        if (src->version == VKD3D_ROOT_SIGNATURE_VERSION_1_2)
+        {
+            if ((ret = dup_root_parameters_v_1_1(parameters,
+                    src_desc2->parameters,
+                    src_desc2->parameter_count)) < 0)
+                goto fail;
+        }
+        else
+        {
+            if ((ret = convert_root_parameters_to_v_1_1(parameters,
+                    src_desc->parameters,
+                    src_desc->parameter_count)) < 0)
+                goto fail;
+        }
     }
     dst_desc->parameters = parameters;
     if ((dst_desc->static_sampler_count = src_desc->static_sampler_count))
@@ -3625,7 +3796,75 @@ static int convert_root_signature_to_v1_1(struct vkd3d_versioned_root_signature_
             ret = VKD3D_ERROR_OUT_OF_MEMORY;
             goto fail;
         }
-        memcpy(samplers, src_desc->static_samplers, src_desc->static_sampler_count * sizeof(*samplers));
+
+        if (src->version == VKD3D_ROOT_SIGNATURE_VERSION_1_2)
+        {
+            /* Silently drop the flags field. This is not an error in the runtime. */
+            for (i = 0; i < src_desc2->static_sampler_count; i++)
+                convert_static_sampler_to_v_1_0(&samplers[i], &src_desc2->static_samplers[i]);
+        }
+        else
+            memcpy(samplers, src_desc->static_samplers, src_desc->static_sampler_count * sizeof(*samplers));
+    }
+    dst_desc->static_samplers = samplers;
+    dst_desc->flags = src_desc->flags;
+
+    return VKD3D_OK;
+
+fail:
+    free_descriptor_ranges1(parameters, dst_desc->parameter_count);
+    vkd3d_free(parameters);
+    vkd3d_free(samplers);
+    return ret;
+}
+
+static int convert_root_signature_to_v1_2(struct vkd3d_versioned_root_signature_desc *dst,
+        const struct vkd3d_versioned_root_signature_desc *src)
+{
+    const struct vkd3d_root_signature_desc1 *src_desc1 = &src->v_1_1;
+    const struct vkd3d_root_signature_desc *src_desc = &src->v_1_0;
+    struct vkd3d_root_signature_desc2 *dst_desc = &dst->v_1_2;
+    struct vkd3d_static_sampler_desc1 *samplers = NULL;
+    struct vkd3d_root_parameter1 *parameters = NULL;
+    unsigned int i;
+    int ret;
+
+    assert(src->version == VKD3D_ROOT_SIGNATURE_VERSION_1_0 || src->version == VKD3D_ROOT_SIGNATURE_VERSION_1_1);
+
+    if ((dst_desc->parameter_count = src_desc->parameter_count))
+    {
+        if (!(parameters = vkd3d_calloc(dst_desc->parameter_count, sizeof(*parameters))))
+        {
+            ret = VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
+        }
+
+        if (src->version == VKD3D_ROOT_SIGNATURE_VERSION_1_1)
+        {
+            if ((ret = dup_root_parameters_v_1_1(parameters,
+                    src_desc1->parameters,
+                    src_desc1->parameter_count)) < 0)
+                goto fail;
+        }
+        else
+        {
+            if ((ret = convert_root_parameters_to_v_1_1(parameters,
+                    src_desc->parameters,
+                    src_desc->parameter_count)) < 0)
+                goto fail;
+        }
+    }
+    dst_desc->parameters = parameters;
+    if ((dst_desc->static_sampler_count = src_desc->static_sampler_count))
+    {
+        if (!(samplers = vkd3d_calloc(dst_desc->static_sampler_count, sizeof(*samplers))))
+        {
+            ret = VKD3D_ERROR_OUT_OF_MEMORY;
+            goto fail;
+        }
+
+        for (i = 0; i < src_desc1->static_sampler_count; i++)
+            convert_static_sampler_to_v_1_2(&samplers[i], &src_desc1->static_samplers[i]);
     }
     dst_desc->static_samplers = samplers;
     dst_desc->flags = src_desc->flags;
@@ -3652,13 +3891,13 @@ int vkd3d_shader_convert_root_signature(struct vkd3d_versioned_root_signature_de
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
-    if (version != VKD3D_ROOT_SIGNATURE_VERSION_1_0 && version != VKD3D_ROOT_SIGNATURE_VERSION_1_1)
+    if (!vkd3d_root_signature_version_is_supported(version))
     {
         WARN("Root signature version %#x not supported.\n", version);
         return VKD3D_ERROR_INVALID_ARGUMENT;
     }
 
-    if (src->version != VKD3D_ROOT_SIGNATURE_VERSION_1_0 && src->version != VKD3D_ROOT_SIGNATURE_VERSION_1_1)
+    if (!vkd3d_root_signature_version_is_supported(src->version))
     {
         WARN("Root signature version %#x not supported.\n", src->version);
         return VKD3D_ERROR_INVALID_ARGUMENT;
@@ -3671,10 +3910,14 @@ int vkd3d_shader_convert_root_signature(struct vkd3d_versioned_root_signature_de
     {
         ret = convert_root_signature_to_v1_0(dst, src);
     }
+    else if (version == VKD3D_ROOT_SIGNATURE_VERSION_1_1)
+    {
+        ret = convert_root_signature_to_v1_1(dst, src);
+    }
     else
     {
-        assert(version == VKD3D_ROOT_SIGNATURE_VERSION_1_1);
-        ret = convert_root_signature_to_v1_1(dst, src);
+        assert(version == VKD3D_ROOT_SIGNATURE_VERSION_1_2);
+        ret = convert_root_signature_to_v1_2(dst, src);
     }
 
     return ret;

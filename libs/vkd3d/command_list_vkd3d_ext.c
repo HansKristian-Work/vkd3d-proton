@@ -20,14 +20,14 @@
 
 #include "vkd3d_private.h"
 
-static inline struct d3d12_command_list *d3d12_command_list_from_ID3D12GraphicsCommandListExt(ID3D12GraphicsCommandListExt *iface)
+static inline struct d3d12_command_list *d3d12_command_list_from_ID3D12GraphicsCommandListExt(d3d12_command_list_vkd3d_ext_iface *iface)
 {
     return CONTAINING_RECORD(iface, struct d3d12_command_list, ID3D12GraphicsCommandListExt_iface);
 }
 
 extern ULONG STDMETHODCALLTYPE d3d12_command_list_AddRef(d3d12_command_list_iface *iface);
 
-ULONG STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_AddRef(ID3D12GraphicsCommandListExt *iface)
+ULONG STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_AddRef(d3d12_command_list_vkd3d_ext_iface *iface)
 {
     struct d3d12_command_list *command_list = d3d12_command_list_from_ID3D12GraphicsCommandListExt(iface);
     return d3d12_command_list_AddRef(&command_list->ID3D12GraphicsCommandList_iface);
@@ -35,7 +35,7 @@ ULONG STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_AddRef(ID3D12GraphicsComman
 
 extern ULONG STDMETHODCALLTYPE d3d12_command_list_Release(d3d12_command_list_iface *iface);
 
-static ULONG STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_Release(ID3D12GraphicsCommandListExt *iface)
+static ULONG STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_Release(d3d12_command_list_vkd3d_ext_iface *iface)
 {
     struct d3d12_command_list *command_list = d3d12_command_list_from_ID3D12GraphicsCommandListExt(iface);
     return d3d12_command_list_Release(&command_list->ID3D12GraphicsCommandList_iface);
@@ -44,7 +44,7 @@ static ULONG STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_Release(ID3D12Graphi
 extern HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_iface *iface,
         REFIID iid, void **object);
 
-static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_QueryInterface(ID3D12GraphicsCommandListExt *iface,
+static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_QueryInterface(d3d12_command_list_vkd3d_ext_iface *iface,
         REFIID iid, void **out)
 {
     struct d3d12_command_list *command_list = d3d12_command_list_from_ID3D12GraphicsCommandListExt(iface);
@@ -52,7 +52,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_QueryInterface(ID3
     return d3d12_command_list_QueryInterface(&command_list->ID3D12GraphicsCommandList_iface, iid, out);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_GetVulkanHandle(ID3D12GraphicsCommandListExt *iface,
+static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_GetVulkanHandle(d3d12_command_list_vkd3d_ext_iface *iface,
         VkCommandBuffer *pVkCommandBuffer)
 {
     struct d3d12_command_list *command_list = d3d12_command_list_from_ID3D12GraphicsCommandListExt(iface);
@@ -60,7 +60,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_GetVulkanHandle(ID
     if (!pVkCommandBuffer)
         return E_INVALIDARG;
 
-    *pVkCommandBuffer = command_list->vk_command_buffer;
+    *pVkCommandBuffer = command_list->cmd.vk_command_buffer;
+    /* TODO: Do we need to block any attempt to split command buffers here?
+     * Might be a problem if DLSS implementation caches the VkCommandBuffer across DLSS invocations. */
     return S_OK;
 }
 
@@ -68,7 +70,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_GetVulkanHandle(ID
 #define CU_LAUNCH_PARAM_BUFFER_SIZE    (const void*)0x02
 #define CU_LAUNCH_PARAM_END            (const void*)0x00
 
-static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_LaunchCubinShader(ID3D12GraphicsCommandListExt *iface, D3D12_CUBIN_DATA_HANDLE *handle, UINT32 block_x, UINT32 block_y, UINT32 block_z, const void *params, UINT32 param_size)
+static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_LaunchCubinShaderEx(d3d12_command_list_vkd3d_ext_iface *iface, D3D12_CUBIN_DATA_HANDLE *handle, UINT32 block_x, UINT32 block_y, UINT32 block_z, UINT32 smem_size, const void *params, UINT32 param_size, const void *raw_params, UINT32 raw_params_count)
 {
     VkCuLaunchInfoNVX launchInfo = { VK_STRUCTURE_TYPE_CU_LAUNCH_INFO_NVX };
     const struct vkd3d_vk_device_procs *vk_procs;
@@ -80,7 +82,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_LaunchCubinShader(
     };
 
     struct d3d12_command_list *command_list = d3d12_command_list_from_ID3D12GraphicsCommandListExt(iface);
-    TRACE("iface %p, handle %p, block_x %u,  block_y %u, block_z %u, params %p, param_size %u \n", iface, handle, block_x, block_y, block_z, params, param_size);
+    TRACE("iface %p, handle %p, block_x %u,  block_y %u, block_z %u, smem_size %u, params %p, param_size %u, raw_params %p, raw_params_count %u \n",
+           iface, handle, block_x, block_y, block_z, smem_size, params, param_size, raw_params, raw_params_count);
+
     if (!handle || !block_x || !block_y || !block_z || !params || !param_size)
         return E_INVALIDARG;
 
@@ -91,18 +95,32 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_LaunchCubinShader(
     launchInfo.blockDimX = handle->blockX;
     launchInfo.blockDimY = handle->blockY;
     launchInfo.blockDimZ = handle->blockZ;
-    launchInfo.sharedMemBytes = 0;
-    launchInfo.paramCount = 0;
-    launchInfo.pParams = NULL;
+    launchInfo.sharedMemBytes = smem_size;
+    launchInfo.paramCount = raw_params_count;
+    launchInfo.pParams = raw_params;
     launchInfo.extraCount = 1;
     launchInfo.pExtras = config;
     
     vk_procs = &command_list->device->vk_procs;
-    VK_CALL(vkCmdCuLaunchKernelNVX(command_list->vk_command_buffer, &launchInfo));
+    VK_CALL(vkCmdCuLaunchKernelNVX(command_list->cmd.vk_command_buffer, &launchInfo));
     return S_OK;
 }
 
-CONST_VTBL struct ID3D12GraphicsCommandListExtVtbl d3d12_command_list_vkd3d_ext_vtbl =
+static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_LaunchCubinShader(d3d12_command_list_vkd3d_ext_iface *iface, D3D12_CUBIN_DATA_HANDLE *handle, UINT32 block_x, UINT32 block_y, UINT32 block_z, const void *params, UINT32 param_size)
+{
+    return d3d12_command_list_vkd3d_ext_LaunchCubinShaderEx(iface,
+                                                            handle,
+                                                            block_x,
+                                                            block_y,
+                                                            block_z,
+                                                            0, /* smem_size */
+                                                            params,
+                                                            param_size,
+                                                            NULL, /* raw_params */
+                                                            0 /* raw_params_count */);
+}
+
+CONST_VTBL struct ID3D12GraphicsCommandListExt1Vtbl d3d12_command_list_vkd3d_ext_vtbl =
 {
     /* IUnknown methods */
     d3d12_command_list_vkd3d_ext_QueryInterface,
@@ -111,6 +129,9 @@ CONST_VTBL struct ID3D12GraphicsCommandListExtVtbl d3d12_command_list_vkd3d_ext_
 
     /* ID3D12GraphicsCommandListExt methods */
     d3d12_command_list_vkd3d_ext_GetVulkanHandle,
-    d3d12_command_list_vkd3d_ext_LaunchCubinShader
+    d3d12_command_list_vkd3d_ext_LaunchCubinShader,
+
+    /* ID3D12GraphicsCommandListExt1 methods */
+    d3d12_command_list_vkd3d_ext_LaunchCubinShaderEx,
 };
 

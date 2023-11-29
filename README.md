@@ -1,11 +1,11 @@
-# VKD3D-Proton
+# vkd3d-proton
 
-VKD3D-Proton is a fork of VKD3D, which aims to implement the full Direct3D 12 API on top of Vulkan.
+vkd3d-proton is a fork of VKD3D, which aims to implement the full Direct3D 12 API on top of Vulkan.
 The project serves as the development effort for Direct3D 12 support in [Proton](https://github.com/ValveSoftware/Proton).
 
 ## Upstream
 
-The original project is available at [WineHQ](https://source.winehq.org/git/vkd3d.git/).
+The original project is available at [WineHQ](https://gitlab.winehq.org/wine/vkd3d).
 
 ## Priorities
 
@@ -18,19 +18,13 @@ Backwards compatibility with the vkd3d standalone API is not a goal of this proj
 
 There are some hard requirements on drivers to be able to implement D3D12 in a reasonably performant way.
 
-- Vulkan 1.1
-- `VK_EXT_descriptor_indexing` with at least 1000000 UpdateAfterBind descriptors for all types except UniformBuffer.
+- Vulkan 1.3
+- Descriptor indexing with at least 1000000 UpdateAfterBind descriptors for all types except UniformBuffer.
   Essentially all features in `VkPhysicalDeviceDescriptorIndexingFeatures` must be supported.
-- `VK_KHR_timeline_semaphore`
-- `VK_KHR_sampler_mirror_clamp_to_edge`
+- Further, the following device features are required:
+  - `samplerMirrorClampToEdge`
+  - `shaderDrawParameters`
 - `VK_EXT_robustness2`
-- `VK_KHR_separate_depth_stencil_layouts`
-- `VK_KHR_bind_memory2`
-- `VK_KHR_copy_commands2`
-- `VK_KHR_dynamic_rendering`
-- `VK_EXT_extended_dynamic_state`
-- `VK_EXT_extended_dynamic_state2`
-- `VK_KHR_buffer_device_address`
 - `VK_KHR_push_descriptor`
 
 Some notable extensions that **should** be supported for optimal or correct behavior.
@@ -38,12 +32,12 @@ These extensions will likely become mandatory later.
 
 - `VK_EXT_image_view_min_lod`
 
-`VK_EXT_mutable_descriptor_type` (or the vendor `VALVE` alias) is also highly recommended, but not mandatory.
+`VK_EXT_mutable_descriptor_type` (or the vendor `VALVE` alias) and `VK_EXT_descriptor_buffer` are also highly recommended, but not mandatory.
 
 ### AMD (RADV)
 
 For AMD, RADV is the recommended driver and the one that sees most testing on AMD GPUs.
-The minimum requirement at the moment is Mesa 22.0 since it supports `VK_KHR_dynamic_rendering`.
+The minimum requirement at the moment is Mesa 22.0.
 
 NOTE: For older Mesa versions, use the v2.6 release.
 
@@ -56,7 +50,7 @@ If you're having problems, always try the latest drivers.
 
 ### Intel
 
-We have not done any testing against Intel iGPUs yet.
+We have not done any testing against Intel GPUs yet.
 
 ------
 
@@ -68,7 +62,7 @@ git clone --recursive https://github.com/HansKristian-Work/vkd3d-proton
 ```
 in order to pull in all the submodules which are needed for building.
 
-## Building VKD3D-Proton
+## Building vkd3d-proton
 
 ### Requirements:
 - [wine](https://www.winehq.org/) (for `widl`) [for native builds]
@@ -79,16 +73,16 @@ in order to pull in all the submodules which are needed for building.
 
 ### Building:
 #### The simple way
-Inside the VKD3D-Proton directory, run:
+Inside the vkd3d-proton directory, run:
 ```
 ./package-release.sh master /your/target/directory --no-package
 ```
 
-This will create a folder `vkd3d-master` in `/your/target/directory`, which contains both 32-bit and 64-bit versions of VKD3D-Proton, which can be set up in the same way as the release versions as noted above.
+This will create a folder `vkd3d-master` in `/your/target/directory`, which contains both 32-bit and 64-bit versions of vkd3d-proton, which can be set up in the same way as the release versions as noted above.
 
 If you want to build natively (ie. for `libvkd3d-proton.so`), pass `--native` to the build script. This option will make it build using your system's compilers.
 
-In order to preserve the build directories for development, pass `--dev-build` to the script. This option implies `--no-package`. After making changes to the source code, you can then do the following to rebuild VKD3D-Proton:
+In order to preserve the build directories for development, pass `--dev-build` to the script. This option implies `--no-package`. After making changes to the source code, you can then do the following to rebuild vkd3d-proton:
 ```
 # change to build.86 for 32-bit
 ninja -C /your/target/directory/build.64 install
@@ -118,32 +112,30 @@ meson --buildtype release --prefix /your/vkd3d-proton/directory build.86
 ninja -C build.86 install
 ```
 
-## Using VKD3D-Proton
+## Using vkd3d-proton
 
-The intended way to use VKD3D-Proton is as a native Win32 d3d12.dll.
-This serves as a drop-in replacement for D3D12, and can be used in Wine (Proton or vanilla flavors), or on Windows.
+The intended way to use vkd3d-proton is as native Win32 DLLs (d3d12.dll and d3d12core.dll).
+These serve as a drop-in replacement for D3D12, and can be used in Wine (Proton or vanilla flavors), or on Windows.
 
-VKD3D-Proton does not supply the necessary DXGI component.
-VKD3D-Proton can be used with either DXVK's DXGI implementation, or
-Wine's DXGI implementation.
-VKD3D-Proton implements its own IDXGISwapChain when built as a native d3d12.dll.
+vkd3d-proton does not supply the necessary DXGI components on its own.
+Instead, DXVK (2.1+) and vkd3d-proton share a DXGI implementation.
 
-### A note on using VKD3D-Proton on Windows
+### A note on using vkd3d-proton on Windows
 
 Native Windows use is mostly relevant for developer testing purposes.
-Do not expect games running on Windows 7 or 8.1 to magically make use of VKD3D-Proton,
+Do not expect games running on Windows 7 or 8.1 to magically make use of vkd3d-proton,
 as many games will only even attempt to load d3d12.dll if they are running on Windows 10.
 
 ### Native Linux build
 
 A native Linux binary can be built, but it is not intended to be compatible with upstream Wine.
-A native option is mostly relevant for development purposes.
+A native option is mostly relevant for development purposes for the time being.
 
 ## Environment variables
 
-Most of the environment variables used by VKD3D-Proton are for debugging purposes. The
+Most of the environment variables used by vkd3d-proton are for debugging purposes. The
 environment variables are not considered a part of API and might be changed or
-removed in the future versions of VKD3D-Proton.
+removed in the future versions of vkd3d-proton.
 
 Some of debug variables are lists of elements. Elements must be separated by
 commas or semicolons.
@@ -152,8 +144,8 @@ commas or semicolons.
     - `vk_debug` - enables Vulkan debug extensions and loads validation layer.
     - `skip_application_workarounds` - Skips all application workarounds.
       For debugging purposes.
-    - `dxr` - Enables DXR support if supported by device.
-    - `dxr11` - Enables DXR tier 1.1 support if supported by device.
+    - `nodxr` - Disables DXR support.
+    - `dxr` - DXR is normally enabled automatically. This config forces it to be enabled even when considered unsafe.
     - `force_static_cbv` - Unsafe speed hack on NVIDIA. May or may not give a significant performance uplift.
     - `single_queue` - Do not use asynchronous compute or transfer queues.
     - `no_upload_hvv` - Blocks any attempt to use host-visible VRAM (large/resizable BAR) for the UPLOAD heap.

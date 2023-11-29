@@ -75,6 +75,66 @@ void test_create_query_heap(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+void test_query_timestamp_write_after_read(void)
+{
+    D3D12_QUERY_HEAP_DESC heap_desc;
+    ID3D12QueryHeap *query_heap[4];
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *readback;
+    unsigned int i;
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+    heap_desc.Count = 2;
+
+    for (i = 0; i < ARRAY_SIZE(query_heap); i++)
+        ID3D12Device_CreateQueryHeap(context.device, &heap_desc, &IID_ID3D12QueryHeap, (void **)&query_heap[i]);
+
+    readback = create_readback_buffer(context.device, 4 * 2 * sizeof(uint64_t));
+
+    for (i = 0; i < ARRAY_SIZE(query_heap); i++)
+    {
+        ID3D12GraphicsCommandList_EndQuery(context.list, query_heap[i], D3D12_QUERY_TYPE_TIMESTAMP, 0);
+        ID3D12GraphicsCommandList_EndQuery(context.list, query_heap[i], D3D12_QUERY_TYPE_TIMESTAMP, 1);
+    }
+    ID3D12GraphicsCommandList_Close(context.list);
+    exec_command_list(context.queue, context.list);
+    wait_queue_idle(context.device, context.queue);
+    reset_command_list(context.list, context.allocator);
+
+    for (i = 0; i < ARRAY_SIZE(query_heap); i++)
+    {
+        /* The risk is that EndQuery ends up hoisting the reset to init_cmd_buffer.
+         * ResolveQueryData will end up waiting forever on the reset query. */
+        ID3D12GraphicsCommandList_ResolveQueryData(context.list, query_heap[i],
+                D3D12_QUERY_TYPE_TIMESTAMP, 0, 2, readback, i * 2 * sizeof(uint64_t));
+        ID3D12GraphicsCommandList_EndQuery(context.list, query_heap[i], D3D12_QUERY_TYPE_TIMESTAMP, 0);
+        ID3D12GraphicsCommandList_EndQuery(context.list, query_heap[i], D3D12_QUERY_TYPE_TIMESTAMP, 1);
+    }
+
+    get_buffer_readback_with_command_list(readback, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+    for (i = 0; i < ARRAY_SIZE(query_heap); i++)
+    {
+        uint64_t start_ts, end_ts;
+        start_ts = get_readback_uint64(&rb, 2 * i + 0, 0);
+        end_ts = get_readback_uint64(&rb, 2 * i + 1, 0);
+        ok(start_ts != 0, "StartTS is 0.\n");
+        ok(end_ts != 0, "StartTS is 0.\n");
+        ok(end_ts >= start_ts, "TS is not monotonically increasing, expected %"PRIu64" > %"PRIu64".\n", end_ts, start_ts);
+    }
+
+    release_resource_readback(&rb);
+    for (i = 0; i < ARRAY_SIZE(query_heap); i++)
+        ID3D12QueryHeap_Release(query_heap[i]);
+    ID3D12Resource_Release(readback);
+    destroy_test_context(&context);
+}
+
 void test_query_timestamp(void)
 {
     UINT64 timestamps[4], timestamp_frequency, timestamp_diff, time_diff;
@@ -157,7 +217,7 @@ void test_query_pipeline_statistics(void)
     ID3D12QueryHeap *query_heap;
     ID3D12Resource *resource;
     struct resource_readback rb;
-    unsigned int pixel_count, i;
+    unsigned int i;
     HRESULT hr;
 
     if (!init_test_context(&context, NULL))
@@ -227,10 +287,9 @@ void test_query_pipeline_statistics(void)
     ok(pipeline_statistics->CPrimitives > 0, "CPrimitives: Got %"PRIu64", expected > 0.\n",
             pipeline_statistics->CPrimitives);
 
-    /* Exact number of pixel shader invocations depends on the graphics card. */
-    pixel_count = context.render_target_desc.Width * context.render_target_desc.Height;
-    ok(pipeline_statistics->PSInvocations >= pixel_count, "PSInvocations: Got %"PRIu64", expected >= %u.\n",
-            pipeline_statistics->PSInvocations, pixel_count);
+    /* Exact number of pixel shader invocations depends on the graphics card and VRS can affect it. */
+    ok(pipeline_statistics->PSInvocations > 0, "PSInvocations: Got %"PRIu64", expected >= %u.\n",
+            pipeline_statistics->PSInvocations, 0);
 
     /* We used no tessellation or compute shaders at all. */
     ok(pipeline_statistics->HSInvocations == 0, "HSInvocations: Got %"PRIu64", expected 0.\n",

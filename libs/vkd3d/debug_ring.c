@@ -83,6 +83,9 @@ static const char *vkd3d_patch_command_token_str(enum vkd3d_patch_command_token 
         case VKD3D_PATCH_COMMAND_TOKEN_COPY_FIRST_VERTEX: return "First Vertex";
         case VKD3D_PATCH_COMMAND_TOKEN_COPY_FIRST_INSTANCE: return "First Instance";
         case VKD3D_PATCH_COMMAND_TOKEN_COPY_VERTEX_OFFSET: return "Vertex Offset";
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_MESH_TASKS_X: return "Mesh Tasks (X)";
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_MESH_TASKS_Y: return "Mesh Tasks (Y)";
+        case VKD3D_PATCH_COMMAND_TOKEN_COPY_MESH_TASKS_Z: return "Mesh Tasks (Z)";
         default: return "???";
     }
 }
