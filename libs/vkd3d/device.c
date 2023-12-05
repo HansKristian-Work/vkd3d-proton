@@ -640,6 +640,7 @@ static const struct vkd3d_shader_quirk_info witcher3_quirks = {
 static const struct vkd3d_shader_quirk_hash cp77_hashes[] = {
     /* Shader accesses descriptor heap out of bounds spuriously, causing GPU hang on RADV. */
     { 0x55540466536c9e11, VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS },
+    { 0x0c3defbf58c47055, VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS },
 };
 
 static const struct vkd3d_shader_quirk_info cp77_quirks = {
