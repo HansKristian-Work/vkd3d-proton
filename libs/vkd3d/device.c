@@ -457,7 +457,6 @@ enum vkd3d_application_feature_override
 {
     VKD3D_APPLICATION_FEATURE_OVERRIDE_NONE = 0,
     VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE,
-    VKD3D_APPLICATION_FEATURE_DISABLE_DGCC_NV,
     VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK,
     VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0,
 };
@@ -488,8 +487,7 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     { VKD3D_STRING_COMPARE_EXACT, "HaloInfinite.exe",
             VKD3D_CONFIG_FLAG_ZERO_MEMORY_WORKAROUNDS_COMMITTED_BUFFER_UAV | VKD3D_CONFIG_FLAG_FORCE_RAW_VA_CBV |
             VKD3D_CONFIG_FLAG_USE_HOST_IMPORT_FALLBACK | VKD3D_CONFIG_FLAG_PREALLOCATE_SRV_MIP_CLAMPS |
-            VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES | VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0,
-            VKD3D_APPLICATION_FEATURE_DISABLE_DGCC_NV },
+            VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES | VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0 },
     /* (1182900) Workaround amdgpu kernel bug with host memory import and concurrent submissions. */
     { VKD3D_STRING_COMPARE_EXACT, "APlagueTaleRequiem_x64.exe",
             VKD3D_CONFIG_FLAG_USE_HOST_IMPORT_FALLBACK | VKD3D_CONFIG_FLAG_DISABLE_UAV_COMPRESSION, 0 },
@@ -1381,28 +1379,23 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
                 device->vk_info.NV_device_generated_commands_compute)
         {
             bool broken_version_linux, broken_version_windows;
-            /* A lot of drivers were broken until 535.43.15 (Linux) and 537.72 (Windows). */
+            /* A lot of drivers were broken until 535.43.19 (Linux) and 537.96 (Windows). */
             /* The 545-drivers, 545.23.06 and 545.29.02 so far, are also broken on Linux. */
 
             broken_version_linux =
                     VKD3D_DRIVER_VERSION_MAJOR_NV(info->properties2.properties.driverVersion) == 545 ||
                     (info->properties2.properties.driverVersion >= VKD3D_DRIVER_VERSION_MAKE_NV(535, 43, 0) &&
-                        info->properties2.properties.driverVersion < VKD3D_DRIVER_VERSION_MAKE_NV(535, 43, 15));
+                        info->properties2.properties.driverVersion < VKD3D_DRIVER_VERSION_MAKE_NV(535, 43, 19));
 
             broken_version_windows =
                     info->properties2.properties.driverVersion >= VKD3D_DRIVER_VERSION_MAKE_NV(537, 0, 0) &&
-                    info->properties2.properties.driverVersion < VKD3D_DRIVER_VERSION_MAKE_NV(537, 72, 0);
+                    info->properties2.properties.driverVersion < VKD3D_DRIVER_VERSION_MAKE_NV(537, 96, 0);
 
-            if (vkd3d_application_feature_override == VKD3D_APPLICATION_FEATURE_DISABLE_DGCC_NV ||
-                    broken_version_linux || broken_version_windows)
+            if (broken_version_linux || broken_version_windows)
             {
                 device->vk_info.NV_device_generated_commands_compute = false;
                 device->device_info.device_generated_commands_compute_features_nv.deviceGeneratedCompute = VK_FALSE;
-
-                if (vkd3d_application_feature_override == VKD3D_APPLICATION_FEATURE_DISABLE_DGCC_NV)
-                    WARN("Disabling NV_dgcc due to bug in specific game.\n");
-                else
-                    WARN("Disabling NV_dgcc due to bug in driver version.\n");
+                WARN("Disabling NV_dgcc due to bug in driver version.\n");
             }
         }
 
