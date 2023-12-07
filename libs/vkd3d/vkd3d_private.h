@@ -3684,6 +3684,14 @@ static inline uint8_t *vkd3d_bindless_state_get_null_descriptor_payload(struct v
     return bindless_state->null_descriptor_payloads[index - 2];
 }
 
+enum vkd3d_format_type
+{
+    VKD3D_FORMAT_TYPE_OTHER,
+    VKD3D_FORMAT_TYPE_TYPELESS,
+    VKD3D_FORMAT_TYPE_SINT,
+    VKD3D_FORMAT_TYPE_UINT,
+};
+
 void vkd3d_format_compatibility_list_add_format(struct vkd3d_format_compatibility_list *list, VkFormat vk_format);
 
 struct vkd3d_memory_info_domain
@@ -3810,12 +3818,20 @@ enum vkd3d_resolve_image_path
     VKD3D_RESOLVE_IMAGE_PATH_DIRECT,
     VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_ATTACHMENT,
     VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_PIPELINE,
+    VKD3D_RESOLVE_IMAGE_PATH_COMPUTE_PIPELINE,
 };
 
 struct vkd3d_resolve_image_args
 {
     VkOffset2D offset;
     uint32_t bit_mask;
+};
+
+struct vkd3d_resolve_image_compute_args
+{
+    VkOffset2D dst_offset;
+    VkOffset2D src_offset;
+    VkExtent2D extent;
 };
 
 struct vkd3d_resolve_image_info
@@ -3826,11 +3842,27 @@ struct vkd3d_resolve_image_info
     bool needs_stencil_mask;
 };
 
-struct vkd3d_resolve_image_pipeline_key
+struct vkd3d_resolve_image_graphics_pipeline_key
 {
     const struct vkd3d_format *format;
     VkImageAspectFlagBits dst_aspect;
     D3D12_RESOLVE_MODE mode;
+};
+
+struct vkd3d_resolve_image_compute_pipeline_key
+{
+    enum vkd3d_format_type format_type;
+    D3D12_RESOLVE_MODE mode;
+};
+
+struct vkd3d_resolve_image_pipeline_key
+{
+    enum vkd3d_resolve_image_path path;
+    union
+    {
+        struct vkd3d_resolve_image_graphics_pipeline_key graphics;
+        struct vkd3d_resolve_image_compute_pipeline_key compute;
+    };
 };
 
 struct vkd3d_resolve_image_pipeline
@@ -3842,8 +3874,10 @@ struct vkd3d_resolve_image_pipeline
 
 struct vkd3d_resolve_image_ops
 {
-    VkDescriptorSetLayout vk_set_layout;
-    VkPipelineLayout vk_pipeline_layout;
+    VkDescriptorSetLayout vk_graphics_set_layout;
+    VkDescriptorSetLayout vk_compute_set_layout;
+    VkPipelineLayout vk_graphics_pipeline_layout;
+    VkPipelineLayout vk_compute_pipeline_layout;
     VkShaderModule vk_fs_float_module;
     VkShaderModule vk_fs_uint_module;
     VkShaderModule vk_fs_sint_module;
@@ -4872,14 +4906,6 @@ HRESULT d3d12_meta_command_create(struct d3d12_device *device, REFGUID guid,
         const void *parameters, size_t parameter_size, struct d3d12_meta_command **meta_command);
 
 /* utils */
-enum vkd3d_format_type
-{
-    VKD3D_FORMAT_TYPE_OTHER,
-    VKD3D_FORMAT_TYPE_TYPELESS,
-    VKD3D_FORMAT_TYPE_SINT,
-    VKD3D_FORMAT_TYPE_UINT,
-};
-
 struct vkd3d_format_footprint
 {
     DXGI_FORMAT dxgi_format;

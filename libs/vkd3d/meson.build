@@ -49,6 +49,10 @@ vkd3d_shaders =[
   'shaders/fs_resolve_depth.frag',
   'shaders/fs_resolve_stencil.frag',
   'shaders/fs_resolve_stencil_no_export.frag',
+
+  'shaders/cs_resolve_color_float.comp',
+  'shaders/cs_resolve_color_uint.comp',
+  'shaders/cs_resolve_color_sint.comp',
 ]
 
 vkd3d_src = [

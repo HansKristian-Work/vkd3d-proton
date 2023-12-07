@@ -8751,9 +8751,10 @@ static void d3d12_command_list_execute_resolve(struct d3d12_command_list *list,
             else
             {
                 memset(&resolve_pipeline_key, 0, sizeof(resolve_pipeline_key));
-                resolve_pipeline_key.format = vk_format;
-                resolve_pipeline_key.dst_aspect = (VkImageAspectFlagBits)region->dstSubresource.aspectMask;
-                resolve_pipeline_key.mode = mode;
+                resolve_pipeline_key.path = path;
+                resolve_pipeline_key.graphics.format = vk_format;
+                resolve_pipeline_key.graphics.dst_aspect = (VkImageAspectFlagBits)region->dstSubresource.aspectMask;
+                resolve_pipeline_key.graphics.mode = mode;
 
                 if (FAILED(vkd3d_meta_get_resolve_image_pipeline(&list->device->meta_ops, &resolve_pipeline_key, &resolve_pipeline_info)))
                 {

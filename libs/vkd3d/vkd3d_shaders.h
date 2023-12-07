@@ -73,5 +73,8 @@ enum vkd3d_meta_copy_mode
 #include <fs_resolve_depth.h>
 #include <fs_resolve_stencil.h>
 #include <fs_resolve_stencil_no_export.h>
+#include <cs_resolve_color_float.h>
+#include <cs_resolve_color_sint.h>
+#include <cs_resolve_color_uint.h>
 
 #endif  /* __VKD3D_SPV_SHADERS_H */

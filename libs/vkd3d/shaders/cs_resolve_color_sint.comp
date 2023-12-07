@@ -1,0 +1,43 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+#extension GL_EXT_samplerless_texture_functions : enable
+
+#define MODE_MIN 1
+#define MODE_MAX 2
+
+layout(constant_id = 0) const uint c_mode = 0;
+
+layout(binding = 0) uniform itexture2DMSArray tex_ms;
+layout(binding = 1) uniform writeonly iimage2DArray dst;
+
+layout(push_constant)
+uniform u_info_t {
+  ivec2 dst_offset;
+  ivec2 src_offset;
+  uvec2 extent;
+} u_info;
+
+void main() {
+  ivec3 src_coord = ivec3(gl_GlobalInvocationID) + ivec3(u_info.src_offset, 0);
+  ivec3 dst_coord = ivec3(gl_GlobalInvocationID) + ivec3(u_info.dst_offset, 0);
+
+  uint samples = textureSamples(tex_ms);
+
+  if (any(greaterThanEqual(gl_GlobalInvocationID.xy, u_info.extent)))
+    return;
+
+  ivec4 color = texelFetch(tex_ms, src_coord, 0);
+
+  for (uint i = 1; i < samples; i++) {
+    ivec4 sample_value = texelFetch(tex_ms, src_coord, int(i));
+
+    switch (c_mode) {
+      case MODE_MIN: color = min(color, sample_value); break;
+      case MODE_MAX: color = max(color, sample_value); break;
+    }
+  }
+
+  imageStore(dst, dst_coord, color);
+}
