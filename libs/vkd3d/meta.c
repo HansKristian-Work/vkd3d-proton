@@ -886,8 +886,10 @@ static void vkd3d_resolve_image_ops_cleanup(struct vkd3d_resolve_image_ops *meta
     VK_CALL(vkDestroyShaderModule(device->vk_device, meta_resolve_image_ops->vk_fs_sint_module, NULL));
     VK_CALL(vkDestroyShaderModule(device->vk_device, meta_resolve_image_ops->vk_fs_depth_module, NULL));
     VK_CALL(vkDestroyShaderModule(device->vk_device, meta_resolve_image_ops->vk_fs_stencil_module, NULL));
-    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_resolve_image_ops->vk_set_layout, NULL));
-    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_resolve_image_ops->vk_pipeline_layout, NULL));
+    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_resolve_image_ops->vk_graphics_set_layout, NULL));
+    VK_CALL(vkDestroyDescriptorSetLayout(device->vk_device, meta_resolve_image_ops->vk_compute_set_layout, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_resolve_image_ops->vk_graphics_pipeline_layout, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, meta_resolve_image_ops->vk_compute_pipeline_layout, NULL));
 
     pthread_mutex_destroy(&meta_resolve_image_ops->mutex);
 
@@ -896,8 +898,9 @@ static void vkd3d_resolve_image_ops_cleanup(struct vkd3d_resolve_image_ops *meta
 
 static HRESULT vkd3d_resolve_image_ops_init(struct vkd3d_resolve_image_ops *meta_resolve_image_ops, struct d3d12_device *device)
 {
-    VkDescriptorSetLayoutBinding set_binding;
+    VkDescriptorSetLayoutBinding set_bindings[2];
     VkPushConstantRange push_constant_range;
+    unsigned int i;
     VkResult vr;
     int rc;
 
@@ -909,13 +912,29 @@ static HRESULT vkd3d_resolve_image_ops_init(struct vkd3d_resolve_image_ops *meta
         return hresult_from_errno(rc);
     }
 
-    set_binding.binding = 0;
-    set_binding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    set_binding.descriptorCount = 1;
-    set_binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    set_binding.pImmutableSamplers = NULL;
+    memset(set_bindings, 0, sizeof(set_bindings));
 
-    if ((vr = vkd3d_meta_create_descriptor_set_layout(device, 1, &set_binding, true, &meta_resolve_image_ops->vk_set_layout)) < 0)
+    for (i = 0; i < ARRAY_SIZE(set_bindings); i++)
+    {
+        set_bindings[i].binding = i;
+        set_bindings[i].descriptorCount = 1;
+    }
+
+    set_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    set_bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    if ((vr = vkd3d_meta_create_descriptor_set_layout(device, 1, set_bindings, true, &meta_resolve_image_ops->vk_graphics_set_layout)) < 0)
+    {
+        ERR("Failed to create descriptor set layout, vr %d.\n", vr);
+        goto fail;
+    }
+
+    set_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    set_bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    set_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    set_bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    if ((vr = vkd3d_meta_create_descriptor_set_layout(device, ARRAY_SIZE(set_bindings), set_bindings, true, &meta_resolve_image_ops->vk_compute_set_layout)) < 0)
     {
         ERR("Failed to create descriptor set layout, vr %d.\n", vr);
         goto fail;
@@ -925,8 +944,19 @@ static HRESULT vkd3d_resolve_image_ops_init(struct vkd3d_resolve_image_ops *meta
     push_constant_range.offset = 0;
     push_constant_range.size = sizeof(struct vkd3d_resolve_image_args);
 
-    if ((vr = vkd3d_meta_create_pipeline_layout(device, 1, &meta_resolve_image_ops->vk_set_layout,
-            1, &push_constant_range, &meta_resolve_image_ops->vk_pipeline_layout)))
+    if ((vr = vkd3d_meta_create_pipeline_layout(device, 1, &meta_resolve_image_ops->vk_graphics_set_layout,
+            1, &push_constant_range, &meta_resolve_image_ops->vk_graphics_pipeline_layout)))
+    {
+        ERR("Failed to create pipeline layout, vr %d.\n", vr);
+        goto fail;
+    }
+
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    push_constant_range.offset = 0;
+    push_constant_range.size = sizeof(struct vkd3d_resolve_image_compute_args);
+
+    if ((vr = vkd3d_meta_create_pipeline_layout(device, 1, &meta_resolve_image_ops->vk_compute_set_layout,
+            1, &push_constant_range, &meta_resolve_image_ops->vk_compute_pipeline_layout)))
     {
         ERR("Failed to create pipeline layout, vr %d.\n", vr);
         goto fail;
@@ -986,8 +1016,8 @@ fail:
     return hresult_from_vk_result(vr);
 }
 
-static HRESULT vkd3d_meta_create_resolve_image_pipeline(struct vkd3d_meta_ops *meta_ops,
-        const struct vkd3d_resolve_image_pipeline_key *key, struct vkd3d_resolve_image_pipeline *pipeline)
+static HRESULT vkd3d_meta_create_resolve_image_graphics_pipeline(struct vkd3d_meta_ops *meta_ops,
+        const struct vkd3d_resolve_image_graphics_pipeline_key *key, struct vkd3d_resolve_image_pipeline *pipeline)
 {
     struct vkd3d_resolve_image_ops *meta_resolve_image_ops = &meta_ops->resolve_image;
     VkPipelineDepthStencilStateCreateInfo ds_state;
@@ -1078,7 +1108,7 @@ static HRESULT vkd3d_meta_create_resolve_image_pipeline(struct vkd3d_meta_ops *m
     }
 
     if ((vr = vkd3d_meta_create_graphics_pipeline(meta_ops,
-            meta_resolve_image_ops->vk_pipeline_layout,
+            meta_resolve_image_ops->vk_graphics_pipeline_layout,
             has_depth_target ? VK_FORMAT_UNDEFINED : key->format->vk_format,
             has_depth_target ? key->format->vk_format : VK_FORMAT_UNDEFINED,
             key->format->vk_aspect_mask,
@@ -1088,7 +1118,67 @@ static HRESULT vkd3d_meta_create_resolve_image_pipeline(struct vkd3d_meta_ops *m
             &spec_info, true, &pipeline->vk_pipeline)) < 0)
         return hresult_from_vk_result(vr);
 
-    pipeline->key = *key;
+    memset(&pipeline->key, 0, sizeof(pipeline->key));
+    pipeline->key.path = VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_PIPELINE;
+    pipeline->key.graphics = *key;
+    return S_OK;
+}
+
+static HRESULT vkd3d_meta_create_resolve_image_compute_pipeline(struct vkd3d_meta_ops *meta_ops,
+        const struct vkd3d_resolve_image_compute_pipeline_key *key, struct vkd3d_resolve_image_pipeline *pipeline)
+{
+    struct vkd3d_resolve_image_ops *meta_resolve_image_ops = &meta_ops->resolve_image;
+    VkSpecializationInfo spec_info;
+    const void *cs_code;
+    size_t cs_size;
+    VkResult vr;
+
+    struct spec_data
+    {
+        D3D12_RESOLVE_MODE mode;
+    } spec_data;
+
+    static const VkSpecializationMapEntry map_entries[] =
+    {
+        { 0, offsetof(struct spec_data, mode), sizeof(spec_data.mode) },
+    };
+
+    spec_data.mode = key->mode;
+
+    spec_info.mapEntryCount = ARRAY_SIZE(map_entries);
+    spec_info.pMapEntries = map_entries;
+    spec_info.dataSize = sizeof(spec_data);
+    spec_info.pData = &spec_data;
+
+    switch (key->format_type)
+    {
+        case VKD3D_FORMAT_TYPE_TYPELESS:
+            ERR("Typeless format not supported as a resolve target.\n");
+            return E_INVALIDARG;
+
+        case VKD3D_FORMAT_TYPE_SINT:
+            cs_code = cs_resolve_color_sint;
+            cs_size = sizeof(cs_resolve_color_sint);
+            break;
+
+        case VKD3D_FORMAT_TYPE_UINT:
+            cs_code = cs_resolve_color_uint;
+            cs_size = sizeof(cs_resolve_color_uint);
+            break;
+
+        default:
+            cs_code = cs_resolve_color_float;
+            cs_size = sizeof(cs_resolve_color_float);
+            break;
+    }
+
+    if ((vr = vkd3d_meta_create_compute_pipeline(meta_ops->device, cs_size, cs_code,
+            meta_resolve_image_ops->vk_compute_pipeline_layout, &spec_info, true, &pipeline->vk_pipeline)) < 0)
+        return hresult_from_vk_result(vr);
+
+    memset(&pipeline->key, 0, sizeof(pipeline->key));
+    pipeline->key.path = VKD3D_RESOLVE_IMAGE_PATH_COMPUTE_PIPELINE;
+    pipeline->key.compute = *key;
     return S_OK;
 }
 
@@ -1107,10 +1197,19 @@ HRESULT vkd3d_meta_get_resolve_image_pipeline(struct vkd3d_meta_ops *meta_ops,
         return hresult_from_errno(rc);
     }
 
-    info->vk_set_layout = meta_resolve_image_ops->vk_set_layout;
-    info->vk_pipeline_layout = meta_resolve_image_ops->vk_pipeline_layout;
-    info->needs_stencil_mask = key->dst_aspect == VK_IMAGE_ASPECT_STENCIL_BIT &&
-            !meta_ops->device->vk_info.EXT_shader_stencil_export;
+    if (key->path == VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_PIPELINE)
+    {
+        info->vk_set_layout = meta_resolve_image_ops->vk_graphics_set_layout;
+        info->vk_pipeline_layout = meta_resolve_image_ops->vk_graphics_pipeline_layout;
+        info->needs_stencil_mask = key->graphics.dst_aspect == VK_IMAGE_ASPECT_STENCIL_BIT &&
+                !meta_ops->device->vk_info.EXT_shader_stencil_export;
+    }
+    else
+    {
+        info->vk_set_layout = meta_resolve_image_ops->vk_compute_set_layout;
+        info->vk_pipeline_layout = meta_resolve_image_ops->vk_compute_pipeline_layout;
+        info->needs_stencil_mask = false;
+    }
 
     for (i = 0; i < meta_resolve_image_ops->pipeline_count; i++)
     {
@@ -1133,7 +1232,12 @@ HRESULT vkd3d_meta_get_resolve_image_pipeline(struct vkd3d_meta_ops *meta_ops,
 
     pipeline = &meta_resolve_image_ops->pipelines[meta_resolve_image_ops->pipeline_count];
 
-    if (FAILED(hr = vkd3d_meta_create_resolve_image_pipeline(meta_ops, key, pipeline)))
+    if (key->path == VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_PIPELINE)
+        hr = vkd3d_meta_create_resolve_image_graphics_pipeline(meta_ops, &key->graphics, pipeline);
+    else
+        hr = vkd3d_meta_create_resolve_image_compute_pipeline(meta_ops, &key->compute, pipeline);
+
+    if (FAILED(hr))
     {
         pthread_mutex_unlock(&meta_resolve_image_ops->mutex);
         return hr;
