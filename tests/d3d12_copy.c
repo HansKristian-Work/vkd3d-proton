@@ -1220,7 +1220,7 @@ void test_multisample_resolve(void)
 
 void test_multisample_resolve_formats(void)
 {
-    ID3D12Resource *ds, *ds_ms, *rt_f32, *rt_f32_ms, *rt_u32, *rt_u32_ms, *rt_s32, *rt_s32_ms, *combined_image;
+    ID3D12Resource *ds, *ds_ms, *rt_f32, *rt_f32_ms, *rt_u32, *rt_u32_ms, *rt_s32, *rt_s32_ms, *image_u32, *image_s32, *combined_image;
     ID3D12PipelineState *pso_setup_render_targets, *pso_setup_stencil;
     ID3D12RootSignature *rs_setup_render_targets, *rs_setup_stencil;
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle, dsv_handle;
@@ -1426,6 +1426,17 @@ void test_multisample_resolve_formats(void)
             NULL, &IID_ID3D12Resource, (void**)&rt_s32);
     ok(hr == S_OK, "Failed to create render target, hr %#x.\n");
 
+    /* FIXME we should not require UAV usage */
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
+            D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST,
+            NULL, &IID_ID3D12Resource, (void**)&image_u32);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n");
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
+            D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST,
+            NULL, &IID_ID3D12Resource, (void**)&image_s32);
+    ok(hr == S_OK, "Failed to create render target, hr %#x.\n");
+
     resource_desc.Alignment = D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
     resource_desc.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
     resource_desc.SampleDesc.Count = 4;
@@ -1450,7 +1461,7 @@ void test_multisample_resolve_formats(void)
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     resource_desc.Width = 4;
-    resource_desc.Height = 16;
+    resource_desc.Height = 24;
     resource_desc.DepthOrArraySize = 1;
     resource_desc.MipLevels = 1;
     resource_desc.Format = DXGI_FORMAT_R32_TYPELESS;
@@ -1561,9 +1572,18 @@ void test_multisample_resolve_formats(void)
                     D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0xff, 0, NULL);
 
             transition_resource_state(context.list, rt_f32, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_RESOLVE_DEST);
-            transition_resource_state(context.list, rt_u32, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_RESOLVE_DEST);
-            transition_resource_state(context.list, rt_s32, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+            transition_resource_state(context.list, rt_u32, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            transition_resource_state(context.list, rt_s32, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
             transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+
+            ID3D12GraphicsCommandList_CopyResource(context.list, image_u32, rt_u32);
+            ID3D12GraphicsCommandList_CopyResource(context.list, image_s32, rt_s32);
+
+            transition_resource_state(context.list, rt_u32, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+            transition_resource_state(context.list, rt_s32, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+
+            transition_resource_state(context.list, image_u32, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+            transition_resource_state(context.list, image_s32, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RESOLVE_DEST);
 
             if (j)
             {
@@ -1604,11 +1624,20 @@ void test_multisample_resolve_formats(void)
                 ID3D12GraphicsCommandList1_ResolveSubresourceRegion(command_list1,
                         ds, 1, dst_x, dst_y, ds_ms, 1, j ? &src_rect : NULL,
                         DXGI_FORMAT_X32_TYPELESS_G8X24_UINT, mode);
+
+                ID3D12GraphicsCommandList1_ResolveSubresourceRegion(command_list1,
+                        image_u32, 0, dst_x, dst_y, rt_u32_ms, 0, j ? &src_rect : NULL,
+                        DXGI_FORMAT_R32_UINT, mode);
+                ID3D12GraphicsCommandList1_ResolveSubresourceRegion(command_list1,
+                        image_s32, 0, dst_x, dst_y, rt_s32_ms, 0, j ? &src_rect : NULL,
+                        DXGI_FORMAT_R32_SINT, mode);
             }
 
             transition_resource_state(context.list, rt_f32, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
             transition_resource_state(context.list, rt_u32, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
             transition_resource_state(context.list, rt_s32, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            transition_resource_state(context.list, image_u32, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            transition_resource_state(context.list, image_s32, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
             transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
             copy_box.left = 0;
@@ -1635,6 +1664,10 @@ void test_multisample_resolve_formats(void)
             ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &copy_dst, 0, 8, 0, &copy_src, &copy_box);
             copy_src.pResource = rt_s32;
             ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &copy_dst, 0, 12, 0, &copy_src, &copy_box);
+            copy_src.pResource = image_u32;
+            ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &copy_dst, 0, 16, 0, &copy_src, &copy_box);
+            copy_src.pResource = image_s32;
+            ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &copy_dst, 0, 20, 0, &copy_src, &copy_box);
 
             transition_resource_state(context.list, combined_image, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
             get_texture_readback_with_command_list(combined_image, 0, &rb, context.queue, context.list);
@@ -1649,8 +1682,6 @@ void test_multisample_resolve_formats(void)
 
                     float got_d = get_readback_float(&rb, x + dst_x - src_rect.left, y + dst_y - src_rect.top);
                     float got_f = get_readback_float(&rb, x + dst_x - src_rect.left, y + dst_y - src_rect.top + 4);
-                    uint32_t got_u = get_readback_uint(&rb, x + dst_x - src_rect.left, y + dst_y - src_rect.top + 8, 0);
-                    int32_t got_s = (int32_t)get_readback_uint(&rb, x + dst_x - src_rect.left, y + dst_y - src_rect.top + 12, 0);
 
                     if (mode == D3D12_RESOLVE_MODE_AVERAGE)
                         expected_f += 1.5f / 64.0f;
@@ -1674,12 +1705,25 @@ void test_multisample_resolve_formats(void)
 
                     if (mode != D3D12_RESOLVE_MODE_AVERAGE)
                     {
+                        uint32_t got_u = get_readback_uint(&rb, x + dst_x - src_rect.left, y + dst_y - src_rect.top + 8, 0);
+                        int32_t got_s = (int32_t)get_readback_uint(&rb, x + dst_x - src_rect.left, y + dst_y - src_rect.top + 12, 0);
+
                         /* MIN/MAX resolves are broken on AMD and return the first sample */
                         bug_if(is_amd_windows_device(context.device))
                         ok(got_u == expected_u, "Got %u, expected %u at (%u,%u) for R32_UINT.\n",
                                 got_u, expected_u, x, y);
                         bug_if(is_amd_windows_device(context.device))
                         ok(got_s == expected_s, "Got %d, expected %d at (%u,%u) for R32_SINT.\n",
+                                got_s, expected_s, x, y);
+
+                        got_u = get_readback_uint(&rb, x + dst_x - src_rect.left, y + dst_y - src_rect.top + 16, 0);
+                        got_s = (int32_t)get_readback_uint(&rb, x + dst_x - src_rect.left, y + dst_y - src_rect.top + 20, 0);
+
+                        bug_if(is_amd_windows_device(context.device))
+                        ok(got_u == expected_u, "Got %u, expected %u at (%u,%u) for R32_UINT (UAV).\n",
+                                got_u, expected_u, x, y);
+                        bug_if(is_amd_windows_device(context.device))
+                        ok(got_s == expected_s, "Got %d, expected %d at (%u,%u) for R32_SINT (UAV).\n",
                                 got_s, expected_s, x, y);
                     }
                 }
@@ -1716,6 +1760,8 @@ void test_multisample_resolve_formats(void)
             transition_resource_state(context.list, rt_f32, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
             transition_resource_state(context.list, rt_u32, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
             transition_resource_state(context.list, rt_s32, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            transition_resource_state(context.list, image_u32, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+            transition_resource_state(context.list, image_s32, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
             transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
         }
     }
@@ -1729,8 +1775,10 @@ void test_multisample_resolve_formats(void)
     ID3D12Resource_Release(rt_f32_ms);
     ID3D12Resource_Release(rt_u32);
     ID3D12Resource_Release(rt_u32_ms);
-    ID3D12Resource_Release(rt_s32_ms);
     ID3D12Resource_Release(rt_s32);
+    ID3D12Resource_Release(rt_s32_ms);
+    ID3D12Resource_Release(image_u32);
+    ID3D12Resource_Release(image_s32);
     ID3D12Resource_Release(combined_image);
 
     ID3D12PipelineState_Release(pso_setup_render_targets);
