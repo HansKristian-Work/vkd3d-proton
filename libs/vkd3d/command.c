@@ -8478,7 +8478,13 @@ enum vkd3d_resolve_path d3d12_command_list_select_resolve_path(struct d3d12_comm
     {
         FIXME("Selected resolve path %u for mode %u, format %u, but destination image cannot be used as a render target.\n",
                 path, mode, format);
-        path = VKD3D_RESOLVE_PATH_UNSUPPORTED;
+
+        /* Fallback when trying to do MIN/MAX resolve on color and there is no RTV usage.
+         * AVERAGE is almost correct and better than rendering nothing. */
+        if (vkd3d_format->vk_aspect_mask & VK_IMAGE_ASPECT_COLOR_BIT)
+            path = VKD3D_RESOLVE_PATH_DIRECT;
+        else
+            path = VKD3D_RESOLVE_PATH_UNSUPPORTED;
     }
 
     return path;
