@@ -8345,14 +8345,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyTiles(d3d12_command_list_if
     VKD3D_BREADCRUMB_COMMAND(COPY_TILES);
 }
 
-enum vkd3d_resolve_path
-{
-    VKD3D_RESOLVE_PATH_UNSUPPORTED,
-    VKD3D_RESOLVE_PATH_DIRECT,
-    VKD3D_RESOLVE_PATH_RENDER_PASS_ATTACHMENT,
-    VKD3D_RESOLVE_PATH_RENDER_PASS_PIPELINE,
-};
-
 static VkResolveModeFlagBits vk_resolve_mode_from_d3d12(D3D12_RESOLVE_MODE mode)
 {
     switch (mode)
@@ -8391,29 +8383,29 @@ static const struct vkd3d_format *d3d12_command_list_get_resolve_format(struct d
     return vkd3d_format_from_d3d12_resource_desc(list->device, &dst_resource->desc, format);
 }
 
-enum vkd3d_resolve_path d3d12_command_list_select_resolve_path(struct d3d12_command_list *list,
+enum vkd3d_resolve_image_path d3d12_command_list_select_resolve_path(struct d3d12_command_list *list,
         struct d3d12_resource *dst_resource, struct d3d12_resource *src_resource, uint32_t region_count,
         const VkImageResolve2 *regions, DXGI_FORMAT format, D3D12_RESOLVE_MODE mode)
 {
     const struct vkd3d_format *vkd3d_format = d3d12_command_list_get_resolve_format(list, dst_resource, src_resource, format);
-    enum vkd3d_resolve_path path;
+    enum vkd3d_resolve_image_path path;
     unsigned int i;
 
     if (dst_resource->format->vk_aspect_mask != src_resource->format->vk_aspect_mask)
     {
         /* Mismatched aspects may happen with some typeless formats */
-        path = VKD3D_RESOLVE_PATH_RENDER_PASS_PIPELINE;
+        path = VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_PIPELINE;
     }
     else if (vkd3d_format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
     {
         /* The direct path only supports color images with the AVERAGE mode */
-        path = VKD3D_RESOLVE_PATH_RENDER_PASS_ATTACHMENT;
+        path = VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_ATTACHMENT;
     }
     else if (mode != D3D12_RESOLVE_MODE_AVERAGE)
     {
         /* Vulkan only supports SAMPLE_ZERO for color images for which D3D12 does
          * not even have an equivalent, we can only implement this in shaders. */
-        path = VKD3D_RESOLVE_PATH_RENDER_PASS_PIPELINE;
+        path = VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_PIPELINE;
     }
     else if (dst_resource->format->type == VKD3D_FORMAT_TYPE_TYPELESS ||
             src_resource->format->type == VKD3D_FORMAT_TYPE_TYPELESS)
@@ -8421,22 +8413,22 @@ enum vkd3d_resolve_path d3d12_command_list_select_resolve_path(struct d3d12_comm
         /* Prefer the direct path even for typeless formats if possible */
         if (vkd3d_format->vk_format == dst_resource->format->vk_format &&
                 vkd3d_format->vk_format == src_resource->format->vk_format)
-            path = VKD3D_RESOLVE_PATH_DIRECT;
+            path = VKD3D_RESOLVE_IMAGE_PATH_DIRECT;
         else
-            path = VKD3D_RESOLVE_PATH_RENDER_PASS_ATTACHMENT;
+            path = VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_ATTACHMENT;
     }
     else
-        path = VKD3D_RESOLVE_PATH_DIRECT;
+        path = VKD3D_RESOLVE_IMAGE_PATH_DIRECT;
 
     /* The attachment path has a number of restrictions that may require us to fall
      * back to the shader-based path. */
-    if (path == VKD3D_RESOLVE_PATH_RENDER_PASS_ATTACHMENT)
+    if (path == VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_ATTACHMENT)
     {
         if (!(src_resource->desc.Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)))
         {
             /* If the source image somehow cannot be bound for rendering, use the
              * shader path since that will work for all source images. */
-            path = VKD3D_RESOLVE_PATH_RENDER_PASS_PIPELINE;
+            path = VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_PIPELINE;
         }
         else if (vkd3d_format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
         {
@@ -8454,26 +8446,26 @@ enum vkd3d_resolve_path d3d12_command_list_select_resolve_path(struct d3d12_comm
             }
 
             if (!supports_render_pass_resolve)
-                path = VKD3D_RESOLVE_PATH_RENDER_PASS_PIPELINE;
+                path = VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_PIPELINE;
         }
     }
 
     /* Attachment resolves cannot be used with an offset */
-    if (path == VKD3D_RESOLVE_PATH_RENDER_PASS_ATTACHMENT)
+    if (path == VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_ATTACHMENT)
     {
         for (i = 0; i < region_count; i++)
         {
             if (regions[i].srcOffset.x != regions[i].dstOffset.x ||
                     regions[i].srcOffset.y != regions[i].dstOffset.y)
             {
-                path = VKD3D_RESOLVE_PATH_RENDER_PASS_PIPELINE;
+                path = VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_PIPELINE;
                 break;
             }
         }
     }
 
     /* All alternative code paths require render target usage for the destination image */
-    if (path != VKD3D_RESOLVE_PATH_DIRECT &&
+    if (path != VKD3D_RESOLVE_IMAGE_PATH_DIRECT &&
             !(dst_resource->desc.Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)))
     {
         FIXME("Selected resolve path %u for mode %u, format %u, but destination image cannot be used as a render target.\n",
@@ -8482,16 +8474,16 @@ enum vkd3d_resolve_path d3d12_command_list_select_resolve_path(struct d3d12_comm
         /* Fallback when trying to do MIN/MAX resolve on color and there is no RTV usage.
          * AVERAGE is almost correct and better than rendering nothing. */
         if (vkd3d_format->vk_aspect_mask & VK_IMAGE_ASPECT_COLOR_BIT)
-            path = VKD3D_RESOLVE_PATH_DIRECT;
+            path = VKD3D_RESOLVE_IMAGE_PATH_DIRECT;
         else
-            path = VKD3D_RESOLVE_PATH_UNSUPPORTED;
+            path = VKD3D_RESOLVE_IMAGE_PATH_UNSUPPORTED;
     }
 
     return path;
 }
 
 static void d3d12_get_resolve_barrier_for_dst_resource(struct d3d12_resource *resource, const VkImageResolve2 *region,
-        enum vkd3d_resolve_path path, bool post_resolve, VkImageLayout outside_layout, VkPipelineStageFlags2 outside_stages,
+        enum vkd3d_resolve_image_path path, bool post_resolve, VkImageLayout outside_layout, VkPipelineStageFlags2 outside_stages,
         VkAccessFlags2 outside_access, VkImageMemoryBarrier2 *barrier)
 {
     VkPipelineStageFlags2 resolve_stages;
@@ -8502,7 +8494,7 @@ static void d3d12_get_resolve_barrier_for_dst_resource(struct d3d12_resource *re
     writes_full_subresource = d3d12_image_copy_writes_full_subresource(
             resource, &region->extent, &region->dstSubresource);
 
-    if (path == VKD3D_RESOLVE_PATH_DIRECT)
+    if (path == VKD3D_RESOLVE_IMAGE_PATH_DIRECT)
     {
         resolve_layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         resolve_stages = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
@@ -8553,20 +8545,20 @@ static void d3d12_get_resolve_barrier_for_dst_resource(struct d3d12_resource *re
 }
 
 static void d3d12_get_resolve_barrier_for_src_resource(struct d3d12_resource *resource, const VkImageResolve2 *region,
-        enum vkd3d_resolve_path path, bool post_resolve, VkImageLayout outside_layout, VkPipelineStageFlags2 outside_stages,
+        enum vkd3d_resolve_image_path path, bool post_resolve, VkImageLayout outside_layout, VkPipelineStageFlags2 outside_stages,
         VkAccessFlags2 outside_access, VkImageMemoryBarrier2 *barrier)
 {
     VkPipelineStageFlags2 resolve_stages;
     VkAccessFlags2 resolve_access;
     VkImageLayout resolve_layout;
 
-    if (path == VKD3D_RESOLVE_PATH_DIRECT)
+    if (path == VKD3D_RESOLVE_IMAGE_PATH_DIRECT)
     {
         resolve_layout = d3d12_resource_pick_layout(resource, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         resolve_stages = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
         resolve_access = VK_ACCESS_2_TRANSFER_READ_BIT;
     }
-    else if (path == VKD3D_RESOLVE_PATH_RENDER_PASS_ATTACHMENT)
+    else if (path == VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_ATTACHMENT)
     {
         if (resource->format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
         {
@@ -8619,7 +8611,7 @@ static void d3d12_get_resolve_barrier_for_src_resource(struct d3d12_resource *re
 static void d3d12_command_list_execute_resolve(struct d3d12_command_list *list,
         struct d3d12_resource *dst_resource, struct d3d12_resource *src_resource,
         uint32_t region_count, const VkImageResolve2 *regions, DXGI_FORMAT format,
-        D3D12_RESOLVE_MODE mode, enum vkd3d_resolve_path path)
+        D3D12_RESOLVE_MODE mode, enum vkd3d_resolve_image_path path)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_resolve_image_pipeline_key resolve_pipeline_key;
@@ -8636,7 +8628,7 @@ static void d3d12_command_list_execute_resolve(struct d3d12_command_list *list,
     VkViewport viewport;
     unsigned int i, j;
 
-    if (path == VKD3D_RESOLVE_PATH_DIRECT)
+    if (path == VKD3D_RESOLVE_IMAGE_PATH_DIRECT)
     {
         memset(&resolve_info, 0, sizeof(resolve_info));
         resolve_info.sType = VK_STRUCTURE_TYPE_RESOLVE_IMAGE_INFO_2;
@@ -8668,7 +8660,7 @@ static void d3d12_command_list_execute_resolve(struct d3d12_command_list *list,
             rendering_info.colorAttachmentCount = 1;
             rendering_info.pColorAttachments = &attachment_info;
 
-            if (path == VKD3D_RESOLVE_PATH_RENDER_PASS_ATTACHMENT)
+            if (path == VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_ATTACHMENT)
             {
                 attachment_info.imageLayout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
                 attachment_info.resolveImageLayout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -8678,7 +8670,7 @@ static void d3d12_command_list_execute_resolve(struct d3d12_command_list *list,
         }
         else
         {
-            if (path == VKD3D_RESOLVE_PATH_RENDER_PASS_ATTACHMENT)
+            if (path == VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_ATTACHMENT)
             {
                 attachment_info.imageLayout = d3d12_resource_pick_layout(src_resource, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
                 attachment_info.resolveImageLayout = d3d12_resource_pick_layout(dst_resource, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
@@ -8699,7 +8691,7 @@ static void d3d12_command_list_execute_resolve(struct d3d12_command_list *list,
             rendering_info.pDepthAttachment = (region->dstSubresource.aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT) ? &attachment_info : NULL;
             rendering_info.pStencilAttachment = (region->dstSubresource.aspectMask & VK_IMAGE_ASPECT_STENCIL_BIT) ? &attachment_info : NULL;
 
-            if (path == VKD3D_RESOLVE_PATH_RENDER_PASS_ATTACHMENT)
+            if (path == VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_ATTACHMENT)
                 attachment_info.resolveMode = vk_resolve_mode_from_d3d12(mode);
 
             memset(&dst_view_desc, 0, sizeof(dst_view_desc));
@@ -8723,7 +8715,7 @@ static void d3d12_command_list_execute_resolve(struct d3d12_command_list *list,
             src_view_desc.layer_idx = region->srcSubresource.baseArrayLayer;
             src_view_desc.layer_count = region->srcSubresource.layerCount;
 
-            if (path == VKD3D_RESOLVE_PATH_RENDER_PASS_ATTACHMENT)
+            if (path == VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_ATTACHMENT)
             {
                 src_view_desc.aspect_mask = vk_format->vk_aspect_mask;
                 src_view_desc.image_usage = dst_view_desc.image_usage;
@@ -8739,17 +8731,17 @@ static void d3d12_command_list_execute_resolve(struct d3d12_command_list *list,
                     !vkd3d_create_texture_view(list->device, &src_view_desc, &src_view))
             {
                 ERR("Failed to create image views.\n");
-                goto cleanup;
+                goto cleanup_graphics;
             }
 
             if (!d3d12_command_allocator_add_view(list->allocator, dst_view) ||
                     !d3d12_command_allocator_add_view(list->allocator, src_view))
             {
                 ERR("Failed to add views.\n");
-                goto cleanup;
+                goto cleanup_graphics;
             }
 
-            if (path == VKD3D_RESOLVE_PATH_RENDER_PASS_ATTACHMENT)
+            if (path == VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_ATTACHMENT)
             {
                 attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
                 attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
@@ -8777,7 +8769,7 @@ static void d3d12_command_list_execute_resolve(struct d3d12_command_list *list,
 
             VK_CALL(vkCmdBeginRendering(list->cmd.vk_command_buffer, &rendering_info));
 
-            if (path == VKD3D_RESOLVE_PATH_RENDER_PASS_PIPELINE)
+            if (path == VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_PIPELINE)
             {
                 viewport.x = (float)region->dstOffset.x;
                 viewport.y = (float)region->dstOffset.y;
@@ -8829,7 +8821,7 @@ static void d3d12_command_list_execute_resolve(struct d3d12_command_list *list,
 
             VK_CALL(vkCmdEndRendering(list->cmd.vk_command_buffer));
 
-cleanup:
+cleanup_graphics:
             if (dst_view)
                 vkd3d_view_decref(dst_view, list->device);
             if (src_view)
@@ -8844,13 +8836,13 @@ static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *li
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkImageMemoryBarrier2 vk_image_barriers[2];
-    enum vkd3d_resolve_path path;
+    enum vkd3d_resolve_image_path path;
     VkDependencyInfo dep_info;
     bool writes_full_resource;
 
     path = d3d12_command_list_select_resolve_path(list, dst_resource, src_resource, 1, resolve, format, mode);
 
-    if (path == VKD3D_RESOLVE_PATH_UNSUPPORTED)
+    if (path == VKD3D_RESOLVE_IMAGE_PATH_UNSUPPORTED)
     {
         FIXME("Unsupported combination of resolve parameters.\n");
         return;

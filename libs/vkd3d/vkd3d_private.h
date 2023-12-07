@@ -3804,6 +3804,14 @@ struct vkd3d_copy_image_ops
     size_t pipeline_count;
 };
 
+enum vkd3d_resolve_image_path
+{
+    VKD3D_RESOLVE_IMAGE_PATH_UNSUPPORTED,
+    VKD3D_RESOLVE_IMAGE_PATH_DIRECT,
+    VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_ATTACHMENT,
+    VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_PIPELINE,
+};
+
 struct vkd3d_resolve_image_args
 {
     VkOffset2D offset;
