@@ -3279,6 +3279,7 @@ enum vkd3d_breadcrumb_command_type
     VKD3D_BREADCRUMB_COMMAND_BARRIER,
     VKD3D_BREADCRUMB_COMMAND_AUX32, /* Used to report arbitrary 32-bit words as arguments to other commands. */
     VKD3D_BREADCRUMB_COMMAND_AUX64, /* Used to report arbitrary 64-bit words as arguments to other commands. */
+    VKD3D_BREADCRUMB_COMMAND_COOKIE, /* 64-bit value representing a resource. */
     VKD3D_BREADCRUMB_COMMAND_VBO,
     VKD3D_BREADCRUMB_COMMAND_IBO,
     VKD3D_BREADCRUMB_COMMAND_ROOT_TABLE,
@@ -3425,6 +3426,15 @@ void vkd3d_breadcrumb_tracer_dump_command_list(struct vkd3d_breadcrumb_tracer *t
     } \
 } while(0)
 
+#define VKD3D_BREADCRUMB_COOKIE(v) do { \
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \
+        struct vkd3d_breadcrumb_command breadcrumb_cmd; \
+        breadcrumb_cmd.type = VKD3D_BREADCRUMB_COMMAND_COOKIE; \
+        breadcrumb_cmd.word_64bit = v; \
+        vkd3d_breadcrumb_tracer_add_command(list, &breadcrumb_cmd); \
+    } \
+} while(0)
+
 #define VKD3D_BREADCRUMB_TAG(tag_static_str) do { \
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) { \
         struct vkd3d_breadcrumb_command breadcrumb_cmd; \
@@ -3447,7 +3457,7 @@ static inline void vkd3d_breadcrumb_image(
 {
     const D3D12_RESOURCE_DESC1 *desc = &resource->desc;
     VKD3D_BREADCRUMB_TAG("ImageDesc [Cookie, DXGI_FORMAT, D3D12_RESOURCE_DIMENSION, width, height, DepthOrArraySize, MipLevels, Flags]");
-    VKD3D_BREADCRUMB_AUX64(resource->res.cookie);
+    VKD3D_BREADCRUMB_COOKIE(resource->res.cookie);
     VKD3D_BREADCRUMB_AUX32(desc->Format);
     VKD3D_BREADCRUMB_AUX32(desc->Dimension);
     VKD3D_BREADCRUMB_AUX64(desc->Width);
@@ -3463,8 +3473,8 @@ static inline void vkd3d_breadcrumb_buffer(
     VKD3D_BREADCRUMB_TAG("BufferDesc [VkBuffer VA, SuballocatedOffset, Cookie, GlobalCookie, Size, Flags]");
     VKD3D_BREADCRUMB_AUX64(resource->mem.resource.va);
     VKD3D_BREADCRUMB_AUX64(resource->mem.offset);
-    VKD3D_BREADCRUMB_AUX64(resource->res.cookie);
-    VKD3D_BREADCRUMB_AUX64(resource->mem.resource.cookie);
+    VKD3D_BREADCRUMB_COOKIE(resource->res.cookie);
+    VKD3D_BREADCRUMB_COOKIE(resource->mem.resource.cookie);
     VKD3D_BREADCRUMB_AUX64(resource->desc.Width);
     VKD3D_BREADCRUMB_AUX32(resource->desc.Flags);
 }
@@ -3539,6 +3549,7 @@ static inline void vkd3d_breadcrumb_buffer_copy(
 #define VKD3D_BREADCRUMB_COMMAND_STATE(type) ((void)(VKD3D_BREADCRUMB_COMMAND_##type))
 #define VKD3D_BREADCRUMB_AUX32(v) ((void)(v))
 #define VKD3D_BREADCRUMB_AUX64(v) ((void)(v))
+#define VKD3D_BREADCRUMB_COOKIE(v) ((void)(v))
 #define VKD3D_DEVICE_REPORT_BREADCRUMB_IF(device, cond) ((void)(device), (void)(cond))
 #define VKD3D_BREADCRUMB_FLUSH_BATCHES(list) ((void)(list))
 #define VKD3D_BREADCRUMB_TAG(tag) ((void)(tag))

@@ -351,6 +351,10 @@ static void vkd3d_breadcrumb_tracer_report_command_list(
         {
             ERR(" Set arg: %"PRIu64" (#%"PRIx64")\n", cmd->word_64bit, cmd->word_64bit);
         }
+        else if (cmd->type == VKD3D_BREADCRUMB_COMMAND_COOKIE)
+        {
+            ERR(" Cookie: %"PRIu64" (#%"PRIx64")\n", cmd->word_64bit, cmd->word_64bit);
+        }
         else if (cmd->type == VKD3D_BREADCRUMB_COMMAND_TAG)
         {
             ERR("     Tag: %s\n", cmd->tag);

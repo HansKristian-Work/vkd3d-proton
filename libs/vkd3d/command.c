@@ -3005,7 +3005,7 @@ static void d3d12_command_list_clear_attachment_inline(struct d3d12_command_list
     }
 
     VKD3D_BREADCRUMB_TAG("clear-view-cookie");
-    VKD3D_BREADCRUMB_AUX64(view->cookie);
+    VKD3D_BREADCRUMB_COOKIE(view->cookie);
     VKD3D_BREADCRUMB_RESOURCE(resource);
     VKD3D_BREADCRUMB_COMMAND(CLEAR_INLINE);
 }
@@ -3696,7 +3696,7 @@ static void d3d12_command_list_clear_attachment_pass(struct d3d12_command_list *
     VK_CALL(vkCmdEndRendering(list->cmd.vk_command_buffer));
 
     VKD3D_BREADCRUMB_TAG("clear-view-cookie");
-    VKD3D_BREADCRUMB_AUX64(view->cookie);
+    VKD3D_BREADCRUMB_COOKIE(view->cookie);
     VKD3D_BREADCRUMB_RESOURCE(resource);
     VKD3D_BREADCRUMB_COMMAND(CLEAR_PASS);
 
@@ -8884,8 +8884,8 @@ static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *li
     if (dst_resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
         d3d12_command_list_update_subresource_data(list, dst_resource, resolve->dstSubresource);
 
-    VKD3D_BREADCRUMB_AUX64(src_resource->res.cookie);
-    VKD3D_BREADCRUMB_AUX64(dst_resource->res.cookie);
+    VKD3D_BREADCRUMB_COOKIE(src_resource->res.cookie);
+    VKD3D_BREADCRUMB_COOKIE(dst_resource->res.cookie);
     VKD3D_BREADCRUMB_AUX32(format);
     VKD3D_BREADCRUMB_AUX32(mode);
     VKD3D_BREADCRUMB_COMMAND(RESOLVE);
@@ -9723,7 +9723,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
                     continue;
                 }
 
-                VKD3D_BREADCRUMB_AUX64(preserve_resource ? preserve_resource->res.cookie : 0);
+                VKD3D_BREADCRUMB_COOKIE(preserve_resource ? preserve_resource->res.cookie : 0);
                 VKD3D_BREADCRUMB_AUX32(transition->Subresource);
                 VKD3D_BREADCRUMB_AUX32(transition->StateBefore);
                 VKD3D_BREADCRUMB_AUX32(transition->StateAfter);
@@ -9817,8 +9817,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResourceBarrier(d3d12_command_l
 
                 preserve_resource = impl_from_ID3D12Resource(uav->pResource);
 
-                VKD3D_BREADCRUMB_AUX64(preserve_resource ? preserve_resource->res.cookie : 0);
-                VKD3D_BREADCRUMB_AUX64(preserve_resource ? preserve_resource->mem.resource.cookie : 0);
+                VKD3D_BREADCRUMB_COOKIE(preserve_resource ? preserve_resource->res.cookie : 0);
+                VKD3D_BREADCRUMB_COOKIE(preserve_resource ? preserve_resource->mem.resource.cookie : 0);
                 VKD3D_BREADCRUMB_TAG("UAV Barrier");
 
                 /* The only way to synchronize an RTAS is UAV barriers,
@@ -10527,7 +10527,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(d3d12_command_
     VKD3D_BREADCRUMB_AUX32(index_type == VK_INDEX_TYPE_UINT32 ? 32 : 16);
     VKD3D_BREADCRUMB_AUX64(view->BufferLocation);
     VKD3D_BREADCRUMB_AUX64(view->SizeInBytes);
-    VKD3D_BREADCRUMB_AUX64(resource ? resource->cookie : 0);
+    VKD3D_BREADCRUMB_COOKIE(resource ? resource->cookie : 0);
     VKD3D_BREADCRUMB_COMMAND_STATE(IBO);
 }
 
@@ -10592,7 +10592,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetVertexBuffers(d3d12_comman
         VKD3D_BREADCRUMB_AUX64(views[i].BufferLocation);
         VKD3D_BREADCRUMB_AUX32(views[i].StrideInBytes);
         VKD3D_BREADCRUMB_AUX64(views[i].SizeInBytes);
-        VKD3D_BREADCRUMB_AUX64(resource ? resource->cookie : 0);
+        VKD3D_BREADCRUMB_COOKIE(resource ? resource->cookie : 0);
         VKD3D_BREADCRUMB_COMMAND_STATE(VBO);
 
         invalidate |= dyn_state->vertex_strides[start_slot + i] != stride;
@@ -10738,7 +10738,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
             continue;
         }
 
-        VKD3D_BREADCRUMB_AUX64(rtv_desc->view->cookie);
+        VKD3D_BREADCRUMB_COOKIE(rtv_desc->view->cookie);
         VKD3D_BREADCRUMB_AUX32(i);
         VKD3D_BREADCRUMB_TAG("RTV bind");
 
@@ -10760,7 +10760,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_OMSetRenderTargets(d3d12_comman
             next_dsv_plane_write_enable = rtv_desc->plane_write_enable;
             next_dsv_format = rtv_desc->format->vk_format;
 
-            VKD3D_BREADCRUMB_AUX64(rtv_desc->view->cookie);
+            VKD3D_BREADCRUMB_COOKIE(rtv_desc->view->cookie);
             VKD3D_BREADCRUMB_TAG("DSV bind");
         }
         else
@@ -12302,7 +12302,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveQueryData(d3d12_command_
     VKD3D_BREADCRUMB_AUX32(start_index);
     VKD3D_BREADCRUMB_AUX32(query_count);
     VKD3D_BREADCRUMB_AUX64(aligned_dst_buffer_offset);
-    VKD3D_BREADCRUMB_AUX64(query_heap->cookie);
+    VKD3D_BREADCRUMB_COOKIE(query_heap->cookie);
     VKD3D_BREADCRUMB_RESOURCE(buffer);
     VKD3D_BREADCRUMB_COMMAND(RESOLVE_QUERY);
 }
@@ -13197,9 +13197,9 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
 
     VKD3D_BREADCRUMB_TAG("ExecuteIndirect [MaxCommandCount, ArgBuffer cookie, ArgBuffer offset, Count cookie, Count offset]");
     VKD3D_BREADCRUMB_AUX32(max_command_count);
-    VKD3D_BREADCRUMB_AUX64(arg_impl->res.cookie);
+    VKD3D_BREADCRUMB_COOKIE(arg_impl->res.cookie);
     VKD3D_BREADCRUMB_AUX64(arg_buffer_offset);
-    VKD3D_BREADCRUMB_AUX64(count_impl ? count_impl->res.cookie : 0);
+    VKD3D_BREADCRUMB_COOKIE(count_impl ? count_impl->res.cookie : 0);
     VKD3D_BREADCRUMB_AUX64(count_buffer_offset);
 
     if (sig_impl->requires_state_template)
