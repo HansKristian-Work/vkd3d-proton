@@ -877,6 +877,7 @@ enum vkd3d_resource_flag
     VKD3D_RESOURCE_EXTERNAL               = (1u << 5),
     VKD3D_RESOURCE_ACCELERATION_STRUCTURE = (1u << 6),
     VKD3D_RESOURCE_GENERAL_LAYOUT         = (1u << 7),
+    VKD3D_RESOURCE_STORAGE_IMAGE          = (1u << 8),
 };
 
 struct d3d12_sparse_image_region

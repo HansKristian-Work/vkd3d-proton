@@ -8464,7 +8464,7 @@ enum vkd3d_resolve_image_path d3d12_command_list_select_resolve_path(struct d3d1
         }
     }
 
-    if (dst_resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
+    if (dst_resource->flags & VKD3D_RESOURCE_STORAGE_IMAGE)
     {
         /* Use the compute path if we need to use a pipeline anyway, or if
          * the destination image does not support render target usage. */

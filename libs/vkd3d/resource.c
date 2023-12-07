@@ -774,6 +774,16 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
     if (!(desc->Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) || desc->SampleDesc.Count > 1)
         image_info->usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
 
+    /* Add storage image usage if the image cannot be rendered to, but may
+     * be used as a destination image for multisample resolves. */
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D && desc->SampleDesc.Count == 1 &&
+            !(image_info->usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) &&
+            (format->vk_aspect_mask == VK_IMAGE_ASPECT_COLOR_BIT) &&
+            (format->vk_format_features & VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT) &&
+            (format->vk_format_features & VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT) &&
+            (!heap_properties || !is_cpu_accessible_heap(heap_properties)))
+        image_info->usage |= VK_IMAGE_USAGE_STORAGE_BIT;
+
     /* Additional usage flags for shader-based copies */
     if (vkd3d_format_allows_shader_copies(format->dxgi_format))
     {
@@ -873,6 +883,9 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         {
             resource->common_layout = vk_common_image_layout_from_d3d12_desc(device, desc);
         }
+
+        if (image_info->usage & VK_IMAGE_USAGE_STORAGE_BIT)
+            resource->flags |= VKD3D_RESOURCE_STORAGE_IMAGE;
     }
 
     return S_OK;
