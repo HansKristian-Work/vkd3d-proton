@@ -8884,6 +8884,10 @@ static void d3d12_command_list_resolve_subresource(struct d3d12_command_list *li
     if (dst_resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
         d3d12_command_list_update_subresource_data(list, dst_resource, resolve->dstSubresource);
 
+    VKD3D_BREADCRUMB_AUX64(src_resource->res.cookie);
+    VKD3D_BREADCRUMB_AUX64(dst_resource->res.cookie);
+    VKD3D_BREADCRUMB_AUX32(format);
+    VKD3D_BREADCRUMB_AUX32(mode);
     VKD3D_BREADCRUMB_COMMAND(RESOLVE);
 }
 
