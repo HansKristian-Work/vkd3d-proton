@@ -66,7 +66,6 @@ static void load_vulkan_once(void)
          * issues with third-party overlays hooking the Vulkan loader */
         static const char *vulkan_dllnames[] =
         {
-            "Juicevlk.dll",
             "winevulkan.dll",
             "vulkan-1.dll",
         };
