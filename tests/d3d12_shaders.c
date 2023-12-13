@@ -6892,11 +6892,13 @@ void test_resinfo(void)
         {&ps_2d, {32, 16, 1, 3, 1, 0}, 0, {32.0f, 16.0f, 3.0f, 0.0f}},
         {&ps_2d, {32, 16, 1, 3, 1, 0}, 1, {16.0f,  8.0f, 3.0f, 0.0f}},
         {&ps_2d, {32, 16, 1, 3, 1, 0}, 2, { 8.0f,  4.0f, 3.0f, 0.0f}},
+        {&ps_2d, {32, 16, 1, 1, 1, 0}, 2, { 0.0f,  0.0f, 1.0f, 0.0f}},
 
         {&ps_2d_array, {64, 64, 1, 1, 6, 0}, 0, {64.0f, 64.0f, 6.0f, 1.0f}},
         {&ps_2d_array, {32, 16, 1, 3, 9, 0}, 0, {32.0f, 16.0f, 9.0f, 3.0f}},
         {&ps_2d_array, {32, 16, 1, 3, 7, 0}, 1, {16.0f,  8.0f, 7.0f, 3.0f}},
         {&ps_2d_array, {32, 16, 1, 3, 3, 0}, 2, { 8.0f,  4.0f, 3.0f, 3.0f}},
+        {&ps_2d_array, {16, 16, 1, 1, 1, 0}, 1, { 0.0f,  0.0f, 0.0f, 1.0f}},
 
         {&ps_3d, {64, 64, 2, 1, 1, 0}, 0, {64.0f, 64.0f, 2.0f, 1.0f}},
         {&ps_3d, {64, 64, 2, 2, 1, 0}, 1, {32.0f, 32.0f, 1.0f, 2.0f}},
@@ -6907,16 +6909,19 @@ void test_resinfo(void)
         {&ps_3d, { 8,  8, 8, 4, 1, 0}, 1, { 4.0f,  4.0f, 4.0f, 4.0f}},
         {&ps_3d, { 8,  8, 8, 4, 1, 0}, 2, { 2.0f,  2.0f, 2.0f, 4.0f}},
         {&ps_3d, { 8,  8, 8, 4, 1, 0}, 3, { 1.0f,  1.0f, 1.0f, 4.0f}},
+        {&ps_3d, {16, 16, 16, 2, 1, 0}, 3, { 0.0f,  0.0f, 0.0f, 2.0f}},
 
         {&ps_cube, { 4,  4, 1, 1, 6, 1}, 0, { 4.0f,  4.0f, 1.0f, 0.0f}},
         {&ps_cube, {32, 32, 1, 1, 6, 1}, 0, {32.0f, 32.0f, 1.0f, 0.0f}},
         {&ps_cube, {32, 32, 1, 3, 6, 1}, 0, {32.0f, 32.0f, 3.0f, 0.0f}},
         {&ps_cube, {32, 32, 1, 3, 6, 1}, 1, {16.0f, 16.0f, 3.0f, 0.0f}},
         {&ps_cube, {32, 32, 1, 3, 6, 1}, 2, { 8.0f,  8.0f, 3.0f, 0.0f}},
+        {&ps_cube, {16, 16, 1, 1, 6, 1}, 6, { 0.0f,  0.0f, 1.0f, 0.0f}},
 
         {&ps_cube_array, { 4,  4, 1, 1, 12, 2}, 0, { 4.0f,  4.0f, 1.0f, 0.0f}},
         {&ps_cube_array, {32, 32, 1, 1, 12, 2}, 0, {32.0f, 32.0f, 1.0f, 0.0f}},
         {&ps_cube_array, {32, 32, 1, 3, 12, 2}, 0, {32.0f, 32.0f, 3.0f, 0.0f}},
+        {&ps_cube_array, {32, 32, 1, 3, 12, 2}, 4, { 0.0f,  0.0f, 3.0f, 0.0f}},
     };
 
     memset(&desc, 0, sizeof(desc));
@@ -7022,6 +7027,7 @@ void test_resinfo(void)
             transition_resource_state(command_list, context.render_target,
                     D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
+            bug_if(test->miplevel >= test->texture_desc.miplevel_count && is_amd_windows_device(context.device))
             check_sub_resource_vec4(context.render_target, 0, queue, command_list, &test->expected_result, 0);
 
             reset_command_list(command_list, context.allocator);
