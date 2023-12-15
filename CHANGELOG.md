@@ -1,5 +1,28 @@
 # Change Log
 
+## 2.11.1
+
+This release is a minor bug-fix release before the holidays.
+
+- Implement COLOR -> STENCIL fallback copy on NVIDIA
+- Implement SM 6.6 ResourceDescriptorHeap[] + UAV counters correctly on RADV
+- Fix bugged implementation of DXBC resinfo instruction, affecting Avatar: Frontiers of Pandora
+- Fix memory type used for DGC preprocess memory on NVIDIA (~5% performance, YMMV)
+- Fix crash in Callisto Protocol when booting game with DXR support
+ 
+#### More complete MSAA resolve implementation
+
+- Add depth-stencil resolve
+- Support typeless formats
+- Add MIN/MAX resolve modes
+- Implement missing code paths on NVIDIA
+ 
+#### Workarounds
+
+- Update workaround for GPU hang in CP77 when using DXR for patch 2.1.
+- Remove workaround for NO_DGCC in Halo Infinite on NVIDIA.
+- Workaround game bug in Pioneers of Pagonia causing GPU hangs on RADV.
+
 ## 2.11
 
 This release rolls up a bunch of features, perf improvements and bug fixes / workarounds as usual.
