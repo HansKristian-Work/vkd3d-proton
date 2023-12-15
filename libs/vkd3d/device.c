@@ -1244,7 +1244,7 @@ UINT d3d12_determine_shading_rate_image_tile_size(struct d3d12_device *device)
     {
         UINT tile_size = valid_shading_rate_image_tile_sizes[i];
         if (tile_size >= min_texel_size.width && tile_size >= min_texel_size.height &&
-                tile_size <= max_texel_size.height && tile_size <= max_texel_size.height)
+                tile_size <= max_texel_size.width && tile_size <= max_texel_size.height)
             return tile_size;
     }
 
