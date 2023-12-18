@@ -116,7 +116,7 @@ add_project_arguments(vkd3d_compiler.get_supported_arguments([
 
 if cpu_family == 'x86'
   add_global_link_arguments(vkd3d_compiler.get_supported_link_arguments([
-      '-Wl,--add-stdcall-alias',
+      '-Wl,--kill-at',
       '-Wl,--enable-stdcall-fixup']),
     language : [ 'c', 'cpp' ])
 
@@ -164,7 +164,13 @@ dxil_spirv_dep = dxil_spirv.get_variable('dxil_spirv_dep')
 subdir('include')
 subdir('libs')
 
-lib_d3d12 = d3d12_dep
+if vkd3d_platform == 'windows'
+  # MinGW LD on x86 emits incorrect implib with ordinal suffixes.
+  # As a workaround, just link to the system D3D12.
+  lib_d3d12 = vkd3d_compiler.find_library('d3d12')
+else
+  lib_d3d12 = d3d12_dep
+endif
 
 if vkd3d_platform == 'linux'
   pkg = import('pkgconfig')

@@ -34,17 +34,11 @@
 
 #include "debug.h"
 
-/* We need to specify the __declspec(dllexport) attribute
- * on MinGW because otherwise the stdcall aliases/fixups
- * don't get exported.
- */
-#if defined(_MSC_VER)
-  #define DLLEXPORT
-#elif defined(__MINGW32__)
-  #define DLLEXPORT __declspec(dllexport)
+#if defined(__WINE__) || !defined(_WIN32)
+#define DLLEXPORT __attribute__((visibility("default")))
+#include <dlfcn.h>
 #else
-  #define DLLEXPORT __attribute__((visibility("default")))
-  #include <dlfcn.h>
+#define DLLEXPORT
 #endif
 
 typedef IVKD3DCoreInterface d3d12core_interface;
