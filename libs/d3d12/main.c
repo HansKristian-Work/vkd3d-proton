@@ -40,17 +40,11 @@
 #include "vkd3d_string.h"
 #include "vkd3d_platform.h"
 
-/* We need to specify the __declspec(dllexport) attribute
- * on MinGW because otherwise the stdcall aliases/fixups
- * don't get exported.
- */
-#if defined(_MSC_VER)
-  #define DLLEXPORT
-#elif defined(__MINGW32__)
-  #define DLLEXPORT __declspec(dllexport)
+#if defined(__WINE__) || !defined(_WIN32)
+#define DLLEXPORT __attribute__((visibility("default")))
+#include <dlfcn.h>
 #else
-  #define DLLEXPORT __attribute__((visibility("default")))
-  #include <dlfcn.h>
+#define DLLEXPORT
 #endif
 
 static pthread_once_t library_once = PTHREAD_ONCE_INIT;
