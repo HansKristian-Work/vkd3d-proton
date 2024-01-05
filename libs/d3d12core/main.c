@@ -199,7 +199,9 @@ static VkPhysicalDevice d3d12_find_physical_device(struct vkd3d_instance *instan
         if (id_properties.deviceLUIDValid && !memcmp(id_properties.deviceLUID, &adapter_desc->AdapterLuid, VK_LUID_SIZE))
         {
             vk_physical_device = vk_physical_devices[i];
-            break;
+            /* Workaround for systems where multiple devices have the same LUID */
+            if (properties2.properties.deviceID == adapter_desc->DeviceId && properties2.properties.vendorID == adapter_desc->VendorId)
+                break;
         }
     }
 
