@@ -148,9 +148,10 @@ static VkPhysicalDevice d3d12_find_physical_device(struct vkd3d_instance *instan
     VkPhysicalDeviceProperties2 properties2;
     VkPhysicalDevice *vk_physical_devices;
     VkInstance vk_instance;
-    unsigned int i;
+    unsigned int i, j;
     uint32_t count;
     VkResult vr;
+    bool match;
 
     vk_instance = vkd3d_instance_get_vk_instance(instance);
 
@@ -198,8 +199,33 @@ static VkPhysicalDevice d3d12_find_physical_device(struct vkd3d_instance *instan
 
         if (id_properties.deviceLUIDValid && !memcmp(id_properties.deviceLUID, &adapter_desc->AdapterLuid, VK_LUID_SIZE))
         {
-            vk_physical_device = vk_physical_devices[i];
-            break;
+            match = true;
+
+            if (vk_physical_device)
+            {
+                WARN("Multiple adapters found with LUID %#x%x.\n", adapter_desc->AdapterLuid.HighPart, adapter_desc->AdapterLuid.LowPart);
+
+                match = properties2.properties.deviceID == adapter_desc->DeviceId &&
+                        properties2.properties.vendorID == adapter_desc->VendorId;
+
+                if (!match)
+                {
+                    /* For simplicity, assume that adapter names are all ASCII characters */
+                    match = true;
+
+                    for (j = 0; j < ARRAY_SIZE(adapter_desc->Description); j++)
+                    {
+                        WCHAR a = (WCHAR)properties2.properties.deviceName[j];
+                        WCHAR b = adapter_desc->Description[j];
+
+                        if (!(match = (a == b)) || !a || !b)
+                          break;
+                    }
+                }
+            }
+
+            if (match)
+                vk_physical_device = vk_physical_devices[i];
         }
     }
 
