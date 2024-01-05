@@ -7566,9 +7566,7 @@ static void d3d12_device_caps_init_feature_options17(struct d3d12_device *device
 static void d3d12_device_caps_init_feature_options18(struct d3d12_device *device)
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS18 *options18 = &device->d3d12_caps.options18;
-
-    /* We don't currently support render passes at all */
-    options18->RenderPassesValid = FALSE;
+    options18->RenderPassesValid = TRUE;
 }
 
 static void d3d12_device_caps_init_feature_options19(struct d3d12_device *device)
