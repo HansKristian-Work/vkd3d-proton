@@ -4166,6 +4166,11 @@ static void d3d12_pipeline_state_graphics_handle_meta(struct d3d12_pipeline_stat
                 graphics->stages[i].stage == VK_SHADER_STAGE_GEOMETRY_BIT ||
                 graphics->stages[i].stage == VK_SHADER_STAGE_MESH_BIT_EXT)
             geometry_meta = graphics->code[i].meta.flags;
+
+        /* Need to disable AToC if the fragment shader exports sample mask */
+        if (graphics->stages[i].stage == VK_SHADER_STAGE_FRAGMENT_BIT &&
+                (graphics->code[i].meta.flags & VKD3D_SHADER_META_FLAG_EXPORTS_SAMPLE_MASK))
+            graphics->ms_desc.alphaToCoverageEnable = VK_FALSE;
     }
 
     if ((geometry_meta & VKD3D_SHADER_META_FLAG_EMITS_TRIANGLES) &&
