@@ -11710,11 +11710,25 @@ void vkd3d_dxbc_compiler_destroy(struct vkd3d_dxbc_compiler *compiler)
 void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
 {
     size_t spirv_words = code->size / sizeof(uint32_t);
+    unsigned int i, tracked_builtin_count = 0;
     const uint32_t *spirv = code->code;
     SpvExecutionMode execution_mode;
+    SpvStorageClass storage_class;
     SpvCapability capability;
+    SpvDecoration decoration;
+    SpvBuiltIn builtin;
     size_t offset = 5;
     uint32_t meta = 0;
+    uint32_t var_id;
+
+    /* This array must be large enough to hold all variable IDs that may
+     * be decorated with relevant built-ins in a valid SPIR-V module */
+    struct vkd3d_tracked_builtin
+    {
+        uint32_t var_id;
+        SpvBuiltIn builtin;
+    }
+    tracked_builtins[2];
 
     while (offset < spirv_words)
     {
@@ -11812,6 +11826,56 @@ void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
                     execution_mode == SpvExecutionModeOutputTrianglesEXT)
                 meta |= VKD3D_SHADER_META_FLAG_EMITS_TRIANGLES;
 
+        }
+        else if ((op == SpvOpDecorate && count == 4) ||
+                (op == SpvOpMemberDecorate && count == 5))
+        {
+            unsigned int delta = op == SpvOpMemberDecorate ? 1 : 0;
+            decoration = spirv[offset + delta + 2];
+
+            if (decoration == SpvDecorationBuiltIn)
+            {
+                builtin = spirv[offset + delta + 3];
+
+                if (builtin == SpvBuiltInSampleMask)
+                {
+                    if (tracked_builtin_count < ARRAY_SIZE(tracked_builtins))
+                    {
+                        struct vkd3d_tracked_builtin *entry = &tracked_builtins[tracked_builtin_count++];
+                        entry->var_id = spirv[offset + 1];
+                        entry->builtin = builtin;
+                    }
+                    else
+                        ERR("Too many tracked built-in variables.\n");
+                }
+            }
+        }
+        else if (op == SpvOpVariable && count >= 4)
+        {
+            storage_class = spirv[offset + 3];
+
+            if (storage_class == SpvStorageClassOutput || storage_class == SpvStorageClassInput)
+            {
+                var_id = spirv[offset + 2];
+
+                for (i = 0; i < tracked_builtin_count; i++)
+                {
+                    const struct vkd3d_tracked_builtin *entry = &tracked_builtins[i];
+
+                    if (entry->var_id != var_id)
+                        continue;
+
+                    switch (entry->builtin)
+                    {
+                        case SpvBuiltInSampleMask:
+                            if (storage_class == SpvStorageClassOutput)
+                                meta |= VKD3D_SHADER_META_FLAG_EXPORTS_SAMPLE_MASK;
+                            break;
+
+                        default:;
+                    }
+                }
+            }
         }
         else if (op == SpvOpFunction)
         {
