@@ -3665,6 +3665,7 @@ void test_sparse_buffer_memory_lifetime(void)
 void test_reserved_resource_mapping(void)
 {
     struct test_context context;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
     D3D12_RESOURCE_DESC desc;
     ID3D12Resource *res;
     HRESULT hr;
@@ -3672,6 +3673,17 @@ void test_reserved_resource_mapping(void)
 
     if (!init_compute_test_context(&context))
         return;
+
+    hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
+    ok(hr == S_OK, "Failed to check feature support, hr %#x.\n", hr);
+
+    if (!options.TiledResourcesTier)
+    {
+        skip("Tiled resources not supported by device.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
 
     memset(&desc, 0, sizeof(desc));
     desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
