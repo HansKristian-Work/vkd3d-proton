@@ -1,0 +1,232 @@
+/*
+ * Copyright 2024 Philip Rebohle for Valve Software
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+ */
+import "vkd3d_windows.h";
+
+#include "vkd3d_unknown.idl"
+
+typedef HRESULT (__stdcall *DxcCreateInstanceProc)(
+    REFCLSID clsid, REFIID iid, void **object);
+
+[local] HRESULT __stdcall DxcCreateInstance(
+    REFCLSID clsid, REFIID iid, void **object);
+
+cpp_quote("DEFINE_GUID(CLSID_DxcCompiler, 0x73e22d93, 0xe6ce, 0x47f3, 0xb5, 0xbf, 0xf0, 0x66, 0x4f, 0x39, 0xc1, 0xb0);")
+cpp_quote("DEFINE_GUID(CLSID_DxcUtils, 0x6245d6af, 0x66e0, 0x48fd, 0x80, 0xb4, 0x4d, 0x27, 0x17, 0x96, 0x74, 0x8c);")
+
+cpp_quote("#define DXC_CP_UTF8 65001")
+cpp_quote("#define DXC_CP_UTF16 1200")
+cpp_quote("#define DXC_CP_UTF32 12000")
+
+struct IMalloc;
+typedef struct IMalloc IMalloc;
+struct IStream;
+typedef struct IStream IStream;
+
+typedef enum DXC_OUT_KIND
+{
+    DXC_OUT_NONE = 0,
+    DXC_OUT_OBJECT = 1,
+    DXC_OUT_ERRORS = 2,
+    DXC_OUT_PDB = 3,
+    DXC_OUT_SHADER_HASH = 4,
+    DXC_OUT_DISASSEMBLY = 5,
+    DXC_OUT_HLSL = 6,
+    DXC_OUT_TEXT = 7,
+    DXC_OUT_REFLECTION = 8,
+    DXC_OUT_ROOT_SIGNATURE = 9,
+    DXC_OUT_EXTRA_OUTPUTS = 10,
+    DXC_OUT_REMARKS = 11,
+    DXC_OUT_TIME_REPORT = 12,
+    DXC_OUT_TIME_TRACE = 13,
+    DXC_OUT_FORCE_DWORD = 0xffffffff,
+} DXC_OUT_KIND;
+
+typedef struct DxcBuffer
+{
+    const void *Ptr;
+    SIZE_T Size;
+    UINT Encoding;
+} DxcBuffer;
+
+typedef struct DxcDefine
+{
+    LPCWSTR Name;
+    LPCWSTR Value;
+} DxcDefine;
+
+[
+    local,
+    object,
+    uuid(8Ba5fb08-5195-40e2-ac58-0d989c3a0102),
+    pointer_default(unique)
+]
+interface IDxcBlob : IUnknown
+{
+    void *GetBufferPointer(void);
+    SIZE_T GetBufferSize(void);
+}
+
+[
+    local,
+    object,
+    uuid(7241d424-2646-4191-97c0-98e96e42fc68),
+    pointer_default(unique)
+]
+interface IDxcBlobEncoding : IDxcBlob
+{
+    HRESULT GetEncoding(BOOL *known, UINT32 *code_page);
+}
+
+[
+    local,
+    object,
+    uuid(3da636c9-ba71-4024-a301-30cbf125305b),
+    pointer_default(unique)
+]
+interface IDxcBlobUtf8 : IDxcBlobEncoding
+{
+    LPCSTR GetStringPointer(void);
+    SIZE_T GetStringLength(void);
+}
+
+[
+    local,
+    object,
+    uuid(a3f84eab-0faa-497e-a39c-ee6ed60b2d84),
+    pointer_default(unique)
+]
+interface IDxcBlobWide : IDxcBlobEncoding
+{
+    LPCWSTR GetStringPointer(void);
+    SIZE_T GetStringLength(void);
+}
+
+[
+    local,
+    object,
+    uuid(7f61fc7d-950d-467f-b3e3-3c02fb49187c),
+    pointer_default(unique)
+]
+interface IDxcIncludeHandler : IUnknown
+{
+    HRESULT LoadSource(LPCWSTR file_name, IDxcBlob **include_source);
+}
+
+[
+    local,
+    object,
+    uuid(cedb484a-d4e9-445a-b991-ca21ca157dc2),
+    pointer_default(unique)
+]
+interface IDxcOperationResult : IUnknown
+{
+    HRESULT GetStatus(HRESULT *status);
+    HRESULT GetResult(IDxcBlob **result);
+    HRESULT GetErrorBuffer(IDxcBlobEncoding **errors);
+}
+
+[
+    local,
+    object,
+    uuid(58346cda-dde7-4497-9461-6f87af5e0659),
+    pointer_default(unique)
+]
+interface IDxcResult : IDxcOperationResult
+{
+    BOOL HasOutput(DXC_OUT_KIND dxc_out_kind);
+    HRESULT GetOutput(DXC_OUT_KIND dxc_out_kind, REFIID iid, void **object,
+            IDxcBlobWide **output_name);
+    UINT32 GetNumOutputs(void);
+    DXC_OUT_KIND GetOutputByIndex(UINT32 Index);
+    DXC_OUT_KIND PrimaryOutput(void);
+}
+
+[
+    local,
+    object,
+    uuid(73effe2a-70dc-45f8-9690-eff64c02429d),
+    pointer_default(unique)
+]
+interface IDxcCompilerArgs : IUnknown
+{
+    LPCWSTR *GetArguments(void);
+    UINT32 GetCount(void);
+    HRESULT AddArguments(LPCWSTR arguments, UINT32 arg_count);
+    HRESULT AddArgumentsUTF8(LPCSTR arguments, UINT32 arg_count);
+    HRESULT AddDefines(const DxcDefine *defines, UINT32 define_count);
+}
+
+[
+    local,
+    object,
+    uuid(8c210bf3-011f-4422-8d70-6f9acb8db617),
+    pointer_default(unique)
+]
+interface IDxcCompiler : IUnknown
+{
+    HRESULT Compile(IDxcBlob *source, LPCWSTR source_name, LPCWSTR entry_point, LPCWSTR target_profile,
+            LPCWSTR arguments, UINT32 arg_count, const DxcDefine *defines, UINT32 define_count,
+            IDxcIncludeHandler *include_handler, IDxcOperationResult **result);
+    HRESULT Preprocess(IDxcBlob *source, LPCWSTR source_name, LPCWSTR arguments, UINT32 arg_count,
+            const DxcDefine *defines, UINT32 define_count, IDxcIncludeHandler *include_handler,
+            IDxcOperationResult **result);
+    HRESULT Disassemble(IDxcBlob *source, IDxcBlobEncoding **disassembly);
+}
+
+[
+    local,
+    object,
+    uuid(228b4687-5a6a-4730-900c-9702b2203f54),
+    pointer_default(unique)
+]
+interface IDxcCompiler3 : IUnknown
+{
+    HRESULT Compile(const DxcBuffer *source, LPCWSTR *arguments, UINT32 arg_count,
+            IDxcIncludeHandler *include_handler, REFIID iid, void **result);
+    HRESULT Disassemble(const DxcBuffer *object, REFIID iid, void **result);
+}
+
+[
+    local,
+    object,
+    uuid(4605c4cb-2019-492a-ada4-65f20bb7d67f),
+    pointer_default(unique)
+]
+interface IDxcUtils : IUnknown
+{
+    HRESULT CreateBlobFromBlob(IDxcBlob *blob, UINT32 offset, UINT32 length,
+            IDxcBlob **result);
+    HRESULT CreateBlobFromPinned(const void *data, UINT32 size, UINT32 code_page,
+            IDxcBlobEncoding **result);
+    HRESULT MoveToBlob(const void *data, IMalloc *alloc, UINT32 size,
+            UINT32 code_page, IDxcBlobEncoding **result);
+    HRESULT CreateBlob(const void *data, UINT32 size, UINT32 code_page,
+            IDxcBlobEncoding **result);
+    HRESULT LoadFile(LPCWSTR file_name, UINT32 code_page, IDxcBlobEncoding **result);
+    HRESULT CreateReadOnlyStreamFromBlob(IDxcBlob *blob, IStream **stream);
+    HRESULT CreateDefaultIncludeHandler(IDxcIncludeHandler **result);
+    HRESULT GetBlobAsUtf8(IDxcBlob *blob, IDxcBlobUtf8 **result);
+    HRESULT GetBlobAsWide(IDxcBlob *blob, IDxcBlobWide **result);
+    HRESULT GetDxilContainerPart(const DxcBuffer *shader, UINT32 dxc_part,
+            void **part_data, UINT32 *part_size);
+    HRESULT CreateReflection(const DxcBuffer *data, REFIID iid, void **reflection);
+    HRESULT BuildArguments(LPCWSTR source_name, LPCWSTR entry_point, LPCWSTR target_profile,
+            LPCWSTR *arguments, UINT32 arg_count, const DxcDefine *defines, UINT32 define_count,
+            IDxcCompilerArgs **args);
+    HRESULT GetPDBContents(IDxcBlob *pdb_blob, IDxcBlob **hash, IDxcBlob **container);
+}
