@@ -271,6 +271,12 @@ static HRESULT vkd3d_create_instance_global(struct vkd3d_instance **out_instance
 #endif
     };
 
+    static const char * const optional_instance_extensions[] =
+    {
+        VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME,
+        VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
+    };
+
     if (!load_vulkan())
     {
         ERR("Failed to load Vulkan library.\n");
@@ -281,8 +287,8 @@ static HRESULT vkd3d_create_instance_global(struct vkd3d_instance **out_instance
     instance_create_info.pfn_vkGetInstanceProcAddr = vulkan_vkGetInstanceProcAddr;
     instance_create_info.instance_extensions = instance_extensions;
     instance_create_info.instance_extension_count = ARRAY_SIZE(instance_extensions);
-    instance_create_info.optional_instance_extensions = NULL;
-    instance_create_info.optional_instance_extension_count = 0;
+    instance_create_info.optional_instance_extensions = optional_instance_extensions;
+    instance_create_info.optional_instance_extension_count = ARRAY_SIZE(optional_instance_extensions);
 
     if (FAILED(hr = vkd3d_create_instance(&instance_create_info, out_instance)))
         WARN("Failed to create vkd3d instance, hr %#x.\n", hr);
@@ -305,7 +311,11 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDevice(d3d12core_interface *cor
     static const char * const device_extensions[] =
     {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-        VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME,
+    };
+
+    static const char * const optional_device_extensions[] =
+    {
+        VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME,
     };
 
     TRACE("adapter %p, minimum_feature_level %#x, iid %s, device %p.\n",
@@ -335,8 +345,8 @@ static HRESULT STDMETHODCALLTYPE d3d12core_CreateDevice(d3d12core_interface *cor
     device_create_info.instance_create_info = NULL;
     device_create_info.device_extensions = device_extensions;
     device_create_info.device_extension_count = ARRAY_SIZE(device_extensions);
-    device_create_info.optional_device_extensions = NULL;
-    device_create_info.optional_device_extension_count = 0;
+    device_create_info.optional_device_extensions = optional_device_extensions;
+    device_create_info.optional_device_extension_count = ARRAY_SIZE(optional_device_extensions);
 
 #ifdef _WIN32
     device_create_info.vk_physical_device = d3d12_find_physical_device(instance, vulkan_vkGetInstanceProcAddr, &adapter_desc);

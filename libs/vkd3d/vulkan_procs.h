@@ -274,6 +274,9 @@ VK_INSTANCE_EXT_PFN(vkDestroySurfaceKHR)
 VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceSurfaceFormatsKHR)
 VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceSurfaceCapabilitiesKHR)
 
+/* VK_KHR_get_surface_capabilities2 */
+VK_INSTANCE_EXT_PFN(vkGetPhysicalDeviceSurfaceCapabilities2KHR)
+
 /* VK_KHR_win32_surface */
 #ifdef VK_KHR_win32_surface
 VK_INSTANCE_EXT_PFN(vkCreateWin32SurfaceKHR)
