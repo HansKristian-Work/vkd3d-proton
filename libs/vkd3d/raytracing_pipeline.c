@@ -2880,7 +2880,8 @@ static HRESULT d3d12_state_object_init(struct d3d12_state_object *object,
     data.exports_count = 0;
 
     /* If parent object can depend on individual shaders, keep the entry point list around. */
-    if (object->flags & D3D12_STATE_OBJECT_FLAG_ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL_DEFINITIONS)
+    if (object->flags & (D3D12_STATE_OBJECT_FLAG_ALLOW_EXTERNAL_DEPENDENCIES_ON_LOCAL_DEFINITIONS |
+        D3D12_STATE_OBJECT_FLAG_ALLOW_LOCAL_DEPENDENCIES_ON_EXTERNAL_DEFINITIONS))
     {
         object->entry_points = data.entry_points;
         object->entry_points_count = data.entry_points_count;
@@ -2888,10 +2889,15 @@ static HRESULT d3d12_state_object_init(struct d3d12_state_object *object,
         data.entry_points_count = 0;
     }
 
+    if (object->flags & D3D12_STATE_OBJECT_FLAG_ALLOW_LOCAL_DEPENDENCIES_ON_EXTERNAL_DEFINITIONS)
+        object->deferred_data = d3d12_state_object_pipeline_data_defer(&data, object->device);
+
     if (FAILED(hr = vkd3d_private_store_init(&object->private_store)))
         goto fail;
 
-    d3d12_state_object_pipeline_data_cleanup(&data, object->device);
+    if (!(object->flags & D3D12_STATE_OBJECT_FLAG_ALLOW_LOCAL_DEPENDENCIES_ON_EXTERNAL_DEFINITIONS))
+        d3d12_state_object_pipeline_data_cleanup(&data, object->device);
+
     d3d12_device_add_ref(object->device);
     return S_OK;
 
