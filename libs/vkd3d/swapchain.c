@@ -220,28 +220,18 @@ static void dxgi_vk_swap_chain_wait_acquire_semaphore(struct dxgi_vk_swap_chain 
 
 static void dxgi_vk_swap_chain_drain_queue(struct dxgi_vk_swap_chain *chain)
 {
-    const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
-    VkQueue vk_queue;
     unsigned int i;
 
-    /* Full wait-idle. */
-    vk_queue = vkd3d_acquire_vk_queue(&chain->queue->ID3D12CommandQueue_iface);
-    if (vk_queue)
-    {
-        VK_CALL(vkQueueWaitIdle(vk_queue));
+    /* This functions as a DRAIN of the D3D12 queue.
+     * All CPU operations that were queued must have been submitted to Vulkan now.
+     * We intend to submit directly to the queue now and timeline signals must come in the proper order. */
+    if (vkd3d_acquire_vk_queue(&chain->queue->ID3D12CommandQueue_iface))
         vkd3d_release_vk_queue(&chain->queue->ID3D12CommandQueue_iface);
-    }
-    else
-        ERR("Failed to acquire queue.\n");
 
-    /* Submitting work inline is safe since we have drained all outstanding CPU work
-     * on the queue after calling vkd3d_acquire_vk_queue(). */
-
-    /* If we have a lingering semaphore acquire that never went anywhere, ensure it is waited on.
-     * QueueWaitIdle will not cover acquire semaphores. */
+    /* If we have a lingering semaphore acquire that never went anywhere, ensure it is waited on. */
     for (i = 0; i < ARRAY_SIZE(chain->present.vk_acquire_semaphore); i++)
         if (chain->present.vk_acquire_semaphore[i] && chain->present.acquire_semaphore_signalled[i])
-            dxgi_vk_swap_chain_wait_acquire_semaphore(chain, chain->present.vk_acquire_semaphore[i], true);
+            dxgi_vk_swap_chain_wait_acquire_semaphore(chain, chain->present.vk_acquire_semaphore[i], false);
 
     /* Ensures that all pending ReleaseSemaphore() calls are also made.
      * This happens on the fence waiter queues, so it's not enough to call vkQueueWaitIdle to be 100% sure.
