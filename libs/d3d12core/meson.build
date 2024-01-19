@@ -1,4 +1,5 @@
 d3d12core_src = [
+  'debug.c',
   'main.c'
 ]
 
