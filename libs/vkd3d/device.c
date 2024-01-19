@@ -127,6 +127,12 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(VALVE_DESCRIPTOR_SET_HOST_MAPPING, VALVE_descriptor_set_host_mapping),
 };
 
+static const struct vkd3d_optional_extension_info optional_extensions_user[] =
+{
+    VK_EXTENSION(EXT_SURFACE_MAINTENANCE_1, EXT_surface_maintenance1),
+    VK_EXTENSION(EXT_SWAPCHAIN_MAINTENANCE_1, EXT_swapchain_maintenance1),
+};
+
 static unsigned int get_spec_version(const VkExtensionProperties *extensions,
         unsigned int count, const char *extension_name)
 {
@@ -249,12 +255,38 @@ static unsigned int vkd3d_append_extension(const char *extensions[],
     return extension_count;
 }
 
+static void vkd3d_mark_enabled_user_extensions(struct vkd3d_vulkan_info *vulkan_info,
+        const char * const *optional_user_extensions,
+        unsigned int optional_user_extension_count,
+        const bool *user_extension_supported)
+{
+    unsigned int i, j;
+    for (i = 0; i < optional_user_extension_count; ++i)
+    {
+        if (!user_extension_supported[i])
+            continue;
+
+        /* Mark these external extensions as supported if outer code explicitly requested them,
+         * otherwise, ignore. */
+        for (j = 0; j < ARRAY_SIZE(optional_extensions_user); j++)
+        {
+            if (!strcmp(optional_extensions_user[j].extension_name, optional_user_extensions[i]))
+            {
+                ptrdiff_t offset = optional_extensions_user[j].vulkan_info_offset;
+                bool *supported = (void *)((uintptr_t)vulkan_info + offset);
+                *supported = true;
+                break;
+            }
+        }
+    }
+}
+
 static unsigned int vkd3d_enable_extensions(const char *extensions[],
         const char * const *required_extensions, unsigned int required_extension_count,
         const struct vkd3d_optional_extension_info *optional_extensions, unsigned int optional_extension_count,
         const char * const *user_extensions, unsigned int user_extension_count,
         const char * const *optional_user_extensions, unsigned int optional_user_extension_count,
-        bool *user_extension_supported, const struct vkd3d_vulkan_info *vulkan_info)
+        const bool *user_extension_supported, const struct vkd3d_vulkan_info *vulkan_info)
 {
     unsigned int extension_count = 0;
     unsigned int i;
@@ -983,6 +1015,11 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
         vkd3d_free(user_extension_supported);
         return E_OUTOFMEMORY;
     }
+
+    vkd3d_mark_enabled_user_extensions(&instance->vk_info,
+            create_info->optional_instance_extensions,
+            create_info->optional_instance_extension_count,
+            user_extension_supported);
 
     instance_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     instance_info.pNext = NULL;
@@ -1789,6 +1826,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->fault_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT;
         vk_prepend_struct(&info->features2, &info->fault_features);
+    }
+
+    if (vulkan_info->EXT_swapchain_maintenance1)
+    {
+        info->swapchain_maintenance1_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->swapchain_maintenance1_features);
     }
 
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
@@ -2757,6 +2800,13 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
         vkd3d_free(user_extension_supported);
         return hr;
     }
+
+    /* Mark any user extensions that might be of use to us.
+     * Need to do this here so that we can pass down PDF2 as necessary. */
+    vkd3d_mark_enabled_user_extensions(&device->vk_info,
+            create_info->optional_device_extensions,
+            create_info->optional_device_extension_count,
+            user_extension_supported);
 
     vkd3d_physical_device_info_init(&device->device_info, device);
     vkd3d_physical_device_info_apply_workarounds(&device->device_info, device);

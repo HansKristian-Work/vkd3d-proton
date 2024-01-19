@@ -174,6 +174,11 @@ struct vkd3d_vulkan_info
     bool VALVE_mutable_descriptor_type;
     bool VALVE_descriptor_set_host_mapping;
 
+    /* Optional extensions which are enabled externally as optional extensions
+     * if swapchain/surface extensions are enabled. */
+    bool EXT_surface_maintenance1;
+    bool EXT_swapchain_maintenance1;
+
     unsigned int extension_count;
     const char* const* extension_names;
 
@@ -4339,6 +4344,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceLineRasterizationFeaturesEXT line_rasterization_features;
     VkPhysicalDeviceImageCompressionControlFeaturesEXT image_compression_control_features;
     VkPhysicalDeviceFaultFeaturesEXT fault_features;
+    VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT swapchain_maintenance1_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
