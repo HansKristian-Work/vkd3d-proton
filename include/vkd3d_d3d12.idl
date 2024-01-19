@@ -5072,6 +5072,19 @@ interface ID3D12VersionedRootSignatureDeserializer : IUnknown
     const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *GetUnconvertedRootSignatureDesc();
 };
 
+[
+    uuid(82bc481c-6b9b-4030-aedb-7ee3d1df1e63),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12DeviceRemovedExtendedDataSettings : IUnknown
+{
+    void SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT enablement);
+    void SetPageFaultEnablement(D3D12_DRED_ENABLEMENT enablement);
+    void SetWatsonDumpEnablement(D3D12_DRED_ENABLEMENT enablement);
+}
+
 [local] HRESULT __stdcall D3D12CreateRootSignatureDeserializer(
         const void *data, SIZE_T data_size, REFIID iid, void **deserializer);
 
