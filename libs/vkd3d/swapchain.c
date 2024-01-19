@@ -172,6 +172,7 @@ struct dxgi_vk_swap_chain
         pthread_cond_t cond;
         pthread_mutex_t lock;
         bool active;
+        bool skip_waits;
     } wait_thread;
 };
 
@@ -1148,10 +1149,14 @@ static void dxgi_vk_swap_chain_drain_waiter(struct dxgi_vk_swap_chain *chain)
 {
     if (chain->wait_thread.active)
     {
-        /* Waits until all swapchain waits have been processed. Required before we destroy the swapchain object. */
+        /* Make sure wait thread is not waiting on anything before we destroy swapchain. */
         pthread_mutex_lock(&chain->wait_thread.lock);
+
+        /* Skip ahead if there are multiple frames queued. */
+        chain->wait_thread.skip_waits = true;
         while (chain->wait_thread.wait_queue_count)
             pthread_cond_wait(&chain->wait_thread.cond, &chain->wait_thread.lock);
+        chain->wait_thread.skip_waits = false;
         pthread_mutex_unlock(&chain->wait_thread.lock);
     }
 }
@@ -2063,9 +2068,13 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
         if (!next_wait_id)
             break;
 
-        /* We don't really care if we observed OUT_OF_DATE or something here. */
-        VK_CALL(vkWaitForPresentKHR(chain->queue->device->vk_device, chain->present.vk_swapchain,
-                next_wait_id, UINT64_MAX));
+        /* In skip wait mode we just need to make sure that we signal latency fences properly. */
+        if (!chain->wait_thread.skip_waits)
+        {
+            /* We don't really care if we observed OUT_OF_DATE or something here. */
+            VK_CALL(vkWaitForPresentKHR(chain->queue->device->vk_device, chain->present.vk_swapchain,
+                    next_wait_id, UINT64_MAX));
+        }
 
         if (begin_frame_time_ns)
             end_frame_time_ns = vkd3d_get_current_time_ns();
