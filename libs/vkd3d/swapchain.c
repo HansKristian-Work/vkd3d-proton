@@ -142,6 +142,9 @@ struct dxgi_vk_swap_chain
         /* State tracking in present tasks on how to deal with swapchain recreation. */
         bool force_swapchain_recreation;
         bool is_surface_lost;
+
+        VkPresentModeKHR unlocked_present_mode;
+        bool compatible_unlocked_present_mode;
     } present;
 
     struct dxgi_vk_swap_chain_present_request request, request_ring[DXGI_MAX_SWAP_CHAIN_BUFFERS];
@@ -1366,13 +1369,86 @@ static void dxgi_vk_swap_chain_init_blit_pipeline(struct dxgi_vk_swap_chain *cha
         ERR("Failed to initialize swapchain pipeline.\n");
 }
 
+static bool dxgi_vk_swap_chain_find_compatible_unlocked_present_mode(
+        struct dxgi_vk_swap_chain *chain,
+        VkPresentModeKHR *vk_present_mode,
+        uint32_t *vk_min_image_count)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
+    VkPhysicalDeviceSurfaceInfo2KHR surface_info2;
+    VkSurfacePresentModeCompatibilityEXT compat;
+    VkSurfacePresentModeEXT present_mode;
+    VkPresentModeKHR present_modes[32];
+    VkSurfaceCapabilities2KHR caps2;
+    bool has_compatible = false;
+    uint32_t i;
+
+    /* swapchain maintenance implies surface maintenance */
+    if (!chain->swapchain_maintenance1)
+        return false;
+
+    surface_info2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR;
+    surface_info2.pNext = NULL;
+    surface_info2.surface = chain->vk_surface;
+    present_mode.sType = VK_STRUCTURE_TYPE_SURFACE_PRESENT_MODE_EXT;
+    present_mode.pNext = NULL;
+    present_mode.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    vk_prepend_struct(&surface_info2, &present_mode);
+
+    caps2.sType = VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR;
+    caps2.pNext = NULL;
+    compat.sType = VK_STRUCTURE_TYPE_SURFACE_PRESENT_MODE_COMPATIBILITY_EXT;
+    compat.pNext = NULL;
+    compat.presentModeCount = ARRAY_SIZE(present_modes);
+    compat.pPresentModes = present_modes;
+    vk_prepend_struct(&caps2, &compat);
+
+    VK_CALL(vkGetPhysicalDeviceSurfaceCapabilities2KHR(chain->queue->device->vk_physical_device,
+            &surface_info2, &caps2));
+
+    for (i = 0; !has_compatible && i < compat.presentModeCount; i++)
+    {
+        if (compat.pPresentModes[i] == VK_PRESENT_MODE_IMMEDIATE_KHR)
+        {
+            *vk_present_mode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+            has_compatible = true;
+        }
+    }
+
+    for (i = 0; !has_compatible && i < compat.presentModeCount; i++)
+    {
+        if (compat.pPresentModes[i] == VK_PRESENT_MODE_MAILBOX_KHR)
+        {
+            *vk_present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
+            has_compatible = true;
+        }
+    }
+
+    if (!has_compatible)
+        return false;
+
+    /* This is the count for FIFO specifically. */
+    *vk_min_image_count = caps2.surfaceCapabilities.minImageCount;
+
+    caps2.pNext = NULL;
+    present_mode.presentMode = *vk_present_mode;
+    VK_CALL(vkGetPhysicalDeviceSurfaceCapabilities2KHR(chain->queue->device->vk_physical_device,
+            &surface_info2, &caps2));
+
+    /* Query for IMMEDIATE/MAILBOX specifically. */
+    *vk_min_image_count = max(*vk_min_image_count, caps2.surfaceCapabilities.minImageCount);
+    return true;
+}
+
 static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk_swap_chain *chain)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     VkPhysicalDevice vk_physical_device = chain->queue->device->vk_physical_device;
+    VkSwapchainPresentModesCreateInfoEXT present_modes_info;
     VkDevice vk_device = chain->queue->device->vk_device;
     VkCommandPoolCreateInfo command_pool_create_info;
     VkSwapchainCreateInfoKHR swapchain_create_info;
+    VkPresentModeKHR present_mode_group[2];
     VkSurfaceCapabilitiesKHR surface_caps;
     VkSurfaceFormatKHR surface_format;
     VkImageViewCreateInfo view_info;
@@ -1415,20 +1491,44 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
     if (!dxgi_vk_swap_chain_select_format(chain, &surface_format))
         return;
 
-    present_mode = chain->request.swap_interval > 0 ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR;
-    if (!dxgi_vk_swap_chain_check_present_mode_support(chain, present_mode))
-    {
-        if (present_mode == VK_PRESENT_MODE_IMMEDIATE_KHR &&
-                dxgi_vk_swap_chain_check_present_mode_support(chain, VK_PRESENT_MODE_MAILBOX_KHR))
-        {
-            present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
-        }
-        else
-            return;
-    }
+    chain->present.compatible_unlocked_present_mode =
+            dxgi_vk_swap_chain_find_compatible_unlocked_present_mode(chain,
+                    &chain->present.unlocked_present_mode,
+                    &surface_caps.minImageCount);
 
     memset(&swapchain_create_info, 0, sizeof(swapchain_create_info));
     swapchain_create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+
+    if (chain->present.compatible_unlocked_present_mode)
+    {
+        /* Just start out in FIFO, we will change it at-will later. */
+        present_mode = VK_PRESENT_MODE_FIFO_KHR;
+
+        present_mode_group[0] = present_mode;
+        present_mode_group[1] = chain->present.unlocked_present_mode;
+        present_modes_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_MODES_CREATE_INFO_EXT;
+        present_modes_info.pNext = NULL;
+        present_modes_info.pPresentModes = present_mode_group;
+        present_modes_info.presentModeCount = ARRAY_SIZE(present_mode_group);
+        vk_prepend_struct(&swapchain_create_info, &present_modes_info);
+    }
+    else
+    {
+        present_mode = chain->request.swap_interval > 0 ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR;
+
+        /* Prefer IMMEDIATE over MAILBOX */
+        if (!dxgi_vk_swap_chain_check_present_mode_support(chain, present_mode))
+        {
+            if (present_mode == VK_PRESENT_MODE_IMMEDIATE_KHR &&
+                    dxgi_vk_swap_chain_check_present_mode_support(chain, VK_PRESENT_MODE_MAILBOX_KHR))
+            {
+                present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
+            }
+            else
+                return;
+        }
+    }
+
     swapchain_create_info.surface = chain->vk_surface;
     swapchain_create_info.imageArrayLayers = 1;
     swapchain_create_info.imageColorSpace = surface_format.colorSpace;
@@ -1509,13 +1609,16 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
     dxgi_vk_swap_chain_set_hdr_metadata(chain);
 }
 
-static bool request_needs_swapchain_recreation(const struct dxgi_vk_swap_chain_present_request *request,
+static bool dxgi_vk_swap_chain_request_needs_swapchain_recreation(
+        const struct dxgi_vk_swap_chain *chain,
+        const struct dxgi_vk_swap_chain_present_request *request,
         const struct dxgi_vk_swap_chain_present_request *last_request)
 {
     return request->dxgi_color_space_type != last_request->dxgi_color_space_type ||
-        request->dxgi_format != last_request->dxgi_format ||
-        request->target_min_image_count != last_request->target_min_image_count ||
-        (!!request->swap_interval) != (!!last_request->swap_interval);
+            request->dxgi_format != last_request->dxgi_format ||
+            request->target_min_image_count != last_request->target_min_image_count ||
+            ((!!request->swap_interval) != (!!last_request->swap_interval) &&
+                    !chain->present.compatible_unlocked_present_mode);
 }
 
 static void dxgi_vk_swap_chain_present_signal_blit_semaphore(struct dxgi_vk_swap_chain *chain)
@@ -1895,6 +1998,8 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     VkSwapchainPresentFenceInfoEXT present_fence_info;
+    VkSwapchainPresentModeInfoEXT present_mode_info;
+    VkPresentModeKHR present_mode;
     VkPresentInfoKHR present_info;
     VkPresentIdKHR present_id;
     uint32_t swapchain_index;
@@ -1973,6 +2078,17 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
 
         dxgi_vk_swap_chain_ensure_unsignaled_swapchain_fence(chain, chain->present.swapchain_fence_index);
         chain->present.vk_swapchain_fences_signalled[chain->present.swapchain_fence_index] = true;
+
+        if (chain->present.compatible_unlocked_present_mode)
+        {
+            present_mode_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_MODE_INFO_EXT;
+            present_mode_info.pNext = NULL;
+            present_mode_info.swapchainCount = 1;
+            present_mode_info.pPresentModes = &present_mode;
+            present_mode = chain->request.swap_interval > 0 ?
+                    VK_PRESENT_MODE_FIFO_KHR : chain->present.unlocked_present_mode;
+            vk_prepend_struct(&present_info, &present_mode_info);
+        }
     }
 
     vk_queue = vkd3d_queue_acquire(chain->queue->vkd3d_queue);
@@ -2056,7 +2172,7 @@ static void dxgi_vk_swap_chain_present_callback(void *chain_)
 
     next_present_count = chain->present.present_count + 1;
     next_request = &chain->request_ring[next_present_count % ARRAY_SIZE(chain->request_ring)];
-    if (request_needs_swapchain_recreation(next_request, &chain->request))
+    if (dxgi_vk_swap_chain_request_needs_swapchain_recreation(chain, next_request, &chain->request))
         chain->present.force_swapchain_recreation = true;
 
     chain->request = *next_request;
