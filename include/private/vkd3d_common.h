@@ -28,6 +28,7 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <assert.h>
+#include <math.h>
 
 #ifdef _MSC_VER
 #include <intrin.h>
@@ -286,6 +287,18 @@ static inline size_t vkd3d_wcslen(const WCHAR *wstr)
 static inline void *void_ptr_offset(void *ptr, size_t offset)
 {
     return ((char*)ptr) + offset;
+}
+
+static inline int32_t vkd3d_float_to_fixed_24_8(float f)
+{
+    /* Docs suggest round to nearest even, but that does not match
+     * observed behaviour. Always round away from zero instead. */
+    return lroundf(f * 256.0f);
+}
+
+static inline float vkd3d_fixed_24_8_to_float(int32_t i)
+{
+    return (float)(i) / 256.0f;
 }
 
 #ifdef _MSC_VER
