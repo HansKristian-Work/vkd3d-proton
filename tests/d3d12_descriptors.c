@@ -4397,6 +4397,7 @@ void test_view_min_lod(void)
     {
         const D3D12_SHADER_BYTECODE *ps;
         int most_detailed_mip;
+        int mip_count;
         float test_lod;
         float min_lod;
         unsigned int expected_color;
@@ -4404,72 +4405,86 @@ void test_view_min_lod(void)
     }
     tests[] =
     {
-        {&ps_view_min_lod_load, 0, -1.0f, 0.0f, 0x00000000},
-        {&ps_view_min_lod_load, 0,  0.0f, 0.0f, 0x0f0f0f0f},
-        {&ps_view_min_lod_load, 0,  1.0f, 0.0f, 0xffffffff},
-        {&ps_view_min_lod_load, 0,  2.0f, 0.0f, 0x0f0f0f0f},
-        {&ps_view_min_lod_load, 0,  3.0f, 0.0f, 0xffffffff},
+        {&ps_view_min_lod_load, 0, -1, -1.0f, 0.0f, 0x00000000},
+        {&ps_view_min_lod_load, 0, -1,  0.0f, 0.0f, 0x0f0f0f0f},
+        {&ps_view_min_lod_load, 0, -1,  1.0f, 0.0f, 0xffffffff},
+        {&ps_view_min_lod_load, 0, -1,  2.0f, 0.0f, 0x0f0f0f0f},
+        {&ps_view_min_lod_load, 0, -1,  3.0f, 0.0f, 0xffffffff},
 
-        {&ps_view_min_lod_load, 0, -1.0f, 1.0f, 0x00000000},
-        {&ps_view_min_lod_load, 0,  0.0f, 1.0f, 0x00000000},
-        {&ps_view_min_lod_load, 0,  1.0f, 1.0f, 0xffffffff},
-        {&ps_view_min_lod_load, 0,  2.0f, 1.0f, 0x0f0f0f0f},
-        {&ps_view_min_lod_load, 0,  3.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_load, 0, -1, -1.0f, 1.0f, 0x00000000},
+        {&ps_view_min_lod_load, 0, -1,  0.0f, 1.0f, 0x00000000},
+        {&ps_view_min_lod_load, 0, -1,  1.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_load, 0, -1,  2.0f, 1.0f, 0x0f0f0f0f},
+        {&ps_view_min_lod_load, 0, -1,  3.0f, 1.0f, 0xffffffff},
 
-        {&ps_view_min_lod_load, 1, -1.0f, 1.0f, 0x00000000},
-        {&ps_view_min_lod_load, 1,  0.0f, 1.0f, 0xffffffff},
-        {&ps_view_min_lod_load, 1,  1.0f, 1.0f, 0x0f0f0f0f},
-        {&ps_view_min_lod_load, 1,  2.0f, 1.0f, 0xffffffff},
-        {&ps_view_min_lod_load, 1,  3.0f, 1.0f, 0x00000000},
+        {&ps_view_min_lod_load, 1, -1, -1.0f, 1.0f, 0x00000000},
+        {&ps_view_min_lod_load, 1, -1,  0.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_load, 1, -1,  1.0f, 1.0f, 0x0f0f0f0f},
+        {&ps_view_min_lod_load, 1, -1,  2.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_load, 1, -1,  3.0f, 1.0f, 0x00000000},
 
-        {&ps_view_min_lod_load, 1, -1.0f, 9.0f, 0x00000000},
-        {&ps_view_min_lod_load, 1,  0.0f, 9.0f, 0x00000000},
-        {&ps_view_min_lod_load, 1,  1.0f, 9.0f, 0x00000000},
-        {&ps_view_min_lod_load, 1,  2.0f, 9.0f, 0x00000000},
-        {&ps_view_min_lod_load, 1,  3.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_load, 1, -1, -1.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_load, 1, -1,  0.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_load, 1, -1,  1.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_load, 1, -1,  2.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_load, 1, -1,  3.0f, 9.0f, 0x00000000},
 
         /* floor(minLOD) behavior for integer fetch. */
-        {&ps_view_min_lod_load, 1, 0.0f, 1.9f, 0xffffffff},
-        {&ps_view_min_lod_load, 1, 0.0f, 2.0f, 0x00000000},
-        {&ps_view_min_lod_load, 1, 1.0f, 2.9f, 0x0f0f0f0f},
-        {&ps_view_min_lod_load, 1, 1.0f, 3.0f, 0x00000000},
+        {&ps_view_min_lod_load, 1, -1, 0.0f, 1.9f, 0xffffffff},
+        {&ps_view_min_lod_load, 1, -1, 0.0f, 2.0f, 0x00000000},
+        {&ps_view_min_lod_load, 1, -1, 1.0f, 2.9f, 0x0f0f0f0f},
+        {&ps_view_min_lod_load, 1, -1, 1.0f, 3.0f, 0x00000000},
 
-        {&ps_view_min_lod_sample, 0, -1.0f, 0.0f, 0x0f0f0f0f},
-        {&ps_view_min_lod_sample, 0,  0.0f, 0.0f, 0x0f0f0f0f},
-        {&ps_view_min_lod_sample, 0,  1.0f, 0.0f, 0xffffffff},
-        {&ps_view_min_lod_sample, 0,  2.0f, 0.0f, 0x0f0f0f0f},
-        {&ps_view_min_lod_sample, 0,  3.0f, 0.0f, 0xffffffff},
+        /* Out-of-bounds MinLODClamp behaviour */
+        {&ps_view_min_lod_load, 0, 1, 0.0f, 0.0f, 0x0f0f0f0f},
+        {&ps_view_min_lod_load, 0, 1, 0.0f, 0.1f, 0x00000000},
+        {&ps_view_min_lod_load, 0, 1, 0.0f, 1.0f / 256.0f, 0x00000000},
+        {&ps_view_min_lod_load, 0, 1, 0.0f, 1.0f / 512.0f, 0x00000000},
+        {&ps_view_min_lod_load, 0, 1, 0.0f, 1.5f / 1024.0f, 0x0f0f0f0f},
+        {&ps_view_min_lod_load, 0, 1, 0.0f, 1.0f / 1024.0f, 0x0f0f0f0f},
 
-        {&ps_view_min_lod_sample, 0, -1.0f, 1.0f, 0xffffffff},
-        {&ps_view_min_lod_sample, 0,  0.0f, 1.0f, 0xffffffff},
-        {&ps_view_min_lod_sample, 0,  1.0f, 1.0f, 0xffffffff},
-        {&ps_view_min_lod_sample, 0,  2.0f, 1.0f, 0x0f0f0f0f},
-        {&ps_view_min_lod_sample, 0,  3.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_load, 0, 2, 1.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_load, 0, 2, 1.0f, 1.1f, 0x00000000},
+        {&ps_view_min_lod_load, 0, 2, 1.0f, 1.0f + 1.0f / 256.0f, 0x00000000},
+        {&ps_view_min_lod_load, 0, 2, 1.0f, 1.0f + 1.0f / 512.0f, 0x00000000},
+        {&ps_view_min_lod_load, 0, 2, 1.0f, 1.0f + 1.0f / 1024.0f, 0xffffffff},
 
-        {&ps_view_min_lod_sample, 1, -1.0f, 1.0f, 0xffffffff},
-        {&ps_view_min_lod_sample, 1,  0.0f, 1.0f, 0xffffffff},
-        {&ps_view_min_lod_sample, 1,  1.0f, 1.0f, 0x0f0f0f0f},
-        {&ps_view_min_lod_sample, 1,  2.0f, 1.0f, 0xffffffff},
-        {&ps_view_min_lod_sample, 1,  3.0f, 1.0f, 0xffffffff},
-        {&ps_view_min_lod_sample, 1,  4.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_sample, 0, -1, -1.0f, 0.0f, 0x0f0f0f0f},
+        {&ps_view_min_lod_sample, 0, -1,  0.0f, 0.0f, 0x0f0f0f0f},
+        {&ps_view_min_lod_sample, 0, -1,  1.0f, 0.0f, 0xffffffff},
+        {&ps_view_min_lod_sample, 0, -1,  2.0f, 0.0f, 0x0f0f0f0f},
+        {&ps_view_min_lod_sample, 0, -1,  3.0f, 0.0f, 0xffffffff},
 
-        {&ps_view_min_lod_sample, 1, -1.0f, 9.0f, 0x00000000},
-        {&ps_view_min_lod_sample, 1,  0.0f, 9.0f, 0x00000000},
-        {&ps_view_min_lod_sample, 1,  1.0f, 9.0f, 0x00000000},
-        {&ps_view_min_lod_sample, 1,  2.0f, 9.0f, 0x00000000},
-        {&ps_view_min_lod_sample, 1,  3.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_sample, 0, -1, -1.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_sample, 0, -1,  0.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_sample, 0, -1,  1.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_sample, 0, -1,  2.0f, 1.0f, 0x0f0f0f0f},
+        {&ps_view_min_lod_sample, 0, -1,  3.0f, 1.0f, 0xffffffff},
+
+        {&ps_view_min_lod_sample, 1, -1, -1.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_sample, 1, -1,  0.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_sample, 1, -1,  1.0f, 1.0f, 0x0f0f0f0f},
+        {&ps_view_min_lod_sample, 1, -1,  2.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_sample, 1, -1,  3.0f, 1.0f, 0xffffffff},
+        {&ps_view_min_lod_sample, 1, -1,  4.0f, 1.0f, 0xffffffff},
+
+        {&ps_view_min_lod_sample, 1, -1, -1.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_sample, 1, -1,  0.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_sample, 1, -1,  1.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_sample, 1, -1,  2.0f, 9.0f, 0x00000000},
+        {&ps_view_min_lod_sample, 1, -1,  3.0f, 9.0f, 0x00000000},
 
         /* Tests rounding behavior for POINT mip filter. Nearest mip level is selected after clamp on AMD and NV,
          * but not Intel, oddly enough. */
-        {&ps_view_min_lod_sample, 1, 0.25f, 1.00f, 0xffffffff},
-        {&ps_view_min_lod_sample, 1, 0.25f, 1.25f, 0xffffffff},
-        {&ps_view_min_lod_sample, 1, 0.25f, 2.00f, 0x0f0f0f0f},
-        {&ps_view_min_lod_sample, 1, -0.25f, 1.00f, 0xffffffff},
-        {&ps_view_min_lod_sample, 1, -0.25f, 1.25f, 0xffffffff},
-        {&ps_view_min_lod_sample, 1, -0.25f, 2.00f, 0x0f0f0f0f},
+        {&ps_view_min_lod_sample, 1, -1, 0.25f, 1.00f, 0xffffffff},
+        {&ps_view_min_lod_sample, 1, -1, 0.25f, 1.25f, 0xffffffff},
+        {&ps_view_min_lod_sample, 1, -1, 0.25f, 2.00f, 0x0f0f0f0f},
+        {&ps_view_min_lod_sample, 1, -1, -0.25f, 1.00f, 0xffffffff},
+        {&ps_view_min_lod_sample, 1, -1, -0.25f, 1.25f, 0xffffffff},
+        {&ps_view_min_lod_sample, 1, -1, -0.25f, 2.00f, 0x0f0f0f0f},
         /* Intel HW fails these tests on native, D3D11 functional spec is not well defined here. */
-        /*{&ps_view_min_lod_sample, 1, 0.25f, 1.75f, 0x0f0f0f0f},*/
-        /*{&ps_view_min_lod_sample, 1, -0.25f, 1.75f, 0x0f0f0f0f},*/
+        /*{&ps_view_min_lod_sample, 1, -1, 0.25f, 1.75f, 0x0f0f0f0f},*/
+        /*{&ps_view_min_lod_sample, 1, -1, -0.25f, 1.75f, 0x0f0f0f0f},*/
     };
 
     /* Alternate mip colors */
@@ -4526,7 +4541,7 @@ void test_view_min_lod(void)
         view_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
         view_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         view_desc.Texture2D.MostDetailedMip = tests[i].most_detailed_mip;
-        view_desc.Texture2D.MipLevels = -1;
+        view_desc.Texture2D.MipLevels = tests[i].mip_count;
         view_desc.Texture2D.PlaneSlice = 0;
         view_desc.Texture2D.ResourceMinLODClamp = tests[i].min_lod;
 
