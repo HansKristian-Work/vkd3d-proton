@@ -1,5 +1,5 @@
-project('vkd3d-proton', ['c'], version : '2.11.1', meson_version : '>= 0.49', default_options : [
-  'warning_level=2',
+project('vkd3d-proton', ['c', 'cpp'], version : '2.11.1', meson_version : '>= 0.49', default_options : [
+  'warning_level=2', 'c_std=c11', 'cpp_std=c++17'
 ])
 
 cpu_family = target_machine.cpu_family()
@@ -7,7 +7,6 @@ cpu_family = target_machine.cpu_family()
 vkd3d_compiler = meson.get_compiler('c')
 vkd3d_is_msvc  = vkd3d_compiler.get_id() == 'msvc' or vkd3d_compiler.get_id() == 'clang-cl'
 vkd3d_is_clang = vkd3d_compiler.get_id() == 'clang'
-vkd3d_c_std    = 'c11'
 vkd3d_platform = target_machine.system()
 
 vkd3d_buildtype = get_option('buildtype')
