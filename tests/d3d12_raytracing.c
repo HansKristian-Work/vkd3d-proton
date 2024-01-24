@@ -337,14 +337,21 @@ static void create_acceleration_structure(struct raytracing_test_context *contex
         rtas->scratch_update = NULL;
 
     /* Verify how the build mode behaves here. */
+    if (inputs->Flags & D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE)
     {
         D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS tmp_inputs = *inputs;
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO tmp_prebuild_info;
+
+        memset(&tmp_prebuild_info, 0, sizeof(tmp_prebuild_info));
 
         /* We should ignore this flag when querying prebuild info.
          * Deduced by: Equal sizes, no validation errors.
          * Vulkan does not seem to care either, and this trips validation
          * errors in neither D3D12 nor Vulkan. */
+
+         /* If ALLOW_UPDATE is not set, AMD Windows driver freaks out a little and reports weird values,
+          * so it's not completely ignored. It likely checks for either PERFORM or ALLOW_UPDATE when reporting. */
+
         tmp_inputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
         ID3D12Device5_GetRaytracingAccelerationStructurePrebuildInfo(context->device5, &tmp_inputs, &tmp_prebuild_info);
         ok(tmp_prebuild_info.ResultDataMaxSizeInBytes == prebuild_info.ResultDataMaxSizeInBytes,
