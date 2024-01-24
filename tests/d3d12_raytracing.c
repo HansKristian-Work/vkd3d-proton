@@ -144,6 +144,12 @@ static D3D12_SHADER_BYTECODE get_multi_rs_lib(void)
     return multi_rs_dxil;
 }
 
+static D3D12_SHADER_BYTECODE get_misfire_lib(void)
+{
+#include "shaders/rt/headers/misfire.h"
+    return misfire_dxil;
+}
+
 struct initial_vbo
 {
     float f32[3 * 3 * 2];
@@ -3527,6 +3533,167 @@ void test_raytracing_deferred_compilation(void)
         }
     }
 
+    ID3D12RootSignature_Release(rs);
+    ID3D12RootSignature_Release(rs_alt);
+    destroy_raytracing_test_context(&context);
+}
+
+void test_raytracing_mismatch_global_rs_link(void)
+{
+    struct raytracing_test_context context;
+    struct test_rt_geometry test_rtases;
+    const void *collection_miss_handle;
+    ID3D12StateObjectProperties *props;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_params[3];
+    const void *rtpso_raygen_handle;
+    struct test_geometry test_geom;
+    ID3D12Resource *output_buffer;
+    const void *rtpso_miss_handle;
+    struct rt_pso_factory factory;
+    ID3D12StateObject *collection;
+    ID3D12RootSignature *rs_alt;
+    struct resource_readback rb;
+    ID3D12Resource *sbt_buffer;
+    ID3D12StateObject *rtpso;
+    ID3D12RootSignature *rs;
+    D3D12_EXPORT_DESC exp;
+    ID3D12Device *device;
+
+    if (!init_raytracing_test_context(&context, D3D12_RAYTRACING_TIER_1_1))
+        return;
+
+    device = context.context.device;
+
+    init_test_geometry(device, &test_geom);
+    init_rt_geometry(&context, &test_rtases, &test_geom,
+        NUM_GEOM_DESC, GEOM_OFFSET_X,
+        NUM_UNMASKED_INSTANCES, INSTANCE_GEOM_SCALE, INSTANCE_OFFSET_Y, 0);
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_params, 0, sizeof(rs_params));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_params);
+    rs_desc.pParameters = rs_params;
+    rs_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[0].Descriptor.RegisterSpace = 0;
+    rs_params[0].Descriptor.ShaderRegister = 0;
+    rs_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[1].Descriptor.RegisterSpace = 0;
+    rs_params[1].Descriptor.ShaderRegister = 1;
+    rs_params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rs_params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[2].Descriptor.RegisterSpace = 0;
+    rs_params[2].Descriptor.ShaderRegister = 0;
+
+    create_root_signature(context.context.device, &rs_desc, &rs);
+    /* Create a trivially incompatible global RS. */
+    rs_params[1].Descriptor.ShaderRegister = 0;
+    rs_params[0].Descriptor.ShaderRegister = 1;
+    create_root_signature(context.context.device, &rs_desc, &rs_alt);
+
+    {
+        rt_pso_factory_init(&factory);
+        memset(&exp, 0, sizeof(exp));
+        exp.Name = u"MissShader";
+        rt_pso_factory_add_dxil_library(&factory, get_misfire_lib(), 1, &exp);
+        rt_pso_factory_add_pipeline_config(&factory, 1);
+        rt_pso_factory_add_shader_config(&factory, 8, 8);
+        rt_pso_factory_add_global_root_signature(&factory, rs_alt);
+        rt_pso_factory_add_state_object_config(&factory,
+            D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS |
+            D3D12_STATE_OBJECT_FLAG_ALLOW_LOCAL_DEPENDENCIES_ON_EXTERNAL_DEFINITIONS);
+        collection = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_COLLECTION);
+
+        ok(!!collection, "Failed to compile collection.\n");
+
+        ID3D12StateObject_QueryInterface(collection, &IID_ID3D12StateObjectProperties, (void **)&props);
+        collection_miss_handle = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"MissShader");
+        ok(!!collection_miss_handle, "Failed to query miss handle from COLLECTION.\n");
+        ID3D12StateObjectProperties_Release(props);
+    }
+
+    /* Relink, but now with a different, incompatible RS. */
+    {
+        rt_pso_factory_init(&factory);
+        memset(&exp, 0, sizeof(exp));
+        exp.Name = u"GenShader";
+        rt_pso_factory_add_dxil_library(&factory, get_misfire_lib(), 1, &exp);
+        rt_pso_factory_add_pipeline_config(&factory, 1);
+        rt_pso_factory_add_shader_config(&factory, 8, 8);
+        rt_pso_factory_add_global_root_signature(&factory, rs);
+        rt_pso_factory_add_state_object_config(&factory, D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS);
+        rt_pso_factory_add_existing_collection(&factory, collection, 0, NULL);
+        rtpso = rt_pso_factory_compile(&context, &factory, D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
+
+        ok(!!rtpso, "Failed to compile RTPSO.\n");
+        ID3D12StateObject_QueryInterface(rtpso, &IID_ID3D12StateObjectProperties, (void **)&props);
+        rtpso_miss_handle = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"MissShader");
+        rtpso_raygen_handle = ID3D12StateObjectProperties_GetShaderIdentifier(props, u"GenShader");
+        ok(!!rtpso_miss_handle, "Failed to query miss handle from RTPSO.\n");
+        ok(!!rtpso_raygen_handle, "Failed to query raygen handle from RTPSO.\n");
+        ID3D12StateObjectProperties_Release(props);
+
+        /* Runtime does not recompile, or at least the handles remain invariant.
+         * AMD bug: handles are not invariant as prescribed, but the content is at least invariant. */
+        bug_if(is_amd_windows_device(device)) ok(rtpso_miss_handle == collection_miss_handle, "Mismatch in miss handles.\n");
+        ok(memcmp(rtpso_miss_handle, collection_miss_handle, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES) == 0,
+            "COLLECTION and RTPSO handles did not compare equal.\n");
+    }
+
+    output_buffer = create_default_buffer(device, sizeof(uint32_t) * 2, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    {
+        uint8_t sbt_data[D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT * 2] = { 0 };
+        memcpy(sbt_data, rtpso_raygen_handle, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+        memcpy(sbt_data + D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT, rtpso_miss_handle, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+        sbt_buffer = create_upload_buffer(device, sizeof(sbt_data), sbt_data);
+    }
+
+    ID3D12GraphicsCommandList4_SetPipelineState1(context.list4, rtpso);
+    ID3D12GraphicsCommandList4_SetComputeRootSignature(context.list4, rs);
+    ID3D12GraphicsCommandList4_SetComputeRootUnorderedAccessView(context.list4, 0, ID3D12Resource_GetGPUVirtualAddress(output_buffer) + 0);
+    ID3D12GraphicsCommandList4_SetComputeRootUnorderedAccessView(context.list4, 1, ID3D12Resource_GetGPUVirtualAddress(output_buffer) + sizeof(uint32_t));
+    ID3D12GraphicsCommandList4_SetComputeRootShaderResourceView(context.list4, 2, ID3D12Resource_GetGPUVirtualAddress(test_rtases.top_rtas.rtas));
+    {
+        D3D12_DISPATCH_RAYS_DESC dispatch_desc;
+        memset(&dispatch_desc, 0, sizeof(dispatch_desc));
+
+        dispatch_desc.Width = 1;
+        dispatch_desc.Height = 1;
+        dispatch_desc.Depth = 1;
+
+        dispatch_desc.RayGenerationShaderRecord.SizeInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+        dispatch_desc.RayGenerationShaderRecord.StartAddress = ID3D12Resource_GetGPUVirtualAddress(sbt_buffer);
+
+        dispatch_desc.MissShaderTable.SizeInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+        dispatch_desc.MissShaderTable.StrideInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+        dispatch_desc.MissShaderTable.StartAddress = ID3D12Resource_GetGPUVirtualAddress(sbt_buffer) +
+            D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+
+        ID3D12GraphicsCommandList4_DispatchRays(context.list4, &dispatch_desc);
+    }
+
+    transition_resource_state(context.context.list, output_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output_buffer, DXGI_FORMAT_R32_UINT, &rb, context.context.queue, context.context.list);
+
+    {
+        /* NV driver seems to happily trace rays with incompatible RSes. They just view the root parameters differently.
+         * AMD does not, but it seems to be robust against crashes in this test at least. */
+        uint32_t v0, v1;
+        v0 = get_readback_uint(&rb, 0, 0, 0);
+        v1 = get_readback_uint(&rb, 1, 0, 0);
+        ok(v0 == 1000 + 200 || v0 == 1000, "Expected v0 == 1200 or 1000, got %u\n", v0);
+        ok(v1 == 2000 + 100 || v1 == 2000, "Expected v1 == 2100 or 2000, got %u\n", v1);
+    }
+
+    ID3D12Resource_Release(sbt_buffer);
+    ID3D12Resource_Release(output_buffer);
+    release_resource_readback(&rb);
+    ID3D12StateObject_Release(collection);
+    ID3D12StateObject_Release(rtpso);
+    destroy_test_geometry(&test_geom);
+    destroy_rt_geometry(&test_rtases);
     ID3D12RootSignature_Release(rs);
     ID3D12RootSignature_Release(rs_alt);
     destroy_raytracing_test_context(&context);
