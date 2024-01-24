@@ -3542,6 +3542,10 @@ static void vkd3d_determine_format_support_for_feature_level(const struct d3d12_
     {
         format_support->Support2 |= D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD;
     }
+
+    /* Do not report TILED if tiled resource support is disabled */
+    if (!device->d3d12_caps.options.TiledResourcesTier)
+        format_support->Support2 &= ~D3D12_FORMAT_SUPPORT2_TILED;
 }
 
 static HRESULT d3d12_device_check_multisample_quality_levels(struct d3d12_device *device,
@@ -3629,8 +3633,12 @@ bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent)
 
 static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D12_FEATURE_DATA_FORMAT_SUPPORT *data)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkPhysicalDeviceImageFormatInfo2 format_info;
+    VkImageFormatProperties2 format_properties;
     VkFormatFeatureFlags2 image_features;
     const struct vkd3d_format *format;
+    VkResult vr;
 
     data->Support1 = D3D12_FORMAT_SUPPORT1_NONE;
     data->Support2 = D3D12_FORMAT_SUPPORT2_NONE;
@@ -3638,6 +3646,9 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
     if (!data->Format)
     {
         data->Support1 = D3D12_FORMAT_SUPPORT1_BUFFER;
+
+        if (device->device_info.features2.features.sparseResidencyBuffer)
+            data->Support2 = D3D12_FORMAT_SUPPORT2_TILED;
         return S_OK;
     }
 
@@ -3711,6 +3722,36 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
                 | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_EXCHANGE
                 | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_SIGNED_MIN_OR_MAX
                 | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_UNSIGNED_MIN_OR_MAX;
+    }
+
+    if (!format->is_emulated)
+    {
+        if ((image_features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT) && 
+                device->device_info.features2.features.sparseResidencyImage2D)
+        {
+            memset(&format_info, 0, sizeof(format_info));
+            format_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2;
+            format_info.type = VK_IMAGE_TYPE_2D;
+            format_info.format = format->vk_format;
+            format_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+            format_info.flags = VK_IMAGE_CREATE_SPARSE_BINDING_BIT |
+                    VK_IMAGE_CREATE_SPARSE_ALIASED_BIT |
+                    VK_IMAGE_CREATE_SPARSE_BINDING_BIT;
+            format_info.tiling = format->vk_image_tiling;
+
+            memset(&format_properties, 0, sizeof(format_properties));
+            format_properties.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2;
+
+            vr = VK_CALL(vkGetPhysicalDeviceImageFormatProperties2(
+              device->vk_physical_device, &format_info, &format_properties));
+
+            if (vr == VK_SUCCESS)
+                data->Support2 |= D3D12_FORMAT_SUPPORT2_TILED;
+        }
+
+        if (!image_features && format->vk_format_features_buffer &&
+                device->device_info.features2.features.sparseResidencyBuffer)
+            data->Support2 |= D3D12_FORMAT_SUPPORT2_TILED;
     }
 
     return S_OK;
