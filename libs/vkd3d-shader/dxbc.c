@@ -2889,6 +2889,7 @@ int vkd3d_shader_parse_root_signature_raw(const char *data, unsigned int data_si
     {
         struct vkd3d_shader_code code = { data, data_size };
         *compatibility_hash = vkd3d_shader_hash(&code);
+        vkd3d_shader_dump_shader(*compatibility_hash, &code, "rs");
     }
 
     return VKD3D_OK;
