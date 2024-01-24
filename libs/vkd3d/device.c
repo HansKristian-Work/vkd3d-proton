@@ -3634,6 +3634,13 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
 
     data->Support1 = D3D12_FORMAT_SUPPORT1_NONE;
     data->Support2 = D3D12_FORMAT_SUPPORT2_NONE;
+
+    if (!data->Format)
+    {
+        data->Support1 = D3D12_FORMAT_SUPPORT1_BUFFER;
+        return S_OK;
+    }
+
     if (!(format = vkd3d_get_format(device, data->Format, false)))
         format = vkd3d_get_format(device, data->Format, true);
     if (!format)
