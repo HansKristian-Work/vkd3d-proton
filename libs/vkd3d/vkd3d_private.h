@@ -1763,16 +1763,6 @@ HRESULT vkd3d_create_pipeline_layout(struct d3d12_device *device,
         unsigned int push_constant_count, const VkPushConstantRange *push_constants,
         VkPipelineLayout *pipeline_layout);
 
-int vkd3d_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_versioned_root_signature_desc *desc,
-        vkd3d_shader_hash_t *compatibility_hash);
-int vkd3d_parse_root_signature_v_1_2(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_versioned_root_signature_desc *out_desc,
-        vkd3d_shader_hash_t *compatibility_hash);
-int vkd3d_parse_root_signature_v_1_2_from_raw_payload(const struct vkd3d_shader_code *dxbc,
-        struct vkd3d_versioned_root_signature_desc *out_desc,
-        vkd3d_shader_hash_t *compatibility_hash);
-
 VkShaderStageFlags vkd3d_vk_stage_flags_from_visibility(D3D12_SHADER_VISIBILITY visibility);
 enum vkd3d_shader_visibility vkd3d_shader_visibility_from_d3d12(D3D12_SHADER_VISIBILITY visibility);
 HRESULT vkd3d_create_descriptor_set_layout(struct d3d12_device *device,

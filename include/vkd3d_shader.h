@@ -1064,6 +1064,16 @@ typedef struct vkd3d_shader_signature_element * (*PFN_vkd3d_shader_find_signatur
         unsigned int semantic_index, unsigned int stream_index);
 typedef void (*PFN_vkd3d_shader_free_shader_signature)(struct vkd3d_shader_signature *signature);
 
+int vkd3d_shader_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_versioned_root_signature_desc *desc,
+        vkd3d_shader_hash_t *compatibility_hash);
+int vkd3d_shader_parse_root_signature_v_1_2(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_versioned_root_signature_desc *out_desc,
+        vkd3d_shader_hash_t *compatibility_hash);
+int vkd3d_shader_parse_root_signature_v_1_2_from_raw_payload(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_versioned_root_signature_desc *out_desc,
+        vkd3d_shader_hash_t *compatibility_hash);
+
 #ifdef __cplusplus
 }
 #endif  /* __cplusplus */

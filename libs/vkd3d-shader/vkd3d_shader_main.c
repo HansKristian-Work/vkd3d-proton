@@ -910,3 +910,73 @@ void vkd3d_shader_stage_io_map_free(struct vkd3d_shader_stage_io_map *map)
     vkd3d_free(map->entries);
     memset(map, 0, sizeof(*map));
 }
+
+static int vkd3d_shader_parse_root_signature_for_version(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_versioned_root_signature_desc *out_desc,
+        enum vkd3d_root_signature_version target_version,
+        bool raw_payload,
+        vkd3d_shader_hash_t *compatibility_hash)
+{
+    struct vkd3d_versioned_root_signature_desc desc, converted_desc;
+    int ret;
+
+    if (raw_payload)
+    {
+        if ((ret = vkd3d_shader_parse_root_signature_raw(dxbc->code, dxbc->size, &desc, compatibility_hash)) < 0)
+        {
+            WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
+            return ret;
+        }
+    }
+    else
+    {
+        if ((ret = vkd3d_shader_parse_root_signature(dxbc, &desc, compatibility_hash)) < 0)
+        {
+            WARN("Failed to parse root signature, vkd3d result %d.\n", ret);
+            return ret;
+        }
+    }
+
+    if (desc.version == target_version)
+    {
+        *out_desc = desc;
+    }
+    else
+    {
+        ret = vkd3d_shader_convert_root_signature(&converted_desc, target_version, &desc);
+        vkd3d_shader_free_root_signature(&desc);
+        if (ret < 0)
+        {
+            WARN("Failed to convert from version %#x, vkd3d result %d.\n", desc.version, ret);
+            return ret;
+        }
+
+        *out_desc = converted_desc;
+    }
+
+    return ret;
+}
+
+int vkd3d_shader_parse_root_signature_v_1_0(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_versioned_root_signature_desc *out_desc,
+        vkd3d_shader_hash_t *compatibility_hash)
+{
+    return vkd3d_shader_parse_root_signature_for_version(dxbc, out_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_0, false,
+            compatibility_hash);
+}
+
+int vkd3d_shader_parse_root_signature_v_1_2(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_versioned_root_signature_desc *out_desc,
+        vkd3d_shader_hash_t *compatibility_hash)
+{
+    return vkd3d_shader_parse_root_signature_for_version(dxbc, out_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_2, false,
+            compatibility_hash);
+}
+
+int vkd3d_shader_parse_root_signature_v_1_2_from_raw_payload(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_versioned_root_signature_desc *out_desc,
+        vkd3d_shader_hash_t *compatibility_hash)
+{
+    return vkd3d_shader_parse_root_signature_for_version(dxbc, out_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_2, true,
+            compatibility_hash);
+}
