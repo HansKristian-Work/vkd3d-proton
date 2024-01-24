@@ -663,7 +663,7 @@ static HRESULT d3d12_state_object_add_collection_library(
             data->associations_count + 2, sizeof(*data->associations)))
         return E_OUTOFMEMORY;
 
-    RT_TRACE("EXISTING_COLLECTION (library):\n");
+    RT_TRACE("EXISTING_COLLECTION %p (library):\n", (void *)collection);
     for (i = 0; i < collection->exports_count; i++)
     {
         if (collection->exports[i].plain_export)
@@ -2934,7 +2934,7 @@ HRESULT d3d12_state_object_create(struct d3d12_device *device, const D3D12_STATE
     RT_TRACE("==== Create %s ====\n",
             desc->Type == D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE ? "RTPSO" : "Collection");
     hr = d3d12_state_object_init(object, device, desc, parent);
-    RT_TRACE("==== Done (hr = #%x) ====\n", hr);
+    RT_TRACE("==== Done %p (hr = #%x) ====\n", (void *)object, hr);
 
     if (FAILED(hr))
     {
