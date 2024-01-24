@@ -350,8 +350,8 @@ void test_format_support(void)
     memset(&format_support, 0, sizeof(format_support));
     hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FORMAT_SUPPORT,
             &format_support, sizeof(format_support));
-    todo ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
-    todo ok(format_support.Support1 == D3D12_FORMAT_SUPPORT1_BUFFER,
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+    ok(format_support.Support1 == D3D12_FORMAT_SUPPORT1_BUFFER,
             "Got unexpected support1 %#x.\n", format_support.Support1);
     ok(!format_support.Support2 || format_support.Support2 == D3D12_FORMAT_SUPPORT2_TILED,
             "Got unexpected support2 %#x.\n", format_support.Support2);
