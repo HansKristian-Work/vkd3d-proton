@@ -1019,11 +1019,12 @@ static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *obj
                     impl_from_ID3D12RootSignature(rs->pLocalRootSignature);
             data->associations[data->associations_count].priority = association_priority;
 
-            RT_TRACE("%p || %s (compat hash %016"PRIx64") (prio %u).\n",
+            RT_TRACE("%p || %s (hash %016"PRIx64") (layout hash %016"PRIx64") (prio %u).\n",
                     obj->pDesc,
                     obj->Type == D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE ?
                             "GLOBAL_ROOT_SIGNATURE" : "LOCAL_ROOT_SIGNATURE",
-                    data->associations[data->associations_count].root_signature->compatibility_hash,
+                    data->associations[data->associations_count].root_signature->pso_compatibility_hash,
+                    data->associations[data->associations_count].root_signature->layout_compatibility_hash,
                     association_priority);
 
             /* Hold reference in case we need to duplicate the data structure due to compile defer. */
@@ -1442,7 +1443,7 @@ static uint32_t d3d12_state_object_find_collection_variant(const struct d3d12_st
 
     for (i = 0; i < collection->pipelines_count; i++)
     {
-        if (d3d12_root_signature_is_compatible(
+        if (d3d12_root_signature_is_layout_compatible(
                 variant->global_root_signature, collection->pipelines[i].global_root_signature))
         {
             return i;
@@ -1625,14 +1626,14 @@ static bool d3d12_state_object_association_data_equal(const struct d3d12_state_o
     if (a && (a->kind == VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE ||
               a->kind == VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE))
     {
-        if (!a->root_signature || a->root_signature->compatibility_hash == 0)
+        if (!a->root_signature || a->root_signature->layout_compatibility_hash == 0)
             a = NULL;
     }
 
     if (b && (b->kind == VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE ||
               b->kind == VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE))
     {
-        if (!b->root_signature || b->root_signature->compatibility_hash == 0)
+        if (!b->root_signature || b->root_signature->layout_compatibility_hash == 0)
             b = NULL;
     }
 
@@ -1651,7 +1652,8 @@ static bool d3d12_state_object_association_data_equal(const struct d3d12_state_o
             return memcmp(&a->shader_config, &b->shader_config, sizeof(a->shader_config)) == 0;
         case VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE:
         case VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE:
-            return d3d12_root_signature_is_compatible(a->root_signature, b->root_signature);
+            /* Here we need exact checks so we can resolve conflicts. */
+            return d3d12_root_signature_is_pipeline_compatible(a->root_signature, b->root_signature);
 
         default:
             break;
@@ -2087,12 +2089,12 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_state_ob
     struct d3d12_root_signature *default_global_root_signature;
     struct vkd3d_shader_interface_info shader_interface_info;
     VkRayTracingPipelineCreateInfoKHR pipeline_create_info;
+    struct d3d12_root_signature *compat_global_signature;
     struct vkd3d_shader_resource_binding *local_bindings;
     struct vkd3d_shader_compile_arguments compile_args;
     struct d3d12_state_object_collection *collection;
     VkPipelineDynamicStateCreateInfo dynamic_state;
     struct vkd3d_shader_library_entry_point *entry;
-    struct d3d12_root_signature *global_signature;
     const struct D3D12_HIT_GROUP_DESC *hit_group;
     struct d3d12_state_object_identifier *export;
     VkPipelineLibraryCreateInfoKHR library_info;
@@ -2133,25 +2135,9 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_state_ob
     shader_interface_info.descriptor_size_sampler = d3d12_device_get_descriptor_handle_increment_size(
             object->device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
 
-    global_signature = variant->global_root_signature;
+    compat_global_signature = variant->global_root_signature;
 
-    if (global_signature)
-    {
-        shader_interface_info.flags = d3d12_root_signature_get_shader_interface_flags(global_signature, VKD3D_PIPELINE_TYPE_RAY_TRACING);
-        shader_interface_info.descriptor_tables.offset = global_signature->descriptor_table_offset;
-        shader_interface_info.descriptor_tables.count = global_signature->descriptor_table_count;
-        shader_interface_info.bindings = global_signature->bindings;
-        shader_interface_info.binding_count = global_signature->binding_count;
-        shader_interface_info.push_constant_buffers = global_signature->root_constants;
-        shader_interface_info.push_constant_buffer_count = global_signature->root_constant_count;
-        shader_interface_info.push_constant_ubo_binding = &global_signature->push_constant_ubo_binding;
-        shader_interface_info.offset_buffer_binding = &global_signature->offset_buffer_binding;
-#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
-        shader_interface_info.descriptor_qa_global_binding = &global_signature->descriptor_qa_global_info;
-        shader_interface_info.descriptor_qa_heap_binding = &global_signature->descriptor_qa_heap_binding;
-#endif
-    }
-    else
+    if (!compat_global_signature)
     {
         /* We have to create a dummy root signature in this scenario.
          * Add a special entry point for this since otherwise we have to serialize root signatures
@@ -2159,18 +2145,20 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_state_ob
          * we shouldn't have access to. */
         if (FAILED(hr = d3d12_root_signature_create_empty(object->device, &default_global_root_signature)))
             return E_OUTOFMEMORY;
-        global_signature = default_global_root_signature;
-        d3d12_root_signature_inc_ref(variant->global_root_signature = global_signature);
+        compat_global_signature = default_global_root_signature;
+        d3d12_root_signature_inc_ref(variant->global_root_signature = compat_global_signature);
         ID3D12RootSignature_Release(&default_global_root_signature->ID3D12RootSignature_iface);
     }
 
-    RT_TRACE("Selecting Global Root Signature compat hash %016"PRIx64".\n",
-            global_signature->compatibility_hash);
+    RT_TRACE("Compiling for Global Root Signature (hash %016"PRIx64") (layout hash %016"PRIx64").\n",
+            compat_global_signature->pso_compatibility_hash,
+            compat_global_signature->layout_compatibility_hash);
 
     local_static_sampler_bindings = NULL;
     local_static_sampler_bindings_count = 0;
     local_static_sampler_bindings_size = 0;
-    variant->local_static_sampler.set_index = global_signature ? global_signature->raygen.num_set_layouts : 0;
+    variant->local_static_sampler.set_index = compat_global_signature ?
+            compat_global_signature->raygen.num_set_layouts : 0;
 
     if (object->device->debug_ring.active)
         data->spec_info_buffer = vkd3d_calloc(data->entry_points_count, sizeof(*data->spec_info_buffer));
@@ -2189,7 +2177,7 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_state_ob
         /* Skip any entry point that is incompatible, we'll compile it another iteration. */
         per_entry_global_signature = d3d12_state_object_pipeline_data_get_root_signature(
                 VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE, data, entry);
-        if (!d3d12_root_signature_is_compatible(variant->global_root_signature, per_entry_global_signature))
+        if (!d3d12_root_signature_is_layout_compatible(variant->global_root_signature, per_entry_global_signature))
             continue;
 
         RT_TRACE("Compiling entry point: %s (stage = #%x).\n", debugstr_w(entry->plain_entry_point), entry->stage);
@@ -2198,9 +2186,37 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_state_ob
                 VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE, data, entry);
         local_bindings = NULL;
 
+        if (per_entry_global_signature)
+        {
+            /* We might have different bindings per PSO, even if they are considered pipeline layout compatible.
+             * Register/space declaration could differ, but those don't change the Vulkan pipeline layout. */
+            shader_interface_info.flags = d3d12_root_signature_get_shader_interface_flags(
+                    per_entry_global_signature, VKD3D_PIPELINE_TYPE_RAY_TRACING);
+            shader_interface_info.descriptor_tables.offset = per_entry_global_signature->descriptor_table_offset;
+            shader_interface_info.descriptor_tables.count = per_entry_global_signature->descriptor_table_count;
+            shader_interface_info.bindings = per_entry_global_signature->bindings;
+            shader_interface_info.binding_count = per_entry_global_signature->binding_count;
+            shader_interface_info.push_constant_buffers = per_entry_global_signature->root_constants;
+            shader_interface_info.push_constant_buffer_count = per_entry_global_signature->root_constant_count;
+            shader_interface_info.push_constant_ubo_binding = &per_entry_global_signature->push_constant_ubo_binding;
+            shader_interface_info.offset_buffer_binding = &per_entry_global_signature->offset_buffer_binding;
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+            shader_interface_info.descriptor_qa_global_binding = &per_entry_global_signature->descriptor_qa_global_info;
+            shader_interface_info.descriptor_qa_heap_binding = &per_entry_global_signature->descriptor_qa_heap_binding;
+#endif
+        }
+        else
+        {
+            shader_interface_info.flags = 0;
+            shader_interface_info.push_constant_buffer_count = 0;
+            shader_interface_info.binding_count = 0;
+        }
+
         if (local_signature)
         {
-            RT_TRACE("  Local root signature: %016"PRIx64".\n", local_signature->compatibility_hash);
+            RT_TRACE("  Local root signature: (hash %016"PRIx64") (compat hash %016"PRIx64").\n",
+                    local_signature->pso_compatibility_hash,
+                    local_signature->layout_compatibility_hash);
 
             shader_interface_local_info.local_root_parameters = local_signature->parameters;
             shader_interface_local_info.local_root_parameter_count = local_signature->parameter_count;
@@ -2563,9 +2579,9 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_state_ob
 
         vkd3d_free(local_static_sampler_bindings);
 
-        if (global_signature)
+        if (compat_global_signature)
         {
-            if (FAILED(hr = d3d12_root_signature_create_local_static_samplers_layout(global_signature,
+            if (FAILED(hr = d3d12_root_signature_create_local_static_samplers_layout(compat_global_signature,
                     variant->local_static_sampler.set_layout, &variant->local_static_sampler.pipeline_layout)))
                 return hr;
         }
@@ -2637,7 +2653,7 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_state_ob
     if (variant->local_static_sampler.pipeline_layout)
         pipeline_create_info.layout = variant->local_static_sampler.pipeline_layout;
     else
-        pipeline_create_info.layout = global_signature->raygen.vk_pipeline_layout;
+        pipeline_create_info.layout = compat_global_signature->raygen.vk_pipeline_layout;
 
     pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_create_info.basePipelineIndex = -1;
@@ -2733,7 +2749,7 @@ static void d3d12_state_object_add_global_root_signature_variant(
 {
     unsigned int i;
     for (i = 0; i < object->pipelines_count; i++)
-        if (d3d12_root_signature_is_compatible(object->pipelines[i].global_root_signature, rs))
+        if (d3d12_root_signature_is_layout_compatible(object->pipelines[i].global_root_signature, rs))
             return;
 
     vkd3d_array_reserve((void **)&object->pipelines, &object->pipelines_size,

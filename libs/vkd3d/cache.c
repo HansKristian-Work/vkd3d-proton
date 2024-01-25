@@ -1726,7 +1726,7 @@ static HRESULT d3d12_pipeline_library_load_pipeline(struct d3d12_pipeline_librar
         {
             root_signature = impl_from_ID3D12RootSignature(desc->root_signature);
             if (root_signature)
-                pipeline_cache_compat.root_signature_compat_hash = root_signature->compatibility_hash;
+                pipeline_cache_compat.root_signature_compat_hash = root_signature->pso_compatibility_hash;
         }
         else if (cached_state->root_signature_compat_hash_is_dxbc_derived)
         {

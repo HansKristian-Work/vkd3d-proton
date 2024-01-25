@@ -1683,7 +1683,10 @@ struct d3d12_root_signature
     LONG refcount;
     LONG internal_refcount;
 
-    vkd3d_shader_hash_t compatibility_hash;
+    /* Compatibility for exact match. For PSO blob validation. */
+    vkd3d_shader_hash_t pso_compatibility_hash;
+    /* Compatiblity for ABI in RTPSOs. Match if the VkPipelineLayouts are equivalent. */
+    vkd3d_shader_hash_t layout_compatibility_hash;
 
     struct d3d12_bind_point_layout graphics, mesh, compute, raygen;
     VkDescriptorSetLayout vk_sampler_descriptor_layout;
@@ -1795,12 +1798,12 @@ static inline const struct d3d12_bind_point_layout *d3d12_root_signature_get_lay
     return NULL;
 }
 
-static inline bool d3d12_root_signature_is_compatible(
+static inline bool d3d12_root_signature_is_pipeline_compatible(
         const struct d3d12_root_signature *a, const struct d3d12_root_signature *b)
 {
-    if (a && a->compatibility_hash == 0)
+    if (a && a->pso_compatibility_hash == 0)
         a = NULL;
-    if (b && b->compatibility_hash == 0)
+    if (b && b->pso_compatibility_hash == 0)
         b = NULL;
 
     if (!a && !b)
@@ -1808,7 +1811,23 @@ static inline bool d3d12_root_signature_is_compatible(
     else if ((!!a) != (!!b))
         return false;
     else
-        return a->compatibility_hash == b->compatibility_hash;
+        return a->pso_compatibility_hash == b->pso_compatibility_hash;
+}
+
+static inline bool d3d12_root_signature_is_layout_compatible(
+        const struct d3d12_root_signature *a, const struct d3d12_root_signature *b)
+{
+    if (a && a->layout_compatibility_hash == 0)
+        a = NULL;
+    if (b && b->layout_compatibility_hash == 0)
+        b = NULL;
+
+    if (!a && !b)
+        return true;
+    else if ((!!a) != (!!b))
+        return false;
+    else
+        return a->layout_compatibility_hash == b->layout_compatibility_hash;
 }
 
 enum vkd3d_dynamic_state_flag
