@@ -1568,7 +1568,8 @@ HRESULT d3d12_root_signature_create_empty(struct d3d12_device *device,
 
     /* For pipeline libraries, (and later DXR to some degree), we need a way to
      * compare root signature objects. */
-    object->compatibility_hash = 0;
+    object->pso_compatibility_hash = 0;
+    object->layout_compatibility_hash = 0;
 
     if (FAILED(hr))
     {
@@ -1623,7 +1624,9 @@ static HRESULT d3d12_root_signature_create_from_blob(struct d3d12_device *device
 
     /* For pipeline libraries, (and later DXR to some degree), we need a way to
      * compare root signature objects. */
-    object->compatibility_hash = compatibility_hash;
+    object->pso_compatibility_hash = compatibility_hash;
+    object->layout_compatibility_hash = vkd3d_root_signature_v_1_2_compute_layout_compat_hash(
+            &root_signature_desc.vkd3d.v_1_2);
 
     vkd3d_shader_free_root_signature(&root_signature_desc.vkd3d);
     if (FAILED(hr))
@@ -4939,7 +4942,7 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
 
     vkd3d_pipeline_cache_compat_from_state_desc(&object->pipeline_cache_compat, desc);
     if (object->root_signature)
-        object->pipeline_cache_compat.root_signature_compat_hash = object->root_signature->compatibility_hash;
+        object->pipeline_cache_compat.root_signature_compat_hash = object->root_signature->pso_compatibility_hash;
 
     desc_cached_pso = &desc->cached_pso;
 

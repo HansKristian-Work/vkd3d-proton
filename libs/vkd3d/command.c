@@ -5732,7 +5732,7 @@ static bool d3d12_command_list_update_raygen_pipeline(struct d3d12_command_list 
     list->rt_state_variant = NULL;
     for (i = 0; i < list->rt_state->pipelines_count; i++)
     {
-        if (d3d12_root_signature_is_compatible(
+        if (d3d12_root_signature_is_layout_compatible(
                 list->rt_state->pipelines[i].global_root_signature,
                 list->compute_bindings.root_signature))
         {
