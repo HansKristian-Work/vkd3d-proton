@@ -980,3 +980,43 @@ int vkd3d_shader_parse_root_signature_v_1_2_from_raw_payload(const struct vkd3d_
     return vkd3d_shader_parse_root_signature_for_version(dxbc, out_desc, VKD3D_ROOT_SIGNATURE_VERSION_1_2, true,
             compatibility_hash);
 }
+
+vkd3d_shader_hash_t vkd3d_root_signature_v_1_2_compute_layout_compat_hash(
+        const struct vkd3d_root_signature_desc2 *desc)
+{
+    vkd3d_shader_hash_t hash = hash_fnv1_init();
+    uint32_t i;
+
+    hash = hash_fnv1_iterate_u32(hash, desc->static_sampler_count);
+    hash = hash_fnv1_iterate_u32(hash, desc->parameter_count);
+    hash = hash_fnv1_iterate_u32(hash, desc->flags & D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
+
+    for (i = 0; i < desc->parameter_count; i++)
+    {
+        hash = hash_fnv1_iterate_u32(hash, desc->parameters[i].parameter_type);
+        if (desc->parameters[i].parameter_type == VKD3D_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS)
+            hash = hash_fnv1_iterate_u32(hash, desc->parameters[i].constants.value_count);
+        else
+            hash = hash_fnv1_iterate_u32(hash, 0);
+    }
+
+    for (i = 0; i < desc->static_sampler_count; i++)
+    {
+        const struct vkd3d_static_sampler_desc1 *sampler = &desc->static_samplers[i];
+        /* Ignore space / register since those don't affect VkPipelineLayout. */
+        hash = hash_fnv1_iterate_u32(hash, sampler->flags);
+        hash = hash_fnv1_iterate_u32(hash, sampler->shader_visibility);
+        hash = hash_fnv1_iterate_u32(hash, sampler->max_anisotropy);
+        hash = hash_fnv1_iterate_u32(hash, sampler->border_color);
+        hash = hash_fnv1_iterate_u32(hash, sampler->comparison_func);
+        hash = hash_fnv1_iterate_u32(hash, sampler->address_u);
+        hash = hash_fnv1_iterate_u32(hash, sampler->address_v);
+        hash = hash_fnv1_iterate_u32(hash, sampler->address_w);
+        hash = hash_fnv1_iterate_u32(hash, sampler->filter);
+        hash = hash_fnv1_iterate_f32(hash, sampler->min_lod);
+        hash = hash_fnv1_iterate_f32(hash, sampler->max_lod);
+        hash = hash_fnv1_iterate_f32(hash, sampler->mip_lod_bias);
+    }
+
+    return hash;
+}
