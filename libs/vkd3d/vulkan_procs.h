@@ -348,6 +348,9 @@ VK_DEVICE_EXT_PFN(vkSetDeviceMemoryPriorityEXT)
 VK_DEVICE_EXT_PFN(vkCmdDecompressMemoryNV)
 VK_DEVICE_EXT_PFN(vkCmdDecompressMemoryIndirectCountNV)
 
+/* VK_EXT_device_fault */
+VK_DEVICE_EXT_PFN(vkGetDeviceFaultInfoEXT)
+
 #undef VK_INSTANCE_PFN
 #undef VK_INSTANCE_EXT_PFN
 #undef VK_DEVICE_PFN
