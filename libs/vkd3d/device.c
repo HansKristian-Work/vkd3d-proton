@@ -105,6 +105,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS, EXT_dynamic_rendering_unused_attachments),
     VK_EXTENSION(EXT_LINE_RASTERIZATION, EXT_line_rasterization),
     VK_EXTENSION(EXT_IMAGE_COMPRESSION_CONTROL, EXT_image_compression_control),
+    VK_EXTENSION_COND(EXT_DEVICE_FAULT, EXT_device_fault, VKD3D_CONFIG_FLAG_FAULT),
     /* AMD extensions */
     VK_EXTENSION(AMD_BUFFER_MARKER, AMD_buffer_marker),
     VK_EXTENSION(AMD_DEVICE_COHERENT_MEMORY, AMD_device_coherent_memory),
@@ -855,6 +856,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"recycle_command_pools", VKD3D_CONFIG_FLAG_RECYCLE_COMMAND_POOLS},
     {"pipeline_library_ignore_mismatch_driver", VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_IGNORE_MISMATCH_DRIVER},
     {"breadcrumbs", VKD3D_CONFIG_FLAG_BREADCRUMBS},
+    {"fault", VKD3D_CONFIG_FLAG_FAULT},
     {"pipeline_library_app_cache", VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_APP_CACHE_ONLY},
     {"shader_cache_sync", VKD3D_CONFIG_FLAG_SHADER_CACHE_SYNC},
     {"force_raw_va_cbv", VKD3D_CONFIG_FLAG_FORCE_RAW_VA_CBV},
@@ -1781,6 +1783,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->memory_decompression_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_DECOMPRESSION_PROPERTIES_NV;
         vk_prepend_struct(&info->features2, &info->memory_decompression_features);
         vk_prepend_struct(&info->properties2, &info->memory_decompression_properties);
+    }
+
+    if (vulkan_info->EXT_device_fault)
+    {
+        info->fault_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->fault_features);
     }
 
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
@@ -8603,6 +8611,125 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
     *device = object;
 
     return S_OK;
+}
+
+void d3d12_device_report_fault(struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    static pthread_mutex_t report_lock = PTHREAD_MUTEX_INITIALIZER;
+    VkDeviceFaultCountsEXT fault_counts;
+    VkDeviceFaultInfoEXT fault_info;
+    static bool reported = false;
+    VkResult vr;
+    uint32_t i;
+
+    d3d12_device_mark_as_removed(device, DXGI_ERROR_DEVICE_REMOVED, "VK_ERROR_DEVICE_LOST");
+
+    if (!device->device_info.fault_features.deviceFault)
+        return;
+
+    fault_counts.sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_COUNTS_EXT;
+    fault_counts.pNext = NULL;
+    if ((vr = VK_CALL(vkGetDeviceFaultInfoEXT(device->vk_device, &fault_counts, NULL)) < 0))
+    {
+        ERR("Failed to query device fault info, vr %d.\n", vr);
+        return;
+    }
+
+    pthread_mutex_lock(&report_lock);
+    if (reported)
+    {
+        pthread_mutex_unlock(&report_lock);
+        return;
+    }
+    reported = true;
+
+    memset(&fault_info, 0, sizeof(fault_info));
+    fault_info.sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_INFO_EXT;
+
+    /* Don't have to explicitly check vendor binary feature,
+     * implementations must return 0 size if not enabled. */
+    fault_info.pAddressInfos = vkd3d_calloc(fault_counts.addressInfoCount, sizeof(*fault_info.pAddressInfos));
+    fault_info.pVendorBinaryData = vkd3d_malloc(fault_counts.vendorBinarySize);
+    fault_info.pVendorInfos = vkd3d_calloc(fault_counts.vendorInfoCount, sizeof(*fault_info.pVendorInfos));
+
+    vr = VK_CALL(vkGetDeviceFaultInfoEXT(device->vk_device, &fault_counts, &fault_info));
+
+    if (vr < 0)
+    {
+        ERR("Failed to query device fault info, vr %d.\n", vr);
+    }
+    else
+    {
+        static const char *address_type_to_str[] =
+        {
+            "N/A",
+            "ReadInvalid",
+            "WriteInvalid",
+            "ExecuteInvalid",
+            "UnknownPC",
+            "InvalidPC",
+            "FaultPC",
+        };
+
+        ERR("DEVICE_LOST received, reporting fault.\n");
+        ERR("Desc: %s\n", fault_info.description);
+
+        for (i = 0; i < fault_counts.addressInfoCount; i++)
+        {
+            const VkDeviceFaultAddressInfoEXT *addr = &fault_info.pAddressInfos[i];
+            const char *type;
+
+            if (addr->addressType < ARRAY_SIZE(address_type_to_str))
+                type = address_type_to_str[addr->addressType];
+            else
+                type = "?";
+
+            ERR("Address [%u]: %016"PRIx64" (granularity %"PRIx64"), type %s\n", i,
+                    addr->reportedAddress, addr->addressPrecision, type);
+        }
+
+        for (i = 0; i < fault_counts.vendorInfoCount; i++)
+        {
+            const VkDeviceFaultVendorInfoEXT *vend = &fault_info.pVendorInfos[i];
+            ERR("Vendor [%u]: (code #%"PRIx64") (data #%"PRIx64") %s\n",
+                    i, vend->vendorFaultCode, vend->vendorFaultData,
+                    vend->description);
+        }
+
+        if (fault_counts.vendorBinarySize >= sizeof(VkDeviceFaultVendorBinaryHeaderVersionOneEXT))
+        {
+            const VkDeviceFaultVendorBinaryHeaderVersionOneEXT *header = fault_info.pVendorBinaryData;
+            if (header->headerVersion == VK_DEVICE_FAULT_VENDOR_BINARY_HEADER_VERSION_ONE_EXT &&
+                    header->headerSize <= fault_counts.vendorBinarySize)
+            {
+                const char *path = "vkd3d-proton.fault.bin";
+                FILE *file;
+                ERR("Dumping vendor blob to \"%s\".\n", path);
+
+                file = fopen(path, "wb");
+                if (file)
+                {
+                    size_t write_size = fault_counts.vendorBinarySize - header->headerSize;
+                    if (fwrite((const uint8_t *)fault_info.pVendorBinaryData + header->headerSize, 1,
+                            write_size, file) != write_size)
+                    {
+                        ERR("Failed to write fault file.\n");
+                    }
+                    fclose(file);
+                }
+                else
+                    ERR("Failed to open fault file for writing.\n");
+            }
+            else
+                ERR("Binary header is not version one as expected.\n");
+        }
+    }
+
+    pthread_mutex_unlock(&report_lock);
+    vkd3d_free(fault_info.pAddressInfos);
+    vkd3d_free(fault_info.pVendorBinaryData);
+    vkd3d_free(fault_info.pVendorInfos);
 }
 
 void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,

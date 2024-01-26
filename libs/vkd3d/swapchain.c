@@ -1120,11 +1120,11 @@ static void dxgi_vk_swap_chain_wait_and_reset_acquire_fence(struct dxgi_vk_swap_
         vr = VK_CALL(vkWaitForFences(vk_device, 1, &chain->present.vk_acquire_fence, VK_TRUE, UINT64_MAX));
         if (vr < 0)
             ERR("Failed to wait for fence, vr %d\n", vr);
-        VKD3D_DEVICE_REPORT_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
+        VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
         vr = VK_CALL(vkResetFences(vk_device, 1, &chain->present.vk_acquire_fence));
         if (vr < 0)
             ERR("Failed to reset fence, vr %d\n", vr);
-        VKD3D_DEVICE_REPORT_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
+        VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
         chain->present.acquire_fence_pending = false;
     }
 }
@@ -1456,7 +1456,7 @@ static void dxgi_vk_swap_chain_present_signal_blit_semaphore(struct dxgi_vk_swap
     if (vr)
     {
         ERR("Failed to submit present discard, vr = %d.\n", vr);
-        VKD3D_DEVICE_REPORT_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
+        VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
     }
 }
 
@@ -1644,7 +1644,7 @@ static bool dxgi_vk_swap_chain_submit_blit(struct dxgi_vk_swap_chain *chain, uin
     if (chain->present.vk_blit_fences[swapchain_index])
     {
         vr = VK_CALL(vkWaitForFences(vk_device, 1, &chain->present.vk_blit_fences[swapchain_index], VK_TRUE, UINT64_MAX));
-        VKD3D_DEVICE_REPORT_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
+        VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
         if (vr < 0)
         {
             ERR("Failed to wait for fence, vr %d\n", vr);
@@ -1699,7 +1699,7 @@ static bool dxgi_vk_swap_chain_submit_blit(struct dxgi_vk_swap_chain *chain, uin
     vk_queue = vkd3d_queue_acquire(chain->queue->vkd3d_queue);
     vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, &submit_info, chain->present.vk_blit_fences[swapchain_index]));
     vkd3d_queue_release(chain->queue->vkd3d_queue);
-    VKD3D_DEVICE_REPORT_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
+    VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
     if (vr < 0)
         ERR("Failed to submit swapchain blit, vr %d.\n", vr);
 
@@ -1753,7 +1753,7 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
         return;
 
     vr = dxgi_vk_swap_chain_try_acquire_next_image(chain);
-    VKD3D_DEVICE_REPORT_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
+    VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
     dxgi_vk_swap_chain_wait_and_reset_acquire_fence(chain);
 
     /* Handle any errors and retry as needed. If we cannot make meaningful forward progress, just give up and retry later. */
@@ -1810,7 +1810,7 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     vr = VK_CALL(vkQueuePresentKHR(vk_queue, &present_info));
     VKD3D_REGION_END(queue_present);
     vkd3d_queue_release(chain->queue->vkd3d_queue);
-    VKD3D_DEVICE_REPORT_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
+    VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
 
     if (vr == VK_SUCCESS && vk_result != VK_SUCCESS)
         vr = vk_result;

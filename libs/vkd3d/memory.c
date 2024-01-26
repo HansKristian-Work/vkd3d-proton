@@ -427,7 +427,7 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
     vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
     vkd3d_queue_release(queue->vkd3d_queue);
 
-    VKD3D_DEVICE_REPORT_BREADCRUMB_IF(queue->device, vr == VK_ERROR_DEVICE_LOST);
+    VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(queue->device, vr == VK_ERROR_DEVICE_LOST);
 
     if (vr < 0)
     {

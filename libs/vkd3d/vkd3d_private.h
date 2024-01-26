@@ -153,6 +153,7 @@ struct vkd3d_vulkan_info
     bool EXT_dynamic_rendering_unused_attachments;
     bool EXT_line_rasterization;
     bool EXT_image_compression_control;
+    bool EXT_device_fault;
     /* AMD device extensions */
     bool AMD_buffer_marker;
     bool AMD_device_coherent_memory;
@@ -3477,7 +3478,9 @@ void vkd3d_breadcrumb_tracer_dump_command_list(struct vkd3d_breadcrumb_tracer *t
 } while(0)
 
 /* Remember to kick debug ring as well. */
-#define VKD3D_DEVICE_REPORT_BREADCRUMB_IF(device, cond) do { \
+#define VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(device, cond) do { \
+    if (cond) \
+        d3d12_device_report_fault(device); \
     if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS) && (cond)) { \
         vkd3d_breadcrumb_tracer_report_device_lost(&(device)->breadcrumb_tracer, device); \
         vkd3d_shader_debug_ring_kick(&(device)->debug_ring, device, true); \
@@ -3582,7 +3585,10 @@ static inline void vkd3d_breadcrumb_buffer_copy(
 #define VKD3D_BREADCRUMB_AUX32(v) ((void)(v))
 #define VKD3D_BREADCRUMB_AUX64(v) ((void)(v))
 #define VKD3D_BREADCRUMB_COOKIE(v) ((void)(v))
-#define VKD3D_DEVICE_REPORT_BREADCRUMB_IF(device, cond) ((void)(device), (void)(cond))
+#define VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(device, cond) do { \
+    if (cond) \
+        d3d12_device_report_fault(device); \
+} while(0)
 #define VKD3D_BREADCRUMB_FLUSH_BATCHES(list) ((void)(list))
 #define VKD3D_BREADCRUMB_TAG(tag) ((void)(tag))
 #define VKD3D_BREADCRUMB_RESOURCE(res) ((void)(res))
@@ -4332,6 +4338,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceMaintenance5FeaturesKHR maintenance_5_features;
     VkPhysicalDeviceLineRasterizationFeaturesEXT line_rasterization_features;
     VkPhysicalDeviceImageCompressionControlFeaturesEXT image_compression_control_features;
+    VkPhysicalDeviceFaultFeaturesEXT fault_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
@@ -4510,6 +4517,7 @@ void d3d12_device_unmap_vkd3d_queue(struct d3d12_device *device,
 bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent);
 void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
         const char *message, ...) VKD3D_PRINTF_FUNC(3, 4);
+void d3d12_device_report_fault(struct d3d12_device *device);
 
 VkPipeline d3d12_device_get_or_create_vertex_input_pipeline(struct d3d12_device *device,
         const struct vkd3d_vertex_input_pipeline_desc *desc);

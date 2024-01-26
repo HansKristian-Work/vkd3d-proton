@@ -546,13 +546,13 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
      * Usually, we'd observe DEVICE_LOST in subsequent submissions,
      * but if application submits something and expects to wait on that submission
      * immediately, this can happen. */
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
+    if (vkd3d_config_flags & (VKD3D_CONFIG_FLAG_BREADCRUMBS | VKD3D_CONFIG_FLAG_FAULT))
         timeout = 5000000000ull;
 
     if ((vr = VK_CALL(vkWaitSemaphores(device->vk_device, &wait_info, timeout))))
     {
         ERR("Failed to wait for Vulkan timeline semaphore, vr %d.\n", vr);
-        VKD3D_DEVICE_REPORT_BREADCRUMB_IF(device, vr == VK_ERROR_DEVICE_LOST || vr == VK_TIMEOUT);
+        VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(device, vr == VK_ERROR_DEVICE_LOST || vr == VK_TIMEOUT);
         vkd3d_waiting_fence_release_submissions(fence);
         return;
     }
@@ -17313,7 +17313,7 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
         return;
     }
 
-    VKD3D_DEVICE_REPORT_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
+    VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
 
     if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence->ID3D12Fence_iface,
             fence->timeline_semaphore, physical_value, true, NULL, 0)))
@@ -17348,7 +17348,7 @@ static void d3d12_command_queue_wait_shared(struct d3d12_command_queue *command_
     wait_info.semaphoreCount = 1;
     wait_info.pValues = &value;
     vr = VK_CALL(vkWaitSemaphores(device->vk_device, &wait_info, UINT64_MAX));
-    VKD3D_DEVICE_REPORT_BREADCRUMB_IF(device, vr == VK_ERROR_DEVICE_LOST);
+    VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(device, vr == VK_ERROR_DEVICE_LOST);
 }
 
 static void d3d12_command_queue_signal_shared(struct d3d12_command_queue *command_queue,
@@ -17407,7 +17407,7 @@ static void d3d12_command_queue_signal_shared(struct d3d12_command_queue *comman
         return;
     }
 
-    VKD3D_DEVICE_REPORT_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
+    VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
 
     if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence->ID3D12Fence_iface,
             vkd3d_queue->submission_timeline, vkd3d_queue->submission_timeline_count, true, NULL, 0)))
@@ -17482,7 +17482,7 @@ static void d3d12_command_queue_transition_pool_wait(struct d3d12_command_queue_
     wait_info.semaphoreCount = 1;
     wait_info.pValues = &value;
     vr = VK_CALL(vkWaitSemaphores(device->vk_device, &wait_info, ~(uint64_t)0));
-    VKD3D_DEVICE_REPORT_BREADCRUMB_IF(device, vr == VK_ERROR_DEVICE_LOST);
+    VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(device, vr == VK_ERROR_DEVICE_LOST);
 }
 
 static void d3d12_command_queue_transition_pool_deinit(struct d3d12_command_queue_transition_pool *pool,
@@ -17798,7 +17798,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     else if ((vr = VK_CALL(vkQueueSubmit2(vk_queue, num_submits, submit_desc, VK_NULL_HANDLE))) < 0)
         ERR("Failed to submit queue(s), vr %d.\n", vr);
 
-    VKD3D_DEVICE_REPORT_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
+    VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
 
 #ifdef VKD3D_ENABLE_RENDERDOC
     if (debug_capture)
@@ -18081,7 +18081,7 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
     if ((vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, &submit_info, VK_NULL_HANDLE))) < 0)
         ERR("Failed to submit signal, vr %d.\n", vr);
 
-    VKD3D_DEVICE_REPORT_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
+    VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
 
     if (queue != queue_sparse)
     {
@@ -18120,7 +18120,7 @@ static void d3d12_command_queue_bind_sparse(struct d3d12_command_queue *command_
         ERR("Failed to submit wait, vr %d.\n", vr);
 
     vkd3d_queue_release(queue);
-    VKD3D_DEVICE_REPORT_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
+    VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
 
 cleanup:
     vkd3d_free(memory_binds);
