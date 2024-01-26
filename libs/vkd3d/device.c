@@ -8704,8 +8704,32 @@ void d3d12_device_report_fault(struct d3d12_device *device)
                     header->headerSize <= fault_counts.vendorBinarySize)
             {
                 const char *path = "vkd3d-proton.fault.bin";
+                char cache_uuid[VK_UUID_SIZE * 2 + 1];
                 FILE *file;
+
                 ERR("Dumping vendor blob to \"%s\".\n", path);
+
+                ERR("vendorID: #%x\n", header->vendorID);
+                ERR("driverVersion: #%x\n", header->driverVersion);
+                ERR("deviceID: #%x\n", header->deviceID);
+                ERR("apiVersion: #%x\n", header->apiVersion);
+                if (header->applicationNameOffset)
+                {
+                    ERR("applicationName: %s\n",
+                            ((const char *)fault_info.pVendorBinaryData) + header->applicationNameOffset);
+                    ERR("applicationVersion: #%x\n", header->applicationVersion);
+                }
+
+                if (header->engineNameOffset)
+                {
+                    ERR("engineName: %s\n", ((const char *)fault_info.pVendorBinaryData) + header->engineNameOffset);
+                    ERR("engineVersion: #%x\n", header->engineVersion);
+                }
+
+                for (i = 0; i < VK_UUID_SIZE; i++)
+                    sprintf(cache_uuid + i * 2, "%02x", header->pipelineCacheUUID[i]);
+
+                ERR("pipelineCacheUUID: %s\n", cache_uuid);
 
                 file = fopen(path, "wb");
                 if (file)
