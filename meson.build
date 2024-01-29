@@ -146,6 +146,12 @@ if vkd3d_platform == 'windows'
   if vkd3d_compiler.has_link_argument('-static-libstdc++')
     add_global_link_arguments('-static-libstdc++', language : [ 'cpp' ])
   endif
+  if vkd3d_compiler.has_link_argument('/NOIMPLIB')
+    add_global_link_arguments('/NOIMPLIB', language : [ 'c', 'cpp' ])
+  endif
+  if vkd3d_compiler.has_link_argument('/NOEXP')
+    add_global_link_arguments('/NOEXP', language : [ 'c', 'cpp' ])
+  endif
 endif
 
 vkd3d_build = vcs_tag(
