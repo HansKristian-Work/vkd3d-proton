@@ -575,6 +575,12 @@ typedef enum D3D12_SAMPLER_FEEDBACK_TIER
     D3D12_SAMPLER_FEEDBACK_TIER_1_0 = 100,
 } D3D12_SAMPLER_FEEDBACK_TIER;
 
+typedef enum D3D12_WORK_GRAPHS_TIER
+{
+    D3D12_WORK_GRAPHS_TIER_NOT_SUPPORTED = 0,
+    D3D12_WORK_GRAPHS_TIER_1_0 = 10,
+} D3D12_WORK_GRAPHS_TIER;
+
 typedef enum D3D12_COMMAND_LIST_SUPPORT_FLAGS
 {
     D3D12_COMMAND_LIST_SUPPORT_FLAG_NONE = 0x0,
@@ -914,6 +920,32 @@ typedef struct D3D12_FEATURE_DATA_D3D12_OPTIONS19
     UINT MaxSamplerDescriptorHeapSizeWithStaticSamplers;
     UINT MaxViewDescriptorHeapSize;
 } D3D12_FEATURE_DATA_D3D12_OPTIONS19;
+
+typedef enum D3D12_RECREATE_AT_TIER
+{
+    D3D12_RECREATE_AT_TIER_NOT_SUPPORTED = 0,
+    D3D12_RECREATE_AT_TIER_1 = 1,
+} D3D12_RECREATE_AT_TIER;
+
+typedef struct D3D12_FEATURE_DATA_D3D12_OPTIONS20
+{
+    BOOL ComputeOnlyWriteWatchSupported;
+    D3D12_RECREATE_AT_TIER RecreateAtTier;
+} D3D12_FEATURE_DATA_D3D12_OPTIONS20;
+
+typedef enum D3D12_EXECUTE_INDIRECT_TIER
+{
+    D3D12_EXECUTE_INDIRECT_TIER_1_0 = 10,
+    D3D12_EXECUTE_INDIRECT_TIER_1_1 = 11,
+} D3D12_EXECUTE_INDIRECT_TIER;
+
+typedef struct D3D12_FEATURE_DATA_D3D12_OPTIONS21
+{
+    D3D12_WORK_GRAPHS_TIER WorkGraphsTier;
+    D3D12_EXECUTE_INDIRECT_TIER ExecuteIndirectTier;
+    BOOL SampleCmpGradientAndBiasSupported;
+    BOOL ExtendedCommandInfoSupported;
+} D3D12_FEATURE_DATA_D3D12_OPTIONS21;
 
 typedef struct D3D12_FEATURE_DATA_FORMAT_SUPPORT
 {
@@ -2586,6 +2618,7 @@ typedef enum D3D_SHADER_MODEL
     D3D_SHADER_MODEL_6_5 = 0x65,
     D3D_SHADER_MODEL_6_6 = 0x66,
     D3D_SHADER_MODEL_6_7 = 0x67,
+    D3D_SHADER_MODEL_6_8 = 0x68,
 } D3D_SHADER_MODEL;
 
 typedef struct D3D12_FEATURE_DATA_SHADER_MODEL
@@ -2633,6 +2666,8 @@ typedef enum D3D12_FEATURE
     D3D12_FEATURE_D3D12_OPTIONS17 = 46,
     D3D12_FEATURE_D3D12_OPTIONS18 = 47,
     D3D12_FEATURE_D3D12_OPTIONS19 = 48,
+    D3D12_FEATURE_D3D12_OPTIONS20 = 49,
+    D3D12_FEATURE_D3D12_OPTIONS21 = 53,
 } D3D12_FEATURE;
 
 typedef struct D3D12_MEMCPY_DEST
@@ -3329,6 +3364,139 @@ interface ID3D12StateObjectProperties : IUnknown
     void SetPipelineStackSize(UINT64 stack_size_in_bytes);
 }
 
+typedef struct D3D12_PROGRAM_IDENTIFIER
+{
+    UINT64 OpaqueData[4];
+} D3D12_PROGRAM_IDENTIFIER;
+
+[
+    uuid(460caac7-1d24-446a-a184-ca67db494138),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12StateObjectProperties1 : ID3D12StateObjectProperties
+{
+    D3D12_PROGRAM_IDENTIFIER GetProgramIdentifier(LPCWSTR pProgramName);
+}
+
+typedef struct D3D12_NODE_ID
+{
+    LPCWSTR Name;
+    UINT ArrayIndex;
+} D3D12_NODE_ID;
+
+typedef struct D3D12_WORK_GRAPH_MEMORY_REQUIREMENTS
+{
+    UINT64 MinSizeInBytes;
+    UINT64 MaxSizeInBytes;
+    UINT SizeGranularityInBytes;
+} D3D12_WORK_GRAPH_MEMORY_REQUIREMENTS;
+
+typedef struct D3D12_NODE_OUTPUT_OVERRIDES
+{
+    UINT OutputIndex;
+    const D3D12_NODE_ID *pNewName;
+    const BOOL *pAllowSparseNodes;
+    const UINT *pMaxRecords;
+    const UINT *pMaxRecordsSharedWithOutputIndex;
+} D3D12_NODE_OUTPUT_OVERRIDES;
+
+typedef struct D3D12_BROADCASTING_LAUNCH_OVERRIDES
+{
+    const UINT *pLocalRootArgumentsTableIndex;
+    const BOOL *pProgramEntry;
+    const D3D12_NODE_ID *pNewName;
+    const D3D12_NODE_ID *pShareInputOf;
+    const UINT *pDispatchGrid;
+    const UINT *pMaxDispatchGrid;
+    UINT NumOutputOverrides;
+    const D3D12_NODE_OUTPUT_OVERRIDES *pOutputOverrides;
+} D3D12_BROADCASTING_LAUNCH_OVERRIDES;
+
+typedef struct D3D12_COALESCING_LAUNCH_OVERRIDES
+{
+    const UINT *pLocalRootArgumentsTableIndex;
+    const BOOL *pProgramEntry;
+    const D3D12_NODE_ID *pNewName;
+    const D3D12_NODE_ID *pShareInputOf;
+    UINT NumOutputOverrides;
+    const D3D12_NODE_OUTPUT_OVERRIDES *pOutputOverrides;
+} D3D12_COALESCING_LAUNCH_OVERRIDES;
+
+typedef struct D3D12_THREAD_LAUNCH_OVERRIDES
+{
+    const UINT *pLocalRootArgumentsTableIndex;
+    const BOOL *pProgramEntry;
+    const D3D12_NODE_ID *pNewName;
+    const D3D12_NODE_ID *pShareInputOf;
+    UINT NumOutputOverrides;
+    const D3D12_NODE_OUTPUT_OVERRIDES *pOutputOverrides;
+} D3D12_THREAD_LAUNCH_OVERRIDES;
+
+typedef struct D3D12_COMMON_COMPUTE_NODE_OVERRIDES
+{
+    const UINT *pLocalRootArgumentsTableIndex;
+    const BOOL *pProgramEntry;
+    const D3D12_NODE_ID *pNewName;
+    const D3D12_NODE_ID *pShareInputOf;
+    UINT NumOutputOverrides;
+    const D3D12_NODE_OUTPUT_OVERRIDES *pOutputOverrides;
+} D3D12_COMMON_COMPUTE_NODE_OVERRIDES;
+
+typedef enum D3D12_NODE_OVERRIDES_TYPE
+{
+    D3D12_NODE_OVERRIDES_TYPE_NONE = 0,
+    D3D12_NODE_OVERRIDES_TYPE_BROADCASTING_LAUNCH = 1,
+    D3D12_NODE_OVERRIDES_TYPE_COALESCING_LAUNCH = 2,
+    D3D12_NODE_OVERRIDES_TYPE_THREAD_LAUNCH = 3,
+    D3D12_NODE_OVERRIDES_TYPE_COMMON_COMPUTE = 4,
+} D3D12_NODE_OVERRIDES_TYPE;
+
+typedef struct D3D12_SHADER_NODE
+{
+    LPCWSTR Shader;
+    D3D12_NODE_OVERRIDES_TYPE OverridesType;
+    union
+    {
+        const D3D12_BROADCASTING_LAUNCH_OVERRIDES *pBroadcastingLaunchOverrides;
+        const D3D12_COALESCING_LAUNCH_OVERRIDES *pCoalescingLaunchOverrides;
+        const D3D12_THREAD_LAUNCH_OVERRIDES *pThreadLaunchOverrides;
+        const D3D12_COMMON_COMPUTE_NODE_OVERRIDES *pCommonComputeNodeOverrides;
+    };
+} D3D12_SHADER_NODE;
+
+typedef enum D3D12_NODE_TYPE
+{
+    D3D12_NODE_TYPE_SHADER = 0x0
+} D3D12_NODE_TYPE;
+
+typedef struct D3D12_NODE
+{
+    D3D12_NODE_TYPE NodeType;
+    union
+    {
+        D3D12_SHADER_NODE Shader;
+    };
+} D3D12_NODE;
+
+typedef enum D3D12_WORK_GRAPH_FLAGS
+{
+    D3D12_WORK_GRAPH_FLAG_NONE = 0x0,
+    D3D12_WORK_GRAPH_FLAG_INCLUDE_ALL_AVAILABLE_NODES = 0x1,
+} D3D12_WORK_GRAPH_FLAGS;
+cpp_quote("DEFINE_ENUM_FLAG_OPERATORS(D3D12_WORK_GRAPH_FLAGS);")
+
+typedef struct D3D12_WORK_GRAPH_DESC
+{
+    LPCWSTR ProgramName;
+    D3D12_WORK_GRAPH_FLAGS Flags;
+    UINT NumEntrypoints;
+    const D3D12_NODE_ID *pEntrypoints;
+    UINT NumExplicitlyDefinedNodes;
+    const D3D12_NODE *pExplicitlyDefinedNodes;
+} D3D12_WORK_GRAPH_DESC;
+
 typedef enum D3D12_STATE_SUBOBJECT_TYPE
 {
     D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG = 0,
@@ -3343,7 +3511,24 @@ typedef enum D3D12_STATE_SUBOBJECT_TYPE
     D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG = 10,
     D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP = 11,
     D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG1 = 12,
-    D3D12_STATE_SUBOBJECT_TYPE_MAX_VALID = 13,
+    D3D12_STATE_SUBOBJECT_TYPE_WORK_GRAPH = 13,
+    D3D12_STATE_SUBOBJECT_TYPE_STREAM_OUTPUT = 14,
+    D3D12_STATE_SUBOBJECT_TYPE_BLEND = 15,
+    D3D12_STATE_SUBOBJECT_TYPE_SAMPLE_MASK = 16,
+    D3D12_STATE_SUBOBJECT_TYPE_RASTERIZER = 17,
+    D3D12_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL = 18,
+    D3D12_STATE_SUBOBJECT_TYPE_INPUT_LAYOUT = 19,
+    D3D12_STATE_SUBOBJECT_TYPE_IB_STRIP_CUT_VALUE = 20,
+    D3D12_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY = 21,
+    D3D12_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS = 22,
+    D3D12_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL_FORMAT = 23,
+    D3D12_STATE_SUBOBJECT_TYPE_SAMPLE_DESC = 24,
+    D3D12_STATE_SUBOBJECT_TYPE_FLAGS = 26,
+    D3D12_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL1 = 27,
+    D3D12_STATE_SUBOBJECT_TYPE_VIEW_INSTANCING = 28,
+    D3D12_STATE_SUBOBJECT_TYPE_GENERIC_PROGRAM = 29,
+    D3D12_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL2 = 30,
+    D3D12_STATE_SUBOBJECT_TYPE_MAX_VALID = 31,
 } D3D12_STATE_SUBOBJECT_TYPE;
 
 typedef struct D3D12_STATE_SUBOBJECT
@@ -3351,6 +3536,52 @@ typedef struct D3D12_STATE_SUBOBJECT
     D3D12_STATE_SUBOBJECT_TYPE Type;
     const void *pDesc;
 } D3D12_STATE_SUBOBJECT;
+
+typedef struct D3D12_GENERIC_PROGRAM_DESC
+{
+    LPCWSTR ProgramName;
+    UINT NumExports;
+    LPCWSTR *pExports;
+    UINT NumSubobjects;
+    const D3D12_STATE_SUBOBJECT * const *ppSubobjects;
+} D3D12_GENERIC_PROGRAM_DESC;
+
+[
+    uuid(065acf71-f863-4b89-82f4-02e4d5886757),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12WorkGraphProperties : IUnknown
+{
+    UINT GetNumWorkGraphs();
+
+    LPCWSTR GetProgramName(UINT WorkGraphIndex);
+
+    UINT GetWorkGraphIndex(LPCWSTR pProgramName);
+
+    UINT GetNumNodes(UINT WorkGraphIndex);
+
+    D3D12_NODE_ID GetNodeID(UINT WorkGraphIndex, UINT NodeIndex);
+
+    UINT GetNodeIndex(UINT WorkGraphIndex, D3D12_NODE_ID NodeID);
+
+    UINT GetNodeLocalRootArgumentsTableIndex(UINT WorkGraphIndex, UINT NodeIndex);
+
+    UINT GetNumEntrypoints(UINT WorkGraphIndex);
+
+    D3D12_NODE_ID GetEntrypointID(UINT WorkGraphIndex, UINT EntrypointIndex);
+
+    UINT GetEntrypointIndex(UINT WorkGraphIndex, D3D12_NODE_ID NodeID);
+
+    UINT GetEntrypointRecordSizeInBytes(UINT WorkGraphIndex, UINT EntrypointIndex);
+
+    void GetWorkGraphMemoryRequirements(
+        UINT WorkGraphIndex,
+        D3D12_WORK_GRAPH_MEMORY_REQUIREMENTS *pWorkGraphMemoryRequirements);
+
+    UINT GetEntrypointRecordAlignmentInBytes(UINT WorkGraphIndex, UINT EntrypointIndex);
+}
 
 typedef enum D3D12_STATE_OBJECT_FLAGS
 {
@@ -3466,6 +3697,7 @@ typedef enum D3D12_STATE_OBJECT_TYPE
 {
     D3D12_STATE_OBJECT_TYPE_COLLECTION = 0,
     D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE = 3,
+    D3D12_STATE_OBJECT_TYPE_EXECUTABLE = 4,
 } D3D12_STATE_OBJECT_TYPE;
 
 typedef struct D3D12_STATE_OBJECT_DESC
@@ -4429,6 +4661,109 @@ interface ID3D12GraphicsCommandList9 : ID3D12GraphicsCommandList8
     void IASetIndexBufferStripCutValue(D3D12_INDEX_BUFFER_STRIP_CUT_VALUE IBStripCutValue);
 }
 
+typedef enum D3D12_SET_WORK_GRAPH_FLAGS
+{
+    D3D12_SET_WORK_GRAPH_FLAG_NONE = 0x0,
+    D3D12_SET_WORK_GRAPH_FLAG_INITIALIZE = 0x1,
+} D3D12_SET_WORK_GRAPH_FLAGS;
+cpp_quote("DEFINE_ENUM_FLAG_OPERATORS(D3D12_SET_WORK_GRAPH_FLAGS);")
+
+typedef struct D3D12_SET_WORK_GRAPH_DESC
+{
+    D3D12_PROGRAM_IDENTIFIER ProgramIdentifier;
+    D3D12_SET_WORK_GRAPH_FLAGS Flags;
+    D3D12_GPU_VIRTUAL_ADDRESS_RANGE BackingMemory;
+    D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE NodeLocalRootArgumentsTable;
+} D3D12_SET_WORK_GRAPH_DESC;
+
+typedef struct D3D12_SET_RAYTRACING_PIPELINE_DESC
+{
+    D3D12_PROGRAM_IDENTIFIER ProgramIdentifier;
+} D3D12_SET_RAYTRACING_PIPELINE_DESC;
+
+typedef struct D3D12_SET_GENERIC_PIPELINE_DESC
+{
+    D3D12_PROGRAM_IDENTIFIER ProgramIdentifier;
+} D3D12_SET_GENERIC_PIPELINE_DESC;
+
+typedef enum D3D12_PROGRAM_TYPE
+{
+    D3D12_PROGRAM_TYPE_GENERIC_PIPELINE = 1,
+    D3D12_PROGRAM_TYPE_RAYTRACING_PIPELINE = 4,
+    D3D12_PROGRAM_TYPE_WORK_GRAPH = 5
+} D3D12_PROGRAM_TYPE;
+
+typedef struct D3D12_SET_PROGRAM_DESC
+{
+    D3D12_PROGRAM_TYPE Type;
+    union
+    {
+        D3D12_SET_GENERIC_PIPELINE_DESC GenericPipeline;
+        D3D12_SET_RAYTRACING_PIPELINE_DESC RaytracingPipeline;
+        D3D12_SET_WORK_GRAPH_DESC WorkGraph;
+    };
+} D3D12_SET_PROGRAM_DESC;
+
+typedef enum D3D12_DISPATCH_MODE
+{
+    D3D12_DISPATCH_MODE_NODE_CPU_INPUT = 0,
+    D3D12_DISPATCH_MODE_NODE_GPU_INPUT = 1,
+    D3D12_DISPATCH_MODE_MULTI_NODE_CPU_INPUT = 2,
+    D3D12_DISPATCH_MODE_MULTI_NODE_GPU_INPUT = 3,
+} D3D12_DISPATCH_MODE;
+
+typedef struct D3D12_NODE_CPU_INPUT
+{
+    UINT EntrypointIndex;
+    UINT NumRecords;
+    void *pRecords;
+    UINT64 RecordStrideInBytes;
+} D3D12_NODE_CPU_INPUT;
+
+typedef struct D3D12_NODE_GPU_INPUT
+{
+    UINT EntrypointIndex;
+    UINT NumRecords;
+    D3D12_GPU_VIRTUAL_ADDRESS_AND_STRIDE Records;
+} D3D12_NODE_GPU_INPUT;
+
+typedef struct D3D12_MULTI_NODE_CPU_INPUT
+{
+    UINT NumNodeInputs;
+    D3D12_NODE_CPU_INPUT *pNodeInputs;
+    UINT64 NodeInputStrideInBytes;
+} D3D12_MULTI_NODE_CPU_INPUT;
+
+typedef struct D3D12_MULTI_NODE_GPU_INPUT
+{
+    UINT NumNodeInputs;
+    D3D12_GPU_VIRTUAL_ADDRESS_AND_STRIDE NodeInputs;
+} D3D12_MULTI_NODE_GPU_INPUT;
+
+typedef struct D3D12_DISPATCH_GRAPH_DESC
+{
+    D3D12_DISPATCH_MODE Mode;
+    union
+    {
+        D3D12_NODE_CPU_INPUT NodeCPUInput;
+        D3D12_GPU_VIRTUAL_ADDRESS NodeGPUInput;
+        D3D12_MULTI_NODE_CPU_INPUT MultiNodeCPUInput;
+        D3D12_GPU_VIRTUAL_ADDRESS MultiNodeGPUInput;
+    };
+} D3D12_DISPATCH_GRAPH_DESC;
+
+[
+    uuid(7013c015-d161-4b63-a08c-238552dd8acc),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12GraphicsCommandList10 : ID3D12GraphicsCommandList9
+{
+    void SetProgram(const D3D12_SET_PROGRAM_DESC *pDesc);
+    void DispatchGraph(const D3D12_DISPATCH_GRAPH_DESC *pDesc);
+};
+
 typedef enum D3D12_TILE_RANGE_FLAGS
 {
     D3D12_TILE_RANGE_FLAG_NONE = 0x0,
@@ -4531,6 +4866,7 @@ typedef enum D3D12_INDIRECT_ARGUMENT_TYPE
     D3D12_INDIRECT_ARGUMENT_TYPE_UNORDERED_ACCESS_VIEW,
     D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS,
     D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH,
+    D3D12_INDIRECT_ARGUMENT_TYPE_INCREMENTING_CONSTANT,
 } D3D12_INDIRECT_ARGUMENT_TYPE;
 
 typedef struct D3D12_INDIRECT_ARGUMENT_DESC
@@ -4560,6 +4896,11 @@ typedef struct D3D12_INDIRECT_ARGUMENT_DESC
         {
             UINT RootParameterIndex;
         } UnorderedAccessView;
+        struct
+        {
+            UINT RootParameterIndex;
+            UINT DestOffsetIn32BitValues;
+        } IncrementingConstant;
     };
 } D3D12_INDIRECT_ARGUMENT_DESC;
 
@@ -5046,6 +5387,38 @@ interface ID3D12Device12 : ID3D12Device11
         const DXGI_FORMAT *const *ppCastableFormats,
         D3D12_RESOURCE_ALLOCATION_INFO1* pResourceAllocationInfo1);
 }
+
+[
+    uuid(14eecffc-4df8-40f7-a118-5c816f45695e),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12Device13 : ID3D12Device12
+{
+    HRESULT OpenExistingHeapFromAddress1(
+        const void* pAddress,
+        SIZE_T size,
+        REFIID riid,
+        void** ppvHeap);
+};
+
+[
+    uuid(5f6e592d-d895-44c2-8e4a-88ad4926d323),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12Device14 : ID3D12Device13
+{
+    HRESULT CreateRootSignatureFromSubobjectInLibrary(
+        UINT nodeMask,
+        const void* pLibraryBlob,
+        SIZE_T blobLengthInBytes,
+        LPCWSTR subobjectName,
+        REFIID riid,
+        void** ppvRootSignature);
+};
 
 [
     uuid(34ab647b-3cc8-46ac-841b-c0965645c046),
