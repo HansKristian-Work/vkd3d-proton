@@ -62,6 +62,8 @@ extern PFN_D3D12_ENABLE_EXPERIMENTAL_FEATURES pfn_D3D12EnableExperimentalFeature
 extern PFN_D3D12_GET_DEBUG_INTERFACE pfn_D3D12GetDebugInterface;
 extern PFN_D3D12_CREATE_VERSIONED_ROOT_SIGNATURE_DESERIALIZER pfn_D3D12CreateVersionedRootSignatureDeserializer;
 extern PFN_D3D12_SERIALIZE_VERSIONED_ROOT_SIGNATURE pfn_D3D12SerializeVersionedRootSignature;
+extern bool use_warp_device;
+extern unsigned int use_adapter_idx;
 
 #if defined(_WIN32) && !defined(VKD3D_FORCE_UTILS_WRAPPER)
 #define get_d3d12_pfn(name) get_d3d12_pfn_(#name)
@@ -367,9 +369,6 @@ static inline void wait_queue_idle_no_event_(unsigned int line, ID3D12Device *de
 
     ID3D12Fence_Release(fence);
 }
-
-static bool use_warp_device;
-static unsigned int use_adapter_idx;
 
 #if defined(_WIN32) && !defined(VKD3D_FORCE_UTILS_WRAPPER)
 static IUnknown *create_warp_adapter(IDXGIFactory4 *factory)
