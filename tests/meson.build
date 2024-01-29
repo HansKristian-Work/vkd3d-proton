@@ -24,6 +24,7 @@ d3d12_test_src = [
   'd3d12_descriptors.c',
   'd3d12_raytracing.c',
   'd3d12_robustness.c',
+  'd3d12_workgraphs.c',
   'd3d12_streamout.c',
   'd3d12_pso_blob.c',
   'd3d12_resource.c',
