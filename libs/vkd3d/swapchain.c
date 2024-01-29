@@ -2003,6 +2003,7 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     VkPresentInfoKHR present_info;
     VkPresentIdKHR present_id;
     uint32_t swapchain_index;
+    bool use_present_id;
     VkResult vk_result;
     VkQueue vk_queue;
     VkResult vr;
@@ -2062,8 +2063,11 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
         present_id.pNext = NULL;
         present_id.swapchainCount = 1;
         present_id.pPresentIds = &chain->present.present_id;
+        use_present_id = true;
         vk_prepend_struct(&present_info, &present_id);
     }
+    else
+        use_present_id = false;
 
     if (chain->swapchain_maintenance1)
     {
@@ -2104,7 +2108,7 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     if (vr >= 0)
         chain->present.current_backbuffer_index = UINT32_MAX;
 
-    if (present_info.pNext && vr >= 0)
+    if (use_present_id && vr >= 0)
         chain->present.present_id_valid = true;
 
     /* Handle any errors and retry as needed. If we cannot make meaningful forward progress, just give up and retry later. */
