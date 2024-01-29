@@ -27,6 +27,8 @@ PFN_D3D12_GET_DEBUG_INTERFACE pfn_D3D12GetDebugInterface;
 D3D_FEATURE_LEVEL vkd3d_device_feature_level = D3D_FEATURE_LEVEL_11_0;
 const char *vkd3d_test_platform = "other";
 struct vkd3d_test_state_context vkd3d_test_state;
+bool use_warp_device;
+unsigned int use_adapter_idx;
 
 #ifdef _WIN32
 RENDERDOC_API_1_0_0 *renderdoc_api;
