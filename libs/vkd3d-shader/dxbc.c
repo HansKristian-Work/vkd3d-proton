@@ -628,7 +628,7 @@ static void shader_sm4_read_shader_data(struct vkd3d_shader_instruction *ins,
 
     ++tokens;
     icb_size = token_count - 1;
-    if (icb_size % 4 || icb_size > MAX_IMMEDIATE_CONSTANT_BUFFER_SIZE)
+    if (icb_size % 4 || icb_size > MAX_IMMEDIATE_CONSTANT_BUFFER_DWORDS)
     {
         FIXME("Unexpected immediate constant buffer size %u.\n", icb_size);
         ins->handler_idx = VKD3DSIH_INVALID;
