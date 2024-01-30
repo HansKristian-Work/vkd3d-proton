@@ -214,6 +214,7 @@ struct workgraph_test_desc
     D3D12_DISPATCH_MODE mode;
     const void *records;
     unsigned int num_threads[3];
+    bool is_bug;
 
     uint32_t (*expected_cb)(const struct workgraph_test_desc *desc, uint32_t i);
 };
@@ -345,7 +346,6 @@ static void execute_workgraph_test(struct test_context_workgraph *context,
     ID3D12Resource *input_payload;
     ID3D12Resource *input_multi;
     struct resource_readback rb;
-    bool broken_warp = false;
     ID3D12Resource *scratch;
     ID3D12Resource *output;
     ID3D12Resource *input;
@@ -427,14 +427,12 @@ static void execute_workgraph_test(struct test_context_workgraph *context,
             dispatch_desc.NodeGPUInput = ID3D12Resource_GetGPUVirtualAddress(input);
             for (i = 0; i < desc->num_graph_dispatches; i++)
                 ID3D12GraphicsCommandList10_DispatchGraph(context->list, &dispatch_desc);
-            broken_warp = use_warp_device && desc->num_records > 1;
             break;
 
         case D3D12_DISPATCH_MODE_MULTI_NODE_GPU_INPUT:
             dispatch_desc.MultiNodeGPUInput = ID3D12Resource_GetGPUVirtualAddress(input_multi);
             for (i = 0; i < desc->num_graph_dispatches; i++)
                 ID3D12GraphicsCommandList10_DispatchGraph(context->list, &dispatch_desc);
-            broken_warp = use_warp_device && desc->num_records > 1;
             break;
 
         default:
@@ -456,7 +454,7 @@ static void execute_workgraph_test(struct test_context_workgraph *context,
         expected = desc->expected_cb(desc, i);
         v = get_readback_uint(&rb, i, 0, 0);
 
-        bug_if(broken_warp) ok(expected == v, "Value %u: expected %u, got %u.\n", i, expected, v);
+        bug_if(desc->is_bug) ok(expected == v, "Value %u: expected %u, got %u.\n", i, expected, v);
     }
 
     release_resource_readback(&rb);
@@ -596,6 +594,7 @@ void test_workgraph_basic(void)
         desc.num_records = 3;
 
         /* Bugged on WARP. */
+        desc.is_bug = use_warp_device;
         vkd3d_test_set_context("GPU Input - multi");
         execute_workgraph_test(&context, pso, &ident, &wg_reqs, &desc);
         desc.record_stride = 12;
@@ -628,6 +627,7 @@ void test_workgraph_basic(void)
         desc.num_records = 3;
 
         /* Bugged on WARP. */
+        desc.is_bug = use_warp_device;
         vkd3d_test_set_context("Multi GPU Input - multi");
         execute_workgraph_test(&context, pso, &ident, &wg_reqs, &desc);
         desc.record_stride = 12;
