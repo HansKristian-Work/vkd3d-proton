@@ -148,6 +148,8 @@ static void check_work_graph_properties(ID3D12StateObject *pso,
     ok(size == expected_input_record_size, "Unexpected size %u.\n", size);
 
     *ident = ID3D12StateObjectProperties1_GetProgramIdentifier(props1, program_name);
+    ok(ident->OpaqueData[0] || ident->OpaqueData[1] || ident->OpaqueData[2] || ident->OpaqueData[3],
+        "Program identifier is NULL unexpectedly.\n");
 
     /* OOB writes 0 size. */
     memset(reqs, 0xff, sizeof(*reqs));
