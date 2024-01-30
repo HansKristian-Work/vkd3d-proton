@@ -94,6 +94,7 @@ static void destroy_workgraph_test_context(struct test_context_workgraph *contex
 
 static void check_work_graph_properties(ID3D12StateObject *pso,
         LPCWSTR expected_program_name, LPCWSTR expected_entry_node, LPCWSTR expected_leaf_node,
+        unsigned int expected_input_record_size,
         D3D12_PROGRAM_IDENTIFIER *ident, D3D12_WORK_GRAPH_MEMORY_REQUIREMENTS *reqs)
 {
     ID3D12StateObjectProperties1 *props1;
@@ -138,7 +139,7 @@ static void check_work_graph_properties(ID3D12StateObject *pso,
 
     /* We have a MaxDispatch property, so SV_DispatchGrid is part of the record implicitly. */
     size = ID3D12WorkGraphProperties_GetEntrypointRecordSizeInBytes(props, 0, 0);
-    ok(size == 12, "Unexpected size %u.\n", size);
+    ok(size == expected_input_record_size, "Unexpected size %u.\n", size);
 
     *ident = ID3D12StateObjectProperties1_GetProgramIdentifier(props1, program_name);
 
@@ -382,7 +383,8 @@ void test_workgraph_basic(void)
         return;
 
     pso = create_workgraph_pso(&context, basic_dxil, u"Dummy", context.default_root_uav_rs);
-    check_work_graph_properties(pso, u"Dummy", u"BroadcastNode", NULL, &ident, &wg_reqs);
+    check_work_graph_properties(pso, u"Dummy", u"BroadcastNode", NULL,
+        12 /* implied struct with uint3 SV_DispatchGrid*/, &ident, &wg_reqs);
 
     /* Test various ways to dispatch a basic broadcast node. */
 
