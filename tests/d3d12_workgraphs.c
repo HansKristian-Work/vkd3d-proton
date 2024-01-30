@@ -91,6 +91,10 @@ static void destroy_workgraph_test_context(struct test_context_workgraph *contex
 }
 
 #include "shaders/workgraph/headers/basic.h"
+#include "shaders/workgraph/headers/broadcast_custom_input_uint2.h"
+#include "shaders/workgraph/headers/broadcast_custom_input_uint.h"
+#include "shaders/workgraph/headers/broadcast_custom_input_u16_2.h"
+#include "shaders/workgraph/headers/broadcast_custom_input.h"
 
 static void check_work_graph_properties(ID3D12StateObject *pso,
         LPCWSTR expected_program_name, LPCWSTR expected_entry_node, LPCWSTR expected_leaf_node,
@@ -231,6 +235,98 @@ static uint32_t basic_expected(const struct workgraph_test_desc *desc, uint32_t 
             z < records[2] * desc->num_threads[2])
         {
             expected += desc->num_multi_instances * desc->num_graph_dispatches;
+        }
+        records += desc->record_stride / sizeof(uint32_t);
+    }
+    return expected;
+}
+
+static uint32_t broadcast_input_expected(const struct workgraph_test_desc *desc, uint32_t value_index)
+{
+    const uint32_t *records = desc->records;
+    uint32_t x, y, z, record_index;
+    uint32_t expected = 0;
+
+    x = value_index % 10;
+    y = (value_index / 10) % 10;
+    z = value_index / 100;
+
+    for (record_index = 0; record_index < desc->num_records; record_index++)
+    {
+        if (x < 3 * desc->num_threads[0] &&
+            y < 3 * desc->num_threads[1] &&
+            z < 2 * desc->num_threads[2])
+        {
+            expected += records[0] ^ records[1];
+        }
+        records += desc->record_stride / sizeof(uint32_t);
+    }
+    return expected;
+}
+
+static uint32_t broadcast_input_uint2_expected(const struct workgraph_test_desc *desc, uint32_t value_index)
+{
+    const uint32_t *records = desc->records;
+    uint32_t x, y, z, record_index;
+    uint32_t expected = 0;
+
+    x = value_index % 10;
+    y = (value_index / 10) % 10;
+    z = value_index / 100;
+
+    for (record_index = 0; record_index < desc->num_records; record_index++)
+    {
+        if (x < records[1] * desc->num_threads[0] &&
+            y < records[2] * desc->num_threads[1] &&
+            z < desc->num_threads[2])
+        {
+            expected += records[0] ^ records[3];
+        }
+        records += desc->record_stride / sizeof(uint32_t);
+    }
+    return expected;
+}
+
+static uint32_t broadcast_input_uint16x2_expected(const struct workgraph_test_desc *desc, uint32_t value_index)
+{
+    const uint32_t *records = desc->records;
+    uint32_t x, y, z, record_index;
+    uint32_t expected = 0;
+
+    x = value_index % 10;
+    y = (value_index / 10) % 10;
+    z = value_index / 100;
+
+    for (record_index = 0; record_index < desc->num_records; record_index++)
+    {
+        if (x < (records[1] & 0xffff) * desc->num_threads[0] &&
+            y < (records[1] >> 16) * desc->num_threads[1] &&
+            z < desc->num_threads[2])
+        {
+            expected += records[0] ^ records[2];
+        }
+        records += desc->record_stride / sizeof(uint32_t);
+    }
+    return expected;
+}
+
+static uint32_t broadcast_input_uint_expected(const struct workgraph_test_desc *desc, uint32_t value_index)
+{
+    const uint32_t *records = desc->records;
+    uint32_t x, y, z, record_index;
+    uint32_t expected = 0;
+
+    x = value_index % 10;
+    y = (value_index / 10) % 10;
+    z = value_index / 100;
+
+    for (record_index = 0; record_index < desc->num_records; record_index++)
+    {
+        if (x < records[1] * desc->num_threads[0] &&
+            y < desc->num_threads[1] &&
+            z < desc->num_threads[2])
+        {
+            expected += records[0] ^ records[2];
         }
         records += desc->record_stride / sizeof(uint32_t);
     }
@@ -540,5 +636,126 @@ void test_workgraph_basic(void)
     }
 
     ID3D12StateObject_Release(pso);
+    destroy_workgraph_test_context(&context);
+}
+
+void test_workgraph_broadcast_input(void)
+{
+    D3D12_WORK_GRAPH_MEMORY_REQUIREMENTS wg_reqs;
+    struct test_context_workgraph context;
+    D3D12_PROGRAM_IDENTIFIER ident;
+    ID3D12StateObject *pso;
+
+    if (!init_workgraph_test_context(&context))
+        return;
+
+    pso = create_workgraph_pso(&context, broadcast_custom_input_dxil, u"Dummy", context.default_root_uav_rs);
+    check_work_graph_properties(pso, u"Dummy", u"BroadcastNode", NULL, 8, &ident, &wg_reqs);
+
+    {
+        const uint32_t records[] = { 19, 800, 400, 90 };
+        struct workgraph_test_desc desc;
+        memset(&desc, 0, sizeof(desc));
+
+        desc.expected_cb = broadcast_input_expected;
+        desc.mode = D3D12_DISPATCH_MODE_NODE_CPU_INPUT;
+        desc.num_graph_dispatches = 1;
+        desc.num_multi_instances = 1;
+        desc.num_records = 2;
+        desc.record_size = sizeof(records);
+        desc.record_stride = 8;
+        desc.records = records;
+        desc.num_threads[0] = 2;
+        desc.num_threads[1] = 3;
+        desc.num_threads[2] = 4;
+
+        vkd3d_test_set_context("Plain broadcast");
+        execute_workgraph_test(&context, pso, &ident, &wg_reqs, &desc);
+    }
+
+    ID3D12StateObject_Release(pso);
+
+    /* Proves that the input struct to a broadcast node is interpreted as-is, which will complicate any attempt to
+     * do GPU input nodes. 1D and 2D dispatch is supported, which we'd have to massage to indirect 3D dispatch somehow.
+     * Raw 16-bit packing can be used too, which complicates things even more ... */
+
+    pso = create_workgraph_pso(&context, broadcast_custom_input_uint2_dxil, u"Dummy", context.default_root_uav_rs);
+    check_work_graph_properties(pso, u"Dummy", u"BroadcastNode", NULL, 16, &ident, &wg_reqs);
+
+    {
+        const uint32_t records[] = { 19, 3, 2, 800, 400, 2, 1, 90 };
+        struct workgraph_test_desc desc;
+        memset(&desc, 0, sizeof(desc));
+
+        desc.expected_cb = broadcast_input_uint2_expected;
+        desc.mode = D3D12_DISPATCH_MODE_NODE_CPU_INPUT;
+        desc.num_graph_dispatches = 1;
+        desc.num_multi_instances = 1;
+        desc.num_records = 2;
+        desc.record_size = sizeof(records);
+        desc.record_stride = 16;
+        desc.records = records;
+        desc.num_threads[0] = 2;
+        desc.num_threads[1] = 3;
+        desc.num_threads[2] = 4;
+
+        vkd3d_test_set_context("uint2 broadcast");
+        execute_workgraph_test(&context, pso, &ident, &wg_reqs, &desc);
+    }
+
+    ID3D12StateObject_Release(pso);
+
+    pso = create_workgraph_pso(&context, broadcast_custom_input_uint_dxil, u"Dummy", context.default_root_uav_rs);
+    check_work_graph_properties(pso, u"Dummy", u"BroadcastNode", NULL, 12, &ident, &wg_reqs);
+
+    {
+        const uint32_t records[] = { 19, 3, 800, 400, 2, 90 };
+        struct workgraph_test_desc desc;
+        memset(&desc, 0, sizeof(desc));
+
+        desc.expected_cb = broadcast_input_uint_expected;
+        desc.mode = D3D12_DISPATCH_MODE_NODE_CPU_INPUT;
+        desc.num_graph_dispatches = 1;
+        desc.num_multi_instances = 1;
+        desc.num_records = 2;
+        desc.record_size = sizeof(records);
+        desc.record_stride = 12;
+        desc.records = records;
+        desc.num_threads[0] = 2;
+        desc.num_threads[1] = 3;
+        desc.num_threads[2] = 4;
+
+        vkd3d_test_set_context("uint broadcast");
+        execute_workgraph_test(&context, pso, &ident, &wg_reqs, &desc);
+    }
+
+    ID3D12StateObject_Release(pso);
+
+    pso = create_workgraph_pso(&context, broadcast_custom_input_u16_2_dxil, u"Dummy", context.default_root_uav_rs);
+    check_work_graph_properties(pso, u"Dummy", u"BroadcastNode", NULL, 12, &ident, &wg_reqs);
+
+    {
+        const uint32_t records[] = { 19, 3 | (2 << 16), 800, 400, 2 | (1 << 16), 90};
+        struct workgraph_test_desc desc;
+        memset(&desc, 0, sizeof(desc));
+
+        desc.expected_cb = broadcast_input_uint16x2_expected;
+        desc.mode = D3D12_DISPATCH_MODE_NODE_CPU_INPUT;
+        desc.num_graph_dispatches = 1;
+        desc.num_multi_instances = 1;
+        desc.num_records = 2;
+        desc.record_size = sizeof(records);
+        desc.record_stride = 12;
+        desc.records = records;
+        desc.num_threads[0] = 2;
+        desc.num_threads[1] = 3;
+        desc.num_threads[2] = 4;
+
+        vkd3d_test_set_context("uint16_t broadcast");
+        execute_workgraph_test(&context, pso, &ident, &wg_reqs, &desc);
+    }
+
+    ID3D12StateObject_Release(pso);
+
     destroy_workgraph_test_context(&context);
 }
