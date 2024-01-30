@@ -95,6 +95,8 @@ static void destroy_workgraph_test_context(struct test_context_workgraph *contex
 #include "shaders/workgraph/headers/broadcast_custom_input_uint.h"
 #include "shaders/workgraph/headers/broadcast_custom_input_u16_2.h"
 #include "shaders/workgraph/headers/broadcast_custom_input.h"
+#include "shaders/workgraph/headers/thread_custom_input.h"
+#include "shaders/workgraph/headers/coalesce_custom_input.h"
 
 static void check_work_graph_properties(ID3D12StateObject *pso,
         LPCWSTR expected_program_name, LPCWSTR expected_entry_node, LPCWSTR expected_leaf_node,
@@ -332,6 +334,33 @@ static uint32_t broadcast_input_uint_expected(const struct workgraph_test_desc *
         records += desc->record_stride / sizeof(uint32_t);
     }
     return expected;
+}
+
+static uint32_t thread_input_expected(const struct workgraph_test_desc *desc, uint32_t value_index)
+{
+    const uint32_t *records = desc->records;
+    uint32_t i;
+
+    for (i = 0; i < desc->num_records; i++)
+        if (records[2 * i] == value_index)
+            return records[2 * i + 1];
+
+    return 0;
+}
+
+static uint32_t coalesced_input_expected(const struct workgraph_test_desc *desc, uint32_t value_index)
+{
+    const uint32_t *records = desc->records;
+    uint32_t i;
+
+    for (i = 0; i < desc->num_records; i++)
+    {
+        uint32_t offset = records[2 * i];
+        if (value_index >= offset && value_index < offset + desc->num_threads[0])
+            return records[2 * i + 1];
+    }
+
+    return 0;
 }
 
 static void execute_workgraph_test(struct test_context_workgraph *context,
@@ -757,5 +786,100 @@ void test_workgraph_broadcast_input(void)
 
     ID3D12StateObject_Release(pso);
 
+    destroy_workgraph_test_context(&context);
+}
+
+void test_workgraph_thread_input(void)
+{
+    D3D12_WORK_GRAPH_MEMORY_REQUIREMENTS wg_reqs;
+    struct test_context_workgraph context;
+    D3D12_PROGRAM_IDENTIFIER ident;
+    ID3D12StateObject *pso;
+    unsigned int i;
+
+    if (!init_workgraph_test_context(&context))
+        return;
+
+    pso = create_workgraph_pso(&context, thread_custom_input_dxil, u"Dummy", context.default_root_uav_rs);
+    check_work_graph_properties(pso, u"Dummy", u"ThreadNode", NULL, 8, &ident, &wg_reqs);
+
+    {
+        struct workgraph_test_desc desc;
+        uint32_t records[2 * 256];
+        memset(&desc, 0, sizeof(desc));
+
+        for (i = 0; i < ARRAY_SIZE(records) / 2; i++)
+        {
+            records[2 * i + 0] = (i ^ 7) * 3;
+            records[2 * i + 1] = i ^ 0xabcd;
+        }
+
+        desc.expected_cb = thread_input_expected;
+        desc.mode = D3D12_DISPATCH_MODE_NODE_CPU_INPUT;
+        desc.num_graph_dispatches = 1;
+        desc.num_multi_instances = 1;
+        desc.num_records = ARRAY_SIZE(records) / 2;
+        desc.record_size = sizeof(records);
+        desc.record_stride = 2 * sizeof(records[0]);
+        desc.records = records;
+
+        vkd3d_test_set_context("CPU");
+        execute_workgraph_test(&context, pso, &ident, &wg_reqs, &desc);
+        vkd3d_test_set_context("GPU");
+        desc.mode = D3D12_DISPATCH_MODE_NODE_GPU_INPUT;
+        execute_workgraph_test(&context, pso, &ident, &wg_reqs, &desc);
+    }
+
+    ID3D12StateObject_Release(pso);
+    destroy_workgraph_test_context(&context);
+}
+
+void test_workgraph_coalesced_input(void)
+{
+    D3D12_WORK_GRAPH_MEMORY_REQUIREMENTS wg_reqs;
+    struct test_context_workgraph context;
+    D3D12_PROGRAM_IDENTIFIER ident;
+    ID3D12StateObject *pso;
+
+    if (!init_workgraph_test_context(&context))
+        return;
+
+    pso = create_workgraph_pso(&context, coalesce_custom_input_dxil, u"Dummy", context.default_root_uav_rs);
+    check_work_graph_properties(pso, u"Dummy", u"CoalesceNode", NULL, 8, &ident, &wg_reqs);
+
+    {
+        static const uint32_t records[] =
+        {
+            100, 50,
+            150, 40,
+            200, 79,
+            300, 40,
+            400, 30,
+            490, 20,
+            530, 10,
+            32, 32,
+        };
+        struct workgraph_test_desc desc;
+
+        memset(&desc, 0, sizeof(desc));
+
+        desc.expected_cb = coalesced_input_expected;
+        desc.mode = D3D12_DISPATCH_MODE_NODE_CPU_INPUT;
+        desc.num_graph_dispatches = 1;
+        desc.num_multi_instances = 1;
+        desc.num_records = ARRAY_SIZE(records) / 2;
+        desc.record_size = sizeof(records);
+        desc.record_stride = 2 * sizeof(records[0]);
+        desc.records = records;
+        desc.num_threads[0] = 24;
+
+        vkd3d_test_set_context("CPU");
+        execute_workgraph_test(&context, pso, &ident, &wg_reqs, &desc);
+        vkd3d_test_set_context("GPU");
+        desc.mode = D3D12_DISPATCH_MODE_NODE_GPU_INPUT;
+        execute_workgraph_test(&context, pso, &ident, &wg_reqs, &desc);
+    }
+
+    ID3D12StateObject_Release(pso);
     destroy_workgraph_test_context(&context);
 }
