@@ -639,6 +639,18 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
 
     if (!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
     {
+        bool requires_format_list = false;
+        if (num_castable_formats)
+        {
+            requires_format_list = vkd3d_get_castable_format_compatibility_list(device, desc,
+                    num_castable_formats, castable_formats, compat_list, &image_info->flags);
+        }
+        else
+        {
+            requires_format_list = vkd3d_get_format_compatibility_list(device, desc,
+                    compat_list, &image_info->flags);
+        }
+
         if (disable_compression ||
                 ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DISABLE_SIMULTANEOUS_UAV_COMPRESSION) &&
                         (desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS) &&
@@ -660,29 +672,16 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
             image_info->flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
             memset(compat_list, 0, sizeof(*compat_list));
             disable_compression = true;
+            requires_format_list = false;
         }
-        else
-        {
-            bool requires_format_list = false;
-            if (num_castable_formats)
-            {
-                requires_format_list = vkd3d_get_castable_format_compatibility_list(device, desc,
-                        num_castable_formats, castable_formats, compat_list, &image_info->flags);
-            }
-            else
-            {
-                requires_format_list = vkd3d_get_format_compatibility_list(device, desc,
-                        compat_list, &image_info->flags);
-            }
 
-            if (requires_format_list)
-            {
-                format_list->sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO_KHR;
-                format_list->pNext = NULL;
-                format_list->viewFormatCount = compat_list->format_count;
-                format_list->pViewFormats = compat_list->vk_formats;
-                vk_prepend_struct(image_info, format_list);
-            }
+        if (requires_format_list)
+        {
+            format_list->sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO_KHR;
+            format_list->pNext = NULL;
+            format_list->viewFormatCount = compat_list->format_count;
+            format_list->pViewFormats = compat_list->vk_formats;
+            vk_prepend_struct(image_info, format_list);
         }
     }
 
