@@ -657,6 +657,15 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
              * so it cannot be concurrently read by other queues anyways.
              * https://learn.microsoft.com/en-us/windows/win32/api/d3d12/ne-d3d12-d3d12_resource_flags
              * For now, keep this as a specific workaround until we understand the problem scope better. */
+
+            /* We might need BLOCK_VIEW_COMPATIBLE if application is using castable formats.
+             * It might have a detrimental effect on perf, so only do it when app requests it explicitly. */
+            if (num_castable_formats)
+            {
+                vkd3d_get_castable_format_compatibility_list(device, desc,
+                        num_castable_formats, castable_formats, compat_list, &image_info->flags);
+            }
+
             image_info->flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
             memset(compat_list, 0, sizeof(*compat_list));
             disable_compression = true;
