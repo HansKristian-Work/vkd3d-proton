@@ -5755,6 +5755,7 @@ static bool d3d12_command_list_update_raygen_pipeline(struct d3d12_command_list 
                 VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
                 list->rt_state_variant->pipeline));
         list->command_buffer_pipeline = list->rt_state_variant->pipeline;
+        list->dynamic_state.active_flags = 0;
         stack_size_dirty = true;
     }
     else
