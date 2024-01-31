@@ -1430,13 +1430,28 @@ static bool dxgi_vk_swap_chain_find_compatible_unlocked_present_mode(
     /* This is the count for FIFO specifically. */
     *vk_min_image_count = caps2.surfaceCapabilities.minImageCount;
 
-    caps2.pNext = NULL;
-    present_mode.presentMode = *vk_present_mode;
-    VK_CALL(vkGetPhysicalDeviceSurfaceCapabilities2KHR(chain->queue->device->vk_physical_device,
-            &surface_info2, &caps2));
+    switch (chain->queue->device->device_info.vulkan_1_2_properties.driverID)
+    {
+        case VK_DRIVER_ID_MESA_RADV:
+        case VK_DRIVER_ID_MESA_NVK:
+        case VK_DRIVER_ID_INTEL_OPEN_SOURCE_MESA:
+        case VK_DRIVER_ID_MESA_TURNIP:
+            /* Ignore the "fake" requirement of 5 images on Xwl when vk_xwayland_wait_ready=true.
+             * Technically out of spec, but be pragmatic.
+             * https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/27074 aims to fix this. */
+            break;
 
-    /* Query for IMMEDIATE/MAILBOX specifically. */
-    *vk_min_image_count = max(*vk_min_image_count, caps2.surfaceCapabilities.minImageCount);
+        default:
+            caps2.pNext = NULL;
+            present_mode.presentMode = *vk_present_mode;
+            VK_CALL(vkGetPhysicalDeviceSurfaceCapabilities2KHR(chain->queue->device->vk_physical_device,
+                    &surface_info2, &caps2));
+
+            /* Query for IMMEDIATE/MAILBOX specifically. */
+            *vk_min_image_count = max(*vk_min_image_count, caps2.surfaceCapabilities.minImageCount);
+            break;
+    }
+
     return true;
 }
 
