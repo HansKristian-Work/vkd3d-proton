@@ -418,6 +418,19 @@ void vkd3d_breadcrumb_tracer_dump_command_list(struct vkd3d_breadcrumb_tracer *t
     pthread_mutex_unlock(&global_report_lock);
 }
 
+static bool vkd3d_breadcrumb_trace_contexts_are_linked(struct vkd3d_breadcrumb_tracer *tracer,
+        uint32_t context_index, uint32_t target_context_index)
+{
+    while (context_index != target_context_index)
+    {
+        uint32_t next = tracer->trace_contexts[context_index].next;
+        if (next != UINT32_MAX && next != context_index && tracer->trace_contexts[next].prev == context_index)
+            context_index = next;
+    }
+
+    return context_index == target_context_index;
+}
+
 static uint32_t vkd3d_breadcrumb_tracer_rewind_linked_contexts(struct vkd3d_breadcrumb_tracer *tracer,
         uint32_t context_index)
 {
@@ -480,13 +493,14 @@ static void vkd3d_breadcrumb_tracer_report_queue_nv(struct vkd3d_breadcrumb_trac
         VkQueue vk_queue)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    uint32_t begin_marker, end_marker;
+    uint32_t top_marker, bottom_marker;
     uint32_t checkpoint_context_index;
     VkCheckpointDataNV *checkpoints;
+    uint32_t bottom_context_index;
     uint32_t begin_context_index;
     uint32_t checkpoint_marker;
+    uint32_t top_context_index;
     uint32_t checkpoint_count;
-    uint32_t context_index;
     uint32_t i;
 
     VK_CALL(vkGetQueueCheckpointDataNV(vk_queue, &checkpoint_count, NULL));
@@ -498,50 +512,66 @@ static void vkd3d_breadcrumb_tracer_report_queue_nv(struct vkd3d_breadcrumb_trac
         checkpoints[i].sType = VK_STRUCTURE_TYPE_CHECKPOINT_DATA_NV;
     VK_CALL(vkGetQueueCheckpointDataNV(vk_queue, &checkpoint_count, checkpoints));
 
-    context_index = UINT32_MAX;
-    begin_marker = 0;
-    end_marker = 0;
+    bottom_context_index = UINT32_MAX;
+    top_context_index = UINT32_MAX;
+    bottom_marker = 0;
+    top_marker = 0;
 
     for (i = 0; i < checkpoint_count; i++)
     {
         checkpoint_context_index = NV_CHECKPOINT_CONTEXT(checkpoints[i].pCheckpointMarker);
         checkpoint_marker = NV_CHECKPOINT_COUNTER(checkpoints[i].pCheckpointMarker);
 
-        if (context_index != checkpoint_context_index && context_index != UINT32_MAX)
-        {
-            FIXME("Markers have different contexts. Execution is likely split across multiple command buffers?\n");
-            context_index = UINT32_MAX;
-            break;
-        }
-
-        context_index = checkpoint_context_index;
-
-        if (checkpoints[i].stage == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT && checkpoint_marker > begin_marker)
+        if (checkpoints[i].stage == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT && checkpoint_marker > top_marker)
         {
             /* We want to find the latest TOP_OF_PIPE_BIT. Then we prove that command processor got to that point. */
-            begin_marker = checkpoint_marker;
+            top_marker = checkpoint_marker;
+            top_context_index = checkpoint_context_index;
         }
-        else if (checkpoints[i].stage == VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT && checkpoint_marker > end_marker)
+        else if (checkpoints[i].stage == VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT && checkpoint_marker > bottom_marker)
         {
             /* We want to find the latest BOTTOM_OF_PIPE_BIT. Then we prove that we got that far. */
-            end_marker = checkpoint_marker;
+            bottom_marker = checkpoint_marker;
+            bottom_context_index = checkpoint_context_index;
         }
         else if (checkpoints[i].stage != VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT &&
                 checkpoints[i].stage != VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT)
         {
             FIXME("Unexpected checkpoint pipeline stage. #%x\n", checkpoints[i].stage);
-            context_index = UINT32_MAX;
-            break;
+            continue;
         }
     }
 
-    if (context_index != UINT32_MAX && begin_marker != 0 && end_marker != 0 && end_marker != UINT32_MAX)
+    if (top_context_index != UINT32_MAX && bottom_context_index != UINT32_MAX &&
+            top_marker != 0 && bottom_marker != 0 && bottom_marker != UINT32_MAX)
     {
-        ERR("Found pending command list context %u in executable state, TOP_OF_PIPE marker %u, BOTTOM_OF_PIPE marker %u.\n",
-                context_index, begin_marker, end_marker);
-        begin_context_index = vkd3d_breadcrumb_tracer_rewind_linked_contexts(tracer, context_index);
-        vkd3d_breadcrumb_tracer_report_command_list_linked(tracer, begin_context_index, context_index);
-        vkd3d_breadcrumb_tracer_report_command_list(&tracer->trace_contexts[context_index], begin_marker, end_marker);
+        ERR("Found pending command list context [%u, %u] in executable state, TOP_OF_PIPE marker %u, BOTTOM_OF_PIPE marker %u.\n",
+                bottom_context_index, top_context_index, top_marker, bottom_marker);
+
+        begin_context_index = vkd3d_breadcrumb_tracer_rewind_linked_contexts(tracer, bottom_context_index);
+        vkd3d_breadcrumb_tracer_report_command_list_linked(tracer, begin_context_index, bottom_context_index);
+
+        if (bottom_context_index == top_context_index)
+        {
+            vkd3d_breadcrumb_tracer_report_command_list(&tracer->trace_contexts[bottom_context_index],
+                    top_marker, bottom_marker);
+        }
+        else if (vkd3d_breadcrumb_trace_contexts_are_linked(tracer, bottom_context_index, top_context_index))
+        {
+            /* While a bit confusing, bottom context completes later than top context, so it comes first. */
+            vkd3d_breadcrumb_tracer_report_command_list(&tracer->trace_contexts[bottom_context_index],
+                    UINT32_MAX, bottom_marker);
+            ERR(" ===== End of command buffer, but potential crash region goes beyond this point =====\n");
+            vkd3d_breadcrumb_tracer_report_command_list_linked(tracer,
+                    tracer->trace_contexts[bottom_context_index].next, top_context_index);
+            vkd3d_breadcrumb_tracer_report_command_list(&tracer->trace_contexts[top_context_index],
+                    top_marker, 0);
+        }
+        else
+        {
+            ERR("BOTTOM and TOP contexts are not linked. Something must be corrupt.\n");
+        }
+
         ERR("Done analyzing command list.\n");
     }
 
