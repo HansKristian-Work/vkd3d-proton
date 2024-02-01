@@ -458,7 +458,8 @@
                 "VK_EXT_graphics_pipeline_library": 1,
                 "VK_KHR_pipeline_library": 1,
                 "VK_AMD_buffer_marker": 1,
-                "VK_EXT_scalar_block_layout": 1
+                "VK_EXT_scalar_block_layout": 1,
+                "VK_EXT_swapchain_maintenance1" : 1
             },
             "features": {
                 "VkPhysicalDeviceDescriptorBufferFeaturesEXT": {
@@ -489,6 +490,9 @@
                 },
                 "VkPhysicalDeviceScalarBlockLayoutFeaturesEXT": {
                     "scalarBlockLayout": true
+                },
+                "VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT": {
+                    "swapchainMaintenance1": true
                 }
             },
             "properties": {
@@ -551,7 +555,8 @@
                 "VK_AMD_device_coherent_memory": 1,
                 "VK_AMD_shader_core_properties": 1,
                 "VK_AMD_shader_core_properties2": 1,
-                "VK_EXT_dynamic_rendering_unused_attachments": 1
+                "VK_EXT_dynamic_rendering_unused_attachments": 1,
+                "VK_EXT_image_compression_control": 1
             },
             "features": {
                 "VkPhysicalDeviceCoherentMemoryFeaturesAMD": {
@@ -559,6 +564,9 @@
                 },
                 "VkPhysicalDeviceDynamicRenderingUnusedAttachmentsFeaturesEXT": {
                     "dynamicRenderingUnusedAttachments": true
+                },
+                "VkPhysicalDeviceImageCompressionControlFeaturesEXT": {
+                    "imageCompressionControl": true
                 }
             },
             "properties": {
