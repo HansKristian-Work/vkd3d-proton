@@ -316,7 +316,7 @@ static void vkd3d_breadcrumb_tracer_report_command_list(
 
     if (end_marker == 0)
     {
-        ERR(" ===== Potential crash region BEGIN (make sure RADV_DEBUG=syncshaders is used for maximum accuracy) =====\n");
+        ERR(" ===== Potential crash region BEGIN (make sure RADV_DEBUG=syncshaders or VKD3D_CONFIG=breadcrumbs_sync is used for maximum accuracy) =====\n");
         observed_begin_cmd = true;
     }
 
@@ -746,6 +746,26 @@ void vkd3d_breadcrumb_tracer_signal(struct d3d12_command_list *list)
                 context * sizeof(struct vkd3d_breadcrumb_counter) +
                         offsetof(struct vkd3d_breadcrumb_counter, begin_marker),
                 trace->counter));
+    }
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS_SYNC)
+    {
+        VkMemoryBarrier2 vk_barrier;
+        VkDependencyInfo dep_info;
+
+        d3d12_command_list_end_current_render_pass(list, true);
+
+        memset(&vk_barrier, 0, sizeof(vk_barrier));
+        memset(&dep_info, 0, sizeof(dep_info));
+        vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        vk_barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+        vk_barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT;
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.memoryBarrierCount = 1;
+        dep_info.pMemoryBarriers = &vk_barrier;
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
     }
 }
 

@@ -1934,7 +1934,6 @@ static HRESULT d3d12_command_allocator_allocate_command_buffer(struct d3d12_comm
 }
 
 static void d3d12_command_list_invalidate_all_state(struct d3d12_command_list *list);
-static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list, bool suspend);
 
 static void d3d12_command_list_begin_new_sequence(struct d3d12_command_list *list)
 {
@@ -4572,7 +4571,7 @@ cleanup:
     return result;
 }
 
-static void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list, bool suspend)
+void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list, bool suspend)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkMemoryBarrier2 vk_barrier;
