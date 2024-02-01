@@ -37,10 +37,10 @@ void test_mesh_shader_create_pipeline(void)
 #include "shaders/mesh_shader/headers/ps_dummy.h"
 #include "shaders/mesh_shader/headers/vs_dummy.h"
 
-    static const union d3d12_shader_bytecode_subobject vs_subobject = {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VS, vs_dummy_dxil }};
-    static const union d3d12_shader_bytecode_subobject ms_subobject = {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, ms_empty_dxil }};
-    static const union d3d12_shader_bytecode_subobject ps_subobject = {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, ps_dummy_dxil }};
-    static const union d3d12_shader_bytecode_subobject ms_nontrivial_subobject = {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, ms_nontrivial_dxil }};
+    static const union d3d12_shader_bytecode_subobject vs_subobject = {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VS, { vs_dummy_code_dxil, sizeof(vs_dummy_code_dxil) } }};
+    static const union d3d12_shader_bytecode_subobject ms_subobject = {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, { ms_empty_code_dxil, sizeof(ms_empty_code_dxil) } }};
+    static const union d3d12_shader_bytecode_subobject ps_subobject = {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, { ps_dummy_code_dxil, sizeof(ps_dummy_code_dxil) } }};
+    static const union d3d12_shader_bytecode_subobject ms_nontrivial_subobject = {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, { ms_nontrivial_code_dxil, sizeof(ms_nontrivial_code_dxil) } }};
 
     static const union d3d12_root_signature_subobject root_signature_subobject =
     {{
@@ -194,7 +194,7 @@ void test_mesh_shader_rendering(void)
     ID3D12Resource *srv_resource, *uav_resource;
     D3D12_FEATURE_DATA_D3D12_OPTIONS7 options7;
     ID3D12GraphicsCommandList6 *command_list6;
-    D3D12_ROOT_PARAMETER root_parameters[2];
+    D3D12_ROOT_PARAMETER root_parameters[3];
     D3D12_HEAP_PROPERTIES heap_properties;
     ID3D12RootSignature *root_signature;
     ID3D12PipelineState *pipeline_state;
@@ -203,9 +203,11 @@ void test_mesh_shader_rendering(void)
     struct test_context context;
     struct resource_readback rb;
     ID3D12Device2 *device2;
+    float clip_distance;
     unsigned int i;
     HRESULT hr;
 
+#include "shaders/mesh_shader/headers/ms_clip_distance.h"
 #include "shaders/mesh_shader/headers/ms_cull_primitive.h"
 #include "shaders/mesh_shader/headers/ms_culling.h"
 #include "shaders/mesh_shader/headers/ms_interface_matching.h"
@@ -217,23 +219,25 @@ void test_mesh_shader_rendering(void)
 #include "shaders/mesh_shader/headers/ps_system_values.h"
 
     static const union d3d12_shader_bytecode_subobject ps_simple_subobject =
-            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, ps_green_dxil }};
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, { ps_green_code_dxil, sizeof(ps_green_code_dxil) } }};
     static const union d3d12_shader_bytecode_subobject ps_interface_matching_subobject =
-            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, ps_interface_matching_dxil }};
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, { ps_interface_matching_code_dxil, sizeof(ps_interface_matching_code_dxil) } }};
     static const union d3d12_shader_bytecode_subobject ps_culling_subobject =
-            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, ps_culling_dxil }};
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, { ps_culling_code_dxil, sizeof(ps_culling_code_dxil) } }};
     static const union d3d12_shader_bytecode_subobject ps_system_values_subobject =
-            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, ps_system_values_dxil }};
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, { ps_system_values_code_dxil, sizeof(ps_system_values_code_dxil) } }};
     static const union d3d12_shader_bytecode_subobject ms_simple_subobject =
-            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, ms_simple_dxil }};
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, { ms_simple_code_dxil, sizeof(ms_simple_code_dxil) } }};
     static const union d3d12_shader_bytecode_subobject ms_interface_matching_subobject =
-            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, ms_interface_matching_dxil }};
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, { ms_interface_matching_code_dxil, sizeof(ms_interface_matching_code_dxil) } }};
+    static const union d3d12_shader_bytecode_subobject ms_clip_distance_subobject =
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, { ms_clip_distance_code_dxil, sizeof(ms_clip_distance_code_dxil) } }};
     static const union d3d12_shader_bytecode_subobject ms_culling_subobject =
-            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, ms_culling_dxil }};
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, { ms_culling_code_dxil, sizeof(ms_culling_code_dxil) } }};
     static const union d3d12_shader_bytecode_subobject ms_cull_primitive_subobject =
-            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, ms_cull_primitive_dxil }};
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, { ms_cull_primitive_code_dxil, sizeof(ms_cull_primitive_code_dxil) } }};
     static const union d3d12_shader_bytecode_subobject ms_system_values_subobject =
-            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, ms_system_values_dxil }};
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, { ms_system_values_code_dxil, sizeof(ms_system_values_code_dxil) } }};
 
     static const union d3d12_rasterizer_subobject rasterizer_subobject =
     {{
@@ -344,7 +348,7 @@ void test_mesh_shader_rendering(void)
     ok(SUCCEEDED(hr), "Failed to create UAV resource, hr %#x.\n");
 
     memset(&root_signature_desc, 0, sizeof(root_signature_desc));
-    root_signature_desc.NumParameters = 2;
+    root_signature_desc.NumParameters = 3;
     root_signature_desc.pParameters = root_parameters;
 
     memset(&root_parameters, 0, sizeof(root_parameters));
@@ -353,6 +357,10 @@ void test_mesh_shader_rendering(void)
     root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
     root_parameters[1].Descriptor.ShaderRegister = 1;
     root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_parameters[2].Constants.ShaderRegister = 2;
+    root_parameters[2].Constants.Num32BitValues = 1;
+    root_parameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
     hr = create_root_signature(context.device, &root_signature_desc, &root_signature);
     ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
@@ -493,8 +501,39 @@ void test_mesh_shader_rendering(void)
     release_resource_readback(&rb);
     ID3D12PipelineState_Release(pipeline_state);
 
-    /* Test distributing primitives to multiple array layers, as well as SV_PRIMITIVEID. */
+    /* Test SV_ClipDistance with mesh shaders */
     pipeline_desc.render_targets = render_target_subobject_rgba8;
+    pipeline_desc.ms = ms_clip_distance_subobject;
+    pipeline_desc.ps = ps_simple_subobject;
+
+    hr = create_pipeline_state_from_stream(device2, &pipeline_desc, &pipeline_state);
+    ok(hr == S_OK, "Failed to create pipeline, hr %#x.\n", hr);
+
+    for (i = 0; i < 2; i++)
+    {
+        clip_distance = i ? 5.0f : -1.0f;
+
+        reset_command_list(context.list, context.allocator);
+
+        if (i)
+            transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+        ID3D12GraphicsCommandList6_ClearRenderTargetView(command_list6, context.rtv, white, 0, NULL);
+        ID3D12GraphicsCommandList6_OMSetRenderTargets(command_list6, 1, &context.rtv, false, NULL);
+        ID3D12GraphicsCommandList6_SetGraphicsRootSignature(command_list6, root_signature);
+        ID3D12GraphicsCommandList6_SetGraphicsRoot32BitConstant(command_list6, 2, float_bits_to_uint32(clip_distance), 0);
+        ID3D12GraphicsCommandList6_SetPipelineState(command_list6, pipeline_state);
+        ID3D12GraphicsCommandList6_RSSetViewports(command_list6, 1, &context.viewport);
+        ID3D12GraphicsCommandList6_RSSetScissorRects(command_list6, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList6_DispatchMesh(command_list6, 4, 1, 1);
+        transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        check_sub_resource_uint(context.render_target, 0, context.queue, context.list,
+                i ? 0xff00ff00u : 0xffffffffu, 0u);
+    }
+
+    ID3D12PipelineState_Release(pipeline_state);
+
+    /* Test distributing primitives to multiple array layers, as well as SV_PRIMITIVEID. */
     pipeline_desc.ms = ms_system_values_subobject;
     pipeline_desc.ps = ps_system_values_subobject;
 
@@ -507,6 +546,7 @@ void test_mesh_shader_rendering(void)
 
     reset_command_list(context.list, context.allocator);
     transition_resource_state(context.list, uav_resource, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
     ID3D12GraphicsCommandList6_ClearRenderTargetView(command_list6, context.rtv, white, 0, NULL);
     ID3D12GraphicsCommandList6_OMSetRenderTargets(command_list6, 1, &context.rtv, false, NULL);
@@ -567,9 +607,9 @@ void test_mesh_shader_execute_indirect(void)
 #include "shaders/mesh_shader/headers/ps_green.h"
 
     static const union d3d12_shader_bytecode_subobject ps_subobject =
-            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, ps_green_dxil }};
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, { ps_green_code_dxil, sizeof(ps_green_code_dxil) } }};
     static const union d3d12_shader_bytecode_subobject ms_subobject =
-            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, ms_execute_indirect_dxil }};
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, { ms_execute_indirect_code_dxil, sizeof(ms_execute_indirect_code_dxil) } }};
 
     static const union d3d12_rasterizer_subobject rasterizer_subobject =
     {{
@@ -765,9 +805,9 @@ void test_mesh_shader_execute_indirect_state(void)
 #include "shaders/mesh_shader/headers/ms_execute_indirect_state.h"
 #include "shaders/mesh_shader/headers/ps_execute_indirect_state.h"
     static const union d3d12_shader_bytecode_subobject ps_subobject =
-            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, ps_execute_indirect_state_dxil }};
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, { ps_execute_indirect_state_code_dxil, sizeof(ps_execute_indirect_state_code_dxil) } }};
     static const union d3d12_shader_bytecode_subobject ms_subobject =
-            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, ms_execute_indirect_state_dxil }};
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, { ms_execute_indirect_state_code_dxil, sizeof(ms_execute_indirect_state_code_dxil) } }};
 
     static const union d3d12_rasterizer_subobject rasterizer_subobject =
     { {
@@ -952,15 +992,15 @@ void test_amplification_shader(void)
 #include "shaders/mesh_shader/headers/ps_color.h"
 
     static const union d3d12_shader_bytecode_subobject as_simple_subobject =
-            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_AS, as_simple_dxil }};
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_AS, { as_simple_code_dxil, sizeof(as_simple_code_dxil) } }};
     static const union d3d12_shader_bytecode_subobject as_multi_workgroup_subobject =
-            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_AS, as_multi_workgroup_dxil }};
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_AS, { as_multi_workgroup_code_dxil, sizeof(as_multi_workgroup_code_dxil) } }};
     static const union d3d12_shader_bytecode_subobject ms_simple_subobject =
-            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, ms_payload_dxil }};
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, { ms_payload_code_dxil, sizeof(ms_payload_code_dxil) } }};
     static const union d3d12_shader_bytecode_subobject ms_multi_workgroup_subobject =
-            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, ms_multi_workgroup_dxil }};
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, { ms_multi_workgroup_code_dxil, sizeof(ms_multi_workgroup_code_dxil) } }};
     static const union d3d12_shader_bytecode_subobject ps_simple_subobject =
-            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, ps_color_dxil }};
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, { ps_color_code_dxil, sizeof(ps_color_code_dxil) } }};
 
     static const union d3d12_shader_bytecode_subobject ps_none_subobject =
             {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, { NULL, 0 } }};
@@ -1185,11 +1225,11 @@ void test_amplification_shader_execute_indirect_state(void)
 #include "shaders/mesh_shader/headers/ps_execute_indirect_state.h"
 
     static const union d3d12_shader_bytecode_subobject as_subobject =
-            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_AS, as_execute_indirect_state_dxil }};
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_AS, { as_execute_indirect_state_code_dxil, sizeof(as_execute_indirect_state_code_dxil) } }};
     static const union d3d12_shader_bytecode_subobject ms_subobject =
-            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, ms_execute_indirect_state_payload_dxil }};
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, { ms_execute_indirect_state_payload_code_dxil, sizeof(ms_execute_indirect_state_payload_code_dxil) } }};
     static const union d3d12_shader_bytecode_subobject ps_subobject =
-            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, ps_execute_indirect_state_dxil }};
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, { ps_execute_indirect_state_code_dxil, sizeof(ps_execute_indirect_state_code_dxil) } }};
 
     static const union d3d12_rasterizer_subobject rasterizer_subobject =
     { {
