@@ -448,7 +448,7 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
             vkd3d_queue_add_wait(queue_family->queues[i],
                     NULL,
                     queue->vk_semaphore,
-                    queue->next_signal_value);
+                    queue->next_signal_value, 0);
         }
     }
 
