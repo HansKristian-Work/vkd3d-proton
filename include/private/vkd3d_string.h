@@ -88,8 +88,15 @@ static inline void vkd3d_strlcpy(char *dst, size_t dst_size, const char *src)
 {
     if (dst_size > 0)
     {
-        strncpy(dst, src, dst_size - 1);
-        dst[dst_size - 1] = '\0';
+        if (strlen(src) < dst_size)
+        {
+            strcpy(dst, src);
+        }
+        else
+        {
+            strncpy(dst, src, dst_size - 1);
+            dst[dst_size - 1] = '\0';
+        }
     }
 }
 
