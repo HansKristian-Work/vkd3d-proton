@@ -837,6 +837,7 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain *if
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
     struct dxgi_vk_swap_chain_present_request *request;
+    struct vkd3d_queue_timeline_trace_cookie cookie;
     TRACE("iface %p, SyncInterval %u, PresentFlags #%x, pPresentParameters %p.\n",
             iface, SyncInterval, PresentFlags, pPresentParameters);
     (void)pPresentParameters;
@@ -880,6 +881,9 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain *if
 
     chain->user.index = (chain->user.index + 1) % chain->desc.BufferCount;
 
+    cookie = vkd3d_queue_timeline_trace_register_present_block(
+            &chain->queue->device->queue_timeline_trace, chain->user.blit_count);
+
     /* Relevant if application does not use latency fence, or we force a lower latency through VKD3D_SWAPCHAIN_FRAME_LATENCY overrides. */
     if (vkd3d_native_sync_handle_is_valid(chain->frame_latency_event_internal))
         vkd3d_native_sync_handle_acquire(chain->frame_latency_event_internal);
@@ -908,6 +912,9 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain *if
      * Otherwise, the estimate should match up with the internal latency fence. */
     if (chain->debug_latency)
         chain->user.begin_frame_time_ns = vkd3d_get_current_time_ns();
+
+    vkd3d_queue_timeline_trace_complete_present_block(
+            &chain->queue->device->queue_timeline_trace, cookie);
 
     return S_OK;
 }
@@ -1624,6 +1631,7 @@ static bool dxgi_vk_swap_chain_request_needs_swapchain_recreation(
 static void dxgi_vk_swap_chain_present_signal_blit_semaphore(struct dxgi_vk_swap_chain *chain)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
+    struct vkd3d_queue_timeline_trace_cookie cookie;
     VkSemaphoreSubmitInfo signal_semaphore_info;
     VkSubmitInfo2 submit_info;
     VkQueue vk_queue;
@@ -1648,6 +1656,16 @@ static void dxgi_vk_swap_chain_present_signal_blit_semaphore(struct dxgi_vk_swap
     vk_queue = vkd3d_queue_acquire(chain->queue->vkd3d_queue);
     vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
     vkd3d_queue_release(chain->queue->vkd3d_queue);
+
+    /* Mark frame boundary. */
+    cookie = vkd3d_queue_timeline_trace_register_swapchain_blit(
+            &chain->queue->device->queue_timeline_trace, chain->present.complete_count);
+
+    if (vkd3d_queue_timeline_trace_cookie_is_valid(cookie))
+    {
+        vkd3d_enqueue_timeline_semaphore(&chain->queue->fence_worker, NULL, chain->present.vk_complete_semaphore,
+                chain->present.complete_count, false, NULL, 0, &cookie);
+    }
 
     if (vr)
     {
@@ -2113,6 +2131,10 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     if (use_present_id && vr >= 0)
         chain->present.present_id_valid = true;
 
+    vkd3d_queue_timeline_trace_register_instantaneous(&chain->queue->device->queue_timeline_trace,
+            VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_QUEUE_PRESENT,
+            chain->present.present_id_valid ? chain->present.present_id : 0);
+
     /* Handle any errors and retry as needed. If we cannot make meaningful forward progress, just give up and retry later. */
     if (vr == VK_SUBOPTIMAL_KHR || vr < 0)
         chain->present.force_swapchain_recreation = true;
@@ -2245,7 +2267,9 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
 {
     struct dxgi_vk_swap_chain *chain = chain_;
 
+    struct vkd3d_queue_timeline_trace *timeline_trace = &chain->queue->device->queue_timeline_trace;
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
+    struct vkd3d_queue_timeline_trace_cookie cookie;
     uint64_t begin_frame_time_ns = 0;
     uint64_t end_frame_time_ns = 0;
     uint64_t next_wait_id = 0;
@@ -2266,6 +2290,7 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
         if (!next_wait_id)
             break;
 
+        cookie = vkd3d_queue_timeline_trace_register_present_wait(timeline_trace, next_wait_id);
         /* In skip wait mode we just need to make sure that we signal latency fences properly. */
         if (!chain->wait_thread.skip_waits)
         {
@@ -2273,6 +2298,7 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
             VK_CALL(vkWaitForPresentKHR(chain->queue->device->vk_device, chain->present.vk_swapchain,
                     next_wait_id, UINT64_MAX));
         }
+        vkd3d_queue_timeline_trace_complete_present_wait(timeline_trace, cookie);
 
         if (begin_frame_time_ns)
             end_frame_time_ns = vkd3d_get_current_time_ns();
