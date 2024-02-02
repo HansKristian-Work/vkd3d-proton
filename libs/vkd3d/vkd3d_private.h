@@ -3138,6 +3138,7 @@ struct d3d12_command_queue
     struct vkd3d_fence_worker fence_worker;
     struct vkd3d_private_store private_store;
     struct dxgi_vk_swap_chain_factory vk_swap_chain_factory;
+    unsigned int submission_thread_tid;
 };
 
 HRESULT d3d12_command_queue_create(struct d3d12_device *device,
