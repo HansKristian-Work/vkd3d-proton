@@ -317,6 +317,9 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap, struct d3d12_device *dev
         heap->allocation.chunk == NULL /* not suballocated */ &&
         (device->memory_properties.memoryTypes[heap->allocation.device_allocation.vk_memory_type].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
+    vkd3d_queue_timeline_trace_register_instantaneous(&device->queue_timeline_trace,
+            VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_HEAP_ALLOCATION, desc->SizeInBytes);
+
     d3d12_device_add_ref(heap->device);
     return S_OK;
 }
