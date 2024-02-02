@@ -4627,6 +4627,7 @@ struct d3d12_device
     unsigned int format_compatibility_list_count;
     const struct vkd3d_format_compatibility_list *format_compatibility_lists;
     struct vkd3d_bindless_state bindless_state;
+    struct vkd3d_queue_timeline_trace queue_timeline_trace;
     struct vkd3d_memory_info memory_info;
     struct vkd3d_meta_ops meta_ops;
     struct vkd3d_view_map sampler_map;
