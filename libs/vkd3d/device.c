@@ -578,6 +578,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
     /* Starfield (1716740) */
     { VKD3D_STRING_COMPARE_EXACT, "Starfield.exe",
             VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES | VKD3D_CONFIG_FLAG_REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT, 0 },
+    /* Persona 3 Reload (2161700). Enables RT by default on Deck and does not run acceptably for a verified title. */
+    { VKD3D_STRING_COMPARE_EXACT, "P3R.exe", 0, 0, VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK },
     { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
 };
 
