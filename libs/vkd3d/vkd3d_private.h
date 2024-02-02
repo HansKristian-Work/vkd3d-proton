@@ -209,6 +209,11 @@ struct vkd3d_instance
 extern uint64_t vkd3d_config_flags;
 extern struct vkd3d_shader_quirk_info vkd3d_shader_quirk_info;
 
+struct vkd3d_queue_timeline_trace_cookie
+{
+    unsigned int index;
+};
+
 struct vkd3d_waiting_fence
 {
     d3d12_fence_iface *fence;
@@ -231,12 +236,28 @@ struct vkd3d_fence_worker
     size_t enqueued_fences_size;
 
     struct d3d12_device *device;
-};
+    struct d3d12_command_queue *queue;
 
-HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
-        struct d3d12_device *device);
-HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
-        struct d3d12_device *device);
+    /* To aid timeline profiles. A single fence worker processes work monotonically. */
+    struct
+    {
+        char tid[64];
+        /* The lock timestamps is to ensure that the timeline trace becomes readable in chrome://tracing.
+         * For us, start and end ranges can overlap. This ends up as an unreadable trace
+         * since the tracer expects a stack-like nesting for overlapping events.
+         * To work around this, we ensure that start TS of a following event is moved to end TS of previous event. */
+        double lock_end_gpu_ts;
+        double lock_end_cpu_ts;
+        double lock_end_event_ts;
+        double lock_end_present_wait_ts;
+
+        /* A thread local buffer used to avoid holding locks for too long.
+         * Only submission threads flush out JSON IO and this serves as thread-local
+         * scratch space. */
+        unsigned int *list_buffer;
+        size_t list_buffer_size;
+    } timeline;
+};
 
 /* 2 MiB is a good threshold, because it's huge page size. */
 #define VKD3D_VA_BLOCK_SIZE_BITS (21)
