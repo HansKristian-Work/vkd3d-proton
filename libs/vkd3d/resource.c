@@ -3461,6 +3461,9 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         object->mem.chunk == NULL /* not suballocated */ &&
         (device->memory_properties.memoryTypes[object->mem.device_allocation.vk_memory_type].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
+    vkd3d_queue_timeline_trace_register_instantaneous(&device->queue_timeline_trace,
+            VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_COMMITTED_RESOURCE_ALLOCATION, object->res.cookie);
+
     *resource = object;
     return S_OK;
 

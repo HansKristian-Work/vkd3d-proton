@@ -223,6 +223,7 @@ struct vkd3d_waiting_fence
     uint64_t value;
     struct d3d12_command_allocator **command_allocators;
     size_t num_command_allocators;
+    struct vkd3d_queue_timeline_trace_cookie timeline_cookie;
     bool signal;
 };
 
@@ -273,6 +274,11 @@ struct vkd3d_fence_worker
 #define VKD3D_VA_NEXT_BITS (12)
 #define VKD3D_VA_NEXT_COUNT (1ull << VKD3D_VA_NEXT_BITS)
 #define VKD3D_VA_NEXT_MASK (VKD3D_VA_NEXT_COUNT - 1)
+
+HRESULT vkd3d_enqueue_timeline_semaphore(struct vkd3d_fence_worker *worker,
+        d3d12_fence_iface *fence, VkSemaphore timeline, uint64_t value, bool signal,
+        struct d3d12_command_allocator **command_allocators, size_t num_command_allocators,
+        const struct vkd3d_queue_timeline_trace_cookie *timeline_cookie);
 
 struct vkd3d_unique_resource;
 
@@ -529,6 +535,7 @@ struct vkd3d_waiting_event
     vkd3d_native_sync_handle handle;
     bool *latch;
     uint32_t *payload;
+    struct vkd3d_queue_timeline_trace_cookie timeline_cookie;
 };
 
 struct d3d12_fence
@@ -2902,6 +2909,7 @@ struct d3d12_command_list
     struct d3d12_transfer_batch_state transfer_batch;
     struct d3d12_wbi_batch_state wbi_batch;
     struct d3d12_rtas_batch_state rtas_batch;
+    struct vkd3d_queue_timeline_trace_cookie timeline_cookie;
 
     struct vkd3d_private_store private_store;
 
@@ -3086,6 +3094,8 @@ struct d3d12_command_queue_submission_execute
     unsigned int *breadcrumb_indices;
     size_t breadcrumb_indices_count;
 #endif
+
+    struct vkd3d_queue_timeline_trace_cookie timeline_cookie;
 
     bool debug_capture;
     bool split_submission;
