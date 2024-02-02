@@ -18228,6 +18228,7 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
     VKD3D_REGION_DECL(queue_execute);
 
     vkd3d_set_thread_name("vkd3d_queue");
+    queue->submission_thread_tid = vkd3d_get_current_thread_id();
 
     if (FAILED(hr = d3d12_command_queue_transition_pool_init(&pool, queue)))
         ERR("Failed to initialize transition pool.\n");
