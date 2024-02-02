@@ -4462,6 +4462,115 @@ struct d3d12_device_scratch_pool
     unsigned int high_water_mark;
 };
 
+enum vkd3d_queue_timeline_trace_state_type
+{
+    VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_NONE = 0,
+    VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_EVENT,
+    VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_SUBMISSION,
+    VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_WAIT,
+    VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_SIGNAL,
+
+    /* Blit task */
+    VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_PRESENT_BLIT,
+
+    /* Waiting for present wait to complete. */
+    VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_PRESENT_WAIT,
+
+    /* Time spent blocking in ::Present() in user thread. */
+    VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_PRESENT_BLOCK,
+
+    /* Reset() and Close() are useful instant events to see when command recording is happening and
+     * which threads do so. */
+    VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_COMMAND_LIST,
+
+    /* Misc instantaneous events that are expected to be heavy. */
+    VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_QUEUE_PRESENT,
+    VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_COMMITTED_RESOURCE_ALLOCATION,
+    VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_HEAP_ALLOCATION,
+    VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_COMMAND_ALLOCATOR_RESET,
+};
+
+struct vkd3d_queue_timeline_trace_state
+{
+    enum vkd3d_queue_timeline_trace_state_type type;
+    unsigned int tid;
+    uint64_t start_ts;
+    uint64_t start_submit_ts;
+    uint64_t record_end_ts;
+    uint64_t record_cookie;
+    char desc[128 - 5 * sizeof(uint64_t)];
+};
+
+struct vkd3d_queue_timeline_trace
+{
+    pthread_mutex_t lock;
+    pthread_mutex_t ready_lock;
+    FILE *file;
+    bool active;
+
+    unsigned int *vacant_indices;
+    size_t vacant_indices_count;
+    size_t vacant_indices_size;
+
+    unsigned int *ready_command_lists;
+    size_t ready_command_lists_count;
+    size_t ready_command_lists_size;
+
+    struct vkd3d_queue_timeline_trace_state *state;
+    uint64_t base_ts;
+    uint64_t submit_count;
+};
+
+static inline bool vkd3d_queue_timeline_trace_cookie_is_valid(struct vkd3d_queue_timeline_trace_cookie cookie)
+{
+    return cookie.index != 0;
+}
+
+HRESULT vkd3d_queue_timeline_trace_init(struct vkd3d_queue_timeline_trace *trace,
+        struct d3d12_device *device);
+void vkd3d_queue_timeline_trace_cleanup(struct vkd3d_queue_timeline_trace *trace);
+struct vkd3d_queue_timeline_trace_cookie
+vkd3d_queue_timeline_trace_register_event_signal(struct vkd3d_queue_timeline_trace *trace,
+        vkd3d_native_sync_handle handle, d3d12_fence_iface *fence, uint64_t value);
+struct vkd3d_queue_timeline_trace_cookie
+vkd3d_queue_timeline_trace_register_signal(struct vkd3d_queue_timeline_trace *trace,
+        d3d12_fence_iface *fence, uint64_t value);
+struct vkd3d_queue_timeline_trace_cookie
+vkd3d_queue_timeline_trace_register_wait(struct vkd3d_queue_timeline_trace *trace,
+        d3d12_fence_iface *fence, uint64_t value);
+struct vkd3d_queue_timeline_trace_cookie
+vkd3d_queue_timeline_trace_register_swapchain_blit(struct vkd3d_queue_timeline_trace *trace,
+        uint64_t present_id);
+struct vkd3d_queue_timeline_trace_cookie
+vkd3d_queue_timeline_trace_register_present_wait(struct vkd3d_queue_timeline_trace *trace,
+        uint64_t present_id);
+struct vkd3d_queue_timeline_trace_cookie
+vkd3d_queue_timeline_trace_register_present_block(struct vkd3d_queue_timeline_trace *trace,
+        uint64_t present_id);
+struct vkd3d_queue_timeline_trace_cookie
+vkd3d_queue_timeline_trace_register_execute(struct vkd3d_queue_timeline_trace *trace,
+        ID3D12CommandList * const *command_lists, unsigned int count);
+struct vkd3d_queue_timeline_trace_cookie
+vkd3d_queue_timeline_trace_register_command_list(struct vkd3d_queue_timeline_trace *trace);
+
+void vkd3d_queue_timeline_trace_register_instantaneous(struct vkd3d_queue_timeline_trace *trace,
+        enum vkd3d_queue_timeline_trace_state_type type, uint64_t value);
+
+void vkd3d_queue_timeline_trace_complete_event_signal(struct vkd3d_queue_timeline_trace *trace,
+        struct vkd3d_fence_worker *worker,
+        struct vkd3d_queue_timeline_trace_cookie cookie);
+void vkd3d_queue_timeline_trace_complete_execute(struct vkd3d_queue_timeline_trace *trace,
+        struct vkd3d_fence_worker *worker,
+        struct vkd3d_queue_timeline_trace_cookie cookie);
+void vkd3d_queue_timeline_trace_complete_present_wait(struct vkd3d_queue_timeline_trace *trace,
+        struct vkd3d_queue_timeline_trace_cookie cookie);
+void vkd3d_queue_timeline_trace_complete_present_block(struct vkd3d_queue_timeline_trace *trace,
+        struct vkd3d_queue_timeline_trace_cookie cookie);
+void vkd3d_queue_timeline_trace_close_command_list(struct vkd3d_queue_timeline_trace *trace,
+        struct vkd3d_queue_timeline_trace_cookie cookie);
+void vkd3d_queue_timeline_trace_begin_execute(struct vkd3d_queue_timeline_trace *trace,
+        struct vkd3d_queue_timeline_trace_cookie cookie);
+
 struct d3d12_device
 {
     d3d12_device_iface ID3D12Device_iface;
