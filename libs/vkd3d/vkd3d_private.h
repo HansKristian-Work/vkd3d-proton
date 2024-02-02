@@ -2985,9 +2985,13 @@ struct vkd3d_queue
 
     VkSemaphoreSubmitInfo *wait_semaphores;
     size_t wait_semaphores_size;
+    uint64_t *wait_values_virtual;
+    size_t wait_values_virtual_size;
     d3d12_fence_iface **wait_fences;
     size_t wait_fences_size;
     uint32_t wait_count;
+
+    bool need_virtual_wait_values;
 };
 
 VkQueue vkd3d_queue_acquire(struct vkd3d_queue *queue);
@@ -2995,7 +2999,8 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device, uint32_t family_index, u
         const VkQueueFamilyProperties *properties, struct vkd3d_queue **queue);
 void vkd3d_queue_destroy(struct vkd3d_queue *queue, struct d3d12_device *device);
 void vkd3d_queue_release(struct vkd3d_queue *queue);
-void vkd3d_queue_add_wait(struct vkd3d_queue *queue, d3d12_fence_iface *waiter, VkSemaphore semaphore, uint64_t value);
+void vkd3d_queue_add_wait(struct vkd3d_queue *queue, d3d12_fence_iface *waiter,
+        VkSemaphore semaphore, uint64_t value, uint64_t virtual_value);
 
 enum vkd3d_submission_type
 {
