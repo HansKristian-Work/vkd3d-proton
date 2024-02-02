@@ -3806,7 +3806,7 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
             format_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
             format_info.flags = VK_IMAGE_CREATE_SPARSE_BINDING_BIT |
                     VK_IMAGE_CREATE_SPARSE_ALIASED_BIT |
-                    VK_IMAGE_CREATE_SPARSE_BINDING_BIT;
+                    VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT;
             format_info.tiling = format->vk_image_tiling;
 
             memset(&format_properties, 0, sizeof(format_properties));
