@@ -606,6 +606,16 @@ static void *vkd3d_fence_worker_main(void *arg)
 
     vkd3d_set_thread_name("vkd3d_fence");
 
+    snprintf(worker->timeline.tid, sizeof(worker->timeline.tid),
+#ifdef _WIN32
+            "family %u, tid 0x%04x, prio %d",
+#else
+            "family %u, tid %u, prio %d",
+#endif
+            worker->queue->vkd3d_queue->vk_family_index,
+            vkd3d_get_current_thread_id(),
+            worker->queue->desc.Priority);
+
     cur_fence_count = 0;
     cur_fences_size = 0;
     cur_fences = NULL;
@@ -653,7 +663,8 @@ static void *vkd3d_fence_worker_main(void *arg)
     return NULL;
 }
 
-HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
+static HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
+        struct d3d12_command_queue *queue,
         struct d3d12_device *device)
 {
     int rc;
@@ -662,6 +673,7 @@ HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
 
     worker->should_exit = false;
     worker->device = device;
+    worker->queue = queue;
 
     worker->enqueued_fence_count = 0;
     worker->enqueued_fences = NULL;
@@ -690,7 +702,7 @@ HRESULT vkd3d_fence_worker_start(struct vkd3d_fence_worker *worker,
     return S_OK;
 }
 
-HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
+static HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
         struct d3d12_device *device)
 {
     int rc;
@@ -712,6 +724,7 @@ HRESULT vkd3d_fence_worker_stop(struct vkd3d_fence_worker *worker,
     pthread_cond_destroy(&worker->cond);
 
     vkd3d_free(worker->enqueued_fences);
+    vkd3d_free(worker->timeline.list_buffer);
     return S_OK;
 }
 
@@ -18400,7 +18413,7 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
 
     d3d12_device_add_ref(queue->device = device);
 
-    if (FAILED(hr = vkd3d_fence_worker_start(&queue->fence_worker, device)))
+    if (FAILED(hr = vkd3d_fence_worker_start(&queue->fence_worker, queue, device)))
         goto fail_fence_worker_start;
 
     if ((rc = pthread_create(&queue->submission_thread, NULL, d3d12_command_queue_submission_worker_main, queue)) < 0)
