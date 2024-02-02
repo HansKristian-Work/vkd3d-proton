@@ -26,7 +26,7 @@
 #include "vkd3d_renderdoc.h"
 #endif
 
-static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, uint64_t value);
+static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, struct vkd3d_fence_worker *worker, uint64_t value);
 static void d3d12_command_queue_add_submission(struct d3d12_command_queue *queue,
         const struct d3d12_command_queue_submission *sub);
 static void d3d12_fence_inc_ref(struct d3d12_fence *fence);
@@ -580,7 +580,7 @@ static void vkd3d_wait_for_gpu_timeline_semaphore(struct vkd3d_fence_worker *wor
     {
         local_fence = impl_from_ID3D12Fence1(fence->fence);
         TRACE("Signaling fence %p value %#"PRIx64".\n", local_fence, fence->value);
-        if (FAILED(hr = d3d12_fence_signal(local_fence, fence->value)))
+        if (FAILED(hr = d3d12_fence_signal(local_fence, worker, fence->value)))
             ERR("Failed to signal D3D12 fence, hr %#x.\n", hr);
     }
 
@@ -992,7 +992,7 @@ static uint64_t d3d12_fence_get_physical_wait_value_locked(struct d3d12_fence *f
         return target_physical_value;
 }
 
-static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, uint64_t physical_value)
+static HRESULT d3d12_fence_signal(struct d3d12_fence *fence, struct vkd3d_fence_worker *worker, uint64_t physical_value)
 {
     bool did_signal;
     size_t i;
