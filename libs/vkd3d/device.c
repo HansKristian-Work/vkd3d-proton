@@ -8215,6 +8215,13 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                 VKD3D_SHADER_TARGET_EXTENSION_SUPPORT_SUBGROUP_PARTITIONED_NV;
     }
+
+    if (device->device_info.shader_maximal_reconvergence_features.shaderMaximalReconvergence &&
+            device->device_info.shader_quad_control_features.shaderQuadControl)
+    {
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_QUAD_CONTROL_RECONVERGENCE;
+    }
 }
 
 static void vkd3d_compute_shader_interface_key(struct d3d12_device *device)
