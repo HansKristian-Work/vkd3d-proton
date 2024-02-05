@@ -73,6 +73,8 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(KHR_PRESENT_ID, KHR_present_id),
     VK_EXTENSION(KHR_PRESENT_WAIT, KHR_present_wait),
     VK_EXTENSION(KHR_MAINTENANCE_5, KHR_maintenance5),
+    VK_EXTENSION(KHR_SHADER_MAXIMAL_RECONVERGENCE, KHR_shader_maximal_reconvergence),
+    VK_EXTENSION(KHR_SHADER_QUAD_CONTROL, KHR_shader_quad_control),
 #ifdef _WIN32
     VK_EXTENSION(KHR_EXTERNAL_MEMORY_WIN32, KHR_external_memory_win32),
     VK_EXTENSION(KHR_EXTERNAL_SEMAPHORE_WIN32, KHR_external_semaphore_win32),
@@ -1749,6 +1751,18 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         info->maintenance_5_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_PROPERTIES_KHR;
         vk_prepend_struct(&info->features2, &info->maintenance_5_features);
         vk_prepend_struct(&info->properties2, &info->maintenance_5_properties);
+    }
+
+    if (vulkan_info->KHR_shader_maximal_reconvergence)
+    {
+        info->shader_maximal_reconvergence_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_MAXIMAL_RECONVERGENCE_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->shader_maximal_reconvergence_features);
+    }
+
+    if (vulkan_info->KHR_shader_quad_control)
+    {
+        info->shader_quad_control_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_QUAD_CONTROL_FEATURES_KHR;
+        vk_prepend_struct(&info->features2, &info->shader_quad_control_features);
     }
 
     if (vulkan_info->EXT_descriptor_buffer)
