@@ -7949,8 +7949,7 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
          *   - In both D3D12 docs and on real implementations, undefined behavior happens when inactive lanes are used.
          * - Helper lanes in wave ops (required)
          *   - Vulkan by default says that helper lanes participate, but they may not participate in any non-quad operation.
-         *   - In practice, this assumption holds, and we can enable it based on driverID checks where we know this behavior
-         *     is normal.
+         *     KHR_shader_maximal_reconvergence is needed to guarantee this behaviour.
          * - Programmable offsets (AdvancedTextureOps)
          *   - There is no legal way to use this, except for textureGather.
          *   - In practice however, it just happens to work anyways.
@@ -7967,12 +7966,14 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
          * - Integer sampling (AdvancedTextureOps)
          *   - Trivial Vulkan catch-up. Requires implementing border colors as well.
          */
-        if (device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_6 &&
-                (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES))
+        if (device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_6 && ((
+                device->device_info.shader_maximal_reconvergence_features.shaderMaximalReconvergence &&
+                device->device_info.shader_quad_control_features.shaderQuadControl) ||
+                (vkd3d_config_flags & VKD3D_CONFIG_FLAG_ENABLE_EXPERIMENTAL_FEATURES)))
         {
             /* Helper lanes in wave ops behavior appears to work as intended on NV and RADV.
              * Technically needs an extension to *guarantee* this behavior however ... */
-            INFO("Experimentally enabling support for SM 6.7.\n");
+            INFO("Enabling support for SM 6.7.\n");
             device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_7;
         }
     }
