@@ -925,6 +925,19 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
                     goto end;
                 }
             }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_QUAD_CONTROL_RECONVERGENCE)
+            {
+                dxil_spv_option_quad_control_reconvergence helper = { { DXIL_SPV_OPTION_QUAD_CONTROL_RECONVERGENCE } };
+                helper.supports_maximal_reconvergence = DXIL_SPV_TRUE;
+                helper.supports_quad_control = DXIL_SPV_TRUE;
+
+                if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+                {
+                    ERR("dxil-spirv does not support QUAD_CONTROL_RECONVERGENCE.\n");
+                    ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+                    goto end;
+                }
+            }
         }
 
         if (dxil_spv_converter_add_option(converter, &denorm_preserve.base) != DXIL_SPV_SUCCESS)
