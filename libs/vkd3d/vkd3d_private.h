@@ -125,6 +125,8 @@ struct vkd3d_vulkan_info
     bool KHR_present_wait;
     bool KHR_present_id;
     bool KHR_maintenance5;
+    bool KHR_shader_maximal_reconvergence;
+    bool KHR_shader_quad_control;
     /* EXT device extensions */
     bool EXT_calibrated_timestamps;
     bool EXT_conditional_rendering;
@@ -4345,6 +4347,8 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceImageCompressionControlFeaturesEXT image_compression_control_features;
     VkPhysicalDeviceFaultFeaturesEXT fault_features;
     VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT swapchain_maintenance1_features;
+    VkPhysicalDeviceShaderMaximalReconvergenceFeaturesKHR shader_maximal_reconvergence_features;
+    VkPhysicalDeviceShaderQuadControlFeaturesKHR shader_quad_control_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
