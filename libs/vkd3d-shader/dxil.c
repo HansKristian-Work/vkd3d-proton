@@ -559,6 +559,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
 {
     dxil_spv_option_denorm_preserve_support denorm_preserve = {{ DXIL_SPV_OPTION_DENORM_PRESERVE_SUPPORT }};
     struct vkd3d_dxil_remap_userdata remap_userdata;
+    bool compute_shader_derivatives = false;
     unsigned int raw_va_binding_count = 0;
     unsigned int num_root_descriptors = 0;
     unsigned int root_constant_words = 0;
@@ -889,6 +890,11 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
                     goto end;
                 }
             }
+            else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_COMPUTE_SHADER_DERIVATIVES_NV)
+            {
+                /* See comments below. */
+                compute_shader_derivatives = true;
+            }
             else if (compiler_args->target_extensions[i] == VKD3D_SHADER_TARGET_EXTENSION_MIN_PRECISION_IS_NATIVE_16BIT)
             {
                 if (!(quirks & VKD3D_SHADER_QUIRK_FORCE_MIN16_AS_32BIT))
@@ -969,6 +975,21 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
                     goto end;
                 }
             }
+        }
+    }
+
+    /* For legacy reasons, COMPUTE_SHADER_DERIVATIVES_NV is default true in dxil-spirv,
+     * so we have to override it to false as needed. */
+    {
+        const dxil_spv_option_compute_shader_derivatives_nv helper =
+                { { DXIL_SPV_OPTION_COMPUTE_SHADER_DERIVATIVES_NV },
+                        compute_shader_derivatives ? DXIL_SPV_TRUE : DXIL_SPV_FALSE};
+
+        if (dxil_spv_converter_add_option(converter, &helper.base) != DXIL_SPV_SUCCESS)
+        {
+            ERR("dxil-spirv does not support COMPUTE_SHADER_DERIVATIVES_NV.\n");
+            ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+            goto end;
         }
     }
 

@@ -7903,6 +7903,10 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
 
         /* Required features:
          * - ComputeShader derivatives (linear only, dxil-spirv can synthesize Quad).
+         *   NV Pascal does not support this, despite their D3D12 driver exposing it.
+         *   Use a fallback path on NV proprietary since UE5 started relying on SM 6.6 to work.
+         *   Current use of SM 6.6 compute shader derivatives in the wild is trivial,
+         *   so this should be alright.
          * - 64-bit atomics. Only buffer atomics are required for SM 6.6.
          * - Strict IsHelperInvocation(). The emulated path might have some edge cases here,
          *   no reason not to require it.
@@ -7912,12 +7916,15 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
          * - RayPayload attribute (purely metadata in DXIL land, irrelevant for us).
          */
         if (device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_5 &&
-                device->device_info.compute_shader_derivatives_features_nv.computeDerivativeGroupLinear &&
+                (device->device_info.compute_shader_derivatives_features_nv.computeDerivativeGroupLinear ||
+                        device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY) &&
                 device->device_info.vulkan_1_2_features.shaderBufferInt64Atomics &&
                 device->device_info.vulkan_1_2_features.shaderInt8 &&
                 d3d12_device_supports_required_subgroup_size_for_stage(device, VK_SHADER_STAGE_COMPUTE_BIT))
         {
             INFO("Enabling support for SM 6.6.\n");
+            if (!device->device_info.compute_shader_derivatives_features_nv.computeDerivativeGroupLinear)
+                WARN("Enabling SM 6.6 on pre-Turing NVIDIA despite lack of native compute shader derivatives.\n");
             device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_6;
         }
 
@@ -8145,6 +8152,12 @@ static void vkd3d_init_shader_extensions(struct d3d12_device *device)
     {
         device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
                 VKD3D_SHADER_TARGET_EXTENSION_BARYCENTRIC_KHR;
+    }
+
+    if (device->device_info.compute_shader_derivatives_features_nv.computeDerivativeGroupLinear)
+    {
+        device->vk_info.shader_extensions[device->vk_info.shader_extension_count++] =
+                VKD3D_SHADER_TARGET_EXTENSION_COMPUTE_SHADER_DERIVATIVES_NV;
     }
 
     if (device->d3d12_caps.options4.Native16BitShaderOpsSupported &&
