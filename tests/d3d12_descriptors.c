@@ -5239,3 +5239,234 @@ void test_sampler_non_normalized_coordinates(void)
     ID3D12Device11_Release(device11);
     destroy_test_context(&context);
 }
+
+void test_sampler_rounding(void)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS19 opts19;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    D3D12_DESCRIPTOR_RANGE rs_ranges[2];
+    ID3D12DescriptorHeap *sampler_heap;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_params[4];
+    D3D12_SAMPLER_DESC sampler_desc;
+    ID3D12DescriptorHeap *desc_heap;
+    ID3D12PipelineState *pso_sample;
+    ID3D12PipelineState *pso_gather;
+    struct resource_readback rb;
+    struct test_context context;
+    ID3D12Resource *texture;
+    ID3D12Resource *output;
+    unsigned int i, j;
+
+#include "shaders/descriptors/headers/sampler_rounding.h"
+#include "shaders/descriptors/headers/sampler_rounding_gather.h"
+
+    /* Step in units of fractional ULPs. Texel coordinates have 8 bits of fixed point precision. */
+    static const struct test
+    {
+        float uv_stride[3];
+        unsigned int pixels;
+        bool gather;
+        bool linear;
+    } tests[] = {
+        { { 0.50f - 4.0f / 256.0f, 0.5f, 1.0f / (128.0f * 256.0f) }, 1024, false, false }, /* cover the range from +/- 4 subtexels */
+        { { 0.75f - 4.0f / 256.0f, 0.5f, 1.0f / (128.0f * 256.0f) }, 1024, false, true },
+        { { 0.75f - 4.0f / 256.0f, 0.5f, 1.0f / (128.0f * 256.0f) }, 1024, true, false },
+        { { 0.75f - 4.0f / 256.0f, 0.5f, 1.0f / (128.0f * 256.0f) }, 1024, true, true },
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_params, 0, sizeof(rs_params));
+    memset(rs_ranges, 0, sizeof(rs_ranges));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_params);
+    rs_desc.pParameters = rs_params;
+    rs_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_params[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    rs_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_params[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+
+    rs_params[0].Constants.Num32BitValues = 3;
+    rs_params[2].DescriptorTable.NumDescriptorRanges = 1;
+    rs_params[2].DescriptorTable.pDescriptorRanges = &rs_ranges[0];
+    rs_params[3].DescriptorTable.NumDescriptorRanges = 1;
+    rs_params[3].DescriptorTable.pDescriptorRanges = &rs_ranges[1];
+    rs_ranges[0].NumDescriptors = 1;
+    rs_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    rs_ranges[1].NumDescriptors = 1;
+    rs_ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+    pso_sample = create_compute_pipeline_state(context.device, context.root_signature, sampler_rounding_dxbc);
+    pso_gather = create_compute_pipeline_state(context.device, context.root_signature, sampler_rounding_gather_dxbc);
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS19, &opts19, sizeof(opts19))))
+        memset(&opts19, 0, sizeof(opts19));
+
+    if (opts19.PointSamplingAddressesNeverRoundUp)
+        skip("Driver exposes PointSamplingAddressesNeverRoundUp.\n");
+    else
+        skip("Driver does not expose PointSamplingAddressesNeverRoundUp.\n");
+
+    texture = create_default_texture2d(context.device, 2, 1, 1, 1, DXGI_FORMAT_R10G10B10A2_UNORM,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON);
+
+    desc_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+    sampler_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 1);
+
+    {
+        static const uint32_t pixels[2] = { 0u, ~0u };
+        D3D12_SUBRESOURCE_DATA tex_data;
+        tex_data.pData = pixels;
+        tex_data.RowPitch = 8;
+        tex_data.SlicePitch = 8;
+        upload_texture_data(texture, &tex_data, 1, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    memset(&srv_desc, 0, sizeof(srv_desc));
+    srv_desc.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv_desc.Texture2D.MipLevels = 1;
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    ID3D12Device_CreateShaderResourceView(context.device, texture, &srv_desc, ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(desc_heap));
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        ID3D12DescriptorHeap *heaps[2] = { desc_heap, sampler_heap };
+
+        vkd3d_test_set_context("Test %u", i);
+
+        output = create_default_buffer(context.device, tests[i].pixels * sizeof(float),
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+        memset(&sampler_desc, 0, sizeof(sampler_desc));
+        sampler_desc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler_desc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler_desc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler_desc.Filter = tests[i].linear ? D3D12_FILTER_MIN_MAG_LINEAR_MIP_POINT : D3D12_FILTER_MIN_MAG_MIP_POINT;
+        ID3D12Device_CreateSampler(context.device, &sampler_desc, ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(sampler_heap));
+
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, ARRAY_SIZE(heaps), heaps);
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, tests[i].gather ? pso_gather : pso_sample);
+        ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(context.list, 0, ARRAY_SIZE(tests[i].uv_stride), tests[i].uv_stride, 0);
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(output));
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 2, ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(desc_heap));
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 3, ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(sampler_heap));
+        ID3D12GraphicsCommandList_Dispatch(context.list, tests[i].pixels, 1, 1);
+        transition_resource_state(context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(output, DXGI_FORMAT_R32_FLOAT, &rb, context.queue, context.list);
+
+        for (j = 0; j < tests[i].pixels; j++)
+        {
+            float v, expected_lo, expected_hi;
+            float uv_hi;
+            float uv_lo;
+            float uv;
+
+            uv = tests[i].uv_stride[0] + (float)j * tests[i].uv_stride[2];
+            uv *= 256.0f * 2.0f; /* width = 2 */
+
+            /* 3.2.4.1 FLOAT -> Fixed Point Integer. 0.6 ULP error allowed in the fixed point round.
+             * Point sampling also goes through this rounding process. */
+
+            uv_lo = ceilf(uv - 0.6f);
+            uv_hi = floorf(uv + 0.6f);
+
+            if (tests[i].gather)
+            {
+                /* Gather behaves like bilinear and should ignore point sampling in sampler.
+                 * This should thus be unaffected by PointSamplingAddressesNeverRoundUp, but this is mildly suspect.
+                 * Texture filtering behavior seems to have changed dramatically in more recent WARP builds however. ... */
+                if (use_warp_device)
+                {
+                    /* WARP does not seem to round to fixed point at all. It uses the escape hatch:
+                     * scaledU is converted to **at least** 16.8 Fixed Point(3.2.4.1). Call this fxpScaledU.
+                     * It's likely only limited by FP precision.
+                     */
+                    expected_lo = uv < 256.0f + 128.0f ? 0.0f : 1.0f;
+                    expected_hi = expected_lo;
+                }
+                else
+                {
+                    expected_lo = uv_lo < 256.0f + 128.0f ? 0.0f : 1.0f;
+                    expected_hi = uv_hi < 256.0f + 128.0f ? 0.0f : 1.0f;
+                }
+            }
+            else if (!tests[i].linear)
+            {
+                /* Point sampling. https://microsoft.github.io/DirectX-Specs/d3d/VulkanOn12.html#changing-the-spec-for-point-sampling-address-computations */
+                if (opts19.PointSamplingAddressesNeverRoundUp || is_nvidia_windows_device(context.device) || use_warp_device)
+                {
+                    /* NVIDIA ignores the fixed point rounding for point sampling.
+                     * It seems like it abuses the 16.8 fixed point rule by pretending to have "infinite" precision.
+                     * In the asympotote, this becomes a truncation. */
+
+                    /* WARP is similar. It truncates. */
+                    expected_lo = uv < 256.0f ? 0.0f : 1.0f;
+                    expected_hi = expected_lo;
+                }
+                else
+                {
+                    /* AMD and Intel always do RTE. */
+                    expected_lo = uv_lo < 256.0f ? 0.0f : 1.0f;
+                    expected_hi = uv_hi < 256.0f ? 0.0f : 1.0f;
+                }
+            }
+            else
+            {
+                /* Linear sampling. Hardware always rounds to 8 subtexel fixed point. */
+                if (uv_lo >= 256.0f + 128.0f)
+                {
+                    expected_lo = 1.0f;
+                }
+                else
+                {
+                    float weight = (uv_lo - 128.0f) / 256.0f;
+
+                    /* 7.18.16.2 Texture Filtering Arithmetic Precision. Filtering must be performed with precision of format, so we expect maximal error of < 1 ULP in 10-bit domain. */
+                    expected_lo = weight - 0.6f / 1023.0f; /* lerp between 0 and 1. Allow a little of 0.5 ULP error in filtering. HW passes this, the exact ULP range isn't interesting. */
+                }
+
+                if (uv_hi >= 256.0f + 128.0f)
+                {
+                    expected_hi = 1.0f;
+                }
+                else
+                {
+                    float weight = (uv_hi - 128.0f) / 256.0f;
+
+                    /* 7.18.16.2 Texture Filtering Arithmetic Precision. Filtering must be performed with precision of format, so we expect maximal error of < 1 ULP in 10-bit domain. */
+                    expected_hi = weight + 0.6f / 1023.0f; /* lerp between 0 and 1. Allow a little of 0.5 ULP error in filtering. HW passes this, the exact ULP range isn't interesting. */
+                }
+            }
+
+            v = get_readback_float(&rb, j, 0);
+            ok(v >= expected_lo && v <= expected_hi, "UV [raw %.6f] [snap lo %d.#%02x, snap hi %d.#%02x]: Expected value in range ([%f, %f] / 256.0), got (%f / 256.0)\n",
+                uv,
+                (int)(uv_lo / 256.0f), ((uint32_t)uv_lo) & 0xff,
+                (int)(uv_hi / 256.0f), ((uint32_t)uv_hi) & 0xff,
+                expected_lo * 256.0f, expected_hi * 256.0f, v * 256.0f);
+        }
+
+        release_resource_readback(&rb);
+        ID3D12Resource_Release(output);
+        reset_command_list(context.list, context.allocator);
+    }
+    vkd3d_test_set_context(NULL);
+
+    ID3D12Resource_Release(texture);
+    ID3D12DescriptorHeap_Release(desc_heap);
+    ID3D12DescriptorHeap_Release(sampler_heap);
+    ID3D12PipelineState_Release(pso_sample);
+    ID3D12PipelineState_Release(pso_gather);
+    destroy_test_context(&context);
+}

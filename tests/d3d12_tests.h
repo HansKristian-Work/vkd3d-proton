@@ -399,3 +399,4 @@ decl_test(test_coverage_export_atoc_dxbc);
 decl_test(test_coverage_export_atoc_dxil);
 decl_test(test_renderpass_validation);
 decl_test(test_renderpass_rendering);
+decl_test(test_sampler_rounding);
