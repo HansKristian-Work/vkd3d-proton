@@ -7714,8 +7714,10 @@ static void d3d12_device_caps_init_feature_options19(struct d3d12_device *device
     options19->MismatchingOutputDimensionsSupported = TRUE;
     /* Requires SampleCount > 1 for pipelinesm, not just ForcedSamplecount */
     options19->SupportedSampleCountsWithNoOutputs = 0x1;
-    /* D3D12 expectations w.r.t. rounding match Vulkan spec */
-    options19->PointSamplingAddressesNeverRoundUp = TRUE;
+    /* D3D12 expectations w.r.t. rounding match Vulkan spec.
+     * However, both AMD and Intel native drivers round to even. RADV has no-trunc-coord workarounds. */
+    options19->PointSamplingAddressesNeverRoundUp =
+            device->device_info.vulkan_1_2_properties.driverID != VK_DRIVER_ID_MESA_RADV;
     options19->RasterizerDesc2Supported = TRUE;
     /* We default to a line width of 1.0 anyway */
     options19->NarrowQuadrilateralLinesSupported = TRUE;
