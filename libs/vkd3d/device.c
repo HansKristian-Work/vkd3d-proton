@@ -8522,8 +8522,8 @@ out_cleanup_breadcrumb_tracer:
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
         vkd3d_breadcrumb_tracer_cleanup(&device->breadcrumb_tracer, device);
-#endif
 out_cleanup_queue_timeline_trace:
+#endif
     vkd3d_queue_timeline_trace_cleanup(&device->queue_timeline_trace);
 out_cleanup_debug_ring:
     vkd3d_shader_debug_ring_cleanup(&device->debug_ring, device);
