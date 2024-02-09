@@ -13,4 +13,4 @@ static const DWORD cs_denorm_fp64_fp32_any_dxbc_code_dxbc[] =
     0x0011e072, 0x00000000, 0x00004001, 0x00000000, 0x00100246, 0x00000000, 0x0100003e, 0x30494653,
     0x00000008, 0x00000001, 0x00000000,
 };
-static const D3D12_SHADER_BYTECODE cs_denorm_fp64_fp32_any_dxbc_dxbc = { cs_denorm_fp64_fp32_any_dxbc_code_dxbc, sizeof(cs_denorm_fp64_fp32_any_dxbc_code_dxbc) };
+VKD3D_UNUSED static const D3D12_SHADER_BYTECODE cs_denorm_fp64_fp32_any_dxbc_dxbc = { cs_denorm_fp64_fp32_any_dxbc_code_dxbc, sizeof(cs_denorm_fp64_fp32_any_dxbc_code_dxbc) };
