@@ -2045,7 +2045,10 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
 
     /* Handle any errors and retry as needed. If we cannot make meaningful forward progress, just give up and retry later. */
     if (vr == VK_SUBOPTIMAL_KHR || vr < 0)
+    {
         chain->present.force_swapchain_recreation = true;
+        ERR("Force recreation due to vr %d\n", vr);
+    }
     if (vr < 0)
         dxgi_vk_swap_chain_destroy_swapchain_in_present_task(chain);
 
@@ -2148,7 +2151,10 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
 
     /* Handle any errors and retry as needed. If we cannot make meaningful forward progress, just give up and retry later. */
     if (vr == VK_SUBOPTIMAL_KHR || vr < 0)
+    {
         chain->present.force_swapchain_recreation = true;
+        ERR("Force recreation due to vr %d\n", vr);
+    }
     if (vr < 0)
         dxgi_vk_swap_chain_destroy_swapchain_in_present_task(chain);
 
@@ -2212,7 +2218,12 @@ static void dxgi_vk_swap_chain_present_callback(void *chain_)
     next_present_count = chain->present.present_count + 1;
     next_request = &chain->request_ring[next_present_count % ARRAY_SIZE(chain->request_ring)];
     if (dxgi_vk_swap_chain_request_needs_swapchain_recreation(chain, next_request, &chain->request))
+    {
         chain->present.force_swapchain_recreation = true;
+        ERR("Forcing swapchain recreation due to parameters %u %u %u %u\n",
+                next_request->swap_interval, next_request->target_min_image_count,
+                next_request->dxgi_format, next_request->dxgi_color_space_type);
+    }
 
     chain->request = *next_request;
     if (chain->request.modifies_hdr_metadata)
