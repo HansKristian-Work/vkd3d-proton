@@ -102,4 +102,10 @@ static const BYTE ps_helper_lane_wave_ops_disabled_code_dxil[] =
     0x08, 0x06, 0x4c, 0x4d, 0xb8, 0x83, 0x3e, 0xe8, 0x43, 0x48, 0x04, 0x18, 0x10, 0x03, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x5b, 0x86, 0x36, 0x08, 0xe2, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00,
 };
-static const D3D12_SHADER_BYTECODE ps_helper_lane_wave_ops_disabled_dxil = { ps_helper_lane_wave_ops_disabled_code_dxil, sizeof(ps_helper_lane_wave_ops_disabled_code_dxil) };
+#ifdef __GNUC__
+#define UNUSED_ARRAY_ATTR __attribute__((unused))
+#else
+#define UNUSED_ARRAY_ATTR
+#endif
+UNUSED_ARRAY_ATTR static const D3D12_SHADER_BYTECODE ps_helper_lane_wave_ops_disabled_dxil = { ps_helper_lane_wave_ops_disabled_code_dxil, sizeof(ps_helper_lane_wave_ops_disabled_code_dxil) };
+#undef UNUSED_ARRAY_ATTR
