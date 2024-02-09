@@ -886,7 +886,11 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain *if
 
     /* Relevant if application does not use latency fence, or we force a lower latency through VKD3D_SWAPCHAIN_FRAME_LATENCY overrides. */
     if (vkd3d_native_sync_handle_is_valid(chain->frame_latency_event_internal))
+    {
+        ERR("Begin DXGISwapchain::Present() latency wait %"PRIu64".\n", chain->user.blit_count);
         vkd3d_native_sync_handle_acquire(chain->frame_latency_event_internal);
+        ERR("Done DXGISwapchain::Present() latency wait.\n");
+    }
 
     if (vkd3d_native_sync_handle_is_valid(chain->present_request_done_event))
     {
@@ -2000,9 +2004,11 @@ static VkResult dxgi_vk_swap_chain_try_acquire_next_image(struct dxgi_vk_swap_ch
     if (vr != VK_SUCCESS)
         return vr;
 
+    ERR("Begin vkAcquireNextImageKHR.\n");
     vr = VK_CALL(vkAcquireNextImageKHR(vk_device, chain->present.vk_swapchain, UINT64_MAX,
             chain->present.vk_acquire_semaphore[semaphore_index], VK_NULL_HANDLE,
             &chain->present.current_backbuffer_index));
+    ERR("End vkAcquireNextImageKHR.\n");
 
     if (vr < 0)
         chain->present.current_backbuffer_index = UINT32_MAX;
@@ -2117,7 +2123,10 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
 
     vk_queue = vkd3d_queue_acquire(chain->queue->vkd3d_queue);
     VKD3D_REGION_BEGIN(queue_present);
+    ERR("Begin vkQueuePresentKHR, ID = %"PRIu64", swap interval %u.\n",
+            chain->present.present_id, chain->request.swap_interval);
     vr = VK_CALL(vkQueuePresentKHR(vk_queue, &present_info));
+    ERR("End vkQueuePresentKHR\n");
     VKD3D_REGION_END(queue_present);
     vkd3d_queue_release(chain->queue->vkd3d_queue);
     VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
@@ -2294,9 +2303,11 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
         /* In skip wait mode we just need to make sure that we signal latency fences properly. */
         if (!chain->wait_thread.skip_waits)
         {
+            ERR("Begin vkWaitForPresent ID = %"PRIu64".\n", next_wait_id);
             /* We don't really care if we observed OUT_OF_DATE or something here. */
             VK_CALL(vkWaitForPresentKHR(chain->queue->device->vk_device, chain->present.vk_swapchain,
                     next_wait_id, UINT64_MAX));
+            ERR("Complete vkWaitForPresent ID = %"PRIu64".\n", next_wait_id);
         }
         vkd3d_queue_timeline_trace_complete_present_wait(timeline_trace, cookie);
 
