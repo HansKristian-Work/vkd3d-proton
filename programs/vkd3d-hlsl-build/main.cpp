@@ -343,7 +343,7 @@ private:
         }
 
         out_stream << "};\n";
-        out_stream << "static const D3D12_SHADER_BYTECODE " << var_name << "_" << var_suffix
+        out_stream << "VKD3D_UNUSED static const D3D12_SHADER_BYTECODE " << var_name << "_" << var_suffix
                    << " = { " << var_name << "_code_" << var_suffix << ", "
                    << "sizeof(" << var_name << "_code_" << var_suffix << ") };\n";
     }
