@@ -343,9 +343,15 @@ private:
         }
 
         out_stream << "};\n";
-        out_stream << "static const D3D12_SHADER_BYTECODE " << var_name << "_" << var_suffix
+        out_stream << "#ifdef __GNUC__\n";
+        out_stream << "#define UNUSED_ARRAY_ATTR __attribute__((unused))\n";
+        out_stream << "#else\n";
+        out_stream << "#define UNUSED_ARRAY_ATTR\n";
+        out_stream << "#endif\n";
+        out_stream << "UNUSED_ARRAY_ATTR static const D3D12_SHADER_BYTECODE " << var_name << "_" << var_suffix
                    << " = { " << var_name << "_code_" << var_suffix << ", "
                    << "sizeof(" << var_name << "_code_" << var_suffix << ") };\n";
+        out_stream << "#undef UNUSED_ARRAY_ATTR\n";
     }
 
 };

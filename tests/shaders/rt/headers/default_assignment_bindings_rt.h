@@ -85,4 +85,10 @@ static const BYTE default_assignment_bindings_rt_code_dxil[] =
     0x10, 0x04, 0x1d, 0xc7, 0x41, 0x38, 0x23, 0x06, 0x06, 0x00, 0x82, 0x60, 0xb0, 0x54, 0x86, 0x30, 0x62, 0xe0, 0x00, 0x20, 0x08, 0x06, 0xc9, 0x65, 0x04, 0x51, 0x14, 0x21, 0x08, 0x52, 0x3c, 0x08,
     0x00, 0x00, 0x00, 0x00,
 };
-static const D3D12_SHADER_BYTECODE default_assignment_bindings_rt_dxil = { default_assignment_bindings_rt_code_dxil, sizeof(default_assignment_bindings_rt_code_dxil) };
+#ifdef __GNUC__
+#define UNUSED_ARRAY_ATTR __attribute__((unused))
+#else
+#define UNUSED_ARRAY_ATTR
+#endif
+UNUSED_ARRAY_ATTR static const D3D12_SHADER_BYTECODE default_assignment_bindings_rt_dxil = { default_assignment_bindings_rt_code_dxil, sizeof(default_assignment_bindings_rt_code_dxil) };
+#undef UNUSED_ARRAY_ATTR

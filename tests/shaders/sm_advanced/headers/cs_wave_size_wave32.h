@@ -64,4 +64,10 @@ static const BYTE cs_wave_size_wave32_code_dxil[] =
     0x88, 0xc1, 0x01, 0x80, 0x20, 0x18, 0x4c, 0x68, 0x80, 0x29, 0xce, 0x88, 0x81, 0x03, 0x80, 0x20, 0x18, 0x2c, 0x6c, 0x70, 0x05, 0x02, 0x19, 0x0c, 0x9a, 0xa6, 0x45, 0x62, 0x80, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00,
 };
-static const D3D12_SHADER_BYTECODE cs_wave_size_wave32_dxil = { cs_wave_size_wave32_code_dxil, sizeof(cs_wave_size_wave32_code_dxil) };
+#ifdef __GNUC__
+#define UNUSED_ARRAY_ATTR __attribute__((unused))
+#else
+#define UNUSED_ARRAY_ATTR
+#endif
+UNUSED_ARRAY_ATTR static const D3D12_SHADER_BYTECODE cs_wave_size_wave32_dxil = { cs_wave_size_wave32_code_dxil, sizeof(cs_wave_size_wave32_code_dxil) };
+#undef UNUSED_ARRAY_ATTR

@@ -78,4 +78,10 @@ static const BYTE cs_64bit_atomics_shared_code_dxil[] =
     0x06, 0x00, 0x00, 0x00, 0x5b, 0x06, 0x25, 0x28, 0x83, 0x2d, 0x03, 0x13, 0x94, 0xc1, 0x96, 0xe1, 0x0c, 0x82, 0x32, 0xd8, 0x32, 0xa4, 0x41, 0x50, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00,
 };
-static const D3D12_SHADER_BYTECODE cs_64bit_atomics_shared_dxil = { cs_64bit_atomics_shared_code_dxil, sizeof(cs_64bit_atomics_shared_code_dxil) };
+#ifdef __GNUC__
+#define UNUSED_ARRAY_ATTR __attribute__((unused))
+#else
+#define UNUSED_ARRAY_ATTR
+#endif
+UNUSED_ARRAY_ATTR static const D3D12_SHADER_BYTECODE cs_64bit_atomics_shared_dxil = { cs_64bit_atomics_shared_code_dxil, sizeof(cs_64bit_atomics_shared_code_dxil) };
+#undef UNUSED_ARRAY_ATTR
