@@ -237,8 +237,10 @@ static void dxgi_vk_swap_chain_ensure_unsignaled_swapchain_fence(struct dxgi_vk_
     {
         if (chain->present.vk_swapchain_fences_signalled[index])
         {
+            ERR("Begin wait on swapchain fence.\n");
             vr = VK_CALL(vkWaitForFences(chain->queue->device->vk_device,
                     1, &chain->present.vk_swapchain_fences[index], VK_TRUE, UINT64_MAX));
+            ERR("End wait on swapchain fence.\n");
 
             if (vr)
             {
