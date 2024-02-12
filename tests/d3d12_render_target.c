@@ -1085,7 +1085,7 @@ void test_renderpass_rendering(void)
     resource_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     resource_desc.DepthOrArraySize = 1;
     resource_desc.SampleDesc.Count = 1;
-    resource_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    resource_desc.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
 
     hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties,
@@ -1182,7 +1182,7 @@ void test_renderpass_rendering(void)
             get_cpu_rtv_handle(&context, rtv_heap, 7));
 
     memset(&dsv_desc, 0, sizeof(dsv_desc));
-    dsv_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    dsv_desc.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
     dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
     dsv_desc.Texture2D.MipSlice = 0;
     ID3D12Device_CreateDepthStencilView(context.device, ds, &dsv_desc,
