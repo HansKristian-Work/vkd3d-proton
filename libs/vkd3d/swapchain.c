@@ -145,6 +145,7 @@ struct dxgi_vk_swap_chain
 
         VkPresentModeKHR unlocked_present_mode;
         bool compatible_unlocked_present_mode;
+        bool present_mode_forces_fifo;
     } present;
 
     struct dxgi_vk_swap_chain_present_request request, request_ring[DXGI_MAX_SWAP_CHAIN_BUFFERS];
@@ -1518,22 +1519,23 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
         present_modes_info.pPresentModes = present_mode_group;
         present_modes_info.presentModeCount = ARRAY_SIZE(present_mode_group);
         vk_prepend_struct(&swapchain_create_info, &present_modes_info);
+        chain->present.present_mode_forces_fifo = false;
     }
     else
     {
         present_mode = chain->request.swap_interval > 0 ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR;
 
-        /* Prefer IMMEDIATE over MAILBOX */
-        if (!dxgi_vk_swap_chain_check_present_mode_support(chain, present_mode))
+        /* Prefer IMMEDIATE over MAILBOX. FIFO is guaranteed to be supported. */
+        if (present_mode == VK_PRESENT_MODE_IMMEDIATE_KHR &&
+                !dxgi_vk_swap_chain_check_present_mode_support(chain, present_mode))
         {
-            if (present_mode == VK_PRESENT_MODE_IMMEDIATE_KHR &&
-                    dxgi_vk_swap_chain_check_present_mode_support(chain, VK_PRESENT_MODE_MAILBOX_KHR))
-            {
+            if (dxgi_vk_swap_chain_check_present_mode_support(chain, VK_PRESENT_MODE_MAILBOX_KHR))
                 present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
-            }
             else
-                return;
+                present_mode = VK_PRESENT_MODE_FIFO_KHR;
         }
+
+        chain->present.present_mode_forces_fifo = present_mode == VK_PRESENT_MODE_FIFO_KHR;
     }
 
     swapchain_create_info.surface = chain->vk_surface;
@@ -2021,6 +2023,7 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     VkPresentInfoKHR present_info;
     VkPresentIdKHR present_id;
     uint32_t swapchain_index;
+    bool swapchain_is_fifo;
     bool use_present_id;
     VkResult vk_result;
     VkQueue vk_queue;
@@ -2070,11 +2073,15 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     present_info.pWaitSemaphores = &chain->present.vk_release_semaphores[swapchain_index];
     present_info.pResults = &vk_result;
 
+    /* Even if application requests IMMEDIATE mode, the WSI implementation may not support it.
+     * In this case, we should still opt for using frame latency object to avoid catastrophic latency. */
+    swapchain_is_fifo = chain->request.swap_interval > 0 || chain->present.present_mode_forces_fifo;
+
     /* Only bother with present wait path for FIFO swapchains.
      * Non-FIFO swapchains will pump their frame latency handles through the fallback path of blit command being done.
      * Especially on Xwayland, the present ID is updated when images actually hit on-screen due to MAILBOX behavior.
      * This would unnecessarily stall our progress. */
-    if (chain->wait_thread.active && !chain->present.present_id_valid && chain->request.swap_interval > 0)
+    if (chain->wait_thread.active && !chain->present.present_id_valid && swapchain_is_fifo)
     {
         /* If we recreate swapchain, we still want to maintain a monotonically increasing counter here for
          * profiling purposes. */
