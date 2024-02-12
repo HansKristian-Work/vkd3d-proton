@@ -6533,6 +6533,17 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
 
         if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR)
         {
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+            for (i = 0; i < dyn_state->viewport_count; i++)
+            {
+                VKD3D_BREADCRUMB_TAG("vkCmdSetScissor [index, x, y, width, height ]");
+                VKD3D_BREADCRUMB_AUX32(i);
+                VKD3D_BREADCRUMB_AUX32(dyn_state->scissors[i].offset.x);
+                VKD3D_BREADCRUMB_AUX32(dyn_state->scissors[i].offset.y);
+                VKD3D_BREADCRUMB_AUX32(dyn_state->scissors[i].extent.width);
+                VKD3D_BREADCRUMB_AUX32(dyn_state->scissors[i].extent.height);
+            }
+#endif
             VK_CALL(vkCmdSetScissorWithCount(list->cmd.vk_command_buffer,
                     dyn_state->viewport_count, dyn_state->scissors));
         }
