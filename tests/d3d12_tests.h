@@ -401,3 +401,4 @@ decl_test(test_renderpass_validation);
 decl_test(test_renderpass_rendering);
 decl_test(test_sampler_rounding);
 decl_test(test_scissor_clamping);
+decl_test(test_gs_multiview_transform);
