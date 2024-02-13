@@ -2196,6 +2196,7 @@ static void d3d12_pipeline_state_free_cached_desc(struct d3d12_graphics_pipeline
     unsigned int i;
     vkd3d_shader_transform_feedback_info_free(cached_desc->xfb_info);
     vkd3d_shader_stage_io_map_free(&cached_desc->stage_io_map_ms_ps);
+    vkd3d_free(cached_desc->vs_shader_parameters);
     while (cached_desc->bytecode_duped_mask)
     {
         i = vkd3d_bitmask_iter32(&cached_desc->bytecode_duped_mask);
@@ -2496,6 +2497,11 @@ static void d3d12_pipeline_state_init_compile_arguments(struct d3d12_pipeline_st
         compile_arguments->dual_source_blending = state->graphics.cached_desc.is_dual_source_blending;
         compile_arguments->output_swizzles = state->graphics.cached_desc.ps_output_swizzle;
         compile_arguments->output_swizzle_count = state->graphics.rt_count;
+    }
+    else if (stage == VK_SHADER_STAGE_VERTEX_BIT)
+    {
+        compile_arguments->parameter_count = state->graphics.cached_desc.vs_shader_parameters_count;
+        compile_arguments->parameters = state->graphics.cached_desc.vs_shader_parameters;
     }
 }
 
@@ -3806,6 +3812,8 @@ void vkd3d_fragment_output_pipeline_desc_init(struct vkd3d_fragment_output_pipel
     desc->rt_info.depthAttachmentFormat = dsv_format && (dsv_format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT) ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
     /* From spec:  If stencilAttachmentFormat is not VK_FORMAT_UNDEFINED, it must be a format that includes a stencil aspect. */
     desc->rt_info.stencilAttachmentFormat = dsv_format && (dsv_format->vk_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT) ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
+    /* Ignored everywhere except pre-raster. */
+    desc->rt_info.viewMask = graphics->view_mask;
 
     desc->dy_info.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     desc->dy_info.dynamicStateCount = vkd3d_init_dynamic_state_array(desc->dy_states,
@@ -4186,6 +4194,77 @@ static void d3d12_pipeline_state_graphics_handle_meta(struct d3d12_pipeline_stat
         vk_prepend_struct(&graphics->rs_desc, &graphics->rs_line_info);
 }
 
+static bool d3d12_pipeline_state_init_configure_optimized_gs_pipeline(struct d3d12_pipeline_state *state,
+        const struct vkd3d_shader_code *dxbc)
+{
+    struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
+    const struct vkd3d_shader_gs_multiview_hash *gs_multiview;
+    vkd3d_shader_hash_t hash;
+    unsigned int i;
+
+    /* We only attempt this optimization if it's explicitly opt-in.
+     * Trying to analyze this in the general case isn't really feasible.
+     * There are too many factors that break the optimization. */
+    if (vkd3d_shader_quirk_info.num_gs_multiview_hashes == 0 &&
+            !vkd3d_shader_quirk_info.global_gs_multiview)
+    {
+        return false;
+    }
+
+    /* Don't allow tessellation here. We only consider VS -> GS, where the GS is a trivial amplification to layers. */
+    if ((graphics->stage_flags & ~VK_SHADER_STAGE_FRAGMENT_BIT) !=
+            (VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT))
+    {
+        return false;
+    }
+
+    if (graphics->xfb_enabled)
+        return false;
+
+    hash = vkd3d_shader_hash(dxbc);
+    gs_multiview = vkd3d_shader_quirk_info.global_gs_multiview;
+    for (i = 0; i < vkd3d_shader_quirk_info.num_gs_multiview_hashes; i++)
+    {
+        if (vkd3d_shader_quirk_info.gs_multiview_hashes[i].shader_hash == hash)
+        {
+            gs_multiview = &vkd3d_shader_quirk_info.gs_multiview_hashes[i];
+            break;
+        }
+    }
+
+    if (!gs_multiview)
+        return false;
+
+    graphics->stage_flags &= ~VK_SHADER_STAGE_GEOMETRY_BIT;
+    graphics->view_mask = (1u << gs_multiview->view_count) - 1u;
+
+#define VKD3D_GS_MULTIVIEW_NUM_PARAMETERS 7
+    graphics->cached_desc.vs_shader_parameters =
+            vkd3d_calloc(VKD3D_GS_MULTIVIEW_NUM_PARAMETERS, sizeof(*graphics->cached_desc.vs_shader_parameters));
+    graphics->cached_desc.vs_shader_parameters_count = VKD3D_GS_MULTIVIEW_NUM_PARAMETERS;
+
+    for (i = 0; i < VKD3D_GS_MULTIVIEW_NUM_PARAMETERS; i++)
+    {
+        graphics->cached_desc.vs_shader_parameters[i].type = VKD3D_SHADER_PARAMETER_TYPE_IMMEDIATE_CONSTANT;
+        graphics->cached_desc.vs_shader_parameters[i].data_type = VKD3D_SHADER_PARAMETER_DATA_TYPE_UINT32;
+    }
+
+#define DECL_PARAM(index, n, value) \
+    graphics->cached_desc.vs_shader_parameters[index].name = VKD3D_SHADER_PARAMETER_NAME_VS_MULTIVIEW_##n; \
+    graphics->cached_desc.vs_shader_parameters[index].immediate_constant.u32 = value
+
+    DECL_PARAM(0, ENABLE, true);
+    DECL_PARAM(1, CBV_REGISTER, gs_multiview->cbv_register);
+    DECL_PARAM(2, CBV_SPACE, gs_multiview->cbv_space);
+    DECL_PARAM(3, ROW_MAJOR, gs_multiview->row_major);
+    DECL_PARAM(4, BASE_ROW, gs_multiview->base_row);
+    DECL_PARAM(5, MATRIX_OFFSET, gs_multiview->matrix_offset);
+    DECL_PARAM(6, NUM_VIEWS, gs_multiview->view_count);
+#undef DECL_PARAM
+
+    return true;
+}
+
 static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc)
 {
@@ -4474,6 +4553,13 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
                 break;
 
             case VK_SHADER_STAGE_GEOMETRY_BIT:
+                /* If this geometry shader can be replaced with VS + multiview through game-specific optimizations,
+                 * do so here. Just pretend the geometry shader does not exist,
+                 * and force view_mask to some value. */
+                if (d3d12_pipeline_state_init_configure_optimized_gs_pipeline(state, &dxbc))
+                    continue;
+                break;
+
             case VK_SHADER_STAGE_TASK_BIT_EXT:
             case VK_SHADER_STAGE_MESH_BIT_EXT:
                 break;

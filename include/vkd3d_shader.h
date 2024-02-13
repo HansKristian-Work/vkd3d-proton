@@ -151,6 +151,13 @@ enum vkd3d_shader_parameter_name
 {
     VKD3D_SHADER_PARAMETER_NAME_UNKNOWN,
     VKD3D_SHADER_PARAMETER_NAME_RASTERIZER_SAMPLE_COUNT,
+    VKD3D_SHADER_PARAMETER_NAME_VS_MULTIVIEW_ENABLE,
+    VKD3D_SHADER_PARAMETER_NAME_VS_MULTIVIEW_CBV_REGISTER,
+    VKD3D_SHADER_PARAMETER_NAME_VS_MULTIVIEW_CBV_SPACE,
+    VKD3D_SHADER_PARAMETER_NAME_VS_MULTIVIEW_MATRIX_OFFSET,
+    VKD3D_SHADER_PARAMETER_NAME_VS_MULTIVIEW_ROW_MAJOR,
+    VKD3D_SHADER_PARAMETER_NAME_VS_MULTIVIEW_BASE_ROW,
+    VKD3D_SHADER_PARAMETER_NAME_VS_MULTIVIEW_NUM_VIEWS,
 };
 
 struct vkd3d_shader_parameter_immediate_constant
@@ -437,6 +444,17 @@ struct vkd3d_shader_quirk_hash
     uint32_t quirks;
 };
 
+struct vkd3d_shader_gs_multiview_hash
+{
+    vkd3d_shader_hash_t shader_hash;
+    uint32_t cbv_register;
+    uint32_t cbv_space;
+    uint32_t matrix_offset;
+    uint32_t base_row;
+    uint32_t view_count;
+    bool row_major;
+};
+
 struct vkd3d_shader_quirk_info
 {
     const struct vkd3d_shader_quirk_hash *hashes;
@@ -446,6 +464,10 @@ struct vkd3d_shader_quirk_info
     /* Quirks which are ORed in with the other masks (including default_quirks).
      * Used mostly for additional overrides from VKD3D_CONFIG. */
     uint32_t global_quirks;
+
+    const struct vkd3d_shader_gs_multiview_hash *gs_multiview_hashes;
+    unsigned int num_gs_multiview_hashes;
+    const struct vkd3d_shader_gs_multiview_hash *global_gs_multiview;
 };
 
 struct vkd3d_shader_compile_arguments

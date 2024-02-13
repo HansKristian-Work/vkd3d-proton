@@ -688,6 +688,20 @@ static const struct vkd3d_shader_quirk_info pagonia_quirks = {
     NULL, 0, VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS,
 };
 
+static const struct vkd3d_shader_gs_multiview_hash test_suite_gs_multiview = {
+    0, /* hash */
+    0, /* cbv_register */
+    0, /* cbv_space */
+    16, /* matrix_offset */
+    1, /* base_row */
+    6, /* view_count */
+    true, /* row_major */
+};
+
+static const struct vkd3d_shader_quirk_info test_suite_quirks = {
+    NULL, 0, 0, 0, NULL, 0, &test_suite_gs_multiview,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -711,6 +725,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Cyberpunk2077.exe", &cp77_quirks },
     /* Pioneers of Pagonia (2155180) */
     { VKD3D_STRING_COMPARE_EXACT, "Pioneers of Pagonia.exe", &pagonia_quirks },
+    /* d3d12 - our test suite. For testing specific optimizations. */
+    { VKD3D_STRING_COMPARE_EXACT, "d3d12", &test_suite_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     /* MSVC fails to compile empty array. */

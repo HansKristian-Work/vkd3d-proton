@@ -1975,6 +1975,8 @@ struct d3d12_graphics_pipeline_state_cached_desc
     /* Information needed to compile to SPIR-V. */
     unsigned int ps_output_swizzle[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     struct vkd3d_shader_parameter ps_shader_parameters[1];
+    struct vkd3d_shader_parameter *vs_shader_parameters;
+    unsigned int vs_shader_parameters_count;
     bool is_dual_source_blending;
     VkShaderStageFlagBits xfb_stage;
     struct vkd3d_shader_transform_feedback_info *xfb_info;
@@ -2015,6 +2017,7 @@ struct d3d12_graphics_pipeline_state
     unsigned int null_attachment_mask;
     unsigned int rtv_active_mask;
     unsigned int patch_vertex_count;
+    unsigned int view_mask;
     const struct vkd3d_format *dsv_format;
     VkFormat rtv_formats[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT];
     uint32_t dsv_plane_optimal_mask;

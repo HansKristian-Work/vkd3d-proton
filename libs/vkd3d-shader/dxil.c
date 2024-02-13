@@ -551,6 +551,74 @@ static bool dxil_match_shader_stage(dxil_spv_shader_stage blob_stage, VkShaderSt
     return true;
 }
 
+static void vkd3d_shader_compile_dxil_set_multiview(dxil_spv_converter converter,
+        const struct vkd3d_shader_parameter *parameters,
+        unsigned int parameter_count)
+{
+    const struct vkd3d_shader_parameter *argument;
+    uint32_t matrix_offset;
+    uint32_t cbv_register;
+    uint32_t cbv_space;
+    uint32_t num_views;
+    uint32_t base_row;
+    bool row_major;
+    unsigned int i;
+    bool enable;
+
+    enable = false;
+
+    for (i = 0; i < parameter_count; i++)
+    {
+        argument = &parameters[i];
+        if (argument->data_type != VKD3D_SHADER_PARAMETER_DATA_TYPE_UINT32 ||
+                argument->type != VKD3D_SHADER_PARAMETER_TYPE_IMMEDIATE_CONSTANT)
+        {
+            continue;
+        }
+
+        switch (argument->name)
+        {
+            case VKD3D_SHADER_PARAMETER_NAME_VS_MULTIVIEW_ENABLE:
+                enable = argument->immediate_constant.u32 != 0;
+                break;
+
+            case VKD3D_SHADER_PARAMETER_NAME_VS_MULTIVIEW_CBV_REGISTER:
+                cbv_register = argument->immediate_constant.u32;
+                break;
+
+            case VKD3D_SHADER_PARAMETER_NAME_VS_MULTIVIEW_CBV_SPACE:
+                cbv_space = argument->immediate_constant.u32;
+                break;
+
+            case VKD3D_SHADER_PARAMETER_NAME_VS_MULTIVIEW_MATRIX_OFFSET:
+                matrix_offset = argument->immediate_constant.u32;
+                break;
+
+            case VKD3D_SHADER_PARAMETER_NAME_VS_MULTIVIEW_NUM_VIEWS:
+                num_views = argument->immediate_constant.u32;
+                break;
+
+            case VKD3D_SHADER_PARAMETER_NAME_VS_MULTIVIEW_BASE_ROW:
+                base_row = argument->immediate_constant.u32;
+                break;
+
+            case VKD3D_SHADER_PARAMETER_NAME_VS_MULTIVIEW_ROW_MAJOR:
+                row_major = argument->immediate_constant.u32 != 0;
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    if (enable)
+    {
+        dxil_spv_converter_set_multiview_transform(converter, DXIL_SPV_STAGE_GEOMETRY,
+                base_row, cbv_register, cbv_space, matrix_offset, row_major ? DXIL_SPV_TRUE : DXIL_SPV_FALSE,
+                num_views);
+    }
+}
+
 int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_code *spirv,
         struct vkd3d_shader_code_debug *spirv_debug,
@@ -989,6 +1057,9 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
                 }
             }
         }
+
+        if (stage == DXIL_SPV_STAGE_VERTEX)
+            vkd3d_shader_compile_dxil_set_multiview(converter, compiler_args->parameters, compiler_args->parameter_count);
     }
 
     /* For legacy reasons, COMPUTE_SHADER_DERIVATIVES_NV is default true in dxil-spirv,

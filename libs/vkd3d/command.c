@@ -5698,6 +5698,7 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
     graphics = &list->state->graphics;
 
     rendering_info->rtv_mask = graphics->rtv_active_mask;
+    rendering_info->info.viewMask = graphics->view_mask;
     rendering_info->info.colorAttachmentCount = graphics->rt_count;
 
     /* The pipeline has fallback PSO in case we're attempting to render to unbound RTV. */
@@ -5754,6 +5755,10 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
             &rendering_info->info.renderArea.extent.width,
             &rendering_info->info.renderArea.extent.height,
             &rendering_info->info.layerCount);
+
+    /* In multiview, layerCount is 1, and view mask decides effective layer count. */
+    if (rendering_info->info.viewMask)
+        rendering_info->info.layerCount = 1;
 
     /* It is robust in D3D12 to render with a scissor rect that out of bounds, but not so in Vulkan,
      * so we might have to re-clamp the scissor state. */
@@ -5921,6 +5926,7 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
     /* If we need to bind or unbind certain render targets or if the DSV layout changed, interrupt rendering.
      * It's also possible that rtv_active_mask is constant, but rt_count increases (if last RT format is NULL). */
     if ((list->state->graphics.rtv_active_mask != list->rendering_info.rtv_mask) ||
+            (list->state->graphics.view_mask != list->rendering_info.info.viewMask) ||
             (list->state->graphics.rt_count != list->rendering_info.info.colorAttachmentCount) ||
             (dsv_layout != list->rendering_info.dsv.imageLayout))
     {
@@ -9410,6 +9416,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState(d3d12_command_
                         state->graphics.code[i].meta.hash,
                         state->graphics.code_debug[i].debug_entry_point_name ?
                                 state->graphics.code_debug[i].debug_entry_point_name : "N/A");
+            }
+
+            if (state->graphics.view_mask)
+            {
+                offset += snprintf(buffer + offset, sizeof(buffer) - offset,
+                        "(ViewMask #%x)", state->graphics.view_mask);
             }
 
             r = 0.0f;
