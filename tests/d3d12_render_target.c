@@ -1587,3 +1587,105 @@ void test_renderpass_rendering(void)
 
     destroy_test_context(&context);
 }
+
+void test_scissor_clamping(void)
+{
+    const float black[4] = { 1.0f / 255.0f, 1.0f / 255.0, 1.0f / 255.0f, 1.0f / 255.0f };
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    struct test_context_desc context_desc;
+    D3D12_CPU_DESCRIPTOR_HANDLE desc[3];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    ID3D12DescriptorHeap *rtv_heap;
+    struct test_context context;
+    ID3D12Resource *highres[2];
+    ID3D12Resource *lowres;
+    D3D12_VIEWPORT vp;
+    D3D12_RECT sci;
+    unsigned int i;
+    HRESULT hr;
+
+#include "shaders/render_target/headers/vs_flat_color.h"
+#include "shaders/render_target/headers/ps_flat_color.h"
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_render_target = true;
+    context_desc.no_pipeline = true;
+
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature, DXGI_FORMAT_R8G8B8A8_UNORM, &vs_flat_color_dxbc, &ps_flat_color_dxbc, NULL);
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+
+    rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 3);
+    highres[0] = create_default_texture2d(context.device, 1920, 1080, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM,
+        D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    highres[1] = create_default_texture2d(context.device, 1920, 1080, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM,
+        D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    lowres = create_default_texture2d(context.device, 480, 270, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM,
+        D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    for (i = 0; i < 3; i++)
+        desc[i] = get_cpu_rtv_handle(&context, rtv_heap, i);
+
+    ID3D12Device_CreateRenderTargetView(context.device, highres[0], NULL, desc[0]);
+    ID3D12Device_CreateRenderTargetView(context.device, lowres, NULL, desc[1]);
+    ID3D12Device_CreateRenderTargetView(context.device, highres[1], NULL, desc[2]);
+
+    set_rect(&sci, 0, 0, 1920, 1080);
+    set_viewport(&vp, 0, 0, 1920, 1080, 0, 1);
+
+    /* Try clearing out of bounds too. Does not trigger validation error either >_< */
+    for (i = 0; i < 3; i++)
+        ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, desc[i], black, 1, &sci);
+
+    transition_resource_state(context.list, highres[0], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(context.list, highres[1], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(context.list, lowres, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(highres[0], 0, context.queue, context.list, 0x01010101, 0);
+    reset_command_list(context.list, context.allocator);
+    check_sub_resource_uint(highres[1], 0, context.queue, context.list, 0x01010101, 0);
+    reset_command_list(context.list, context.allocator);
+    check_sub_resource_uint(lowres, 0, context.queue, context.list, 0x01010101, 0);
+    reset_command_list(context.list, context.allocator);
+
+    transition_resource_state(context.list, highres[0], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    transition_resource_state(context.list, highres[1], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    transition_resource_state(context.list, lowres, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &sci);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    /* When rendering low-res target, it will have scissor out of bounds. There is no validation error when doing so. */
+    for (i = 0; i < 3; i++)
+    {
+        ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &desc[i], TRUE, NULL);
+        ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+    }
+
+    transition_resource_state(context.list, highres[0], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(context.list, highres[1], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition_resource_state(context.list, lowres, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    check_sub_resource_uint(highres[0], 0, context.queue, context.list, ~0u, 0);
+    reset_command_list(context.list, context.allocator);
+    check_sub_resource_uint(highres[1], 0, context.queue, context.list, ~0u, 0);
+    reset_command_list(context.list, context.allocator);
+    check_sub_resource_uint(lowres, 0, context.queue, context.list, ~0u, 0);
+    reset_command_list(context.list, context.allocator);
+
+    ID3D12Resource_Release(highres[0]);
+    ID3D12Resource_Release(highres[1]);
+    ID3D12Resource_Release(lowres);
+    ID3D12DescriptorHeap_Release(rtv_heap);
+    destroy_test_context(&context);
+}
