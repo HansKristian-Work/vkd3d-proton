@@ -702,6 +702,15 @@ static const struct vkd3d_shader_quirk_info test_suite_quirks = {
     NULL, 0, 0, 0, NULL, 0, &test_suite_gs_multiview,
 };
 
+static const struct vkd3d_shader_gs_multiview_hash p3r_gs_multiview[] = {
+    { 0xdc58ae08299cfdf5ull, 0, 0, 29 * 16, 0, 6, false },
+    { 0x618675bcaa0a9392ull, 0, 0, 29 * 16, 0, 6, false },
+};
+
+static const struct vkd3d_shader_quirk_info p3r_quirks = {
+    NULL, 0, 0, 0, p3r_gs_multiview, ARRAY_SIZE(p3r_gs_multiview), NULL,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -727,6 +736,7 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "Pioneers of Pagonia.exe", &pagonia_quirks },
     /* d3d12 - our test suite. For testing specific optimizations. */
     { VKD3D_STRING_COMPARE_EXACT, "d3d12", &test_suite_quirks },
+    { VKD3D_STRING_COMPARE_EXACT, "P3R.exe", &p3r_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     /* MSVC fails to compile empty array. */
