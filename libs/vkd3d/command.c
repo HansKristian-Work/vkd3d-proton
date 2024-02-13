@@ -5689,6 +5689,7 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
 {
     struct vkd3d_rendering_info *rendering_info = &list->rendering_info;
     struct d3d12_graphics_pipeline_state *graphics;
+    VkExtent2D old_extent;
     unsigned int i;
 
     if (rendering_info->state_flags & VKD3D_RENDERING_CURRENT)
@@ -5748,10 +5749,19 @@ static bool d3d12_command_list_update_rendering_info(struct d3d12_command_list *
         rendering_info->vrs.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     }
 
+    old_extent = rendering_info->info.renderArea.extent;
     d3d12_command_list_get_fb_extent(list,
             &rendering_info->info.renderArea.extent.width,
             &rendering_info->info.renderArea.extent.height,
             &rendering_info->info.layerCount);
+
+    /* It is robust in D3D12 to render with a scissor rect that out of bounds, but not so in Vulkan,
+     * so we might have to re-clamp the scissor state. */
+    if (old_extent.width != rendering_info->info.renderArea.extent.width ||
+            old_extent.height != rendering_info->info.renderArea.extent.height)
+    {
+        list->dynamic_state.dirty_flags |= VKD3D_DYNAMIC_STATE_SCISSOR;
+    }
 
     return true;
 }
@@ -6533,8 +6543,27 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
 
         if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_SCISSOR)
         {
+            /* Rendering with OOB scissor seems to work fine in D3D12,
+             * but it's out of spec in Vulkan,
+             * and NV can crash GPU if scissor is out of bounds in some cases. */
+            VkRect2D clamped_scissors[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
+            VkExtent2D max_sci_extent, max_fb_extent;
+            const VkRect2D *scissor;
+
+            max_fb_extent = list->rendering_info.info.renderArea.extent;
+
+            for (i = 0; i < dyn_state->viewport_count; i++)
+            {
+                scissor = &dyn_state->scissors[i];
+                max_sci_extent.width = max((int)max_fb_extent.width - scissor->offset.x, 0);
+                max_sci_extent.height = max((int)max_fb_extent.height - scissor->offset.y, 0);
+                clamped_scissors[i].offset = scissor->offset;
+                clamped_scissors[i].extent.width = min(max_sci_extent.width, scissor->extent.width);
+                clamped_scissors[i].extent.height = min(max_sci_extent.height, scissor->extent.height);
+            }
+
             VK_CALL(vkCmdSetScissorWithCount(list->cmd.vk_command_buffer,
-                    dyn_state->viewport_count, dyn_state->scissors));
+                    dyn_state->viewport_count, clamped_scissors));
         }
     }
     else
