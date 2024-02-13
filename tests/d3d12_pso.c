@@ -3139,3 +3139,823 @@ void test_coverage_export_atoc_dxil(void)
 {
     test_coverage_export_atoc(true);
 }
+
+void test_view_instancing(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc_simple;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS3 options3;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS7 options7;
+    D3D12_COMMAND_SIGNATURE_DESC command_desc;
+    ID3D12GraphicsCommandList6* command_list6;
+    ID3D12GraphicsCommandList1 *command_list1;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
+    D3D12_INDIRECT_ARGUMENT_DESC command_arg;
+    D3D12_FEATURE_DATA_SHADER_MODEL model;
+    struct test_context_desc context_desc;
+    ID3D12CommandSignature *command_sig;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    ID3D12Resource *ibo, *arg_buffer;
+    ID3D12PipelineState *pso, *pso2;
+    struct resource_readback rb;
+    D3D12_INDEX_BUFFER_VIEW ibv;
+    D3D12_ROOT_PARAMETER rs_arg;
+    struct test_context context;
+    D3D12_VIEWPORT viewports[4];
+    unsigned int i, j, x, y;
+    ID3D12Device2 *device2;
+    uint32_t got, expected;
+    D3D12_RECT scissors[4];
+    uint32_t view_mask;
+    HRESULT hr;
+
+    FLOAT clear_value[] = { 65535.0f, 0.0f, 0.0f, 0.0f };
+
+#include "shaders/pso/headers/ps_view_id_passthrough.h"
+#include "shaders/pso/headers/ms_view_id_passthrough.h"
+#include "shaders/pso/headers/vs_view_id_passthrough.h"
+#include "shaders/pso/headers/vs_multiview_export_layer_viewport.h"
+#include "shaders/pso/headers/gs_multiview_export_layer_viewport.h"
+
+    static const union d3d12_shader_bytecode_subobject ps_view_id_passthrough_subobject =
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, { ps_view_id_passthrough_code_dxil, sizeof(ps_view_id_passthrough_code_dxil) } }};
+    static const union d3d12_shader_bytecode_subobject vs_view_id_passthrough_subobject =
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VS, { vs_view_id_passthrough_code_dxil, sizeof(vs_view_id_passthrough_code_dxil) } }};
+    static const union d3d12_shader_bytecode_subobject ms_view_id_passthrough_subobject =
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, { ms_view_id_passthrough_code_dxil, sizeof(ms_view_id_passthrough_code_dxil) } }};
+    static const union d3d12_shader_bytecode_subobject vs_multiview_export_layer_viewport_subobject =
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VS, { vs_multiview_export_layer_viewport_code_dxil, sizeof(vs_multiview_export_layer_viewport_code_dxil) } }};
+    static const union d3d12_shader_bytecode_subobject gs_multiview_export_layer_viewport_subobject =
+            {{ D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_GS, { gs_multiview_export_layer_viewport_code_dxil, sizeof(gs_multiview_export_layer_viewport_code_dxil) } }};
+
+    static const uint32_t index_data[] = { 0, 1, 2 };
+    static const uint32_t indirect_draw_data[] = { 3, 1, 0, 0 };
+
+    static const union d3d12_root_signature_subobject root_signature_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE,
+        NULL, /* fill in dynamically */
+    }};
+
+    static const union d3d12_input_layout_subobject input_layout_subobject =
+    { {
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_INPUT_LAYOUT,
+        { NULL, 0 },
+    } };
+
+    static const union d3d12_primitive_topology_subobject primitive_topology_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY,
+        D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
+    }};
+
+    static const union d3d12_rasterizer_subobject rasterizer_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER,
+        { D3D12_FILL_MODE_SOLID, D3D12_CULL_MODE_NONE,
+            TRUE, 0, 0.0f, 0.0f, TRUE, FALSE, FALSE, 0,
+            D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF },
+    }};
+
+    static const union d3d12_sample_desc_subobject sample_desc_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_DESC,
+        { 1, 0 },
+    }};
+
+    static const union d3d12_sample_mask_subobject sample_mask_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_MASK,
+        0xFFFFFFFFu
+    }};
+
+    static const union d3d12_render_target_formats_subobject render_target_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS,
+        { { DXGI_FORMAT_R32_UINT }, 1 },
+    }};
+
+    static const union d3d12_blend_subobject blend_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_BLEND,
+        { FALSE, TRUE,
+            {{ FALSE, FALSE,
+                D3D12_BLEND_ONE, D3D12_BLEND_ZERO, D3D12_BLEND_OP_ADD,
+                D3D12_BLEND_ONE, D3D12_BLEND_ZERO, D3D12_BLEND_OP_ADD,
+                D3D12_LOGIC_OP_NOOP, D3D12_COLOR_WRITE_ENABLE_ALL }},
+        }
+    }};
+
+    static const D3D12_VIEW_INSTANCE_LOCATION view_instance_locations_simple[] =
+    {
+        { 0, 0 }, { 0, 1 }, { 0, 2 }, { 0, 3 },
+    };
+
+    static const D3D12_VIEW_INSTANCE_LOCATION view_instance_locations_shuffle[] =
+    {
+        { 0, 2 }, { 0, 0 }, { 0, 3 }, { 0, 1 },
+    };
+
+    static const D3D12_VIEW_INSTANCE_LOCATION view_instance_locations_viewports[] =
+    {
+        { 0, 0 }, { 1, 0 }, { 2, 0 }, { 3, 0 },
+    };
+
+    static const D3D12_VIEW_INSTANCE_LOCATION view_instance_locations_mixed[] =
+    {
+        { 2, 1 }, { 3, 0 }, { 1, 3 },
+    };
+
+    static const D3D12_VIEW_INSTANCE_LOCATION view_instance_locations_export[] =
+    {
+        { 1, 1 }, { 1, 2 },
+    };
+
+    static const union d3d12_view_instancing_subobject view_instancing_simple_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VIEW_INSTANCING,
+        { ARRAY_SIZE(view_instance_locations_simple), view_instance_locations_simple, 0 }
+    }};
+
+    static const union d3d12_view_instancing_subobject view_instancing_simple_mask_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VIEW_INSTANCING,
+        { ARRAY_SIZE(view_instance_locations_simple), view_instance_locations_simple,
+        D3D12_VIEW_INSTANCING_FLAG_ENABLE_VIEW_INSTANCE_MASKING }
+    }};
+
+    static const union d3d12_view_instancing_subobject view_instancing_shuffle_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VIEW_INSTANCING,
+        { ARRAY_SIZE(view_instance_locations_shuffle), view_instance_locations_shuffle, 0 }
+    }};
+
+    static const union d3d12_view_instancing_subobject view_instancing_viewports_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VIEW_INSTANCING,
+        { ARRAY_SIZE(view_instance_locations_viewports), view_instance_locations_viewports, 0 }
+    }};
+
+    static const union d3d12_view_instancing_subobject view_instancing_mixed_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VIEW_INSTANCING,
+        { ARRAY_SIZE(view_instance_locations_mixed), view_instance_locations_mixed, 0 }
+    }};
+
+    static const union d3d12_view_instancing_subobject view_instancing_export_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VIEW_INSTANCING,
+        { ARRAY_SIZE(view_instance_locations_export), view_instance_locations_export, 0 }
+    }};
+
+    struct
+    {
+        union d3d12_root_signature_subobject root_signature;
+        union d3d12_input_layout_subobject input_layout;
+        union d3d12_primitive_topology_subobject primitive_topology;
+        union d3d12_shader_bytecode_subobject vs;
+        union d3d12_shader_bytecode_subobject ps;
+        union d3d12_rasterizer_subobject rasterizer;
+        union d3d12_sample_desc_subobject sample_desc;
+        union d3d12_sample_mask_subobject sample_mask;
+        union d3d12_render_target_formats_subobject render_targets;
+        union d3d12_blend_subobject blend;
+        union d3d12_view_instancing_subobject view_instancing;
+    } pso_vs_ps_desc;
+
+    struct
+    {
+        union d3d12_root_signature_subobject root_signature;
+        union d3d12_input_layout_subobject input_layout;
+        union d3d12_primitive_topology_subobject primitive_topology;
+        union d3d12_shader_bytecode_subobject vs;
+        union d3d12_shader_bytecode_subobject gs;
+        union d3d12_shader_bytecode_subobject ps;
+        union d3d12_rasterizer_subobject rasterizer;
+        union d3d12_sample_desc_subobject sample_desc;
+        union d3d12_sample_mask_subobject sample_mask;
+        union d3d12_render_target_formats_subobject render_targets;
+        union d3d12_blend_subobject blend;
+        union d3d12_view_instancing_subobject view_instancing;
+    } pso_vs_gs_ps_desc;
+
+    struct
+    {
+        union d3d12_root_signature_subobject root_signature;
+        union d3d12_shader_bytecode_subobject ms;
+        union d3d12_shader_bytecode_subobject ps;
+        union d3d12_rasterizer_subobject rasterizer;
+        union d3d12_sample_desc_subobject sample_desc;
+        union d3d12_sample_mask_subobject sample_mask;
+        union d3d12_blend_subobject blend;
+        union d3d12_render_target_formats_subobject render_targets;
+        union d3d12_view_instancing_subobject view_instancing;
+    } pso_ms_ps_desc;
+
+    struct shader_args
+    {
+        uint32_t layer;
+        uint32_t viewport;
+    } shader_args;
+
+    static const uint32_t view_mask_tests[] =
+    {
+        0x0,
+        0x2,
+        0xb,
+        0xf,
+    };
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_root_signature = true;
+    context_desc.rt_format = DXGI_FORMAT_R32_UINT;
+    context_desc.rt_array_size = 4u;
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    if (is_nvidia_windows_device(context.device))
+    {
+        /* NV is currently too broken to run any of these tests */
+        skip("Skipping view instancing tests due to known issues.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    model.HighestShaderModel = D3D_SHADER_MODEL_6_1;
+    if (FAILED(hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_SHADER_MODEL, &model, sizeof(model))) ||
+        model.HighestShaderModel < D3D_SHADER_MODEL_6_1)
+    {
+        skip("Shader model 6.1 is not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&rs_arg, 0, sizeof(rs_arg));
+    rs_arg.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_arg.Constants.Num32BitValues = sizeof(shader_args) / sizeof(uint32_t);
+    rs_arg.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = 1;
+    rs_desc.pParameters = &rs_arg;
+
+    hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n");
+
+    /* Shaders must accept SV_ViewID even if view instancing is not supported,
+     * or disabled for the PSO. */
+    init_pipeline_state_desc_dxil(&pso_desc_simple, context.root_signature, DXGI_FORMAT_R32_UINT,
+            &vs_view_id_passthrough_dxil, &ps_view_id_passthrough_dxil, NULL);
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device,
+            &pso_desc_simple, &IID_ID3D12PipelineState, (void **)&pso);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, clear_value, 0, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, pso);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    check_sub_resource_uint(context.render_target, 0, context.queue, context.list, 0, 0);
+    reset_command_list(context.list, context.allocator);
+
+    ID3D12PipelineState_Release(pso);
+
+    memset(&options, 0, sizeof(options));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
+    memset(&options3, 0, sizeof(options3));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS3, &options3, sizeof(options3));
+    memset(&options7, 0, sizeof(options7));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS7, &options7, sizeof(options7));
+
+    if (!options3.ViewInstancingTier)
+    {
+        skip("View instancing not supported by device.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    ibo = create_upload_buffer(context.device, sizeof(index_data), index_data);
+
+    /* Device2 is guaranteed to be provided if the feature is exposed, don't try to be robust here. */
+    hr = ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device2, (void**)&device2);
+    ok(hr == S_OK, "ID3D12Device2 not supported.\n");
+    hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList1, (void**)&command_list1);
+    ok(hr == S_OK, "ID3D12GraphicsCommandList1 not supported.\n");
+
+    /* Test basic multiviww behaviour with view index => layer index */
+    memset(&pso_vs_ps_desc, 0, sizeof(pso_vs_ps_desc));
+    pso_vs_ps_desc.root_signature = root_signature_subobject;
+    pso_vs_ps_desc.root_signature.root_signature = context.root_signature;
+    pso_vs_ps_desc.input_layout = input_layout_subobject;
+    pso_vs_ps_desc.primitive_topology = primitive_topology_subobject;
+    pso_vs_ps_desc.vs = vs_view_id_passthrough_subobject;
+    pso_vs_ps_desc.ps = ps_view_id_passthrough_subobject;
+    pso_vs_ps_desc.rasterizer = rasterizer_subobject;
+    pso_vs_ps_desc.sample_mask = sample_mask_subobject;
+    pso_vs_ps_desc.sample_desc = sample_desc_subobject;
+    pso_vs_ps_desc.blend = blend_subobject;
+    pso_vs_ps_desc.render_targets = render_target_subobject;
+    pso_vs_ps_desc.view_instancing = view_instancing_simple_subobject;
+
+    hr = create_pipeline_state_from_stream(device2, &pso_vs_ps_desc, &pso);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    /* View masking is disabled in PSO and must be ignored */
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, clear_value, 0, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, pso);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList1_SetViewInstanceMask(command_list1, 0);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    for (i = 0; i < ARRAY_SIZE(view_instance_locations_simple); i++)
+    {
+        vkd3d_test_set_context("layer %u", i);
+
+        /* NV somehow manages to mix up 1 and 3 */
+        check_sub_resource_uint(context.render_target, i, context.queue, context.list, i, 0);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    /* Test ExecuteIndirect */
+    arg_buffer = create_upload_buffer(context.device, sizeof(indirect_draw_data), indirect_draw_data);
+
+    memset(&command_arg, 0, sizeof(command_arg));
+    command_arg.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
+
+    memset(&command_desc, 0, sizeof(command_desc));
+    command_desc.ByteStride = 16;
+    command_desc.NumArgumentDescs = 1;
+    command_desc.pArgumentDescs = &command_arg;
+
+    hr = ID3D12Device_CreateCommandSignature(context.device, &command_desc, NULL, &IID_ID3D12CommandSignature, (void**)&command_sig);
+    ok(hr == S_OK, "Failed to create command signature, hr %#x.\n", hr);
+
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    /* View masking is disabled in PSO and must be ignored */
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, clear_value, 0, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, pso);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_ExecuteIndirect(context.list, command_sig, 1, arg_buffer, 0, NULL, 0);
+
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    for (i = 0; i < ARRAY_SIZE(view_instance_locations_simple); i++)
+    {
+        vkd3d_test_set_context("layer %u", i);
+
+        check_sub_resource_uint(context.render_target, i, context.queue, context.list, i, 0);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    ID3D12Resource_Release(arg_buffer);
+    ID3D12CommandSignature_Release(command_sig);
+
+    /* Test basic multiview with view mask */
+    pso_vs_ps_desc.view_instancing = view_instancing_simple_mask_subobject;
+
+    hr = create_pipeline_state_from_stream(device2, &pso_vs_ps_desc, &pso2);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(view_mask_tests); i++)
+    {
+        transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
+        ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, clear_value, 0, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, pso2);
+        ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList1_SetViewInstanceMask(command_list1, view_mask_tests[i]);
+        ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+        transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        for (j = 0; j < ARRAY_SIZE(view_instance_locations_simple); j++)
+        {
+            vkd3d_test_set_context("view mask %#x, layer %u", view_mask_tests[i], j);
+            expected = (view_mask_tests[i] & (1u << j)) ? j : 0xffff;
+
+            check_sub_resource_uint(context.render_target, j, context.queue, context.list, expected, 0);
+            reset_command_list(context.list, context.allocator);
+        }
+    }
+
+    /* Behaviour with invalid view masks is inconsistent, WARP ignores the second call whereas
+     * AMD native masks the last four bits. Accept either behaviour. */
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, clear_value, 0, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, pso2);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList1_SetViewInstanceMask(command_list1, 0x3);
+    ID3D12GraphicsCommandList1_SetViewInstanceMask(command_list1, 0xfc);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    view_mask = 0;
+
+    for (i = 0; i < ARRAY_SIZE(view_instance_locations_simple); i++)
+    {
+        vkd3d_test_set_context("layer %u", i);
+
+        get_texture_readback_with_command_list(context.render_target, i, &rb, context.queue, context.list);
+
+        if (get_readback_uint(&rb, 0, 0, 0) != 0xffff)
+            view_mask |= 1u << i;
+
+        release_resource_readback(&rb);
+
+        reset_command_list(context.list, context.allocator);
+    }
+
+    ok(view_mask == 0x3 || view_mask == 0xc, "Unexpected view mask %#x.\n", view_mask);
+
+    /* Binding an unmasked PSO does not affect the dynamic view mask. Native
+     * NV drivers will crash in SetViewInstanceMask if no PSO is bound. */
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    ID3D12GraphicsCommandList1_SetViewInstanceMask(command_list1, 0x1);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, clear_value, 0, NULL);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, pso);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, clear_value, 0, NULL);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, pso2);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    for (i = 0; i < ARRAY_SIZE(view_instance_locations_simple); i++)
+    {
+        vkd3d_test_set_context("layer %u", i);
+        check_sub_resource_uint(context.render_target, i, context.queue, context.list, i ? 0xffff : 0, 0);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    ID3D12PipelineState_Release(pso2);
+    ID3D12PipelineState_Release(pso);
+
+    /* Test shuffling layers */
+    pso_vs_ps_desc.view_instancing = view_instancing_shuffle_subobject;
+
+    hr = create_pipeline_state_from_stream(device2, &pso_vs_ps_desc, &pso);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, clear_value, 0, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, pso);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    for (i = 0; i < ARRAY_SIZE(view_instance_locations_shuffle); i++)
+    {
+        vkd3d_test_set_context("layer %u", view_instance_locations_shuffle[i].RenderTargetArrayIndex);
+
+        /* NV once again mixes up views 1 and 3 here */
+        check_sub_resource_uint(context.render_target, view_instance_locations_shuffle[i].RenderTargetArrayIndex, context.queue, context.list, i, 0);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    ID3D12PipelineState_Release(pso);
+
+    /* Test single layer with multiple viewports. Also use the opportunity to test indexed draws. */
+    pso_vs_ps_desc.view_instancing = view_instancing_viewports_subobject;
+
+    hr = create_pipeline_state_from_stream(device2, &pso_vs_ps_desc, &pso);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(viewports); i++)
+    {
+        scissors[i].left = (i & 1) * 2;
+        scissors[i].top = (i & 2);
+        scissors[i].right = scissors[i].left + 2;
+        scissors[i].bottom = scissors[i].top + 2;
+
+        viewports[i].TopLeftX = (float)scissors[i].left;
+        viewports[i].TopLeftY = (float)scissors[i].top;
+        viewports[i].Width = 2.0f;
+        viewports[i].Height = 2.0f;
+        viewports[i].MinDepth = 0.0f;
+        viewports[i].MaxDepth = 1.0f;
+    }
+
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    ibv.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(ibo);
+    ibv.Format = DXGI_FORMAT_R32_UINT;
+    ibv.SizeInBytes = sizeof(index_data);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, clear_value, 0, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, pso);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, ARRAY_SIZE(viewports), viewports);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, ARRAY_SIZE(scissors), scissors);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_IASetIndexBuffer(context.list, &ibv);
+    ID3D12GraphicsCommandList_DrawIndexedInstanced(context.list, 3, 1, 0, 0, 0);
+
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    get_texture_readback_with_command_list(context.render_target, 0, &rb, context.queue, context.list);
+    reset_command_list(context.list, context.allocator);
+
+    for (y = 0; y < 4; y++)
+    {
+        for (x = 0; x < 4; x++)
+        {
+            got = get_readback_uint(&rb, x, y, 0);
+            expected = (x / 2) + 2 * (y / 2);
+
+            ok(got == expected, "Got %#x, expected %#x at (%u,%u).\n", got, expected, x, y);
+        }
+    }
+
+    release_resource_readback(&rb);
+
+    for (i = 1; i < 4; i++)
+    {
+        check_sub_resource_uint(context.render_target, i, context.queue, context.list, 0xffff, 0);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    ID3D12PipelineState_Release(pso);
+
+    /* Test a mixture of layer and viewport indices */
+    pso_vs_ps_desc.view_instancing = view_instancing_mixed_subobject;
+
+    hr = create_pipeline_state_from_stream(device2, &pso_vs_ps_desc, &pso);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
+    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, clear_value, 0, NULL);
+    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+    ID3D12GraphicsCommandList_SetPipelineState(context.list, pso);
+    ID3D12GraphicsCommandList_RSSetViewports(context.list, ARRAY_SIZE(viewports), viewports);
+    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, ARRAY_SIZE(scissors), scissors);
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+    transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    for (i = 0; i < ARRAY_SIZE(view_instance_locations_mixed); i++)
+    {
+        const D3D12_RECT* sci = &scissors[view_instance_locations_mixed[i].ViewportArrayIndex];
+
+        get_texture_readback_with_command_list(context.render_target,
+            view_instance_locations_mixed[i].RenderTargetArrayIndex, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+
+        for (y = 0; y < 4; y++)
+        {
+            for (x = 0; x < 4; x++)
+            {
+                got = get_readback_uint(&rb, x, y, 0);
+                expected = (x >= (unsigned int)sci->left && x < (unsigned int)sci->right &&
+                        y >= (unsigned int)sci->top && y < (unsigned int)sci->bottom) ? i : 0xffff;
+
+                /* This is once again all over the place on NV */
+                ok(got == expected, "Got %#x, expected %#x at (%u,%u).\n", got, expected, x, y);
+            }
+        }
+
+        release_resource_readback(&rb);
+    }
+
+    check_sub_resource_uint(context.render_target, 2, context.queue, context.list, 0xffff, 0);
+    reset_command_list(context.list, context.allocator);
+
+    ID3D12PipelineState_Release(pso);
+
+    if (options.VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation)
+    {
+        /* Test layer/viewport bias. Simple positive numbers for now. */
+        pso_vs_ps_desc.view_instancing = view_instancing_export_subobject;
+        pso_vs_ps_desc.vs = vs_multiview_export_layer_viewport_subobject;
+
+        hr = create_pipeline_state_from_stream(device2, &pso_vs_ps_desc, &pso);
+        ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+        for (shader_args.layer = 0; shader_args.layer <= 1; shader_args.layer++)
+        {
+            for (shader_args.viewport = 0; shader_args.viewport <= 2; shader_args.viewport++)
+            {
+                transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+                ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
+                ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, clear_value, 0, NULL);
+                ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+                ID3D12GraphicsCommandList_SetPipelineState(context.list, pso);
+                ID3D12GraphicsCommandList_RSSetViewports(context.list, ARRAY_SIZE(viewports), viewports);
+                ID3D12GraphicsCommandList_RSSetScissorRects(context.list, ARRAY_SIZE(scissors), scissors);
+                ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+                ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(context.list, 0, sizeof(shader_args) / sizeof(uint32_t), &shader_args, 0);
+                ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+                transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+                for (i = 0; i < ARRAY_SIZE(view_instance_locations_export); i++)
+                {
+                    const D3D12_RECT* sci = &scissors[view_instance_locations_export[i].ViewportArrayIndex + shader_args.viewport];
+
+                    get_texture_readback_with_command_list(context.render_target,
+                        view_instance_locations_export[i].RenderTargetArrayIndex + shader_args.layer, &rb, context.queue, context.list);
+                    reset_command_list(context.list, context.allocator);
+
+                    for (y = 0; y < 4; y++)
+                    {
+                        for (x = 0; x < 4; x++)
+                        {
+                            got = get_readback_uint(&rb, x, y, 0);
+                            expected = (shader_args.layer << 8) | (shader_args.viewport << 16);
+
+                            if (x < (unsigned int)sci->left || x >= (unsigned int)sci->right ||
+                                y < (unsigned int)sci->top || y >= (unsigned int)sci->bottom)
+                            {
+                                expected = 0xffff;
+                            }
+
+                            /* AMD does not respect the layer/viewport bias correctly if per-view layer indices
+                             * are sequential. */
+                            bug_if(is_amd_windows_device(context.device) && got != expected)
+                            ok(got == expected, "Got %#x, expected %#x at (%u,%u).\n", got, expected, x, y);
+                        }
+                    }
+
+                    release_resource_readback(&rb);
+                }
+            }
+        }
+
+        ID3D12PipelineState_Release(pso);
+    }
+    else
+    {
+        skip("VS layer/viewport index not supported.\n");
+    }
+
+    /* Test layer/viewport biasing from GS, with VS propagating the offsets. */
+    memset(&pso_vs_gs_ps_desc, 0, sizeof(pso_vs_gs_ps_desc));
+    pso_vs_gs_ps_desc.root_signature = root_signature_subobject;
+    pso_vs_gs_ps_desc.root_signature.root_signature = context.root_signature;
+    pso_vs_gs_ps_desc.input_layout = input_layout_subobject;
+    pso_vs_gs_ps_desc.primitive_topology = primitive_topology_subobject;
+    pso_vs_gs_ps_desc.vs = vs_multiview_export_layer_viewport_subobject;
+    pso_vs_gs_ps_desc.gs = gs_multiview_export_layer_viewport_subobject;
+    pso_vs_gs_ps_desc.ps = ps_view_id_passthrough_subobject;
+    pso_vs_gs_ps_desc.rasterizer = rasterizer_subobject;
+    pso_vs_gs_ps_desc.sample_mask = sample_mask_subobject;
+    pso_vs_gs_ps_desc.sample_desc = sample_desc_subobject;
+    pso_vs_gs_ps_desc.blend = blend_subobject;
+    pso_vs_gs_ps_desc.render_targets = render_target_subobject;
+    pso_vs_gs_ps_desc.view_instancing = view_instancing_export_subobject;
+
+    hr = create_pipeline_state_from_stream(device2, &pso_vs_gs_ps_desc, &pso);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    for (shader_args.layer = 0; shader_args.layer <= 1; shader_args.layer++)
+    {
+        for (shader_args.viewport = 0; shader_args.viewport <= 2; shader_args.viewport++)
+        {
+            transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+            ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
+            ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, clear_value, 0, NULL);
+            ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+            ID3D12GraphicsCommandList_SetPipelineState(context.list, pso);
+            ID3D12GraphicsCommandList_RSSetViewports(context.list, ARRAY_SIZE(viewports), viewports);
+            ID3D12GraphicsCommandList_RSSetScissorRects(context.list, ARRAY_SIZE(scissors), scissors);
+            ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(context.list, 0, sizeof(shader_args) / sizeof(uint32_t), &shader_args, 0);
+            ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+            transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+            for (i = 0; i < ARRAY_SIZE(view_instance_locations_export); i++)
+            {
+                const D3D12_RECT* sci = &scissors[view_instance_locations_export[i].ViewportArrayIndex + shader_args.viewport];
+
+                get_texture_readback_with_command_list(context.render_target,
+                    view_instance_locations_export[i].RenderTargetArrayIndex + shader_args.layer, &rb, context.queue, context.list);
+                reset_command_list(context.list, context.allocator);
+
+                for (y = 0; y < 4; y++)
+                {
+                    for (x = 0; x < 4; x++)
+                    {
+                        uint32_t color = get_readback_uint(&rb, x, y, 0);
+                        uint32_t expected = i | (shader_args.layer << 8) | (shader_args.viewport << 16);
+
+                        if (x < (unsigned int)sci->left || x >= (unsigned int)sci->right ||
+                            y < (unsigned int)sci->top || y >= (unsigned int)sci->bottom)
+                            expected = 0xffff;
+
+                        ok(color == expected, "Got %#x, expected %#x at (%u,%u).\n", color, expected, x, y);
+                    }
+                }
+
+                release_resource_readback(&rb);
+            }
+        }
+    }
+
+    ID3D12PipelineState_Release(pso);
+
+    if (options7.MeshShaderTier >= D3D12_MESH_SHADER_TIER_1)
+    {
+        hr = ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList6, (void**)&command_list6);
+        ok(hr == S_OK, "ID3D12GraphicsCommandList6 not supported.\n");
+
+        memset(&pso_ms_ps_desc, 0, sizeof(pso_ms_ps_desc));
+        pso_ms_ps_desc.root_signature = root_signature_subobject;
+        pso_ms_ps_desc.root_signature.root_signature = context.root_signature;
+        pso_ms_ps_desc.ms = ms_view_id_passthrough_subobject;
+        pso_ms_ps_desc.ps = ps_view_id_passthrough_subobject;
+        pso_ms_ps_desc.rasterizer = rasterizer_subobject;
+        pso_ms_ps_desc.sample_mask = sample_mask_subobject;
+        pso_ms_ps_desc.sample_desc = sample_desc_subobject;
+        pso_ms_ps_desc.render_targets = render_target_subobject;
+        pso_ms_ps_desc.blend = blend_subobject;
+        pso_ms_ps_desc.view_instancing = view_instancing_simple_subobject;
+
+        hr = create_pipeline_state_from_stream(device2, &pso_ms_ps_desc, &pso);
+        ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+        transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
+        ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, clear_value, 0, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, pso);
+        ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &context.viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &context.scissor_rect);
+        ID3D12GraphicsCommandList6_DispatchMesh(command_list6, 1, 1, 1);
+
+        transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        for (i = 0; i < ARRAY_SIZE(view_instance_locations_simple); i++)
+        {
+            vkd3d_test_set_context("layer %u", i);
+
+            /* AMD only renders first layer, NV renders nothing */
+            bug_if(is_amd_windows_device(context.device))
+            check_sub_resource_uint(context.render_target, i, context.queue, context.list, i, 0);
+
+            reset_command_list(context.list, context.allocator);
+        }
+
+        ID3D12PipelineState_Release(pso);
+
+        ID3D12GraphicsCommandList6_Release(command_list6);
+    }
+    else
+    {
+        skip("Mesh shaders not supported by device.\n");
+    }
+
+    ID3D12Resource_Release(ibo);
+    ID3D12GraphicsCommandList1_Release(command_list1);
+    ID3D12Device2_Release(device2);
+    destroy_test_context(&context);
+}
