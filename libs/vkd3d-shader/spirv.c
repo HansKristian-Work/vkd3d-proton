@@ -10771,6 +10771,16 @@ static void vkd3d_dxbc_compiler_emit_resinfo(struct vkd3d_dxbc_compiler *compile
                 vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_BOOL, 1),
                 lod_id, miplevel_count_id);
 
+        if (size_component_count > 1)
+        {
+            for (i = 0; i < ARRAY_SIZE(indices); i++)
+                indices[i] = cond_id;
+
+            cond_id = vkd3d_spirv_build_op_composite_construct(builder,
+                    vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_BOOL, size_component_count),
+                    indices, size_component_count);
+        }
+
         val_id = vkd3d_spirv_build_op_select(builder, type_id, cond_id, val_id,
                 vkd3d_dxbc_compiler_get_constant_uint_vector(compiler, 0, size_component_count));
     }
