@@ -42,15 +42,18 @@ struct vkd3d_optional_extension_info
     ptrdiff_t vulkan_info_offset;
     uint64_t enable_config_flags;
     uint64_t disable_config_flags;
+    uint32_t minimum_spec_version;
 };
 
 #define VK_EXTENSION(name, member) \
-        {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member), 0}
+        {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member), 0, 0}
 
 #define VK_EXTENSION_COND(name, member, required_flags) \
-        {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member), required_flags}
+        {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member), required_flags, 0}
 #define VK_EXTENSION_DISABLE_COND(name, member, disable_flags) \
-        {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member), 0, disable_flags}
+        {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member), 0, disable_flags, 0}
+#define VK_EXTENSION_VERSION(name, member, spec_version) \
+        {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member), 0, 0, spec_version}
 
 static const struct vkd3d_optional_extension_info optional_instance_extensions[] =
 {
@@ -159,7 +162,7 @@ static bool is_extension_disabled(const char *extension_name)
 }
 
 static bool has_extension(const VkExtensionProperties *extensions,
-        unsigned int count, const char *extension_name)
+        unsigned int count, const char *extension_name, uint32_t minimum_spec_version)
 {
     unsigned int i;
 
@@ -170,7 +173,8 @@ static bool has_extension(const VkExtensionProperties *extensions,
             WARN("Extension %s is disabled.\n", debugstr_a(extension_name));
             continue;
         }
-        if (!strcmp(extensions[i].extensionName, extension_name))
+        if (!strcmp(extensions[i].extensionName, extension_name) &&
+                (extensions[i].specVersion >= minimum_spec_version))
             return true;
     }
     return false;
@@ -188,7 +192,7 @@ static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensio
 
     for (i = 0; i < required_extension_count; ++i)
     {
-        if (!has_extension(extensions, count, required_extensions[i]))
+        if (!has_extension(extensions, count, required_extensions[i], 0))
             ERR("Required %s extension %s is not supported.\n",
                     extension_type, debugstr_a(required_extensions[i]));
         ++extension_count;
@@ -199,6 +203,7 @@ static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensio
         uint64_t disable_flags = optional_extensions[i].disable_config_flags;
         const char *extension_name = optional_extensions[i].extension_name;
         uint64_t enable_flags = optional_extensions[i].enable_config_flags;
+        uint32_t minimum_spec_version = optional_extensions[i].minimum_spec_version;
         ptrdiff_t offset = optional_extensions[i].vulkan_info_offset;
         bool *supported = (void *)((uintptr_t)vulkan_info + offset);
 
@@ -207,7 +212,7 @@ static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensio
         if (disable_flags && (vkd3d_config_flags & disable_flags))
             continue;
 
-        if ((*supported = has_extension(extensions, count, extension_name)))
+        if ((*supported = has_extension(extensions, count, extension_name, minimum_spec_version)))
         {
             TRACE("Found %s extension.\n", debugstr_a(extension_name));
             ++extension_count;
@@ -216,7 +221,7 @@ static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensio
 
     for (i = 0; i < user_extension_count; ++i)
     {
-        if (!has_extension(extensions, count, user_extensions[i]))
+        if (!has_extension(extensions, count, user_extensions[i], 0))
             ERR("Required user %s extension %s is not supported.\n",
                     extension_type, debugstr_a(user_extensions[i]));
         ++extension_count;
@@ -225,7 +230,7 @@ static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensio
     assert(!optional_user_extension_count || user_extension_supported);
     for (i = 0; i < optional_user_extension_count; ++i)
     {
-        if (has_extension(extensions, count, optional_user_extensions[i]))
+        if (has_extension(extensions, count, optional_user_extensions[i], 0))
         {
             user_extension_supported[i] = true;
             ++extension_count;
