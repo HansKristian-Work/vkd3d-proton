@@ -3724,8 +3724,11 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkPhysicalDeviceImageFormatInfo2 format_info;
     VkImageFormatProperties2 format_properties;
+    const struct vkd3d_format *depth_format;
+    VkFormatFeatureFlags2 buffer_features;
     VkFormatFeatureFlags2 image_features;
     const struct vkd3d_format *format;
+    VkImageAspectFlags aspect_mask;
     VkResult vr;
 
     data->Support1 = D3D12_FORMAT_SUPPORT1_NONE;
@@ -3740,8 +3743,10 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
         return S_OK;
     }
 
-    if (!(format = vkd3d_get_format(device, data->Format, false)))
-        format = vkd3d_get_format(device, data->Format, true);
+    format = vkd3d_get_format(device, data->Format, false);
+    depth_format = vkd3d_get_format(device, data->Format, true);
+    if (!format)
+        format = depth_format;
     if (!format)
     {
         FIXME("Unhandled format %#x.\n", data->Format);
@@ -3757,11 +3762,13 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
         return S_OK;
     }
 
-    image_features = format->vk_format_features;
+    image_features = format->vk_format_features | (depth_format ? depth_format->vk_format_features : 0);
+    buffer_features = format->vk_format_features_buffer | (depth_format ? depth_format->vk_format_features_buffer : 0);
+    aspect_mask = format->vk_aspect_mask | (depth_format ? depth_format->vk_aspect_mask : 0);
 
-    if (format->vk_format_features_buffer)
+    if (buffer_features)
         data->Support1 |= D3D12_FORMAT_SUPPORT1_BUFFER;
-    if (format->vk_format_features_buffer & VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT)
+    if (buffer_features & VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT)
         data->Support1 |= D3D12_FORMAT_SUPPORT1_IA_VERTEX_BUFFER;
     if (data->Format == DXGI_FORMAT_R16_UINT || data->Format == DXGI_FORMAT_R32_UINT)
         data->Support1 |= D3D12_FORMAT_SUPPORT1_IA_INDEX_BUFFER;
@@ -3779,7 +3786,7 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
             data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE
                     | D3D12_FORMAT_SUPPORT1_MIP;
         }
-        if (format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
+        if (aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
         {
             data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE_COMPARISON
                     | D3D12_FORMAT_SUPPORT1_SHADER_GATHER_COMPARISON;
@@ -3837,7 +3844,7 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
                 data->Support2 |= D3D12_FORMAT_SUPPORT2_TILED;
         }
 
-        if (!image_features && format->vk_format_features_buffer &&
+        if (!image_features && buffer_features &&
                 device->device_info.features2.features.sparseResidencyBuffer)
             data->Support2 |= D3D12_FORMAT_SUPPORT2_TILED;
     }
