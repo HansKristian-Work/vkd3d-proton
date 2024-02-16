@@ -3530,7 +3530,9 @@ static void d3d12_command_list_debug_mark_begin_region(
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkDebugUtilsLabelEXT label;
 
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) && list->device->vk_info.EXT_debug_utils)
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) &&
+            !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_APP_DEBUG_MARKER_ONLY) &&
+            list->device->vk_info.EXT_debug_utils)
     {
         label.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
         label.pNext = NULL;
@@ -3546,8 +3548,12 @@ static void d3d12_command_list_debug_mark_begin_region(
 static void d3d12_command_list_debug_mark_end_region(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) && list->device->vk_info.EXT_debug_utils)
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) &&
+            !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_APP_DEBUG_MARKER_ONLY) &&
+            list->device->vk_info.EXT_debug_utils)
+    {
         VK_CALL(vkCmdEndDebugUtilsLabelEXT(list->cmd.vk_command_buffer));
+    }
 }
 
 static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, struct d3d12_resource *resource,
