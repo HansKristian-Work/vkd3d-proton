@@ -174,6 +174,7 @@ struct vkd3d_vulkan_info
     bool NV_memory_decompression;
     bool NV_device_generated_commands_compute;
     bool NV_low_latency2;
+    bool NV_raw_access_chains;
     /* VALVE extensions */
     bool VALVE_mutable_descriptor_type;
     bool VALVE_descriptor_set_host_mapping;
@@ -4412,6 +4413,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT swapchain_maintenance1_features;
     VkPhysicalDeviceShaderMaximalReconvergenceFeaturesKHR shader_maximal_reconvergence_features;
     VkPhysicalDeviceShaderQuadControlFeaturesKHR shader_quad_control_features;
+    VkPhysicalDeviceRawAccessChainsFeaturesNV raw_access_chains_nv;
 
     VkPhysicalDeviceFeatures2 features2;
 
