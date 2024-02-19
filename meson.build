@@ -6,7 +6,7 @@ cpu_family = target_machine.cpu_family()
 
 vkd3d_compiler = meson.get_compiler('c')
 vkd3d_is_msvc  = vkd3d_compiler.get_id() == 'msvc' or vkd3d_compiler.get_id() == 'clang-cl'
-vkd3d_is_clang = vkd3d_compiler.get_id() == 'clang'
+vkd3d_is_clang = vkd3d_compiler.get_id() == 'clang' or vkd3d_compiler.get_id() == 'clang-cl'
 vkd3d_platform = target_machine.system()
 
 vkd3d_buildtype = get_option('buildtype')
@@ -122,9 +122,11 @@ if cpu_family == 'x86'
 
   # Need to link against libatomic for 64-bit atomic emulation on x86
   # when using clang.
-  if vkd3d_is_clang
-    lib_atomic = vkd3d_compiler.find_library('atomic')
-    vkd3d_extra_libs += lib_atomic
+  if vkd3d_platform == 'linux'
+    if vkd3d_is_clang
+      lib_atomic = vkd3d_compiler.find_library('atomic')
+      vkd3d_extra_libs += lib_atomic
+    endif
   endif
 endif
 
@@ -149,7 +151,7 @@ if vkd3d_platform == 'windows'
   if vkd3d_compiler.has_link_argument('/NOIMPLIB')
     add_global_link_arguments('/NOIMPLIB', language : [ 'c', 'cpp' ])
   endif
-  if vkd3d_compiler.has_link_argument('/NOEXP')
+  if not vkd3d_is_clang and vkd3d_compiler.has_link_argument('/NOEXP')
     add_global_link_arguments('/NOEXP', language : [ 'c', 'cpp' ])
   endif
 endif
