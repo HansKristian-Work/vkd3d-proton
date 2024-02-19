@@ -139,6 +139,10 @@ typedef enum DXGI_FORMAT
     DXGI_FORMAT_V208                        = 0x83,
     DXGI_FORMAT_V408                        = 0x84,
 
+    /* https://gli.g-truc.net/0.6.1/api/a00001.html */
+    DXGI_FORMAT_UNDOCUMENTED_ASTC_FIRST     = 0x85,
+    DXGI_FORMAT_UNDOCUMENTED_ASTC_LAST      = 0xbc,
+
     DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE         = 0xbd,
     DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE = 0xbe,
 

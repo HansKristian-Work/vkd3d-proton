@@ -462,8 +462,7 @@ void test_format_support(void)
     for (format = 0; format <= DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE; ++format)
     {
         /* Undefined range, skip */
-        if ((format > DXGI_FORMAT_B4G4R4A4_UNORM && format < DXGI_FORMAT_P208) ||
-            (format > DXGI_FORMAT_V408 && format < DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE))
+        if (format > DXGI_FORMAT_B4G4R4A4_UNORM && format < DXGI_FORMAT_P208)
             continue;
 
         vkd3d_test_set_context("format %#x", format);
@@ -483,30 +482,39 @@ void test_format_support(void)
 
         if (!required_but_fails)
         {
-            /* Check if the format is unspecified or optional */
-            for (i = 0; i < ARRAY_SIZE(dxgi_format->unspecified_formats); ++i)
+            /* ASTC format are unspecified */
+            if (format >= /* DXGI_FORMAT_UNDOCUMENTED_ASTC_FIRST */ (DXGI_FORMAT)0x85 && 
+                format <= /* DXGI_FORMAT_UNDOCUMENTED_ASTC_LAST */  (DXGI_FORMAT)0xbc)
             {
-                /* Fixed size list with only part of the list filled */
-                if (dxgi_format->unspecified_formats[i] == DXGI_FORMAT_UNKNOWN)
-                    break;
-                if (dxgi_format->unspecified_formats[i] == format)
-                {
-                    unspecified_format = true;
-                    break;
-                }
+                unspecified_format = true;
             }
-
-            if (!unspecified_format)
+            else
             {
-                for (i = 0; i < ARRAY_SIZE(dxgi_format->optional_formats); ++i)
+                /* Check if the format is unspecified or optional */
+                for (i = 0; i < ARRAY_SIZE(dxgi_format->unspecified_formats); ++i)
                 {
                     /* Fixed size list with only part of the list filled */
-                    if (dxgi_format->optional_formats[i] == DXGI_FORMAT_UNKNOWN)
+                    if (dxgi_format->unspecified_formats[i] == DXGI_FORMAT_UNKNOWN)
                         break;
-                    if (dxgi_format->optional_formats[i] == format)
+                    if (dxgi_format->unspecified_formats[i] == format)
                     {
-                        optional_format = true;
+                        unspecified_format = true;
                         break;
+                    }
+                }
+
+                if (!unspecified_format)
+                {
+                    for (i = 0; i < ARRAY_SIZE(dxgi_format->optional_formats); ++i)
+                    {
+                        /* Fixed size list with only part of the list filled */
+                        if (dxgi_format->optional_formats[i] == DXGI_FORMAT_UNKNOWN)
+                            break;
+                        if (dxgi_format->optional_formats[i] == format)
+                        {
+                            optional_format = true;
+                            break;
+                        }
                     }
                 }
             }

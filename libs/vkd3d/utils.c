@@ -920,9 +920,7 @@ bool is_valid_format(DXGI_FORMAT dxgi_format)
 {
     if (dxgi_format >= DXGI_FORMAT_UNKNOWN && dxgi_format <= DXGI_FORMAT_B4G4R4A4_UNORM)
         return true;
-    if (dxgi_format >= DXGI_FORMAT_P208 && dxgi_format <= DXGI_FORMAT_V408)
-        return true;
-    if (dxgi_format >= DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE && dxgi_format <= DXGI_FORMAT_A4B4G4R4_UNORM)
+    if (dxgi_format >= DXGI_FORMAT_P208 && dxgi_format <= DXGI_FORMAT_A4B4G4R4_UNORM)
         return true;
     return false;
 }
@@ -1077,6 +1075,8 @@ const char *debug_dxgi_format(DXGI_FORMAT format)
         ENUM_NAME(DXGI_FORMAT_P208)
         ENUM_NAME(DXGI_FORMAT_V208)
         ENUM_NAME(DXGI_FORMAT_V408)
+        ENUM_NAME(DXGI_FORMAT_UNDOCUMENTED_ASTC_FIRST)
+        ENUM_NAME(DXGI_FORMAT_UNDOCUMENTED_ASTC_LAST)
         ENUM_NAME(DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE)
         ENUM_NAME(DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)
         ENUM_NAME(DXGI_FORMAT_A4B4G4R4_UNORM)
