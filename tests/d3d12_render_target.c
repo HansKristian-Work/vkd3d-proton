@@ -1506,7 +1506,7 @@ void test_renderpass_rendering(void)
     bug_if(is_radv_device(context.device))
     check_sub_resource_uint(rt, 1, context.queue, context.list, 0x0000ff00, 0);
     reset_command_list(context.list, context.allocator);
-    check_sub_resource_uint(rt, 2, context.queue, context.list, 0x00800000, 0x10000);
+    check_sub_resource_uint(rt, 2, context.queue, context.list, 0x00800000, 1);
     reset_command_list(context.list, context.allocator);
 
     /* Test per-subresource resolve areas */
