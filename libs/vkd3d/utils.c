@@ -674,8 +674,11 @@ const struct vkd3d_format *vkd3d_get_format(const struct d3d12_device *device,
 {
     const struct vkd3d_format *format;
 
-    if (dxgi_format > VKD3D_MAX_DXGI_FORMAT)
+    if (!is_valid_format(dxgi_format))
+    {
+        ERR("Invalid format %d.\n", dxgi_format);
         return NULL;
+    }
 
     /* If we request a depth-stencil format (or typeless variant) that is planar,
      * there cannot be any ambiguity which format to select, we must choose a depth-stencil format.
@@ -911,6 +914,17 @@ bool is_valid_resource_state(D3D12_RESOURCE_STATES state)
     }
 
     return true;
+}
+
+bool is_valid_format(DXGI_FORMAT dxgi_format)
+{
+    if (dxgi_format >= DXGI_FORMAT_UNKNOWN && dxgi_format <= DXGI_FORMAT_B4G4R4A4_UNORM)
+        return true;
+    if (dxgi_format >= DXGI_FORMAT_P208 && dxgi_format <= DXGI_FORMAT_V408)
+        return true;
+    if (dxgi_format >= DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE && dxgi_format <= DXGI_FORMAT_A4B4G4R4_UNORM)
+        return true;
+    return false;
 }
 
 HRESULT return_interface(void *iface, REFIID iface_iid,
