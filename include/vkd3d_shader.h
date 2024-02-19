@@ -76,6 +76,7 @@ enum vkd3d_shader_meta_flags
     VKD3D_SHADER_META_FLAG_EMITS_TRIANGLES = 1 << 15,
     VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_AFTER_DISPATCH = 1 << 16,
     VKD3D_SHADER_META_FLAG_EXPORTS_SAMPLE_MASK = 1 << 17,
+    VKD3D_SHADER_META_FLAG_FORCE_VRS_2X2 = 1 << 18,
 };
 
 struct vkd3d_shader_meta
@@ -429,6 +430,9 @@ enum vkd3d_shader_quirk
 
     /* Range check every descriptor heap access with dynamic index and robustness check it. */
     VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS = (1 << 15),
+
+    /* Compile pipeline with static 2x2 VRS factors. For speed hacks. */
+    VKD3D_SHADER_QUIRK_FORCE_VRS_2X2 = (1 << 16),
 };
 
 struct vkd3d_shader_quirk_hash
