@@ -107,6 +107,7 @@ void test_check_feature_support(void)
 
     static const D3D_FEATURE_LEVEL all_feature_levels[] =
     {
+        D3D_FEATURE_LEVEL_12_2,
         D3D_FEATURE_LEVEL_12_1,
         D3D_FEATURE_LEVEL_12_0,
         D3D_FEATURE_LEVEL_11_1,
@@ -119,6 +120,7 @@ void test_check_feature_support(void)
     };
     static const D3D_FEATURE_LEVEL d3d12_feature_levels[] =
     {
+        D3D_FEATURE_LEVEL_12_2,
         D3D_FEATURE_LEVEL_12_1,
         D3D_FEATURE_LEVEL_12_0,
         D3D_FEATURE_LEVEL_11_1,
@@ -336,10 +338,95 @@ static const DXGI_FORMAT depth_stencil_formats[] =
 void test_format_support(void)
 {
     D3D12_FEATURE_DATA_FORMAT_SUPPORT format_support;
+    D3D12_FEATURE_DATA_FEATURE_LEVELS feature_levels;
+    bool required_but_fails;
+    bool unspecified_format;
+    bool optional_format;
     ID3D12Device *device;
+    DXGI_FORMAT format;
     ULONG refcount;
     unsigned int i;
     HRESULT hr;
+
+    static const DXGI_FORMAT known_required_but_fails[] =
+    {
+        DXGI_FORMAT_R8G8_B8G8_UNORM,
+        DXGI_FORMAT_G8R8_G8B8_UNORM,
+        DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM,
+        DXGI_FORMAT_NV12,
+        DXGI_FORMAT_420_OPAQUE,
+        DXGI_FORMAT_YUY2,
+    };
+
+#define MAX_FORMAT_VALUE DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE
+
+    const struct dxgi_format_list
+    {
+        D3D_FEATURE_LEVEL feature_level;
+        DXGI_FORMAT optional_formats[MAX_FORMAT_VALUE];
+        DXGI_FORMAT unspecified_formats[MAX_FORMAT_VALUE];
+    } *dxgi_format, dxgi_format_list[] = {
+        /*
+            https://devblogs.microsoft.com/directx/new-in-directx-feature-level-12_2/
+            https://microsoft.github.io/DirectX-Specs/d3d/SamplerFeedback.html
+        */
+        {D3D_FEATURE_LEVEL_12_2, 
+            {DXGI_FORMAT_AYUV, DXGI_FORMAT_Y410, DXGI_FORMAT_Y416, DXGI_FORMAT_P010, DXGI_FORMAT_P016, DXGI_FORMAT_Y210, DXGI_FORMAT_Y216, DXGI_FORMAT_NV11,
+                DXGI_FORMAT_AI44, DXGI_FORMAT_IA44, DXGI_FORMAT_P8, DXGI_FORMAT_A8P8},
+            {DXGI_FORMAT_R1_UNORM, DXGI_FORMAT_B4G4R4A4_UNORM, DXGI_FORMAT_P208, DXGI_FORMAT_V208, DXGI_FORMAT_V408}},
+        /* https://github.com/MicrosoftDocs/win32/blob/docs/desktop-src/direct3ddxgi/hardware-support-for-direct3d-12-1-formats.md */
+        {D3D_FEATURE_LEVEL_12_1, 
+            {DXGI_FORMAT_AYUV, DXGI_FORMAT_Y410, DXGI_FORMAT_Y416, DXGI_FORMAT_P010, DXGI_FORMAT_P016, DXGI_FORMAT_Y210, DXGI_FORMAT_Y216, DXGI_FORMAT_NV11,
+                DXGI_FORMAT_AI44, DXGI_FORMAT_IA44, DXGI_FORMAT_P8, DXGI_FORMAT_A8P8},
+            {DXGI_FORMAT_R1_UNORM, DXGI_FORMAT_B4G4R4A4_UNORM, DXGI_FORMAT_P208, DXGI_FORMAT_V208, DXGI_FORMAT_V408, 
+                DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE, DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE}},
+        /* https://github.com/MicrosoftDocs/win32/blob/docs/desktop-src/direct3ddxgi/hardware-support-for-direct3d-12-0-formats.md */
+        {D3D_FEATURE_LEVEL_12_0, 
+            {DXGI_FORMAT_AYUV, DXGI_FORMAT_Y410, DXGI_FORMAT_Y416, DXGI_FORMAT_P010, DXGI_FORMAT_P016, DXGI_FORMAT_Y210, DXGI_FORMAT_Y216, DXGI_FORMAT_NV11,
+                DXGI_FORMAT_AI44, DXGI_FORMAT_IA44, DXGI_FORMAT_P8, DXGI_FORMAT_A8P8},
+            {DXGI_FORMAT_R1_UNORM, DXGI_FORMAT_P208, DXGI_FORMAT_V208, DXGI_FORMAT_V408, 
+                DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE, DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE}},
+        /* https://github.com/MicrosoftDocs/win32/blob/docs/desktop-src/direct3ddxgi/format-support-for-direct3d-11-1-feature-level-hardware.md */
+        {D3D_FEATURE_LEVEL_11_1, 
+            {DXGI_FORMAT_AYUV, DXGI_FORMAT_Y410, DXGI_FORMAT_Y416, DXGI_FORMAT_P010, DXGI_FORMAT_P016, DXGI_FORMAT_Y210, DXGI_FORMAT_Y216, DXGI_FORMAT_NV11,
+                DXGI_FORMAT_AI44, DXGI_FORMAT_IA44, DXGI_FORMAT_P8, DXGI_FORMAT_A8P8}, 
+            {DXGI_FORMAT_R1_UNORM, DXGI_FORMAT_P208, DXGI_FORMAT_V208, DXGI_FORMAT_V408, 
+                DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE, DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE}},
+        /* https://github.com/MicrosoftDocs/win32/blob/docs/desktop-src/direct3ddxgi/format-support-for-direct3d-11-0-feature-level-hardware.md */
+        {D3D_FEATURE_LEVEL_11_0, 
+            {DXGI_FORMAT_AYUV, DXGI_FORMAT_Y410, DXGI_FORMAT_Y416, DXGI_FORMAT_P010, DXGI_FORMAT_P016, DXGI_FORMAT_Y210, DXGI_FORMAT_Y216, DXGI_FORMAT_NV11,
+                DXGI_FORMAT_AI44, DXGI_FORMAT_IA44, DXGI_FORMAT_P8, DXGI_FORMAT_A8P8}, 
+            {DXGI_FORMAT_R1_UNORM, DXGI_FORMAT_P208, DXGI_FORMAT_V208, DXGI_FORMAT_V408, 
+                DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE, DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE}},
+        /* https://github.com/MicrosoftDocs/win32/blob/docs/desktop-src/direct3ddxgi/format-support-for-direct3d-feature-level-10-1-hardware.md */
+        {D3D_FEATURE_LEVEL_10_1, 
+            {DXGI_FORMAT_AYUV, DXGI_FORMAT_Y410, DXGI_FORMAT_Y416, DXGI_FORMAT_P010, DXGI_FORMAT_P016, DXGI_FORMAT_Y210, 
+                DXGI_FORMAT_Y216, DXGI_FORMAT_NV11, DXGI_FORMAT_AI44, DXGI_FORMAT_IA44, DXGI_FORMAT_P8, DXGI_FORMAT_A8P8}, 
+            {DXGI_FORMAT_R1_UNORM, DXGI_FORMAT_P208, DXGI_FORMAT_V208, DXGI_FORMAT_V408, 
+                DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE, DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE}},
+        /* https://github.com/MicrosoftDocs/win32/blob/docs/desktop-src/direct3ddxgi/format-support-for-direct3d-feature-level-10-1-hardware.md */
+        {D3D_FEATURE_LEVEL_10_0, 
+            {DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM, DXGI_FORMAT_AYUV, DXGI_FORMAT_Y410, DXGI_FORMAT_Y416, DXGI_FORMAT_P010, DXGI_FORMAT_P016, 
+                DXGI_FORMAT_Y210, DXGI_FORMAT_Y216, DXGI_FORMAT_NV11, DXGI_FORMAT_AI44, DXGI_FORMAT_IA44, DXGI_FORMAT_P8, DXGI_FORMAT_A8P8}, 
+            {DXGI_FORMAT_R1_UNORM, DXGI_FORMAT_P208, DXGI_FORMAT_V208, DXGI_FORMAT_V408, 
+                DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE, DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE}},
+    };
+
+#undef MAX_FORMAT_VALUE
+
+    static const D3D_FEATURE_LEVEL all_feature_levels[] =
+    {
+        D3D_FEATURE_LEVEL_12_2,
+        D3D_FEATURE_LEVEL_12_1,
+        D3D_FEATURE_LEVEL_12_0,
+        D3D_FEATURE_LEVEL_11_1,
+        D3D_FEATURE_LEVEL_11_0,
+        D3D_FEATURE_LEVEL_10_1,
+        D3D_FEATURE_LEVEL_10_0,
+        D3D_FEATURE_LEVEL_9_3,
+        D3D_FEATURE_LEVEL_9_2,
+        D3D_FEATURE_LEVEL_9_1,
+    };
 
     if (!(device = create_device()))
     {
@@ -356,14 +443,88 @@ void test_format_support(void)
     ok(!format_support.Support2 || format_support.Support2 == D3D12_FORMAT_SUPPORT2_TILED,
             "Got unexpected support2 %#x.\n", format_support.Support2);
 
-    for (i = 0; i < ARRAY_SIZE(depth_stencil_formats); ++i)
+    memset(&feature_levels, 0, sizeof(feature_levels));
+    feature_levels.NumFeatureLevels = ARRAY_SIZE(all_feature_levels);
+    feature_levels.pFeatureLevelsRequested = all_feature_levels;
+    hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FEATURE_LEVELS, 
+        &feature_levels, sizeof(feature_levels));
+    ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(dxgi_format_list); ++i)
     {
+        if (dxgi_format_list[i].feature_level == feature_levels.MaxSupportedFeatureLevel)
+        {
+            dxgi_format = &dxgi_format_list[i];
+            break;
+        }
+    }
+
+    for (format = 0; format <= DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE; ++format)
+    {
+        /* Undefined range, skip */
+        if ((format > DXGI_FORMAT_B4G4R4A4_UNORM && format < DXGI_FORMAT_P208) ||
+            (format > DXGI_FORMAT_V408 && format < DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE))
+            continue;
+
+        vkd3d_test_set_context("format %#x", format);
+
+        required_but_fails = false;
+        unspecified_format = false;
+        optional_format = false;
+
+        for (i = 0; i < ARRAY_SIZE(known_required_but_fails); ++i)
+        {
+            if (known_required_but_fails[i] == format)
+            {
+                required_but_fails = true;
+                break;
+            }
+        }
+
+        if (!required_but_fails)
+        {
+            /* Check if the format is unspecified or optional */
+            for (i = 0; i < ARRAY_SIZE(dxgi_format->unspecified_formats); ++i)
+            {
+                /* Fixed size list with only part of the list filled */
+                if (dxgi_format->unspecified_formats[i] == DXGI_FORMAT_UNKNOWN)
+                    break;
+                if (dxgi_format->unspecified_formats[i] == format)
+                {
+                    unspecified_format = true;
+                    break;
+                }
+            }
+
+            if (!unspecified_format)
+            {
+                for (i = 0; i < ARRAY_SIZE(dxgi_format->optional_formats); ++i)
+                {
+                    /* Fixed size list with only part of the list filled */
+                    if (dxgi_format->optional_formats[i] == DXGI_FORMAT_UNKNOWN)
+                        break;
+                    if (dxgi_format->optional_formats[i] == format)
+                    {
+                        optional_format = true;
+                        break;
+                    }
+                }
+            }
+        }
+
         memset(&format_support, 0, sizeof(format_support));
-        format_support.Format = depth_stencil_formats[i];
+        format_support.Format = format;
         hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FORMAT_SUPPORT,
                 &format_support, sizeof(format_support));
-        ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
+
+        if (unspecified_format)
+            ok(hr == S_OK || hr == E_FAIL, "Unspecified format %d got unexpected hr %#x.\n", format, hr);
+        else if (optional_format)
+            ok(hr == S_OK || hr == E_FAIL, "Optional format %d got unexpected hr %#x.\n", format, hr);
+        else 
+            todo_if(required_but_fails) ok(hr == S_OK, "Format %d got unexpected hr %#x.\n", format, hr);
     }
+    vkd3d_test_set_context(NULL);
 
     refcount = ID3D12Device_Release(device);
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);

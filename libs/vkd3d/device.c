@@ -3731,6 +3731,12 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
     data->Support1 = D3D12_FORMAT_SUPPORT1_NONE;
     data->Support2 = D3D12_FORMAT_SUPPORT2_NONE;
 
+    if (!is_valid_format(data->Format))
+    {
+        WARN("Invalid format %d.\n", data->Format);
+        return E_INVALIDARG;
+    }
+
     if (!data->Format)
     {
         data->Support1 = D3D12_FORMAT_SUPPORT1_BUFFER;
@@ -3743,10 +3749,7 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
     if (!(format = vkd3d_get_format(device, data->Format, false)))
         format = vkd3d_get_format(device, data->Format, true);
     if (!format)
-    {
-        FIXME("Unhandled format %#x.\n", data->Format);
-        return E_INVALIDARG;
-    }
+        return E_FAIL;
 
     /* Special opaque formats. */
     if (data->Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE ||

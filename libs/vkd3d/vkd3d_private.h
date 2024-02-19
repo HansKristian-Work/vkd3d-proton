@@ -5338,6 +5338,8 @@ bool is_valid_feature_level(D3D_FEATURE_LEVEL feature_level);
 bool is_valid_resource_state(D3D12_RESOURCE_STATES state);
 bool is_write_resource_state(D3D12_RESOURCE_STATES state);
 
+bool is_valid_format(DXGI_FORMAT format);
+
 HRESULT return_interface(void *iface, REFIID iface_iid,
         REFIID requested_iid, void **object);
 
