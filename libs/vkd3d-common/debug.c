@@ -244,7 +244,8 @@ void vkd3d_dbg_printf(enum vkd3d_dbg_channel channel, enum vkd3d_dbg_level level
         /* Try to match format of Wine log output. */
         ticks = vkd3d_get_current_time_ns();
         offset = snprintf(local_buffer, sizeof(local_buffer),
-                "%3u.%03u:%04x:%04x:%s:vkd3d-proton:%s: ", ticks / 1000000000, (ticks % 1000000000) / 1000000,
+                "%3u.%03u:%04x:%04x:%s:vkd3d-proton:%s: ",
+                (unsigned int)(ticks / 1000000000), (unsigned int)((ticks % 1000000000) / 1000000),
                 (UINT)GetCurrentProcessId(), tid,
                 debug_level_names[level], function);
         if (offset < sizeof(local_buffer))
