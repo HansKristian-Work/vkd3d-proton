@@ -460,8 +460,8 @@ static BOOL STDMETHODCALLTYPE d3d12_low_latency_device_SupportsLowLatency(d3d_lo
 
 static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_LatencySleep(d3d_low_latency_device_iface *iface)
 {
-    struct d3d12_device *device;
     struct dxgi_vk_swap_chain *low_latency_swapchain;
+    struct d3d12_device *device;
 
     device = d3d12_device_from_ID3DLowLatencyDevice(iface);
 
@@ -485,8 +485,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_LatencySleep(d3d_low_l
 static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_SetLatencySleepMode(d3d_low_latency_device_iface *iface, BOOL low_latency_mode, BOOL low_latency_boost,
         UINT32 minimum_interval_us)
 {
-    struct d3d12_device *device;
     struct dxgi_vk_swap_chain *low_latency_swapchain;
+    struct d3d12_device *device;
 
     device = d3d12_device_from_ID3DLowLatencyDevice(iface);
 
@@ -509,10 +509,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_SetLatencySleepMode(d3
 
 static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_SetLatencyMarker(d3d_low_latency_device_iface *iface, UINT64 frameID, UINT32 markerType)
 {
-    uint64_t internal_frame_id;
-    struct d3d12_device *device;
-    VkLatencyMarkerNV vk_marker;
     struct dxgi_vk_swap_chain *low_latency_swapchain;
+    VkLatencyMarkerNV vk_marker;
+    struct d3d12_device *device;
+    uint64_t internal_frame_id;
 
     device = d3d12_device_from_ID3DLowLatencyDevice(iface);
     vk_marker = (VkLatencyMarkerNV)markerType;
@@ -555,8 +555,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_SetLatencyMarker(d3d_l
 
 static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_GetLatencyInfo(d3d_low_latency_device_iface *iface, D3D12_LATENCY_RESULTS *latency_results)
 {
-    struct d3d12_device *device;
     struct dxgi_vk_swap_chain *low_latency_swapchain;
+    struct d3d12_device *device;
 
     device = d3d12_device_from_ID3DLowLatencyDevice(iface);
 
