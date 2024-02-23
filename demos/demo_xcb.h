@@ -455,7 +455,7 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
     if (FAILED(IDXGIVkSwapChainFactory_CreateSwapChain(factory, swapchain->surface_factory, &swap_desc, &swapchain->swapchain)))
         goto fail;
 
-    if (FAILED(IDXGIVkSwapChain_SetFrameLatency(swapchain->swapchain, 2)))
+    if (FAILED(IDXGIVkSwapChain_SetFrameLatency(swapchain->swapchain, 3)))
         goto fail;
 
     swapchain->fd = (int)(intptr_t)IDXGIVkSwapChain_GetFrameLatencyEvent(swapchain->swapchain);
