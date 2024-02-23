@@ -151,13 +151,13 @@ static void cxg_populate_command_list(struct cx_gears *cxg, unsigned int rt_idx)
 
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle, dsv_handle;
     D3D12_RESOURCE_BARRIER barrier;
+    size_t i, j;
     HRESULT hr;
-    size_t i;
 
     hr = ID3D12CommandAllocator_Reset(cxg->command_allocator[rt_idx]);
     assert(SUCCEEDED(hr));
 
-    hr = ID3D12GraphicsCommandList_Reset(command_list, cxg->command_allocator[rt_idx], cxg->pipeline_state_flat);
+    hr = ID3D12GraphicsCommandList_Reset(command_list, cxg->command_allocator[rt_idx], NULL);
     assert(SUCCEEDED(hr));
 
     ID3D12GraphicsCommandList_SetGraphicsRootSignature(command_list, cxg->root_signature);
@@ -187,16 +187,19 @@ static void cxg_populate_command_list(struct cx_gears *cxg, unsigned int rt_idx)
     ID3D12GraphicsCommandList_IASetIndexBuffer(command_list, &cxg->ibv);
     ID3D12GraphicsCommandList_IASetVertexBuffers(command_list, 0, 2, cxg->vbv);
 
-    for (i = 0; i < ARRAY_SIZE(cxg->draws); ++i)
+#define NUM_OVERDRAW_ITERATIONS 100000
+    for (j = 0; j < NUM_OVERDRAW_ITERATIONS; j++)
     {
-        ID3D12GraphicsCommandList_DrawIndexedInstanced(command_list, cxg->draws[i].flat_index_count,
-                1, cxg->draws[i].flat_index_idx, cxg->draws[i].vertex_idx, i);
+        for (i = 0; i < ARRAY_SIZE(cxg->draws); ++i)
+        {
+            ID3D12GraphicsCommandList_SetPipelineState(command_list, cxg->pipeline_state_flat);
+            ID3D12GraphicsCommandList_DrawIndexedInstanced(command_list, cxg->draws[i].flat_index_count,
+                    1, cxg->draws[i].flat_index_idx, cxg->draws[i].vertex_idx, i);
 
-        ID3D12GraphicsCommandList_SetPipelineState(command_list, cxg->pipeline_state_smooth);
-        ID3D12GraphicsCommandList_DrawIndexedInstanced(command_list, cxg->draws[i].smooth_index_count,
-                1, cxg->draws[i].smooth_index_idx, cxg->draws[i].vertex_idx, i);
-
-        ID3D12GraphicsCommandList_SetPipelineState(command_list, cxg->pipeline_state_flat);
+            ID3D12GraphicsCommandList_SetPipelineState(command_list, cxg->pipeline_state_smooth);
+            ID3D12GraphicsCommandList_DrawIndexedInstanced(command_list, cxg->draws[i].smooth_index_count,
+                    1, cxg->draws[i].smooth_index_idx, cxg->draws[i].vertex_idx, i);
+        }
     }
 
     barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
