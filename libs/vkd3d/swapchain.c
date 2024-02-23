@@ -1810,7 +1810,9 @@ static void dxgi_vk_swap_chain_present_signal_blit_semaphore(struct dxgi_vk_swap
 
     /* Mark frame boundary. */
     cookie = vkd3d_queue_timeline_trace_register_swapchain_blit(
-            &chain->queue->device->queue_timeline_trace, chain->present.complete_count);
+            &chain->queue->device->queue_timeline_trace,
+            chain->present.present_id_valid ?
+                    chain->present.present_id : chain->present.complete_count);
 
     if (vkd3d_queue_timeline_trace_cookie_is_valid(cookie))
     {
