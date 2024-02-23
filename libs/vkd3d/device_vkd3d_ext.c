@@ -20,18 +20,18 @@
 
 #include "vkd3d_private.h"
 
-static inline struct d3d12_device *d3d12_device_from_ID3D12DeviceExt(ID3D12DeviceExt *iface)
+static inline struct d3d12_device *d3d12_device_from_ID3D12DeviceExt(d3d12_device_vkd3d_ext_iface *iface)
 {
     return CONTAINING_RECORD(iface, struct d3d12_device, ID3D12DeviceExt_iface);
 }
 
-ULONG STDMETHODCALLTYPE d3d12_device_vkd3d_ext_AddRef(ID3D12DeviceExt *iface)
+ULONG STDMETHODCALLTYPE d3d12_device_vkd3d_ext_AddRef(d3d12_device_vkd3d_ext_iface *iface)
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
     return d3d12_device_add_ref(device);
 }
 
-static ULONG STDMETHODCALLTYPE d3d12_device_vkd3d_ext_Release(ID3D12DeviceExt *iface)
+static ULONG STDMETHODCALLTYPE d3d12_device_vkd3d_ext_Release(d3d12_device_vkd3d_ext_iface *iface)
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
     return d3d12_device_release(device);
@@ -40,7 +40,7 @@ static ULONG STDMETHODCALLTYPE d3d12_device_vkd3d_ext_Release(ID3D12DeviceExt *i
 extern HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
         REFIID riid, void **object);
 
-static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_QueryInterface(ID3D12DeviceExt *iface,
+static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_QueryInterface(d3d12_device_vkd3d_ext_iface *iface,
         REFIID iid, void **out)
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
@@ -48,7 +48,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_QueryInterface(ID3D12Dev
     return d3d12_device_QueryInterface(&device->ID3D12Device_iface, iid, out);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetVulkanHandles(ID3D12DeviceExt *iface, VkInstance *vk_instance, VkPhysicalDevice *vk_physical_device, VkDevice *vk_device)
+static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetVulkanHandles(d3d12_device_vkd3d_ext_iface *iface, VkInstance *vk_instance, VkPhysicalDevice *vk_physical_device, VkDevice *vk_device)
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
     TRACE("iface %p, vk_instance %p, vk_physical_device %p, vk_device %p \n", iface, vk_instance, vk_physical_device, vk_device);
@@ -61,7 +61,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetVulkanHandles(ID3D12D
     return S_OK;
 }
 
-static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetExtensionSupport(ID3D12DeviceExt *iface, D3D12_VK_EXTENSION extension)
+static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetExtensionSupport(d3d12_device_vkd3d_ext_iface *iface, D3D12_VK_EXTENSION extension)
 {
     const struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
     bool ret_val = false;
@@ -75,6 +75,9 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetExtensionSupport(ID3D12D
         case D3D12_VK_NVX_IMAGE_VIEW_HANDLE:
             ret_val = device->vk_info.NVX_image_view_handle;
             break;
+        case D3D12_VK_NV_LOW_LATENCY_2:
+            ret_val = device->vk_info.NV_low_latency2;
+            break;
         default:
             WARN("Invalid extension %x\n", extension);
     }
@@ -82,7 +85,7 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetExtensionSupport(ID3D12D
     return ret_val;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_CreateCubinComputeShaderWithName(ID3D12DeviceExt *iface, const void *cubin_data,
+static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_CreateCubinComputeShaderWithName(d3d12_device_vkd3d_ext_iface *iface, const void *cubin_data,
        UINT32 cubin_size, UINT32 block_x, UINT32 block_y, UINT32 block_z, const char *shader_name, D3D12_CUBIN_DATA_HANDLE **out_handle)
 {
     VkCuFunctionCreateInfoNVX functionCreateInfo = { VK_STRUCTURE_TYPE_CU_FUNCTION_CREATE_INFO_NVX };
@@ -129,7 +132,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_CreateCubinComputeShader
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_DestroyCubinComputeShader(ID3D12DeviceExt *iface, D3D12_CUBIN_DATA_HANDLE *handle)
+static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_DestroyCubinComputeShader(d3d12_device_vkd3d_ext_iface *iface, D3D12_CUBIN_DATA_HANDLE *handle)
 {   
     const struct vkd3d_vk_device_procs *vk_procs;
     struct d3d12_device *device;
@@ -149,7 +152,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_DestroyCubinComputeShade
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaTextureObject(ID3D12DeviceExt *iface, D3D12_CPU_DESCRIPTOR_HANDLE srv_handle,
+static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaTextureObject(d3d12_device_vkd3d_ext_iface *iface, D3D12_CPU_DESCRIPTOR_HANDLE srv_handle,
        D3D12_CPU_DESCRIPTOR_HANDLE sampler_handle, UINT32 *cuda_texture_handle)
 {
     VkImageViewHandleInfoNVX imageViewHandleInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_HANDLE_INFO_NVX };
@@ -177,7 +180,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaTextureObject(ID3
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaSurfaceObject(ID3D12DeviceExt *iface, D3D12_CPU_DESCRIPTOR_HANDLE uav_handle, 
+static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaSurfaceObject(d3d12_device_vkd3d_ext_iface *iface, D3D12_CPU_DESCRIPTOR_HANDLE uav_handle, 
         UINT32 *cuda_surface_handle)
 {
     VkImageViewHandleInfoNVX imageViewHandleInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_HANDLE_INFO_NVX };
@@ -202,7 +205,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaSurfaceObject(ID3
 
 extern VKD3D_THREAD_LOCAL struct D3D12_UAV_INFO *d3d12_uav_info;
 
-static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_CaptureUAVInfo(ID3D12DeviceExt *iface, D3D12_UAV_INFO *uav_info)
+static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_CaptureUAVInfo(d3d12_device_vkd3d_ext_iface *iface, D3D12_UAV_INFO *uav_info)
 {
     if (!uav_info)
        return E_INVALIDARG;
@@ -416,4 +419,175 @@ CONST_VTBL struct ID3D12DXVKInteropDeviceVtbl d3d12_dxvk_interop_device_vtbl =
     d3d12_dxvk_interop_device_GetVulkanResourceInfo,
     d3d12_dxvk_interop_device_LockCommandQueue,
     d3d12_dxvk_interop_device_UnlockCommandQueue,
+};
+
+static inline struct d3d12_device *d3d12_device_from_ID3DLowLatencyDevice(d3d_low_latency_device_iface *iface)
+{
+    return CONTAINING_RECORD(iface, struct d3d12_device, ID3DLowLatencyDevice_iface);
+}
+
+ULONG STDMETHODCALLTYPE d3d12_low_latency_device_AddRef(d3d_low_latency_device_iface *iface)
+{
+    struct d3d12_device *device = d3d12_device_from_ID3DLowLatencyDevice(iface);
+    return d3d12_device_add_ref(device);
+}
+
+static ULONG STDMETHODCALLTYPE d3d12_low_latency_device_Release(d3d_low_latency_device_iface *iface)
+{
+    struct d3d12_device *device = d3d12_device_from_ID3DLowLatencyDevice(iface);
+    return d3d12_device_release(device);
+}
+
+extern HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
+        REFIID riid, void **object);
+
+static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_QueryInterface(d3d_low_latency_device_iface *iface,
+        REFIID iid, void **out)
+{
+    struct d3d12_device *device = d3d12_device_from_ID3DLowLatencyDevice(iface);
+    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
+    return d3d12_device_QueryInterface(&device->ID3D12Device_iface, iid, out);
+}
+
+static BOOL STDMETHODCALLTYPE d3d12_low_latency_device_SupportsLowLatency(d3d_low_latency_device_iface *iface)
+{
+    struct d3d12_device *device;
+
+    device = d3d12_device_from_ID3DLowLatencyDevice(iface);
+
+    return device->vk_info.NV_low_latency2;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_LatencySleep(d3d_low_latency_device_iface *iface)
+{
+    struct dxgi_vk_swap_chain *low_latency_swapchain;
+    struct d3d12_device *device;
+
+    device = d3d12_device_from_ID3DLowLatencyDevice(iface);
+
+    if (!device->vk_info.NV_low_latency2)
+        return E_NOTIMPL;
+
+    spinlock_acquire(&device->low_latency_swapchain_spinlock);
+    if ((low_latency_swapchain = device->swapchain_info.low_latency_swapchain))
+        dxgi_vk_swap_chain_incref(low_latency_swapchain);
+    spinlock_release(&device->low_latency_swapchain_spinlock);
+
+    if (low_latency_swapchain)
+    {
+        dxgi_vk_swap_chain_latency_sleep(low_latency_swapchain);
+        dxgi_vk_swap_chain_decref(low_latency_swapchain);
+    }
+
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_SetLatencySleepMode(d3d_low_latency_device_iface *iface, BOOL low_latency_mode, BOOL low_latency_boost,
+        UINT32 minimum_interval_us)
+{
+    struct dxgi_vk_swap_chain *low_latency_swapchain;
+    struct d3d12_device *device;
+
+    device = d3d12_device_from_ID3DLowLatencyDevice(iface);
+
+    if (!device->vk_info.NV_low_latency2)
+        return E_NOTIMPL;
+
+    spinlock_acquire(&device->low_latency_swapchain_spinlock);
+    if ((low_latency_swapchain = device->swapchain_info.low_latency_swapchain))
+        dxgi_vk_swap_chain_incref(low_latency_swapchain);
+    spinlock_release(&device->low_latency_swapchain_spinlock);
+
+    if (low_latency_swapchain)
+    {
+        dxgi_vk_swap_chain_set_latency_sleep_mode(low_latency_swapchain, low_latency_mode, low_latency_boost, minimum_interval_us);
+        dxgi_vk_swap_chain_decref(low_latency_swapchain);
+    }
+
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_SetLatencyMarker(d3d_low_latency_device_iface *iface, UINT64 frameID, UINT32 markerType)
+{
+    struct dxgi_vk_swap_chain *low_latency_swapchain;
+    VkLatencyMarkerNV vk_marker;
+    struct d3d12_device *device;
+    uint64_t internal_frame_id;
+
+    device = d3d12_device_from_ID3DLowLatencyDevice(iface);
+    vk_marker = (VkLatencyMarkerNV)markerType;
+
+    if (!device->vk_info.NV_low_latency2)
+        return E_NOTIMPL;
+
+    /* Offset the frameID by one to ensure it will always
+     * be a valid presentID */
+    internal_frame_id = frameID + 1;
+
+    switch (vk_marker)
+    {
+        case VK_LATENCY_MARKER_SIMULATION_START_NV:
+            device->frame_markers.simulation = internal_frame_id;
+            break;
+        case VK_LATENCY_MARKER_RENDERSUBMIT_START_NV:
+            device->frame_markers.render = internal_frame_id;
+            break;
+        case VK_LATENCY_MARKER_PRESENT_START_NV:
+            device->frame_markers.present = internal_frame_id;
+            break;
+        default:
+            break;
+    }
+
+    spinlock_acquire(&device->low_latency_swapchain_spinlock);
+    if ((low_latency_swapchain = device->swapchain_info.low_latency_swapchain))
+        dxgi_vk_swap_chain_incref(low_latency_swapchain);
+    spinlock_release(&device->low_latency_swapchain_spinlock);
+
+    if (low_latency_swapchain)
+    {
+        dxgi_vk_swap_chain_set_latency_marker(low_latency_swapchain, internal_frame_id, vk_marker);
+        dxgi_vk_swap_chain_decref(low_latency_swapchain);
+    }
+
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_GetLatencyInfo(d3d_low_latency_device_iface *iface, D3D12_LATENCY_RESULTS *latency_results)
+{
+    struct dxgi_vk_swap_chain *low_latency_swapchain;
+    struct d3d12_device *device;
+
+    device = d3d12_device_from_ID3DLowLatencyDevice(iface);
+
+    if (!device->vk_info.NV_low_latency2)
+        return E_NOTIMPL;
+
+    spinlock_acquire(&device->low_latency_swapchain_spinlock);
+    if ((low_latency_swapchain = device->swapchain_info.low_latency_swapchain))
+        dxgi_vk_swap_chain_incref(low_latency_swapchain);
+    spinlock_release(&device->low_latency_swapchain_spinlock);
+
+    if (low_latency_swapchain)
+    {
+        dxgi_vk_swap_chain_get_latency_info(low_latency_swapchain, latency_results);
+        dxgi_vk_swap_chain_decref(low_latency_swapchain);
+    }
+
+    return S_OK;
+}
+
+CONST_VTBL struct ID3DLowLatencyDeviceVtbl d3d_low_latency_device_vtbl =
+{
+    /* IUnknown methods */
+    d3d12_low_latency_device_QueryInterface,
+    d3d12_low_latency_device_AddRef,
+    d3d12_low_latency_device_Release,
+
+    /* ID3DLowLatencyDevice methods */
+    d3d12_low_latency_device_SupportsLowLatency,
+    d3d12_low_latency_device_LatencySleep,
+    d3d12_low_latency_device_SetLatencySleepMode,
+    d3d12_low_latency_device_SetLatencyMarker,
+    d3d12_low_latency_device_GetLatencyInfo
 };

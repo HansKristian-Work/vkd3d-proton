@@ -42,15 +42,18 @@ struct vkd3d_optional_extension_info
     ptrdiff_t vulkan_info_offset;
     uint64_t enable_config_flags;
     uint64_t disable_config_flags;
+    uint32_t minimum_spec_version;
 };
 
 #define VK_EXTENSION(name, member) \
-        {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member), 0}
+        {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member), 0, 0}
 
 #define VK_EXTENSION_COND(name, member, required_flags) \
-        {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member), required_flags}
+        {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member), required_flags, 0}
 #define VK_EXTENSION_DISABLE_COND(name, member, disable_flags) \
-        {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member), 0, disable_flags}
+        {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member), 0, disable_flags, 0}
+#define VK_EXTENSION_VERSION(name, member, spec_version) \
+        {VK_ ## name ## _EXTENSION_NAME, offsetof(struct vkd3d_vulkan_info, member), 0, 0, spec_version}
 
 static const struct vkd3d_optional_extension_info optional_instance_extensions[] =
 {
@@ -124,6 +127,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(NV_SHADER_SUBGROUP_PARTITIONED, NV_shader_subgroup_partitioned),
     VK_EXTENSION(NV_MEMORY_DECOMPRESSION, NV_memory_decompression),
     VK_EXTENSION(NV_DEVICE_GENERATED_COMMANDS_COMPUTE, NV_device_generated_commands_compute),
+    VK_EXTENSION_VERSION(NV_LOW_LATENCY_2, NV_low_latency2, 2),
     /* VALVE extensions */
     VK_EXTENSION(VALVE_MUTABLE_DESCRIPTOR_TYPE, VALVE_mutable_descriptor_type),
     VK_EXTENSION(VALVE_DESCRIPTOR_SET_HOST_MAPPING, VALVE_descriptor_set_host_mapping),
@@ -159,7 +163,7 @@ static bool is_extension_disabled(const char *extension_name)
 }
 
 static bool has_extension(const VkExtensionProperties *extensions,
-        unsigned int count, const char *extension_name)
+        unsigned int count, const char *extension_name, uint32_t minimum_spec_version)
 {
     unsigned int i;
 
@@ -170,7 +174,8 @@ static bool has_extension(const VkExtensionProperties *extensions,
             WARN("Extension %s is disabled.\n", debugstr_a(extension_name));
             continue;
         }
-        if (!strcmp(extensions[i].extensionName, extension_name))
+        if (!strcmp(extensions[i].extensionName, extension_name) &&
+                (extensions[i].specVersion >= minimum_spec_version))
             return true;
     }
     return false;
@@ -188,7 +193,7 @@ static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensio
 
     for (i = 0; i < required_extension_count; ++i)
     {
-        if (!has_extension(extensions, count, required_extensions[i]))
+        if (!has_extension(extensions, count, required_extensions[i], 0))
             ERR("Required %s extension %s is not supported.\n",
                     extension_type, debugstr_a(required_extensions[i]));
         ++extension_count;
@@ -199,6 +204,7 @@ static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensio
         uint64_t disable_flags = optional_extensions[i].disable_config_flags;
         const char *extension_name = optional_extensions[i].extension_name;
         uint64_t enable_flags = optional_extensions[i].enable_config_flags;
+        uint32_t minimum_spec_version = optional_extensions[i].minimum_spec_version;
         ptrdiff_t offset = optional_extensions[i].vulkan_info_offset;
         bool *supported = (void *)((uintptr_t)vulkan_info + offset);
 
@@ -207,7 +213,7 @@ static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensio
         if (disable_flags && (vkd3d_config_flags & disable_flags))
             continue;
 
-        if ((*supported = has_extension(extensions, count, extension_name)))
+        if ((*supported = has_extension(extensions, count, extension_name, minimum_spec_version)))
         {
             TRACE("Found %s extension.\n", debugstr_a(extension_name));
             ++extension_count;
@@ -216,7 +222,7 @@ static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensio
 
     for (i = 0; i < user_extension_count; ++i)
     {
-        if (!has_extension(extensions, count, user_extensions[i]))
+        if (!has_extension(extensions, count, user_extensions[i], 0))
             ERR("Required user %s extension %s is not supported.\n",
                     extension_type, debugstr_a(user_extensions[i]));
         ++extension_count;
@@ -225,7 +231,7 @@ static unsigned int vkd3d_check_extensions(const VkExtensionProperties *extensio
     assert(!optional_user_extension_count || user_extension_supported);
     for (i = 0; i < optional_user_extension_count; ++i)
     {
-        if (has_extension(extensions, count, optional_user_extensions[i]))
+        if (has_extension(extensions, count, optional_user_extensions[i], 0))
         {
             user_extension_supported[i] = true;
             ++extension_count;
@@ -2584,6 +2590,12 @@ struct vkd3d_device_queue_info
     VkDeviceQueueCreateInfo vk_queue_create_info[VKD3D_QUEUE_FAMILY_COUNT];
 };
 
+static bool vkd3d_queue_family_needs_out_of_band_queue(unsigned int vkd3d_queue_family)
+{
+    return vkd3d_queue_family == VKD3D_QUEUE_FAMILY_GRAPHICS ||
+        vkd3d_queue_family == VKD3D_QUEUE_FAMILY_COMPUTE;
+}
+
 static void d3d12_device_destroy_vkd3d_queues(struct d3d12_device *device)
 {
     unsigned int i, j;
@@ -2607,6 +2619,9 @@ static void d3d12_device_destroy_vkd3d_queues(struct d3d12_device *device)
             if (queue_family->queues[j])
                 vkd3d_queue_destroy(queue_family->queues[j], device);
         }
+
+        if (queue_family->out_of_band_queue)
+            vkd3d_queue_destroy(queue_family->out_of_band_queue, device);
 
         vkd3d_free(queue_family->queues);
         vkd3d_free(queue_family);
@@ -2648,6 +2663,12 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
 
         info->queue_count = queue_info->vk_queue_create_info[k++].queueCount;
 
+        /* Unless the queue family only has a single queue to allocate, when NV_low_latency2
+         * is enabled one queue is reserved for out of band work */
+        if (device->vk_info.NV_low_latency2 && vkd3d_queue_family_needs_out_of_band_queue(i) &&
+                queue_info->vk_properties[i].queueCount > 1)
+            info->queue_count--;
+
         if (!(info->queues = vkd3d_calloc(info->queue_count, sizeof(*info->queues))))
         {
             hr = E_OUTOFMEMORY;
@@ -2660,6 +2681,19 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
                     j, &queue_info->vk_properties[i], &info->queues[j]))))
                 goto out_destroy_queues;
         }
+
+        if (device->vk_info.NV_low_latency2 && vkd3d_queue_family_needs_out_of_band_queue(i) &&
+                queue_info->vk_properties[i].queueCount > 1)
+        {
+            /* The low latency out of band queue is always the last queue for the family */
+            if (FAILED((hr = vkd3d_queue_create(device, queue_info->family_index[i],
+                    info->queue_count, &queue_info->vk_properties[i], &info->out_of_band_queue))))
+                goto out_destroy_queues;
+
+            vkd3d_set_queue_out_of_band(device, info->out_of_band_queue);
+        }
+        else
+            WARN("Could not allocate an out of band queue for queue family %u. All out of band work will happen on the in band queue.\n", i);
 
         info->vk_family_index = queue_info->family_index[i];
         info->vk_queue_flags = queue_info->vk_properties[i].queueFlags;
@@ -2680,7 +2714,11 @@ out_destroy_queues:
 }
 
 #define VKD3D_MAX_QUEUE_COUNT_PER_FAMILY (4u)
-static float queue_priorities[] = {1.0f, 1.0f, 1.0f, 1.0f};
+
+/* The queue priorities list contains VKD3D_MAX_QUEUE_COUNT_PER_FAMILY + 1 priorities
+ * because it is possible for low latency to add an additional queue for out of band work
+ * submission. */
+static float queue_priorities[] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
 
 static uint32_t vkd3d_find_queue(unsigned int count, const VkQueueFamilyProperties *properties,
         VkQueueFlags mask, VkQueueFlags flags)
@@ -2696,10 +2734,10 @@ static uint32_t vkd3d_find_queue(unsigned int count, const VkQueueFamilyProperti
     return VK_QUEUE_FAMILY_IGNORED;
 }
 
-static HRESULT vkd3d_select_queues(const struct vkd3d_instance *vkd3d_instance,
+static HRESULT vkd3d_select_queues(const struct d3d12_device *device,
         VkPhysicalDevice physical_device, struct vkd3d_device_queue_info *info)
 {
-    const struct vkd3d_vk_instance_procs *vk_procs = &vkd3d_instance->vk_procs;
+    const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
     VkQueueFamilyProperties *queue_properties = NULL;
     VkDeviceQueueCreateInfo *queue_info = NULL;
     bool duplicate, single_queue;
@@ -2762,6 +2800,10 @@ static HRESULT vkd3d_select_queues(const struct vkd3d_instance *vkd3d_instance,
 
         if (single_queue)
             queue_info->queueCount = 1;
+
+        if (device->vk_info.NV_low_latency2 && vkd3d_queue_family_needs_out_of_band_queue(i) &&
+                queue_info->queueCount < info->vk_properties[i].queueCount)
+            queue_info->queueCount++;
     }
 
     vkd3d_free(queue_properties);
@@ -2803,9 +2845,6 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
 
     VK_CALL(vkGetPhysicalDeviceProperties(device->vk_physical_device, &device_properties));
     device->api_version = min(device_properties.apiVersion, VKD3D_MAX_API_VERSION);
-
-    if (FAILED(hr = vkd3d_select_queues(device->vkd3d_instance, physical_device, &device_queue_info)))
-        return hr;
 
     TRACE("Using queue family %u for direct command queues.\n",
             device_queue_info.family_index[VKD3D_QUEUE_FAMILY_GRAPHICS]);
@@ -2851,6 +2890,13 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
     {
         vkd3d_free(user_extension_supported);
         return E_OUTOFMEMORY;
+    }
+
+    if (FAILED(hr = vkd3d_select_queues(device, physical_device, &device_queue_info)))
+    {
+        vkd3d_free(user_extension_supported);
+        vkd3d_free(extensions);
+        return hr;
     }
 
     /* Create device */
@@ -3281,8 +3327,9 @@ void d3d12_device_return_query_pool(struct d3d12_device *device, const struct vk
 }
 
 /* ID3D12Device */
-extern ULONG STDMETHODCALLTYPE d3d12_device_vkd3d_ext_AddRef(ID3D12DeviceExt *iface);
+extern ULONG STDMETHODCALLTYPE d3d12_device_vkd3d_ext_AddRef(d3d12_device_vkd3d_ext_iface *iface);
 extern ULONG STDMETHODCALLTYPE d3d12_dxvk_interop_device_AddRef(ID3D12DXVKInteropDevice *iface);
+extern ULONG STDMETHODCALLTYPE d3d12_low_latency_device_AddRef(ID3DLowLatencyDevice *iface);
 
 HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
         REFIID riid, void **object)
@@ -3326,6 +3373,14 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
         struct d3d12_device *device = impl_from_ID3D12Device(iface);
         d3d12_dxvk_interop_device_AddRef(&device->ID3D12DXVKInteropDevice_iface);
         *object = &device->ID3D12DXVKInteropDevice_iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(riid, &IID_ID3DLowLatencyDevice))
+    {
+        struct d3d12_device *device = impl_from_ID3D12Device(iface);
+        d3d12_low_latency_device_AddRef(&device->ID3DLowLatencyDevice_iface);
+        *object = &device->ID3DLowLatencyDevice_iface;
         return S_OK;
     }
 
@@ -8348,6 +8403,7 @@ static void d3d12_device_replace_vtable(struct d3d12_device *device)
 
 extern CONST_VTBL struct ID3D12DeviceExtVtbl d3d12_device_vkd3d_ext_vtbl;
 extern CONST_VTBL struct ID3D12DXVKInteropDeviceVtbl d3d12_dxvk_interop_device_vtbl;
+extern CONST_VTBL struct ID3DLowLatencyDeviceVtbl d3d_low_latency_device_vtbl;
 
 static void vkd3d_scratch_pool_init(struct d3d12_device *device)
 {
@@ -8416,8 +8472,11 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
         goto out_free_mutex;
     }
 
+    spinlock_init(&device->low_latency_swapchain_spinlock);
+
     device->ID3D12DeviceExt_iface.lpVtbl = &d3d12_device_vkd3d_ext_vtbl;
     device->ID3D12DXVKInteropDevice_iface.lpVtbl = &d3d12_dxvk_interop_device_vtbl;
+    device->ID3DLowLatencyDevice_iface.lpVtbl = &d3d_low_latency_device_vtbl;
 
     if ((rc = rwlock_init(&device->vertex_input_lock)))
     {

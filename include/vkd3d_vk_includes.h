@@ -41,8 +41,15 @@ typedef enum VkImageLayout VkImageLayout;
 typedef enum D3D12_VK_EXTENSION
 {
     D3D12_VK_NVX_BINARY_IMPORT      = 0x1,
-    D3D12_VK_NVX_IMAGE_VIEW_HANDLE  = 0x2
+    D3D12_VK_NVX_IMAGE_VIEW_HANDLE  = 0x2,
+    D3D12_VK_NV_LOW_LATENCY_2       = 0x3
 } D3D12_VK_EXTENSION;
+
+typedef enum D3D12_OUT_OF_BAND_CQ_TYPE
+{
+    OUT_OF_BAND_RENDER  = 0,
+    OUT_OF_BAND_PRESENT = 1
+} D3D12_OUT_OF_BAND_CQ_TYPE;
 
 typedef struct D3D12_CUBIN_DATA_HANDLE
 {
@@ -60,6 +67,31 @@ typedef struct D3D12_UAV_INFO
     UINT64 gpuVAStart;
     UINT64 gpuVASize;  
 } D3D12_UAV_INFO;
+
+typedef struct D3D12_LATENCY_RESULTS
+{
+    UINT32 version;
+    struct D3D12_FRAME_REPORT {
+        UINT64 frameID;
+        UINT64 inputSampleTime;
+        UINT64 simStartTime;
+        UINT64 simEndTime;
+        UINT64 renderSubmitStartTime;
+        UINT64 renderSubmitEndTime;
+        UINT64 presentStartTime;
+        UINT64 presentEndTime;
+        UINT64 driverStartTime;
+        UINT64 driverEndTime;
+        UINT64 osRenderQueueStartTime;
+        UINT64 osRenderQueueEndTime;
+        UINT64 gpuRenderStartTime;
+        UINT64 gpuRenderEndTime;
+        UINT32 gpuActiveRenderTimeUs;
+        UINT32 gpuFrameTimeUs;
+        UINT8 rsvd[120];
+    } frame_reports[64];
+    UINT8 rsvd[32];
+} D3D12_LATENCY_RESULTS;
 
 #endif  // __VKD3D_VK_INCLUDES_H
 
