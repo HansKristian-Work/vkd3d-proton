@@ -221,8 +221,8 @@ void vkd3d_queue_timeline_trace_complete_present_wait(struct vkd3d_queue_timelin
     vkd3d_queue_timeline_trace_free_index(trace, cookie.index);
 }
 
-void vkd3d_queue_timeline_trace_complete_present_block(struct vkd3d_queue_timeline_trace *trace,
-        struct vkd3d_queue_timeline_trace_cookie cookie)
+void vkd3d_queue_timeline_trace_complete_blocking(struct vkd3d_queue_timeline_trace *trace,
+        struct vkd3d_queue_timeline_trace_cookie cookie, const char *pid)
 {
     const struct vkd3d_queue_timeline_trace_state *state;
     double end_ts, start_ts;
@@ -234,10 +234,22 @@ void vkd3d_queue_timeline_trace_complete_present_block(struct vkd3d_queue_timeli
     end_ts = (double)(vkd3d_get_current_time_ns() - trace->base_ts) * 1e-3;
     start_ts = (double)(state->start_ts - trace->base_ts) * 1e-3;
 
-    fprintf(trace->file, "{ \"name\": \"%s\", \"ph\": \"X\", \"tid\": \"0x%04x\", \"pid\": \"IDXGISwapChain::Present()\", \"ts\": %f, \"dur\": %f },\n",
-            state->desc, state->tid, start_ts, end_ts - start_ts);
+    fprintf(trace->file, "{ \"name\": \"%s\", \"ph\": \"X\", \"tid\": \"0x%04x\", \"pid\": \"%s\", \"ts\": %f, \"dur\": %f },\n",
+            state->desc, state->tid, pid, start_ts, end_ts - start_ts);
 
     vkd3d_queue_timeline_trace_free_index(trace, cookie.index);
+}
+
+void vkd3d_queue_timeline_trace_complete_present_block(struct vkd3d_queue_timeline_trace *trace,
+        struct vkd3d_queue_timeline_trace_cookie cookie)
+{
+    vkd3d_queue_timeline_trace_complete_blocking(trace, cookie, "IDXGISwapChain::Present()");
+}
+
+void vkd3d_queue_timeline_trace_complete_low_latency_sleep(struct vkd3d_queue_timeline_trace *trace,
+        struct vkd3d_queue_timeline_trace_cookie cookie)
+{
+    vkd3d_queue_timeline_trace_complete_blocking(trace, cookie, "ID3DLowLatencyDevice::LatencySleep()");
 }
 
 struct vkd3d_queue_timeline_trace_cookie
@@ -417,6 +429,14 @@ vkd3d_queue_timeline_trace_register_present_block(struct vkd3d_queue_timeline_tr
     char str[128];
     snprintf(str, sizeof(str), "PRESENT (id = %"PRIu64")", present_id);
     return vkd3d_queue_timeline_trace_register_generic_op(trace, VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_PRESENT_BLOCK, str);
+}
+
+struct vkd3d_queue_timeline_trace_cookie
+vkd3d_queue_timeline_trace_register_low_latency_sleep(struct vkd3d_queue_timeline_trace *trace, uint64_t present_id)
+{
+    char str[128];
+    snprintf(str, sizeof(str), "LATENCY SLEEP (id = %"PRIu64")", present_id);
+    return vkd3d_queue_timeline_trace_register_generic_op(trace, VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_LOW_LATENCY_SLEEP, str);
 }
 
 static void vkd3d_queue_timeline_trace_flush_instantaneous(struct vkd3d_queue_timeline_trace *trace,

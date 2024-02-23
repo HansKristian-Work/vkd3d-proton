@@ -2697,6 +2697,7 @@ bool dxgi_vk_swap_chain_low_latency_enabled(struct dxgi_vk_swap_chain *chain)
 void dxgi_vk_swap_chain_latency_sleep(struct dxgi_vk_swap_chain *chain)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
+    struct vkd3d_queue_timeline_trace_cookie cookie;
     VkLatencySleepInfoNV latency_sleep_info;
     VkSemaphoreWaitInfo sem_wait_info;
     bool should_sleep = false;
@@ -2730,7 +2731,11 @@ void dxgi_vk_swap_chain_latency_sleep(struct dxgi_vk_swap_chain *chain)
         sem_wait_info.pSemaphores = &chain->present.low_latency_sem;
         sem_wait_info.pValues = &chain->present.low_latency_sem_value;
 
+        cookie = vkd3d_queue_timeline_trace_register_low_latency_sleep(
+                &chain->queue->device->queue_timeline_trace, chain->present.low_latency_sem_value);
         VK_CALL(vkWaitSemaphores(chain->queue->device->vk_device, &sem_wait_info, UINT64_MAX));
+        vkd3d_queue_timeline_trace_complete_low_latency_sleep(
+                &chain->queue->device->queue_timeline_trace, cookie);
     }
 }
 
