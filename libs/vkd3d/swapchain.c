@@ -482,6 +482,7 @@ static ULONG STDMETHODCALLTYPE dxgi_vk_swap_chain_Release(IDXGIVkSwapChain *ifac
             d3d12_device_remove_swapchain(device, chain);
 
         dxgi_vk_swap_chain_decref(chain);
+        ID3D12CommandQueue_Release(&chain->queue->ID3D12CommandQueue_iface);
     }
 
     return refcount;
@@ -2537,7 +2538,7 @@ static HRESULT dxgi_vk_swap_chain_init_waiter_thread(struct dxgi_vk_swap_chain *
     return S_OK;
 }
 
-static HRESULT dxgi_vk_swap_chain_init_low_latency(struct dxgi_vk_swap_chain* chain)
+static HRESULT dxgi_vk_swap_chain_init_low_latency(struct dxgi_vk_swap_chain *chain)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     VkPhysicalDevice vk_physical_device = chain->queue->device->vk_physical_device;
@@ -2688,12 +2689,12 @@ static CONST_VTBL struct IDXGIVkSwapChainFactoryVtbl dxgi_vk_swap_chain_factory_
     dxgi_vk_swap_chain_factory_CreateSwapChain,
 };
 
-bool dxgi_vk_swap_chain_low_latency_enabled(struct dxgi_vk_swap_chain* chain)
+bool dxgi_vk_swap_chain_low_latency_enabled(struct dxgi_vk_swap_chain *chain)
 {
     return chain->present.low_latency_state.mode;
 }
 
-void dxgi_vk_swap_chain_latency_sleep(struct dxgi_vk_swap_chain* chain)
+void dxgi_vk_swap_chain_latency_sleep(struct dxgi_vk_swap_chain *chain)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     VkLatencySleepInfoNV latency_sleep_info;
@@ -2733,7 +2734,7 @@ void dxgi_vk_swap_chain_latency_sleep(struct dxgi_vk_swap_chain* chain)
     }
 }
 
-void dxgi_vk_swap_chain_set_latency_sleep_mode(struct dxgi_vk_swap_chain* chain, bool low_latency_mode,
+void dxgi_vk_swap_chain_set_latency_sleep_mode(struct dxgi_vk_swap_chain *chain, bool low_latency_mode,
 	bool low_latency_boost, uint32_t minimum_interval_us)
 {
     pthread_mutex_lock(&chain->present.low_latency_state_update_lock);
@@ -2750,7 +2751,7 @@ void dxgi_vk_swap_chain_set_latency_sleep_mode(struct dxgi_vk_swap_chain* chain,
     pthread_mutex_unlock(&chain->present.low_latency_state_update_lock);
 }
 
-void dxgi_vk_swap_chain_set_latency_marker(struct dxgi_vk_swap_chain* chain, uint64_t frameID, VkLatencyMarkerNV marker)
+void dxgi_vk_swap_chain_set_latency_marker(struct dxgi_vk_swap_chain *chain, uint64_t frameID, VkLatencyMarkerNV marker)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     VkSetLatencyMarkerInfoNV latency_marker_info;
@@ -2769,10 +2770,10 @@ void dxgi_vk_swap_chain_set_latency_marker(struct dxgi_vk_swap_chain* chain, uin
     pthread_mutex_unlock(&chain->present.low_latency_swapchain_lock);
 }
 
-void dxgi_vk_swap_chain_get_latency_info(struct dxgi_vk_swap_chain* chain, D3D12_LATENCY_RESULTS *latency_results)
+void dxgi_vk_swap_chain_get_latency_info(struct dxgi_vk_swap_chain *chain, D3D12_LATENCY_RESULTS *latency_results)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
-    VkLatencyTimingsFrameReportNV* frame_reports;
+    VkLatencyTimingsFrameReportNV *frame_reports;
     VkGetLatencyMarkerInfoNV marker_info;
     uint32_t i;
 
@@ -2853,11 +2854,9 @@ ULONG dxgi_vk_swap_chain_decref(struct dxgi_vk_swap_chain *chain)
 
     if (!refcount)
     {
-        struct d3d12_command_queue *queue = chain->queue;
 
         dxgi_vk_swap_chain_cleanup(chain);
         vkd3d_free(chain);
-        ID3D12CommandQueue_Release(&queue->ID3D12CommandQueue_iface);
     }
 
     return refcount;
