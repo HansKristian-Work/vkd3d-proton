@@ -450,6 +450,7 @@ void test_format_support(void)
         &feature_levels, sizeof(feature_levels));
     ok(hr == S_OK, "Got unexpected hr %#x.\n", hr);
 
+    dxgi_format = NULL;
     for (i = 0; i < ARRAY_SIZE(dxgi_format_list); ++i)
     {
         if (dxgi_format_list[i].feature_level == feature_levels.MaxSupportedFeatureLevel)
@@ -458,6 +459,7 @@ void test_format_support(void)
             break;
         }
     }
+    assert(dxgi_format);
 
     for (format = 0; format <= DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE; ++format)
     {
