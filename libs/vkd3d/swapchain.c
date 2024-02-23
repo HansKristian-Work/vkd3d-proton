@@ -481,8 +481,8 @@ static ULONG STDMETHODCALLTYPE dxgi_vk_swap_chain_Release(IDXGIVkSwapChain *ifac
         if (device->vk_info.NV_low_latency2)
             d3d12_device_remove_swapchain(device, chain);
 
-        dxgi_vk_swap_chain_decref(chain);
         ID3D12CommandQueue_Release(&chain->queue->ID3D12CommandQueue_iface);
+        dxgi_vk_swap_chain_decref(chain);
     }
 
     return refcount;
