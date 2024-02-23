@@ -949,7 +949,10 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain *if
     chain->user.index = (chain->user.index + 1) % chain->desc.BufferCount;
 
     cookie = vkd3d_queue_timeline_trace_register_present_block(
-            &chain->queue->device->queue_timeline_trace, chain->user.blit_count);
+            &chain->queue->device->queue_timeline_trace,
+            chain->queue->device->frame_markers.present ?
+                    chain->queue->device->frame_markers.present :
+                    chain->user.blit_count);
 
     /* Relevant if application does not use latency fence, or we force a lower latency through VKD3D_SWAPCHAIN_FRAME_LATENCY overrides. */
     if (vkd3d_native_sync_handle_is_valid(chain->frame_latency_event_internal))
