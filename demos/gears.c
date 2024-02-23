@@ -214,6 +214,7 @@ static void cxg_wait_for_previous_frame(struct cx_gears *cxg)
 {
     struct cxg_fence *fence = &cxg->fence;
     const UINT64 v = fence->value;
+    UINT64 wait_v;
     HRESULT hr;
 
     hr = ID3D12CommandQueue_Signal(cxg->command_queue, fence->fence, v);
@@ -221,11 +222,15 @@ static void cxg_wait_for_previous_frame(struct cx_gears *cxg)
 
     ++fence->value;
 
-    if (ID3D12Fence_GetCompletedValue(fence->fence) < v)
+    if (v > 0)
     {
-        hr = ID3D12Fence_SetEventOnCompletion(fence->fence, v, fence->event);
-        assert(SUCCEEDED(hr));
-        demo_wait_event(fence->event);
+        wait_v = v - 1;
+        if (ID3D12Fence_GetCompletedValue(fence->fence) < wait_v)
+        {
+            hr = ID3D12Fence_SetEventOnCompletion(fence->fence, wait_v, fence->event);
+            assert(SUCCEEDED(hr));
+            demo_wait_event(fence->event);
+        }
     }
 
     cxg->rt_idx = demo_swapchain_get_current_back_buffer_index(cxg->swapchain);
