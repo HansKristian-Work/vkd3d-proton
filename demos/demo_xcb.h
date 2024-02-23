@@ -21,6 +21,8 @@
 #include <vkd3d.h>
 #include <vkd3d_sonames.h>
 #include <vkd3d_swapchain_factory.h>
+#include <vkd3d_command_queue_vkd3d_ext.h>
+#include <vkd3d_device_vkd3d_ext.h>
 #include <xcb/xcb_event.h>
 #include <xcb/xcb_icccm.h>
 #include <xcb/xcb_keysyms.h>
@@ -73,6 +75,8 @@ struct demo_swapchain
 {
     IDXGIVkSwapChain *swapchain;
     IDXGIVkSurfaceFactory *surface_factory;
+    ID3DLowLatencyDevice *low_latency_device;
+    uint64_t low_latency_frame_id;
     int fd;
 };
 
@@ -284,6 +288,8 @@ static inline void demo_swapchain_destroy(struct demo_swapchain *swapchain)
     /* FD 0 is never returned as a valid fd. */
     if (swapchain->fd > 0)
         close(swapchain->fd);
+    if (swapchain->low_latency_device)
+        ID3DLowLatencyDevice_Release(swapchain->low_latency_device);
     free(swapchain);
 }
 
@@ -426,6 +432,15 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
     if (FAILED(xcb_surface_factory_create(window->demo->connection, window->window, &swapchain->surface_factory)))
         goto fail;
 
+    if (FAILED(ID3D12CommandQueue_GetDevice(command_queue, &IID_ID3DLowLatencyDevice, (void **)&swapchain->low_latency_device)))
+        swapchain->low_latency_device = NULL;
+
+    if (swapchain->low_latency_device && !ID3DLowLatencyDevice_SupportsLowLatency(swapchain->low_latency_device))
+    {
+        ID3DLowLatencyDevice_Release(swapchain->low_latency_device);
+        swapchain->low_latency_device = NULL;
+    }
+
     memset(&swap_desc, 0, sizeof(swap_desc));
     swap_desc.Format = desc->format;
     swap_desc.Width = desc->width;
@@ -445,6 +460,27 @@ static inline struct demo_swapchain *demo_swapchain_create(ID3D12CommandQueue *c
 
     swapchain->fd = (int)(intptr_t)IDXGIVkSwapChain_GetFrameLatencyEvent(swapchain->swapchain);
     acquire_eventfd(swapchain->fd);
+
+    if (swapchain->low_latency_device)
+    {
+        if (FAILED(ID3DLowLatencyDevice_SetLatencySleepMode(
+                swapchain->low_latency_device, TRUE, TRUE, 16666)))
+        {
+            ID3DLowLatencyDevice_Release(swapchain->low_latency_device);
+            swapchain->low_latency_device = NULL;
+        }
+
+        /* Start at a very high value to make sure vkd3d-proton is picking it up. */
+        swapchain->low_latency_frame_id = 10000;
+    }
+
+    if (swapchain->low_latency_device)
+    {
+        ID3DLowLatencyDevice_SetLatencyMarker(swapchain->low_latency_device,
+                swapchain->low_latency_frame_id, 0 /* SIMULTATION_START_NV */);
+        ID3DLowLatencyDevice_SetLatencyMarker(swapchain->low_latency_device,
+                swapchain->low_latency_frame_id, 2 /* RENDERSUBMIT_START_NV */);
+    }
 
     if (factory)
         IDXGIVkSwapChainFactory_Release(factory);
@@ -476,6 +512,21 @@ static inline void demo_swapchain_present(struct demo_swapchain *swapchain)
 {
     IDXGIVkSwapChain_Present(swapchain->swapchain, 1, 0, NULL);
     acquire_eventfd(swapchain->fd);
+
+    if (swapchain->low_latency_device)
+    {
+        ID3DLowLatencyDevice_SetLatencyMarker(swapchain->low_latency_device,
+                swapchain->low_latency_frame_id, 4 /* PRESENT_START_NV */);
+
+        if (FAILED(ID3DLowLatencyDevice_LatencySleep(swapchain->low_latency_device)))
+            fprintf(stderr, "Low latency sleep failed!\n");
+
+        swapchain->low_latency_frame_id += 3; /* Unusual step factor */
+        ID3DLowLatencyDevice_SetLatencyMarker(swapchain->low_latency_device,
+                swapchain->low_latency_frame_id, 0 /* SIM_START */);
+        ID3DLowLatencyDevice_SetLatencyMarker(swapchain->low_latency_device,
+                swapchain->low_latency_frame_id, 2 /* SUBMIT_START */);
+    }
 }
 
 static inline HANDLE demo_create_event(void)
