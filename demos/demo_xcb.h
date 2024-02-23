@@ -510,14 +510,17 @@ static inline ID3D12Resource *demo_swapchain_get_back_buffer(struct demo_swapcha
 
 static inline void demo_swapchain_present(struct demo_swapchain *swapchain)
 {
+    if (swapchain->low_latency_device)
+    {
+        ID3DLowLatencyDevice_SetLatencyMarker(swapchain->low_latency_device,
+                swapchain->low_latency_frame_id, 4 /* PRESENT_START_NV */);
+    }
+
     IDXGIVkSwapChain_Present(swapchain->swapchain, 1, 0, NULL);
     acquire_eventfd(swapchain->fd);
 
     if (swapchain->low_latency_device)
     {
-        ID3DLowLatencyDevice_SetLatencyMarker(swapchain->low_latency_device,
-                swapchain->low_latency_frame_id, 4 /* PRESENT_START_NV */);
-
         if (FAILED(ID3DLowLatencyDevice_LatencySleep(swapchain->low_latency_device)))
             fprintf(stderr, "Low latency sleep failed!\n");
 
