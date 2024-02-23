@@ -4536,6 +4536,9 @@ enum vkd3d_queue_timeline_trace_state_type
     /* Time spent blocking in ::Present() in user thread. */
     VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_PRESENT_BLOCK,
 
+    /* Time spent blocking in LowLatencySleep in user thread. */
+    VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_LOW_LATENCY_SLEEP,
+
     /* Reset() and Close() are useful instant events to see when command recording is happening and
      * which threads do so. */
     VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_COMMAND_LIST,
@@ -4605,6 +4608,9 @@ struct vkd3d_queue_timeline_trace_cookie
 vkd3d_queue_timeline_trace_register_present_block(struct vkd3d_queue_timeline_trace *trace,
         uint64_t present_id);
 struct vkd3d_queue_timeline_trace_cookie
+vkd3d_queue_timeline_trace_register_low_latency_sleep(struct vkd3d_queue_timeline_trace *trace,
+        uint64_t present_id);
+struct vkd3d_queue_timeline_trace_cookie
 vkd3d_queue_timeline_trace_register_execute(struct vkd3d_queue_timeline_trace *trace,
         ID3D12CommandList * const *command_lists, unsigned int count);
 struct vkd3d_queue_timeline_trace_cookie
@@ -4622,6 +4628,8 @@ void vkd3d_queue_timeline_trace_complete_execute(struct vkd3d_queue_timeline_tra
 void vkd3d_queue_timeline_trace_complete_present_wait(struct vkd3d_queue_timeline_trace *trace,
         struct vkd3d_queue_timeline_trace_cookie cookie);
 void vkd3d_queue_timeline_trace_complete_present_block(struct vkd3d_queue_timeline_trace *trace,
+        struct vkd3d_queue_timeline_trace_cookie cookie);
+void vkd3d_queue_timeline_trace_complete_low_latency_sleep(struct vkd3d_queue_timeline_trace *trace,
         struct vkd3d_queue_timeline_trace_cookie cookie);
 void vkd3d_queue_timeline_trace_close_command_list(struct vkd3d_queue_timeline_trace *trace,
         struct vkd3d_queue_timeline_trace_cookie cookie);
