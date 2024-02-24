@@ -55,6 +55,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_vkd3d_ext_QueryInterface(d3
 static HRESULT STDMETHODCALLTYPE d3d12_command_queue_vkd3d_ext_NotifyOutOfBandCommandQueue(d3d12_command_queue_vkd3d_ext_iface *iface, D3D12_OUT_OF_BAND_CQ_TYPE type)
 {
     struct d3d12_command_queue *command_queue;
+    VkOutOfBandQueueTypeNV vk_queue_type;
     int i;
 
     command_queue = d3d12_command_queue_from_ID3D12CommandQueueExt(iface);
@@ -65,12 +66,16 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_queue_vkd3d_ext_NotifyOutOfBandCo
     if (type != OUT_OF_BAND_RENDER && type != OUT_OF_BAND_PRESENT)
         return E_INVALIDARG;
 
+    vk_queue_type = (VkOutOfBandQueueTypeNV)type;
+
     for (i = 0; i < VKD3D_QUEUE_FAMILY_COUNT; i++)
     {
         if (command_queue->device->queue_families[i]->vk_family_index == command_queue->vkd3d_queue->vk_family_index &&
                 command_queue->device->queue_families[i]->out_of_band_queue)
         {
-            command_queue->vkd3d_queue = command_queue->device->queue_families[i]->out_of_band_queue;
+            struct vkd3d_queue *out_of_band_queue = command_queue->device->queue_families[i]->out_of_band_queue;
+            vkd3d_set_queue_out_of_band(command_queue->device, out_of_band_queue, vk_queue_type);
+            command_queue->vkd3d_queue = out_of_band_queue;
             break;
         }
     }

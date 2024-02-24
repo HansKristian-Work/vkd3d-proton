@@ -219,7 +219,7 @@ fail_destroy_mutex:
     return hr;
 }
 
-void vkd3d_set_queue_out_of_band(struct d3d12_device *device, struct vkd3d_queue *queue)
+void vkd3d_set_queue_out_of_band(struct d3d12_device *device, struct vkd3d_queue *queue, VkOutOfBandQueueTypeNV type)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkOutOfBandQueueTypeInfoNV queue_info;
@@ -230,11 +230,7 @@ void vkd3d_set_queue_out_of_band(struct d3d12_device *device, struct vkd3d_queue
     memset(&queue_info, 0, sizeof(queue_info));
     queue_info.sType = VK_STRUCTURE_TYPE_OUT_OF_BAND_QUEUE_TYPE_INFO_NV;
     queue_info.pNext = NULL;
-    queue_info.queueType = VK_OUT_OF_BAND_QUEUE_TYPE_RENDER_NV;
-
-    VK_CALL(vkQueueNotifyOutOfBandNV(queue->vk_queue, &queue_info));
-
-    queue_info.queueType = VK_OUT_OF_BAND_QUEUE_TYPE_PRESENT_NV;
+    queue_info.queueType = type;
 
     VK_CALL(vkQueueNotifyOutOfBandNV(queue->vk_queue, &queue_info));
 }
