@@ -1784,6 +1784,198 @@ void test_resource_allocation_info(void)
     ok(!refcount, "ID3D12Device has %u references left.\n", (unsigned int)refcount);
 }
 
+void test_suballocate_small_textures_size(void)
+{
+    /* A strict test. Should expose any case where a driver is pessimizing our allocation patterns. */
+    D3D12_RESOURCE_ALLOCATION_INFO info_normal;
+    D3D12_RESOURCE_ALLOCATION_INFO info_small;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12Device *device;
+    unsigned int i;
+
+    static const struct test
+    {
+        unsigned int bpp;
+        DXGI_FORMAT format;
+    } tests[] =
+    {
+        /* 4-bpp compressed */
+        { 4, DXGI_FORMAT_BC1_UNORM },
+        { 4, DXGI_FORMAT_BC4_UNORM },
+
+        /* 8-bpp compressed */
+        { 8, DXGI_FORMAT_BC2_UNORM },
+        { 8, DXGI_FORMAT_BC3_UNORM },
+        { 8, DXGI_FORMAT_BC5_UNORM },
+        { 8, DXGI_FORMAT_BC6H_SF16 },
+        { 8, DXGI_FORMAT_BC6H_UF16 },
+        { 8, DXGI_FORMAT_BC7_UNORM },
+
+        /* Avoid formats where we trigger "shader needs RT copy" fallbacks.
+         * RT usage triggers 64 KiB. */
+#if 0
+        /* 8-bpp */
+        { 8, DXGI_FORMAT_R8_UNORM },
+        { 8, DXGI_FORMAT_R8_UINT },
+        { 8, DXGI_FORMAT_R8_TYPELESS },
+#endif
+
+        /* 16-bpp */
+        { 16, DXGI_FORMAT_R8G8_UNORM },
+        { 16, DXGI_FORMAT_R8G8_UINT },
+        { 16, DXGI_FORMAT_R8G8_TYPELESS },
+#if 0
+        { 16, DXGI_FORMAT_R16_UNORM },
+        { 16, DXGI_FORMAT_R16_UINT },
+        { 16, DXGI_FORMAT_R16_TYPELESS },
+#endif
+
+        /* 32-bpp */
+        { 32, DXGI_FORMAT_R8G8B8A8_UNORM },
+        { 32, DXGI_FORMAT_R16G16_FLOAT },
+        { 32, DXGI_FORMAT_R16G16_TYPELESS },
+#if 0
+        { 32, DXGI_FORMAT_R32_TYPELESS },
+        { 32, DXGI_FORMAT_R32_UINT },
+        { 32, DXGI_FORMAT_R32_FLOAT },
+#endif
+
+        /* 64-bpp */
+        { 64, DXGI_FORMAT_R16G16B16A16_FLOAT },
+        { 64, DXGI_FORMAT_R32G32_UINT },
+        { 64, DXGI_FORMAT_R32G32_FLOAT },
+        { 64, DXGI_FORMAT_R32G32_TYPELESS },
+
+        /* 128-bpp */
+        { 128, DXGI_FORMAT_R32G32B32A32_UINT },
+        { 128, DXGI_FORMAT_R32G32B32A32_FLOAT },
+        { 128, DXGI_FORMAT_R32G32B32A32_SINT },
+        { 128, DXGI_FORMAT_R32G32B32A32_TYPELESS },
+    };
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        unsigned int max_levels, max_layers;
+        unsigned int levels, layers;
+        unsigned int size_config;
+
+        static const struct size_config
+        {
+            unsigned int bpp;
+            unsigned int width;
+            unsigned int height;
+            unsigned int max_levels;
+        } size_configs[] = {
+            { 4, 512, 256, 9 },
+            { 4, 256, 512, 9 },
+            { 4, 1024, 128, 8 },
+            { 4, 128, 1024, 8 },
+            { 4, 256, 256, 9 },
+
+            { 8, 256, 256, 9 },
+            { 8, 512, 128, 8 },
+            { 8, 128, 512, 8 },
+            { 8, 128, 256, 8 },
+            { 8, 256, 128, 8 },
+
+            { 16, 256, 128, 8 },
+            { 16, 128, 256, 8 },
+            { 16, 512, 64, 7 },
+            { 16, 64, 512, 7 },
+            { 16, 128, 128, 8 },
+
+            { 32, 128, 128, 8 },
+            { 32, 256, 64, 7 },
+            { 32, 64, 256, 7 },
+            { 32, 64, 128, 7 },
+            { 32, 128, 64, 7 },
+
+            { 64, 128, 64, 7 },
+            { 64, 64, 128, 7 },
+            { 64, 256, 32, 6 },
+            { 64, 32, 256, 6 },
+            { 64, 64, 64, 7 },
+
+            { 128, 64, 64, 7 },
+            { 128, 128, 32, 6 },
+            { 128, 32, 128, 6 },
+            { 128, 64, 32, 6 },
+            { 128, 32, 64, 6 },
+        };
+
+        memset(&resource_desc, 0, sizeof(resource_desc));
+        resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        resource_desc.Format = tests[i].format;
+        resource_desc.SampleDesc.Count = 1;
+
+        for (size_config = 0; size_config < ARRAY_SIZE(size_configs); size_config++)
+        {
+            const struct size_config *config = &size_configs[size_config];
+            if (config->bpp != tests[i].bpp)
+                continue;
+
+            max_levels = config->max_levels;
+            max_layers = 16;
+            resource_desc.Width = config->width;
+            resource_desc.Height = config->height;
+
+            for (layers = 1; layers <= max_layers; layers++)
+            {
+                for (levels = 1; levels <= max_levels; levels++)
+                {
+                    unsigned int expected_size;
+
+                    /* This assumes tight packing without compression metadata.
+                     * Generally compression is not allowed for placed non-RTV/DSV in D3D12. */
+                    expected_size = (config->width * config->height * config->bpp) / 8;
+
+                    /* Be a bit conservative and allow 2x overflow for mipmaps. Tuned so native implementations pass. */
+                    if (levels > 1)
+                        expected_size = 2 * expected_size;
+                    expected_size *= layers;
+
+                    vkd3d_test_set_context("Test %u: fmt #%x, bpp %u, width %u, height %u, levels %u, layers %u",
+                            i, tests[i].format, config->bpp,
+                            config->width, config->height, levels, layers);
+
+                    resource_desc.DepthOrArraySize = layers;
+                    resource_desc.MipLevels = levels;
+
+                    resource_desc.Alignment = D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT;
+                    info_small = ID3D12Device_GetResourceAllocationInfo(device, 0, 1, &resource_desc);
+                    resource_desc.Alignment = 0;
+                    info_normal = ID3D12Device_GetResourceAllocationInfo(device, 0, 1, &resource_desc);
+
+                    ok(info_small.Alignment == D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT, "Alignment is not 4 KiB.\n");
+                    ok(info_normal.Alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT, "Alignment is not 64 KiB.\n");
+                    ok(info_small.SizeInBytes <= expected_size,
+                            "Resource size %u is larger than expected %u.\n",
+                            (unsigned int)info_small.SizeInBytes, expected_size);
+                    ok(info_normal.SizeInBytes <= align(expected_size, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT),
+                            "Resource size %u is larger than expected %u.\n",
+                            (unsigned int)info_normal.SizeInBytes,
+                            align(expected_size, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT));
+
+                    /* It's not guaranteed that sizeof(small) <= sizeof(normal).
+                     * What we want to check here is that implementation doesn't magically pad the resource out. */
+                    ok(info_normal.SizeInBytes + D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT / 2 >= info_small.SizeInBytes,
+                            "Small resource is oddly padded (%u vs %u).\n",
+                            (unsigned int)info_small.SizeInBytes, (unsigned int)info_normal.SizeInBytes);
+                }
+            }
+        }
+    }
+
+    vkd3d_test_set_context(NULL);
+    ID3D12Device_Release(device);
+}
+
 void test_suballocate_small_textures(void)
 {
     D3D12_GPU_VIRTUAL_ADDRESS gpu_address;
