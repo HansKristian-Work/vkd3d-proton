@@ -723,11 +723,6 @@ void vkd3d_free_device_memory(struct d3d12_device *device, const struct vkd3d_de
         }
         pthread_mutex_unlock(&device->memory_info.budget_lock);
     }
-    else if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
-    {
-        INFO("Freeing memory of type %u, %"PRIu64" KiB.\n",
-                allocation->vk_memory_type, allocation->size / 1024);
-    }
 }
 
 static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
@@ -835,18 +830,20 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
             *type_current += size;
             if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
             {
-                INFO("Allocated %s memory of type %u, new total allocated size %"PRIu64" MiB.\n",
+                INFO("Allocated %"PRIu64" KiB of %s memory of type %u, new total allocated size %"PRIu64" MiB.\n",
+                        allocate_info.allocationSize / 1024,
                         respect_budget ? "budgeted" : "internal non-budgeted",
                         allocate_info.memoryTypeIndex, *type_current / (1024 * 1024));
             }
         }
+        else if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
+        {
+            INFO("Failed to allocate %"PRIu64" KiB of type #%u, currently %"PRIu64" MiB is allocated with this type.\n",
+                    allocate_info.allocationSize / 1024, allocate_info.memoryTypeIndex,
+                    *type_current / (1024 * 1024));
+        }
+
         pthread_mutex_unlock(&memory_info->budget_lock);
-    }
-    else if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
-    {
-        INFO("%s memory of type #%u, size %"PRIu64" KiB.\n",
-                (vr == VK_SUCCESS ? "Allocated" : "Failed to allocate"),
-                allocate_info.memoryTypeIndex, allocate_info.allocationSize / 1024);
     }
 
     if (vr != VK_SUCCESS)

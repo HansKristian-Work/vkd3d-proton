@@ -8435,6 +8435,18 @@ static void vkd3d_memory_info_init_budgets(struct vkd3d_memory_info *info,
     }
 
     INFO("Applying resizable BAR budget to memory types: 0x%x.\n", info->budget_sensitive_mask);
+
+    /* Force fake budgets so we get the slow-path logging for every allocation. */
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
+    {
+        info->budget_sensitive_mask = UINT32_MAX;
+        for (i = 0; i < VK_MAX_MEMORY_TYPES; i++)
+        {
+            info->type_current[i] = 0;
+            if (!info->type_budget[i])
+                info->type_budget[i] = UINT64_MAX;
+        }
+    }
 }
 
 void vkd3d_memory_info_cleanup(struct vkd3d_memory_info *info,
