@@ -2689,8 +2689,6 @@ static HRESULT d3d12_device_create_vkd3d_queues(struct d3d12_device *device,
             if (FAILED((hr = vkd3d_queue_create(device, queue_info->family_index[i],
                     info->queue_count, &queue_info->vk_properties[i], &info->out_of_band_queue))))
                 goto out_destroy_queues;
-
-            vkd3d_set_queue_out_of_band(device, info->out_of_band_queue);
         }
         else
             WARN("Could not allocate an out of band queue for queue family %u. All out of band work will happen on the in band queue.\n", i);
