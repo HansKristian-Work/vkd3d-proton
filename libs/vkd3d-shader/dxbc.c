@@ -2255,12 +2255,12 @@ static int osgn_handler(const char *data, DWORD data_size, DWORD tag, void *ctx)
 {
     struct vkd3d_shader_signature *is = ctx;
 
-    if (tag != TAG_OSGN && tag != TAG_OSG1)
+    if (tag != TAG_OSGN && tag != TAG_OSG1 && tag != TAG_OSG5)
         return VKD3D_OK;
 
     if (is->elements)
     {
-        FIXME("Multiple input signatures.\n");
+        FIXME("Multiple output signatures.\n");
         vkd3d_shader_free_shader_signature(is);
     }
     return shader_parse_signature(tag, data, data_size, is);
