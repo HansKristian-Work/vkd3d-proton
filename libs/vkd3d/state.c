@@ -4338,6 +4338,40 @@ static bool vkd3d_validate_mesh_shader_io_signatures(const struct vkd3d_shader_s
     return true;
 }
 
+static bool vkd3d_validate_vertex_input_signature(const struct vkd3d_shader_signature *sig, const D3D12_INPUT_LAYOUT_DESC *input_layout)
+{
+    unsigned int i, j;
+    bool found;
+
+    for (i = 0; i < sig->element_count; i++)
+    {
+        const struct vkd3d_shader_signature_element *e = &sig->elements[i];
+
+        if (vkd3d_shader_semantic_is_generated_for_stage(e->sysval_semantic, VK_SHADER_STAGE_FLAG_BITS_MAX_ENUM, VK_SHADER_STAGE_VERTEX_BIT))
+            continue;
+
+        found = false;
+
+        for (j = 0; j < input_layout->NumElements; j++)
+        {
+            if (!ascii_strcasecmp(e->semantic_name, input_layout->pInputElementDescs[j].SemanticName) &&
+                    e->semantic_index == input_layout->pInputElementDescs[j].SemanticIndex)
+            {
+                found = true;
+                break;
+            }
+        }
+
+        if (!found)
+        {
+            WARN("No input layout element found for VS input semantic %s%u.\n", e->semantic_name, e->semantic_index);
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipeline_state *state,
         struct d3d12_device *device, const struct d3d12_pipeline_state_desc *desc)
 {
@@ -4676,6 +4710,12 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
                     hr = hresult_from_vkd3d_result(ret);
                     goto fail;
                 }
+
+                if (!vkd3d_validate_vertex_input_signature(&vs_input_signature, &desc->input_layout))
+                {
+                    hr = E_INVALIDARG;
+                    goto fail;
+                }
                 break;
 
             case VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT:
@@ -4763,10 +4803,7 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
 
         if (!(signature_element = vkd3d_shader_find_signature_element(&vs_input_signature,
                 e->SemanticName, e->SemanticIndex, 0)))
-        {
-            WARN("Unused input element %u.\n", i);
             continue;
-        }
 
         graphics->attributes[j].location = signature_element->register_index;
         graphics->attributes[j].binding = e->InputSlot;
