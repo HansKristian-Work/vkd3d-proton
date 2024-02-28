@@ -933,6 +933,8 @@ int vkd3d_shader_parse_input_signature(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_signature *signature);
 int vkd3d_shader_parse_output_signature(const struct vkd3d_shader_code *dxbc,
         struct vkd3d_shader_signature *signature);
+int vkd3d_shader_parse_patch_constant_signature(const struct vkd3d_shader_code *dxbc,
+        struct vkd3d_shader_signature *signature);
 struct vkd3d_shader_signature_element *vkd3d_shader_find_signature_element(
         const struct vkd3d_shader_signature *signature, const char *semantic_name,
         unsigned int semantic_index, unsigned int stream_index);
