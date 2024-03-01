@@ -1150,6 +1150,8 @@ static const struct vkd3d_sm4_opcode_info opcode_table[] =
             shader_sm4_read_dcl_input_ps_siv},
     {VKD3D_SM4_OP_DCL_OUTPUT,                       VKD3DSIH_DCL_OUTPUT,                       "",     "",
             shader_sm4_read_declaration_dst},
+    {VKD3D_SM4_OP_DCL_OUTPUT_SGV,                   VKD3DSIH_DCL_OUTPUT_SGV,                   "",     "",
+            shader_sm4_read_declaration_register_semantic},
     {VKD3D_SM4_OP_DCL_OUTPUT_SIV,                   VKD3DSIH_DCL_OUTPUT_SIV,                   "",     "",
             shader_sm4_read_declaration_register_semantic},
     {VKD3D_SM4_OP_DCL_TEMPS,                        VKD3DSIH_DCL_TEMPS,                        "",     "",

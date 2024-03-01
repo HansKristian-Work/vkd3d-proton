@@ -11286,6 +11286,7 @@ int vkd3d_dxbc_compiler_handle_instruction(struct vkd3d_dxbc_compiler *compiler,
         case VKD3DSIH_DCL_OUTPUT:
             vkd3d_dxbc_compiler_emit_dcl_output(compiler, instruction);
             break;
+        case VKD3DSIH_DCL_OUTPUT_SGV:
         case VKD3DSIH_DCL_OUTPUT_SIV:
             vkd3d_dxbc_compiler_emit_dcl_output_siv(compiler, instruction);
             break;
