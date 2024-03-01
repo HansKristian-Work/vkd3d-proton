@@ -852,6 +852,8 @@ enum vkd3d_sysval_semantic
     VKD3D_SV_TESS_FACTOR_TRIINT        = 14,
     VKD3D_SV_TESS_FACTOR_LINEDET       = 15,
     VKD3D_SV_TESS_FACTOR_LINEDEN       = 16,
+    VKD3D_SV_BARYCENTRICS              = 23,
+    VKD3D_SV_SHADING_RATE              = 24,
 
     VKD3D_FORCE_32_BIT_ENUM(VKD3D_SYSVAL_SEMANTIC),
 };
