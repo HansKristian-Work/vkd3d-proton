@@ -1475,7 +1475,7 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
          */
         if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY &&
                 info->swapchain_maintenance1_features.swapchainMaintenance1 &&
-                info->properties2.properties.driverVersion < VKD3D_DRIVER_VERSION_MAKE_NV(550, 54, 14))
+                info->properties2.properties.driverVersion <= VKD3D_DRIVER_VERSION_MAKE_NV(550, 40, 7))
         {
             WARN("Disabling VK_EXT_swapchain_maintenance1 on NV due to driver bugs.\n");
             device->device_info.swapchain_maintenance1_features.swapchainMaintenance1 = VK_FALSE;
