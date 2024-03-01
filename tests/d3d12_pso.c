@@ -3959,3 +3959,490 @@ void test_view_instancing(void)
     ID3D12Device2_Release(device2);
     destroy_test_context(&context);
 }
+
+void test_shader_io_mismatch(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS3 options3;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS7 options7;
+    struct test_context_desc context_desc;
+    ID3D12RootSignature *root_signature;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    struct test_context context;
+    ID3D12PipelineState *pso;
+    UINT supported_features;
+    ID3D12Device2 *device2;
+    HRESULT hr, expected;
+    unsigned int i;
+
+#include "shaders/pso/headers/ms_mismatch.h"
+#include "shaders/pso/headers/ms_mismatch_primid.h"
+#include "shaders/pso/headers/ms_mismatch_min16float.h"
+#include "shaders/pso/headers/vs_mismatch.h"
+#include "shaders/pso/headers/vs_mismatch_min16float.h"
+#include "shaders/pso/headers/gs_mismatch_ref.h"
+#include "shaders/pso/headers/gs_mismatch_so_1.h"
+#include "shaders/pso/headers/gs_mismatch_so_2.h"
+#include "shaders/pso/headers/gs_mismatch_1.h"
+#include "shaders/pso/headers/gs_mismatch_2.h"
+#include "shaders/pso/headers/gs_mismatch_3.h"
+#include "shaders/pso/headers/gs_mismatch_4.h"
+#include "shaders/pso/headers/gs_mismatch_5.h"
+#include "shaders/pso/headers/gs_mismatch_primid.h"
+#include "shaders/pso/headers/hs_mismatch_ref.h"
+#include "shaders/pso/headers/hs_mismatch_1.h"
+#include "shaders/pso/headers/hs_mismatch_2.h"
+#include "shaders/pso/headers/hs_mismatch_3.h"
+#include "shaders/pso/headers/hs_mismatch_4.h"
+#include "shaders/pso/headers/hs_mismatch_5.h"
+#include "shaders/pso/headers/ds_mismatch_ref.h"
+#include "shaders/pso/headers/ds_mismatch_1.h"
+#include "shaders/pso/headers/ds_mismatch_2.h"
+#include "shaders/pso/headers/ds_mismatch_3.h"
+#include "shaders/pso/headers/ds_mismatch_4.h"
+#include "shaders/pso/headers/ds_mismatch_5.h"
+#include "shaders/pso/headers/ds_mismatch_6.h"
+#include "shaders/pso/headers/ps_mismatch_ref.h"
+#include "shaders/pso/headers/ps_mismatch_so_1.h"
+#include "shaders/pso/headers/ps_mismatch_so_2.h"
+#include "shaders/pso/headers/ps_mismatch_1.h"
+#include "shaders/pso/headers/ps_mismatch_2.h"
+#include "shaders/pso/headers/ps_mismatch_3.h"
+#include "shaders/pso/headers/ps_mismatch_4.h"
+#include "shaders/pso/headers/ps_mismatch_5.h"
+#include "shaders/pso/headers/ps_mismatch_6.h"
+#include "shaders/pso/headers/ps_mismatch_7.h"
+#include "shaders/pso/headers/ps_mismatch_8.h"
+#include "shaders/pso/headers/ps_mismatch_9.h"
+#include "shaders/pso/headers/ps_mismatch_10.h"
+#include "shaders/pso/headers/ps_mismatch_sv_1.h"
+#include "shaders/pso/headers/ps_mismatch_sv_2.h"
+#include "shaders/pso/headers/ps_mismatch_sv_3.h"
+#include "shaders/pso/headers/ps_mismatch_sv_4.h"
+#include "shaders/pso/headers/ps_mismatch_sv_5.h"
+#include "shaders/pso/headers/ps_mismatch_sv_6.h"
+#include "shaders/pso/headers/ps_mismatch_min16float.h"
+
+#define FEATURE_BARYCENTRICS  (1 << 0)
+
+    static const union d3d12_root_signature_subobject root_signature_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE,
+        NULL, /* fill in dynamically */
+    }};
+
+    static const union d3d12_rasterizer_subobject rasterizer_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER,
+        { D3D12_FILL_MODE_SOLID, D3D12_CULL_MODE_NONE,
+            TRUE, 0, 0.0f, 0.0f, TRUE, FALSE, FALSE, 0,
+            D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF },
+    }};
+
+    static const union d3d12_sample_desc_subobject sample_desc_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_DESC,
+        { 1, 0 },
+    }};
+
+    static const union d3d12_sample_mask_subobject sample_mask_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_MASK,
+        0xFFFFFFFFu
+    }};
+
+    static const union d3d12_render_target_formats_subobject render_target_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS,
+        { { DXGI_FORMAT_R32G32B32A32_FLOAT, DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_R32G32B32A32_UINT }, 3 },
+    }};
+
+    static const union d3d12_blend_subobject blend_subobject =
+    {{
+        D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_BLEND,
+        { FALSE, TRUE,
+            {{ FALSE, FALSE,
+                D3D12_BLEND_ONE, D3D12_BLEND_ZERO, D3D12_BLEND_OP_ADD,
+                D3D12_BLEND_ONE, D3D12_BLEND_ZERO, D3D12_BLEND_OP_ADD,
+                D3D12_LOGIC_OP_NOOP, D3D12_COLOR_WRITE_ENABLE_ALL }},
+        }
+    }};
+
+    struct
+    {
+        union d3d12_root_signature_subobject root_signature;
+        union d3d12_shader_bytecode_subobject ms;
+        union d3d12_shader_bytecode_subobject ps;
+        union d3d12_rasterizer_subobject rasterizer;
+        union d3d12_sample_desc_subobject sample_desc;
+        union d3d12_sample_mask_subobject sample_mask;
+        union d3d12_blend_subobject blend;
+        union d3d12_render_target_formats_subobject render_targets;
+    } pso_ms_desc;
+
+    static const struct
+    {
+        const D3D12_SHADER_BYTECODE *ms;
+        const D3D12_SHADER_BYTECODE *vs;
+        const D3D12_SHADER_BYTECODE *hs;
+        const D3D12_SHADER_BYTECODE *ds;
+        const D3D12_SHADER_BYTECODE *gs;
+        const D3D12_SHADER_BYTECODE *ps;
+        bool vs_should_compile;
+        bool ms_should_compile;
+        UINT required_features;
+    }
+    tests[] =
+    {
+        /* Basic MS/VS -> PS */
+        { &ms_mismatch_dxil, &vs_mismatch_dxil, NULL, NULL, NULL, &ps_mismatch_ref_dxil, true, true },
+        { &ms_mismatch_dxil, &vs_mismatch_dxil, NULL, NULL, NULL, &ps_mismatch_1_dxil, true,  false },
+        { &ms_mismatch_dxil, &vs_mismatch_dxil, NULL, NULL, NULL, &ps_mismatch_2_dxil, false, false },
+        { &ms_mismatch_dxil, &vs_mismatch_dxil, NULL, NULL, NULL, &ps_mismatch_3_dxil, false, true  },
+        { &ms_mismatch_dxil, &vs_mismatch_dxil, NULL, NULL, NULL, &ps_mismatch_4_dxil, false, false },
+        { &ms_mismatch_dxil, &vs_mismatch_dxil, NULL, NULL, NULL, &ps_mismatch_5_dxil, false, false },
+        { &ms_mismatch_dxil, &vs_mismatch_dxil, NULL, NULL, NULL, &ps_mismatch_6_dxil, false, false },
+        { &ms_mismatch_dxil, &vs_mismatch_dxil, NULL, NULL, NULL, &ps_mismatch_7_dxil, true,  true  },
+        { &ms_mismatch_dxil, &vs_mismatch_dxil, NULL, NULL, NULL, &ps_mismatch_8_dxil, false, false },
+        { &ms_mismatch_dxil, &vs_mismatch_dxil, NULL, NULL, NULL, &ps_mismatch_9_dxil, true, false },
+        { &ms_mismatch_dxil, &vs_mismatch_dxil, NULL, NULL, NULL, &ps_mismatch_10_dxil, true,  true  },
+
+        /* HS -> DS */
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_ref_dxil, &ds_mismatch_ref_dxil, NULL, &ps_mismatch_ref_dxil, true  },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_1_dxil,   &ds_mismatch_1_dxil,   NULL, &ps_mismatch_ref_dxil, true  },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_1_dxil,   &ds_mismatch_ref_dxil, NULL, &ps_mismatch_ref_dxil, false },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_ref_dxil, &ds_mismatch_1_dxil,   NULL, &ps_mismatch_ref_dxil, false },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_ref_dxil, &ds_mismatch_2_dxil,   NULL, &ps_mismatch_ref_dxil, false },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_1_dxil,   &ds_mismatch_3_dxil,   NULL, &ps_mismatch_ref_dxil, false },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_ref_dxil, &ds_mismatch_4_dxil,   NULL, &ps_mismatch_ref_dxil, false },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_1_dxil,   &ds_mismatch_5_dxil,   NULL, &ps_mismatch_ref_dxil, false },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_ref_dxil, &ds_mismatch_6_dxil,   NULL, &ps_mismatch_ref_dxil, false },
+
+        /* VS -> HS */
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_2_dxil, &ds_mismatch_ref_dxil, NULL, &ps_mismatch_ref_dxil, true  },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_3_dxil, &ds_mismatch_ref_dxil, NULL, &ps_mismatch_ref_dxil, true  },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_4_dxil, &ds_mismatch_ref_dxil, NULL, &ps_mismatch_ref_dxil, false },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_5_dxil, &ds_mismatch_ref_dxil, NULL, &ps_mismatch_ref_dxil, false },
+
+        /* DS -> PS */
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_ref_dxil, &ds_mismatch_ref_dxil, NULL, &ps_mismatch_1_dxil, true  },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_ref_dxil, &ds_mismatch_ref_dxil, NULL, &ps_mismatch_2_dxil, false },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_ref_dxil, &ds_mismatch_ref_dxil, NULL, &ps_mismatch_3_dxil, false },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_ref_dxil, &ds_mismatch_ref_dxil, NULL, &ps_mismatch_4_dxil, false },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_ref_dxil, &ds_mismatch_ref_dxil, NULL, &ps_mismatch_5_dxil, false },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_ref_dxil, &ds_mismatch_ref_dxil, NULL, &ps_mismatch_6_dxil, false },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_ref_dxil, &ds_mismatch_ref_dxil, NULL, &ps_mismatch_7_dxil, true  },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_ref_dxil, &ds_mismatch_ref_dxil, NULL, &ps_mismatch_8_dxil, false },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_ref_dxil, &ds_mismatch_ref_dxil, NULL, &ps_mismatch_9_dxil, true  },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_ref_dxil, &ds_mismatch_ref_dxil, NULL, &ps_mismatch_10_dxil, true  },
+
+        /* GS -> PS */
+        { NULL, &vs_mismatch_dxil, NULL, NULL, &gs_mismatch_ref_dxil, &ps_mismatch_ref_dxil, true },
+        { NULL, &vs_mismatch_dxil, NULL, NULL, &gs_mismatch_ref_dxil, &ps_mismatch_1_dxil, true  },
+        { NULL, &vs_mismatch_dxil, NULL, NULL, &gs_mismatch_ref_dxil, &ps_mismatch_2_dxil, false },
+        { NULL, &vs_mismatch_dxil, NULL, NULL, &gs_mismatch_ref_dxil, &ps_mismatch_3_dxil, false },
+        { NULL, &vs_mismatch_dxil, NULL, NULL, &gs_mismatch_ref_dxil, &ps_mismatch_4_dxil, false },
+        { NULL, &vs_mismatch_dxil, NULL, NULL, &gs_mismatch_ref_dxil, &ps_mismatch_5_dxil, false },
+        { NULL, &vs_mismatch_dxil, NULL, NULL, &gs_mismatch_ref_dxil, &ps_mismatch_6_dxil, false },
+        { NULL, &vs_mismatch_dxil, NULL, NULL, &gs_mismatch_ref_dxil, &ps_mismatch_7_dxil, true  },
+        { NULL, &vs_mismatch_dxil, NULL, NULL, &gs_mismatch_ref_dxil, &ps_mismatch_8_dxil, false },
+        { NULL, &vs_mismatch_dxil, NULL, NULL, &gs_mismatch_ref_dxil, &ps_mismatch_9_dxil, true  },
+        { NULL, &vs_mismatch_dxil, NULL, NULL, &gs_mismatch_ref_dxil, &ps_mismatch_10_dxil, true  },
+
+        /* VS -> GS */
+        { NULL, &vs_mismatch_dxil, NULL, NULL, &gs_mismatch_1_dxil, &ps_mismatch_ref_dxil, false },
+        { NULL, &vs_mismatch_dxil, NULL, NULL, &gs_mismatch_2_dxil, &ps_mismatch_ref_dxil, false },
+        { NULL, &vs_mismatch_dxil, NULL, NULL, &gs_mismatch_3_dxil, &ps_mismatch_ref_dxil, false },
+        { NULL, &vs_mismatch_dxil, NULL, NULL, &gs_mismatch_4_dxil, &ps_mismatch_ref_dxil, false },
+        { NULL, &vs_mismatch_dxil, NULL, NULL, &gs_mismatch_5_dxil, &ps_mismatch_ref_dxil, true  },
+
+        /* DS -> GS */
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_ref_dxil, &ds_mismatch_ref_dxil, &gs_mismatch_ref_dxil, &ps_mismatch_ref_dxil, true },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_ref_dxil, &ds_mismatch_ref_dxil, &gs_mismatch_1_dxil, &ps_mismatch_ref_dxil, false },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_ref_dxil, &ds_mismatch_ref_dxil, &gs_mismatch_2_dxil, &ps_mismatch_ref_dxil, false },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_ref_dxil, &ds_mismatch_ref_dxil, &gs_mismatch_3_dxil, &ps_mismatch_ref_dxil, false },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_ref_dxil, &ds_mismatch_ref_dxil, &gs_mismatch_4_dxil, &ps_mismatch_ref_dxil, false },
+        { NULL, &vs_mismatch_dxil, &hs_mismatch_ref_dxil, &ds_mismatch_ref_dxil, &gs_mismatch_5_dxil, &ps_mismatch_ref_dxil, true  },
+
+        /* Test some system value behaviour */
+        { &ms_mismatch_dxil, &vs_mismatch_dxil, NULL, NULL, NULL, &ps_mismatch_sv_1_dxil, true,  true,  FEATURE_BARYCENTRICS },
+        { &ms_mismatch_dxil, &vs_mismatch_dxil, NULL, NULL, NULL, &ps_mismatch_sv_2_dxil, false, true,  FEATURE_BARYCENTRICS },
+
+        /* Test primitive ID behaviour */
+        { NULL, &vs_mismatch_dxil, NULL, NULL, NULL, &ps_mismatch_sv_3_dxil, true  },
+        { NULL, &vs_mismatch_dxil, NULL, NULL, NULL, &ps_mismatch_sv_4_dxil, true  },
+        { NULL, &vs_mismatch_dxil, NULL, NULL, NULL, &ps_mismatch_sv_5_dxil, false },
+        { NULL, &vs_mismatch_dxil, NULL, NULL, NULL, &ps_mismatch_sv_6_dxil, true  },
+
+        { &ms_mismatch_primid_dxil, &vs_mismatch_dxil, NULL, NULL, &gs_mismatch_primid_dxil, &ps_mismatch_sv_3_dxil, true,  true  },
+        { &ms_mismatch_primid_dxil, &vs_mismatch_dxil, NULL, NULL, &gs_mismatch_primid_dxil, &ps_mismatch_sv_4_dxil, false, true  },
+        { &ms_mismatch_primid_dxil, &vs_mismatch_dxil, NULL, NULL, &gs_mismatch_primid_dxil, &ps_mismatch_sv_5_dxil, true,  true  },
+        { &ms_mismatch_primid_dxil, &vs_mismatch_dxil, NULL, NULL, &gs_mismatch_primid_dxil, &ps_mismatch_sv_6_dxil, false, true  },
+
+        { &ms_mismatch_dxil, &vs_mismatch_dxil, NULL, NULL, &gs_mismatch_ref_dxbc, &ps_mismatch_sv_3_dxil, false },
+        { &ms_mismatch_dxil, &vs_mismatch_dxil, NULL, NULL, &gs_mismatch_ref_dxbc, &ps_mismatch_sv_4_dxil, false },
+
+        /* DXBC ends up with the same results, but uses slightly different signatures */
+        { NULL, &vs_mismatch_dxbc, NULL, NULL, NULL, &ps_mismatch_sv_3_dxbc, true  },
+        { NULL, &vs_mismatch_dxbc, NULL, NULL, NULL, &ps_mismatch_sv_4_dxbc, true  },
+        { NULL, &vs_mismatch_dxbc, NULL, NULL, NULL, &ps_mismatch_sv_5_dxbc, false },
+        { NULL, &vs_mismatch_dxbc, NULL, NULL, NULL, &ps_mismatch_sv_6_dxbc, true  },
+
+        { NULL, &vs_mismatch_dxbc, NULL, NULL, &gs_mismatch_primid_dxbc, &ps_mismatch_sv_3_dxbc, true  },
+        { NULL, &vs_mismatch_dxbc, NULL, NULL, &gs_mismatch_primid_dxbc, &ps_mismatch_sv_4_dxbc, false },
+        { NULL, &vs_mismatch_dxbc, NULL, NULL, &gs_mismatch_primid_dxbc, &ps_mismatch_sv_5_dxbc, true  },
+        { NULL, &vs_mismatch_dxbc, NULL, NULL, &gs_mismatch_primid_dxbc, &ps_mismatch_sv_6_dxbc, false },
+
+        { NULL, &vs_mismatch_dxbc, NULL, NULL, &gs_mismatch_ref_dxbc, &ps_mismatch_sv_3_dxbc, false },
+        { NULL, &vs_mismatch_dxbc, NULL, NULL, &gs_mismatch_ref_dxbc, &ps_mismatch_sv_4_dxbc, false },
+
+        /* min16float matching, mostly relevant for SM5.0 */
+        { &ms_mismatch_min16float_dxil, &vs_mismatch_min16float_dxil, NULL, NULL, NULL, &ps_mismatch_min16float_dxil, true, true },
+        { &ms_mismatch_min16float_dxil, &vs_mismatch_min16float_dxil, NULL, NULL, NULL, &ps_mismatch_ref_dxil, false, false },
+        { &ms_mismatch_dxil, &vs_mismatch_dxil, NULL, NULL, NULL, &ps_mismatch_min16float_dxil, false, false },
+
+        { NULL, &vs_mismatch_min16float_dxbc, NULL, NULL, NULL, &ps_mismatch_min16float_dxbc, true, true },
+        { NULL, &vs_mismatch_min16float_dxbc, NULL, NULL, NULL, &ps_mismatch_ref_dxbc, false, false },
+        { NULL, &vs_mismatch_dxbc, NULL, NULL, NULL, &ps_mismatch_min16float_dxbc, false, false },
+    };
+
+    static const uint32_t so_strides[] = { 64, 64 };
+
+    static const D3D12_SO_DECLARATION_ENTRY so_basic[] =
+    {
+        { 0, "SV_POSITION", 0, 0, 4, 0 },
+    };
+
+    static const D3D12_SO_DECLARATION_ENTRY so_multi_stream[] =
+    {
+        { 0, "SV_POSITION", 0, 0, 4, 0 },
+        { 0, "ARG", 0, 0, 3, 0 },
+        { 0, "ARG", 2, 0, 4, 0 },
+        { 1, "ARG", 1, 0, 2, 1 },
+    };
+
+    static const struct
+    {
+        const D3D12_SHADER_BYTECODE *vs;
+        const D3D12_SHADER_BYTECODE *gs;
+        const D3D12_SHADER_BYTECODE *ps;
+        UINT so_entry_count;
+        const D3D12_SO_DECLARATION_ENTRY *so_entries;
+        UINT rasterized_stream;
+        bool should_compile;
+    }
+    so_tests[] =
+    {
+        { &vs_mismatch_dxil, &gs_mismatch_ref_dxil, NULL,                   ARRAY_SIZE(so_basic), so_basic, D3D12_SO_NO_RASTERIZED_STREAM, true },
+        { &vs_mismatch_dxil, &gs_mismatch_ref_dxil, &ps_mismatch_ref_dxil,  ARRAY_SIZE(so_basic), so_basic, D3D12_SO_NO_RASTERIZED_STREAM, true },
+        { &vs_mismatch_dxil, &gs_mismatch_ref_dxil, &ps_mismatch_ref_dxil,  ARRAY_SIZE(so_basic), so_basic, 0, true },
+        { &vs_mismatch_dxil, &gs_mismatch_ref_dxil, &ps_mismatch_ref_dxil,  ARRAY_SIZE(so_basic), so_basic, 0, true },
+        { &vs_mismatch_dxil, &gs_mismatch_ref_dxil, &ps_mismatch_3_dxil,    ARRAY_SIZE(so_basic), so_basic, D3D12_SO_NO_RASTERIZED_STREAM, true },
+        { &vs_mismatch_dxil, &gs_mismatch_ref_dxil, &ps_mismatch_3_dxil,    ARRAY_SIZE(so_basic), so_basic, 0, false },
+
+        { &vs_mismatch_dxil, &gs_mismatch_so_1_dxil, &ps_mismatch_ref_dxil,  ARRAY_SIZE(so_multi_stream), so_multi_stream, D3D12_SO_NO_RASTERIZED_STREAM, true },
+        { &vs_mismatch_dxil, &gs_mismatch_so_1_dxil, &ps_mismatch_ref_dxil,  ARRAY_SIZE(so_multi_stream), so_multi_stream, 0, false },
+        { &vs_mismatch_dxil, &gs_mismatch_so_1_dxil, &ps_mismatch_ref_dxil,  ARRAY_SIZE(so_multi_stream), so_multi_stream, 1, false },
+        { &vs_mismatch_dxil, &gs_mismatch_so_1_dxil, &ps_mismatch_3_dxil,    ARRAY_SIZE(so_multi_stream), so_multi_stream, 0, true  },
+        { &vs_mismatch_dxil, &gs_mismatch_so_1_dxil, &ps_mismatch_3_dxil,    ARRAY_SIZE(so_multi_stream), so_multi_stream, 1, true  },
+        { &vs_mismatch_dxil, &gs_mismatch_so_1_dxil, &ps_mismatch_so_1_dxil, ARRAY_SIZE(so_multi_stream), so_multi_stream, 0, false },
+        { &vs_mismatch_dxil, &gs_mismatch_so_1_dxil, &ps_mismatch_so_1_dxil, ARRAY_SIZE(so_multi_stream), so_multi_stream, 1, false },
+
+        { &vs_mismatch_dxil, &gs_mismatch_so_2_dxil, &ps_mismatch_so_2_dxil, ARRAY_SIZE(so_multi_stream), so_multi_stream, 0, false },
+    };
+
+    static const D3D12_INPUT_ELEMENT_DESC input_descs[] =
+    {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32A32_UINT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "FROG", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+    };
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    memset(&options3, 0, sizeof(options3));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS3, &options3, sizeof(options3));
+    memset(&options7, 0, sizeof(options7));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS7, &options7, sizeof(options7));
+
+    supported_features = 0;
+
+    if (options3.BarycentricsSupported)
+        supported_features |= FEATURE_BARYCENTRICS;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
+            D3D12_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT;
+
+    create_root_signature(context.device, &rs_desc, &root_signature);
+
+    /* Test input layout compatibility */
+    init_pipeline_state_desc(&pso_desc, root_signature, DXGI_FORMAT_UNKNOWN,
+            &vs_mismatch_dxil, &ps_mismatch_ref_dxil, NULL);
+    pso_desc.NumRenderTargets = render_target_subobject.render_target_formats.NumRenderTargets;
+
+    for (i = 0; i < pso_desc.NumRenderTargets; i++)
+        pso_desc.RTVFormats[i] = render_target_subobject.render_target_formats.RTFormats[i];
+
+    for (i = 0; i < ARRAY_SIZE(input_descs); i++)
+    {
+        vkd3d_test_set_context("Test %u", i);
+
+        pso_desc.InputLayout.NumElements = 1;
+        pso_desc.InputLayout.pInputElementDescs = &input_descs[i];
+
+        /* Types aren't validated, but fail if a semantic is not provided */
+        expected = i > 1 ? E_INVALIDARG : S_OK;
+
+        hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
+        ok(hr == expected, "Got hr %#x, expected %#x.\n", hr, expected);
+
+        if (SUCCEEDED(hr))
+            ID3D12PipelineState_Release(pso);
+    }
+
+    /* Test general shader interface compatibility */
+    pso_desc.InputLayout.NumElements = 1;
+    pso_desc.InputLayout.pInputElementDescs = &input_descs[0];
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        vkd3d_test_set_context("Test %u", i);
+
+        if (!tests[i].vs)
+            continue;
+
+        if ((supported_features & tests[i].required_features) != tests[i].required_features)
+        {
+            skip("Features %#x not supported.\n", tests[i].required_features);
+            continue;
+        }
+
+        expected = tests[i].vs_should_compile ? S_OK : E_INVALIDARG;
+
+        memset(&pso_desc.HS, 0, sizeof(pso_desc.HS));
+        memset(&pso_desc.DS, 0, sizeof(pso_desc.DS));
+        memset(&pso_desc.GS, 0, sizeof(pso_desc.GS));
+        memset(&pso_desc.PS, 0, sizeof(pso_desc.PS));
+
+        pso_desc.VS = *tests[i].vs;
+
+        if (tests[i].hs)
+        {
+            pso_desc.HS = *tests[i].hs;
+            pso_desc.DS = *tests[i].ds;
+
+            pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+        }
+        else
+            pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+
+        if (tests[i].gs)
+            pso_desc.GS = *tests[i].gs;
+
+        if (tests[i].ps)
+            pso_desc.PS = *tests[i].ps;
+
+        hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
+        ok(hr == expected, "Got hr %#x, expected %#x.\n", hr, expected);
+
+        if (SUCCEEDED(hr))
+            ID3D12PipelineState_Release(pso);
+    }
+
+    /* Test some stream output scenarios with or without rasterized stream */
+    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+
+    memset(&pso_desc.HS, 0, sizeof(pso_desc.HS));
+    memset(&pso_desc.DS, 0, sizeof(pso_desc.DS));
+
+    for (i = 0; i < ARRAY_SIZE(so_tests); i++)
+    {
+        vkd3d_test_set_context("Test %u", i);
+
+        expected = so_tests[i].should_compile ? S_OK : E_INVALIDARG;
+
+        memset(&pso_desc.PS, 0, sizeof(pso_desc.PS));
+
+        pso_desc.VS = *so_tests[i].vs;
+        pso_desc.GS = *so_tests[i].gs;
+
+        if (so_tests[i].ps)
+            pso_desc.PS = *so_tests[i].ps;
+
+        pso_desc.StreamOutput.RasterizedStream = so_tests[i].rasterized_stream;
+        pso_desc.StreamOutput.NumEntries = so_tests[i].so_entry_count;
+        pso_desc.StreamOutput.pSODeclaration = so_tests[i].so_entries;
+        pso_desc.StreamOutput.NumStrides = ARRAY_SIZE(so_strides);
+        pso_desc.StreamOutput.pBufferStrides = so_strides;
+
+        hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso);
+        ok(hr == expected, "Got hr %#x, expected %#x.\n", hr, expected);
+
+        if (SUCCEEDED(hr))
+            ID3D12PipelineState_Release(pso);
+    }
+
+    ID3D12RootSignature_Release(root_signature);
+
+    /* Run mesh shader tests */
+    if (options7.MeshShaderTier >= D3D12_MESH_SHADER_TIER_1)
+    {
+        rs_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+        create_root_signature(context.device, &rs_desc, &root_signature);
+
+        hr = ID3D12Device_QueryInterface(context.device, &IID_ID3D12Device2, (void**)&device2);
+
+        memset(&pso_ms_desc, 0, sizeof(pso_ms_desc));
+        pso_ms_desc.root_signature = root_signature_subobject;
+        pso_ms_desc.root_signature.root_signature = root_signature;
+        pso_ms_desc.ms.type = D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS;
+        pso_ms_desc.ps.type = D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS;
+        pso_ms_desc.rasterizer = rasterizer_subobject;
+        pso_ms_desc.sample_desc = sample_desc_subobject;
+        pso_ms_desc.sample_mask = sample_mask_subobject;
+        pso_ms_desc.blend = blend_subobject;
+        pso_ms_desc.render_targets = render_target_subobject;
+
+        for (i = 0; i < ARRAY_SIZE(tests); i++)
+        {
+            vkd3d_test_set_context("Test %u", i);
+
+            if (!tests[i].ms)
+                continue;
+
+            if ((supported_features & tests[i].required_features) != tests[i].required_features)
+            {
+                skip("Features %#x not supported.\n", tests[i].required_features);
+                continue;
+            }
+
+            expected = tests[i].ms_should_compile ? S_OK : E_INVALIDARG;
+
+            memset(&pso_ms_desc.ps.shader_bytecode, 0, sizeof(pso_ms_desc.ps.shader_bytecode));
+            pso_ms_desc.ms.shader_bytecode = *tests[i].ms;
+
+            if (tests[i].ps)
+                pso_ms_desc.ps.shader_bytecode = *tests[i].ps;
+
+            hr = create_pipeline_state_from_stream(device2, &pso_ms_desc, &pso);
+            ok(hr == expected, "Got hr %#x, expected %#x.\n", hr, expected);
+
+            if (SUCCEEDED(hr))
+                ID3D12PipelineState_Release(pso);
+        }
+
+        ID3D12Device2_Release(device2);
+        ID3D12RootSignature_Release(root_signature);
+    }
+
+    destroy_test_context(&context);
+
+#undef FEATURE_VRS_TIER_2
+#undef FEATURE_BARYCENTRICS
+}
