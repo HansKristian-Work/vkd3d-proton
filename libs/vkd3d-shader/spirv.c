@@ -10183,13 +10183,17 @@ static void vkd3d_dxbc_compiler_emit_ld_raw_structured_srv_uav(struct vkd3d_dxbc
         if (!(dst->write_mask & (VKD3DSP_WRITEMASK_0 << i)))
             continue;
 
+        coordinate_id = 0;
+
         if (!use_raw_access_chain)
         {
             component_idx = vkd3d_swizzle_get_component(resource->swizzle, i);
             coordinate_id = base_coordinate_id;
             if (component_idx)
+            {
                 coordinate_id = vkd3d_spirv_build_op_iadd(builder, type_id,
                         coordinate_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, component_idx));
+            }
         }
 
         if (use_raw_access_chain)
@@ -10410,13 +10414,16 @@ static void vkd3d_dxbc_compiler_emit_store_uav_raw_structured(struct vkd3d_dxbc_
 
     for (component_idx = 0; component_idx < component_count; ++component_idx)
     {
+        coordinate_id = 0;
         if (!use_raw_access_chain)
         {
             coordinate_id = base_coordinate_id;
 
             if (component_idx)
+            {
                 coordinate_id = vkd3d_spirv_build_op_iadd(builder, type_id,
                         coordinate_id, vkd3d_dxbc_compiler_get_constant_uint(compiler, component_idx));
+            }
         }
 
         if (image.ssbo)
@@ -10777,6 +10784,7 @@ static void vkd3d_dxbc_compiler_emit_atomic_instruction(struct vkd3d_dxbc_compil
             return;
         structure_stride = reg_info.structure_stride;
         raw = !structure_stride;
+        memset(&image, 0, sizeof(image));
     }
     else
     {
@@ -10785,6 +10793,7 @@ static void vkd3d_dxbc_compiler_emit_atomic_instruction(struct vkd3d_dxbc_compil
         coordinate_mask = (1u << image.resource_type_info->coordinate_component_count) - 1;
         structure_stride = image.structure_stride;
         raw = image.raw;
+        memset(&reg_info, 0, sizeof(reg_info));
     }
 
     type_id = vkd3d_spirv_get_type_id(builder, VKD3D_TYPE_UINT, 1);
