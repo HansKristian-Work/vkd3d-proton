@@ -1,5 +1,57 @@
 # Change Log
 
+## 2.12
+
+### Features
+
+- Implement support for NVIDIA Reflex through `VK_NV_low_latency2`. Thanks to NVIDIA for contributing implementation
+- Implement D3D12 render pass API (tier 0)
+- Implement ID3D12DeviceRemovedExtendedDataSettings stubs. Fixes some games that rely on this existing
+- Implement `VK_EXT_device_fault`. Makes it possible to grab fault information and vendor binary if supported
+- Implement `VK_EXT_swapchain_maintenance1`
+  - Allows seamless transition between V-Sync and tearing present modes without stutter
+  - Implemented on both Mesa and NV drivers
+- Expose Shader Model 6.7 by default if
+  `VK_KHR_shader_maximal_reconvergence` and `VK_KHR_shader_quad_control` are supported
+- Add optimized descriptor copy path on Intel Arc GPUs that support `VK_EXT_descriptor_buffer`
+- Implement fallback for compute shader derivatives on NVIDIA Pascal and older GPUs.
+  Allows exposing Shader Model 6.7 by default on Pascal as well (albeit with some known cases where it does not work).
+  The workaround is expected to work with any known use of SM 6.6 compute derivatives in the wild
+
+### Fixes
+
+- Fix Atlas Fallen black screen due to edge case with MinLODClamp
+- Correctly disable alpha-to-coverage if sampler mask is exported
+- Fix format feature reports for `DXGI_FORMAT_UNKNOWN`
+- Relax root signature compatibility rules when compiling Ray Tracing pipelines.
+  Fixes GPU hang on NV in Warhammer: Darktide
+- Fix GPU hang on NV in UE5 Lyra demo
+- Explicitly validate stage IO signatures in PSO creation similar to native D3D12 runtime.
+  Fixes some scenarios where a game attempts to create an invalid pipeline that should have failed creation
+  on native D3D12
+
+### Workarounds
+
+- Workaround crash in Resident Evil 4 RT mode when tessellation is enabled
+- Workaround mesh shader glitches on NVIDIA in several UE5 titles
+- Disable RT by default in Persona 3 Reload on Deck
+
+### Performance
+
+- Implement `VK_NV_raw_access_chains`. Significantly improves GPU performance on NV GPUs in some games.
+  Games using DXBC instead of DXIL are expected to see more improvements.
+  Not all games are expected to see an uplift
+- Fix extremely poor GPU performance in some locations in Persona 3 Reload
+
+### Debug
+
+- Add support for `VKD3D_QUEUE_PROFILE`, a simple system profiling method
+  - Includes `VK_NV_low_latency2` support to debug NVIDIA Reflex sleeps
+- Root signature blobs are also dumped when dumping shaders
+  - A simple CLI tool to inspect the root-sig blobs is included in `programs/`
+- Misc improvements to breadcrumbs, debug ring, etc
+- Pipeline creation failure now dumps PSO creation commands in log
+
 ## 2.11.1
 
 This release is a minor bug-fix release before the holidays.
