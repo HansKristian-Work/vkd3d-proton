@@ -10338,6 +10338,7 @@ static void vkd3d_dxbc_compiler_emit_store_uav_raw_structured(struct vkd3d_dxbc_
     vkd3d_dxbc_compiler_prepare_image(compiler, &image, &dst->reg, NULL, VKD3D_IMAGE_FLAG_NONE);
     assert((instruction->handler_idx == VKD3DSIH_STORE_STRUCTURED) != !image.structure_stride);
 
+    /* 22.4.13 in D3D11.3. Only x, xy, xyz, xyzw write masks are allowed. */
     use_raw_access_chain = image.ssbo &&
             vkd3d_dxbc_compiler_is_target_extension_supported(compiler,
                     VKD3D_SHADER_TARGET_EXTENSION_RAW_ACCESS_CHAINS_NV);
