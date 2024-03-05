@@ -603,11 +603,15 @@
                 "VK_NV_shader_sm_builtins": 1,
                 "VK_NVX_binary_import": 1,
                 "VK_NVX_image_view_handle": 1,
-                "VK_NV_device_diagnostic_checkpoints": 1
+                "VK_NV_device_diagnostic_checkpoints": 1,
+                "VK_NV_raw_access_chains": 1
             },
             "features": {
                 "VkPhysicalDevicePageableDeviceLocalMemoryFeaturesEXT": {
                     "pageableDeviceLocalMemory": true
+                },
+                "VkPhysicalDeviceRawAccessChainsFeaturesNV": {
+                    "shaderRawAccessChains": true
                 }
             },
             "properties": {

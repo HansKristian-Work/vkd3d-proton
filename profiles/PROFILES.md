@@ -154,6 +154,7 @@
 | [VK_NV_device_diagnostic_checkpoints](https://www.khronos.org/registry/vulkan/specs/1.1-extensions/man/html/VK_NV_device_diagnostic_checkpoints.html) | :x: | :x: | :x: | :x: | :x: | :x: | :x: | :heavy_check_mark: | :x: |
 | [VK_NV_device_generated_commands](https://www.khronos.org/registry/vulkan/specs/1.1-extensions/man/html/VK_NV_device_generated_commands.html) | :x: | :x: | :x: | :x: | :x: | :x: | :x: | :heavy_check_mark: | :heavy_check_mark: |
 | [VK_NV_device_generated_commands_compute](https://www.khronos.org/registry/vulkan/specs/1.1-extensions/man/html/VK_NV_device_generated_commands_compute.html) | :x: | :x: | :x: | :x: | :x: | :x: | :x: | :heavy_check_mark: | :heavy_check_mark: |
+| [VK_NV_raw_access_chains](https://www.khronos.org/registry/vulkan/specs/1.1-extensions/man/html/VK_NV_raw_access_chains.html) | :x: | :x: | :x: | :x: | :x: | :x: | :x: | :heavy_check_mark: | :x: |
 | [VK_NV_shader_sm_builtins](https://www.khronos.org/registry/vulkan/specs/1.1-extensions/man/html/VK_NV_shader_sm_builtins.html) | :x: | :x: | :x: | :x: | :x: | :x: | :x: | :heavy_check_mark: | :x: |
 
 ## Vulkan Profile Features
@@ -404,6 +405,8 @@
 | [deviceGeneratedCompute](https://www.khronos.org/registry/vulkan/specs/1.1-extensions/man/html/VkPhysicalDeviceDeviceGeneratedCommandsComputeFeaturesNV.html) | :x: | :x: | :x: | :x: | :x: | :x: | :x: | <span title="defined in VkPhysicalDeviceDeviceGeneratedCommandsComputeFeaturesNV (VK_NV_device_generated_commands_compute)">:heavy_check_mark:</span> | <span title="defined in VkPhysicalDeviceDeviceGeneratedCommandsComputeFeaturesNV (VK_NV_device_generated_commands_compute)">:heavy_check_mark:</span> |
 | **VK_NV_fragment_shader_barycentric** |
 | [fragmentShaderBarycentric](https://www.khronos.org/registry/vulkan/specs/1.1-extensions/man/html/VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR.html) | :x: | :x: | :x: | :x: | :x: | :x: | :x: | <span title="equivalent defined in VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR (VK_KHR_fragment_shader_barycentric)">:warning:</span> | <span title="equivalent defined in VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR (VK_KHR_fragment_shader_barycentric)">:warning:</span> |
+| **VK_NV_raw_access_chains** |
+| [shaderRawAccessChains](https://www.khronos.org/registry/vulkan/specs/1.1-extensions/man/html/VkPhysicalDeviceRawAccessChainsFeaturesNV.html) | :x: | :x: | :x: | :x: | :x: | :x: | :x: | <span title="defined in VkPhysicalDeviceRawAccessChainsFeaturesNV (VK_NV_raw_access_chains)">:heavy_check_mark:</span> | :x: |
 | **VK_VALVE_mutable_descriptor_type** |
 | [mutableDescriptorType](https://www.khronos.org/registry/vulkan/specs/1.1-extensions/man/html/VkPhysicalDeviceMutableDescriptorTypeFeaturesEXT.html) | :x: | :x: | :x: | <span title="equivalent defined in VkPhysicalDeviceMutableDescriptorTypeFeaturesEXT (VK_EXT_mutable_descriptor_type)">:warning:</span> | :x: | :x: | <span title="equivalent defined in VkPhysicalDeviceMutableDescriptorTypeFeaturesEXT (VK_EXT_mutable_descriptor_type)">:warning:</span> | <span title="equivalent defined in VkPhysicalDeviceMutableDescriptorTypeFeaturesEXT (VK_EXT_mutable_descriptor_type)">:warning:</span> | <span title="equivalent defined in VkPhysicalDeviceMutableDescriptorTypeFeaturesEXT (VK_EXT_mutable_descriptor_type)">:warning:</span> |
 
