@@ -1564,7 +1564,8 @@ static void dxgi_vk_swap_chain_low_latency_state_update(struct dxgi_vk_swap_chai
         if (chain->present.low_latency_state.mode != chain->request.requested_low_latency_state.mode)
             chain->present.previous_application_frame_id = 0;
 
-        dxgi_vk_swap_chain_set_low_latency_state(chain, &chain->request.requested_low_latency_state);
+        if (memcmp(&chain->present.low_latency_state, &chain->request.requested_low_latency_state, sizeof(chain->present.low_latency_state)))
+            dxgi_vk_swap_chain_set_low_latency_state(chain, &chain->request.requested_low_latency_state);
     }
 
     /* Transitioning from using the id maintained by the present task to the application frame id, and
