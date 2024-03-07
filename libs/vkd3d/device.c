@@ -681,16 +681,6 @@ static const struct vkd3d_shader_quirk_info witcher3_quirks = {
     witcher3_hashes, ARRAY_SIZE(witcher3_hashes), 0,
 };
 
-static const struct vkd3d_shader_quirk_hash cp77_hashes[] = {
-    /* Shader accesses descriptor heap out of bounds spuriously, causing GPU hang on RADV. */
-    { 0x55540466536c9e11, VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS },
-    { 0x0c3defbf58c47055, VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS },
-};
-
-static const struct vkd3d_shader_quirk_info cp77_quirks = {
-    cp77_hashes, ARRAY_SIZE(cp77_hashes), 0,
-};
-
 static const struct vkd3d_shader_quirk_info pagonia_quirks = {
     NULL, 0, VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS,
 };
@@ -714,8 +704,6 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "MonsterHunterRise.exe", &mhr_quirks },
     /* Witcher 3 (2023) (292030) */
     { VKD3D_STRING_COMPARE_EXACT, "witcher3.exe", &witcher3_quirks },
-    /* Cyberpunk 2077 (1091500). */
-    { VKD3D_STRING_COMPARE_EXACT, "Cyberpunk2077.exe", &cp77_quirks },
     /* Pioneers of Pagonia (2155180) */
     { VKD3D_STRING_COMPARE_EXACT, "Pioneers of Pagonia.exe", &pagonia_quirks },
     /* Unreal Engine 4 */
