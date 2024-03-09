@@ -332,7 +332,7 @@ static inline uint64_t vkd3d_get_current_time_ticks(void)
 {
 #ifdef _MSC_VER
     return __rdtsc();
-#elif defined(__i386__) || defined(__x86_64__)
+#elif defined(__i386__) || (defined(__x86_64__) && !defined(__arm64ec__))
     return __builtin_ia32_rdtsc();
 #else
     return vkd3d_get_current_time_ns();
