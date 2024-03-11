@@ -1227,6 +1227,24 @@ static HRESULT dxgi_vk_swap_chain_init_sync_objects(struct dxgi_vk_swap_chain *c
             chain->frame_latency_internal = chain->desc.BufferCount;
         }
 
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DISABLE_INTERNAL_SWAPCHAIN_LATENCY_HANDLE)
+        {
+            chain->frame_latency_internal_is_static = true;
+
+            /* Use default DXGI behavior here. If waitable object is used, we never block internally,
+             * if it's not used, we inherit the default 3 frame latency. */
+            if (chain->desc.Flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT)
+            {
+                chain->frame_latency_internal = 0;
+                INFO("Disabling internal swapchain latency handle, relying solely on app HANDLE.\n");
+            }
+            else
+            {
+                chain->frame_latency_internal = DEFAULT_FRAME_LATENCY;
+                INFO("Forcing default DXGI value of 3 frames.\n");
+            }
+        }
+
         if (chain->frame_latency_internal >= 1 && chain->frame_latency_internal < DXGI_MAX_SWAP_CHAIN_BUFFERS)
         {
             INFO("Ensure maximum latency of %u frames with KHR_present_wait.\n",
