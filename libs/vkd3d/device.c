@@ -590,6 +590,8 @@ static const struct vkd3d_instance_application_meta application_override[] = {
             VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES | VKD3D_CONFIG_FLAG_REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT, 0 },
     /* Persona 3 Reload (2161700). Enables RT by default on Deck and does not run acceptably for a verified title. */
     { VKD3D_STRING_COMPARE_EXACT, "P3R.exe", 0, 0, VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK },
+    /* Horizon Forbidden West (2420110). The default BufferCount = 2 does not interact well with our latency limiter heuristic. */
+    { VKD3D_STRING_COMPARE_EXACT, "HorizonForbiddenWest.exe", VKD3D_CONFIG_FLAG_DISABLE_INTERNAL_SWAPCHAIN_LATENCY_HANDLE, 0 },
     { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
 };
 
