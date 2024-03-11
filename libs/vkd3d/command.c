@@ -6494,6 +6494,31 @@ static void d3d12_command_list_update_descriptors_post_indirect_buffer(struct d3
         list->descriptor_heap.buffers.heap_dirty = old_heap_dirty;
 }
 
+static void d3d12_command_list_workaround_barrier_clear_uav(struct d3d12_command_list *list)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkMemoryBarrier2 vk_barrier;
+    VkDependencyInfo dep_info;
+
+    if (list->cmd.pending_uav_clear)
+    {
+        memset(&dep_info, 0, sizeof(dep_info));
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.memoryBarrierCount = 1;
+        dep_info.pMemoryBarriers = &vk_barrier;
+
+        memset(&vk_barrier, 0, sizeof(vk_barrier));
+        vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+
+        list->cmd.pending_uav_clear = false;
+    }
+}
+
 static bool d3d12_command_list_update_compute_state(struct d3d12_command_list *list)
 {
     d3d12_command_list_end_current_render_pass(list, false);
@@ -6503,6 +6528,8 @@ static bool d3d12_command_list_update_compute_state(struct d3d12_command_list *l
 
     d3d12_command_list_update_descriptors(list);
 
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_CLEAR_UAV_COMPUTE_BARRIER)
+        d3d12_command_list_workaround_barrier_clear_uav(list);
     return true;
 }
 
@@ -9802,6 +9829,7 @@ static void d3d12_command_list_barrier_batch_end(struct d3d12_command_list *list
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkDependencyInfo dep_info;
+    uint32_t i;
 
     memset(&dep_info, 0, sizeof(dep_info));
     dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
@@ -9812,6 +9840,20 @@ static void d3d12_command_list_barrier_batch_end(struct d3d12_command_list *list
     {
         dep_info.memoryBarrierCount = 1;
         dep_info.pMemoryBarriers = &batch->vk_memory_barrier;
+    }
+
+    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_CLEAR_UAV_COMPUTE_BARRIER) &&
+            list->cmd.pending_uav_clear)
+    {
+        /* This is just a workaround, so handle what is needed.
+         * Technically we'd have to check for potential FRAGMENT use as well, as well as checking
+         * that there is a corresponding dst barrier and access masks. */
+        if (batch->vk_memory_barrier.srcStageMask & VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
+            list->cmd.pending_uav_clear = false;
+
+        for (i = 0; i < dep_info.imageMemoryBarrierCount && list->cmd.pending_uav_clear; i++)
+            if (batch->vk_image_barriers[i].srcStageMask & VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
+                list->cmd.pending_uav_clear = false;
     }
 
     if (dep_info.imageMemoryBarrierCount || dep_info.memoryBarrierCount)
@@ -11494,6 +11536,8 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     }
 
     d3d12_command_list_debug_mark_end_region(list);
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_CLEAR_UAV_COMPUTE_BARRIER)
+        list->cmd.pending_uav_clear = true;
 }
 
 static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *list,
