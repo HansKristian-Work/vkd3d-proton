@@ -5979,6 +5979,12 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
         list->command_buffer_pipeline = vk_pipeline;
     }
 
+    /* If no render targets are bound, we use PSO state to determine the sample count, but we do
+     * not track this as part of command list state. This is only relevant if the PSO statically
+     * enables any DSV or RTV but none are bound to the command list. */
+    if (!list->dynamic_state.rasterization_samples)
+        list->dynamic_state.dirty_flags |= VKD3D_DYNAMIC_STATE_RASTERIZATION_SAMPLES;
+
     list->dynamic_state.active_flags = new_active_flags;
     list->current_pipeline = vk_pipeline;
     return true;
@@ -6547,6 +6553,7 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_dynamic_state *dyn_state = &list->dynamic_state;
+    VkSampleCountFlagBits rasterization_samples;
     const uint32_t *stride_align_masks;
     struct vkd3d_bitmask_range range;
     uint32_t update_vbos;
@@ -6715,6 +6722,16 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
         VK_CALL(vkCmdSetFragmentShadingRateKHR(list->cmd.vk_command_buffer,
                 &dyn_state->fragment_shading_rate.fragment_size,
                 dyn_state->fragment_shading_rate.combiner_ops));
+    }
+
+    if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_RASTERIZATION_SAMPLES)
+    {
+        rasterization_samples = dyn_state->rasterization_samples;
+
+        if (!rasterization_samples)
+            rasterization_samples = list->state->graphics.ms_desc.rasterizationSamples;
+
+        VK_CALL(vkCmdSetRasterizationSamplesEXT(list->cmd.vk_command_buffer, rasterization_samples));
     }
 
     dyn_state->dirty_flags = 0;
@@ -10970,7 +10987,11 @@ static void d3d12_command_list_recompute_fb_size(struct d3d12_command_list *list
 {
     const VkPhysicalDeviceLimits *limits = &list->device->vk_info.device_limits;
     const struct d3d12_rtv_desc *rtv_desc;
+    VkSampleCountFlagBits sample_count;
     unsigned int i;
+
+    /* Honor PSO sample count if no render targets are bound */
+    sample_count = 0;
 
     list->fb_width = limits->maxFramebufferWidth;
     list->fb_height = limits->maxFramebufferHeight;
@@ -10985,6 +11006,8 @@ static void d3d12_command_list_recompute_fb_size(struct d3d12_command_list *list
             list->fb_width = min(list->fb_width, rtv_desc->width);
             list->fb_height = min(list->fb_height, rtv_desc->height);
             list->fb_layer_count = min(list->fb_layer_count, rtv_desc->layer_count);
+
+            sample_count = rtv_desc->sample_count;
         }
     }
 
@@ -10995,6 +11018,17 @@ static void d3d12_command_list_recompute_fb_size(struct d3d12_command_list *list
         list->fb_width = min(list->fb_width, rtv_desc->width);
         list->fb_height = min(list->fb_height, rtv_desc->height);
         list->fb_layer_count = min(list->fb_layer_count, rtv_desc->layer_count);
+
+        sample_count = rtv_desc->sample_count;
+    }
+
+    if (list->dynamic_state.rasterization_samples != sample_count)
+    {
+        list->dynamic_state.rasterization_samples = sample_count;
+        list->dynamic_state.dirty_flags |= VKD3D_DYNAMIC_STATE_RASTERIZATION_SAMPLES;
+
+        if (!list->device->device_info.extended_dynamic_state3_features.extendedDynamicState3RasterizationSamples)
+            d3d12_command_list_invalidate_current_pipeline(list, false);
     }
 }
 
