@@ -140,6 +140,7 @@ struct vkd3d_vulkan_info
     bool EXT_transform_feedback;
     bool EXT_vertex_attribute_divisor;
     bool EXT_extended_dynamic_state2;
+    bool EXT_extended_dynamic_state3;
     bool EXT_external_memory_host;
     bool EXT_shader_image_atomic_int64;
     bool EXT_mesh_shader;
