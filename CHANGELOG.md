@@ -34,6 +34,7 @@
 
 - Workaround crash in Resident Evil 4 RT mode when tessellation is enabled
 - Workaround mesh shader glitches on NVIDIA in several UE5 titles
+- Workaround GPU hang on NVIDIA in World of Warcraft when MSAA is enabled
 - Disable RT by default in Persona 3 Reload on Deck
 
 ### Performance
