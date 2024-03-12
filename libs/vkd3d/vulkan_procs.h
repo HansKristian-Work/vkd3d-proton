@@ -256,6 +256,9 @@ VK_DEVICE_EXT_PFN(vkCmdEndTransformFeedbackEXT)
 /* VK_EXT_extended_dynamic_state2 */
 VK_DEVICE_EXT_PFN(vkCmdSetPatchControlPointsEXT)
 
+/* VK_EXT_extended_dynamic_state3 */
+VK_DEVICE_EXT_PFN(vkCmdSetRasterizationSamplesEXT)
+
 /* VK_EXT_external_memory_host */
 VK_DEVICE_EXT_PFN(vkGetMemoryHostPointerPropertiesEXT)
 

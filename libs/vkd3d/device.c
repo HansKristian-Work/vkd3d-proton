@@ -94,6 +94,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_TRANSFORM_FEEDBACK, EXT_transform_feedback),
     VK_EXTENSION(EXT_VERTEX_ATTRIBUTE_DIVISOR, EXT_vertex_attribute_divisor),
     VK_EXTENSION(EXT_EXTENDED_DYNAMIC_STATE_2, EXT_extended_dynamic_state2),
+    VK_EXTENSION(EXT_EXTENDED_DYNAMIC_STATE_3, EXT_extended_dynamic_state3),
     VK_EXTENSION(EXT_EXTERNAL_MEMORY_HOST, EXT_external_memory_host),
     VK_EXTENSION(EXT_SHADER_IMAGE_ATOMIC_INT64, EXT_shader_image_atomic_int64),
     VK_EXTENSION(EXT_MESH_SHADER, EXT_mesh_shader),
@@ -1596,6 +1597,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->extended_dynamic_state2_features);
     }
 
+    if (vulkan_info->EXT_extended_dynamic_state3)
+    {
+        info->extended_dynamic_state3_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->extended_dynamic_state3_features);
+    }
+
     if (vulkan_info->EXT_external_memory_host)
     {
         info->external_memory_host_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_MEMORY_HOST_PROPERTIES_EXT;
@@ -2338,6 +2345,7 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         struct vkd3d_physical_device_info *physical_device_info)
 {
     const struct vkd3d_vk_instance_procs *vk_procs = &device->vkd3d_instance->vk_procs;
+    VkPhysicalDeviceExtendedDynamicState3FeaturesEXT *extended_dynamic_state3;
     VkPhysicalDeviceAccelerationStructureFeaturesKHR *acceleration_structure;
     VkPhysicalDeviceLineRasterizationFeaturesEXT *line_rasterization;
     VkPhysicalDeviceDescriptorBufferFeaturesEXT *descriptor_buffer;
@@ -2405,9 +2413,8 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
         return E_INVALIDARG;
     }
 
-    /* Disable unused Vulkan features. The following features need
-     * to remain enabled for DXVK in order to support D3D11on12:
-     * hostQueryReset, vulkanMemoryModel, synchronization2. */
+    /* Disable unused Vulkan features. The following features need to remain enabled
+     * for DXVK in order to support D3D11on12: hostQueryReset, vulkanMemoryModel. */
     features->shaderTessellationAndGeometryPointSize = VK_FALSE;
 
     physical_device_info->vulkan_1_1_features.protectedMemory = VK_FALSE;
@@ -2432,6 +2439,36 @@ static HRESULT vkd3d_init_device_caps(struct d3d12_device *device,
     descriptor_buffer = &physical_device_info->descriptor_buffer_features;
     descriptor_buffer->descriptorBufferCaptureReplay = VK_FALSE;
     descriptor_buffer->descriptorBufferImageLayoutIgnored = VK_FALSE;
+
+    /* We only use dynamic rasterization samples. Also Keep the following enabled for 11on12:
+     * alphaToCoverage, sampleMask, lineRasterizationMode, depthClipEnable. */
+    extended_dynamic_state3 = &physical_device_info->extended_dynamic_state3_features;
+    extended_dynamic_state3->extendedDynamicState3TessellationDomainOrigin = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3DepthClampEnable = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3PolygonMode = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3AlphaToOneEnable = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3LogicOpEnable = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3ColorBlendEnable = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3ColorBlendEquation = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3ColorWriteMask = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3RasterizationStream = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3ConservativeRasterizationMode = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3ExtraPrimitiveOverestimationSize = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3SampleLocationsEnable = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3ColorBlendAdvanced = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3ProvokingVertexMode = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3LineStippleEnable = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3DepthClipNegativeOneToOne = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3ViewportWScalingEnable = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3ViewportSwizzle = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3CoverageToColorEnable = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3CoverageToColorLocation = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3CoverageModulationMode = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3CoverageModulationTableEnable = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3CoverageModulationTable = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3CoverageReductionMode = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3RepresentativeFragmentTestEnable = VK_FALSE;
+    extended_dynamic_state3->extendedDynamicState3ShadingRateImageEnable = VK_FALSE;
 
     acceleration_structure = &physical_device_info->acceleration_structure_features;
     acceleration_structure->accelerationStructureCaptureReplay = VK_FALSE;
