@@ -1885,6 +1885,7 @@ enum vkd3d_dynamic_state_flag
     VKD3D_DYNAMIC_STATE_DEPTH_WRITE_ENABLE    = (1 << 10),
     VKD3D_DYNAMIC_STATE_STENCIL_WRITE_MASK    = (1 << 11),
     VKD3D_DYNAMIC_STATE_DEPTH_BIAS            = (1 << 12),
+    VKD3D_DYNAMIC_STATE_RASTERIZATION_SAMPLES = (1 << 13),
 };
 
 struct vkd3d_shader_debug_ring_spec_constants
@@ -2185,6 +2186,7 @@ struct vkd3d_pipeline_key
 {
     D3D12_PRIMITIVE_TOPOLOGY topology;
     VkFormat dsv_format;
+    VkSampleCountFlagBits rasterization_samples;
 
     bool dynamic_topology;
 };
@@ -2486,6 +2488,7 @@ struct vkd3d_dynamic_state
     uint32_t viewport_count;
     VkViewport viewports[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
     VkRect2D scissors[D3D12_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
+    VkSampleCountFlagBits rasterization_samples;
 
     float blend_constants[4];
 
@@ -4378,6 +4381,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceCustomBorderColorFeaturesEXT custom_border_color_features;
     VkPhysicalDeviceRobustness2FeaturesEXT robustness2_features;
     VkPhysicalDeviceExtendedDynamicState2FeaturesEXT extended_dynamic_state2_features;
+    VkPhysicalDeviceExtendedDynamicState3FeaturesEXT extended_dynamic_state3_features;
     VkPhysicalDeviceMutableDescriptorTypeFeaturesEXT mutable_descriptor_features;
     VkPhysicalDeviceRayTracingPipelineFeaturesKHR ray_tracing_pipeline_features;
     VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features;

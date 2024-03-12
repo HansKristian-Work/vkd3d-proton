@@ -3642,6 +3642,7 @@ vkd3d_dynamic_state_list[] =
     { VKD3D_DYNAMIC_STATE_STENCIL_WRITE_MASK,    VK_DYNAMIC_STATE_STENCIL_WRITE_MASK },
     { VKD3D_DYNAMIC_STATE_DEPTH_BIAS,            VK_DYNAMIC_STATE_DEPTH_BIAS },
     { VKD3D_DYNAMIC_STATE_DEPTH_BIAS,            VK_DYNAMIC_STATE_DEPTH_BIAS_ENABLE },
+    { VKD3D_DYNAMIC_STATE_RASTERIZATION_SAMPLES, VK_DYNAMIC_STATE_RASTERIZATION_SAMPLES_EXT },
 };
 
 uint32_t vkd3d_init_dynamic_state_array(VkDynamicState *dynamic_states, uint32_t dynamic_state_flags)
@@ -3890,6 +3891,16 @@ void vkd3d_fragment_output_pipeline_free(struct hash_map_entry *entry, void *use
     VK_CALL(vkDestroyPipeline(device->vk_device, pipeline->vk_pipeline, NULL));
 }
 
+static bool d3d12_graphics_pipeline_needs_dynamic_rasterization_samples(const struct d3d12_graphics_pipeline_state *graphics)
+{
+    /* Ignore the case where the pipeline is compiled for a single sample since Vulkan drivers are robust against that. */
+    if (graphics->rs_desc.rasterizerDiscardEnable || graphics->ms_desc.rasterizationSamples == VK_SAMPLE_COUNT_1_BIT)
+        return false;
+
+    return graphics->rtv_active_mask || graphics->dsv_format ||
+            (graphics->null_attachment_mask & dsv_attachment_mask(graphics));
+}
+
 uint32_t d3d12_graphics_pipeline_state_get_dynamic_state_flags(struct d3d12_pipeline_state *state,
         const struct vkd3d_pipeline_key *key)
 {
@@ -3958,6 +3969,12 @@ uint32_t d3d12_graphics_pipeline_state_get_dynamic_state_flags(struct d3d12_pipe
 
     if (graphics->index_buffer_strip_cut_value && !is_mesh_pipeline)
         dynamic_state_flags |= VKD3D_DYNAMIC_STATE_PRIMITIVE_RESTART;
+
+    /* Enable dynamic sample count for multisampled pipelines so we can work around
+     * bugs where the app may render to a single sampled render target. */
+    if (d3d12_graphics_pipeline_needs_dynamic_rasterization_samples(&state->graphics) &&
+            state->device->device_info.extended_dynamic_state3_features.extendedDynamicState3RasterizationSamples)
+        dynamic_state_flags |= VKD3D_DYNAMIC_STATE_RASTERIZATION_SAMPLES;
 
     return dynamic_state_flags;
 }
@@ -5078,6 +5095,11 @@ static HRESULT d3d12_pipeline_state_finish_graphics(struct d3d12_pipeline_state 
             !(graphics->pipeline_dynamic_states & VKD3D_DYNAMIC_STATE_PATCH_CONTROL_POINTS))
         state->pso_is_fully_dynamic = false;
 
+    /* Same thing if the pipeline is multisampled but we cannot dynamically set the sample count. */
+    if (d3d12_graphics_pipeline_needs_dynamic_rasterization_samples(graphics) &&
+            !(graphics->pipeline_dynamic_states & VKD3D_DYNAMIC_STATE_RASTERIZATION_SAMPLES))
+        state->pso_is_fully_dynamic = false;
+
     if (!state->pso_is_fully_dynamic)
     {
         /* If we got here successfully without SPIR-V code,
@@ -5600,6 +5622,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     VkPipelineTessellationStateCreateInfo tessellation_info;
     bool has_vertex_input_state, has_fragment_output_state;
     VkPipelineCreationFeedbackCreateInfoEXT feedback_info;
+    VkPipelineMultisampleStateCreateInfo multisample_info;
     VkPipelineDynamicStateCreateInfo dynamic_create_info;
     struct d3d12_device *device = state->device;
     VkGraphicsPipelineCreateInfo pipeline_desc;
@@ -5675,7 +5698,14 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
     }
 
     if (has_fragment_output_state || graphics->ms_desc.sampleShadingEnable)
-        pipeline_desc.pMultisampleState = &graphics->ms_desc;
+    {
+        multisample_info = graphics->ms_desc;
+
+        if (key && key->rasterization_samples)
+            multisample_info.rasterizationSamples = key->rasterization_samples;
+
+        pipeline_desc.pMultisampleState = &multisample_info;
+    }
 
     if (has_fragment_output_state)
         pipeline_desc.pColorBlendState = &fragment_output_desc.cb_info;
@@ -5858,6 +5888,17 @@ VkPipeline d3d12_pipeline_state_get_pipeline(struct d3d12_pipeline_state *state,
         return VK_NULL_HANDLE;
     }
 
+    /* We also need a fallback pipeline if sample counts do not match. */
+    if (dyn_state->rasterization_samples && dyn_state->rasterization_samples != state->graphics.ms_desc.rasterizationSamples &&
+            !(graphics->pipeline_dynamic_states & VKD3D_DYNAMIC_STATE_RASTERIZATION_SAMPLES))
+    {
+        WARN("Mismatch in sample count, pipeline expects %u, but render target has %u.\n",
+                state->graphics.ms_desc.rasterizationSamples, dyn_state->rasterization_samples);
+
+        if (state->graphics.ms_desc.rasterizationSamples > VK_SAMPLE_COUNT_1_BIT)
+            return VK_NULL_HANDLE;
+    }
+
     *dynamic_state_flags = state->graphics.pipeline_dynamic_states;
     return state->graphics.pipeline;
 }
@@ -5890,6 +5931,12 @@ VkPipeline d3d12_pipeline_state_get_or_create_pipeline(struct d3d12_pipeline_sta
     }
 
     pipeline_key.dsv_format = dsv_format ? dsv_format->vk_format : VK_FORMAT_UNDEFINED;
+
+    if (!(graphics->pipeline_dynamic_states & VKD3D_DYNAMIC_STATE_RASTERIZATION_SAMPLES))
+    {
+        pipeline_key.rasterization_samples = dyn_state->rasterization_samples
+              ? dyn_state->rasterization_samples : graphics->ms_desc.rasterizationSamples;
+    }
 
     if ((vk_pipeline = d3d12_pipeline_state_find_compiled_pipeline(state, &pipeline_key, dynamic_state_flags)))
     {
