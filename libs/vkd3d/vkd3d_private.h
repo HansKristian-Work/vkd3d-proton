@@ -5237,6 +5237,7 @@ struct vkd3d_format
     VkFormatFeatureFlags2 vk_format_features_castable;
     /* Includes only buffer view features. */
     VkFormatFeatureFlags2 vk_format_features_buffer;
+    VkSampleCountFlags supported_sparse_sample_counts;
 };
 
 static inline size_t vkd3d_format_get_data_offset(const struct vkd3d_format *format,

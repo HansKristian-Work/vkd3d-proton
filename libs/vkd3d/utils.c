@@ -521,6 +521,46 @@ static void vkd3d_cleanup_depth_stencil_formats(struct d3d12_device *device)
     device->depth_stencil_formats = NULL;
 }
 
+static VkSampleCountFlags vkd3d_vk_format_supports_sparse_sample_counts(struct d3d12_device *device, VkFormat vk_format)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkSampleCountFlags supported_sample_counts;
+    VkSampleCountFlagBits sample_count;
+    VkImageFormatProperties props;
+    uint32_t info_count;
+
+    if (!device->device_info.features2.features.sparseResidencyImage2D)
+        return false;
+
+    if (VK_CALL(vkGetPhysicalDeviceImageFormatProperties(device->vk_physical_device,
+            vk_format, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+            VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT |
+            VK_IMAGE_CREATE_SPARSE_ALIASED_BIT |
+            VK_IMAGE_CREATE_SPARSE_BINDING_BIT, &props)) != VK_SUCCESS)
+    {
+        return 0;
+    }
+
+    supported_sample_counts = 0;
+    while (props.sampleCounts)
+    {
+        /* VUID 01094. Samples must be marked as supported by ImageFormatProperties. */
+        sample_count = 1u << vkd3d_bitmask_iter32(&props.sampleCounts);
+
+        VK_CALL(vkGetPhysicalDeviceSparseImageFormatProperties(
+                device->vk_physical_device, vk_format,
+                VK_IMAGE_TYPE_2D, sample_count,
+                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                VK_IMAGE_TILING_OPTIMAL, &info_count, NULL));
+
+        if (info_count > 0)
+            supported_sample_counts |= sample_count;
+    }
+
+    return supported_sample_counts;
+}
+
 static HRESULT vkd3d_init_formats(struct d3d12_device *device)
 {
     const struct vkd3d_format_compatibility_list *list;
@@ -611,6 +651,9 @@ static HRESULT vkd3d_init_formats(struct d3d12_device *device)
                         : properties.linearTilingFeatures;
             }
         }
+
+        format->supported_sparse_sample_counts = vkd3d_vk_format_supports_sparse_sample_counts(device,
+                format->vk_format);
     }
 
     device->formats = formats;

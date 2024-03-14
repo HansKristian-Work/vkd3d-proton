@@ -16833,6 +16833,13 @@ static void STDMETHODCALLTYPE d3d12_command_queue_UpdateTileMappings(ID3D12Comma
             iface, resource, region_count, region_coords, region_sizes, heap,
             range_count, range_flags, heap_range_offsets, range_tile_counts, flags);
 
+    /* This can be a fallback sparse resource, just ignore any UpdateTileMapping calls on this. */
+    if (!(res->flags & VKD3D_RESOURCE_RESERVED))
+    {
+        WARN("Ignoring UpdateTileMapping calls on fallback reserved resource.\n");
+        return;
+    }
+
     if (!region_count || !range_count)
         return;
 
