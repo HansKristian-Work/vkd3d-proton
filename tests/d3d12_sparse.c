@@ -2263,6 +2263,9 @@ void test_sparse_depth_stencil_rendering(void)
 
                 /* For mapped pages, we cleared to 0.5, so we don't expect to see FB write. */
                 expected = y * 2 + x <= iter ? 0 : 150;
+
+                /* We work around lack of sparse support currently. */
+                todo_if(is_radv_device(context.device))
                 ok(value == expected, "Iter %u, tile %u, %u: expected %u, got %u.\n", iter, x, y, expected, value);
             }
         }

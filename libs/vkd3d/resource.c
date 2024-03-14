@@ -1524,6 +1524,7 @@ static void d3d12_resource_get_tiling(struct d3d12_device *device, struct d3d12_
     unsigned int i, tile_count, packed_tiles, standard_mips;
     const D3D12_RESOURCE_DESC1 *desc = &resource->desc;
     uint32_t memory_requirement_count = 0;
+    const struct vkd3d_format *format;
     VkExtent3D block_extent;
 
     memset(vk_info, 0, sizeof(*vk_info));
@@ -1548,7 +1549,7 @@ static void d3d12_resource_get_tiling(struct d3d12_device *device, struct d3d12_
 
         *total_tile_count = tile_count;
     }
-    else
+    else if (resource->flags & VKD3D_RESOURCE_RESERVED)
     {
         VK_CALL(vkGetImageSparseMemoryRequirements(device->vk_device,
                 resource->res.vk_image, &memory_requirement_count, NULL));
@@ -1626,6 +1627,97 @@ static void d3d12_resource_get_tiling(struct d3d12_device *device, struct d3d12_
         tile_shape->WidthInTexels = block_extent.width;
         tile_shape->HeightInTexels = block_extent.height;
         tile_shape->DepthInTexels = block_extent.depth;
+
+        *total_tile_count = tile_count;
+    }
+    else
+    {
+        /* 33.4.3 in Vulkan spec, assuming D3D12 is same. */
+        static const struct standard_sizes
+        {
+            unsigned int byte_count;
+            unsigned int samples;
+            unsigned int width, height;
+        } size_table[] = {
+            { 1, 1, 256, 256 },
+            { 1, 2, 128, 128 },
+            { 1, 4, 128, 256 },
+            { 1, 8, 64, 128 },
+            { 1, 16, 64, 64 },
+
+            { 2, 1, 256, 128 },
+            { 2, 2, 128, 128 },
+            { 2, 4, 128, 64 },
+            { 2, 8, 64, 64 },
+            { 2, 16, 64, 32 },
+
+            { 4, 1, 128, 128 },
+            { 4, 2, 64, 128 },
+            { 4, 4, 64, 64 },
+            { 4, 8, 32, 64 },
+            { 4, 16, 32, 32 },
+
+            { 8, 1, 128, 64 },
+            { 8, 2, 64, 64 },
+            { 8, 4, 64, 32 },
+            { 8, 8, 32, 32 },
+            { 8, 16, 32, 16 },
+
+            { 16, 1, 64, 64 },
+            { 16, 2, 32, 64 },
+            { 16, 4, 32, 32 },
+            { 16, 8, 16, 32 },
+            { 16, 16, 16, 16 },
+        };
+
+        const struct standard_sizes *sizes = NULL;
+
+        format = vkd3d_get_format(device, resource->desc.Format,
+                !!(resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL));
+
+        for (i = 0; i < ARRAY_SIZE(size_table) && !sizes; i++)
+            if (size_table[i].byte_count == format->byte_count && desc->SampleDesc.Count == size_table[i].samples)
+                sizes = &size_table[i];
+
+        /* Just have to hallucinate something reasonable. Pretend every LOD is standard layout.
+         * We only attempt this for 2D images, ignore 3D cases. */
+        assert(desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D);
+        packed_mip_info->NumStandardMips = desc->MipLevels;
+        packed_mip_info->NumTilesForPackedMips = 0;
+        packed_mip_info->NumPackedMips = 0;
+        packed_mip_info->StartTileIndexInOverallResource = 0;
+
+        if (sizes)
+        {
+            block_extent.width = sizes->width * format->block_width;
+            block_extent.height = sizes->height * format->block_height;
+        }
+        else
+        {
+            WARN("Unrecognized byte_size %u, samples %u pair.\n", format->byte_count, desc->SampleDesc.Count);
+            /* Just hallucinate something so we don't crash. */
+            block_extent.width = 256;
+            block_extent.height = 256;
+        }
+
+        tile_shape->WidthInTexels = block_extent.width;
+        tile_shape->HeightInTexels = block_extent.height;
+        tile_shape->DepthInTexels = 1;
+
+        tile_count = 0;
+
+        for (i = 0; i < d3d12_resource_desc_get_sub_resource_count_per_plane(desc); i++)
+        {
+            unsigned int mip_level = i % desc->MipLevels;
+            unsigned int tile_count_w = align(d3d12_resource_desc_get_width(desc, mip_level), block_extent.width) / block_extent.width;
+            unsigned int tile_count_h = align(d3d12_resource_desc_get_height(desc, mip_level), block_extent.height) / block_extent.height;
+
+            tilings[i].WidthInTiles = tile_count_w;
+            tilings[i].HeightInTiles = tile_count_h;
+            tilings[i].DepthInTiles = 1;
+            tilings[i].StartTileIndexInOverallResource = tile_count;
+            tile_count += tile_count_w * tile_count_h;
+        }
 
         *total_tile_count = tile_count;
     }
@@ -2766,6 +2858,10 @@ static HRESULT d3d12_resource_bind_sparse_metadata(struct d3d12_resource *resour
     if (d3d12_resource_is_buffer(resource))
         return S_OK;
 
+    /* If a fallback resource, ignore. */
+    if (!(resource->flags & VKD3D_RESOURCE_RESERVED))
+        return S_OK;
+
     /* We expect the metadata aspect for image resources to be uncommon on most
      * drivers, so most of the time we'll just return early. The implementation
      * is therefore aimed at simplicity, and not very well tested in practice. */
@@ -2913,9 +3009,6 @@ static HRESULT d3d12_resource_init_sparse_info(struct d3d12_resource *resource,
     HRESULT hr;
 
     memset(sparse, 0, sizeof(*sparse));
-
-    if (!(resource->flags & VKD3D_RESOURCE_RESERVED))
-        return S_OK;
 
     sparse->tiling_count = d3d12_resource_desc_get_sub_resource_count_per_plane(&resource->desc);
     sparse->tile_count = 0;
@@ -3679,14 +3772,68 @@ fail:
     return hr;
 }
 
+static HRESULT d3d12_resource_create_reserved_fallback(
+        struct d3d12_device *device,
+        const D3D12_RESOURCE_DESC1 *desc, D3D12_RESOURCE_STATES initial_state,
+        const D3D12_CLEAR_VALUE *optimized_clear_value,
+        UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
+        struct d3d12_resource **resource)
+{
+    D3D12_HEAP_PROPERTIES heap_props;
+    struct d3d12_resource *object;
+    HRESULT hr;
+
+    memset(&heap_props, 0, sizeof(heap_props));
+    heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    if (FAILED(hr = d3d12_resource_create_committed(device, desc, &heap_props, D3D12_HEAP_FLAG_CREATE_NOT_ZEROED,
+            initial_state, optimized_clear_value, num_castable_formats, castable_formats, NULL, &object)))
+        return hr;
+
+    if (FAILED(hr = d3d12_resource_init_sparse_info(object, device, &object->sparse)))
+        goto fail;
+
+    *resource = object;
+    return S_OK;
+
+fail:
+    d3d12_resource_destroy_and_release_device(object, device);
+    return hr;
+}
+
 HRESULT d3d12_resource_create_reserved(struct d3d12_device *device,
         const D3D12_RESOURCE_DESC1 *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value,
         UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
         struct d3d12_resource **resource)
 {
+    const struct vkd3d_format *format;
     struct d3d12_resource *object;
     HRESULT hr;
+
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+    {
+        format = vkd3d_get_format(device, desc->Format, !!(desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL));
+        if (!format)
+            return E_INVALIDARG;
+
+        /* Check that implementation supports sparse for the format at all.
+         * RADV does not support depth-stencil sparse for example.
+         * Letting this through is better than straight up crashing ...
+         * Don't allow multi-aspect images. They have to fail. */
+        if (vkd3d_popcount(format->vk_aspect_mask) == 1 &&
+                !(format->supported_sparse_sample_counts & desc->SampleDesc.Count))
+        {
+            FIXME("Sparse is not supported for vk_format %d with %u samples, falling back to committed resource. "
+                  "Dimensions: width %u, height %u, level %u, layers %u. VRAM bloat expected.\n",
+                    format->vk_format, desc->SampleDesc.Count,
+                    (unsigned int)desc->Width, desc->Height,
+                    desc->MipLevels, desc->DepthOrArraySize);
+
+            return d3d12_resource_create_reserved_fallback(device, desc, initial_state,
+                    optimized_clear_value, num_castable_formats, castable_formats, resource);
+        }
+    }
 
     if (FAILED(hr = d3d12_resource_create(device, VKD3D_RESOURCE_RESERVED, desc,
             NULL, D3D12_HEAP_FLAG_NONE, initial_state, optimized_clear_value,
