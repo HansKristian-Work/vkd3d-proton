@@ -90,6 +90,7 @@ struct dxgi_vk_swap_chain
     vkd3d_native_sync_handle frame_latency_event_internal;
     vkd3d_native_sync_handle present_request_done_event;
     bool outstanding_present_request;
+    uint32_t frame_latency_event_internal_wait_counts;
 
     UINT frame_latency;
     UINT frame_latency_internal;
@@ -885,11 +886,81 @@ static bool dxgi_vk_swap_chain_present_is_occluded(struct dxgi_vk_swap_chain *ch
 
 static void dxgi_vk_swap_chain_present_callback(void *chain);
 
+static void dxgi_vk_swap_chain_wait_internal_handle(struct dxgi_vk_swap_chain *chain, bool low_latency_enable)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
+    bool non_blocking_internal_handle_wait = low_latency_enable;
+    uint64_t completed_submissions = 0;
+    uint64_t user_submissions = 0;
+
+    chain->frame_latency_event_internal_wait_counts++;
+
+    if (non_blocking_internal_handle_wait)
+    {
+        /* If we're using low latency mode, we expect that applications sleep on their own in LatencySleep.
+         * If we start sleeping ourselves here, we sometimes end up fighting with NV's LL2 implementation over
+         * which sleep cycle gets to dominate. This can manifest as a random pumping pattern.
+         *
+         * If our sleep dominates, we end up in an unstable situation where LL2 may think we're
+         * more CPU bound than we actually are.
+         *
+         * In a FIFO bound scenario however where GPU completes long before vblank hits,
+         * we should rely on frame latency sleeps.
+         *
+         * Use a very simple heuristic. If the blit timeline semaphore lags behind by 2+ frames, assume we're
+         * fully GPU bound and we should back off and let low latency deal with it more gracefully. */
+        user_submissions = chain->user.blit_count;
+
+        if (VK_CALL(vkGetSemaphoreCounterValue(chain->queue->device->vk_device,
+                chain->present.vk_complete_semaphore,
+                &completed_submissions)) == VK_SUCCESS)
+        {
+            /* We just submitted frame N. If N - 2 is already complete, it means there is <= 2 frames worth of GPU work
+             * queued up. For a FIFO bound or CPU bound game, this is the case we expect, so we should use latency fences here.
+             * If we're GPU bound with <= 2 frames queued up, we'll likely not block in our own latency handles anyway. */
+            if (completed_submissions + 2 >= user_submissions)
+            {
+                non_blocking_internal_handle_wait = false;
+            }
+            else if (chain->debug_latency)
+            {
+                INFO("Completed count: %"PRIu64", submitted count: %"PRIu64". GPU queue is too deep, deferring to low latency sleep.\n",
+                        completed_submissions, user_submissions);
+            }
+        }
+        else
+        {
+            ERR("Failed to query semaphore complete value.\n");
+            non_blocking_internal_handle_wait = false;
+        }
+    }
+
+    if (non_blocking_internal_handle_wait)
+    {
+        /* Just make sure the counter doesn't get unbounded. */
+        while (chain->frame_latency_event_internal_wait_counts &&
+                vkd3d_native_sync_handle_acquire_timeout(chain->frame_latency_event_internal, 0))
+        {
+            chain->frame_latency_event_internal_wait_counts--;
+        }
+    }
+    else
+    {
+        while (chain->frame_latency_event_internal_wait_counts)
+        {
+            vkd3d_native_sync_handle_acquire(chain->frame_latency_event_internal);
+            chain->frame_latency_event_internal_wait_counts--;
+        }
+    }
+}
+
 static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain *iface, UINT SyncInterval, UINT PresentFlags, const DXGI_PRESENT_PARAMETERS *pPresentParameters)
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
     struct dxgi_vk_swap_chain_present_request *request;
     struct vkd3d_queue_timeline_trace_cookie cookie;
+    bool low_latency_enable;
+
     TRACE("iface %p, SyncInterval %u, PresentFlags #%x, pPresentParameters %p.\n",
             iface, SyncInterval, PresentFlags, pPresentParameters);
     (void)pPresentParameters;
@@ -937,12 +1008,14 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain *if
         request->requested_low_latency_state = chain->requested_low_latency_state;
         request->low_latency_update_requested = chain->low_latency_update_requested;
         chain->low_latency_update_requested = false;
+        low_latency_enable = chain->requested_low_latency_state.mode;
         pthread_mutex_unlock(&chain->present.low_latency_state_update_lock);
     }
     else
     {
         memset(&request->requested_low_latency_state, 0, sizeof(request->requested_low_latency_state));
         request->low_latency_update_requested = false;
+        low_latency_enable = false;
     }
 
     /* Need to process this task in queue thread to deal with wait-before-signal.
@@ -960,7 +1033,7 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain *if
 
     /* Relevant if application does not use latency fence, or we force a lower latency through VKD3D_SWAPCHAIN_FRAME_LATENCY overrides. */
     if (vkd3d_native_sync_handle_is_valid(chain->frame_latency_event_internal))
-        vkd3d_native_sync_handle_acquire(chain->frame_latency_event_internal);
+        dxgi_vk_swap_chain_wait_internal_handle(chain, low_latency_enable);
 
     if (vkd3d_native_sync_handle_is_valid(chain->present_request_done_event))
     {
