@@ -925,6 +925,10 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain *if
     request->modifies_hdr_metadata = chain->user.modifies_hdr_metadata;
     request->begin_frame_time_ns = chain->user.begin_frame_time_ns;
     request->low_latency_frame_id = chain->queue->device->frame_markers.present;
+
+    if (chain->debug_latency && request->low_latency_frame_id)
+        INFO("Presenting with low latency frame ID: %"PRIu64".\n", request->low_latency_frame_id);
+
     chain->user.modifies_hdr_metadata = false;
 
     if (chain->queue->device->vk_info.NV_low_latency2)
@@ -1568,12 +1572,28 @@ static void dxgi_vk_swap_chain_low_latency_state_update(struct dxgi_vk_swap_chai
             dxgi_vk_swap_chain_set_low_latency_state(chain, &chain->request.requested_low_latency_state);
     }
 
+    if (chain->debug_latency)
+    {
+        INFO("chain: %p, low latency mode: %s%s (%u us).\n",
+                (void *)chain,
+                chain->present.low_latency_state.mode ? "ON" : "OFF",
+                chain->present.low_latency_state.boost ? " (+ boost)" : "",
+                chain->present.low_latency_state.minimum_interval_us);
+    }
+
     /* Transitioning from using the id maintained by the present task to the application frame id, and
      * vice versa requires recreating the swapchain to ensure the present id is valid. It is also possible
      * for an application to stop providing low latency frame ids. If that happens we are now responsible
      * for ensuring the present id is always incrementing. */
     if (chain->present.using_application_frame_id != dxgi_vk_swap_chain_can_use_app_frame_id(chain))
     {
+        if (chain->debug_latency)
+        {
+            INFO("Last application ID was %"PRIu64", but new present request is ID %"PRIu64". Forcing recreation due to non-monotonicity.\n",
+                    chain->present.previous_application_frame_id,
+                    chain->request.low_latency_frame_id);
+        }
+
         chain->present.using_application_frame_id = dxgi_vk_swap_chain_can_use_app_frame_id(chain);
         chain->present.force_swapchain_recreation = true;
     }
@@ -2243,12 +2263,16 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
         {
             chain->present.present_id = chain->request.low_latency_frame_id;
             chain->present.previous_application_frame_id = chain->request.low_latency_frame_id;
+            if (chain->debug_latency)
+                INFO("Presenting with app frame ID: %"PRIu64".\n", chain->present.present_id);
         }
         else
         {
             /* If we recreate swapchain, we still want to maintain a monotonically increasing counter here for
              * profiling purposes. */
             chain->present.present_id = chain->present.complete_count + 1;
+            if (chain->debug_latency)
+                INFO("Presenting with internal frame ID: %"PRIu64".\n", chain->present.present_id);
         }
 
         present_id.sType = VK_STRUCTURE_TYPE_PRESENT_ID_KHR;
@@ -2772,6 +2796,9 @@ void dxgi_vk_swap_chain_set_latency_marker(struct dxgi_vk_swap_chain *chain, uin
     latency_marker_info.pNext = NULL;
     latency_marker_info.presentID = frameID;
     latency_marker_info.marker = marker;
+
+    if (chain->debug_latency && marker == VK_LATENCY_MARKER_PRESENT_START_NV)
+        INFO("Setting present frame marker %"PRIu64".\n", frameID);
 
     pthread_mutex_lock(&chain->present.low_latency_swapchain_lock);
 
