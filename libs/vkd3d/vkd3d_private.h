@@ -4492,6 +4492,9 @@ struct vkd3d_device_swapchain_info
 {
     struct dxgi_vk_swap_chain *low_latency_swapchain;
     uint32_t swapchain_count;
+    bool mode;
+    bool boost;
+    uint32_t minimum_us;
 };
 
 struct vkd3d_device_frame_markers
@@ -4954,6 +4957,8 @@ static inline void d3d12_device_register_swapchain(struct d3d12_device *device, 
     {
         dxgi_vk_swap_chain_incref(chain);
         device->swapchain_info.low_latency_swapchain = chain;
+        dxgi_vk_swap_chain_set_latency_sleep_mode(chain, device->swapchain_info.mode,
+                device->swapchain_info.boost, device->swapchain_info.minimum_us);
     }
     else
     {
