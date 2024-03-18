@@ -2063,3 +2063,234 @@ void test_reserved_resource_mapping(void)
 
     destroy_test_context(&context);
 }
+
+void test_sparse_depth_stencil_rendering(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options;
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT format;
+    struct test_context_desc context_desc;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_ROOT_PARAMETER rs_params[3];
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12DescriptorHeap *dsv_heap;
+    ID3D12DescriptorHeap *rtv_heap;
+    ID3D12Resource *atomic_buffer;
+    struct resource_readback rb;
+    struct test_context context;
+    D3D12_HEAP_DESC heap_desc;
+    unsigned int iter, x, y;
+    ID3D12Resource *ds;
+    ID3D12Resource *rt;
+    ID3D12Heap *heap;
+    HRESULT hr;
+
+#include "shaders/sparse/headers/ds_sparse_vs.h"
+#include "shaders/sparse/headers/ds_sparse_ps.h"
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_root_signature = true;
+    context_desc.no_render_target = true;
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options))) ||
+        options.TiledResourcesTier < D3D12_TILED_RESOURCES_TIER_2)
+    {
+        skip("Tiled resources TIER_2 not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    format.Format = DXGI_FORMAT_D32_FLOAT;
+    hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_FORMAT_SUPPORT, &format, sizeof(format));
+    ok(SUCCEEDED(hr), "Failed to query for format support.\n");
+
+    if (!(format.Support2 & D3D12_FORMAT_SUPPORT2_TILED))
+    {
+        skip("Tiled is not supported for D32.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    memset(rs_params, 0, sizeof(rs_params));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_params);
+    rs_desc.pParameters = rs_params;
+
+    rs_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+    rs_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_params[0].Constants.Num32BitValues = 2;
+    rs_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rs_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_params[1].Constants.Num32BitValues = 2;
+    rs_params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rs_params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_params[2].Descriptor.ShaderRegister = 1;
+
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    init_pipeline_state_desc_shaders(&pso_desc, context.root_signature, DXGI_FORMAT_R8_UNORM, NULL,
+        ds_sparse_vs_dxbc.pShaderBytecode, ds_sparse_vs_dxbc.BytecodeLength,
+        ds_sparse_ps_dxbc.pShaderBytecode, ds_sparse_ps_dxbc.BytecodeLength);
+    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_GREATER;
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&context.pipeline_state);
+    ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Width = 256;
+    resource_desc.Height = 256;
+    resource_desc.Format = DXGI_FORMAT_D32_FLOAT;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
+    resource_desc.MipLevels = 1;
+    resource_desc.SampleDesc.Count = 1;
+    hr = ID3D12Device_CreateReservedResource(context.device, &resource_desc, D3D12_RESOURCE_STATE_COPY_SOURCE, NULL, &IID_ID3D12Resource, (void**)&ds);
+    ok(SUCCEEDED(hr), "Failed to create reserved resource, hr #%x\n", hr);
+
+    if (FAILED(hr))
+    {
+        destroy_test_context(&context);
+        return;
+    }
+
+    rt = create_default_texture2d(context.device, 256, 256, 1, 1,
+        DXGI_FORMAT_R8_UNORM, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+    atomic_buffer = create_default_buffer(context.device, 16, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    memset(&heap_desc, 0, sizeof(heap_desc));
+    heap_desc.SizeInBytes = 64 * 1024 * 4;
+    heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES;
+    heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    hr = ID3D12Device_CreateHeap(context.device, &heap_desc, &IID_ID3D12Heap, (void**)&heap);
+    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x\n", hr);
+
+    dsv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
+    rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+    ID3D12Device_CreateDepthStencilView(context.device, ds, NULL, get_cpu_dsv_handle(&context, dsv_heap, 0));
+    ID3D12Device_CreateRenderTargetView(context.device, rt, NULL, get_cpu_dsv_handle(&context, rtv_heap, 0));
+
+    for (iter = 0; iter < 4; iter++)
+    {
+        D3D12_TILED_RESOURCE_COORDINATE region_start_coordinates;
+        D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle;
+        D3D12_CPU_DESCRIPTOR_HANDLE rt_handle;
+        D3D12_TILE_REGION_SIZE region_sizes;
+        D3D12_TILE_RANGE_FLAGS range_flags;
+        const FLOAT clear_value[4] = { 0 };
+        UINT heap_range_offsets;
+        UINT range_tile_counts;
+        D3D12_VIEWPORT vp;
+        float params[2];
+        D3D12_RECT sci;
+
+        region_start_coordinates.Subresource = 0;
+        region_start_coordinates.X = iter & 1;
+        region_start_coordinates.Y = iter / 2;
+        region_start_coordinates.Z = 0;
+
+        memset(&region_sizes, 0, sizeof(region_sizes));
+        region_sizes.NumTiles = 1;
+
+        heap_range_offsets = iter;
+        range_tile_counts = 1;
+        range_flags = D3D12_TILE_RANGE_FLAG_NONE;
+
+        ID3D12CommandQueue_UpdateTileMappings(context.queue, ds, 1, &region_start_coordinates, &region_sizes,
+            heap, 1, &range_flags, &heap_range_offsets, &range_tile_counts, D3D12_TILE_MAPPING_FLAG_NONE);
+
+        transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+        rt_handle = get_cpu_rtv_handle(&context, rtv_heap, 0);
+        dsv_handle = get_cpu_dsv_handle(&context, dsv_heap, 0);
+
+        /* https://learn.microsoft.com/en-us/windows/win32/direct3d11/rasterizer-behavior-with-non-mapped-tiles
+         * It is allowed to temporarily cache writes to unmapped tiles in TIER 2 apparently.
+         * Avoid this situation by forcing a full memory barrier in-between, making such caching impossible.
+         * Unmapped tiles won't get cleared. */
+        ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, rt_handle, clear_value, 0, NULL);
+        ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.5f, 0, 0, NULL);
+        ID3D12GraphicsCommandList_Close(context.list);
+        exec_command_list(context.queue, context.list);
+        ID3D12GraphicsCommandList_Reset(context.list, context.allocator, NULL);
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &rt_handle, TRUE, &dsv_handle);
+
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+
+        /* Unmapped pages should pass the depth test. We enable write in the PSO, but this write should be masked when passing.
+         * We draw two full-screen primitives, the first with depth 0.25, the second one with 0.25 - delta.
+         * If sparse isn't working as intended, we'll draw 0.25 depth, then 0.25 - delta fails, meaning we end up with 200 in RT.
+         * If sparse is working as intended, the depth test will always compare against 0, so we'll end up with 150 in RT. */
+        params[0] = 0.25f;
+        params[1] = -0.05f;
+        ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(context.list, 0, ARRAY_SIZE(params), params, 0);
+        params[0] = 200.0f / 255.0f;
+        params[1] = -50.0f / 255.0f;
+        ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(context.list, 1, ARRAY_SIZE(params), params, 0);
+        ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 2, ID3D12Resource_GetGPUVirtualAddress(atomic_buffer) + 4 * iter);
+
+        set_viewport(&vp, 0, 0, 256, 256, 0, 1);
+        set_rect(&sci, 0, 0, 256, 256);
+        ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &vp);
+        ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &sci);
+
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 2, 0, 0);
+
+        transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        transition_resource_state(context.list, ds, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        get_texture_readback_with_command_list(rt, 0, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+
+        for (y = 0; y < 2; y++)
+        {
+            for (x = 0; x < 2; x++)
+            {
+                uint8_t value, expected;
+                value = get_readback_uint8(&rb, x * 128, y * 128);
+
+                /* For mapped pages, we cleared to 0.5, so we don't expect to see FB write. */
+                expected = y * 2 + x <= iter ? 0 : 150;
+                ok(value == expected, "Iter %u, tile %u, %u: expected %u, got %u.\n", iter, x, y, expected, value);
+            }
+        }
+
+        release_resource_readback(&rb);
+    }
+
+    transition_resource_state(context.list, atomic_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(atomic_buffer, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
+    reset_command_list(context.list, context.allocator);
+
+    /* Ensure that driver didn't try to mask draws. Pixel invocations must still happen as-is. */
+    for (iter = 0; iter < 4; iter++)
+    {
+        uint32_t value, expected;
+        value = get_readback_uint(&rb, iter, 0, 0);
+        expected = 256 * 256 * 2;
+        ok(value == expected, "Iter %u: expected %u, got %u.\n", iter, expected, value);
+    }
+
+    release_resource_readback(&rb);
+
+    ID3D12Resource_Release(ds);
+    ID3D12Resource_Release(rt);
+    ID3D12Heap_Release(heap);
+    ID3D12DescriptorHeap_Release(dsv_heap);
+    ID3D12DescriptorHeap_Release(rtv_heap);
+    ID3D12Resource_Release(atomic_buffer);
+
+    destroy_test_context(&context);
+}
