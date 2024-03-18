@@ -343,6 +343,7 @@ decl_test(test_fence_wait_multiple);
 decl_test(test_fence_wait_multiple_shared);
 decl_test(test_root_signature_empty_blob);
 decl_test(test_sparse_buffer_memory_lifetime);
+decl_test(test_sparse_depth_stencil_rendering);
 decl_test(test_rendering_no_attachments_layers);
 decl_test(test_memory_model_uav_coherence_thread_group_dxbc);
 decl_test(test_memory_model_uav_coherence_thread_group_dxil);
