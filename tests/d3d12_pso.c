@@ -3026,7 +3026,10 @@ void test_coverage_export_atoc(bool use_dxil)
         transition_resource_state(context.list, rt_ms, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
         transition_resource_state(context.list, rt, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
-        init_pipeline_state_desc(&pso_desc, rs, DXGI_FORMAT_R8_UNORM, NULL, tests[i].ps, NULL);
+        if (use_dxil)
+            init_pipeline_state_desc_dxil(&pso_desc, rs, DXGI_FORMAT_R8_UNORM, NULL, tests[i].ps, NULL);
+        else
+            init_pipeline_state_desc(&pso_desc, rs, DXGI_FORMAT_R8_UNORM, NULL, tests[i].ps, NULL);
         pso_desc.SampleDesc.Count = 4;
         pso_desc.BlendState.AlphaToCoverageEnable = tests[i].atoc;
         hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
@@ -3099,7 +3102,11 @@ void test_coverage_export_atoc(bool use_dxil)
 
     vkd3d_test_set_context("Single sample export");
 
-    init_pipeline_state_desc(&pso_desc, rs, DXGI_FORMAT_R8_UNORM, NULL, &ps_coverage, NULL);
+    if (use_dxil)
+        init_pipeline_state_desc_dxil(&pso_desc, rs, DXGI_FORMAT_R8_UNORM, NULL, &ps_coverage, NULL);
+    else
+        init_pipeline_state_desc(&pso_desc, rs, DXGI_FORMAT_R8_UNORM, NULL, &ps_coverage, NULL);
+
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc,
             &IID_ID3D12PipelineState, (void **)&pso);
     ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
