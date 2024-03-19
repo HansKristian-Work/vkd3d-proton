@@ -3146,7 +3146,9 @@ static void vkd3d_pipeline_library_disk_cache_initial_setup(struct vkd3d_pipelin
 HRESULT vkd3d_pipeline_library_init_disk_cache(struct vkd3d_pipeline_library_disk_cache *cache,
         struct d3d12_device *device)
 {
+    const char *app_name_str = NULL;
     char path_buf[VKD3D_PATH_MAX];
+    char app_name[VKD3D_PATH_MAX];
     VKD3D_UNUSED size_t i, n;
     const char *separator;
     const char *path;
@@ -3168,6 +3170,11 @@ HRESULT vkd3d_pipeline_library_init_disk_cache(struct vkd3d_pipeline_library_dis
     {
         separator = &path[strlen(path) - 1];
         separator = (*separator == '/' || *separator == '\\') ? "" : "/";
+
+        /* If we're using explicit cache directory, multiple games are likely pointing to it,
+         * so split the caches up by name. */
+        if (vkd3d_get_program_name(app_name))
+            app_name_str = app_name;
     }
     else
         separator = "";
@@ -3180,21 +3187,31 @@ HRESULT vkd3d_pipeline_library_init_disk_cache(struct vkd3d_pipeline_library_dis
      * Normally Wine accepts Unix style paths, but not here for whatever reason. */
 
     if (path && path[0] == '/')
-        snprintf(cache->read_path, sizeof(cache->read_path), "Z:\\%s%svkd3d-proton.cache", path + 1, separator);
+        snprintf(cache->read_path, sizeof(cache->read_path), "Z:\\%s%svkd3d-proton", path + 1, separator);
     else if (path)
-        snprintf(cache->read_path, sizeof(cache->read_path), "%s%svkd3d-proton.cache", path, separator);
+        snprintf(cache->read_path, sizeof(cache->read_path), "%s%svkd3d-proton", path, separator);
     else
-        strcpy(cache->read_path, "vkd3d-proton.cache");
+        strcpy(cache->read_path, "vkd3d-proton");
 
     for (i = 0, n = strlen(cache->read_path); i < n; i++)
         if (cache->read_path[i] == '/')
             cache->read_path[i] = '\\';
-    INFO("Remapping VKD3D_SHADER_CACHE to: %s.\n", cache->read_path);
 #else
     if (path)
-        snprintf(cache->read_path, sizeof(cache->read_path), "%s%svkd3d-proton.cache", path, separator);
+        snprintf(cache->read_path, sizeof(cache->read_path), "%s%svkd3d-proton", path, separator);
     else
-        strcpy(cache->read_path, "vkd3d-proton.cache");
+        strcpy(cache->read_path, "vkd3d-proton");
+#endif
+
+    if (app_name_str)
+    {
+        vkd3d_strlcat(cache->read_path, sizeof(cache->read_path), ".");
+        vkd3d_strlcat(cache->read_path, sizeof(cache->read_path), app_name_str);
+    }
+    vkd3d_strlcat(cache->read_path, sizeof(cache->read_path), ".cache");
+
+#ifdef _WIN32
+    INFO("Remapping VKD3D_SHADER_CACHE to: %s.\n", cache->read_path);
 #endif
 
     INFO("Attempting to load disk cache from: %s.\n", cache->read_path);
