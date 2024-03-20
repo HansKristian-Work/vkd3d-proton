@@ -524,19 +524,50 @@ static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_SetLatencyMarker(d3d_l
     if (!device->vk_info.NV_low_latency2)
         return E_NOTIMPL;
 
-    /* Offset the frameID by one to ensure it will always
-     * be a valid presentID */
-    internal_frame_id = frameID + 1;
+    if (frameID == 0)
+    {
+        WARN("FrameID is 0. Not a valid present ID.\n");
+        return S_OK;
+    }
+    else if (frameID >= (UINT64_MAX >> 1) / VKD3D_LOW_LATENCY_FRAME_ID_STRIDE)
+    {
+        /* Don't allow the frame ID to be set to the upper half of present ID space.
+         * We risk that swapchain runs out of IDs to increment if we allow application to set a present ID
+         * that is close enough to UINT64_MAX. */
+        WARN("FrameID %"PRIu64" is unexpectedly large. Effective present ID risks overflow. Ignoring.\n", frameID);
+        return S_OK;
+    }
+
+    /* Skip ahead. If application does not set frame counter, we'll still internally increment over time to fill in the gap.
+     * If application starts to use the frame IDs appropriately again, we'll catch up almost instantly,
+     * where low_latency_frame_id should overtake internal present ID counter.
+     * Frame marker needs to be device level monotonic. */
+    internal_frame_id = frameID * VKD3D_LOW_LATENCY_FRAME_ID_STRIDE;
 
     switch (vk_marker)
     {
         case VK_LATENCY_MARKER_SIMULATION_START_NV:
+            if (internal_frame_id <= device->frame_markers.simulation)
+            {
+                WARN("SIMULATION_START_NV is non-monotonic %"PRIu64" <= %"PRIu64".\n",
+                        internal_frame_id, device->frame_markers.simulation);
+            }
             device->frame_markers.simulation = internal_frame_id;
             break;
         case VK_LATENCY_MARKER_RENDERSUBMIT_START_NV:
+            if (internal_frame_id <= device->frame_markers.render)
+            {
+                WARN("RENDERSUBMIT_START_NV is non-monotonic %"PRIu64" <= %"PRIu64".\n",
+                        internal_frame_id, device->frame_markers.render);
+            }
             device->frame_markers.render = internal_frame_id;
             break;
         case VK_LATENCY_MARKER_PRESENT_START_NV:
+            if (internal_frame_id <= device->frame_markers.present)
+            {
+                WARN("PRESENT_START_NV is non-monotonic %"PRIu64" <= %"PRIu64".\n",
+                        internal_frame_id, device->frame_markers.present);
+            }
             device->frame_markers.present = internal_frame_id;
             break;
         default:

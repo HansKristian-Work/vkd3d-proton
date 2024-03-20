@@ -17891,6 +17891,7 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     struct dxgi_vk_swap_chain *low_latency_swapchain;
     VkSemaphoreSubmitInfo signal_semaphore_info;
     VkSemaphoreSubmitInfo binary_semaphore_info;
+    uint64_t consumed_present_id;
     VkSubmitInfo2 submit_desc[4];
     uint32_t num_submits;
     VkQueue vk_queue;
@@ -17978,9 +17979,15 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         spinlock_acquire(&command_queue->device->low_latency_swapchain_spinlock);
         if ((low_latency_swapchain = command_queue->device->swapchain_info.low_latency_swapchain))
             dxgi_vk_swap_chain_incref(low_latency_swapchain);
+        consumed_present_id = command_queue->device->frame_markers.consumed_present_id;
         spinlock_release(&command_queue->device->low_latency_swapchain_spinlock);
 
-        if (low_latency_swapchain && dxgi_vk_swap_chain_low_latency_enabled(low_latency_swapchain))
+        /* If we have submitted a swapchain blit to Vulkan,
+         * it is not possible for a present ID to keep contributing to the frame's completion.
+         * The likely case here is that application just forgot to signal present ID.
+         * Don't bother trying to mark submission present ID if application isn't bothering to set markers properly. */
+        if (low_latency_swapchain && low_latency_frame_id > consumed_present_id &&
+                dxgi_vk_swap_chain_low_latency_enabled(low_latency_swapchain))
         {
             latency_submit_present_info.sType = VK_STRUCTURE_TYPE_LATENCY_SUBMISSION_PRESENT_ID_NV;
             latency_submit_present_info.pNext = NULL;
