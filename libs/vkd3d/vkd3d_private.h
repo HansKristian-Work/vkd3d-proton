@@ -2776,6 +2776,7 @@ struct d3d12_command_list_sequence
     unsigned int iteration_count;
     unsigned int active_non_inline_running_queries;
     bool uses_dgc_compute_in_async_compute;
+    bool force_post_render_pass_barrier;
 
     /* Emit normal commands here. */
     VkCommandBuffer vk_command_buffer;
