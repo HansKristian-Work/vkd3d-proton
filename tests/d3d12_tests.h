@@ -192,6 +192,7 @@ decl_test(test_combined_clip_and_cull_distances_dxbc);
 decl_test(test_combined_clip_and_cull_distances_dxil);
 decl_test(test_resource_allocation_info);
 decl_test(test_suballocate_small_textures);
+decl_test(test_suballocate_small_textures_size);
 decl_test(test_command_list_initial_pipeline_state);
 decl_test(test_blend_factor);
 decl_test(test_dual_source_blending_dxbc);
