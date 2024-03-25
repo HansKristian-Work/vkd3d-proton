@@ -68,28 +68,31 @@ typedef struct D3D12_UAV_INFO
     UINT64 gpuVASize;  
 } D3D12_UAV_INFO;
 
+typedef struct D3D12_FRAME_REPORT
+{
+    UINT64 frameID;
+    UINT64 inputSampleTime;
+    UINT64 simStartTime;
+    UINT64 simEndTime;
+    UINT64 renderSubmitStartTime;
+    UINT64 renderSubmitEndTime;
+    UINT64 presentStartTime;
+    UINT64 presentEndTime;
+    UINT64 driverStartTime;
+    UINT64 driverEndTime;
+    UINT64 osRenderQueueStartTime;
+    UINT64 osRenderQueueEndTime;
+    UINT64 gpuRenderStartTime;
+    UINT64 gpuRenderEndTime;
+    UINT32 gpuActiveRenderTimeUs;
+    UINT32 gpuFrameTimeUs;
+    UINT8 rsvd[120];
+} D3D12_FRAME_REPORT;
+
 typedef struct D3D12_LATENCY_RESULTS
 {
     UINT32 version;
-    struct D3D12_FRAME_REPORT {
-        UINT64 frameID;
-        UINT64 inputSampleTime;
-        UINT64 simStartTime;
-        UINT64 simEndTime;
-        UINT64 renderSubmitStartTime;
-        UINT64 renderSubmitEndTime;
-        UINT64 presentStartTime;
-        UINT64 presentEndTime;
-        UINT64 driverStartTime;
-        UINT64 driverEndTime;
-        UINT64 osRenderQueueStartTime;
-        UINT64 osRenderQueueEndTime;
-        UINT64 gpuRenderStartTime;
-        UINT64 gpuRenderEndTime;
-        UINT32 gpuActiveRenderTimeUs;
-        UINT32 gpuFrameTimeUs;
-        UINT8 rsvd[120];
-    } frame_reports[64];
+    D3D12_FRAME_REPORT frame_reports[64];
     UINT8 rsvd[32];
 } D3D12_LATENCY_RESULTS;
 

@@ -172,9 +172,6 @@ struct dxgi_vk_swap_chain
         VkSemaphore low_latency_sem;
         uint64_t low_latency_sem_value;
 
-        uint64_t previous_application_frame_id;
-        bool using_application_frame_id;
-
         struct low_latency_state low_latency_state;
     } present;
 
@@ -1603,12 +1600,6 @@ static bool dxgi_vk_swap_chain_find_compatible_unlocked_present_mode(
     return true;
 }
 
-static bool dxgi_vk_swap_chain_can_use_app_frame_id(struct dxgi_vk_swap_chain *chain)
-{
-    return chain->present.low_latency_state.mode &&
-        chain->request.low_latency_frame_id > chain->present.previous_application_frame_id;
-}
-
 static void dxgi_vk_swap_chain_set_low_latency_state(struct dxgi_vk_swap_chain *chain, struct low_latency_state *low_latency_state)
 {
     /* It is possible that the Vulkan swapchain does not exist when the application sets
@@ -1637,12 +1628,12 @@ static void dxgi_vk_swap_chain_low_latency_state_update(struct dxgi_vk_swap_chai
 {
     if (chain->request.low_latency_update_requested)
     {
-        /* If the application is changing the low latency mode reset the previously used app frame id. */
-        if (chain->present.low_latency_state.mode != chain->request.requested_low_latency_state.mode)
-            chain->present.previous_application_frame_id = 0;
-
-        if (memcmp(&chain->present.low_latency_state, &chain->request.requested_low_latency_state, sizeof(chain->present.low_latency_state)))
+        if (chain->present.low_latency_state.mode != chain->request.requested_low_latency_state.mode ||
+                chain->present.low_latency_state.boost != chain->request.requested_low_latency_state.boost ||
+                chain->present.low_latency_state.minimum_interval_us != chain->request.requested_low_latency_state.minimum_interval_us)
+        {
             dxgi_vk_swap_chain_set_low_latency_state(chain, &chain->request.requested_low_latency_state);
+        }
     }
 
     if (chain->debug_latency)
@@ -1652,23 +1643,6 @@ static void dxgi_vk_swap_chain_low_latency_state_update(struct dxgi_vk_swap_chai
                 chain->present.low_latency_state.mode ? "ON" : "OFF",
                 chain->present.low_latency_state.boost ? " (+ boost)" : "",
                 chain->present.low_latency_state.minimum_interval_us);
-    }
-
-    /* Transitioning from using the id maintained by the present task to the application frame id, and
-     * vice versa requires recreating the swapchain to ensure the present id is valid. It is also possible
-     * for an application to stop providing low latency frame ids. If that happens we are now responsible
-     * for ensuring the present id is always incrementing. */
-    if (chain->present.using_application_frame_id != dxgi_vk_swap_chain_can_use_app_frame_id(chain))
-    {
-        if (chain->debug_latency)
-        {
-            INFO("Last application ID was %"PRIu64", but new present request is ID %"PRIu64". Forcing recreation due to non-monotonicity.\n",
-                    chain->present.previous_application_frame_id,
-                    chain->request.low_latency_frame_id);
-        }
-
-        chain->present.using_application_frame_id = dxgi_vk_swap_chain_can_use_app_frame_id(chain);
-        chain->present.force_swapchain_recreation = true;
     }
 }
 
@@ -2269,6 +2243,7 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     VkSwapchainPresentModeInfoEXT present_mode_info;
     VkPresentModeKHR present_mode;
     VkPresentInfoKHR present_info;
+    uint64_t minimum_present_id;
     VkPresentIdKHR present_id;
     uint32_t swapchain_index;
     bool swapchain_is_fifo;
@@ -2332,21 +2307,30 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     if (chain->wait_thread.active && !chain->present.present_id_valid &&
         (swapchain_is_fifo || chain->present.low_latency_state.mode))
     {
-        if (chain->present.using_application_frame_id)
-        {
+        minimum_present_id = chain->present.present_id + 1;
+        if (chain->present.low_latency_state.mode)
             chain->present.present_id = chain->request.low_latency_frame_id;
-            chain->present.previous_application_frame_id = chain->request.low_latency_frame_id;
-            if (chain->debug_latency)
-                INFO("Presenting with app frame ID: %"PRIu64".\n", chain->present.present_id);
-        }
         else
-        {
-            /* If we recreate swapchain, we still want to maintain a monotonically increasing counter here for
-             * profiling purposes. */
             chain->present.present_id = chain->present.complete_count + 1;
-            if (chain->debug_latency)
-                INFO("Presenting with internal frame ID: %"PRIu64".\n", chain->present.present_id);
+
+        /* Ensure present ID is increasing monotonically.
+         * If application is exceptionally weird, i.e. does not set markers at all,
+         * low latency will not work as intended. */
+        chain->present.present_id = max(chain->present.present_id, minimum_present_id);
+
+        /* We've now reached the point where any further submissions to any queue cannot affect this frame.
+         * wait-before-signal is already resolved. Use a globally monotonic counter for low-latency swapchains. */
+        if (chain->present.low_latency_state.mode)
+        {
+            struct vkd3d_device_frame_markers *markers = &chain->queue->device->frame_markers;
+            spinlock_acquire(&chain->queue->device->low_latency_swapchain_spinlock);
+            chain->present.present_id = max(chain->present.present_id, markers->consumed_present_id + 1);
+            markers->consumed_present_id = chain->present.present_id;
+            spinlock_release(&chain->queue->device->low_latency_swapchain_spinlock);
         }
+
+        if (chain->debug_latency)
+            INFO("Presenting with frame ID: %"PRIu64".\n", chain->present.present_id);
 
         present_id.sType = VK_STRUCTURE_TYPE_PRESENT_ID_KHR;
         present_id.pNext = NULL;
@@ -2658,9 +2642,6 @@ static HRESULT dxgi_vk_swap_chain_init_low_latency(struct dxgi_vk_swap_chain *ch
     chain->present.low_latency_sem = VK_NULL_HANDLE;
     chain->present.low_latency_sem_value = 0;
 
-    chain->present.previous_application_frame_id = 0;
-    chain->present.using_application_frame_id = false;
-
     chain->present.low_latency_state.mode = false;
     chain->present.low_latency_state.boost = false;
     chain->present.low_latency_state.minimum_interval_us = 0;
@@ -2883,10 +2864,14 @@ void dxgi_vk_swap_chain_set_latency_marker(struct dxgi_vk_swap_chain *chain, uin
 
 void dxgi_vk_swap_chain_get_latency_info(struct dxgi_vk_swap_chain *chain, D3D12_LATENCY_RESULTS *latency_results)
 {
+    VkLatencyTimingsFrameReportNV frame_reports[ARRAY_SIZE(latency_results->frame_reports)];
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
-    VkLatencyTimingsFrameReportNV *frame_reports;
+    const VkLatencyTimingsFrameReportNV *last_effective_report = NULL;
     VkGetLatencyMarkerInfoNV marker_info;
     uint32_t i;
+
+    /* There is no natural count, return blank output for missing output. */
+    memset(latency_results->frame_reports, 0, sizeof(latency_results->frame_reports));
 
     pthread_mutex_lock(&chain->present.low_latency_swapchain_lock);
 
@@ -2897,54 +2882,60 @@ void dxgi_vk_swap_chain_get_latency_info(struct dxgi_vk_swap_chain *chain, D3D12
 
         VK_CALL(vkGetLatencyTimingsNV(chain->queue->device->vk_device, chain->present.vk_swapchain, &marker_info));
 
-        if (marker_info.timingCount >= 64)
+        /* Apparently we have to report all 64 entries, or nothing. */
+        if (marker_info.timingCount >= ARRAY_SIZE(frame_reports))
         {
-            marker_info.timingCount = 64;
-            frame_reports = vkd3d_calloc(marker_info.timingCount, sizeof(VkLatencyTimingsFrameReportNV));
+            memset(frame_reports, 0, sizeof(frame_reports));
+            marker_info.timingCount = min(marker_info.timingCount, ARRAY_SIZE(frame_reports));
             for (i = 0; i < marker_info.timingCount; i++)
                 frame_reports[i].sType = VK_STRUCTURE_TYPE_LATENCY_TIMINGS_FRAME_REPORT_NV;
-
             marker_info.pTimings = frame_reports;
 
             VK_CALL(vkGetLatencyTimingsNV(chain->queue->device->vk_device, chain->present.vk_swapchain, &marker_info));
 
             for (i = 0; i < marker_info.timingCount; i++)
             {
-                latency_results->frame_reports[i].frameID = frame_reports[i].presentID - 1;
-                latency_results->frame_reports[i].inputSampleTime = frame_reports[i].inputSampleTimeUs;
-                latency_results->frame_reports[i].simStartTime = frame_reports[i].simStartTimeUs;
-                latency_results->frame_reports[i].simEndTime = frame_reports[i].simEndTimeUs;
-                latency_results->frame_reports[i].renderSubmitStartTime = frame_reports[i].renderSubmitStartTimeUs;
-                latency_results->frame_reports[i].renderSubmitEndTime = frame_reports[i].renderSubmitEndTimeUs;
-                latency_results->frame_reports[i].presentStartTime = frame_reports[i].presentStartTimeUs;
-                latency_results->frame_reports[i].presentEndTime = frame_reports[i].presentEndTimeUs;
-                latency_results->frame_reports[i].driverStartTime = frame_reports[i].driverStartTimeUs;
-                latency_results->frame_reports[i].driverEndTime = frame_reports[i].driverEndTimeUs;
-                latency_results->frame_reports[i].osRenderQueueStartTime = frame_reports[i].osRenderQueueStartTimeUs;
-                latency_results->frame_reports[i].osRenderQueueEndTime = frame_reports[i].osRenderQueueEndTimeUs;
-                latency_results->frame_reports[i].gpuRenderStartTime = frame_reports[i].gpuRenderStartTimeUs;
-                latency_results->frame_reports[i].gpuRenderEndTime = frame_reports[i].gpuRenderEndTimeUs;
-                latency_results->frame_reports[i].gpuActiveRenderTimeUs =
-                    frame_reports[i].gpuRenderEndTimeUs - frame_reports[i].gpuRenderStartTimeUs;
-                latency_results->frame_reports[i].gpuFrameTimeUs = 0;
+                D3D12_FRAME_REPORT *report;
 
-                if (i)
+                /* If the frame ID isn't a natural aligned value,
+                 * we assume it's a fake frame that the application never submitted a marker for.
+                 * Ignore it. */
+                if (frame_reports[i].presentID % VKD3D_LOW_LATENCY_FRAME_ID_STRIDE != 0 || frame_reports[i].presentID == 0)
                 {
-                    latency_results->frame_reports[i].gpuFrameTimeUs =
-                        frame_reports[i].gpuRenderEndTimeUs - frame_reports[i - 1].gpuRenderEndTimeUs;
+                    /* We either have to report all frames, or nothing. */
+                    memset(latency_results->frame_reports, 0, sizeof(latency_results->frame_reports));
+                    goto unlock_out;
                 }
-            }
 
-            vkd3d_free(frame_reports);
-        }
-        else
-        {
-            /* If there are less than 64 frame reports, zero out the frame report
-             * buffer returned to the app. */
-            memset(latency_results->frame_reports, 0, sizeof(latency_results->frame_reports));
+                report = &latency_results->frame_reports[i];
+
+                report->frameID = frame_reports[i].presentID / VKD3D_LOW_LATENCY_FRAME_ID_STRIDE;
+                report->inputSampleTime = frame_reports[i].inputSampleTimeUs;
+                report->simStartTime = frame_reports[i].simStartTimeUs;
+                report->simEndTime = frame_reports[i].simEndTimeUs;
+                report->renderSubmitStartTime = frame_reports[i].renderSubmitStartTimeUs;
+                report->renderSubmitEndTime = frame_reports[i].renderSubmitEndTimeUs;
+                report->presentStartTime = frame_reports[i].presentStartTimeUs;
+                report->presentEndTime = frame_reports[i].presentEndTimeUs;
+                report->driverStartTime = frame_reports[i].driverStartTimeUs;
+                report->driverEndTime = frame_reports[i].driverEndTimeUs;
+                report->osRenderQueueStartTime = frame_reports[i].osRenderQueueStartTimeUs;
+                report->osRenderQueueEndTime = frame_reports[i].osRenderQueueEndTimeUs;
+                report->gpuRenderStartTime = frame_reports[i].gpuRenderStartTimeUs;
+                report->gpuRenderEndTime = frame_reports[i].gpuRenderEndTimeUs;
+                report->gpuActiveRenderTimeUs = frame_reports[i].gpuRenderEndTimeUs - frame_reports[i].gpuRenderStartTimeUs;
+
+                if (last_effective_report)
+                    report->gpuFrameTimeUs = frame_reports[i].gpuRenderEndTimeUs - last_effective_report->gpuRenderEndTimeUs;
+                else
+                    report->gpuFrameTimeUs = 0;
+
+                last_effective_report = &frame_reports[i];
+            }
         }
     }
 
+unlock_out:
     pthread_mutex_unlock(&chain->present.low_latency_swapchain_lock);
 }
 
