@@ -839,9 +839,11 @@ void vkd3d_breadcrumb_tracer_end_command_list(struct d3d12_command_list *list)
 void vkd3d_breadcrumb_tracer_update_barrier_hashes(struct vkd3d_breadcrumb_tracer *tracer)
 {
     char env[VKD3D_PATH_MAX];
-    vkd3d_shader_hash_t hash;
+    vkd3d_shader_hash_t lo;
+    vkd3d_shader_hash_t hi;
     uint32_t new_count;
-    char line[17];
+    char line[64];
+    char *endptr;
     FILE *file;
 
     if (vkd3d_get_env_var("VKD3D_BARRIER_HASHES", env, sizeof(env)))
@@ -853,10 +855,21 @@ void vkd3d_breadcrumb_tracer_update_barrier_hashes(struct vkd3d_breadcrumb_trace
             new_count = 0;
             while (fgets(line, sizeof(line), file))
             {
-                hash = strtoull(line, NULL, 16);
-                vkd3d_array_reserve((void **)&tracer->barrier_hashes, &tracer->barrier_hashes_size,
-                        new_count + 1, sizeof(*tracer->barrier_hashes));
-                tracer->barrier_hashes[new_count++] = hash;
+                /* Super basic format. If a line contains just a hash, exact match,
+                 * otherwise it's an inclusive range. */
+                lo = strtoull(line, &endptr, 16);
+                hi = strtoull(endptr, NULL, 16);
+                if (hi == 0)
+                    hi = lo;
+
+                if (lo || hi)
+                {
+                    vkd3d_array_reserve((void **) &tracer->barrier_hashes, &tracer->barrier_hashes_size,
+                            new_count + 1, sizeof(*tracer->barrier_hashes));
+                    tracer->barrier_hashes[new_count].lo = lo;
+                    tracer->barrier_hashes[new_count].hi = hi;
+                    new_count++;
+                }
             }
             vkd3d_atomic_uint32_store_explicit(&tracer->barrier_hashes_count, new_count, vkd3d_memory_order_relaxed);
             pthread_mutex_unlock(&tracer->barrier_hash_lock);
@@ -878,7 +891,7 @@ bool vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(struct vkd3d_breadcrumb_
     {
         pthread_mutex_lock(&tracer->barrier_hash_lock);
         for (i = 0; i < tracer->barrier_hashes_count && !ret; i++)
-            ret = tracer->barrier_hashes[i] == hash;
+            ret = hash >= tracer->barrier_hashes[i].lo && hash <= tracer->barrier_hashes[i].hi;
         pthread_mutex_unlock(&tracer->barrier_hash_lock);
     }
     return ret;

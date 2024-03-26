@@ -4680,6 +4680,29 @@ void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list,
     {
         VK_CALL(vkCmdEndRendering(list->cmd.vk_command_buffer));
         d3d12_command_list_debug_mark_end_region(list);
+
+        if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_RENDER_PASS_BARRIER) ||
+                list->cmd.force_post_render_pass_barrier)
+        {
+            memset(&vk_barrier, 0, sizeof(vk_barrier));
+            memset(&dep_info, 0, sizeof(dep_info));
+            vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+            vk_barrier.srcStageMask =
+                    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT |
+                    VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+            vk_barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+            vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+
+            dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep_info.memoryBarrierCount = 1;
+            dep_info.pMemoryBarriers = &vk_barrier;
+
+            VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+            VKD3D_BREADCRUMB_TAG("ForceBarrier");
+
+            list->cmd.force_post_render_pass_barrier = false;
+        }
     }
 
     /* Don't emit barriers for temporary suspension of the render pass */
@@ -5894,6 +5917,25 @@ static void d3d12_command_list_check_vbo_alignment(struct d3d12_command_list *li
     }
 }
 
+static void d3d12_command_list_check_forced_graphics_barrier(struct d3d12_command_list *list)
+{
+#ifdef VKD3D_ENABLE_BREADCRUMBS
+    bool force_barrier = false;
+    unsigned int i;
+    for (i = 0; i < list->state->graphics.stage_count && !force_barrier; i++)
+    {
+        force_barrier = vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(
+                &list->device->breadcrumb_tracer,
+                list->state->graphics.code[i].meta.hash);
+    }
+
+    if (force_barrier)
+        list->cmd.force_post_render_pass_barrier = true;
+#else
+    (void)list;
+#endif
+}
+
 static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_list *list,
         enum vkd3d_pipeline_type pipeline_type)
 {
@@ -5977,6 +6019,8 @@ static bool d3d12_command_list_update_graphics_pipeline(struct d3d12_command_lis
             list->dynamic_state.dirty_vbos = ~0u;
         list->dynamic_state.dirty_flags |= new_active_flags & ~list->dynamic_state.active_flags;
         list->command_buffer_pipeline = vk_pipeline;
+
+        d3d12_command_list_check_forced_graphics_barrier(list);
     }
 
     /* If no render targets are bound, we use PSO state to determine the sample count, but we do
