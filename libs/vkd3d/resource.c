@@ -794,10 +794,14 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
     if (vkd3d_resource_can_be_vrs(device, heap_properties, desc))
         image_info->usage |= VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
 
-    /* Additional image flags as necessary */
+    /* Additional image flags as necessary. Do not add 2D_ARRAY_COMPATIBLE for sparse due
+     * to VUID 09403. */
     if (image_info->imageType == VK_IMAGE_TYPE_3D &&
-            (image_info->usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT))
+            (image_info->usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) &&
+            !(image_info->flags & VK_IMAGE_CREATE_SPARSE_BINDING_BIT))
+    {
         image_info->flags |= VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT;
+    }
 
     use_concurrent = !!(device->unique_queue_mask & (device->unique_queue_mask - 1)) ||
             (heap_properties && is_cpu_accessible_heap(heap_properties));
