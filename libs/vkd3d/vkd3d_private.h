@@ -3830,9 +3830,13 @@ struct vkd3d_memory_info
     VkMemoryPropertyFlags upload_heap_memory_properties;
     VkMemoryPropertyFlags descriptor_heap_memory_properties;
 
-    uint32_t budget_sensitive_mask;
-    VkDeviceSize type_budget[VK_MAX_MEMORY_TYPES];
+    uint32_t rebar_budget_mask;
+    VkDeviceSize rebar_budget;
+    VkDeviceSize rebar_current;
+
+    /* Only used for debug logging. */
     VkDeviceSize type_current[VK_MAX_MEMORY_TYPES];
+
     pthread_mutex_t budget_lock;
 };
 

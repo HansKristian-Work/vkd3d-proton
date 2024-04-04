@@ -729,7 +729,7 @@ void vkd3d_free_device_memory(struct d3d12_device *device, const struct vkd3d_de
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkDeviceSize *type_current;
-    bool budget_sensitive;
+    bool rebar_budget;
 
     if (allocation->vk_memory == VK_NULL_HANDLE)
     {
@@ -738,18 +738,33 @@ void vkd3d_free_device_memory(struct d3d12_device *device, const struct vkd3d_de
     }
 
     VK_CALL(vkFreeMemory(device->vk_device, allocation->vk_memory, NULL));
-    budget_sensitive = !!(device->memory_info.budget_sensitive_mask & (1u << allocation->vk_memory_type));
-    if (budget_sensitive)
+    rebar_budget = !!(device->memory_info.rebar_budget_mask & (1u << allocation->vk_memory_type));
+
+    if (rebar_budget || (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET))
     {
         type_current = &device->memory_info.type_current[allocation->vk_memory_type];
         pthread_mutex_lock(&device->memory_info.budget_lock);
         assert(*type_current >= allocation->size);
         *type_current -= allocation->size;
+
+        if (rebar_budget)
+        {
+            assert(device->memory_info.rebar_current >= allocation->size);
+            device->memory_info.rebar_current -= allocation->size;
+        }
+
         if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
         {
             INFO("Freeing memory of type %u, new total allocated size %"PRIu64" MiB.\n",
                     allocation->vk_memory_type, *type_current / (1024 * 1024));
+
+            if (rebar_budget)
+            {
+                INFO("Freeing ReBAR memory, new total allocated size %"PRIu64" MiB.\n",
+                        device->memory_info.rebar_current / (1024 * 1024));
+            }
         }
+
         pthread_mutex_unlock(&device->memory_info.budget_lock);
     }
 
@@ -766,9 +781,8 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
     struct vkd3d_memory_info *memory_info = &device->memory_info;
     VkMemoryAllocateInfo allocate_info;
     VkDeviceSize *type_current;
-    VkDeviceSize *type_budget;
-    bool budget_sensitive;
     uint32_t type_mask;
+    bool rebar_budget;
     VkResult vr;
 
     type_mask = base_type_mask;
@@ -827,22 +841,19 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
      *   but there we don't have anything to worry about w.r.t. PCI-e BAR.
      */
 
-    /* Budgets only really apply to PCI-e BAR or other "special" types which always have a fallback. */
-    budget_sensitive = !!(device->memory_info.budget_sensitive_mask & (1u << allocate_info.memoryTypeIndex));
-    if (budget_sensitive)
+    /* Budgets only apply to PCI-e BAR */
+    rebar_budget = !!(device->memory_info.rebar_budget_mask & (1u << allocate_info.memoryTypeIndex));
+    if (rebar_budget)
     {
-        type_budget = &memory_info->type_budget[allocate_info.memoryTypeIndex];
-        type_current = &memory_info->type_current[allocate_info.memoryTypeIndex];
-
         if (respect_budget)
         {
             pthread_mutex_lock(&memory_info->budget_lock);
-            if (*type_current + size > *type_budget)
+            if (memory_info->rebar_current + size > memory_info->rebar_budget)
             {
                 if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
                 {
-                    INFO("Attempting to allocate from memory type %u, but exceeding fixed budget: %"PRIu64" + %"PRIu64" > %"PRIu64".\n",
-                            allocate_info.memoryTypeIndex, *type_current, size, *type_budget);
+                    INFO("Attempting to allocate from memory type %u, but exceeding fixed ReBAR budget: %"PRIu64" + %"PRIu64" > %"PRIu64".\n",
+                            allocate_info.memoryTypeIndex, memory_info->rebar_current, size, memory_info->rebar_budget);
                 }
                 pthread_mutex_unlock(&memory_info->budget_lock);
                 return E_OUTOFMEMORY;
@@ -852,20 +863,28 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
 
     vr = VK_CALL(vkAllocateMemory(device->vk_device, &allocate_info, NULL, &allocation->vk_memory));
 
-    if (budget_sensitive)
+    if (rebar_budget || (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET))
     {
-        if (!respect_budget)
+        type_current = &memory_info->type_current[allocate_info.memoryTypeIndex];
+
+        if (!rebar_budget || !respect_budget)
             pthread_mutex_lock(&memory_info->budget_lock);
 
         if (vr == VK_SUCCESS)
         {
             *type_current += size;
+            if (rebar_budget)
+                memory_info->rebar_current += size;
+
             if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
             {
                 INFO("Allocated %"PRIu64" KiB of %s memory of type %u, new total allocated size %"PRIu64" MiB.\n",
                         allocate_info.allocationSize / 1024,
                         respect_budget ? "budgeted" : "internal non-budgeted",
                         allocate_info.memoryTypeIndex, *type_current / (1024 * 1024));
+
+                if (rebar_budget)
+                    INFO("Current ReBAR usage: %"PRIu64" MiB.\n", memory_info->rebar_current / (1024 * 1024));
             }
         }
         else if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
