@@ -8532,32 +8532,15 @@ static VkMemoryPropertyFlags vkd3d_memory_info_upload_hvv_memory_properties(
     }
 }
 
-static void vkd3d_memory_info_init_full_budget_logging(struct vkd3d_memory_info *info)
-{
-    uint32_t i;
-
-    info->budget_sensitive_mask = UINT32_MAX;
-    for (i = 0; i < VK_MAX_MEMORY_TYPES; i++)
-    {
-        info->type_current[i] = 0;
-        info->type_budget[i] = UINT64_MAX;
-    }
-}
-
 static void vkd3d_memory_info_init_budgets(struct vkd3d_memory_info *info,
         const struct vkd3d_memory_topology *topology,
         struct d3d12_device *device)
 {
-    bool heap_index_needs_budget;
     VkMemoryPropertyFlags flags;
     uint32_t heap_index;
     uint32_t i;
 
-    info->budget_sensitive_mask = 0;
-
-    /* Force fake budgets so we get the slow-path logging for every allocation. */
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
-        vkd3d_memory_info_init_full_budget_logging(info);
+    info->rebar_budget_mask = 0;
 
     /* If we don't attempt to use DEVICE_LOCAL in a ReBAR style, don't even bother. */
     if (!(info->upload_heap_memory_properties & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
@@ -8575,33 +8558,20 @@ static void vkd3d_memory_info_init_budgets(struct vkd3d_memory_info *info,
         flags = device->memory_properties.memoryTypes[i].propertyFlags;
         heap_index = device->memory_properties.memoryTypes[i].heapIndex;
 
-        /* Work around a driver workaround on NV drivers which targets certain
-         * older DXVK versions (use of DXVK DXGI is likely what impacts us here),
-         * since we don't see this behavior in native builds.
-         * Even with resizable BAR, we might observe two different heaps,
-         * with very slightly different heap sizes.
-         * It's straight forward to be universally robust against these kinds of scenarios,
-         * so just go for that.
-         * If we're within 75% of the actual VRAM size, assume we've hit this scenario.
-         * This should exclude small BAR from explicit budget, since that's just 256 MB. */
-        heap_index_needs_budget =
-                (device->memory_properties.memoryHeaps[heap_index].size >
-                    3 * device->memory_properties.memoryHeaps[topology->largest_device_local_heap_index].size / 4) &&
-                (device->memory_properties.memoryHeaps[heap_index].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT);
-
-        if ((flags & pinned_mask) == pinned_mask && heap_index_needs_budget)
+        if ((flags & pinned_mask) == pinned_mask && heap_index == topology->largest_device_local_heap_index)
         {
-            /* Limit this type. This limit is a pure heuristic and we might need further tuning here.
+            /* Limit this type. This limit is a pure heuristic, and we might need further tuning here.
              * If there's a separate heap type for PCI-e BAR,
              * don't bother limiting it since the size is already going to be tiny.
-             * The driver will limit us naturally. */
-            info->budget_sensitive_mask |= 1u << i;
-            info->type_budget[i] = device->memory_properties.memoryHeaps[heap_index].size / 16;
-            info->type_current[i] = 0;
+             * The driver will limit us naturally.
+             * All ReBAR enabled memory types share the same budget. */
+            info->rebar_budget_mask |= 1u << i;
+            info->rebar_budget = device->memory_properties.memoryHeaps[heap_index].size / 16;
+            info->rebar_current = 0;
         }
     }
 
-    INFO("Applying resizable BAR budget to memory types: 0x%x.\n", info->budget_sensitive_mask);
+    INFO("Applying resizable BAR budget to memory types: 0x%x.\n", info->rebar_budget_mask);
 }
 
 void vkd3d_memory_info_cleanup(struct vkd3d_memory_info *info,
