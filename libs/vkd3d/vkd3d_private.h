@@ -158,6 +158,7 @@ struct vkd3d_vulkan_info
     bool EXT_line_rasterization;
     bool EXT_image_compression_control;
     bool EXT_device_fault;
+    bool EXT_memory_budget;
     /* AMD device extensions */
     bool AMD_buffer_marker;
     bool AMD_device_coherent_memory;

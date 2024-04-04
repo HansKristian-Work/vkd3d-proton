@@ -696,6 +696,35 @@ static HRESULT vkd3d_create_global_buffer(struct d3d12_device *device, VkDeviceS
     return vkd3d_create_buffer(device, heap_properties, heap_flags, &resource_desc, vk_buffer);
 }
 
+static void vkd3d_report_memory_budget(struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    uint32_t i;
+
+    if (device->vk_info.EXT_memory_budget)
+    {
+        VkPhysicalDeviceMemoryBudgetPropertiesEXT budget_info;
+        VkPhysicalDeviceMemoryProperties2 props2;
+
+        props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2;
+        props2.pNext = &budget_info;
+        budget_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT;
+        budget_info.pNext = NULL;
+
+        VK_CALL(vkGetPhysicalDeviceMemoryProperties2(device->vk_physical_device, &props2));
+
+        for (i = 0; i < props2.memoryProperties.memoryHeapCount; i++)
+        {
+            INFO("Memory heap #%u%s, size %"PRIu64" MiB, budget: %"PRIu64" MiB, usage: %"PRIu64" MiB.\n",
+                    i, (props2.memoryProperties.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) ?
+                    " [DEVICE_LOCAL]" : "",
+                    props2.memoryProperties.memoryHeaps[i].size / (1024 * 1024),
+                    budget_info.heapBudget[i] / (1024 * 1024),
+                    budget_info.heapUsage[i] / (1024 * 1024));
+        }
+    }
+}
+
 void vkd3d_free_device_memory(struct d3d12_device *device, const struct vkd3d_device_memory_allocation *allocation)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
@@ -723,6 +752,9 @@ void vkd3d_free_device_memory(struct d3d12_device *device, const struct vkd3d_de
         }
         pthread_mutex_unlock(&device->memory_info.budget_lock);
     }
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
+        vkd3d_report_memory_budget(device);
 }
 
 static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
@@ -845,6 +877,9 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
 
         pthread_mutex_unlock(&memory_info->budget_lock);
     }
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
+        vkd3d_report_memory_budget(device);
 
     if (vr != VK_SUCCESS)
         return E_OUTOFMEMORY;
