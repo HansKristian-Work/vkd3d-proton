@@ -8507,7 +8507,7 @@ static VkMemoryPropertyFlags vkd3d_memory_info_upload_hvv_memory_properties(
     else if (topology->device_local_heap_count <= 1)
     {
         VkDeviceSize largest_size = device->memory_properties.memoryHeaps[topology->largest_device_local_heap_index].size;
-        const VkDeviceSize minimum_rebar_size = 5ull * 1000ull * 1000ull * 1000ull;
+        const VkDeviceSize minimum_rebar_size = 9ull * 1000ull * 1000ull * 1000ull;
 
         if (largest_size < minimum_rebar_size)
         {
