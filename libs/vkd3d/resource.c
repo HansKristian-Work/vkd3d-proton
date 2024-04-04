@@ -8532,6 +8532,18 @@ static VkMemoryPropertyFlags vkd3d_memory_info_upload_hvv_memory_properties(
     }
 }
 
+static void vkd3d_memory_info_init_full_budget_logging(struct vkd3d_memory_info *info)
+{
+    uint32_t i;
+
+    info->budget_sensitive_mask = UINT32_MAX;
+    for (i = 0; i < VK_MAX_MEMORY_TYPES; i++)
+    {
+        info->type_current[i] = 0;
+        info->type_budget[i] = UINT64_MAX;
+    }
+}
+
 static void vkd3d_memory_info_init_budgets(struct vkd3d_memory_info *info,
         const struct vkd3d_memory_topology *topology,
         struct d3d12_device *device)
@@ -8542,6 +8554,10 @@ static void vkd3d_memory_info_init_budgets(struct vkd3d_memory_info *info,
     uint32_t i;
 
     info->budget_sensitive_mask = 0;
+
+    /* Force fake budgets so we get the slow-path logging for every allocation. */
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
+        vkd3d_memory_info_init_full_budget_logging(info);
 
     /* If we don't attempt to use DEVICE_LOCAL in a ReBAR style, don't even bother. */
     if (!(info->upload_heap_memory_properties & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
@@ -8586,18 +8602,6 @@ static void vkd3d_memory_info_init_budgets(struct vkd3d_memory_info *info,
     }
 
     INFO("Applying resizable BAR budget to memory types: 0x%x.\n", info->budget_sensitive_mask);
-
-    /* Force fake budgets so we get the slow-path logging for every allocation. */
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET)
-    {
-        info->budget_sensitive_mask = UINT32_MAX;
-        for (i = 0; i < VK_MAX_MEMORY_TYPES; i++)
-        {
-            info->type_current[i] = 0;
-            if (!info->type_budget[i])
-                info->type_budget[i] = UINT64_MAX;
-        }
-    }
 }
 
 void vkd3d_memory_info_cleanup(struct vkd3d_memory_info *info,
