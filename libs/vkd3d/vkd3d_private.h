@@ -182,6 +182,8 @@ struct vkd3d_vulkan_info
     /* VALVE extensions */
     bool VALVE_mutable_descriptor_type;
     bool VALVE_descriptor_set_host_mapping;
+    /* MESA extensions */
+    bool MESA_image_alignment_control;
 
     /* Optional extensions which are enabled externally as optional extensions
      * if swapchain/surface extensions are enabled. */
@@ -4434,6 +4436,8 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceShaderQuadControlFeaturesKHR shader_quad_control_features;
     VkPhysicalDeviceRawAccessChainsFeaturesNV raw_access_chains_nv;
     VkPhysicalDeviceAddressBindingReportFeaturesEXT address_binding_report_features;
+    VkPhysicalDeviceImageAlignmentControlFeaturesMESA image_alignment_control_features;
+    VkPhysicalDeviceImageAlignmentControlPropertiesMESA image_alignment_control_properties;
 
     VkPhysicalDeviceFeatures2 features2;
 

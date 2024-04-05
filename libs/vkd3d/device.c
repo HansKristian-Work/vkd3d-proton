@@ -136,6 +136,8 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     /* VALVE extensions */
     VK_EXTENSION(VALVE_MUTABLE_DESCRIPTOR_TYPE, VALVE_mutable_descriptor_type),
     VK_EXTENSION(VALVE_DESCRIPTOR_SET_HOST_MAPPING, VALVE_descriptor_set_host_mapping),
+    /* MESA extensions */
+    VK_EXTENSION(MESA_IMAGE_ALIGNMENT_CONTROL, MESA_image_alignment_control),
 };
 
 static const struct vkd3d_optional_extension_info optional_extensions_user[] =
@@ -1907,6 +1909,14 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->address_binding_report_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ADDRESS_BINDING_REPORT_FEATURES_EXT;
         vk_prepend_struct(&info->features2, &info->address_binding_report_features);
+    }
+
+    if (vulkan_info->MESA_image_alignment_control)
+    {
+        info->image_alignment_control_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_ALIGNMENT_CONTROL_FEATURES_MESA;
+        info->image_alignment_control_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_ALIGNMENT_CONTROL_PROPERTIES_MESA;
+        vk_prepend_struct(&info->features2, &info->image_alignment_control_features);
+        vk_prepend_struct(&info->properties2, &info->image_alignment_control_properties);
     }
 
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
