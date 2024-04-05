@@ -568,6 +568,7 @@ struct vkd3d_image_create_info
     VkImageCompressionControlEXT image_compression_control;
     VkExternalMemoryImageCreateInfo external_info;
     VkImageFormatListCreateInfo format_list;
+    VkImageAlignmentControlCreateInfoMESA image_alignment_control;
     VkImageCreateInfo image_info;
 };
 
@@ -587,6 +588,7 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         struct vkd3d_image_create_info *create_info)
 {
     VkImageCompressionControlEXT *image_compression_control = &create_info->image_compression_control;
+    VkImageAlignmentControlCreateInfoMESA *alignment_control = &create_info->image_alignment_control;
     struct vkd3d_format_compatibility_list *compat_list = &create_info->format_compat_list;
     VkExternalMemoryImageCreateInfo *external_info = &create_info->external_info;
     VkImageFormatListCreateInfo *format_list = &create_info->format_list;
@@ -908,6 +910,25 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
         {
             resource->common_layout = vk_common_image_layout_from_d3d12_desc(device, desc);
         }
+    }
+
+    if (device->device_info.image_alignment_control_features.imageAlignmentControl &&
+            !sparse_resource && (!resource || (resource->flags & VKD3D_RESOURCE_PLACED)))
+    {
+        const uint32_t supported_alignment =
+                device->device_info.image_alignment_control_properties.supportedImageAlignmentMask;
+        uint32_t candidate_alignment = desc->Alignment ?
+                desc->Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+
+        /* Only consider alignments that are <= to the requested alignment. */
+        while (candidate_alignment && !(candidate_alignment & supported_alignment))
+            candidate_alignment >>= 1;
+
+        alignment_control->sType = VK_STRUCTURE_TYPE_IMAGE_ALIGNMENT_CONTROL_CREATE_INFO_MESA;
+        alignment_control->pNext = NULL;
+        /* 0 is fine, it's basically same as ignored. */
+        alignment_control->maximumRequestedAlignment = candidate_alignment;
+        vk_prepend_struct(image_info, alignment_control);
     }
 
     return S_OK;
