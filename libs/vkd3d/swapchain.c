@@ -75,6 +75,8 @@ struct present_wait_entry
 {
     uint64_t id;
     uint64_t begin_frame_time_ns;
+    uint64_t complete_timeline;
+    bool queue_has_been_idle;
 };
 
 struct dxgi_vk_swap_chain
@@ -212,6 +214,15 @@ struct dxgi_vk_swap_chain
         pthread_mutex_t lock;
         bool active;
         bool skip_waits;
+        bool queue_has_been_idle;
+
+        struct
+        {
+            uint64_t last_complete_ns;
+            uint64_t estimated_frame_time_ns;
+        } gpu, present;
+
+        uint32_t present_wait_fifo_bound_estimate;
     } wait_thread;
 };
 
@@ -384,7 +395,10 @@ static void dxgi_vk_swap_chain_drain_user_images(struct dxgi_vk_swap_chain *chai
     dxgi_vk_swap_chain_drain_complete_semaphore(chain, chain->user.blit_count);
 }
 
-static void dxgi_vk_swap_chain_push_present_id(struct dxgi_vk_swap_chain *chain, uint64_t present_id, uint64_t begin_frame_time_ns)
+static void dxgi_vk_swap_chain_push_present_id(struct dxgi_vk_swap_chain *chain,
+        uint64_t present_id, uint64_t begin_frame_time_ns,
+        uint64_t complete_timeline,
+        bool queue_has_been_idle)
 {
     struct present_wait_entry *entry;
     pthread_mutex_lock(&chain->wait_thread.lock);
@@ -393,6 +407,8 @@ static void dxgi_vk_swap_chain_push_present_id(struct dxgi_vk_swap_chain *chain,
     entry = &chain->wait_thread.wait_queue[chain->wait_thread.wait_queue_count++];
     entry->id = present_id;
     entry->begin_frame_time_ns = begin_frame_time_ns;
+    entry->complete_timeline = complete_timeline;
+    entry->queue_has_been_idle = queue_has_been_idle;
     pthread_cond_signal(&chain->wait_thread.cond);
     pthread_mutex_unlock(&chain->wait_thread.lock);
 }
@@ -404,7 +420,7 @@ static void dxgi_vk_swap_chain_cleanup(struct dxgi_vk_swap_chain *chain)
 
     if (chain->wait_thread.active)
     {
-        dxgi_vk_swap_chain_push_present_id(chain, 0, 0);
+        dxgi_vk_swap_chain_push_present_id(chain, 0, 0, 0, false);
         pthread_join(chain->wait_thread.thread, NULL);
         pthread_mutex_destroy(&chain->wait_thread.lock);
         pthread_cond_destroy(&chain->wait_thread.cond);
@@ -2393,6 +2409,14 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     vk_queue = vkd3d_queue_acquire(chain->queue->vkd3d_queue);
     VKD3D_REGION_BEGIN(queue_present);
     vr = VK_CALL(vkQueuePresentKHR(vk_queue, &present_info));
+
+    /* Consume idling state now. */
+    if (chain->queue->vkd3d_queue->queue_has_been_idle)
+    {
+        chain->wait_thread.queue_has_been_idle = true;
+        chain->queue->vkd3d_queue->queue_has_been_idle = false;
+    }
+
     VKD3D_REGION_END(queue_present);
     vkd3d_queue_release(chain->queue->vkd3d_queue);
     VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
@@ -2434,7 +2458,10 @@ static void dxgi_vk_swap_chain_signal_waitable_handle(struct dxgi_vk_swap_chain 
 
     if (chain->present.present_id_valid)
     {
-        dxgi_vk_swap_chain_push_present_id(chain, chain->present.present_id, chain->request.begin_frame_time_ns);
+        dxgi_vk_swap_chain_push_present_id(chain, chain->present.present_id,
+                chain->request.begin_frame_time_ns,
+                chain->present.complete_count,
+                chain->wait_thread.queue_has_been_idle);
     }
     else
     {
@@ -2463,6 +2490,8 @@ static void dxgi_vk_swap_chain_signal_waitable_handle(struct dxgi_vk_swap_chain 
             }
         }
     }
+
+    chain->wait_thread.queue_has_been_idle = false;
 }
 
 static void dxgi_vk_swap_chain_present_callback(void *chain_)
@@ -2543,6 +2572,138 @@ static void dxgi_vk_swap_chain_present_callback(void *chain_)
 #endif
 }
 
+#define PRESENT_WAIT_FRAME_TIME_ESTIMATE_SHIFT 5
+#define PRESENT_WAIT_FIFO_BOUND_ESTIMATE_SHIFT 5
+#define PRESENT_WAIT_FIFO_BOUND_FIFO_BOUND_INCREMENT 1024
+
+static void update_exponential_average_u32(uint32_t *counter, uint32_t increment, unsigned int avg_shift_sub)
+{
+    *counter -= *counter >> avg_shift_sub;
+    *counter += increment >> avg_shift_sub;
+}
+
+static void update_exponential_average_u64(uint64_t *counter, uint64_t increment, unsigned int avg_shift_sub)
+{
+    *counter -= *counter >> avg_shift_sub;
+    *counter += increment >> avg_shift_sub;
+}
+
+static void dxgi_vk_swap_chain_wait_internal_latency(struct dxgi_vk_swap_chain *chain,
+        uint64_t present_id, uint64_t complete_timeline,
+        bool queue_has_been_idle,
+        uint64_t *gpu_complete_ns)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
+    uint64_t present_wait_timeout;
+    uint64_t target_time_present;
+    uint64_t target_time_gpu;
+    uint64_t target_time;
+    bool is_fifo_bound;
+
+    if (!chain->wait_thread.skip_waits)
+    {
+        /* If GPU is already done rendering as soon as we're done waiting for previous frame,
+         * it means we're spending at least a full refresh cycle
+         * just waiting for FIFO queue to catch up. At this point, we have a strong signal
+         * that we're not GPU bound, but rather FIFO bound.
+         * If we observe this signal often enough, we'll just wait for the actual present wait to complete.
+         * That should be smoothly paced. */
+
+        /* If queue went idle, we can assume one of two things:
+         * - We're CPU bound (likely, but not guaranteed)
+         * - We're FIFO bound
+         */
+        is_fifo_bound = dxgi_vk_swap_chain_query_complete_semaphore(chain) >= complete_timeline || queue_has_been_idle;
+
+        dxgi_vk_swap_chain_drain_complete_semaphore(chain, complete_timeline);
+
+        /* If GPU was already done rendering by the time we got here, this won't be an accurate estimate
+         * unless we add yet another thread that waits on GPU completion events.
+         * However, if we hit this condition often enough, we'll hit the FIFO-bound path anyway, so
+         * this is fine. */
+        *gpu_complete_ns = vkd3d_get_current_time_ns();
+
+        /* Basic exponential average. The filter will cap out at 1024. */
+        update_exponential_average_u32(&chain->wait_thread.present_wait_fifo_bound_estimate,
+                is_fifo_bound ? PRESENT_WAIT_FIFO_BOUND_FIFO_BOUND_INCREMENT : 0,
+                PRESENT_WAIT_FIFO_BOUND_ESTIMATE_SHIFT);
+
+        chain->wait_thread.present_wait_fifo_bound_estimate = min(
+                chain->wait_thread.present_wait_fifo_bound_estimate,
+                PRESENT_WAIT_FIFO_BOUND_FIFO_BOUND_INCREMENT);
+
+        if (chain->debug_latency)
+        {
+            INFO("PresentID: %"PRIu64", FIFO bound: %s, updating FIFO bound estimate to %u.\n",
+                    present_id, is_fifo_bound ? "yes" : "no",
+                    chain->wait_thread.present_wait_fifo_bound_estimate);
+        }
+
+        if (chain->wait_thread.present_wait_fifo_bound_estimate < PRESENT_WAIT_FIFO_BOUND_FIFO_BOUND_INCREMENT &&
+                chain->wait_thread.gpu.last_complete_ns && chain->wait_thread.present.last_complete_ns)
+        {
+            uint32_t lerp_gpu, lerp_present;
+
+            /* Smoothly estimate when we hit deadline for GPU and present based waits. */
+            target_time_gpu = chain->wait_thread.gpu.last_complete_ns +
+                    chain->wait_thread.gpu.estimated_frame_time_ns;
+            target_time_present = chain->wait_thread.present.last_complete_ns +
+                    chain->wait_thread.present.estimated_frame_time_ns;
+
+            lerp_gpu = PRESENT_WAIT_FIFO_BOUND_FIFO_BOUND_INCREMENT - chain->wait_thread.present_wait_fifo_bound_estimate;
+            lerp_present = chain->wait_thread.present_wait_fifo_bound_estimate;
+
+            target_time = target_time_gpu * lerp_gpu + target_time_present * lerp_present;
+            target_time /= PRESENT_WAIT_FIFO_BOUND_FIFO_BOUND_INCREMENT;
+
+            if (target_time > *gpu_complete_ns)
+                present_wait_timeout = target_time - *gpu_complete_ns;
+            else
+                present_wait_timeout = 0;
+        }
+        else
+        {
+            /* If we're supremely confident in being FIFO bound, just do that. */
+            present_wait_timeout = UINT64_MAX;
+        }
+
+        /* We don't care if we timed out or not. */
+        VK_CALL(vkWaitForPresentKHR(chain->queue->device->vk_device, chain->present.vk_swapchain,
+                present_id, present_wait_timeout));
+    }
+
+    vkd3d_native_sync_handle_release(chain->frame_latency_event_internal, 1);
+}
+
+static void dxgi_vk_swap_chain_update_internal_latency(struct dxgi_vk_swap_chain *chain, uint64_t gpu_complete_ns)
+{
+    uint64_t present_frame_time_ns;
+    uint64_t present_complete_ns;
+    uint64_t gpu_frame_time_ns;
+
+    present_complete_ns = vkd3d_get_current_time_ns();
+
+    if (chain->wait_thread.gpu.last_complete_ns)
+    {
+        gpu_frame_time_ns = gpu_complete_ns - chain->wait_thread.gpu.last_complete_ns;
+        /* Avoid estimate going haywire on large discontinuities. */
+        gpu_frame_time_ns = min(gpu_frame_time_ns, 100000000);
+        update_exponential_average_u64(&chain->wait_thread.gpu.estimated_frame_time_ns,
+                gpu_frame_time_ns, PRESENT_WAIT_FRAME_TIME_ESTIMATE_SHIFT);
+    }
+    chain->wait_thread.gpu.last_complete_ns = gpu_complete_ns;
+
+    if (chain->wait_thread.present.last_complete_ns)
+    {
+        present_frame_time_ns = present_complete_ns - chain->wait_thread.present.last_complete_ns;
+        /* Avoid estimate going haywire on large discontinuities. */
+        present_frame_time_ns = min(present_frame_time_ns, 100000000);
+        update_exponential_average_u64(&chain->wait_thread.present.estimated_frame_time_ns,
+                present_frame_time_ns, PRESENT_WAIT_FRAME_TIME_ESTIMATE_SHIFT);
+    }
+    chain->wait_thread.present.last_complete_ns = present_complete_ns;
+}
+
 static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
 {
     struct dxgi_vk_swap_chain *chain = chain_;
@@ -2550,8 +2711,11 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
     struct vkd3d_queue_timeline_trace *timeline_trace = &chain->queue->device->queue_timeline_trace;
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     struct vkd3d_queue_timeline_trace_cookie cookie;
+    bool next_queue_has_been_idle = false;
+    uint64_t next_complete_timeline = 0;
     uint64_t begin_frame_time_ns = 0;
     uint64_t end_frame_time_ns = 0;
+    uint64_t gpu_complete_ns = 0;
     uint64_t next_wait_id = 0;
     int previous_semaphore;
 
@@ -2564,6 +2728,8 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
             pthread_cond_wait(&chain->wait_thread.cond, &chain->wait_thread.lock);
         next_wait_id = chain->wait_thread.wait_queue[0].id;
         begin_frame_time_ns = chain->wait_thread.wait_queue[0].begin_frame_time_ns;
+        next_complete_timeline = chain->wait_thread.wait_queue[0].complete_timeline;
+        next_queue_has_been_idle = chain->wait_thread.wait_queue[0].queue_has_been_idle;
         pthread_mutex_unlock(&chain->wait_thread.lock);
 
         /* Sentinel for swapchain teardown. */
@@ -2571,12 +2737,40 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
             break;
 
         cookie = vkd3d_queue_timeline_trace_register_present_wait(timeline_trace, next_wait_id);
+
+        /* For the internal latency handle, we should be more careful than just waiting for present naively.
+         * In a GPU bound scenario on FRR displays where FPS < refresh rate, WaitForPresentKHR will be very noisy
+         * as vblanks are missed in unpredictable ways.
+         * This stutter will propagate to the application in ::Present(), and blocking the CPU timeline
+         * for a longer time in application threads can lead to an effect where GPU goes idle, despite being GPU bound.
+         * To combat this, we reformulate the internal latency fence to be released between these two timepoints:
+         *  - blit timeline completes
+         *  - WaitForPresentKHR signals
+         * The delta between these events is unwanted presentation delay.
+         * For VRR at a rate below refresh rate, the expectation is that this presentation delay is ~0 ms,
+         * so this algorithm won't do much, but on FRR, we want to unblock the internal latency fence
+         * while optimizing for smooth frame pacing. To achieve this we compute a timeout estimate for PresentWait.
+         * To unblock the latency handle, we will wait for GPU to complete render, then wait up to N ms in a present wait.
+         * If present wait gets delayed for longer than expected, just unblock the latency fence to avoid stutter.
+         * In cases where we can observe that we are fully FIFO bound, rather than GPU bound,
+         * we will use the present wait as-is. */
+        if (vkd3d_native_sync_handle_is_valid(chain->frame_latency_event_internal))
+        {
+            dxgi_vk_swap_chain_wait_internal_latency(chain,
+                    next_wait_id, next_complete_timeline,
+                    next_queue_has_been_idle,
+                    &gpu_complete_ns);
+        }
+
         /* In skip wait mode we just need to make sure that we signal latency fences properly. */
         if (!chain->wait_thread.skip_waits)
         {
             /* We don't really care if we observed OUT_OF_DATE or something here. */
             VK_CALL(vkWaitForPresentKHR(chain->queue->device->vk_device, chain->present.vk_swapchain,
                     next_wait_id, UINT64_MAX));
+
+            if (vkd3d_native_sync_handle_is_valid(chain->frame_latency_event_internal))
+                dxgi_vk_swap_chain_update_internal_latency(chain, gpu_complete_ns);
         }
         vkd3d_queue_timeline_trace_complete_present_wait(timeline_trace, cookie);
 
@@ -2597,9 +2791,6 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
             else
                 WARN("Failed to increment swapchain semaphore. Did application forget to acquire?\n");
         }
-
-        if (vkd3d_native_sync_handle_is_valid(chain->frame_latency_event_internal))
-            vkd3d_native_sync_handle_release(chain->frame_latency_event_internal, 1);
 
         if (begin_frame_time_ns)
             INFO("vkWaitForPresentKHR frame latency: %.3f ms.\n", 1e-6 * (end_frame_time_ns - begin_frame_time_ns));
