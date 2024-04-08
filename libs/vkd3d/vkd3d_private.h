@@ -3030,6 +3030,7 @@ struct vkd3d_queue
     uint32_t wait_count;
 
     bool need_virtual_wait_values;
+    bool queue_has_been_idle;
 };
 
 VkQueue vkd3d_queue_acquire(struct vkd3d_queue *queue);

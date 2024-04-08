@@ -381,6 +381,22 @@ static void vkd3d_queue_push_waiters_to_worker_locked(struct vkd3d_queue *vkd3d_
     }
 }
 
+static void vkd3d_queue_check_idle_state_locked(struct vkd3d_queue *vkd3d_queue, struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    uint64_t counter = 0;
+
+    /* If there are no pending submissions, waits, or signals on this queue, we consider it to have gone idle.
+     * This is mostly interesting for the DIRECT queue since it is part of the heuristics for swapchain pacing. */
+    if (!vkd3d_queue->queue_has_been_idle && vkd3d_queue->submission_timeline_count)
+    {
+        vkd3d_queue->queue_has_been_idle =
+                VK_CALL(vkGetSemaphoreCounterValue(device->vk_device,
+                        vkd3d_queue->submission_timeline, &counter)) == VK_SUCCESS &&
+                        counter == vkd3d_queue->submission_timeline_count;
+    }
+}
+
 static void vkd3d_queue_flush_waiters(struct vkd3d_queue *vkd3d_queue,
         struct vkd3d_fence_worker *worker,
         const struct vkd3d_vk_device_procs *vk_procs)
@@ -412,6 +428,9 @@ static void vkd3d_queue_flush_waiters(struct vkd3d_queue *vkd3d_queue,
         vkd3d_queue_release(vkd3d_queue);
         return;
     }
+
+    if (worker)
+        vkd3d_queue_check_idle_state_locked(vkd3d_queue, worker->device);
 
     signal_semaphore.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
     signal_semaphore.semaphore = vkd3d_queue->submission_timeline;
@@ -17562,6 +17581,8 @@ static void d3d12_command_queue_signal_shared(struct d3d12_command_queue *comman
         return;
     }
 
+    vkd3d_queue_check_idle_state_locked(vkd3d_queue, device);
+
     memset(&signal_semaphore_info, 0, sizeof(signal_semaphore_info));
     signal_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
     signal_semaphore_info.semaphore = fence->timeline_semaphore;
@@ -17939,6 +17960,8 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
                 NULL, timeline_cookie);
         return;
     }
+
+    vkd3d_queue_check_idle_state_locked(vkd3d_queue, command_queue->device);
 
     memset(&signal_semaphore_info, 0, sizeof(signal_semaphore_info));
     signal_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
