@@ -358,6 +358,22 @@ static void dxgi_vk_swap_chain_drain_complete_semaphore(struct dxgi_vk_swap_chai
     dxgi_vk_swap_chain_wait_semaphore(chain, chain->present.vk_complete_semaphore, value);
 }
 
+static uint64_t dxgi_vk_swap_chain_query_complete_semaphore(struct dxgi_vk_swap_chain *chain)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
+    uint64_t completed_submissions = 0;
+
+    if (VK_CALL(vkGetSemaphoreCounterValue(chain->queue->device->vk_device,
+            chain->present.vk_complete_semaphore,
+            &completed_submissions)) != VK_SUCCESS)
+    {
+        ERR("Failed to query semaphore.\n");
+        completed_submissions = UINT64_MAX;
+    }
+
+    return completed_submissions;
+}
+
 static void dxgi_vk_swap_chain_drain_internal_blit_semaphore(struct dxgi_vk_swap_chain *chain, uint64_t value)
 {
     dxgi_vk_swap_chain_wait_semaphore(chain, chain->present.vk_internal_blit_semaphore, value);
@@ -888,7 +904,6 @@ static void dxgi_vk_swap_chain_present_callback(void *chain);
 
 static void dxgi_vk_swap_chain_wait_internal_handle(struct dxgi_vk_swap_chain *chain, bool low_latency_enable)
 {
-    const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     bool non_blocking_internal_handle_wait = low_latency_enable;
     uint64_t completed_submissions = 0;
     uint64_t user_submissions = 0;
@@ -911,27 +926,18 @@ static void dxgi_vk_swap_chain_wait_internal_handle(struct dxgi_vk_swap_chain *c
          * fully GPU bound and we should back off and let low latency deal with it more gracefully. */
         user_submissions = chain->user.blit_count;
 
-        if (VK_CALL(vkGetSemaphoreCounterValue(chain->queue->device->vk_device,
-                chain->present.vk_complete_semaphore,
-                &completed_submissions)) == VK_SUCCESS)
+        completed_submissions = dxgi_vk_swap_chain_query_complete_semaphore(chain);
+        /* We just submitted frame N. If N - 2 is already complete, it means there is <= 2 frames worth of GPU work
+         * queued up. For a FIFO bound or CPU bound game, this is the case we expect, so we should use latency fences here.
+         * If we're GPU bound with <= 2 frames queued up, we'll likely not block in our own latency handles anyway. */
+        if (completed_submissions + 2 >= user_submissions)
         {
-            /* We just submitted frame N. If N - 2 is already complete, it means there is <= 2 frames worth of GPU work
-             * queued up. For a FIFO bound or CPU bound game, this is the case we expect, so we should use latency fences here.
-             * If we're GPU bound with <= 2 frames queued up, we'll likely not block in our own latency handles anyway. */
-            if (completed_submissions + 2 >= user_submissions)
-            {
-                non_blocking_internal_handle_wait = false;
-            }
-            else if (chain->debug_latency)
-            {
-                INFO("Completed count: %"PRIu64", submitted count: %"PRIu64". GPU queue is too deep, deferring to low latency sleep.\n",
-                        completed_submissions, user_submissions);
-            }
-        }
-        else
-        {
-            ERR("Failed to query semaphore complete value.\n");
             non_blocking_internal_handle_wait = false;
+        }
+        else if (chain->debug_latency)
+        {
+            INFO("Completed count: %"PRIu64", submitted count: %"PRIu64". GPU queue is too deep, deferring to low latency sleep.\n",
+                    completed_submissions, user_submissions);
         }
     }
 
