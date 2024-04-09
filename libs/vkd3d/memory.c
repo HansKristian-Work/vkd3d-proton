@@ -693,7 +693,7 @@ static HRESULT vkd3d_create_global_buffer(struct d3d12_device *device, VkDeviceS
             heap_properties->Type != D3D12_HEAP_TYPE_READBACK)
         resource_desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
-    return vkd3d_create_buffer(device, heap_properties, heap_flags, &resource_desc, vk_buffer);
+    return vkd3d_create_buffer(device, heap_properties, heap_flags, &resource_desc, "global-buffer", vk_buffer);
 }
 
 static void vkd3d_report_memory_budget(struct d3d12_device *device)
@@ -861,7 +861,18 @@ static HRESULT vkd3d_try_allocate_device_memory(struct d3d12_device *device,
         }
     }
 
+    /* In case we get address binding callbacks, ensure driver knows it's not a sparse bind that happens async. */
+    vkd3d_address_binding_tracker_mark_user_thread();
+
     vr = VK_CALL(vkAllocateMemory(device->vk_device, &allocate_info, NULL, &allocation->vk_memory));
+
+    if (vr == VK_SUCCESS && vkd3d_address_binding_tracker_active(&device->address_binding_tracker))
+    {
+        union vkd3d_address_binding_report_resource_info info;
+        info.memory.memory_type_index = allocate_info.memoryTypeIndex;
+        vkd3d_address_binding_tracker_assign_info(&device->address_binding_tracker,
+                VK_OBJECT_TYPE_DEVICE_MEMORY, (uint64_t)allocation->vk_memory, &info);
+    }
 
     if (rebar_budget || (vkd3d_config_flags & VKD3D_CONFIG_FLAG_LOG_MEMORY_BUDGET))
     {
@@ -1137,6 +1148,8 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
      * only HOST_VISIBLE types and we use NO_FALLBACK allocation mode. */
     type_flags &= ~info->optional_memory_properties;
 
+    allocation->resource.cookie = vkd3d_allocate_cookie();
+
     if (allocation->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER)
     {
         if (info->explicit_global_buffer_usage)
@@ -1147,6 +1160,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
             if (FAILED(hr = vkd3d_create_buffer_explicit_usage(device,
                     info->explicit_global_buffer_usage,
                     info->memory_requirements.size,
+                    "explicit-usage-global-buffer",
                     &allocation->resource.vk_buffer)))
                 return hr;
 
@@ -1167,6 +1181,12 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
                 allocation->resource.vk_buffer, &memory_requirements));
 
         memory_requirements.memoryTypeBits &= info->memory_requirements.memoryTypeBits;
+
+        if (vkd3d_address_binding_tracker_active(&device->address_binding_tracker))
+        {
+            vkd3d_address_binding_tracker_assign_cookie(&device->address_binding_tracker,
+                    VK_OBJECT_TYPE_BUFFER, (uint64_t)allocation->resource.vk_buffer, allocation->resource.cookie);
+        }
     }
     else
     {
@@ -1262,8 +1282,6 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
             return hresult_from_vk_result(vr);
         }
     }
-
-    allocation->resource.cookie = vkd3d_allocate_cookie();
 
     /* Bind memory to global or dedicated buffer as needed */
     if (allocation->resource.vk_buffer)

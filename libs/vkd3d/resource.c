@@ -88,7 +88,7 @@ VkSampleCountFlagBits vk_samples_from_dxgi_sample_desc(const DXGI_SAMPLE_DESC *d
 }
 
 HRESULT vkd3d_create_buffer_explicit_usage(struct d3d12_device *device,
-        VkBufferUsageFlags vk_usage_flags, VkDeviceSize size, VkBuffer *vk_buffer)
+        VkBufferUsageFlags vk_usage_flags, VkDeviceSize size, const char *tag, VkBuffer *vk_buffer)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkBufferCreateInfo buffer_info;
@@ -113,10 +113,21 @@ HRESULT vkd3d_create_buffer_explicit_usage(struct d3d12_device *device,
         buffer_info.pQueueFamilyIndices = NULL;
     }
 
+    /* In case we get address binding callbacks, ensure driver knows it's not a sparse bind that happens async. */
+    vkd3d_address_binding_tracker_mark_user_thread();
+
     if ((vr = VK_CALL(vkCreateBuffer(device->vk_device, &buffer_info, NULL, vk_buffer))) < 0)
     {
         WARN("Failed to create Vulkan buffer, vr %d.\n", vr);
         *vk_buffer = VK_NULL_HANDLE;
+    }
+
+    if (vr == VK_SUCCESS && vkd3d_address_binding_tracker_active(&device->address_binding_tracker))
+    {
+        union vkd3d_address_binding_report_resource_info info;
+        info.buffer.tag = tag;
+        vkd3d_address_binding_tracker_assign_info(&device->address_binding_tracker,
+                VK_OBJECT_TYPE_BUFFER, (uint64_t)*vk_buffer, &info);
     }
 
     return hresult_from_vk_result(vr);
@@ -124,7 +135,7 @@ HRESULT vkd3d_create_buffer_explicit_usage(struct d3d12_device *device,
 
 HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        const D3D12_RESOURCE_DESC1 *desc, VkBuffer *vk_buffer)
+        const D3D12_RESOURCE_DESC1 *desc, const char *tag, VkBuffer *vk_buffer)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkExternalMemoryBufferCreateInfo external_info;
@@ -229,10 +240,21 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
     if (desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
         FIXME("Unsupported resource flags %#x.\n", desc->Flags);
 
+    /* In case we get address binding callbacks, ensure driver knows it's not a sparse bind that happens async. */
+    vkd3d_address_binding_tracker_mark_user_thread();
+
     if ((vr = VK_CALL(vkCreateBuffer(device->vk_device, &buffer_info, NULL, vk_buffer))) < 0)
     {
         WARN("Failed to create Vulkan buffer, vr %d.\n", vr);
         *vk_buffer = VK_NULL_HANDLE;
+    }
+
+    if (vkd3d_address_binding_tracker_active(&device->address_binding_tracker))
+    {
+        union vkd3d_address_binding_report_resource_info info;
+        info.buffer.tag = tag;
+        vkd3d_address_binding_tracker_assign_info(&device->address_binding_tracker,
+                VK_OBJECT_TYPE_BUFFER, (uint64_t)*vk_buffer, &info);
     }
 
     return hresult_from_vk_result(vr);
@@ -906,8 +928,24 @@ static HRESULT vkd3d_create_image(struct d3d12_device *device,
             heap_flags, desc, resource, num_castable_formats, castable_formats, &create_info)))
         return hr;
 
+    /* In case we get address binding callbacks, ensure driver knows it's not a sparse bind that happens async. */
+    vkd3d_address_binding_tracker_mark_user_thread();
+
     if ((vr = VK_CALL(vkCreateImage(device->vk_device, &create_info.image_info, NULL, vk_image))) < 0)
         WARN("Failed to create Vulkan image, vr %d.\n", vr);
+
+    if (vkd3d_address_binding_tracker_active(&device->address_binding_tracker))
+    {
+        union vkd3d_address_binding_report_resource_info info;
+        info.image.extent = create_info.image_info.extent;
+        info.image.type = create_info.image_info.imageType;
+        info.image.layers = create_info.image_info.arrayLayers;
+        info.image.levels = create_info.image_info.mipLevels;
+        info.image.format = create_info.image_info.format;
+        info.image.usage = create_info.image_info.usage;
+        vkd3d_address_binding_tracker_assign_info(&device->address_binding_tracker,
+                VK_OBJECT_TYPE_IMAGE, (uint64_t)*vk_image, &info);
+    }
 
     resource->format_compatibility_list = create_info.format_compat_list;
 
@@ -3173,8 +3211,16 @@ static HRESULT d3d12_resource_create_vk_resource(struct d3d12_resource *resource
     if (resource->desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
     {
         if (FAILED(hr = vkd3d_create_buffer(device, heap_properties,
-                D3D12_HEAP_FLAG_NONE, &resource->desc, &resource->res.vk_buffer)))
+                D3D12_HEAP_FLAG_NONE, &resource->desc,
+                (resource->flags & VKD3D_RESOURCE_RESERVED) ? "sparse-buffer" : "user-buffer",
+                &resource->res.vk_buffer)))
             return hr;
+
+        if (vkd3d_address_binding_tracker_active(&device->address_binding_tracker))
+        {
+            vkd3d_address_binding_tracker_assign_cookie(&device->address_binding_tracker,
+                    VK_OBJECT_TYPE_BUFFER, (uint64_t)resource->res.vk_buffer, resource->res.cookie);
+        }
     }
     else
     {
@@ -3188,6 +3234,12 @@ static HRESULT d3d12_resource_create_vk_resource(struct d3d12_resource *resource
                 num_castable_formats, castable_formats,
                 &resource->res.vk_image)))
             return hr;
+
+        if (vkd3d_address_binding_tracker_active(&device->address_binding_tracker))
+        {
+            vkd3d_address_binding_tracker_assign_cookie(&device->address_binding_tracker,
+                    VK_OBJECT_TYPE_IMAGE, (uint64_t) resource->res.vk_image, resource->res.cookie);
+        }
     }
 
     return S_OK;
@@ -7193,7 +7245,7 @@ static HRESULT d3d12_descriptor_heap_create_descriptor_buffer(struct d3d12_descr
             usage |= VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT;
 
         if (FAILED(hr = vkd3d_create_buffer_explicit_usage(device, usage, total_alloc_size,
-                &descriptor_heap->descriptor_buffer.vk_buffer)))
+                "descriptor-buffer", &descriptor_heap->descriptor_buffer.vk_buffer)))
             return hr;
 
         property_flags = device->memory_info.descriptor_heap_memory_properties;
@@ -7541,7 +7593,8 @@ static HRESULT d3d12_descriptor_heap_init_data_buffer(struct d3d12_descriptor_he
 
         heap_flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
 
-        if (FAILED(hr = vkd3d_create_buffer(device, &heap_info, heap_flags, &buffer_desc, &descriptor_heap->vk_buffer)))
+        if (FAILED(hr = vkd3d_create_buffer(device, &heap_info, heap_flags, &buffer_desc,
+                "descriptor-buffer", &descriptor_heap->vk_buffer)))
             return hr;
 
         property_flags = device->memory_info.descriptor_heap_memory_properties;
@@ -8341,7 +8394,7 @@ HRESULT d3d12_query_heap_create(struct d3d12_device *device, const D3D12_QUERY_H
         buffer_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
         if (FAILED(hr = vkd3d_create_buffer(device, &heap_properties,
-                D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS, &buffer_desc, &object->vk_buffer)))
+                D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS, &buffer_desc, "query-heap", &object->vk_buffer)))
         {
             vkd3d_free(object);
             return hr;
@@ -8772,7 +8825,7 @@ HRESULT vkd3d_global_descriptor_buffer_init(struct vkd3d_global_descriptor_buffe
      * This might happen if a meta shader is used without any prior descriptor heap bound,
      * and we need to use push descriptors with bufferlessPushDescriptors == VK_FALSE. */
     if (FAILED(hr = vkd3d_create_buffer_explicit_usage(device, vk_usage_flags,
-            4 * 1024, &global_descriptor_buffer->resource.vk_buffer)))
+            4 * 1024, "descriptor-buffer", &global_descriptor_buffer->resource.vk_buffer)))
     {
         return hr;
     }
@@ -8792,7 +8845,7 @@ HRESULT vkd3d_global_descriptor_buffer_init(struct vkd3d_global_descriptor_buffe
     vk_usage_flags = VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT |
             VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
     if (FAILED(hr = vkd3d_create_buffer_explicit_usage(device, vk_usage_flags,
-            4 * 1024, &global_descriptor_buffer->sampler.vk_buffer)))
+            4 * 1024, "descriptor-buffer", &global_descriptor_buffer->sampler.vk_buffer)))
     {
         return hr;
     }
