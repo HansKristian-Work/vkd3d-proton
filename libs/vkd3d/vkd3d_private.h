@@ -5617,4 +5617,12 @@ HANDLE vkd3d_open_kmt_handle(HANDLE kmt_handle);
 #define VKD3D_DRIVER_VERSION_PATCH_NV(v) (((v) >>  6) & 0xff)
 #define VKD3D_DRIVER_VERSION_MAKE_NV(major, minor, patch) (((uint32_t)(major) << 22) | ((uint32_t)(minor) << 14) | ((uint32_t)(patch) << 6))
 
+static inline const void *vk_find_pnext(const void *pnext, VkStructureType sType)
+{
+    const VkBaseInStructure *base_in = pnext;
+    while (base_in && base_in->sType != sType)
+        base_in = base_in->pNext;
+    return base_in;
+}
+
 #endif  /* __VKD3D_PRIVATE_H */
