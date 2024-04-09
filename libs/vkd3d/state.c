@@ -6133,14 +6133,6 @@ static uint32_t vkd3d_get_descriptor_size_for_type(struct d3d12_device *device, 
     }
 }
 
-static const void *vk_find_pnext(const void *pnext, VkStructureType sType)
-{
-    const VkBaseInStructure *base_in = pnext;
-    while (base_in && base_in->sType != sType)
-        base_in = base_in->pNext;
-    return base_in;
-}
-
 static uint32_t vkd3d_get_descriptor_size_for_binding(struct d3d12_device *device,
         const VkDescriptorSetLayoutCreateInfo *set_layout_info, uint32_t binding_index)
 {
