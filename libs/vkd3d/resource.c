@@ -3565,6 +3565,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         memset(&allocate_info, 0, sizeof(allocate_info));
         allocate_info.memory_requirements = memory_requirements.memoryRequirements;
         allocate_info.heap_flags = heap_flags;
+        allocate_info.explicit_global_buffer_usage = 0;
 
         if (object->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
         {

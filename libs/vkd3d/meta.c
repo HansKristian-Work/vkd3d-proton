@@ -1637,7 +1637,8 @@ static HRESULT vkd3d_predicate_ops_init(struct vkd3d_predicate_ops *meta_predica
         meta_predicate_ops->data_sizes[i] = spec_data[i].arg_count * sizeof(uint32_t);
     }
 
-    if (device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
+    if (device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands ||
+        device->device_info.device_generated_commands_features_ext.deviceGeneratedCommands)
     {
         uint32_t num_active_words;
         spec_info.mapEntryCount = 1;

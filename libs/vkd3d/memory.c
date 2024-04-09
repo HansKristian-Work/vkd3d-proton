@@ -1640,6 +1640,7 @@ static HRESULT vkd3d_memory_allocator_try_add_chunk(struct vkd3d_memory_allocato
     alloc_info.flags = VKD3D_ALLOCATION_FLAG_NO_FALLBACK;
     alloc_info.optional_memory_properties = optional_properties;
     alloc_info.vk_memory_priority = vkd3d_convert_to_vk_prio(D3D12_RESIDENCY_PRIORITY_NORMAL);
+    alloc_info.explicit_global_buffer_usage = 0;
 
     if (minimum_size < VKD3D_VA_BLOCK_SIZE)
         alloc_info.memory_requirements.size = VKD3D_MEMORY_CHUNK_SIZE;
@@ -1941,6 +1942,7 @@ HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_mem
     alloc_info.heap_flags = info->heap_desc.Flags;
     alloc_info.host_ptr = info->host_ptr;
     alloc_info.vk_memory_priority = info->vk_memory_priority;
+    alloc_info.explicit_global_buffer_usage = info->explicit_global_buffer_usage;
 
     alloc_info.flags |= info->extra_allocation_flags;
 
