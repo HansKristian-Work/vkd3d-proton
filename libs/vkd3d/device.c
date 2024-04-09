@@ -58,7 +58,7 @@ struct vkd3d_optional_extension_info
 static const struct vkd3d_optional_extension_info optional_instance_extensions[] =
 {
     /* EXT extensions */
-    VK_EXTENSION_COND(EXT_DEBUG_UTILS, EXT_debug_utils, VKD3D_CONFIG_FLAG_DEBUG_UTILS),
+    VK_EXTENSION_COND(EXT_DEBUG_UTILS, EXT_debug_utils, VKD3D_CONFIG_FLAG_DEBUG_UTILS | VKD3D_CONFIG_FLAG_FAULT),
 };
 
 static const struct vkd3d_optional_extension_info optional_device_extensions[] =
@@ -113,6 +113,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(EXT_IMAGE_COMPRESSION_CONTROL, EXT_image_compression_control),
     VK_EXTENSION_COND(EXT_DEVICE_FAULT, EXT_device_fault, VKD3D_CONFIG_FLAG_FAULT),
     VK_EXTENSION(EXT_MEMORY_BUDGET, EXT_memory_budget),
+    VK_EXTENSION_COND(EXT_DEVICE_ADDRESS_BINDING_REPORT, EXT_device_address_binding_report, VKD3D_CONFIG_FLAG_FAULT),
     /* AMD extensions */
     VK_EXTENSION(AMD_BUFFER_MARKER, AMD_buffer_marker),
     VK_EXTENSION(AMD_DEVICE_COHERENT_MEMORY, AMD_device_coherent_memory),
@@ -1875,6 +1876,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->features2, &info->raw_access_chains_nv);
     }
 
+    if (vulkan_info->EXT_device_address_binding_report)
+    {
+        info->address_binding_report_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ADDRESS_BINDING_REPORT_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->address_binding_report_features);
+    }
+
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
     VK_CALL(vkGetPhysicalDeviceProperties2(device->vk_physical_device, &info->properties2));
 }
@@ -3464,6 +3471,7 @@ static void d3d12_device_destroy(struct d3d12_device *device)
 
     vkd3d_cleanup_format_info(device);
     vkd3d_memory_info_cleanup(&device->memory_info, device);
+    vkd3d_address_binding_tracker_cleanup(&device->address_binding_tracker, device);
     vkd3d_queue_timeline_trace_cleanup(&device->queue_timeline_trace);
     vkd3d_shader_debug_ring_cleanup(&device->debug_ring, device);
 #ifdef VKD3D_ENABLE_BREADCRUMBS
@@ -8682,6 +8690,9 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
     if (FAILED(hr = vkd3d_queue_timeline_trace_init(&device->queue_timeline_trace, device)))
         goto out_cleanup_debug_ring;
 
+    if (FAILED(hr = vkd3d_address_binding_tracker_init(&device->address_binding_tracker, device)))
+        goto out_cleanup_queue_timeline_trace;
+
     vkd3d_scratch_pool_init(device);
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
@@ -8691,7 +8702,7 @@ static HRESULT d3d12_device_init(struct d3d12_device *device,
         if (FAILED(hr = vkd3d_breadcrumb_tracer_init(&device->breadcrumb_tracer, device)))
         {
             vkd3d_breadcrumb_tracer_cleanup_barrier_hashes(&device->breadcrumb_tracer);
-            goto out_cleanup_queue_timeline_trace;
+            goto out_cleanup_address_binding_tracker;
         }
     }
 #endif
@@ -8740,8 +8751,10 @@ out_cleanup_breadcrumb_tracer:
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
         vkd3d_breadcrumb_tracer_cleanup(&device->breadcrumb_tracer, device);
-out_cleanup_queue_timeline_trace:
+out_cleanup_address_binding_tracker:
 #endif
+    vkd3d_address_binding_tracker_cleanup(&device->address_binding_tracker, device);
+out_cleanup_queue_timeline_trace:
     vkd3d_queue_timeline_trace_cleanup(&device->queue_timeline_trace);
 out_cleanup_debug_ring:
     vkd3d_shader_debug_ring_cleanup(&device->debug_ring, device);
@@ -9015,6 +9028,8 @@ void d3d12_device_report_fault(struct d3d12_device *device)
 
             ERR("Address [%u]: %016"PRIx64" (granularity %"PRIx64"), type %s\n", i,
                     addr->reportedAddress, addr->addressPrecision, type);
+
+            vkd3d_address_binding_tracker_check_va(&device->address_binding_tracker, addr->reportedAddress);
         }
 
         for (i = 0; i < fault_counts.vendorInfoCount; i++)

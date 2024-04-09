@@ -394,7 +394,7 @@ HRESULT vkd3d_shader_debug_ring_init(struct vkd3d_shader_debug_ring *ring,
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
     if (FAILED(vkd3d_create_buffer(device, &heap_properties, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS,
-            &resource_desc, &ring->host_buffer)))
+            &resource_desc, "debug-ring-host", &ring->host_buffer)))
         goto err_free_buffers;
 
     memory_props = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
@@ -425,7 +425,7 @@ HRESULT vkd3d_shader_debug_ring_init(struct vkd3d_shader_debug_ring *ring,
     heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
 
     if (FAILED(vkd3d_create_buffer(device, &heap_properties, D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS,
-            &resource_desc, &ring->device_atomic_buffer)))
+            &resource_desc, "debug-ring-atomic", &ring->device_atomic_buffer)))
         goto err_free_buffers;
 
     memory_props = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |

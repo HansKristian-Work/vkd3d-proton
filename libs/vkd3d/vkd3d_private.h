@@ -159,6 +159,7 @@ struct vkd3d_vulkan_info
     bool EXT_image_compression_control;
     bool EXT_device_fault;
     bool EXT_memory_budget;
+    bool EXT_device_address_binding_report;
     /* AMD device extensions */
     bool AMD_buffer_marker;
     bool AMD_device_coherent_memory;
@@ -1109,9 +1110,9 @@ HRESULT vkd3d_allocate_internal_buffer_memory(struct d3d12_device *device, VkBuf
         struct vkd3d_device_memory_allocation *allocation);
 HRESULT vkd3d_create_buffer(struct d3d12_device *device,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
-        const D3D12_RESOURCE_DESC1 *desc, VkBuffer *vk_buffer);
+        const D3D12_RESOURCE_DESC1 *desc, const char *tag, VkBuffer *vk_buffer);
 HRESULT vkd3d_create_buffer_explicit_usage(struct d3d12_device *device,
-        VkBufferUsageFlags vk_usage, VkDeviceSize vk_size, VkBuffer *vk_buffer);
+        VkBufferUsageFlags vk_usage, VkDeviceSize vk_size, const char *tag, VkBuffer *vk_buffer);
 HRESULT vkd3d_get_image_allocation_info(struct d3d12_device *device,
         const D3D12_RESOURCE_DESC1 *desc,
         UINT num_castable_formats, const DXGI_FORMAT *castable_formats,
@@ -4423,6 +4424,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceShaderMaximalReconvergenceFeaturesKHR shader_maximal_reconvergence_features;
     VkPhysicalDeviceShaderQuadControlFeaturesKHR shader_quad_control_features;
     VkPhysicalDeviceRawAccessChainsFeaturesNV raw_access_chains_nv;
+    VkPhysicalDeviceAddressBindingReportFeaturesEXT address_binding_report_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
@@ -4650,6 +4652,90 @@ void vkd3d_queue_timeline_trace_close_command_list(struct vkd3d_queue_timeline_t
 void vkd3d_queue_timeline_trace_begin_execute(struct vkd3d_queue_timeline_trace *trace,
         struct vkd3d_queue_timeline_trace_cookie cookie);
 
+struct vkd3d_address_binding_report_buffer_info
+{
+    const char *tag;
+};
+
+struct vkd3d_address_binding_report_image_info
+{
+    VkFormat format;
+    VkExtent3D extent;
+    VkImageType type;
+    VkImageUsageFlags usage;
+    uint32_t levels;
+    uint32_t layers;
+};
+
+struct vkd3d_address_binding_report_memory_info
+{
+    uint32_t memory_type_index;
+};
+
+union vkd3d_address_binding_report_resource_info
+{
+    struct vkd3d_address_binding_report_buffer_info buffer;
+    struct vkd3d_address_binding_report_image_info image;
+    struct vkd3d_address_binding_report_memory_info memory;
+};
+
+struct vkd3d_address_binding_report
+{
+    uint64_t handle;
+    VkDeviceAddress addr;
+    VkDeviceSize size;
+    VkObjectType type;
+    VkDeviceAddressBindingFlagsEXT flags;
+    VkDeviceAddressBindingTypeEXT binding_type;
+    bool sparse;
+    uint64_t timestamp_ns;
+
+    union vkd3d_address_binding_report_resource_info info;
+    uint64_t cookie;
+};
+
+struct vkd3d_address_binding_mapping
+{
+    VkObjectType type;
+    uint64_t handle;
+
+    union vkd3d_address_binding_report_resource_info info;
+    uint64_t cookie;
+};
+
+struct vkd3d_address_binding_tracker
+{
+    VkDebugUtilsMessengerEXT messenger;
+    pthread_mutex_t lock;
+
+    struct vkd3d_address_binding_report *reports;
+    size_t reports_size;
+    size_t reports_count;
+
+    size_t *recent_memory_indices;
+    size_t recent_memory_indices_size;
+    size_t recent_memory_indices_count;
+
+    struct vkd3d_address_binding_mapping *mappings;
+    size_t mappings_size;
+    size_t mappings_count;
+};
+
+HRESULT vkd3d_address_binding_tracker_init(struct vkd3d_address_binding_tracker *tracker, struct d3d12_device *device);
+void vkd3d_address_binding_tracker_mark_user_thread();
+void vkd3d_address_binding_tracker_cleanup(struct vkd3d_address_binding_tracker *tracker, struct d3d12_device *device);
+void vkd3d_address_binding_tracker_assign_info(struct vkd3d_address_binding_tracker *tracker,
+        VkObjectType type, uint64_t handle, const union vkd3d_address_binding_report_resource_info *info);
+void vkd3d_address_binding_tracker_assign_cookie(struct vkd3d_address_binding_tracker *tracker,
+        VkObjectType type, uint64_t handle, uint64_t cookie);
+void vkd3d_address_binding_tracker_check_va(struct vkd3d_address_binding_tracker *tracker,
+        VkDeviceAddress address);
+
+static inline bool vkd3d_address_binding_tracker_active(struct vkd3d_address_binding_tracker *tracker)
+{
+    return tracker->messenger != VK_NULL_HANDLE;
+}
+
 struct d3d12_device
 {
     d3d12_device_iface ID3D12Device_iface;
@@ -4716,6 +4802,7 @@ struct d3d12_device
     struct vkd3d_shader_debug_ring debug_ring;
     struct vkd3d_pipeline_library_disk_cache disk_cache;
     struct vkd3d_global_descriptor_buffer global_descriptor_buffer;
+    struct vkd3d_address_binding_tracker address_binding_tracker;
     rwlock_t vertex_input_lock;
     struct hash_map vertex_input_pipelines;
     rwlock_t fragment_output_lock;

@@ -76,7 +76,8 @@ vkd3d_src = [
   'raytracing_pipeline.c',
   'acceleration_structure.c',
   'swapchain.c',
-  'queue_timeline.c'
+  'queue_timeline.c',
+  'address_binding_tracker.c'
 ]
 
 if enable_renderdoc
