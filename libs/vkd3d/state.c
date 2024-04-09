@@ -6710,18 +6710,23 @@ static uint32_t vkd3d_bindless_state_get_bindless_flags(struct d3d12_device *dev
     }
 
     if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES) &&
-            !device->device_info.device_generated_commands_compute_features_nv.deviceGeneratedCompute)
+            !device->device_info.device_generated_commands_compute_features_nv.deviceGeneratedCompute &&
+            !(device->device_info.device_generated_commands_properties_ext.supportedIndirectCommandsShaderStages & VK_SHADER_STAGE_COMPUTE_BIT))
     {
         INFO("Forcing push UBO path for compute root parameters.\n");
         flags |= VKD3D_FORCE_COMPUTE_ROOT_PARAMETERS_PUSH_UBO;
     }
 
-    if (device->device_info.device_generated_commands_compute_features_nv.deviceGeneratedCompute &&
-            device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
+    if ((device->device_info.device_generated_commands_compute_features_nv.deviceGeneratedCompute &&
+            device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands) ||
+        device->device_info.device_generated_commands_properties_ext.supportedIndirectCommandsShaderStages &
+           (VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT))
     {
         INFO("Enabling fast paths for advanced ExecuteIndirect() graphics and compute.\n");
     }
-    else if (device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
+    else if (device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands ||
+             device->device_info.device_generated_commands_properties_ext.supportedIndirectCommandsShaderStages &
+                (VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT))
     {
         INFO("Enabling fast paths for advanced ExecuteIndirect() graphics.\n");
     }

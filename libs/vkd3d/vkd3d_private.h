@@ -136,6 +136,7 @@ struct vkd3d_vulkan_info
     bool EXT_conservative_rasterization;
     bool EXT_custom_border_color;
     bool EXT_depth_clip_enable;
+    bool EXT_device_generated_commands;
     bool EXT_image_view_min_lod;
     bool EXT_robustness2;
     bool EXT_shader_stencil_export;
@@ -710,6 +711,7 @@ struct vkd3d_allocate_heap_memory_info
     void *host_ptr;
     uint32_t extra_allocation_flags;
     float vk_memory_priority;
+    VkBufferUsageFlags explicit_global_buffer_usage;
 };
 
 struct vkd3d_allocate_resource_memory_info
@@ -3309,8 +3311,10 @@ struct d3d12_command_signature
             VkBuffer buffer;
             VkDeviceAddress buffer_va;
             struct vkd3d_device_memory_allocation memory;
-            VkIndirectCommandsLayoutNV layout_implicit;
-            VkIndirectCommandsLayoutNV layout_preprocess;
+            VkIndirectCommandsLayoutNV layout_implicit_nv;
+            VkIndirectCommandsLayoutNV layout_preprocess_nv;
+            VkIndirectCommandsLayoutEXT layout_implicit_ext;
+            VkIndirectCommandsLayoutEXT layout_preprocess_ext;
             uint32_t stride;
             struct vkd3d_execute_indirect_info pipeline;
         } dgc;
@@ -4444,6 +4448,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceFragmentShadingRatePropertiesKHR fragment_shading_rate_properties;
     VkPhysicalDeviceConservativeRasterizationPropertiesEXT conservative_rasterization_properties;
     VkPhysicalDeviceDeviceGeneratedCommandsPropertiesNV device_generated_commands_properties_nv;
+    VkPhysicalDeviceDeviceGeneratedCommandsPropertiesEXT device_generated_commands_properties_ext;
     VkPhysicalDeviceMeshShaderPropertiesEXT mesh_shader_properties;
     VkPhysicalDeviceShaderModuleIdentifierPropertiesEXT shader_module_identifier_properties;
     VkPhysicalDeviceDescriptorBufferPropertiesEXT descriptor_buffer_properties;
@@ -4481,6 +4486,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceCoherentMemoryFeaturesAMD device_coherent_memory_features_amd;
     VkPhysicalDeviceRayTracingMaintenance1FeaturesKHR ray_tracing_maintenance1_features;
     VkPhysicalDeviceDeviceGeneratedCommandsFeaturesNV device_generated_commands_features_nv;
+    VkPhysicalDeviceDeviceGeneratedCommandsFeaturesEXT device_generated_commands_features_ext;
     VkPhysicalDeviceMeshShaderFeaturesEXT mesh_shader_features;
     VkPhysicalDeviceShaderModuleIdentifierFeaturesEXT shader_module_identifier_features;
     VkPhysicalDevicePresentIdFeaturesKHR present_id_features;

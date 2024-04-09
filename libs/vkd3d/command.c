@@ -4960,7 +4960,8 @@ static void vk_access_and_stage_flags_from_d3d12_resource_state(const struct d3d
                 *access |= VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
 
                 /* We might use preprocessing. */
-                if (list->device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
+                if (list->device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands ||
+                    list->device->device_info.device_generated_commands_features_ext.deviceGeneratedCommandsEXT)
                 {
                     *stages |= VK_PIPELINE_STAGE_2_COMMAND_PREPROCESS_BIT_NV;
                     *access |= VK_ACCESS_2_COMMAND_PREPROCESS_READ_BIT_NV;
@@ -13305,7 +13306,13 @@ static HRESULT d3d12_command_signature_allocate_stream_memory_for_list(
         uint32_t max_command_count,
         struct vkd3d_scratch_allocation *allocation);
 
-static HRESULT d3d12_command_signature_allocate_preprocess_memory_for_list(
+static HRESULT d3d12_command_signature_allocate_preprocess_memory_for_list_ext(
+        struct d3d12_command_list *list,
+        struct d3d12_command_signature *signature, VkPipeline render_pipeline,
+        bool explicit_preprocess,
+        uint32_t max_command_count,
+        struct vkd3d_scratch_allocation *allocation, VkDeviceSize *size);
+static HRESULT d3d12_command_signature_allocate_preprocess_memory_for_list_nv(
         struct d3d12_command_list *list,
         struct d3d12_command_signature *signature, VkPipeline render_pipeline,
         bool explicit_preprocess,
@@ -13410,16 +13417,19 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         struct d3d12_resource *count_buffer, UINT64 count_buffer_offset)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    const VkPhysicalDeviceDeviceGeneratedCommandsPropertiesNV *props;
     static const unsigned int max_direct_commands_for_split = 64;
     VkConditionalRenderingBeginInfoEXT conditional_begin_info;
     struct vkd3d_scratch_allocation predication_allocation;
     struct vkd3d_scratch_allocation preprocess_allocation;
     struct vkd3d_scratch_allocation stream_allocation;
     struct vkd3d_scratch_allocation count_allocation;
+    VkGeneratedCommandsPipelineInfoEXT pipeline_info;
+    uint32_t minIndirectCommandsBufferOffsetAlignment;
+    uint32_t minSequencesCountBufferOffsetAlignment;
     struct vkd3d_execute_indirect_args patch_args;
     struct vkd3d_pipeline_bindings *bindings;
-    VkGeneratedCommandsInfoNV generated;
+    VkGeneratedCommandsInfoEXT generated_ext;
+    VkGeneratedCommandsInfoNV generated_nv;
     VkCommandBuffer vk_patch_cmd_buffer;
     VkIndirectCommandsStreamNV stream;
     bool require_custom_predication;
@@ -13431,6 +13441,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
     bool explicit_preprocess;
     bool require_ibo_update;
     bool require_patch;
+    bool use_ext_dgc = list->device->device_info.device_generated_commands_features_ext.deviceGeneratedCommandsEXT;
     const char *tag;
     unsigned int i;
     HRESULT hr;
@@ -13512,7 +13523,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
 
     /* If we have custom predication, we would need to introduce a barrier to synchronize with the
      * new indirect count, which is not desirable. */
-    if (!require_custom_predication && signature->state_template.dgc.layout_preprocess)
+    if (!require_custom_predication && (signature->state_template.dgc.layout_preprocess_nv || signature->state_template.dgc.layout_preprocess_ext))
     {
         /* If driver can take advantage of preprocess, we can consider preprocessing explicitly if we can hoist it.
          * If we had indirect barriers earlier in the frame, now might be a good time to split. */
@@ -13572,11 +13583,20 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
      * - Min required alignment on the indirect buffer itself might be too strict.
      * - Min required alignment on count buffer might be too strict.
      * - We require debugging. */
-    props = &list->device->device_info.device_generated_commands_properties_nv;
+    if (list->device->device_info.device_generated_commands_features_ext.deviceGeneratedCommandsEXT)
+    {
+        minIndirectCommandsBufferOffsetAlignment = 4;
+        minSequencesCountBufferOffsetAlignment = 4;
+    }
+    else
+    {
+        minIndirectCommandsBufferOffsetAlignment = list->device->device_info.device_generated_commands_properties_nv.minIndirectCommandsBufferOffsetAlignment;
+        minSequencesCountBufferOffsetAlignment = list->device->device_info.device_generated_commands_properties_nv.minSequencesCountBufferOffsetAlignment;
+    }
 
     if ((signature->state_template.dgc.stride != signature->desc.ByteStride && max_command_count > 1) ||
-            (arg_buffer_offset & (props->minIndirectCommandsBufferOffsetAlignment - 1)) ||
-            (count_buffer && (count_buffer_offset & (props->minSequencesCountBufferOffsetAlignment - 1))) ||
+            (arg_buffer_offset & (minIndirectCommandsBufferOffsetAlignment - 1)) ||
+            (count_buffer && (count_buffer_offset & (minSequencesCountBufferOffsetAlignment - 1))) ||
             patch_args.debug_tag)
     {
         require_patch = true;
@@ -13600,7 +13620,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
             if (FAILED(hr = d3d12_command_allocator_allocate_scratch_memory(list->allocator,
                     VKD3D_SCRATCH_POOL_KIND_DEVICE_STORAGE,
                     sizeof(uint32_t),
-                    props->minSequencesCountBufferOffsetAlignment,
+                    minSequencesCountBufferOffsetAlignment,
                     ~0u, &count_allocation)))
             {
                 WARN("Failed to allocate count memory.\n");
@@ -13686,71 +13706,147 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         return;
     }
 
-    if (FAILED(hr = d3d12_command_signature_allocate_preprocess_memory_for_list(
-            list, signature, current_pipeline, explicit_preprocess,
-            max_command_count, &preprocess_allocation, &preprocess_size)))
+    if (use_ext_dgc)
     {
-        WARN("Failed to allocate preprocess memory.\n");
-        return;
-    }
-
-    generated.sType = VK_STRUCTURE_TYPE_GENERATED_COMMANDS_INFO_NV;
-    generated.pNext = NULL;
-    generated.pipeline = list->current_pipeline;
-    generated.pipelineBindPoint = signature->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE ?
-            VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS;
-    generated.indirectCommandsLayout = explicit_preprocess ?
-            signature->state_template.dgc.layout_preprocess :
-            signature->state_template.dgc.layout_implicit;
-    generated.streamCount = 1;
-    generated.pStreams = &stream;
-    generated.preprocessBuffer = preprocess_allocation.buffer;
-    generated.preprocessOffset = preprocess_allocation.offset;
-    generated.preprocessSize = preprocess_size;
-    generated.sequencesCount = max_command_count;
-    generated.sequencesIndexBuffer = VK_NULL_HANDLE;
-    generated.sequencesIndexOffset = 0;
-
-    if (require_custom_predication)
-    {
-        generated.sequencesCountBuffer = predication_allocation.buffer;
-        generated.sequencesCountOffset = predication_allocation.offset;
-    }
-    else if (count_buffer)
-    {
-        if (require_patch)
+        if (FAILED(hr = d3d12_command_signature_allocate_preprocess_memory_for_list_ext(
+                list, signature, current_pipeline, explicit_preprocess,
+                max_command_count, &preprocess_allocation, &preprocess_size)))
         {
-            generated.sequencesCountBuffer = count_allocation.buffer;
-            generated.sequencesCountOffset = count_allocation.offset;
+            WARN("Failed to allocate preprocess memory.\n");
+            return;
+        }
+
+
+        pipeline_info.sType = VK_STRUCTURE_TYPE_GENERATED_COMMANDS_PIPELINE_INFO_EXT;
+        pipeline_info.pNext = NULL;
+        pipeline_info.pipeline = list->current_pipeline;
+
+        generated_ext.sType = VK_STRUCTURE_TYPE_GENERATED_COMMANDS_INFO_EXT;
+        generated_ext.pNext = &pipeline_info;
+        generated_ext.indirectExecutionSet = VK_NULL_HANDLE;
+        if (signature->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
+            generated_ext.shaderStages = VK_SHADER_STAGE_COMPUTE_BIT;
+        else if (signature->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS)
+            generated_ext.shaderStages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        else if (signature->pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS)
+            generated_ext.shaderStages = VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        generated_ext.indirectCommandsLayout = explicit_preprocess ?
+                signature->state_template.dgc.layout_preprocess_ext :
+                signature->state_template.dgc.layout_implicit_ext;
+        generated_ext.preprocessAddress = vkd3d_get_buffer_device_address(list->device, preprocess_allocation.buffer) +
+                                          preprocess_allocation.offset;
+        generated_ext.preprocessSize = preprocess_size;
+        generated_ext.maxSequenceCount = max_command_count;
+        generated_ext.maxDrawCount = (1 << 23) - 1;
+
+        if (require_custom_predication)
+        {
+            generated_ext.sequenceCountAddress = vkd3d_get_buffer_device_address(list->device, predication_allocation.buffer) +
+                                                 predication_allocation.offset;
+        }
+        else if (count_buffer)
+        {
+            if (require_patch)
+            {
+                generated_ext.sequenceCountAddress = vkd3d_get_buffer_device_address(list->device, count_allocation.buffer) +
+                                                     count_allocation.offset;
+            }
+            else
+            {
+                generated_ext.sequenceCountAddress = vkd3d_get_buffer_device_address(list->device, count_buffer->res.vk_buffer) +
+                                                     count_buffer->mem.offset + count_buffer_offset;
+            }
         }
         else
         {
-            generated.sequencesCountBuffer = count_buffer->res.vk_buffer;
-            generated.sequencesCountOffset = count_buffer->mem.offset + count_buffer_offset;
+            generated_ext.sequenceCountAddress = 0;
         }
     }
     else
     {
-        generated.sequencesCountBuffer = VK_NULL_HANDLE;
-        generated.sequencesCountOffset = 0;
+        if (FAILED(hr = d3d12_command_signature_allocate_preprocess_memory_for_list_nv(
+                list, signature, current_pipeline, explicit_preprocess,
+                max_command_count, &preprocess_allocation, &preprocess_size)))
+        {
+            WARN("Failed to allocate preprocess memory.\n");
+            return;
+        }
+
+        generated_nv.sType = VK_STRUCTURE_TYPE_GENERATED_COMMANDS_INFO_NV;
+        generated_nv.pNext = NULL;
+        generated_nv.pipeline = list->current_pipeline;
+        generated_nv.pipelineBindPoint = signature->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE ?
+                VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS;
+        generated_nv.indirectCommandsLayout = explicit_preprocess ?
+                signature->state_template.dgc.layout_preprocess_nv :
+                signature->state_template.dgc.layout_implicit_nv;
+        generated_nv.streamCount = 1;
+        generated_nv.pStreams = &stream;
+        generated_nv.preprocessBuffer = preprocess_allocation.buffer;
+        generated_nv.preprocessOffset = preprocess_allocation.offset;
+        generated_nv.preprocessSize = preprocess_size;
+        generated_nv.sequencesCount = max_command_count;
+        generated_nv.sequencesIndexBuffer = VK_NULL_HANDLE;
+        generated_nv.sequencesIndexOffset = 0;
+
+        if (require_custom_predication)
+        {
+            generated_nv.sequencesCountBuffer = predication_allocation.buffer;
+            generated_nv.sequencesCountOffset = predication_allocation.offset;
+        }
+        else if (count_buffer)
+        {
+            if (require_patch)
+            {
+                generated_nv.sequencesCountBuffer = count_allocation.buffer;
+                generated_nv.sequencesCountOffset = count_allocation.offset;
+            }
+            else
+            {
+                generated_nv.sequencesCountBuffer = count_buffer->res.vk_buffer;
+                generated_nv.sequencesCountOffset = count_buffer->mem.offset + count_buffer_offset;
+            }
+        }
+        else
+        {
+            generated_nv.sequencesCountBuffer = VK_NULL_HANDLE;
+            generated_nv.sequencesCountOffset = 0;
+        }
     }
 
     if (require_patch)
     {
-        stream.buffer = stream_allocation.buffer;
-        stream.offset = stream_allocation.offset;
+        if (use_ext_dgc)
+        {
+            generated_ext.indirectAddress = vkd3d_get_buffer_device_address(list->device, stream_allocation.buffer) +
+                                           stream_allocation.offset;
+        }
+        else
+        {
+            stream.buffer = stream_allocation.buffer;
+            stream.offset = stream_allocation.offset;
+        }
     }
     else
     {
-        stream.buffer = arg_buffer->res.vk_buffer;
-        stream.offset = arg_buffer->mem.offset + arg_buffer_offset;
+        if (use_ext_dgc)
+        {
+            generated_ext.indirectAddress = vkd3d_get_buffer_device_address(list->device, arg_buffer->res.vk_buffer) +
+                                           arg_buffer->mem.offset + arg_buffer_offset;
+        }
+        else
+        {
+            stream.buffer = arg_buffer->res.vk_buffer;
+            stream.offset = arg_buffer->mem.offset + arg_buffer_offset;
+        }
     }
 
     if (explicit_preprocess)
     {
         d3d12_command_allocator_allocate_init_post_indirect_command_buffer(list->allocator, list);
         VK_CALL(vkCmdBindPipeline(list->cmd.vk_init_commands_post_indirect_barrier,
-                generated.pipelineBindPoint, current_pipeline));
+                signature->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE ?
+                VK_PIPELINE_BIND_POINT_COMPUTE :VK_PIPELINE_BIND_POINT_GRAPHICS, current_pipeline));
 
         if (signature->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
         {
@@ -13771,7 +13867,10 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         }
 
         /* There are no requirements on bound state, except for pipeline. */
-        VK_CALL(vkCmdPreprocessGeneratedCommandsNV(list->cmd.vk_init_commands_post_indirect_barrier, &generated));
+        if (use_ext_dgc)
+            VK_CALL(vkCmdPreprocessGeneratedCommandsEXT(list->cmd.vk_init_commands_post_indirect_barrier, &generated_ext, list->cmd.vk_command_buffer));
+        else
+            VK_CALL(vkCmdPreprocessGeneratedCommandsNV(list->cmd.vk_init_commands_post_indirect_barrier, &generated_nv));
         list->cmd.indirect_meta->need_preprocess_barrier = true;
 
         if (list->predication.enabled_on_command_buffer)
@@ -13782,23 +13881,27 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
         WARN("Template requires patching :(\n");
 
     /* Makes RGP captures easier to read. */
-    if (generated.pipelineBindPoint == VK_PIPELINE_BIND_POINT_GRAPHICS)
-    {
-        if (count_buffer)
-            tag = "EI (gfx, indirect count)";
-        else
-            tag = "EI (gfx, direct count)";
-    }
-    else
+    if (signature->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
     {
         if (count_buffer)
             tag = "EI (compute, indirect count)";
         else
             tag = "EI (compute, direct count)";
     }
+    else
+    {
+        if (count_buffer)
+            tag = "EI (gfx, indirect count)";
+        else
+            tag = "EI (gfx, direct count)";
+    }
     d3d12_command_list_debug_mark_begin_region(list, tag);
-    VK_CALL(vkCmdExecuteGeneratedCommandsNV(list->cmd.vk_command_buffer,
-            explicit_preprocess ? VK_TRUE : VK_FALSE, &generated));
+    if (use_ext_dgc)
+        VK_CALL(vkCmdExecuteGeneratedCommandsEXT(list->cmd.vk_command_buffer,
+                explicit_preprocess ? VK_TRUE : VK_FALSE, &generated_ext));
+    else
+        VK_CALL(vkCmdExecuteGeneratedCommandsNV(list->cmd.vk_command_buffer,
+                explicit_preprocess ? VK_TRUE : VK_FALSE, &generated_nv));
     d3d12_command_list_debug_mark_end_region(list);
 
     /* Need to clear state to zero if it was part of a command signature. */
@@ -14069,8 +14172,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                     /* Not very useful to do MDI without state change with mesh shaders, but ...
                      * Has to work. */
                     VK_CALL(vkCmdDrawMeshTasksIndirectEXT(list->cmd.vk_command_buffer,
-                            scratch.buffer, scratch.offset,
-                            max_command_count, signature_desc->ByteStride));
+                            scratch.buffer, scratch.offset, 1, 0));
                 }
                 break;
 
@@ -16392,7 +16494,9 @@ static VkPipelineStageFlags2 vk_stage_flags_from_d3d12_barrier(struct d3d12_comm
     {
         stages |= VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         /* We might use explicit preprocess. */
-        if (list->device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
+        if (list->device->device_info.device_generated_commands_features_ext.deviceGeneratedCommandsEXT)
+            stages |= VK_PIPELINE_STAGE_2_COMMAND_PREPROCESS_BIT_EXT;
+        else if (list->device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
             stages |= VK_PIPELINE_STAGE_2_COMMAND_PREPROCESS_BIT_NV;
     }
 
@@ -16450,7 +16554,9 @@ static VkAccessFlags2 vk_access_flags_from_d3d12_barrier(struct d3d12_command_li
         vk_access |= VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_READ_BIT;
 
         /* We might use preprocessing. */
-        if (list->device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
+        if (list->device->device_info.device_generated_commands_features_ext.deviceGeneratedCommandsEXT)
+            vk_access |= VK_ACCESS_2_COMMAND_PREPROCESS_READ_BIT_EXT;
+        else if (list->device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
             vk_access |= VK_ACCESS_2_COMMAND_PREPROCESS_READ_BIT_NV;
     }
 
@@ -19341,10 +19447,18 @@ static void d3d12_command_signature_cleanup(struct d3d12_command_signature *sign
     {
         VK_CALL(vkDestroyBuffer(signature->device->vk_device, signature->state_template.dgc.buffer, NULL));
         vkd3d_free_device_memory(signature->device, &signature->state_template.dgc.memory);
-        VK_CALL(vkDestroyIndirectCommandsLayoutNV(signature->device->vk_device,
-                signature->state_template.dgc.layout_implicit, NULL));
-        VK_CALL(vkDestroyIndirectCommandsLayoutNV(signature->device->vk_device,
-                signature->state_template.dgc.layout_preprocess, NULL));
+        if (signature->state_template.dgc.layout_implicit_ext)
+            VK_CALL(vkDestroyIndirectCommandsLayoutEXT(signature->device->vk_device,
+                    signature->state_template.dgc.layout_implicit_ext, NULL));
+        if (signature->state_template.dgc.layout_preprocess_ext)
+            VK_CALL(vkDestroyIndirectCommandsLayoutEXT(signature->device->vk_device,
+                    signature->state_template.dgc.layout_preprocess_ext, NULL));
+        if (signature->state_template.dgc.layout_implicit_nv)
+            VK_CALL(vkDestroyIndirectCommandsLayoutNV(signature->device->vk_device,
+                    signature->state_template.dgc.layout_implicit_nv, NULL));
+        if (signature->state_template.dgc.layout_preprocess_nv)
+            VK_CALL(vkDestroyIndirectCommandsLayoutNV(signature->device->vk_device,
+                    signature->state_template.dgc.layout_preprocess_nv, NULL));
     }
 
     vkd3d_private_store_destroy(&signature->private_store);
@@ -19476,7 +19590,7 @@ static HRESULT d3d12_command_signature_init_patch_commands_buffer(struct d3d12_c
     return hr;
 }
 
-static HRESULT d3d12_command_signature_init_indirect_commands_layout(
+static HRESULT d3d12_command_signature_init_indirect_commands_layout_nv(
         struct d3d12_command_signature *signature, struct d3d12_device *device,
         const VkIndirectCommandsLayoutTokenNV *tokens, uint32_t token_count,
         uint32_t stream_stride)
@@ -19508,13 +19622,69 @@ static HRESULT d3d12_command_signature_init_indirect_commands_layout(
      * We don't always want to use explicit preprocess (especially when we cannot hoist), so pick the appropriate
      * layout at ExecuteIndirect time. */
     vr = VK_CALL(vkCreateIndirectCommandsLayoutNV(device->vk_device, &create_info, NULL,
-            &signature->state_template.dgc.layout_implicit));
+            &signature->state_template.dgc.layout_implicit_nv));
     if (vr != VK_SUCCESS)
         return hresult_from_vk_result(vr);
 
     create_info.flags = VK_INDIRECT_COMMANDS_LAYOUT_USAGE_EXPLICIT_PREPROCESS_BIT_NV;
     vr = VK_CALL(vkCreateIndirectCommandsLayoutNV(device->vk_device, &create_info, NULL,
-            &signature->state_template.dgc.layout_preprocess));
+            &signature->state_template.dgc.layout_preprocess_nv));
+    return hresult_from_vk_result(vr);
+}
+
+static HRESULT d3d12_command_signature_init_indirect_commands_layout_ext(
+        struct d3d12_command_signature *signature,
+        struct d3d12_root_signature *root_signature, struct d3d12_device *device,
+        const VkIndirectCommandsLayoutTokenEXT *tokens, uint32_t token_count,
+        uint32_t stream_stride)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    VkIndirectCommandsLayoutCreateInfoEXT create_info;
+    VkResult vr;
+
+    create_info.sType = VK_STRUCTURE_TYPE_INDIRECT_COMMANDS_LAYOUT_CREATE_INFO_EXT;
+    create_info.pNext = NULL;
+    create_info.flags = 0;
+    switch (signature->pipeline_type) {
+    case VKD3D_PIPELINE_TYPE_COMPUTE:
+        create_info.shaderStages = VK_SHADER_STAGE_COMPUTE_BIT;
+        break;
+    case VKD3D_PIPELINE_TYPE_GRAPHICS:
+        create_info.shaderStages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        break;
+    case VKD3D_PIPELINE_TYPE_MESH_GRAPHICS:
+        create_info.shaderStages = VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        break;
+    default:
+        WARN("DGC layout for pipeline not implemented");
+        abort();
+    }
+    create_info.indirectStride = stream_stride;
+    if (root_signature)
+        create_info.pipelineLayout = d3d12_root_signature_get_layout(root_signature, signature->pipeline_type)->vk_pipeline_layout;
+    create_info.tokenCount = token_count;
+    create_info.pTokens = tokens;
+
+    signature->state_template.dgc.stride = stream_stride;
+
+    if (token_count > device->device_info.device_generated_commands_properties_ext.maxIndirectCommandsTokenCount)
+    {
+        FIXME("Token count %u is too large (max %u).\n",
+                token_count, device->device_info.device_generated_commands_properties_ext.maxIndirectCommandsTokenCount);
+        return E_NOTIMPL;
+    }
+
+    /* Need two separate DGC layouts since if we set EXPLICIT_PREPROCESS, we must use preprocess if the flag is set.
+     * We don't always want to use explicit preprocess (especially when we cannot hoist), so pick the appropriate
+     * layout at ExecuteIndirect time. */
+    vr = VK_CALL(vkCreateIndirectCommandsLayoutEXT(device->vk_device, &create_info, NULL,
+            &signature->state_template.dgc.layout_implicit_ext));
+    if (vr != VK_SUCCESS)
+        return hresult_from_vk_result(vr);
+
+    create_info.flags = VK_INDIRECT_COMMANDS_LAYOUT_USAGE_EXPLICIT_PREPROCESS_BIT_EXT;
+    vr = VK_CALL(vkCreateIndirectCommandsLayoutEXT(device->vk_device, &create_info, NULL,
+            &signature->state_template.dgc.layout_preprocess_ext));
     return hresult_from_vk_result(vr);
 }
 
@@ -19534,7 +19704,58 @@ static HRESULT d3d12_command_signature_allocate_stream_memory_for_list(
     return S_OK;
 }
 
-static HRESULT d3d12_command_signature_allocate_preprocess_memory_for_list(
+static HRESULT d3d12_command_signature_allocate_preprocess_memory_for_list_ext(
+        struct d3d12_command_list *list,
+        struct d3d12_command_signature *signature, VkPipeline render_pipeline, bool explicit_preprocess,
+        uint32_t max_command_count,
+        struct vkd3d_scratch_allocation *allocation, VkDeviceSize *size)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkGeneratedCommandsMemoryRequirementsInfoEXT info;
+    VkGeneratedCommandsPipelineInfoEXT pipeline_info;
+    VkMemoryRequirements2 memory_info;
+    uint32_t alignment;
+
+    memory_info.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
+    memory_info.pNext = NULL;
+
+    pipeline_info.sType = VK_STRUCTURE_TYPE_GENERATED_COMMANDS_PIPELINE_INFO_EXT;
+    pipeline_info.pNext = NULL;
+    pipeline_info.pipeline = render_pipeline;
+
+    info.sType = VK_STRUCTURE_TYPE_GENERATED_COMMANDS_MEMORY_REQUIREMENTS_INFO_EXT;
+    info.pNext = &pipeline_info;
+    info.maxSequenceCount = max_command_count;
+    info.maxDrawCount = (1 << 23) - 1;
+    info.indirectCommandsLayout = explicit_preprocess ?
+            signature->state_template.dgc.layout_preprocess_ext :
+            signature->state_template.dgc.layout_implicit_ext;
+
+    if (max_command_count > list->device->device_info.device_generated_commands_properties_ext.maxIndirectSequenceCount)
+    {
+        FIXME("max_command_count %u exceeds device limit %u.\n",
+                max_command_count,
+                list->device->device_info.device_generated_commands_properties_ext.maxIndirectSequenceCount);
+        return E_NOTIMPL;
+    }
+
+    VK_CALL(vkGetGeneratedCommandsMemoryRequirementsEXT(list->device->vk_device, &info, &memory_info));
+
+    alignment = max(memory_info.memoryRequirements.alignment, 4);
+
+    if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+            VKD3D_SCRATCH_POOL_KIND_INDIRECT_PREPROCESS,
+            memory_info.memoryRequirements.size,
+            alignment,
+            memory_info.memoryRequirements.memoryTypeBits, allocation))
+        return E_OUTOFMEMORY;
+
+    /* Going to assume the memory type is okay ... It's device local after all. */
+    *size = memory_info.memoryRequirements.size;
+    return S_OK;
+}
+
+static HRESULT d3d12_command_signature_allocate_preprocess_memory_for_list_nv(
         struct d3d12_command_list *list,
         struct d3d12_command_signature *signature, VkPipeline render_pipeline, bool explicit_preprocess,
         uint32_t max_command_count,
@@ -19555,8 +19776,8 @@ static HRESULT d3d12_command_signature_allocate_preprocess_memory_for_list(
     info.maxSequencesCount = max_command_count;
     info.pipeline = render_pipeline;
     info.indirectCommandsLayout = explicit_preprocess ?
-            signature->state_template.dgc.layout_preprocess :
-            signature->state_template.dgc.layout_implicit;
+            signature->state_template.dgc.layout_preprocess_nv :
+            signature->state_template.dgc.layout_implicit_nv;
 
     if (max_command_count > list->device->device_info.device_generated_commands_properties_nv.maxIndirectSequenceCount)
     {
@@ -19654,7 +19875,7 @@ static HRESULT d3d12_command_signature_init_state_template_compute(struct d3d12_
     return S_OK;
 }
 
-static HRESULT d3d12_command_signature_init_state_template_dgc(struct d3d12_command_signature *signature,
+static HRESULT d3d12_command_signature_init_state_template_dgc_nv(struct d3d12_command_signature *signature,
         const D3D12_COMMAND_SIGNATURE_DESC *desc,
         struct d3d12_root_signature *root_signature,
         struct d3d12_device *device)
@@ -19939,13 +20160,330 @@ static HRESULT d3d12_command_signature_init_state_template_dgc(struct d3d12_comm
 
     if (FAILED(hr = d3d12_command_signature_init_patch_commands_buffer(signature, device, patch_commands, patch_commands_count)))
         goto end;
-    if (FAILED(hr = d3d12_command_signature_init_indirect_commands_layout(signature, device, tokens, token_count, stream_stride)))
+    if (FAILED(hr = d3d12_command_signature_init_indirect_commands_layout_nv(signature, device, tokens, token_count, stream_stride)))
         goto end;
     if (FAILED(hr = vkd3d_meta_get_execute_indirect_pipeline(&device->meta_ops, patch_commands_count,
             &signature->state_template.dgc.pipeline)))
         goto end;
 
 end:
+    vkd3d_free(tokens);
+    vkd3d_free(patch_commands);
+    return hr;
+}
+
+static HRESULT d3d12_command_signature_init_state_template_dgc_ext(struct d3d12_command_signature *signature,
+        const D3D12_COMMAND_SIGNATURE_DESC *desc,
+        struct d3d12_root_signature *root_signature,
+        struct d3d12_device *device)
+{
+    const enum vkd3d_patch_command_token *generic_u32_copy_types;
+    const struct vkd3d_shader_root_parameter *root_parameter;
+    const struct d3d12_bind_point_layout *bind_point_layout;
+    const struct vkd3d_shader_root_constant *root_constant;
+    struct vkd3d_patch_command *patch_commands = NULL;
+    VkIndirectCommandsLayoutTokenEXT *tokens = NULL;
+    VkIndirectCommandsPushConstantTokenEXT *pc_tokens = NULL;
+    VkIndirectCommandsVertexBufferTokenEXT *vb_tokens = NULL;
+    VkIndirectCommandsIndexBufferTokenEXT *ib_tokens = NULL;
+    uint32_t required_stride_alignment = 0;
+    VkIndirectCommandsLayoutTokenEXT token;
+    uint32_t generic_u32_copy_count;
+    size_t patch_commands_count = 0;
+    uint32_t required_alignment = 0;
+    size_t patch_commands_size = 0;
+    uint32_t root_parameter_index;
+    uint32_t src_word_offset = 0;
+    uint32_t stream_stride = 0;
+    uint32_t dst_word_offset;
+    size_t token_count = 0;
+    size_t token_size = 0;
+    size_t pc_token_count = 0;
+    size_t pc_token_size = 0;
+    size_t vb_token_count = 0;
+    size_t vb_token_size = 0;
+    size_t ib_token_count = 0;
+    size_t ib_token_size = 0;
+    HRESULT hr = S_OK;
+    uint32_t i, j;
+
+    /* Mostly for debug. Lets debug ring report what it is writing easily. */
+    static const enum vkd3d_patch_command_token ibv_types[] =
+    {
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_IBO_VA_LO,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_IBO_VA_HI,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_IBO_SIZE,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_INDEX_FORMAT,
+    };
+
+    static const enum vkd3d_patch_command_token vbv_types[] =
+    {
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_VBO_VA_LO,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_VBO_VA_HI,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_VBO_SIZE,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_VBO_STRIDE,
+    };
+
+    static const enum vkd3d_patch_command_token draw_types[] =
+    {
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_VERTEX_COUNT,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_INSTANCE_COUNT,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_FIRST_VERTEX,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_FIRST_INSTANCE,
+    };
+
+    static const enum vkd3d_patch_command_token draw_indexed_types[] =
+    {
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_INDEX_COUNT,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_INSTANCE_COUNT,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_FIRST_INDEX,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_VERTEX_OFFSET,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_FIRST_INSTANCE,
+    };
+
+    static const enum vkd3d_patch_command_token draw_mesh_types[] =
+    {
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_MESH_TASKS_X,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_MESH_TASKS_Y,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_MESH_TASKS_Z,
+    };
+
+    static const enum vkd3d_patch_command_token va_types[] =
+    {
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_ROOT_VA_LO,
+        VKD3D_PATCH_COMMAND_TOKEN_COPY_ROOT_VA_HI,
+    };
+
+    bind_point_layout = d3d12_root_signature_get_layout(root_signature, signature->pipeline_type);
+
+    for (i = 0; i < desc->NumArgumentDescs; i++)
+    {
+        const D3D12_INDIRECT_ARGUMENT_DESC *argument_desc = &desc->pArgumentDescs[i];
+        VkIndirectCommandsPushConstantTokenEXT pc_token;
+        VkIndirectCommandsVertexBufferTokenEXT vb_token;
+        VkIndirectCommandsIndexBufferTokenEXT ib_token;
+        VkPushConstantRange pc_range;
+        memset(&token, 0, sizeof(token));
+        token.sType = VK_STRUCTURE_TYPE_INDIRECT_COMMANDS_LAYOUT_TOKEN_EXT;
+        generic_u32_copy_count = 0;
+        dst_word_offset = 0;
+
+        switch (argument_desc->Type)
+        {
+            case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT:
+                root_parameter_index = argument_desc->Constant.RootParameterIndex;
+                root_constant = root_signature_get_32bit_constants(root_signature, root_parameter_index);
+
+                if (bind_point_layout->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
+                {
+                    ERR("Root signature uses push UBO for root parameters, but this feature requires push constant path.\n");
+                    hr = E_NOTIMPL;
+                    goto end;
+                }
+
+                token.type = VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_CONSTANT_EXT;
+                pc_range.stageFlags = bind_point_layout->vk_push_stages;
+                pc_range.offset = root_constant->constant_index + argument_desc->Constant.DestOffsetIn32BitValues;
+                pc_range.size = argument_desc->Constant.Num32BitValuesToSet;
+                pc_range.offset *= sizeof(uint32_t);
+                pc_range.size *= sizeof(uint32_t);
+                required_alignment = sizeof(uint32_t);
+
+                vkd3d_array_reserve((void**)&pc_tokens, &pc_token_size, pc_token_count + 1, sizeof(*pc_tokens));
+                token.data.pPushConstant = &pc_tokens[pc_token_count];
+                pc_token.updateRange = pc_range;
+                pc_tokens[pc_token_count++] = pc_token;
+
+                stream_stride = align(stream_stride, required_alignment);
+                token.offset = stream_stride;
+                stream_stride += pc_range.size;
+                dst_word_offset = token.offset / sizeof(uint32_t);
+
+                generic_u32_copy_count = argument_desc->Constant.Num32BitValuesToSet;
+                generic_u32_copy_types = NULL;
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_UNORDERED_ACCESS_VIEW:
+            case D3D12_INDIRECT_ARGUMENT_TYPE_SHADER_RESOURCE_VIEW:
+            case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT_BUFFER_VIEW:
+                root_parameter_index = argument_desc->ShaderResourceView.RootParameterIndex;
+                root_parameter = root_signature_get_parameter(root_signature, root_parameter_index);
+
+                if (bind_point_layout->flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK)
+                {
+                    ERR("Root signature uses push UBO for root parameters, but this feature requires push constant path.\n");
+                    hr = E_NOTIMPL;
+                    goto end;
+                }
+
+                if (!(root_signature->root_descriptor_raw_va_mask & (1ull << root_parameter_index)))
+                {
+                    ERR("Root parameter %u is not a raw VA. Cannot implement command signature which updates root descriptor.\n",
+                            root_parameter_index);
+                    hr = E_NOTIMPL;
+                    goto end;
+                }
+
+                token.type = VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_CONSTANT_EXT;
+                pc_range.stageFlags = bind_point_layout->vk_push_stages;
+                pc_range.offset = root_parameter->descriptor.raw_va_root_descriptor_index * sizeof(VkDeviceAddress);
+                pc_range.size = sizeof(VkDeviceAddress);
+                required_alignment = sizeof(uint32_t);
+
+                vkd3d_array_reserve((void**)&pc_tokens, &pc_token_size, pc_token_count + 1, sizeof(*pc_tokens));
+                token.data.pPushConstant = &pc_tokens[pc_token_count];
+                pc_token.updateRange = pc_range;
+                pc_tokens[pc_token_count++] = pc_token;
+
+                stream_stride = align(stream_stride, required_alignment);
+                token.offset = stream_stride;
+                stream_stride += pc_range.size;
+                dst_word_offset = token.offset / sizeof(uint32_t);
+
+                /* Simply patch by copying U32s. Need to handle unaligned U32s since everything is tightly packed. */
+                generic_u32_copy_count = sizeof(VkDeviceAddress) / sizeof(uint32_t);
+                generic_u32_copy_types = va_types;
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW:
+                token.type = VK_INDIRECT_COMMANDS_TOKEN_TYPE_VERTEX_BUFFER_EXT;
+                vb_token.vertexBindingUnit = argument_desc->VertexBuffer.Slot;
+
+                vkd3d_array_reserve((void**)&vb_tokens, &vb_token_size, vb_token_count + 1, sizeof(*vb_tokens));
+                token.data.pVertexBuffer = &vb_tokens[vb_token_count];
+                vb_tokens[vb_token_count++] = vb_token;
+
+                /* alignment is always 4 with EXT DGC */
+                required_alignment = 4;
+
+                stream_stride = align(stream_stride, required_alignment);
+                token.offset = stream_stride;
+                stream_stride += sizeof(VkBindVertexBufferIndirectCommandNV);
+                dst_word_offset = token.offset / sizeof(uint32_t);
+
+                /* The VBV indirect layout is the same as DX, so just copy the U32s. */
+                generic_u32_copy_count = sizeof(D3D12_VERTEX_BUFFER_VIEW) / sizeof(uint32_t);
+                generic_u32_copy_types = vbv_types;
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW:
+                token.type = VK_INDIRECT_COMMANDS_TOKEN_TYPE_INDEX_BUFFER_EXT;
+                ib_token.mode = VK_INDIRECT_COMMANDS_INPUT_MODE_DXGI_INDEX_BUFFER_EXT;
+
+                vkd3d_array_reserve((void**)&ib_tokens, &ib_token_size, ib_token_count + 1, sizeof(*ib_tokens));
+                token.data.pIndexBuffer = &ib_tokens[ib_token_count];
+                ib_tokens[ib_token_count++] = ib_token;
+
+                /* alignment is always 4 with EXT DGC */
+                required_alignment = 4;
+
+                stream_stride = align(stream_stride, required_alignment);
+                token.offset = stream_stride;
+                stream_stride += sizeof(VkBindVertexBufferIndirectCommandNV);
+                dst_word_offset = token.offset / sizeof(uint32_t);
+
+                vkd3d_array_reserve((void**)&patch_commands, &patch_commands_size,
+                        patch_commands_count + sizeof(D3D12_INDEX_BUFFER_VIEW) / sizeof(uint32_t),
+                        sizeof(*patch_commands));
+
+                for (j = 0; j < 4; j++)
+                {
+                    patch_commands[patch_commands_count].token = ibv_types[j];
+                    patch_commands[patch_commands_count].src_offset = src_word_offset++;
+                    patch_commands[patch_commands_count].dst_offset = dst_word_offset++;
+                    patch_commands_count++;
+                }
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW:
+                token.type = VK_INDIRECT_COMMANDS_TOKEN_TYPE_DRAW_EXT;
+                required_alignment = sizeof(uint32_t);
+                stream_stride = align(stream_stride, required_alignment);
+                token.offset = stream_stride;
+                stream_stride += sizeof(VkDrawIndirectCommand);
+                dst_word_offset = token.offset / sizeof(uint32_t);
+                generic_u32_copy_count = sizeof(VkDrawIndirectCommand) / sizeof(uint32_t);
+                generic_u32_copy_types = draw_types;
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED:
+                token.type = VK_INDIRECT_COMMANDS_TOKEN_TYPE_DRAW_INDEXED_EXT;
+                required_alignment = sizeof(uint32_t);
+                stream_stride = align(stream_stride, required_alignment);
+                token.offset = stream_stride;
+                stream_stride += sizeof(VkDrawIndexedIndirectCommand);
+                dst_word_offset = token.offset / sizeof(uint32_t);
+                generic_u32_copy_count = sizeof(VkDrawIndexedIndirectCommand) / sizeof(uint32_t);
+                generic_u32_copy_types = draw_indexed_types;
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH:
+                token.type = VK_INDIRECT_COMMANDS_TOKEN_TYPE_DRAW_MESH_TASKS_EXT;
+                required_alignment = sizeof(uint32_t);
+                stream_stride = align(stream_stride, required_alignment);
+                token.offset = stream_stride;
+                stream_stride += sizeof(VkDrawMeshTasksIndirectCommandEXT);
+                dst_word_offset = token.offset / sizeof(uint32_t);
+                generic_u32_copy_count = sizeof(VkDrawMeshTasksIndirectCommandEXT) / sizeof(uint32_t);
+                generic_u32_copy_types = draw_mesh_types;
+                break;
+
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
+                token.type = VK_INDIRECT_COMMANDS_TOKEN_TYPE_DISPATCH_EXT;
+                required_alignment = sizeof(uint32_t);
+                stream_stride = align(stream_stride, required_alignment);
+                token.offset = stream_stride;
+                stream_stride += sizeof(VkDispatchIndirectCommand);
+                dst_word_offset = token.offset / sizeof(uint32_t);
+                /* TODO: Rebase on top of debug-ring-indirect. */
+                generic_u32_copy_count = 0;
+                generic_u32_copy_types = NULL;
+                break;
+
+            default:
+                FIXME("Unsupported token type %u.\n", argument_desc->Type);
+                hr = E_NOTIMPL;
+                goto end;
+        }
+
+        vkd3d_array_reserve((void**)&tokens, &token_size, token_count + 1, sizeof(*tokens));
+        tokens[token_count++] = token;
+
+        if (generic_u32_copy_count)
+        {
+            vkd3d_array_reserve((void**)&patch_commands, &patch_commands_size,
+                    patch_commands_count + generic_u32_copy_count,
+                    sizeof(*patch_commands));
+
+            /* Simply patch by copying U32s. */
+            for (j = 0; j < generic_u32_copy_count; j++, patch_commands_count++)
+            {
+                patch_commands[patch_commands_count].token =
+                        generic_u32_copy_types ? generic_u32_copy_types[j] : VKD3D_PATCH_COMMAND_TOKEN_COPY_CONST_U32;
+                patch_commands[patch_commands_count].src_offset = src_word_offset++;
+                patch_commands[patch_commands_count].dst_offset = dst_word_offset++;
+            }
+        }
+
+        /* Required alignment is scalar alignment rules, i.e. maximum individual alignment requirement. */
+        required_stride_alignment = max(required_stride_alignment, required_alignment);
+    }
+
+    stream_stride = max(stream_stride, desc->ByteStride);
+    stream_stride = align(stream_stride, required_stride_alignment);
+
+    if (FAILED(hr = d3d12_command_signature_init_patch_commands_buffer(signature, device, patch_commands, patch_commands_count)))
+        goto end;
+    if (FAILED(hr = d3d12_command_signature_init_indirect_commands_layout_ext(signature, root_signature, device, tokens, token_count, stream_stride)))
+        goto end;
+    if (FAILED(hr = vkd3d_meta_get_execute_indirect_pipeline(&device->meta_ops, patch_commands_count,
+            &signature->state_template.dgc.pipeline)))
+        goto end;
+
+end:
+    vkd3d_free(pc_tokens);
+    vkd3d_free(vb_tokens);
+    vkd3d_free(ib_tokens);
     vkd3d_free(tokens);
     vkd3d_free(patch_commands);
     return hr;
@@ -20107,7 +20645,8 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
     if ((object->requires_state_template = requires_state_template))
     {
         if ((pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS || pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS) &&
-                !device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands)
+                !device->device_info.device_generated_commands_features_nv.deviceGeneratedCommands &&
+                !device->device_info.device_generated_commands_features_ext.deviceGeneratedCommandsEXT)
         {
             FIXME("VK_NV_device_generated_commands is not supported by implementation.\n");
             hr = E_NOTIMPL;
@@ -20116,6 +20655,7 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
         else if (pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE)
         {
             if (!device->device_info.device_generated_commands_compute_features_nv.deviceGeneratedCompute &&
+                !(device->device_info.device_generated_commands_properties_ext.supportedIndirectCommandsShaderStages & VK_SHADER_STAGE_COMPUTE_BIT) &&
                     !(device->bindless_state.flags & VKD3D_FORCE_COMPUTE_ROOT_PARAMETERS_PUSH_UBO))
             {
                 FIXME("State template is required for compute, but VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES is not enabled.\n");
@@ -20131,11 +20671,17 @@ HRESULT d3d12_command_signature_create(struct d3d12_device *device, struct d3d12
             goto err;
         }
 
-        if (pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS || pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS ||
+        if (device->device_info.device_generated_commands_features_ext.deviceGeneratedCommandsEXT)
+        {
+            if (FAILED(hr = d3d12_command_signature_init_state_template_dgc_ext(object, desc, root_signature, device)))
+                goto err;
+            object->requires_state_template_dgc = true;
+        }
+        else if (pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS || pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS ||
                 (pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE &&
                         device->device_info.device_generated_commands_compute_features_nv.deviceGeneratedCompute))
         {
-            if (FAILED(hr = d3d12_command_signature_init_state_template_dgc(object, desc, root_signature, device)))
+            if (FAILED(hr = d3d12_command_signature_init_state_template_dgc_nv(object, desc, root_signature, device)))
                 goto err;
             object->requires_state_template_dgc = true;
         }

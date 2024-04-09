@@ -280,6 +280,7 @@ static HRESULT d3d12_heap_init(struct d3d12_heap *heap, struct d3d12_device *dev
     alloc_info.heap_desc = heap->desc;
     alloc_info.host_ptr = host_address;
     alloc_info.extra_allocation_flags = 0;
+    alloc_info.explicit_global_buffer_usage = 0;
 
     if ((alloc_info.heap_desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS) &&
             device->d3d12_caps.options.ResourceHeapTier >= D3D12_RESOURCE_HEAP_TIER_2)
