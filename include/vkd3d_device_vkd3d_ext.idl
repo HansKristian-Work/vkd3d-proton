@@ -69,3 +69,14 @@ interface ID3DLowLatencyDevice : IUnknown
     HRESULT SetLatencyMarker(UINT64 frameID, UINT32 markerType);
     HRESULT GetLatencyInfo(D3D12_LATENCY_RESULTS *latency_results);
 }
+
+[
+    uuid(e1da3c4a-bf21-4f48-a7d6-e444dba9ad7e),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12DeviceExt1 : ID3D12DeviceExt
+{
+    HRESULT CreateResourceFromBorrowedHandle(const D3D12_RESOURCE_DESC1 *desc, UINT64 vk_handle, ID3D12Resource **resource);
+}

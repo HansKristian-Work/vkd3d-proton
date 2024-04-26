@@ -3405,6 +3405,37 @@ static void d3d12_resource_tag_debug_name(struct d3d12_resource *resource,
         vkd3d_set_vk_object_name(device, (uint64_t)resource->res.vk_buffer, VK_OBJECT_TYPE_BUFFER, name_buffer);
 }
 
+HRESULT d3d12_resource_create_committed_borrowed(struct d3d12_device *device, const D3D12_RESOURCE_DESC1 *desc,
+        UINT64 vk_handle, struct d3d12_resource **resource)
+{
+    D3D12_HEAP_PROPERTIES heap_props;
+    struct d3d12_resource *object;
+    HRESULT hr;
+    if (desc->Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+    {
+        FIXME("Only creation of Texture2D resources are currently supported.\n");
+        return E_NOTIMPL;
+    }
+
+    heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap_props.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+    heap_props.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+    heap_props.CreationNodeMask = 0;
+    heap_props.VisibleNodeMask = 0;
+
+    hr = d3d12_resource_create(device, VKD3D_RESOURCE_COMMITTED | VKD3D_RESOURCE_EXTERNAL,
+            desc, &heap_props, D3D12_HEAP_FLAG_SHARED, D3D12_RESOURCE_STATE_COMMON, NULL, 0, NULL, &object);
+    if (FAILED(hr))
+        return hr;
+
+    object->res.vk_image = (VkImage)vk_handle;
+    if (!object->desc.MipLevels)
+        object->desc.MipLevels = max_miplevel_count(desc);
+    object->common_layout = vk_common_image_layout_from_d3d12_desc(device, desc);
+    *resource = object;
+    return hr;
+}
+
 HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12_RESOURCE_DESC1 *desc,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value,

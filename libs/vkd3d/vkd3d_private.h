@@ -1070,6 +1070,8 @@ VkImageLayout vk_image_layout_from_d3d12_resource_state(
         struct d3d12_command_list *list, const struct d3d12_resource *resource, D3D12_RESOURCE_STATES state);
 UINT d3d12_plane_index_from_vk_aspect(VkImageAspectFlagBits aspect);
 
+HRESULT d3d12_resource_create_committed_borrowed(struct d3d12_device *device, const D3D12_RESOURCE_DESC1 *desc,
+        UINT64 vk_handle, struct d3d12_resource **resource);
 HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12_RESOURCE_DESC1 *desc,
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value,
@@ -4521,7 +4523,7 @@ struct vkd3d_descriptor_qa_global_info;
 struct vkd3d_descriptor_qa_heap_buffer_data;
 
 /* ID3D12DeviceExt */
-typedef ID3D12DeviceExt d3d12_device_vkd3d_ext_iface;
+typedef ID3D12DeviceExt1 d3d12_device_vkd3d_ext_iface;
 
 /* ID3D12DXVKInteropDevice */
 typedef ID3D12DXVKInteropDevice d3d12_dxvk_interop_device_iface;
