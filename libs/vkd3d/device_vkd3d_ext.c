@@ -218,7 +218,20 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_CaptureUAVInfo(d3d12_dev
     return S_OK;
 }
 
-CONST_VTBL struct ID3D12DeviceExtVtbl d3d12_device_vkd3d_ext_vtbl =
+static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_CreateResourceFromBorrowedHandle(d3d12_device_vkd3d_ext_iface *iface,
+       const D3D12_RESOURCE_DESC1 *desc, UINT64 vk_handle, ID3D12Resource **ppResource)
+{
+    struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
+    struct d3d12_resource *object;
+    HRESULT hr = d3d12_resource_create_committed_borrowed(device, desc, vk_handle, &object);
+    if (FAILED(hr))
+        return hr;
+
+    *ppResource = (ID3D12Resource *)&object->ID3D12Resource_iface;
+    return S_OK;
+}
+
+CONST_VTBL struct ID3D12DeviceExt1Vtbl d3d12_device_vkd3d_ext_vtbl =
 {
     /* IUnknown methods */
     d3d12_device_vkd3d_ext_QueryInterface,
@@ -232,7 +245,10 @@ CONST_VTBL struct ID3D12DeviceExtVtbl d3d12_device_vkd3d_ext_vtbl =
     d3d12_device_vkd3d_ext_DestroyCubinComputeShader,
     d3d12_device_vkd3d_ext_GetCudaTextureObject,
     d3d12_device_vkd3d_ext_GetCudaSurfaceObject,
-    d3d12_device_vkd3d_ext_CaptureUAVInfo
+    d3d12_device_vkd3d_ext_CaptureUAVInfo,
+
+    /* ID3D12DeviceExt1 methods */
+    d3d12_device_vkd3d_ext_CreateResourceFromBorrowedHandle,
 };
 
 
