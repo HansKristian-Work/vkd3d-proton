@@ -3405,7 +3405,7 @@ static void d3d12_resource_tag_debug_name(struct d3d12_resource *resource,
         vkd3d_set_vk_object_name(device, (uint64_t)resource->res.vk_buffer, VK_OBJECT_TYPE_BUFFER, name_buffer);
 }
 
-HRESULT d3d12_resource_create_committed_borrowed(struct d3d12_device *device, const D3D12_RESOURCE_DESC1 *desc,
+HRESULT d3d12_resource_create_borrowed(struct d3d12_device *device, const D3D12_RESOURCE_DESC1 *desc,
         UINT64 vk_handle, struct d3d12_resource **resource)
 {
     D3D12_HEAP_PROPERTIES heap_props;
@@ -3423,7 +3423,7 @@ HRESULT d3d12_resource_create_committed_borrowed(struct d3d12_device *device, co
     heap_props.CreationNodeMask = 0;
     heap_props.VisibleNodeMask = 0;
 
-    hr = d3d12_resource_create(device, VKD3D_RESOURCE_COMMITTED | VKD3D_RESOURCE_EXTERNAL,
+    hr = d3d12_resource_create(device, VKD3D_RESOURCE_PLACED | VKD3D_RESOURCE_EXTERNAL,
             desc, &heap_props, D3D12_HEAP_FLAG_SHARED, D3D12_RESOURCE_STATE_COMMON, NULL, 0, NULL, &object);
     if (FAILED(hr))
         return hr;

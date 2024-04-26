@@ -223,7 +223,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_CreateResourceFromBorrow
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
     struct d3d12_resource *object;
-    HRESULT hr = d3d12_resource_create_committed_borrowed(device, desc, vk_handle, &object);
+    HRESULT hr = d3d12_resource_create_borrowed(device, desc, vk_handle, &object);
     if (FAILED(hr))
         return hr;
 
