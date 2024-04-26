@@ -638,19 +638,34 @@ static void *vkd3d_fence_worker_main(void *arg)
     struct vkd3d_fence_worker *worker = arg;
     size_t cur_fences_size, old_fences_size;
     uint32_t cur_fence_count;
-    uint32_t i;
+    const char *type_str;
     bool do_exit;
+    uint32_t i;
     int rc;
+
+    static const char *type_to_str[] =
+    {
+        "DIRECT",
+        "BUNDLE",
+        "COMPUTE",
+        "COPY",
+        "VIDEO_DECODE",
+        "VIDEO_PROCESS",
+        "VIDEO_ENCODE",
+    };
 
     vkd3d_set_thread_name("vkd3d_fence");
 
+    type_str = worker->queue->desc.Type < ARRAY_SIZE(type_to_str) ? type_to_str[worker->queue->desc.Type] : "";
+
     snprintf(worker->timeline.tid, sizeof(worker->timeline.tid),
 #ifdef _WIN32
-            "family %u, tid 0x%04x, prio %d",
+            "family %u, %s, tid 0x%04x, prio %d",
 #else
-            "family %u, tid %u, prio %d",
+            "family %u, %s, tid %u, prio %d",
 #endif
             worker->queue->vkd3d_queue->vk_family_index,
+            type_str,
             vkd3d_get_current_thread_id(),
             worker->queue->desc.Priority);
 
