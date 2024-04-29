@@ -4716,7 +4716,7 @@ void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list,
         vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
         vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFORM_FEEDBACK_BIT_EXT;
         vk_barrier.srcAccessMask = VK_ACCESS_2_TRANSFORM_FEEDBACK_COUNTER_WRITE_BIT_EXT;
-        vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+        vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFORM_FEEDBACK_BIT_EXT;
         vk_barrier.dstAccessMask = VK_ACCESS_2_TRANSFORM_FEEDBACK_COUNTER_READ_BIT_EXT;
 
         memset(&dep_info, 0, sizeof(dep_info));
