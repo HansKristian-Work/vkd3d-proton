@@ -2779,6 +2779,8 @@ struct d3d12_command_list_sequence
     unsigned int active_non_inline_running_queries;
     bool uses_dgc_compute_in_async_compute;
     bool pending_render_pass_invalidate_compute;
+    bool has_render_pass;
+    bool needs_inbetween_graphics_compute_barrier;
 
     /* Emit normal commands here. */
     VkCommandBuffer vk_command_buffer;
@@ -3015,6 +3017,7 @@ struct vkd3d_queue
 
     VkCommandPool barrier_pool;
     VkCommandBuffer barrier_command_buffer;
+    VkCommandBuffer graphics_compute_command_buffer;
     VkSemaphore serializing_binary_semaphore;
     VkSemaphore submission_timeline;
     uint64_t submission_timeline_count;

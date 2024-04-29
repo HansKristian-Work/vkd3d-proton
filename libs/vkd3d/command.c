@@ -152,7 +152,8 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device, uint32_t family_index, u
     TRACE("Created queue %p for queue family index %u.\n", object, family_index);
 
     /* Having a simultaneous use command buffer seems to cause problems. */
-    if (!vkd3d_driver_implicitly_syncs_host_readback(device->device_info.vulkan_1_2_properties.driverID))
+    if (!vkd3d_driver_implicitly_syncs_host_readback(device->device_info.vulkan_1_2_properties.driverID) ||
+            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_GRAPHICS_COMPUTE_BARRIER))
     {
         /* Create a reusable full barrier command buffer. This is used in submissions
          * to guarantee serialized behavior of Vulkan queues. */
@@ -171,35 +172,75 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device, uint32_t family_index, u
         allocate_info.commandPool = object->barrier_pool;
         allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocate_info.commandBufferCount = 1;
-        if ((vr = VK_CALL(
-                vkAllocateCommandBuffers(device->vk_device, &allocate_info, &object->barrier_command_buffer))))
-        {
-            hr = hresult_from_vk_result(vr);
-            goto fail_free_command_pool;
-        }
+
+        memset(&memory_barrier, 0, sizeof(memory_barrier));
+        memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
 
         begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         begin_info.pNext = NULL;
         /* It's not very meaningful to rebuild this command buffer over and over. */
         begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
         begin_info.pInheritanceInfo = NULL;
-        VK_CALL(vkBeginCommandBuffer(object->barrier_command_buffer, &begin_info));
-
-        /* To avoid unnecessary tracking, just emit a host barrier on every submit. */
-        memset(&memory_barrier, 0, sizeof(memory_barrier));
-        memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        memory_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-        memory_barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
-        memory_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT | VK_PIPELINE_STAGE_2_HOST_BIT;
-        memory_barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_HOST_READ_BIT;
 
         memset(&dep_info, 0, sizeof(dep_info));
         dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep_info.memoryBarrierCount = 1;
         dep_info.pMemoryBarriers = &memory_barrier;
 
-        VK_CALL(vkCmdPipelineBarrier2(object->barrier_command_buffer, &dep_info));
-        VK_CALL(vkEndCommandBuffer(object->barrier_command_buffer));
+        if (!vkd3d_driver_implicitly_syncs_host_readback(device->device_info.vulkan_1_2_properties.driverID))
+        {
+            if ((vr = VK_CALL(vkAllocateCommandBuffers(
+                    device->vk_device, &allocate_info, &object->barrier_command_buffer))))
+            {
+                hr = hresult_from_vk_result(vr);
+                goto fail_free_command_pool;
+            }
+
+            VK_CALL(vkBeginCommandBuffer(object->barrier_command_buffer, &begin_info));
+
+            /* To avoid unnecessary tracking, just emit a host barrier on every submit. */
+            memory_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            memory_barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+            memory_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT | VK_PIPELINE_STAGE_2_HOST_BIT;
+            memory_barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_HOST_READ_BIT;
+
+            VK_CALL(vkCmdPipelineBarrier2(object->barrier_command_buffer, &dep_info));
+            VK_CALL(vkEndCommandBuffer(object->barrier_command_buffer));
+        }
+
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_GRAPHICS_COMPUTE_BARRIER)
+        {
+            if ((vr = VK_CALL(vkAllocateCommandBuffers(
+                    device->vk_device, &allocate_info, &object->graphics_compute_command_buffer))))
+            {
+                hr = hresult_from_vk_result(vr);
+                goto fail_free_command_pool;
+            }
+
+            VK_CALL(vkBeginCommandBuffer(object->graphics_compute_command_buffer, &begin_info));
+
+            if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) && device->vk_info.EXT_debug_utils)
+            {
+                VkDebugUtilsLabelEXT label;
+                label.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+                label.pNext = NULL;
+                label.pLabelName = "WAR - RenderPass -> Compute barrier";
+                label.color[0] = 1.0f;
+                label.color[1] = 1.0f;
+                label.color[2] = 0.0f;
+                label.color[3] = 1.0f;
+                VK_CALL(vkCmdInsertDebugUtilsLabelEXT(object->graphics_compute_command_buffer, &label));
+            }
+
+            memory_barrier.srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT |
+                    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            memory_barrier.srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+                    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            memory_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            memory_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+            VK_CALL(vkCmdPipelineBarrier2(object->graphics_compute_command_buffer, &dep_info));
+            VK_CALL(vkEndCommandBuffer(object->graphics_compute_command_buffer));
+        }
     }
 
     if (FAILED(hr = vkd3d_create_binary_semaphore(device, &object->serializing_binary_semaphore)))
@@ -1994,12 +2035,8 @@ static HRESULT d3d12_command_allocator_allocate_command_buffer(struct d3d12_comm
     command_buffer_info.commandBufferCount = 1;
 
     memset(&list->cmd, 0, sizeof(list->cmd));
-    /* We don't know if previous command buffer used a render pass.
-     * Better to apply the workaround as late as possible, i.e. in the compute command buffer,
-     * since otherwise we end up with lots of redundant graphics -> compute barriers for
-     * multi-threaded g-buffer recording. */
-    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_GRAPHICS_COMPUTE_BARRIER)
-        list->cmd.pending_render_pass_invalidate_compute = true;
+    /* Speculate that a previous command list did graphics without compute. */
+    list->cmd.pending_render_pass_invalidate_compute = true;
     list->cmd.indirect_meta = &list->cmd.iterations[0].indirect_meta;
 
     if ((vr = VK_CALL(vkAllocateCommandBuffers(device->vk_device, &command_buffer_info,
@@ -4702,8 +4739,11 @@ void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list,
         VK_CALL(vkCmdEndRendering(list->cmd.vk_command_buffer));
         d3d12_command_list_debug_mark_end_region(list);
 
-        if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_GRAPHICS_COMPUTE_BARRIER) && !suspend)
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_GRAPHICS_COMPUTE_BARRIER)
+        {
             list->cmd.pending_render_pass_invalidate_compute = true;
+            list->cmd.has_render_pass = true;
+        }
     }
 
     /* Don't emit barriers for temporary suspension of the render pass */
@@ -5298,21 +5338,31 @@ static void d3d12_command_list_resolve_graphics_compute_barrier(struct d3d12_com
 
     if (list->cmd.pending_render_pass_invalidate_compute)
     {
-        memset(&dep_info, 0, sizeof(dep_info));
-        memset(&vk_barrier, 0, sizeof(vk_barrier));
-        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep_info.memoryBarrierCount = 1;
-        dep_info.pMemoryBarriers = &vk_barrier;
+        if (list->cmd.has_render_pass)
+        {
+            /* We know for sure that we have seen a render pass, so emit the barrier. */
+            memset(&dep_info, 0, sizeof(dep_info));
+            memset(&vk_barrier, 0, sizeof(vk_barrier));
+            dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep_info.memoryBarrierCount = 1;
+            dep_info.pMemoryBarriers = &vk_barrier;
 
-        vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT |
-                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-        vk_barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
-                VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+            vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT |
+                    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            vk_barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+                    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
 
-        d3d12_command_list_debug_mark_label(list, "WAR - RenderPass -> Compute barrier", 1.0f, 1.0f, 0.0f, 1.0f);
-        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+            d3d12_command_list_debug_mark_label(list, "WAR - RenderPass -> Compute barrier", 1.0f, 1.0f, 0.0f, 1.0f);
+            VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+        }
+        else
+        {
+            /* We only need this barrier if there is a previous command list that does render pass without barrier. */
+            list->cmd.needs_inbetween_graphics_compute_barrier = true;
+        }
+
         list->cmd.pending_render_pass_invalidate_compute = false;
     }
 }
@@ -5391,6 +5441,11 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
         WARN("Error occurred during command list recording.\n");
         return E_INVALIDARG;
     }
+
+    /* We speculated, but this command list has neither graphics, nor compute.
+     * Just mark this as not needing a render pass flush. */
+    if (!list->cmd.has_render_pass)
+        list->cmd.pending_render_pass_invalidate_compute = false;
 
     return S_OK;
 }
@@ -17098,6 +17153,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     struct d3d12_command_allocator **allocators;
     struct d3d12_command_queue_submission sub;
     struct d3d12_command_list *cmd_list;
+    bool has_pending_render_pass_flush;
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     unsigned int *breadcrumb_indices;
 #endif
@@ -17120,6 +17176,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
     /* ExecuteCommandLists submission barrier buffer */
     num_command_buffers = command_queue->vkd3d_queue->barrier_command_buffer ? 1 : 0;
+    has_pending_render_pass_flush = false;
 
     for (i = 0; i < command_list_count; ++i)
     {
@@ -17137,6 +17194,21 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
                 num_command_buffers++;
             assert(cmd_list->cmd.iterations[iter].vk_command_buffer);
             num_command_buffers++;
+        }
+
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_GRAPHICS_COMPUTE_BARRIER)
+        {
+            /* We omitted a barrier in compute command list, and if previous command buffer
+             * was doing graphics without a barrier, add a barrier command buffer. */
+            if (cmd_list->cmd.needs_inbetween_graphics_compute_barrier && has_pending_render_pass_flush)
+                num_command_buffers++;
+
+            /* If we have observed a render pass, but pending_render_pass_invalidate_compute is false,
+             * we are guaranteed that there has been a GRAPHICS -> COMPUTE barrier. */
+            if (cmd_list->cmd.pending_render_pass_invalidate_compute)
+                has_pending_render_pass_flush = true;
+            else if (cmd_list->cmd.has_render_pass || cmd_list->cmd.needs_inbetween_graphics_compute_barrier)
+                has_pending_render_pass_flush = false;
         }
     }
 
@@ -17168,6 +17240,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
     sub.execute.split_submission = false;
 
     num_transitions = 0;
+    has_pending_render_pass_flush = false;
 
     for (i = 0, j = 0; i < command_list_count; ++i)
     {
@@ -17203,6 +17276,21 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
         allocators[i] = cmd_list->submit_allocator;
         d3d12_command_allocator_inc_ref(allocators[i]);
+
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_GRAPHICS_COMPUTE_BARRIER)
+        {
+            if (cmd_list->cmd.needs_inbetween_graphics_compute_barrier && has_pending_render_pass_flush)
+            {
+                buffer = &buffers[j++];
+                buffer->sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+                buffer->commandBuffer = command_queue->vkd3d_queue->graphics_compute_command_buffer;
+            }
+
+            if (cmd_list->cmd.pending_render_pass_invalidate_compute)
+                has_pending_render_pass_flush = true;
+            else if (cmd_list->cmd.has_render_pass || cmd_list->cmd.needs_inbetween_graphics_compute_barrier)
+                has_pending_render_pass_flush = false;
+        }
 
         for (iter = 0; iter < cmd_list->cmd.iteration_count; iter++)
         {
