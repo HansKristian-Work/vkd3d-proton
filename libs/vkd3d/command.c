@@ -1994,6 +1994,12 @@ static HRESULT d3d12_command_allocator_allocate_command_buffer(struct d3d12_comm
     command_buffer_info.commandBufferCount = 1;
 
     memset(&list->cmd, 0, sizeof(list->cmd));
+    /* We don't know if previous command buffer used a render pass.
+     * Better to apply the workaround as late as possible, i.e. in the compute command buffer,
+     * since otherwise we end up with lots of redundant graphics -> compute barriers for
+     * multi-threaded g-buffer recording. */
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_GRAPHICS_COMPUTE_BARRIER)
+        list->cmd.pending_render_pass_invalidate_compute = true;
     list->cmd.indirect_meta = &list->cmd.iterations[0].indirect_meta;
 
     if ((vr = VK_CALL(vkAllocateCommandBuffers(device->vk_device, &command_buffer_info,
@@ -4695,6 +4701,9 @@ void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list,
     {
         VK_CALL(vkCmdEndRendering(list->cmd.vk_command_buffer));
         d3d12_command_list_debug_mark_end_region(list);
+
+        if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_GRAPHICS_COMPUTE_BARRIER) && !suspend)
+            list->cmd.pending_render_pass_invalidate_compute = true;
     }
 
     /* Don't emit barriers for temporary suspension of the render pass */
@@ -5279,6 +5288,33 @@ static HRESULT d3d12_command_list_build_init_commands(struct d3d12_command_list 
     }
 
     return S_OK;
+}
+
+static void d3d12_command_list_resolve_graphics_compute_barrier(struct d3d12_command_list *list)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkMemoryBarrier2 vk_barrier;
+    VkDependencyInfo dep_info;
+
+    if (list->cmd.pending_render_pass_invalidate_compute)
+    {
+        memset(&dep_info, 0, sizeof(dep_info));
+        memset(&vk_barrier, 0, sizeof(vk_barrier));
+        dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep_info.memoryBarrierCount = 1;
+        dep_info.pMemoryBarriers = &vk_barrier;
+
+        vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT |
+                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        vk_barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+                VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+
+        d3d12_command_list_debug_mark_label(list, "WAR - RenderPass -> Compute barrier", 1.0f, 1.0f, 0.0f, 1.0f);
+        VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+        list->cmd.pending_render_pass_invalidate_compute = false;
+    }
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_iface *iface)
@@ -6521,6 +6557,9 @@ static bool d3d12_command_list_update_compute_state(struct d3d12_command_list *l
 
     if (!d3d12_command_list_update_compute_pipeline(list))
         return false;
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_GRAPHICS_COMPUTE_BARRIER)
+        d3d12_command_list_resolve_graphics_compute_barrier(list);
 
     d3d12_command_list_update_descriptors(list);
 
@@ -9833,7 +9872,11 @@ static void d3d12_command_list_barrier_batch_end(struct d3d12_command_list *list
         struct d3d12_command_list_barrier_batch *batch)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkPipelineStageFlags2 src_stages = 0;
+    VkPipelineStageFlags2 dst_stages = 0;
+    VkAccessFlags2 src_access = 0;
     VkDependencyInfo dep_info;
+    uint32_t i;
 
     memset(&dep_info, 0, sizeof(dep_info));
     dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
@@ -9850,12 +9893,38 @@ static void d3d12_command_list_barrier_batch_end(struct d3d12_command_list *list
     {
         VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
+        if (list->cmd.pending_render_pass_invalidate_compute)
+        {
+            src_stages = batch->vk_memory_barrier.srcStageMask;
+            src_access = batch->vk_memory_barrier.srcAccessMask;
+            dst_stages = batch->vk_memory_barrier.dstStageMask;
+            for (i = 0; i < dep_info.imageMemoryBarrierCount; i++)
+            {
+                src_access |= dep_info.pImageMemoryBarriers[i].srcAccessMask;
+                src_stages |= dep_info.pImageMemoryBarriers[i].srcStageMask;
+                dst_stages |= dep_info.pImageMemoryBarriers[i].dstStageMask;
+            }
+        }
+
         batch->vk_memory_barrier.srcStageMask = 0;
         batch->vk_memory_barrier.srcAccessMask = 0;
         batch->vk_memory_barrier.dstStageMask = 0;
         batch->vk_memory_barrier.dstAccessMask = 0;
 
         batch->image_barrier_count = 0;
+    }
+
+    if ((src_stages & (VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT |
+            VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT |
+            VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)) &&
+            (src_access & (VK_ACCESS_2_MEMORY_WRITE_BIT |
+                    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+                    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)) &&
+            (dst_stages & (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                    VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)))
+    {
+        d3d12_command_list_debug_mark_label(list, "App - RenderPass -> Compute barrier", 1.0f, 1.0f, 0.0f, 1.0f);
+        list->cmd.pending_render_pass_invalidate_compute = false;
     }
 }
 
