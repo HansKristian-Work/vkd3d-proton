@@ -3953,10 +3953,12 @@ uint32_t d3d12_graphics_pipeline_state_get_dynamic_state_flags(struct d3d12_pipe
     if (d3d12_device_supports_variable_shading_rate_tier_1(state->device) && graphics->rt_count)
     {
         /* If sample rate shading or ROVs are used, force default VRS state. Do this by not enabling the dynamic state.
-         * This forces default static pipeline state to be used instead, which is what we want. */
+         * This forces default static pipeline state to be used instead, which is what we want.
+         * For force VRS 2x2, we want to remove the dynamic shading rate, and use static pipeline struct instead. */
         const uint32_t disable_flags =
                 VKD3D_SHADER_META_FLAG_USES_SAMPLE_RATE_SHADING |
-                VKD3D_SHADER_META_FLAG_USES_RASTERIZER_ORDERED_VIEWS;
+                VKD3D_SHADER_META_FLAG_USES_RASTERIZER_ORDERED_VIEWS |
+                VKD3D_SHADER_META_FLAG_FORCE_VRS_2X2;
         bool allow_vrs_combiners = true;
 
         for (i = 0; allow_vrs_combiners && i < graphics->stage_count; i++)
@@ -5545,12 +5547,26 @@ static void d3d12_pipeline_state_log_graphics_state(const struct d3d12_pipeline_
     ERR("Dynamic state: %#x (explicit: %#x)\n", graphics->pipeline_dynamic_states, graphics->explicit_dynamic_states);
 }
 
+static bool d3d12_pipeline_state_forces_vrs_2x2(struct d3d12_pipeline_state *state)
+{
+    struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
+    bool use_vrs_2x2 = false;
+    uint32_t i;
+
+    if (d3d12_device_supports_variable_shading_rate_tier_1(state->device) && graphics->rt_count)
+        for (i = 0; i < graphics->stage_count && !use_vrs_2x2; i++)
+            use_vrs_2x2 = !!(graphics->code[i].meta.flags & VKD3D_SHADER_META_FLAG_FORCE_VRS_2X2);
+
+    return use_vrs_2x2;
+}
+
 static VkResult d3d12_pipeline_state_link_pipeline_variant(struct d3d12_pipeline_state *state,
         const struct vkd3d_pipeline_key *key, const struct vkd3d_format *dsv_format, VkPipelineCache vk_cache,
         uint32_t dynamic_state_flags, VkPipeline *vk_pipeline)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &state->device->vk_procs;
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
+    VkPipelineFragmentShadingRateStateCreateInfoKHR shading_rate_info;
     struct vkd3d_fragment_output_pipeline_desc fragment_output_desc;
     struct vkd3d_vertex_input_pipeline_desc vertex_input_desc;
     VkPipelineLibraryCreateInfoKHR library_info;
@@ -5581,10 +5597,21 @@ static VkResult d3d12_pipeline_state_link_pipeline_variant(struct d3d12_pipeline
 
     memset(&create_info, 0, sizeof(create_info));
     create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    create_info.pNext = &library_info;
     create_info.flags = graphics->library_create_flags;
     create_info.layout = graphics->pipeline_layout;
     create_info.basePipelineIndex = -1;
+
+    if (d3d12_pipeline_state_forces_vrs_2x2(state))
+    {
+        memset(&shading_rate_info, 0, sizeof(shading_rate_info));
+        shading_rate_info.sType = VK_STRUCTURE_TYPE_PIPELINE_FRAGMENT_SHADING_RATE_STATE_CREATE_INFO_KHR;
+        shading_rate_info.combinerOps[0] = VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR;
+        shading_rate_info.combinerOps[1] = VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR;
+        shading_rate_info.fragmentSize.width = 2;
+        shading_rate_info.fragmentSize.height = 2;
+
+        vk_prepend_struct(&create_info, &shading_rate_info);
+    }
 
     if (d3d12_device_uses_descriptor_buffers(state->device))
         create_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
@@ -5594,6 +5621,8 @@ static VkResult d3d12_pipeline_state_link_pipeline_variant(struct d3d12_pipeline
      * to avoid stutter. */
     if (!key)
         create_info.flags |= VK_PIPELINE_CREATE_LINK_TIME_OPTIMIZATION_BIT_EXT;
+
+    vk_prepend_struct(&create_info, &library_info);
 
     vr = VK_CALL(vkCreateGraphicsPipelines(state->device->vk_device,
             vk_cache, 1, &create_info, NULL, vk_pipeline));
@@ -5613,6 +5642,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
 {
     const struct vkd3d_vk_device_procs *vk_procs = &state->device->vk_procs;
     VkDynamicState dynamic_state_buffer[ARRAY_SIZE(vkd3d_dynamic_state_list)];
+    VkPipelineFragmentShadingRateStateCreateInfoKHR shading_rate_info;
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     VkPipelineCreationFeedbackEXT feedbacks[VKD3D_MAX_SHADER_STAGES];
     struct vkd3d_fragment_output_pipeline_desc fragment_output_desc;
@@ -5675,7 +5705,7 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
 
     memset(&pipeline_desc, 0, sizeof(pipeline_desc));
     pipeline_desc.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipeline_desc.pNext = &fragment_output_desc.rt_info;
+    vk_prepend_struct(&pipeline_desc, &fragment_output_desc.rt_info);
     pipeline_desc.stageCount = graphics->stage_count;
     pipeline_desc.pStages = graphics->stages;
     pipeline_desc.pViewportState = &vp_desc;
@@ -5715,15 +5745,13 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
         TRACE("Compiling pipeline library for %p with flags %#x.\n", state, library_flags);
 
         library_create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_LIBRARY_CREATE_INFO_EXT;
-        /* Explicit cast to silence a constness warning, this seems to be a Vulkan header bug */
-        library_create_info.pNext = (void*)pipeline_desc.pNext;
         library_create_info.flags = library_flags;
 
-        pipeline_desc.pNext = &library_create_info;
         pipeline_desc.flags |= VK_PIPELINE_CREATE_LIBRARY_BIT_KHR |
                 VK_PIPELINE_CREATE_RETAIN_LINK_TIME_OPTIMIZATION_INFO_BIT_EXT;
 
         graphics->library_flags = library_flags;
+        vk_prepend_struct(&pipeline_desc, &library_create_info);
     }
 
     /* A workaround for SottR, which creates pipelines with DSV_UNKNOWN, but still insists on using a depth buffer.
@@ -5781,15 +5809,28 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
 
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_LOG)
     {
+        memset(&feedback_info, 0, sizeof(feedback_info));
         feedback_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATION_FEEDBACK_CREATE_INFO_EXT;
-        feedback_info.pNext = pipeline_desc.pNext;
         feedback_info.pPipelineStageCreationFeedbacks = feedbacks;
         feedback_info.pipelineStageCreationFeedbackCount = pipeline_desc.stageCount;
         feedback_info.pPipelineCreationFeedback = &feedback;
-        pipeline_desc.pNext = &feedback_info;
+
+        vk_prepend_struct(&pipeline_desc, &feedback_info);
     }
     else
         feedback_info.pipelineStageCreationFeedbackCount = 0;
+
+    if (d3d12_pipeline_state_forces_vrs_2x2(state))
+    {
+        memset(&shading_rate_info, 0, sizeof(shading_rate_info));
+        shading_rate_info.sType = VK_STRUCTURE_TYPE_PIPELINE_FRAGMENT_SHADING_RATE_STATE_CREATE_INFO_KHR;
+        shading_rate_info.combinerOps[0] = VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR;
+        shading_rate_info.combinerOps[1] = VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR;
+        shading_rate_info.fragmentSize.width = 2;
+        shading_rate_info.fragmentSize.height = 2;
+
+        vk_prepend_struct(&pipeline_desc, &shading_rate_info);
+    }
 
     vr = VK_CALL(vkCreateGraphicsPipelines(device->vk_device, vk_cache, 1, &pipeline_desc, NULL, &vk_pipeline));
 
