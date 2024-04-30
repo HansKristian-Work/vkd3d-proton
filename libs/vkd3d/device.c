@@ -690,6 +690,17 @@ static const struct vkd3d_shader_quirk_info pagonia_quirks = {
     NULL, 0, VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS,
 };
 
+static const struct vkd3d_shader_quirk_hash ac_mirage_hashes[] = {
+    /* There is a write-after-read hazard.
+     * Index buffer is being read from, and there is a compute shader afterwards
+     * that writes to that index buffer without a barrier. */
+    { 0x0cb130fa374982e3, VKD3D_SHADER_QUIRK_FORCE_PRE_RASTERIZATION_BARRIER },
+};
+
+static const struct vkd3d_shader_quirk_info ac_mirage_quirks = {
+    ac_mirage_hashes, ARRAY_SIZE(ac_mirage_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -711,6 +722,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     { VKD3D_STRING_COMPARE_EXACT, "witcher3.exe", &witcher3_quirks },
     /* Pioneers of Pagonia (2155180) */
     { VKD3D_STRING_COMPARE_EXACT, "Pioneers of Pagonia.exe", &pagonia_quirks },
+    /* AC: Mirage */
+    { VKD3D_STRING_COMPARE_EXACT, "ACMirage.exe", &ac_mirage_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     /* MSVC fails to compile empty array. */
