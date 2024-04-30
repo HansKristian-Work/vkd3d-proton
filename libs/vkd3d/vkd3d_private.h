@@ -2866,6 +2866,7 @@ struct d3d12_command_list
     struct d3d12_pipeline_state *state;
     struct d3d12_state_object *rt_state;
     const struct d3d12_state_object_variant *rt_state_variant;
+    uint32_t current_compute_meta_flags;
 
     struct d3d12_command_allocator *allocator;
     struct d3d12_command_allocator *submit_allocator;
