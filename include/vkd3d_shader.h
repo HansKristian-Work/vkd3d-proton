@@ -76,6 +76,8 @@ enum vkd3d_shader_meta_flags
     VKD3D_SHADER_META_FLAG_EMITS_TRIANGLES = 1 << 15,
     VKD3D_SHADER_META_FLAG_FORCE_COMPUTE_BARRIER_AFTER_DISPATCH = 1 << 16,
     VKD3D_SHADER_META_FLAG_EXPORTS_SAMPLE_MASK = 1 << 17,
+    VKD3D_SHADER_META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH = 1 << 18,
+    VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH = 1 << 19,
 };
 
 struct vkd3d_shader_meta
@@ -430,6 +432,11 @@ enum vkd3d_shader_quirk
 
     /* Range check every descriptor heap access with dynamic index and robustness check it. */
     VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS = (1 << 15),
+
+    /* Requests META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH to be set in shader meta. */
+    VKD3D_SHADER_QUIRK_FORCE_PRE_RASTERIZATION_BARRIER = (1 << 16),
+    /* Requests META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH to be set in shader meta. */
+    VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER = (1 << 17),
 };
 
 struct vkd3d_shader_quirk_hash
