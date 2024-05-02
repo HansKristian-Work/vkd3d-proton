@@ -465,6 +465,7 @@ static ULONG STDMETHODCALLTYPE dxgi_vk_swap_chain_Release(IDXGIVkSwapChain *ifac
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
     struct d3d12_device *device = chain->queue->device;
+    struct d3d12_command_queue *queue = chain->queue;
     UINT refcount;
 
     refcount = InterlockedDecrement(&chain->refcount);
@@ -479,8 +480,8 @@ static ULONG STDMETHODCALLTYPE dxgi_vk_swap_chain_Release(IDXGIVkSwapChain *ifac
         if (device->vk_info.NV_low_latency2)
             d3d12_device_remove_swapchain(device, chain);
 
-        ID3D12CommandQueue_Release(&chain->queue->ID3D12CommandQueue_iface);
         dxgi_vk_swap_chain_decref(chain);
+        ID3D12CommandQueue_Release(&queue->ID3D12CommandQueue_iface);
     }
 
     return refcount;
