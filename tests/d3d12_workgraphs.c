@@ -934,3 +934,102 @@ void test_workgraph_coalesced_input(void)
     ID3D12StateObject_Release(pso);
     destroy_workgraph_test_context(&context);
 }
+
+static void test_workgraph_two_level_broadcast_inner(struct test_context_workgraph *context,
+    ID3D12StateObject *pso)
+{
+    D3D12_WORK_GRAPH_MEMORY_REQUIREMENTS wg_reqs;
+    D3D12_PROGRAM_IDENTIFIER ident;
+    ID3D12Resource *scratch = NULL;
+    struct resource_readback rb;
+    ID3D12Resource *output[2];
+    unsigned i, j, k;
+
+    struct entry_data
+    {
+        uint32_t grid;
+        uint32_t node_idx;
+        uint32_t size;
+        uint32_t offset;
+        uint32_t increment;
+    };
+
+    static const struct entry_data node_data[] = {
+        { 2, 0, 1, 1, 1 },
+        { 2, 1, 1, 3, 2 },
+        { 3, 0, 3, 5, 3 },
+        { 1, 1, 3, 4, 4 },
+    };
+
+    check_work_graph_properties(pso, u"Dummy", u"EntryNode", NULL, sizeof(struct entry_data), &ident, &wg_reqs);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(
+        context->context.list, context->default_root_uav_rs);
+
+    for (i = 0; i < ARRAY_SIZE(output); i++)
+    {
+        output[i] = create_default_buffer(context->context.device, 4 * 1024, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context->context.list, i,
+            ID3D12Resource_GetGPUVirtualAddress(output[i]));
+    }
+
+    execute_workgraph_pso_simple(context, pso, &ident, &wg_reqs, node_data, sizeof(node_data[0]), ARRAY_SIZE(node_data), &scratch);
+
+    for (i = 0; i < ARRAY_SIZE(output); i++)
+    {
+        uint32_t reference_output[1024];
+        memset(reference_output, 0, sizeof(reference_output));
+
+        for (j = 0; j < ARRAY_SIZE(node_data); j++)
+        {
+            if (node_data[j].node_idx != i)
+                continue;
+            for (k = 0; k < node_data[j].size * node_data[j].grid * 64; k++)
+            {
+                assert(k + node_data[j].offset < ARRAY_SIZE(reference_output));
+                reference_output[k + node_data[j].offset] += node_data[j].increment;
+            }
+        }
+
+        transition_resource_state(context->context.list, output[i], D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(output[i], DXGI_FORMAT_R32_UINT, &rb, context->context.queue, context->context.list);
+
+        for (j = 0; j < ARRAY_SIZE(reference_output); j++)
+        {
+            ok(reference_output[j] == get_readback_uint(&rb, j, 0, 0),
+                "Buffer %u[%u] = %u, expected %u\n", i, j, get_readback_uint(&rb, j, 0, 0), reference_output[j]);
+        }
+
+        release_resource_readback(&rb);
+        reset_command_list(context->context.list, context->context.allocator);
+    }
+
+    ID3D12Resource_Release(output[0]);
+    ID3D12Resource_Release(output[1]);
+    ID3D12Resource_Release(scratch);
+}
+
+void test_workgraph_two_level_broadcast(void)
+{
+    struct test_context_workgraph context;
+    ID3D12StateObject *pso[2];
+    unsigned int i;
+
+#include "shaders/workgraph/headers/two_level_broadcast.h"
+#include "shaders/workgraph/headers/two_level_broadcast_node_array.h"
+
+    if (!init_workgraph_test_context(&context))
+        return;
+
+    pso[0] = create_workgraph_pso(&context, two_level_broadcast_dxil, u"Dummy", context.default_root_uav_rs);
+    pso[1] = create_workgraph_pso(&context, two_level_broadcast_node_array_dxil, u"Dummy", context.default_root_uav_rs);
+
+    vkd3d_test_set_context("Broadcast - Node");
+    test_workgraph_two_level_broadcast_inner(&context, pso[0]);
+    vkd3d_test_set_context("Broadcast - NodeArray");
+    test_workgraph_two_level_broadcast_inner(&context, pso[1]);
+
+    for (i = 0; i < ARRAY_SIZE(pso); i++)
+        ID3D12StateObject_Release(pso[i]);
+    destroy_workgraph_test_context(&context);
+}
