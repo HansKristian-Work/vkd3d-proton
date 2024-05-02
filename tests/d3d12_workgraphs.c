@@ -368,6 +368,52 @@ static uint32_t coalesced_input_expected(const struct workgraph_test_desc *desc,
     return 0;
 }
 
+static void execute_workgraph_pso_simple(struct test_context_workgraph *context,
+        ID3D12StateObject *pso, const D3D12_PROGRAM_IDENTIFIER *ident,
+        const D3D12_WORK_GRAPH_MEMORY_REQUIREMENTS *wg_reqs,
+        const void *node_payload, size_t node_payload_stride, size_t node_payload_count,
+        ID3D12Resource **scratch_output)
+{
+    ID3D12Resource *scratch = *scratch_output;
+    D3D12_DISPATCH_GRAPH_DESC dispatch_desc;
+    D3D12_SET_PROGRAM_DESC program_desc;
+
+    if (wg_reqs->MinSizeInBytes)
+    {
+        if (!scratch)
+        {
+            scratch = create_default_buffer(context->context.device, wg_reqs->MinSizeInBytes,
+                D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+        }
+    }
+    else
+        scratch = NULL;
+
+    memset(&program_desc, 0, sizeof(program_desc));
+    program_desc.Type = D3D12_PROGRAM_TYPE_WORK_GRAPH;
+    if (scratch)
+    {
+        program_desc.WorkGraph.BackingMemory.SizeInBytes = wg_reqs->MinSizeInBytes;
+        program_desc.WorkGraph.BackingMemory.StartAddress = ID3D12Resource_GetGPUVirtualAddress(scratch);
+    }
+
+    /* Only needs to be called once after memory has been allocated / clobbered by another graph.
+     * Unclear if SetProgram itself initializes the work graph memory,
+     * or if that is deferred to DispatchGraph time. */
+    program_desc.WorkGraph.Flags = D3D12_SET_WORK_GRAPH_FLAG_INITIALIZE;
+    program_desc.WorkGraph.ProgramIdentifier = *ident;
+    ID3D12GraphicsCommandList10_SetProgram(context->list, &program_desc);
+
+    dispatch_desc.Mode = D3D12_DISPATCH_MODE_NODE_CPU_INPUT;
+    dispatch_desc.NodeCPUInput.EntrypointIndex = 0;
+    dispatch_desc.NodeCPUInput.NumRecords = node_payload_count;
+    dispatch_desc.NodeCPUInput.pRecords = (void *)node_payload;
+    dispatch_desc.NodeCPUInput.RecordStrideInBytes = node_payload_stride;
+
+    ID3D12GraphicsCommandList10_DispatchGraph(context->list, &dispatch_desc);
+    *scratch_output = scratch;
+}
+
 static void execute_workgraph_test(struct test_context_workgraph *context,
         ID3D12StateObject *pso, const D3D12_PROGRAM_IDENTIFIER *ident,
         const D3D12_WORK_GRAPH_MEMORY_REQUIREMENTS *wg_reqs, const struct workgraph_test_desc *desc)
