@@ -1012,12 +1012,13 @@ static void test_workgraph_two_level_broadcast_inner(struct test_context_workgra
 void test_workgraph_two_level_broadcast(void)
 {
     struct test_context_workgraph context;
-    ID3D12StateObject *pso[3];
+    ID3D12StateObject *pso[4];
     unsigned int i;
 
 #include "shaders/workgraph/headers/two_level_broadcast.h"
 #include "shaders/workgraph/headers/two_level_broadcast_node_array.h"
 #include "shaders/workgraph/headers/two_level_thread.h"
+#include "shaders/workgraph/headers/two_level_thread_node_array.h"
 
     if (!init_workgraph_test_context(&context))
         return;
@@ -1025,6 +1026,7 @@ void test_workgraph_two_level_broadcast(void)
     pso[0] = create_workgraph_pso(&context, two_level_broadcast_dxil, u"Dummy", context.default_root_uav_rs);
     pso[1] = create_workgraph_pso(&context, two_level_broadcast_node_array_dxil, u"Dummy", context.default_root_uav_rs);
     pso[2] = create_workgraph_pso(&context, two_level_thread_dxil, u"Dummy", context.default_root_uav_rs);
+    pso[3] = create_workgraph_pso(&context, two_level_thread_node_array_dxil, u"Dummy", context.default_root_uav_rs);
 
     vkd3d_test_set_context("Broadcast - Node");
     test_workgraph_two_level_broadcast_inner(&context, pso[0]);
@@ -1032,6 +1034,8 @@ void test_workgraph_two_level_broadcast(void)
     test_workgraph_two_level_broadcast_inner(&context, pso[1]);
     vkd3d_test_set_context("Thread - Node");
     test_workgraph_two_level_broadcast_inner(&context, pso[2]);
+    vkd3d_test_set_context("Thread - NodeArray");
+    test_workgraph_two_level_broadcast_inner(&context, pso[3]);
 
     for (i = 0; i < ARRAY_SIZE(pso); i++)
         ID3D12StateObject_Release(pso[i]);
