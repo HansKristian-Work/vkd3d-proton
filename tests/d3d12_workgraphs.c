@@ -47,7 +47,7 @@ static bool init_workgraph_test_context(struct test_context_workgraph *context)
 {
     D3D12_FEATURE_DATA_D3D12_OPTIONS21 options21;
     D3D12_ROOT_SIGNATURE_DESC rs_desc;
-    D3D12_ROOT_PARAMETER rs_param;
+    D3D12_ROOT_PARAMETER rs_param[2];
 
     if (!init_compute_test_context(&context->context))
         return false;
@@ -70,11 +70,14 @@ static bool init_workgraph_test_context(struct test_context_workgraph *context)
     }
 
     memset(&rs_desc, 0, sizeof(rs_desc));
-    memset(&rs_param, 0, sizeof(rs_param));
-    rs_desc.NumParameters = 1;
-    rs_desc.pParameters = &rs_param;
-    rs_param.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    rs_param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    memset(rs_param, 0, sizeof(rs_param));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_param);
+    rs_desc.pParameters = rs_param;
+    rs_param[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rs_param[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    rs_param[1].Descriptor.ShaderRegister = 1;
     create_root_signature(context->context.device, &rs_desc, &context->default_root_uav_rs);
 
     ID3D12Device_QueryInterface(context->context.device, &IID_ID3D12Device5, (void **)&context->device);
