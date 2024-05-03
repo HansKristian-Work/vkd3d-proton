@@ -4213,7 +4213,7 @@ void test_shader_io_mismatch(void)
         { NULL, &vs_mismatch_dxbc, NULL, NULL, NULL, &ps_mismatch_min16float_dxbc, false, false },
     };
 
-    static const uint32_t so_strides[] = { 64, 64 };
+    VKD3D_UNUSED static const uint32_t so_strides[] = { 64, 64 };
 
     static const D3D12_SO_DECLARATION_ENTRY so_basic[] =
     {
@@ -4228,7 +4228,7 @@ void test_shader_io_mismatch(void)
         { 1, "ARG", 1, 0, 2, 1 },
     };
 
-    static const struct
+    VKD3D_UNUSED static const struct
     {
         const D3D12_SHADER_BYTECODE *vs;
         const D3D12_SHADER_BYTECODE *gs;
