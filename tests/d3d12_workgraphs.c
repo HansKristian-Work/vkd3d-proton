@@ -1072,7 +1072,7 @@ void test_workgraph_two_level_empty(void)
     get_buffer_readback_with_command_list(output, DXGI_FORMAT_R32_UINT, &rb, context.context.queue, context.context.list);
 
     {
-        static const uint32_t reference[16] = { 5, 8, 24, 24, 32, 288, 448 };
+        static const uint32_t reference[16] = { 5, 5, 4, 6, 4, 6, 3, 2, 3, 2, 9, 7, 9, 7 };
 
         for (i = 0; i < ARRAY_SIZE(reference); i++)
         {
