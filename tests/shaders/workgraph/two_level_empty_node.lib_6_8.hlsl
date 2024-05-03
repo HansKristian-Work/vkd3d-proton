@@ -3,20 +3,33 @@ RWStructuredBuffer<uint> RWBuf : register(u0);
 [Shader("node")]
 [NodeLaunch("thread")]
 void EntryNode(
+		// Cannot mix launch mode within an array (phew).
 		[MaxRecords(16)] [NodeID("A")] EmptyNodeOutput a,
-		[MaxRecords(16)] [NodeArraySize(2)] [NodeID("B")] EmptyNodeOutputArray b,
-		[MaxRecords(16)] [NodeArraySize(4)] [AllowSparseNodes] [NodeID("C")] EmptyNodeOutputArray c,
-		[MaxRecords(16)] [UnboundedSparseNodes] [AllowSparseNodes] [NodeID("D")] EmptyNodeOutputArray d)
+		[MaxRecords(16)] [NodeID("B")] EmptyNodeOutput b,
+		[MaxRecords(16)] [NodeArraySize(2)] [NodeID("C")] EmptyNodeOutputArray c,
+		[MaxRecords(16)] [NodeArraySize(2)] [NodeID("D")] EmptyNodeOutputArray d,
+		[MaxRecords(16)] [NodeArraySize(4)] [AllowSparseNodes] [NodeID("E")] EmptyNodeOutputArray e,
+		[MaxRecords(16)] [NodeArraySize(4)] [AllowSparseNodes] [NodeID("F")] EmptyNodeOutputArray f,
+		[MaxRecords(16)] [UnboundedSparseNodes] [AllowSparseNodes] [NodeID("G")] EmptyNodeOutputArray g,
+		[MaxRecords(16)] [UnboundedSparseNodes] [AllowSparseNodes] [NodeID("H")] EmptyNodeOutputArray h)
 {
 	a.ThreadIncrementOutputCount(5);
-	b[0].ThreadIncrementOutputCount(4);
-	b[1].ThreadIncrementOutputCount(6);
-	c[1].ThreadIncrementOutputCount(3);
-	c[3].ThreadIncrementOutputCount(2);
-	d[7].ThreadIncrementOutputCount(9);
-	d[8].ThreadIncrementOutputCount(7);
+	b.ThreadIncrementOutputCount(5);
+	c[0].ThreadIncrementOutputCount(4);
+	c[1].ThreadIncrementOutputCount(6);
+	d[0].ThreadIncrementOutputCount(4);
+	d[1].ThreadIncrementOutputCount(6);
+	e[1].ThreadIncrementOutputCount(3);
+	e[3].ThreadIncrementOutputCount(2);
+	f[1].ThreadIncrementOutputCount(3);
+	f[3].ThreadIncrementOutputCount(2);
+	g[7].ThreadIncrementOutputCount(9);
+	g[8].ThreadIncrementOutputCount(7);
+	h[7].ThreadIncrementOutputCount(9);
+	h[8].ThreadIncrementOutputCount(7);
 }
 
+// Plain node
 [Shader("node")]
 [NodeLaunch("thread")]
 void A()
@@ -26,22 +39,27 @@ void A()
 }
 
 [Shader("node")]
-[NodeLaunch("thread")]
-[NodeID("B", 0)]
-void B0()
+[NodeLaunch("coalescing")]
+[NumThreads(4, 1, 1)]
+void B(EmptyNodeInput i, uint thr : SV_GroupIndex)
 {
-	uint o;
-	InterlockedAdd(RWBuf[1], 2, o);
+	if (thr < i.Count())
+	{
+		uint o;
+		InterlockedAdd(RWBuf[1], 1, o);
+	}
 }
 
+// Dense array node
 [Shader("node")]
 [NodeLaunch("thread")]
-[NodeID("B", 1)]
-void B1()
+[NodeID("C", 0)]
+void C0()
 {
 	uint o;
-	InterlockedAdd(RWBuf[2], 4, o);
+	InterlockedAdd(RWBuf[2], 1, o);
 }
+
 
 [Shader("node")]
 [NodeLaunch("thread")]
@@ -49,33 +67,123 @@ void B1()
 void C1()
 {
 	uint o;
-	InterlockedAdd(RWBuf[3], 8, o);
+	InterlockedAdd(RWBuf[3], 1, o);
+}
+
+[Shader("node")]
+[NodeLaunch("coalescing")]
+[NumThreads(4, 1, 1)]
+[NodeID("D", 0)]
+void D0(EmptyNodeInput i, uint thr : SV_GroupIndex)
+{
+	if (thr < i.Count())
+	{
+		uint o;
+		InterlockedAdd(RWBuf[4], 1, o);
+	}
+}
+
+[Shader("node")]
+[NodeLaunch("coalescing")]
+[NumThreads(4, 1, 1)]
+[NodeID("D", 1)]
+void D1(EmptyNodeInput i, uint thr : SV_GroupIndex)
+{
+	if (thr < i.Count())
+	{
+		uint o;
+		InterlockedAdd(RWBuf[5], 1, o);
+	}
+}
+
+// Sparse array node
+[Shader("node")]
+[NodeLaunch("thread")]
+[NodeID("E", 1)]
+void E0()
+{
+	uint o;
+	InterlockedAdd(RWBuf[6], 1, o);
 }
 
 [Shader("node")]
 [NodeLaunch("thread")]
-[NodeID("C", 3)]
-void C3()
+[NodeID("E", 3)]
+void E1()
 {
 	uint o;
-	InterlockedAdd(RWBuf[4], 16, o);
+	InterlockedAdd(RWBuf[7], 1, o);
+}
+
+[Shader("node")]
+[NodeLaunch("coalescing")]
+[NumThreads(4, 1, 1)]
+[NodeID("F", 1)]
+void F0(EmptyNodeInput i, uint thr : SV_GroupIndex)
+{
+	if (thr < i.Count())
+	{
+		uint o;
+		InterlockedAdd(RWBuf[8], 1, o);
+	}
+}
+
+[Shader("node")]
+[NodeLaunch("coalescing")]
+[NumThreads(4, 1, 1)]
+[NodeID("F", 3)]
+void F1(EmptyNodeInput i, uint thr : SV_GroupIndex)
+{
+	if (thr < i.Count())
+	{
+		uint o;
+		InterlockedAdd(RWBuf[9], 1, o);
+	}
+}
+
+// Unbounded sparse
+[Shader("node")]
+[NodeLaunch("thread")]
+[NodeID("G", 7)]
+void G0()
+{
+	uint o;
+	InterlockedAdd(RWBuf[10], 1, o);
 }
 
 [Shader("node")]
 [NodeLaunch("thread")]
-[NodeID("D", 7)]
-void D7()
+[NodeID("G", 8)]
+void G1()
 {
 	uint o;
-	InterlockedAdd(RWBuf[5], 32, o);
+	InterlockedAdd(RWBuf[11], 1, o);
 }
 
 [Shader("node")]
-[NodeLaunch("thread")]
-[NodeID("D", 8)]
-void D8()
+[NodeLaunch("coalescing")]
+[NumThreads(4, 1, 1)]
+[NodeID("H", 7)]
+void H0(EmptyNodeInput i, uint thr : SV_GroupIndex)
 {
-	uint o;
-	InterlockedAdd(RWBuf[6], 64, o);
+	if (thr < i.Count())
+	{
+		uint o;
+		InterlockedAdd(RWBuf[12], 1, o);
+	}
 }
+
+[Shader("node")]
+[NodeLaunch("coalescing")]
+[NumThreads(4, 1, 1)]
+[NodeID("H", 8)]
+void H1(EmptyNodeInput i, uint thr : SV_GroupIndex)
+{
+	if (thr < i.Count())
+	{
+		uint o;
+		InterlockedAdd(RWBuf[13], 1, o);
+	}
+}
+
 
