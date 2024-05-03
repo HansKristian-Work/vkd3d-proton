@@ -416,3 +416,4 @@ decl_test(test_workgraph_two_level_broadcast);
 decl_test(test_workgraph_two_level_empty);
 decl_test(test_workgraph_basic_recursion);
 decl_test(test_workgraph_cross_group_sharing);
+decl_test(test_workgraph_shared_inputs);
