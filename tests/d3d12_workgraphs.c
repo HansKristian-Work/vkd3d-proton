@@ -1087,3 +1087,49 @@ void test_workgraph_two_level_empty(void)
     ID3D12StateObject_Release(pso);
     destroy_workgraph_test_context(&context);
 }
+
+void test_workgraph_basic_recursion(void)
+{
+    D3D12_WORK_GRAPH_MEMORY_REQUIREMENTS wg_reqs;
+    struct test_context_workgraph context;
+    D3D12_PROGRAM_IDENTIFIER ident;
+    ID3D12Resource *scratch = NULL;
+    struct resource_readback rb;
+    ID3D12StateObject *pso;
+    ID3D12Resource *output;
+    unsigned i;
+
+#include "shaders/workgraph/headers/basic_recursion.h"
+
+    if (!init_workgraph_test_context(&context))
+        return;
+
+    pso = create_workgraph_pso(&context, basic_recursion_dxil, u"Dummy", context.default_root_uav_rs);
+
+    check_work_graph_properties(pso, u"Dummy", u"EntryNode", NULL, 0, &ident, &wg_reqs);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.context.list, context.default_root_uav_rs);
+    output = create_default_buffer(context.context.device, 4 * 1024, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output));
+
+    execute_workgraph_pso_simple(&context, pso, &ident, &wg_reqs, NULL, 0, 1, &scratch);
+
+    transition_resource_state(context.context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_R32_UINT, &rb, context.context.queue, context.context.list);
+
+    {
+        static const uint32_t reference[64] = { 0, 7, 13, 17, 25, 34, 46, 59, 71, 76, 68, 47, 23, 7, 1 };
+
+        for (i = 0; i < ARRAY_SIZE(reference); i++)
+        {
+            uint32_t value = get_readback_uint(&rb, i, 0, 0);
+            ok(value == reference[i], "Value %u: expected %u, got %u.\n", i, reference[i], value);
+        }
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(scratch);
+    ID3D12Resource_Release(output);
+    ID3D12StateObject_Release(pso);
+    destroy_workgraph_test_context(&context);
+}

@@ -414,3 +414,4 @@ decl_test(test_workgraph_thread_input);
 decl_test(test_workgraph_coalesced_input);
 decl_test(test_workgraph_two_level_broadcast);
 decl_test(test_workgraph_two_level_empty);
+decl_test(test_workgraph_basic_recursion);
