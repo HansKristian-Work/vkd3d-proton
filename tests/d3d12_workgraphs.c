@@ -1229,3 +1229,65 @@ void test_workgraph_shared_inputs(void)
     ID3D12StateObject_Release(pso);
     destroy_workgraph_test_context(&context);
 }
+
+void test_workgraph_local_root_signature(void)
+{
+    D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE local_table;
+    D3D12_WORK_GRAPH_MEMORY_REQUIREMENTS wg_reqs;
+    struct test_context_workgraph context;
+    D3D12_PROGRAM_IDENTIFIER ident;
+    ID3D12Resource *scratch = NULL;
+    struct resource_readback rb;
+    ID3D12StateObject *pso;
+    ID3D12Resource *output;
+    ID3D12Resource *local;
+
+#include "shaders/workgraph/headers/local_root_signature.h"
+
+    struct
+    {
+        D3D12_GPU_VIRTUAL_ADDRESS va;
+        uint32_t const0;
+        uint32_t const1;
+    } local_data[] = {
+        { 0, 30, 20 },
+        { 0, 40, 50 },
+    };
+
+    if (!init_workgraph_test_context(&context))
+        return;
+
+    pso = create_workgraph_pso(&context, local_root_signature_dxil, u"Dummy", context.default_root_uav_rs);
+
+    check_work_graph_properties(pso, u"Dummy", u"EntryNode", NULL, 0, &ident, &wg_reqs);
+
+    ID3D12GraphicsCommandList_SetComputeRootSignature(context.context.list, context.default_root_uav_rs);
+    output = create_default_buffer(context.context.device, 4 * 1024, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+    ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output));
+
+    local_data[0].va = ID3D12Resource_GetGPUVirtualAddress(output);
+    local_data[1].va = local_data[0].va;
+    local = create_upload_buffer(context.context.device, sizeof(local_data), local_data);
+
+    local_table.StartAddress = ID3D12Resource_GetGPUVirtualAddress(local);
+    local_table.StrideInBytes = sizeof(local_data[0]);
+    local_table.SizeInBytes = sizeof(local_data);
+    execute_workgraph_pso_simple(&context, pso, &ident, &wg_reqs, NULL, 0, 1, &local_table, &scratch);
+
+    transition_resource_state(context.context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    get_buffer_readback_with_command_list(output, DXGI_FORMAT_R32_UINT, &rb, context.context.queue, context.context.list);
+
+    {
+        uint32_t value0 = get_readback_uint(&rb, local_data[0].const0, 0, 0);
+        uint32_t value1 = get_readback_uint(&rb, local_data[1].const1, 0, 0);
+        ok(value0 == local_data[0].const1 * 30, "Expected %u, got %u\n", local_data[0].const1 * 30, value0);
+        ok(value1 == local_data[1].const0 * 60, "Expected %u, got %u\n", local_data[1].const0 * 60, value1);
+    }
+
+    release_resource_readback(&rb);
+    ID3D12Resource_Release(scratch);
+    ID3D12Resource_Release(output);
+    ID3D12Resource_Release(local);
+    ID3D12StateObject_Release(pso);
+    destroy_workgraph_test_context(&context);
+}
