@@ -372,6 +372,7 @@ static void execute_workgraph_pso_simple(struct test_context_workgraph *context,
         ID3D12StateObject *pso, const D3D12_PROGRAM_IDENTIFIER *ident,
         const D3D12_WORK_GRAPH_MEMORY_REQUIREMENTS *wg_reqs,
         const void *node_payload, size_t node_payload_stride, size_t node_payload_count,
+        const D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE *local_root_table,
         ID3D12Resource **scratch_output)
 {
     ID3D12Resource *scratch = *scratch_output;
@@ -396,6 +397,9 @@ static void execute_workgraph_pso_simple(struct test_context_workgraph *context,
         program_desc.WorkGraph.BackingMemory.SizeInBytes = wg_reqs->MinSizeInBytes;
         program_desc.WorkGraph.BackingMemory.StartAddress = ID3D12Resource_GetGPUVirtualAddress(scratch);
     }
+
+    if (local_root_table)
+        program_desc.WorkGraph.NodeLocalRootArgumentsTable = *local_root_table;
 
     /* Only needs to be called once after memory has been allocated / clobbered by another graph.
      * Unclear if SetProgram itself initializes the work graph memory,
@@ -973,7 +977,7 @@ static void test_workgraph_two_level_broadcast_inner(struct test_context_workgra
             ID3D12Resource_GetGPUVirtualAddress(output[i]));
     }
 
-    execute_workgraph_pso_simple(context, pso, &ident, &wg_reqs, node_data, sizeof(node_data[0]), ARRAY_SIZE(node_data), &scratch);
+    execute_workgraph_pso_simple(context, pso, &ident, &wg_reqs, node_data, sizeof(node_data[0]), ARRAY_SIZE(node_data), NULL, &scratch);
 
     for (i = 0; i < ARRAY_SIZE(output); i++)
     {
@@ -1066,7 +1070,7 @@ void test_workgraph_two_level_empty(void)
     output = create_default_buffer(context.context.device, 4 * 1024, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
     ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output));
 
-    execute_workgraph_pso_simple(&context, pso, &ident, &wg_reqs, NULL, 0, 1, &scratch);
+    execute_workgraph_pso_simple(&context, pso, &ident, &wg_reqs, NULL, 0, 1, NULL, &scratch);
 
     transition_resource_state(context.context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_buffer_readback_with_command_list(output, DXGI_FORMAT_R32_UINT, &rb, context.context.queue, context.context.list);
@@ -1112,7 +1116,7 @@ void test_workgraph_basic_recursion(void)
     output = create_default_buffer(context.context.device, 4 * 1024, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
     ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output));
 
-    execute_workgraph_pso_simple(&context, pso, &ident, &wg_reqs, NULL, 0, 1, &scratch);
+    execute_workgraph_pso_simple(&context, pso, &ident, &wg_reqs, NULL, 0, 1, NULL, &scratch);
 
     transition_resource_state(context.context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_buffer_readback_with_command_list(output, DXGI_FORMAT_R32_UINT, &rb, context.context.queue, context.context.list);
@@ -1158,7 +1162,7 @@ void test_workgraph_cross_group_sharing(void)
     output = create_default_buffer(context.context.device, 4 * 1024, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
     ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output));
 
-    execute_workgraph_pso_simple(&context, pso, &ident, &wg_reqs, NULL, 0, 1, &scratch);
+    execute_workgraph_pso_simple(&context, pso, &ident, &wg_reqs, NULL, 0, 1, NULL, &scratch);
 
     transition_resource_state(context.context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_buffer_readback_with_command_list(output, DXGI_FORMAT_R32_UINT, &rb, context.context.queue, context.context.list);
@@ -1204,7 +1208,7 @@ void test_workgraph_shared_inputs(void)
     output = create_default_buffer(context.context.device, 4 * 1024, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
     ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.context.list, 0, ID3D12Resource_GetGPUVirtualAddress(output));
 
-    execute_workgraph_pso_simple(&context, pso, &ident, &wg_reqs, NULL, 0, 1, &scratch);
+    execute_workgraph_pso_simple(&context, pso, &ident, &wg_reqs, NULL, 0, 1, NULL, &scratch);
 
     transition_resource_state(context.context.list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     get_buffer_readback_with_command_list(output, DXGI_FORMAT_R32_UINT, &rb, context.context.queue, context.context.list);
