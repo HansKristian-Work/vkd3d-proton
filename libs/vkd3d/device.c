@@ -926,6 +926,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"disable_depth_compression", VKD3D_CONFIG_FLAG_DISABLE_DEPTH_COMPRESSION},
     {"disable_color_compression", VKD3D_CONFIG_FLAG_DISABLE_COLOR_COMPRESSION},
     {"app_debug_marker_only", VKD3D_CONFIG_FLAG_APP_DEBUG_MARKER_ONLY},
+    {"no_ssbo_alignment", VKD3D_CONFIG_FLAG_FORCE_NO_SSBO_ALIGNMENT},
 };
 
 static void vkd3d_config_flags_init_once(void)
@@ -1419,7 +1420,8 @@ static void vkd3d_physical_device_info_apply_workarounds(struct vkd3d_physical_d
      * use vectorized load-stores. When we emit vectorized load-store ops,
      * the storage buffer must be aligned properly, so this is fine in practice
      * and is a nice speed boost. */
-    if (info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
+    if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_NO_SSBO_ALIGNMENT) &&
+            info->vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY)
         info->properties2.properties.limits.minStorageBufferOffsetAlignment = 4;
 
     /* UE5 is broken and assumes that if mesh shaders are supported, barycentrics are also supported.
