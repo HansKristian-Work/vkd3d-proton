@@ -1645,11 +1645,16 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
         VkBufferUsageFlags explicit_global_buffer_usage,
         struct vkd3d_memory_allocation *allocation)
 {
-    const D3D12_HEAP_FLAGS heap_flag_mask = ~(D3D12_HEAP_FLAG_CREATE_NOT_ZEROED | D3D12_HEAP_FLAG_CREATE_NOT_RESIDENT);
+    const D3D12_HEAP_FLAGS heap_flag_mask = ~(D3D12_HEAP_FLAG_CREATE_NOT_ZEROED |
+            D3D12_HEAP_FLAG_CREATE_NOT_RESIDENT |
+            D3D12_HEAP_FLAG_ALLOW_SHADER_ATOMICS |
+            D3D12_HEAP_FLAG_ALLOW_DISPLAY);
+
     struct vkd3d_memory_chunk *chunk;
     HRESULT hr;
     size_t i;
 
+    heap_flags &= heap_flag_mask;
     type_mask &= memory_requirements->memoryTypeBits;
 
     for (i = 0; i < allocator->chunks_count; i++)
@@ -1660,7 +1665,7 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
          * may not support our required usage flags */
         if (chunk->allocation.heap_type != heap_properties->Type ||
                 chunk->allocation.explicit_global_buffer_usage != explicit_global_buffer_usage ||
-                chunk->allocation.heap_flags != (heap_flags & heap_flag_mask))
+                chunk->allocation.heap_flags != heap_flags)
             continue;
 
         /* Filter out unsupported memory types */
@@ -1674,7 +1679,7 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
     /* Try allocating a new chunk on one of the supported memory type
      * before the caller falls back to potentially slower memory */
     if (FAILED(hr = vkd3d_memory_allocator_try_add_chunk(allocator, device, heap_properties,
-            heap_flags & heap_flag_mask, type_mask, optional_properties,
+            heap_flags, type_mask, optional_properties,
             explicit_global_buffer_usage, &chunk)))
         return hr;
 
