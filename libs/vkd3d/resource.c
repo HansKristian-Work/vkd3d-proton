@@ -3461,7 +3461,6 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         VkImageMemoryRequirementsInfo2 image_info;
         VkMemoryRequirements2 memory_requirements;
         VkBindImageMemoryInfo bind_info;
-        bool use_dedicated_allocation;
         VkResult vr;
 
 #ifdef _WIN32
@@ -3476,8 +3475,8 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         image_info.pNext = NULL;
         image_info.image = object->res.vk_image;
 
+        memset(&dedicated_requirements, 0, sizeof(dedicated_requirements));
         dedicated_requirements.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS;
-        dedicated_requirements.pNext = NULL;
 
         memory_requirements.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
         memory_requirements.pNext = &dedicated_requirements;
@@ -3504,13 +3503,6 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         if (vkd3d_allocate_image_memory_prefers_dedicated(device, heap_flags, &allocate_info.memory_requirements))
             dedicated_requirements.prefersDedicatedAllocation = VK_TRUE;
 
-        if (!(use_dedicated_allocation = dedicated_requirements.prefersDedicatedAllocation))
-        {
-            const uint32_t type_mask = memory_requirements.memoryRequirements.memoryTypeBits;
-            const struct vkd3d_memory_info_domain *domain = d3d12_device_get_memory_info_domain(device, &allocate_info.heap_properties);
-            use_dedicated_allocation = (type_mask & domain->buffer_type_mask) != type_mask;
-        }
-
         if (desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
             allocate_info.heap_flags |= D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES;
         else
@@ -3521,7 +3513,7 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         if (heap_flags & D3D12_HEAP_FLAG_SHARED)
         {
 #ifdef _WIN32
-            use_dedicated_allocation = true;
+            dedicated_requirements.prefersDedicatedAllocation = VK_TRUE;
 
             if (shared_handle && shared_handle != INVALID_HANDLE_VALUE)
             {
@@ -3544,7 +3536,8 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
 #endif
         }
 
-        if (use_dedicated_allocation)
+        /* Requires implies that prefers is also set by spec. */
+        if (dedicated_requirements.prefersDedicatedAllocation)
         {
             dedicated_info.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
             dedicated_info.pNext = allocate_info.pNext;
@@ -3557,8 +3550,8 @@ HRESULT d3d12_resource_create_committed(struct d3d12_device *device, const D3D12
         {
             /* We want to allow suballocations and we need the allocation to
              * be cleared to zero, which only works if we allow buffers */
-            allocate_info.heap_flags &= ~D3D12_HEAP_FLAG_DENY_BUFFERS;
-            allocate_info.flags = VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER;
+            allocate_info.flags = VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER |
+                    VKD3D_ALLOCATION_FLAG_ALLOW_IMAGE_SUBALLOCATION;
 
             /* For suballocations, we only care about being able to clear the memory,
              * not anything else. */

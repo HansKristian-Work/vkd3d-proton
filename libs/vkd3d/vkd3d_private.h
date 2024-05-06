@@ -670,9 +670,12 @@ enum vkd3d_allocation_flag
      * They are never suballocated since we do that ourselves,
      * and we do not consume space in the VA map. */
     VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH  = (1u << 6),
+    VKD3D_ALLOCATION_FLAG_ALLOW_IMAGE_SUBALLOCATION  = (1u << 7),
 };
 
 #define VKD3D_MEMORY_CHUNK_SIZE (VKD3D_VA_BLOCK_SIZE * 8)
+#define VKD3D_MEMORY_IMAGE_HEAP_SUBALLOCATE_THRESHOLD (8 * 1024 * 1024)
+#define VKD3D_MEMORY_LARGE_CHUNK_SIZE (VKD3D_MEMORY_IMAGE_HEAP_SUBALLOCATE_THRESHOLD * 4)
 
 struct vkd3d_memory_chunk;
 
@@ -742,7 +745,6 @@ struct vkd3d_memory_allocation
     void *cpu_address;
 
     D3D12_HEAP_TYPE heap_type;
-    D3D12_HEAP_FLAGS heap_flags;
     uint32_t flags;
     VkBufferUsageFlags explicit_global_buffer_usage;
 
