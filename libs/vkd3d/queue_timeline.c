@@ -490,6 +490,14 @@ static void vkd3d_queue_timeline_trace_flush_instantaneous(struct vkd3d_queue_ti
                     generic_pid = "heap allocate";
                     break;
 
+                case VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_VK_ALLOCATE_MEMORY:
+                    generic_pid = "vkAllocateMemory";
+                    break;
+
+                case VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_CLEAR_ALLOCATION:
+                    generic_pid = "clear allocation";
+                    break;
+
                 case VKD3D_QUEUE_TIMELINE_TRACE_STATE_TYPE_COMMAND_ALLOCATOR_RESET:
                     generic_pid = "command allocator reset";
                     break;
