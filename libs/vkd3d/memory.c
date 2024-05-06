@@ -1862,6 +1862,16 @@ HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_mem
     }
 
     hr = vkd3d_allocate_memory(device, allocator, &alloc_info, allocation);
+
+    if (SUCCEEDED(hr) && (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) && !allocation->chunk)
+    {
+        char name_buffer[1024];
+        snprintf(name_buffer, sizeof(name_buffer), "Heap (cookie %"PRIu64")",
+                allocation->resource.cookie);
+        vkd3d_set_vk_object_name(device, (uint64_t)allocation->device_allocation.vk_memory,
+                VK_OBJECT_TYPE_DEVICE_MEMORY, name_buffer);
+    }
+
     if (hr == E_OUTOFMEMORY && vkd3d_heap_allocation_accept_deferred_resource_placements(device,
             &info->heap_desc.Properties, info->heap_desc.Flags))
     {
@@ -1869,15 +1879,6 @@ HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_mem
          * Defer allocation until CreatePlacedResource(). */
         memset(allocation, 0, sizeof(*allocation));
         hr = S_OK;
-    }
-
-    if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) && !allocation->chunk)
-    {
-        char name_buffer[1024];
-        snprintf(name_buffer, sizeof(name_buffer), "Heap (cookie %"PRIu64")",
-                allocation->resource.cookie);
-        vkd3d_set_vk_object_name(device, (uint64_t)allocation->device_allocation.vk_memory,
-                VK_OBJECT_TYPE_DEVICE_MEMORY, name_buffer);
     }
 
     return hr;
