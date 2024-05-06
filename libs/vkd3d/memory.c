@@ -626,6 +626,24 @@ static uint32_t vkd3d_find_memory_types_with_flags(struct d3d12_device *device, 
     return mask;
 }
 
+static D3D12_HEAP_TYPE vkd3d_normalize_heap_type(const D3D12_HEAP_PROPERTIES *heap_properties)
+{
+    if (heap_properties->Type != D3D12_HEAP_TYPE_CUSTOM)
+        return heap_properties->Type;
+
+    switch (heap_properties->CPUPageProperty)
+    {
+        case D3D12_CPU_PAGE_PROPERTY_WRITE_BACK:
+            return D3D12_HEAP_TYPE_READBACK;
+        case D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE:
+            return D3D12_HEAP_TYPE_UPLOAD;
+        default:
+            break;
+    }
+
+    return D3D12_HEAP_TYPE_DEFAULT;
+}
+
 static HRESULT vkd3d_select_memory_flags(struct d3d12_device *device, const D3D12_HEAP_PROPERTIES *heap_properties, VkMemoryPropertyFlags *type_flags)
 {
     HRESULT hr;
@@ -1138,8 +1156,7 @@ static HRESULT vkd3d_memory_allocation_init(struct vkd3d_memory_allocation *allo
     TRACE("allocation %p, device %p, allocator %p, info %p.\n", allocation, device, allocator, info);
 
     memset(allocation, 0, sizeof(*allocation));
-    allocation->heap_type = info->heap_properties.Type;
-    allocation->heap_flags = info->heap_flags;
+    allocation->heap_type = vkd3d_normalize_heap_type(&info->heap_properties);
     allocation->flags = info->flags;
     allocation->explicit_global_buffer_usage = info->explicit_global_buffer_usage;
 
@@ -1602,6 +1619,7 @@ static HRESULT vkd3d_memory_allocator_try_add_chunk(struct vkd3d_memory_allocato
         const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags, uint32_t type_mask,
         VkMemoryPropertyFlags optional_properties,
         VkBufferUsageFlags explicit_global_buffer_usage,
+        VkDeviceSize minimum_size,
         struct vkd3d_memory_chunk **chunk)
 {
     struct vkd3d_allocate_memory_info alloc_info;
@@ -1609,7 +1627,6 @@ static HRESULT vkd3d_memory_allocator_try_add_chunk(struct vkd3d_memory_allocato
     HRESULT hr;
 
     memset(&alloc_info, 0, sizeof(alloc_info));
-    alloc_info.memory_requirements.size = VKD3D_MEMORY_CHUNK_SIZE;
     alloc_info.memory_requirements.alignment = 0;
     alloc_info.memory_requirements.memoryTypeBits = type_mask;
     alloc_info.heap_properties = *heap_properties;
@@ -1618,8 +1635,16 @@ static HRESULT vkd3d_memory_allocator_try_add_chunk(struct vkd3d_memory_allocato
     alloc_info.optional_memory_properties = optional_properties;
     alloc_info.vk_memory_priority = vkd3d_convert_to_vk_prio(D3D12_RESIDENCY_PRIORITY_NORMAL);
 
-    if (!(heap_flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
+    if (minimum_size < VKD3D_VA_BLOCK_SIZE)
+        alloc_info.memory_requirements.size = VKD3D_MEMORY_CHUNK_SIZE;
+    else
+        alloc_info.memory_requirements.size = VKD3D_MEMORY_LARGE_CHUNK_SIZE;
+
+    if (!(heap_flags & D3D12_HEAP_FLAG_DENY_BUFFERS) ||
+            device->d3d12_caps.options.ResourceHeapTier >= D3D12_RESOURCE_HEAP_TIER_2)
     {
+        /* We always want GLOBAL buffer for suballocation, but the usage changes depending
+         * on whether or not this is a buffer heap or not. */
         alloc_info.flags |= VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER;
         alloc_info.explicit_global_buffer_usage = explicit_global_buffer_usage;
     }
@@ -1650,22 +1675,25 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
             D3D12_HEAP_FLAG_ALLOW_SHADER_ATOMICS |
             D3D12_HEAP_FLAG_ALLOW_DISPLAY);
 
+    D3D12_HEAP_TYPE normalized_heap_type;
     struct vkd3d_memory_chunk *chunk;
     HRESULT hr;
     size_t i;
 
     heap_flags &= heap_flag_mask;
     type_mask &= memory_requirements->memoryTypeBits;
+    normalized_heap_type = vkd3d_normalize_heap_type(heap_properties);
 
     for (i = 0; i < allocator->chunks_count; i++)
     {
         chunk = allocator->chunks[i];
 
-        /* Match flags since otherwise the backing buffer
-         * may not support our required usage flags */
-        if (chunk->allocation.heap_type != heap_properties->Type ||
-                chunk->allocation.explicit_global_buffer_usage != explicit_global_buffer_usage ||
-                chunk->allocation.heap_flags != heap_flags)
+        /* Match heap type so that we know we get the appropriate memory property flags.
+         * These types are normalized, so that different CUSTOM heaps will be considered to be different heap types.
+         * Beyond that, there's just a distinction which explicit global buffer usage we have.
+         * In practice, we're toggling between BUFFER heaps and non-BUFFER heaps here. */
+        if (chunk->allocation.heap_type != normalized_heap_type ||
+                chunk->allocation.explicit_global_buffer_usage != explicit_global_buffer_usage)
             continue;
 
         /* Filter out unsupported memory types */
@@ -1680,7 +1708,7 @@ static HRESULT vkd3d_memory_allocator_try_suballocate_memory(struct vkd3d_memory
      * before the caller falls back to potentially slower memory */
     if (FAILED(hr = vkd3d_memory_allocator_try_add_chunk(allocator, device, heap_properties,
             heap_flags, type_mask, optional_properties,
-            explicit_global_buffer_usage, &chunk)))
+            explicit_global_buffer_usage, memory_requirements->size, &chunk)))
         return hr;
 
     return vkd3d_memory_chunk_allocate_range(chunk, memory_requirements, allocation);
@@ -1764,6 +1792,13 @@ bool vkd3d_allocate_image_memory_prefers_dedicated(struct d3d12_device *device,
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_FORCE_DEDICATED_IMAGE_ALLOCATION)
         return true;
 
+    /* If TIER_2 is not supported, we must never suballocate images, since we have no
+     * safe way to place a buffer on that memory.
+     * Pray that the implementation clears memory on vkAllocateMemory.
+     * In practice, this is the case on those ancient implementations that only support TIER_1. */
+    if (device->d3d12_caps.options.ResourceHeapTier < D3D12_RESOURCE_HEAP_TIER_2)
+        return true;
+
     /* If we don't need to sub-allocate, and we don't need to clear any buffers
      * there is no need to allocate a GLOBAL_BUFFER. */
     return requirements->size >= VKD3D_VA_BLOCK_SIZE &&
@@ -1771,26 +1806,55 @@ bool vkd3d_allocate_image_memory_prefers_dedicated(struct d3d12_device *device,
                     (heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED));
 }
 
+static bool vkd3d_memory_info_allow_suballocate(struct d3d12_device *device,
+        const struct vkd3d_allocate_memory_info *info)
+{
+    /* pNext implies dedicated allocation or similar. Host pointer implies external memory import. */
+    if (info->pNext || info->host_ptr)
+        return false;
+
+    /* We must never suballocate these. */
+    if ((info->flags & VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH) || (info->heap_flags & D3D12_HEAP_FLAG_ALLOW_WRITE_WATCH))
+        return false;
+
+    /* All suballocated buffers must have a GLOBAL buffer that can be used to clear memory. */
+    if (!(info->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER))
+        return false;
+
+    /* For buffers, we'll need to allocate VA space,
+     * and we must allocate a minimum amount due to our trie data structure. */
+    if (!(info->heap_flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
+        return info->memory_requirements.size < VKD3D_VA_BLOCK_SIZE;
+
+    /* A suballocated image heap will have to support buffer + image placements. */
+    if (device->d3d12_caps.options.ResourceHeapTier < D3D12_RESOURCE_HEAP_TIER_2)
+        return false;
+
+    /* For image-only heaps where heaps are small, it's possible the application wants to use fine-grained memory priorities.
+     * Nixxes ports tend to do that for example. */
+
+    /* We may or may not want to disable this workaround if EXT_pageable is supported,
+     * but it's good to not have two different allocation paths on NVIDIA and RADV for now. */
+
+    if (is_cpu_accessible_heap(&info->heap_properties) ||
+            !(info->flags & VKD3D_ALLOCATION_FLAG_ALLOW_IMAGE_SUBALLOCATION))
+    {
+        return false;
+    }
+
+    return info->memory_requirements.size < VKD3D_MEMORY_IMAGE_HEAP_SUBALLOCATE_THRESHOLD;
+}
+
 HRESULT vkd3d_allocate_memory(struct d3d12_device *device, struct vkd3d_memory_allocator *allocator,
         const struct vkd3d_allocate_memory_info *info, struct vkd3d_memory_allocation *allocation)
 {
+    struct vkd3d_allocate_memory_info tmp_info;
     bool implementation_implicitly_clears;
     bool needs_clear;
     bool suballocate;
     HRESULT hr;
 
-    suballocate = !info->pNext && !info->host_ptr &&
-            info->memory_requirements.size < VKD3D_VA_BLOCK_SIZE &&
-            !(info->heap_flags & (D3D12_HEAP_FLAG_DENY_BUFFERS | D3D12_HEAP_FLAG_ALLOW_WRITE_WATCH)) &&
-            !(info->flags & VKD3D_ALLOCATION_FLAG_INTERNAL_SCRATCH);
-
-    if (suballocate)
-        hr = vkd3d_suballocate_memory(device, allocator, info, allocation);
-    else
-        hr = vkd3d_memory_allocation_init(allocation, device, allocator, info);
-
-    if (FAILED(hr))
-        return hr;
+    suballocate = vkd3d_memory_info_allow_suballocate(device, info);
 
     /* If we're allocating Vulkan memory directly,
      * we can rely on the driver doing this for us.
@@ -1804,6 +1868,27 @@ HRESULT vkd3d_allocate_memory(struct d3d12_device *device, struct vkd3d_memory_a
     needs_clear = !implementation_implicitly_clears &&
             !(info->heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_ZEROED) &&
             !(vkd3d_config_flags & VKD3D_CONFIG_FLAG_MEMORY_ALLOCATOR_SKIP_CLEAR);
+
+    if (!suballocate &&
+            !needs_clear &&
+            (info->heap_flags & D3D12_HEAP_FLAG_DENY_BUFFERS) &&
+            (info->flags & VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER))
+    {
+        /* If we're not going to suballocate or clear the allocation, there is no need to create a placed buffer.
+         * This helps reduce churn in capture tools. */
+        tmp_info = *info;
+        tmp_info.flags &= ~VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER;
+        tmp_info.explicit_global_buffer_usage = 0;
+        info = &tmp_info;
+    }
+
+    if (suballocate)
+        hr = vkd3d_suballocate_memory(device, allocator, info, allocation);
+    else
+        hr = vkd3d_memory_allocation_init(allocation, device, allocator, info);
+
+    if (FAILED(hr))
+        return hr;
 
     if (needs_clear)
     {
@@ -1852,8 +1937,17 @@ HRESULT vkd3d_allocate_heap_memory(struct d3d12_device *device, struct vkd3d_mem
     alloc_info.vk_memory_priority = info->vk_memory_priority;
 
     alloc_info.flags |= info->extra_allocation_flags;
-    if (!(info->heap_desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS))
+
+    /* If we allow suballocation in any way, we need a buffer we can use to clear memory with. */
+    if (!(info->heap_desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS) ||
+            (info->extra_allocation_flags & VKD3D_ALLOCATION_FLAG_ALLOW_IMAGE_SUBALLOCATION))
         alloc_info.flags |= VKD3D_ALLOCATION_FLAG_GLOBAL_BUFFER;
+
+    /* For non-buffer heaps, we only care about being able to clear the heap.
+     * Using TRANSFER_DST_BIT only helps capture tools, since if VAs are supported,
+     * they cannot prove the buffer is not in use. */
+    if (info->heap_desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS)
+        alloc_info.explicit_global_buffer_usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 
     if (is_cpu_accessible_heap(&info->heap_desc.Properties))
     {
