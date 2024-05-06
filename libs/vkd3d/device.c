@@ -903,6 +903,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"pipeline_library_ignore_spirv", VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_IGNORE_SPIRV},
     {"mutable_single_set", VKD3D_CONFIG_FLAG_MUTABLE_SINGLE_SET},
     {"memory_allocator_skip_clear", VKD3D_CONFIG_FLAG_MEMORY_ALLOCATOR_SKIP_CLEAR},
+    {"memory_allocator_skip_image_heap_clear", VKD3D_CONFIG_FLAG_MEMORY_ALLOCATOR_SKIP_IMAGE_HEAP_CLEAR},
     {"recycle_command_pools", VKD3D_CONFIG_FLAG_RECYCLE_COMMAND_POOLS},
     {"pipeline_library_ignore_mismatch_driver", VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_IGNORE_MISMATCH_DRIVER},
     {"breadcrumbs", VKD3D_CONFIG_FLAG_BREADCRUMBS},
