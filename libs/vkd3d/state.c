@@ -2488,6 +2488,12 @@ static void d3d12_pipeline_state_init_compile_arguments(struct d3d12_pipeline_st
             d3d12_device_supports_required_subgroup_size_for_stage(device, stage);
     compile_arguments->quirks = &vkd3d_shader_quirk_info;
 
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DRIVER_VERSION_SENSITIVE_SHADERS)
+    {
+        compile_arguments->driver_id = device->device_info.vulkan_1_2_properties.driverID;
+        compile_arguments->driver_version = device->device_info.properties2.properties.driverVersion;
+    }
+
     if (stage == VK_SHADER_STAGE_FRAGMENT_BIT)
     {
         /* Options which are exclusive to PS. Especially output swizzles must only be used in PS. */
