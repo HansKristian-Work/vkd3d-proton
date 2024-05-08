@@ -2123,6 +2123,12 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_state_ob
     /* Don't care about wave size promotion in RT. */
     compile_args.quirks = &vkd3d_shader_quirk_info;
 
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DRIVER_VERSION_SENSITIVE_SHADERS)
+    {
+        compile_args.driver_id = object->device->device_info.vulkan_1_2_properties.driverID;
+        compile_args.driver_version = object->device->device_info.properties2.properties.driverVersion;
+    }
+
     memset(&shader_interface_info, 0, sizeof(shader_interface_info));
     shader_interface_info.min_ssbo_alignment = d3d12_device_get_ssbo_alignment(object->device);
 

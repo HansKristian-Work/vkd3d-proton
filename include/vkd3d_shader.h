@@ -475,6 +475,9 @@ struct vkd3d_shader_compile_arguments
     bool promote_wave_size_heuristics;
 
     const struct vkd3d_shader_quirk_info *quirks;
+    /* Only non-zero when enabled by vkd3d_config */
+    VkDriverId driver_id;
+    uint32_t driver_version;
 };
 
 enum vkd3d_tessellator_output_primitive

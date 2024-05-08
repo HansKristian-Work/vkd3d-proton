@@ -8507,6 +8507,12 @@ static void vkd3d_compute_shader_interface_key(struct d3d12_device *device)
     for (i = 0; i < device->vk_info.shader_extension_count; i++)
         key = hash_fnv1_iterate_u32(key, device->vk_info.shader_extensions[i]);
 
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DRIVER_VERSION_SENSITIVE_SHADERS)
+    {
+        key = hash_fnv1_iterate_u32(key, device->device_info.vulkan_1_2_properties.driverID);
+        key = hash_fnv1_iterate_u32(key, device->device_info.properties2.properties.driverVersion);
+    }
+
     device->shader_interface_key = key;
 }
 

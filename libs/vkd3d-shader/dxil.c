@@ -987,6 +987,20 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
             }
         }
 
+        if (compiler_args->driver_version)
+        {
+            const dxil_spv_option_driver_version version = {
+                    { DXIL_SPV_OPTION_DRIVER_VERSION },
+                    compiler_args->driver_id, compiler_args->driver_version };
+
+            if (dxil_spv_converter_add_option(converter, &version.base) != DXIL_SPV_SUCCESS)
+            {
+                ERR("dxil-spirv does not support DRIVER_VERSION.\n");
+                ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+                goto end;
+            }
+        }
+
         for (i = 0; i < compiler_args->parameter_count; i++)
         {
             const struct vkd3d_shader_parameter *argument = &compiler_args->parameters[i];
@@ -1614,6 +1628,20 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
                     ret = VKD3D_ERROR_NOT_IMPLEMENTED;
                     goto end;
                 }
+            }
+        }
+
+        if (compiler_args->driver_version)
+        {
+            const dxil_spv_option_driver_version version = {
+                    { DXIL_SPV_OPTION_DRIVER_VERSION },
+                    compiler_args->driver_id, compiler_args->driver_version };
+
+            if (dxil_spv_converter_add_option(converter, &version.base) != DXIL_SPV_SUCCESS)
+            {
+                ERR("dxil-spirv does not support DRIVER_VERSION.\n");
+                ret = VKD3D_ERROR_NOT_IMPLEMENTED;
+                goto end;
             }
         }
     }
