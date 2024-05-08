@@ -159,6 +159,8 @@ VkPhysicalDevice vkd3d_get_vk_physical_device(ID3D12Device *device);
 struct vkd3d_instance *vkd3d_instance_from_device(ID3D12Device *device);
 
 uint32_t vkd3d_get_vk_queue_family_index(ID3D12CommandQueue *queue);
+uint32_t vkd3d_get_vk_queue_index(ID3D12CommandQueue *queue);
+uint32_t vkd3d_get_vk_queue_flags(ID3D12CommandQueue *queue);
 VkQueue vkd3d_acquire_vk_queue(ID3D12CommandQueue *queue);
 void vkd3d_release_vk_queue(ID3D12CommandQueue *queue);
 void vkd3d_enqueue_initial_transition(ID3D12CommandQueue *queue, ID3D12Resource *resource);

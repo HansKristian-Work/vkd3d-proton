@@ -3024,6 +3024,7 @@ struct vkd3d_queue
     uint64_t submission_timeline_count;
 
     uint32_t vk_family_index;
+    uint32_t vk_queue_index;
     VkQueueFlags vk_queue_flags;
     uint32_t timestamp_bits;
     uint32_t virtual_queue_count;

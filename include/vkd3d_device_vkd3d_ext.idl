@@ -71,7 +71,7 @@ interface ID3DLowLatencyDevice : IUnknown
 }
 
 [
-    uuid(e1da3c4a-bf21-4f48-a7d6-e444dba9ad7e),
+    uuid(099a73fd-2199-4f45-bf48-0eb86f6fdb65),
     object,
     local,
     pointer_default(unique)
@@ -79,4 +79,5 @@ interface ID3DLowLatencyDevice : IUnknown
 interface ID3D12DeviceExt1 : ID3D12DeviceExt
 {
     HRESULT CreateResourceFromBorrowedHandle(const D3D12_RESOURCE_DESC1 *desc, UINT64 vk_handle, ID3D12Resource **resource);
+    HRESULT GetVulkanQueueInfoEx(ID3D12CommandQueue *queue, VkQueue *vk_queue, UINT32 *vk_queue_index, UINT32 *vk_queue_flags, UINT32 *vk_queue_family);
 }
