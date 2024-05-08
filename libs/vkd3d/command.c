@@ -144,6 +144,7 @@ HRESULT vkd3d_queue_create(struct d3d12_device *device, uint32_t family_index, u
     }
 
     object->vk_family_index = family_index;
+    object->vk_queue_index = queue_index;
     object->vk_queue_flags = properties->queueFlags;
     object->timestamp_bits = properties->timestampValidBits;
 
@@ -18726,6 +18727,20 @@ uint32_t vkd3d_get_vk_queue_family_index(ID3D12CommandQueue *queue)
     struct d3d12_command_queue *d3d12_queue = impl_from_ID3D12CommandQueue(queue);
 
     return d3d12_queue->vkd3d_queue->vk_family_index;
+}
+
+uint32_t vkd3d_get_vk_queue_index(ID3D12CommandQueue *queue)
+{
+    struct d3d12_command_queue *d3d12_queue = impl_from_ID3D12CommandQueue(queue);
+
+    return d3d12_queue->vkd3d_queue->vk_queue_index;
+}
+
+uint32_t vkd3d_get_vk_queue_flags(ID3D12CommandQueue *queue)
+{
+    struct d3d12_command_queue *d3d12_queue = impl_from_ID3D12CommandQueue(queue);
+
+    return d3d12_queue->vkd3d_queue->vk_queue_flags;
 }
 
 VkQueue vkd3d_acquire_vk_queue(ID3D12CommandQueue *queue)
