@@ -126,6 +126,7 @@ struct vkd3d_vulkan_info
     bool KHR_present_wait;
     bool KHR_present_id;
     bool KHR_maintenance5;
+    bool KHR_maintenance6;
     bool KHR_shader_maximal_reconvergence;
     bool KHR_shader_quad_control;
     /* EXT device extensions */
@@ -4378,6 +4379,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceGraphicsPipelineLibraryPropertiesEXT graphics_pipeline_library_properties;
     VkPhysicalDeviceMemoryDecompressionPropertiesNV memory_decompression_properties;
     VkPhysicalDeviceMaintenance5PropertiesKHR maintenance_5_properties;
+    VkPhysicalDeviceMaintenance6PropertiesKHR maintenance_6_properties;
     VkPhysicalDeviceLineRasterizationPropertiesEXT line_rasterization_properties;
 
     VkPhysicalDeviceProperties2KHR properties2;
@@ -4423,6 +4425,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceMemoryDecompressionFeaturesNV memory_decompression_features;
     VkPhysicalDeviceDeviceGeneratedCommandsComputeFeaturesNV device_generated_commands_compute_features_nv;
     VkPhysicalDeviceMaintenance5FeaturesKHR maintenance_5_features;
+    VkPhysicalDeviceMaintenance6FeaturesKHR maintenance_6_features;
     VkPhysicalDeviceLineRasterizationFeaturesEXT line_rasterization_features;
     VkPhysicalDeviceImageCompressionControlFeaturesEXT image_compression_control_features;
     VkPhysicalDeviceFaultFeaturesEXT fault_features;
