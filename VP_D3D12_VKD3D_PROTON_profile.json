@@ -571,7 +571,8 @@
                 "VK_AMD_shader_core_properties": 1,
                 "VK_AMD_shader_core_properties2": 1,
                 "VK_EXT_dynamic_rendering_unused_attachments": 1,
-                "VK_EXT_image_compression_control": 1
+                "VK_EXT_image_compression_control": 1,
+                "VK_MESA_image_alignment_control": 1
             },
             "features": {
                 "VkPhysicalDeviceCoherentMemoryFeaturesAMD": {
@@ -582,6 +583,9 @@
                 },
                 "VkPhysicalDeviceImageCompressionControlFeaturesEXT": {
                     "imageCompressionControl": true
+                },
+                "VkPhysicalDeviceImageAlignmentControlFeaturesMESA" : {
+                    "imageAlignmentControl": true
                 }
             },
             "properties": {
