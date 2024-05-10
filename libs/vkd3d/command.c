@@ -5561,6 +5561,7 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
     memset(&list->predication, 0, sizeof(list->predication));
 
     list->index_buffer.buffer = VK_NULL_HANDLE;
+    list->index_buffer.is_dirty = true;
 
     list->current_pipeline = VK_NULL_HANDLE;
     list->command_buffer_pipeline = VK_NULL_HANDLE;
@@ -7125,22 +7126,24 @@ static bool d3d12_command_list_update_index_buffer(struct d3d12_command_list *li
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
 
-    if (!list->index_buffer.buffer)
-    {
-        FIXME_ONCE("Application attempts to perform an indexed draw call without index buffer bound.\n");
-        /* We are supposed to render all 0 indices here. However, there are several problems with emulating this approach.
-         * There is no robustness support for index buffers, and if we render all 0 indices,
-         * it is extremely unlikely that this would create a meaningful side effect.
-         * For any line or triangle primitive, we would end up creating degenerates for every primitive.
-         * The only reasonable scenarios where we will observe anything is stream-out with all duplicate values, or
-         * geometry shaders where the application makes use of PrimitiveID to construct primitives.
-         * Until proven to be required otherwise, we just ignore the draw call. */
-        return false;
-    }
-
     if (list->index_buffer.is_dirty)
     {
-        if (list->device->device_info.maintenance_5_features.maintenance5)
+        if (!list->index_buffer.buffer)
+        {
+            if (list->device->device_info.maintenance_6_features.maintenance6)
+            {
+                VK_CALL(vkCmdBindIndexBuffer2KHR(list->cmd.vk_command_buffer, VK_NULL_HANDLE, 0, 0, VK_INDEX_TYPE_UINT16));
+            }
+            else
+            {
+                /* NULL index buffers are expected to behave as if all indices are 0. Since this is only
+                 * observable in edge cases involving streamout or geometry shaders, skip the draw call
+                 * for now if the Vulkan implementation does not support this. */
+                FIXME_ONCE("Application attempts to perform an indexed draw call without index buffer bound.\n");
+                return false;
+            }
+        }
+        else if (list->device->device_info.maintenance_5_features.maintenance5)
         {
             VK_CALL(vkCmdBindIndexBuffer2KHR(list->cmd.vk_command_buffer, list->index_buffer.buffer,
                     list->index_buffer.offset, list->index_buffer.size, list->index_buffer.vk_type));
@@ -10856,6 +10859,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(d3d12_command_
 
     TRACE("iface %p, view %p.\n", iface, view);
 
+    list->index_buffer.is_dirty = true;
+
     if (!view)
     {
         list->index_buffer.buffer = VK_NULL_HANDLE;
@@ -10887,7 +10892,6 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBuffer(d3d12_command_
         list->index_buffer.buffer = resource->vk_buffer;
         list->index_buffer.offset = view->BufferLocation - resource->va;
         list->index_buffer.size = view->SizeInBytes;
-        list->index_buffer.is_dirty = true;
     }
     else
         list->index_buffer.buffer = VK_NULL_HANDLE;
@@ -13542,6 +13546,7 @@ static void d3d12_command_list_execute_indirect_state_template_dgc(
             case D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW:
                 /* Null IBO */
                 list->index_buffer.buffer = VK_NULL_HANDLE;
+                list->index_buffer.is_dirty = true;
                 break;
 
             case D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW:
