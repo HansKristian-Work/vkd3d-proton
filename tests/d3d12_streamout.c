@@ -422,7 +422,7 @@ void test_index_buffer_edge_case_stream_output(void)
 
     get_buffer_readback_with_command_list(counter_buffer, DXGI_FORMAT_R32_UINT, &rb, queue, command_list);
     counter = get_readback_uint(&rb, 0, 0, 0);
-    todo ok(counter == 15 * sizeof(struct vec4), "Got unexpected counter %u.\n", counter);
+    ok(counter == 15 * sizeof(struct vec4), "Got unexpected counter %u.\n", counter);
     release_resource_readback(&rb);
     reset_command_list(command_list, context.allocator);
     get_buffer_readback_with_command_list(so_buffer, DXGI_FORMAT_UNKNOWN, &rb, queue, command_list);
@@ -430,7 +430,7 @@ void test_index_buffer_edge_case_stream_output(void)
     {
         const struct vec4 *expected = &expected_output[i];
         data = get_readback_vec4(&rb, i, 0);
-        todo_if(i >= 4 && i != 7) ok(compare_vec4(data, expected, 1),
+        ok(compare_vec4(data, expected, 1),
                 "Got {%.8e, %.8e, %.8e, %.8e}, expected {%.8e, %.8e, %.8e, %.8e}.\n",
                 data->x, data->y, data->z, data->w, expected->x, expected->y, expected->z, expected->w);
     }
