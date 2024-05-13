@@ -3448,6 +3448,12 @@ struct vkd3d_breadcrumb_command_list_trace_context
     uint32_t next;
 };
 
+struct vkd3d_barrier_hash_range
+{
+    vkd3d_shader_hash_t lo;
+    vkd3d_shader_hash_t hi;
+};
+
 struct vkd3d_breadcrumb_tracer
 {
     /* There is room for N live command lists in this system.
@@ -3468,7 +3474,7 @@ struct vkd3d_breadcrumb_tracer
     pthread_mutex_t lock;
 
     pthread_mutex_t barrier_hash_lock;
-    vkd3d_shader_hash_t *barrier_hashes;
+    struct vkd3d_barrier_hash_range *barrier_hashes;
     size_t barrier_hashes_size;
     uint32_t barrier_hashes_count;
 
