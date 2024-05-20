@@ -2566,7 +2566,11 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
         {
             if ((previous_semaphore = vkd3d_native_sync_handle_release(chain->frame_latency_event, 1)) >= 0)
             {
-                if (previous_semaphore >= (int)chain->frame_latency)
+                /* Some applications can keep using MaxLatency of 1,
+                 * but just avoid acquiring the semaphore a few times to achieve higher latency.
+                 * Only warn if the counter becomes unreasonably large, e.g. 4+ frames.
+                 * That's a good sign the application is actually not behaving correctly. */
+                if (previous_semaphore >= (int)chain->frame_latency + 4)
                 {
                     WARN("Incrementing frame latency semaphore beyond max latency. "
                             "Did application forget to acquire? (new count = %d, max latency = %u)\n",
