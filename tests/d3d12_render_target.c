@@ -1769,3 +1769,255 @@ void test_scissor_clamping(void)
     ID3D12DescriptorHeap_Release(rtv_heap);
     destroy_test_context(&context);
 }
+
+void test_mismatching_rtv_dsv_size(void)
+{
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12DescriptorHeap *rtv_heap, *dsv_heap;
+    D3D12_CPU_DESCRIPTOR_HANDLE rtvs[2], dsv;
+    D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc;
+    struct test_context_desc context_desc;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12Resource *rt[3], *ds[3];
+    unsigned int i, j, x, y, w, h;
+    struct resource_readback rb;
+    struct test_context context;
+    D3D12_VIEWPORT viewport;
+    RECT scissor;
+    HRESULT hr;
+
+#include "shaders/render_target/headers/ps_rt_mismatch.h"
+
+    static const FLOAT red[] = { 1.0f, 0.0, 0.0f, 1.0f };
+
+    static const uint32_t rt_ds_size[][2] =
+    {
+        { 4, 4 },
+        { 6, 2 },
+        { 8, 8 },
+    };
+
+    struct
+    {
+        uint32_t rt_count;
+        uint32_t rtvs[2];
+        uint32_t dsv;
+        bool expected;
+    }
+    tests[] =
+    {
+        /* Mismatched RTV-DSV size */
+        { 1, { 0, 0 }, 0 },
+        { 1, { 0, 0 }, 1 },
+        { 1, { 0, 0 }, 2 },
+        { 1, { 1, 0 }, 0 },
+        { 1, { 1, 0 }, 1 },
+        { 1, { 1, 0 }, 2 },
+        { 1, { 2, 0 }, 0 },
+        { 1, { 2, 0 }, 1 },
+        { 1, { 2, 0 }, 2 },
+
+        /* Mismatched RTV sizes with no DSV */
+        { 2, { 0, 1 }, ~0u },
+        { 2, { 0, 2 }, ~0u },
+        { 2, { 1, 0 }, ~0u },
+        { 2, { 1, 2 }, ~0u },
+        { 2, { 2, 0 }, ~0u },
+        { 2, { 2, 1 }, ~0u },
+
+        /* Mismatched RTV sizes with max size dsv */
+        { 2, { 0, 1 }, 2 },
+        { 2, { 0, 2 }, 2 },
+        { 2, { 1, 0 }, 2 },
+        { 2, { 1, 2 }, 2 },
+        { 2, { 2, 0 }, 2 },
+        { 2, { 2, 1 }, 2 },
+    };
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_render_target = true;
+    context_desc.no_pipeline = true;
+
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+
+    hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature, 0, NULL, &ps_rt_mismatch_dxbc, NULL);
+    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    pso_desc.NumRenderTargets = ARRAY_SIZE(rtvs);
+    for (i = 0; i < ARRAY_SIZE(rtvs); i++)
+        pso_desc.RTVFormats[i] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, ARRAY_SIZE(rt_ds_size));
+    dsv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, ARRAY_SIZE(rt_ds_size));
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+
+    for (i = 0; i < ARRAY_SIZE(rt_ds_size); i++)
+    {
+        resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        resource_desc.Width = rt_ds_size[i][0];
+        resource_desc.Height = rt_ds_size[i][1];
+        resource_desc.DepthOrArraySize = 1;
+        resource_desc.MipLevels = 1;
+        resource_desc.SampleDesc.Count = 1;
+        resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+
+        resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+        hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void**)&rt[i]);
+        ok(hr == S_OK, "Failed to create color image, hr %#x.\n", hr);
+
+        memset(&rtv_desc, 0, sizeof(rtv_desc));
+        rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+
+        ID3D12Device_CreateRenderTargetView(context.device, rt[i], &rtv_desc, get_cpu_rtv_handle(&context, rtv_heap, i));
+
+        resource_desc.Format = DXGI_FORMAT_D32_FLOAT;
+        resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+        hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                &resource_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE, NULL, &IID_ID3D12Resource, (void**)&ds[i]);
+        ok(hr == S_OK, "Failed to create depth image, hr %#x.\n", hr);
+
+        memset(&dsv_desc, 0, sizeof(dsv_desc));
+        dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+
+        ID3D12Device_CreateDepthStencilView(context.device, ds[i], &dsv_desc, get_cpu_dsv_handle(&context, dsv_heap, i));
+    }
+
+    viewport.TopLeftX = 0.0f;
+    viewport.TopLeftY = 0.0f;
+    viewport.Width = 8.0f;
+    viewport.Height = 8.0f;
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
+
+    scissor.left = 0;
+    scissor.top = 0;
+    scissor.bottom = 8;
+    scissor.right = 8;
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        vkd3d_test_set_context("Test %u", i);
+
+        w = scissor.right;
+        h = scissor.bottom;
+
+        for (j = 0; j < tests[i].rt_count; j++)
+        {
+            rtvs[j] = get_cpu_rtv_handle(&context, rtv_heap, tests[i].rtvs[j]);
+            ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, rtvs[j], red, 0, NULL);
+
+            w = min(w, rt_ds_size[tests[i].rtvs[j]][0]);
+            h = min(h, rt_ds_size[tests[i].rtvs[j]][1]);
+        }
+
+        if (tests[i].dsv != ~0u)
+        {
+            dsv = get_cpu_dsv_handle(&context, dsv_heap, tests[i].dsv);
+            ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, NULL);
+
+            w = min(w, rt_ds_size[tests[i].dsv][0]);
+            h = min(h, rt_ds_size[tests[i].dsv][1]);
+        }
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(context.list,
+                tests[i].rt_count, rtvs, FALSE, tests[i].dsv != ~0u ? &dsv : NULL);
+
+        ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &scissor);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+        for (j = 0; j < tests[i].rt_count; j++)
+            transition_resource_state(context.list, rt[tests[i].rtvs[j]], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        if (tests[i].dsv != ~0u)
+            transition_resource_state(context.list, ds[tests[i].dsv], D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        /* This is undefined behaviour, and the exact areas written to the respective
+         * RTVs and DSV differ by vendor. The common denominator is that the all pixels
+         * included in all bound views get written. */
+        for (j = 0; j < tests[i].rt_count; j++)
+        {
+            get_texture_readback_with_command_list(rt[tests[i].rtvs[j]], 0, &rb, context.queue, context.list);
+
+            for (y = 0; y < h; y++)
+            {
+                for (x = 0; x < w; x++)
+                {
+                    uint32_t got = get_readback_uint(&rb, x, y, 0);
+                    uint32_t expected = 0xff00ff00;
+
+                    ok(got == expected, "Got %#x, expected %#x at %u,%u.\n", got, expected, x, y);
+
+                    if (got != expected)
+                        break;
+                }
+            }
+
+            release_resource_readback(&rb);
+
+            reset_command_list(context.list, context.allocator);
+            transition_resource_state(context.list, rt[tests[i].rtvs[j]], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        }
+
+        if (tests[i].dsv != ~0u)
+        {
+            get_texture_readback_with_command_list(ds[tests[i].dsv], 0, &rb, context.queue, context.list);
+
+            for (y = 0; y < h; y++)
+            {
+                for (x = 0; x < w; x++)
+                {
+                    float got = get_readback_float(&rb, x, y);
+                    float expected = 0.0f;
+
+                    ok(got == expected, "Got %f, expected %f at %u,%u.\n", got, expected, x, y);
+
+                    if (got != expected)
+                        break;
+                }
+            }
+
+            release_resource_readback(&rb);
+
+            reset_command_list(context.list, context.allocator);
+            transition_resource_state(context.list, ds[tests[i].dsv], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        }
+    }
+
+    ID3D12DescriptorHeap_Release(rtv_heap);
+    ID3D12DescriptorHeap_Release(dsv_heap);
+
+    for (i = 0; i < ARRAY_SIZE(rt_ds_size); i++)
+    {
+        ID3D12Resource_Release(rt[i]);
+        ID3D12Resource_Release(ds[i]);
+    }
+
+    destroy_test_context(&context);
+}
