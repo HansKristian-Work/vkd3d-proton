@@ -403,6 +403,7 @@ decl_test(test_renderpass_validation);
 decl_test(test_renderpass_rendering);
 decl_test(test_sampler_rounding);
 decl_test(test_scissor_clamping);
+decl_test(test_mismatching_rtv_dsv_size);
 decl_test(test_view_instancing);
 decl_test(test_shader_io_mismatch);
 decl_test(test_workgraph_basic);
