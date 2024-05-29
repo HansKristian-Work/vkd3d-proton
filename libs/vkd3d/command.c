@@ -8605,18 +8605,15 @@ static VkResolveModeFlagBits vk_resolve_mode_from_d3d12(D3D12_RESOLVE_MODE mode)
 static const struct vkd3d_format *d3d12_command_list_get_resolve_format(struct d3d12_command_list *list,
         const struct d3d12_resource *dst_resource, const struct d3d12_resource *src_resource, DXGI_FORMAT format)
 {
+    if (!format)
+        return NULL;
+
     /* Depth-stencil formats require special care since the app will need to
      * pass in the stencil plane as subresource 1, but may also use a format
      * for which we only have one aspect flag set. Just ignore the explicit
      * format in that case so that we always know the full aspect mask. */
-    if (dst_resource->format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+    if (dst_resource->format->vk_aspect_mask == (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
         return dst_resource->format;
-
-    if (dst_resource->format->type != VKD3D_FORMAT_TYPE_TYPELESS)
-        return dst_resource->format;
-
-    if (src_resource->format->type != VKD3D_FORMAT_TYPE_TYPELESS)
-        return src_resource->format;
 
     return vkd3d_format_from_d3d12_resource_desc(list->device, &dst_resource->desc, format);
 }
@@ -8628,6 +8625,13 @@ enum vkd3d_resolve_image_path d3d12_command_list_select_resolve_path(struct d3d1
     const struct vkd3d_format *vkd3d_format = d3d12_command_list_get_resolve_format(list, dst_resource, src_resource, format);
     enum vkd3d_resolve_image_path path;
     unsigned int i;
+
+    if (!vkd3d_format)
+    {
+        d3d12_command_list_mark_as_invalid(list, "Resolve format %#x not compatible with resource formats %#x, %#x.",
+                format, dst_resource->format->dxgi_format, src_resource->format->dxgi_format);
+        return VKD3D_RESOLVE_IMAGE_PATH_UNSUPPORTED;
+    }
 
     if (dst_resource->format->vk_aspect_mask != src_resource->format->vk_aspect_mask)
     {
@@ -8645,18 +8649,24 @@ enum vkd3d_resolve_image_path d3d12_command_list_select_resolve_path(struct d3d1
          * not even have an equivalent, we can only implement this in shaders. */
         path = VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_PIPELINE;
     }
-    else if (dst_resource->format->type == VKD3D_FORMAT_TYPE_TYPELESS ||
-            src_resource->format->type == VKD3D_FORMAT_TYPE_TYPELESS)
+    else if (dst_resource->format->vk_format != vkd3d_format->vk_format ||
+            src_resource->format->vk_format != vkd3d_format->vk_format)
     {
-        /* Prefer the direct path even for typeless formats if possible */
-        if (vkd3d_format->vk_format == dst_resource->format->vk_format &&
-                vkd3d_format->vk_format == src_resource->format->vk_format)
-            path = VKD3D_RESOLVE_IMAGE_PATH_DIRECT;
-        else
-            path = VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_ATTACHMENT;
+        path = VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_ATTACHMENT;
+
+        if (!(vkd3d_config_flags & VKD3D_CONFIG_FLAG_SKIP_DRIVER_WORKAROUNDS))
+        {
+            /* Some drivers ignore the view format for resolve attachments */
+            if (list->device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY ||
+                    list->device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_AMD_PROPRIETARY ||
+                    list->device->device_info.vulkan_1_2_properties.driverID == VK_DRIVER_ID_AMD_OPEN_SOURCE)
+                path = VKD3D_RESOLVE_IMAGE_PATH_RENDER_PASS_PIPELINE;
+        }
     }
     else
+    {
         path = VKD3D_RESOLVE_IMAGE_PATH_DIRECT;
+    }
 
     /* The attachment path has a number of restrictions that may require us to fall
      * back to the shader-based path. */
@@ -8936,7 +8946,7 @@ static void d3d12_command_list_execute_resolve(struct d3d12_command_list *list,
             memset(&src_view_desc, 0, sizeof(src_view_desc));
             src_view_desc.image = src_resource->res.vk_image;
             src_view_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-            src_view_desc.format = vk_format;
+            src_view_desc.format = vkd3d_format_from_d3d12_resource_desc(list->device, &src_resource->desc, vk_format->dxgi_format);
             src_view_desc.miplevel_idx = region->srcSubresource.mipLevel;
             src_view_desc.miplevel_count = 1;
             src_view_desc.layer_idx = region->srcSubresource.baseArrayLayer;
@@ -9075,7 +9085,7 @@ cleanup_compute:
             memset(&src_view_desc, 0, sizeof(src_view_desc));
             src_view_desc.image = src_resource->res.vk_image;
             src_view_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-            src_view_desc.format = vk_format;
+            src_view_desc.format = vkd3d_format_from_d3d12_resource_desc(list->device, &src_resource->desc, vk_format->dxgi_format);
             src_view_desc.miplevel_idx = region->srcSubresource.mipLevel;
             src_view_desc.miplevel_count = 1;
             src_view_desc.layer_idx = region->srcSubresource.baseArrayLayer;
