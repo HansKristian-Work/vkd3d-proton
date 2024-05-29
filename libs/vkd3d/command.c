@@ -8873,6 +8873,31 @@ static void d3d12_get_resolve_barrier_for_src_resource(struct d3d12_resource *re
     barrier->subresourceRange = vk_subresource_range_from_layers(&region->srcSubresource);
 }
 
+static const struct vkd3d_format *d3d12_get_linear_resolve_format(struct d3d12_device *device, const struct vkd3d_format *format)
+{
+    unsigned int i;
+
+    static const struct
+    {
+        DXGI_FORMAT srgb_format;
+        DXGI_FORMAT linear_format;
+    }
+    format_map[] =
+    {
+        { DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, DXGI_FORMAT_R8G8B8A8_UNORM },
+        { DXGI_FORMAT_B8G8R8A8_UNORM_SRGB, DXGI_FORMAT_B8G8R8A8_UNORM },
+        { DXGI_FORMAT_B8G8R8X8_UNORM_SRGB, DXGI_FORMAT_B8G8R8X8_UNORM },
+    };
+
+    for (i = 0; i < ARRAY_SIZE(format_map); i++)
+    {
+        if (format->dxgi_format == format_map[i].srgb_format)
+            return vkd3d_get_format(device, format_map[i].linear_format, false);
+    }
+
+    return format;
+}
+
 static void d3d12_command_list_execute_resolve(struct d3d12_command_list *list,
         struct d3d12_resource *dst_resource, struct d3d12_resource *src_resource,
         uint32_t region_count, const VkImageResolve2 *regions, DXGI_FORMAT format,
@@ -8915,10 +8940,24 @@ static void d3d12_command_list_execute_resolve(struct d3d12_command_list *list,
 
         vk_format = d3d12_command_list_get_resolve_format(list, dst_resource, src_resource, format);
 
+        memset(&dst_view_desc, 0, sizeof(dst_view_desc));
+        dst_view_desc.image = dst_resource->res.vk_image;
+        dst_view_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+        dst_view_desc.format = d3d12_get_linear_resolve_format(list->device, vk_format);
+        dst_view_desc.image_usage = VK_IMAGE_USAGE_STORAGE_BIT;
+
+        memset(&src_view_desc, 0, sizeof(src_view_desc));
+        src_view_desc.image = src_resource->res.vk_image;
+        src_view_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+        src_view_desc.format = vkd3d_format_from_d3d12_resource_desc(list->device, &src_resource->desc, vk_format->dxgi_format);
+        src_view_desc.image_usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+        src_view_desc.allowed_swizzle = true;
+
         memset(&resolve_pipeline_key, 0, sizeof(resolve_pipeline_key));
         resolve_pipeline_key.path = path;
         resolve_pipeline_key.compute.format_type = vk_format->type;
         resolve_pipeline_key.compute.mode = mode;
+        resolve_pipeline_key.compute.srgb = dst_view_desc.format != vk_format;
 
         if (FAILED(vkd3d_meta_get_resolve_image_pipeline(&list->device->meta_ops, &resolve_pipeline_key, &resolve_pipeline_info)))
         {
@@ -8932,28 +8971,17 @@ static void d3d12_command_list_execute_resolve(struct d3d12_command_list *list,
         {
             const VkImageResolve2 *region = &regions[i];
 
-            memset(&dst_view_desc, 0, sizeof(dst_view_desc));
-            dst_view_desc.image = dst_resource->res.vk_image;
-            dst_view_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-            dst_view_desc.format = vk_format;
             dst_view_desc.miplevel_idx = region->dstSubresource.mipLevel;
             dst_view_desc.miplevel_count = 1;
             dst_view_desc.layer_idx = region->dstSubresource.baseArrayLayer;
             dst_view_desc.layer_count = region->dstSubresource.layerCount;
-            dst_view_desc.aspect_mask = vk_format->vk_aspect_mask;
-            dst_view_desc.image_usage = VK_IMAGE_USAGE_STORAGE_BIT;
+            dst_view_desc.aspect_mask = region->dstSubresource.aspectMask;
 
-            memset(&src_view_desc, 0, sizeof(src_view_desc));
-            src_view_desc.image = src_resource->res.vk_image;
-            src_view_desc.view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-            src_view_desc.format = vkd3d_format_from_d3d12_resource_desc(list->device, &src_resource->desc, vk_format->dxgi_format);
             src_view_desc.miplevel_idx = region->srcSubresource.mipLevel;
             src_view_desc.miplevel_count = 1;
             src_view_desc.layer_idx = region->srcSubresource.baseArrayLayer;
             src_view_desc.layer_count = region->srcSubresource.layerCount;
             src_view_desc.aspect_mask = region->srcSubresource.aspectMask;
-            src_view_desc.image_usage = VK_IMAGE_USAGE_SAMPLED_BIT;
-            src_view_desc.allowed_swizzle = true;
 
             if (!vkd3d_create_texture_view(list->device, &dst_view_desc, &dst_view) ||
                     !vkd3d_create_texture_view(list->device, &src_view_desc, &src_view))

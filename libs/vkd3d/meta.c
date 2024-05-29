@@ -1136,14 +1136,17 @@ static HRESULT vkd3d_meta_create_resolve_image_compute_pipeline(struct vkd3d_met
     struct spec_data
     {
         D3D12_RESOLVE_MODE mode;
+        VkBool32 srgb;
     } spec_data;
 
     static const VkSpecializationMapEntry map_entries[] =
     {
         { 0, offsetof(struct spec_data, mode), sizeof(spec_data.mode) },
+        { 1, offsetof(struct spec_data, srgb), sizeof(spec_data.srgb) },
     };
 
     spec_data.mode = key->mode;
+    spec_data.srgb = key->srgb;
 
     spec_info.mapEntryCount = ARRAY_SIZE(map_entries);
     spec_info.pMapEntries = map_entries;
