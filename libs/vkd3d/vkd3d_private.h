@@ -3986,6 +3986,7 @@ struct vkd3d_resolve_image_compute_pipeline_key
 {
     enum vkd3d_format_type format_type;
     D3D12_RESOLVE_MODE mode;
+    VkBool32 srgb;
 };
 
 struct vkd3d_resolve_image_pipeline_key
