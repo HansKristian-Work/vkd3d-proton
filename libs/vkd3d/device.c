@@ -3924,13 +3924,21 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
         }
     }
     if (image_features & VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT)
+    {
         data->Support1 |= D3D12_FORMAT_SUPPORT1_RENDER_TARGET | D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RENDERTARGET;
+
+        if (device->device_info.features2.features.logicOp && format->type == VKD3D_FORMAT_TYPE_UINT)
+            data->Support2 |= D3D12_FORMAT_SUPPORT2_OUTPUT_MERGER_LOGIC_OP;
+
+        /* This bit seems to only indicate support for AVERAGE resolves and is
+         * not reported for integer or depth/stencil formats on native drivers. */
+        if (format->type == VKD3D_FORMAT_TYPE_OTHER)
+            data->Support1 |= D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RESOLVE;
+    }
     if (image_features & VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT)
         data->Support1 |= D3D12_FORMAT_SUPPORT1_BLENDABLE;
     if (image_features & VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT)
-        data->Support1 |= D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL;
-    if (image_features & VK_FORMAT_FEATURE_2_BLIT_SRC_BIT)
-        data->Support1 |= D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RESOLVE;
+        data->Support1 |= D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL | D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RENDERTARGET;
     if (image_features & VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT)
     {
         data->Support1 |= D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW;
