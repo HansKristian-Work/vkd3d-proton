@@ -63,52 +63,9 @@ void test_copy_texture(void)
         0x00000000, 0x00000000, 0x00000000, 0x00000000,
     };
     static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
-    static const DWORD ps_code[] =
-    {
-#if 0
-        Texture2D<float> t;
 
-        float main(float4 position : SV_Position) : SV_Target
-        {
-            return t[int2(position.x, position.y)];
-        }
-#endif
-        0x43425844, 0x0beace24, 0x5e10b05b, 0x742de364, 0xb2b65d2b, 0x00000001, 0x00000140, 0x00000003,
-        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
-        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x7469736f, 0x006e6f69,
-        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
-        0x00000000, 0x00000e01, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x000000a4, 0x00000040,
-        0x00000029, 0x04001858, 0x00107000, 0x00000000, 0x00005555, 0x04002064, 0x00101032, 0x00000000,
-        0x00000001, 0x03000065, 0x00102012, 0x00000000, 0x02000068, 0x00000001, 0x0500001b, 0x00100032,
-        0x00000000, 0x00101046, 0x00000000, 0x08000036, 0x001000c2, 0x00000000, 0x00004002, 0x00000000,
-        0x00000000, 0x00000000, 0x00000000, 0x0700002d, 0x001000f2, 0x00000000, 0x00100e46, 0x00000000,
-        0x00107e46, 0x00000000, 0x05000036, 0x00102012, 0x00000000, 0x0010000a, 0x00000000, 0x0100003e,
-    };
-    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
-
-    static const DWORD ps_code_uint[] =
-    {
-#if 0
-        Texture2D<uint> t;
-
-        float main(float4 position : SV_Position) : SV_Target
-        {
-            return float(t[int2(position.x, position.y)]);
-        }
-#endif
-        0x43425844, 0x9a3fe38f, 0x3c222734, 0x1abb807b, 0xeb4ccda3, 0x00000001, 0x0000014c, 0x00000003,
-        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
-        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x7469736f, 0x006e6f69,
-        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
-        0x00000000, 0x00000e01, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x000000b0, 0x00000050,
-        0x0000002c, 0x0100086a, 0x04001858, 0x00107000, 0x00000000, 0x00004444, 0x04002064, 0x00101032,
-        0x00000000, 0x00000001, 0x03000065, 0x00102012, 0x00000000, 0x02000068, 0x00000001, 0x0500001b,
-        0x00100032, 0x00000000, 0x00101046, 0x00000000, 0x08000036, 0x001000c2, 0x00000000, 0x00004002,
-        0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x8900002d, 0x800000c2, 0x00111103, 0x00100012,
-        0x00000000, 0x00100e46, 0x00000000, 0x00107e46, 0x00000000, 0x05000056, 0x00102012, 0x00000000,
-        0x0010000a, 0x00000000, 0x0100003e,
-    };
-    static const D3D12_SHADER_BYTECODE ps_uint = {ps_code_uint, sizeof(ps_code_uint)};
+#include "shaders/copy/headers/ps_copy_sample_float.h"
+#include "shaders/copy/headers/ps_copy_sample_uint.h"
 
     struct depth_copy_test
     {
@@ -262,9 +219,9 @@ void test_copy_texture(void)
     context.root_signature = create_texture_root_signature(device,
             D3D12_SHADER_VISIBILITY_PIXEL, 0, 0);
     pipeline_state_float = create_pipeline_state(device,
-            context.root_signature, context.render_target_desc.Format, NULL, &ps, NULL);
+            context.root_signature, context.render_target_desc.Format, NULL, &ps_copy_sample_float_dxbc, NULL);
     pipeline_state_uint = create_pipeline_state(device,
-            context.root_signature, context.render_target_desc.Format, NULL, &ps_uint, NULL);
+            context.root_signature, context.render_target_desc.Format, NULL, &ps_copy_sample_uint_dxbc, NULL);
 
     heap = create_gpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
 
@@ -1247,73 +1204,8 @@ void test_multisample_resolve_formats(void)
 
     static const float black[] = { 0.0f, 0.0f, 0.0f, 0.0f };
 
-    static const DWORD ps_setup_render_targets_code[] =
-    {
-#if 0
-    struct out_t
-    {
-        float d : SV_DEPTH;
-        float f : SV_TARGET0;
-        uint u : SV_TARGET1;
-        int s : SV_TARGET2;
-    };
-
-    out_t main(in float4 pos : SV_Position, in uint sample_id : SV_SampleIndex)
-    {
-        uint value = (sample_id ^ 1) + 4 * uint(pos.x) + 16 * uint(pos.y);
-        out_t result;
-        result.d = float(value) / 64.0f;
-        result.f = float(value) / 64.0f;
-        result.u = value;
-        result.s = int(value) - 32;
-        return result;
-    }
-#endif
-        0x43425844, 0xeb4fe5be, 0x516da9e0, 0x858b600f, 0x6a01a91d, 0x00000001, 0x0000028c, 0x00000003,
-        0x0000002c, 0x00000088, 0x0000010c, 0x4e475349, 0x00000054, 0x00000002, 0x00000008, 0x00000038,
-        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x00000044, 0x00000000, 0x0000000a,
-        0x00000001, 0x00000001, 0x00000101, 0x505f5653, 0x7469736f, 0x006e6f69, 0x535f5653, 0x6c706d61,
-        0x646e4965, 0xab007865, 0x4e47534f, 0x0000007c, 0x00000004, 0x00000008, 0x00000068, 0x00000000,
-        0x00000000, 0x00000003, 0x00000000, 0x00000e01, 0x00000068, 0x00000001, 0x00000000, 0x00000001,
-        0x00000001, 0x00000e01, 0x00000068, 0x00000002, 0x00000000, 0x00000002, 0x00000002, 0x00000e01,
-        0x00000072, 0x00000000, 0x00000000, 0x00000003, 0xffffffff, 0x00000e01, 0x545f5653, 0x45475241,
-        0x56530054, 0x5045445f, 0xab004854, 0x58454853, 0x00000178, 0x00000050, 0x0000005e, 0x0100086a,
-        0x04002064, 0x00101032, 0x00000000, 0x00000001, 0x04000863, 0x00101012, 0x00000001, 0x0000000a,
-        0x03000065, 0x00102012, 0x00000000, 0x03000065, 0x00102012, 0x00000001, 0x03000065, 0x00102012,
-        0x00000002, 0x02000065, 0x0000c001, 0x02000068, 0x00000001, 0x07000057, 0x00100012, 0x00000000,
-        0x0010100a, 0x00000001, 0x00004001, 0x00000001, 0x0500001c, 0x00100062, 0x00000000, 0x00101106,
-        0x00000000, 0x0a000029, 0x00100062, 0x00000000, 0x00100656, 0x00000000, 0x00004002, 0x00000000,
-        0x00000002, 0x00000004, 0x00000000, 0x0700001e, 0x00100012, 0x00000000, 0x0010001a, 0x00000000,
-        0x0010000a, 0x00000000, 0x0700001e, 0x00100012, 0x00000000, 0x0010002a, 0x00000000, 0x0010000a,
-        0x00000000, 0x05000056, 0x00100022, 0x00000000, 0x0010000a, 0x00000000, 0x07000038, 0x00100022,
-        0x00000000, 0x0010001a, 0x00000000, 0x00004001, 0x3c800000, 0x04000036, 0x0000c001, 0x0010001a,
-        0x00000000, 0x05000036, 0x00102012, 0x00000000, 0x0010001a, 0x00000000, 0x05000036, 0x00102012,
-        0x00000001, 0x0010000a, 0x00000000, 0x0700001e, 0x00102012, 0x00000002, 0x0010000a, 0x00000000,
-        0x00004001, 0xffffffe0, 0x0100003e,
-    };
-    static const D3D12_SHADER_BYTECODE ps_setup_render_targets = { ps_setup_render_targets_code, sizeof(ps_setup_render_targets_code) };
-
-    static const DWORD ps_setup_stencil_code[] =
-    {
-#if 0
-    cbuffer sample_mask_t : register(b0)
-    {
-        uint sample_mask;
-    };
-
-    uint main() : SV_Coverage
-    {
-        return sample_mask;
-    }
-#endif
-        0x43425844, 0x2fc829d6, 0x337f408a, 0x9ea69217, 0x4ae9bda5, 0x00000001, 0x000000b4, 0x00000003,
-        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
-        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0xffffffff,
-        0x00000e01, 0x435f5653, 0x7265766f, 0x00656761, 0x58454853, 0x0000003c, 0x00000050, 0x0000000f,
-        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x02000065, 0x0000f000, 0x05000036,
-        0x0000f001, 0x0020800a, 0x00000000, 0x00000000, 0x0100003e,
-    };
-    static const D3D12_SHADER_BYTECODE ps_setup_stencil = { ps_setup_stencil_code, sizeof(ps_setup_stencil_code) };
+#include "shaders/copy/headers/ps_resolve_setup_rt.h"
+#include "shaders/copy/headers/ps_resolve_setup_stencil.h"
 
     static const D3D12_RESOLVE_MODE resolve_modes[] =
     {
@@ -1354,7 +1246,7 @@ void test_multisample_resolve_formats(void)
     ok(hr == S_OK, "Failed to create root signature, hr %#x.\n");
 
     init_pipeline_state_desc(&pipeline_desc, rs_setup_render_targets,
-            DXGI_FORMAT_UNKNOWN, NULL, &ps_setup_render_targets, NULL);
+            DXGI_FORMAT_UNKNOWN, NULL, &ps_resolve_setup_rt_dxbc, NULL);
     pipeline_desc.NumRenderTargets = 3;
     pipeline_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
     pipeline_desc.RTVFormats[0] = DXGI_FORMAT_R32_FLOAT;
@@ -1370,7 +1262,7 @@ void test_multisample_resolve_formats(void)
     ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n");
 
     init_pipeline_state_desc(&pipeline_desc, rs_setup_stencil,
-            DXGI_FORMAT_UNKNOWN, NULL, &ps_setup_stencil, NULL);
+            DXGI_FORMAT_UNKNOWN, NULL, &ps_resolve_setup_stencil_dxbc, NULL);
     pipeline_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
     pipeline_desc.SampleDesc.Count = 4;
     pipeline_desc.DepthStencilState.StencilEnable = TRUE;
