@@ -272,6 +272,8 @@ decl_test(test_virtual_queries);
 decl_test(test_vrs);
 decl_test(test_vrs_dxil);
 decl_test(test_vrs_image);
+decl_test(test_vrs_depth_write_dxbc);
+decl_test(test_vrs_depth_write_dxil);
 decl_test(test_stress_suballocation);
 decl_test(test_stress_suballocation_multithread);
 decl_test(test_stress_suballocation_rebar);

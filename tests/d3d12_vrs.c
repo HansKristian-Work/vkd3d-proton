@@ -324,3 +324,139 @@ void test_vrs_image(void)
     destroy_test_context(&context);
 }
 
+void test_vrs_depth_write(bool use_dxil)
+{
+    static const D3D12_SHADING_RATE_COMBINER combiners[2] =
+    {
+        D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,
+        D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,
+    };
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12GraphicsCommandList5 *command_list;
+    struct depth_stencil_resource ds;
+    struct resource_readback rb_color;
+    struct resource_readback rb_depth;
+    struct test_context_desc desc;
+    const float black[4] = { 0 };
+    struct test_context context;
+    ID3D12PipelineState *pso[2];
+    uint32_t i, x, y;
+    HRESULT hr;
+
+#include "shaders/vrs/headers/vrs_depth_vs.h"
+#include "shaders/vrs/headers/vrs_depth_ps.h"
+#include "shaders/vrs/headers/vrs_depth_ps_fixed.h"
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_pipeline = true;
+    desc.rt_width = 64;
+    desc.rt_height = 2;
+    desc.rt_format = DXGI_FORMAT_R32_UINT;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    init_depth_stencil(&ds, context.device, 64, 2, 1, 1, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D32_FLOAT, NULL);
+
+    if (!is_vrs_tier1_supported(context.device, NULL))
+    {
+        skip("VariableRateShading TIER_1 not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList5, (void **)&command_list);
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature,
+        context.render_target_desc.Format,
+        use_dxil ? &vrs_depth_vs_dxil : &vrs_depth_vs_dxbc,
+        use_dxil ? &vrs_depth_ps_dxil : &vrs_depth_ps_dxbc,
+        NULL);
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_GREATER;
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso[0]);
+    ok(SUCCEEDED(hr), "Failed to create pipeline, hr #%x.\n", hr);
+
+    pso_desc.PS = use_dxil ? vrs_depth_ps_fixed_dxil : vrs_depth_ps_fixed_dxbc;
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void **)&pso[1]);
+    ok(SUCCEEDED(hr), "Failed to create pipeline, hr #%x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(pso); i++)
+    {
+        vkd3d_test_set_context("Test %u", i);
+        ID3D12GraphicsCommandList5_ClearDepthStencilView(command_list, ds.dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0, 0, NULL);
+        ID3D12GraphicsCommandList5_ClearRenderTargetView(command_list, context.rtv, black, 0, NULL);
+        ID3D12GraphicsCommandList5_OMSetRenderTargets(command_list, 1, &context.rtv, false, &ds.dsv_handle);
+        ID3D12GraphicsCommandList5_SetGraphicsRootSignature(command_list, context.root_signature);
+        ID3D12GraphicsCommandList5_SetPipelineState(command_list, pso[i]);
+        ID3D12GraphicsCommandList5_IASetPrimitiveTopology(command_list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList5_RSSetViewports(command_list, 1, &context.viewport);
+        ID3D12GraphicsCommandList5_RSSetScissorRects(command_list, 1, &context.scissor_rect);
+
+        ID3D12GraphicsCommandList5_RSSetShadingRate(command_list, D3D12_SHADING_RATE_2X2, combiners);
+        ID3D12GraphicsCommandList5_DrawInstanced(command_list, 3, 1, 0, 0);
+
+        transition_resource_state(context.list, ds.texture, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        get_texture_readback_with_command_list(context.render_target, 0, &rb_color, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+        get_texture_readback_with_command_list(ds.texture, 0, &rb_depth, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+        transition_resource_state(context.list, ds.texture, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+        for (y = 0; y < 2; y++)
+        {
+            for (x = 0; x < 64; x++)
+            {
+                uint32_t expected_color;
+                float expected_depth;
+                uint32_t color;
+                float depth;
+                bool is_vrs;
+
+                color = get_readback_uint(&rb_color, x, y, 0);
+                depth = get_readback_float(&rb_depth, x, y);
+                is_vrs = i == 1;
+
+                expected_depth = ((float)x + 0.5f) / 64.0f;
+
+                /* Writing to SV_Depth forces 1x1 rate, even when hardware would support that in Vulkan.
+                 * However, this only seems to happen on NV. Both AMD and WARP are bugged in different ways. */
+                /* https://microsoft.github.io/DirectX-Specs/d3d/VariableRateShading.html#export-of-depth-and-stencil specifies 1x1 rate. */
+                if (is_vrs)
+                    expected_color = (uint32_t)(((float)(x / 2) + 0.5f) * 64.0f / 32.0f);
+                else
+                    expected_color = x;
+
+                ok(compare_float(expected_depth, depth, 1), "%u, %u: Expected %f, got %f\n", x, y, expected_depth, depth);
+                ok(color == expected_color, "%u, %u: Expected %u, got %u\n", x, y, expected_color, color);
+            }
+        }
+
+        release_resource_readback(&rb_color);
+        release_resource_readback(&rb_depth);
+    }
+    vkd3d_test_set_context(NULL);
+
+    for (i = 0; i < ARRAY_SIZE(pso); i++)
+        ID3D12PipelineState_Release(pso[i]);
+    ID3D12GraphicsCommandList5_Release(command_list);
+    destroy_depth_stencil(&ds);
+    destroy_test_context(&context);
+}
+
+void test_vrs_depth_write_dxbc(void)
+{
+    test_vrs_depth_write(false);
+}
+
+void test_vrs_depth_write_dxil(void)
+{
+    test_vrs_depth_write(true);
+}
+
