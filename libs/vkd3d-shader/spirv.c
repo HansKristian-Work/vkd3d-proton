@@ -12037,18 +12037,32 @@ void vkd3d_shader_extract_feature_meta(struct vkd3d_shader_code *code)
         else if (op == SpvOpExecutionMode && count == 3)
         {
             execution_mode = spirv[offset + 2];
+            switch (execution_mode)
+            {
+                case SpvExecutionModeIsolines:
+                case SpvExecutionModeOutputLineStrip:
+                case SpvExecutionModeOutputLinesEXT:
+                    meta |= VKD3D_SHADER_META_FLAG_EMITS_LINES;
+                    break;
 
-            if (execution_mode == SpvExecutionModeIsolines ||
-                    execution_mode == SpvExecutionModeOutputLineStrip ||
-                    execution_mode == SpvExecutionModeOutputLinesEXT)
-                meta |= VKD3D_SHADER_META_FLAG_EMITS_LINES;
+                case SpvExecutionModeTriangles:
+                case SpvExecutionModeQuads:
+                case SpvExecutionModeOutputTriangleStrip:
+                case SpvExecutionModeOutputTrianglesEXT:
+                    meta |= VKD3D_SHADER_META_FLAG_EMITS_TRIANGLES;
+                    break;
 
-            if (execution_mode == SpvExecutionModeTriangles ||
-                    execution_mode == SpvExecutionModeQuads ||
-                    execution_mode == SpvExecutionModeOutputTriangleStrip ||
-                    execution_mode == SpvExecutionModeOutputTrianglesEXT)
-                meta |= VKD3D_SHADER_META_FLAG_EMITS_TRIANGLES;
+                case SpvExecutionModeDepthGreater:
+                case SpvExecutionModeDepthLess:
+                case SpvExecutionModeDepthReplacing:
+                case SpvExecutionModeDepthUnchanged:
+                case SpvExecutionModeStencilRefReplacingEXT:
+                    meta |= VKD3D_SHADER_META_FLAG_USES_DEPTH_STENCIL_WRITE;
+                    break;
 
+                default:
+                    break;
+            }
         }
         else if ((op == SpvOpDecorate && count == 4) ||
                 (op == SpvOpMemberDecorate && count == 5))

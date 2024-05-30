@@ -3958,10 +3958,12 @@ uint32_t d3d12_graphics_pipeline_state_get_dynamic_state_flags(struct d3d12_pipe
      * so we don't need to worry about side effects when there are no render targets. */
     if (d3d12_device_supports_variable_shading_rate_tier_1(state->device) && graphics->rt_count)
     {
-        /* If sample rate shading or ROVs are used, force default VRS state. Do this by not enabling the dynamic state.
+        /* If sample rate shading, ROVs are used, or depth stencil export is used force default VRS state.
+         * Do this by not enabling the dynamic state.
          * This forces default static pipeline state to be used instead, which is what we want. */
         const uint32_t disable_flags =
                 VKD3D_SHADER_META_FLAG_USES_SAMPLE_RATE_SHADING |
+                VKD3D_SHADER_META_FLAG_USES_DEPTH_STENCIL_WRITE |
                 VKD3D_SHADER_META_FLAG_USES_RASTERIZER_ORDERED_VIEWS;
         bool allow_vrs_combiners = true;
 
