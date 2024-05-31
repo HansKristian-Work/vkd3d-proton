@@ -25,7 +25,7 @@ struct query_map_entry_t {
 layout(std430, buffer_reference, buffer_reference_align = 4)
 readonly buffer query_map_t {
   query_map_entry_t entries[];
-} map;
+};
 
 layout(push_constant)
 uniform u_info_t {
