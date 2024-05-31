@@ -1684,6 +1684,229 @@ void test_multisample_resolve_formats(void)
     destroy_test_context(&context);
 }
 
+void test_multisample_resolve_strongly_typed(void)
+{
+    D3D12_CPU_DESCRIPTOR_HANDLE src_rtv, dst_rtv;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12Resource *resolve_src, *resolve_dst;
+    D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
+    struct test_context_desc context_desc;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12DescriptorHeap *rtv_heap;
+    struct test_context context;
+    ID3D12PipelineState *pso;
+    D3D12_VIEWPORT viewport;
+    D3D12_RECT scissor;
+    unsigned int i;
+    HRESULT hr;
+
+#include "shaders/copy/headers/ps_resolve_setup_simple.h"
+
+    static const FLOAT red[] = { 1.0f, 0.0f, 0.0f, 1.0f };
+    static const FLOAT green[] = { 0.0f, 1.0f, 0.0f, 1.0f };
+
+    struct
+    {
+        DXGI_FORMAT dst_format;
+        DXGI_FORMAT src_format;
+        DXGI_FORMAT resolve_format;
+        uint32_t expected;
+    }
+    tests[] =
+    {
+        /* We can override the resolve format as long as it's compatible with the image */
+        { DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, 0xffbcbcbc },
+        { DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, DXGI_FORMAT_R8G8B8A8_UNORM, 0xff808080 },
+
+        /* Source and destination images may have different formats if compatible */
+        { DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, 0xffbcbcbc },
+        { DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM, 0xff808080 },
+
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, 0xffbcbcbc },
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, DXGI_FORMAT_R8G8B8A8_UNORM, 0xff808080 },
+    };
+
+    struct
+    {
+        DXGI_FORMAT dst_format;
+        DXGI_FORMAT src_format;
+        DXGI_FORMAT resolve_format;
+        HRESULT expected;
+        bool is_todo;
+    }
+    invalid_tests[] =
+    {
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_UNKNOWN, E_INVALIDARG },
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_TYPELESS, E_INVALIDARG, true },
+        { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R32_FLOAT, E_INVALIDARG, true },
+
+        /* All of these are UB, but not validated by the runtime or debug layer */
+        { DXGI_FORMAT_R16_TYPELESS, DXGI_FORMAT_R16_FLOAT, DXGI_FORMAT_R16_UNORM, S_OK },
+        { DXGI_FORMAT_R16_TYPELESS, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_FLOAT, S_OK },
+        { DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_TYPELESS, DXGI_FORMAT_R16_FLOAT, S_OK },
+        { DXGI_FORMAT_R16_FLOAT, DXGI_FORMAT_R16_TYPELESS, DXGI_FORMAT_R16_UNORM, S_OK },
+
+        { DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_FLOAT, DXGI_FORMAT_R16_FLOAT, S_OK },
+        { DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_FLOAT, DXGI_FORMAT_R16_UNORM, S_OK },
+    };
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_render_target = true;
+    context_desc.no_pipeline = true;
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n");
+
+    init_pipeline_state_desc(&pso_desc, context.root_signature,
+            DXGI_FORMAT_UNKNOWN, NULL, &ps_resolve_setup_simple_dxbc, NULL);
+    pso_desc.NumRenderTargets = 1;
+    pso_desc.SampleDesc.Count = 4;
+
+    rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 2);
+
+    dst_rtv = get_cpu_rtv_handle(&context, rtv_heap, 0);
+    src_rtv = get_cpu_rtv_handle(&context, rtv_heap, 1);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    viewport.TopLeftX = 0.0f;
+    viewport.TopLeftY = 0.0f;
+    viewport.Width = 4.0f;
+    viewport.Height = 4.0f;
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 0.0f;
+
+    scissor.left = 0;
+    scissor.top = 0;
+    scissor.right = 4;
+    scissor.bottom = 4;
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        vkd3d_test_set_context("Test %u", i);
+
+        memset(&resource_desc, 0, sizeof(resource_desc));
+        resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        resource_desc.Width = 4;
+        resource_desc.Height = 4;
+        resource_desc.DepthOrArraySize = 1;
+        resource_desc.MipLevels = 1;
+        resource_desc.SampleDesc.Count = 4;
+        resource_desc.Format = tests[i].src_format;
+        resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+        hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void**)&resolve_src);
+        ok(hr == S_OK, "Failed to create resolve source.\n");
+
+        resource_desc.SampleDesc.Count = 1;
+        resource_desc.Format = tests[i].dst_format;
+
+        hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void**)&resolve_dst);
+        ok(hr == S_OK, "Failed to create resolve destination.\n");
+
+        memset(&rtv_desc, 0, sizeof(rtv_desc));
+        rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMS;
+        rtv_desc.Format = tests[i].src_format;
+
+        ID3D12Device_CreateRenderTargetView(context.device, resolve_src, &rtv_desc, src_rtv);
+
+        rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+        rtv_desc.Format = tests[i].dst_format;
+
+        ID3D12Device_CreateRenderTargetView(context.device, resolve_dst, &rtv_desc, dst_rtv);
+
+        pso_desc.RTVFormats[0] = tests[i].src_format;
+
+        hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&pso);
+        ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n");
+
+        ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, src_rtv, green, 0, NULL);
+        ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, dst_rtv, red, 0, NULL);
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &src_rtv, TRUE, NULL);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, pso);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &scissor);
+        ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+        transition_resource_state(context.list, resolve_dst, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+        transition_resource_state(context.list, resolve_src, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+
+        ID3D12GraphicsCommandList_ResolveSubresource(context.list, resolve_dst, 0,
+                resolve_src, 0, tests[i].resolve_format);
+
+        transition_resource_state(context.list, resolve_dst, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        check_sub_resource_uint(resolve_dst, 0, context.queue, context.list, tests[i].expected, 1);
+        reset_command_list(context.list, context.allocator);
+
+        ID3D12PipelineState_Release(pso);
+
+        ID3D12Resource_Release(resolve_dst);
+        ID3D12Resource_Release(resolve_src);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(invalid_tests); i++)
+    {
+        vkd3d_test_set_context("Test %u", i);
+
+        memset(&resource_desc, 0, sizeof(resource_desc));
+        resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        resource_desc.Width = 4;
+        resource_desc.Height = 4;
+        resource_desc.DepthOrArraySize = 1;
+        resource_desc.MipLevels = 1;
+        resource_desc.SampleDesc.Count = 4;
+        resource_desc.Format = invalid_tests[i].src_format;
+        resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+        hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                &resource_desc, D3D12_RESOURCE_STATE_RESOLVE_SOURCE, NULL, &IID_ID3D12Resource, (void**)&resolve_src);
+        ok(hr == S_OK, "Failed to create resolve source.\n");
+
+        resource_desc.SampleDesc.Count = 1;
+        resource_desc.Format = invalid_tests[i].dst_format;
+
+        hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                &resource_desc, D3D12_RESOURCE_STATE_RESOLVE_DEST, NULL, &IID_ID3D12Resource, (void**)&resolve_dst);
+        ok(hr == S_OK, "Failed to create resolve destination, hr %#x.\n", hr);
+
+        ID3D12GraphicsCommandList_ResolveSubresource(context.list, resolve_dst, 0,
+                resolve_src, 0, invalid_tests[i].resolve_format);
+
+        hr = ID3D12GraphicsCommandList_Close(context.list);
+        todo_if(invalid_tests[i].is_todo)
+        ok(hr == invalid_tests[i].expected, "Got hr %#x, expected E_INVALIDARG.\n", hr);
+        ID3D12GraphicsCommandList_Release(context.list);
+
+        hr = ID3D12CommandAllocator_Reset(context.allocator);
+        ok(hr == S_OK, "Failed to reset command allocator, hr %#x.\n", hr);
+
+        hr = ID3D12Device_CreateCommandList(context.device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                context.allocator, NULL, &IID_ID3D12GraphicsCommandList, (void**)&context.list);
+        ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
+
+        ID3D12Resource_Release(resolve_dst);
+        ID3D12Resource_Release(resolve_src);
+    }
+
+    ID3D12DescriptorHeap_Release(rtv_heap);
+
+    destroy_test_context(&context);
+}
+
 void test_copy_buffer_overlap(void)
 {
     uint32_t reference_output[4][16 * 1024] = {{0}};

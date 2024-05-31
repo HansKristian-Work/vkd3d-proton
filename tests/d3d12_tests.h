@@ -200,6 +200,7 @@ decl_test(test_dual_source_blending_dxil);
 decl_test(test_multisample_rendering);
 decl_test(test_multisample_resolve);
 decl_test(test_multisample_resolve_formats);
+decl_test(test_multisample_resolve_strongly_typed);
 decl_test(test_sample_mask_dxbc);
 decl_test(test_sample_mask_dxil);
 decl_test(test_coverage_dxbc);
