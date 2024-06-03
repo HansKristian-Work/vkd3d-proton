@@ -4707,6 +4707,44 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             return S_OK;
         }
 
+        case D3D12_FEATURE_D3D12_OPTIONS20:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS20 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            *data = device->d3d12_caps.options20;
+
+            TRACE("ComputeOnlyWriteWatchSupported %u\n", data->ComputeOnlyWriteWatchSupported);
+            TRACE("RecreateAtTier %#x\n", data->RecreateAtTier);
+
+            return S_OK;
+        }
+
+        case D3D12_FEATURE_D3D12_OPTIONS21:
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS21 *data = feature_data;
+
+            if (feature_data_size != sizeof(*data))
+            {
+                WARN("Invalid size %u.\n", feature_data_size);
+                return E_INVALIDARG;
+            }
+
+            *data = device->d3d12_caps.options21;
+
+            TRACE("WorkGraphsTier %#x\n", data->WorkGraphsTier);
+            TRACE("ExecuteIndirectTier %u\n", data->ExecuteIndirectTier);
+            TRACE("SampleCmpGradientAndBiasSupported %u\n", data->SampleCmpGradientAndBiasSupported);
+            TRACE("ExtendedCommandInfoSupported %u\n", data->ExtendedCommandInfoSupported);
+
+            return S_OK;
+        }
+
         case D3D12_FEATURE_QUERY_META_COMMAND:
         {
             D3D12_FEATURE_DATA_QUERY_META_COMMAND *data = feature_data;
@@ -7981,6 +8019,26 @@ static void d3d12_device_caps_init_feature_options19(struct d3d12_device *device
     options19->MaxViewDescriptorHeapSize = 1000000;
 }
 
+static void d3d12_device_caps_init_feature_options20(struct d3d12_device *device)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS20 *options20 = &device->d3d12_caps.options20;
+
+    options20->ComputeOnlyWriteWatchSupported = FALSE;
+    options20->RecreateAtTier = D3D12_RECREATE_AT_TIER_NOT_SUPPORTED;
+}
+
+static void d3d12_device_caps_init_feature_options21(struct d3d12_device *device)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS21 *options21 = &device->d3d12_caps.options21;
+
+    options21->WorkGraphsTier = D3D12_WORK_GRAPHS_TIER_NOT_SUPPORTED;
+    /* Tier 1_1 requires emulating DrawID */
+    options21->ExecuteIndirectTier = D3D12_EXECUTE_INDIRECT_TIER_1_0;
+    options21->SampleCmpGradientAndBiasSupported = device->d3d12_caps.max_shader_model >= D3D_SHADER_MODEL_6_8 &&
+            device->d3d12_caps.options14.AdvancedTextureOpsSupported;
+    options21->ExtendedCommandInfoSupported = device->d3d12_caps.max_shader_model >= D3D_SHADER_MODEL_6_8;
+}
+
 static void d3d12_device_caps_init_feature_level(struct d3d12_device *device)
 {
     const VkPhysicalDeviceFeatures *features = &device->device_info.features2.features;
@@ -8373,6 +8431,8 @@ static void d3d12_device_caps_init(struct d3d12_device *device)
     d3d12_device_caps_init_feature_options17(device);
     d3d12_device_caps_init_feature_options18(device);
     d3d12_device_caps_init_feature_options19(device);
+    d3d12_device_caps_init_feature_options20(device);
+    d3d12_device_caps_init_feature_options21(device);
     d3d12_device_caps_init_feature_level(device);
 
     d3d12_device_caps_override(device);
