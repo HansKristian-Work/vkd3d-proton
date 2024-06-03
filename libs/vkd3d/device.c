@@ -8103,6 +8103,7 @@ static void d3d12_device_caps_shader_model_override(struct d3d12_device *device)
         { "6_5", D3D_SHADER_MODEL_6_5 },
         { "6_6", D3D_SHADER_MODEL_6_6 },
         { "6_7", D3D_SHADER_MODEL_6_7 },
+        { "6_8", D3D_SHADER_MODEL_6_8 },
     };
 
     if (!vkd3d_get_env_var("VKD3D_SHADER_MODEL", sm_string, sizeof(sm_string)))
@@ -8287,6 +8288,24 @@ static void d3d12_device_caps_init_shader_model(struct d3d12_device *device)
              * Technically needs an extension to *guarantee* this behavior however ... */
             INFO("Enabling support for SM 6.7.\n");
             device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_7;
+        }
+
+        /* SM6.8 adds:
+         * - SV_StartInstanceLocation / SV_StartVertexLocation (required)
+         *   - Trivially maps to BaseVertex and BaseInstance, respectively
+         * - WaveSizeRange (required)
+         *   - Completely replaces WaveSize at the DXIL level
+         *   - Specifies a range of subgroup sizes that the shader can operate
+         *     with, as well as a preferred subgroup size.
+         * - Expanded Comparison Sampling
+         *   - Basically Grad/Bias operands for Dref instructions
+         * - Work graphs
+         *   - uhh...
+         */
+        if (device->d3d12_caps.max_shader_model == D3D_SHADER_MODEL_6_7)
+        {
+            INFO("Enabling support for SM 6.8.\n");
+            device->d3d12_caps.max_shader_model = D3D_SHADER_MODEL_6_8;
         }
     }
     else
