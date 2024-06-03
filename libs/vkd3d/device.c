@@ -8991,7 +8991,7 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
         return false;
     }
 
-    if (meta->cs_required_wave_size)
+    if (meta->cs_wave_size_min)
     {
         const struct vkd3d_physical_device_info *info = &device->device_info;
 
@@ -9001,11 +9001,11 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
             return false;
         }
 
-        if (meta->cs_required_wave_size < info->vulkan_1_3_properties.minSubgroupSize ||
-                meta->cs_required_wave_size > info->vulkan_1_3_properties.maxSubgroupSize)
+        if (meta->cs_wave_size_min > info->vulkan_1_3_properties.maxSubgroupSize ||
+                meta->cs_wave_size_max < info->vulkan_1_3_properties.minSubgroupSize)
         {
-            ERR("Requested WaveSize %u, but supported range is [%u, %u].\n",
-                    meta->cs_required_wave_size,
+            ERR("Required WaveSize range [%u, %u], but supported range is [%u, %u].\n",
+                    meta->cs_wave_size_min, meta->cs_wave_size_max,
                     info->vulkan_1_3_properties.minSubgroupSize,
                     info->vulkan_1_3_properties.maxSubgroupSize);
             return false;

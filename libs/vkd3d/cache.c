@@ -181,7 +181,7 @@ VkResult vkd3d_create_pipeline_cache(struct d3d12_device *device,
     return VK_CALL(vkCreatePipelineCache(device->vk_device, &info, NULL, cache));
 }
 
-#define VKD3D_CACHE_BLOB_VERSION MAKE_MAGIC('V','K','B',3)
+#define VKD3D_CACHE_BLOB_VERSION MAKE_MAGIC('V','K','B',4)
 
 enum vkd3d_pipeline_blob_chunk_type
 {

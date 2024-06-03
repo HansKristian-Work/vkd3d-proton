@@ -558,6 +558,7 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         const struct vkd3d_shader_compile_arguments *compiler_args)
 {
     dxil_spv_option_denorm_preserve_support denorm_preserve = {{ DXIL_SPV_OPTION_DENORM_PRESERVE_SUPPORT }};
+    uint32_t wave_size_min, wave_size_max, wave_size_preferred;
     struct vkd3d_dxil_remap_userdata remap_userdata;
     bool compute_shader_derivatives = false;
     unsigned int raw_va_binding_count = 0;
@@ -1136,7 +1137,13 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
             &spirv->meta.cs_workgroup_size[1],
             &spirv->meta.cs_workgroup_size[2]);
     dxil_spv_converter_get_patch_vertex_count(converter, &spirv->meta.patch_vertex_count);
-    dxil_spv_converter_get_compute_required_wave_size(converter, &spirv->meta.cs_required_wave_size);
+
+    dxil_spv_converter_get_compute_wave_size_range(converter,
+            &wave_size_min, &wave_size_max, &wave_size_preferred);
+
+    /* Ensure that the maximum wave size is always valid */
+    if (!wave_size_max)
+        wave_size_max = wave_size_min;
 
     if (compiler_args->promote_wave_size_heuristics)
     {
@@ -1144,11 +1151,15 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         if (quirks & VKD3D_SHADER_QUIRK_FORCE_MAX_WAVE32)
             heuristic_wave_size = 32;
 
-        if (heuristic_wave_size && !spirv->meta.cs_required_wave_size &&
+        if (heuristic_wave_size && !wave_size_min &&
                 compiler_args->max_subgroup_size > heuristic_wave_size &&
                 compiler_args->min_subgroup_size <= heuristic_wave_size)
-            spirv->meta.cs_required_wave_size = heuristic_wave_size;
+            wave_size_preferred = heuristic_wave_size;
     }
+
+    spirv->meta.cs_wave_size_min = wave_size_min;
+    spirv->meta.cs_wave_size_max = wave_size_max;
+    spirv->meta.cs_wave_size_preferred = wave_size_preferred;
 
     vkd3d_shader_extract_feature_meta(spirv);
     vkd3d_shader_dump_spirv_shader(hash, spirv);
