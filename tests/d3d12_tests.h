@@ -420,3 +420,4 @@ decl_test(test_workgraph_cross_group_sharing);
 decl_test(test_workgraph_shared_inputs);
 decl_test(test_workgraph_local_root_signature);
 decl_test(test_sm68_draw_parameters);
+decl_test(test_sm68_wave_size_range);

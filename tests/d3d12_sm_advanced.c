@@ -4254,3 +4254,155 @@ void test_sm68_draw_parameters(void)
 
     destroy_test_context(&context);
 }
+
+void test_sm68_wave_size_range(void)
+{
+    D3D12_COMPUTE_PIPELINE_STATE_DESC compute_desc;
+    D3D12_FEATURE_DATA_SHADER_MODEL shader_model;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS1 options1;
+    D3D12_ROOT_PARAMETER root_parameters[2];
+    uint32_t value, expected, wave_size;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12PipelineState *pso;
+    uint32_t input_data[128];
+    bool supported_wave_size;
+    HRESULT hr, expected_hr;
+    ID3D12Resource *src;
+    ID3D12Resource *dst;
+    unsigned int i, j;
+
+    struct test
+    {
+        const struct D3D12_SHADER_BYTECODE *cs;
+        unsigned int wave_size_min;
+        unsigned int wave_size_max;
+        unsigned int wave_size_preferred;
+    };
+
+#include "shaders/sm_advanced/headers/cs_wave_size_range_8_16.h"
+#include "shaders/sm_advanced/headers/cs_wave_size_range_16_32.h"
+#include "shaders/sm_advanced/headers/cs_wave_size_range_64_128.h"
+#include "shaders/sm_advanced/headers/cs_wave_size_range_16.h"
+#include "shaders/sm_advanced/headers/cs_wave_size_range_32.h"
+#include "shaders/sm_advanced/headers/cs_wave_size_range_64.h"
+#include "shaders/sm_advanced/headers/cs_wave_size_range_prefer_16.h"
+#include "shaders/sm_advanced/headers/cs_wave_size_range_prefer_32.h"
+#include "shaders/sm_advanced/headers/cs_wave_size_range_prefer_64.h"
+
+    static const struct test tests[] =
+    {
+        { &cs_wave_size_range_16_dxil, 16, 16, 0 },
+        { &cs_wave_size_range_32_dxil, 32, 32, 0 },
+        { &cs_wave_size_range_64_dxil, 64, 64, 0 },
+
+        { &cs_wave_size_range_8_16_dxil,    8,  16, 0 },
+        { &cs_wave_size_range_16_32_dxil,  16,  32, 0 },
+        { &cs_wave_size_range_64_128_dxil, 64, 128, 0 },
+
+        { &cs_wave_size_range_prefer_16_dxil, 4, 128, 16 },
+        { &cs_wave_size_range_prefer_32_dxil, 4, 128, 32 },
+        { &cs_wave_size_range_prefer_64_dxil, 4, 128, 64 },
+    };
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (!context_supports_dxil(&context))
+    {
+        skip("Context does not support DXIL.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&shader_model, 0, sizeof(shader_model));
+    shader_model.HighestShaderModel = D3D_SHADER_MODEL_6_8;
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_SHADER_MODEL, &shader_model, sizeof(shader_model))) ||
+            shader_model.HighestShaderModel < D3D_SHADER_MODEL_6_8)
+    {
+        skip("Device does not support SM 6.8.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = ARRAY_SIZE(root_parameters);
+    rs_desc.pParameters = root_parameters;
+    memset(root_parameters, 0, sizeof(root_parameters));
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    create_root_signature(context.device, &rs_desc, &context.root_signature);
+
+    memset(&options1, 0, sizeof(options1));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS1, &options1, sizeof(options1));
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        vkd3d_test_set_context("Test %u", i);
+
+        supported_wave_size = tests[i].wave_size_max >= options1.WaveLaneCountMin && tests[i].wave_size_min <= options1.WaveLaneCountMax;
+
+        memset(&compute_desc, 0, sizeof(compute_desc));
+        compute_desc.CS = *tests[i].cs;
+        compute_desc.pRootSignature = context.root_signature;
+
+        expected_hr = supported_wave_size ? S_OK : E_INVALIDARG;
+        hr = ID3D12Device_CreateComputePipelineState(context.device, &compute_desc, &IID_ID3D12PipelineState, (void**)&pso);
+        ok(hr == expected_hr, "Got hr #%x, expected %#x.\n", hr, expected_hr);
+
+        if (!supported_wave_size)
+        {
+            skip("WaveSize range [%u, %u] not supported, skipping.\n", tests[i].wave_size_min, tests[i].wave_size_max);
+            continue;
+        }
+
+        for (j = 0; j < ARRAY_SIZE(input_data); j++)
+            input_data[j] = 100;
+
+        src = create_upload_buffer(context.device, sizeof(input_data), input_data);
+        dst = create_default_buffer(context.device, sizeof(input_data) * 2,
+                D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, pso);
+        ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(src));
+        ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(dst));
+        ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+
+        transition_resource_state(context.list, dst, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        get_buffer_readback_with_command_list(dst, DXGI_FORMAT_R32_UINT, &rb, context.queue, context.list);
+
+        for (j = 0; j < ARRAY_SIZE(input_data); j++)
+        {
+            wave_size = get_readback_uint(&rb, j + 128, 0, 0);
+
+            ok(wave_size >= options1.WaveLaneCountMin && wave_size <= options1.WaveLaneCountMax, "Expected wave size within device supported range [%u,%u], got %u.\n",
+                    options1.WaveLaneCountMin, options1.WaveLaneCountMax, wave_size);
+
+            if (tests[i].wave_size_preferred >= options1.WaveLaneCountMin && tests[i].wave_size_preferred <= options1.WaveLaneCountMax)
+            {
+                ok(wave_size == tests[i].wave_size_preferred, "Expected wave size: %u, got %u\n", tests[i].wave_size_preferred, wave_size);
+            }
+            else
+            {
+                ok(wave_size >= tests[i].wave_size_min && wave_size <= tests[i].wave_size_max, "Expected wave size in range [%u,%u], got %u.\n",
+                        tests[i].wave_size_min, tests[i].wave_size_max, wave_size);
+            }
+
+            expected = (j % wave_size) * 100;
+            value = get_readback_uint(&rb, j, 0, 0);
+            ok(value == expected, "Prefix sum mismatch, value %u: %u != %u\n", j, value, expected);
+        }
+
+        ID3D12Resource_Release(src);
+        ID3D12Resource_Release(dst);
+        ID3D12PipelineState_Release(pso);
+        release_resource_readback(&rb);
+        reset_command_list(context.list, context.allocator);
+    }
+
+    vkd3d_test_set_context(NULL);
+    destroy_test_context(&context);
+}
