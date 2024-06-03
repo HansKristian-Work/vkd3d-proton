@@ -3992,3 +3992,265 @@ void test_sm67_integer_sampling(void)
 
     destroy_test_context(&context);
 }
+
+void test_sm68_draw_parameters(void)
+{
+    ID3D12CommandSignature *simple_sig, *complex_sig;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS21 options21;
+    D3D12_FEATURE_DATA_SHADER_MODEL shader_model;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_INDIRECT_ARGUMENT_DESC sig_args[2];
+    D3D12_COMMAND_SIGNATURE_DESC sig_desc;
+    struct test_context_desc context_desc;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_ROOT_PARAMETER root_params[3];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12Resource *uav, *draw_buffer;
+    ID3D12DescriptorHeap *uav_heap;
+    struct resource_readback rb;
+    struct test_context context;
+    D3D12_VIEWPORT viewport;
+    D3D12_RECT scissor;
+    unsigned int i, j;
+    HRESULT hr;
+
+    static const uint32_t zero_uint[] = { 0, 0, 0, 0 };
+
+    struct draw_args
+    {
+        uint32_t draw_id;
+        uint32_t vertex_count;
+        uint32_t instance_count;
+        uint32_t base_vertex;
+        uint32_t base_instance;
+    }
+    *draw_args, tests[] =
+    {
+        { 0, 3, 1, 0, 0 },
+        { 1, 3, 1, 4, 2 },
+        { 2, 1, 5, 2, 8 },
+        { 3, 4, 8, 7, 9 },
+    };
+
+    enum
+    {
+        MODE_DIRECT,
+        MODE_EXECUTE_INDIRECT_SIMPLE,
+        MODE_EXECUTE_INDIRECT_COMPLEX,
+        MODE_COUNT
+    };
+
+#include "shaders/sm_advanced/headers/vs_draw_args.h"
+
+    memset(&context_desc, 0, sizeof(context_desc));
+    context_desc.no_pipeline = true;
+    context_desc.no_render_target = true;
+    context_desc.no_root_signature = true;
+    if (!init_test_context(&context, &context_desc))
+        return;
+
+    shader_model.HighestShaderModel = D3D_SHADER_MODEL_6_8;
+    hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_SHADER_MODEL, &shader_model, sizeof(shader_model));
+    if (FAILED(hr) || shader_model.HighestShaderModel < D3D_SHADER_MODEL_6_8)
+    {
+        skip("Device does not support SM 6.8.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&options21, 0, sizeof(options21));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS21, &options21, sizeof(options21));
+
+    if (!options21.ExtendedCommandInfoSupported)
+    {
+        skip("Extended command info not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(root_params, 0, sizeof(root_params));
+    root_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    root_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+
+    root_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    root_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+
+    root_params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_params[2].Constants.Num32BitValues = 1; /* draw id */
+    root_params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = ARRAY_SIZE(root_params);
+    rs_desc.pParameters = root_params;
+
+    hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n");
+
+    init_pipeline_state_desc_dxil(&pso_desc, context.root_signature,
+            DXGI_FORMAT_UNKNOWN, &vs_draw_args_dxil, NULL, NULL);
+    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+    memset(&pso_desc.PS, 0, sizeof(pso_desc.PS));
+
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n");
+
+    memset(sig_args, 0, sizeof(sig_args));
+    sig_args[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT;
+    sig_args[0].Constant.RootParameterIndex = 2;
+    sig_args[0].Constant.Num32BitValuesToSet = 1;
+
+    sig_args[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
+
+    memset(&sig_desc, 0, sizeof(sig_desc));
+    sig_desc.ByteStride = sizeof(struct draw_args);
+    sig_desc.NumArgumentDescs = 1;
+    sig_desc.pArgumentDescs = &sig_args[1];
+
+    hr = ID3D12Device_CreateCommandSignature(context.device, &sig_desc, NULL, &IID_ID3D12CommandSignature, (void**)&simple_sig);
+    ok(hr == S_OK, "Failed to create command signature, hr %#x.\n", hr);
+
+    /* Be robust here in case the implementation does not support dgc */
+    sig_desc.NumArgumentDescs = ARRAY_SIZE(sig_args);
+    sig_desc.pArgumentDescs = sig_args;
+
+    complex_sig = NULL;
+
+    hr = ID3D12Device_CreateCommandSignature(context.device, &sig_desc, context.root_signature, &IID_ID3D12CommandSignature, (void**)&complex_sig);
+    todo_if(hr == E_NOTIMPL)
+    ok(hr == S_OK, "Failed to create command signature, hr %#x.\n", hr);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Width = ARRAY_SIZE(tests) * sizeof(uint32_t);
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = DXGI_FORMAT_UNKNOWN;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL, &IID_ID3D12Resource, (void**)&uav);
+    ok(hr == S_OK, "Failed to create UAV buffer, hr %#x.\n", hr);
+
+    uav_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+
+    memset(&uav_desc, 0, sizeof(uav_desc));
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    uav_desc.Format = DXGI_FORMAT_R32_UINT;
+    uav_desc.Buffer.NumElements = ARRAY_SIZE(tests);
+
+    ID3D12Device_CreateUnorderedAccessView(context.device, uav, NULL, &uav_desc,
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(uav_heap));
+
+    heap_properties.Type = D3D12_HEAP_TYPE_CUSTOM;
+    heap_properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE;
+    heap_properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+
+    resource_desc.Width = sizeof(tests);
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE, &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL, &IID_ID3D12Resource, (void**)&draw_buffer);
+    ok(hr == S_OK, "Failed to create draw buffer, hr %#x.\n", hr);
+
+    hr = ID3D12Resource_Map(draw_buffer, 0, NULL, (void**)&draw_args);
+    ok(hr == S_OK, "Failed to map draw buffer, hr %#x.\n", hr);
+    memcpy(draw_args, tests, sizeof(tests));
+
+    viewport.TopLeftX = 0.0f;
+    viewport.TopLeftY = 0.0f;
+    viewport.Width = 1.0f;
+    viewport.Height = 1.0f;
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
+
+    scissor.left = 0;
+    scissor.top = 0;
+    scissor.right = 1;
+    scissor.bottom = 1;
+
+    for (i = 0; i < MODE_COUNT; i++)
+    {
+        vkd3d_test_set_context("Mode %u", i);
+
+        ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(context.list,
+                ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(uav_heap),
+                ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(uav_heap),
+                uav, zero_uint, 0, NULL);
+
+        uav_barrier(context.list, uav);
+
+        ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 0, NULL, FALSE, NULL);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_POINTLIST);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+        ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(context.list, 0, ID3D12Resource_GetGPUVirtualAddress(uav));
+        ID3D12GraphicsCommandList_SetGraphicsRootShaderResourceView(context.list, 1, ID3D12Resource_GetGPUVirtualAddress(draw_buffer));
+        ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &scissor);
+
+        if (i == MODE_EXECUTE_INDIRECT_COMPLEX)
+        {
+            if (!complex_sig)
+            {
+                skip("Complex command signatures not supported by implementation.\n");
+                break;
+            }
+
+            ID3D12GraphicsCommandList_ExecuteIndirect(context.list,
+                    complex_sig, ARRAY_SIZE(tests), draw_buffer, 0, NULL, 0);
+        }
+        else
+        {
+            for (j = 0; j < ARRAY_SIZE(tests); j++)
+            {
+                ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstant(context.list, 2, tests[j].draw_id, 0);
+
+                if (i == MODE_EXECUTE_INDIRECT_SIMPLE)
+                {
+                    ID3D12GraphicsCommandList_ExecuteIndirect(context.list, simple_sig, 1, draw_buffer,
+                            j * sizeof(struct draw_args) + offsetof(struct draw_args, vertex_count), NULL, 0);
+                }
+                else
+                {
+                    ID3D12GraphicsCommandList_DrawInstanced(context.list, tests[j].vertex_count,
+                            tests[j].instance_count, tests[j].base_vertex, tests[j].base_instance);
+                }
+            }
+        }
+
+        transition_resource_state(context.list, uav, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        get_buffer_readback_with_command_list(uav, 0, &rb, context.queue, context.list);
+        reset_command_list(context.list, context.allocator);
+
+        transition_resource_state(context.list, uav, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+        for (j = 0; j < ARRAY_SIZE(tests); j++)
+        {
+            uint32_t got = get_readback_uint(&rb, j, 0, 0);
+            uint32_t expected = (2u << (tests[j].vertex_count * tests[j].instance_count - 1u)) - 1u;
+
+            ok(got == expected, "Got %#x, expected %#x at offset %u.\n", got, expected, j);
+        }
+
+        release_resource_readback(&rb);
+    }
+
+    ID3D12Resource_Release(uav);
+    ID3D12Resource_Release(draw_buffer);
+
+    ID3D12CommandSignature_Release(simple_sig);
+
+    if (complex_sig)
+        ID3D12CommandSignature_Release(complex_sig);
+
+    ID3D12DescriptorHeap_Release(uav_heap);
+
+    destroy_test_context(&context);
+}
