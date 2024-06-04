@@ -706,6 +706,14 @@ static const struct vkd3d_shader_quirk_info ac_mirage_quirks = {
     ac_mirage_hashes, ARRAY_SIZE(ac_mirage_hashes), 0,
 };
 
+static const struct vkd3d_shader_quirk_hash dd2_hashes[] = {
+    { 0xc73feef558c73116, VKD3D_SHADER_QUIRK_DESCRIPTOR_HEAP_ROBUSTNESS },
+};
+
+static const struct vkd3d_shader_quirk_info dd2_quirks = {
+    dd2_hashes, ARRAY_SIZE(dd2_hashes), 0,
+};
+
 static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* F1 2020 (1080110) */
     { VKD3D_STRING_COMPARE_EXACT, "F1_2020_dx12.exe", &f1_2019_2020_quirks },
@@ -730,6 +738,8 @@ static const struct vkd3d_shader_quirk_meta application_shader_quirks[] = {
     /* AC: Mirage */
     { VKD3D_STRING_COMPARE_EXACT, "ACMirage.exe", &ac_mirage_quirks },
     { VKD3D_STRING_COMPARE_EXACT, "ACMirage_plus.exe", &ac_mirage_quirks },
+    /* Dragon's Dogma 2 */
+    { VKD3D_STRING_COMPARE_EXACT, "DD2.exe", &dd2_quirks },
     /* Unreal Engine 4 */
     { VKD3D_STRING_COMPARE_ENDS_WITH, "-Shipping.exe", &ue4_quirks },
     /* MSVC fails to compile empty array. */
