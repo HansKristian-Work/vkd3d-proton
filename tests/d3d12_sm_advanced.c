@@ -499,11 +499,11 @@ void test_shader_sm66_wave_size(void)
     ID3D12PipelineState *pso;
     uint32_t input_data[128];
     bool supported_wave_size;
+    HRESULT hr, expected_hr;
     ID3D12Resource *src;
     ID3D12Resource *dst;
     unsigned int i, j;
     uint32_t value;
-    HRESULT hr;
 
     struct test
     {
@@ -559,22 +559,21 @@ void test_shader_sm66_wave_size(void)
     {
         vkd3d_test_set_context("Test %u", i);
 
-        /* AMD Windows driver trips device lost if we give it wave16, so it's clear runtime doesn't validate.
-         * If wave size is in range however, it must work. */
         supported_wave_size = tests[i].wave_size >= options1.WaveLaneCountMin && tests[i].wave_size <= options1.WaveLaneCountMax;
-        if (!supported_wave_size)
-        {
-            skip("WaveSize %u not supported, skipping. Trips undefined behavior in driver to create PSO.\n", tests[i].wave_size);
-            continue;
-        }
-
         pso = NULL;
         memset(&compute_desc, 0, sizeof(compute_desc));
         compute_desc.CS = *tests[i].cs;
         compute_desc.pRootSignature = context.root_signature;
 
+        expected_hr = supported_wave_size ? S_OK : E_INVALIDARG;
         hr = ID3D12Device_CreateComputePipelineState(context.device, &compute_desc, &IID_ID3D12PipelineState, (void**)&pso);
-        ok(SUCCEEDED(hr), "Failed to create PSO, hr #%x.\n", hr);
+        ok(hr == expected_hr, "Got hr #%x, expected %#x.\n", hr, expected_hr);
+
+        if (!supported_wave_size)
+        {
+            skip("WaveSize %u not supported, skipping.\n", tests[i].wave_size);
+            continue;
+        }
 
         if (SUCCEEDED(hr))
         {
