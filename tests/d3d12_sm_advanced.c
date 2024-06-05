@@ -4406,3 +4406,258 @@ void test_sm68_wave_size_range(void)
     vkd3d_test_set_context(NULL);
     destroy_test_context(&context);
 }
+
+void test_sm68_sample_cmp_bias_grad(void)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS21 options21;
+    D3D12_FEATURE_DATA_SHADER_MODEL shader_model;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc;
+    ID3D12DescriptorHeap *dsv_heap, *srv_heap;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc;
+    D3D12_STATIC_SAMPLER_DESC sampler_desc;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    D3D12_ROOT_PARAMETER root_params[2];
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_DESCRIPTOR_RANGE srv_range;
+    struct test_context_desc desc;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12Resource *ds_resource;
+    D3D12_VIEWPORT viewport;
+    D3D12_RECT scissor;
+    unsigned int i;
+    HRESULT hr;
+
+    struct shader_args
+    {
+        float grad_x;
+        float grad_y;
+        float lod_bias;
+        float min_lod;
+        float dref;
+    };
+
+    struct test_results
+    {
+        float sample_bias;
+        float sample_grad;
+        float calc_lod;
+        float calc_lod_unclamped;
+    };
+
+    static const struct
+    {
+        struct shader_args args;
+        struct test_results expected;
+    }
+    tests[] =
+    {
+        { { 1.0f/16.0f, 1.0f/16.0f, 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f, 0.0f, 0.0f } },
+        { { 1.0f/16.0f, 1.0f/16.0f, 0.0f, 0.0f, 0.9f }, { 0.0f, 0.0f, 0.0f, 0.0f } },
+
+        /* Test min lod behaviour */
+        { { 1.0f/16.0f, 1.0f/16.0f, 0.0f, 1.0f, 0.8f }, { 1.0f, 1.0f, 0.0f, 0.0f } },
+        { { 1.0f/16.0f, 1.0f/16.0f, 0.0f, 1.0f, 0.7f }, { 0.0f, 0.0f, 0.0f, 0.0f } },
+        { { 1.0f/16.0f, 1.0f/16.0f, 0.0f, 2.8f, 0.4f }, { 1.0f, 1.0f, 0.0f, 0.0f } },
+        { { 1.0f/16.0f, 1.0f/16.0f, 0.0f, 2.8f, 0.3f }, { 0.0f, 0.0f, 0.0f, 0.0f } },
+
+        /* Test gradient and bias behaviour */
+        { { 1.0f/8.0f, 1.0f/8.0f, 1.0f, 0.0f, 0.8f }, { 1.0f, 1.0f, 1.0f, 1.0f } },
+        { { 1.0f/8.0f, 1.0f/8.0f, 1.0f, 0.0f, 0.7f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
+
+        { {-1.0f/8.0f, 0.0f, 0.8f, 0.0f, 0.8f }, { 1.0f, 1.0f, 1.0f, 1.0f } },
+        { { 1.0f/8.0f, 0.0f, 1.2f, 0.0f, 0.7f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
+
+        { { 0.0f, 1.0f/8.0f, 1.0f, 0.0f, 0.8f }, { 1.0f, 1.0f, 1.0f, 1.0f } },
+        { { 0.0f, 1.0f/8.0f, 1.0f, 0.0f, 0.7f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
+
+        { { 2.0f,       2.0f,       5.1f, 0.0f, 0.2f }, { 1.0f, 1.0f, 4.0f,  5.1f } },
+        { { 1.0f/32.0f, 1.0f/32.0f,-1.2f, 0.0f, 0.9f }, { 0.0f, 0.0f, 0.0f, -1.2f } },
+    };
+
+    static const float clear_values[] = { 0.95f, 0.75f, 0.55f, 0.35f, 0.15f };
+    static const float clear_color[] = { -1.0f, -1.0f, -1.0f, -1.0f };
+
+#include "shaders/sm_advanced/headers/vs_sample_cmp_grad_bias.h"
+#include "shaders/sm_advanced/headers/ps_sample_cmp_grad_bias.h"
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_root_signature = true;
+    desc.no_pipeline = true;
+    desc.rt_width = 16;
+    desc.rt_height = 16;
+    desc.rt_format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(&shader_model, 0, sizeof(shader_model));
+    shader_model.HighestShaderModel = D3D_SHADER_MODEL_6_8;
+    if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_SHADER_MODEL, &shader_model, sizeof(shader_model))) ||
+            shader_model.HighestShaderModel < D3D_SHADER_MODEL_6_8)
+    {
+        skip("Device does not support SM 6.8.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&options21, 0, sizeof(options21));
+    ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS21, &options21, sizeof(options21));
+
+    if (!options21.SampleCmpGradientAndBiasSupported)
+    {
+        skip("SampleCmpGradientAndBias not supported.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&srv_range, 0, sizeof(srv_range));
+    srv_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    srv_range.NumDescriptors = 1;
+
+    memset(&root_params, 0, sizeof(root_params));
+    root_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_params[0].Constants.Num32BitValues = sizeof(struct shader_args) / sizeof(float);
+    root_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    root_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_params[1].DescriptorTable.NumDescriptorRanges = 1;
+    root_params[1].DescriptorTable.pDescriptorRanges = &srv_range;
+    root_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    memset(&sampler_desc, 0, sizeof(sampler_desc));
+    sampler_desc.Filter = D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
+    sampler_desc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    sampler_desc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    sampler_desc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    sampler_desc.ComparisonFunc = D3D12_COMPARISON_FUNC_GREATER_EQUAL;
+    sampler_desc.MinLOD = 0.0f;
+    sampler_desc.MaxLOD = 16.0f;
+    sampler_desc.MipLODBias = 0.0f;
+    sampler_desc.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = ARRAY_SIZE(root_params);
+    rs_desc.pParameters = root_params;
+    rs_desc.NumStaticSamplers = 1;
+    rs_desc.pStaticSamplers = &sampler_desc;
+
+    hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    init_pipeline_state_desc_dxil(&pso_desc, context.root_signature,
+            DXGI_FORMAT_R32G32B32A32_FLOAT, &vs_sample_cmp_grad_bias_dxil, &ps_sample_cmp_grad_bias_dxil, NULL);
+    hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+    resource_desc.Width = 16;
+    resource_desc.Height = 16;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 5;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE, NULL, &IID_ID3D12Resource, (void**)&ds_resource);
+    ok(hr == S_OK, "Failed to create depth image, hr %#x.\n", hr);
+
+    dsv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, resource_desc.MipLevels);
+    srv_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1);
+
+    memset(&dsv_desc, 0, sizeof(dsv_desc));
+    dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+    dsv_desc.Format = DXGI_FORMAT_D32_FLOAT;
+
+    for (i = 0; i < resource_desc.MipLevels; i++)
+    {
+        dsv_desc.Texture2D.MipSlice = i;
+        ID3D12Device_CreateDepthStencilView(context.device, ds_resource,
+                &dsv_desc, get_cpu_dsv_handle(&context, dsv_heap, i));
+    }
+
+    memset(&srv_desc, 0, sizeof(srv_desc));
+    srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv_desc.Format = DXGI_FORMAT_R32_FLOAT;
+    srv_desc.Texture2D.MipLevels = resource_desc.MipLevels;
+    srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+
+    ID3D12Device_CreateShaderResourceView(context.device, ds_resource,
+            &srv_desc, get_cpu_descriptor_handle(&context, srv_heap, 0));
+
+    for (i = 0; i < ARRAY_SIZE(clear_values); i++)
+    {
+        ID3D12GraphicsCommandList_ClearDepthStencilView(context.list, get_cpu_dsv_handle(&context, dsv_heap, i),
+                D3D12_CLEAR_FLAG_DEPTH, clear_values[i], 0, 0, NULL);
+    }
+
+    transition_resource_state(context.list, ds_resource,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE,
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
+    viewport.TopLeftX = 0.0f;
+    viewport.TopLeftY = 0.0f;
+    viewport.Width = 16.0f;
+    viewport.Height = 16.0f;
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
+
+    scissor.left = 0;
+    scissor.top = 0;
+    scissor.right = 16;
+    scissor.bottom = 16;
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        const struct test_results *rb_data;
+
+        vkd3d_test_set_context("Test %u", i);
+
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &srv_heap);
+        ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &context.rtv, TRUE, NULL);
+        ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, context.rtv, clear_color, 0, NULL);
+        ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &viewport);
+        ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &scissor);
+        ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+        ID3D12GraphicsCommandList_SetPipelineState(context.list, context.pipeline_state);
+        ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(context.list, 0,
+                sizeof(struct shader_args) / sizeof(float), &tests[i].args, 0);
+        ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(context.list, 1,
+                get_gpu_descriptor_handle(&context, srv_heap, 0));
+        ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+        transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        get_texture_readback_with_command_list(context.render_target, 0, &rb, context.queue, context.list);
+
+        rb_data = get_readback_data(&rb, 0, 0, 0, sizeof(*rb_data));
+
+        ok(rb_data->sample_bias == tests[i].expected.sample_bias,
+                "Got %f, expected %f for bias.\n", rb_data->sample_bias, tests[i].expected.sample_bias);
+        ok(rb_data->sample_grad == tests[i].expected.sample_grad,
+                "Got %f, expected %f for grad.\n", rb_data->sample_grad, tests[i].expected.sample_grad);
+        ok(fabs(rb_data->calc_lod - tests[i].expected.calc_lod) < 0.5f,
+                "Got LOD %f, expected %f.\n", rb_data->calc_lod, tests[i].expected.calc_lod);
+        ok(fabs(rb_data->calc_lod_unclamped - tests[i].expected.calc_lod_unclamped) < 0.5f,
+                "Got unclamped LOD %f, expected %f.\n", rb_data->calc_lod_unclamped, tests[i].expected.calc_lod_unclamped);
+
+        release_resource_readback(&rb);
+
+        reset_command_list(context.list, context.allocator);
+        transition_resource_state(context.list, context.render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    }
+
+    ID3D12DescriptorHeap_Release(dsv_heap);
+    ID3D12DescriptorHeap_Release(srv_heap);
+    ID3D12Resource_Release(ds_resource);
+
+    destroy_test_context(&context);
+}
