@@ -1,5 +1,58 @@
 # Change Log
 
+## 2.13
+
+### Features
+
+- Implement Shader Model 6.8 min-spec
+  - `SV_StartInstanceLocation`
+  - `SV_StartVertexLocation`
+  - WaveSize range
+  - Implement Vulkan texturing catch-up features (esoteric comparison sampling functions)
+- Implement interop for OpenVR / OpenXR on Proton
+- Correctly support `NULL` index buffers with `VK_KHR_maintenance6`.
+- Implement `VK_MESA_image_alignment_control`. Reduces memory bloat on AMD cards in particular.
+
+### Fixes
+
+- Reimplement `VK_NV_low_latency2` to fix some issues with heavy stuttering caused by non-monotonic frame IDs.
+  Relies on a more recent dxvk-nvapi which can paper over API design issues in Reflex API.
+  Requires a more recent NVIDIA driver which fixes some bugs exposed in this new code.
+  On older NVIDIA drivers, it should *run*, but low-latency will not kick in as expected.
+- Explicitly disable variable-rate shading when depth-stencil is written in shader.
+  Fixes glitched hair rendering in Hellblade 2.
+- Correctly expose MSAA features for depth-stencil. Fixes Arma Reforger.
+- Fix bugs in MSAA resolve implementation when dealing with custom resolve formats. Fixes Arma Reforger.
+- Fix validation error in internal query resolve shader.
+- Fix some bugs in wave-ops where helper lanes participated where they were not supposed to.
+  Fixes some WaveMatch / WaveMultiPrefix use-cases in the wild.
+- Various dxil-spirv fixes to fix invalid control-flow as always.
+
+### Performance
+
+- Tweak how we opt-in to ReBAR for UPLOAD heaps. Now, only > 8 GB cards will get it.
+  On 8 GB cards, we were regularly hitting the upper limits of what the GPU could hold in VRAM,
+  and using ReBAR would be detrimental to performance since there was risk of more important
+  memory being demoted to system memory. Works well together with `VK_MESA_image_alignment_control`
+  to free up significant amounts of VRAM. Performance gains from ReBAR on 8 GB were also found to be minimal
+  compared to the larger GPUs since we quickly exhausted the limited 512 MiB budget anyway.
+- Sub-allocate small image heaps. Avoids heavy stutter in Ghost of Tsushima on desktop.
+  (Steam Deck code path does not seem to use small heaps to begin with).
+- Improve performance with ROV when used with more complicated shader code patterns.
+
+### Workarounds
+
+- Implement a crude workaround for depth-stencil sparse and MSAA sparse.
+  - Just allocates a committed resource instead. Not correct, but good enough band-aid.
+  - Allows SottR to run on RADV.
+- Disable NV_dgcc on Halo Infinite on NV drivers.
+- Workaround a missing barrier in AC: Mirage causing random corrupt geometry.
+
+### Misc
+
+- Split vkd3d-proton shader cache up by .exe name when using a unified directory with `VKD3D_SHADER_CACHE_PATH`.
+- Implement `VK_EXT_device_address_binding_report`.
+
 ## 2.12
 
 ### Features
