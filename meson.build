@@ -1,4 +1,4 @@
-project('vkd3d-proton', ['c', 'cpp'], version : '2.12', meson_version : '>= 0.49', default_options : [
+project('vkd3d-proton', ['c', 'cpp'], version : '2.13', meson_version : '>= 0.49', default_options : [
   'warning_level=2', 'c_std=c11', 'cpp_std=c++17'
 ])
 
