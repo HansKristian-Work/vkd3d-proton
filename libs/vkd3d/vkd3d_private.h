@@ -2454,7 +2454,9 @@ struct d3d12_command_allocator
 };
 
 HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
-        D3D12_COMMAND_LIST_TYPE type, struct d3d12_command_allocator **allocator);
+        D3D12_COMMAND_LIST_TYPE type,
+        uint32_t vk_family_index,
+        struct d3d12_command_allocator **allocator);
 bool d3d12_command_allocator_allocate_query_from_type_index(
         struct d3d12_command_allocator *allocator,
         uint32_t type_index, VkQueryPool *query_pool, uint32_t *query_index);
@@ -3216,7 +3218,7 @@ struct d3d12_command_queue
 };
 
 HRESULT d3d12_command_queue_create(struct d3d12_device *device,
-        const D3D12_COMMAND_QUEUE_DESC *desc, struct d3d12_command_queue **queue);
+        const D3D12_COMMAND_QUEUE_DESC *desc, uint32_t vk_family_index, struct d3d12_command_queue **queue);
 void d3d12_command_queue_submit_stop(struct d3d12_command_queue *queue);
 void d3d12_command_queue_signal_inline(struct d3d12_command_queue *queue, d3d12_fence_iface *fence, uint64_t value);
 void d3d12_command_queue_enqueue_callback(struct d3d12_command_queue *queue, void (*callback)(void *), void *userdata);
@@ -4852,7 +4854,8 @@ struct d3d12_device
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,
         const struct vkd3d_device_create_info *create_info, struct d3d12_device **device);
 struct vkd3d_queue_family_info *d3d12_device_get_vkd3d_queue_family(struct d3d12_device *device,
-        D3D12_COMMAND_LIST_TYPE type);
+        D3D12_COMMAND_LIST_TYPE type,
+        uint32_t vk_family_index);
 struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct d3d12_device *device,
         struct vkd3d_queue_family_info *queue_family);
 void d3d12_device_unmap_vkd3d_queue(struct d3d12_device *device,

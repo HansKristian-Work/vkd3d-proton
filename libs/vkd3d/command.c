@@ -2629,19 +2629,33 @@ static CONST_VTBL struct ID3D12CommandAllocatorVtbl d3d12_command_allocator_vtbl
 };
 
 struct vkd3d_queue_family_info *d3d12_device_get_vkd3d_queue_family(struct d3d12_device *device,
-        D3D12_COMMAND_LIST_TYPE type)
+        D3D12_COMMAND_LIST_TYPE type,
+        uint32_t vk_family_index)
 {
-    switch (type)
+    if (vk_family_index == VK_QUEUE_FAMILY_IGNORED)
     {
-        case D3D12_COMMAND_LIST_TYPE_DIRECT:
-            return device->queue_families[VKD3D_QUEUE_FAMILY_GRAPHICS];
-        case D3D12_COMMAND_LIST_TYPE_COMPUTE:
-            return device->queue_families[VKD3D_QUEUE_FAMILY_COMPUTE];
-        case D3D12_COMMAND_LIST_TYPE_COPY:
-            return device->queue_families[VKD3D_QUEUE_FAMILY_TRANSFER];
-        default:
-            FIXME("Unhandled command list type %#x.\n", type);
-            return device->queue_families[VKD3D_QUEUE_FAMILY_GRAPHICS];
+        switch (type)
+        {
+            case D3D12_COMMAND_LIST_TYPE_DIRECT:
+                return device->queue_families[VKD3D_QUEUE_FAMILY_GRAPHICS];
+            case D3D12_COMMAND_LIST_TYPE_COMPUTE:
+                return device->queue_families[VKD3D_QUEUE_FAMILY_COMPUTE];
+            case D3D12_COMMAND_LIST_TYPE_COPY:
+                return device->queue_families[VKD3D_QUEUE_FAMILY_TRANSFER];
+            default:
+                FIXME("Unhandled command list type %#x.\n", type);
+                return device->queue_families[VKD3D_QUEUE_FAMILY_GRAPHICS];
+        }
+    }
+    else
+    {
+        for (int i = 0; i < VKD3D_QUEUE_FAMILY_COUNT; i++)
+        {
+            if (device->queue_families[i]->vk_family_index == vk_family_index)
+                return device->queue_families[i];
+        }
+        FIXME("Unhandled command list vk_family %#x.\n", vk_family_index);
+        return device->queue_families[VKD3D_QUEUE_FAMILY_GRAPHICS];
     }
 }
 
@@ -2678,7 +2692,9 @@ void d3d12_device_unmap_vkd3d_queue(struct d3d12_device *device,
 }
 
 static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allocator,
-        struct d3d12_device *device, D3D12_COMMAND_LIST_TYPE type, struct vkd3d_queue_family_info *queue_family)
+        struct d3d12_device *device,
+        D3D12_COMMAND_LIST_TYPE type,
+        struct vkd3d_queue_family_info *queue_family)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
     VkCommandPoolCreateInfo command_pool_info;
@@ -2769,7 +2785,9 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
 }
 
 HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
-        D3D12_COMMAND_LIST_TYPE type, struct d3d12_command_allocator **allocator)
+        D3D12_COMMAND_LIST_TYPE type,
+        uint32_t vk_family_index,
+        struct d3d12_command_allocator **allocator)
 {
     struct vkd3d_queue_family_info *family_info;
     struct d3d12_command_allocator *object;
@@ -2784,7 +2802,7 @@ HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    family_info = d3d12_device_get_vkd3d_queue_family(device, type);
+    family_info = d3d12_device_get_vkd3d_queue_family(device, type, vk_family_index);
     if (FAILED(hr = d3d12_command_allocator_init(object, device, type, family_info)))
     {
         vkd3d_free(object);
@@ -18772,7 +18790,7 @@ fail:
 }
 
 HRESULT d3d12_command_queue_create(struct d3d12_device *device,
-        const D3D12_COMMAND_QUEUE_DESC *desc, struct d3d12_command_queue **queue)
+        const D3D12_COMMAND_QUEUE_DESC *desc, uint32_t vk_family_index, struct d3d12_command_queue **queue)
 {
     struct vkd3d_queue_family_info *family_info;
     struct d3d12_command_queue *object;
@@ -18781,7 +18799,7 @@ HRESULT d3d12_command_queue_create(struct d3d12_device *device,
     if (!(object = vkd3d_calloc(1, sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    family_info = d3d12_device_get_vkd3d_queue_family(device, desc->Type);
+    family_info = d3d12_device_get_vkd3d_queue_family(device, desc->Type, vk_family_index);
 
     if (FAILED(hr = d3d12_command_queue_init(object, device, desc, family_info)))
     {

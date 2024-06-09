@@ -599,21 +599,24 @@ void vkd3d_breadcrumb_tracer_report_device_lost(struct vkd3d_breadcrumb_tracer *
     if (device->vk_info.NV_device_diagnostic_checkpoints)
     {
         /* vkGetQueueCheckpointDataNV does not require us to synchronize access to the queue. */
-        queue_family_info = d3d12_device_get_vkd3d_queue_family(device, D3D12_COMMAND_LIST_TYPE_DIRECT);
+        queue_family_info = d3d12_device_get_vkd3d_queue_family(device, D3D12_COMMAND_LIST_TYPE_DIRECT, VK_QUEUE_FAMILY_IGNORED);
+
         for (i = 0; i < queue_family_info->queue_count; i++)
         {
             vk_queue = queue_family_info->queues[i]->vk_queue;
             vkd3d_breadcrumb_tracer_report_queue_nv(tracer, device, vk_queue);
         }
 
-        queue_family_info = d3d12_device_get_vkd3d_queue_family(device, D3D12_COMMAND_LIST_TYPE_COMPUTE);
+        queue_family_info = d3d12_device_get_vkd3d_queue_family(device, D3D12_COMMAND_LIST_TYPE_COMPUTE, VK_QUEUE_FAMILY_IGNORED);
+
         for (i = 0; i < queue_family_info->queue_count; i++)
         {
             vk_queue = queue_family_info->queues[i]->vk_queue;
             vkd3d_breadcrumb_tracer_report_queue_nv(tracer, device, vk_queue);
         }
 
-        queue_family_info = d3d12_device_get_vkd3d_queue_family(device, D3D12_COMMAND_LIST_TYPE_COPY);
+        queue_family_info = d3d12_device_get_vkd3d_queue_family(device, D3D12_COMMAND_LIST_TYPE_COPY, VK_QUEUE_FAMILY_IGNORED);
+
         for (i = 0; i < queue_family_info->queue_count; i++)
         {
             vk_queue = queue_family_info->queues[i]->vk_queue;
