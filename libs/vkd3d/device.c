@@ -3656,7 +3656,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandQueue(d3d12_device_if
     TRACE("iface %p, desc %p, riid %s, command_queue %p.\n",
             iface, desc, debugstr_guid(riid), command_queue);
 
-    if (FAILED(hr = d3d12_command_queue_create(device, desc, &object)))
+    if (FAILED(hr = d3d12_command_queue_create(device, desc, VK_QUEUE_FAMILY_IGNORED, &object)))
         return hr;
 
     return return_interface(&object->ID3D12CommandQueue_iface, &IID_ID3D12CommandQueue,
@@ -3683,7 +3683,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandAllocator(d3d12_devic
     else
     {
         struct d3d12_command_allocator *object;
-        if (FAILED(hr = d3d12_command_allocator_create(device, type, &object)))
+        if (FAILED(hr = d3d12_command_allocator_create(device, type, VK_QUEUE_FAMILY_IGNORED, &object)))
             return hr;
         allocator_iface = &object->ID3D12CommandAllocator_iface;
     }
