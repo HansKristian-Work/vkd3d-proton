@@ -2678,10 +2678,9 @@ void d3d12_device_unmap_vkd3d_queue(struct d3d12_device *device,
 }
 
 static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allocator,
-        struct d3d12_device *device, D3D12_COMMAND_LIST_TYPE type)
+        struct d3d12_device *device, D3D12_COMMAND_LIST_TYPE type, struct vkd3d_queue_family_info *queue_family)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    struct vkd3d_queue_family_info *queue_family;
     VkCommandPoolCreateInfo command_pool_info;
     VkResult vr;
     HRESULT hr;
@@ -2690,7 +2689,6 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
     if (FAILED(hr = vkd3d_private_store_init(&allocator->private_store)))
         return hr;
 
-    queue_family = d3d12_device_get_vkd3d_queue_family(device, type);
     allocator->ID3D12CommandAllocator_iface.lpVtbl = &d3d12_command_allocator_vtbl;
     allocator->refcount = 1;
     allocator->internal_refcount = 1;
@@ -2773,6 +2771,7 @@ static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allo
 HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
         D3D12_COMMAND_LIST_TYPE type, struct d3d12_command_allocator **allocator)
 {
+    struct vkd3d_queue_family_info *family_info;
     struct d3d12_command_allocator *object;
     HRESULT hr;
 
@@ -2785,7 +2784,8 @@ HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
     if (!(object = vkd3d_malloc(sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    if (FAILED(hr = d3d12_command_allocator_init(object, device, type)))
+    family_info = d3d12_device_get_vkd3d_queue_family(device, type);
+    if (FAILED(hr = d3d12_command_allocator_init(object, device, type, family_info)))
     {
         vkd3d_free(object);
         return hr;
@@ -18721,7 +18721,7 @@ cleanup:
 }
 
 static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
-        struct d3d12_device *device, const D3D12_COMMAND_QUEUE_DESC *desc)
+        struct d3d12_device *device, const D3D12_COMMAND_QUEUE_DESC *desc, struct vkd3d_queue_family_info *family_info)
 {
     HRESULT hr;
     int rc;
@@ -18734,8 +18734,7 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
     if (!queue->desc.NodeMask)
         queue->desc.NodeMask = 0x1;
 
-    queue->vkd3d_queue = d3d12_device_allocate_vkd3d_queue(device,
-            d3d12_device_get_vkd3d_queue_family(device, desc->Type));
+    queue->vkd3d_queue = d3d12_device_allocate_vkd3d_queue(device, family_info);
     queue->submissions = NULL;
     queue->submissions_count = 0;
     queue->submissions_size = 0;
@@ -18798,13 +18797,16 @@ fail:
 HRESULT d3d12_command_queue_create(struct d3d12_device *device,
         const D3D12_COMMAND_QUEUE_DESC *desc, struct d3d12_command_queue **queue)
 {
+    struct vkd3d_queue_family_info *family_info;
     struct d3d12_command_queue *object;
     HRESULT hr;
 
     if (!(object = vkd3d_calloc(1, sizeof(*object))))
         return E_OUTOFMEMORY;
 
-    if (FAILED(hr = d3d12_command_queue_init(object, device, desc)))
+    family_info = d3d12_device_get_vkd3d_queue_family(device, desc->Type);
+
+    if (FAILED(hr = d3d12_command_queue_init(object, device, desc, family_info)))
     {
         vkd3d_free(object);
         return hr;
