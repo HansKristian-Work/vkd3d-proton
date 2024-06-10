@@ -31,6 +31,12 @@ typedef struct DXGI_VK_HDR_METADATA
     };
 } DXGI_VK_HDR_METADATA;
 
+typedef struct DXGI_VK_FRAME_STATISTICS
+{
+    UINT64 PresentCount;
+    UINT64 PresentQPCTime;
+} DXGI_VK_FRAME_STATISTICS;
+
 [
     object,
     local,
@@ -99,6 +105,31 @@ interface IDXGIVkSwapChain : IUnknown {
 
     HRESULT SetHDRMetaData(
       const DXGI_VK_HDR_METADATA*     pMetaData);
+}
+
+[
+    object,
+    local,
+    uuid(785326d4-b77b-4826-ae70-8d08308ee6d1)
+]
+interface IDXGIVkSwapChain1 : IDXGIVkSwapChain
+{
+    void GetLastPresentCount(
+        UINT64*                   pLastPresentCount);
+
+    void GetFrameStatistics(
+        DXGI_VK_FRAME_STATISTICS* pFrameStatistics);
+}
+
+[
+    object,
+    local,
+    uuid(aed91093-e02e-458c-bdef-a97da1a7e6d2)
+]
+interface IDXGIVkSwapChain2 : IDXGIVkSwapChain1
+{
+    void SetTargetFrameRate(
+        double                    FrameRate);
 }
 
 [

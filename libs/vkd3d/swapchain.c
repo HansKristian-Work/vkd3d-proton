@@ -79,7 +79,7 @@ struct present_wait_entry
 
 struct dxgi_vk_swap_chain
 {
-    IDXGIVkSwapChain IDXGIVkSwapChain_iface;
+    IDXGIVkSwapChain2 IDXGIVkSwapChain_iface;
     struct d3d12_command_queue *queue;
 
     LONG refcount;
@@ -439,12 +439,12 @@ static void dxgi_vk_swap_chain_cleanup(struct dxgi_vk_swap_chain *chain)
             chain->vk_surface, NULL));
 }
 
-static inline struct dxgi_vk_swap_chain *impl_from_IDXGIVkSwapChain(IDXGIVkSwapChain *iface)
+static inline struct dxgi_vk_swap_chain *impl_from_IDXGIVkSwapChain(IDXGIVkSwapChain2 *iface)
 {
     return CONTAINING_RECORD(iface, struct dxgi_vk_swap_chain, IDXGIVkSwapChain_iface);
 }
 
-static ULONG STDMETHODCALLTYPE dxgi_vk_swap_chain_AddRef(IDXGIVkSwapChain *iface)
+static ULONG STDMETHODCALLTYPE dxgi_vk_swap_chain_AddRef(IDXGIVkSwapChain2 *iface)
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
     UINT refcount = InterlockedIncrement(&chain->refcount);
@@ -461,7 +461,7 @@ static ULONG STDMETHODCALLTYPE dxgi_vk_swap_chain_AddRef(IDXGIVkSwapChain *iface
     return refcount;
 }
 
-static ULONG STDMETHODCALLTYPE dxgi_vk_swap_chain_Release(IDXGIVkSwapChain *iface)
+static ULONG STDMETHODCALLTYPE dxgi_vk_swap_chain_Release(IDXGIVkSwapChain2 *iface)
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
     struct d3d12_device *device = chain->queue->device;
@@ -487,11 +487,14 @@ static ULONG STDMETHODCALLTYPE dxgi_vk_swap_chain_Release(IDXGIVkSwapChain *ifac
     return refcount;
 }
 
-static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_QueryInterface(IDXGIVkSwapChain *iface, REFIID riid, void **object)
+static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_QueryInterface(IDXGIVkSwapChain2 *iface, REFIID riid, void **object)
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
     TRACE("iface %p\n", iface);
-    if (IsEqualGUID(riid, &IID_IUnknown) || IsEqualGUID(riid, &IID_IDXGIVkSwapChain))
+    if (IsEqualGUID(riid, &IID_IUnknown) ||
+            IsEqualGUID(riid, &IID_IDXGIVkSwapChain) ||
+            IsEqualGUID(riid, &IID_IDXGIVkSwapChain1) ||
+            IsEqualGUID(riid, &IID_IDXGIVkSwapChain2))
     {
         dxgi_vk_swap_chain_AddRef(&chain->IDXGIVkSwapChain_iface);
         *object = iface;
@@ -501,7 +504,7 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_QueryInterface(IDXGIVkSwapCh
     return E_NOINTERFACE;
 }
 
-static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_GetDesc(IDXGIVkSwapChain *iface, DXGI_SWAP_CHAIN_DESC1 *pDesc)
+static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_GetDesc(IDXGIVkSwapChain2 *iface, DXGI_SWAP_CHAIN_DESC1 *pDesc)
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
     TRACE("iface %p, pDesc %p\n", iface, pDesc);
@@ -509,21 +512,21 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_GetDesc(IDXGIVkSwapChain *if
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_GetAdapter(IDXGIVkSwapChain *iface, REFIID riid, void **object)
+static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_GetAdapter(IDXGIVkSwapChain2 *iface, REFIID riid, void **object)
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
     TRACE("iface %p\n", iface);
     return IUnknown_QueryInterface(chain->queue->device->parent, riid, object);
 }
 
-static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_GetDevice(IDXGIVkSwapChain *iface, REFIID riid, void **object)
+static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_GetDevice(IDXGIVkSwapChain2 *iface, REFIID riid, void **object)
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
     TRACE("iface %p\n", iface);
     return ID3D12Device12_QueryInterface(&chain->queue->device->ID3D12Device_iface, riid, object);
 }
 
-static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_GetImage(IDXGIVkSwapChain *iface, UINT BufferId, REFIID riid, void **object)
+static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_GetImage(IDXGIVkSwapChain2 *iface, UINT BufferId, REFIID riid, void **object)
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
     TRACE("iface %p, BufferId %u.\n", iface, BufferId);
@@ -532,21 +535,21 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_GetImage(IDXGIVkSwapChain *i
     return ID3D12Resource2_QueryInterface(&chain->user.backbuffers[BufferId]->ID3D12Resource_iface, riid, object);
 }
 
-static UINT STDMETHODCALLTYPE dxgi_vk_swap_chain_GetImageIndex(IDXGIVkSwapChain *iface)
+static UINT STDMETHODCALLTYPE dxgi_vk_swap_chain_GetImageIndex(IDXGIVkSwapChain2 *iface)
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
     TRACE("iface %p.\n", iface);
     return chain->user.index;
 }
 
-static UINT STDMETHODCALLTYPE dxgi_vk_swap_chain_GetFrameLatency(IDXGIVkSwapChain *iface)
+static UINT STDMETHODCALLTYPE dxgi_vk_swap_chain_GetFrameLatency(IDXGIVkSwapChain2 *iface)
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
     TRACE("iface %p.\n", iface);
     return chain->frame_latency;
 }
 
-static HANDLE STDMETHODCALLTYPE dxgi_vk_swap_chain_GetFrameLatencyEvent(IDXGIVkSwapChain *iface)
+static HANDLE STDMETHODCALLTYPE dxgi_vk_swap_chain_GetFrameLatencyEvent(IDXGIVkSwapChain2 *iface)
 {
     struct dxgi_vk_swap_chain *swapchain = impl_from_IDXGIVkSwapChain(iface);
     HANDLE duplicated_handle;
@@ -680,7 +683,7 @@ err:
     return hr;
 }
 
-static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_ChangeProperties(IDXGIVkSwapChain *iface, const DXGI_SWAP_CHAIN_DESC1 *pDesc,
+static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_ChangeProperties(IDXGIVkSwapChain2 *iface, const DXGI_SWAP_CHAIN_DESC1 *pDesc,
         const UINT *pNodeMasks, IUnknown *const *ppPresentQueues)
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
@@ -751,19 +754,19 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_ChangeProperties(IDXGIVkSwap
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_SetPresentRegion(IDXGIVkSwapChain *iface, const RECT *pRegion)
+static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_SetPresentRegion(IDXGIVkSwapChain2 *iface, const RECT *pRegion)
 {
     FIXME("iface %p, pRegion %p stub!\n", iface, pRegion);
     return E_NOTIMPL;
 }
 
-static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_SetGammaControl(IDXGIVkSwapChain *iface, UINT NumControlPoints, const DXGI_RGB *pControlPoints)
+static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_SetGammaControl(IDXGIVkSwapChain2 *iface, UINT NumControlPoints, const DXGI_RGB *pControlPoints)
 {
     FIXME("iface %p, NumControlPoints %u, pControlPoints %p stub!\n", iface, NumControlPoints, pControlPoints);
     return E_NOTIMPL;
 }
 
-static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_SetFrameLatency(IDXGIVkSwapChain *iface, UINT MaxLatency)
+static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_SetFrameLatency(IDXGIVkSwapChain2 *iface, UINT MaxLatency)
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
     TRACE("iface %p, MaxLatency %u.\n", iface, MaxLatency);
@@ -952,7 +955,7 @@ static void dxgi_vk_swap_chain_wait_internal_handle(struct dxgi_vk_swap_chain *c
     }
 }
 
-static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain *iface, UINT SyncInterval, UINT PresentFlags, const DXGI_PRESENT_PARAMETERS *pPresentParameters)
+static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain2 *iface, UINT SyncInterval, UINT PresentFlags, const DXGI_PRESENT_PARAMETERS *pPresentParameters)
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
     struct dxgi_vk_swap_chain_present_request *request;
@@ -1125,7 +1128,7 @@ out:
     return ret;
 }
 
-static UINT STDMETHODCALLTYPE dxgi_vk_swap_chain_CheckColorSpaceSupport(IDXGIVkSwapChain *iface, DXGI_COLOR_SPACE_TYPE ColorSpace)
+static UINT STDMETHODCALLTYPE dxgi_vk_swap_chain_CheckColorSpaceSupport(IDXGIVkSwapChain2 *iface, DXGI_COLOR_SPACE_TYPE ColorSpace)
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
     UINT support_flags = 0;
@@ -1135,7 +1138,7 @@ static UINT STDMETHODCALLTYPE dxgi_vk_swap_chain_CheckColorSpaceSupport(IDXGIVkS
     return support_flags;
 }
 
-static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_SetColorSpace(IDXGIVkSwapChain *iface, DXGI_COLOR_SPACE_TYPE ColorSpace)
+static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_SetColorSpace(IDXGIVkSwapChain2 *iface, DXGI_COLOR_SPACE_TYPE ColorSpace)
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
     TRACE("iface %p, ColorSpace %u.\n", iface, ColorSpace);
@@ -1148,7 +1151,7 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_SetColorSpace(IDXGIVkSwapCha
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_SetHDRMetaData(IDXGIVkSwapChain *iface, const DXGI_VK_HDR_METADATA *pMetaData)
+static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_SetHDRMetaData(IDXGIVkSwapChain2 *iface, const DXGI_VK_HDR_METADATA *pMetaData)
 {
     struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
     TRACE("iface %p, pMetadata %p.\n", iface, pMetaData);
@@ -1157,7 +1160,25 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_SetHDRMetaData(IDXGIVkSwapCh
     return S_OK;
 }
 
-static CONST_VTBL struct IDXGIVkSwapChainVtbl dxgi_vk_swap_chain_vtbl =
+static void STDMETHODCALLTYPE dxgi_vk_swap_chain_GetLastPresentCount(IDXGIVkSwapChain2 *iface, UINT64 *present_count)
+{
+    /* Doing nothing here is fine for now, DXVK will fill in dummy values. */
+    FIXME_ONCE("iface %p, present_count %p stub!\n", iface, present_count);
+}
+
+static void STDMETHODCALLTYPE dxgi_vk_swap_chain_GetFrameStatistics(IDXGIVkSwapChain2 *iface,
+        DXGI_VK_FRAME_STATISTICS *frame_statistics)
+{
+    /* Doing nothing here is fine for now, DXVK will fill in dummy values. */
+    FIXME_ONCE("iface %p, frame_statistics %p stub!\n", iface, frame_statistics);
+}
+
+static void STDMETHODCALLTYPE dxgi_vk_swap_chain_SetTargetFrameRate(IDXGIVkSwapChain2 *iface, double frame_rate)
+{
+    FIXME("iface %p, frame_rate %lf stub!\n", iface, frame_rate);
+}
+
+static CONST_VTBL struct IDXGIVkSwapChain2Vtbl dxgi_vk_swap_chain_vtbl =
 {
     /* IUnknown methods */
     dxgi_vk_swap_chain_QueryInterface,
@@ -1180,6 +1201,11 @@ static CONST_VTBL struct IDXGIVkSwapChainVtbl dxgi_vk_swap_chain_vtbl =
     dxgi_vk_swap_chain_CheckColorSpaceSupport,
     dxgi_vk_swap_chain_SetColorSpace,
     dxgi_vk_swap_chain_SetHDRMetaData,
+    /* IDXGIVkSwapChain1 methods */
+    dxgi_vk_swap_chain_GetLastPresentCount,
+    dxgi_vk_swap_chain_GetFrameStatistics,
+    /* IDXGIVkSwapChain2 methods */
+    dxgi_vk_swap_chain_SetTargetFrameRate,
 };
 
 static bool dxgi_vk_swap_chain_update_formats(struct dxgi_vk_swap_chain *chain)
@@ -2763,7 +2789,7 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_factory_CreateSwapChain(IDXG
     if (chain->queue->device->vk_info.NV_low_latency2)
         d3d12_device_register_swapchain(chain->queue->device, chain);
 
-    *ppSwapchain = &chain->IDXGIVkSwapChain_iface;
+    *ppSwapchain = (IDXGIVkSwapChain*)&chain->IDXGIVkSwapChain_iface;
     return S_OK;
 }
 
