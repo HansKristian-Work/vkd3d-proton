@@ -269,18 +269,18 @@ CONST_VTBL struct ID3D12DeviceExt1Vtbl d3d12_device_vkd3d_ext_vtbl =
 };
 
 
-static inline struct d3d12_device *d3d12_device_from_ID3D12DXVKInteropDevice(ID3D12DXVKInteropDevice *iface)
+static inline struct d3d12_device *d3d12_device_from_ID3D12DXVKInteropDevice(d3d12_dxvk_interop_device_iface *iface)
 {
     return CONTAINING_RECORD(iface, struct d3d12_device, ID3D12DXVKInteropDevice_iface);
 }
 
-ULONG STDMETHODCALLTYPE d3d12_dxvk_interop_device_AddRef(ID3D12DXVKInteropDevice *iface)
+ULONG STDMETHODCALLTYPE d3d12_dxvk_interop_device_AddRef(d3d12_dxvk_interop_device_iface *iface)
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DXVKInteropDevice(iface);
     return d3d12_device_add_ref(device);
 }
 
-static ULONG STDMETHODCALLTYPE d3d12_dxvk_interop_device_Release(ID3D12DXVKInteropDevice *iface)
+static ULONG STDMETHODCALLTYPE d3d12_dxvk_interop_device_Release(d3d12_dxvk_interop_device_iface *iface)
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DXVKInteropDevice(iface);
     return d3d12_device_release(device);
@@ -289,7 +289,7 @@ static ULONG STDMETHODCALLTYPE d3d12_dxvk_interop_device_Release(ID3D12DXVKInter
 extern HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
         REFIID riid, void **object);
 
-static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_QueryInterface(ID3D12DXVKInteropDevice *iface,
+static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_QueryInterface(d3d12_dxvk_interop_device_iface *iface,
         REFIID iid, void **out)
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DXVKInteropDevice(iface);
@@ -297,7 +297,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_QueryInterface(ID3D12
     return d3d12_device_QueryInterface(&device->ID3D12Device_iface, iid, out);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetDXGIAdapter(ID3D12DXVKInteropDevice *iface,
+static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetDXGIAdapter(d3d12_dxvk_interop_device_iface *iface,
         REFIID iid, void **object)
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DXVKInteropDevice(iface);
@@ -305,7 +305,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetDXGIAdapter(ID3D12
     return IUnknown_QueryInterface(device->parent, iid, object);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetVulkanHandles(ID3D12DXVKInteropDevice *iface,
+static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetVulkanHandles(d3d12_dxvk_interop_device_iface *iface,
         VkInstance *vk_instance, VkPhysicalDevice *vk_physical_device, VkDevice *vk_device)
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DXVKInteropDevice(iface);
@@ -319,7 +319,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetVulkanHandles(ID3D
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetInstanceExtensions(ID3D12DXVKInteropDevice *iface, UINT *extension_count, const char **extensions)
+static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetInstanceExtensions(d3d12_dxvk_interop_device_iface *iface, UINT *extension_count, const char **extensions)
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DXVKInteropDevice(iface);
     struct vkd3d_instance *instance = device->vkd3d_instance;
@@ -339,7 +339,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetInstanceExtensions
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetDeviceExtensions(ID3D12DXVKInteropDevice *iface, UINT *extension_count, const char **extensions)
+static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetDeviceExtensions(d3d12_dxvk_interop_device_iface *iface, UINT *extension_count, const char **extensions)
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DXVKInteropDevice(iface);
 
@@ -358,7 +358,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetDeviceExtensions(I
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetDeviceFeatures(ID3D12DXVKInteropDevice *iface, const VkPhysicalDeviceFeatures2 **features)
+static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetDeviceFeatures(d3d12_dxvk_interop_device_iface *iface, const VkPhysicalDeviceFeatures2 **features)
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DXVKInteropDevice(iface);
 
@@ -368,7 +368,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetDeviceFeatures(ID3
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetVulkanQueueInfo(ID3D12DXVKInteropDevice *iface,
+static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetVulkanQueueInfo(d3d12_dxvk_interop_device_iface *iface,
         ID3D12CommandQueue *queue, VkQueue *vk_queue, UINT32 *vk_queue_family)
 {
     TRACE("iface %p, queue %p, vk_queue %p, vk_queue_family %p.\n", iface, queue, vk_queue, vk_queue_family);
@@ -381,7 +381,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetVulkanQueueInfo(ID
     return S_OK;
 }
 
-static void STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetVulkanImageLayout(ID3D12DXVKInteropDevice *iface,
+static void STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetVulkanImageLayout(d3d12_dxvk_interop_device_iface *iface,
         ID3D12Resource *resource, D3D12_RESOURCE_STATES state, VkImageLayout *vk_layout)
 {
     struct d3d12_resource *resource_impl = impl_from_ID3D12Resource(resource);
@@ -391,7 +391,7 @@ static void STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetVulkanImageLayout(ID3
     *vk_layout = vk_image_layout_from_d3d12_resource_state(NULL, resource_impl, state);
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetVulkanResourceInfo(ID3D12DXVKInteropDevice *iface,
+static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetVulkanResourceInfo(d3d12_dxvk_interop_device_iface *iface,
         ID3D12Resource *resource, UINT64 *vk_handle, UINT64 *buffer_offset)
 {
     struct d3d12_resource *resource_impl = impl_from_ID3D12Resource(resource);
@@ -412,7 +412,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetVulkanResourceInfo
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_LockCommandQueue(ID3D12DXVKInteropDevice *iface, ID3D12CommandQueue *queue)
+static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_LockCommandQueue(d3d12_dxvk_interop_device_iface *iface, ID3D12CommandQueue *queue)
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DXVKInteropDevice(iface);
 
@@ -426,7 +426,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_LockCommandQueue(ID3D
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_UnlockCommandQueue(ID3D12DXVKInteropDevice *iface, ID3D12CommandQueue *queue)
+static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_UnlockCommandQueue(d3d12_dxvk_interop_device_iface *iface, ID3D12CommandQueue *queue)
 {
     TRACE("iface %p, queue %p.\n", iface, queue);
 
