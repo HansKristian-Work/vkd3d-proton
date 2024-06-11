@@ -74,6 +74,7 @@ struct dxgi_vk_swap_chain_present_request
 struct present_wait_entry
 {
     uint64_t id;
+    uint64_t present_count;
     uint64_t begin_frame_time_ns;
 };
 
@@ -112,9 +113,7 @@ struct dxgi_vk_swap_chain
         uint64_t internal_blit_count;
         uint64_t complete_count;
 
-        /* PresentID or frame latency fence is used depending on features and if we're really presenting on-screen. */
-        ID3D12Fence1 *frame_latency_fence;
-        uint64_t frame_latency_count;
+        /* PresentID is used depending on features and if we're really presenting on-screen. */
         uint64_t present_id;
         bool present_id_valid;
 
@@ -191,12 +190,19 @@ struct dxgi_vk_swap_chain
 
     struct
     {
+        spinlock_t lock;
+
+        uint64_t count;
+        uint64_t time;
+    } frame_statistics;
+
+    struct
+    {
         VkSurfaceFormatKHR *formats;
 		size_t formats_size;
         uint32_t format_count;
     } properties;
 
-    /* If present_wait is supported. */
     struct
     {
         pthread_t thread;
@@ -205,7 +211,7 @@ struct dxgi_vk_swap_chain
         size_t wait_queue_count;
         pthread_cond_t cond;
         pthread_mutex_t lock;
-        bool active;
+        bool supports_present_wait;
         bool skip_waits;
     } wait_thread;
 };
@@ -298,36 +304,6 @@ static void dxgi_vk_swap_chain_drain_swapchain_fences(struct dxgi_vk_swap_chain 
             dxgi_vk_swap_chain_ensure_unsignaled_swapchain_fence(chain, i);
 }
 
-static void dxgi_vk_swap_chain_drain_queue(struct dxgi_vk_swap_chain *chain)
-{
-    unsigned int i;
-
-    /* This functions as a DRAIN of the D3D12 queue.
-     * All CPU operations that were queued must have been submitted to Vulkan now.
-     * We intend to submit directly to the queue now and timeline signals must come in the proper order. */
-    if (vkd3d_acquire_vk_queue(&chain->queue->ID3D12CommandQueue_iface))
-        vkd3d_release_vk_queue(&chain->queue->ID3D12CommandQueue_iface);
-
-    /* If we have a lingering semaphore acquire that never went anywhere, ensure it is waited on. */
-    for (i = 0; i < ARRAY_SIZE(chain->present.vk_acquire_semaphore); i++)
-        if (chain->present.vk_acquire_semaphore[i] && chain->present.acquire_semaphore_signalled[i])
-            dxgi_vk_swap_chain_wait_acquire_semaphore(chain, chain->present.vk_acquire_semaphore[i], false);
-
-    /* Ensures that all pending ReleaseSemaphore() calls are also made.
-     * This happens on the fence waiter queues, so it's not enough to call vkQueueWaitIdle to be 100% sure.
-     * The fence waiter thread processes requests in-order,
-     * so if we observe that an EVENT has been signalled,
-     * we know all pending semaphore signals have happened as well. */
-
-    chain->present.frame_latency_count += 1;
-    d3d12_command_queue_signal_inline(chain->queue, chain->present.frame_latency_fence, chain->present.frame_latency_count);
-    d3d12_fence_set_event_on_completion(impl_from_ID3D12Fence1(chain->present.frame_latency_fence),
-            chain->present.frame_latency_count, NULL);
-
-    if (chain->swapchain_maintenance1)
-        dxgi_vk_swap_chain_drain_swapchain_fences(chain);
-}
-
 static void dxgi_vk_swap_chain_wait_semaphore(struct dxgi_vk_swap_chain *chain,
         VkSemaphore vk_timeline, uint64_t value)
 {
@@ -363,7 +339,30 @@ static void dxgi_vk_swap_chain_drain_user_images(struct dxgi_vk_swap_chain *chai
     dxgi_vk_swap_chain_drain_complete_semaphore(chain, chain->user.blit_count);
 }
 
-static void dxgi_vk_swap_chain_push_present_id(struct dxgi_vk_swap_chain *chain, uint64_t present_id, uint64_t begin_frame_time_ns)
+static void dxgi_vk_swap_chain_drain_queue(struct dxgi_vk_swap_chain *chain)
+{
+    unsigned int i;
+
+    /* This functions as a DRAIN of the D3D12 queue.
+     * All CPU operations that were queued must have been submitted to Vulkan now.
+     * We intend to submit directly to the queue now and timeline signals must come in the proper order. */
+    if (vkd3d_acquire_vk_queue(&chain->queue->ID3D12CommandQueue_iface))
+        vkd3d_release_vk_queue(&chain->queue->ID3D12CommandQueue_iface);
+
+    /* If we have a lingering semaphore acquire that never went anywhere, ensure it is waited on. */
+    for (i = 0; i < ARRAY_SIZE(chain->present.vk_acquire_semaphore); i++)
+        if (chain->present.vk_acquire_semaphore[i] && chain->present.acquire_semaphore_signalled[i])
+            dxgi_vk_swap_chain_wait_acquire_semaphore(chain, chain->present.vk_acquire_semaphore[i], false);
+
+    /* Wait for pending blits to complete on the GPU */
+    dxgi_vk_swap_chain_drain_complete_semaphore(chain, chain->user.present_count);
+
+    if (chain->swapchain_maintenance1)
+        dxgi_vk_swap_chain_drain_swapchain_fences(chain);
+}
+
+static void dxgi_vk_swap_chain_push_present_id(struct dxgi_vk_swap_chain *chain,
+        uint64_t present_count, uint64_t present_id, uint64_t begin_frame_time_ns)
 {
     struct present_wait_entry *entry;
     pthread_mutex_lock(&chain->wait_thread.lock);
@@ -371,6 +370,7 @@ static void dxgi_vk_swap_chain_push_present_id(struct dxgi_vk_swap_chain *chain,
             chain->wait_thread.wait_queue_count + 1, sizeof(*chain->wait_thread.wait_queue));
     entry = &chain->wait_thread.wait_queue[chain->wait_thread.wait_queue_count++];
     entry->id = present_id;
+    entry->present_count = present_count;
     entry->begin_frame_time_ns = begin_frame_time_ns;
     pthread_cond_signal(&chain->wait_thread.cond);
     pthread_mutex_unlock(&chain->wait_thread.lock);
@@ -381,17 +381,11 @@ static void dxgi_vk_swap_chain_cleanup(struct dxgi_vk_swap_chain *chain)
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     UINT i;
 
-    if (chain->wait_thread.active)
-    {
-        dxgi_vk_swap_chain_push_present_id(chain, 0, 0);
-        pthread_join(chain->wait_thread.thread, NULL);
-        pthread_mutex_destroy(&chain->wait_thread.lock);
-        pthread_cond_destroy(&chain->wait_thread.cond);
-    }
+    dxgi_vk_swap_chain_push_present_id(chain, 0, 0, 0);
+    pthread_join(chain->wait_thread.thread, NULL);
+    pthread_mutex_destroy(&chain->wait_thread.lock);
+    pthread_cond_destroy(&chain->wait_thread.cond);
     vkd3d_free(chain->wait_thread.wait_queue);
-
-    if (chain->present.frame_latency_fence)
-        ID3D12Fence1_Release(chain->present.frame_latency_fence);
 
     vkd3d_native_sync_handle_destroy(chain->frame_latency_event);
     vkd3d_native_sync_handle_destroy(chain->frame_latency_event_internal);
@@ -989,7 +983,7 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain2 *i
     /* If we don't have wait thread, BufferCount needs to be tweaked to control latency.
      * Some games that create BufferCount = 3 swapchains expect us to absorb a lot of latency or we start
      * starving. If we have waiter thread, we'll block elsewhere. */
-    request->target_min_image_count = chain->wait_thread.active ? 0 : chain->desc.BufferCount + 1;
+    request->target_min_image_count = chain->wait_thread.supports_present_wait ? 0 : chain->desc.BufferCount + 1;
     request->dxgi_color_space_type = chain->user.dxgi_color_space_type;
     request->dxgi_hdr_metadata = chain->user.dxgi_hdr_metadata;
     request->modifies_hdr_metadata = chain->user.modifies_hdr_metadata;
@@ -1171,8 +1165,16 @@ static void STDMETHODCALLTYPE dxgi_vk_swap_chain_GetLastPresentCount(IDXGIVkSwap
 static void STDMETHODCALLTYPE dxgi_vk_swap_chain_GetFrameStatistics(IDXGIVkSwapChain2 *iface,
         DXGI_VK_FRAME_STATISTICS *frame_statistics)
 {
-    /* Doing nothing here is fine for now, DXVK will fill in dummy values. */
-    FIXME_ONCE("iface %p, frame_statistics %p stub!\n", iface, frame_statistics);
+    struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
+
+    TRACE("iface %p, frame_statistics %p!\n", iface, frame_statistics);
+
+    /* Returns the total number of frames presented, and the
+     * timestamp when the last present has completed. */
+    spinlock_acquire(&chain->frame_statistics.lock);
+    frame_statistics->PresentCount = chain->frame_statistics.count;
+    frame_statistics->PresentQPCTime = chain->frame_statistics.time;
+    spinlock_release(&chain->frame_statistics.lock);
 }
 
 static void STDMETHODCALLTYPE dxgi_vk_swap_chain_SetTargetFrameRate(IDXGIVkSwapChain2 *iface, double frame_rate)
@@ -1283,13 +1285,6 @@ static HRESULT dxgi_vk_swap_chain_init_sync_objects(struct dxgi_vk_swap_chain *c
     char env[8];
     HRESULT hr;
 
-    if (FAILED(hr = ID3D12Device12_CreateFence(&chain->queue->device->ID3D12Device_iface, 0,
-            D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence1, (void**)&chain->present.frame_latency_fence)))
-    {
-        WARN("Failed to create frame latency fence, hr %#x.\n", hr);
-        return hr;
-    }
-
     if (chain->desc.Flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT)
     {
         INFO("Enabling frame latency handles.\n");
@@ -1385,18 +1380,15 @@ static HRESULT dxgi_vk_swap_chain_init_sync_objects(struct dxgi_vk_swap_chain *c
 
 static void dxgi_vk_swap_chain_drain_waiter(struct dxgi_vk_swap_chain *chain)
 {
-    if (chain->wait_thread.active)
-    {
-        /* Make sure wait thread is not waiting on anything before we destroy swapchain. */
-        pthread_mutex_lock(&chain->wait_thread.lock);
+    /* Make sure wait thread is not waiting on anything before we destroy swapchain. */
+    pthread_mutex_lock(&chain->wait_thread.lock);
 
-        /* Skip ahead if there are multiple frames queued. */
-        chain->wait_thread.skip_waits = true;
-        while (chain->wait_thread.wait_queue_count)
-            pthread_cond_wait(&chain->wait_thread.cond, &chain->wait_thread.lock);
-        chain->wait_thread.skip_waits = false;
-        pthread_mutex_unlock(&chain->wait_thread.lock);
-    }
+    /* Skip ahead if there are multiple frames queued. */
+    chain->wait_thread.skip_waits = true;
+    while (chain->wait_thread.wait_queue_count)
+        pthread_cond_wait(&chain->wait_thread.cond, &chain->wait_thread.lock);
+    chain->wait_thread.skip_waits = false;
+    pthread_mutex_unlock(&chain->wait_thread.lock);
 }
 
 static void dxgi_vk_swap_chain_destroy_swapchain_in_present_task(struct dxgi_vk_swap_chain *chain)
@@ -1888,9 +1880,8 @@ static void dxgi_vk_swap_chain_present_signal_blit_semaphore(struct dxgi_vk_swap
     VkQueue vk_queue;
     VkResult vr;
 
-    /* Could have used the internal timeline for this, but it complicates user thread
-     * waiting. It expects lock-step timelines, so we need to guarantee a 1:1 ratio of Present() calls
-     * to increments here. */
+    /* Guarantee a 1:1 ratio of Present() calls to increments here. This timeline is
+     * used for user thread waiting as well as to delay  */
     chain->present.complete_count += 1;
 
     memset(&signal_semaphore_info, 0, sizeof(signal_semaphore_info));
@@ -2333,7 +2324,7 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
      * Non-FIFO swapchains will pump their frame latency handles through the fallback path of blit command being done.
      * Especially on Xwayland, the present ID is updated when images actually hit on-screen due to MAILBOX behavior.
      * This would unnecessarily stall our progress. */
-    if (chain->wait_thread.active && !chain->present.present_id_valid &&
+    if (chain->wait_thread.supports_present_wait && !chain->present.present_id_valid &&
         (swapchain_is_fifo || chain->present.low_latency_state.mode))
     {
         minimum_present_id = chain->present.present_id + 1;
@@ -2435,41 +2426,11 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     }
 }
 
-static void dxgi_vk_swap_chain_signal_waitable_handle(struct dxgi_vk_swap_chain *chain)
+static void dxgi_vk_swap_chain_signal_waitable_handle(struct dxgi_vk_swap_chain *chain, uint64_t present_count)
 {
-    HRESULT hr;
+    uint64_t present_id = chain->present.present_id_valid ? chain->present.present_id : 0;
 
-    if (chain->present.present_id_valid)
-    {
-        dxgi_vk_swap_chain_push_present_id(chain, chain->present.present_id, chain->request.begin_frame_time_ns);
-    }
-    else
-    {
-        chain->present.frame_latency_count += 1;
-        d3d12_command_queue_signal_inline(chain->queue, chain->present.frame_latency_fence, chain->present.frame_latency_count);
-
-        if (vkd3d_native_sync_handle_is_valid(chain->frame_latency_event))
-        {
-            if (FAILED(hr = d3d12_fence_set_native_sync_handle_on_completion(
-                    impl_from_ID3D12Fence1(chain->present.frame_latency_fence),
-                    chain->present.frame_latency_count, chain->frame_latency_event)))
-            {
-                ERR("Failed to enqueue frame latency event, hr %#x.\n", hr);
-                vkd3d_native_sync_handle_release(chain->frame_latency_event, 1);
-            }
-        }
-
-        if (vkd3d_native_sync_handle_is_valid(chain->frame_latency_event_internal))
-        {
-            if (FAILED(hr = d3d12_fence_set_native_sync_handle_on_completion(
-                    impl_from_ID3D12Fence1(chain->present.frame_latency_fence),
-                    chain->present.frame_latency_count, chain->frame_latency_event_internal)))
-            {
-                ERR("Failed to enqueue frame latency event, hr %#x.\n", hr);
-                vkd3d_native_sync_handle_release(chain->frame_latency_event_internal, 1);
-            }
-        }
-    }
+    dxgi_vk_swap_chain_push_present_id(chain, present_count, present_id, chain->request.begin_frame_time_ns);
 }
 
 static void dxgi_vk_swap_chain_present_callback(void *chain_)
@@ -2503,7 +2464,7 @@ static void dxgi_vk_swap_chain_present_callback(void *chain_)
     /* If we hit the legacy way of synchronizing with swapchain, blitting multiple times would be horrible.
      * Also if low latency mode is enabled only do a single present iteration to avoid falling off the application
      * provided frame id path. */
-    if (!chain->wait_thread.active || chain->present.low_latency_state.mode)
+    if (!chain->wait_thread.supports_present_wait || chain->present.low_latency_state.mode)
         present_count = 1;
 
     for (i = 0; i < present_count; i++)
@@ -2518,7 +2479,7 @@ static void dxgi_vk_swap_chain_present_callback(void *chain_)
     dxgi_vk_swap_chain_present_signal_blit_semaphore(chain);
 
     /* Signal latency fence. */
-    dxgi_vk_swap_chain_signal_waitable_handle(chain);
+    dxgi_vk_swap_chain_signal_waitable_handle(chain, next_present_count);
 
     /* Signal main thread that we are done with all CPU work.
      * No need to signal a condition variable, main thread can poll to deduce. */
@@ -2536,7 +2497,7 @@ static void dxgi_vk_swap_chain_present_callback(void *chain_)
      * On implementations with present wait, blocking late is a good idea since it avoids potential
      * GPU bubbles. While blocking here, we cannot submit more work to the GPU on this queue,
      * since we're in a queue callback. */
-    if (!chain->wait_thread.active)
+    if (!chain->wait_thread.supports_present_wait)
     {
         dxgi_vk_swap_chain_try_acquire_next_image(chain);
         /* The old implementation used acquire semaphores, and did not block, so to maintain same behavior,
@@ -2550,6 +2511,25 @@ static void dxgi_vk_swap_chain_present_callback(void *chain_)
 #endif
 }
 
+static void dxgi_vk_swap_chain_update_frame_statistics(struct dxgi_vk_swap_chain *chain, uint64_t present_count)
+{
+    uint64_t time;
+
+#ifdef _WIN32
+    /* DXGI returns the raw QPC value */
+    LARGE_INTEGER li;
+    QueryPerformanceCounter(&li);
+    time = li.QuadPart;
+#else
+    time = vkd3d_get_current_time_ns();
+#endif
+
+    spinlock_acquire(&chain->frame_statistics.lock);
+    chain->frame_statistics.count = present_count;
+    chain->frame_statistics.time = time;
+    spinlock_release(&chain->frame_statistics.lock);
+}
+
 static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
 {
     struct dxgi_vk_swap_chain *chain = chain_;
@@ -2557,9 +2537,8 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
     struct vkd3d_queue_timeline_trace *timeline_trace = &chain->queue->device->queue_timeline_trace;
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     struct vkd3d_queue_timeline_trace_cookie cookie;
-    uint64_t begin_frame_time_ns = 0;
+    struct present_wait_entry entry;
     uint64_t end_frame_time_ns = 0;
-    uint64_t next_wait_id = 0;
     int previous_semaphore;
 
     vkd3d_set_thread_name("vkd3d-swapchain-sync");
@@ -2569,26 +2548,34 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
         pthread_mutex_lock(&chain->wait_thread.lock);
         while (!chain->wait_thread.wait_queue_count)
             pthread_cond_wait(&chain->wait_thread.cond, &chain->wait_thread.lock);
-        next_wait_id = chain->wait_thread.wait_queue[0].id;
-        begin_frame_time_ns = chain->wait_thread.wait_queue[0].begin_frame_time_ns;
+        entry = chain->wait_thread.wait_queue[0];
         pthread_mutex_unlock(&chain->wait_thread.lock);
 
         /* Sentinel for swapchain teardown. */
-        if (!next_wait_id)
+        if (!entry.present_count)
             break;
 
-        cookie = vkd3d_queue_timeline_trace_register_present_wait(timeline_trace, next_wait_id);
-        /* In skip wait mode we just need to make sure that we signal latency fences properly. */
-        if (!chain->wait_thread.skip_waits)
+        if (entry.id)
         {
-            /* We don't really care if we observed OUT_OF_DATE or something here. */
-            VK_CALL(vkWaitForPresentKHR(chain->queue->device->vk_device, chain->present.vk_swapchain,
-                    next_wait_id, UINT64_MAX));
-        }
-        vkd3d_queue_timeline_trace_complete_present_wait(timeline_trace, cookie);
+            cookie = vkd3d_queue_timeline_trace_register_present_wait(timeline_trace, entry.id);
+            /* In skip wait mode we just need to make sure that we signal latency fences properly. */
+            if (!chain->wait_thread.skip_waits)
+            {
+                /* We don't really care if we observed OUT_OF_DATE or something here. */
+                VK_CALL(vkWaitForPresentKHR(chain->queue->device->vk_device, chain->present.vk_swapchain,
+                        entry.id, UINT64_MAX));
+            }
+            vkd3d_queue_timeline_trace_complete_present_wait(timeline_trace, cookie);
 
-        if (begin_frame_time_ns)
-            end_frame_time_ns = vkd3d_get_current_time_ns();
+            if (entry.begin_frame_time_ns)
+                end_frame_time_ns = vkd3d_get_current_time_ns();
+        }
+        else
+        {
+            dxgi_vk_swap_chain_drain_complete_semaphore(chain, entry.present_count);
+        }
+
+        dxgi_vk_swap_chain_update_frame_statistics(chain, entry.present_count);
 
         if (vkd3d_native_sync_handle_is_valid(chain->frame_latency_event))
         {
@@ -2612,8 +2599,8 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
         if (vkd3d_native_sync_handle_is_valid(chain->frame_latency_event_internal))
             vkd3d_native_sync_handle_release(chain->frame_latency_event_internal, 1);
 
-        if (begin_frame_time_ns)
-            INFO("vkWaitForPresentKHR frame latency: %.3f ms.\n", 1e-6 * (end_frame_time_ns - begin_frame_time_ns));
+        if (entry.id && entry.begin_frame_time_ns)
+            INFO("vkWaitForPresentKHR frame latency: %.3f ms.\n", 1e-6 * (end_frame_time_ns - entry.begin_frame_time_ns));
 
         /* Need to let present tasks know when it's safe to destroy a swapchain.
          * We must have completed all outstanding waits touching VkSwapchainKHR. */
@@ -2633,8 +2620,7 @@ static HRESULT dxgi_vk_swap_chain_init_waiter_thread(struct dxgi_vk_swap_chain *
 {
     char env[8];
 
-    if (!chain->queue->device->device_info.present_wait_features.presentWait)
-        return S_OK;
+    spinlock_init(&chain->frame_statistics.lock);
 
     vkd3d_array_reserve((void **)&chain->wait_thread.wait_queue, &chain->wait_thread.wait_queue_size,
             DXGI_MAX_SWAP_CHAIN_BUFFERS, sizeof(*chain->wait_thread.wait_queue));
@@ -2650,11 +2636,14 @@ static HRESULT dxgi_vk_swap_chain_init_waiter_thread(struct dxgi_vk_swap_chain *
         return E_OUTOFMEMORY;
     }
 
-    if (vkd3d_get_env_var("VKD3D_SWAPCHAIN_DEBUG_LATENCY", env, sizeof(env)) && strcmp(env, "1") == 0)
-        chain->debug_latency = true;
+    if ((chain->wait_thread.supports_present_wait = chain->queue->device->device_info.present_wait_features.presentWait))
+    {
+        if (vkd3d_get_env_var("VKD3D_SWAPCHAIN_DEBUG_LATENCY", env, sizeof(env)) && strcmp(env, "1") == 0)
+            chain->debug_latency = true;
 
-    INFO("Enabling present wait path for frame latency.\n");
-    chain->wait_thread.active = true;
+        INFO("Enabling present wait path for frame latency.\n");
+    }
+
     return S_OK;
 }
 
