@@ -118,11 +118,9 @@ struct dxgi_vk_swap_chain
         uint64_t present_id;
         bool present_id_valid;
 
-        /* Atomically updated after a PRESENT queue command has processed.
-         * We don't care about wrap around.
-         * We just care about equality check so we can atomically check if all outstanding present events have completed on CPU timeline.
-         * This is used to implement occlusion check. */
-        uint32_t present_count;
+        /* Atomically updated after a PRESENT queue command has processed. Used to atomically check if
+         * all outstanding present events have completed on CPU timeline. */
+        UINT64 present_count;
 
         /* For blits. Use simple VkFences since we have to use binary semaphores with WSI release anyways.
          * We don't need to wait on these fences on main thread. */
@@ -182,7 +180,7 @@ struct dxgi_vk_swap_chain
         struct d3d12_resource *backbuffers[DXGI_MAX_SWAP_CHAIN_BUFFERS];
         VkImageView vk_image_views[DXGI_MAX_SWAP_CHAIN_BUFFERS];
         uint64_t blit_count;
-        uint32_t present_count;
+        uint64_t present_count;
         UINT index;
 
         DXGI_COLOR_SPACE_TYPE dxgi_color_space_type;
@@ -853,7 +851,7 @@ static void dxgi_vk_swap_chain_set_hdr_metadata(struct dxgi_vk_swap_chain *chain
 
 static bool dxgi_vk_swap_chain_present_task_is_idle(struct dxgi_vk_swap_chain *chain)
 {
-    uint32_t presented_count = vkd3d_atomic_uint32_load_explicit(&chain->present.present_count, vkd3d_memory_order_acquire);
+    uint64_t presented_count = vkd3d_atomic_uint64_load_explicit(&chain->present.present_count, vkd3d_memory_order_acquire);
     return presented_count == chain->user.present_count;
 }
 
@@ -1162,8 +1160,12 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_SetHDRMetaData(IDXGIVkSwapCh
 
 static void STDMETHODCALLTYPE dxgi_vk_swap_chain_GetLastPresentCount(IDXGIVkSwapChain2 *iface, UINT64 *present_count)
 {
-    /* Doing nothing here is fine for now, DXVK will fill in dummy values. */
-    FIXME_ONCE("iface %p, present_count %p stub!\n", iface, present_count);
+    struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
+
+    TRACE("iface %p, present_count %p.\n", iface, present_count);
+
+    /* Represents the number of times Present has been called successfully */
+    *present_count = chain->user.present_count;
 }
 
 static void STDMETHODCALLTYPE dxgi_vk_swap_chain_GetFrameStatistics(IDXGIVkSwapChain2 *iface,
@@ -2474,7 +2476,7 @@ static void dxgi_vk_swap_chain_present_callback(void *chain_)
 {
     const struct dxgi_vk_swap_chain_present_request *next_request;
     struct dxgi_vk_swap_chain *chain = chain_;
-    uint32_t next_present_count;
+    uint64_t next_present_count;
     uint32_t present_count;
     uint32_t i;
 
@@ -2520,7 +2522,7 @@ static void dxgi_vk_swap_chain_present_callback(void *chain_)
 
     /* Signal main thread that we are done with all CPU work.
      * No need to signal a condition variable, main thread can poll to deduce. */
-    vkd3d_atomic_uint32_store_explicit(&chain->present.present_count, next_present_count, vkd3d_memory_order_release);
+    vkd3d_atomic_uint64_store_explicit(&chain->present.present_count, next_present_count, vkd3d_memory_order_release);
 
     /* Considerations for implementations without KHR_present_wait which we inherit from the legacy swapchain.
      * To have any hope of achieving reasonable and bounded latency,
