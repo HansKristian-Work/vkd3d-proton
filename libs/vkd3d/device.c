@@ -976,6 +976,7 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     const char **extensions;
     uint32_t layer_count, i;
     VkInstance vk_instance;
+    bool dirty_tree_build;
     VkResult vr;
     HRESULT hr;
     uint32_t loader_version = VK_API_VERSION_1_0;
@@ -1029,7 +1030,12 @@ static HRESULT vkd3d_instance_init(struct vkd3d_instance *instance,
     application_info.engineVersion = vkd3d_get_vk_version();
     application_info.apiVersion = loader_version;
 
-    INFO("vkd3d-proton - build: %"PRIx64".\n", vkd3d_build);
+    /* Builds from dirty trees generate vkd3d_version ending with a '+'. */
+    dirty_tree_build = sizeof(vkd3d_version) >= 2 && vkd3d_version[sizeof(vkd3d_version) - 2] == '+';
+    if (dirty_tree_build)
+        INFO("vkd3d-proton - build: %015"PRIx64"+.\n", vkd3d_build >> 4);
+    else
+        INFO("vkd3d-proton - build: %015"PRIx64".\n", vkd3d_build);
 
     if (vkd3d_get_program_name(application_name))
         application_info.pApplicationName = application_name;
