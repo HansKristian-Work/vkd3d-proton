@@ -326,7 +326,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetInstanceExtensions
 
     TRACE("iface %p, extension_count %p, extensions %p.\n", iface, extension_count, extensions);
 
-    if (extensions && (*extension_count < instance->vk_info.extension_count))
+    if (!extension_count || (extensions && (*extension_count < instance->vk_info.extension_count)))
         return E_INVALIDARG;
 
     *extension_count = instance->vk_info.extension_count;
@@ -345,7 +345,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetDeviceExtensions(I
 
     TRACE("iface %p, extension_count %p, extensions %p.\n", iface, extension_count, extensions);
 
-    if (extensions && (*extension_count < device->vk_info.extension_count))
+    if (!extension_count || (extensions && (*extension_count < device->vk_info.extension_count)))
         return E_INVALIDARG;
 
     *extension_count = device->vk_info.extension_count;
