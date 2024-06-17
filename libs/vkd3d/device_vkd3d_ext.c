@@ -51,7 +51,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_QueryInterface(d3d12_dev
 static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetVulkanHandles(d3d12_device_vkd3d_ext_iface *iface, VkInstance *vk_instance, VkPhysicalDevice *vk_physical_device, VkDevice *vk_device)
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
-    TRACE("iface %p, vk_instance %p, vk_physical_device %p, vk_device %p \n", iface, vk_instance, vk_physical_device, vk_device);
+    TRACE("iface %p, vk_instance %p, vk_physical_device %p, vk_device %p\n", iface, vk_instance, vk_physical_device, vk_device);
     if (!vk_device || !vk_instance || !vk_physical_device)
         return E_INVALIDARG;
         
@@ -66,7 +66,7 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetExtensionSupport(d3d12_d
     const struct d3d12_device *device = d3d12_device_from_ID3D12DeviceExt(iface);
     bool ret_val = false;
     
-    TRACE("iface %p, extension %u \n", iface, extension);
+    TRACE("iface %p, extension %u\n", iface, extension);
     switch (extension)
     {
         case D3D12_VK_NVX_BINARY_IMPORT:
@@ -79,7 +79,7 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetExtensionSupport(d3d12_d
             ret_val = device->vk_info.NV_low_latency2;
             break;
         default:
-            WARN("Invalid extension %x\n", extension);
+            WARN("Invalid extension %x.\n", extension);
     }
     
     return ret_val;
@@ -96,7 +96,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_CreateCubinComputeShader
     VkDevice vk_device;
     VkResult vr;
     
-    TRACE("iface %p, cubin_data %p, cubin_size %u, shader_name %s \n", iface, cubin_data, cubin_size, shader_name);
+    TRACE("iface %p, cubin_data %p, cubin_size %u, shader_name %s\n", iface, cubin_data, cubin_size, shader_name);
     if (!cubin_data || !cubin_size || !shader_name)
         return E_INVALIDARG;    
 
@@ -138,7 +138,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_DestroyCubinComputeShade
     struct d3d12_device *device;
     VkDevice vk_device;
 
-    TRACE("iface %p, handle %p \n", iface, handle);
+    TRACE("iface %p, handle %p\n", iface, handle);
     if (!iface || !handle)
         return E_INVALIDARG;
     
@@ -309,7 +309,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetVulkanHandles(ID3D
         VkInstance *vk_instance, VkPhysicalDevice *vk_physical_device, VkDevice *vk_device)
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DXVKInteropDevice(iface);
-    TRACE("iface %p, vk_instance %p, vk_physical_device %p, vk_device %p \n", iface, vk_instance, vk_physical_device, vk_device);
+    TRACE("iface %p, vk_instance %p, vk_physical_device %p, vk_device %p\n", iface, vk_instance, vk_physical_device, vk_device);
     if (!vk_device || !vk_instance || !vk_physical_device)
         return E_INVALIDARG;
 
@@ -324,7 +324,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetInstanceExtensions
     struct d3d12_device *device = d3d12_device_from_ID3D12DXVKInteropDevice(iface);
     struct vkd3d_instance *instance = device->vkd3d_instance;
 
-    TRACE("iface %p, extension_count %u, extensions %p.\n", iface, extension_count, extensions);
+    TRACE("iface %p, extension_count %p, extensions %p.\n", iface, extension_count, extensions);
 
     if (extensions && (*extension_count < instance->vk_info.extension_count))
         return E_INVALIDARG;
@@ -343,7 +343,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_GetDeviceExtensions(I
 {
     struct d3d12_device *device = d3d12_device_from_ID3D12DXVKInteropDevice(iface);
 
-    TRACE("iface %p, extension_count %u, extensions %p.\n", iface, extension_count, extensions);
+    TRACE("iface %p, extension_count %p, extensions %p.\n", iface, extension_count, extensions);
 
     if (extensions && (*extension_count < device->vk_info.extension_count))
         return E_INVALIDARG;

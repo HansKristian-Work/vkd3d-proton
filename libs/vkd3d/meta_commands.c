@@ -484,24 +484,24 @@ static HRESULT d3d12_meta_command_create_dstorage(struct d3d12_meta_command *met
 
     if (parameter_size < sizeof(*parameters) || !parameters)
     {
-        FIXME("Invalid parameter set (size = %u, ptr = %p) for DirectStorage meta command.\n", parameter_size, parameters);
+        FIXME("Invalid parameter set (size = %zu, ptr = %p) for DirectStorage meta command.\n", parameter_size, parameters);
         return E_INVALIDARG;
     }
 
     if (parameters->version != 1)
     {
-        ERR("Unsupported version %u for DirectStorage meta command.\n", parameters->version);
+        ERR("Unsupported version %"PRIu64" for DirectStorage meta command.\n", parameters->version);
         return DXGI_ERROR_UNSUPPORTED;
     }
 
     if (parameters->format != 1)
     {
-        ERR("Unsupported format %u for DirectStorage meta command.\n", parameters->format);
+        ERR("Unsupported format %"PRIu64" for DirectStorage meta command.\n", parameters->format);
         return DXGI_ERROR_UNSUPPORTED;
     }
 
     if (parameters->flags != 0)
-        FIXME("Unrecognized flags %#x for DirectStorage meta command.\n", parameters->flags);
+        FIXME("Unrecognized flags %#"PRIx64" for DirectStorage meta command.\n", parameters->flags);
 
     meta_command->exec_proc = &d3d12_meta_command_exec_dstorage;
     return S_OK;

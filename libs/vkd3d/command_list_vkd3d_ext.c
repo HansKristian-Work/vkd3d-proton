@@ -82,7 +82,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_vkd3d_ext_LaunchCubinShaderE
     };
 
     struct d3d12_command_list *command_list = d3d12_command_list_from_ID3D12GraphicsCommandListExt(iface);
-    TRACE("iface %p, handle %p, block_x %u,  block_y %u, block_z %u, smem_size %u, params %p, param_size %u, raw_params %p, raw_params_count %u \n",
+    TRACE("iface %p, handle %p, block_x %u, block_y %u, block_z %u, smem_size %u, params %p, param_size %u, raw_params %p, raw_params_count %u\n",
            iface, handle, block_x, block_y, block_z, smem_size, params, param_size, raw_params, raw_params_count);
 
     if (!handle || !block_x || !block_y || !block_z || !params || !param_size)

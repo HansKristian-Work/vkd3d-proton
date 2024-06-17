@@ -3064,7 +3064,7 @@ static void d3d12_add_device_singleton(struct d3d12_device *device, LUID luid)
 
     if (!(e = vkd3d_malloc(sizeof(*e))))
     {
-        ERR("Failed to register device singleton for adapter.");
+        ERR("Failed to register device singleton for adapter.\n");
         return;
     }
     e->adapter_luid = luid;
@@ -3175,7 +3175,7 @@ HRESULT d3d12_device_get_scratch_buffer(struct d3d12_device *device, enum vkd3d_
 
     if (min_size > pool->block_size)
     {
-        FIXME("Requesting scratch buffer kind %u larger than limit (%"PRIu64" > %u). Expect bad performance.\n",
+        FIXME("Requesting scratch buffer kind %u larger than limit (%"PRIu64" > %"PRIu64"). Expect bad performance.\n",
                 kind, min_size, pool->block_size);
         return d3d12_device_create_scratch_buffer(device, kind, min_size, memory_types, scratch);
     }
@@ -4223,7 +4223,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             }
 
             data->Support = D3D12_PROTECTED_RESOURCE_SESSION_SUPPORT_FLAG_NONE;
-            TRACE("Protected resource session support %#x.", data->Support);
+            TRACE("Protected resource session support %#x.\n", data->Support);
             return S_OK;
         }
 
@@ -4314,7 +4314,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
                     D3D12_SHADER_CACHE_SUPPORT_AUTOMATIC_INPROC_CACHE |
                     D3D12_SHADER_CACHE_SUPPORT_AUTOMATIC_DISK_CACHE;
 
-            TRACE("Shader cache support flags %#x.", data->SupportFlags);
+            TRACE("Shader cache support flags %#x.\n", data->SupportFlags);
             return S_OK;
         }
 
@@ -4331,7 +4331,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
             /* FIXME We ignore priorities since Vulkan queues are created up-front */
             data->PriorityForTypeIsSupported = data->Priority <= D3D12_COMMAND_QUEUE_PRIORITY_HIGH;
 
-            TRACE("Command list type %u supports priority %u: %#x.",
+            TRACE("Command list type %u supports priority %u: %#x.\n",
                     data->CommandListType, data->Priority, data->PriorityForTypeIsSupported);
             return S_OK;
         }
@@ -4348,11 +4348,11 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
 
             *data = device->d3d12_caps.options3;
 
-            TRACE("Copy queue timestamp queries %#x.", data->CopyQueueTimestampQueriesSupported);
-            TRACE("Casting fully typed formats %#x.", data->CastingFullyTypedFormatSupported);
-            TRACE("Write buffer immediate support flags %#x.", data->WriteBufferImmediateSupportFlags);
-            TRACE("View instancing tier %u.", data->ViewInstancingTier);
-            TRACE("Barycentrics %#x.", data->BarycentricsSupported);
+            TRACE("Copy queue timestamp queries %#x.\n", data->CopyQueueTimestampQueriesSupported);
+            TRACE("Casting fully typed formats %#x.\n", data->CastingFullyTypedFormatSupported);
+            TRACE("Write buffer immediate support flags %#x.\n", data->WriteBufferImmediateSupportFlags);
+            TRACE("View instancing tier %u.\n", data->ViewInstancingTier);
+            TRACE("Barycentrics %#x.\n", data->BarycentricsSupported);
             return S_OK;
         }
 
@@ -4370,7 +4370,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
              * interop to support file handles */
             data->Supported = FALSE;
 
-            TRACE("Existing heaps %#x.", data->Supported);
+            TRACE("Existing heaps %#x.\n", data->Supported);
             return S_OK;
         }
 
@@ -4587,8 +4587,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
 
             *data = device->d3d12_caps.options13;
 
-            TRACE("Inverted viewport height flips Y supported %u.", data->InvertedViewportHeightFlipsYSupported);
-            TRACE("Inverted viewport deps flips Z supported %u.", data->InvertedViewportDepthFlipsZSupported);
+            TRACE("Inverted viewport height flips Y supported %u.\n", data->InvertedViewportHeightFlipsYSupported);
+            TRACE("Inverted viewport deps flips Z supported %u.\n", data->InvertedViewportDepthFlipsZSupported);
             return S_OK;
         }
 
@@ -4755,7 +4755,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
                 return E_INVALIDARG;
             }
 
-            TRACE("input_data_size = %u, input_data = %p, output_data_size = %u, output_data = %p.\n",
+            TRACE("input_data_size = %zu, input_data = %p, output_data_size = %zu, output_data = %p.\n",
                     data->QueryInputDataSizeInBytes, data->pQueryInputData, data->QueryOutputDataSizeInBytes,
                     data->pQueryOutputData);
 
@@ -4774,7 +4774,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(d3d12_device_i
                  * is allowed but any excess bytes are not written. */
                 if (data->QueryInputDataSizeInBytes < sizeof(*in_args) || data->QueryOutputDataSizeInBytes < sizeof(*out_args))
                 {
-                    FIXME("Unexpected input/output sizes for DirectStorage meta command: %u, %u.\n",
+                    FIXME("Unexpected input/output sizes for DirectStorage meta command: %zu, %zu.\n",
                             data->QueryInputDataSizeInBytes, data->QueryOutputDataSizeInBytes);
                     return E_INVALIDARG;
                 }
@@ -5629,7 +5629,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource(d3d12_devi
         const D3D12_RESOURCE_DESC *desc, D3D12_RESOURCE_STATES initial_state,
         const D3D12_CLEAR_VALUE *optimized_clear_value, REFIID iid, void **resource)
 {
-    TRACE("iface %p, heap_properties %p, heap_flags %#x,  desc %p, initial_state %#x, "
+    TRACE("iface %p, heap_properties %p, heap_flags %#x, desc %p, initial_state %#x, "
             "optimized_clear_value %p, iid %s, resource %p.\n",
             iface, heap_properties, heap_flags, desc, initial_state,
             optimized_clear_value, debugstr_guid(iid), resource);
@@ -7004,7 +7004,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommittedResource2(d3d12_dev
     struct d3d12_resource *object;
     HRESULT hr;
 
-    TRACE("iface %p, heap_properties %p, heap_flags %#x,  desc %p, initial_state %#x, "
+    TRACE("iface %p, heap_properties %p, heap_flags %#x, desc %p, initial_state %#x, "
             "optimized_clear_value %p, protected_session %p, iid %s, resource %p.\n",
             iface, heap_properties, heap_flags, desc, initial_state,
             optimized_clear_value, protected_session, debugstr_guid(iid), resource);
@@ -7787,7 +7787,7 @@ static void d3d12_device_caps_init_feature_options1(struct d3d12_device *device)
     else
     {
         options1->TotalLaneCount = 32 * device->device_info.vulkan_1_1_properties.subgroupSize;
-        WARN("No device info available for TotalLaneCount = .\n");
+        WARN("No device info available for TotalLaneCount = %u.\n", options1->TotalLaneCount);
     }
 
     options1->ExpandedComputeResourceStates = TRUE;
@@ -8931,19 +8931,19 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
     if ((meta->flags & VKD3D_SHADER_META_FLAG_USES_NATIVE_16BIT_OPERATIONS) &&
             !device->d3d12_caps.options4.Native16BitShaderOpsSupported)
     {
-        WARN("Attempting to use 16-bit operations in shader %016"PRIx64", but this is not supported.", meta->hash);
+        WARN("Attempting to use 16-bit operations in shader %016"PRIx64", but this is not supported.\n", meta->hash);
         return false;
     }
 
     if ((meta->flags & VKD3D_SHADER_META_FLAG_USES_FP64) && !device->d3d12_caps.options.DoublePrecisionFloatShaderOps)
     {
-        WARN("Attempting to use FP64 operations in shader %016"PRIx64", but this is not supported.", meta->hash);
+        WARN("Attempting to use FP64 operations in shader %016"PRIx64", but this is not supported.\n", meta->hash);
         return false;
     }
 
     if ((meta->flags & VKD3D_SHADER_META_FLAG_USES_INT64) && !device->d3d12_caps.options1.Int64ShaderOps)
     {
-        WARN("Attempting to use Int64 operations in shader %016"PRIx64", but this is not supported.", meta->hash);
+        WARN("Attempting to use Int64 operations in shader %016"PRIx64", but this is not supported.\n", meta->hash);
         return false;
     }
 
@@ -8954,28 +8954,28 @@ bool d3d12_device_validate_shader_meta(struct d3d12_device *device, const struct
             !device->d3d12_caps.options11.AtomicInt64OnDescriptorHeapResourceSupported &&
             !device->d3d12_caps.options9.AtomicInt64OnTypedResourceSupported)
     {
-        WARN("Attempting to use Int64Atomic operations in shader %016"PRIx64", but this is not supported.", meta->hash);
+        WARN("Attempting to use Int64Atomic operations in shader %016"PRIx64", but this is not supported.\n", meta->hash);
         return false;
     }
 
     if ((meta->flags & VKD3D_SHADER_META_FLAG_USES_INT64_ATOMICS_IMAGE) &&
             !device->device_info.shader_image_atomic_int64_features.shaderImageInt64Atomics)
     {
-        WARN("Attempting to use typed Int64Atomic operations in shader %016"PRIx64", but this is not supported.", meta->hash);
+        WARN("Attempting to use typed Int64Atomic operations in shader %016"PRIx64", but this is not supported.\n", meta->hash);
         return false;
     }
 
     if ((meta->flags & VKD3D_SHADER_META_FLAG_USES_FRAGMENT_BARYCENTRIC) &&
             !device->d3d12_caps.options3.BarycentricsSupported)
     {
-        WARN("Attempting to use barycentrics in shader %016"PRIx64", but this is not supported.", meta->hash);
+        WARN("Attempting to use barycentrics in shader %016"PRIx64", but this is not supported.\n", meta->hash);
         return false;
     }
 
     if ((meta->flags & VKD3D_SHADER_META_FLAG_USES_STENCIL_EXPORT) &&
             !device->d3d12_caps.options.PSSpecifiedStencilRefSupported)
     {
-        WARN("Attempting to use stencil reference in shader %016"PRIx64", but this is not supported.", meta->hash);
+        WARN("Attempting to use stencil reference in shader %016"PRIx64", but this is not supported.\n", meta->hash);
         return false;
     }
 

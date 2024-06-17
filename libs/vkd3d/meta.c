@@ -122,7 +122,7 @@ static VkResult vkd3d_meta_create_compute_pipeline(struct d3d12_device *device,
 
     if ((vr = vkd3d_meta_create_shader_module(device, code, code_size, &module)) < 0)
     {
-        ERR("Failed to create shader module, vr %d.", vr);
+        ERR("Failed to create shader module, vr %d.\n", vr);
         return vr;
     }
 
@@ -420,7 +420,7 @@ static HRESULT vkd3d_clear_uav_ops_init(struct vkd3d_clear_uav_ops *meta_clear_u
 
         if (vr < 0)
         {
-            ERR("Failed to create descriptor set layout %u, vr %d.", i, vr);
+            ERR("Failed to create descriptor set layout %u, vr %d.\n", i, vr);
             goto fail;
         }
 
@@ -429,7 +429,7 @@ static HRESULT vkd3d_clear_uav_ops_init(struct vkd3d_clear_uav_ops *meta_clear_u
 
         if (vr < 0)
         {
-            ERR("Failed to create pipeline layout %u, vr %d.", i, vr);
+            ERR("Failed to create pipeline layout %u, vr %d.\n", i, vr);
             goto fail;
         }
     }
@@ -439,7 +439,7 @@ static HRESULT vkd3d_clear_uav_ops_init(struct vkd3d_clear_uav_ops *meta_clear_u
         if ((vr = vkd3d_meta_create_compute_pipeline(device, pipelines[i].code_size, pipelines[i].code,
                 *pipelines[i].pipeline_layout, NULL, true, pipelines[i].pipeline)) < 0)
         {
-            ERR("Failed to create compute pipeline %u, vr %d.", i, vr);
+            ERR("Failed to create compute pipeline %u, vr %d.\n", i, vr);
             goto fail;
         }
     }
