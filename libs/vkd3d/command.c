@@ -1725,7 +1725,7 @@ static HRESULT d3d12_shared_fence_set_native_sync_handle_on_completion_explicit(
 
             if (!(waiting_event = vkd3d_malloc(sizeof(*waiting_event))))
             {
-                ERR("Failed to register device singleton for adapter.");
+                ERR("Failed to register device singleton for adapter.\n");
                 return E_OUTOFMEMORY;
             }
 
@@ -12940,7 +12940,7 @@ static char *decode_pix_blob(const void *data, size_t size)
        String fromatting will overcomplicate things and skipped for now */
     if ((type != ePIXEvent_BeginEvent_NoArgs) && (type != ePIXEvent_BeginEvent_VarArgs))
     {
-        WARN("Unexpected/unsupported PIX3Event");
+        WARN("Unexpected/unsupported PIX3Event: %#"PRIx64".\n", type);
         return NULL;
     }
 
@@ -15517,7 +15517,7 @@ static void d3d12_command_list_flush_rtas_batch(struct d3d12_command_list *list)
     if (!rtas_batch->build_info_count)
         return;
 
-    TRACE("list %p, build_info_count %u.\n", list, rtas_batch->build_info_count);
+    TRACE("list %p, build_info_count %zu.\n", list, rtas_batch->build_info_count);
 
     if (!vkd3d_array_reserve((void **)&rtas_batch->range_ptrs, &rtas_batch->range_ptr_size,
             rtas_batch->build_info_count, sizeof(*rtas_batch->range_ptrs)))

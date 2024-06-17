@@ -69,12 +69,12 @@ static BOOL wait_vr_key(HKEY vr_key)
     size = sizeof(value);
     if ((status = RegQueryValueExA(vr_key, "state", NULL, &type, (BYTE *)&value, &size)))
     {
-        ERR("OpenVR: could not query value, status %d", status);
+        ERR("OpenVR: could not query value, status %d.\n", status);
         return false;
     }
     if (type != REG_DWORD)
     {
-        ERR("OpenVR: unexpected value type %d", type);
+        ERR("OpenVR: unexpected value type %d.\n", type);
         return false;
     }
 
@@ -84,7 +84,7 @@ static BOOL wait_vr_key(HKEY vr_key)
     event = CreateEventA(NULL, FALSE, FALSE, NULL);
     if (event == NULL)
     {
-        ERR("Cannot create event");
+        ERR("Cannot create event.\n");
         return false;
     }
 
@@ -92,13 +92,13 @@ static BOOL wait_vr_key(HKEY vr_key)
     {
         if (RegNotifyChangeKeyValue(vr_key, FALSE, REG_NOTIFY_CHANGE_LAST_SET, event, TRUE))
         {
-            ERR("Error registering registry change notification");
+            ERR("Error registering registry change notification.\n");
             break;
         }
         size = sizeof(value);
         if ((status = RegQueryValueExA(vr_key, "state", NULL, &type, (BYTE *)&value, &size)))
         {
-            ERR("OpenVR: could not query value, status %d", status);
+            ERR("OpenVR: could not query value, status %d.\n", status);
             break;
         }
         if (value)
@@ -107,13 +107,13 @@ static BOOL wait_vr_key(HKEY vr_key)
 
         while ((wait_status = WaitForSingleObject(event, 1000)) == WAIT_TIMEOUT && max_retry)
         {
-            WARN("VR state wait timeout (retries left %u)", max_retry);
+            WARN("VR state wait timeout (retries left %u).\n", max_retry);
             max_retry--;
         }
 
         if (wait_status != WAIT_OBJECT_0 && wait_status != WAIT_TIMEOUT)
         {
-            ERR("Got unexpected wait status ", wait_status);
+            ERR("Got unexpected wait status %u.\n", wait_status);
             break;
         }
     }
@@ -225,20 +225,20 @@ static char *openxr_vulkan_extensions(bool device_extensions)
                                        : p___wineopenxr_GetVulkanInstanceExtensions;
     if (!get_extensions)
     {
-        WARN("wineopenxr.dll is missing required symbols");
+        WARN("wineopenxr.dll is missing required symbols.\n");
         return NULL;
     }
 
     if (get_extensions(0, &len, NULL))
     {
-        WARN("Failed to get OpenXR extensions size from wineopenxr");
+        WARN("Failed to get OpenXR extensions size from wineopenxr.\n");
         return NULL;
     }
 
     ret = vkd3d_malloc(len);
     if (get_extensions(len, &len, ret))
     {
-        WARN("Failed to get OpenXR extensions from wineopenxr");
+        WARN("Failed to get OpenXR extensions from wineopenxr.\n");
         return NULL;
     }
     return ret;
@@ -417,7 +417,7 @@ static VkPhysicalDevice d3d12_find_physical_device(struct vkd3d_instance *instan
         /* Skip over physical devices below our minimum API version */
         if (properties2.properties.apiVersion < VKD3D_MIN_API_VERSION)
         {
-            WARN("Skipped adapter %s as it is below our minimum API version.", properties2.properties.deviceName);
+            WARN("Skipped adapter %s as it is below our minimum API version.\n", properties2.properties.deviceName);
             continue;
         }
 

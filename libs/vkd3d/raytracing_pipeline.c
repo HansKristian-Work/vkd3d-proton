@@ -1065,7 +1065,7 @@ static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *obj
             }
 
             for (j = old_obj_count; j < data->subobjects_count; j++)
-                RT_TRACE("  RDAT subobject: %s (type #%x).\n", data->subobjects[j].name, data->subobjects[j].kind);
+                RT_TRACE("  RDAT subobject: %s (type #%x).\n", debugstr_w(data->subobjects[j].name), data->subobjects[j].kind);
             break;
         }
 

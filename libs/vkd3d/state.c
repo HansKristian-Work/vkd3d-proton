@@ -2364,7 +2364,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_pipeline_state_GetCachedBlob(ID3D12Pipeli
 
     if (FAILED(hr = d3d_blob_create(cache_data, cache_size, &blob_object)))
     {
-        ERR("Failed to create blob, hr %#x.", hr);
+        ERR("Failed to create blob, hr %#x.\n", hr);
         vkd3d_free(cache_data);
         return hr;
     }
@@ -2915,7 +2915,7 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
     VK_CALL(vkDestroyShaderModule(device->vk_device, pipeline_info.stage.module, NULL));
     if (vr < 0)
     {
-        ERR("Failed to create Vulkan compute pipeline, hr %#x.", hr);
+        ERR("Failed to create Vulkan compute pipeline, hr %#x.\n", hr);
         ERR("  Root signature: %"PRIx64"\n", state->root_signature->pso_compatibility_hash);
         ERR("  Shader: %"PRIx64".\n", state->compute.code.meta.hash);
         return hresult_from_vk_result(vr);
@@ -4539,7 +4539,7 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
         }
         if (rt_desc->BlendEnable && rt_desc->LogicOpEnable)
         {
-            WARN("Only one of BlendEnable or LogicOpEnable can be set to TRUE.");
+            WARN("Only one of BlendEnable or LogicOpEnable can be set to TRUE.\n");
             hr = E_INVALIDARG;
             goto fail;
         }
@@ -5345,7 +5345,7 @@ HRESULT d3d12_pipeline_state_create(struct d3d12_device *device, VkPipelineBindP
                 break;
 
             default:
-                ERR("Invalid pipeline type %u.", bind_point);
+                ERR("Invalid pipeline type %u.\n", bind_point);
                 hr = E_INVALIDARG;
         }
     }
@@ -5491,14 +5491,14 @@ static void d3d12_pipeline_state_log_graphics_state(const struct d3d12_pipeline_
     if (graphics->stage_flags & VK_SHADER_STAGE_VERTEX_BIT)
     {
         ERR("Topology: %u (patch vertex count: %u)\n", graphics->primitive_topology_type, graphics->patch_vertex_count);
-        ERR("Vertex attributes: %u\n", graphics->attribute_count);
+        ERR("Vertex attributes: %zu\n", graphics->attribute_count);
         for (i = 0; i < graphics->attribute_count; i++)
         {
             const VkVertexInputAttributeDescription *attr = &graphics->attributes[i];
-            ERR("  %u: binding %u, format %u, location %u, offset %u\n", attr->binding, attr->format, attr->location, attr->offset);
+            ERR("  %u: binding %u, format %u, location %u, offset %u\n", i, attr->binding, attr->format, attr->location, attr->offset);
         }
 
-        ERR("Vertex bindings: %u.\n", graphics->attribute_binding_count);
+        ERR("Vertex bindings: %zu.\n", graphics->attribute_binding_count);
         for (i = 0; i < graphics->attribute_binding_count; i++)
         {
             const VkVertexInputBindingDescription *binding = &graphics->attribute_bindings[i];
@@ -5511,7 +5511,7 @@ static void d3d12_pipeline_state_log_graphics_state(const struct d3d12_pipeline_
                     divisor = graphics->instance_divisors[j].divisor;
             }
 
-            ERR("  %u: binding %u, input rate %u, stride %u, divisor %u\n", binding->binding, binding->inputRate, binding->stride, divisor);
+            ERR("  %u: binding %u, input rate %u, stride %u, divisor %u\n", i, binding->binding, binding->inputRate, binding->stride, divisor);
         }
     }
 
@@ -5548,7 +5548,7 @@ static void d3d12_pipeline_state_log_graphics_state(const struct d3d12_pipeline_
 
     if (graphics->dsv_format)
     {
-        ERR("DSV: %u\n", graphics->dsv_format);
+        ERR("DSV: #%x\n", graphics->dsv_format->dxgi_format);
         ERR("  Depth test: %u (write: %u)\n", graphics->ds_desc.depthTestEnable, graphics->ds_desc.depthWriteEnable);
         ERR("  Depth bounds test: %u\n", graphics->ds_desc.depthBoundsTestEnable);
 
@@ -7038,7 +7038,7 @@ struct vkd3d_descriptor_binding vkd3d_bindless_state_find_set(const struct vkd3d
         }
     }
 
-    ERR("No set found for flags %#x.", flags);
+    ERR("No set found for flags %#x.\n", flags);
     binding.set = 0;
     binding.binding = 0;
     return binding;
@@ -7060,6 +7060,6 @@ uint32_t vkd3d_bindless_state_find_set_info_index(const struct vkd3d_bindless_st
             return i;
     }
 
-    ERR("No set found for flags %#x.", flags);
+    ERR("No set found for flags %#x.\n", flags);
     return 0;
 }

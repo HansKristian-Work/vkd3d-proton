@@ -5901,7 +5901,7 @@ void d3d12_desc_create_srv_embedded(vkd3d_cpu_descriptor_va_t desc_va,
     }
     else
     {
-        WARN("Description required for NULL SRV.");
+        WARN("Description required for NULL SRV.\n");
         return;
     }
 
@@ -5928,7 +5928,7 @@ void d3d12_desc_create_srv(vkd3d_cpu_descriptor_va_t desc_va,
     }
     else
     {
-        WARN("Description required for NULL SRV.");
+        WARN("Description required for NULL SRV.\n");
         return;
     }
 
@@ -6429,7 +6429,7 @@ void d3d12_desc_create_uav_embedded(vkd3d_cpu_descriptor_va_t desc_va, struct d3
     }
     else
     {
-        WARN("Description required for NULL UAV.");
+        WARN("Description required for NULL UAV.\n");
         return;
     }
 
@@ -6458,7 +6458,7 @@ void d3d12_desc_create_uav(vkd3d_cpu_descriptor_va_t desc_va, struct d3d12_devic
     }
     else
     {
-        WARN("Description required for NULL UAV.");
+        WARN("Description required for NULL UAV.\n");
         return;
     }
 
