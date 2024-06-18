@@ -78,6 +78,23 @@ struct present_wait_entry
     uint64_t begin_frame_time_ns;
 };
 
+#if defined(_WIN32)
+typedef UINT (WINAPI *PFN_NtDelayExecution) (BOOL, LARGE_INTEGER*);
+typedef UINT (WINAPI *PFN_NtQueryTimerResolution) (ULONG*, ULONG*, ULONG*);
+typedef UINT (WINAPI *PFN_NtSetTimerResolution) (ULONG, BOOL, ULONG*);
+#endif
+
+struct platform_sleep_state
+{
+#if defined(_WIN32)
+    PFN_NtDelayExecution NtDelayExecution;
+    PFN_NtQueryTimerResolution NtQueryTimerResolution;
+    PFN_NtSetTimerResolution NtSetTimerResolution;
+#endif
+
+    uint64_t sleep_threshold_ns;
+};
+
 struct dxgi_vk_swap_chain
 {
     IDXGIVkSwapChain2 IDXGIVkSwapChain_iface;
@@ -194,6 +211,20 @@ struct dxgi_vk_swap_chain
         uint64_t count;
         uint64_t time;
     } frame_statistics;
+
+    struct
+    {
+        pthread_mutex_t lock;
+
+        bool enable;
+        bool has_user_override;
+        uint64_t target_interval_ns;
+        uint64_t next_deadline_ns;
+        uint64_t frame_timestamps[16];
+        uint32_t frame_window_index;
+
+        struct platform_sleep_state sleep_state;
+    } frame_rate_limit;
 
     struct
     {
@@ -385,6 +416,8 @@ static void dxgi_vk_swap_chain_cleanup(struct dxgi_vk_swap_chain *chain)
     pthread_mutex_destroy(&chain->wait_thread.lock);
     pthread_cond_destroy(&chain->wait_thread.cond);
     vkd3d_free(chain->wait_thread.wait_queue);
+
+    pthread_mutex_destroy(&chain->frame_rate_limit.lock);
 
     vkd3d_native_sync_handle_destroy(chain->frame_latency_event);
     vkd3d_native_sync_handle_destroy(chain->frame_latency_event_internal);
@@ -1178,7 +1211,40 @@ static void STDMETHODCALLTYPE dxgi_vk_swap_chain_GetFrameStatistics(IDXGIVkSwapC
 
 static void STDMETHODCALLTYPE dxgi_vk_swap_chain_SetTargetFrameRate(IDXGIVkSwapChain2 *iface, double frame_rate)
 {
-    FIXME("iface %p, frame_rate %lf stub!\n", iface, frame_rate);
+    struct dxgi_vk_swap_chain *chain = impl_from_IDXGIVkSwapChain(iface);
+
+    TRACE("iface %p, frame_rate %lf.\n", iface, frame_rate);
+
+    /* Env var takes priority over the display mode and config option */
+    if (chain->frame_rate_limit.has_user_override)
+        return;
+
+    pthread_mutex_lock(&chain->frame_rate_limit.lock);
+
+    if (frame_rate != 0.0)
+    {
+        /* Target frame rate may be negative, in which case we should only engage the limiter
+         * if the measured frame rate is higher than expected, e.g. due to the actual display
+         * refresh rate not matching the display mode used for the swap chain. */
+        INFO("Set target frame rate to %.1lf FPS.\n", fabs(frame_rate));
+
+        chain->frame_rate_limit.enable = frame_rate > 0.0;
+        chain->frame_rate_limit.target_interval_ns = (uint64_t)(1.0e9 / fabs(frame_rate));
+        chain->frame_rate_limit.next_deadline_ns = 0;
+
+        memset(chain->frame_rate_limit.frame_timestamps, 0, sizeof(chain->frame_rate_limit.frame_timestamps));
+        chain->frame_rate_limit.frame_window_index = 0;
+    }
+    else
+    {
+        if (chain->frame_rate_limit.enable)
+            INFO("Disabling frame rate limit.\n");
+
+        chain->frame_rate_limit.enable = false;
+        chain->frame_rate_limit.target_interval_ns = 0;
+    }
+
+    pthread_mutex_unlock(&chain->frame_rate_limit.lock);
 }
 
 static CONST_VTBL struct IDXGIVkSwapChain2Vtbl dxgi_vk_swap_chain_vtbl =
@@ -2429,6 +2495,8 @@ static void dxgi_vk_swap_chain_signal_waitable_handle(struct dxgi_vk_swap_chain 
     dxgi_vk_swap_chain_push_present_id(chain, present_count, present_id, chain->request.begin_frame_time_ns);
 }
 
+static void dxgi_vk_swap_chain_delay_next_frame(struct dxgi_vk_swap_chain *chain, uint64_t current_time_ns);
+
 static void dxgi_vk_swap_chain_present_callback(void *chain_)
 {
     const struct dxgi_vk_swap_chain_present_request *next_request;
@@ -2496,6 +2564,8 @@ static void dxgi_vk_swap_chain_present_callback(void *chain_)
     if (!chain->wait_thread.supports_present_wait)
     {
         dxgi_vk_swap_chain_try_acquire_next_image(chain);
+        dxgi_vk_swap_chain_delay_next_frame(chain, vkd3d_get_current_time_ns());
+
         /* The old implementation used acquire semaphores, and did not block, so to maintain same behavior,
          * defer blocking on the VkFence. */
         if (vkd3d_native_sync_handle_is_valid(chain->present_request_done_event))
@@ -2524,6 +2594,117 @@ static void dxgi_vk_swap_chain_update_frame_statistics(struct dxgi_vk_swap_chain
     chain->frame_statistics.count = present_count;
     chain->frame_statistics.time = time;
     spinlock_release(&chain->frame_statistics.lock);
+}
+
+static void dxgi_vk_swap_chain_platform_sleep_for_ns(struct platform_sleep_state *sleep_state, uint64_t duration_ns)
+{
+#if defined(_WIN32)
+    LARGE_INTEGER ticks;
+
+    if (sleep_state->NtDelayExecution)
+    {
+        /* Ticks are in units of 100ns, with negative values indicating a
+         * duration and positive values an absolute time in tick counts. */
+        ticks.QuadPart = (int64_t)duration_ns / -100;
+
+        /* Set alertable = false to avoid wineserver round-trips */
+        sleep_state->NtDelayExecution(FALSE, &ticks);
+    }
+    else
+    {
+        Sleep(duration_ns / 1000000);
+    }
+#else
+    struct timespec duration;
+
+    (void)sleep_state;
+
+    duration.tv_sec = duration_ns / 1000000000;
+    duration.tv_nsec = duration_ns % 1000000000;
+
+    /* ignore interrupts */
+    nanosleep(&duration, NULL);
+#endif
+}
+
+static void dxgi_vk_swap_chain_delay_next_frame(struct dxgi_vk_swap_chain *chain, uint64_t current_time_ns)
+{
+    struct platform_sleep_state *sleep_state = &chain->frame_rate_limit.sleep_state;
+    uint64_t window_start_time_ns, window_total_time_ns;
+    uint64_t sleep_threshold_ns, sleep_duration_ns;
+    uint64_t next_deadline_ns = 0;
+
+    pthread_mutex_lock(&chain->frame_rate_limit.lock);
+
+    if (chain->frame_rate_limit.target_interval_ns)
+    {
+        if (!chain->frame_rate_limit.enable)
+        {
+            const uint32_t window_size = ARRAY_SIZE(chain->frame_rate_limit.frame_timestamps);
+
+            window_start_time_ns = chain->frame_rate_limit.frame_timestamps[chain->frame_rate_limit.frame_window_index % window_size];
+
+            chain->frame_rate_limit.frame_timestamps[chain->frame_rate_limit.frame_window_index % window_size] = current_time_ns;
+            chain->frame_rate_limit.frame_window_index += 1;
+
+            window_total_time_ns = current_time_ns - window_start_time_ns;
+
+            /* Enable the frame rate limiter if frames are being delivered faster than expected.
+             * Discard the first window of data since it may be inaccurate, especially if we do
+             * not hit the present_wait path. Allow for a 3% error. */
+            if (chain->frame_rate_limit.frame_window_index >= 2 * window_size)
+            {
+                chain->frame_rate_limit.enable = 103 * window_total_time_ns < 100 * window_size * chain->frame_rate_limit.target_interval_ns;
+
+                if (chain->frame_rate_limit.enable)
+                {
+                    INFO("Measured frame rate of %.1lf FPS exceeds desired refresh rate of %.1lf Hz, enabling limiter.\n",
+                            1.0e9 / (double)(window_total_time_ns) * (double)(window_size),
+                            1.0e9 / (double)(chain->frame_rate_limit.target_interval_ns));
+                }
+            }
+        }
+
+        if (chain->frame_rate_limit.enable)
+        {
+            next_deadline_ns = chain->frame_rate_limit.next_deadline_ns;
+
+            /* Each frame is assigned a time window [t0,t1) during which presentation is expected to
+             * complete, with its duration being equal to one frame interval. If a frame completes
+             * before t1, just advance the next frame's time window by one frame interval and sleep
+             * as necessary, otherwise reset the sequence using the current time as a starting point,
+             * which should roughly line up with a display refresh. */
+            if (current_time_ns < next_deadline_ns + chain->frame_rate_limit.target_interval_ns)
+                chain->frame_rate_limit.next_deadline_ns += chain->frame_rate_limit.target_interval_ns;
+            else
+                chain->frame_rate_limit.next_deadline_ns = current_time_ns + chain->frame_rate_limit.target_interval_ns;
+        }
+    }
+
+    pthread_mutex_unlock(&chain->frame_rate_limit.lock);
+
+    if (current_time_ns >= next_deadline_ns)
+        return;
+
+    /* Busy-wait for the last couple of milliseconds for accuracy, only use the
+     * platform's sleep function for durations longer than the threshold, which
+     * is an estimated error based on the timer interval and sleep duration. */
+    sleep_duration_ns = next_deadline_ns - current_time_ns;
+    sleep_threshold_ns = sleep_state->sleep_threshold_ns + sleep_duration_ns / 6;
+
+    while (sleep_duration_ns > sleep_threshold_ns)
+    {
+        dxgi_vk_swap_chain_platform_sleep_for_ns(sleep_state, sleep_duration_ns - sleep_threshold_ns);
+
+        current_time_ns = vkd3d_get_current_time_ns();
+        sleep_duration_ns = next_deadline_ns > current_time_ns ? next_deadline_ns - current_time_ns : 0;
+    }
+
+    while (current_time_ns < next_deadline_ns)
+    {
+        vkd3d_pause();
+        current_time_ns = vkd3d_get_current_time_ns();
+    }
 }
 
 static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
@@ -2562,14 +2743,16 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
                         entry.id, UINT64_MAX));
             }
             vkd3d_queue_timeline_trace_complete_present_wait(timeline_trace, cookie);
-
-            if (entry.begin_frame_time_ns)
-                end_frame_time_ns = vkd3d_get_current_time_ns();
         }
         else
         {
             dxgi_vk_swap_chain_drain_complete_semaphore(chain, entry.present_count);
         }
+
+        end_frame_time_ns = vkd3d_get_current_time_ns();
+
+        if (chain->wait_thread.supports_present_wait)
+            dxgi_vk_swap_chain_delay_next_frame(chain, end_frame_time_ns);
 
         dxgi_vk_swap_chain_update_frame_statistics(chain, entry.present_count);
 
@@ -2714,6 +2897,76 @@ static HRESULT dxgi_vk_swap_chain_init_low_latency(struct dxgi_vk_swap_chain *ch
     return S_OK;
 }
 
+static HRESULT dxgi_vk_swap_chain_init_sleep_state(struct platform_sleep_state *sleep_state)
+{
+#if defined(_WIN32)
+    uint64_t sleep_granularity_ns;
+    ULONG min, max, cur;
+    HMODULE ntdll;
+    bool is_wine;
+
+    is_wine = !!GetModuleHandleW(L"winevulkan.dll");
+
+    if ((ntdll = GetModuleHandleW(L"ntdll.dll")))
+    {
+        sleep_state->NtQueryTimerResolution = (void*)GetProcAddress(ntdll, "NtQueryTimerResolution");
+        sleep_state->NtSetTimerResolution = (void*)GetProcAddress(ntdll, "NtSetTimerResolution");
+        sleep_state->NtDelayExecution = (void*)GetProcAddress(ntdll, "NtDelayExecution");
+    }
+
+    /* Older versions of Wine do not implement these functions, be robust here. */
+    if (sleep_state->NtQueryTimerResolution && !sleep_state->NtQueryTimerResolution(&min, &max, &cur))
+    {
+        sleep_granularity_ns = 100 * cur;
+
+        if (sleep_state->NtSetTimerResolution && !sleep_state->NtSetTimerResolution(max, TRUE, &cur))
+            sleep_granularity_ns = 100 * max;
+
+        INFO("Timer interval is %.1lf ms.\n", (double)sleep_granularity_ns / 1.0e6);
+    }
+    else
+    {
+        sleep_granularity_ns = 1000000;  /* 1ms */
+    }
+
+    /* This should always be available, however we can fall back to plain old Sleep() if not. */
+    if (!sleep_state->NtDelayExecution)
+        FIXME("NtDelayExecution not found in ntdll.\n");
+
+    sleep_state->sleep_threshold_ns = (is_wine ? 1 : 4) * sleep_granularity_ns;
+    return S_OK;
+#else
+    /* On native builds, we use nanosleep. Assume reasonable accuracy down to 1ms. */
+    sleep_state->sleep_threshold_ns = 1000000;
+    return S_OK;
+#endif
+}
+
+static HRESULT dxgi_vk_swap_chain_init_frame_rate_limiter(struct dxgi_vk_swap_chain *chain)
+{
+    double target_frame_rate;
+    char env[16];
+
+    pthread_mutex_init(&chain->frame_rate_limit.lock, NULL);
+
+    if (vkd3d_get_env_var("VKD3D_FRAME_RATE", env, sizeof(env)) ||
+            vkd3d_get_env_var("DXVK_FRAME_RATE", env, sizeof(env)))
+    {
+        target_frame_rate = strtod(env, NULL);
+
+        if (target_frame_rate > 0.0)
+        {
+            INFO("Set frame rate limit to %.1lf FPS via environment.\n", target_frame_rate);
+
+            chain->frame_rate_limit.enable = true;
+            chain->frame_rate_limit.has_user_override = true;
+            chain->frame_rate_limit.target_interval_ns = (uint64_t)(1.0e9 / target_frame_rate);
+        }
+    }
+
+    return dxgi_vk_swap_chain_init_sleep_state(&chain->frame_rate_limit.sleep_state);
+}
+
 static HRESULT dxgi_vk_swap_chain_init(struct dxgi_vk_swap_chain *chain, IDXGIVkSurfaceFactory *pFactory,
         const DXGI_SWAP_CHAIN_DESC1 *pDesc, struct d3d12_command_queue *queue)
 {
@@ -2744,6 +2997,9 @@ static HRESULT dxgi_vk_swap_chain_init(struct dxgi_vk_swap_chain *chain, IDXGIVk
         goto err;
 
     if (FAILED(hr = dxgi_vk_swap_chain_init_low_latency(chain)))
+        goto err;
+
+    if (FAILED(hr = dxgi_vk_swap_chain_init_frame_rate_limiter(chain)))
         goto err;
 
     ID3D12CommandQueue_AddRef(&queue->ID3D12CommandQueue_iface);
