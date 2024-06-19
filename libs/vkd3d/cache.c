@@ -208,14 +208,14 @@ struct vkd3d_pipeline_blob_chunk
 {
     uint32_t type; /* vkd3d_pipeline_blob_chunk_type with extra data in upper bits. */
     uint32_t size; /* size of data. Does not include size of header. */
-    uint8_t data[]; /* struct vkd3d_pipeline_blob_chunk_*. */
+    uint8_t data[] vkd3d_counted_by(size); /* struct vkd3d_pipeline_blob_chunk_*. */
 };
 
 struct vkd3d_pipeline_blob_chunk_spirv
 {
     uint32_t decompressed_spirv_size;
     uint32_t compressed_spirv_size; /* Size of data[]. */
-    uint8_t data[];
+    uint8_t data[] vkd3d_counted_by(compressed_spirv_size);
 };
 
 struct vkd3d_pipeline_blob_chunk_link
