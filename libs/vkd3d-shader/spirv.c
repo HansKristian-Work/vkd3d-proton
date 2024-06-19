@@ -130,7 +130,7 @@ struct vkd3d_spirv_chunk
     struct list entry;
     size_t location;
     size_t word_count;
-    uint32_t words[];
+    uint32_t words[] vkd3d_counted_by(word_count);
 };
 
 static void vkd3d_spirv_stream_clear(struct vkd3d_spirv_stream *stream)
