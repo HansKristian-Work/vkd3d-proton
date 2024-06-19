@@ -66,6 +66,12 @@ static inline size_t align(size_t addr, size_t alignment)
 # define VKD3D_UNUSED
 #endif  /* __GNUC__ */
 
+#if __has_attribute(__counted_by__)
+# define vkd3d_counted_by(member) __attribute__((__counted_by__(member)))
+#else
+# define vkd3d_counted_by(member)
+#endif
+
 static inline unsigned int vkd3d_popcount(unsigned int v)
 {
 #ifdef _MSC_VER
