@@ -111,7 +111,6 @@ struct dxgi_vk_swap_chain
         VkSemaphore vk_internal_blit_semaphore;
         VkSemaphore vk_complete_semaphore;
         uint64_t internal_blit_count;
-        uint64_t complete_count;
 
         /* PresentID is used depending on features and if we're really presenting on-screen. */
         uint64_t present_id;
@@ -1870,7 +1869,7 @@ static bool dxgi_vk_swap_chain_request_needs_swapchain_recreation(
                     !chain->present.compatible_unlocked_present_mode);
 }
 
-static void dxgi_vk_swap_chain_present_signal_blit_semaphore(struct dxgi_vk_swap_chain *chain)
+static void dxgi_vk_swap_chain_present_signal_blit_semaphore(struct dxgi_vk_swap_chain *chain, uint64_t present_count)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     struct vkd3d_queue_timeline_trace_cookie cookie;
@@ -1881,12 +1880,10 @@ static void dxgi_vk_swap_chain_present_signal_blit_semaphore(struct dxgi_vk_swap
 
     /* Guarantee a 1:1 ratio of Present() calls to increments here. This timeline is
      * used for user thread waiting as well as to delay  */
-    chain->present.complete_count += 1;
-
     memset(&signal_semaphore_info, 0, sizeof(signal_semaphore_info));
     signal_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
     signal_semaphore_info.semaphore = chain->present.vk_complete_semaphore;
-    signal_semaphore_info.value = chain->present.complete_count;
+    signal_semaphore_info.value = present_count;
     signal_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
     memset(&submit_info, 0, sizeof(submit_info));
@@ -1902,12 +1899,12 @@ static void dxgi_vk_swap_chain_present_signal_blit_semaphore(struct dxgi_vk_swap
     cookie = vkd3d_queue_timeline_trace_register_swapchain_blit(
             &chain->queue->device->queue_timeline_trace,
             chain->present.present_id_valid ?
-                    chain->present.present_id : chain->present.complete_count);
+                    chain->present.present_id : present_count);
 
     if (vkd3d_queue_timeline_trace_cookie_is_valid(cookie))
     {
         vkd3d_enqueue_timeline_semaphore(&chain->queue->fence_worker, NULL, chain->present.vk_complete_semaphore,
-                chain->present.complete_count, false, NULL, 0, &cookie);
+                present_count, false, NULL, 0, &cookie);
     }
 
     if (vr)
@@ -2255,7 +2252,7 @@ static VkResult dxgi_vk_swap_chain_try_acquire_next_image(struct dxgi_vk_swap_ch
     return vr;
 }
 
-static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chain, unsigned int retry_counter)
+static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chain, uint64_t present_count, unsigned int retry_counter)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     VkSwapchainPresentFenceInfoEXT present_fence_info;
@@ -2289,7 +2286,7 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     if (vr == VK_ERROR_OUT_OF_DATE_KHR)
     {
         if (retry_counter < 3)
-            dxgi_vk_swap_chain_present_iteration(chain, retry_counter + 1);
+            dxgi_vk_swap_chain_present_iteration(chain, present_count, retry_counter + 1);
     }
     else if (vr == VK_ERROR_SURFACE_LOST_KHR)
     {
@@ -2330,7 +2327,7 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
         if (chain->present.low_latency_state.mode)
             chain->present.present_id = chain->request.low_latency_frame_id;
         else
-            chain->present.present_id = chain->present.complete_count + 1;
+            chain->present.present_id = present_count;
 
         /* Ensure present ID is increasing monotonically.
          * If application is exceptionally weird, i.e. does not set markers at all,
@@ -2416,7 +2413,7 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
     if (vr == VK_ERROR_OUT_OF_DATE_KHR)
     {
         if (retry_counter < 3)
-            dxgi_vk_swap_chain_present_iteration(chain, retry_counter + 1);
+            dxgi_vk_swap_chain_present_iteration(chain, present_count, retry_counter + 1);
     }
     else if (vr == VK_ERROR_SURFACE_LOST_KHR)
     {
@@ -2470,12 +2467,12 @@ static void dxgi_vk_swap_chain_present_callback(void *chain_)
     {
         /* A present iteration may or may not render to backbuffer. We'll apply best effort here.
          * Forward progress must be ensured, so if we cannot get anything on-screen in a reasonable amount of retries, ignore it. */
-        dxgi_vk_swap_chain_present_iteration(chain, 0);
+        dxgi_vk_swap_chain_present_iteration(chain, next_present_count, 0);
     }
 
     /* When this is signalled, lets main thread know that it's safe to free user buffers.
      * Signal this just once on the outside since we might have retries, swap_interval > 1, etc, which complicates command buffer recycling. */
-    dxgi_vk_swap_chain_present_signal_blit_semaphore(chain);
+    dxgi_vk_swap_chain_present_signal_blit_semaphore(chain, next_present_count);
 
     /* Signal latency fence. */
     dxgi_vk_swap_chain_signal_waitable_handle(chain, next_present_count);
