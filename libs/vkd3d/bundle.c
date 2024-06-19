@@ -854,7 +854,7 @@ struct d3d12_set_root_32bit_constants_command
     UINT parameter_index;
     UINT constant_count;
     UINT offset;
-    UINT data[];
+    UINT data[] vkd3d_counted_by(constant_count);
 };
 
 static void d3d12_bundle_exec_set_compute_root_32bit_constants(d3d12_command_list_iface *list, const void *args_v)
@@ -1089,7 +1089,7 @@ struct d3d12_ia_set_vertex_buffers_command
     struct d3d12_bundle_command command;
     UINT start_slot;
     UINT view_count;
-    D3D12_VERTEX_BUFFER_VIEW views[];
+    D3D12_VERTEX_BUFFER_VIEW views[] vkd3d_counted_by(view_count);
 };
 
 static void d3d12_bundle_exec_ia_set_vertex_buffers(d3d12_command_list_iface *list, const void *args_v)
@@ -1204,7 +1204,7 @@ struct d3d12_debug_marker_command
     struct d3d12_bundle_command command;
     UINT metadata;
     UINT data_size;
-    char data[];
+    char data[] vkd3d_counted_by(data_size);
 };
 
 static void d3d12_bundle_exec_set_marker(d3d12_command_list_iface *list, const void *args_v)
@@ -1361,7 +1361,7 @@ struct d3d12_set_sample_positions_command
     struct d3d12_bundle_command command;
     UINT sample_count;
     UINT pixel_count;
-    D3D12_SAMPLE_POSITION positions[];
+    D3D12_SAMPLE_POSITION positions[]; /* vkd3d_counted_by(sample_count * pixel_count) -> Unfortunately this isn't supported yet, sad. */
 };
 
 static void d3d12_bundle_exec_set_sample_positions(d3d12_command_list_iface *list, const void *args_v)
