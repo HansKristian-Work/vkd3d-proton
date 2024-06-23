@@ -78,6 +78,9 @@ static BOOL STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetExtensionSupport(d3d12_d
         case D3D12_VK_NV_LOW_LATENCY_2:
             ret_val = device->vk_info.NV_low_latency2;
             break;
+        case D3D12_VK_NV_OPTICAL_FLOW:
+            ret_val = device->vk_info.NV_optical_flow;
+            break;
         default:
             WARN("Invalid extension %x.\n", extension);
     }

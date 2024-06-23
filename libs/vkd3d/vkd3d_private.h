@@ -170,6 +170,7 @@ struct vkd3d_vulkan_info
     bool AMD_shader_core_properties;
     bool AMD_shader_core_properties2;
     /* NV device extensions */
+    bool NV_optical_flow;
     bool NV_shader_sm_builtins;
     bool NVX_binary_import;
     bool NVX_image_view_handle;
@@ -4554,6 +4555,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceImageAlignmentControlFeaturesMESA image_alignment_control_features;
     VkPhysicalDeviceImageAlignmentControlPropertiesMESA image_alignment_control_properties;
     VkPhysicalDeviceDepthBiasControlFeaturesEXT depth_bias_control_features;
+    VkPhysicalDeviceOpticalFlowFeaturesNV optical_flow_nv_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
@@ -4603,6 +4605,7 @@ enum vkd3d_queue_family
     VKD3D_QUEUE_FAMILY_COMPUTE,
     VKD3D_QUEUE_FAMILY_TRANSFER,
     VKD3D_QUEUE_FAMILY_SPARSE_BINDING,
+    VKD3D_QUEUE_FAMILY_OPTICAL_FLOW,
     /* Keep internal queues at the end */
     VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE,
 
