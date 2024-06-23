@@ -56,6 +56,21 @@ interface ID3D12DXVKInteropDevice : IUnknown
 }
 
 [
+    uuid(902d8115-59eb-4406-9518-fe00f991ee65),
+    object,
+    local,
+    pointer_default(unique)
+]
+interface ID3D12DXVKInteropDevice1 : ID3D12DXVKInteropDevice
+{
+    HRESULT GetVulkanResourceInfo1(ID3D12Resource *resource, UINT64 *vk_handle, UINT64 *buffer_offset, VkFormat *format);
+    HRESULT CreateInteropCommandQueue(const D3D12_COMMAND_QUEUE_DESC *pDesc, UINT32 vk_queue_family_index, ID3D12CommandQueue **ppQueue);
+    HRESULT CreateInteropCommandAllocator(D3D12_COMMAND_LIST_TYPE type, UINT32 vk_queue_family_index, ID3D12CommandAllocator **ppAllocator);
+    HRESULT BeginVkCommandBufferInterop(ID3D12CommandList *pCmdList, VkCommandBuffer *pCommandBuffer);
+    HRESULT EndVkCommandBufferInterop(ID3D12CommandList *pCmdList);
+}
+
+[
     uuid(f3112584-41f9-348d-a59b-00b7e1d285d6),
     object,
     local,

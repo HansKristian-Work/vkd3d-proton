@@ -2031,8 +2031,6 @@ static HRESULT d3d12_command_allocator_allocate_command_buffer(struct d3d12_comm
     return S_OK;
 }
 
-static void d3d12_command_list_invalidate_all_state(struct d3d12_command_list *list);
-
 static void d3d12_command_list_begin_new_sequence(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -5652,7 +5650,7 @@ static void d3d12_command_list_reset_state(struct d3d12_command_list *list,
     d3d12_command_list_reset_internal_state(list);
 }
 
-static void d3d12_command_list_invalidate_all_state(struct d3d12_command_list *list)
+void d3d12_command_list_invalidate_all_state(struct d3d12_command_list *list)
 {
     d3d12_command_list_invalidate_current_pipeline(list, true);
     d3d12_command_list_invalidate_root_parameters(list, &list->graphics_bindings, true, NULL);
@@ -16799,7 +16797,7 @@ HRESULT d3d12_command_list_create(struct d3d12_device *device,
     return S_OK;
 }
 
-static struct d3d12_command_list *d3d12_command_list_from_iface(ID3D12CommandList *iface)
+struct d3d12_command_list *d3d12_command_list_from_iface(ID3D12CommandList *iface)
 {
     bool is_valid = false;
     if (!iface)
