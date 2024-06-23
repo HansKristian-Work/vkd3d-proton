@@ -124,6 +124,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION(AMD_SHADER_CORE_PROPERTIES, AMD_shader_core_properties),
     VK_EXTENSION(AMD_SHADER_CORE_PROPERTIES_2, AMD_shader_core_properties2),
     /* NV extensions */
+    VK_EXTENSION(NV_OPTICAL_FLOW, NV_optical_flow),
     VK_EXTENSION(NV_SHADER_SM_BUILTINS, NV_shader_sm_builtins),
     VK_EXTENSION(NVX_BINARY_IMPORT, NVX_binary_import),
     VK_EXTENSION(NVX_IMAGE_VIEW_HANDLE, NVX_image_view_handle),
@@ -1986,6 +1987,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
         vk_prepend_struct(&info->properties2, &info->image_alignment_control_properties);
     }
 
+    if (vulkan_info->NV_optical_flow)
+    {
+        info->optical_flow_nv_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPTICAL_FLOW_FEATURES_NV;
+        vk_prepend_struct(&info->features2, &info->optical_flow_nv_features);
+    }
+
     VK_CALL(vkGetPhysicalDeviceFeatures2(device->vk_physical_device, &info->features2));
     VK_CALL(vkGetPhysicalDeviceProperties2(device->vk_physical_device, &info->properties2));
 }
@@ -2928,6 +2935,10 @@ static HRESULT vkd3d_select_queues(const struct d3d12_device *device,
     info->family_index[VKD3D_QUEUE_FAMILY_SPARSE_BINDING] = vkd3d_find_queue(count, queue_properties,
             VK_QUEUE_SPARSE_BINDING_BIT, VK_QUEUE_SPARSE_BINDING_BIT);
 
+    if (device->vk_info.NV_optical_flow)
+        info->family_index[VKD3D_QUEUE_FAMILY_OPTICAL_FLOW] = vkd3d_find_queue(count, queue_properties,
+                VK_QUEUE_OPTICAL_FLOW_BIT_NV, VK_QUEUE_OPTICAL_FLOW_BIT_NV);
+
     if (info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] == VK_QUEUE_FAMILY_IGNORED)
         info->family_index[VKD3D_QUEUE_FAMILY_COMPUTE] = info->family_index[VKD3D_QUEUE_FAMILY_GRAPHICS];
 
@@ -3033,6 +3044,8 @@ static HRESULT vkd3d_create_vk_device(struct d3d12_device *device,
             device_queue_info.family_index[VKD3D_QUEUE_FAMILY_TRANSFER]);
     TRACE("Using queue family %u for sparse binding.\n",
             device_queue_info.family_index[VKD3D_QUEUE_FAMILY_SPARSE_BINDING]);
+    TRACE("Using queue family %u for optical flow.\n",
+            device_queue_info.family_index[VKD3D_QUEUE_FAMILY_OPTICAL_FLOW]);
 
     VK_CALL(vkGetPhysicalDeviceMemoryProperties(physical_device, &device->memory_properties));
 

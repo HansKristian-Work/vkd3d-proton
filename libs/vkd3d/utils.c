@@ -1235,6 +1235,7 @@ const char *debug_vk_queue_flags(VkQueueFlags flags, char buffer[VKD3D_DEBUG_FLA
     FLAG_TO_STR(VK_QUEUE_TRANSFER_BIT)
     FLAG_TO_STR(VK_QUEUE_SPARSE_BINDING_BIT)
     FLAG_TO_STR(VK_QUEUE_PROTECTED_BIT)
+    FLAG_TO_STR(VK_QUEUE_OPTICAL_FLOW_BIT_NV)
 #undef FLAG_TO_STR
     if (flags)
         FIXME("Unrecognized flag(s) %#x.\n", flags);
