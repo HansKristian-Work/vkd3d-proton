@@ -1398,7 +1398,16 @@ void test_amplification_shader_execute_indirect_state(void)
             expected += num_tasks * num_groups_per_task * tests[i + j].data.prims; /* Every primitive increments counter. */
         }
 
-        ok(get_readback_uint(&rb, i, 0, 0) == expected, "Test %u: expected %u, got %u.\n", i, expected, get_readback_uint(&rb, i, 0, 0));
+        if (tests[i].data.indirect_count)
+        {
+            ok(get_readback_uint(&rb, tests[i].uav_offset / sizeof(uint32_t), 0, 0) == expected,
+                    "Test %u: expected %u, got %u.\n", i, expected, get_readback_uint(&rb, tests[i].uav_offset / sizeof(uint32_t), 0, 0));
+        }
+        else
+        {
+            ok(get_readback_uint(&rb, i, 0, 0) == expected, "Test %u: expected %u, got %u.\n",
+                    i, expected, get_readback_uint(&rb, i, 0, 0));
+        }
     }
 
     release_resource_readback(&rb);
