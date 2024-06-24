@@ -13834,13 +13834,16 @@ static void STDMETHODCALLTYPE d3d12_command_list_ExecuteIndirect(d3d12_command_l
                 if (count_buffer || list->predication.fallback_enabled)
                 {
                     VK_CALL(vkCmdDrawMeshTasksIndirectCountEXT(list->cmd.vk_command_buffer, arg_impl->res.vk_buffer,
-                            arg_buffer_offset  + arg_impl->mem.offset, scratch.buffer, scratch.offset,
+                            arg_buffer_offset + arg_impl->mem.offset, scratch.buffer, scratch.offset,
                             max_command_count, signature_desc->ByteStride));
                 }
                 else
                 {
+                    /* Not very useful to do MDI without state change with mesh shaders, but ...
+                     * Has to work. */
                     VK_CALL(vkCmdDrawMeshTasksIndirectEXT(list->cmd.vk_command_buffer,
-                            scratch.buffer, scratch.offset, 1, 0));
+                            scratch.buffer, scratch.offset,
+                            max_command_count, signature_desc->ByteStride));
                 }
                 break;
 
