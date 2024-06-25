@@ -275,11 +275,11 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
 {
     const struct vkd3d_vk_device_procs *vk_procs = &queue->device->vk_procs;
     const struct vkd3d_subresource_layout *subresource_layout;
+    VkImageSubresourceLayers vk_subresource_layers;
     VkCopyBufferToImageInfo2 buffer_to_image_copy;
     struct vkd3d_queue_family_info *queue_family;
     VkSemaphoreSubmitInfo signal_semaphore_info;
     VkCommandBufferSubmitInfo cmd_buffer_info;
-    struct vkd3d_format_footprint footprint;
     VkCommandBufferBeginInfo begin_info;
     VkImageMemoryBarrier2 image_barrier;
     VkImageSubresource vk_subresource;
@@ -289,8 +289,8 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
     VkDeviceSize buffer_offset;
     VkDependencyInfo dep_info;
     VkSubmitInfo2 submit_info;
+    VkExtent3D mip_extent;
     bool need_transition;
-    uint32_t plane_idx;
     VkQueue vk_queue;
     VkResult vr;
     size_t i;
@@ -366,8 +366,8 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
                 }
 
                 vk_subresource = d3d12_resource_get_vk_subresource(transfer->resource, transfer->subresource_idx, false);
-                plane_idx = transfer->subresource_idx / d3d12_resource_desc_get_sub_resource_count_per_plane(&transfer->resource->desc);
-                footprint = vkd3d_format_footprint_for_plane(transfer->resource->format, plane_idx);
+                vk_subresource_layers = vk_subresource_layers_from_subresource(&vk_subresource);
+                mip_extent = d3d12_resource_desc_get_vk_subresource_extent(&transfer->resource->desc, transfer->resource->format, &vk_subresource_layers);
 
                 subresource_layout = &transfer->resource->subresource_layouts[transfer->subresource_idx];
                 buffer_offset = subresource_layout->offset + vkd3d_format_get_data_offset(transfer->resource->format,
@@ -376,9 +376,9 @@ static HRESULT vkd3d_memory_transfer_queue_flush_locked(struct vkd3d_memory_tran
                 copy_region.sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2;
                 copy_region.pNext = NULL;
                 copy_region.bufferOffset = transfer->resource->mem.offset + buffer_offset;
-                copy_region.bufferRowLength = d3d12_resource_desc_get_width(&transfer->resource->desc, vk_subresource.mipLevel + footprint.subsample_x_log2);
-                copy_region.bufferImageHeight = d3d12_resource_desc_get_height(&transfer->resource->desc, vk_subresource.mipLevel + footprint.subsample_y_log2);
-                copy_region.imageSubresource = vk_subresource_layers_from_subresource(&vk_subresource);
+                copy_region.bufferRowLength = mip_extent.width;
+                copy_region.bufferImageHeight = mip_extent.height;
+                copy_region.imageSubresource = vk_subresource_layers;
                 copy_region.imageOffset = transfer->offset;
                 copy_region.imageExtent = transfer->extent;
 

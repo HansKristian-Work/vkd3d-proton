@@ -1818,37 +1818,36 @@ bool d3d12_resource_is_cpu_accessible(const struct d3d12_resource *resource)
 }
 
 static bool d3d12_resource_validate_box(const struct d3d12_resource *resource,
-        unsigned int sub_resource_idx, const D3D12_BOX *box)
+        unsigned int subresource_idx, const D3D12_BOX *box)
 {
-    unsigned int mip_level = sub_resource_idx % resource->desc.MipLevels;
     uint32_t width_mask, height_mask;
-    uint64_t width, height, depth;
+    VkExtent3D mip_extent;
 
-    width = d3d12_resource_desc_get_width(&resource->desc, mip_level);
-    height = d3d12_resource_desc_get_height(&resource->desc, mip_level);
-    depth = d3d12_resource_desc_get_depth(&resource->desc, mip_level);
+    mip_extent = d3d12_resource_desc_get_subresource_extent(&resource->desc, resource->format, subresource_idx);
 
     width_mask = resource->format->block_width - 1;
     height_mask = resource->format->block_height - 1;
 
-    return box->left <= width && box->right <= width
-            && box->top <= height && box->bottom <= height
-            && box->front <= depth && box->back <= depth
+    return box->left <= mip_extent.width && box->right <= mip_extent.width
+            && box->top <= mip_extent.height && box->bottom <= mip_extent.height
+            && box->front <= mip_extent.depth && box->back <= mip_extent.depth
             && !(box->left & width_mask)
             && !(box->right & width_mask)
             && !(box->top & height_mask)
             && !(box->bottom & height_mask);
 }
 
-static void d3d12_resource_get_level_box(const struct d3d12_resource *resource,
-        unsigned int level, D3D12_BOX *box)
+static void d3d12_resource_get_subresource_box(const struct d3d12_resource *resource,
+        unsigned int subresource_idx, D3D12_BOX *box)
 {
+    VkExtent3D mip_extent = d3d12_resource_desc_get_subresource_extent(&resource->desc, resource->format, subresource_idx);
+
     box->left = 0;
     box->top = 0;
     box->front = 0;
-    box->right = d3d12_resource_desc_get_width(&resource->desc, level);
-    box->bottom = d3d12_resource_desc_get_height(&resource->desc, level);
-    box->back = d3d12_resource_desc_get_depth(&resource->desc, level);
+    box->right = mip_extent.width;
+    box->bottom = mip_extent.height;
+    box->back = mip_extent.depth;
 }
 
 static void d3d12_resource_set_name(struct d3d12_resource *resource, const char *name)
@@ -2144,6 +2143,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(d3d12_resourc
     struct d3d12_resource *resource = impl_from_ID3D12Resource2(iface);
     struct vkd3d_subresource_layout *subresource_layout;
     struct d3d12_device *device = resource->device;
+    struct vkd3d_format_footprint footprint;
+    const struct vkd3d_format *format;
+    uint32_t plane_idx;
     VkExtent3D extent;
     VkOffset3D offset;
     uint8_t *dst_data;
@@ -2159,15 +2161,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(d3d12_resourc
         return E_INVALIDARG;
     }
 
-    if (resource->format->vk_aspect_mask != VK_IMAGE_ASPECT_COLOR_BIT)
-    {
-        FIXME("Not supported for format %#x.\n", resource->format->dxgi_format);
-        return E_NOTIMPL;
-    }
-
     if (!dst_box)
     {
-        d3d12_resource_get_level_box(resource, dst_sub_resource % resource->desc.MipLevels, &box);
+        d3d12_resource_get_subresource_box(resource, dst_sub_resource, &box);
         dst_box = &box;
     }
     else if (!d3d12_resource_validate_box(resource, dst_sub_resource, dst_box))
@@ -2188,6 +2184,16 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(d3d12_resourc
         return E_NOTIMPL;
     }
 
+    plane_idx = dst_sub_resource / d3d12_resource_desc_get_sub_resource_count_per_plane(&resource->desc);
+    footprint = vkd3d_format_footprint_for_plane(resource->format, plane_idx);
+    format = vkd3d_format_from_d3d12_resource_desc(device, &resource->desc, footprint.dxgi_format);
+
+    if (format->vk_aspect_mask != VK_IMAGE_ASPECT_COLOR_BIT)
+    {
+        FIXME("Not supported for format %#x.\n", format->dxgi_format);
+        return E_NOTIMPL;
+    }
+
     offset.x = dst_box->left;
     offset.y = dst_box->top;
     offset.z = dst_box->front;
@@ -2202,10 +2208,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(d3d12_resourc
 
     d3d12_resource_get_map_ptr(resource, (void **)&dst_data);
 
-    dst_data += subresource_layout->offset + vkd3d_format_get_data_offset(resource->format,
+    dst_data += subresource_layout->offset + vkd3d_format_get_data_offset(format,
             subresource_layout->row_pitch, subresource_layout->depth_pitch, offset.x, offset.y, offset.z);
 
-    vkd3d_format_copy_data(resource->format, src_data, src_row_pitch, src_slice_pitch, dst_data,
+    vkd3d_format_copy_data(format, src_data, src_row_pitch, src_slice_pitch, dst_data,
             subresource_layout->row_pitch, subresource_layout->depth_pitch, extent.width, extent.height, extent.depth);
 
     return vkd3d_memory_transfer_queue_write_subresource(&device->memory_transfers,
@@ -2218,6 +2224,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(d3d12_resour
 {
     struct d3d12_resource *resource = impl_from_ID3D12Resource2(iface);
     struct vkd3d_subresource_layout *subresource_layout;
+    struct vkd3d_format_footprint footprint;
+    const struct vkd3d_format *format;
+    uint32_t plane_idx;
     uint8_t *src_data;
     D3D12_BOX box;
 
@@ -2231,15 +2240,9 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(d3d12_resour
         return E_INVALIDARG;
     }
 
-    if (resource->format->vk_aspect_mask != VK_IMAGE_ASPECT_COLOR_BIT)
-    {
-        FIXME("Not supported for format %#x.\n", resource->format->dxgi_format);
-        return E_NOTIMPL;
-    }
-
     if (!src_box)
     {
-        d3d12_resource_get_level_box(resource, src_sub_resource % resource->desc.MipLevels, &box);
+        d3d12_resource_get_subresource_box(resource, src_sub_resource, &box);
         src_box = &box;
     }
     else if (!d3d12_resource_validate_box(resource, src_sub_resource, src_box))
@@ -2260,16 +2263,26 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(d3d12_resour
         return E_NOTIMPL;
     }
 
+    plane_idx = src_sub_resource / d3d12_resource_desc_get_sub_resource_count_per_plane(&resource->desc);
+    footprint = vkd3d_format_footprint_for_plane(resource->format, plane_idx);
+    format = vkd3d_format_from_d3d12_resource_desc(resource->device, &resource->desc, footprint.dxgi_format);
+
+    if (format->vk_aspect_mask != VK_IMAGE_ASPECT_COLOR_BIT)
+    {
+        FIXME("Not supported for format %#x.\n", format->dxgi_format);
+        return E_NOTIMPL;
+    }
+
     subresource_layout = &resource->subresource_layouts[src_sub_resource];
     TRACE("Offset %#"PRIx64", row pitch %#"PRIx64", depth pitch %#"PRIx64".\n",
             subresource_layout->offset, subresource_layout->row_pitch, subresource_layout->depth_pitch);
 
     d3d12_resource_get_map_ptr(resource, (void **)&src_data);
 
-    src_data += subresource_layout->offset + vkd3d_format_get_data_offset(resource->format,
+    src_data += subresource_layout->offset + vkd3d_format_get_data_offset(format,
             subresource_layout->row_pitch, subresource_layout->depth_pitch, src_box->left, src_box->top, src_box->front);
 
-    vkd3d_format_copy_data(resource->format, src_data, subresource_layout->row_pitch,
+    vkd3d_format_copy_data(format, src_data, subresource_layout->row_pitch,
             subresource_layout->depth_pitch, dst_data, dst_row_pitch, dst_slice_pitch,
             src_box->right - src_box->left, src_box->bottom - src_box->top, src_box->back - src_box->front);
 

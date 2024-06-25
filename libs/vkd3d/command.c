@@ -4069,12 +4069,11 @@ static void d3d12_command_list_update_subresource_data(struct d3d12_command_list
 static void d3d12_command_list_flush_subresource_updates(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    struct vkd3d_format_footprint footprint;
     VkCopyImageToBufferInfo2 copy_info;
     VkBufferImageCopy2 copy_region;
     VkDependencyInfo dep_info;
     VkMemoryBarrier2 barrier;
-    uint32_t i, plane_idx;
+    uint32_t i;
 
     if (!list->subresource_tracking_count)
         return;
@@ -4100,17 +4099,11 @@ static void d3d12_command_list_flush_subresource_updates(struct d3d12_command_li
     {
         const struct vkd3d_subresource_tracking *entry = &list->subresource_tracking[i];
 
-        /* Entries will only ever have one aspect set, so this is fine */
-        plane_idx = d3d12_plane_index_from_vk_aspect((VkImageAspectFlagBits)entry->subresource.aspectMask);
-        footprint = vkd3d_format_footprint_for_plane(entry->resource->format, plane_idx);
-
         memset(&copy_region, 0, sizeof(copy_region));
         copy_region.sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2;
         copy_region.bufferOffset = entry->resource->mem.offset;
         copy_region.imageSubresource = entry->subresource;
-        copy_region.imageExtent.width = d3d12_resource_desc_get_width(&entry->resource->desc, entry->subresource.mipLevel + footprint.subsample_x_log2);
-        copy_region.imageExtent.height = d3d12_resource_desc_get_height(&entry->resource->desc, entry->subresource.mipLevel + footprint.subsample_y_log2);
-        copy_region.imageExtent.depth = d3d12_resource_desc_get_depth(&entry->resource->desc, entry->subresource.mipLevel);
+        copy_region.imageExtent = d3d12_resource_desc_get_vk_subresource_extent(&entry->resource->desc, entry->resource->format, &entry->subresource);
 
         memset(&copy_info, 0, sizeof(copy_info));
         copy_info.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_BUFFER_INFO_2;
