@@ -5472,6 +5472,50 @@ static inline unsigned int d3d12_resource_desc_get_layer_count(const D3D12_RESOU
     return desc->Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D ? desc->DepthOrArraySize : 1;
 }
 
+static inline VkExtent3D d3d12_resource_desc_get_vk_subresource_extent(const D3D12_RESOURCE_DESC1 *desc,
+        const struct vkd3d_format *format, const VkImageSubresourceLayers *subresource)
+{
+    const struct vkd3d_format_footprint *footprint;
+    unsigned int shift_x, shift_y, plane_idx;
+    VkExtent3D extent;
+
+    shift_x = subresource->mipLevel;
+    shift_y = subresource->mipLevel;
+
+    if (format && format->plane_footprints)
+    {
+        plane_idx = d3d12_plane_index_from_vk_aspect(subresource->aspectMask & -subresource->aspectMask);
+        footprint = &format->plane_footprints[plane_idx];
+
+        shift_x += footprint->subsample_x_log2;
+        shift_y += footprint->subsample_y_log2;
+    }
+
+    extent.width = max(1, desc->Width >> shift_x);
+    extent.height = max(1, desc->Height >> shift_y);
+
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+        extent.depth = max(1, desc->DepthOrArraySize >> subresource->mipLevel);
+    else
+        extent.depth = 1;
+
+    return extent;
+}
+
+static inline VkExtent3D d3d12_resource_desc_get_subresource_extent(const struct D3D12_RESOURCE_DESC1 *desc,
+        const struct vkd3d_format *format, unsigned int subresource_idx)
+{
+    VkImageSubresourceLayers vk_subresource = vk_image_subresource_layers_from_d3d12(
+        format, subresource_idx, desc->MipLevels, d3d12_resource_desc_get_layer_count(desc));
+    return d3d12_resource_desc_get_vk_subresource_extent(desc, format, &vk_subresource);
+}
+
+static inline VkExtent3D d3d12_resource_get_view_subresource_extent(const struct d3d12_resource *resource, const struct vkd3d_view *view)
+{
+    VkImageSubresourceLayers vk_subresource = vk_subresource_layers_from_view(view);
+    return d3d12_resource_desc_get_vk_subresource_extent(&resource->desc, resource->format, &vk_subresource);
+}
+
 static inline bool d3d12_resource_desc_is_sampler_feedback(const D3D12_RESOURCE_DESC1 *desc)
 {
     return desc->Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE ||
