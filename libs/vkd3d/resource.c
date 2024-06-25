@@ -263,7 +263,8 @@ HRESULT vkd3d_create_buffer(struct d3d12_device *device,
 static unsigned int max_miplevel_count(const D3D12_RESOURCE_DESC1 *desc)
 {
     unsigned int size = max(desc->Width, desc->Height);
-    size = max(size, d3d12_resource_desc_get_depth(desc, 0));
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+        size = max(size, desc->DepthOrArraySize);
     return vkd3d_log2i(size) + 1;
 }
 
