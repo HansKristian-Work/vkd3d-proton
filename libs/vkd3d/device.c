@@ -3901,7 +3901,10 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
         return S_OK;
     }
 
-    image_features = format->vk_format_features;
+    if (format->vk_aspect_mask & VK_IMAGE_ASPECT_PLANE_0_BIT)
+        image_features = format->vk_format_features_castable;
+    else
+        image_features = format->vk_format_features;
 
     if (format->vk_format_features_buffer)
         data->Support1 |= D3D12_FORMAT_SUPPORT1_BUFFER;
@@ -3911,8 +3914,15 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
         data->Support1 |= D3D12_FORMAT_SUPPORT1_IA_INDEX_BUFFER;
     if (image_features)
     {
-        data->Support1 |= D3D12_FORMAT_SUPPORT1_TEXTURE1D | D3D12_FORMAT_SUPPORT1_TEXTURE2D
-                | D3D12_FORMAT_SUPPORT1_TEXTURE3D | D3D12_FORMAT_SUPPORT1_TEXTURECUBE;
+        data->Support1 |= D3D12_FORMAT_SUPPORT1_TEXTURE2D;
+
+        /* Planar formats only support 2D textures with one mip */
+        if (!(format->vk_aspect_mask & VK_IMAGE_ASPECT_PLANE_0_BIT))
+            data->Support1 |= D3D12_FORMAT_SUPPORT1_TEXTURE1D | D3D12_FORMAT_SUPPORT1_TEXTURECUBE | D3D12_FORMAT_SUPPORT1_MIP;
+
+        /* 3D depth-stencil images are not supported */
+        if (format->vk_aspect_mask & VK_IMAGE_ASPECT_COLOR_BIT)
+            data->Support1 |= D3D12_FORMAT_SUPPORT1_TEXTURE3D;
     }
     if (image_features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT)
     {
@@ -3920,8 +3930,7 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
                 | D3D12_FORMAT_SUPPORT1_SHADER_GATHER;
         if (image_features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT)
         {
-            data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE
-                    | D3D12_FORMAT_SUPPORT1_MIP;
+            data->Support1 |= D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE;
         }
         if (format->vk_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT)
         {
@@ -3964,9 +3973,10 @@ static HRESULT d3d12_device_get_format_support(struct d3d12_device *device, D3D1
                 | D3D12_FORMAT_SUPPORT2_UAV_ATOMIC_UNSIGNED_MIN_OR_MAX;
     }
 
-    if (!format->is_emulated)
+    /* Do not support tiled resources for planar formats, matches D3D12. */
+    if (!format->is_emulated && !(format->vk_aspect_mask & VK_IMAGE_ASPECT_PLANE_0_BIT))
     {
-        if ((image_features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT) && 
+        if ((image_features & VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT) &&
                 device->device_info.features2.features.sparseResidencyImage2D)
         {
             memset(&format_info, 0, sizeof(format_info));
