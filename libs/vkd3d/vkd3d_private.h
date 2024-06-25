@@ -1071,6 +1071,9 @@ VkImageSubresource vk_image_subresource_from_d3d12(
         const struct vkd3d_format *format, uint32_t subresource_idx,
         unsigned int miplevel_count, unsigned int layer_count,
         bool all_aspects);
+VkImageSubresourceLayers vk_image_subresource_layers_from_d3d12(
+        const struct vkd3d_format *format, unsigned int sub_resource_idx,
+        unsigned int miplevel_count, unsigned int layer_count);
 VkImageLayout vk_image_layout_from_d3d12_resource_state(
         struct d3d12_command_list *list, const struct d3d12_resource *resource, D3D12_RESOURCE_STATES state);
 UINT d3d12_plane_index_from_vk_aspect(VkImageAspectFlagBits aspect);

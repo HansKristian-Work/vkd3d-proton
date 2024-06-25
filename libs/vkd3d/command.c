@@ -7386,17 +7386,20 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_
     VKD3D_BREADCRUMB_COMMAND(COPY);
 }
 
-static void vk_image_subresource_layers_from_d3d12(VkImageSubresourceLayers *subresource,
+VkImageSubresourceLayers vk_image_subresource_layers_from_d3d12(
         const struct vkd3d_format *format, unsigned int sub_resource_idx,
         unsigned int miplevel_count, unsigned int layer_count)
 {
-    VkImageSubresource sub = vk_image_subresource_from_d3d12(
-            format, sub_resource_idx, miplevel_count, layer_count, false);
+    VkImageSubresourceLayers layers;
+    VkImageSubresource sub;
 
-    subresource->aspectMask = sub.aspectMask;
-    subresource->mipLevel = sub.mipLevel;
-    subresource->baseArrayLayer = sub.arrayLayer;
-    subresource->layerCount = 1;
+    sub = vk_image_subresource_from_d3d12(format, sub_resource_idx, miplevel_count, layer_count, false);
+
+    layers.aspectMask = sub.aspectMask;
+    layers.mipLevel = sub.mipLevel;
+    layers.baseArrayLayer = sub.arrayLayer;
+    layers.layerCount = 1;
+    return layers;
 }
 
 static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy2 *copy,
@@ -7415,7 +7418,7 @@ static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy2 *copy,
     copy->bufferRowLength = footprint->Footprint.RowPitch /
             (src_format->byte_count * src_format->block_byte_count) * src_format->block_width;
     copy->bufferImageHeight = footprint->Footprint.Height;
-    vk_image_subresource_layers_from_d3d12(&copy->imageSubresource,
+    copy->imageSubresource = vk_image_subresource_layers_from_d3d12(
             dst_format, sub_resource_idx, image_desc->MipLevels,
             d3d12_resource_desc_get_layer_count(image_desc));
     copy->imageOffset.x = dst_x;
@@ -7455,7 +7458,7 @@ static void vk_image_buffer_copy_from_d3d12(VkBufferImageCopy2 *copy,
     copy->bufferRowLength = footprint->Footprint.RowPitch /
             (dst_format->byte_count * dst_format->block_byte_count) * dst_format->block_width;
     copy->bufferImageHeight = footprint->Footprint.Height;
-    vk_image_subresource_layers_from_d3d12(&copy->imageSubresource,
+    copy->imageSubresource = vk_image_subresource_layers_from_d3d12(
             src_format, sub_resource_idx, image_desc->MipLevels,
             d3d12_resource_desc_get_layer_count(image_desc));
     copy->imageOffset.x = src_box ? src_box->left : 0;
@@ -7482,12 +7485,12 @@ static bool vk_image_copy_from_d3d12(VkImageCopy2 *image_copy,
 {
     VkExtent3D srcExtent, dstExtent;
 
-    vk_image_subresource_layers_from_d3d12(&image_copy->srcSubresource,
+    image_copy->srcSubresource = vk_image_subresource_layers_from_d3d12(
             src_format, src_sub_resource_idx, src_desc->MipLevels,
             d3d12_resource_desc_get_layer_count(src_desc));
     image_copy->sType = VK_STRUCTURE_TYPE_IMAGE_COPY_2;
     image_copy->pNext = NULL;
-    vk_image_subresource_layers_from_d3d12(&image_copy->dstSubresource,
+    image_copy->dstSubresource = vk_image_subresource_layers_from_d3d12(
             dst_format, dst_sub_resource_idx, dst_desc->MipLevels,
             d3d12_resource_desc_get_layer_count(dst_desc));
 
@@ -9314,12 +9317,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
     assert(d3d12_resource_is_texture(dst_resource));
     assert(d3d12_resource_is_texture(src_resource));
 
-    vk_image_subresource_layers_from_d3d12(&vk_image_resolve.srcSubresource,
+    vk_image_resolve.srcSubresource = vk_image_subresource_layers_from_d3d12(
             src_resource->format, src_sub_resource_idx,
             src_resource->desc.MipLevels,
             d3d12_resource_desc_get_layer_count(&src_resource->desc));
     memset(&vk_image_resolve.srcOffset, 0, sizeof(vk_image_resolve.srcOffset));
-    vk_image_subresource_layers_from_d3d12(&vk_image_resolve.dstSubresource,
+    vk_image_resolve.dstSubresource = vk_image_subresource_layers_from_d3d12(
             dst_resource->format, dst_sub_resource_idx,
             dst_resource->desc.MipLevels,
             d3d12_resource_desc_get_layer_count(&dst_resource->desc));
@@ -14739,11 +14742,11 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(d3d12_
     assert(d3d12_resource_is_texture(dst_resource));
     assert(d3d12_resource_is_texture(src_resource));
 
-    vk_image_subresource_layers_from_d3d12(&src_subresource,
+    src_subresource = vk_image_subresource_layers_from_d3d12(
             src_resource->format, src_sub_resource_idx,
             src_resource->desc.MipLevels,
             d3d12_resource_desc_get_layer_count(&src_resource->desc));
-    vk_image_subresource_layers_from_d3d12(&dst_subresource,
+    dst_subresource = vk_image_subresource_layers_from_d3d12(
             dst_resource->format, dst_sub_resource_idx,
             dst_resource->desc.MipLevels,
             d3d12_resource_desc_get_layer_count(&dst_resource->desc));
@@ -15192,11 +15195,11 @@ static void d3d12_command_list_add_render_pass_resolve(struct d3d12_command_list
     {
         const D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_SUBRESOURCE_PARAMETERS *subresource_args = &args->pSubresourceParameters[i];
 
-        vk_image_subresource_layers_from_d3d12(&region.srcSubresource,
+        region.srcSubresource = vk_image_subresource_layers_from_d3d12(
                 resolve->src_resource->format, subresource_args->SrcSubresource,
                 resolve->src_resource->desc.MipLevels, resolve->src_resource->desc.DepthOrArraySize);
 
-        vk_image_subresource_layers_from_d3d12(&region.dstSubresource,
+        region.dstSubresource = vk_image_subresource_layers_from_d3d12(
                 resolve->dst_resource->format, subresource_args->DstSubresource,
                 resolve->dst_resource->desc.MipLevels, resolve->dst_resource->desc.DepthOrArraySize);
 
