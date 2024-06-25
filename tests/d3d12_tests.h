@@ -423,3 +423,4 @@ decl_test(test_workgraph_local_root_signature);
 decl_test(test_sm68_draw_parameters);
 decl_test(test_sm68_wave_size_range);
 decl_test(test_sm68_sample_cmp_bias_grad);
+decl_test(test_planar_video_formats);

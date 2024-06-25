@@ -3544,3 +3544,809 @@ void test_aliasing_barrier_edge_cases(void)
 
     destroy_test_context(&context);
 }
+
+#define check_video_format_subresource(a, b, c, d, e) \
+    check_video_format_subresource_(__LINE__, a, b, c, d, e)
+static void check_video_format_subresource_(unsigned int line, struct resource_readback *rb,
+        const D3D12_RESOURCE_DESC *desc, unsigned int plane_idx, const void *data, uint32_t constant_data)
+{
+    unsigned int size, subsample_x_log2, subsample_y_log2;
+    uint32_t got, expected;
+    unsigned int x, y;
+
+    size = format_size_planar(desc->Format, plane_idx);
+    format_subsample_log2(desc->Format, plane_idx, &subsample_x_log2, &subsample_y_log2);
+
+    expected = constant_data;
+    got = 0;
+
+    for (y = 0; y < desc->Height >> subsample_y_log2; y++)
+    {
+        for (x = 0; x < desc->Width >> subsample_x_log2; x++)
+        {
+            memcpy(&got, get_readback_data(rb, x, y, 0, size), size);
+
+            if (data)
+                memcpy(&expected, (const char*)data + size * (desc->Width * y + x), size);
+
+            ok_(line)(got == expected, "Got %#x, expected %#x at (%u,%u), plane %u.\n", got, expected, x, y, plane_idx);
+        }
+    }
+
+}
+
+void test_planar_video_formats(void)
+{
+#define MAX_PLANES 2
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprints[MAX_PLANES];
+    D3D12_TEXTURE_COPY_LOCATION src_location, dst_location;
+    UINT64 row_sizes[MAX_PLANES], total_sizes[MAX_PLANES];
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC graphics_pso_desc;
+    D3D12_COMPUTE_PIPELINE_STATE_DESC compute_pso_desc;
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT format_support;
+    unsigned int subsample_x_log2, subsample_y_log2;
+    ID3D12PipelineState *graphics_psos[MAX_PLANES];
+    ID3D12DescriptorHeap *rtv_heap, *srv_uav_heap;
+    D3D12_DESCRIPTOR_RANGE descriptor_ranges[2];
+    D3D12_FEATURE_DATA_FORMAT_INFO format_info;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    D3D12_SUBRESOURCE_DATA subresource_data;
+    D3D12_RENDER_TARGET_VIEW_DESC rtv_desc;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    unsigned int row_pitch, element_size;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_RESOURCE_DESC resource_desc;
+    ID3D12PipelineState *compute_pso;
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv;
+    D3D12_ROOT_PARAMETER rs_args[1];
+    struct test_context_desc desc;
+    ID3D12Resource *resources[2];
+    struct resource_readback rb;
+    struct test_context context;
+    UINT row_counts[MAX_PLANES];
+    unsigned char dst_data[64];
+    D3D12_VIEWPORT viewport;
+    unsigned int i, j, k, l;
+    D3D12_RECT scissor;
+    D3D12_BOX box;
+    HRESULT hr;
+
+#include "shaders/resource/headers/ps_copy_simple.h"
+#include "shaders/resource/headers/cs_copy_simple.h"
+
+    static const FLOAT clear_color[] = { 128.0f / 255.0f, 130.0f / 255.0f, 132.0f / 255.0f, 134.0f / 255.0f };
+    static const UINT clear_color_uint[] = { 0xdead, 0xbeef, 0xfeed, 0xc0de };
+
+    static const uint8_t r8_data[4][4] =
+    {
+        { 0x0, 0x1, 0x2, 0x3 },
+        { 0x4, 0x5, 0x6, 0x7 },
+        { 0x8, 0x9, 0xa, 0xb },
+        { 0xc, 0xd, 0xe, 0xf },
+    };
+
+    static const uint8_t rg8_data[4][4][2] =
+    {
+        { {0x10,0x20}, {0x11,0x21}, {0x12,0x22}, {0x13,0x23} },
+        { {0x14,0x24}, {0x15,0x25}, {0x16,0x26}, {0x17,0x27} },
+        { {0x18,0x28}, {0x19,0x29}, {0x1a,0x2a}, {0x1b,0x2b} },
+        { {0x1c,0x2c}, {0x1d,0x2d}, {0x1e,0x2e}, {0x1f,0x2f} },
+    };
+
+    static const uint16_t r10x6_data[4][4] =
+    {
+        { 0x1000, 0x2040, 0x3080, 0x40c0 },
+        { 0x2100, 0x3140, 0x4180, 0x51c0 },
+        { 0x3200, 0x4240, 0x5280, 0x62c0 },
+        { 0x4300, 0x5340, 0x6380, 0x73c0 },
+    };
+
+    static const uint16_t rg10x6_data[4][4][2] =
+    {
+        { {0x4000,0x8000}, {0x5040,0x9040}, {0x6080,0xa080}, {0x70c0,0xb0c0} },
+        { {0x5100,0x9100}, {0x6140,0xa140}, {0x7180,0xb180}, {0x81c0,0xc1c0} },
+        { {0x6200,0xa200}, {0x7240,0xb240}, {0x8280,0xc280}, {0x92c0,0xd2c0} },
+        { {0x7300,0xb300}, {0x8340,0xc340}, {0x9380,0xd380}, {0xa3c0,0xe3c0} },
+    };
+
+    static const uint16_t r16_data[4][4] =
+    {
+        { 0x0000, 0x1011, 0x2022, 0x3033 },
+        { 0x4044, 0x5055, 0x6066, 0x7077 },
+        { 0x8088, 0x9099, 0xa0aa, 0xb0bb },
+        { 0xc0cc, 0xd0dd, 0xe0ee, 0xf0ff },
+    };
+
+    static const uint16_t rg16_data[4][4][2] =
+    {
+        { {0x0400,0x0800}, {0x1411,0x1811}, {0x24ee,0x2822}, {0x34ff,0x3833} },
+        { {0x4444,0x4844}, {0x5455,0x5855}, {0x64ee,0x6866}, {0x74ff,0x7877} },
+        { {0x8488,0x8888}, {0x9499,0x9899}, {0xa4ee,0xa8aa}, {0xb4ff,0xb8bb} },
+        { {0xc4cc,0xc8cc}, {0xd4dd,0xd8dd}, {0xe4ee,0xe8ee}, {0xf4ff,0xf8ff} },
+    };
+
+    struct plane_info
+    {
+        const void *data;
+        DXGI_FORMAT view_format;
+        uint32_t expected_clear_value;
+        uint32_t expected_clear_value_uint;
+    };
+
+    static const struct
+    {
+        DXGI_FORMAT format;
+        UINT plane_count;
+        struct plane_info planes[MAX_PLANES];
+    }
+    test_formats[] =
+    {
+        { DXGI_FORMAT_NV12, 2, { { r8_data,     DXGI_FORMAT_R8_UNORM,  0x80,   0xad   }, { rg8_data,    DXGI_FORMAT_R8G8_UNORM,   0x8280,     0xefad     } } },
+        { DXGI_FORMAT_P010, 2, { { r10x6_data,  DXGI_FORMAT_R16_UNORM, 0x8080, 0xdead }, { rg10x6_data, DXGI_FORMAT_R16G16_UNORM, 0x82828080, 0xbeefdead } } },
+        { DXGI_FORMAT_P016, 2, { { r16_data,    DXGI_FORMAT_R16_UNORM, 0x8080, 0xdead }, { rg16_data,   DXGI_FORMAT_R16G16_UNORM, 0x82828080, 0xbeefdead } } },
+    };
+
+    static const struct
+    {
+        DXGI_FORMAT format;
+        unsigned int width;
+        unsigned int height;
+        unsigned int mips;
+        unsigned int layers;
+        D3D12_TEXTURE_LAYOUT layout;
+        HRESULT expected_hr;
+    }
+    test_resource_descs[] =
+    {
+        { DXGI_FORMAT_NV12, 8, 6, 1, 1, D3D12_TEXTURE_LAYOUT_UNKNOWN, S_OK         },
+        { DXGI_FORMAT_NV12, 8, 6, 1, 2, D3D12_TEXTURE_LAYOUT_UNKNOWN, S_OK         },
+        { DXGI_FORMAT_NV12, 8, 6, 0, 1, D3D12_TEXTURE_LAYOUT_UNKNOWN, E_INVALIDARG },
+        { DXGI_FORMAT_NV12, 8, 6, 2, 1, D3D12_TEXTURE_LAYOUT_UNKNOWN, E_INVALIDARG },
+        { DXGI_FORMAT_NV12, 7, 6, 1, 1, D3D12_TEXTURE_LAYOUT_UNKNOWN, E_INVALIDARG },
+        { DXGI_FORMAT_NV12, 8, 5, 1, 1, D3D12_TEXTURE_LAYOUT_UNKNOWN, E_INVALIDARG },
+        { DXGI_FORMAT_NV12, 8, 6, 1, 1, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, E_INVALIDARG },
+    };
+
+    static const UINT required_features1 = D3D12_FORMAT_SUPPORT1_TEXTURE2D | D3D12_FORMAT_SUPPORT1_SHADER_LOAD |
+            D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE | D3D12_FORMAT_SUPPORT1_SHADER_GATHER | D3D12_FORMAT_SUPPORT1_RENDER_TARGET |
+            D3D12_FORMAT_SUPPORT1_BLENDABLE | D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW;
+    static const UINT required_features2 = D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    desc.no_pipeline = true;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+
+    memset(descriptor_ranges, 0, sizeof(descriptor_ranges));
+    descriptor_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    descriptor_ranges[0].NumDescriptors = 1;
+
+    descriptor_ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    descriptor_ranges[1].OffsetInDescriptorsFromTableStart = 1;
+    descriptor_ranges[1].NumDescriptors = 1;
+
+    memset(rs_args, 0, sizeof(rs_args));
+    rs_args[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_args[0].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(descriptor_ranges);
+    rs_args[0].DescriptorTable.pDescriptorRanges = descriptor_ranges;
+    rs_args[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_args);
+    rs_desc.pParameters = rs_args;
+    rs_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_DENY_VERTEX_SHADER_ROOT_ACCESS;
+
+    hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    memset(&compute_pso_desc, 0, sizeof(compute_pso_desc));
+    compute_pso_desc.CS = cs_copy_simple_dxbc;
+    compute_pso_desc.pRootSignature = context.root_signature;
+
+    hr = ID3D12Device_CreateComputePipelineState(context.device, &compute_pso_desc, &IID_ID3D12PipelineState, (void**)&compute_pso);
+    ok(hr == S_OK, "Failed to create compute pipeline, hr %#x.\n", hr);
+
+    rtv_heap = create_cpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+    rtv = get_cpu_descriptor_handle(&context, rtv_heap, 0);
+
+    srv_uav_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, MAX_PLANES * 2);
+
+    memset(&scissor, 0, sizeof(scissor));
+    memset(&viewport, 0, sizeof(viewport));
+    viewport.MaxDepth = 1.0f;
+
+    for (i = 0; i < ARRAY_SIZE(test_formats); i++)
+    {
+        vkd3d_test_set_context("Format %#x", test_formats[i].format);
+
+        memset(&format_support, 0, sizeof(format_support));
+        format_support.Format = test_formats[i].format;
+
+        hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_FORMAT_SUPPORT, &format_support, sizeof(format_support));
+        ok(hr == S_OK || hr == E_FAIL, "Got invalid hr %#x.\n", hr);
+
+        if (FAILED(hr))
+        {
+            skip("Format %#x unsupported.\n", test_formats[i].format);
+            continue;
+        }
+
+        ok((format_support.Support1 & required_features1) == required_features1,
+                "Got format features 1 = %#x, expected %#x.\n", format_support.Support1, required_features1);
+        ok((format_support.Support2 & required_features2) == required_features2,
+                "Got format features 1 = %#x, expected %#x.\n", format_support.Support2, required_features2);
+
+        memset(&format_info, 0, sizeof(format_info));
+        format_info.Format = test_formats[i].format;
+
+        hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_FORMAT_INFO, &format_info, sizeof(format_info));
+        ok(hr == S_OK, "Checking format info failed, hr %#x.\n", hr);
+        ok(format_info.PlaneCount == test_formats[i].plane_count, "Got plane count %u, expected %u.\n", format_info.PlaneCount, test_formats[i].plane_count);
+
+        /* Validate copyable footprints */
+        memset(&resource_desc, 0, sizeof(resource_desc));
+        resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        resource_desc.Format = test_formats[i].format;
+        resource_desc.Width = 4;
+        resource_desc.Height = 4;
+        resource_desc.DepthOrArraySize = 1;
+        resource_desc.SampleDesc.Count = 1;
+        resource_desc.MipLevels = 1;
+        resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+
+        ID3D12Device_GetCopyableFootprints(context.device, &resource_desc, 0, test_formats[i].plane_count, 0, footprints, row_counts, row_sizes, total_sizes);
+        check_copyable_footprints(&resource_desc, 0, test_formats[i].plane_count, 0, footprints, row_counts, row_sizes, total_sizes);
+
+        /* Omit opaque formats that are only supported with video interfaces */
+        if (!test_formats[i].planes[0].data)
+            continue;
+
+        /* Test WriteToSubresource and ReadFromSubresource */
+        memset(&heap_properties, 0, sizeof(heap_properties));
+        heap_properties.Type = D3D12_HEAP_TYPE_CUSTOM;
+        heap_properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
+        heap_properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+
+        hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void**)&resources[0]);
+        ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+        for (j = 0; j < test_formats[i].plane_count; j++)
+        {
+            const struct plane_info *plane = &test_formats[i].planes[j];
+
+            format_subsample_log2(test_formats[i].format, j, &subsample_x_log2, &subsample_y_log2);
+
+            element_size = format_size_planar(test_formats[i].format, j);
+            row_pitch = resource_desc.Width * element_size;
+
+            hr = ID3D12Resource_Map(resources[0], j, NULL, NULL);
+            ok(hr == S_OK, "Failed to map subresource %u, hr %#x.\n", j, hr);
+
+            hr = ID3D12Resource_WriteToSubresource(resources[0], j, NULL, plane->data, row_pitch, 0);
+            ok(hr == S_OK, "Failed to write subresource %u, hr %#x.\n", j, hr);
+
+            ID3D12Resource_Unmap(resources[0], j, NULL);
+
+            transition_sub_resource_state(context.list, resources[0], j,
+                    D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+            get_texture_readback_with_command_list(resources[0], j, &rb, context.queue, context.list);
+            check_video_format_subresource(&rb, &resource_desc, j, plane->data, 0);
+            release_resource_readback(&rb);
+
+            reset_command_list(context.list, context.allocator);
+
+            hr = ID3D12Resource_Map(resources[0], j, NULL, NULL);
+            ok(hr == S_OK, "Failed to map subresource %u, hr %#x.\n", j, hr);
+
+            memset(dst_data, 0xff, sizeof(dst_data));
+
+            hr = ID3D12Resource_ReadFromSubresource(resources[0], dst_data,
+                    row_pitch, 0, j, NULL);
+            ok(hr == S_OK, "Failed to read subresource %u, hr %#x.\n", j, hr);
+
+            for (k = 0; k < resource_desc.Height; k++)
+            {
+                for (l = 0; l < resource_desc.Width; l++)
+                {
+                    uint32_t expected = 0, got = 0;
+
+                    if (k < resource_desc.Width >> subsample_x_log2 && l < resource_desc.Height >> subsample_y_log2)
+                        memcpy(&expected, (const char*)plane->data + k * row_pitch + l * element_size, element_size);
+                    else
+                        expected = ~0u >> (8 * (4 - element_size));
+
+                    memcpy(&got, dst_data + k * row_pitch + l * element_size, element_size);
+
+                    ok(got == expected, "Got %#x, expected %#x at %u,%u, subresource %u.\n",
+                            got, expected, k, l, j);
+                }
+            }
+
+            ID3D12Resource_Unmap(resources[0], j, NULL);
+        }
+
+        ID3D12Resource_Release(resources[0]);
+
+        /* Test copying individual planes from color images via CopyTextureRegion */
+        memset(&heap_properties, 0, sizeof(heap_properties));
+        heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+        hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&resources[0]);
+        ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+        memset(&heap_properties, 0, sizeof(heap_properties));
+        heap_properties.Type = D3D12_HEAP_TYPE_CUSTOM;
+        heap_properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE;
+        heap_properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+
+        for (j = 0; j < test_formats[i].plane_count; j++)
+        {
+            const struct plane_info *plane = &test_formats[i].planes[j];
+
+            format_subsample_log2(test_formats[i].format, j, &subsample_x_log2, &subsample_y_log2);
+
+            resource_desc.Format = plane->view_format;
+
+            hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                    &resource_desc, D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource, (void**)&resources[1]);
+            ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+            hr = ID3D12Resource_Map(resources[1], 0, NULL, NULL);
+            ok(hr == S_OK, "Failed to map resource, hr %#x.\n", hr);
+
+            hr = ID3D12Resource_WriteToSubresource(resources[1], 0, NULL, plane->data,
+                    resource_desc.Width * format_size_planar(test_formats[i].format, j), 0);
+            ok(hr == S_OK, "Failed to write resource, hr %#x.\n", hr);
+
+            memset(&dst_location, 0, sizeof(dst_location));
+            dst_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            dst_location.pResource = resources[0];
+            dst_location.SubresourceIndex = j;
+
+            memset(&src_location, 0, sizeof(src_location));
+            src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            src_location.pResource = resources[1];
+            src_location.SubresourceIndex = 0;
+
+            memset(&box, 0, sizeof(box));
+            box.right = resource_desc.Width >> subsample_x_log2;
+            box.bottom = resource_desc.Height >> subsample_y_log2;
+            box.back = 1;
+
+            transition_sub_resource_state(context.list, resources[1], 0,
+                    D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+            ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst_location, 0, 0, 0, &src_location, &box);
+
+            transition_sub_resource_state(context.list, resources[0], j,
+                    D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+            get_texture_readback_with_command_list(resources[0], j, &rb, context.queue, context.list);
+
+            resource_desc.Format = test_formats[i].format;
+            check_video_format_subresource(&rb, &resource_desc, j, plane->data, 0);
+
+            release_resource_readback(&rb);
+            ID3D12Resource_Release(resources[1]);
+
+            reset_command_list(context.list, context.allocator);
+        }
+
+        ID3D12Resource_Release(resources[0]);
+
+        /* Test upload via CopyTextureRegion */
+        memset(&heap_properties, 0, sizeof(heap_properties));
+        heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+        hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&resources[0]);
+        ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+        for (j = 0; j < test_formats[i].plane_count; j++)
+        {
+            const struct plane_info *plane = &test_formats[i].planes[j];
+
+            memset(&subresource_data, 0, sizeof(subresource_data));
+            subresource_data.pData = plane->data;
+            subresource_data.RowPitch = resource_desc.Width * format_size_planar(test_formats[i].format, j);
+            subresource_data.SlicePitch = resource_desc.Height * subresource_data.RowPitch;
+
+            upload_texture_data_base(resources[0], &subresource_data, j, 1, context.queue, context.list);
+            reset_command_list(context.list, context.allocator);
+
+            transition_sub_resource_state(context.list, resources[0], j,
+                    D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_GENERIC_READ);
+
+            get_texture_readback_with_command_list(resources[0], j, &rb, context.queue, context.list);
+            check_video_format_subresource(&rb, &resource_desc, j, plane->data, 0);
+            release_resource_readback(&rb);
+
+            reset_command_list(context.list, context.allocator);
+        }
+
+        /* Test full copy via CopyResource */
+        hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&resources[1]);
+        ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+        ID3D12GraphicsCommandList_CopyResource(context.list, resources[1], resources[0]);
+        transition_resource_state(context.list, resources[1], D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        for (j = 0; j < test_formats[i].plane_count; j++)
+        {
+            const struct plane_info *plane = &test_formats[i].planes[j];
+
+            get_texture_readback_with_command_list(resources[1], j, &rb, context.queue, context.list);
+
+            /* AMD only copies the first plane */
+            bug_if(is_amd_windows_device(context.device) && j)
+            check_video_format_subresource(&rb, &resource_desc, j, plane->data, 0);
+
+            release_resource_readback(&rb);
+
+            reset_command_list(context.list, context.allocator);
+        }
+
+        ID3D12Resource_Release(resources[1]);
+
+        /* Test copy via CopyTextureRegion */
+        hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&resources[1]);
+        ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+        for (j = 0; j < test_formats[i].plane_count; j++)
+        {
+            const struct plane_info *plane = &test_formats[i].planes[j];
+
+            memset(&dst_location, 0, sizeof(dst_location));
+            dst_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            dst_location.pResource = resources[1];
+            dst_location.SubresourceIndex = j;
+
+            memset(&src_location, 0, sizeof(src_location));
+            src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            src_location.pResource = resources[0];
+            src_location.SubresourceIndex = j;
+
+            ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst_location, 0, 0, 0, &src_location, NULL);
+            transition_sub_resource_state(context.list, resources[1], j,
+                    D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+            get_texture_readback_with_command_list(resources[1], j, &rb, context.queue, context.list);
+            check_video_format_subresource(&rb, &resource_desc, j, plane->data, 0);
+            release_resource_readback(&rb);
+
+            reset_command_list(context.list, context.allocator);
+        }
+
+        ID3D12Resource_Release(resources[1]);
+
+        /* Test copying individual planes to color image via CopyTextureRegion */
+        for (j = 0; j < test_formats[i].plane_count; j++)
+        {
+            const struct plane_info *plane = &test_formats[i].planes[j];
+
+            format_subsample_log2(test_formats[i].format, j, &subsample_x_log2, &subsample_y_log2);
+
+            resource_desc.Format = plane->view_format;
+
+            hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                    &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&resources[1]);
+            ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+            memset(&dst_location, 0, sizeof(dst_location));
+            dst_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            dst_location.pResource = resources[1];
+            dst_location.SubresourceIndex = 0;
+
+            memset(&src_location, 0, sizeof(src_location));
+            src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            src_location.pResource = resources[0];
+            src_location.SubresourceIndex = j;
+
+            memset(&box, 0, sizeof(box));
+            box.right = resource_desc.Width >> subsample_x_log2;
+            box.bottom = resource_desc.Height >> subsample_y_log2;
+            box.back = 1;
+
+            ID3D12GraphicsCommandList_CopyTextureRegion(context.list, &dst_location, 0, 0, 0, &src_location, &box);
+            transition_sub_resource_state(context.list, resources[1], 0,
+                    D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+            get_texture_readback_with_command_list(resources[1], 0, &rb, context.queue, context.list);
+
+            resource_desc.Format = test_formats[i].format;
+            check_video_format_subresource(&rb, &resource_desc, j, plane->data, 0);
+
+            release_resource_readback(&rb);
+
+            ID3D12Resource_Release(resources[1]);
+
+            reset_command_list(context.list, context.allocator);
+        }
+
+        if (format_support.Support1 & D3D12_FORMAT_SUPPORT1_SHADER_LOAD)
+        {
+            for (j = 0; j < test_formats[i].plane_count; j++)
+            {
+                const struct plane_info *plane = &test_formats[i].planes[j];
+
+                init_pipeline_state_desc(&graphics_pso_desc, context.root_signature, plane->view_format, NULL, &ps_copy_simple_dxbc, NULL);
+                hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &graphics_pso_desc, &IID_ID3D12PipelineState, (void**)&graphics_psos[j]);
+                ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n");
+            }
+
+            /* Test reading image data via SRV */
+            for (j = 0; j < test_formats[i].plane_count; j++)
+            {
+                const struct plane_info *plane = &test_formats[i].planes[j];
+
+                format_subsample_log2(test_formats[i].format, j, &subsample_x_log2, &subsample_y_log2);
+
+                memset(&srv_desc, 0, sizeof(srv_desc));
+                srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+                srv_desc.Format = plane->view_format;
+                srv_desc.Texture2D.MostDetailedMip = 0;
+                srv_desc.Texture2D.MipLevels = 1;
+                srv_desc.Texture2D.PlaneSlice = j;
+                srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+
+                ID3D12Device_CreateShaderResourceView(context.device, resources[0], &srv_desc,
+                        get_cpu_descriptor_handle(&context, srv_uav_heap, 2 * j));
+
+                resource_desc.Format = plane->view_format;
+                resource_desc.Width = 4 >> subsample_x_log2;
+                resource_desc.Height = 4 >> subsample_y_log2;
+                resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+                hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                        &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void**)&resources[1]);
+                ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+                memset(&rtv_desc, 0, sizeof(rtv_desc));
+                rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+                rtv_desc.Format = plane->view_format;
+
+                ID3D12Device_CreateRenderTargetView(context.device, resources[1], &rtv_desc, rtv);
+
+                scissor.right = resource_desc.Width;
+                scissor.bottom = resource_desc.Height;
+
+                viewport.Width = (float)resource_desc.Width;
+                viewport.Height = (float)resource_desc.Height;
+
+                ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &rtv, FALSE, NULL);
+                ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &srv_uav_heap);
+                ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+                ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(context.list, 0,
+                        get_gpu_descriptor_handle(&context, srv_uav_heap, 2 * j));
+                ID3D12GraphicsCommandList_SetPipelineState(context.list, graphics_psos[j]);
+                ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+                ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &viewport);
+                ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &scissor);
+                ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+                transition_resource_state(context.list, resources[1], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+                get_texture_readback_with_command_list(resources[1], 0, &rb, context.queue, context.list);
+
+                resource_desc.Format = test_formats[i].format;
+                resource_desc.Width = 4;
+                resource_desc.Height = 4;
+                check_video_format_subresource(&rb, &resource_desc, j, plane->data, 0);
+
+                release_resource_readback(&rb);
+                reset_command_list(context.list, context.allocator);
+
+                ID3D12Resource_Release(resources[1]);
+            }
+
+            /* Test RTV */
+            if (!use_warp_device && (format_support.Support1 & D3D12_FORMAT_SUPPORT1_RENDER_TARGET))
+            {
+                resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+                hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                        &resource_desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL, &IID_ID3D12Resource, (void**)&resources[1]);
+                ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+                for (j = 0; j < test_formats[i].plane_count; j++)
+                {
+                    const struct plane_info *plane = &test_formats[i].planes[j];
+
+                    format_subsample_log2(test_formats[i].format, j, &subsample_x_log2, &subsample_y_log2);
+
+                    memset(&rtv_desc, 0, sizeof(rtv_desc));
+                    rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+                    rtv_desc.Format = plane->view_format;
+                    rtv_desc.Texture2D.MipSlice = 0;
+                    rtv_desc.Texture2D.PlaneSlice = j;
+
+                    ID3D12Device_CreateRenderTargetView(context.device, resources[1], &rtv_desc, rtv);
+
+                    scissor.right = resource_desc.Width >> subsample_x_log2;
+                    scissor.bottom = resource_desc.Height >> subsample_y_log2;
+
+                    viewport.Width = (float)scissor.right;
+                    viewport.Height = (float)scissor.bottom;
+
+                    ID3D12GraphicsCommandList_OMSetRenderTargets(context.list, 1, &rtv, FALSE, NULL);
+                    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &srv_uav_heap);
+                    ID3D12GraphicsCommandList_SetGraphicsRootSignature(context.list, context.root_signature);
+                    ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(context.list, 0,
+                            get_gpu_descriptor_handle(&context, srv_uav_heap, 2 * j));
+                    ID3D12GraphicsCommandList_SetPipelineState(context.list, graphics_psos[j]);
+                    ID3D12GraphicsCommandList_IASetPrimitiveTopology(context.list, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+                    ID3D12GraphicsCommandList_RSSetViewports(context.list, 1, &viewport);
+                    ID3D12GraphicsCommandList_RSSetScissorRects(context.list, 1, &scissor);
+                    ID3D12GraphicsCommandList_DrawInstanced(context.list, 3, 1, 0, 0);
+
+                    transition_sub_resource_state(context.list, resources[1], j,
+                            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+                    get_texture_readback_with_command_list(resources[1], j, &rb, context.queue, context.list);
+                    check_video_format_subresource(&rb, &resource_desc, j, plane->data, 0);
+                    release_resource_readback(&rb);
+
+                    reset_command_list(context.list, context.allocator);
+
+                    transition_sub_resource_state(context.list, resources[1], j,
+                            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+                    ID3D12GraphicsCommandList_ClearRenderTargetView(context.list, rtv, clear_color, 0, NULL);
+
+                    transition_sub_resource_state(context.list, resources[1], j,
+                            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+                    get_texture_readback_with_command_list(resources[1], j, &rb, context.queue, context.list);
+
+                    /* For some reason Nvidia just doesn't clear */
+                    bug_if(is_nvidia_device(context.device) && !j)
+                    check_video_format_subresource(&rb, &resource_desc, j, NULL, plane->expected_clear_value);
+
+                    release_resource_readback(&rb);
+
+                    reset_command_list(context.list, context.allocator);
+                }
+
+                ID3D12Resource_Release(resources[1]);
+            }
+            else
+            {
+                skip("RTV usage not supported for format %#x, skipping.\n", test_formats[i].format);
+            }
+
+            /* Test UAV */
+            if (!use_warp_device && (format_support.Support1 & D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW))
+            {
+                resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+                hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                        &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL, &IID_ID3D12Resource, (void**)&resources[1]);
+                ok(hr == S_OK, "Failed to create resource, hr %#x.\n", hr);
+
+                for (j = 0; j < test_formats[i].plane_count; j++)
+                {
+                    const struct plane_info *plane = &test_formats[i].planes[j];
+
+                    memset(&uav_desc, 0, sizeof(uav_desc));
+                    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+                    uav_desc.Format = plane->view_format;
+                    uav_desc.Texture2D.MipSlice = 0;
+                    uav_desc.Texture2D.PlaneSlice = j;
+
+                    ID3D12Device_CreateUnorderedAccessView(context.device, resources[1], NULL, &uav_desc,
+                            get_cpu_descriptor_handle(&context, srv_uav_heap, 2 * j + 1));
+
+                    ID3D12GraphicsCommandList_SetDescriptorHeaps(context.list, 1, &srv_uav_heap);
+                    ID3D12GraphicsCommandList_SetComputeRootSignature(context.list, context.root_signature);
+                    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(context.list, 0,
+                            get_gpu_descriptor_handle(&context, srv_uav_heap, 2 * j));
+                    ID3D12GraphicsCommandList_SetPipelineState(context.list, compute_pso);
+                    ID3D12GraphicsCommandList_Dispatch(context.list, 1, 1, 1);
+
+                    transition_sub_resource_state(context.list, resources[1], j,
+                            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+                    get_texture_readback_with_command_list(resources[1], j, &rb, context.queue, context.list);
+                    check_video_format_subresource(&rb, &resource_desc, j, plane->data, 0);
+                    release_resource_readback(&rb);
+
+                    reset_command_list(context.list, context.allocator);
+
+                    transition_sub_resource_state(context.list, resources[1], j,
+                            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+                    ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(context.list,
+                            get_gpu_descriptor_handle(&context, srv_uav_heap, 2 * j + 1),
+                            get_cpu_descriptor_handle(&context, srv_uav_heap, 2 * j + 1),
+                            resources[1], clear_color, 0, NULL);
+
+                    transition_sub_resource_state(context.list, resources[1], j,
+                            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+                    get_texture_readback_with_command_list(resources[1], j, &rb, context.queue, context.list);
+                    check_video_format_subresource(&rb, &resource_desc, j, NULL, plane->expected_clear_value);
+                    release_resource_readback(&rb);
+
+                    reset_command_list(context.list, context.allocator);
+
+                    transition_sub_resource_state(context.list, resources[1], j,
+                            D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+                    ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(context.list,
+                            get_gpu_descriptor_handle(&context, srv_uav_heap, 2 * j + 1),
+                            get_cpu_descriptor_handle(&context, srv_uav_heap, 2 * j + 1),
+                            resources[1], clear_color_uint, 0, NULL);
+
+                    transition_sub_resource_state(context.list, resources[1], j,
+                            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+                    get_texture_readback_with_command_list(resources[1], j, &rb, context.queue, context.list);
+                    check_video_format_subresource(&rb, &resource_desc, j, NULL, plane->expected_clear_value_uint);
+                    release_resource_readback(&rb);
+
+                    reset_command_list(context.list, context.allocator);
+                }
+
+                ID3D12Resource_Release(resources[1]);
+            }
+            else
+            {
+                skip("UAV usage not supported for format %#x, skipping.\n", test_formats[i].format);
+            }
+
+            for (j = 0; j < test_formats[i].plane_count; j++)
+                ID3D12PipelineState_Release(graphics_psos[j]);
+        }
+
+        ID3D12Resource_Release(resources[0]);
+    }
+
+    for (i = 0; i < ARRAY_SIZE(test_resource_descs); i++)
+    {
+        vkd3d_test_set_context("Test %u", i);
+
+        resources[0] = NULL;
+
+        memset(&format_support, 0, sizeof(format_support));
+        format_support.Format = test_resource_descs[i].format;
+
+        if (FAILED(ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_FORMAT_SUPPORT, &format_support, sizeof(format_support))))
+            continue;
+
+        memset(&heap_properties, 0, sizeof(heap_properties));
+        heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+        memset(&resource_desc, 0, sizeof(resource_desc));
+        resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        resource_desc.Format = test_resource_descs[i].format;
+        resource_desc.Width = test_resource_descs[i].width;
+        resource_desc.Height = test_resource_descs[i].height;
+        resource_desc.DepthOrArraySize = test_resource_descs[i].layers;
+        resource_desc.SampleDesc.Count = 1;
+        resource_desc.MipLevels = test_resource_descs[i].mips;
+        resource_desc.Layout = test_resource_descs[i].layout;
+
+        hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+                &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void**)&resources[0]);
+        ok(hr == test_resource_descs[i].expected_hr, "Got hr %#x, expected %#x.\n", hr, test_resource_descs[i].expected_hr);
+
+        if (resources[0])
+            ID3D12Resource_Release(resources[0]);
+    }
+
+    ID3D12DescriptorHeap_Release(rtv_heap);
+    ID3D12DescriptorHeap_Release(srv_uav_heap);
+
+    ID3D12PipelineState_Release(compute_pso);
+
+    destroy_test_context(&context);
+#undef MAX_PLANES
+}
