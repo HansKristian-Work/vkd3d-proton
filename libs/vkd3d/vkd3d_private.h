@@ -5448,25 +5448,6 @@ static inline bool d3d12_box_is_empty(const D3D12_BOX *box)
     return box->right <= box->left || box->bottom <= box->top || box->back <= box->front;
 }
 
-static inline unsigned int d3d12_resource_desc_get_width(const D3D12_RESOURCE_DESC1 *desc,
-        unsigned int miplevel_idx)
-{
-    return max(1, desc->Width >> miplevel_idx);
-}
-
-static inline unsigned int d3d12_resource_desc_get_height(const D3D12_RESOURCE_DESC1 *desc,
-        unsigned int miplevel_idx)
-{
-    return max(1, desc->Height >> miplevel_idx);
-}
-
-static inline unsigned int d3d12_resource_desc_get_depth(const D3D12_RESOURCE_DESC1 *desc,
-        unsigned int miplevel_idx)
-{
-    unsigned int d = desc->Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D ? 1 : desc->DepthOrArraySize;
-    return max(1, d >> miplevel_idx);
-}
-
 static inline unsigned int d3d12_resource_desc_get_layer_count(const D3D12_RESOURCE_DESC1 *desc)
 {
     return desc->Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D ? desc->DepthOrArraySize : 1;
@@ -5525,14 +5506,6 @@ static inline bool d3d12_resource_desc_is_sampler_feedback(const D3D12_RESOURCE_
 static inline unsigned int d3d12_resource_desc_get_active_level_count(const D3D12_RESOURCE_DESC1 *desc)
 {
     return d3d12_resource_desc_is_sampler_feedback(desc) ? 1 : desc->MipLevels;
-}
-
-static inline void vk_extent_3d_from_d3d12_miplevel(VkExtent3D *extent,
-        const D3D12_RESOURCE_DESC1 *resource_desc, unsigned int miplevel_idx)
-{
-    extent->width = d3d12_resource_desc_get_width(resource_desc, miplevel_idx);
-    extent->height = d3d12_resource_desc_get_height(resource_desc, miplevel_idx);
-    extent->depth = d3d12_resource_desc_get_depth(resource_desc, miplevel_idx);
 }
 
 static inline VkExtent3D d3d12_resource_desc_get_active_feedback_extent(const D3D12_RESOURCE_DESC1 *desc,
