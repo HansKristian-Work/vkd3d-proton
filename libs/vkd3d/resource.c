@@ -431,16 +431,14 @@ static VkImageLayout vk_common_image_layout_from_d3d12_desc(const struct d3d12_d
 }
 
 static bool vkd3d_sparse_image_may_have_mip_tail(const D3D12_RESOURCE_DESC1 *desc,
-        const VkSparseImageFormatProperties *sparse_info)
+        const struct vkd3d_format *format, const VkSparseImageFormatProperties *sparse_info)
 {
     VkExtent3D mip_extent, block_extent = sparse_info->imageGranularity;
     unsigned int mip_level;
 
     /* probe smallest mip level in the image */
     mip_level = desc->MipLevels - 1;
-    mip_extent.width = d3d12_resource_desc_get_width(desc, mip_level);
-    mip_extent.height = d3d12_resource_desc_get_height(desc, mip_level);
-    mip_extent.depth = d3d12_resource_desc_get_depth(desc, mip_level);
+    mip_extent = d3d12_resource_desc_get_subresource_extent(desc, format, mip_level);
 
     if (sparse_info->flags & VK_SPARSE_IMAGE_FORMAT_ALIGNED_MIP_SIZE_BIT)
     {
@@ -873,7 +871,7 @@ static HRESULT vkd3d_get_image_create_info(struct d3d12_device *device,
             if (sparse_infos[i].aspectMask & VK_IMAGE_ASPECT_METADATA_BIT)
                 continue;
 
-            if (vkd3d_sparse_image_may_have_mip_tail(desc, &sparse_infos[i]) && desc->DepthOrArraySize > 1 && desc->MipLevels > 1)
+            if (vkd3d_sparse_image_may_have_mip_tail(desc, format, &sparse_infos[i]) && desc->DepthOrArraySize > 1 && desc->MipLevels > 1)
             {
                 WARN("Multiple array layers not supported for sparse images with mip tail.\n");
                 return E_INVALIDARG;
@@ -1594,6 +1592,9 @@ static void d3d12_resource_get_tiling(struct d3d12_device *device, struct d3d12_
 
     memset(vk_info, 0, sizeof(*vk_info));
 
+    format = vkd3d_get_format(device, resource->desc.Format,
+            !!(resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL));
+
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
     {
         tile_count = align(desc->Width, VKD3D_TILE_SIZE) / VKD3D_TILE_SIZE;
@@ -1658,9 +1659,10 @@ static void d3d12_resource_get_tiling(struct d3d12_device *device, struct d3d12_
         for (i = 0; i < d3d12_resource_desc_get_sub_resource_count_per_plane(desc); i++)
         {
             unsigned int mip_level = i % desc->MipLevels;
-            unsigned int tile_count_w = align(d3d12_resource_desc_get_width(desc, mip_level), block_extent.width) / block_extent.width;
-            unsigned int tile_count_h = align(d3d12_resource_desc_get_height(desc, mip_level), block_extent.height) / block_extent.height;
-            unsigned int tile_count_d = align(d3d12_resource_desc_get_depth(desc, mip_level), block_extent.depth) / block_extent.depth;
+            VkExtent3D mip_extent = d3d12_resource_desc_get_subresource_extent(desc, format, mip_level);
+            unsigned int tile_count_w = align(mip_extent.width, block_extent.width) / block_extent.width;
+            unsigned int tile_count_h = align(mip_extent.height, block_extent.height) / block_extent.height;
+            unsigned int tile_count_d = align(mip_extent.depth, block_extent.depth) / block_extent.depth;
 
             if (mip_level < standard_mips)
             {
@@ -1737,9 +1739,6 @@ static void d3d12_resource_get_tiling(struct d3d12_device *device, struct d3d12_
 
         const struct standard_sizes *sizes = NULL;
 
-        format = vkd3d_get_format(device, resource->desc.Format,
-                !!(resource->desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL));
-
         for (i = 0; i < ARRAY_SIZE(size_table) && !sizes; i++)
             if (size_table[i].byte_count == format->byte_count && desc->SampleDesc.Count == size_table[i].samples)
                 sizes = &size_table[i];
@@ -1774,8 +1773,9 @@ static void d3d12_resource_get_tiling(struct d3d12_device *device, struct d3d12_
         for (i = 0; i < d3d12_resource_desc_get_sub_resource_count_per_plane(desc); i++)
         {
             unsigned int mip_level = i % desc->MipLevels;
-            unsigned int tile_count_w = align(d3d12_resource_desc_get_width(desc, mip_level), block_extent.width) / block_extent.width;
-            unsigned int tile_count_h = align(d3d12_resource_desc_get_height(desc, mip_level), block_extent.height) / block_extent.height;
+            VkExtent3D mip_extent = d3d12_resource_desc_get_subresource_extent(desc, format, mip_level);
+            unsigned int tile_count_w = align(mip_extent.width, block_extent.width) / block_extent.width;
+            unsigned int tile_count_h = align(mip_extent.height, block_extent.height) / block_extent.height;
 
             tilings[i].WidthInTiles = tile_count_w;
             tilings[i].HeightInTiles = tile_count_h;
@@ -3118,6 +3118,7 @@ static HRESULT d3d12_resource_init_sparse_info(struct d3d12_resource *resource,
         {
             struct d3d12_sparse_image_region *region = &sparse->tiles[i].image;
             VkExtent3D block_extent = vk_memory_requirements.formatProperties.imageGranularity;
+            VkImageSubresourceLayers vk_subresource_layers;
             VkExtent3D mip_extent;
 
             assert(subresource < sparse->tiling_count && sparse->tilings[subresource].WidthInTiles &&
@@ -3132,9 +3133,8 @@ static HRESULT d3d12_resource_init_sparse_info(struct d3d12_resource *resource,
             region->offset.y = tile_offset.y * block_extent.height;
             region->offset.z = tile_offset.z * block_extent.depth;
 
-            mip_extent.width = d3d12_resource_desc_get_width(&resource->desc, region->subresource.mipLevel);
-            mip_extent.height = d3d12_resource_desc_get_height(&resource->desc, region->subresource.mipLevel);
-            mip_extent.depth = d3d12_resource_desc_get_depth(&resource->desc, region->subresource.mipLevel);
+            vk_subresource_layers = vk_subresource_layers_from_subresource(&region->subresource);
+            mip_extent = d3d12_resource_desc_get_vk_subresource_extent(&resource->desc, NULL, &vk_subresource_layers);
 
             region->extent.width = min(block_extent.width, mip_extent.width - region->offset.x);
             region->extent.height = min(block_extent.height, mip_extent.height - region->offset.y);
