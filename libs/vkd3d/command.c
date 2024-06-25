@@ -7431,8 +7431,7 @@ static void vk_buffer_image_copy_from_d3d12(VkBufferImageCopy2 *copy,
     copy->imageOffset.y = dst_y;
     copy->imageOffset.z = dst_z;
 
-    vk_extent_3d_from_d3d12_miplevel(&copy->imageExtent, image_desc,
-            copy->imageSubresource.mipLevel);
+    copy->imageExtent = d3d12_resource_desc_get_vk_subresource_extent(image_desc, dst_format, &copy->imageSubresource);
     copy->imageExtent.width -= copy->imageOffset.x;
     copy->imageExtent.height -= copy->imageOffset.y;
     copy->imageExtent.depth -= copy->imageOffset.z;
@@ -7478,8 +7477,7 @@ static void vk_image_buffer_copy_from_d3d12(VkBufferImageCopy2 *copy,
     }
     else
     {
-        unsigned int miplevel = copy->imageSubresource.mipLevel;
-        vk_extent_3d_from_d3d12_miplevel(&copy->imageExtent, image_desc, miplevel);
+        copy->imageExtent = d3d12_resource_desc_get_vk_subresource_extent(image_desc, src_format, &copy->imageSubresource);
     }
 }
 
@@ -7500,8 +7498,8 @@ static bool vk_image_copy_from_d3d12(VkImageCopy2 *image_copy,
             dst_format, dst_sub_resource_idx, dst_desc->MipLevels,
             d3d12_resource_desc_get_layer_count(dst_desc));
 
-    vk_extent_3d_from_d3d12_miplevel(&srcExtent, src_desc, image_copy->srcSubresource.mipLevel);
-    vk_extent_3d_from_d3d12_miplevel(&dstExtent, dst_desc, image_copy->dstSubresource.mipLevel);
+    srcExtent = d3d12_resource_desc_get_vk_subresource_extent(src_desc, src_format, &image_copy->srcSubresource);
+    dstExtent = d3d12_resource_desc_get_vk_subresource_extent(dst_desc, dst_format, &image_copy->dstSubresource);
 
     image_copy->dstOffset.x = min(dst_x, dstExtent.width);
     image_copy->dstOffset.y = min(dst_y, dstExtent.height);
@@ -9333,8 +9331,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresource(d3d12_comman
             dst_resource->desc.MipLevels,
             d3d12_resource_desc_get_layer_count(&dst_resource->desc));
     memset(&vk_image_resolve.dstOffset, 0, sizeof(vk_image_resolve.dstOffset));
-    vk_extent_3d_from_d3d12_miplevel(&vk_image_resolve.extent,
-            &dst_resource->desc, vk_image_resolve.dstSubresource.mipLevel);
+    vk_image_resolve.extent = d3d12_resource_desc_get_vk_subresource_extent(
+            &dst_resource->desc, dst_resource->format, &vk_image_resolve.dstSubresource);
 
     vk_image_resolve.sType = VK_STRUCTURE_TYPE_IMAGE_RESOLVE_2_KHR;
     vk_image_resolve.pNext = NULL;
@@ -14761,7 +14759,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ResolveSubresourceRegion(d3d12_
     else
     {
         memset(&src_offset, 0, sizeof(src_offset));
-        vk_extent_3d_from_d3d12_miplevel(&extent, &src_resource->desc, src_subresource.mipLevel);
+        extent = d3d12_resource_desc_get_vk_subresource_extent(&src_resource->desc, src_resource->format, &src_subresource);
     }
 
     dst_offset.x = (int32_t)dst_x;
