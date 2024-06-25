@@ -11508,14 +11508,14 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
         const VkClearColorValue *clear_color, UINT rect_count, const D3D12_RECT *rects)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    VkExtent3D workgroup_size, workgroup_count;
-    unsigned int i, j, miplevel_idx, layer_count;
+    VkExtent3D workgroup_size, workgroup_count, view_extent;
     struct vkd3d_clear_uav_pipeline pipeline;
     struct vkd3d_clear_uav_args clear_args;
     VkDescriptorBufferInfo buffer_info;
     VkDescriptorImageInfo image_info;
     D3D12_RECT full_rect, curr_rect;
     VkWriteDescriptorSet write_set;
+    unsigned int i, j, layer_count;
     uint32_t max_workgroup_count;
     bool sampler_feedback_clear;
 
@@ -11542,12 +11542,11 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     else
         clear_args.clear_color = *clear_color;
 
+    memset(&write_set, 0, sizeof(write_set));
     write_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write_set.pNext = NULL;
-    write_set.dstBinding = 0;
-    write_set.dstArrayElement = 0;
     write_set.descriptorCount = 1;
-    write_set.dstSet = VK_NULL_HANDLE;
+
+    memset(&full_rect, 0, sizeof(full_rect));
 
     if (d3d12_resource_is_texture(resource))
     {
@@ -11559,13 +11558,21 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
 
         write_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         write_set.pImageInfo = &image_info;
-        write_set.pBufferInfo = NULL;
-        write_set.pTexelBufferView = NULL;
 
-        miplevel_idx = args->u.view->info.texture.miplevel_idx;
+        view_extent = d3d12_resource_get_view_subresource_extent(resource, args->u.view);
+
+        full_rect.right = view_extent.width;
+        full_rect.bottom = view_extent.height;
+
         layer_count = args->u.view->info.texture.vk_view_type == VK_IMAGE_VIEW_TYPE_3D
-                ? d3d12_resource_desc_get_depth(&resource->desc, miplevel_idx)
-                : args->u.view->info.texture.layer_count;
+                ? view_extent.depth : args->u.view->info.texture.layer_count;
+
+        if (sampler_feedback_clear)
+        {
+            VkExtent3D padded = d3d12_resource_desc_get_padded_feedback_extent(&resource->desc);
+            full_rect.right = padded.width;
+            full_rect.bottom = padded.height;
+        }
 
         /* Robustness would take care of it, but no reason to spam more threads than needed. */
         if (args->u.view->info.texture.vk_view_type == VK_IMAGE_VIEW_TYPE_3D)
@@ -11585,17 +11592,20 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     }
     else
     {
-        write_set.pImageInfo = NULL;
-        write_set.pBufferInfo = NULL;
-        write_set.pTexelBufferView = NULL;
+        full_rect.bottom = 1;
 
         if (args->has_view)
         {
+            VkDeviceSize byte_count = args->u.view->format->byte_count;
+            full_rect.right = args->u.view->info.buffer.size / byte_count;
+
             write_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
             write_set.pTexelBufferView = &args->u.view->vk_buffer_view;
         }
         else
         {
+            full_rect.right = args->u.buffer.range / sizeof(uint32_t);
+
             write_set.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             write_set.pBufferInfo = &buffer_info;
             /* resource heap offset is already in descriptor */
@@ -11604,35 +11614,11 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
             buffer_info.range = args->u.buffer.range;
         }
 
-        miplevel_idx = 0;
         layer_count = 1;
         pipeline = vkd3d_meta_get_clear_buffer_uav_pipeline(&list->device->meta_ops,
                 !args->has_view || args->u.view->format->type == VKD3D_FORMAT_TYPE_UINT,
                 !args->has_view);
         workgroup_size = vkd3d_meta_get_clear_buffer_uav_workgroup_size();
-    }
-
-    full_rect.left = 0;
-    full_rect.right = d3d12_resource_desc_get_width(&resource->desc, miplevel_idx);
-    full_rect.top = 0;
-    full_rect.bottom = d3d12_resource_desc_get_height(&resource->desc, miplevel_idx);
-
-    if (sampler_feedback_clear)
-    {
-        VkExtent3D padded = d3d12_resource_desc_get_padded_feedback_extent(&resource->desc);
-        full_rect.right = padded.width;
-        full_rect.bottom = padded.height;
-    }
-
-    if (d3d12_resource_is_buffer(resource))
-    {
-        if (args->has_view)
-        {
-            VkDeviceSize byte_count = args->u.view->format->byte_count;
-            full_rect.right = args->u.view->info.buffer.size / byte_count;
-        }
-        else
-            full_rect.right = args->u.buffer.range / sizeof(uint32_t);
     }
 
     /* clear full resource if no rects are specified */
@@ -11690,7 +11676,7 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
         const struct vkd3d_format *format, UINT rect_count, const D3D12_RECT *rects)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
-    unsigned int miplevel_idx, base_layer, layer_count, i, j;
+    unsigned int base_layer, layer_count, i, j;
     struct vkd3d_clear_uav_pipeline pipeline;
     struct vkd3d_scratch_allocation scratch;
     struct vkd3d_clear_uav_args clear_args;
@@ -11703,6 +11689,7 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     VkExtent3D workgroup_size;
     VkDependencyInfo dep_info;
     VkMemoryBarrier2 barrier;
+    VkExtent3D view_extent;
     uint32_t element_count;
 
     d3d12_command_list_track_resource_usage(list, resource, true);
@@ -11716,12 +11703,12 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     assert(args->has_view);
     assert(d3d12_resource_is_texture(resource));
 
-    miplevel_idx = args->u.view->info.texture.miplevel_idx;
+    view_extent = d3d12_resource_get_view_subresource_extent(resource, args->u.view);
 
     full_rect.left = 0;
-    full_rect.right = d3d12_resource_desc_get_width(&resource->desc, miplevel_idx);
+    full_rect.right = view_extent.width;
     full_rect.top = 0;
-    full_rect.bottom = d3d12_resource_desc_get_height(&resource->desc, miplevel_idx);
+    full_rect.bottom = view_extent.height;
 
     if (rect_count)
     {
@@ -11742,7 +11729,7 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
         element_count = full_rect.right * full_rect.bottom;
     }
 
-    element_count *= d3d12_resource_desc_get_depth(&resource->desc, miplevel_idx);
+    element_count *= view_extent.depth;
     scratch_buffer_size = element_count * format->byte_count;
 
     if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
@@ -11821,7 +11808,7 @@ static void d3d12_command_list_clear_uav_with_copy(struct d3d12_command_list *li
     if (args->u.view->info.texture.vk_view_type == VK_IMAGE_VIEW_TYPE_3D)
     {
         base_layer = args->u.view->info.texture.w_offset;
-        layer_count = d3d12_resource_desc_get_depth(&resource->desc, miplevel_idx);
+        layer_count = view_extent.depth;
         layer_count = min(layer_count - args->u.view->info.texture.w_offset, args->u.view->info.texture.w_size);
         if (layer_count >= 0x80000000u)
         {
