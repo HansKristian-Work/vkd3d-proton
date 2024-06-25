@@ -28,9 +28,23 @@
 #define DEPTH         (VK_IMAGE_ASPECT_DEPTH_BIT)
 #define STENCIL       (VK_IMAGE_ASPECT_STENCIL_BIT)
 #define DEPTH_STENCIL (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)
+#define PLANAR        (VK_IMAGE_ASPECT_PLANE_0_BIT | VK_IMAGE_ASPECT_PLANE_1_BIT)
 #define TYPELESS      VKD3D_FORMAT_TYPE_TYPELESS
 #define SINT          VKD3D_FORMAT_TYPE_SINT
 #define UINT          VKD3D_FORMAT_TYPE_UINT
+
+static const struct vkd3d_format_footprint nv12_copy_footprints[] =
+{
+    { DXGI_FORMAT_R8_TYPELESS, 1, 1, 1, 0, 0 },
+    { DXGI_FORMAT_R8G8_TYPELESS, 1, 1, 2, 1, 1 },
+};
+
+static const struct vkd3d_format_footprint p016_copy_footprints[] =
+{
+    { DXGI_FORMAT_R16_TYPELESS, 1, 1, 2, 0, 0 },
+    { DXGI_FORMAT_R16G16_TYPELESS, 1, 1, 4, 1, 1 },
+};
+
 static const struct vkd3d_format vkd3d_formats[] =
 {
     {DXGI_FORMAT_R32G32B32A32_TYPELESS, VK_FORMAT_R32G32B32A32_SFLOAT,      16, 1, 1,  1, COLOR, 1, TYPELESS},
@@ -122,6 +136,11 @@ static const struct vkd3d_format vkd3d_formats[] =
     {DXGI_FORMAT_BC7_UNORM_SRGB,        VK_FORMAT_BC7_SRGB_BLOCK,           1,  4, 4, 16, COLOR, 1},
     {DXGI_FORMAT_B4G4R4A4_UNORM,        VK_FORMAT_A4R4G4B4_UNORM_PACK16,    2,  1, 1,  1, COLOR, 1},
     {DXGI_FORMAT_A4B4G4R4_UNORM,        VK_FORMAT_R4G4B4A4_UNORM_PACK16,    2,  1, 1,  1, COLOR, 1},
+
+    {DXGI_FORMAT_NV12,                  VK_FORMAT_G8_B8R8_2PLANE_420_UNORM, 0,  1, 1,  1, PLANAR, 2, TYPELESS, false, nv12_copy_footprints},
+    /* P010 and P016 are functionally equivalent, there is no way to interpret data as R10X6 in D3D. */
+    {DXGI_FORMAT_P010,                  VK_FORMAT_G16_B16R16_2PLANE_420_UNORM, 0,  1, 1,  1, PLANAR, 2, TYPELESS, false, p016_copy_footprints},
+    {DXGI_FORMAT_P016,                  VK_FORMAT_G16_B16R16_2PLANE_420_UNORM, 0,  1, 1,  1, PLANAR, 2, TYPELESS, false, p016_copy_footprints},
 
     {DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE, VK_FORMAT_R32G32_UINT, 8,  1, 1,  1, COLOR, 1},
     {DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE, VK_FORMAT_R32G32_UINT, 8,  1, 1,  1, COLOR, 1},
@@ -387,6 +406,13 @@ dxgi_format_compatibility_list[] =
             {DXGI_FORMAT_BC7_UNORM_SRGB}},
     {DXGI_FORMAT_BC7_UNORM_SRGB,
             {DXGI_FORMAT_BC7_UNORM}},
+
+    {DXGI_FORMAT_NV12,
+            {DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UINT, DXGI_FORMAT_R8G8_UNORM, DXGI_FORMAT_R8G8_UINT}},
+    {DXGI_FORMAT_P010,
+            {DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R16G16_UNORM, DXGI_FORMAT_R16G16_UINT}},
+    {DXGI_FORMAT_P016,
+            {DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R16G16_UNORM, DXGI_FORMAT_R16G16_UINT}},
 
     /* Internal implementation detail. We desire 64-bit atomics and R32G32 UAV will trigger that compat
      * similar to other 64-bit images. */
