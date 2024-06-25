@@ -3274,8 +3274,8 @@ static size_t vkd3d_compute_resource_layouts_from_desc(struct d3d12_device *devi
     struct vkd3d_format_footprint format_footprint;
     const struct vkd3d_format *format;
     unsigned int i, subresource_count;
-    uint32_t plane_idx, mip_idx;
     VkExtent3D block_count;
+    uint32_t plane_idx;
     size_t offset = 0;
 
     subresource_count = d3d12_resource_desc_get_sub_resource_count(device, desc);
@@ -3284,13 +3284,11 @@ static size_t vkd3d_compute_resource_layouts_from_desc(struct d3d12_device *devi
     for (i = 0; i < subresource_count; i++)
     {
         plane_idx = i / d3d12_resource_desc_get_sub_resource_count_per_plane(desc);
-        mip_idx = i % desc->MipLevels;
-
         format_footprint = vkd3d_format_footprint_for_plane(format, plane_idx);
 
-        block_count.width = align(d3d12_resource_desc_get_width(desc, mip_idx + format_footprint.subsample_x_log2), format_footprint.block_width) / format_footprint.block_width;
-        block_count.height = align(d3d12_resource_desc_get_height(desc, mip_idx + format_footprint.subsample_y_log2), format_footprint.block_height) / format_footprint.block_height;
-        block_count.depth = d3d12_resource_desc_get_depth(desc, mip_idx);
+        block_count = d3d12_resource_desc_get_subresource_extent(desc, format, i);
+        block_count.width = align(block_count.width, format_footprint.block_width) / format_footprint.block_width;
+        block_count.height = align(block_count.height, format_footprint.block_height) / format_footprint.block_height;
 
         if (layouts)
         {
