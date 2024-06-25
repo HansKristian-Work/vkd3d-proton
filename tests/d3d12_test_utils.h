@@ -397,7 +397,6 @@ static inline unsigned int format_size(DXGI_FORMAT format)
     {
         case DXGI_FORMAT_R32G32B32A32_FLOAT:
         case DXGI_FORMAT_R32G32B32A32_UINT:
-        case DXGI_FORMAT_R8G8_UNORM:
             return 16;
         case DXGI_FORMAT_R16G16B16A16_TYPELESS:
         case DXGI_FORMAT_R32G32_UINT:
@@ -423,6 +422,11 @@ static inline unsigned int format_size(DXGI_FORMAT format)
         case DXGI_FORMAT_R8G8B8A8_SNORM:
         case DXGI_FORMAT_B8G8R8A8_UNORM:
             return 4;
+        case DXGI_FORMAT_R8G8_TYPELESS:
+        case DXGI_FORMAT_R8G8_UNORM:
+        case DXGI_FORMAT_R8G8_SNORM:
+        case DXGI_FORMAT_R8G8_UINT:
+        case DXGI_FORMAT_R8G8_SINT:
         case DXGI_FORMAT_R16_FLOAT:
         case DXGI_FORMAT_R16_UNORM:
         case DXGI_FORMAT_R16_UINT:
@@ -453,6 +457,9 @@ static inline unsigned int format_size(DXGI_FORMAT format)
         case DXGI_FORMAT_BC4_SNORM:
             return 8;
 
+        case DXGI_FORMAT_420_OPAQUE:
+            return 1;
+
         default:
             trace("Unhandled format %#x.\n", format);
             return 1;
@@ -467,6 +474,9 @@ static inline unsigned int format_num_planes(DXGI_FORMAT format)
         case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
         case DXGI_FORMAT_R24G8_TYPELESS:
         case DXGI_FORMAT_R32G8X24_TYPELESS:
+        case DXGI_FORMAT_NV12:
+        case DXGI_FORMAT_P010:
+        case DXGI_FORMAT_P016:
             return 2;
 
         default:
@@ -485,6 +495,13 @@ static inline unsigned int format_size_planar(DXGI_FORMAT format, unsigned int p
         case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
             return plane ? 1 : 4;
 
+        case DXGI_FORMAT_NV12:
+            return plane ? 2 : 1;
+
+        case DXGI_FORMAT_P010:
+        case DXGI_FORMAT_P016:
+            return plane ? 4 : 2;
+
         default:
             return format_size(format);
     }
@@ -500,6 +517,16 @@ static inline unsigned int format_to_footprint_format(DXGI_FORMAT format, unsign
         case DXGI_FORMAT_R32G8X24_TYPELESS:
         case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
             return plane ? DXGI_FORMAT_R8_TYPELESS : DXGI_FORMAT_R32_TYPELESS;
+
+        case DXGI_FORMAT_NV12:
+            return plane ? DXGI_FORMAT_R8G8_TYPELESS : DXGI_FORMAT_R8_TYPELESS;
+
+        case DXGI_FORMAT_P010:
+        case DXGI_FORMAT_P016:
+            return plane ? DXGI_FORMAT_R16G16_TYPELESS : DXGI_FORMAT_R16_TYPELESS;
+
+        case DXGI_FORMAT_420_OPAQUE:
+            return DXGI_FORMAT_R8_TYPELESS;
 
         default:
             return format;
@@ -554,6 +581,21 @@ static inline unsigned int format_block_height(DXGI_FORMAT format)
     }
 }
 
+static inline void format_subsample_log2(DXGI_FORMAT format, unsigned int plane, unsigned int *x, unsigned int *y)
+{
+    switch (format)
+    {
+        case DXGI_FORMAT_NV12:
+        case DXGI_FORMAT_P010:
+        case DXGI_FORMAT_P016:
+            *x = *y = plane;
+            break;
+
+        default:
+            *x = *y = 0;
+    }
+}
+
 struct resource_readback
 {
     uint64_t width;
@@ -568,6 +610,7 @@ static inline void get_texture_readback_with_command_list(ID3D12Resource *textur
         struct resource_readback *rb, ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list)
 {
     D3D12_TEXTURE_COPY_LOCATION dst_location, src_location;
+    unsigned int subsample_x_log2, subsample_y_log2;
     D3D12_HEAP_PROPERTIES heap_properties;
     unsigned int miplevel, plane, layers;
     D3D12_RESOURCE_DESC resource_desc;
@@ -588,9 +631,10 @@ static inline void get_texture_readback_with_command_list(ID3D12Resource *textur
     layers = resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D ?
         1 : resource_desc.DepthOrArraySize;
     plane = sub_resource / (resource_desc.MipLevels * layers);
-    rb->width = max(1, resource_desc.Width >> miplevel);
+    format_subsample_log2(resource_desc.Format, plane, &subsample_x_log2, &subsample_y_log2);
+    rb->width = max(1, resource_desc.Width >> (miplevel + subsample_x_log2));
     rb->width = align(rb->width, format_block_width(resource_desc.Format));
-    rb->height = max(1, resource_desc.Height >> miplevel);
+    rb->height = max(1, resource_desc.Height >> (miplevel + subsample_y_log2));
     rb->height = align(rb->height, format_block_height(resource_desc.Format));
     rb->depth = resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
             ? max(1, resource_desc.DepthOrArraySize >> miplevel) : 1;
