@@ -1160,6 +1160,7 @@ struct vkd3d_view
         struct
         {
             VkImageViewType vk_view_type;
+            VkImageAspectFlags aspect_mask;
             unsigned int miplevel_idx;
             unsigned int layer_idx;
             unsigned int layer_count;
@@ -5429,7 +5430,7 @@ static inline VkImageSubresourceLayers vk_subresource_layers_from_subresource(co
 static inline VkImageSubresourceLayers vk_subresource_layers_from_view(const struct vkd3d_view *view)
 {
     VkImageSubresourceLayers layers;
-    layers.aspectMask = view->format->vk_aspect_mask;
+    layers.aspectMask = view->info.texture.aspect_mask;
     layers.mipLevel = view->info.texture.miplevel_idx;
     layers.baseArrayLayer = view->info.texture.layer_idx;
     layers.layerCount = view->info.texture.layer_count;

@@ -3033,7 +3033,8 @@ static int d3d12_command_list_find_attachment_view(struct d3d12_command_list *li
         if (!list->rendering_info.dsv.imageView)
             return -1;
 
-        if (dsv->info.texture.miplevel_idx == subresource->mipLevel &&
+        if (dsv->info.texture.aspect_mask == subresource->aspectMask &&
+                dsv->info.texture.miplevel_idx == subresource->mipLevel &&
                 dsv->info.texture.layer_idx == subresource->baseArrayLayer &&
                 dsv->info.texture.layer_count == subresource->layerCount)
             return D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT;
@@ -3050,7 +3051,8 @@ static int d3d12_command_list_find_attachment_view(struct d3d12_command_list *li
             if (list->rtvs[i].resource != resource)
                 continue;
 
-            if (rtv->info.texture.miplevel_idx == subresource->mipLevel &&
+            if (rtv->info.texture.aspect_mask == subresource->aspectMask &&
+                    rtv->info.texture.miplevel_idx == subresource->mipLevel &&
                     rtv->info.texture.layer_idx == subresource->baseArrayLayer &&
                     rtv->info.texture.layer_count == subresource->layerCount)
                 return i;
@@ -4152,7 +4154,7 @@ static void d3d12_command_list_emit_render_pass_transition(struct d3d12_command_
 
             if (rtv->resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
             {
-                vk_subresource_layers.aspectMask = rtv->format->vk_aspect_mask;
+                vk_subresource_layers.aspectMask = rtv->view->info.texture.aspect_mask;
                 vk_subresource_layers.mipLevel = rtv->view->info.texture.miplevel_idx;
                 vk_subresource_layers.baseArrayLayer = rtv->view->info.texture.layer_idx;
                 vk_subresource_layers.layerCount = rtv->view->info.texture.layer_count;
@@ -11268,7 +11270,7 @@ static bool vkd3d_rtv_and_aspects_fully_cover_resource(const struct d3d12_resour
         const struct vkd3d_view *view, VkImageAspectFlags clear_aspects)
 {
     /* Check that we're clearing all aspects. */
-    return view->format->vk_aspect_mask == clear_aspects &&
+    return resource->format->vk_aspect_mask == clear_aspects &&
             resource->desc.MipLevels == 1 &&
             view->info.texture.layer_idx == 0 &&
             view->info.texture.layer_count >= resource->desc.DepthOrArraySize; /* takes care of REMAINING_LAYERS as well. */
@@ -11324,6 +11326,8 @@ static void d3d12_command_list_clear_attachment(struct d3d12_command_list *list,
     int attachment_idx;
     unsigned int i;
 
+    vk_subresource_layers = vk_subresource_layers_from_view(view);
+
     /* If one of the clear rectangles covers the entire image, we
      * may be able to use a fast path and re-initialize the image */
     full_rect = d3d12_get_image_rect(resource, view->info.texture.miplevel_idx);
@@ -11366,10 +11370,11 @@ static void d3d12_command_list_clear_attachment(struct d3d12_command_list *list,
 
     if (resource->flags & VKD3D_RESOURCE_LINEAR_STAGING_COPY)
     {
-        vk_subresource_layers.aspectMask = clear_aspects;
-        vk_subresource_layers.mipLevel = view->info.texture.miplevel_idx;
-        vk_subresource_layers.baseArrayLayer = view->info.texture.layer_idx;
-        vk_subresource_layers.layerCount = view->info.texture.layer_count;
+        /* For depth-stencil images, only mark the cleared aspects as dirty.
+         * Don't apply this to planar images since clear aspect will always
+         * be COLOR in those cases. */
+        if (clear_aspects & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+            vk_subresource_layers.aspectMask = clear_aspects;
 
         d3d12_command_list_update_subresource_data(list, resource, vk_subresource_layers);
     }
@@ -12117,7 +12122,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
             view_desc.layer_count = base_view->info.texture.layer_count;
             view_desc.w_offset = base_view->info.texture.w_offset;
             view_desc.w_size = base_view->info.texture.w_size;
-            view_desc.aspect_mask = view_desc.format->vk_aspect_mask;
+            view_desc.aspect_mask = base_view->info.texture.aspect_mask;
             view_desc.image_usage = VK_IMAGE_USAGE_STORAGE_BIT;
             view_desc.allowed_swizzle = false;
 

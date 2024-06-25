@@ -1103,6 +1103,7 @@ static uint32_t vkd3d_view_entry_hash(const void *key)
         case VKD3D_VIEW_TYPE_IMAGE:
             hash = hash_uint64((uint64_t)k->u.texture.image);
             hash = hash_combine(hash, k->u.texture.view_type);
+            hash = hash_combine(hash, k->u.texture.aspect_mask);
             hash = hash_combine(hash, (uintptr_t)k->u.texture.format);
             hash = hash_combine(hash, k->u.texture.miplevel_idx);
             hash = hash_combine(hash, k->u.texture.miplevel_count);
@@ -1167,6 +1168,7 @@ static bool vkd3d_view_entry_compare(const void *key, const struct hash_map_entr
         case VKD3D_VIEW_TYPE_IMAGE:
             return k->u.texture.image == e->key.u.texture.image &&
                     k->u.texture.view_type == e->key.u.texture.view_type &&
+                    k->u.texture.aspect_mask == e->key.u.texture.aspect_mask &&
                     k->u.texture.format == e->key.u.texture.format &&
                     k->u.texture.miplevel_idx == e->key.u.texture.miplevel_idx &&
                     k->u.texture.miplevel_count == e->key.u.texture.miplevel_count &&
@@ -4769,6 +4771,7 @@ bool vkd3d_create_texture_view(struct d3d12_device *device, const struct vkd3d_t
     object->vk_image_view = vk_view;
     object->format = format;
     object->info.texture.vk_view_type = desc->view_type;
+    object->info.texture.aspect_mask = desc->aspect_mask;
     object->info.texture.miplevel_idx = desc->miplevel_idx;
     object->info.texture.layer_idx = desc->layer_idx;
     object->info.texture.layer_count = desc->layer_count;
