@@ -8227,11 +8227,13 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
     struct d3d12_resource *dst_resource, *src_resource;
     const struct vkd3d_vk_device_procs *vk_procs;
     VkBufferCopy2 vk_buffer_copy;
+    unsigned int subresource_idx;
     VkCopyBufferInfo2 copy_info;
     VkImageCopy2 vk_image_copy;
     unsigned int layer_count;
     unsigned int level_count;
-    unsigned int i;
+    unsigned int plane_count;
+    unsigned int i, j;
 
     TRACE("iface %p, dst_resource %p, src_resource %p.\n", iface, dst, src);
 
@@ -8280,33 +8282,46 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
     {
         layer_count = d3d12_resource_desc_get_layer_count(&dst_resource->desc);
         level_count = d3d12_resource_desc_get_active_level_count(&dst_resource->desc);
+        plane_count = 1;
+
+        if (dst_resource->format->vk_aspect_mask & VK_IMAGE_ASPECT_PLANE_0_BIT)
+            plane_count = dst_resource->format->plane_count;
 
         assert(d3d12_resource_is_texture(dst_resource));
         assert(d3d12_resource_is_texture(src_resource));
         assert(level_count == d3d12_resource_desc_get_active_level_count(&src_resource->desc));
         assert(layer_count == d3d12_resource_desc_get_layer_count(&src_resource->desc));
 
-        for (i = 0; i < level_count; ++i)
+        for (j = 0; j < plane_count; j++)
         {
-            if (!vk_image_copy_from_d3d12(&vk_image_copy, i, i,
-                    &src_resource->desc, &dst_resource->desc, src_resource->format, dst_resource->format, NULL, 0, 0, 0))
+            for (i = 0; i < level_count; ++i)
             {
-                WARN("Degenerate copy for level %u, skipping.\n", i);
-                continue;
+                subresource_idx = i + j * d3d12_resource_desc_get_sub_resource_count_per_plane(&dst_resource->desc);
+
+                if (!vk_image_copy_from_d3d12(&vk_image_copy, subresource_idx, subresource_idx,
+                        &src_resource->desc, &dst_resource->desc, src_resource->format, dst_resource->format, NULL, 0, 0, 0))
+                {
+                    WARN("Degenerate copy for level %u, skipping.\n", i);
+                    continue;
+                }
+
+                /* Copying sampler feedback is only allowed in CopyResource. */
+                if (d3d12_resource_desc_is_sampler_feedback(&src_resource->desc))
+                    vk_image_copy.extent = d3d12_resource_desc_get_padded_feedback_extent(&src_resource->desc);
+
+                vk_image_copy.dstSubresource.layerCount = layer_count;
+                vk_image_copy.srcSubresource.layerCount = layer_count;
+
+                if (plane_count == 1)
+                {
+                    vk_image_copy.dstSubresource.aspectMask = dst_resource->format->vk_aspect_mask;
+                    vk_image_copy.srcSubresource.aspectMask = src_resource->format->vk_aspect_mask;
+                }
+
+                /* CopyResource() always copies all subresources, so we can safely discard the dst_resource contents. */
+                d3d12_command_list_copy_image(list, dst_resource, dst_resource->format,
+                        src_resource, src_resource->format, &vk_image_copy, true, false);
             }
-
-            /* Copying sampler feedback is only allowed in CopyResource. */
-            if (d3d12_resource_desc_is_sampler_feedback(&src_resource->desc))
-                vk_image_copy.extent = d3d12_resource_desc_get_padded_feedback_extent(&src_resource->desc);
-
-            vk_image_copy.dstSubresource.layerCount = layer_count;
-            vk_image_copy.srcSubresource.layerCount = layer_count;
-            vk_image_copy.dstSubresource.aspectMask = dst_resource->format->vk_aspect_mask;
-            vk_image_copy.srcSubresource.aspectMask = src_resource->format->vk_aspect_mask;
-
-            /* CopyResource() always copies all subresources, so we can safely discard the dst_resource contents. */
-            d3d12_command_list_copy_image(list, dst_resource, dst_resource->format,
-                    src_resource, src_resource->format, &vk_image_copy, true, false);
         }
     }
 
