@@ -7561,7 +7561,14 @@ static void d3d12_command_list_copy_image(struct d3d12_command_list *list,
     unsigned int i;
     HRESULT hr;
 
-    use_copy = dst_format->vk_aspect_mask == src_format->vk_aspect_mask;
+    /* Individual aspects of planar images are treated as-if they were using a view-compatible
+     * format, so we can copy between planes and color images as long as the formats are of the
+     * same size. */
+    static const VkImageAspectFlags compatible_aspects = VK_IMAGE_ASPECT_COLOR_BIT |
+            VK_IMAGE_ASPECT_PLANE_0_BIT | VK_IMAGE_ASPECT_PLANE_1_BIT | VK_IMAGE_ASPECT_PLANE_2_BIT;
+
+    use_copy = dst_format->vk_aspect_mask == src_format->vk_aspect_mask ||
+            ((dst_format->vk_aspect_mask & compatible_aspects) && (src_format->vk_aspect_mask & compatible_aspects));
     dst_is_depth_stencil = !!(dst_format->vk_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT));
 
     if (use_copy)
