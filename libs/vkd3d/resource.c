@@ -2651,6 +2651,7 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC1 *desc,
         struct d3d12_device *device)
 {
     const struct vkd3d_format *format;
+    unsigned int i;
     HRESULT hr;
 
     if (desc->Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D && desc->SampleDesc.Count > 1)
@@ -2778,6 +2779,27 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC1 *desc,
             if (!d3d12_resource_validate_texture_format(desc, format)
                     || !d3d12_resource_validate_texture_alignment(desc, format))
                 return E_INVALIDARG;
+
+            if (format->vk_aspect_mask & VK_IMAGE_ASPECT_PLANE_0_BIT)
+            {
+                if (desc->MipLevels != 1)
+                {
+                    WARN("Invalid mip level count %u for format %#x.\n", desc->MipLevels, desc->Format);
+                    return E_INVALIDARG;
+                }
+
+                for (i = 0; i < format->plane_count; i++)
+                {
+                    if ((desc->Width & ((1u << format->plane_footprints[i].subsample_x_log2) - 1u)) ||
+                            (desc->Height & ((1u << format->plane_footprints[i].subsample_y_log2) - 1u)))
+                    {
+                        WARN("Image size %ux%u not a multiple of %ux%u for format %#x.\n", desc->Width, desc->Height,
+                                1u << format->plane_footprints[i].subsample_x_log2,
+                                1u << format->plane_footprints[i].subsample_y_log2, desc->Format);
+                        return E_INVALIDARG;
+                    }
+                }
+            }
             break;
 
         default:
