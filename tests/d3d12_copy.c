@@ -326,6 +326,144 @@ void test_copy_texture(void)
     destroy_test_context(&context);
 }
 
+void test_copy_texture_ds_edge_cases(void)
+{
+    ID3D12GraphicsCommandList *command_list;
+    struct depth_stencil_resource ds;
+    struct test_context_desc desc;
+    struct test_context context;
+    struct resource_readback rb;
+    ID3D12DescriptorHeap *heap;
+    ID3D12CommandQueue *queue;
+    ID3D12Resource *input_rt;
+    ID3D12Resource *readback;
+    ID3D12Device *device;
+    unsigned int i;
+
+    /* Test more in detail what happens when formats are a bit odd, i.e. R16_UINT <-> D16_UNORM, etc.
+     * Also, test D24_UNORM <-> R32_FLOAT / R32_UINT. */
+
+    static const struct test
+    {
+        DXGI_FORMAT input_format;
+        DXGI_FORMAT output_format;
+        DXGI_FORMAT readback_format;
+        float clear_value;
+        uint32_t reference_bit_pattern;
+    } tests[] = {
+        /* Test all possible weird roundtrips for 16-bit. */
+        { DXGI_FORMAT_R16_UINT, DXGI_FORMAT_D16_UNORM, DXGI_FORMAT_R16_FLOAT, 0xabab, 0xabab },
+        { DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_D16_UNORM, DXGI_FORMAT_R16_SINT, (float)0x8000 / (float)0xffff, 0x8000 },
+        { DXGI_FORMAT_R16_FLOAT, DXGI_FORMAT_D16_UNORM, DXGI_FORMAT_R16_SNORM, 1.0f, 0x3c00 },
+        { DXGI_FORMAT_R16_SNORM, DXGI_FORMAT_D16_UNORM, DXGI_FORMAT_R16_UNORM, -4.0f / 0x7fff, 0xfffc },
+        { DXGI_FORMAT_R16_SINT, DXGI_FORMAT_D16_UNORM, DXGI_FORMAT_R16_UINT, -4.0f, 0xfffc },
+
+        /* Test all possible weird roundtrips for 24-bit. AMD native drivers break here since they fake 24-bit depth support.
+         * Vulkan drivers don't expose it. */
+        { DXGI_FORMAT_R32_UINT, DXGI_FORMAT_D24_UNORM_S8_UINT, DXGI_FORMAT_R32_FLOAT, 0xababab, 0xababab },
+        { DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_D24_UNORM_S8_UINT, DXGI_FORMAT_R32_SINT, 1.5f, 0xc00000 /* MSBs are chopped off */},
+        { DXGI_FORMAT_R32_SINT, DXGI_FORMAT_D24_UNORM_S8_UINT, DXGI_FORMAT_R32_UINT, -4.0f, 0xfffffc },
+
+        /* Test all possible weird roundtrips for 32-bit. */
+        { DXGI_FORMAT_R32_UINT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_FLOAT, 0xababab, 0xababab },
+        { DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_SINT, 1.5f, 0x3fc00000 },
+        { DXGI_FORMAT_R32_SINT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_UINT, -4.0f, 0xfffffffc },
+    };
+
+    memset(&desc, 0, sizeof(desc));
+    desc.no_render_target = true;
+    desc.no_root_signature = true;
+    if (!init_test_context(&context, &desc))
+        return;
+    device = context.device;
+    command_list = context.list;
+    queue = context.queue;
+
+    heap = create_cpu_descriptor_heap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1);
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        float clear_value[] = { tests[i].clear_value, 0, 0, 0 };
+        D3D12_TEXTURE_COPY_LOCATION dst, src;
+        D3D12_CPU_DESCRIPTOR_HANDLE h;
+        D3D12_BOX box;
+
+        vkd3d_test_set_context("Test %u", i);
+
+        input_rt = create_default_texture2d(device, 1, 1, 1, 1, tests[i].input_format, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        readback = create_default_texture2d(device, 1, 1, 1, 1, tests[i].input_format, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+        init_depth_stencil(&ds, device, 1, 1, 1, 1, tests[i].output_format, tests[i].output_format, NULL);
+
+        h = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+        ID3D12Device_CreateRenderTargetView(device, input_rt, NULL, h);
+        ID3D12GraphicsCommandList_ClearRenderTargetView(command_list, h, clear_value, 0, NULL);
+        transition_resource_state(command_list, input_rt, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        transition_resource_state(command_list, ds.texture, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_COPY_DEST);
+
+        set_box(&box, 0, 0, 0, 1, 1, 1);
+        dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        dst.SubresourceIndex = 0;
+        dst.pResource = ds.texture;
+        src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        src.SubresourceIndex = 0;
+        src.pResource = input_rt;
+        ID3D12GraphicsCommandList_CopyTextureRegion(command_list, &dst, 0, 0, 0, &src, &box);
+
+        transition_resource_state(command_list, ds.texture, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        src = dst;
+        dst.pResource = readback;
+        ID3D12GraphicsCommandList_CopyTextureRegion(command_list, &dst, 0, 0, 0, &src, &box);
+        transition_resource_state(command_list, readback, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        /* Verify bit-pattern of depth texture. */
+        {
+            get_texture_readback_with_command_list(ds.texture, 0, &rb, queue, command_list);
+            reset_command_list(command_list, context.allocator);
+
+            if (tests[i].output_format == DXGI_FORMAT_D16_UNORM)
+            {
+                todo ok(get_readback_uint16(&rb, 0, 0) == tests[i].reference_bit_pattern,
+                    "Depth: expected #%x, got #%x.\n", tests[i].reference_bit_pattern, get_readback_uint16(&rb, 0, 0));
+            }
+            else
+            {
+                todo ok(get_readback_uint(&rb, 0, 0, 0) == tests[i].reference_bit_pattern,
+                    "Depth: expected #%x, got #%x.\n", tests[i].reference_bit_pattern, get_readback_uint(&rb, 0, 0, 0));
+            }
+
+            release_resource_readback(&rb);
+        }
+
+        /* Verify bit-pattern of depth -> color copy. */
+        {
+            get_texture_readback_with_command_list(readback, 0, &rb, queue, command_list);
+            reset_command_list(command_list, context.allocator);
+
+            if (tests[i].output_format == DXGI_FORMAT_D16_UNORM)
+            {
+                todo ok(get_readback_uint16(&rb, 0, 0) == tests[i].reference_bit_pattern,
+                    "Color: expected #%x, got #%x.\n", tests[i].reference_bit_pattern, get_readback_uint16(&rb, 0, 0));
+            }
+            else
+            {
+                todo ok(get_readback_uint(&rb, 0, 0, 0) == tests[i].reference_bit_pattern,
+                    "Color: expected #%x, got #%x.\n", tests[i].reference_bit_pattern, get_readback_uint(&rb, 0, 0, 0));
+            }
+
+            release_resource_readback(&rb);
+        }
+
+        destroy_depth_stencil(&ds);
+        ID3D12Resource_Release(input_rt);
+        ID3D12Resource_Release(readback);
+    }
+    vkd3d_test_set_context(NULL);
+
+    ID3D12DescriptorHeap_Release(heap);
+    destroy_test_context(&context);
+}
+
 void test_copy_texture_buffer(void)
 {
     D3D12_TEXTURE_COPY_LOCATION src_location, dst_location;
