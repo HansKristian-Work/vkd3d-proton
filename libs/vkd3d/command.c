@@ -14257,7 +14257,7 @@ static void d3d12_command_list_encode_sampler_feedback(struct d3d12_command_list
             transcoded_height -= dst_y;
 
             /* Transcoded output doesn't have to cover everything. Cover minimum. */
-            vk_extent_3d_from_d3d12_miplevel(&extent, &src->desc, src_image_view_desc.miplevel_idx);
+            extent = d3d12_resource_desc_get_subresource_extent(&src->desc, src->format, src_image_view_desc.miplevel_idx);
             transcoded_width = min(transcoded_width, extent.width);
             transcoded_height = min(transcoded_height, extent.height);
 
@@ -14610,7 +14610,7 @@ static void d3d12_command_list_decode_sampler_feedback(struct d3d12_command_list
                 goto cleanup;
 
             /* Transcoded output doesn't have to cover everything. Cover minimum. */
-            vk_extent_3d_from_d3d12_miplevel(&extent, &dst->desc, dst_image_view_desc.miplevel_idx);
+            extent = d3d12_resource_desc_get_subresource_extent(&dst->desc, dst->format, dst_image_view_desc.miplevel_idx);
             transcoded_width = extent.width;
             transcoded_height = extent.height;
             if (dst_x >= transcoded_width || dst_y >= transcoded_height)

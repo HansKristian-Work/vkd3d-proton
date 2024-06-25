@@ -5538,8 +5538,15 @@ static inline void vk_extent_3d_from_d3d12_miplevel(VkExtent3D *extent,
 static inline VkExtent3D d3d12_resource_desc_get_active_feedback_extent(const D3D12_RESOURCE_DESC1 *desc,
         unsigned int mip_level)
 {
+    VkImageSubresourceLayers vk_subresource;
     VkExtent3D result;
-    vk_extent_3d_from_d3d12_miplevel(&result, desc, mip_level);
+
+    vk_subresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    vk_subresource.mipLevel = mip_level;
+    vk_subresource.baseArrayLayer = 0;
+    vk_subresource.layerCount = 1;
+
+    result = d3d12_resource_desc_get_vk_subresource_extent(desc, NULL, &vk_subresource);
     result.width = DIV_ROUND_UP(result.width, desc->SamplerFeedbackMipRegion.Width);
     result.height = DIV_ROUND_UP(result.height, desc->SamplerFeedbackMipRegion.Height);
     return result;
