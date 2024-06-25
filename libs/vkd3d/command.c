@@ -2953,24 +2953,23 @@ static void d3d12_command_list_invalidate_current_pipeline(struct d3d12_command_
     }
 }
 
-static D3D12_RECT d3d12_get_image_rect(struct d3d12_resource *resource, unsigned int mip_level)
+static D3D12_RECT d3d12_get_image_rect(struct d3d12_resource *resource, const VkImageSubresourceLayers *subresource)
 {
+    VkExtent3D mip_extent = d3d12_resource_desc_get_vk_subresource_extent(&resource->desc, resource->format, subresource);
+
     D3D12_RECT rect;
     rect.left = 0;
     rect.top = 0;
-    rect.right = d3d12_resource_desc_get_width(&resource->desc, mip_level);
-    rect.bottom = d3d12_resource_desc_get_height(&resource->desc, mip_level);
+    rect.right = mip_extent.width;
+    rect.bottom = mip_extent.height;
     return rect;
 }
 
 static bool d3d12_image_copy_writes_full_subresource(struct d3d12_resource *resource,
         const VkExtent3D *extent, const VkImageSubresourceLayers *subresource)
 {
-    unsigned int width, height, depth;
-    width = d3d12_resource_desc_get_width(&resource->desc, subresource->mipLevel);
-    height = d3d12_resource_desc_get_height(&resource->desc, subresource->mipLevel);
-    depth = d3d12_resource_desc_get_depth(&resource->desc, subresource->mipLevel);
-    return width == extent->width && height == extent->height && depth == extent->depth;
+    VkExtent3D mip_extent = d3d12_resource_desc_get_vk_subresource_extent(&resource->desc, resource->format, subresource);
+    return mip_extent.width == extent->width && mip_extent.height == extent->height && mip_extent.depth == extent->depth;
 }
 
 static bool vk_rect_from_d3d12(const D3D12_RECT *rect, VkRect2D *vk_rect, const D3D12_RECT *clamp_rect)
@@ -3074,12 +3073,14 @@ static void d3d12_command_list_clear_attachment_inline(struct d3d12_command_list
         const VkClearValue *clear_value, UINT rect_count, const D3D12_RECT *rects)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkImageSubresourceLayers vk_subresource;
     VkClearAttachment vk_clear_attachment;
     VkClearRect vk_clear_rect;
     D3D12_RECT full_rect;
     unsigned int i;
 
-    full_rect = d3d12_get_image_rect(resource, view->info.texture.miplevel_idx);
+    vk_subresource = vk_subresource_layers_from_view(view);
+    full_rect = d3d12_get_image_rect(resource, &vk_subresource);
 
     if (!rect_count)
     {
@@ -3604,6 +3605,7 @@ static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, 
     uint32_t plane_write_mask, i;
     VkDependencyInfo dep_info;
     bool separate_ds_layouts;
+    VkExtent3D view_extent;
     VkAccessFlags2 access;
     bool clear_op;
 
@@ -3619,12 +3621,14 @@ static void d3d12_command_list_load_attachment(struct d3d12_command_list *list, 
 
     stencil_attachment_info = attachment_info;
 
+    view_extent = d3d12_resource_get_view_subresource_extent(resource, view);
+
     memset(&rendering_info, 0, sizeof(rendering_info));
     rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
     rendering_info.renderArea.offset.x = 0;
     rendering_info.renderArea.offset.y = 0;
-    rendering_info.renderArea.extent.width = d3d12_resource_desc_get_width(&resource->desc, view->info.texture.miplevel_idx);
-    rendering_info.renderArea.extent.height = d3d12_resource_desc_get_height(&resource->desc, view->info.texture.miplevel_idx);
+    rendering_info.renderArea.extent.width = view_extent.width;
+    rendering_info.renderArea.extent.height = view_extent.height;
     rendering_info.layerCount = view->info.texture.layer_count;
 
     if (view->format->vk_aspect_mask & VK_IMAGE_ASPECT_COLOR_BIT)
@@ -11366,7 +11370,7 @@ static void d3d12_command_list_clear_attachment(struct d3d12_command_list *list,
 
     /* If one of the clear rectangles covers the entire image, we
      * may be able to use a fast path and re-initialize the image */
-    full_rect = d3d12_get_image_rect(resource, view->info.texture.miplevel_idx);
+    full_rect = d3d12_get_image_rect(resource, &vk_subresource_layers);
     full_clear = !rect_count;
 
     for (i = 0; i < rect_count && !full_clear; i++)
@@ -12276,6 +12280,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
     struct d3d12_resource *texture = impl_from_ID3D12Resource(resource);
     unsigned int i, first_subresource, subresource_count;
     bool has_bound_subresource, has_unbound_subresource;
+    VkImageSubresourceLayers vk_subresource_layers;
     VkImageSubresourceRange vk_subresource_range;
     unsigned int resource_subresource_count;
     VkImageSubresource vk_subresource;
@@ -12349,7 +12354,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_DiscardResource(d3d12_command_l
     if (!(full_discard = (!region || !region->NumRects)))
     {
         vk_subresource = d3d12_resource_get_vk_subresource(texture, first_subresource, false);
-        full_rect = d3d12_get_image_rect(texture, vk_subresource.mipLevel);
+        vk_subresource_layers = vk_subresource_layers_from_subresource(&vk_subresource);
+        full_rect = d3d12_get_image_rect(texture, &vk_subresource_layers);
 
         for (i = 0; i < region->NumRects && !full_discard; i++)
             full_discard = d3d12_rect_fully_covers_region(&region->pRects[i], &full_rect);

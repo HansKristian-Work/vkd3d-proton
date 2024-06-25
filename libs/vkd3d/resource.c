@@ -6839,6 +6839,7 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
 {
     struct vkd3d_view_key key;
     struct vkd3d_view *view;
+    VkExtent3D view_extent;
 
     if (!resource)
     {
@@ -6925,10 +6926,12 @@ void d3d12_rtv_desc_create_rtv(struct d3d12_rtv_desc *rtv_desc, struct d3d12_dev
 
     vkd3d_descriptor_debug_register_view_cookie(device->descriptor_qa_global_info, view->cookie, resource->res.cookie);
 
+    view_extent = d3d12_resource_get_view_subresource_extent(resource, view);
+
     rtv_desc->sample_count = vk_samples_from_dxgi_sample_desc(&resource->desc.SampleDesc);
     rtv_desc->format = key.u.texture.format;
-    rtv_desc->width = d3d12_resource_desc_get_width(&resource->desc, key.u.texture.miplevel_idx);
-    rtv_desc->height = d3d12_resource_desc_get_height(&resource->desc, key.u.texture.miplevel_idx);
+    rtv_desc->width = view_extent.width;
+    rtv_desc->height = view_extent.height;
     rtv_desc->layer_count = key.u.texture.layer_count;
     rtv_desc->view = view;
     rtv_desc->resource = resource;
@@ -6940,6 +6943,7 @@ void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_dev
 {
     struct vkd3d_view_key key;
     struct vkd3d_view *view;
+    VkExtent3D view_extent;
 
     if (!resource)
     {
@@ -7016,10 +7020,12 @@ void d3d12_rtv_desc_create_dsv(struct d3d12_rtv_desc *dsv_desc, struct d3d12_dev
 
     vkd3d_descriptor_debug_register_view_cookie(device->descriptor_qa_global_info, view->cookie, resource->res.cookie);
 
+    view_extent = d3d12_resource_get_view_subresource_extent(resource, view);
+
     dsv_desc->sample_count = vk_samples_from_dxgi_sample_desc(&resource->desc.SampleDesc);
     dsv_desc->format = key.u.texture.format;
-    dsv_desc->width = d3d12_resource_desc_get_width(&resource->desc, key.u.texture.miplevel_idx);
-    dsv_desc->height = d3d12_resource_desc_get_height(&resource->desc, key.u.texture.miplevel_idx);
+    dsv_desc->width = view_extent.width;
+    dsv_desc->height = view_extent.height;
     dsv_desc->layer_count = key.u.texture.layer_count;
     dsv_desc->view = view;
     dsv_desc->resource = resource;
