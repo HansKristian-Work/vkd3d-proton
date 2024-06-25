@@ -1250,7 +1250,8 @@ static void check_copyable_footprints_(unsigned int line, const D3D12_RESOURCE_D
         const D3D12_PLACED_SUBRESOURCE_FOOTPRINT *layouts, const UINT *row_counts,
         const uint64_t *row_sizes, uint64_t *total_size)
 {
-    unsigned int miplevel, width, height, depth, row_count, row_size, row_pitch, layers, plane, num_planes;
+    unsigned int miplevel, width, height, depth, row_count, row_size, row_pitch, row_alignment, layers, plane, num_planes;
+    unsigned int subsample_x_log2, subsample_y_log2;
     uint64_t offset, size, total;
     unsigned int i;
 
@@ -1262,17 +1263,21 @@ static void check_copyable_footprints_(unsigned int line, const D3D12_RESOURCE_D
     {
         miplevel = (sub_resource_idx + i) % desc->MipLevels;
         plane = (sub_resource_idx + i) / (desc->MipLevels * layers);
-        width = align(max(1, desc->Width >> miplevel), format_block_width(desc->Format));
-        height = align(max(1, desc->Height >> miplevel), format_block_height(desc->Format));
+        format_subsample_log2(desc->Format, plane, &subsample_x_log2, &subsample_y_log2);
+        width = align(max(1, desc->Width >> (miplevel + subsample_x_log2)), format_block_width(desc->Format));
+        height = align(max(1, desc->Height >> (miplevel + subsample_y_log2)), format_block_height(desc->Format));
         depth = desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? desc->DepthOrArraySize : 1;
         depth = max(1, depth >> miplevel);
         row_count = height / format_block_height(desc->Format);
         row_size = (width / format_block_width(desc->Format)) * format_size_planar(desc->Format, plane);
 
-        /* For whatever reason, depth-stencil images actually have 512 byte row alignment, not 256.
-         * Both WARP and NV driver have this behavior, so it might be an undocumented requirement.
+        /* For whatever reason, depth-stencil images and some video formats actually have 512 byte row alignment,
+         * not 256. Both WARP and NV driver have this behavior, so it might be an undocumented requirement.
          * This function is likely part of the core runtime though ... */
-        row_pitch = align(row_size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT * num_planes);
+        row_alignment = D3D12_TEXTURE_DATA_PITCH_ALIGNMENT;
+        if (num_planes == 2 || desc->Format == DXGI_FORMAT_420_OPAQUE)
+            row_alignment = D3D12_TEXTURE_DATA_PITCH_ALIGNMENT * 2;
+        row_pitch = align(row_size, row_alignment);
 
         if (layouts)
         {
