@@ -1100,27 +1100,8 @@ void test_map_placed_resources(void)
 
     STATIC_ASSERT(ARRAY_SIZE(cb) == ARRAY_SIZE(cb_data));
 
-    static const DWORD ps_code[] =
-    {
-#if 0
-        uint offset;
-        uint value;
+#include "shaders/resource/headers/ps_store_buffer.h"
 
-        RWByteAddressBuffer u;
-
-        void main()
-        {
-            u.Store(offset, value);
-        }
-#endif
-        0x43425844, 0x0dcbdd90, 0x7dad2857, 0x4ee149ee, 0x72a13d21, 0x00000001, 0x000000a4, 0x00000003,
-        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
-        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x00000050, 0x00000050, 0x00000014, 0x0100086a,
-        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0300009d, 0x0011e000, 0x00000000, 0x090000a6,
-        0x0011e012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0020801a, 0x00000000, 0x00000000,
-        0x0100003e,
-    };
-    static const D3D12_SHADER_BYTECODE ps = {ps_code, sizeof(ps_code)};
     static const uint32_t expected_values[] = {0xdead, 0xbeef, 0xfeed, 0xc0de};
 
     memset(&desc, 0, sizeof(desc));
@@ -1147,7 +1128,7 @@ void test_map_placed_resources(void)
     hr = create_root_signature(device, &root_signature_desc, &context.root_signature);
     ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
 
-    context.pipeline_state = create_pipeline_state(device, context.root_signature, 0, NULL, &ps, NULL);
+    context.pipeline_state = create_pipeline_state(device, context.root_signature, 0, NULL, &ps_store_buffer_dxbc, NULL);
 
     heap_desc.SizeInBytes = ARRAY_SIZE(cb) * D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     memset(&heap_desc.Properties, 0, sizeof(heap_desc.Properties));
@@ -2753,25 +2734,7 @@ void test_stress_suballocation_thread(void *userdata)
     UINT alloc_size;
     HRESULT hr;
 
-    static const DWORD cs_code[] =
-    {
-#if 0
-        RWStructuredBuffer<uint> Buf : register(u0);
-        cbuffer CBuf : register(b0) { uint clear_value; };
-
-        [numthreads(64, 1, 1)]
-        void main(uint thr : SV_DispatchThreadID)
-        {
-            Buf[thr] = clear_value;
-        }
-#endif
-        0x43425844, 0x687983cd, 0xe75a9b58, 0xa77e1917, 0x78d96804, 0x00000001, 0x000000c0, 0x00000003,
-        0x0000002c, 0x0000003c, 0x0000004c, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
-        0x00000008, 0x00000000, 0x00000008, 0x58454853, 0x0000006c, 0x00050050, 0x0000001b, 0x0100086a,
-        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0400009e, 0x0011e000, 0x00000000, 0x00000004,
-        0x0200005f, 0x00020012, 0x0400009b, 0x00000040, 0x00000001, 0x00000001, 0x090000a8, 0x0011e012,
-        0x00000000, 0x0002000a, 0x00004001, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0100003e,
-    };
+#include "shaders/resource/headers/cs_clear_buffer.h"
 
     seed = thread_data->seed;
 
@@ -2801,8 +2764,7 @@ void test_stress_suballocation_thread(void *userdata)
     hr = create_root_signature(context->device, &root_signature_desc, &root_signature);
     ok(SUCCEEDED(hr), "Failed to create root signature.\n");
 
-    pipeline_state = create_compute_pipeline_state(context->device, root_signature,
-            shader_bytecode(cs_code, sizeof(cs_code)));
+    pipeline_state = create_compute_pipeline_state(context->device, root_signature, cs_clear_buffer_dxbc);
 
     hr = ID3D12Device_CreateCommandAllocator(context->device, D3D12_COMMAND_LIST_TYPE_DIRECT, &IID_ID3D12CommandAllocator, (void **)&allocator);
     ok(SUCCEEDED(hr), "Failed to create command allocator.\n");
