@@ -336,6 +336,15 @@ static bool vkd3d_get_format_compatibility_list(const struct d3d12_device *devic
     const struct vkd3d_format *format = vkd3d_get_format(device, desc->Format, false);
     unsigned int i;
 
+    /* Planar formats cannot be used to create views directly so the logic below does
+     * not apply, and passing a format list for each individual plane format is also
+     * not allowed. Just be conservative here. */
+    if (format->vk_aspect_mask & VK_IMAGE_ASPECT_PLANE_0_BIT)
+    {
+        *vk_flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+        return false;
+    }
+
     memset(list, 0, sizeof(*list));
 
     if (desc->Format < device->format_compatibility_list_count)
