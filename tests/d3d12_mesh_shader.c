@@ -1290,13 +1290,6 @@ void test_amplification_shader_execute_indirect_state(void)
     if (!init_test_context(&context, &desc))
         return;
 
-    if (is_radv_device(context.device))
-    {
-        skip("Task DGC not yet supported by RADV, skipping test.\n");
-        destroy_test_context(&context);
-        return;
-    }
-
     memset(&options7, 0, sizeof(options7));
     hr = ID3D12Device_CheckFeatureSupport(context.device, D3D12_FEATURE_D3D12_OPTIONS7, &options7, sizeof(options7));
     ok(SUCCEEDED(hr), "OPTIONS7 is not supported by runtime.\n");
