@@ -8657,6 +8657,18 @@ enum vkd3d_resolve_image_path d3d12_command_list_select_resolve_path(struct d3d1
         return VKD3D_RESOLVE_IMAGE_PATH_UNSUPPORTED;
     }
 
+    if (!d3d12_resource_view_format_is_compatible(dst_resource, vkd3d_format))
+    {
+        ERR("Attempting to resolve to dst resource with incompatible format.\n");
+        return VKD3D_RESOLVE_IMAGE_PATH_UNSUPPORTED;
+    }
+
+    if (!d3d12_resource_view_format_is_compatible(src_resource, vkd3d_format))
+    {
+        ERR("Attempting to resolve from src resource with incompatible format.\n");
+        return VKD3D_RESOLVE_IMAGE_PATH_UNSUPPORTED;
+    }
+
     if (dst_resource->format->vk_aspect_mask != src_resource->format->vk_aspect_mask)
     {
         /* Mismatched aspects may happen with some typeless formats */
