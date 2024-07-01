@@ -8618,6 +8618,30 @@ static const struct vkd3d_format *d3d12_command_list_get_resolve_format(struct d
     return vkd3d_format_from_d3d12_resource_desc(list->device, &dst_resource->desc, format);
 }
 
+static bool d3d12_resource_view_format_is_compatible(
+        const struct d3d12_resource *resource, const struct vkd3d_format *format)
+{
+    const struct vkd3d_format_compatibility_list *compat;
+    unsigned int i;
+
+    if (resource->format->vk_format == format->vk_format)
+        return true;
+
+    compat = &resource->format_compatibility_list;
+
+    /* Full mutable, we can cast to whatever we want. */
+    if (compat->format_count == 0)
+        return true;
+
+    for (i = 0; i < compat->format_count; i++)
+    {
+        if (compat->vk_formats[i] == format->vk_format)
+            return true;
+    }
+
+    return false;
+}
+
 enum vkd3d_resolve_image_path d3d12_command_list_select_resolve_path(struct d3d12_command_list *list,
         struct d3d12_resource *dst_resource, struct d3d12_resource *src_resource, uint32_t region_count,
         const VkImageResolve2 *regions, DXGI_FORMAT format, D3D12_RESOLVE_MODE mode)
@@ -11894,30 +11918,6 @@ static const struct vkd3d_format *vkd3d_clear_uav_find_uint_format(struct d3d12_
     return vkd3d_get_format(device, uint_format, false);
 }
 
-static bool vkd3d_clear_uav_check_uint_format_compatibility(struct d3d12_device *device,
-        const struct d3d12_resource *resource, const struct vkd3d_format *uint_format)
-{
-    const struct vkd3d_format_compatibility_list *compat;
-    unsigned int i;
-
-    if (resource->format->vk_format == uint_format->vk_format)
-        return true;
-
-    compat = &resource->format_compatibility_list;
-
-    /* Full mutable, we can cast to whatever we want. */
-    if (compat->format_count == 0)
-        return true;
-
-    for (i = 0; i < compat->format_count; i++)
-    {
-        if (compat->vk_formats[i] == uint_format->vk_format)
-            return true;
-    }
-
-    return false;
-}
-
 static inline bool vkd3d_clear_uav_info_from_metadata(struct vkd3d_clear_uav_info *args,
         struct d3d12_desc_split_metadata metadata)
 {
@@ -12100,7 +12100,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_ClearUnorderedAccessViewUint(d3
 
         vkd3d_mask_uint_clear_color(color.uint32, uint_format->vk_format);
 
-        if (vkd3d_clear_uav_check_uint_format_compatibility(list->device, resource_impl, uint_format))
+        if (d3d12_resource_view_format_is_compatible(resource_impl, uint_format))
         {
             struct vkd3d_texture_view_desc view_desc;
             memset(&view_desc, 0, sizeof(view_desc));
