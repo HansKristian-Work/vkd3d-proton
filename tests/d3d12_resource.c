@@ -1779,6 +1779,7 @@ void test_suballocate_small_textures_size(void)
     ID3D12Device *device;
     bool is_old_radv_gpu;
     unsigned int i;
+    bool is_radv;
 
     static const struct test
     {
@@ -1847,8 +1848,8 @@ void test_suballocate_small_textures_size(void)
     }
 
     /* Pre GFX9 does not expose VK_MESA_image_alignment_control. */
-    is_old_radv_gpu = is_radv_device(device) &&
-            !is_vk_device_extension_supported(device, "VK_MESA_image_alignment_control");
+    is_radv = is_radv_device(device);
+    is_old_radv_gpu = is_radv && !is_vk_device_extension_supported(device, "VK_MESA_image_alignment_control");
 
     for (i = 0; i < ARRAY_SIZE(tests); i++)
     {
@@ -1908,6 +1909,8 @@ void test_suballocate_small_textures_size(void)
         for (size_config = 0; size_config < ARRAY_SIZE(size_configs); size_config++)
         {
             const struct size_config *config = &size_configs[size_config];
+            bool is_bugged_thin;
+            bool is_thin;
             if (config->bpp != tests[i].bpp)
                 continue;
 
@@ -1916,11 +1919,18 @@ void test_suballocate_small_textures_size(void)
             resource_desc.Width = config->width;
             resource_desc.Height = config->height;
 
+            is_thin = config->width * 8 <= config->height;
+
             for (layers = 1; layers <= max_layers; layers++)
             {
                 for (levels = 1; levels <= max_levels; levels++)
                 {
                     unsigned int expected_size;
+
+                    /* RADV fails on Vega for levels >= 4 on very thin textures.
+                     * Likely a hardware limitation with very thin textures. This isn't too surprising.
+                     * It is unknown what native does here. */
+                    is_bugged_thin = is_radv && is_thin && levels >= 4;
 
                     /* This assumes tight packing without compression metadata.
                      * Generally compression is not allowed for placed non-RTV/DSV in D3D12. */
@@ -1943,15 +1953,15 @@ void test_suballocate_small_textures_size(void)
                     resource_desc.Alignment = 0;
                     info_normal = ID3D12Device_GetResourceAllocationInfo(device, 0, 1, &resource_desc);
 
-                    bug_if(is_old_radv_gpu)
+                    bug_if(is_old_radv_gpu || is_bugged_thin)
                     ok(info_small.Alignment == D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT, "Alignment is not 4 KiB.\n");
-                    bug_if(is_old_radv_gpu)
+                    bug_if(is_old_radv_gpu || is_bugged_thin)
                     ok(info_normal.Alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT, "Alignment is not 64 KiB.\n");
-                    bug_if(is_old_radv_gpu)
+                    bug_if(is_old_radv_gpu || is_bugged_thin)
                     ok(info_small.SizeInBytes <= expected_size,
                             "Resource size %u is larger than expected %u.\n",
                             (unsigned int)info_small.SizeInBytes, expected_size);
-                    bug_if(is_old_radv_gpu)
+                    bug_if(is_old_radv_gpu || is_bugged_thin)
                     ok(info_normal.SizeInBytes <= align(expected_size, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT),
                             "Resource size %u is larger than expected %u.\n",
                             (unsigned int)info_normal.SizeInBytes,
@@ -1959,7 +1969,7 @@ void test_suballocate_small_textures_size(void)
 
                     /* It's not guaranteed that sizeof(small) <= sizeof(normal).
                      * What we want to check here is that implementation doesn't magically pad the resource out. */
-                    bug_if(is_old_radv_gpu)
+                    bug_if(is_old_radv_gpu || is_bugged_thin)
                     ok(info_normal.SizeInBytes + D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT / 2 >= info_small.SizeInBytes,
                             "Small resource is oddly padded (%u vs %u).\n",
                             (unsigned int)info_small.SizeInBytes, (unsigned int)info_normal.SizeInBytes);
