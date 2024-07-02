@@ -355,14 +355,14 @@ void test_vrs_depth_write(bool use_dxil)
     if (!init_test_context(&context, &desc))
         return;
 
-    init_depth_stencil(&ds, context.device, 64, 2, 1, 1, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D32_FLOAT, NULL);
-
     if (!is_vrs_tier1_supported(context.device, NULL))
     {
         skip("VariableRateShading TIER_1 not supported.\n");
         destroy_test_context(&context);
         return;
     }
+
+    init_depth_stencil(&ds, context.device, 64, 2, 1, 1, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D32_FLOAT, NULL);
 
     ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList5, (void **)&command_list);
 
