@@ -1777,6 +1777,7 @@ void test_suballocate_small_textures_size(void)
     D3D12_RESOURCE_ALLOCATION_INFO info_small;
     D3D12_RESOURCE_DESC resource_desc;
     ID3D12Device *device;
+    bool is_old_radv_gpu;
     unsigned int i;
 
     static const struct test
@@ -1844,6 +1845,10 @@ void test_suballocate_small_textures_size(void)
         skip("Failed to create device.\n");
         return;
     }
+
+    /* Pre GFX9 does not expose VK_MESA_image_alignment_control. */
+    is_old_radv_gpu = is_radv_device(device) &&
+            !is_vk_device_extension_supported(device, "VK_MESA_image_alignment_control");
 
     for (i = 0; i < ARRAY_SIZE(tests); i++)
     {
@@ -1938,11 +1943,15 @@ void test_suballocate_small_textures_size(void)
                     resource_desc.Alignment = 0;
                     info_normal = ID3D12Device_GetResourceAllocationInfo(device, 0, 1, &resource_desc);
 
+                    bug_if(is_old_radv_gpu)
                     ok(info_small.Alignment == D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT, "Alignment is not 4 KiB.\n");
+                    bug_if(is_old_radv_gpu)
                     ok(info_normal.Alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT, "Alignment is not 64 KiB.\n");
+                    bug_if(is_old_radv_gpu)
                     ok(info_small.SizeInBytes <= expected_size,
                             "Resource size %u is larger than expected %u.\n",
                             (unsigned int)info_small.SizeInBytes, expected_size);
+                    bug_if(is_old_radv_gpu)
                     ok(info_normal.SizeInBytes <= align(expected_size, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT),
                             "Resource size %u is larger than expected %u.\n",
                             (unsigned int)info_normal.SizeInBytes,
@@ -1950,6 +1959,7 @@ void test_suballocate_small_textures_size(void)
 
                     /* It's not guaranteed that sizeof(small) <= sizeof(normal).
                      * What we want to check here is that implementation doesn't magically pad the resource out. */
+                    bug_if(is_old_radv_gpu)
                     ok(info_normal.SizeInBytes + D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT / 2 >= info_small.SizeInBytes,
                             "Small resource is oddly padded (%u vs %u).\n",
                             (unsigned int)info_small.SizeInBytes, (unsigned int)info_normal.SizeInBytes);
