@@ -231,6 +231,7 @@ struct dxgi_vk_swap_chain
         VkSurfaceFormatKHR *formats;
 		size_t formats_size;
         uint32_t format_count;
+        pthread_mutex_t lock;
     } properties;
 
     struct
@@ -458,6 +459,7 @@ static void dxgi_vk_swap_chain_cleanup(struct dxgi_vk_swap_chain *chain)
     }
 
     vkd3d_free(chain->properties.formats);
+    pthread_mutex_destroy(&chain->properties.lock);
 
     VK_CALL(vkDestroySurfaceKHR(chain->queue->device->vkd3d_instance->vk_instance,
             chain->vk_surface, NULL));
@@ -1092,63 +1094,22 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain2 *i
 }
 
 static VkColorSpaceKHR convert_color_space(DXGI_COLOR_SPACE_TYPE dxgi_color_space);
-static bool dxgi_vk_swap_chain_update_formats(struct dxgi_vk_swap_chain *chain);
+static bool dxgi_vk_swap_chain_update_formats_locked(struct dxgi_vk_swap_chain *chain, bool force_requery);
 
 static bool dxgi_vk_swap_chain_supports_color_space(struct dxgi_vk_swap_chain *chain, DXGI_COLOR_SPACE_TYPE ColorSpace)
 {
-    const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
-    VkPhysicalDevice vk_physical_device = chain->queue->device->vk_physical_device;
-    VkSurfaceFormatKHR *formats = NULL;
     VkColorSpaceKHR vk_color_space;
-    uint32_t format_count;
     bool ret = false;
-    VkResult vr;
     uint32_t i;
 
     vk_color_space = convert_color_space(ColorSpace);
 
-    if (dxgi_vk_swap_chain_present_task_is_idle(chain))
-    {
-        /* This cannot race, just update the internal array. */
-        dxgi_vk_swap_chain_update_formats(chain);
-        for (i = 0; i < chain->properties.format_count; i++)
-            if (chain->properties.formats[i].colorSpace == vk_color_space)
-                return true;
-    }
-    else
-    {
-        if ((vr = VK_CALL(vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, chain->vk_surface,
-                &format_count, NULL))) < 0)
-        {
-            ERR("Failed to query surface formats, vr %d.\n", vr);
-            goto out;
-        }
-
-        if (!(formats = vkd3d_malloc(format_count * sizeof(*formats))))
-        {
-            ERR("Failed to allocate format list.\n");
-            goto out;
-        }
-
-        if ((vr = VK_CALL(vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, chain->vk_surface,
-                &format_count, formats))) < 0)
-        {
-            ERR("Failed to query surface formats, vr %d.\n", vr);
-            goto out;
-        }
-
-        for (i = 0; i < format_count; i++)
-        {
-            if (formats[i].colorSpace == vk_color_space)
-            {
-                ret = true;
-                break;
-            }
-        }
-    }
-
-out:
-    vkd3d_free(formats);
+    pthread_mutex_lock(&chain->properties.lock);
+    dxgi_vk_swap_chain_update_formats_locked(chain, false);
+    for (i = 0; i < chain->properties.format_count && !ret; i++)
+        if (chain->properties.formats[i].colorSpace == vk_color_space)
+            ret = true;
+    pthread_mutex_unlock(&chain->properties.lock);
     return ret;
 }
 
@@ -1277,16 +1238,20 @@ static CONST_VTBL struct IDXGIVkSwapChain2Vtbl dxgi_vk_swap_chain_vtbl =
     dxgi_vk_swap_chain_SetTargetFrameRate,
 };
 
-static bool dxgi_vk_swap_chain_update_formats(struct dxgi_vk_swap_chain *chain)
+static bool dxgi_vk_swap_chain_update_formats_locked(struct dxgi_vk_swap_chain *chain, bool force_requery)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     VkPhysicalDevice vk_physical_device = chain->queue->device->vk_physical_device;
     VkResult vr;
 
+    if (chain->properties.format_count != 0 && !force_requery)
+        return true;
+
     if ((vr = VK_CALL(vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, chain->vk_surface,
             &chain->properties.format_count, NULL))) < 0)
     {
         ERR("Failed to query surface formats.\n");
+        chain->properties.format_count = 0;
         return false;
     }
 
@@ -1294,6 +1259,7 @@ static bool dxgi_vk_swap_chain_update_formats(struct dxgi_vk_swap_chain *chain)
             chain->properties.format_count, sizeof(*chain->properties.formats)))
     {
         ERR("Failed to allocate memory.\n");
+        chain->properties.format_count = 0;
         return false;
     }
 
@@ -1301,6 +1267,7 @@ static bool dxgi_vk_swap_chain_update_formats(struct dxgi_vk_swap_chain *chain)
             &chain->properties.format_count, chain->properties.formats))) < 0)
     {
         ERR("Failed to query surface formats.\n");
+        chain->properties.format_count = 0;
         return false;
     }
 
@@ -1337,6 +1304,8 @@ static HRESULT dxgi_vk_swap_chain_create_surface(struct dxgi_vk_swap_chain *chai
         ERR("Surface is not supported for presentation.\n");
         return E_INVALIDARG;
     }
+
+    pthread_mutex_init(&chain->properties.lock, NULL);
 
     return S_OK;
 }
@@ -1547,19 +1516,22 @@ static bool dxgi_vk_swap_chain_accept_format(const VkSurfaceFormatKHR *format, V
 static bool dxgi_vk_swap_chain_find_surface_format(struct dxgi_vk_swap_chain *chain, VkFormat vk_format,
         VkColorSpaceKHR color_space, VkSurfaceFormatKHR *format)
 {
+    bool ret = false;
     uint32_t i;
 
-    for (i = 0; i < chain->properties.format_count; i++)
+    pthread_mutex_lock(&chain->properties.lock);
+    dxgi_vk_swap_chain_update_formats_locked(chain, false);
+    for (i = 0; i < chain->properties.format_count && !ret; i++)
     {
         if (dxgi_vk_swap_chain_accept_format(&chain->properties.formats[i], vk_format) &&
                 chain->properties.formats[i].colorSpace == color_space)
         {
             *format = chain->properties.formats[i];
-            return true;
+            ret = true;
         }
     }
-
-    return false;
+    pthread_mutex_unlock(&chain->properties.lock);
+    return ret;
 }
 
 static bool dxgi_vk_swap_chain_select_format(struct dxgi_vk_swap_chain *chain, VkSurfaceFormatKHR *format)
@@ -1758,11 +1730,16 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
         return;
 
     /* If we fail to query formats we are hosed, treat it as a SURFACE_LOST scenario. */
-    if (!dxgi_vk_swap_chain_update_formats(chain))
+    pthread_mutex_lock(&chain->properties.lock);
+    /* This is only called on an event where we have to recreate the swapchain,
+     * re-query format support at this time. It should not be called in the steady state. */
+    if (!dxgi_vk_swap_chain_update_formats_locked(chain, true))
     {
         chain->present.is_surface_lost = true;
+        pthread_mutex_unlock(&chain->properties.lock);
         return;
     }
+    pthread_mutex_unlock(&chain->properties.lock);
 
     VK_CALL(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device, chain->vk_surface, &surface_caps));
 
