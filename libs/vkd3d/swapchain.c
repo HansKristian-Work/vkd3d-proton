@@ -3207,7 +3207,6 @@ ULONG dxgi_vk_swap_chain_decref(struct dxgi_vk_swap_chain *chain)
 
     if (!refcount)
     {
-
         dxgi_vk_swap_chain_cleanup(chain);
         vkd3d_free(chain);
     }
