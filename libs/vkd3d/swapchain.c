@@ -407,19 +407,42 @@ static void dxgi_vk_swap_chain_push_present_id(struct dxgi_vk_swap_chain *chain,
     pthread_mutex_unlock(&chain->wait_thread.lock);
 }
 
-static void dxgi_vk_swap_chain_cleanup(struct dxgi_vk_swap_chain *chain)
+static void dxgi_vk_swap_chain_cleanup_frame_rate_limiter(struct dxgi_vk_swap_chain *chain)
+{
+    pthread_mutex_destroy(&chain->frame_rate_limit.lock);
+}
+
+static void dxgi_vk_swap_chain_cleanup_low_latency(struct dxgi_vk_swap_chain *chain)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
-    UINT i;
+    if (chain->queue->device->vk_info.NV_low_latency2)
+    {
+        VK_CALL(vkDestroySemaphore(chain->queue->device->vk_device, chain->present.low_latency_sem, NULL));
+        pthread_mutex_destroy(&chain->present.low_latency_swapchain_lock);
+        pthread_mutex_destroy(&chain->present.low_latency_state_update_lock);
+    }
+}
 
+static void dxgi_vk_swap_chain_cleanup_waiter_thread(struct dxgi_vk_swap_chain *chain)
+{
     dxgi_vk_swap_chain_push_present_id(chain, 0, 0, 0);
     pthread_join(chain->wait_thread.thread, NULL);
     pthread_mutex_destroy(&chain->wait_thread.lock);
     pthread_cond_destroy(&chain->wait_thread.cond);
     vkd3d_free(chain->wait_thread.wait_queue);
+}
 
-    pthread_mutex_destroy(&chain->frame_rate_limit.lock);
+static void dxgi_vk_swap_chain_cleanup_surface(struct dxgi_vk_swap_chain *chain)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
+    VK_CALL(vkDestroySurfaceKHR(chain->queue->device->vkd3d_instance->vk_instance,
+            chain->vk_surface, NULL));
+    vkd3d_free(chain->properties.formats);
+    pthread_mutex_destroy(&chain->properties.lock);
+}
 
+static void dxgi_vk_swap_chain_cleanup_sync_objects(struct dxgi_vk_swap_chain *chain)
+{
     vkd3d_native_sync_handle_destroy(chain->frame_latency_event);
     vkd3d_native_sync_handle_destroy(chain->frame_latency_event_internal);
 
@@ -429,6 +452,12 @@ static void dxgi_vk_swap_chain_cleanup(struct dxgi_vk_swap_chain *chain)
         chain->outstanding_present_request = false;
     }
     vkd3d_native_sync_handle_destroy(chain->present_request_done_event);
+}
+
+static void dxgi_vk_swap_chain_cleanup_common(struct dxgi_vk_swap_chain *chain)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
+    unsigned int i;
 
     VK_CALL(vkDestroySemaphore(chain->queue->device->vk_device, chain->present.vk_internal_blit_semaphore, NULL));
     VK_CALL(vkDestroySemaphore(chain->queue->device->vk_device, chain->present.vk_complete_semaphore, NULL));
@@ -442,13 +471,6 @@ static void dxgi_vk_swap_chain_cleanup(struct dxgi_vk_swap_chain *chain)
     for (i = 0; i < ARRAY_SIZE(chain->present.vk_swapchain_fences); i++)
         VK_CALL(vkDestroyFence(chain->queue->device->vk_device, chain->present.vk_swapchain_fences[i], NULL));
 
-    if (chain->queue->device->vk_info.NV_low_latency2)
-    {
-        VK_CALL(vkDestroySemaphore(chain->queue->device->vk_device, chain->present.low_latency_sem, NULL));
-        pthread_mutex_destroy(&chain->present.low_latency_swapchain_lock);
-        pthread_mutex_destroy(&chain->present.low_latency_state_update_lock);
-    }
-
     VK_CALL(vkDestroySwapchainKHR(chain->queue->device->vk_device, chain->present.vk_swapchain, NULL));
 
     for (i = 0; i < ARRAY_SIZE(chain->user.backbuffers); i++)
@@ -457,12 +479,20 @@ static void dxgi_vk_swap_chain_cleanup(struct dxgi_vk_swap_chain *chain)
             vkd3d_resource_decref((ID3D12Resource *)&chain->user.backbuffers[i]->ID3D12Resource_iface);
         VK_CALL(vkDestroyImageView(chain->queue->device->vk_device, chain->user.vk_image_views[i], NULL));
     }
+}
 
-    vkd3d_free(chain->properties.formats);
-    pthread_mutex_destroy(&chain->properties.lock);
+static void dxgi_vk_swap_chain_cleanup(struct dxgi_vk_swap_chain *chain)
+{
+    /* Join with waiter thread first to avoid any sync issues. */
+    dxgi_vk_swap_chain_cleanup_waiter_thread(chain);
 
-    VK_CALL(vkDestroySurfaceKHR(chain->queue->device->vkd3d_instance->vk_instance,
-            chain->vk_surface, NULL));
+    dxgi_vk_swap_chain_cleanup_frame_rate_limiter(chain);
+    dxgi_vk_swap_chain_cleanup_low_latency(chain);
+    dxgi_vk_swap_chain_cleanup_sync_objects(chain);
+    dxgi_vk_swap_chain_cleanup_common(chain);
+
+    /* Surface must be destroyed after swapchain. */
+    dxgi_vk_swap_chain_cleanup_surface(chain);
 }
 
 static inline struct dxgi_vk_swap_chain *impl_from_IDXGIVkSwapChain(IDXGIVkSwapChain2 *iface)
@@ -2923,6 +2953,7 @@ static HRESULT dxgi_vk_swap_chain_init_frame_rate_limiter(struct dxgi_vk_swap_ch
 {
     double target_frame_rate;
     char env[16];
+    HRESULT hr;
 
     pthread_mutex_init(&chain->frame_rate_limit.lock, NULL);
 
@@ -2941,7 +2972,10 @@ static HRESULT dxgi_vk_swap_chain_init_frame_rate_limiter(struct dxgi_vk_swap_ch
         }
     }
 
-    return dxgi_vk_swap_chain_init_sleep_state(&chain->frame_rate_limit.sleep_state);
+    hr = dxgi_vk_swap_chain_init_sleep_state(&chain->frame_rate_limit.sleep_state);
+    if (FAILED(hr))
+        pthread_mutex_destroy(&chain->frame_rate_limit.lock);
+    return hr;
 }
 
 static HRESULT dxgi_vk_swap_chain_init(struct dxgi_vk_swap_chain *chain, IDXGIVkSurfaceFactory *pFactory,
@@ -2962,28 +2996,36 @@ static HRESULT dxgi_vk_swap_chain_init(struct dxgi_vk_swap_chain *chain, IDXGIVk
             pDesc->Width, pDesc->Height, pDesc->BufferCount);
 
     if (FAILED(hr = dxgi_vk_swap_chain_reallocate_user_buffers(chain)))
-        goto err;
+        goto cleanup_common;
 
     if (FAILED(hr = dxgi_vk_swap_chain_init_sync_objects(chain)))
-        goto err;
+        goto cleanup_common;
 
     if (FAILED(hr = dxgi_vk_swap_chain_create_surface(chain, pFactory)))
-        goto err;
+        goto cleanup_sync_objects;
 
     if (FAILED(hr = dxgi_vk_swap_chain_init_waiter_thread(chain)))
-        goto err;
+        goto cleanup_surface;
 
     if (FAILED(hr = dxgi_vk_swap_chain_init_low_latency(chain)))
-        goto err;
+        goto cleanup_waiter_thread;
 
     if (FAILED(hr = dxgi_vk_swap_chain_init_frame_rate_limiter(chain)))
-        goto err;
+        goto cleanup_low_latency;
 
     ID3D12CommandQueue_AddRef(&queue->ID3D12CommandQueue_iface);
     return S_OK;
 
-err:
-    dxgi_vk_swap_chain_cleanup(chain);
+cleanup_low_latency:
+    dxgi_vk_swap_chain_cleanup_low_latency(chain);
+cleanup_waiter_thread:
+    dxgi_vk_swap_chain_cleanup_waiter_thread(chain);
+cleanup_surface:
+    dxgi_vk_swap_chain_cleanup_surface(chain);
+cleanup_sync_objects:
+    dxgi_vk_swap_chain_cleanup_sync_objects(chain);
+cleanup_common:
+    dxgi_vk_swap_chain_cleanup_common(chain);
     return hr;
 }
 
