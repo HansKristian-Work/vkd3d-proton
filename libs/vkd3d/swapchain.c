@@ -2490,8 +2490,6 @@ static void dxgi_vk_swap_chain_present_callback(void *chain_)
     const struct dxgi_vk_swap_chain_present_request *next_request;
     struct dxgi_vk_swap_chain *chain = chain_;
     uint64_t next_present_count;
-    uint32_t present_count;
-    uint32_t i;
 
     next_present_count = chain->present.present_count + 1;
     next_request = &chain->request_ring[next_present_count % ARRAY_SIZE(chain->request_ring)];
@@ -2508,26 +2506,12 @@ static void dxgi_vk_swap_chain_present_callback(void *chain_)
     /* If no QueuePresentKHRs successfully commits a present ID, we'll fallback to a normal queue signal. */
     chain->present.present_id_valid = false;
 
-    /* There is currently no present timing in Vulkan we can rely on, so just duplicate blit them as needed.
-     * This happens on a thread, so the blocking should not be a significant problem.
-     * TODO: Propose VK_EXT_present_interval. */
-    present_count = max(1u, chain->request.swap_interval);
-
-    /* If we hit the legacy way of synchronizing with swapchain, blitting multiple times would be horrible.
-     * Also if low latency mode is enabled only do a single present iteration to avoid falling off the application
-     * provided frame id path. */
-    if (!chain->wait_thread.supports_present_wait || chain->present.low_latency_state.mode)
-        present_count = 1;
-
-    for (i = 0; i < present_count; i++)
-    {
-        /* A present iteration may or may not render to backbuffer. We'll apply best effort here.
-         * Forward progress must be ensured, so if we cannot get anything on-screen in a reasonable amount of retries, ignore it. */
-        dxgi_vk_swap_chain_present_iteration(chain, next_present_count, 0);
-    }
+    /* A present iteration may or may not render to backbuffer. We'll apply best effort here.
+     * Forward progress must be ensured, so if we cannot get anything on-screen in a reasonable amount of retries, ignore it. */
+    dxgi_vk_swap_chain_present_iteration(chain, next_present_count, 0);
 
     /* When this is signalled, lets main thread know that it's safe to free user buffers.
-     * Signal this just once on the outside since we might have retries, swap_interval > 1, etc, which complicates command buffer recycling. */
+     * Signal this just once on the outside since we might have retries, which complicates command buffer recycling. */
     dxgi_vk_swap_chain_present_signal_blit_semaphore(chain, next_present_count);
 
     /* Signal latency fence. */
