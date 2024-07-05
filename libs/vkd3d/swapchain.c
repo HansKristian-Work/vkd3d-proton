@@ -112,7 +112,6 @@ struct dxgi_vk_swap_chain
 
     UINT frame_latency;
     UINT frame_latency_internal;
-    bool frame_latency_internal_is_static;
     VkSurfaceKHR vk_surface;
 
     struct low_latency_state requested_low_latency_state;
@@ -780,26 +779,6 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_ChangeProperties(IDXGIVkSwap
         return hr;
     }
 
-    /* If BufferCount changes, so does expectations about latency. */
-    if (vkd3d_native_sync_handle_is_valid(chain->frame_latency_event_internal) &&
-            !chain->frame_latency_internal_is_static)
-    {
-        if (chain->desc.BufferCount > chain->frame_latency_internal)
-        {
-            vkd3d_native_sync_handle_release(chain->frame_latency_event_internal,
-                    chain->desc.BufferCount - chain->frame_latency_internal);
-            chain->frame_latency_internal = chain->desc.BufferCount;
-        }
-        else
-        {
-            while (chain->frame_latency_internal > chain->desc.BufferCount)
-            {
-                vkd3d_native_sync_handle_acquire(chain->frame_latency_event_internal);
-                chain->frame_latency_internal--;
-            }
-        }
-    }
-
     if (chain->user.index >= chain->desc.BufferCount)
     {
         /* Need to reset the user index in case the buffer count is lowered.
@@ -1377,18 +1356,20 @@ static HRESULT dxgi_vk_swap_chain_init_sync_objects(struct dxgi_vk_swap_chain *c
          * If we don't have present wait, we will sync with present_request_done_event (below) instead.
          * Adding more sync against internal blit fences is meaningless
          * and can cause weird pumping issues in some cases since we're simultaneously syncing
-         * against two different timelines. Deduce latency based on BufferCount by default. */
-        chain->frame_latency_internal = chain->desc.BufferCount;
+         * against two different timelines.
+         * While we used to deduce latency based on BufferCount by default,
+         * it was causing various issues, especially on Deck.
+         * With 2 frame latency where CPU and GPU are decently subscribed,
+         * the present wait event will come in with VBlank-alignment, and that extra delay can be enough to nudge CPU timings to the point
+         * where GPU goes falsely idle. This ends up dropping GPU clocks, and we have bad feedback loop effects.
+         * This effect has been observed in enough games now that it's too risky to enable that behavior by default. */
+        chain->frame_latency_internal = DEFAULT_FRAME_LATENCY;
 
         if (vkd3d_get_env_var("VKD3D_SWAPCHAIN_LATENCY_FRAMES", env, sizeof(env)))
         {
             latency_override = strtoul(env, NULL, 0);
-
             if (latency_override >= 1 && latency_override <= DXGI_MAX_SWAP_CHAIN_BUFFERS)
-            {
                 chain->frame_latency_internal = latency_override;
-                chain->frame_latency_internal_is_static = true;
-            }
         }
 
         INFO("Ensure maximum latency of %u frames with KHR_present_wait.\n",
