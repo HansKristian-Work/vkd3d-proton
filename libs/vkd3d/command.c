@@ -6763,7 +6763,7 @@ static void d3d12_command_list_promote_dsv_layout(struct d3d12_command_list *lis
      * read-state shenanigans. If we cannot promote yet, the pipeline will override dsv_layout as required
      * by write enable bits. */
     if (list->dsv_layout == VK_IMAGE_LAYOUT_UNDEFINED &&
-            list->state &&
+            d3d12_pipeline_state_is_graphics(list->state) &&
             d3d12_command_list_has_depth_stencil_view(list) &&
             list->dsv.resource)
     {
