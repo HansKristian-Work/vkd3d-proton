@@ -2120,8 +2120,7 @@ static inline bool d3d12_pipeline_state_is_compute(const struct d3d12_pipeline_s
 
 static inline bool d3d12_pipeline_state_is_graphics(const struct d3d12_pipeline_state *state)
 {
-    return state && (state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS ||
-            state->pipeline_type == VKD3D_PIPELINE_TYPE_MESH_GRAPHICS);
+    return state && state->pipeline_type != VKD3D_PIPELINE_TYPE_COMPUTE;
 }
 
 /* This returns true for invalid D3D12 API usage. Game intends to use depth-stencil tests,
