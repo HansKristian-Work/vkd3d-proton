@@ -16185,7 +16185,7 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyRaytracingAccelerationStruc
 static void STDMETHODCALLTYPE d3d12_command_list_SetPipelineState1(d3d12_command_list_iface *iface,
         ID3D12StateObject *state_object)
 {
-    struct d3d12_state_object *state = impl_from_ID3D12StateObject(state_object);
+    struct d3d12_rt_state_object *state = rt_impl_from_ID3D12StateObject(state_object);
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
     TRACE("iface %p, state_object %p\n", iface, state_object);
 

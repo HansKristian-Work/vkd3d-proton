@@ -23,9 +23,9 @@
 
 #define RT_TRACE TRACE
 
-static inline struct d3d12_state_object *impl_from_ID3D12StateObjectProperties(ID3D12StateObjectProperties *iface)
+static inline struct d3d12_rt_state_object *impl_from_ID3D12StateObjectProperties(ID3D12StateObjectProperties *iface)
 {
-    return CONTAINING_RECORD(iface, struct d3d12_state_object, ID3D12StateObjectProperties_iface);
+    return CONTAINING_RECORD(iface, struct d3d12_rt_state_object, ID3D12StateObjectProperties_iface);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_state_object_QueryInterface(ID3D12StateObject *iface,
@@ -71,14 +71,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_state_object_QueryInterface(ID3D12StateOb
 static HRESULT STDMETHODCALLTYPE d3d12_state_object_properties_QueryInterface(ID3D12StateObjectProperties *iface,
         REFIID riid, void **object)
 {
-    struct d3d12_state_object *state_object = impl_from_ID3D12StateObjectProperties(iface);
+    struct d3d12_rt_state_object *state_object = impl_from_ID3D12StateObjectProperties(iface);
     TRACE("iface %p, riid %s, object %p.\n", iface, debugstr_guid(riid), object);
     return d3d12_state_object_QueryInterface(&state_object->ID3D12StateObject_iface, riid, object);
 }
 
 static ULONG STDMETHODCALLTYPE d3d12_state_object_AddRef(ID3D12StateObject *iface)
 {
-    struct d3d12_state_object *state_object = impl_from_ID3D12StateObject(iface);
+    struct d3d12_rt_state_object *state_object = rt_impl_from_ID3D12StateObject(iface);
     ULONG refcount = InterlockedIncrement(&state_object->refcount);
 
     TRACE("%p increasing refcount to %u.\n", state_object, refcount);
@@ -88,7 +88,7 @@ static ULONG STDMETHODCALLTYPE d3d12_state_object_AddRef(ID3D12StateObject *ifac
 
 static ULONG STDMETHODCALLTYPE d3d12_state_object_properties_AddRef(ID3D12StateObjectProperties *iface)
 {
-    struct d3d12_state_object *state_object = impl_from_ID3D12StateObjectProperties(iface);
+    struct d3d12_rt_state_object *state_object = impl_from_ID3D12StateObjectProperties(iface);
     ULONG refcount = InterlockedIncrement(&state_object->refcount);
 
     TRACE("%p increasing refcount to %u.\n", state_object, refcount);
@@ -96,14 +96,14 @@ static ULONG STDMETHODCALLTYPE d3d12_state_object_properties_AddRef(ID3D12StateO
     return refcount;
 }
 
-static void d3d12_state_object_cleanup(struct d3d12_state_object *object);
+static void d3d12_state_object_cleanup(struct d3d12_rt_state_object *object);
 
-static void d3d12_state_object_inc_ref(struct d3d12_state_object *state_object)
+static void d3d12_state_object_inc_ref(struct d3d12_rt_state_object *state_object)
 {
     InterlockedIncrement(&state_object->internal_refcount);
 }
 
-static void d3d12_state_object_dec_ref(struct d3d12_state_object *state_object)
+static void d3d12_state_object_dec_ref(struct d3d12_rt_state_object *state_object)
 {
     ULONG refcount = InterlockedDecrement(&state_object->internal_refcount);
 
@@ -120,13 +120,13 @@ static void d3d12_state_object_dec_ref(struct d3d12_state_object *state_object)
     }
 }
 
-static void d3d12_state_object_pipeline_data_cleanup(struct d3d12_state_object_pipeline_data *data,
+static void d3d12_state_object_pipeline_data_cleanup(struct d3d12_rt_state_object_pipeline_data *data,
         struct d3d12_device *device);
 
-static void d3d12_state_object_cleanup(struct d3d12_state_object *object)
+static void d3d12_state_object_cleanup(struct d3d12_rt_state_object *object)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &object->device->vk_procs;
-    struct d3d12_state_object_variant *variant;
+    struct d3d12_rt_state_object_variant *variant;
     size_t i;
 
     for (i = 0; i < object->exports_count; i++)
@@ -192,7 +192,7 @@ static void d3d12_state_object_cleanup(struct d3d12_state_object *object)
 #endif
 }
 
-static ULONG d3d12_state_object_release(struct d3d12_state_object *state_object)
+static ULONG d3d12_state_object_release(struct d3d12_rt_state_object *state_object)
 {
     ULONG refcount = InterlockedDecrement(&state_object->refcount);
 
@@ -205,20 +205,20 @@ static ULONG d3d12_state_object_release(struct d3d12_state_object *state_object)
 
 static ULONG STDMETHODCALLTYPE d3d12_state_object_Release(ID3D12StateObject *iface)
 {
-    struct d3d12_state_object *state_object = impl_from_ID3D12StateObject(iface);
+    struct d3d12_rt_state_object *state_object = rt_impl_from_ID3D12StateObject(iface);
     return d3d12_state_object_release(state_object);
 }
 
 static ULONG STDMETHODCALLTYPE d3d12_state_object_properties_Release(ID3D12StateObjectProperties *iface)
 {
-    struct d3d12_state_object *state_object = impl_from_ID3D12StateObjectProperties(iface);
+    struct d3d12_rt_state_object *state_object = impl_from_ID3D12StateObjectProperties(iface);
     return d3d12_state_object_release(state_object);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_state_object_GetPrivateData(ID3D12StateObject *iface,
         REFGUID guid, UINT *data_size, void *data)
 {
-    struct d3d12_state_object *state_object = impl_from_ID3D12StateObject(iface);
+    struct d3d12_rt_state_object *state_object = rt_impl_from_ID3D12StateObject(iface);
 
     TRACE("iface %p, guid %s, data_size %p, data %p.\n", iface, debugstr_guid(guid), data_size, data);
 
@@ -228,7 +228,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_state_object_GetPrivateData(ID3D12StateOb
 static HRESULT STDMETHODCALLTYPE d3d12_state_object_SetPrivateData(ID3D12StateObject *iface,
         REFGUID guid, UINT data_size, const void *data)
 {
-    struct d3d12_state_object *state_object = impl_from_ID3D12StateObject(iface);
+    struct d3d12_rt_state_object *state_object = rt_impl_from_ID3D12StateObject(iface);
 
     TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
 
@@ -239,7 +239,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_state_object_SetPrivateData(ID3D12StateOb
 static HRESULT STDMETHODCALLTYPE d3d12_state_object_SetPrivateDataInterface(ID3D12StateObject *iface,
         REFGUID guid, const IUnknown *data)
 {
-    struct d3d12_state_object *state_object = impl_from_ID3D12StateObject(iface);
+    struct d3d12_rt_state_object *state_object = rt_impl_from_ID3D12StateObject(iface);
 
     TRACE("iface %p, guid %s, data %p.\n", iface, debugstr_guid(guid), data);
 
@@ -250,7 +250,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_state_object_SetPrivateDataInterface(ID3D
 static HRESULT STDMETHODCALLTYPE d3d12_state_object_GetDevice(ID3D12StateObject *iface,
         REFIID iid, void **device)
 {
-    struct d3d12_state_object *state_object = impl_from_ID3D12StateObject(iface);
+    struct d3d12_rt_state_object *state_object = rt_impl_from_ID3D12StateObject(iface);
 
     TRACE("iface %p, iid %s, device %p.\n", iface, debugstr_guid(iid), device);
 
@@ -263,7 +263,7 @@ static bool vkd3d_export_equal(LPCWSTR export, const struct vkd3d_shader_library
             vkd3d_export_strequal(export, entry->plain_entry_point);
 }
 
-static uint32_t d3d12_state_object_get_export_index(struct d3d12_state_object *object,
+static uint32_t d3d12_state_object_get_export_index(struct d3d12_rt_state_object *object,
         const WCHAR *export_name, const WCHAR **out_subtype)
 {
     const WCHAR *subtype = NULL;
@@ -293,8 +293,8 @@ static uint32_t d3d12_state_object_get_export_index(struct d3d12_state_object *o
 static void * STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderIdentifier(ID3D12StateObjectProperties *iface,
         LPCWSTR export_name)
 {
-    struct d3d12_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
-    struct d3d12_state_object_identifier *export;
+    struct d3d12_rt_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
+    struct d3d12_rt_state_object_identifier *export;
     const WCHAR *subtype = NULL;
     uint32_t index;
 
@@ -335,7 +335,7 @@ static void * STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderIdentifie
 static UINT64 STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderStackSize(ID3D12StateObjectProperties *iface,
         LPCWSTR export_name)
 {
-    struct d3d12_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
+    struct d3d12_rt_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
     const WCHAR *subtype = NULL;
     uint32_t index;
 
@@ -364,7 +364,7 @@ static UINT64 STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderStackSize
 
 static UINT64 STDMETHODCALLTYPE d3d12_state_object_properties_GetPipelineStackSize(ID3D12StateObjectProperties *iface)
 {
-    struct d3d12_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
+    struct d3d12_rt_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
     TRACE("iface %p\n", iface);
     return object->pipeline_stack_size;
 }
@@ -372,7 +372,7 @@ static UINT64 STDMETHODCALLTYPE d3d12_state_object_properties_GetPipelineStackSi
 static void STDMETHODCALLTYPE d3d12_state_object_properties_SetPipelineStackSize(ID3D12StateObjectProperties *iface,
         UINT64 stack_size_in_bytes)
 {
-    struct d3d12_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
+    struct d3d12_rt_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
     TRACE("iface %p, stack_size_in_bytes %llu!\n", iface, (unsigned long long)stack_size_in_bytes);
 
     /* This behavior seems to match what I'm seeing on NV Windows driver. */
@@ -423,12 +423,12 @@ struct d3d12_state_object_association
 
 struct d3d12_state_object_collection
 {
-    struct d3d12_state_object *object;
+    struct d3d12_rt_state_object *object;
     unsigned int num_exports;
     const D3D12_EXPORT_DESC *exports;
 };
 
-struct d3d12_state_object_pipeline_data
+struct d3d12_rt_state_object_pipeline_data
 {
     /* Map 1:1 with VkShaderModule. */
     struct vkd3d_shader_library_entry_point *entry_points;
@@ -454,7 +454,7 @@ struct d3d12_state_object_pipeline_data
     size_t dxil_libraries_count;
 
     /* Maps 1:1 to groups. */
-    struct d3d12_state_object_identifier *exports;
+    struct d3d12_rt_state_object_identifier *exports;
     size_t exports_size;
     size_t exports_count;
 
@@ -483,7 +483,7 @@ struct d3d12_state_object_pipeline_data
     bool has_deep_duplication;
 };
 
-static void d3d12_state_object_pipeline_data_cleanup_modules(struct d3d12_state_object_pipeline_data *data,
+static void d3d12_state_object_pipeline_data_cleanup_modules(struct d3d12_rt_state_object_pipeline_data *data,
         struct d3d12_device *device)
 {
     unsigned int i;
@@ -495,7 +495,7 @@ static void d3d12_state_object_pipeline_data_cleanup_modules(struct d3d12_state_
     data->stages_count = 0;
 }
 
-static void d3d12_state_object_pipeline_data_cleanup_compile_temporaries(struct d3d12_state_object_pipeline_data *data,
+static void d3d12_state_object_pipeline_data_cleanup_compile_temporaries(struct d3d12_rt_state_object_pipeline_data *data,
         struct d3d12_device *device)
 {
     unsigned int i;
@@ -542,7 +542,7 @@ static void d3d12_state_object_pipeline_data_cleanup_compile_temporaries(struct 
     data->spec_info_buffer = NULL;
 }
 
-static void d3d12_state_object_pipeline_data_cleanup(struct d3d12_state_object_pipeline_data *data,
+static void d3d12_state_object_pipeline_data_cleanup(struct d3d12_rt_state_object_pipeline_data *data,
         struct d3d12_device *device)
 {
     unsigned int i;
@@ -600,11 +600,11 @@ static void *dup_memory(const void *data, size_t size)
     return new_data;
 }
 
-static struct d3d12_state_object_pipeline_data *d3d12_state_object_pipeline_data_defer(
-        struct d3d12_state_object_pipeline_data *old_data,
+static struct d3d12_rt_state_object_pipeline_data *d3d12_state_object_pipeline_data_defer(
+        struct d3d12_rt_state_object_pipeline_data *old_data,
         struct d3d12_device *device)
 {
-    struct d3d12_state_object_pipeline_data *data;
+    struct d3d12_rt_state_object_pipeline_data *data;
     unsigned int i;
 
     /* hit_groups and dxil_libraries need deep copies since they currently only reference app-provided memory. */
@@ -659,8 +659,8 @@ static struct d3d12_state_object_pipeline_data *d3d12_state_object_pipeline_data
 #define VKD3D_ASSOCIATION_PRIORITY_EXPLICIT 6
 
 static HRESULT d3d12_state_object_add_collection_library(
-        struct d3d12_state_object *collection,
-        struct d3d12_state_object_pipeline_data *data,
+        struct d3d12_rt_state_object *collection,
+        struct d3d12_rt_state_object_pipeline_data *data,
         const D3D12_EXPORT_DESC *exports, unsigned int num_exports)
 {
     VKD3D_UNUSED size_t i;
@@ -703,8 +703,8 @@ static HRESULT d3d12_state_object_add_collection_library(
 }
 
 static HRESULT d3d12_state_object_add_collection_deferred(
-        struct d3d12_state_object_pipeline_data *deferred,
-        struct d3d12_state_object_pipeline_data *data,
+        struct d3d12_rt_state_object_pipeline_data *deferred,
+        struct d3d12_rt_state_object_pipeline_data *data,
         const D3D12_EXPORT_DESC *exports, unsigned int num_exports)
 {
     VKD3D_UNUSED size_t i, j;
@@ -899,8 +899,8 @@ static HRESULT d3d12_state_object_add_collection_deferred(
 }
 
 static HRESULT d3d12_state_object_add_collection(
-        struct d3d12_state_object *collection,
-        struct d3d12_state_object_pipeline_data *data,
+        struct d3d12_rt_state_object *collection,
+        struct d3d12_rt_state_object_pipeline_data *data,
         const D3D12_EXPORT_DESC *exports, unsigned int num_exports)
 {
     if (collection->deferred_data)
@@ -966,9 +966,9 @@ static void d3d12_state_object_set_association_data(struct d3d12_state_object_as
     }
 }
 
-static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *object,
+static HRESULT d3d12_state_object_parse_subobject(struct d3d12_rt_state_object *object,
         const D3D12_STATE_SUBOBJECT *obj,
-        struct d3d12_state_object_pipeline_data *data,
+        struct d3d12_rt_state_object_pipeline_data *data,
         unsigned int association_priority)
 {
     unsigned int i;
@@ -1293,8 +1293,8 @@ static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *obj
         case D3D12_STATE_SUBOBJECT_TYPE_EXISTING_COLLECTION:
         {
             const D3D12_EXISTING_COLLECTION_DESC *collection = obj->pDesc;
-            struct d3d12_state_object *library_state;
-            library_state = impl_from_ID3D12StateObject(collection->pExistingCollection);
+            struct d3d12_rt_state_object *library_state;
+            library_state = rt_impl_from_ID3D12StateObject(collection->pExistingCollection);
             if (FAILED(hr = d3d12_state_object_add_collection(library_state, data,
                     collection->pExports, collection->NumExports)))
             {
@@ -1315,10 +1315,10 @@ static HRESULT d3d12_state_object_parse_subobject(struct d3d12_state_object *obj
     return S_OK;
 }
 
-static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_state_object *object,
+static HRESULT d3d12_state_object_parse_subobjects(struct d3d12_rt_state_object *object,
         const D3D12_STATE_OBJECT_DESC *desc,
-        struct d3d12_state_object *parent,
-        struct d3d12_state_object_pipeline_data *data)
+        struct d3d12_rt_state_object *parent,
+        struct d3d12_rt_state_object_pipeline_data *data)
 {
     struct d3d12_root_signature *root_signature;
     unsigned int i;
@@ -1446,8 +1446,8 @@ static uint32_t d3d12_state_object_pipeline_data_find_entry_inner(
     return VK_SHADER_UNUSED_KHR;
 }
 
-static uint32_t d3d12_state_object_find_collection_variant(const struct d3d12_state_object_variant *variant,
-        const struct d3d12_state_object *collection)
+static uint32_t d3d12_state_object_find_collection_variant(const struct d3d12_rt_state_object_variant *variant,
+        const struct d3d12_rt_state_object *collection)
 {
     uint32_t i;
 
@@ -1464,8 +1464,8 @@ static uint32_t d3d12_state_object_find_collection_variant(const struct d3d12_st
 }
 
 static uint32_t d3d12_state_object_pipeline_data_find_entry(
-        const struct d3d12_state_object_pipeline_data *data,
-        const struct d3d12_state_object_variant *variant,
+        const struct d3d12_rt_state_object_pipeline_data *data,
+        const struct d3d12_rt_state_object_variant *variant,
         unsigned int pipeline_variant_index,
         const WCHAR *import)
 {
@@ -1553,10 +1553,10 @@ static VkShaderModule create_shader_module(struct d3d12_device *device, const vo
         return VK_NULL_HANDLE;
 }
 
-static VkDeviceSize get_shader_stack_size(struct d3d12_state_object *object,
+static VkDeviceSize get_shader_stack_size(struct d3d12_rt_state_object *object,
         uint32_t pipeline_variant_index, uint32_t index, VkShaderGroupShaderKHR shader)
 {
-    const struct d3d12_state_object_variant *variant = &object->pipelines[pipeline_variant_index];
+    const struct d3d12_rt_state_object_variant *variant = &object->pipelines[pipeline_variant_index];
     const struct vkd3d_vk_device_procs *vk_procs = &object->device->vk_procs;
     return VK_CALL(vkGetRayTracingShaderGroupStackSizeKHR(object->device->vk_device,
             variant->pipeline ? variant->pipeline : variant->pipeline_library,
@@ -1564,11 +1564,11 @@ static VkDeviceSize get_shader_stack_size(struct d3d12_state_object *object,
 }
 
 static VkDeviceSize d3d12_state_object_pipeline_data_compute_default_stack_size(
-        const struct d3d12_state_object_pipeline_data *data,
-        struct d3d12_state_object_stack_info *stack_info, uint32_t recursion_depth)
+        const struct d3d12_rt_state_object_pipeline_data *data,
+        struct d3d12_rt_state_object_stack_info *stack_info, uint32_t recursion_depth)
 {
-    const struct d3d12_state_object_identifier *export;
-    struct d3d12_state_object_stack_info stack;
+    const struct d3d12_rt_state_object_identifier *export;
+    struct d3d12_rt_state_object_stack_info stack;
     VkDeviceSize pipeline_stack_size = 0;
     size_t i;
 
@@ -1609,7 +1609,7 @@ static VkDeviceSize d3d12_state_object_pipeline_data_compute_default_stack_size(
 
     for (i = 0; i < data->collections_count; i++)
     {
-        const struct d3d12_state_object_stack_info *info = &data->collections[i].object->stack;
+        const struct d3d12_rt_state_object_stack_info *info = &data->collections[i].object->stack;
         stack.max_closest = max(stack.max_closest, info->max_closest);
         stack.max_callable = max(stack.max_callable, info->max_callable);
         stack.max_miss = max(stack.max_miss, info->max_miss);
@@ -1674,7 +1674,7 @@ static bool d3d12_state_object_association_data_equal(const struct d3d12_state_o
 
 static bool d3d12_state_object_find_explicit_assignment_override(
         enum vkd3d_shader_subobject_kind kind,
-        const struct d3d12_state_object_pipeline_data *data,
+        const struct d3d12_rt_state_object_pipeline_data *data,
         const struct d3d12_state_object_association *association)
 {
     size_t i;
@@ -1695,7 +1695,7 @@ static bool d3d12_state_object_find_explicit_assignment_override(
 
 static struct d3d12_state_object_association *d3d12_state_object_find_association(
         enum vkd3d_shader_subobject_kind kind,
-        struct d3d12_state_object_pipeline_data *data,
+        struct d3d12_rt_state_object_pipeline_data *data,
         const struct vkd3d_shader_library_entry_point *entry,
         LPCWSTR export)
 {
@@ -1815,7 +1815,7 @@ static struct d3d12_state_object_association *d3d12_state_object_find_associatio
 
 static struct d3d12_root_signature *d3d12_state_object_pipeline_data_get_root_signature(
         enum vkd3d_shader_subobject_kind kind,
-        struct d3d12_state_object_pipeline_data *data,
+        struct d3d12_rt_state_object_pipeline_data *data,
         const struct vkd3d_shader_library_entry_point *entry)
 {
     struct d3d12_state_object_association *association;
@@ -1823,11 +1823,11 @@ static struct d3d12_root_signature *d3d12_state_object_pipeline_data_get_root_si
     return association ? association->root_signature : NULL;
 }
 
-static HRESULT d3d12_state_object_get_group_handles(struct d3d12_state_object *object,
-        const struct d3d12_state_object_pipeline_data *data)
+static HRESULT d3d12_state_object_get_group_handles(struct d3d12_rt_state_object *object,
+        const struct d3d12_rt_state_object_pipeline_data *data)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &object->device->vk_procs;
-    const struct d3d12_state_object_variant *variant;
+    const struct d3d12_rt_state_object_variant *variant;
     unsigned int pipeline_variant_index;
     uint32_t collection_export;
     VkPipeline vk_pipeline;
@@ -1946,7 +1946,7 @@ static HRESULT d3d12_state_object_get_group_handles(struct d3d12_state_object *o
 static void d3d12_state_object_build_group_create_info(
         VkRayTracingShaderGroupCreateInfoKHR *group_create,
         VkRayTracingShaderGroupTypeKHR group_type,
-        const struct d3d12_state_object_identifier *export)
+        const struct d3d12_rt_state_object_identifier *export)
 {
     group_create->sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
     group_create->pNext = NULL;
@@ -1960,7 +1960,7 @@ static void d3d12_state_object_build_group_create_info(
 }
 
 static void d3d12_state_object_append_local_static_samplers(
-        struct d3d12_state_object_variant *variant,
+        struct d3d12_rt_state_object_variant *variant,
         VkDescriptorSetLayoutBinding **out_vk_bindings, size_t *out_vk_bindings_size, size_t *out_vk_bindings_count,
         struct vkd3d_shader_resource_binding *local_bindings,
         const D3D12_STATIC_SAMPLER_DESC1 *sampler_desc, const VkSampler *vk_samplers,
@@ -2007,7 +2007,7 @@ static void d3d12_state_object_append_local_static_samplers(
 }
 
 static bool d3d12_state_object_pipeline_data_find_global_state_object(
-        struct d3d12_state_object_pipeline_data *data,
+        struct d3d12_rt_state_object_pipeline_data *data,
         enum vkd3d_shader_subobject_kind kind,
         const struct d3d12_state_object_association **out_association)
 {
@@ -2055,7 +2055,7 @@ static bool d3d12_state_object_pipeline_data_find_global_state_object(
 }
 
 static HRESULT d3d12_state_object_pipeline_data_find_global_state_objects(
-        struct d3d12_state_object_pipeline_data *data,
+        struct d3d12_rt_state_object_pipeline_data *data,
         D3D12_RAYTRACING_SHADER_CONFIG *out_shader_config,
         D3D12_RAYTRACING_PIPELINE_CONFIG1 *out_pipeline_config)
 {
@@ -2088,9 +2088,9 @@ static HRESULT d3d12_state_object_pipeline_data_find_global_state_objects(
     return S_OK;
 }
 
-static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_state_object *object,
+static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state_object *object,
         unsigned pipeline_variant_index,
-        struct d3d12_state_object_pipeline_data *data)
+        struct d3d12_rt_state_object_pipeline_data *data)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &object->device->vk_procs;
     struct vkd3d_shader_interface_local_info shader_interface_local_info;
@@ -2103,13 +2103,13 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_state_ob
     struct vkd3d_shader_resource_binding *local_bindings;
     struct vkd3d_shader_compile_arguments compile_args;
     struct d3d12_state_object_collection *collection;
+    struct d3d12_rt_state_object_identifier *export;
     VkPipelineDynamicStateCreateInfo dynamic_state;
     struct vkd3d_shader_library_entry_point *entry;
+    struct d3d12_rt_state_object_variant *variant;
     const struct D3D12_HIT_GROUP_DESC *hit_group;
-    struct d3d12_state_object_identifier *export;
     VkPipelineLibraryCreateInfoKHR library_info;
     size_t local_static_sampler_bindings_count;
-    struct d3d12_state_object_variant *variant;
     size_t local_static_sampler_bindings_size;
     VkPipelineShaderStageCreateInfo *stage;
     uint32_t pgroup_offset, pstage_offset;
@@ -2461,7 +2461,7 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_state_ob
 
     for (i = 0; i < data->collections_count; i++)
     {
-        const struct d3d12_state_object_variant *collection_variant;
+        const struct d3d12_rt_state_object_variant *collection_variant;
         uint32_t collection_variant_index;
         collection = &data->collections[i];
 
@@ -2483,7 +2483,7 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_state_ob
 
         for (j = 0; j < num_groups_to_export; j++)
         {
-            const struct d3d12_state_object_identifier *input_export;
+            const struct d3d12_rt_state_object_identifier *input_export;
             uint32_t input_index;
 
             if (collection->num_exports == 0)
@@ -2638,8 +2638,8 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_state_ob
      * or the same compat hash. */
     for (i = 0; i < data->collections_count; i++)
     {
-        struct d3d12_state_object *child = data->collections[i].object;
-        const struct d3d12_state_object_variant *collection_variant;
+        struct d3d12_rt_state_object *child = data->collections[i].object;
+        const struct d3d12_rt_state_object_variant *collection_variant;
         uint32_t collection_variant_index;
 
         /* Only include pipeline libraries which are compatible with current global root signature. */
@@ -2775,7 +2775,7 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_state_ob
 }
 
 static void d3d12_state_object_add_global_root_signature_variant(
-        struct d3d12_state_object *object, struct d3d12_root_signature *rs)
+        struct d3d12_rt_state_object *object, struct d3d12_root_signature *rs)
 {
     unsigned int i;
     for (i = 0; i < object->pipelines_count; i++)
@@ -2790,10 +2790,10 @@ static void d3d12_state_object_add_global_root_signature_variant(
     object->pipelines_count++;
 }
 
-static void d3d12_state_object_collect_variants(struct d3d12_state_object *object,
-        const struct d3d12_state_object_pipeline_data *data)
+static void d3d12_state_object_collect_variants(struct d3d12_rt_state_object *object,
+        const struct d3d12_rt_state_object_pipeline_data *data)
 {
-    const struct d3d12_state_object_variant *variant;
+    const struct d3d12_rt_state_object_variant *variant;
     unsigned int i, j;
 
     /* Always allocate an entry for NULL global root signature.
@@ -2825,12 +2825,12 @@ static void d3d12_state_object_collect_variants(struct d3d12_state_object *objec
     }
 }
 
-static HRESULT d3d12_state_object_init(struct d3d12_state_object *object,
+static HRESULT d3d12_state_object_init(struct d3d12_rt_state_object *object,
         struct d3d12_device *device,
         const D3D12_STATE_OBJECT_DESC *desc,
-        struct d3d12_state_object *parent)
+        struct d3d12_rt_state_object *parent)
 {
-    struct d3d12_state_object_pipeline_data data;
+    struct d3d12_rt_state_object_pipeline_data data;
     HRESULT hr = S_OK;
     unsigned int i;
 
@@ -2968,11 +2968,11 @@ fail:
     return hr;
 }
 
-HRESULT d3d12_state_object_create(struct d3d12_device *device, const D3D12_STATE_OBJECT_DESC *desc,
-        struct d3d12_state_object *parent,
-        struct d3d12_state_object **state_object)
+HRESULT d3d12_rt_state_object_create(struct d3d12_device *device, const D3D12_STATE_OBJECT_DESC *desc,
+        struct d3d12_rt_state_object *parent,
+        struct d3d12_rt_state_object **state_object)
 {
-    struct d3d12_state_object *object;
+    struct d3d12_rt_state_object *object;
     HRESULT hr;
 
     if (!(object = vkd3d_calloc(1, sizeof(*object))))
@@ -2993,8 +2993,8 @@ HRESULT d3d12_state_object_create(struct d3d12_device *device, const D3D12_STATE
     return S_OK;
 }
 
-HRESULT d3d12_state_object_add(struct d3d12_device *device, const D3D12_STATE_OBJECT_DESC *desc,
-        struct d3d12_state_object *parent, struct d3d12_state_object **state_object)
+HRESULT d3d12_rt_state_object_add(struct d3d12_device *device, const D3D12_STATE_OBJECT_DESC *desc,
+        struct d3d12_rt_state_object *parent, struct d3d12_rt_state_object **object)
 {
     unsigned int i;
     HRESULT hr;
@@ -3020,6 +3020,6 @@ HRESULT d3d12_state_object_add(struct d3d12_device *device, const D3D12_STATE_OB
     if (i == desc->NumSubobjects)
         return E_INVALIDARG;
 
-    hr = d3d12_state_object_create(device, desc, parent, state_object);
+    hr = d3d12_rt_state_object_create(device, desc, parent, object);
     return hr;
 }
