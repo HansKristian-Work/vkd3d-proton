@@ -18,6 +18,7 @@
 
 #define VKD3D_DBG_CHANNEL VKD3D_DBG_CHANNEL_SHADER
 
+#define DXIL_SPV_ENABLE_EXPERIMENTAL_WORKGRAPHS
 #include "vkd3d_shader_private.h"
 #include "vkd3d_utf8.h"
 #include "vkd3d_string.h"
@@ -1852,6 +1853,22 @@ end:
     return ret;
 }
 
+static void vkd3d_shader_dxil_free_node_meta(struct vkd3d_shader_library_entry_point *entry_point)
+{
+    size_t i;
+
+    if (entry_point->node_input)
+    {
+        vkd3d_free((void *)entry_point->node_input->node_id);
+        vkd3d_free((void *)entry_point->node_input->node_share_input_id);
+        vkd3d_free(entry_point->node_input);
+    }
+
+    for (i = 0; i < entry_point->node_outputs_count; i++)
+        vkd3d_free((void *)entry_point->node_outputs[i].node_id);
+    vkd3d_free(entry_point->node_outputs);
+}
+
 void vkd3d_shader_dxil_free_library_entry_points(struct vkd3d_shader_library_entry_point *entry_points, size_t count)
 {
     size_t i;
@@ -1861,6 +1878,7 @@ void vkd3d_shader_dxil_free_library_entry_points(struct vkd3d_shader_library_ent
         vkd3d_free(entry_points[i].plain_entry_point);
         vkd3d_free(entry_points[i].real_entry_point);
         vkd3d_free(entry_points[i].debug_entry_point);
+        vkd3d_shader_dxil_free_node_meta(&entry_points[i]);
     }
 
     vkd3d_free(entry_points);
@@ -1903,7 +1921,7 @@ void vkd3d_shader_dxil_free_library_subobjects(struct vkd3d_shader_library_subob
 
 static VkShaderStageFlagBits convert_stage(dxil_spv_shader_stage stage)
 {
-    /* Only interested in RT entry_points. There is no way yet to use lib_6_3+ for non-RT. */
+    /* RT entry point + workgraph, which is compute (and maybe mesh / fragment later). */
     switch (stage)
     {
         case DXIL_SPV_STAGE_RAY_GENERATION:
@@ -1918,9 +1936,59 @@ static VkShaderStageFlagBits convert_stage(dxil_spv_shader_stage stage)
             return VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
         case DXIL_SPV_STAGE_ANY_HIT:
             return VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
+        case DXIL_SPV_STAGE_COMPUTE:
+            return VK_SHADER_STAGE_COMPUTE_BIT;
         default:
             return VK_SHADER_STAGE_ALL;
     }
+}
+
+static void vkd3d_shader_dxil_dup_node_input(struct vkd3d_shader_library_entry_point *entry,
+        const dxil_spv_node_input_data *node_input)
+{
+    struct vkd3d_shader_node_input_data *input = vkd3d_calloc(1, sizeof(*input));
+    entry->node_input = input;
+
+    if (node_input->node_id)
+        input->node_id = vkd3d_strdup(node_input->node_id);
+    input->payload_stride = node_input->payload_stride;
+    input->launch_type = (enum vkd3d_shader_node_launch_type)node_input->launch_type;
+    input->node_array_index = node_input->node_array_index;
+    input->dispatch_grid_offset = node_input->dispatch_grid_offset;
+    input->dispatch_grid_type_bits = node_input->dispatch_grid_type_bits;
+    input->dispatch_grid_components = node_input->dispatch_grid_components;
+    memcpy(input->broadcast_grid, node_input->broadcast_grid, sizeof(input->broadcast_grid));
+    memcpy(input->thread_group_size_spec_id, node_input->thread_group_size_spec_id, sizeof(input->thread_group_size_spec_id));
+    input->recursion_factor = node_input->recursion_factor;
+    input->coalesce_factor = node_input->coalesce_factor;
+    input->is_entry_point_spec_id = node_input->is_entry_point_spec_id;
+    input->is_static_broadcast_node_spec_id = node_input->is_static_broadcast_node_spec_id;
+    input->dispatch_grid_is_upper_bound_spec_id = node_input->dispatch_grid_is_upper_bound_spec_id;
+    if (node_input->node_share_input_id)
+        input->node_share_input_id = vkd3d_strdup(node_input->node_share_input_id);
+    input->node_share_input_array_index = node_input->node_share_input_array_index;
+    input->local_root_arguments_table_index = node_input->local_root_arguments_table_index;
+    input->is_indirect_bda_stride_program_entry_spec_id = node_input->is_indirect_bda_stride_program_entry_spec_id;
+    input->dispatch_grid_is_upper_bound = node_input->dispatch_grid_is_upper_bound == DXIL_SPV_TRUE;
+    input->node_track_rw_input_sharing = node_input->node_track_rw_input_sharing == DXIL_SPV_TRUE;
+    input->is_program_entry = node_input->is_program_entry == DXIL_SPV_TRUE;
+}
+
+static void vkd3d_shader_dxil_dup_node_output(struct vkd3d_shader_library_entry_point *entry,
+        const dxil_spv_node_output_data *node_output)
+{
+    struct vkd3d_shader_node_output_data *output;
+    vkd3d_array_reserve((void **)&entry->node_outputs, &entry->node_outputs_size,
+            entry->node_outputs_count + 1, sizeof(*entry->node_outputs));
+
+    output = &entry->node_outputs[entry->node_outputs_count++];
+    if (node_output->node_id)
+        output->node_id = vkd3d_strdup(node_output->node_id);
+    output->node_array_index = node_output->node_array_index;
+    output->node_array_size = node_output->node_array_size;
+    output->node_index_spec_constant_id = node_output->node_index_spec_constant_id;
+    output->max_records = node_output->max_records;
+    output->sparse_array = node_output->sparse_array == DXIL_SPV_TRUE;
 }
 
 static bool vkd3d_dxil_build_entry(struct vkd3d_shader_library_entry_point *entry,
@@ -2163,6 +2231,26 @@ int vkd3d_shader_dxil_append_library_entry_points_and_subobjects(
                 new_entry.stage = convert_stage(stage);
                 new_entry.pipeline_variant_index = UINT32_MAX;
                 new_entry.stage_index = UINT32_MAX;
+
+                if (stage == DXIL_SPV_STAGE_COMPUTE)
+                {
+                    /* Parse node information as well. */
+                    dxil_spv_node_output_data node_output_data;
+                    dxil_spv_node_input_data node_input_data;
+                    unsigned int entry_index, num_outputs;
+
+                    if (dxil_spv_parsed_blob_get_entry_index_by_name(blob, ascii_entry, &entry_index) == DXIL_SPV_SUCCESS)
+                    {
+                        if (dxil_spv_parsed_blob_get_entry_point_node_input(blob, entry_index, &node_input_data) == DXIL_SPV_SUCCESS)
+                            vkd3d_shader_dxil_dup_node_input(&new_entry, &node_input_data);
+
+                        if (dxil_spv_parsed_blob_get_entry_point_num_node_outputs(blob, entry_index, &num_outputs) == DXIL_SPV_SUCCESS)
+                            for (j = 0; j < num_outputs; j++)
+                                if (dxil_spv_parsed_blob_get_entry_point_node_output(blob, entry_index, j, &node_output_data) == DXIL_SPV_SUCCESS)
+                                    vkd3d_shader_dxil_dup_node_output(&new_entry, &node_output_data);
+                    }
+                }
+
                 ascii_entry = NULL;
 
                 vkd3d_array_reserve((void**)entry_points, entry_point_size,
@@ -2198,6 +2286,22 @@ int vkd3d_shader_dxil_append_library_entry_points_and_subobjects(
                 goto end;
             }
 
+            if (stage == DXIL_SPV_STAGE_COMPUTE)
+            {
+                /* Parse node information as well. */
+                dxil_spv_node_output_data node_output_data;
+                dxil_spv_node_input_data node_input_data;
+                unsigned int num_outputs;
+
+                if (dxil_spv_parsed_blob_get_entry_point_node_input(blob, i, &node_input_data) == DXIL_SPV_SUCCESS)
+                    vkd3d_shader_dxil_dup_node_input(&new_entry, &node_input_data);
+
+                if (dxil_spv_parsed_blob_get_entry_point_num_node_outputs(blob, i, &num_outputs) == DXIL_SPV_SUCCESS)
+                    for (j = 0; j < num_outputs; j++)
+                        if (dxil_spv_parsed_blob_get_entry_point_node_output(blob, i, j, &node_output_data) == DXIL_SPV_SUCCESS)
+                            vkd3d_shader_dxil_dup_node_output(&new_entry, &node_output_data);
+            }
+
             vkd3d_array_reserve((void**)entry_points, entry_point_size,
                     *entry_point_count + 1, sizeof(new_entry));
             (*entry_points)[(*entry_point_count)++] = new_entry;
@@ -2226,6 +2330,7 @@ end:
     vkd3d_free(new_entry.plain_entry_point);
     vkd3d_free(new_entry.real_entry_point);
     vkd3d_free(new_entry.debug_entry_point);
+    vkd3d_shader_dxil_free_node_meta(&new_entry);
     if (blob)
         dxil_spv_parsed_blob_free(blob);
     dxil_spv_end_thread_allocator_context();
