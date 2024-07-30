@@ -5379,6 +5379,28 @@ struct d3d12_rt_state_object
     struct d3d_destruction_notifier destruction_notifier;
 };
 
+struct d3d12_state_object_association
+{
+    enum vkd3d_shader_subobject_kind kind;
+    unsigned int priority; /* Different priorities can tie-break. */
+    union
+    {
+        struct d3d12_root_signature *root_signature;
+        D3D12_STATE_OBJECT_CONFIG object_config;
+        D3D12_RAYTRACING_PIPELINE_CONFIG1 pipeline_config;
+        D3D12_RAYTRACING_SHADER_CONFIG shader_config;
+    };
+    const WCHAR *export;
+};
+
+#define VKD3D_ASSOCIATION_PRIORITY_INHERITED_COLLECTION 0
+#define VKD3D_ASSOCIATION_PRIORITY_DXIL_SUBOBJECT 1
+#define VKD3D_ASSOCIATION_PRIORITY_DXIL_SUBOBJECT_ASSIGNMENT_DEFAULT 2
+#define VKD3D_ASSOCIATION_PRIORITY_DXIL_SUBOBJECT_ASSIGNMENT_EXPLICIT 3
+#define VKD3D_ASSOCIATION_PRIORITY_DECLARED_STATE_OBJECT 4
+#define VKD3D_ASSOCIATION_PRIORITY_EXPLICIT_DEFAULT 5
+#define VKD3D_ASSOCIATION_PRIORITY_EXPLICIT 6
+
 HRESULT d3d12_rt_state_object_create(struct d3d12_device *device, const D3D12_STATE_OBJECT_DESC *desc,
         struct d3d12_rt_state_object *parent,
         struct d3d12_rt_state_object **object);
