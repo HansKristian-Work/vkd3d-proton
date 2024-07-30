@@ -2673,7 +2673,7 @@ struct vkd3d_rendering_info
 /* ID3D12CommandListExt */
 typedef ID3D12GraphicsCommandListExt1 d3d12_command_list_vkd3d_ext_iface;
 
-struct d3d12_state_object;
+struct d3d12_rt_state_object;
 
 struct d3d12_resource_tracking
 {
@@ -2945,8 +2945,8 @@ struct d3d12_command_list
     union vkd3d_descriptor_heap_state descriptor_heap;
 
     struct d3d12_pipeline_state *state;
-    struct d3d12_state_object *rt_state;
-    const struct d3d12_state_object_variant *rt_state_variant;
+    struct d3d12_rt_state_object *rt_state;
+    const struct d3d12_rt_state_object_variant *rt_state_variant;
     uint32_t current_compute_meta_flags;
 
     struct d3d12_command_allocator *allocator;
@@ -5305,7 +5305,7 @@ HRESULT d3d_blob_create(void *buffer, SIZE_T size, struct d3d_blob **blob);
 typedef ID3D12StateObject d3d12_state_object_iface;
 typedef ID3D12StateObjectProperties d3d12_state_object_properties_iface;
 
-struct d3d12_state_object_identifier
+struct d3d12_rt_state_object_identifier
 {
     WCHAR *mangled_export;
     WCHAR *plain_export;
@@ -5339,7 +5339,7 @@ struct d3d12_state_object_identifier
     uint32_t inherited_collection_export_index;
 };
 
-struct d3d12_state_object_stack_info
+struct d3d12_rt_state_object_stack_info
 {
     uint32_t max_callable;
     uint32_t max_anyhit;
@@ -5350,7 +5350,7 @@ struct d3d12_state_object_stack_info
 };
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
-struct d3d12_state_object_breadcrumb_shader
+struct d3d12_rt_state_object_breadcrumb_shader
 {
     vkd3d_shader_hash_t hash;
     VkShaderStageFlagBits stage;
@@ -5358,7 +5358,7 @@ struct d3d12_state_object_breadcrumb_shader
 };
 #endif
 
-struct d3d12_state_object_variant
+struct d3d12_rt_state_object_variant
 {
     /* Can be bound. */
     VkPipeline pipeline;
@@ -5383,9 +5383,9 @@ struct d3d12_state_object_variant
     } local_static_sampler;
 };
 
-struct d3d12_state_object_pipeline_data;
+struct d3d12_rt_state_object_pipeline_data;
 
-struct d3d12_state_object
+struct d3d12_rt_state_object
 {
     d3d12_state_object_iface ID3D12StateObject_iface;
     d3d12_state_object_properties_iface ID3D12StateObjectProperties_iface;
@@ -5396,14 +5396,14 @@ struct d3d12_state_object
     struct d3d12_device *device;
 
     /* Could potentially be a hashmap. */
-    struct d3d12_state_object_identifier *exports;
+    struct d3d12_rt_state_object_identifier *exports;
     size_t exports_size;
     size_t exports_count;
 
     struct vkd3d_shader_library_entry_point *entry_points;
     size_t entry_points_count;
 
-    struct d3d12_state_object_variant *pipelines;
+    struct d3d12_rt_state_object_variant *pipelines;
     size_t pipelines_size;
     size_t pipelines_count;
 
@@ -5412,16 +5412,16 @@ struct d3d12_state_object
     D3D12_RAYTRACING_SHADER_CONFIG shader_config;
 
     UINT64 pipeline_stack_size;
-    struct d3d12_state_object_stack_info stack;
+    struct d3d12_rt_state_object_stack_info stack;
 
-    struct d3d12_state_object **collections;
+    struct d3d12_rt_state_object **collections;
     size_t collections_count;
 
-    struct d3d12_state_object_pipeline_data *deferred_data;
+    struct d3d12_rt_state_object_pipeline_data *deferred_data;
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     /* For breadcrumbs. */
-    struct d3d12_state_object_breadcrumb_shader *breadcrumb_shaders;
+    struct d3d12_rt_state_object_breadcrumb_shader *breadcrumb_shaders;
     size_t breadcrumb_shaders_size;
     size_t breadcrumb_shaders_count;
 #endif
@@ -5430,16 +5430,16 @@ struct d3d12_state_object
     struct d3d_destruction_notifier destruction_notifier;
 };
 
-HRESULT d3d12_state_object_create(struct d3d12_device *device, const D3D12_STATE_OBJECT_DESC *desc,
-        struct d3d12_state_object *parent,
-        struct d3d12_state_object **object);
-HRESULT d3d12_state_object_add(struct d3d12_device *device, const D3D12_STATE_OBJECT_DESC *desc,
-        struct d3d12_state_object *parent,
-        struct d3d12_state_object **object);
+HRESULT d3d12_rt_state_object_create(struct d3d12_device *device, const D3D12_STATE_OBJECT_DESC *desc,
+        struct d3d12_rt_state_object *parent,
+        struct d3d12_rt_state_object **object);
+HRESULT d3d12_rt_state_object_add(struct d3d12_device *device, const D3D12_STATE_OBJECT_DESC *desc,
+        struct d3d12_rt_state_object *parent,
+        struct d3d12_rt_state_object **object);
 
-static inline struct d3d12_state_object *impl_from_ID3D12StateObject(ID3D12StateObject *iface)
+static inline struct d3d12_rt_state_object *rt_impl_from_ID3D12StateObject(ID3D12StateObject *iface)
 {
-    return CONTAINING_RECORD(iface, struct d3d12_state_object, ID3D12StateObject_iface);
+    return CONTAINING_RECORD(iface, struct d3d12_rt_state_object, ID3D12StateObject_iface);
 }
 
 /* ID3D12MetaCommand */
