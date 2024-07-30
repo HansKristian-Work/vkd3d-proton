@@ -82,7 +82,8 @@ vkd3d_src = [
   'acceleration_structure.c',
   'swapchain.c',
   'queue_timeline.c',
-  'address_binding_tracker.c'
+  'address_binding_tracker.c',
+  'workgraphs.c'
 ]
 
 if enable_renderdoc

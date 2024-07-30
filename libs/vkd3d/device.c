@@ -6938,8 +6938,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateStateObject(d3d12_device_ifa
 
     if (desc->Type == D3D12_STATE_OBJECT_TYPE_EXECUTABLE)
     {
-        FIXME("Workgraph PSOs currently not supported.\n");
-        return E_NOTIMPL;
+        struct d3d12_wg_state_object *state;
+        if (FAILED(hr = d3d12_wg_state_object_create(device, desc, &state)))
+            return hr;
+        return return_interface(&state->ID3D12StateObject_iface, &IID_ID3D12StateObject, iid, state_object);
     }
     else
     {
