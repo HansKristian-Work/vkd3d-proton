@@ -6971,16 +6971,43 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateStateObject(d3d12_device_ifa
         const D3D12_STATE_OBJECT_DESC *desc, REFIID iid, void **state_object)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    struct d3d12_state_object *state;
+    bool has_workgraph;
+    unsigned int i;
     HRESULT hr;
 
     TRACE("iface %p, desc %p, iid %s, state_object %p!\n",
             iface, desc, debugstr_guid(iid), state_object);
 
-    if (FAILED(hr = d3d12_state_object_create(device, desc, NULL, &state)))
-        return hr;
+    /* Both RT pipelines and workgraphs go through this same interface.
+     * If we detect any workgraph-only state, we dispatch to workgraphs creator. */
+    has_workgraph = false;
+    for (i = 0; i < desc->NumSubobjects; i++)
+    {
+        if (desc->pSubobjects[i].Type == D3D12_STATE_SUBOBJECT_TYPE_WORK_GRAPH)
+        {
+            has_workgraph = true;
+            break;
+        }
+    }
 
-    return return_interface(&state->ID3D12StateObject_iface, &IID_ID3D12StateObject, iid, state_object);
+    if (desc->Type == D3D12_STATE_OBJECT_TYPE_COLLECTION && has_workgraph)
+    {
+        FIXME("COLLECTION of workgraphs currently not supported.\n");
+        return E_NOTIMPL;
+    }
+
+    if (desc->Type == D3D12_STATE_OBJECT_TYPE_EXECUTABLE)
+    {
+        FIXME("Workgraph PSOs currently not supported.\n");
+        return E_NOTIMPL;
+    }
+    else
+    {
+        struct d3d12_rt_state_object *state;
+        if (FAILED(hr = d3d12_rt_state_object_create(device, desc, NULL, &state)))
+            return hr;
+        return return_interface(&state->ID3D12StateObject_iface, &IID_ID3D12StateObject, iid, state_object);
+    }
 }
 
 static void STDMETHODCALLTYPE d3d12_device_GetRaytracingAccelerationStructurePrebuildInfo(d3d12_device_iface *iface,
@@ -7078,15 +7105,15 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_AddToStateObject(d3d12_device_ifac
         ID3D12StateObject *parent_state, REFIID riid, void **new_state_object)
 {
     struct d3d12_device *device = impl_from_ID3D12Device(iface);
-    struct d3d12_state_object *parent;
-    struct d3d12_state_object *state;
+    struct d3d12_rt_state_object *parent;
+    struct d3d12_rt_state_object *state;
     HRESULT hr;
 
     TRACE("iface %p, addition %p, state_object %p, riid %s, new_state_object %p stub!\n",
             iface, addition, parent_state, debugstr_guid(riid), new_state_object);
 
-    parent = impl_from_ID3D12StateObject(parent_state);
-    if (FAILED(hr = d3d12_state_object_add(device, addition, parent, &state)))
+    parent = rt_impl_from_ID3D12StateObject(parent_state);
+    if (FAILED(hr = d3d12_rt_state_object_add(device, addition, parent, &state)))
         return hr;
 
     return return_interface(&state->ID3D12StateObject_iface, &IID_ID3D12StateObject, riid, new_state_object);
