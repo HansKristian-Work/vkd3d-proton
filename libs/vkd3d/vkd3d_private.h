@@ -5289,7 +5289,7 @@ HRESULT d3d_blob_create(void *buffer, SIZE_T size, struct d3d_blob **blob);
 
 /* ID3D12StateObject */
 typedef ID3D12StateObject d3d12_state_object_iface;
-typedef ID3D12StateObjectProperties d3d12_state_object_properties_iface;
+typedef ID3D12StateObjectProperties1 d3d12_state_object_properties_iface;
 
 struct d3d12_rt_state_object_identifier
 {
@@ -5374,7 +5374,7 @@ struct d3d12_rt_state_object_pipeline_data;
 struct d3d12_rt_state_object
 {
     d3d12_state_object_iface ID3D12StateObject_iface;
-    d3d12_state_object_properties_iface ID3D12StateObjectProperties_iface;
+    d3d12_state_object_properties_iface ID3D12StateObjectProperties1_iface;
     LONG refcount;
     LONG internal_refcount;
     D3D12_STATE_OBJECT_TYPE type;
