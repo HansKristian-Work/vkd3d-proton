@@ -5169,12 +5169,13 @@ HRESULT STDMETHODCALLTYPE d3d12_command_list_QueryInterface(d3d12_command_list_i
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList7)
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList8)
             || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList9)
+            || IsEqualGUID(iid, &IID_ID3D12GraphicsCommandList10)
             || IsEqualGUID(iid, &IID_ID3D12CommandList)
             || IsEqualGUID(iid, &IID_ID3D12DeviceChild)
             || IsEqualGUID(iid, &IID_ID3D12Object)
             || IsEqualGUID(iid, &IID_IUnknown))
     {
-        ID3D12GraphicsCommandList9_AddRef(iface);
+        ID3D12GraphicsCommandList10_AddRef(iface);
         *object = iface;
         return S_OK;
     }
@@ -5727,7 +5728,7 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
     list->cbv_srv_uav_descriptors_view = NULL;
     list->vrs_image = NULL;
 
-    ID3D12GraphicsCommandList9_SetPipelineState(iface, initial_pipeline_state);
+    ID3D12GraphicsCommandList10_SetPipelineState(iface, initial_pipeline_state);
 }
 
 static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *list)
@@ -16890,8 +16891,18 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBufferStripCutValue(d
     }
 }
 
+static void STDMETHODCALLTYPE d3d12_command_list_SetProgram(d3d12_command_list_iface *iface, const D3D12_SET_PROGRAM_DESC *desc)
+{
+    FIXME("iface %p, desc %p, stub!\n", iface, desc);
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_DispatchGraph(d3d12_command_list_iface *iface, const D3D12_DISPATCH_GRAPH_DESC *desc)
+{
+    FIXME("iface %p, desc %p, stub!\n", iface, desc);
+}
+
 #define VKD3D_DECLARE_D3D12_GRAPHICS_COMMAND_LIST_VARIANT(name, set_table_variant) \
-static CONST_VTBL struct ID3D12GraphicsCommandList9Vtbl d3d12_command_list_vtbl_##name = \
+static CONST_VTBL struct ID3D12GraphicsCommandList10Vtbl d3d12_command_list_vtbl_##name = \
 { \
     /* IUnknown methods */ \
     d3d12_command_list_QueryInterface, \
@@ -16991,6 +17002,9 @@ static CONST_VTBL struct ID3D12GraphicsCommandList9Vtbl d3d12_command_list_vtbl_
     /* ID3D12GraphicsCommandList9 methods */ \
     d3d12_command_list_RSSetDepthBias, \
     d3d12_command_list_IASetIndexBufferStripCutValue, \
+    /* ID3D12GraphicsCommandList10 methods */ \
+    d3d12_command_list_SetProgram, \
+    d3d12_command_list_DispatchGraph, \
 }
 
 VKD3D_DECLARE_D3D12_GRAPHICS_COMMAND_LIST_VARIANT(default, default);
