@@ -161,6 +161,7 @@ struct vkd3d_vulkan_info
     bool EXT_device_fault;
     bool EXT_memory_budget;
     bool EXT_device_address_binding_report;
+    bool EXT_depth_bias_control;
     /* AMD device extensions */
     bool AMD_buffer_marker;
     bool AMD_device_coherent_memory;
@@ -4448,6 +4449,7 @@ struct vkd3d_physical_device_info
     VkPhysicalDeviceAddressBindingReportFeaturesEXT address_binding_report_features;
     VkPhysicalDeviceImageAlignmentControlFeaturesMESA image_alignment_control_features;
     VkPhysicalDeviceImageAlignmentControlPropertiesMESA image_alignment_control_properties;
+    VkPhysicalDeviceDepthBiasControlFeaturesEXT depth_bias_control_features;
 
     VkPhysicalDeviceFeatures2 features2;
 
