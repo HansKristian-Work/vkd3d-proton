@@ -10,6 +10,7 @@ d3d12_test_utils_lib = static_library('d3d12-test-utils', 'd3d12_test_utils.c',
   include_directories : vkd3d_private_includes)
 
 d3d12_test_src = [
+  'd3d12_dxvk_interop_device.c',
   'd3d12_clip_cull_distance.c',
   'd3d12_enhanced_barriers.c',
   'd3d12_sampler_feedback.c',

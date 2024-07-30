@@ -45,8 +45,9 @@
 #if !defined(_WIN32) || defined(VKD3D_FORCE_UTILS_WRAPPER)
 # include "vkd3d_threads.h"
 # include "vkd3d.h"
-# include "vkd3d_sonames.h"
 #endif
+
+#include "vkd3d_sonames.h"
 
 #if !defined(_WIN32)
 #include <dlfcn.h>
@@ -370,6 +371,41 @@ static inline void wait_queue_idle_no_event_(unsigned int line, ID3D12Device *de
     ID3D12Fence_Release(fence);
 }
 
+static PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr;
+static PFN_vkGetDeviceProcAddr pfn_vkGetDeviceProcAddr;
+static inline bool init_vulkan_loader(void)
+{
+#ifdef _WIN32
+    HMODULE hmod;
+#else
+    void *mod;
+#endif
+
+    if (pfn_vkGetInstanceProcAddr)
+        return true;
+
+    if (pfn_vkGetDeviceProcAddr)
+        return true;
+
+#ifdef _WIN32
+    hmod = LoadLibraryA(SONAME_LIBVULKAN);
+    if (!hmod)
+        return false;
+
+    pfn_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)(void *)GetProcAddress(hmod, "vkGetInstanceProcAddr");
+    pfn_vkGetDeviceProcAddr = (PFN_vkGetDeviceProcAddr)(void *)GetProcAddress(hmod, "vkGetDeviceProcAddr");
+#else
+    mod = dlopen(SONAME_LIBVULKAN, RTLD_LAZY);
+    if (!mod)
+        return false;
+
+    pfn_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)dlsym(mod, "vkGetInstanceProcAddr");
+    pfn_vkGetDeviceProcAddr = (PFN_vkGetDeviceProcAddr)dlsym(mod, "vkGetDeviceProcAddr");
+#endif
+
+    return pfn_vkGetInstanceProcAddr != NULL;
+}
+
 #if defined(_WIN32) && !defined(VKD3D_FORCE_UTILS_WRAPPER)
 static IUnknown *create_warp_adapter(IDXGIFactory4 *factory)
 {
@@ -543,35 +579,6 @@ static inline bool is_vk_device_extension_supported(ID3D12Device *device, const 
     return false;
 }
 #else
-
-static PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr;
-static bool init_vulkan_loader(void)
-{
-#ifdef _WIN32
-    HMODULE hmod;
-#else
-    void *mod;
-#endif
-
-    if (pfn_vkGetInstanceProcAddr)
-        return true;
-
-#ifdef _WIN32
-    hmod = LoadLibraryA(SONAME_LIBVULKAN);
-    if (!hmod)
-        return false;
-
-    pfn_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)GetProcAddress(hmod, "vkGetInstanceProcAddr");
-#else
-    mod = dlopen(SONAME_LIBVULKAN, RTLD_LAZY);
-    if (!mod)
-        return false;
-
-    pfn_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)dlsym(mod, "vkGetInstanceProcAddr");
-#endif
-
-    return pfn_vkGetInstanceProcAddr != NULL;
-}
 
 static ID3D12Device *create_device(void)
 {
