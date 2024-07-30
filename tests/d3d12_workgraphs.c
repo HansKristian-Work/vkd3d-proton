@@ -1010,7 +1010,8 @@ static void test_workgraph_two_level_broadcast_inner(struct test_context_workgra
 
     ID3D12Resource_Release(output[0]);
     ID3D12Resource_Release(output[1]);
-    ID3D12Resource_Release(scratch);
+    if (scratch)
+        ID3D12Resource_Release(scratch);
 }
 
 void test_workgraph_two_level_broadcast(void)
@@ -1086,7 +1087,8 @@ void test_workgraph_two_level_empty(void)
     }
 
     release_resource_readback(&rb);
-    ID3D12Resource_Release(scratch);
+    if (scratch)
+        ID3D12Resource_Release(scratch);
     ID3D12Resource_Release(output);
     ID3D12StateObject_Release(pso);
     destroy_workgraph_test_context(&context);
@@ -1132,7 +1134,8 @@ void test_workgraph_basic_recursion(void)
     }
 
     release_resource_readback(&rb);
-    ID3D12Resource_Release(scratch);
+    if (scratch)
+        ID3D12Resource_Release(scratch);
     ID3D12Resource_Release(output);
     ID3D12StateObject_Release(pso);
     destroy_workgraph_test_context(&context);
@@ -1178,7 +1181,8 @@ void test_workgraph_cross_group_sharing(void)
     }
 
     release_resource_readback(&rb);
-    ID3D12Resource_Release(scratch);
+    if (scratch)
+        ID3D12Resource_Release(scratch);
     ID3D12Resource_Release(output);
     ID3D12StateObject_Release(pso);
     destroy_workgraph_test_context(&context);
@@ -1224,7 +1228,8 @@ void test_workgraph_shared_inputs(void)
     }
 
     release_resource_readback(&rb);
-    ID3D12Resource_Release(scratch);
+    if (scratch)
+        ID3D12Resource_Release(scratch);
     ID3D12Resource_Release(output);
     ID3D12StateObject_Release(pso);
     destroy_workgraph_test_context(&context);
@@ -1285,7 +1290,8 @@ void test_workgraph_local_root_signature(void)
     }
 
     release_resource_readback(&rb);
-    ID3D12Resource_Release(scratch);
+    if (scratch)
+        ID3D12Resource_Release(scratch);
     ID3D12Resource_Release(output);
     ID3D12Resource_Release(local);
     ID3D12StateObject_Release(pso);
