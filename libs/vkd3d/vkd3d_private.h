@@ -2049,6 +2049,7 @@ struct d3d12_graphics_pipeline_state
     VkPipelineRasterizationDepthClipStateCreateInfoEXT rs_depth_clip_info;
     VkPipelineRasterizationStateStreamCreateInfoEXT rs_stream_info;
     VkPipelineRasterizationLineStateCreateInfoEXT rs_line_info;
+    VkDepthBiasRepresentationInfoEXT rs_depth_bias_info;
 
     /* vkd3d_dynamic_state_flag */
     uint32_t explicit_dynamic_states;
@@ -5567,6 +5568,21 @@ static inline unsigned int d3d12_resource_get_sub_resource_count(const struct d3
 {
     return d3d12_resource_desc_get_sub_resource_count_per_plane(&resource->desc) *
             (resource->format ? vkd3d_popcount(resource->format->vk_aspect_mask) : 1);
+}
+
+static inline void vkd3d_get_depth_bias_representation(VkDepthBiasRepresentationInfoEXT *info,
+        const struct d3d12_device *device, const struct vkd3d_format *dsv_format)
+{
+    memset(info, 0, sizeof(*info));
+    info->sType = VK_STRUCTURE_TYPE_DEPTH_BIAS_REPRESENTATION_INFO_EXT;
+    info->depthBiasRepresentation = VK_DEPTH_BIAS_REPRESENTATION_LEAST_REPRESENTABLE_VALUE_FORMAT_EXT;
+    info->depthBiasExact = device->device_info.depth_bias_control_features.depthBiasExact;
+
+    /* Checking only strongly typed formats should work here since we take the
+     * format from the DSV or PSO desc, where typeless formats are not allowed */
+    if (device->device_info.depth_bias_control_features.leastRepresentableValueForceUnormRepresentation &&
+            dsv_format && (dsv_format->dxgi_format == DXGI_FORMAT_D16_UNORM || dsv_format->dxgi_format == DXGI_FORMAT_D24_UNORM_S8_UINT))
+        info->depthBiasRepresentation = VK_DEPTH_BIAS_REPRESENTATION_LEAST_REPRESENTABLE_VALUE_FORCE_UNORM_EXT;
 }
 
 VkDeviceAddress vkd3d_get_buffer_device_address(struct d3d12_device *device, VkBuffer vk_buffer);

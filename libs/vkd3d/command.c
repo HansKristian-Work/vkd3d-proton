@@ -6572,7 +6572,9 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_dynamic_state *dyn_state = &list->dynamic_state;
+    VkDepthBiasRepresentationInfoEXT depth_bias_representation;
     VkSampleCountFlagBits rasterization_samples;
+    VkDepthBiasInfoEXT depth_bias_info;
     const uint32_t *stride_align_masks;
     struct vkd3d_bitmask_range range;
     uint32_t update_vbos;
@@ -6667,9 +6669,26 @@ static void d3d12_command_list_update_dynamic_state(struct d3d12_command_list *l
         VK_CALL(vkCmdSetDepthBiasEnable(list->cmd.vk_command_buffer,
                 dyn_state->depth_bias.constant_factor != 0.0f ||
                 dyn_state->depth_bias.slope_factor != 0.0f));
-        VK_CALL(vkCmdSetDepthBias(list->cmd.vk_command_buffer,
-                dyn_state->depth_bias.constant_factor, dyn_state->depth_bias.clamp,
-                dyn_state->depth_bias.slope_factor));
+
+        if (list->device->device_info.depth_bias_control_features.depthBiasControl)
+        {
+            vkd3d_get_depth_bias_representation(&depth_bias_representation, list->device, list->dsv.format);
+
+            memset(&depth_bias_info, 0, sizeof(depth_bias_info));
+            depth_bias_info.sType = VK_STRUCTURE_TYPE_DEPTH_BIAS_INFO_EXT;
+            depth_bias_info.pNext = &depth_bias_representation;
+            depth_bias_info.depthBiasConstantFactor = dyn_state->depth_bias.constant_factor;
+            depth_bias_info.depthBiasSlopeFactor = dyn_state->depth_bias.slope_factor;
+            depth_bias_info.depthBiasClamp = dyn_state->depth_bias.clamp;
+
+            VK_CALL(vkCmdSetDepthBias2EXT(list->cmd.vk_command_buffer, &depth_bias_info));
+        }
+        else
+        {
+            VK_CALL(vkCmdSetDepthBias(list->cmd.vk_command_buffer,
+                    dyn_state->depth_bias.constant_factor, dyn_state->depth_bias.clamp,
+                    dyn_state->depth_bias.slope_factor));
+        }
     }
 
     if (dyn_state->dirty_flags & VKD3D_DYNAMIC_STATE_TOPOLOGY)
@@ -11207,15 +11226,19 @@ static void d3d12_command_list_invalidate_ds_state(struct d3d12_command_list *li
 
     if (d3d12_pipeline_state_is_graphics(list->state))
     {
-       graphics = &list->state->graphics;
+        graphics = &list->state->graphics;
 
-        if (prev_dsv_format != next_dsv_format &&
-                d3d12_graphics_pipeline_state_has_unknown_dsv_format_with_test(graphics))
+        if (prev_dsv_format != next_dsv_format)
         {
-            /* If we change the NULL-ness of the depth-stencil attachment, we are
-             * at risk of having to use fallback pipelines. Invalidate the pipeline
-             * since we'll have to refresh the VkRenderingInfo and VkPipeline. */
-            d3d12_command_list_invalidate_current_pipeline(list, false);
+            list->dynamic_state.dirty_flags |= VKD3D_DYNAMIC_STATE_DEPTH_BIAS;
+
+            if (d3d12_graphics_pipeline_state_has_unknown_dsv_format_with_test(graphics))
+            {
+                /* If we change the NULL-ness of the depth-stencil attachment, we are
+                 * at risk of having to use fallback pipelines. Invalidate the pipeline
+                 * since we'll have to refresh the VkRenderingInfo and VkPipeline. */
+                d3d12_command_list_invalidate_current_pipeline(list, false);
+            }
         }
     }
 
