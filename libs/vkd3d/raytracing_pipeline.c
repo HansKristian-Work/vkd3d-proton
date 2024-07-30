@@ -407,20 +407,6 @@ static CONST_VTBL struct ID3D12StateObjectPropertiesVtbl d3d12_state_object_prop
     d3d12_state_object_properties_SetPipelineStackSize,
 };
 
-struct d3d12_state_object_association
-{
-    enum vkd3d_shader_subobject_kind kind;
-    unsigned int priority; /* Different priorities can tie-break. */
-    union
-    {
-        struct d3d12_root_signature *root_signature;
-        D3D12_STATE_OBJECT_CONFIG object_config;
-        D3D12_RAYTRACING_PIPELINE_CONFIG1 pipeline_config;
-        D3D12_RAYTRACING_SHADER_CONFIG shader_config;
-    };
-    const WCHAR *export;
-};
-
 struct d3d12_state_object_collection
 {
     struct d3d12_rt_state_object *object;
@@ -649,14 +635,6 @@ static struct d3d12_rt_state_object_pipeline_data *d3d12_state_object_pipeline_d
 
     return data;
 }
-
-#define VKD3D_ASSOCIATION_PRIORITY_INHERITED_COLLECTION 0
-#define VKD3D_ASSOCIATION_PRIORITY_DXIL_SUBOBJECT 1
-#define VKD3D_ASSOCIATION_PRIORITY_DXIL_SUBOBJECT_ASSIGNMENT_DEFAULT 2
-#define VKD3D_ASSOCIATION_PRIORITY_DXIL_SUBOBJECT_ASSIGNMENT_EXPLICIT 3
-#define VKD3D_ASSOCIATION_PRIORITY_DECLARED_STATE_OBJECT 4
-#define VKD3D_ASSOCIATION_PRIORITY_EXPLICIT_DEFAULT 5
-#define VKD3D_ASSOCIATION_PRIORITY_EXPLICIT 6
 
 static HRESULT d3d12_state_object_add_collection_library(
         struct d3d12_rt_state_object *collection,
