@@ -4998,7 +4998,24 @@ static HRESULT d3d12_pipeline_state_init_graphics_create_info(struct d3d12_pipel
      * was always set, however doing that would invalidate existing pipeline caches, so avoid
      * this until proven necessary. */
     if (desc->flags & D3D12_PIPELINE_STATE_FLAG_DYNAMIC_DEPTH_BIAS)
+    {
         graphics->explicit_dynamic_states |= VKD3D_DYNAMIC_STATE_DEPTH_BIAS;
+    }
+    else if (device->device_info.depth_bias_control_features.depthBiasControl &&
+            desc->rasterizer_state.DepthBias != 0.0f)
+    {
+        if (graphics->null_attachment_mask & dsv_attachment_mask(graphics))
+        {
+            /* Due to the way dynamic state works in D3D12, we can exploit this in
+             * order to set up the correct depth bias representation at draw time. */
+            graphics->explicit_dynamic_states |= VKD3D_DYNAMIC_STATE_DEPTH_BIAS;
+        }
+        else
+        {
+            vkd3d_get_depth_bias_representation(&graphics->rs_depth_bias_info, device, format);
+            vk_prepend_struct(&graphics->rs_desc, &graphics->rs_depth_bias_info);
+        }
+    }
 
     if ((desc->flags & D3D12_PIPELINE_STATE_FLAG_DYNAMIC_INDEX_BUFFER_STRIP_CUT) &&
             state->pipeline_type == VKD3D_PIPELINE_TYPE_GRAPHICS)
