@@ -23,9 +23,9 @@
 
 #define RT_TRACE TRACE
 
-static inline struct d3d12_rt_state_object *impl_from_ID3D12StateObjectProperties(ID3D12StateObjectProperties *iface)
+static inline struct d3d12_rt_state_object *impl_from_ID3D12StateObjectProperties(d3d12_state_object_properties_iface *iface)
 {
-    return CONTAINING_RECORD(iface, struct d3d12_rt_state_object, ID3D12StateObjectProperties_iface);
+    return CONTAINING_RECORD(iface, struct d3d12_rt_state_object, ID3D12StateObjectProperties1_iface);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_state_object_QueryInterface(ID3D12StateObject *iface,
@@ -46,11 +46,11 @@ static HRESULT STDMETHODCALLTYPE d3d12_state_object_QueryInterface(ID3D12StateOb
         return S_OK;
     }
 
-    if (IsEqualGUID(riid, &IID_ID3D12StateObjectProperties))
+    if (IsEqualGUID(riid, &IID_ID3D12StateObjectProperties) || IsEqualGUID(riid, &IID_ID3D12StateObjectProperties1))
     {
         struct d3d12_rt_state_object *state_object = rt_impl_from_ID3D12StateObject(iface);
-        ID3D12StateObjectProperties_AddRef(&state_object->ID3D12StateObjectProperties_iface);
-        *object = &state_object->ID3D12StateObjectProperties_iface;
+        ID3D12StateObjectProperties1_AddRef(&state_object->ID3D12StateObjectProperties1_iface);
+        *object = &state_object->ID3D12StateObjectProperties1_iface;
         return S_OK;
     }
 
@@ -60,7 +60,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_state_object_QueryInterface(ID3D12StateOb
     return E_NOINTERFACE;
 }
 
-static HRESULT STDMETHODCALLTYPE d3d12_state_object_properties_QueryInterface(ID3D12StateObjectProperties *iface,
+static HRESULT STDMETHODCALLTYPE d3d12_state_object_properties_QueryInterface(d3d12_state_object_properties_iface *iface,
         REFIID riid, void **object)
 {
     struct d3d12_rt_state_object *state_object = impl_from_ID3D12StateObjectProperties(iface);
@@ -78,7 +78,7 @@ static ULONG STDMETHODCALLTYPE d3d12_state_object_AddRef(ID3D12StateObject *ifac
     return refcount;
 }
 
-static ULONG STDMETHODCALLTYPE d3d12_state_object_properties_AddRef(ID3D12StateObjectProperties *iface)
+static ULONG STDMETHODCALLTYPE d3d12_state_object_properties_AddRef(d3d12_state_object_properties_iface *iface)
 {
     struct d3d12_rt_state_object *state_object = impl_from_ID3D12StateObjectProperties(iface);
     ULONG refcount = InterlockedIncrement(&state_object->refcount);
@@ -200,7 +200,7 @@ static ULONG STDMETHODCALLTYPE d3d12_state_object_Release(ID3D12StateObject *ifa
     return d3d12_state_object_release(state_object);
 }
 
-static ULONG STDMETHODCALLTYPE d3d12_state_object_properties_Release(ID3D12StateObjectProperties *iface)
+static ULONG STDMETHODCALLTYPE d3d12_state_object_properties_Release(d3d12_state_object_properties_iface *iface)
 {
     struct d3d12_rt_state_object *state_object = impl_from_ID3D12StateObjectProperties(iface);
     return d3d12_state_object_release(state_object);
@@ -275,7 +275,7 @@ static uint32_t d3d12_state_object_get_export_index(struct d3d12_rt_state_object
     return UINT32_MAX;
 }
 
-static void * STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderIdentifier(ID3D12StateObjectProperties *iface,
+static void * STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderIdentifier(d3d12_state_object_properties_iface *iface,
         LPCWSTR export_name)
 {
     struct d3d12_rt_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
@@ -317,7 +317,7 @@ static void * STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderIdentifie
     }
 }
 
-static UINT64 STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderStackSize(ID3D12StateObjectProperties *iface,
+static UINT64 STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderStackSize(d3d12_state_object_properties_iface *iface,
         LPCWSTR export_name)
 {
     struct d3d12_rt_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
@@ -347,14 +347,14 @@ static UINT64 STDMETHODCALLTYPE d3d12_state_object_properties_GetShaderStackSize
     }
 }
 
-static UINT64 STDMETHODCALLTYPE d3d12_state_object_properties_GetPipelineStackSize(ID3D12StateObjectProperties *iface)
+static UINT64 STDMETHODCALLTYPE d3d12_state_object_properties_GetPipelineStackSize(d3d12_state_object_properties_iface *iface)
 {
     struct d3d12_rt_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
     TRACE("iface %p\n", iface);
     return object->pipeline_stack_size;
 }
 
-static void STDMETHODCALLTYPE d3d12_state_object_properties_SetPipelineStackSize(ID3D12StateObjectProperties *iface,
+static void STDMETHODCALLTYPE d3d12_state_object_properties_SetPipelineStackSize(d3d12_state_object_properties_iface *iface,
         UINT64 stack_size_in_bytes)
 {
     struct d3d12_rt_state_object *object = impl_from_ID3D12StateObjectProperties(iface);
@@ -362,6 +362,16 @@ static void STDMETHODCALLTYPE d3d12_state_object_properties_SetPipelineStackSize
 
     /* This behavior seems to match what I'm seeing on NV Windows driver. */
     object->pipeline_stack_size = stack_size_in_bytes;
+}
+
+static D3D12_PROGRAM_IDENTIFIER * STDMETHODCALLTYPE d3d12_state_object_properties_GetProgramIdentifier(
+        d3d12_state_object_properties_iface *iface,
+        D3D12_PROGRAM_IDENTIFIER *ret,
+        LPCWSTR pProgramName)
+{
+    TRACE("iface %p, ret %p, pProgramName %s!\n", iface, ret, debugstr_w(pProgramName));
+    memset(ret, 0, sizeof(*ret));
+    return ret;
 }
 
 static CONST_VTBL struct ID3D12StateObjectVtbl d3d12_state_object_vtbl =
@@ -379,7 +389,7 @@ static CONST_VTBL struct ID3D12StateObjectVtbl d3d12_state_object_vtbl =
     d3d12_state_object_GetDevice,
 };
 
-static CONST_VTBL struct ID3D12StateObjectPropertiesVtbl d3d12_state_object_properties_vtbl =
+static CONST_VTBL struct ID3D12StateObjectProperties1Vtbl d3d12_state_object_properties_vtbl =
 {
     /* IUnknown methods */
     d3d12_state_object_properties_QueryInterface,
@@ -390,6 +400,8 @@ static CONST_VTBL struct ID3D12StateObjectPropertiesVtbl d3d12_state_object_prop
     d3d12_state_object_properties_GetShaderStackSize,
     d3d12_state_object_properties_GetPipelineStackSize,
     d3d12_state_object_properties_SetPipelineStackSize,
+    /* ID3D12StateObjectProperties1 methods */
+    d3d12_state_object_properties_GetProgramIdentifier,
 };
 
 struct d3d12_state_object_collection
@@ -2603,7 +2615,7 @@ static HRESULT d3d12_state_object_init(struct d3d12_rt_state_object *object,
     unsigned int i;
 
     object->ID3D12StateObject_iface.lpVtbl = &d3d12_state_object_vtbl;
-    object->ID3D12StateObjectProperties_iface.lpVtbl = &d3d12_state_object_properties_vtbl;
+    object->ID3D12StateObjectProperties1_iface.lpVtbl = &d3d12_state_object_properties_vtbl;
     object->refcount = 1;
     object->internal_refcount = 1;
     object->device = device;
