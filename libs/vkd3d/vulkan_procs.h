@@ -247,6 +247,9 @@ VK_DEVICE_EXT_PFN(vkCmdBeginDebugUtilsLabelEXT)
 VK_DEVICE_EXT_PFN(vkCmdEndDebugUtilsLabelEXT)
 VK_DEVICE_EXT_PFN(vkCmdInsertDebugUtilsLabelEXT)
 
+/* VK_EXT_depth_bias_control */
+VK_DEVICE_EXT_PFN(vkCmdSetDepthBias2EXT)
+
 /* VK_EXT_transform_feedback */
 VK_DEVICE_EXT_PFN(vkCmdBeginQueryIndexedEXT)
 VK_DEVICE_EXT_PFN(vkCmdBeginTransformFeedbackEXT)

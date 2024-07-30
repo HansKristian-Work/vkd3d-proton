@@ -115,6 +115,7 @@ static const struct vkd3d_optional_extension_info optional_device_extensions[] =
     VK_EXTENSION_COND(EXT_DEVICE_FAULT, EXT_device_fault, VKD3D_CONFIG_FLAG_FAULT),
     VK_EXTENSION(EXT_MEMORY_BUDGET, EXT_memory_budget),
     VK_EXTENSION_COND(EXT_DEVICE_ADDRESS_BINDING_REPORT, EXT_device_address_binding_report, VKD3D_CONFIG_FLAG_FAULT),
+    VK_EXTENSION(EXT_DEPTH_BIAS_CONTROL, EXT_depth_bias_control),
     /* AMD extensions */
     VK_EXTENSION(AMD_BUFFER_MARKER, AMD_buffer_marker),
     VK_EXTENSION(AMD_DEVICE_COHERENT_MEMORY, AMD_device_coherent_memory),
@@ -1915,6 +1916,12 @@ static void vkd3d_physical_device_info_init(struct vkd3d_physical_device_info *i
     {
         info->address_binding_report_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ADDRESS_BINDING_REPORT_FEATURES_EXT;
         vk_prepend_struct(&info->features2, &info->address_binding_report_features);
+    }
+
+    if (vulkan_info->EXT_depth_bias_control)
+    {
+        info->depth_bias_control_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_BIAS_CONTROL_FEATURES_EXT;
+        vk_prepend_struct(&info->features2, &info->depth_bias_control_features);
     }
 
     if (vulkan_info->MESA_image_alignment_control)
