@@ -22,12 +22,22 @@
 
 #define WG_TRACE TRACE
 
+#define MAX_WORKGRAPH_LEVELS 32
+
+struct d3d12_workgraph_level_execution
+{
+    unsigned int *nodes;
+    unsigned int num_nodes;
+};
+
 /* Many similarities to ray-tracing state objects, but the implementations are vastly different
  * to the point that there will just be more of a headache to try merging the two implementations into one. */
 struct d3d12_wg_state_object_program
 {
     const WCHAR *name;
     /* Need to add nodes with all the overrides as well. */
+    struct d3d12_workgraph_level_execution levels[MAX_WORKGRAPH_LEVELS];
+    unsigned int num_levels;
 };
 
 struct d3d12_wg_state_object_data
@@ -55,14 +65,24 @@ struct d3d12_wg_state_object_data
     size_t subobjects_count;
 };
 
+static void d3d12_state_object_free_programs(struct d3d12_wg_state_object_program *programs, size_t count)
+{
+    size_t i, j;
+    for (i = 0; i < count; i++)
+    {
+        vkd3d_free((void *)programs[i].name);
+        for (j = 0; j < programs[i].num_levels; j++)
+            vkd3d_free(programs[i].levels[j].nodes);
+    }
+    vkd3d_free(programs);
+}
+
 static void d3d12_wg_state_object_cleanup_data(
         struct d3d12_wg_state_object_data *data, struct d3d12_device *device)
 {
     size_t i;
 
-    for (i = 0; i < data->programs_count; i++)
-        vkd3d_free((void *)data->programs[i].name);
-    vkd3d_free(data->programs);
+    d3d12_state_object_free_programs(data->programs, data->programs_count);
 
     vkd3d_shader_dxil_free_library_entry_points(data->entry_points, data->entry_points_count);
     vkd3d_shader_dxil_free_library_subobjects(data->subobjects, data->subobjects_count);
@@ -168,6 +188,107 @@ static HRESULT d3d12_wg_state_object_parse_subobject(
     }
 
     return S_OK;
+}
+
+static uint32_t d3d12_work_graph_find_node_by_id(
+        const struct vkd3d_shader_library_entry_point *entries,
+        size_t entry_count, const char *node_id, UINT node_array_index)
+{
+    size_t i;
+
+    for (i = 0; i < entry_count; i++)
+    {
+        if (entries[i].node_input &&
+                entries[i].node_input->node_array_index == node_array_index &&
+                strcmp(entries[i].node_input->node_id, node_id) == 0)
+        {
+            return (uint32_t)i;
+        }
+    }
+
+    return UINT32_MAX;
+}
+
+static HRESULT d3d12_wg_state_object_resolve_entry_points(struct d3d12_wg_state_object *object,
+        struct d3d12_wg_state_object_data *data,
+        struct d3d12_wg_state_object_program *program)
+{
+    /* For now, we include everything.
+     * For implicitly included nodes, the core rule is that if a node is used as an input it's not promoted to an entry point.
+     * A node which is not referenced by any other is implicitly promoted to an entry point.
+     * For now, we don't have meta-override available, so we'll assert that the node is set up properly. */
+    bool *node_is_output_target = NULL;
+    HRESULT hr = S_OK;
+    size_t i, j, k;
+
+    node_is_output_target = vkd3d_calloc(data->entry_points_count, sizeof(*node_is_output_target));
+    for (i = 0; i < data->entry_points_count; i++)
+    {
+        for (j = 0; j < data->entry_points[i].node_outputs_count; j++)
+        {
+            const struct vkd3d_shader_node_output_data *output = &data->entry_points[i].node_outputs[j];
+            uint32_t node_array_size;
+            uint32_t node_index;
+
+            if (output->node_array_size == UINT32_MAX)
+            {
+                /* This will be tricky ... We'll just have to deduce the array size late based on what exists in the graph. */
+                FIXME("Cannot deal with unbounded node arrays yet.\n");
+                hr = E_NOTIMPL;
+                goto fail;
+            }
+
+            node_array_size = output->node_array_size ? output->node_array_size : 1;
+
+            for (k = 0; k < node_array_size; k++)
+            {
+                node_index = d3d12_work_graph_find_node_by_id(
+                        data->entry_points, data->entry_points_count,
+                        output->node_id, output->node_array_index + k);
+
+                if (node_index == UINT32_MAX)
+                {
+                    /* It's okay if we don't find the input in sparse mode. */
+                    if (!output->sparse_array)
+                    {
+                        FIXME("NodeID %s[%u] was not found.\n", output->node_id, output->node_array_index + k);
+                        hr = E_INVALIDARG;
+                        goto fail;
+                    }
+                }
+
+                node_is_output_target[node_index] = true;
+            }
+        }
+    }
+
+    /* We cannot override this state yet, so verify shader matches our expectation. */
+    for (i = 0; i < data->entry_points_count; i++)
+    {
+        if (!data->entry_points[i].node_input)
+            continue;
+
+        if (node_is_output_target[i] && data->entry_points[i].node_input->is_program_entry)
+        {
+            FIXME("Node %s[%u] was marked as entry point, but it is used as node output.\n",
+                    data->entry_points[i].node_input->node_id,
+                    data->entry_points[i].node_input->node_array_index);
+            hr = E_NOTIMPL;
+            goto fail;
+        }
+        else if (!node_is_output_target[i] && !data->entry_points[i].node_input->is_program_entry)
+        {
+            FIXME("Node %s[%u] was not marked as entry point, but it is used as entry point.\n",
+                    data->entry_points[i].node_input->node_id,
+                    data->entry_points[i].node_input->node_array_index);
+            hr = E_NOTIMPL;
+            goto fail;
+        }
+    }
+
+fail:
+    vkd3d_free(node_is_output_target);
+    return hr;
 }
 
 static HRESULT d3d12_wg_state_object_parse_subobjects(
@@ -290,10 +411,7 @@ static inline void d3d12_state_object_inc_ref(struct d3d12_wg_state_object *stat
 
 static void d3d12_state_object_cleanup(struct d3d12_wg_state_object *state_object)
 {
-    size_t i;
-    for (i = 0; i < state_object->programs_count; i++)
-        vkd3d_free((void *)state_object->programs[i].name);
-    vkd3d_free(state_object->programs);
+    d3d12_state_object_free_programs(state_object->programs, state_object->programs_count);
 }
 
 static void d3d12_state_object_dec_ref(struct d3d12_wg_state_object *state_object)
@@ -622,6 +740,27 @@ static CONST_VTBL struct ID3D12WorkGraphPropertiesVtbl d3d12_work_graph_properti
     d3d12_work_graph_properties_GetEntrypointRecordAlignmentInBytes,
 };
 
+static HRESULT d3d12_wg_state_object_compile_programs(
+        struct d3d12_wg_state_object *object, struct d3d12_wg_state_object_data *data)
+{
+    HRESULT hr;
+    size_t i;
+
+    object->programs = data->programs;
+    object->programs_count = data->programs_count;
+    data->programs = NULL;
+    data->programs_count = 0;
+
+    for (i = 0; i < object->programs_count; i++)
+    {
+        struct d3d12_wg_state_object_program *program = &object->programs[i];
+        if (FAILED(hr = d3d12_wg_state_object_resolve_entry_points(object, data, program)))
+            return hr;
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d12_wg_state_object_init(struct d3d12_wg_state_object *object, struct d3d12_device *device,
         const D3D12_STATE_OBJECT_DESC *desc)
 {
@@ -640,18 +779,15 @@ static HRESULT d3d12_wg_state_object_init(struct d3d12_wg_state_object *object, 
     object->device = device;
     object->type = desc->Type;
 
-    /* Pilfer the program definitions. */
-    object->programs = data.programs;
-    object->programs_count = data.programs_count;
-    data.programs = NULL;
-    data.programs_count = 0;
-
+    if (FAILED(hr = d3d12_wg_state_object_compile_programs(object, &data)))
+        goto fail;
     if (FAILED(hr = vkd3d_private_store_init(&object->private_store)))
         goto fail;
     d3d12_device_add_ref(object->device);
 
 fail:
     d3d12_wg_state_object_cleanup_data(&data, device);
+    d3d12_state_object_cleanup(object);
     return hr;
 }
 
