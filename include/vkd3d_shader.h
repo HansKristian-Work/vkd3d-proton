@@ -966,6 +966,46 @@ struct vkd3d_shader_signature_element *vkd3d_shader_find_signature_element(
         unsigned int semantic_index, unsigned int stream_index);
 void vkd3d_shader_free_shader_signature(struct vkd3d_shader_signature *signature);
 
+enum vkd3d_shader_node_launch_type
+{
+    VKD3D_SHADER_NODE_LAUNCH_TYPE_INVALID = 0,
+    VKD3D_SHADER_NODE_LAUNCH_TYPE_BROADCASTING = 1,
+    VKD3D_SHADER_NODE_LAUNCH_TYPE_COALESCING = 2,
+    VKD3D_SHADER_NODE_LAUNCH_TYPE_THREAD = 3
+};
+
+struct vkd3d_shader_node_input_data
+{
+    const char *node_id; /* This is often same as entry point name, but does not have to be. */
+    uint32_t payload_stride; /* If 0, there is no input payload, i.e. EmptyNode. */
+    enum vkd3d_shader_node_launch_type launch_type;
+    uint32_t node_array_index;
+    uint32_t dispatch_grid_offset;
+    uint32_t dispatch_grid_type_bits;
+    uint32_t dispatch_grid_components;
+    uint32_t broadcast_grid[3]; /* For broadcast nodes. */
+    uint32_t recursion_factor; /* [NodeMaxRecursionDepth] */
+    uint32_t coalesce_factor;
+    const char *node_share_input_id;
+    uint32_t node_share_input_array_index;
+    uint32_t local_root_arguments_table_index;
+    bool dispatch_grid_is_upper_bound; /* [NodeMaxDispatchGrid] if true. */
+    bool node_track_rw_input_sharing; /* Payload is tagged with [NodeTrackRWInputSharing]. */
+    bool is_program_entry; /* [NodeIsProgramEntry] */
+};
+
+struct vkd3d_shader_node_output_data
+{
+    const char *node_id;
+    uint32_t node_array_index;
+    uint32_t node_array_size; /* If UINT32_MAX, it's unbounded. */
+    uint32_t node_index_spec_constant_id;
+    uint32_t max_records;
+    bool sparse_array;
+    /* We get the rest of the information from the target entry point's input data.
+     * Output data is only for determining linkage. */
+};
+
 /* For DXR, use special purpose entry points since there's a lot of special purpose reflection required. */
 struct vkd3d_shader_library_entry_point
 {
@@ -982,6 +1022,11 @@ struct vkd3d_shader_library_entry_point
     /* Used only for interfacing with dxil-spirv. */
     char *real_entry_point;
     char *debug_entry_point;
+
+    struct vkd3d_shader_node_input_data *node_input;
+    struct vkd3d_shader_node_output_data *node_outputs;
+    size_t node_outputs_size;
+    size_t node_outputs_count;
 };
 
 enum vkd3d_shader_subobject_kind
