@@ -5452,6 +5452,21 @@ struct d3d12_state_object_association
 #define VKD3D_ASSOCIATION_PRIORITY_EXPLICIT_DEFAULT 5
 #define VKD3D_ASSOCIATION_PRIORITY_EXPLICIT 6
 
+const struct d3d12_state_object_association *d3d12_state_object_find_association(
+        enum vkd3d_shader_subobject_kind kind,
+        const struct d3d12_state_object_association *associations,
+        size_t associations_count,
+        const struct D3D12_HIT_GROUP_DESC **hit_groups,
+        size_t hit_groups_count,
+        const struct vkd3d_shader_library_entry_point *entry,
+        LPCWSTR export);
+
+bool d3d12_state_object_association_data_equal(
+        const struct d3d12_state_object_association *a,
+        const struct d3d12_state_object_association *b);
+
+bool vkd3d_export_equal(LPCWSTR export, const struct vkd3d_shader_library_entry_point *entry);
+
 HRESULT d3d12_rt_state_object_create(struct d3d12_device *device, const D3D12_STATE_OBJECT_DESC *desc,
         struct d3d12_rt_state_object *parent,
         struct d3d12_rt_state_object **object);
