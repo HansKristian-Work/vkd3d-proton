@@ -9,6 +9,7 @@ struct Payload
 [Shader("node")]
 [NodeLaunch("coalescing")]
 [NumThreads(24, 1, 1)]
+[NodeIsProgramEntry]
 void CoalesceNode([MaxRecords(3)] GroupNodeInputRecords<Payload> payload, uint thr : SV_GroupThreadID)
 {
 	uint count = payload.Count();

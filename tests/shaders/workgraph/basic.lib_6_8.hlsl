@@ -9,6 +9,7 @@ struct InputRecord
 [NodeLaunch("broadcasting")]
 [NodeMaxDispatchGrid(2, 2, 2)]
 [NumThreads(2, 3, 4)]
+[NodeIsProgramEntry]
 void BroadcastNode(DispatchNodeInputRecord<InputRecord> input, uint3 thr : SV_DispatchThreadID)
 {
 	uint idx = thr.z * 100 + thr.y * 10 + thr.x;

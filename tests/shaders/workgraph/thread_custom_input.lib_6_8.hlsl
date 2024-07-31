@@ -8,6 +8,7 @@ struct Payload
 
 [Shader("node")]
 [NodeLaunch("thread")]
+[NodeIsProgramEntry]
 void ThreadNode(ThreadNodeInputRecord<Payload> payload)
 {
 	uint idx = payload.Get().idx;

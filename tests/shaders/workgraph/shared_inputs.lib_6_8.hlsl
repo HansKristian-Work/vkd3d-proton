@@ -8,6 +8,7 @@ struct SharedPayload
 
 [Shader("node")]
 [NodeLaunch("thread")]
+[NodeIsProgramEntry]
 void EntryNode([MaxRecords(1)] [NodeID("Broadcast")] NodeOutput<SharedPayload> A)
 {
 	ThreadNodeOutputRecords<SharedPayload> write0 = A.GetThreadNodeOutputRecords(1);

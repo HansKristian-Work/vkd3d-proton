@@ -8,6 +8,7 @@ struct [NodeTrackRWInputSharing] SharedPayload
 
 [Shader("node")]
 [NodeLaunch("thread")]
+[NodeIsProgramEntry]
 void EntryNode(
 		[MaxRecords(2)] [NodeArraySize(2)] [NodeID("Broadcast")] NodeOutputArray<SharedPayload> A)
 {
