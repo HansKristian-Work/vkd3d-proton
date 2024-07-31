@@ -974,6 +974,21 @@ enum vkd3d_shader_node_launch_type
     VKD3D_SHADER_NODE_LAUNCH_TYPE_THREAD = 3
 };
 
+/* For emulation path. */
+struct vkd3d_shader_node_input_push_signature
+{
+    VkDeviceAddress node_payload_bda;
+    VkDeviceAddress node_linear_offset_bda;
+    VkDeviceAddress node_total_nodes_bda;
+    VkDeviceAddress node_payload_stride_or_offsets_bda;
+    VkDeviceAddress node_payload_output_bda;
+    VkDeviceAddress node_payload_output_atomic_bda;
+    VkDeviceAddress local_root_signature_bda;
+    uint32_t node_grid_dispatch[3];
+    uint32_t node_payload_output_offset;
+    uint32_t node_payload_output_stride;
+};
+
 struct vkd3d_shader_node_input_data
 {
     const char *node_id; /* This is often same as entry point name, but does not have to be. */
