@@ -1560,6 +1560,63 @@ HRESULT d3d12_root_signature_create_local_static_samplers_layout(struct d3d12_ro
     return S_OK;
 }
 
+HRESULT d3d12_root_signature_create_work_graph_layout(struct d3d12_root_signature *root_signature,
+        VkDescriptorSetLayout *vk_push_set_layout, VkPipelineLayout *vk_pipeline_layout)
+{
+    VkDescriptorSetLayout set_layouts[VKD3D_MAX_DESCRIPTOR_SETS];
+    struct d3d12_bind_point_layout bind_point_layout;
+    VkDescriptorSetLayoutBinding binding;
+    VkPushConstantRange range;
+    bool uses_push_ubo;
+    HRESULT hr;
+
+    /* If we're already using push UBO block, we just need to modify the push range. */
+    /* TODO: Local sampler set. */
+    uses_push_ubo = !!(root_signature->compute.flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK);
+    range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    range.offset = 0;
+    range.size = sizeof(struct vkd3d_shader_node_input_push_signature);
+
+    if (uses_push_ubo || root_signature->compute.push_constant_range.size == 0)
+    {
+        if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
+                root_signature->device, root_signature->compute.num_set_layouts, root_signature->set_layouts,
+                &range, VK_SHADER_STAGE_COMPUTE_BIT, &bind_point_layout)))
+            return hr;
+
+        *vk_push_set_layout = VK_NULL_HANDLE;
+        *vk_pipeline_layout = bind_point_layout.vk_pipeline_layout;
+    }
+    else
+    {
+        binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        binding.descriptorCount = 1;
+        binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        binding.binding = 0;
+        binding.pImmutableSamplers = NULL;
+
+        memcpy(set_layouts, root_signature->set_layouts,
+                root_signature->compute.num_set_layouts * sizeof(VkDescriptorSetLayout));
+
+        if (FAILED(hr = vkd3d_create_descriptor_set_layout(
+                root_signature->device, VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
+                1, &binding,
+                VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT, vk_push_set_layout)))
+            return hr;
+
+        set_layouts[root_signature->compute.num_set_layouts] = *vk_push_set_layout;
+
+        if (FAILED(hr = vkd3d_create_pipeline_layout_for_stage_mask(
+                root_signature->device, root_signature->compute.num_set_layouts + 1, set_layouts,
+                &range, VK_SHADER_STAGE_COMPUTE_BIT, &bind_point_layout)))
+            return hr;
+
+        *vk_pipeline_layout = bind_point_layout.vk_pipeline_layout;
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d12_root_signature_init(struct d3d12_root_signature *root_signature,
         struct d3d12_device *device, const D3D12_ROOT_SIGNATURE_DESC2 *desc)
 {
