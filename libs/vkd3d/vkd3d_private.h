@@ -5531,6 +5531,7 @@ static inline struct d3d12_rt_state_object *rt_impl_from_ID3D12StateObject(ID3D1
 }
 
 struct d3d12_wg_state_object_program;
+struct d3d12_wg_state_object_module;
 
 struct d3d12_wg_state_object
 {
@@ -5544,6 +5545,9 @@ struct d3d12_wg_state_object
 
     struct d3d12_wg_state_object_program *programs;
     size_t programs_count;
+
+    struct d3d12_wg_state_object_module *modules;
+    size_t modules_count;
 
     struct vkd3d_private_store private_store;
 };
