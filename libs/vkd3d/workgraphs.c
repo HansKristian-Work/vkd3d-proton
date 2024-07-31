@@ -27,7 +27,8 @@
 struct d3d12_workgraph_level_execution
 {
     unsigned int *nodes;
-    unsigned int num_nodes;
+    size_t nodes_size;
+    size_t nodes_count;
 };
 
 /* Many similarities to ray-tracing state objects, but the implementations are vastly different
@@ -128,6 +129,7 @@ static HRESULT d3d12_wg_state_object_parse_subobject(
             vkd3d_array_reserve((void **)&data->programs, &data->programs_size,
                     data->programs_size + 1, sizeof(*data->programs));
             program = &data->programs[data->programs_count++];
+            memset(program, 0, sizeof(*program));
             program->name = vkd3d_wstrdup(wg_desc->ProgramName);
             break;
         }
@@ -209,6 +211,88 @@ static uint32_t d3d12_work_graph_find_node_by_id(
     return UINT32_MAX;
 }
 
+static HRESULT d3d12_wg_state_object_program_add_node_to_level(
+        struct d3d12_wg_state_object_program *program,
+        struct d3d12_wg_state_object_data *data,
+        unsigned int entry_point_index,
+        unsigned int level,
+        bool is_recursing)
+{
+    struct vkd3d_shader_library_entry_point *entry;
+    struct d3d12_workgraph_level_execution *exec;
+    unsigned int i, j;
+    HRESULT hr;
+
+    if (level >= MAX_WORKGRAPH_LEVELS)
+    {
+        FIXME("Recursion factor is too deep.\n");
+        return E_INVALIDARG;
+    }
+
+    exec = &program->levels[level];
+    for (i = 0; i < exec->nodes_count; i++)
+        if (exec->nodes[i] == entry_point_index)
+            return S_OK;
+
+    vkd3d_array_reserve((void **)&exec->nodes, &exec->nodes_size,
+            exec->nodes_count + 1, sizeof(*exec->nodes));
+    exec->nodes[exec->nodes_count++] = entry_point_index;
+    program->num_levels = max(program->num_levels, level + 1);
+
+    entry = &data->entry_points[entry_point_index];
+
+    if (!is_recursing)
+    {
+        for (i = 0; i < entry->node_input->recursion_factor; i++)
+        {
+            if (FAILED(hr = d3d12_wg_state_object_program_add_node_to_level(
+                    program, data, entry_point_index,
+                    level + 1 + i, true)))
+            {
+                return hr;
+            }
+        }
+    }
+
+    for (i = 0; i < entry->node_outputs_count; i++)
+    {
+        const struct vkd3d_shader_node_output_data *output = &entry->node_outputs[i];
+        uint32_t node_array_size, node_index;
+
+        /* Checked on the outside for now as well. */
+        if (output->node_array_size == UINT32_MAX)
+        {
+            FIXME("Unbounded array size is not supported.\n");
+            hr = E_NOTIMPL;
+        }
+
+        node_array_size = output->node_array_size ? output->node_array_size : 1;
+
+        for (j = 0; j < node_array_size; j++)
+        {
+            node_index = d3d12_work_graph_find_node_by_id(
+                    data->entry_points, data->entry_points_count,
+                    output->node_id, output->node_array_index + j);
+
+            if (node_index == UINT32_MAX)
+            {
+                /* It's okay if we don't find the input in sparse mode. */
+                if (output->sparse_array)
+                    continue;
+                return E_INVALIDARG;
+            }
+
+            if (FAILED(hr = d3d12_wg_state_object_program_add_node_to_level(
+                    program, data, node_index, level + 1, false)))
+            {
+                return hr;
+            }
+        }
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d12_wg_state_object_resolve_entry_points(struct d3d12_wg_state_object *object,
         struct d3d12_wg_state_object_data *data,
         struct d3d12_wg_state_object_program *program)
@@ -284,6 +368,11 @@ static HRESULT d3d12_wg_state_object_resolve_entry_points(struct d3d12_wg_state_
             hr = E_NOTIMPL;
             goto fail;
         }
+
+        /* Recurse through the nodes. Start with entry point and fill in any dependencies. */
+        if (data->entry_points[i].node_input->is_program_entry)
+            if (FAILED(hr = d3d12_wg_state_object_program_add_node_to_level(program, data, i, 0, false)))
+                goto fail;
     }
 
 fail:
