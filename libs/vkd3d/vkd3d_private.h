@@ -3013,6 +3013,7 @@ struct d3d12_command_list
 
     struct d3d12_pipeline_state *state;
     struct d3d12_rt_state_object *rt_state;
+    D3D12_SET_WORK_GRAPH_DESC wg_state;
     const struct d3d12_rt_state_object_variant *rt_state_variant;
     uint32_t current_compute_meta_flags;
 
@@ -5549,6 +5550,7 @@ HRESULT d3d_blob_create(void *buffer, SIZE_T size, struct d3d_blob **blob);
 /* ID3D12StateObject */
 typedef ID3D12StateObject d3d12_state_object_iface;
 typedef ID3D12StateObjectProperties1 d3d12_state_object_properties_iface;
+typedef ID3D12WorkGraphProperties d3d12_work_graph_properties_iface;
 
 struct d3d12_rt_state_object_identifier
 {
@@ -5723,6 +5725,54 @@ static inline struct d3d12_rt_state_object *rt_impl_from_ID3D12StateObject(ID3D1
 {
     return CONTAINING_RECORD(iface, struct d3d12_rt_state_object, ID3D12StateObject_iface);
 }
+
+struct d3d12_wg_state_object_program;
+struct d3d12_wg_state_object_module;
+
+struct d3d12_wg_state_object_ring
+{
+    VkBuffer vk_buffer;
+    VkDeviceAddress va;
+    struct vkd3d_device_memory_allocation allocation;
+};
+
+struct d3d12_wg_state_object
+{
+    d3d12_state_object_iface ID3D12StateObject_iface;
+    d3d12_state_object_properties_iface ID3D12StateObjectProperties1_iface;
+    d3d12_work_graph_properties_iface ID3D12WorkGraphProperties_iface;
+    LONG refcount;
+    LONG internal_refcount;
+    D3D12_STATE_OBJECT_TYPE type;
+    struct d3d12_device *device;
+
+    struct d3d12_wg_state_object_program *programs;
+    size_t programs_count;
+
+    struct vkd3d_shader_library_entry_point *entry_points;
+    size_t entry_points_count;
+
+    struct d3d12_wg_state_object_module *modules;
+    size_t modules_count;
+
+    /* Very hacky. Allocate huge scratch buffers that can hold execution state.
+     * Generally speaking, these buffers should be allocated in ring-buffers on device. */
+    struct d3d12_wg_state_object_ring unrolled_offsets;
+    struct d3d12_wg_state_object_ring payload[2];
+
+    struct vkd3d_private_store private_store;
+};
+
+void d3d12_command_list_workgraph_initialize_scratch(struct d3d12_command_list *list);
+void d3d12_command_list_workgraph_dispatch(struct d3d12_command_list *list, const D3D12_DISPATCH_GRAPH_DESC *desc);
+
+static inline struct d3d12_wg_state_object *wg_impl_from_ID3D12StateObject(ID3D12StateObject *iface)
+{
+    return CONTAINING_RECORD(iface, struct d3d12_wg_state_object, ID3D12StateObject_iface);
+}
+
+HRESULT d3d12_wg_state_object_create(struct d3d12_device *device, const D3D12_STATE_OBJECT_DESC *desc,
+        struct d3d12_wg_state_object **object);
 
 /* ID3D12MetaCommand */
 struct d3d12_meta_command;
