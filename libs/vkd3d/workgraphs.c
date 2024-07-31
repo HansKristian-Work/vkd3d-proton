@@ -41,6 +41,14 @@ struct d3d12_wg_state_object_program
     unsigned int num_levels;
 };
 
+struct d3d12_wg_state_object_module
+{
+    VkShaderModule vk_module;
+    VkDescriptorSetLayout vk_set_layout;
+    VkPipelineLayout vk_pipeline_layout;
+    struct d3d12_root_signature *root_signature;
+};
+
 struct d3d12_wg_state_object_data
 {
     struct d3d12_wg_state_object_program *programs;
@@ -500,7 +508,20 @@ static inline void d3d12_state_object_inc_ref(struct d3d12_wg_state_object *stat
 
 static void d3d12_state_object_cleanup(struct d3d12_wg_state_object *state_object)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &state_object->device->vk_procs;
+    unsigned int i;
+
     d3d12_state_object_free_programs(state_object->programs, state_object->programs_count);
+
+    for (i = 0; i < state_object->modules_count; i++)
+    {
+        VK_CALL(vkDestroyShaderModule(state_object->device->vk_device, state_object->modules[i].vk_module, NULL));
+        VK_CALL(vkDestroyDescriptorSetLayout(state_object->device->vk_device, state_object->modules[i].vk_set_layout, NULL));
+        VK_CALL(vkDestroyPipelineLayout(state_object->device->vk_device, state_object->modules[i].vk_pipeline_layout, NULL));
+        if (state_object->modules[i].root_signature)
+            d3d12_root_signature_dec_ref(state_object->modules[i].root_signature);
+    }
+    vkd3d_free(state_object->modules);
 }
 
 static void d3d12_state_object_dec_ref(struct d3d12_wg_state_object *state_object)
@@ -829,6 +850,44 @@ static CONST_VTBL struct ID3D12WorkGraphPropertiesVtbl d3d12_work_graph_properti
     d3d12_work_graph_properties_GetEntrypointRecordAlignmentInBytes,
 };
 
+static HRESULT d3d12_wg_state_object_convert_entry_point(
+        struct d3d12_wg_state_object *object, struct d3d12_wg_state_object_module *module,
+        struct vkd3d_shader_library_entry_point *entry)
+{
+    struct vkd3d_shader_interface_info shader_interface_info;
+    struct vkd3d_shader_compile_arguments compile_args;
+
+    memset(&compile_args, 0, sizeof(compile_args));
+    compile_args.target_extensions = object->device->vk_info.shader_extensions;
+    compile_args.target_extension_count = object->device->vk_info.shader_extension_count;
+    compile_args.target = VKD3D_SHADER_TARGET_SPIRV_VULKAN_1_0;
+    compile_args.min_subgroup_size = object->device->device_info.vulkan_1_3_properties.minSubgroupSize;
+    compile_args.max_subgroup_size = object->device->device_info.vulkan_1_3_properties.maxSubgroupSize;
+    /* Don't care about wave size promotion in RT. */
+    compile_args.quirks = &vkd3d_shader_quirk_info;
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_DRIVER_VERSION_SENSITIVE_SHADERS)
+    {
+        compile_args.driver_id = object->device->device_info.vulkan_1_2_properties.driverID;
+        compile_args.driver_version = object->device->device_info.properties2.properties.driverVersion;
+    }
+
+    memset(&shader_interface_info, 0, sizeof(shader_interface_info));
+
+    shader_interface_info.min_ssbo_alignment = d3d12_device_get_ssbo_alignment(object->device);
+
+    /* Effectively ignored. */
+    shader_interface_info.stage = VK_SHADER_STAGE_ALL;
+    shader_interface_info.xfb_info = NULL;
+
+    shader_interface_info.descriptor_size_cbv_srv_uav = d3d12_device_get_descriptor_handle_increment_size(
+            object->device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    shader_interface_info.descriptor_size_sampler = d3d12_device_get_descriptor_handle_increment_size(
+            object->device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+
+    return S_OK;
+}
+
 static HRESULT d3d12_wg_state_object_compile_programs(
         struct d3d12_wg_state_object *object, struct d3d12_wg_state_object_data *data)
 {
@@ -840,12 +899,22 @@ static HRESULT d3d12_wg_state_object_compile_programs(
     data->programs = NULL;
     data->programs_count = 0;
 
+    /* Build up a tree of executions. Level 0 are entry points which may receive work.
+     * First we run all nodes in level 0, then we figure out how to distribute work, run every node in level 1,
+     * etc, etc. */
     for (i = 0; i < object->programs_count; i++)
     {
         struct d3d12_wg_state_object_program *program = &object->programs[i];
         if (FAILED(hr = d3d12_wg_state_object_resolve_entry_points(object, data, program)))
             return hr;
     }
+
+    /* Convert modules separately, per-program.
+     * We will combine them with spec constants later when resolving the programs. */
+    object->modules = vkd3d_calloc(data->entry_points_count, sizeof(*object->modules));
+    for (i = 0; i < data->entry_points_count; i++)
+        if (FAILED(hr = d3d12_wg_state_object_convert_entry_point(object, &object->modules[i], &data->entry_points[i])))
+            return hr;
 
     return S_OK;
 }
