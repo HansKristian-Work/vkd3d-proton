@@ -1652,63 +1652,67 @@ static bool d3d12_state_object_association_data_equal(const struct d3d12_state_o
 
 static bool d3d12_state_object_find_explicit_assignment_override(
         enum vkd3d_shader_subobject_kind kind,
-        const struct d3d12_rt_state_object_pipeline_data *data,
+        const struct d3d12_state_object_association *associations,
+        size_t associations_count,
         const struct d3d12_state_object_association *association)
 {
     size_t i;
 
-    for (i = 0; i < data->associations_count; i++)
+    for (i = 0; i < associations_count; i++)
     {
         /* Don't care about explicit DXIL subobject to entry point assignments since even default declared RTPSO objects
          * will override them. */
-        if (data->associations[i].priority != VKD3D_ASSOCIATION_PRIORITY_EXPLICIT)
+        if (associations[i].priority != VKD3D_ASSOCIATION_PRIORITY_EXPLICIT)
             continue;
 
-        if (d3d12_state_object_association_data_equal(association, &data->associations[i]))
+        if (d3d12_state_object_association_data_equal(association, &associations[i]))
             return true;
     }
 
     return false;
 }
 
-static struct d3d12_state_object_association *d3d12_state_object_find_association(
+static const struct d3d12_state_object_association *d3d12_state_object_find_association(
         enum vkd3d_shader_subobject_kind kind,
-        struct d3d12_rt_state_object_pipeline_data *data,
+        const struct d3d12_state_object_association *associations,
+        size_t associations_count,
+        const struct D3D12_HIT_GROUP_DESC **hit_groups,
+        size_t hit_groups_count,
         const struct vkd3d_shader_library_entry_point *entry,
         LPCWSTR export)
 {
-    struct d3d12_state_object_association *hit_group_association = NULL;
-    struct d3d12_state_object_association *association = NULL;
+    const struct d3d12_state_object_association *hit_group_association = NULL;
+    const struct d3d12_state_object_association *association = NULL;
     const D3D12_HIT_GROUP_DESC *hit_group;
     bool conflict = false;
     bool match;
     size_t i;
 
-    for (i = 0; i < data->associations_count; i++)
+    for (i = 0; i < associations_count; i++)
     {
-        if (data->associations[i].kind != kind)
+        if (associations[i].kind != kind)
             continue;
-        if (association && data->associations[i].priority < association->priority)
+        if (association && associations[i].priority < association->priority)
             continue;
 
-        if (data->associations[i].export)
+        if (associations[i].export)
         {
             if (entry)
-                match = vkd3d_export_equal(data->associations[i].export, entry);
+                match = vkd3d_export_equal(associations[i].export, entry);
             else
-                match = vkd3d_export_strequal(data->associations[i].export, export);
+                match = vkd3d_export_strequal(associations[i].export, export);
         }
         else
             match = true;
 
         if (match)
         {
-            if (!association || data->associations[i].priority > association->priority)
+            if (!association || associations[i].priority > association->priority)
             {
-                association = &data->associations[i];
+                association = &associations[i];
                 conflict = false;
             }
-            else if (!d3d12_state_object_association_data_equal(association, &data->associations[i]))
+            else if (!d3d12_state_object_association_data_equal(association, &associations[i]))
             {
                 /* We might get a higher priority match later that makes this conflict irrelevant. */
                 conflict = true;
@@ -1723,16 +1727,18 @@ static struct d3d12_state_object_association *d3d12_state_object_find_associatio
                     bool has_explicit_association_existing;
 
                     has_explicit_association_existing =
-                            d3d12_state_object_find_explicit_assignment_override(kind, data, association);
+                            d3d12_state_object_find_explicit_assignment_override(
+                                    kind, associations, associations_count, association);
                     has_explicit_association_candidate =
-                            d3d12_state_object_find_explicit_assignment_override(kind, data, &data->associations[i]);
+                            d3d12_state_object_find_explicit_assignment_override(
+                                    kind, associations, associations_count, &associations[i]);
 
                     if (has_explicit_association_candidate != has_explicit_association_existing)
                     {
                         /* Somewhat inverse. If the existing association has an explicit one, discount it here
                          * and accept the new one. */
                         if (has_explicit_association_existing)
-                            association = &data->associations[i];
+                            association = &associations[i];
                         conflict = false;
                     }
                 }
@@ -1751,9 +1757,9 @@ static struct d3d12_state_object_association *d3d12_state_object_find_associatio
             entry->stage == VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR ||
             entry->stage == VK_SHADER_STAGE_INTERSECTION_BIT_KHR))
     {
-        for (i = 0; i < data->hit_groups_count; i++)
+        for (i = 0; i < hit_groups_count; i++)
         {
-            hit_group = data->hit_groups[i];
+            hit_group = hit_groups[i];
 
             match = vkd3d_export_equal(hit_group->ClosestHitShaderImport, entry) ||
                     vkd3d_export_equal(hit_group->AnyHitShaderImport, entry) ||
@@ -1762,7 +1768,7 @@ static struct d3d12_state_object_association *d3d12_state_object_find_associatio
             if (match)
             {
                 hit_group_association = d3d12_state_object_find_association(
-                        kind, data, NULL, hit_group->HitGroupExport);
+                        kind, associations, associations_count, hit_groups, hit_groups_count, NULL, hit_group->HitGroupExport);
 
                 /* Accept hit group association if it has a higher priority, otherwise tie-break to the export itself. */
                 if (hit_group_association && hit_group_association->priority > association->priority)
@@ -1796,8 +1802,11 @@ static struct d3d12_root_signature *d3d12_state_object_pipeline_data_get_root_si
         struct d3d12_rt_state_object_pipeline_data *data,
         const struct vkd3d_shader_library_entry_point *entry)
 {
-    struct d3d12_state_object_association *association;
-    association = d3d12_state_object_find_association(kind, data, entry, NULL);
+    const struct d3d12_state_object_association *association;
+    association = d3d12_state_object_find_association(kind,
+            data->associations, data->associations_count,
+            data->hit_groups, data->hit_groups_count,
+            entry, NULL);
     return association ? association->root_signature : NULL;
 }
 
@@ -2011,7 +2020,10 @@ static bool d3d12_state_object_pipeline_data_find_global_state_object(
 
     for (i = 0; i < data->entry_points_count; i++)
     {
-        candidate = d3d12_state_object_find_association(kind, data, &data->entry_points[i], NULL);
+        candidate = d3d12_state_object_find_association(kind,
+                data->associations, data->associations_count,
+                data->hit_groups, data->hit_groups_count,
+                &data->entry_points[i], NULL);
 
         if (!association)
         {
