@@ -31,6 +31,16 @@ struct d3d12_workgraph_level_execution
     size_t nodes_count;
 };
 
+struct d3d12_wg_state_object_pipeline
+{
+    VkPipeline vk_node_pipeline;
+    /* layout is part of modules array */
+
+    /* Meta shader. distribute_payload_offsets.comp. This is specialized per node. */
+    VkPipeline vk_payload_expander_pipeline;
+    VkPipelineLayout vk_expander_layout;
+};
+
 /* Many similarities to ray-tracing state objects, but the implementations are vastly different
  * to the point that there will just be more of a headache to try merging the two implementations into one. */
 struct d3d12_wg_state_object_program
@@ -39,6 +49,14 @@ struct d3d12_wg_state_object_program
     /* Need to add nodes with all the overrides as well. */
     struct d3d12_workgraph_level_execution levels[MAX_WORKGRAPH_LEVELS];
     unsigned int num_levels;
+
+    struct d3d12_wg_state_object_pipeline *pipelines;
+    /* size is equal to number of entry points. */
+    unsigned int num_pipelines;
+
+    /* Meta shader. distribute_workgroups.comp */
+    VkPipeline vk_payload_expander_pipeline;
+    VkPipelineLayout vk_expander_layout;
 };
 
 struct d3d12_wg_state_object_module
@@ -75,14 +93,21 @@ struct d3d12_wg_state_object_data
     size_t subobjects_count;
 };
 
-static void d3d12_state_object_free_programs(struct d3d12_wg_state_object_program *programs, size_t count)
+static void d3d12_state_object_free_programs(
+        struct d3d12_wg_state_object_program *programs, size_t count, struct d3d12_device *device)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+
     size_t i, j;
     for (i = 0; i < count; i++)
     {
         vkd3d_free((void *)programs[i].name);
         for (j = 0; j < programs[i].num_levels; j++)
             vkd3d_free(programs[i].levels[j].nodes);
+
+        for (j = 0; j < programs[i].num_pipelines; j++)
+            VK_CALL(vkDestroyPipeline(device->vk_device, programs[i].pipelines[j].vk_node_pipeline, NULL));
+        vkd3d_free(programs[i].pipelines);
     }
     vkd3d_free(programs);
 }
@@ -92,7 +117,7 @@ static void d3d12_wg_state_object_cleanup_data(
 {
     size_t i;
 
-    d3d12_state_object_free_programs(data->programs, data->programs_count);
+    d3d12_state_object_free_programs(data->programs, data->programs_count, device);
 
     vkd3d_shader_dxil_free_library_entry_points(data->entry_points, data->entry_points_count);
     vkd3d_shader_dxil_free_library_subobjects(data->subobjects, data->subobjects_count);
@@ -512,7 +537,7 @@ static void d3d12_state_object_cleanup(struct d3d12_wg_state_object *state_objec
     const struct vkd3d_vk_device_procs *vk_procs = &state_object->device->vk_procs;
     unsigned int i;
 
-    d3d12_state_object_free_programs(state_object->programs, state_object->programs_count);
+    d3d12_state_object_free_programs(state_object->programs, state_object->programs_count, state_object->device);
 
     for (i = 0; i < state_object->modules_count; i++)
     {
@@ -851,6 +876,101 @@ static CONST_VTBL struct ID3D12WorkGraphPropertiesVtbl d3d12_work_graph_properti
     d3d12_work_graph_properties_GetEntrypointRecordAlignmentInBytes,
 };
 
+static HRESULT d3d12_wg_state_object_compile_program(
+        struct d3d12_wg_state_object *object,
+        struct d3d12_wg_state_object_data *data,
+        struct d3d12_wg_state_object_program *program)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &object->device->vk_procs;
+    VkSpecializationMapEntry *map_entries = NULL;
+    VkComputePipelineCreateInfo pipeline_info;
+    VkSpecializationInfo spec_info;
+    size_t map_entries_size = 0;
+    uint32_t *spec_data = NULL;
+    size_t spec_data_count = 0;
+    size_t spec_data_size = 0;
+    VkResult vr = VK_SUCCESS;
+    unsigned int level;
+    unsigned int i, j;
+
+    program->pipelines = vkd3d_calloc(data->entry_points_count, sizeof(*program->pipelines));
+    program->num_pipelines = data->entry_points_count;
+
+    memset(&pipeline_info, 0, sizeof(pipeline_info));
+    pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    pipeline_info.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    pipeline_info.stage.pSpecializationInfo = &spec_info;
+    pipeline_info.stage.pName = "main";
+    pipeline_info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    for (level = 0; level < program->num_levels; level++)
+    {
+        const struct d3d12_workgraph_level_execution *exec = &program->levels[level];
+        const struct vkd3d_shader_library_entry_point *entry;
+
+        for (i = 0; i < exec->nodes_count; i++)
+        {
+            unsigned int entry_point_index = exec->nodes[i];
+            if (program->pipelines[entry_point_index].vk_node_pipeline != VK_NULL_HANDLE)
+                continue;
+
+            /* TODO: Grab the meta pipeline. */
+
+            entry = &data->entry_points[entry_point_index];
+
+            /* Set up spec constants for node outputs, etc. This will
+             * have to be expanded a bit to also cover things like sparse array checks, recursion state, etc. */
+            spec_data_count = entry->node_outputs_count;
+            /* Workgroup size is also a spec constant. */
+            if (entry->node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_THREAD)
+                spec_data_count++;
+
+            vkd3d_array_reserve((void **)&spec_data, &spec_data_size, spec_data_count, sizeof(*spec_data));
+            vkd3d_array_reserve((void **)&map_entries, &map_entries_size, spec_data_count, sizeof(*map_entries));
+
+            pipeline_info.stage.module = object->modules[entry_point_index].vk_module;
+            pipeline_info.layout = object->modules[entry_point_index].vk_pipeline_layout;
+            spec_info.pData = spec_data;
+            spec_info.dataSize = spec_data_count * sizeof(uint32_t);
+            spec_info.pMapEntries = map_entries;
+            spec_info.mapEntryCount = spec_data_count;
+
+            for (j = 0; j < entry->node_outputs_count; j++)
+            {
+                map_entries[j].offset = sizeof(uint32_t) * j;
+                map_entries[j].size = sizeof(uint32_t);
+                map_entries[j].constantID = entry->node_outputs[j].node_index_spec_constant_id;
+                spec_data[j] = d3d12_work_graph_find_node_by_id(
+                        data->entry_points, data->entry_points_count,
+                        entry->node_outputs[j].node_id, entry->node_outputs[j].node_array_index);
+            }
+
+            if (entry->node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_THREAD)
+            {
+                map_entries[entry->node_outputs_count].offset = sizeof(uint32_t) * entry->node_outputs_count;
+                map_entries[entry->node_outputs_count].size = sizeof(uint32_t);
+                map_entries[entry->node_outputs_count].constantID = 0;
+                spec_data[entry->node_outputs_count] = object->device->device_info.vulkan_1_1_properties.subgroupSize;
+            }
+
+            vr = VK_CALL(vkCreateComputePipelines(object->device->vk_device,
+                    VK_NULL_HANDLE, 1, &pipeline_info, NULL,
+                    &program->pipelines[entry_point_index].vk_node_pipeline));
+
+            if (vr < 0)
+            {
+                ERR("Failed to create pipeline, vr %d\n", vr);
+                goto fail;
+            }
+        }
+    }
+
+fail:
+    vkd3d_free(map_entries);
+    vkd3d_free(spec_data);
+    return hresult_from_vk_result(vr);
+}
+
 static HRESULT d3d12_wg_state_object_convert_entry_point(
         struct d3d12_wg_state_object *object,
         struct d3d12_wg_state_object_data *data,
@@ -1031,11 +1151,25 @@ static HRESULT d3d12_wg_state_object_compile_programs(
     }
 
     /* Convert modules separately, per-program.
-     * We will combine them with spec constants later when resolving the programs. */
+     * We will combine them with spec constants later when resolving the programs.
+     * It's possible we'll have to compile multiple variants for cases where a node can be used as both
+     * an entry point and non-entry point and there are overrides for dispatch parameters.
+     * Many things can hopefully be resolved through spec constants of course, but we'll have to see
+     * as the implementation comes together. */
     object->modules = vkd3d_calloc(data->entry_points_count, sizeof(*object->modules));
     for (i = 0; i < data->entry_points_count; i++)
         if (FAILED(hr = d3d12_wg_state_object_convert_entry_point(object, data, &object->modules[i], &data->entry_points[i])))
             return hr;
+
+    /* Create pipelines. Every program can have different overrides like node assignments, so we'll have to
+     * assume we have to compile pipelines like this. For duplicated spec constant setups, we can fortunately
+     * rely on caching to get us most of the way. */
+    for (i = 0; i < object->programs_count; i++)
+    {
+        struct d3d12_wg_state_object_program *program = &object->programs[i];
+        if (FAILED(hr = d3d12_wg_state_object_compile_program(object, data, program)))
+            return hr;
+    }
 
     return S_OK;
 }
