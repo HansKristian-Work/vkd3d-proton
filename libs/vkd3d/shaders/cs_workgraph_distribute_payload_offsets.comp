@@ -1,0 +1,132 @@
+#version 450
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_shuffle : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x_id = 0) in;
+layout(constant_id = 1) const int RW_GROUP_TRACKING_COMPONENTS = 0;
+layout(constant_id = 2) const bool RW_GROUP_TRACKING_U32 = false;
+
+layout(buffer_reference, buffer_reference_align = 4, std430) readonly buffer NodePayloadOffsetCount
+{
+	uint data[];
+};
+
+layout(buffer_reference, buffer_reference_align = 4, std430) writeonly buffer UnrolledOffsets
+{
+	uint data[];
+};
+
+#include "cs_workgraph_data_structures.h"
+
+// Abuse aliasing rules to make sure that we can get scalar loads while doing
+// atomics to part of the buffer :v
+layout(buffer_reference, buffer_reference_align = 16, std430) buffer IndirectCommandsBufferAtomic
+{
+	IndirectCommands indirect_commands_atomic[];
+};
+
+layout(buffer_reference, buffer_reference_align = 16, std430) restrict readonly buffer IndirectCommandsBufferRO
+{
+	IndirectCommands indirect_commands_read[];
+};
+
+// For patching in sharing count.
+layout(buffer_reference, buffer_reference_align = 4, std430) buffer Payload32
+{
+	uint data[];
+};
+
+layout(buffer_reference, buffer_reference_align = 4, std430) buffer Payload16
+{
+	uint16_t data[];
+};
+
+layout(push_constant, std430) uniform Registers
+{
+	NodePayloadOffsetCount packed_offset_counts;
+	UnrolledOffsets unrolled_offsets;
+	IndirectCommandsBufferRO commands;
+	Payload32 payload;
+	uint node_index;
+	uint packed_offset_counts_stride;
+	uint payload_stride;
+	int grid_offset_or_count;
+} registers;
+
+void main()
+{
+	uint total_fused_elements = registers.commands.indirect_commands_read[registers.node_index].total_fused_elements;
+	uint total_fused_groups = (total_fused_elements + gl_WorkGroupSize.x - 1) / gl_WorkGroupSize.x;
+
+	for (uint i = gl_WorkGroupID.x; i < total_fused_groups; i += gl_NumWorkGroups.x)
+	{
+		uint node_offset = registers.node_index * registers.packed_offset_counts_stride;
+		uint packed_offset_index = i * gl_SubgroupSize + gl_SubgroupInvocationID;
+
+		uint payload_offset = 0;
+		uint count = 0;
+		if (packed_offset_index < total_fused_elements)
+		{
+			uint word = registers.packed_offset_counts.data[node_offset + packed_offset_index];
+			payload_offset = bitfieldExtract(word, 8, 24) << 4u;
+			count = bitfieldExtract(word, 0, 8) + 1;
+		}
+
+		uint scan = subgroupInclusiveAdd(count);
+		uint total_scan = subgroupShuffle(scan, gl_SubgroupSize - 1);
+		scan -= count;
+
+		uint output_offset;
+		if (subgroupElect())
+			output_offset = atomicAdd(IndirectCommandsBufferAtomic(registers.commands).indirect_commands_atomic[registers.node_index].linear_offset_atomic, total_scan);
+		output_offset = subgroupBroadcastFirst(output_offset);
+
+		for (uint lane = 0; lane < gl_SubgroupSize; lane++)
+		{
+			uint wave_payload_offset = subgroupShuffle(payload_offset, lane);
+			uint wave_count = subgroupShuffle(count, lane);
+
+			for (uint packed_index = gl_SubgroupInvocationID; packed_index < wave_count; packed_index += gl_SubgroupSize)
+			{
+				uint unrolled_offset = wave_payload_offset + registers.payload_stride * packed_index;
+				registers.unrolled_offsets.data[output_offset + packed_index] = unrolled_offset;
+
+				if (RW_GROUP_TRACKING_COMPONENTS > 0)
+				{
+					uint grid_count = 1u;
+					if (registers.grid_offset_or_count >= 0)
+					{
+						// For [NodeMaxDispatchGrid].
+						if (RW_GROUP_TRACKING_U32)
+						{
+							uint u32_grid_offset = (unrolled_offset + registers.grid_offset_or_count) >> 2u;
+							for (int i = 0; i < RW_GROUP_TRACKING_COMPONENTS; i++)
+								grid_count *= registers.payload.data[u32_grid_offset + i];
+						}
+						else
+						{
+							uint u16_grid_offset = (unrolled_offset + registers.grid_offset_or_count) >> 1u;
+							for (int i = 0; i < RW_GROUP_TRACKING_COMPONENTS; i++)
+								grid_count *= uint(Payload16(registers.payload).data[u16_grid_offset + i]);
+						}
+					}
+					else
+					{
+						// For [NodeDispatchGrid]. Ignore any grids.
+						grid_count = -registers.grid_offset_or_count;
+					}
+
+					registers.payload.data[(unrolled_offset + registers.payload_stride - 4u) >> 2u] = grid_count;
+				}
+			}
+
+			output_offset += wave_count;
+		}
+	}
+}
+

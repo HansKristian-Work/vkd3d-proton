@@ -2044,6 +2044,84 @@ static HRESULT vkd3d_sampler_feedback_ops_init(struct vkd3d_sampler_feedback_res
     return S_OK;
 }
 
+static HRESULT vkd3d_workgraph_ops_init(struct vkd3d_workgraph_indirect_ops *workgraph_ops,
+        struct d3d12_device *device)
+{
+    VkSpecializationMapEntry map_entries[3];
+    VkPushConstantRange push_range;
+    VkSpecializationInfo spec_info;
+    uint32_t spec_data[3];
+    unsigned int i;
+    VkResult vr;
+
+    push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    push_range.offset = 0;
+
+    push_range.size = sizeof(struct vkd3d_workgraph_workgroups_args);
+    if ((vr = vkd3d_meta_create_pipeline_layout(device,
+            0, NULL, 1, &push_range,
+            &workgraph_ops->vk_workgroup_layout)))
+        return hresult_from_vk_result(vr);
+
+    push_range.size = sizeof(struct vkd3d_workgraph_payload_offsets_args);
+    if ((vr = vkd3d_meta_create_pipeline_layout(device,
+            0, NULL, 1, &push_range,
+            &workgraph_ops->vk_payload_offset_layout)))
+        return hresult_from_vk_result(vr);
+
+    for (i = 0; i < ARRAY_SIZE(map_entries); i++)
+    {
+        map_entries[i].offset = sizeof(uint32_t) * i;
+        map_entries[i].size = sizeof(uint32_t);
+        map_entries[i].constantID = i;
+    }
+
+    spec_info.mapEntryCount = 2;
+    spec_info.pMapEntries = map_entries;
+    spec_info.pData = spec_data;
+    spec_info.dataSize = 2 * sizeof(uint32_t);
+    spec_data[0] = device->device_info.vulkan_1_1_properties.subgroupSize;
+    spec_data[1] = device->device_info.vulkan_1_1_properties.subgroupSize;
+
+    if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_workgraph_distribute_workgroups),
+            cs_workgraph_distribute_workgroups, workgraph_ops->vk_workgroup_layout,
+            &spec_info, true, &workgraph_ops->vk_payload_workgroup_pipeline)))
+        return hresult_from_vk_result(vr);
+
+    spec_info.mapEntryCount = 3;
+    spec_info.pMapEntries = map_entries;
+    spec_info.pData = spec_data;
+    spec_info.dataSize = 3 * sizeof(uint32_t);
+
+    spec_data[0] = device->device_info.vulkan_1_1_properties.subgroupSize;
+
+    for (i = 0; i < ARRAY_SIZE(workgraph_ops->vk_payload_offset_u32_pipelines); i++)
+    {
+        spec_data[1] = i + 1;
+
+        spec_data[2] = 0;
+        if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_workgraph_distribute_payload_offsets),
+                cs_workgraph_distribute_payload_offsets, workgraph_ops->vk_payload_offset_layout,
+                &spec_info, true, &workgraph_ops->vk_payload_offset_u16_pipelines[i])))
+            return hresult_from_vk_result(vr);
+
+        spec_data[2] = 1;
+        if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_workgraph_distribute_payload_offsets),
+                cs_workgraph_distribute_payload_offsets, workgraph_ops->vk_payload_offset_layout,
+                &spec_info, true, &workgraph_ops->vk_payload_offset_u32_pipelines[i])))
+            return hresult_from_vk_result(vr);
+    }
+
+    spec_data[1] = 0;
+    spec_data[2] = 0;
+    if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_workgraph_distribute_payload_offsets),
+            cs_workgraph_distribute_payload_offsets, workgraph_ops->vk_payload_offset_layout,
+            &spec_info, true, &workgraph_ops->vk_payload_offset_plain)))
+        return hresult_from_vk_result(vr);
+
+    return S_OK;
+}
+
 void vkd3d_meta_get_sampler_feedback_resolve_pipeline(struct vkd3d_meta_ops *meta_ops,
         enum vkd3d_sampler_feedback_resolve_type type, struct vkd3d_sampler_feedback_resolve_info *info)
 {
@@ -2080,6 +2158,43 @@ static void vkd3d_sampler_feedback_ops_cleanup(struct vkd3d_sampler_feedback_res
 
     for (i = 0; i < ARRAY_SIZE(sampler_feedback_ops->vk_pipelines); i++)
         VK_CALL(vkDestroyPipeline(device->vk_device, sampler_feedback_ops->vk_pipelines[i], NULL));
+}
+
+static void vkd3d_workgraph_ops_cleanup(struct vkd3d_workgraph_indirect_ops *workgraph_ops,
+        struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    unsigned int i;
+
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, workgraph_ops->vk_payload_offset_layout, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, workgraph_ops->vk_workgroup_layout, NULL));
+
+    for (i = 0; i < ARRAY_SIZE(workgraph_ops->vk_payload_offset_u32_pipelines); i++)
+        VK_CALL(vkDestroyPipeline(device->vk_device, workgraph_ops->vk_payload_offset_u32_pipelines[i], NULL));
+    for (i = 0; i < ARRAY_SIZE(workgraph_ops->vk_payload_offset_u16_pipelines); i++)
+        VK_CALL(vkDestroyPipeline(device->vk_device, workgraph_ops->vk_payload_offset_u16_pipelines[i], NULL));
+    VK_CALL(vkDestroyPipeline(device->vk_device, workgraph_ops->vk_payload_offset_plain, NULL));
+    VK_CALL(vkDestroyPipeline(device->vk_device, workgraph_ops->vk_payload_workgroup_pipeline, NULL));
+}
+
+void vkd3d_meta_get_workgraph_workgroup_pipeline(struct vkd3d_meta_ops *meta_ops,
+        struct vkd3d_workgraph_meta_pipeline_info *info)
+{
+    info->vk_pipeline_layout = meta_ops->workgraph.vk_workgroup_layout;
+    info->vk_pipeline = meta_ops->workgraph.vk_payload_workgroup_pipeline;
+}
+
+void vkd3d_meta_get_workgraph_payload_offset_pipeline(struct vkd3d_meta_ops *meta_ops,
+        uint32_t component_size, uint32_t component_count,
+        struct vkd3d_workgraph_meta_pipeline_info *info)
+{
+    info->vk_pipeline_layout = meta_ops->workgraph.vk_payload_offset_layout;
+    if (component_size == sizeof(uint32_t))
+        info->vk_pipeline = meta_ops->workgraph.vk_payload_offset_u32_pipelines[component_count - 1];
+    else if (component_size == sizeof(uint16_t))
+        info->vk_pipeline = meta_ops->workgraph.vk_payload_offset_u16_pipelines[component_count - 1];
+    else
+        info->vk_pipeline = meta_ops->workgraph.vk_payload_offset_plain;
 }
 
 HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device)
@@ -2122,8 +2237,13 @@ HRESULT vkd3d_meta_ops_init(struct vkd3d_meta_ops *meta_ops, struct d3d12_device
     if (FAILED(hr = vkd3d_sampler_feedback_ops_init(&meta_ops->sampler_feedback, device)))
         goto fail_sampler_feedback;
 
+    if (FAILED(hr = vkd3d_workgraph_ops_init(&meta_ops->workgraph, device)))
+        goto fail_workgraphs;
+
     return S_OK;
 
+fail_workgraphs:
+    vkd3d_sampler_feedback_ops_cleanup(&meta_ops->sampler_feedback, device);
 fail_sampler_feedback:
     vkd3d_dstorage_ops_cleanup(&meta_ops->dstorage, device);
 fail_dstorage_ops:
@@ -2150,6 +2270,7 @@ fail_common:
 
 HRESULT vkd3d_meta_ops_cleanup(struct vkd3d_meta_ops *meta_ops, struct d3d12_device *device)
 {
+    vkd3d_workgraph_ops_cleanup(&meta_ops->workgraph, device);
     vkd3d_sampler_feedback_ops_cleanup(&meta_ops->sampler_feedback, device);
     vkd3d_dstorage_ops_cleanup(&meta_ops->dstorage, device);
     vkd3d_multi_dispatch_indirect_ops_cleanup(&meta_ops->multi_dispatch_indirect, device);
