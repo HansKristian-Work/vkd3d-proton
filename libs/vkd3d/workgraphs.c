@@ -37,8 +37,7 @@ struct d3d12_wg_state_object_pipeline
     /* layout is part of modules array */
 
     /* Meta shader. distribute_payload_offsets.comp. This is specialized per node. */
-    VkPipeline vk_payload_expander_pipeline;
-    VkPipelineLayout vk_expander_layout;
+    struct vkd3d_workgraph_meta_pipeline_info payload_offset_expander;
 };
 
 /* Many similarities to ray-tracing state objects, but the implementations are vastly different
@@ -55,8 +54,7 @@ struct d3d12_wg_state_object_program
     unsigned int num_pipelines;
 
     /* Meta shader. distribute_workgroups.comp */
-    VkPipeline vk_payload_expander_pipeline;
-    VkPipelineLayout vk_expander_layout;
+    struct vkd3d_workgraph_meta_pipeline_info workgroup_distributor;
 };
 
 struct d3d12_wg_state_object_module
@@ -903,6 +901,9 @@ static HRESULT d3d12_wg_state_object_compile_program(
     pipeline_info.stage.pName = "main";
     pipeline_info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
 
+    vkd3d_meta_get_workgraph_workgroup_pipeline(&object->device->meta_ops,
+            &program->workgroup_distributor);
+
     for (level = 0; level < program->num_levels; level++)
     {
         const struct d3d12_workgraph_level_execution *exec = &program->levels[level];
@@ -914,9 +915,16 @@ static HRESULT d3d12_wg_state_object_compile_program(
             if (program->pipelines[entry_point_index].vk_node_pipeline != VK_NULL_HANDLE)
                 continue;
 
-            /* TODO: Grab the meta pipeline. */
-
             entry = &data->entry_points[entry_point_index];
+
+            if (!entry->node_input->is_program_entry)
+            {
+                vkd3d_meta_get_workgraph_payload_offset_pipeline(&object->device->meta_ops,
+                        entry->node_input->node_track_rw_input_sharing ?
+                                entry->node_input->dispatch_grid_type_bits / 8 : 0,
+                        entry->node_input->dispatch_grid_components,
+                        &program->pipelines[entry_point_index].payload_offset_expander);
+            }
 
             /* Set up spec constants for node outputs, etc. This will
              * have to be expanded a bit to also cover things like sparse array checks, recursion state, etc. */
