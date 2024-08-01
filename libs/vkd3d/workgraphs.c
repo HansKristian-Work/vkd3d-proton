@@ -951,13 +951,9 @@ static HRESULT d3d12_wg_state_object_convert_entry_point(
             push_ubo_binding.set = rs->compute.num_set_layouts;
             shader_interface_info.push_constant_ubo_binding = &push_ubo_binding;
             shader_interface_info.flags |= VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK;
-            module->push_set_index = shader_interface_info.push_constant_buffer_count ? push_ubo_binding.set : UINT32_MAX;
         }
-        else
-        {
-            module->push_set_index = shader_interface_info.push_constant_buffer_count ?
-                    shader_interface_info.push_constant_ubo_binding->set : UINT32_MAX;
-        }
+
+        module->push_set_index = rs->compute.push_constant_range.size ? push_ubo_binding.set : UINT32_MAX;
     }
     else
     {
