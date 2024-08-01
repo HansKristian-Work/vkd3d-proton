@@ -270,6 +270,7 @@ static void vkd3d_acceleration_structure_end_barrier(struct d3d12_command_list *
     dep_info.pMemoryBarriers = &barrier;
 
     VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+    d3d12_command_list_debug_mark_barrier(list, &dep_info);
 }
 
 static void vkd3d_acceleration_structure_write_postbuild_info(
@@ -326,6 +327,7 @@ static void vkd3d_acceleration_structure_write_postbuild_info(
          * For now, just clear to 0. */
         VK_CALL(vkCmdFillBuffer(list->cmd.vk_command_buffer, vk_buffer, offset,
                 sizeof(uint64_t), 0));
+        d3d12_command_list_debug_mark_execution(list, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT);
         return;
     }
 
@@ -344,6 +346,7 @@ static void vkd3d_acceleration_structure_write_postbuild_info(
             vk_query_pool, vk_query_index, 1,
             vk_buffer, offset, stride,
             VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
+    d3d12_command_list_debug_mark_execution(list, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT);
 
     if (desc->InfoType == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION)
     {
@@ -366,12 +369,14 @@ static void vkd3d_acceleration_structure_write_postbuild_info(
                     vk_query_pool, vk_query_index, 1,
                     vk_buffer, offset + sizeof(uint64_t), stride,
                     VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
+            d3d12_command_list_debug_mark_execution(list, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT);
         }
         else
         {
             FIXME("NumBottomLevelPointers will always return 0.\n");
             VK_CALL(vkCmdFillBuffer(list->cmd.vk_command_buffer, vk_buffer, offset + sizeof(uint64_t),
                     sizeof(uint64_t), 0));
+            d3d12_command_list_debug_mark_execution(list, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT);
         }
     }
 }
@@ -402,6 +407,7 @@ void vkd3d_acceleration_structure_emit_postbuild_info(
     dep_info.pMemoryBarriers = &barrier;
 
     VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+    d3d12_command_list_debug_mark_barrier(list, &dep_info);
 
     stride = desc->InfoType == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION ?
             2 * sizeof(uint64_t) : sizeof(uint64_t);
@@ -449,6 +455,7 @@ void vkd3d_acceleration_structure_emit_immediate_postbuild_info(
     dep_info.pMemoryBarriers = &barrier;
 
     VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+    d3d12_command_list_debug_mark_barrier(list, &dep_info);
 
     /* Could optimize a bit by batching more aggressively, but no idea if it's going to help in practice. */
     for (i = 0; i < count; i++)
@@ -503,5 +510,8 @@ void vkd3d_acceleration_structure_copy(
     info.dst = dst_as;
     info.src = src_as;
     if (convert_copy_mode(mode, &info.mode))
+    {
         VK_CALL(vkCmdCopyAccelerationStructureKHR(list->cmd.vk_command_buffer, &info));
+        d3d12_command_list_debug_mark_execution(list, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT);
+    }
 }

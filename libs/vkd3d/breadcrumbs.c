@@ -892,3 +892,136 @@ uint32_t vkd3d_breadcrumb_tracer_shader_hash_forces_barrier(struct vkd3d_breadcr
     }
     return flags;
 }
+
+void d3d12_command_list_debug_mark_execution(struct d3d12_command_list *list, VkPipelineStageFlags2 stages)
+{
+    if ((stages & list->cmd.stages_synced) != stages)
+    {
+        VkPipelineStageFlags2 unsynced_stages = stages & ~list->cmd.stages_synced;
+        bool assume_synchronized = false;
+        char buf[256];
+
+        /* Graphics -> Graphics is implicitly synchronized, and we assume that Graphics will never write Indirect data. */
+        assume_synchronized =
+                list->cmd.stages_pending_execution == VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT &&
+                (list->cmd.stages_synced & (VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT)) ==
+                list->cmd.stages_synced;
+
+        if (!assume_synchronized)
+        {
+            if (list->cmd.stages_pending_execution != 0)
+            {
+                if (list->cmd.last_active_pipeline == list->current_pipeline)
+                {
+                    /* Back-to-back compute is less likely to be a real hazard since it's probably just
+                     * doing a bunch of parallel dispatches over a data set or something like that. */
+                    snprintf(buf, sizeof(buf), "Back-to-back (pending #%"PRIx64", unsynced #%"PRIx64")",
+                            list->cmd.stages_pending_execution, unsynced_stages);
+                    d3d12_command_list_debug_mark_label(list, buf, 0.7f, 0.7f, 1.0f, 1.0f);
+                }
+                else
+                {
+                    /* Changing compute pipeline without a barrier is somewhat suspicious. */
+                    snprintf(buf, sizeof(buf), "Potential hazard (pending #%"PRIx64", unsynced #%"PRIx64")",
+                            list->cmd.stages_pending_execution, unsynced_stages);
+                    d3d12_command_list_debug_mark_label(list, buf, 1.0f, 0.7f, 0.7f, 1.0f);
+                }
+            }
+            else
+            {
+                /* First command of the command buffer. A potential hazard between command lists, but very unlikely. */
+                snprintf(buf, sizeof(buf), "Potential cross-cmdlist hazard (unsynced #%"PRIx64")",
+                        unsynced_stages);
+                d3d12_command_list_debug_mark_label(list, buf, 0.7f, 1.0f, 0.7f, 1.0f);
+            }
+            VKD3D_BREADCRUMB_TAG("Potential hazard [pending, unsynced stages]");
+            VKD3D_BREADCRUMB_AUX64(list->cmd.stages_pending_execution);
+            VKD3D_BREADCRUMB_AUX64(unsynced_stages);
+        }
+    }
+
+    if (stages == VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT || stages == VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)
+        list->cmd.last_active_pipeline = list->current_pipeline;
+
+    list->cmd.stages_pending_execution |= stages;
+    if (stages != VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT)
+    {
+        list->cmd.stages_synced = 0;
+    }
+    else
+    {
+        /* Graphics -> Graphics is fine. Similarly, Graphics -> Indirect is fine.
+         * We only expect that non-graphics work will write to indirect data.
+         * Otherwise, we will get false positive spam for every indirect command. */
+        list->cmd.stages_synced &= ~(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT);
+    }
+}
+
+void d3d12_command_list_debug_mark_barrier(struct d3d12_command_list *list, const VkDependencyInfo *deps)
+{
+    static const VkPipelineStageFlags2 graphics_stages =
+            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_PRE_RASTERIZATION_SHADERS_BIT |
+                    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                    VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+
+    /* Reserve CLEAR_BIT for UAV clears since they are a bit special. We don't use that for other things. */
+    static const VkPipelineStageFlags2 transfer_stages =
+            VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_BLIT_BIT | VK_PIPELINE_STAGE_2_RESOLVE_BIT;
+
+    VkPipelineStageFlags2 src_stages = 0;
+    VkPipelineStageFlags2 dst_stages = 0;
+    uint32_t i;
+
+    for (i = 0; i < deps->memoryBarrierCount; i++)
+    {
+        src_stages |= deps->pMemoryBarriers[i].srcStageMask;
+        dst_stages |= deps->pMemoryBarriers[i].dstStageMask;
+    }
+
+    for (i = 0; i < deps->imageMemoryBarrierCount; i++)
+    {
+        src_stages |= deps->pImageMemoryBarriers[i].srcStageMask;
+        dst_stages |= deps->pImageMemoryBarriers[i].dstStageMask;
+    }
+
+    if (src_stages & VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)
+    {
+        src_stages =
+                VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT | VK_PIPELINE_STAGE_2_CLEAR_BIT;
+    }
+    if (src_stages & graphics_stages)
+        src_stages |= VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
+    if (src_stages & transfer_stages)
+        src_stages |= VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+    if (src_stages & VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
+        src_stages |= VK_PIPELINE_STAGE_2_CLEAR_BIT;
+
+    if (dst_stages & VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)
+    {
+        dst_stages =
+                VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT | VK_PIPELINE_STAGE_2_CLEAR_BIT;
+    }
+    if (dst_stages & graphics_stages)
+        dst_stages |= VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
+    if (dst_stages & transfer_stages)
+        dst_stages |= VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+    if (dst_stages & VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
+        dst_stages |= VK_PIPELINE_STAGE_2_CLEAR_BIT;
+
+    list->cmd.stages_pending_execution &= ~src_stages;
+    /* The only way to be sure is that all previous work has been synchronized in some way. */
+    if (list->cmd.stages_pending_execution == 0)
+    {
+        list->cmd.stages_synced |= dst_stages;
+    }
+    else
+    {
+        /* If we fail to mark stages as synced, report it here. */
+        char buf[256];
+        snprintf(buf, sizeof(buf), "Still unsynchronized stages (pending #%"PRIx64")",
+                list->cmd.stages_pending_execution);
+        d3d12_command_list_debug_mark_label(list, buf, 0.2f, 0.7f, 0.7f, 1.0f);
+    }
+}
