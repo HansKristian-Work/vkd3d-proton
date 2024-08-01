@@ -851,11 +851,20 @@ static CONST_VTBL struct ID3D12WorkGraphPropertiesVtbl d3d12_work_graph_properti
 };
 
 static HRESULT d3d12_wg_state_object_convert_entry_point(
-        struct d3d12_wg_state_object *object, struct d3d12_wg_state_object_module *module,
+        struct d3d12_wg_state_object *object,
+        struct d3d12_wg_state_object_data *data,
+        struct d3d12_wg_state_object_module *module,
         struct vkd3d_shader_library_entry_point *entry)
 {
+    struct vkd3d_shader_interface_local_info shader_interface_local_info;
+    const struct d3d12_state_object_association *global_rs_assoc;
+    const struct d3d12_state_object_association *local_rs_assoc;
     struct vkd3d_shader_interface_info shader_interface_info;
+    struct vkd3d_shader_descriptor_binding push_ubo_binding;
     struct vkd3d_shader_compile_arguments compile_args;
+    struct vkd3d_shader_code dxil, spirv;
+
+    HRESULT hr;
 
     memset(&compile_args, 0, sizeof(compile_args));
     compile_args.target_extensions = object->device->vk_info.shader_extensions;
@@ -873,17 +882,122 @@ static HRESULT d3d12_wg_state_object_convert_entry_point(
     }
 
     memset(&shader_interface_info, 0, sizeof(shader_interface_info));
+    memset(&shader_interface_local_info, 0, sizeof(shader_interface_local_info));
 
     shader_interface_info.min_ssbo_alignment = d3d12_device_get_ssbo_alignment(object->device);
 
-    /* Effectively ignored. */
-    shader_interface_info.stage = VK_SHADER_STAGE_ALL;
+    shader_interface_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
     shader_interface_info.xfb_info = NULL;
 
     shader_interface_info.descriptor_size_cbv_srv_uav = d3d12_device_get_descriptor_handle_increment_size(
             object->device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     shader_interface_info.descriptor_size_sampler = d3d12_device_get_descriptor_handle_increment_size(
             object->device, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+
+    global_rs_assoc = d3d12_state_object_find_association(VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE,
+            data->associations, data->associations_count,
+            NULL, 0, entry, NULL);
+
+    local_rs_assoc = d3d12_state_object_find_association(VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE,
+            data->associations, data->associations_count,
+            NULL, 0, entry, NULL);
+
+    /* Since we're dispatching shaders one by one, we can be very lenient with pipeline layout compat.
+     * Just rebind descriptors for each dispatch. It should be fine, at least for now. */
+
+    if (!global_rs_assoc)
+    {
+        struct d3d12_root_signature *global_root_signature;
+        if (FAILED(hr = d3d12_root_signature_create_empty(object->device, &global_root_signature)))
+            return E_OUTOFMEMORY;
+        d3d12_root_signature_inc_ref(global_root_signature);
+        ID3D12RootSignature_Release(&global_root_signature->ID3D12RootSignature_iface);
+        module->root_signature = global_root_signature;
+    }
+    else
+    {
+        d3d12_root_signature_inc_ref(module->root_signature = global_rs_assoc->root_signature);
+    }
+
+    /* Create a modified pipeline layout which uses the work graph layout.
+     * It uses push constants for various metadata, and moves root parameters to push UBO. */
+    if (FAILED(hr = d3d12_root_signature_create_work_graph_layout(
+            module->root_signature, &module->vk_set_layout, &module->vk_pipeline_layout)))
+        return hr;
+
+    if (module->root_signature)
+    {
+        struct d3d12_root_signature *rs = module->root_signature;
+        /* We might have different bindings per PSO, even if they are considered pipeline layout compatible.
+         * Register/space declaration could differ, but those don't change the Vulkan pipeline layout. */
+        shader_interface_info.flags = d3d12_root_signature_get_shader_interface_flags(rs, VKD3D_PIPELINE_TYPE_COMPUTE);
+        shader_interface_info.descriptor_tables.offset = rs->descriptor_table_offset;
+        shader_interface_info.descriptor_tables.count = rs->descriptor_table_count;
+        shader_interface_info.bindings = rs->bindings;
+        shader_interface_info.binding_count = rs->binding_count;
+        shader_interface_info.push_constant_buffers = rs->root_constants;
+        shader_interface_info.push_constant_buffer_count = rs->root_constant_count;
+        shader_interface_info.push_constant_ubo_binding = &rs->push_constant_ubo_binding;
+        shader_interface_info.offset_buffer_binding = &rs->offset_buffer_binding;
+#ifdef VKD3D_ENABLE_DESCRIPTOR_QA
+        shader_interface_info.descriptor_qa_global_binding = &rs->descriptor_qa_global_info;
+        shader_interface_info.descriptor_qa_heap_binding = &rs->descriptor_qa_heap_binding;
+#endif
+
+        if (!(shader_interface_info.flags & VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK))
+        {
+            push_ubo_binding.binding = 0;
+            push_ubo_binding.set = rs->compute.num_set_layouts;
+            shader_interface_info.push_constant_ubo_binding = &push_ubo_binding;
+            shader_interface_info.flags |= VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK;
+        }
+    }
+
+    if (local_rs_assoc)
+    {
+        struct d3d12_root_signature *rs = local_rs_assoc->root_signature;
+        shader_interface_local_info.local_root_parameters = rs->parameters;
+        shader_interface_local_info.local_root_parameter_count = rs->parameter_count;
+        shader_interface_local_info.shader_record_constant_buffers = rs->root_constants;
+        shader_interface_local_info.shader_record_buffer_count = rs->root_constant_count;
+
+        if (rs->static_sampler_count)
+        {
+            FIXME("Static samplers not implemented yet.\n");
+            return E_NOTIMPL;
+        }
+
+        shader_interface_local_info.bindings = rs->bindings;
+        shader_interface_local_info.binding_count = rs->binding_count;
+
+        /* Promote state which might only be active in local root signature. */
+        shader_interface_info.flags |= d3d12_root_signature_get_shader_interface_flags(rs, VKD3D_PIPELINE_TYPE_COMPUTE);
+        if (rs->compute.flags & (VKD3D_ROOT_SIGNATURE_USE_SSBO_OFFSET_BUFFER | VKD3D_ROOT_SIGNATURE_USE_TYPED_OFFSET_BUFFER))
+            shader_interface_info.offset_buffer_binding = &rs->offset_buffer_binding;
+    }
+
+    memset(&dxil, 0, sizeof(dxil));
+    memset(&spirv, 0, sizeof(spirv));
+
+    /* TODO: If we're exporting multiple entry points from one DXIL library,
+     * we can amortize the parsing cost. */
+    dxil.code = data->dxil_libraries[entry->identifier]->DXILLibrary.pShaderBytecode;
+    dxil.size = data->dxil_libraries[entry->identifier]->DXILLibrary.BytecodeLength;
+
+    if (vkd3d_shader_compile_dxil_export(&dxil, entry->real_entry_point, entry->debug_entry_point,
+            &spirv, NULL,
+            &shader_interface_info, &shader_interface_local_info, &compile_args) != VKD3D_OK)
+    {
+        ERR("Failed to convert DXIL export: %s (%s)\n",
+                entry->real_entry_point, entry->debug_entry_point);
+        return E_OUTOFMEMORY;
+    }
+
+    if (!d3d12_device_validate_shader_meta(object->device, &spirv.meta))
+        return E_INVALIDARG;
+
+    if (FAILED(hr = d3d12_pipeline_state_create_shader_module(object->device, &module->vk_module, &spirv)))
+        return hr;
 
     return S_OK;
 }
@@ -913,7 +1027,7 @@ static HRESULT d3d12_wg_state_object_compile_programs(
      * We will combine them with spec constants later when resolving the programs. */
     object->modules = vkd3d_calloc(data->entry_points_count, sizeof(*object->modules));
     for (i = 0; i < data->entry_points_count; i++)
-        if (FAILED(hr = d3d12_wg_state_object_convert_entry_point(object, &object->modules[i], &data->entry_points[i])))
+        if (FAILED(hr = d3d12_wg_state_object_convert_entry_point(object, data, &object->modules[i], &data->entry_points[i])))
             return hr;
 
     return S_OK;
