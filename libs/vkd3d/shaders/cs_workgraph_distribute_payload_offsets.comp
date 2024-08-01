@@ -1,0 +1,265 @@
+#version 450
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x_id = 0) in;
+
+layout(buffer_reference, buffer_reference_align = 8, std430) readonly buffer NodePayloadOffsetCount
+{
+	uvec2 data[];
+};
+
+layout(buffer_reference, buffer_reference_align = 4, std430) writeonly buffer UnrolledOffsets
+{
+	uint data[];
+};
+
+#include "cs_workgraph_data_structures.h"
+
+// Abuse aliasing rules to make sure that we can get scalar loads while doing
+// atomics to part of the buffer :v
+layout(buffer_reference, buffer_reference_align = 16, std430) buffer IndirectCommandsBufferAtomic
+{
+	layout(offset = 16) IndirectCommands indirect_commands_atomic[];
+};
+
+layout(buffer_reference, buffer_reference_align = 16, std430) restrict readonly buffer IndirectCommandsBufferRO
+{
+	layout(offset = 12) uint total_fused_elements;
+	IndirectCommands indirect_commands_read[];
+};
+
+// For patching in sharing count.
+layout(buffer_reference, buffer_reference_align = 4, std430) buffer Payload32
+{
+	uint data[];
+};
+
+layout(buffer_reference, buffer_reference_align = 4, std430) buffer Payload16
+{
+	uint16_t data[];
+};
+
+struct NodeMeta
+{
+	uint packed_control;
+	uint payload_stride_grid_offset_or_count;
+};
+
+layout(buffer_reference, buffer_reference_align = 8, std430) restrict readonly buffer NodeTypeMeta
+{
+	NodeMeta data[];
+};
+
+layout(push_constant, std430) uniform Registers
+{
+	NodePayloadOffsetCount packed_offset_counts;
+	UnrolledOffsets unrolled_offsets;
+	IndirectCommandsBufferRO commands;
+	Payload32 payload;
+	NodeTypeMeta meta;
+} registers;
+
+void process_node_index(uint node_index, uint payload_offset, uint count)
+{
+	NodeMeta node_meta = registers.meta.data[node_index];
+	int group_components = int(bitfieldExtract(node_meta.packed_control, 0, 8));
+	bool group_components_u32 = bitfieldExtract(node_meta.packed_control, 8, 8) != 0;
+	bool rw_group_tracking = bitfieldExtract(node_meta.packed_control, 16, 8) != 0;
+	bool group_compact_broadcast = bitfieldExtract(node_meta.packed_control, 24, 8) != 0;
+	int grid_offset_or_count = bitfieldExtract(int(node_meta.payload_stride_grid_offset_or_count), 16, 16);
+	uint payload_stride = bitfieldExtract(node_meta.payload_stride_grid_offset_or_count, 0, 16);
+
+	bool should_compact_broadcast = group_compact_broadcast;
+	if (should_compact_broadcast)
+		should_compact_broadcast = registers.commands.indirect_commands_read[node_index].primary_execute.y == 0u;
+
+	// If we're not going to compact, we can allocate atomically once.
+	uint output_offset;
+	if (!should_compact_broadcast)
+	{
+		uint total_scan = subgroupAdd(count);
+		if (subgroupElect())
+			output_offset = atomicAdd(IndirectCommandsBufferAtomic(registers.commands).indirect_commands_atomic[node_index].linear_offset_atomic, total_scan);
+		output_offset = subgroupBroadcastFirst(output_offset);
+	}
+
+	uvec4 ballot = subgroupBallot(count != 0u);
+
+	while (any(notEqual(ballot, uvec4(0))))
+	{
+		uint lane = subgroupBallotFindLSB(ballot);
+
+		// TODO: Is there a more elegant way that is just as fast and fully portable?
+		if (gl_SubgroupSize == 128)
+		{
+			if (lane >= 3 * 32)
+				ballot.w &= ballot.w - 1u;
+			else if (lane >= 2 * 32)
+				ballot.z &= ballot.z - 1u;
+			else if (lane >= 32)
+				ballot.y &= ballot.y - 1u;
+			else
+				ballot.x &= ballot.x - 1u;
+		}
+		else if (gl_SubgroupSize == 64)
+		{
+			if (lane >= 32)
+				ballot.y &= ballot.y - 1u;
+			else
+				ballot.x &= ballot.x - 1u;
+		}
+		else
+			ballot.x &= ballot.x - 1u;
+
+		uint wave_payload_offset = subgroupBroadcast(payload_offset, lane);
+		uint wave_count = subgroupBroadcast(count, lane);
+
+		if (should_compact_broadcast)
+		{
+			// Need to do atomics per iteration since we don't want to scan the payloads twice.
+
+			for (uint base_index = 0; base_index < wave_count; base_index += gl_SubgroupSize)
+			{
+				uint packed_index = base_index + gl_SubgroupInvocationID;
+				uint unrolled_offset = wave_payload_offset + payload_stride * packed_index;
+				bool is_active_payload = false;
+				uint grid_count = 0u;
+
+				if (packed_index < wave_count)
+				{
+					// We only take this path for broadcast nodes with MaxGrid size.
+					grid_count = 1u;
+
+					if (grid_offset_or_count >= 0)
+					{
+						// For [NodeMaxDispatchGrid].
+						if (group_components_u32)
+						{
+							uint u32_grid_offset = (unrolled_offset + grid_offset_or_count) >> 2u;
+							for (int i = 0; i < group_components; i++)
+							grid_count *= registers.payload.data[u32_grid_offset + i];
+						}
+						else
+						{
+							uint u16_grid_offset = (unrolled_offset + grid_offset_or_count) >> 1u;
+							for (int i = 0; i < group_components; i++)
+							grid_count *= uint(Payload16(registers.payload).data[u16_grid_offset + i]);
+						}
+					}
+					else
+					{
+						// For [NodeDispatchGrid]. Ignore any grids.
+						grid_count = -grid_offset_or_count;
+					}
+
+					if (rw_group_tracking)
+						registers.payload.data[(unrolled_offset + payload_stride - 4u) >> 2u] = grid_count;
+				}
+
+				bool is_active_broadcast = grid_count > 0u;
+				uvec4 active_ballot = subgroupBallot(is_active_broadcast);
+				uint compacted_offset = subgroupBallotExclusiveBitCount(active_ballot);
+				uint total_compacted = subgroupBallotBitCount(active_ballot);
+				uint total_workgroup_iterations = subgroupAdd(grid_count);
+
+				uint atomic_offset = 0;
+				if (subgroupElect())
+				{
+					if (total_compacted != 0)
+					{
+						restrict IndirectCommandsBufferAtomic atomics = IndirectCommandsBufferAtomic(registers.commands);
+						atomic_offset = atomicAdd(atomics.indirect_commands_atomic[node_index].secondary_execute.x, total_compacted);
+						atomicAdd(atomics.indirect_commands_atomic[node_index].expander_total_groups, total_workgroup_iterations);
+					}
+				}
+
+				atomic_offset = subgroupBroadcastFirst(atomic_offset);
+				atomic_offset += registers.commands.indirect_commands_read[node_index].secondary_linear_offset;
+
+				if (is_active_broadcast)
+					registers.unrolled_offsets.data[atomic_offset + compacted_offset] = unrolled_offset;
+			}
+		}
+		else
+		{
+			for (uint packed_index = gl_SubgroupInvocationID; packed_index < wave_count; packed_index += gl_SubgroupSize)
+			{
+				uint compacted_index = packed_index;
+				uint unrolled_offset = wave_payload_offset + payload_stride * packed_index;
+				registers.unrolled_offsets.data[output_offset + packed_index] = unrolled_offset;
+
+				if (group_components > 0)
+				{
+					uint grid_count = 1u;
+					if (grid_offset_or_count >= 0)
+					{
+						// For [NodeMaxDispatchGrid].
+						if (group_components_u32)
+						{
+							uint u32_grid_offset = (unrolled_offset + grid_offset_or_count) >> 2u;
+							for (int i = 0; i < group_components; i++)
+								grid_count *= registers.payload.data[u32_grid_offset + i];
+						}
+						else
+						{
+							uint u16_grid_offset = (unrolled_offset + grid_offset_or_count) >> 1u;
+							for (int i = 0; i < group_components; i++)
+								grid_count *= uint(Payload16(registers.payload).data[u16_grid_offset + i]);
+						}
+					}
+					else
+					{
+						// For [NodeDispatchGrid]. Ignore any grids.
+						grid_count = -grid_offset_or_count;
+					}
+
+					if (rw_group_tracking)
+						registers.payload.data[(unrolled_offset + payload_stride - 4u) >> 2u] = grid_count;
+				}
+			}
+
+			output_offset += wave_count;
+		}
+	}
+}
+
+void main()
+{
+	uint total_fused_elements = registers.commands.total_fused_elements;
+	uint total_fused_groups = (total_fused_elements + gl_WorkGroupSize.x - 1) / gl_WorkGroupSize.x;
+
+	for (uint i = gl_WorkGroupID.x; i < total_fused_groups; i += gl_NumWorkGroups.x)
+	{
+		uint packed_offset_index = i * gl_WorkGroupSize.x + gl_SubgroupID * gl_SubgroupSize + gl_SubgroupInvocationID;
+		uint payload_offset = 0;
+		uint node_index = 0;
+		uint count = 0;
+
+		if (packed_offset_index < total_fused_elements)
+		{
+			uvec2 words = registers.packed_offset_counts.data[packed_offset_index];
+			node_index = bitfieldExtract(words.x, 8, 24);
+			count = bitfieldExtract(words.x, 0, 8) + 1;
+			payload_offset = words.y;
+		}
+
+		// An altered waterfall loop. All threads need to participate in the inner loop due to expansion.
+		// We just need to mask off work depending on which node index we're processing.
+		uvec4 node_index_ballot = subgroupBallot(count != 0);
+
+		while (any(notEqual(node_index_ballot, uvec4(0))))
+		{
+			uint bit = subgroupBallotFindLSB(node_index_ballot);
+			uint next_node_index = subgroupBroadcast(node_index, bit);
+			bool contributes = next_node_index == node_index;
+			process_node_index(next_node_index, payload_offset, contributes ? count : 0);
+			node_index_ballot &= subgroupBallot(!contributes);
+		}
+	}
+}
+
