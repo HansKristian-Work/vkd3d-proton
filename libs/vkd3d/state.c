@@ -2119,7 +2119,7 @@ static ULONG STDMETHODCALLTYPE d3d12_pipeline_state_AddRef(ID3D12PipelineState *
     return d3d12_pipeline_state_inc_public_ref(state);
 }
 
-static HRESULT d3d12_pipeline_state_create_shader_module(struct d3d12_device *device,
+HRESULT d3d12_pipeline_state_create_shader_module(struct d3d12_device *device,
         VkShaderModule *vk_module, const struct vkd3d_shader_code *code)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;

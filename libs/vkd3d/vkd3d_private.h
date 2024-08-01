@@ -2147,6 +2147,9 @@ struct d3d12_pipeline_state
     struct d3d_destruction_notifier destruction_notifier;
 };
 
+HRESULT d3d12_pipeline_state_create_shader_module(struct d3d12_device *device,
+        VkShaderModule *vk_module, const struct vkd3d_shader_code *code);
+
 static inline bool d3d12_pipeline_state_is_compute(const struct d3d12_pipeline_state *state)
 {
     return state && state->pipeline_type == VKD3D_PIPELINE_TYPE_COMPUTE;
