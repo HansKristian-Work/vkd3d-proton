@@ -47,6 +47,7 @@ struct d3d12_wg_state_object_module
     VkDescriptorSetLayout vk_set_layout;
     VkPipelineLayout vk_pipeline_layout;
     struct d3d12_root_signature *root_signature;
+    uint32_t push_set_index;
 };
 
 struct d3d12_wg_state_object_data
@@ -950,7 +951,17 @@ static HRESULT d3d12_wg_state_object_convert_entry_point(
             push_ubo_binding.set = rs->compute.num_set_layouts;
             shader_interface_info.push_constant_ubo_binding = &push_ubo_binding;
             shader_interface_info.flags |= VKD3D_ROOT_SIGNATURE_USE_PUSH_CONSTANT_UNIFORM_BLOCK;
+            module->push_set_index = shader_interface_info.push_constant_buffer_count ? push_ubo_binding.set : UINT32_MAX;
         }
+        else
+        {
+            module->push_set_index = shader_interface_info.push_constant_buffer_count ?
+                    shader_interface_info.push_constant_ubo_binding->set : UINT32_MAX;
+        }
+    }
+    else
+    {
+        module->push_set_index = UINT32_MAX;
     }
 
     if (local_rs_assoc)
