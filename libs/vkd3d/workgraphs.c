@@ -161,7 +161,7 @@ static HRESULT d3d12_wg_state_object_parse_subobject(
             }
 
             vkd3d_array_reserve((void **)&data->programs, &data->programs_size,
-                    data->programs_size + 1, sizeof(*data->programs));
+                    data->programs_count + 1, sizeof(*data->programs));
             program = &data->programs[data->programs_count++];
             memset(program, 0, sizeof(*program));
             program->name = vkd3d_wstrdup(wg_desc->ProgramName);
@@ -1157,6 +1157,7 @@ static HRESULT d3d12_wg_state_object_compile_programs(
      * Many things can hopefully be resolved through spec constants of course, but we'll have to see
      * as the implementation comes together. */
     object->modules = vkd3d_calloc(data->entry_points_count, sizeof(*object->modules));
+    object->modules_count = data->entry_points_count;
     for (i = 0; i < data->entry_points_count; i++)
         if (FAILED(hr = d3d12_wg_state_object_convert_entry_point(object, data, &object->modules[i], &data->entry_points[i])))
             return hr;
@@ -1200,7 +1201,8 @@ static HRESULT d3d12_wg_state_object_init(struct d3d12_wg_state_object *object, 
 
 fail:
     d3d12_wg_state_object_cleanup_data(&data, device);
-    d3d12_state_object_cleanup(object);
+    if (FAILED(hr))
+        d3d12_state_object_cleanup(object);
     return hr;
 }
 
