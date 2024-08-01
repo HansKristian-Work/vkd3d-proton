@@ -1507,24 +1507,6 @@ static bool vkd3d_stage_is_global_group(VkShaderStageFlagBits stage)
     }
 }
 
-static VkShaderModule create_shader_module(struct d3d12_device *device, const void *data, size_t size)
-{
-    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkShaderModuleCreateInfo info;
-    VkShaderModule module;
-
-    info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    info.pNext = NULL;
-    info.flags = 0;
-    info.pCode = data;
-    info.codeSize = size;
-
-    if (VK_CALL(vkCreateShaderModule(device->vk_device, &info, NULL, &module)) == VK_SUCCESS)
-        return module;
-    else
-        return VK_NULL_HANDLE;
-}
-
 static VkDeviceSize get_shader_stack_size(struct d3d12_rt_state_object *object,
         uint32_t pipeline_variant_index, uint32_t index, VkShaderGroupShaderKHR shader)
 {
@@ -2180,7 +2162,8 @@ static HRESULT d3d12_state_object_compile_pipeline_variant(struct d3d12_rt_state
         if (!d3d12_device_validate_shader_meta(object->device, &spirv.meta))
             return E_INVALIDARG;
 
-        stage->module = create_shader_module(object->device, spirv.code, spirv.size);
+        if (FAILED(hr = d3d12_pipeline_state_create_shader_module(object->device, &stage->module, &spirv)))
+            return hr;
 
         if (spirv.meta.flags & VKD3D_SHADER_META_FLAG_USES_SUBGROUP_OPERATIONS)
         {
