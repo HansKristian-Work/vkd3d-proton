@@ -3038,6 +3038,12 @@ void d3d12_command_list_debug_mark_begin_region(
         struct d3d12_command_list *list, const char *tag);
 void d3d12_command_list_debug_mark_end_region(struct d3d12_command_list *list);
 
+void d3d12_command_list_invalidate_current_pipeline(struct d3d12_command_list *list, bool meta_shader);
+void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *list,
+        struct vkd3d_pipeline_bindings *bindings, bool invalidate_descriptor_heaps,
+        struct vkd3d_pipeline_bindings *sibling_push_domain);
+void d3d12_command_list_update_descriptor_buffers(struct d3d12_command_list *list);
+
 static inline struct vkd3d_pipeline_bindings *d3d12_command_list_get_bindings(
         struct d3d12_command_list *list, enum vkd3d_pipeline_type pipeline_type)
 {
