@@ -5554,6 +5554,9 @@ struct d3d12_wg_state_object
     struct d3d12_wg_state_object_program *programs;
     size_t programs_count;
 
+    struct vkd3d_shader_library_entry_point *entry_points;
+    size_t entry_points_count;
+
     struct d3d12_wg_state_object_module *modules;
     size_t modules_count;
 

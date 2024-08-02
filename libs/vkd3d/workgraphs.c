@@ -589,6 +589,7 @@ static void d3d12_state_object_cleanup(struct d3d12_wg_state_object *state_objec
     unsigned int i;
 
     d3d12_state_object_free_programs(state_object->programs, state_object->programs_count, state_object->device);
+    vkd3d_shader_dxil_free_library_entry_points(state_object->entry_points, state_object->entry_points_count);
 
     for (i = 0; i < state_object->modules_count; i++)
     {
@@ -1314,6 +1315,11 @@ static HRESULT d3d12_wg_state_object_init(struct d3d12_wg_state_object *object, 
         goto fail;
     d3d12_device_add_ref(object->device);
 
+    object->entry_points = data.entry_points;
+    object->entry_points_count = data.entry_points_count;
+    data.entry_points = NULL;
+    data.entry_points_count = 0;
+
 fail:
     d3d12_wg_state_object_cleanup_data(&data, device);
     if (FAILED(hr))
@@ -1441,6 +1447,8 @@ void d3d12_command_list_workgraph_dispatch(struct d3d12_command_list *list, cons
 
     node_index = program->levels[0].nodes[desc->NodeCPUInput.EntrypointIndex];
     payload_size = desc->NodeCPUInput.NumRecords * desc->NodeCPUInput.RecordStrideInBytes;
+    if (desc->NodeCPUInput.RecordStrideInBytes == 0)
+        payload_size = wg_state->entry_points[node_index].node_input->payload_stride;
 
     if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
             VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD, payload_size, 64, ~0u, &scratch))
