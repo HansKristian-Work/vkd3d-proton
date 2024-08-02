@@ -1411,11 +1411,21 @@ void d3d12_command_list_workgraph_initialize_scratch(struct d3d12_command_list *
     d3d12_command_list_debug_mark_end_region(list);
 }
 
+static void d3d12_command_list_workgraph_bind_resources(struct d3d12_command_list *list,
+        const struct d3d12_wg_state_object *state,
+        const struct d3d12_wg_state_object_program *program,
+        VkPipelineLayout vk_layout, uint32_t vk_push_set,
+        VkBuffer vk_root_parameter_buffer, VkDeviceSize vk_root_parameter_buffer_offset)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+}
+
 static void d3d12_command_list_workgraph_execute_node(struct d3d12_command_list *list,
         const struct d3d12_wg_state_object *state,
         const struct d3d12_wg_state_object_program *program,
         uint32_t node_index, uint32_t level,
-        VkDeviceAddress output_payload, VkDeviceAddress input_payload)
+        VkDeviceAddress output_payload, VkDeviceAddress input_payload,
+        VkBuffer vk_root_parameter_buffer, VkDeviceSize vk_root_parameter_buffer_offset)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     struct vkd3d_shader_node_input_push_signature push;
@@ -1424,13 +1434,18 @@ static void d3d12_command_list_workgraph_execute_node(struct d3d12_command_list 
     memset(&push, 0, sizeof(push));
     vk_layout = state->modules[node_index].vk_pipeline_layout;
 
-    //d3d12_command_list_fetch_root_parameter_data(list, &list->compute_bindings, template_scratch.host_ptr);
+    /* Just rebind resources every time. We have to execute intermediate shaders anyway,
+     * which clobbers all descriptor state. */
+    d3d12_command_list_workgraph_bind_resources(list, state, program,
+            vk_layout, state->modules[node_index].push_set_index,
+            vk_root_parameter_buffer, vk_root_parameter_buffer_offset);
 }
 
 static void d3d12_command_list_workgraph_execute_level(struct d3d12_command_list *list,
         const struct d3d12_wg_state_object *state,
         const struct d3d12_wg_state_object_program *program,
-        uint32_t level, VkDeviceAddress output_payload, VkDeviceAddress input_payload)
+        uint32_t level, VkDeviceAddress output_payload, VkDeviceAddress input_payload,
+        VkBuffer vk_root_parameter_buffer, VkDeviceSize vk_root_parameter_buffer_offset)
 {
     uint32_t i;
     /* Barrier */
@@ -1443,14 +1458,17 @@ static void d3d12_command_list_workgraph_execute_level(struct d3d12_command_list
     for (i = 0; i < program->levels[level].nodes_count; i++)
     {
         d3d12_command_list_workgraph_execute_node(list, state, program,
-                program->levels[level].nodes[i], level, output_payload, input_payload);
+                program->levels[level].nodes[i], level, output_payload, input_payload,
+                vk_root_parameter_buffer, vk_root_parameter_buffer_offset);
     }
 }
 
 void d3d12_command_list_workgraph_dispatch(struct d3d12_command_list *list, const D3D12_DISPATCH_GRAPH_DESC *desc)
 {
     const struct d3d12_wg_state_object_program *program;
-    struct vkd3d_scratch_allocation scratch;
+    struct vkd3d_scratch_allocation root_param_scratch;
+    struct vkd3d_scratch_allocation payload_scratch;
+    union vkd3d_root_parameter_data root_param_data;
     struct d3d12_wg_state_object *wg_state;
     uint32_t wg_state_program_index;
     VkDeviceSize payload_size;
@@ -1498,17 +1516,30 @@ void d3d12_command_list_workgraph_dispatch(struct d3d12_command_list *list, cons
         payload_size = wg_state->entry_points[node_index].node_input->payload_stride;
 
     if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
-            VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD, payload_size, 64, ~0u, &scratch))
+            VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD, payload_size, 64, ~0u, &payload_scratch))
         return;
 
-    /* Alternatively use vkCmdUpdateBuffer, but at least for now, just rely on ReBAR doing its thing. */
-    memcpy(scratch.host_ptr, desc->NodeCPUInput.pRecords, payload_size);
+    if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+            VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD,
+            sizeof(root_param_data), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT,
+            ~0u, &root_param_scratch))
+        return;
 
-    d3d12_command_list_workgraph_execute_node(list, wg_state, program, node_index, 0, wg_state->payload[0].va, scratch.va);
+    d3d12_command_list_fetch_root_parameter_data(list, &list->compute_bindings, &root_param_data);
+    memcpy(root_param_scratch.host_ptr, &root_param_data, sizeof(root_param_data));
+
+    /* Alternatively use vkCmdUpdateBuffer, but at least for now, just rely on ReBAR doing its thing. */
+    memcpy(payload_scratch.host_ptr, desc->NodeCPUInput.pRecords, payload_size);
+
+    d3d12_command_list_workgraph_execute_node(list, wg_state, program, node_index, 0,
+            wg_state->payload[0].va, payload_scratch.va,
+            root_param_scratch.buffer, root_param_scratch.offset);
+
     for (i = 1; i < program->num_levels; i++)
     {
         d3d12_command_list_workgraph_execute_level(list, wg_state, program, i,
-                wg_state->payload[i & 1].va, wg_state->payload[(i & 1) ^ 1].va);
+                wg_state->payload[i & 1].va, wg_state->payload[(i & 1) ^ 1].va,
+                root_param_scratch.buffer, root_param_scratch.offset);
     }
 
     d3d12_command_list_debug_mark_end_region(list);
