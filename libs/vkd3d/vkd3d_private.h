@@ -3044,6 +3044,15 @@ void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *li
         struct vkd3d_pipeline_bindings *sibling_push_domain);
 void d3d12_command_list_update_descriptor_buffers(struct d3d12_command_list *list);
 
+union vkd3d_root_parameter_data
+{
+    uint32_t root_constants[D3D12_MAX_ROOT_COST];
+    VkDeviceAddress root_descriptor_vas[D3D12_MAX_ROOT_COST / 2];
+};
+
+void d3d12_command_list_fetch_root_parameter_data(struct d3d12_command_list *list,
+        struct vkd3d_pipeline_bindings *bindings, union vkd3d_root_parameter_data *dst_data);
+
 static inline struct vkd3d_pipeline_bindings *d3d12_command_list_get_bindings(
         struct d3d12_command_list *list, enum vkd3d_pipeline_type pipeline_type)
 {
