@@ -3032,6 +3032,12 @@ bool d3d12_command_list_reset_query(struct d3d12_command_list *list,
 void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list, bool suspend);
 void d3d12_command_list_invalidate_all_state(struct d3d12_command_list *list);
 
+void d3d12_command_list_debug_mark_label(struct d3d12_command_list *list, const char *tag,
+        float r, float g, float b, float a);
+void d3d12_command_list_debug_mark_begin_region(
+        struct d3d12_command_list *list, const char *tag);
+void d3d12_command_list_debug_mark_end_region(struct d3d12_command_list *list);
+
 static inline struct vkd3d_pipeline_bindings *d3d12_command_list_get_bindings(
         struct d3d12_command_list *list, enum vkd3d_pipeline_type pipeline_type)
 {
