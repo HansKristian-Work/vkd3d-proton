@@ -1976,10 +1976,6 @@ static void d3d12_command_list_mark_as_invalid(struct d3d12_command_list *list,
     list->is_valid = false;
 }
 
-static void d3d12_command_list_debug_mark_begin_region(struct d3d12_command_list *list, const char *tag);
-static void d3d12_command_list_debug_mark_label(struct d3d12_command_list *list, const char *tag,
-        float r, float g, float b, float a);
-
 static HRESULT d3d12_command_list_begin_command_buffer(struct d3d12_command_list *list)
 {
     struct d3d12_device *device = list->device;
@@ -3629,7 +3625,7 @@ static bool d3d12_resource_may_alias_other_resources(struct d3d12_resource *reso
     return true;
 }
 
-static void d3d12_command_list_debug_mark_label(struct d3d12_command_list *list, const char *tag,
+void d3d12_command_list_debug_mark_label(struct d3d12_command_list *list, const char *tag,
         float r, float g, float b, float a)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -3648,7 +3644,7 @@ static void d3d12_command_list_debug_mark_label(struct d3d12_command_list *list,
     }
 }
 
-static void d3d12_command_list_debug_mark_begin_region(
+void d3d12_command_list_debug_mark_begin_region(
         struct d3d12_command_list *list, const char *tag)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -3669,7 +3665,7 @@ static void d3d12_command_list_debug_mark_begin_region(
     }
 }
 
-static void d3d12_command_list_debug_mark_end_region(struct d3d12_command_list *list)
+void d3d12_command_list_debug_mark_end_region(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     if ((vkd3d_config_flags & VKD3D_CONFIG_FLAG_DEBUG_UTILS) &&
