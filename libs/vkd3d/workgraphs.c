@@ -24,6 +24,20 @@
 
 #define MAX_WORKGRAPH_LEVELS 32
 
+/* 64 bytes per node, nicely aligns to a cache line. */
+struct d3d12_workgraph_indirect_command
+{
+    uint32_t primary_execute[3];
+    uint32_t primary_linear_offset; /* Read by node as input metadata. */
+    uint32_t secondary_execute[3];
+    uint32_t secondary_linear_offset; /* Read by node as input metadata. */
+    uint32_t expander_execute[3];
+    uint32_t end_elements; /* Read by node as input metadata in coalesce / thread mode. */
+    uint32_t linear_offset_atomic; /* Used by expander to write unrolled data. */
+    uint32_t total_fused_elements;
+    uint32_t padding[2];
+};
+
 struct d3d12_workgraph_level_execution
 {
     unsigned int *nodes;
@@ -41,7 +55,8 @@ struct d3d12_wg_state_object_pipeline
 };
 
 /* Many similarities to ray-tracing state objects, but the implementations are vastly different
- * to the point that there will just be more of a headache to try merging the two implementations into one. */
+ * to the point that there will just be more of a headache to try merging the two implementations into one.
+ * This object represents a single work graph. A state object may hold many work graphs. */
 struct d3d12_wg_state_object_program
 {
     const WCHAR *name;
@@ -55,6 +70,12 @@ struct d3d12_wg_state_object_program
 
     /* Meta shader. distribute_workgroups.comp */
     struct vkd3d_workgraph_meta_pipeline_info workgroup_distributor;
+
+    VkDeviceSize counters_scratch_offset;
+    VkDeviceSize counters_scratch_size;
+    VkDeviceSize indirect_commands_scratch_offset;
+    VkDeviceSize indirect_commands_scratch_size;
+    VkDeviceSize required_scratch_size;
 };
 
 struct d3d12_wg_state_object_module
@@ -530,6 +551,36 @@ static inline void d3d12_state_object_inc_ref(struct d3d12_wg_state_object *stat
     InterlockedIncrement(&state_object->internal_refcount);
 }
 
+static HRESULT d3d12_state_object_allocate_ring(struct d3d12_wg_state_object_ring *ring, VkDeviceSize size,
+        struct d3d12_device *device)
+{
+    HRESULT hr;
+    if (FAILED(hr = vkd3d_create_buffer_explicit_usage(device,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            size, "workgraph-ring", &ring->vk_buffer)))
+    {
+        return hr;
+    }
+
+    if (FAILED(hr = vkd3d_allocate_internal_buffer_memory(device, ring->vk_buffer,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            &ring->allocation)))
+    {
+        return hr;
+    }
+
+    ring->va = vkd3d_get_buffer_device_address(device, ring->vk_buffer);
+    return S_OK;
+}
+
+static void d3d12_state_object_cleanup_allocation(struct d3d12_wg_state_object_ring *ring, struct d3d12_device *device)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    if (ring->allocation.vk_memory)
+        vkd3d_free_device_memory(device, &ring->allocation);
+    VK_CALL(vkDestroyBuffer(device->vk_device, ring->vk_buffer, NULL));
+}
+
 static void d3d12_state_object_cleanup(struct d3d12_wg_state_object *state_object)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &state_object->device->vk_procs;
@@ -546,6 +597,11 @@ static void d3d12_state_object_cleanup(struct d3d12_wg_state_object *state_objec
             d3d12_root_signature_dec_ref(state_object->modules[i].root_signature);
     }
     vkd3d_free(state_object->modules);
+
+    d3d12_state_object_cleanup_allocation(&state_object->payload[0], state_object->device);
+    d3d12_state_object_cleanup_allocation(&state_object->payload[1], state_object->device);
+    d3d12_state_object_cleanup_allocation(&state_object->packed_payload_offsets, state_object->device);
+    d3d12_state_object_cleanup_allocation(&state_object->unrolled_offsets, state_object->device);
 }
 
 static void d3d12_state_object_dec_ref(struct d3d12_wg_state_object *state_object)
@@ -838,8 +894,19 @@ static void STDMETHODCALLTYPE d3d12_work_graph_properties_GetWorkGraphMemoryRequ
         UINT WorkGraphIndex,
         D3D12_WORK_GRAPH_MEMORY_REQUIREMENTS *pWorkGraphMemoryRequirements)
 {
-    FIXME("iface %p, WorkGraphIndex %u, pWorkGraphMemoryRequirements %p, stub!\n", iface, WorkGraphIndex, pWorkGraphMemoryRequirements);
-    memset(pWorkGraphMemoryRequirements, 0, sizeof(*pWorkGraphMemoryRequirements));
+    struct d3d12_wg_state_object *object = impl_from_ID3D12WorkGraphProperties(iface);
+    TRACE("iface %p, WorkGraphIndex %u, pWorkGraphMemoryRequirements %p\n", iface, WorkGraphIndex, pWorkGraphMemoryRequirements);
+    if (WorkGraphIndex >= object->programs_count)
+    {
+        ERR("WorkGraphIndex %u is out of bound.\n", WorkGraphIndex);
+        memset(pWorkGraphMemoryRequirements, 0, sizeof(*pWorkGraphMemoryRequirements));
+        return;
+    }
+
+    TRACE("Required scratch size: %"PRIu64" bytes.\n", object->programs[WorkGraphIndex].required_scratch_size);
+    pWorkGraphMemoryRequirements->MinSizeInBytes = object->programs[WorkGraphIndex].required_scratch_size;
+    pWorkGraphMemoryRequirements->MaxSizeInBytes = object->programs[WorkGraphIndex].required_scratch_size;
+    pWorkGraphMemoryRequirements->SizeGranularityInBytes = 1;
 }
 
 static UINT STDMETHODCALLTYPE d3d12_work_graph_properties_GetEntrypointRecordAlignmentInBytes(
@@ -903,6 +970,12 @@ static HRESULT d3d12_wg_state_object_compile_program(
 
     vkd3d_meta_get_workgraph_workgroup_pipeline(&object->device->meta_ops,
             &program->workgroup_distributor);
+
+    program->counters_scratch_offset = 0;
+    program->counters_scratch_size = (1 + data->entry_points_count) * sizeof(uint32_t) * 2;
+    program->indirect_commands_scratch_offset = align(program->counters_scratch_size, 64);
+    program->indirect_commands_scratch_size = data->entry_points_count * sizeof(struct d3d12_workgraph_indirect_command);
+    program->required_scratch_size = program->indirect_commands_scratch_offset + program->indirect_commands_scratch_size;
 
     for (level = 0; level < program->num_levels; level++)
     {
@@ -1137,6 +1210,31 @@ static HRESULT d3d12_wg_state_object_convert_entry_point(
     return S_OK;
 }
 
+static HRESULT d3d12_wg_state_object_allocate_rings(struct d3d12_wg_state_object *object)
+{
+    /* This is the big achilles heel of any emulation path. This memory requirement is way too huge
+     * to make sense as scratch memory, so we'll have to come up with some global device data share or something
+     * to make this feasible, but for simple testing, we can just assume one workgraph per device. */
+    const VkDeviceSize packed_offset_payload_size = 256 * 1024 * 1024;
+    const VkDeviceSize payload_ring_size = 128 * 1024 * 1024;
+    HRESULT hr;
+
+    if (FAILED(hr = d3d12_state_object_allocate_ring(&object->payload[0], payload_ring_size, object->device)))
+        return hr;
+    if (FAILED(hr = d3d12_state_object_allocate_ring(&object->payload[1], payload_ring_size, object->device)))
+        return hr;
+    if (FAILED(hr = d3d12_state_object_allocate_ring(&object->unrolled_offsets, payload_ring_size, object->device)))
+        return hr;
+    if (FAILED(hr = d3d12_state_object_allocate_ring(&object->packed_payload_offsets,
+            packed_offset_payload_size, object->device)))
+        return hr;
+
+    /* Can get very tiny if the state object holds a ton of objects, but that's *shrug* for now. */
+    object->packed_payload_offset_size_per_node = packed_offset_payload_size / max(object->modules_count, 1);
+
+    return S_OK;
+}
+
 static HRESULT d3d12_wg_state_object_compile_programs(
         struct d3d12_wg_state_object *object, struct d3d12_wg_state_object_data *data)
 {
@@ -1179,6 +1277,9 @@ static HRESULT d3d12_wg_state_object_compile_programs(
         if (FAILED(hr = d3d12_wg_state_object_compile_program(object, data, program)))
             return hr;
     }
+
+    if (FAILED(hr = d3d12_wg_state_object_allocate_rings(object)))
+        return hr;
 
     return S_OK;
 }

@@ -2922,6 +2922,8 @@ struct d3d12_command_list
 
     struct d3d12_pipeline_state *state;
     struct d3d12_rt_state_object *rt_state;
+    struct d3d12_wg_state_object *wg_state;
+    uint32_t wg_state_program_index;
     const struct d3d12_rt_state_object_variant *rt_state_variant;
     uint32_t current_compute_meta_flags;
 
@@ -5500,6 +5502,13 @@ static inline struct d3d12_rt_state_object *rt_impl_from_ID3D12StateObject(ID3D1
 struct d3d12_wg_state_object_program;
 struct d3d12_wg_state_object_module;
 
+struct d3d12_wg_state_object_ring
+{
+    VkBuffer vk_buffer;
+    VkDeviceAddress va;
+    struct vkd3d_device_memory_allocation allocation;
+};
+
 struct d3d12_wg_state_object
 {
     d3d12_state_object_iface ID3D12StateObject_iface;
@@ -5515,6 +5524,14 @@ struct d3d12_wg_state_object
 
     struct d3d12_wg_state_object_module *modules;
     size_t modules_count;
+
+    /* Very hacky. Allocate huge scratch buffers that can hold execution state.
+     * Generally speaking, these buffers should be allocated in ring-buffers on device. */
+    struct d3d12_wg_state_object_ring unrolled_offsets;
+    struct d3d12_wg_state_object_ring payload[2];
+    struct d3d12_wg_state_object_ring packed_payload_offsets;
+
+    VkDeviceSize packed_payload_offset_size_per_node;
 
     struct vkd3d_private_store private_store;
 };
