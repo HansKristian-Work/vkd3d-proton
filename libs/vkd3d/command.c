@@ -7310,8 +7310,8 @@ static void STDMETHODCALLTYPE d3d12_command_list_DrawIndexedInstanced(d3d12_comm
 
 static void d3d12_command_list_check_pre_compute_barrier(struct d3d12_command_list *list)
 {
-    if (list->current_compute_meta_flags & (VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH |
-            VKD3D_SHADER_META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH))
+    if ((list->current_compute_meta_flags & (VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH |
+            VKD3D_SHADER_META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH)) || list->cmd.clear_uav_pending)
     {
         const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
         VkMemoryBarrier2 vk_barrier;
@@ -7330,12 +7330,20 @@ static void d3d12_command_list_check_pre_compute_barrier(struct d3d12_command_li
             vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
             vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
         }
-        else
+        else if (list->current_compute_meta_flags & VKD3D_SHADER_META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH)
         {
             vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_PRE_RASTERIZATION_SHADERS_BIT;
             vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
             vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
             vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        }
+
+        if (list->cmd.clear_uav_pending)
+        {
+            vk_barrier.srcStageMask |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            vk_barrier.srcAccessMask |= VK_ACCESS_2_SHADER_WRITE_BIT;
+            vk_barrier.dstStageMask |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            vk_barrier.dstAccessMask |= VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
         }
 
         dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
@@ -7347,6 +7355,7 @@ static void d3d12_command_list_check_pre_compute_barrier(struct d3d12_command_li
 
         list->current_compute_meta_flags &= ~(VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH |
                 VKD3D_SHADER_META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH);
+        list->cmd.clear_uav_pending = false;
     }
 }
 
@@ -10115,6 +10124,33 @@ static void d3d12_command_list_barrier_batch_end(struct d3d12_command_list *list
 
         batch->image_barrier_count = 0;
     }
+
+    if (list->cmd.clear_uav_pending)
+    {
+        if ((batch->vk_memory_barrier.srcStageMask &
+            (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)) &&
+            (batch->vk_memory_barrier.dstStageMask &
+            (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)))
+        {
+            list->cmd.clear_uav_pending = false;
+        }
+
+        if (list->cmd.clear_uav_pending)
+        {
+            uint32_t i;
+            for (i = 0; i < batch->image_barrier_count; i++)
+            {
+                if ((batch->vk_image_barriers[i].srcStageMask &
+                    (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)) &&
+                    (batch->vk_image_barriers[i].dstStageMask &
+                    (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)))
+                {
+                    list->cmd.clear_uav_pending = false;
+                    break;
+                }
+            }
+        }
+    }
 }
 
 static bool vk_subresource_range_overlaps(uint32_t base_a, uint32_t count_a, uint32_t base_b, uint32_t count_b)
@@ -11797,6 +11833,9 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
                     workgroup_count.height, workgroup_count.depth));
         }
     }
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_CLEAR_UAV_SYNC)
+        list->cmd.clear_uav_pending = true;
 
     d3d12_command_list_debug_mark_end_region(list);
 }
