@@ -2948,8 +2948,7 @@ struct d3d12_command_list
 
     struct d3d12_pipeline_state *state;
     struct d3d12_rt_state_object *rt_state;
-    struct d3d12_wg_state_object *wg_state;
-    uint32_t wg_state_program_index;
+    D3D12_SET_WORK_GRAPH_DESC wg_state;
     const struct d3d12_rt_state_object_variant *rt_state_variant;
     uint32_t current_compute_meta_flags;
 
@@ -5568,6 +5567,9 @@ struct d3d12_wg_state_object
 
     struct vkd3d_private_store private_store;
 };
+
+void d3d12_command_list_workgraph_initialize_scratch(struct d3d12_command_list *list);
+void d3d12_command_list_workgraph_dispatch(struct d3d12_command_list *list, const D3D12_DISPATCH_GRAPH_DESC *desc);
 
 static inline struct d3d12_wg_state_object *wg_impl_from_ID3D12StateObject(ID3D12StateObject *iface)
 {

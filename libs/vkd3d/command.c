@@ -5701,7 +5701,7 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
 
     list->state = NULL;
     list->rt_state = NULL;
-    list->wg_state = NULL;
+    memset(&list->wg_state, 0, sizeof(list->wg_state));
     list->active_pipeline_type = VKD3D_PIPELINE_TYPE_NONE;
 
     memset(list->so_buffers, 0, sizeof(list->so_buffers));
@@ -16870,14 +16870,49 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBufferStripCutValue(d
     }
 }
 
-static void STDMETHODCALLTYPE d3d12_command_list_SetProgram(d3d12_command_list_iface *iface, const D3D12_SET_PROGRAM_DESC *desc)
+static void STDMETHODCALLTYPE d3d12_command_list_SetProgram(
+        d3d12_command_list_iface *iface, const D3D12_SET_PROGRAM_DESC *desc)
 {
-    FIXME("iface %p, desc %p, stub!\n", iface, desc);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    struct d3d12_wg_state_object *wg_state;
+    uint32_t wg_state_program_index;
+    TRACE("iface %p, desc %p\n", iface, desc);
+
+    if (desc->Type != D3D12_PROGRAM_TYPE_WORK_GRAPH)
+    {
+        FIXME("Unsupported type %u.\n", desc->Type);
+        memset(&list->wg_state, 0, sizeof(list->wg_state));
+        return;
+    }
+
+    list->wg_state = desc->WorkGraph;
+
+    /* We only get program identifier, not the state object? Spicy ... */
+    wg_state = (struct d3d12_wg_state_object *)desc->WorkGraph.ProgramIdentifier.OpaqueData[1];
+    wg_state_program_index = desc->WorkGraph.ProgramIdentifier.OpaqueData[0];
+
+    if (wg_state)
+    {
+        if (wg_state_program_index >= wg_state->programs_count)
+        {
+            ERR("program index %u is out of bounds (%u programs).\n",
+                    wg_state_program_index, wg_state->programs_count);
+            memset(&list->wg_state, 0, sizeof(list->wg_state));
+            return;
+        }
+
+        /* It's somewhat ambiguous if we should initialize scratch on SetProgram time or not.
+         * Assume we can. */
+        d3d12_command_list_workgraph_initialize_scratch(list);
+    }
 }
 
-static void STDMETHODCALLTYPE d3d12_command_list_DispatchGraph(d3d12_command_list_iface *iface, const D3D12_DISPATCH_GRAPH_DESC *desc)
+static void STDMETHODCALLTYPE d3d12_command_list_DispatchGraph(
+        d3d12_command_list_iface *iface, const D3D12_DISPATCH_GRAPH_DESC *desc)
 {
-    FIXME("iface %p, desc %p, stub!\n", iface, desc);
+    struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
+    TRACE("iface %p, desc %p\n", iface, desc);
+    d3d12_command_list_workgraph_dispatch(list, desc);
 }
 
 #define VKD3D_DECLARE_D3D12_GRAPHICS_COMMAND_LIST_VARIANT(name, set_table_variant) \

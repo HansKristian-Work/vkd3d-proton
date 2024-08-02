@@ -75,6 +75,8 @@ struct d3d12_wg_state_object_program
     VkDeviceSize counters_scratch_size;
     VkDeviceSize indirect_commands_scratch_offset;
     VkDeviceSize indirect_commands_scratch_size;
+    VkDeviceSize dividers_scratch_offset;
+    VkDeviceSize dividers_scratch_size;
     VkDeviceSize required_scratch_size;
 };
 
@@ -974,8 +976,12 @@ static HRESULT d3d12_wg_state_object_compile_program(
     program->counters_scratch_offset = 0;
     program->counters_scratch_size = (1 + data->entry_points_count) * sizeof(uint32_t) * 2;
     program->indirect_commands_scratch_offset = align(program->counters_scratch_size, 64);
-    program->indirect_commands_scratch_size = data->entry_points_count * sizeof(struct d3d12_workgraph_indirect_command);
-    program->required_scratch_size = program->indirect_commands_scratch_offset + program->indirect_commands_scratch_size;
+    program->indirect_commands_scratch_size =
+            data->entry_points_count * sizeof(struct d3d12_workgraph_indirect_command);
+    program->dividers_scratch_offset =
+            align(program->indirect_commands_scratch_offset + program->indirect_commands_scratch_size, 64);
+    program->dividers_scratch_size = data->entry_points_count * sizeof(uint32_t);
+    program->required_scratch_size = program->dividers_scratch_offset + program->dividers_scratch_size;
 
     for (level = 0; level < program->num_levels; level++)
     {
@@ -1334,4 +1340,112 @@ HRESULT d3d12_wg_state_object_create(struct d3d12_device *device, const D3D12_ST
 
     *state_object = object;
     return S_OK;
+}
+
+void d3d12_command_list_workgraph_initialize_scratch(struct d3d12_command_list *list)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const struct vkd3d_unique_resource *resource;
+    struct d3d12_wg_state_object *wg_state;
+    uint32_t wg_state_program_index;
+    VkMemoryBarrier2 vk_barrier;
+    VkDependencyInfo dep_info;
+
+    wg_state = (struct d3d12_wg_state_object *)list->wg_state.ProgramIdentifier.OpaqueData[1];
+    wg_state_program_index = (uint32_t)list->wg_state.ProgramIdentifier.OpaqueData[0];
+
+    if (!wg_state)
+    {
+        WARN("WG state is not set.\n");
+        return;
+    }
+
+    if (!list->wg_state.BackingMemory.StartAddress)
+        return;
+
+    /* INITIALIZE is assumed to happen in UAV. */
+    memset(&dep_info, 0, sizeof(dep_info));
+    memset(&vk_barrier, 0, sizeof(vk_barrier));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.memoryBarrierCount = 1;
+    dep_info.pMemoryBarriers = &vk_barrier;
+
+    /* App is responsible for doing the UAV barrier here, so we just need to do a transitive barrier into CLEAR. */
+    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    vk_barrier.dstAccessMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+    vk_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+
+    if (list->wg_state.BackingMemory.SizeInBytes < wg_state->programs[wg_state_program_index].required_scratch_size)
+    {
+        ERR("Backing memory is not large enough (%"PRIu64" < %"PRIu64".\n",
+                list->wg_state.BackingMemory.SizeInBytes < wg_state->programs[wg_state_program_index].required_scratch_size);
+        return;
+    }
+
+    resource = vkd3d_va_map_deref(&list->device->memory_allocator.va_map, list->wg_state.BackingMemory.StartAddress);
+    if (resource)
+    {
+        VK_CALL(vkCmdFillBuffer(list->cmd.vk_command_buffer, resource->vk_buffer,
+                list->wg_state.BackingMemory.StartAddress - resource->va,
+                list->wg_state.BackingMemory.SizeInBytes, 0));
+
+        /* TODO: Copy over the dividers. */
+    }
+
+    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+    vk_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT;
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+}
+
+void d3d12_command_list_workgraph_dispatch(struct d3d12_command_list *list, const D3D12_DISPATCH_GRAPH_DESC *desc)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    const struct d3d12_wg_state_object_program *program;
+    struct vkd3d_scratch_allocation scratch;
+    struct d3d12_wg_state_object *wg_state;
+    uint32_t wg_state_program_index;
+    VkDeviceSize payload_size;
+    uint32_t node_index;
+
+    wg_state = (struct d3d12_wg_state_object *)list->wg_state.ProgramIdentifier.OpaqueData[1];
+    wg_state_program_index = (uint32_t)list->wg_state.ProgramIdentifier.OpaqueData[0];
+
+    if (!wg_state)
+    {
+        WARN("WG state is not set.\n");
+        return;
+    }
+
+    /* GPU input will be very awkward to support well without DGCC.
+     * Multi CPU input should be fairly simple, but not particularly interesting for bringup. */
+    if (desc->Mode != D3D12_DISPATCH_MODE_NODE_CPU_INPUT)
+    {
+        FIXME("Unsupported input type: %u\n", desc->Mode);
+        return;
+    }
+
+    if (desc->NodeCPUInput.NumRecords == 0)
+        return;
+
+    program = &wg_state->programs[wg_state_program_index];
+
+    if (desc->NodeCPUInput.EntrypointIndex >= program->levels[0].nodes_count)
+    {
+        ERR("EntryPointIndex %u is out of bounds.\n", desc->NodeCPUInput.EntrypointIndex);
+        return;
+    }
+
+    node_index = program->levels[0].nodes[desc->NodeCPUInput.EntrypointIndex];
+    payload_size = desc->NodeCPUInput.NumRecords * desc->NodeCPUInput.RecordStrideInBytes;
+
+    if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+            VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD, payload_size, 64, ~0u, &scratch))
+        return;
+
+    /* Alternatively use vkCmdUpdateBuffer, but at least for now, just rely on ReBAR doing its thing. */
+    memcpy(scratch.host_ptr, desc->NodeCPUInput.pRecords, payload_size);
 }
