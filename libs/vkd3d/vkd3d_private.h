@@ -2464,6 +2464,19 @@ bool d3d12_command_allocator_allocate_query_from_type_index(
         struct d3d12_command_allocator *allocator,
         uint32_t type_index, VkQueryPool *query_pool, uint32_t *query_index);
 
+struct vkd3d_scratch_allocation
+{
+    VkBuffer buffer;
+    VkDeviceSize offset;
+    VkDeviceAddress va;
+    void *host_ptr;
+};
+
+bool d3d12_command_allocator_allocate_scratch_memory(struct d3d12_command_allocator *allocator,
+        enum vkd3d_scratch_pool_kind kind,
+        VkDeviceSize size, VkDeviceSize alignment, uint32_t memory_types,
+        struct vkd3d_scratch_allocation *allocation);
+
 enum vkd3d_pipeline_dirty_flag
 {
     VKD3D_PIPELINE_DIRTY_STATIC_SAMPLER_SET       = 0x00000001u,
