@@ -5701,6 +5701,7 @@ static void d3d12_command_list_reset_api_state(struct d3d12_command_list *list,
 
     list->state = NULL;
     list->rt_state = NULL;
+    list->wg_state = NULL;
     list->active_pipeline_type = VKD3D_PIPELINE_TYPE_NONE;
 
     memset(list->so_buffers, 0, sizeof(list->so_buffers));
