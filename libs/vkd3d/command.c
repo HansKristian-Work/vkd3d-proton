@@ -11688,6 +11688,28 @@ struct vkd3d_clear_uav_info
     } u;
 };
 
+static void d3d12_command_list_clear_uav_barrier(struct d3d12_command_list *list)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkMemoryBarrier2 vk_barrier;
+    VkDependencyInfo dep_info;
+
+    memset(&vk_barrier, 0, sizeof(vk_barrier));
+    memset(&dep_info, 0, sizeof(dep_info));
+    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.memoryBarrierCount = 1;
+    dep_info.pMemoryBarriers = &vk_barrier;
+    vk_barrier.srcStageMask = vk_queue_shader_stages(list->vk_queue_flags);
+    vk_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    vk_barrier.dstStageMask = vk_barrier.srcStageMask;
+    vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+    d3d12_command_list_debug_mark_barrier(list, &dep_info);
+}
+
 static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
         struct d3d12_resource *resource, const struct vkd3d_clear_uav_info *args,
         const VkClearColorValue *clear_color, UINT rect_count, const D3D12_RECT *rects)
@@ -11814,6 +11836,9 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
             pipeline.vk_pipeline_layout, 0, 1, &write_set));
 
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_CLEAR_UAV_SYNC)
+        d3d12_command_list_clear_uav_barrier(list);
+
     for (i = 0; i < rect_count || !i; i++)
     {
         if (rect_count)
@@ -11853,6 +11878,9 @@ static void d3d12_command_list_clear_uav(struct d3d12_command_list *list,
     }
 
     d3d12_command_list_debug_mark_execution(list, VK_PIPELINE_STAGE_2_CLEAR_BIT);
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_CLEAR_UAV_SYNC)
+        d3d12_command_list_clear_uav_barrier(list);
+
     d3d12_command_list_debug_mark_end_region(list);
 }
 
