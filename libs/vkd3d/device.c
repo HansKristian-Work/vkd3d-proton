@@ -958,6 +958,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"app_debug_marker_only", VKD3D_CONFIG_FLAG_APP_DEBUG_MARKER_ONLY},
     {"small_vram_rebar", VKD3D_CONFIG_FLAG_SMALL_VRAM_REBAR},
     {"no_staggered_submit", VKD3D_CONFIG_FLAG_NO_STAGGERED_SUBMIT},
+    {"clear_uav_sync", VKD3D_CONFIG_FLAG_CLEAR_UAV_SYNC},
 };
 
 static void vkd3d_config_flags_init_once(void)
