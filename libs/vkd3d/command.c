@@ -6238,14 +6238,8 @@ static void d3d12_command_list_update_root_constants(struct d3d12_command_list *
     }
 }
 
-union root_parameter_data
-{
-    uint32_t root_constants[D3D12_MAX_ROOT_COST];
-    VkDeviceAddress root_descriptor_vas[D3D12_MAX_ROOT_COST / 2];
-};
-
 static unsigned int d3d12_command_list_fetch_root_descriptor_vas(struct d3d12_command_list *list,
-        struct vkd3d_pipeline_bindings *bindings, union root_parameter_data *dst_data)
+        struct vkd3d_pipeline_bindings *bindings, union vkd3d_root_parameter_data *dst_data)
 {
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     uint64_t root_descriptor_mask = root_signature->root_descriptor_raw_va_mask;
@@ -6264,7 +6258,7 @@ static unsigned int d3d12_command_list_fetch_root_descriptor_vas(struct d3d12_co
 }
 
 static void d3d12_command_list_fetch_root_parameter_uniform_block_data(struct d3d12_command_list *list,
-        struct vkd3d_pipeline_bindings *bindings, union root_parameter_data *dst_data)
+        struct vkd3d_pipeline_bindings *bindings, union vkd3d_root_parameter_data *dst_data)
 {
     const struct d3d12_root_signature *root_signature = bindings->root_signature;
     uint64_t root_constant_mask = root_signature->root_constant_mask;
@@ -6299,8 +6293,8 @@ static void d3d12_command_list_fetch_root_parameter_uniform_block_data(struct d3
     }
 }
 
-static void d3d12_command_list_fetch_root_parameter_data(struct d3d12_command_list *list,
-        struct vkd3d_pipeline_bindings *bindings, union root_parameter_data *dst_data)
+void d3d12_command_list_fetch_root_parameter_data(struct d3d12_command_list *list,
+        struct vkd3d_pipeline_bindings *bindings, union vkd3d_root_parameter_data *dst_data)
 {
     d3d12_command_list_fetch_root_descriptor_vas(list, bindings, dst_data);
     d3d12_command_list_fetch_root_parameter_uniform_block_data(list, bindings, dst_data);
@@ -6314,8 +6308,8 @@ static void d3d12_command_list_update_root_descriptors(struct d3d12_command_list
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkWriteDescriptorSet descriptor_writes[D3D12_MAX_ROOT_COST / 2];
     const struct vkd3d_shader_root_parameter *root_parameter;
-    union root_parameter_data *ptr_root_parameter_data;
-    union root_parameter_data root_parameter_data;
+    union vkd3d_root_parameter_data *ptr_root_parameter_data;
+    union vkd3d_root_parameter_data root_parameter_data;
     unsigned int descriptor_write_count = 0;
     struct vkd3d_scratch_allocation alloc;
     VkDescriptorBufferInfo buffer_info;
