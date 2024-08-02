@@ -3024,7 +3024,7 @@ static void d3d12_command_list_invalidate_rendering_info(struct d3d12_command_li
     list->rendering_info.state_flags &= ~VKD3D_RENDERING_CURRENT;
 }
 
-static void d3d12_command_list_invalidate_current_pipeline(struct d3d12_command_list *list, bool meta_shader)
+void d3d12_command_list_invalidate_current_pipeline(struct d3d12_command_list *list, bool meta_shader)
 {
     list->current_pipeline = VK_NULL_HANDLE;
 
@@ -4461,10 +4461,6 @@ static size_t get_query_heap_stride(D3D12_QUERY_HEAP_TYPE heap_type)
     return sizeof(uint64_t);
 }
 
-static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *list,
-        struct vkd3d_pipeline_bindings *bindings, bool invalidate_descriptor_heaps,
-        struct vkd3d_pipeline_bindings *sibling_push_domain);
-
 static bool d3d12_command_list_gather_pending_queries(struct d3d12_command_list *list)
 {
     /* TODO allocate arrays from command allocator in case
@@ -4838,7 +4834,7 @@ static void d3d12_command_list_invalidate_push_constants(struct vkd3d_pipeline_b
     bindings->root_constant_dirty_mask = bindings->root_signature->root_constant_mask;
 }
 
-static void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *list,
+void d3d12_command_list_invalidate_root_parameters(struct d3d12_command_list *list,
         struct vkd3d_pipeline_bindings *bindings, bool invalidate_descriptor_heaps,
         struct vkd3d_pipeline_bindings *sibling_push_domain)
 {
@@ -6192,7 +6188,7 @@ static void vk_write_descriptor_set_from_scratch_push_ubo(VkWriteDescriptorSet *
 }
 
 /* This is a big stall on some GPUs so need to track this separately. */
-static void d3d12_command_list_update_descriptor_buffers(struct d3d12_command_list *list)
+void d3d12_command_list_update_descriptor_buffers(struct d3d12_command_list *list)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     VkDescriptorBufferBindingPushDescriptorBufferHandleEXT buffer_handle;
