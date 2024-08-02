@@ -1423,6 +1423,28 @@ static void d3d12_command_list_workgraph_execute_node(struct d3d12_command_list 
 
     memset(&push, 0, sizeof(push));
     vk_layout = state->modules[node_index].vk_pipeline_layout;
+
+    //d3d12_command_list_fetch_root_parameter_data(list, &list->compute_bindings, template_scratch.host_ptr);
+}
+
+static void d3d12_command_list_workgraph_execute_level(struct d3d12_command_list *list,
+        const struct d3d12_wg_state_object *state,
+        const struct d3d12_wg_state_object_program *program,
+        uint32_t level, VkDeviceAddress output_payload, VkDeviceAddress input_payload)
+{
+    uint32_t i;
+    /* Barrier */
+
+    /* Run distribute workgroups */
+
+    /* Run distribute payload offsets */
+
+    /* Execute nodes */
+    for (i = 0; i < program->levels[level].nodes_count; i++)
+    {
+        d3d12_command_list_workgraph_execute_node(list, state, program,
+                program->levels[level].nodes[i], level, output_payload, input_payload);
+    }
 }
 
 void d3d12_command_list_workgraph_dispatch(struct d3d12_command_list *list, const D3D12_DISPATCH_GRAPH_DESC *desc)
@@ -1433,6 +1455,7 @@ void d3d12_command_list_workgraph_dispatch(struct d3d12_command_list *list, cons
     uint32_t wg_state_program_index;
     VkDeviceSize payload_size;
     uint32_t node_index;
+    uint32_t i;
 
     wg_state = (struct d3d12_wg_state_object *)list->wg_state.ProgramIdentifier.OpaqueData[1];
     wg_state_program_index = (uint32_t)list->wg_state.ProgramIdentifier.OpaqueData[0];
@@ -1463,7 +1486,7 @@ void d3d12_command_list_workgraph_dispatch(struct d3d12_command_list *list, cons
     }
 
     d3d12_command_list_end_current_render_pass(list, false);
-    d3d12_command_list_debug_mark_begin_region(list, "ClearUAV");
+    d3d12_command_list_debug_mark_begin_region(list, "WGDispatch");
 
     d3d12_command_list_invalidate_current_pipeline(list, true);
     d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
@@ -1480,4 +1503,13 @@ void d3d12_command_list_workgraph_dispatch(struct d3d12_command_list *list, cons
 
     /* Alternatively use vkCmdUpdateBuffer, but at least for now, just rely on ReBAR doing its thing. */
     memcpy(scratch.host_ptr, desc->NodeCPUInput.pRecords, payload_size);
+
+    d3d12_command_list_workgraph_execute_node(list, wg_state, program, node_index, 0, wg_state->payload[0].va, scratch.va);
+    for (i = 1; i < program->num_levels; i++)
+    {
+        d3d12_command_list_workgraph_execute_level(list, wg_state, program, i,
+                wg_state->payload[i & 1].va, wg_state->payload[(i & 1) ^ 1].va);
+    }
+
+    d3d12_command_list_debug_mark_end_region(list);
 }
