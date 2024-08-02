@@ -1369,6 +1369,9 @@ void d3d12_command_list_workgraph_initialize_scratch(struct d3d12_command_list *
     if (!list->wg_state.BackingMemory.StartAddress)
         return;
 
+    d3d12_command_list_end_current_render_pass(list, false);
+    d3d12_command_list_debug_mark_begin_region(list, "WGInitScratch");
+
     /* INITIALIZE is assumed to happen in UAV. */
     memset(&dep_info, 0, sizeof(dep_info));
     memset(&vk_barrier, 0, sizeof(vk_barrier));
@@ -1405,11 +1408,25 @@ void d3d12_command_list_workgraph_initialize_scratch(struct d3d12_command_list *
     vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT;
     VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+    d3d12_command_list_debug_mark_end_region(list);
+}
+
+static void d3d12_command_list_workgraph_execute_node(struct d3d12_command_list *list,
+        const struct d3d12_wg_state_object *state,
+        const struct d3d12_wg_state_object_program *program,
+        uint32_t node_index, uint32_t level,
+        VkDeviceAddress output_payload, VkDeviceAddress input_payload)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    struct vkd3d_shader_node_input_push_signature push;
+    VkPipelineLayout vk_layout;
+
+    memset(&push, 0, sizeof(push));
+    vk_layout = state->modules[node_index].vk_pipeline_layout;
 }
 
 void d3d12_command_list_workgraph_dispatch(struct d3d12_command_list *list, const D3D12_DISPATCH_GRAPH_DESC *desc)
 {
-    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
     const struct d3d12_wg_state_object_program *program;
     struct vkd3d_scratch_allocation scratch;
     struct d3d12_wg_state_object *wg_state;
@@ -1444,6 +1461,13 @@ void d3d12_command_list_workgraph_dispatch(struct d3d12_command_list *list, cons
         ERR("EntryPointIndex %u is out of bounds.\n", desc->NodeCPUInput.EntrypointIndex);
         return;
     }
+
+    d3d12_command_list_end_current_render_pass(list, false);
+    d3d12_command_list_debug_mark_begin_region(list, "ClearUAV");
+
+    d3d12_command_list_invalidate_current_pipeline(list, true);
+    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
+    d3d12_command_list_update_descriptor_buffers(list);
 
     node_index = program->levels[0].nodes[desc->NodeCPUInput.EntrypointIndex];
     payload_size = desc->NodeCPUInput.NumRecords * desc->NodeCPUInput.RecordStrideInBytes;
