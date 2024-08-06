@@ -1704,6 +1704,15 @@ void d3d12_command_list_workgraph_dispatch(struct d3d12_command_list *list, cons
         return;
     }
 
+    d3d12_command_list_end_current_render_pass(list, false);
+    d3d12_command_list_debug_mark_begin_region(list, "WGDispatch");
+
+    d3d12_command_list_invalidate_current_pipeline(list, true);
+    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
+    d3d12_command_list_update_descriptor_buffers(list);
+
+    d3d12_command_list_workgraph_barrier(list);
+
     /* GPU input will be very awkward to support well without DGCC.
      * Multi CPU input should be fairly simple, but not particularly interesting for bringup. */
     if (desc->Mode != D3D12_DISPATCH_MODE_NODE_CPU_INPUT)
@@ -1722,15 +1731,6 @@ void d3d12_command_list_workgraph_dispatch(struct d3d12_command_list *list, cons
         ERR("EntryPointIndex %u is out of bounds.\n", desc->NodeCPUInput.EntrypointIndex);
         return;
     }
-
-    d3d12_command_list_end_current_render_pass(list, false);
-    d3d12_command_list_debug_mark_begin_region(list, "WGDispatch");
-
-    d3d12_command_list_invalidate_current_pipeline(list, true);
-    d3d12_command_list_invalidate_root_parameters(list, &list->compute_bindings, true, &list->graphics_bindings);
-    d3d12_command_list_update_descriptor_buffers(list);
-
-    d3d12_command_list_workgraph_barrier(list);
 
     node_index = program->levels[0].nodes[desc->NodeCPUInput.EntrypointIndex];
     payload_size = desc->NodeCPUInput.NumRecords * desc->NodeCPUInput.RecordStrideInBytes;
