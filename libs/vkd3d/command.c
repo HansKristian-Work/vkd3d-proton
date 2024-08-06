@@ -7532,6 +7532,28 @@ static void STDMETHODCALLTYPE d3d12_command_list_Dispatch(d3d12_command_list_ifa
     d3d12_command_list_check_compute_barrier(list);
 }
 
+static void d3d12_command_list_full_transfer_barrier(struct d3d12_command_list *list)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
+    VkMemoryBarrier2 vk_barrier;
+    VkDependencyInfo dep_info;
+
+    memset(&vk_barrier, 0, sizeof(vk_barrier));
+    memset(&dep_info, 0, sizeof(dep_info));
+    vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.memoryBarrierCount = 1;
+    dep_info.pMemoryBarriers = &vk_barrier;
+    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    vk_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    vk_barrier.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
+
+    VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
+    d3d12_command_list_debug_mark_barrier(list, &dep_info);
+}
+
 static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_list_iface *iface,
         ID3D12Resource *dst, UINT64 dst_offset, ID3D12Resource *src, UINT64 src_offset, UINT64 byte_count)
 {
@@ -7585,6 +7607,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyBufferRegion(d3d12_command_
             !!(dst_resource->flags & VKD3D_RESOURCE_RESERVED));
     d3d12_command_list_debug_mark_execution(list, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT);
     VK_CALL(vkCmdCopyBuffer2(list->cmd.vk_command_buffer, &copy_info));
+
+    if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_COPY_BUFFER_SYNC)
+    {
+        list->tracked_copy_buffer_count = 0;
+        d3d12_command_list_full_transfer_barrier(list);
+    }
 
     VKD3D_BREADCRUMB_COMMAND(COPY);
 }
@@ -8587,6 +8615,12 @@ static void STDMETHODCALLTYPE d3d12_command_list_CopyResource(d3d12_command_list
                 !!(dst_resource->flags & VKD3D_RESOURCE_RESERVED));
         d3d12_command_list_debug_mark_execution(list, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT);
         VK_CALL(vkCmdCopyBuffer2(list->cmd.vk_command_buffer, &copy_info));
+
+        if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_COPY_BUFFER_SYNC)
+        {
+            list->tracked_copy_buffer_count = 0;
+            d3d12_command_list_full_transfer_barrier(list);
+        }
     }
     else
     {
