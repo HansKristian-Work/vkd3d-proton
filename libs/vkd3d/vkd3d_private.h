@@ -5564,9 +5564,6 @@ struct d3d12_wg_state_object
      * Generally speaking, these buffers should be allocated in ring-buffers on device. */
     struct d3d12_wg_state_object_ring unrolled_offsets;
     struct d3d12_wg_state_object_ring payload[2];
-    struct d3d12_wg_state_object_ring packed_payload_offsets;
-
-    VkDeviceSize packed_payload_offset_size_per_node;
 
     struct vkd3d_private_store private_store;
 };
