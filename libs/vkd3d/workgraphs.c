@@ -47,7 +47,10 @@ struct d3d12_workgraph_level_execution
 
 struct d3d12_wg_state_object_pipeline
 {
-    VkPipeline vk_node_pipeline;
+    /* This matters for entry point, otherwise, not. */
+    VkPipeline vk_cpu_node_entry_pipeline;
+    VkPipeline vk_gpu_node_entry_pipeline;
+    VkPipeline vk_non_entry_pipeline;
     /* layout is part of modules array */
 
     /* Meta shader. distribute_payload_offsets.comp. This is specialized per node. */
@@ -127,7 +130,11 @@ static void d3d12_state_object_free_programs(
             vkd3d_free(programs[i].levels[j].nodes);
 
         for (j = 0; j < programs[i].num_pipelines; j++)
-            VK_CALL(vkDestroyPipeline(device->vk_device, programs[i].pipelines[j].vk_node_pipeline, NULL));
+        {
+            VK_CALL(vkDestroyPipeline(device->vk_device, programs[i].pipelines[j].vk_non_entry_pipeline, NULL));
+            VK_CALL(vkDestroyPipeline(device->vk_device, programs[i].pipelines[j].vk_cpu_node_entry_pipeline, NULL));
+            VK_CALL(vkDestroyPipeline(device->vk_device, programs[i].pipelines[j].vk_gpu_node_entry_pipeline, NULL));
+        }
         vkd3d_free(programs[i].pipelines);
     }
     vkd3d_free(programs);
@@ -992,8 +999,12 @@ static HRESULT d3d12_wg_state_object_compile_program(
         for (i = 0; i < exec->nodes_count; i++)
         {
             unsigned int entry_point_index = exec->nodes[i];
-            if (program->pipelines[entry_point_index].vk_node_pipeline != VK_NULL_HANDLE)
+            if (program->pipelines[entry_point_index].vk_cpu_node_entry_pipeline != VK_NULL_HANDLE ||
+                    program->pipelines[entry_point_index].vk_gpu_node_entry_pipeline != VK_NULL_HANDLE ||
+                    program->pipelines[entry_point_index].vk_non_entry_pipeline != VK_NULL_HANDLE)
+            {
                 continue;
+            }
 
             entry = &data->entry_points[entry_point_index];
 
@@ -1011,6 +1022,8 @@ static HRESULT d3d12_wg_state_object_compile_program(
             spec_data_count = entry->node_outputs_count;
             /* Workgroup size is also a spec constant. */
             if (entry->node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_THREAD)
+                spec_data_count++;
+            if (entry->node_input->is_program_entry)
                 spec_data_count++;
 
             vkd3d_array_reserve((void **)&spec_data, &spec_data_size, spec_data_count, sizeof(*spec_data));
@@ -1041,9 +1054,28 @@ static HRESULT d3d12_wg_state_object_compile_program(
                 spec_data[entry->node_outputs_count] = object->device->device_info.vulkan_1_1_properties.subgroupSize;
             }
 
-            vr = VK_CALL(vkCreateComputePipelines(object->device->vk_device,
-                    VK_NULL_HANDLE, 1, &pipeline_info, NULL,
-                    &program->pipelines[entry_point_index].vk_node_pipeline));
+            if (entry->node_input->is_program_entry)
+            {
+                map_entries[spec_data_count - 1].offset = sizeof(uint32_t) * (spec_data_count - 1);
+                map_entries[spec_data_count - 1].size = sizeof(uint32_t);
+                map_entries[spec_data_count - 1].constantID = entry->node_input->is_indirect_bda_stride_program_entry_spec_id;
+
+                spec_data[spec_data_count - 1] = 0;
+                vr = VK_CALL(vkCreateComputePipelines(object->device->vk_device,
+                        VK_NULL_HANDLE, 1, &pipeline_info, NULL,
+                        &program->pipelines[entry_point_index].vk_cpu_node_entry_pipeline));
+
+                spec_data[spec_data_count - 1] = 1;
+                vr = VK_CALL(vkCreateComputePipelines(object->device->vk_device,
+                        VK_NULL_HANDLE, 1, &pipeline_info, NULL,
+                        &program->pipelines[entry_point_index].vk_gpu_node_entry_pipeline));
+            }
+            else
+            {
+                vr = VK_CALL(vkCreateComputePipelines(object->device->vk_device,
+                        VK_NULL_HANDLE, 1, &pipeline_info, NULL,
+                        &program->pipelines[entry_point_index].vk_non_entry_pipeline));
+            }
 
             if (vr < 0)
             {
