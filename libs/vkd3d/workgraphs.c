@@ -1527,7 +1527,7 @@ static void d3d12_command_list_workgraph_execute_node(struct d3d12_command_list 
     if (desc)
     {
         assert(desc);
-        push.node_payload_stride_or_offsets_bda = node_input->payload_stride;
+        push.node_payload_stride_or_offsets_bda = desc->NodeCPUInput.RecordStrideInBytes;
         if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
                 VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD, sizeof(uint32_t) * 3, sizeof(uint32_t), ~0u, &offset_scratch))
             return;
