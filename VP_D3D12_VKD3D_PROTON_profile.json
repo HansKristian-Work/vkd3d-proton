@@ -528,7 +528,8 @@
                 "VK_NV_device_generated_commands": 1,
                 "VK_NV_device_generated_commands_compute": 1,
                 "VK_KHR_maintenance5": 1,
-                "VK_KHR_maintenance6": 1
+                "VK_KHR_maintenance6": 1,
+                "VK_EXT_depth_bias_control": 1
             },
             "features": {
                 "VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR": {
@@ -565,8 +566,12 @@
                 },
                 "VkPhysicalDeviceMaintenance6FeaturesKHR": {
                     "maintenance6": true
+                },
+                "VkPhysicalDeviceDepthBiasControlFeaturesEXT": {
+                    "depthBiasControl": true,
+                    "leastRepresentableValueForceUnormRepresentation": true
                 }
-            }
+          }
         },
         "optional_amd": {
             "extensions": {
