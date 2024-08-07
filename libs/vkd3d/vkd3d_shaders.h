@@ -78,5 +78,6 @@ enum vkd3d_meta_copy_mode
 #include <cs_resolve_color_uint.h>
 #include <cs_workgraph_distribute_workgroups.h>
 #include <cs_workgraph_distribute_payload_offsets.h>
+#include <cs_workgraph_setup_gpu_input.h>
 
 #endif  /* __VKD3D_SPV_SHADERS_H */

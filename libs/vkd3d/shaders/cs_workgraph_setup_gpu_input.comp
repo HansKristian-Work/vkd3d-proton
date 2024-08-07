@@ -1,0 +1,64 @@
+#version 450
+#extension GL_EXT_buffer_reference : require
+
+layout(local_size_x = 32) in;
+
+// D3D12_NODE_GPU_INPUT
+layout(buffer_reference, buffer_reference_align = 4, std430) readonly buffer GPUInputNumNodes
+{
+	uint entry_point_index;
+	uint num_nodes;
+};
+
+struct IndirectCommand
+{
+	uvec4 primary_dispatch_and_offset;
+	uvec4 secondary_dispatch_and_offset;
+};
+
+layout(buffer_reference, buffer_reference_align = 16, std430) writeonly buffer Indirects
+{
+	IndirectCommand commands[];
+};
+
+layout(buffer_reference, buffer_reference_align = 4, std430) readonly buffer Dividers
+{
+	uint data[];
+};
+
+layout(push_constant) uniform Registers
+{
+	GPUInputNumNodes node_input;
+	Indirects indirects;
+	Dividers coalesce_dividers;
+	uint num_entry_points;
+} registers;
+
+void main()
+{
+	uint id = gl_GlobalInvocationID.x;
+	if (id < registers.num_entry_points)
+	{
+		if (id == registers.node_input.entry_point_index)
+		{
+			const uint WG_DIVIDER = 32 * 1024;
+			uint count = registers.node_input.num_nodes;
+			uint wg_count;
+
+			if (registers.coalesce_divider > 1)
+				wg_count = (count + registers.coalesce_divider - 1) / registers.coalesce_divider;
+			else
+				wg_count = count;
+
+			IndirectCommand cmd;
+			cmd.primary_dispatch_and_offset = uvec4(WG_DIVIDER, wg_count / WG_DIVIDER, 1, 0);
+			cmd.secondary_dispatch_and_offset = uvec4(wg_count % WG_DIVIDER, 1, 1, cmd.primary_dispatch_and_offset.y * WG_DIVIDER * registers.coalesce_divider);
+			registers.indirects.commands[id] = cmd;
+		}
+		else
+		{
+			registers.indirects.commands[id] = IndirectCommand(uvec4(0), uvec4(0));
+		}
+	}
+}
+

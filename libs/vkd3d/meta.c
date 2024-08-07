@@ -2069,6 +2069,12 @@ static HRESULT vkd3d_workgraph_ops_init(struct vkd3d_workgraph_indirect_ops *wor
             &workgraph_ops->vk_payload_offset_layout)))
         return hresult_from_vk_result(vr);
 
+    push_range.size = sizeof(struct vkd3d_workgraph_setup_gpu_input_args);
+    if ((vr = vkd3d_meta_create_pipeline_layout(device,
+            0, NULL, 1, &push_range,
+            &workgraph_ops->vk_setup_gpu_input_layout)))
+        return hresult_from_vk_result(vr);
+
     for (i = 0; i < ARRAY_SIZE(map_entries); i++)
     {
         map_entries[i].offset = sizeof(uint32_t) * i;
@@ -2086,6 +2092,11 @@ static HRESULT vkd3d_workgraph_ops_init(struct vkd3d_workgraph_indirect_ops *wor
     if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_workgraph_distribute_workgroups),
             cs_workgraph_distribute_workgroups, workgraph_ops->vk_workgroup_layout,
             &spec_info, true, &workgraph_ops->vk_payload_workgroup_pipeline)))
+        return hresult_from_vk_result(vr);
+
+    if ((vr = vkd3d_meta_create_compute_pipeline(device, sizeof(cs_workgraph_setup_gpu_input),
+            cs_workgraph_setup_gpu_input, workgraph_ops->vk_setup_gpu_input_layout,
+            &spec_info, true, &workgraph_ops->vk_setup_gpu_input_pipeline)))
         return hresult_from_vk_result(vr);
 
     spec_info.mapEntryCount = 3;
@@ -2168,6 +2179,7 @@ static void vkd3d_workgraph_ops_cleanup(struct vkd3d_workgraph_indirect_ops *wor
 
     VK_CALL(vkDestroyPipelineLayout(device->vk_device, workgraph_ops->vk_payload_offset_layout, NULL));
     VK_CALL(vkDestroyPipelineLayout(device->vk_device, workgraph_ops->vk_workgroup_layout, NULL));
+    VK_CALL(vkDestroyPipelineLayout(device->vk_device, workgraph_ops->vk_setup_gpu_input_layout, NULL));
 
     for (i = 0; i < ARRAY_SIZE(workgraph_ops->vk_payload_offset_u32_pipelines); i++)
         VK_CALL(vkDestroyPipeline(device->vk_device, workgraph_ops->vk_payload_offset_u32_pipelines[i], NULL));
@@ -2175,6 +2187,7 @@ static void vkd3d_workgraph_ops_cleanup(struct vkd3d_workgraph_indirect_ops *wor
         VK_CALL(vkDestroyPipeline(device->vk_device, workgraph_ops->vk_payload_offset_u16_pipelines[i], NULL));
     VK_CALL(vkDestroyPipeline(device->vk_device, workgraph_ops->vk_payload_offset_plain, NULL));
     VK_CALL(vkDestroyPipeline(device->vk_device, workgraph_ops->vk_payload_workgroup_pipeline, NULL));
+    VK_CALL(vkDestroyPipeline(device->vk_device, workgraph_ops->vk_setup_gpu_input_pipeline, NULL));
 }
 
 void vkd3d_meta_get_workgraph_workgroup_pipeline(struct vkd3d_meta_ops *meta_ops,
@@ -2182,6 +2195,13 @@ void vkd3d_meta_get_workgraph_workgroup_pipeline(struct vkd3d_meta_ops *meta_ops
 {
     info->vk_pipeline_layout = meta_ops->workgraph.vk_workgroup_layout;
     info->vk_pipeline = meta_ops->workgraph.vk_payload_workgroup_pipeline;
+}
+
+void vkd3d_meta_get_workgraph_setup_gpu_input_pipeline(struct vkd3d_meta_ops *meta_ops,
+        struct vkd3d_workgraph_meta_pipeline_info *info)
+{
+    info->vk_pipeline_layout = meta_ops->workgraph.vk_setup_gpu_input_layout;
+    info->vk_pipeline = meta_ops->workgraph.vk_setup_gpu_input_pipeline;
 }
 
 void vkd3d_meta_get_workgraph_payload_offset_pipeline(struct vkd3d_meta_ops *meta_ops,
