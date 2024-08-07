@@ -52,14 +52,16 @@ void main()
 			uint count = registers.node_input.num_nodes;
 			uint wg_count;
 
-			if (registers.coalesce_divider > 1)
-				wg_count = (count + registers.coalesce_divider - 1) / registers.coalesce_divider;
+			uint divider = registers.coalesce_dividers.data[id];
+
+			if (divider > 1)
+				wg_count = (count + divider - 1) / divider;
 			else
 				wg_count = count;
 
 			IndirectCommand cmd;
 			cmd.primary_dispatch_and_offset = uvec4(WG_DIVIDER, wg_count / WG_DIVIDER, 1, 0);
-			cmd.secondary_dispatch_and_offset = uvec4(wg_count % WG_DIVIDER, 1, 1, cmd.primary_dispatch_and_offset.y * WG_DIVIDER * registers.coalesce_divider);
+			cmd.secondary_dispatch_and_offset = uvec4(wg_count % WG_DIVIDER, 1, 1, cmd.primary_dispatch_and_offset.y * WG_DIVIDER * divider);
 			registers.indirects.commands[id] = cmd;
 		}
 		else
