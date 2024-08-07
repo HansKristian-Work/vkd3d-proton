@@ -5361,6 +5361,8 @@ struct vkd3d_format
     VkFormatFeatureFlags2 vk_format_features_castable;
     /* Includes only buffer view features. */
     VkFormatFeatureFlags2 vk_format_features_buffer;
+    /* Supported sample counts for regular and sparse images */
+    VkSampleCountFlags supported_sample_counts;
     VkSampleCountFlags supported_sparse_sample_counts;
 };
 

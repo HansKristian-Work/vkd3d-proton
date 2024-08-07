@@ -547,44 +547,62 @@ static void vkd3d_cleanup_depth_stencil_formats(struct d3d12_device *device)
     device->depth_stencil_formats = NULL;
 }
 
-static VkSampleCountFlags vkd3d_vk_format_supports_sparse_sample_counts(struct d3d12_device *device, VkFormat vk_format)
+static void vkd3d_init_format_sample_counts(struct d3d12_device *device, struct vkd3d_format *format)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
-    VkSampleCountFlags supported_sample_counts;
+    VkPhysicalDeviceSparseImageFormatInfo2 sparse_info;
+    VkPhysicalDeviceImageFormatInfo2 info;
     VkSampleCountFlagBits sample_count;
-    VkImageFormatProperties props;
+    VkImageFormatProperties2 props;
     uint32_t info_count;
 
+    format->supported_sample_counts = 0;
+    format->supported_sparse_sample_counts = 0;
+
+    memset(&props, 0, sizeof(props));
+    props.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2;
+
+    memset(&info, 0, sizeof(info));
+    info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2;
+    info.format = format->vk_format;
+    info.type = VK_IMAGE_TYPE_2D;
+    info.tiling = format->vk_image_tiling;
+    info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+
+    if (VK_CALL(vkGetPhysicalDeviceImageFormatProperties2(device->vk_physical_device, &info, &props)))
+        return;
+
+    format->supported_sample_counts = props.imageFormatProperties.sampleCounts;
+
     if (!device->device_info.features2.features.sparseResidencyImage2D)
-        return false;
+        return;
 
-    if (VK_CALL(vkGetPhysicalDeviceImageFormatProperties(device->vk_physical_device,
-            vk_format, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
-            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-            VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT |
+    info.flags |= VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT |
             VK_IMAGE_CREATE_SPARSE_ALIASED_BIT |
-            VK_IMAGE_CREATE_SPARSE_BINDING_BIT, &props)) != VK_SUCCESS)
-    {
-        return 0;
-    }
+            VK_IMAGE_CREATE_SPARSE_BINDING_BIT;
 
-    supported_sample_counts = 0;
-    while (props.sampleCounts)
+    if (VK_CALL(vkGetPhysicalDeviceImageFormatProperties2(device->vk_physical_device, &info, &props)))
+        return;
+
+    while (props.imageFormatProperties.sampleCounts)
     {
         /* VUID 01094. Samples must be marked as supported by ImageFormatProperties. */
-        sample_count = 1u << vkd3d_bitmask_iter32(&props.sampleCounts);
+        sample_count = 1u << vkd3d_bitmask_iter32(&props.imageFormatProperties.sampleCounts);
 
-        VK_CALL(vkGetPhysicalDeviceSparseImageFormatProperties(
-                device->vk_physical_device, vk_format,
-                VK_IMAGE_TYPE_2D, sample_count,
-                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-                VK_IMAGE_TILING_OPTIMAL, &info_count, NULL));
+        memset(&sparse_info, 0, sizeof(sparse_info));
+        sparse_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SPARSE_IMAGE_FORMAT_INFO_2;
+        sparse_info.format = info.format;
+        sparse_info.type = info.type;
+        sparse_info.samples = sample_count;
+        sparse_info.usage = info.usage;
+        sparse_info.tiling = info.tiling;
+
+        VK_CALL(vkGetPhysicalDeviceSparseImageFormatProperties2(
+                device->vk_physical_device, &sparse_info, &info_count, NULL));
 
         if (info_count > 0)
-            supported_sample_counts |= sample_count;
+            format->supported_sparse_sample_counts |= sample_count;
     }
-
-    return supported_sample_counts;
 }
 
 static HRESULT vkd3d_init_formats(struct d3d12_device *device)
@@ -678,8 +696,7 @@ static HRESULT vkd3d_init_formats(struct d3d12_device *device)
             }
         }
 
-        format->supported_sparse_sample_counts = vkd3d_vk_format_supports_sparse_sample_counts(device,
-                format->vk_format);
+        vkd3d_init_format_sample_counts(device, format);
     }
 
     device->formats = formats;
