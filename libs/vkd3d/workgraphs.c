@@ -56,6 +56,10 @@ struct d3d12_wg_state_object_pipeline
 
     /* Meta shader. distribute_payload_offsets.comp. This is specialized per node. */
     struct vkd3d_workgraph_meta_pipeline_info payload_offset_expander;
+
+    /* These can be overridden per graph in theory. */
+    const WCHAR *name;
+    UINT array_index;
 };
 
 /* Many similarities to ray-tracing state objects, but the implementations are vastly different
@@ -135,6 +139,7 @@ static void d3d12_state_object_free_programs(
             VK_CALL(vkDestroyPipeline(device->vk_device, programs[i].pipelines[j].vk_non_entry_pipeline, NULL));
             VK_CALL(vkDestroyPipeline(device->vk_device, programs[i].pipelines[j].vk_cpu_node_entry_pipeline, NULL));
             VK_CALL(vkDestroyPipeline(device->vk_device, programs[i].pipelines[j].vk_gpu_node_entry_pipeline, NULL));
+            vkd3d_free((void *)programs[i].pipelines[j].name);
         }
         vkd3d_free(programs[i].pipelines);
     }
@@ -825,8 +830,59 @@ static UINT STDMETHODCALLTYPE d3d12_work_graph_properties_GetNumNodes(
         d3d12_work_graph_properties_iface *iface,
         UINT WorkGraphIndex)
 {
-    FIXME("iface %p, WorkGraphIndex %u, stub!\n", iface, WorkGraphIndex);
-    return -1;
+    struct d3d12_wg_state_object *object = impl_from_ID3D12WorkGraphProperties(iface);
+    const struct d3d12_wg_state_object_program *program;
+    unsigned int count, i;
+    TRACE("iface %p, WorkGraphIndex %u\n", iface, WorkGraphIndex);
+
+    if (WorkGraphIndex >= object->programs_count)
+    {
+        ERR("WorkGraphIndex %u is out of bound.\n", WorkGraphIndex);
+        return -1u;
+    }
+
+    program = &object->programs[WorkGraphIndex];
+
+    count = 0;
+    for (i = 0; i < program->num_pipelines; i++)
+    {
+        if (program->pipelines[i].vk_non_entry_pipeline != VK_NULL_HANDLE ||
+            program->pipelines[i].vk_cpu_node_entry_pipeline != VK_NULL_HANDLE)
+        {
+            count++;
+        }
+    }
+    return count;
+}
+
+static unsigned int d3d12_work_graph_properties_node_index_to_entry(
+        const struct d3d12_wg_state_object_program *program, UINT NodeIndex)
+{
+    unsigned int count, i;
+    count = 0;
+
+    for (i = 0; i < program->num_pipelines; i++)
+    {
+        if (program->pipelines[i].vk_non_entry_pipeline != VK_NULL_HANDLE ||
+            program->pipelines[i].vk_cpu_node_entry_pipeline != VK_NULL_HANDLE)
+        {
+            if (count == NodeIndex)
+                return i;
+            count++;
+        }
+    }
+
+    return -1u;
+}
+
+static const struct d3d12_wg_state_object_pipeline *d3d12_work_graph_properties_node_index_pipeline(
+        const struct d3d12_wg_state_object_program *program, UINT NodeIndex)
+{
+    unsigned int index = d3d12_work_graph_properties_node_index_to_entry(program, NodeIndex);
+    if (index == -1u)
+        return NULL;
+    else
+        return &program->pipelines[index];
 }
 
 static D3D12_NODE_ID * STDMETHODCALLTYPE d3d12_work_graph_properties_GetNodeID(
@@ -835,9 +891,31 @@ static D3D12_NODE_ID * STDMETHODCALLTYPE d3d12_work_graph_properties_GetNodeID(
         UINT WorkGraphIndex,
         UINT NodeIndex)
 {
-    FIXME("iface %p, ret %p, WorkGraphIndex %u, NodeIndex %u, stub!\n", iface, ret, WorkGraphIndex, NodeIndex);
-    ret->Name = NULL;
-    ret->ArrayIndex = 0;
+    struct d3d12_wg_state_object *object = impl_from_ID3D12WorkGraphProperties(iface);
+    const struct d3d12_wg_state_object_pipeline *pipeline;
+    TRACE("iface %p, ret %p, WorkGraphIndex %u, NodeIndex %u\n", iface, ret, WorkGraphIndex, NodeIndex);
+
+    if (WorkGraphIndex >= object->programs_count)
+    {
+        ERR("WorkGraphIndex %u is out of bound.\n", WorkGraphIndex);
+        ret->Name = NULL;
+        ret->ArrayIndex = 0;
+        return ret;
+    }
+
+    pipeline = d3d12_work_graph_properties_node_index_pipeline(&object->programs[WorkGraphIndex], NodeIndex);
+
+    if (pipeline)
+    {
+        ret->Name = pipeline->name;
+        ret->ArrayIndex = pipeline->array_index;
+    }
+    else
+    {
+        ret->Name = NULL;
+        ret->ArrayIndex = 0;
+    }
+
     return ret;
 }
 
@@ -846,9 +924,36 @@ static UINT STDMETHODCALLTYPE d3d12_work_graph_properties_GetNodeIndex(
         UINT WorkGraphIndex,
         D3D12_NODE_ID NodeID)
 {
-    FIXME("iface %p, WorkGraphIndex %u, NodeID.Name, NodeID.ArrayIndex %u, stub!\n",
+    struct d3d12_wg_state_object *object = impl_from_ID3D12WorkGraphProperties(iface);
+    const struct d3d12_wg_state_object_program *program;
+    unsigned int count, i;
+    TRACE("iface %p, WorkGraphIndex %u, NodeID.Name, NodeID.ArrayIndex %u, stub!\n",
             iface, WorkGraphIndex, debugstr_w(NodeID.Name), NodeID.ArrayIndex);
-    return -1;
+
+    if (WorkGraphIndex >= object->programs_count)
+    {
+        ERR("WorkGraphIndex %u is out of bound.\n", WorkGraphIndex);
+        return -1u;
+    }
+
+    program = &object->programs[WorkGraphIndex];
+    count = 0;
+
+    for (i = 0; i < program->num_pipelines; i++)
+    {
+        if (program->pipelines[i].vk_non_entry_pipeline != VK_NULL_HANDLE ||
+            program->pipelines[i].vk_cpu_node_entry_pipeline != VK_NULL_HANDLE)
+        {
+            if (vkd3d_export_strequal(NodeID.Name, program->pipelines[i].name) &&
+                NodeID.ArrayIndex == program->pipelines[i].array_index)
+            {
+                return count;
+            }
+            count++;
+        }
+    }
+
+    return -1u;
 }
 
 static UINT STDMETHODCALLTYPE d3d12_work_graph_properties_GetNodeLocalRootArgumentsTableIndex(
@@ -856,16 +961,40 @@ static UINT STDMETHODCALLTYPE d3d12_work_graph_properties_GetNodeLocalRootArgume
         UINT WorkGraphIndex,
         UINT NodeIndex)
 {
-    FIXME("iface %p, WorkGraphIndex %u, NodeIndex %u, stub!\n", iface, WorkGraphIndex, NodeIndex);
-    return -1;
+    struct d3d12_wg_state_object *object = impl_from_ID3D12WorkGraphProperties(iface);
+    unsigned int entry;
+    TRACE("iface %p, WorkGraphIndex %u, NodeIndex %u\n", iface, WorkGraphIndex, NodeIndex);
+
+    if (WorkGraphIndex >= object->programs_count)
+    {
+        ERR("WorkGraphIndex %u is out of bound.\n", WorkGraphIndex);
+        return -1u;
+    }
+
+    entry = d3d12_work_graph_properties_node_index_to_entry(&object->programs[WorkGraphIndex], NodeIndex);
+
+    if (entry == -1u)
+        return -1u;
+    else
+        return object->entry_points[entry].node_input->local_root_arguments_table_index;
 }
 
 static UINT STDMETHODCALLTYPE d3d12_work_graph_properties_GetNumEntrypoints(
         d3d12_work_graph_properties_iface *iface,
         UINT WorkGraphIndex)
 {
-    FIXME("iface %p, WorkGraphIndex %u, stub!\n", iface, WorkGraphIndex);
-    return -1;
+    struct d3d12_wg_state_object *object = impl_from_ID3D12WorkGraphProperties(iface);
+    const struct d3d12_wg_state_object_program *program;
+    TRACE("iface %p, WorkGraphIndex %u\n", iface, WorkGraphIndex);
+
+    if (WorkGraphIndex >= object->programs_count)
+    {
+        ERR("WorkGraphIndex %u is out of bound.\n", WorkGraphIndex);
+        return 0;
+    }
+
+    program = &object->programs[WorkGraphIndex];
+    return program->levels[0].nodes_count;
 }
 
 static D3D12_NODE_ID * STDMETHODCALLTYPE d3d12_work_graph_properties_GetEntrypointID(
@@ -874,9 +1003,27 @@ static D3D12_NODE_ID * STDMETHODCALLTYPE d3d12_work_graph_properties_GetEntrypoi
         UINT WorkGraphIndex,
         UINT EntrypointIndex)
 {
-    FIXME("iface %p, ret %p, WorkGraphIndex %u, EntrypointIndex %u, stub!\n", iface, ret, WorkGraphIndex, EntrypointIndex);
-    ret->Name = NULL;
-    ret->ArrayIndex = 0;
+    struct d3d12_wg_state_object *object = impl_from_ID3D12WorkGraphProperties(iface);
+    const struct d3d12_wg_state_object_program *program;
+    TRACE("iface %p, ret %p, WorkGraphIndex %u, EntrypointIndex %u\n", iface, ret, WorkGraphIndex, EntrypointIndex);
+
+    if (WorkGraphIndex >= object->programs_count)
+    {
+        ERR("WorkGraphIndex %u is out of bound.\n", WorkGraphIndex);
+        return 0;
+    }
+
+    program = &object->programs[WorkGraphIndex];
+    if (EntrypointIndex >= program->levels[0].nodes_count)
+    {
+        ERR("EntrypointIndex %u out of range.\n", EntrypointIndex);
+        ret->Name = NULL;
+        ret->ArrayIndex = 0;
+        return ret;
+    }
+
+    ret->Name = program->pipelines[program->levels[0].nodes[EntrypointIndex]].name;
+    ret->ArrayIndex = program->pipelines[program->levels[0].nodes[EntrypointIndex]].array_index;
     return ret;
 }
 
@@ -885,8 +1032,31 @@ static UINT STDMETHODCALLTYPE d3d12_work_graph_properties_GetEntrypointIndex(
         UINT WorkGraphIndex,
         D3D12_NODE_ID NodeID)
 {
-    FIXME("iface %p, WorkGraphIndex %u, NodeID.Name, NodeID.ArrayIndex %u, stub!\n",
+    struct d3d12_wg_state_object *object = impl_from_ID3D12WorkGraphProperties(iface);
+    const struct d3d12_wg_state_object_program *program;
+    unsigned int i;
+
+    TRACE("iface %p, WorkGraphIndex %u, NodeID.Name, NodeID.ArrayIndex %u!\n",
             iface, WorkGraphIndex, debugstr_w(NodeID.Name), NodeID.ArrayIndex);
+
+    if (WorkGraphIndex >= object->programs_count)
+    {
+        ERR("WorkGraphIndex %u is out of bound.\n", WorkGraphIndex);
+        return 0;
+    }
+
+    program = &object->programs[WorkGraphIndex];
+
+    for (i = 0; i < program->levels[0].nodes_count; i++)
+    {
+        unsigned int node_index = program->levels[0].nodes[i];
+        if (vkd3d_export_strequal(program->pipelines[node_index].name, NodeID.Name) &&
+                program->pipelines[node_index].array_index == NodeID.ArrayIndex)
+        {
+            return i;
+        }
+    }
+
     return -1;
 }
 
@@ -895,8 +1065,27 @@ static UINT STDMETHODCALLTYPE d3d12_work_graph_properties_GetEntrypointRecordSiz
         UINT WorkGraphIndex,
         UINT EntrypointIndex)
 {
-    FIXME("iface %p, WorkGraphIndex %u, EntrypointIndex %u, stub!\n", iface, WorkGraphIndex, EntrypointIndex);
-    return 0;
+    struct d3d12_wg_state_object *object = impl_from_ID3D12WorkGraphProperties(iface);
+    const struct d3d12_wg_state_object_program *program;
+    unsigned int node_index;
+    TRACE("iface %p, WorkGraphIndex %u, EntrypointIndex %u!\n", iface, WorkGraphIndex, EntrypointIndex);
+
+    if (WorkGraphIndex >= object->programs_count)
+    {
+        ERR("WorkGraphIndex %u is out of bound.\n", WorkGraphIndex);
+        return 0;
+    }
+
+    program = &object->programs[WorkGraphIndex];
+
+    if (EntrypointIndex >= program->levels[0].nodes_count)
+    {
+        ERR("EntrypointIndex %u out of range.\n", EntrypointIndex);
+        return 0;
+    }
+
+    node_index = program->levels[0].nodes[EntrypointIndex];
+    return object->entry_points[node_index].node_input->payload_stride;
 }
 
 static void STDMETHODCALLTYPE d3d12_work_graph_properties_GetWorkGraphMemoryRequirements(
@@ -1014,6 +1203,10 @@ static HRESULT d3d12_wg_state_object_compile_program(
             }
 
             entry = &data->entry_points[entry_point_index];
+
+            /* TODO: These can be overridden during compilation. */
+            program->pipelines[entry_point_index].name = vkd3d_dup_entry_point(entry->node_input->node_id);
+            program->pipelines[entry_point_index].array_index = entry->node_input->node_array_index;
 
             if (!entry->node_input->is_program_entry)
             {
