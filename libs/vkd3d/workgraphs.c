@@ -23,6 +23,7 @@
 #define WG_TRACE TRACE
 
 #define MAX_WORKGRAPH_LEVELS 32
+#define WG_DIVIDER (32u * 1024u)
 
 /* 64 bytes per node, nicely aligns to a cache line. */
 struct d3d12_workgraph_indirect_command
@@ -1496,10 +1497,10 @@ static void d3d12_command_list_workgraph_bind_resources(struct d3d12_command_lis
     }
 }
 
-static void d3d12_command_list_workgraph_execute_node(struct d3d12_command_list *list,
+static void d3d12_command_list_workgraph_execute_node_cpu_entry(struct d3d12_command_list *list,
         const struct d3d12_wg_state_object *state,
         const struct d3d12_wg_state_object_program *program,
-        uint32_t node_index, const D3D12_DISPATCH_GRAPH_DESC *desc,
+        uint32_t node_index, const D3D12_NODE_CPU_INPUT *desc,
         VkDeviceAddress output_payload, VkDeviceAddress input_payload,
         VkBuffer vk_root_parameter_buffer, VkDeviceSize vk_root_parameter_buffer_offset)
 {
@@ -1524,47 +1525,21 @@ static void d3d12_command_list_workgraph_execute_node(struct d3d12_command_list 
     push.node_payload_bda = input_payload;
     push.node_payload_output_bda = output_payload;
 
-    if (desc)
-    {
-        assert(desc);
-        push.node_payload_stride_or_offsets_bda = desc->NodeCPUInput.RecordStrideInBytes;
-        if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
-                VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD, sizeof(uint32_t) * 3, sizeof(uint32_t), ~0u, &offset_scratch))
-            return;
+    push.node_payload_stride_or_offsets_bda = desc->RecordStrideInBytes;
+    if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+            VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD, sizeof(uint32_t) * 3, sizeof(uint32_t), ~0u, &offset_scratch))
+        return;
 
-        ((uint32_t *)offset_scratch.host_ptr)[0] = 0; /* primary offset */
-        ((uint32_t *)offset_scratch.host_ptr)[1] = desc->NodeCPUInput.NumRecords & ~(32u * 1024u - 1u); /* secondary offset */
-        push.node_linear_offset_bda = offset_scratch.va;
-
-        VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer,
-                VK_PIPELINE_BIND_POINT_COMPUTE,
-                program->pipelines[node_index].vk_cpu_node_entry_pipeline));
-    }
-    else
-    {
-        push.node_payload_stride_or_offsets_bda = state->unrolled_offsets.va;
-        push.node_linear_offset_bda = 0; /* TODO. Offset into scratch memory. */
-
-        VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer,
-                VK_PIPELINE_BIND_POINT_COMPUTE,
-                program->pipelines[node_index].vk_non_entry_pipeline));
-    }
+    ((uint32_t *)offset_scratch.host_ptr)[0] = 0; /* primary offset */
+    ((uint32_t *)offset_scratch.host_ptr)[1] = desc->NumRecords & ~(WG_DIVIDER - 1u); /* secondary offset */
+    ((uint32_t *)offset_scratch.host_ptr)[2] = desc->NumRecords; /* total nodes */
+    push.node_linear_offset_bda = offset_scratch.va;
+    push.node_total_nodes_bda = offset_scratch.va + 2 * sizeof(uint32_t);
 
     push.node_payload_output_atomic_bda = list->wg_state.BackingMemory.StartAddress;
     push.node_payload_output_offset = program->required_scratch_size / sizeof(uint32_t);
     push.node_payload_output_stride = (list->wg_state.BackingMemory.SizeInBytes - program->required_scratch_size) / max(state->modules_count, 1);
     push.node_payload_output_stride /= sizeof(uint32_t);
-
-    if (desc)
-    {
-        ((uint32_t *)offset_scratch.host_ptr)[2] = desc->NodeCPUInput.NumRecords;
-        push.node_total_nodes_bda = offset_scratch.va + 2 * sizeof(uint32_t);
-    }
-    else
-    {
-        /* TODO: Offset into scratch memory. */
-        push.node_total_nodes_bda = 0;
-    }
 
     table_index = node_input->local_root_arguments_table_index;
     if (table_index != UINT32_MAX)
@@ -1574,70 +1549,97 @@ static void d3d12_command_list_workgraph_execute_node(struct d3d12_command_list 
                 list->wg_state.NodeLocalRootArgumentsTable.StrideInBytes;
     }
 
+    VK_CALL(vkCmdBindPipeline(list->cmd.vk_command_buffer,
+            VK_PIPELINE_BIND_POINT_COMPUTE,
+            program->pipelines[node_index].vk_cpu_node_entry_pipeline));
+
     VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
             vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
             0, sizeof(push), &push));
 
-    /* Run primary */
-
     if (node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_BROADCASTING)
     {
+        uint32_t num_x = node_input->broadcast_grid[0];
+        uint32_t num_y = node_input->broadcast_grid[1];
+        uint32_t num_z = node_input->broadcast_grid[2];
+        uint32_t num_wgs_x = desc->NumRecords;
         uint32_t x, y, z;
-        for (z = 0; z < node_input->broadcast_grid[2]; z++)
+
+        // If the SV_DispatchGrid does not contain a component, it's implied to be 1.
+        if (node_input->dispatch_grid_components)
         {
-            for (y = 0; y < node_input->broadcast_grid[1]; y++)
+            if (node_input->dispatch_grid_components < 3)
+                num_z = 1;
+            if (node_input->dispatch_grid_components < 2)
+                num_y = 1;
+        }
+
+        for (z = 0; z < num_z; z++)
+        {
+            for (y = 0; y < num_y; y++)
             {
-                for (x = 0; x < node_input->broadcast_grid[0]; x++)
+                for (x = 0; x < num_x; x++)
                 {
                     push.node_grid_dispatch[0] = x;
                     push.node_grid_dispatch[1] = y;
                     push.node_grid_dispatch[2] = z;
+                    push.node_linear_offset_bda = offset_scratch.va;
 
                     VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
                             vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
                             offsetof(struct vkd3d_shader_node_input_push_signature, node_grid_dispatch),
                             3 * sizeof(uint32_t), push.node_grid_dispatch));
 
-                    if (desc)
-                    {
-                        VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, desc->NodeCPUInput.NumRecords, 1, 1));
-                    }
-                    else
-                    {
-                        /* Indirect */
-                    }
+                    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
+                            vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+                            offsetof(struct vkd3d_shader_node_input_push_signature, node_linear_offset_bda),
+                            sizeof(uint32_t), &push.node_linear_offset_bda));
+
+                    /* Primary offset */
+                    if (num_wgs_x >= WG_DIVIDER)
+                        VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, WG_DIVIDER, num_wgs_x / WG_DIVIDER, 1));
+
+                    push.node_linear_offset_bda += sizeof(uint32_t);
+                    VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
+                            vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+                            offsetof(struct vkd3d_shader_node_input_push_signature, node_linear_offset_bda),
+                            sizeof(uint32_t), &push.node_linear_offset_bda));
+
+                    /* Secondary offset */
+                    if (num_wgs_x % WG_DIVIDER)
+                        VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, num_wgs_x % WG_DIVIDER, 1, 1));
                 }
             }
         }
     }
-    else if (node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_COALESCING)
+    else
     {
-        if (desc)
+        uint32_t num_wgs_x;
+        if (node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_COALESCING)
         {
-            uint32_t num_wgs_x = (desc->NodeCPUInput.NumRecords + node_input->coalesce_factor - 1) / node_input->coalesce_factor;
-            VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, num_wgs_x, 1, 1));
+            num_wgs_x = (desc->NumRecords + node_input->coalesce_factor - 1) / node_input->coalesce_factor;
         }
         else
         {
-            /* Indirect. */
-        }
-    }
-    else if (node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_THREAD)
-    {
-        if (desc)
-        {
-            uint32_t num_wgs_x =
-                    align(desc->NodeCPUInput.NumRecords, list->device->device_info.vulkan_1_1_properties.subgroupSize) /
+            num_wgs_x =
+                    align(desc->NumRecords, list->device->device_info.vulkan_1_1_properties.subgroupSize) /
                     list->device->device_info.vulkan_1_1_properties.subgroupSize;
-            VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, num_wgs_x, 1, 1));
         }
-        else
-        {
-            /* Indirect. */
-        }
-    }
 
-    /* TODO: run secondary */
+        /* Primary offset. */
+        if (num_wgs_x >= WG_DIVIDER)
+            VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, WG_DIVIDER, num_wgs_x / WG_DIVIDER, 1));
+
+        push.node_linear_offset_bda += sizeof(uint32_t);
+        VK_CALL(vkCmdPushConstants(list->cmd.vk_command_buffer,
+                vk_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+                offsetof(struct vkd3d_shader_node_input_push_signature, node_linear_offset_bda),
+                sizeof(uint32_t), &push.node_linear_offset_bda));
+
+        /* Secondary offset */
+        if (num_wgs_x % WG_DIVIDER)
+            VK_CALL(vkCmdDispatch(list->cmd.vk_command_buffer, num_wgs_x % WG_DIVIDER, 1, 1));
+    }
 }
 
 static void d3d12_command_list_workgraph_execute_level(struct d3d12_command_list *list,
@@ -1656,9 +1658,9 @@ static void d3d12_command_list_workgraph_execute_level(struct d3d12_command_list
     /* Execute nodes */
     for (i = 0; i < program->levels[level].nodes_count; i++)
     {
-        d3d12_command_list_workgraph_execute_node(list, state, program,
-                program->levels[level].nodes[i], NULL, output_payload, input_payload,
-                vk_root_parameter_buffer, vk_root_parameter_buffer_offset);
+        //d3d12_command_list_workgraph_execute_node(list, state, program,
+        //        program->levels[level].nodes[i], NULL, output_payload, input_payload,
+        //        vk_root_parameter_buffer, vk_root_parameter_buffer_offset);
     }
 }
 
@@ -1683,16 +1685,79 @@ static void d3d12_command_list_workgraph_barrier(struct d3d12_command_list *list
     VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 }
 
+static void d3d12_command_list_workgraph_execute_entry_cpu(
+        struct d3d12_command_list *list, struct d3d12_wg_state_object *wg_state,
+        const struct d3d12_wg_state_object_program *program, const D3D12_NODE_CPU_INPUT *desc,
+        VkBuffer vk_root_param_buffer, VkDeviceSize vk_root_param_offset)
+{
+    struct vkd3d_scratch_allocation payload_scratch;
+    VkDeviceSize payload_size;
+    uint32_t node_index;
+
+    if (desc->NumRecords == 0)
+        return;
+
+    if (desc->EntrypointIndex >= program->levels[0].nodes_count)
+    {
+        ERR("EntryPointIndex %u is out of bounds.\n", desc->EntrypointIndex);
+        return;
+    }
+
+    node_index = program->levels[0].nodes[desc->EntrypointIndex];
+    payload_size = desc->NumRecords * desc->RecordStrideInBytes;
+    if (desc->RecordStrideInBytes == 0)
+        payload_size = wg_state->entry_points[node_index].node_input->payload_stride;
+
+    if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
+            VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD, payload_size, 64, ~0u, &payload_scratch))
+        return;
+
+    /* Alternatively use vkCmdUpdateBuffer, but at least for now, just rely on ReBAR doing its thing. */
+    memcpy(payload_scratch.host_ptr, desc->pRecords, payload_size);
+
+    d3d12_command_list_workgraph_execute_node_cpu_entry(list, wg_state, program, node_index, desc,
+            wg_state->payload[0].va, payload_scratch.va,
+            vk_root_param_buffer, vk_root_param_offset);
+}
+
+static void d3d12_command_list_workgraph_execute_entry_level(
+        struct d3d12_command_list *list, struct d3d12_wg_state_object *wg_state,
+        const struct d3d12_wg_state_object_program *program, const D3D12_DISPATCH_GRAPH_DESC *desc,
+        VkBuffer vk_root_param_buffer, VkDeviceSize vk_root_param_offset)
+{
+    unsigned int i;
+    switch (desc->Mode)
+    {
+        case D3D12_DISPATCH_MODE_NODE_CPU_INPUT:
+            d3d12_command_list_workgraph_execute_entry_cpu(
+                    list, wg_state, program, &desc->NodeCPUInput,
+                    vk_root_param_buffer, vk_root_param_offset);
+            break;
+
+        case D3D12_DISPATCH_MODE_MULTI_NODE_CPU_INPUT:
+            for (i = 0; i < desc->MultiNodeCPUInput.NumNodeInputs; i++)
+            {
+                const D3D12_NODE_CPU_INPUT *input;
+                input = (const void *)((const uint8_t *)desc->MultiNodeCPUInput.pNodeInputs +
+                        desc->MultiNodeCPUInput.NodeInputStrideInBytes * i);
+                d3d12_command_list_workgraph_execute_entry_cpu(
+                        list, wg_state, program, input,
+                        vk_root_param_buffer, vk_root_param_offset);
+            }
+            break;
+
+        default:
+            FIXME("Unimplemented mode %u\n", desc->Mode);
+            break;
+    }
+}
+
 void d3d12_command_list_workgraph_dispatch(struct d3d12_command_list *list, const D3D12_DISPATCH_GRAPH_DESC *desc)
 {
     const struct d3d12_wg_state_object_program *program;
     struct vkd3d_scratch_allocation root_param_scratch;
-    struct vkd3d_scratch_allocation payload_scratch;
-    union vkd3d_root_parameter_data root_param_data;
     struct d3d12_wg_state_object *wg_state;
     uint32_t wg_state_program_index;
-    VkDeviceSize payload_size;
-    uint32_t node_index;
     uint32_t i;
 
     wg_state = (struct d3d12_wg_state_object *)list->wg_state.ProgramIdentifier.OpaqueData[1];
@@ -1713,49 +1778,26 @@ void d3d12_command_list_workgraph_dispatch(struct d3d12_command_list *list, cons
 
     d3d12_command_list_workgraph_barrier(list);
 
-    /* GPU input will be very awkward to support well without DGCC.
-     * Multi CPU input should be fairly simple, but not particularly interesting for bringup. */
-    if (desc->Mode != D3D12_DISPATCH_MODE_NODE_CPU_INPUT)
-    {
-        FIXME("Unsupported input type: %u\n", desc->Mode);
-        return;
-    }
-
-    if (desc->NodeCPUInput.NumRecords == 0)
-        return;
-
     program = &wg_state->programs[wg_state_program_index];
-
-    if (desc->NodeCPUInput.EntrypointIndex >= program->levels[0].nodes_count)
-    {
-        ERR("EntryPointIndex %u is out of bounds.\n", desc->NodeCPUInput.EntrypointIndex);
-        return;
-    }
-
-    node_index = program->levels[0].nodes[desc->NodeCPUInput.EntrypointIndex];
-    payload_size = desc->NodeCPUInput.NumRecords * desc->NodeCPUInput.RecordStrideInBytes;
-    if (desc->NodeCPUInput.RecordStrideInBytes == 0)
-        payload_size = wg_state->entry_points[node_index].node_input->payload_stride;
-
-    if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
-            VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD, payload_size, 64, ~0u, &payload_scratch))
-        return;
 
     if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
             VKD3D_SCRATCH_POOL_KIND_UNIFORM_UPLOAD,
-            sizeof(root_param_data), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT,
+            sizeof(union vkd3d_root_parameter_data), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT,
             ~0u, &root_param_scratch))
         return;
 
-    d3d12_command_list_fetch_root_parameter_data(list, &list->compute_bindings, &root_param_data);
-    memcpy(root_param_scratch.host_ptr, &root_param_data, sizeof(root_param_data));
+    d3d12_command_list_fetch_root_parameter_data(list, &list->compute_bindings, root_param_scratch.host_ptr);
+    /* TODO: For mesh nodes, may have to fetch graphics root parameter data. */
 
-    /* Alternatively use vkCmdUpdateBuffer, but at least for now, just rely on ReBAR doing its thing. */
-    memcpy(payload_scratch.host_ptr, desc->NodeCPUInput.pRecords, payload_size);
 
+    d3d12_command_list_workgraph_execute_entry_level(list, wg_state, program, desc,
+            root_param_scratch.buffer, root_param_scratch.offset);
+
+#if 0
     d3d12_command_list_workgraph_execute_node(list, wg_state, program, node_index, desc,
             wg_state->payload[0].va, payload_scratch.va,
             root_param_scratch.buffer, root_param_scratch.offset);
+#endif
 
     for (i = 1; i < program->num_levels; i++)
     {
