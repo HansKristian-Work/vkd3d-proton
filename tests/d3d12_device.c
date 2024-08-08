@@ -353,7 +353,6 @@ void test_format_support(void)
         DXGI_FORMAT_R8G8_B8G8_UNORM,
         DXGI_FORMAT_G8R8_G8B8_UNORM,
         DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM,
-        DXGI_FORMAT_NV12,
         DXGI_FORMAT_420_OPAQUE,
         DXGI_FORMAT_YUY2,
     };
