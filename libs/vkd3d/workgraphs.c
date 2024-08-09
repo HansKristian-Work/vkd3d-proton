@@ -614,6 +614,7 @@ static void d3d12_state_object_cleanup(struct d3d12_wg_state_object *state_objec
             d3d12_root_signature_dec_ref(state_object->modules[i].root_signature);
     }
     vkd3d_free(state_object->modules);
+    vkd3d_free(state_object->coalesce_dividers);
 
     d3d12_state_object_cleanup_allocation(&state_object->payload[0], state_object->device);
     d3d12_state_object_cleanup_allocation(&state_object->payload[1], state_object->device);
@@ -1504,9 +1505,31 @@ static HRESULT d3d12_wg_state_object_compile_programs(
      * as the implementation comes together. */
     object->modules = vkd3d_calloc(data->entry_points_count, sizeof(*object->modules));
     object->modules_count = data->entry_points_count;
+    object->coalesce_dividers = vkd3d_malloc(object->modules_count * sizeof(uint32_t));
     for (i = 0; i < data->entry_points_count; i++)
-        if (FAILED(hr = d3d12_wg_state_object_convert_entry_point(object, data, &object->modules[i], &data->entry_points[i])))
+    {
+        switch (data->entry_points[i].node_input->launch_type)
+        {
+            case VKD3D_SHADER_NODE_LAUNCH_TYPE_BROADCASTING:
+                object->coalesce_dividers[i] = 0;
+                break;
+
+            case VKD3D_SHADER_NODE_LAUNCH_TYPE_THREAD:
+                object->coalesce_dividers[i] = object->device->device_info.vulkan_1_1_properties.subgroupSize;
+                break;
+
+            case VKD3D_SHADER_NODE_LAUNCH_TYPE_COALESCING:
+                object->coalesce_dividers[i] = data->entry_points[i].node_input->coalesce_factor;
+                break;
+
+            default:
+                return E_INVALIDARG;
+        }
+
+        if (FAILED(hr = d3d12_wg_state_object_convert_entry_point(object, data, &object->modules[i],
+                &data->entry_points[i])))
             return hr;
+    }
 
     /* Create pipelines. Every program can have different overrides like node assignments, so we'll have to
      * assume we have to compile pipelines like this. For duplicated spec constant setups, we can fortunately
@@ -1615,7 +1638,7 @@ void d3d12_command_list_workgraph_initialize_scratch(struct d3d12_command_list *
     /* App is responsible for doing the UAV barrier here, so we just need to do a transitive barrier into CLEAR. */
     vk_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
     vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+    vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT | VK_PIPELINE_STAGE_2_COPY_BIT;
     vk_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
     VK_CALL(vkCmdPipelineBarrier2(list->cmd.vk_command_buffer, &dep_info));
 
@@ -1631,12 +1654,15 @@ void d3d12_command_list_workgraph_initialize_scratch(struct d3d12_command_list *
     {
         VK_CALL(vkCmdFillBuffer(list->cmd.vk_command_buffer, resource->vk_buffer,
                 list->wg_state.BackingMemory.StartAddress - resource->va,
-                wg_state->programs[wg_state_program_index].required_scratch_size, 0));
+                wg_state->programs[wg_state_program_index].dividers_scratch_offset, 0));
 
-        /* TODO: Copy over the dividers. */
+        VK_CALL(vkCmdUpdateBuffer(list->cmd.vk_command_buffer, resource->vk_buffer,
+                list->wg_state.BackingMemory.StartAddress - resource->va +
+                wg_state->programs[wg_state_program_index].dividers_scratch_offset,
+                wg_state->modules_count * sizeof(uint32_t), wg_state->coalesce_dividers));
     }
 
-    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+    vk_barrier.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT | VK_PIPELINE_STAGE_2_COPY_BIT;
     vk_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
     vk_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     vk_barrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT;
