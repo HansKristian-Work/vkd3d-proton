@@ -20,6 +20,7 @@ SubobjectToExportsAssociation assoc2 = { "LRS1", "B" };
 [Shader("node")]
 [NodeLaunch("thread")]
 [NodeLocalRootArgumentsTableIndex(0)]
+[NodeIsProgramEntry]
 void A()
 {
 	uint o;

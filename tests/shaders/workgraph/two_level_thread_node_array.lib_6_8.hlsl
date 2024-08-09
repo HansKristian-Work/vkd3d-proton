@@ -20,6 +20,7 @@ struct EntryData
 [NodeLaunch("broadcasting")]
 [NumThreads(8, 1, 1)]
 [NodeMaxDispatchGrid(256, 1, 1)]
+[NodeIsProgramEntry]
 void EntryNode(DispatchNodeInputRecord<EntryData> entry,
 		uint thr : SV_DispatchThreadID,
 		uint wgx : SV_GroupID,

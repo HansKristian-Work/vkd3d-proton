@@ -484,7 +484,17 @@ static void STDMETHODCALLTYPE d3d12_command_list_IASetIndexBufferStripCutValue_p
     COMMAND_LIST_PROFILED_CALL(IASetIndexBufferStripCutValue, iface, IBStripCutValue);
 }
 
-static CONST_VTBL struct ID3D12GraphicsCommandList9Vtbl d3d12_command_list_vtbl_profiled =
+static void STDMETHODCALLTYPE d3d12_command_list_SetProgram_profiled(d3d12_command_list_iface *iface, const D3D12_SET_PROGRAM_DESC *desc)
+{
+    COMMAND_LIST_PROFILED_CALL(SetProgram, iface, desc);
+}
+
+static void STDMETHODCALLTYPE d3d12_command_list_DispatchGraph_profiled(d3d12_command_list_iface *iface, const D3D12_DISPATCH_GRAPH_DESC *desc)
+{
+    COMMAND_LIST_PROFILED_CALL(DispatchGraph, iface, desc);
+}
+
+static CONST_VTBL struct ID3D12GraphicsCommandList10Vtbl d3d12_command_list_vtbl_profiled =
 {
     /* IUnknown methods */
     d3d12_command_list_QueryInterface,
@@ -584,6 +594,9 @@ static CONST_VTBL struct ID3D12GraphicsCommandList9Vtbl d3d12_command_list_vtbl_
     /* ID3D12GraphicsCommandList9 methods */
     d3d12_command_list_RSSetDepthBias_profiled,
     d3d12_command_list_IASetIndexBufferStripCutValue_profiled,
+    /* ID3D12GraphicsCommandList10 methods */
+    d3d12_command_list_SetProgram_profiled,
+    d3d12_command_list_DispatchGraph_profiled,
 };
 
 #endif

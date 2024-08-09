@@ -11,6 +11,7 @@ struct Payload
 [NodeLaunch("broadcasting")]
 [NodeMaxDispatchGrid(3, 1, 1)]
 [NumThreads(2, 3, 4)]
+[NodeIsProgramEntry]
 void BroadcastNode(DispatchNodeInputRecord<Payload> payload, uint3 thr : SV_DispatchThreadID)
 {
 	uint idx = thr.z * 100 + thr.y * 10 + thr.x;

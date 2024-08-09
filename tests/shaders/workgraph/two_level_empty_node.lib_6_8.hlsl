@@ -2,6 +2,7 @@ RWStructuredBuffer<uint> RWBuf : register(u0);
 
 [Shader("node")]
 [NodeLaunch("thread")]
+[NodeIsProgramEntry]
 void EntryNode(
 		// Cannot mix launch mode within an array (phew).
 		[MaxRecords(16)] [NodeID("A")] EmptyNodeOutput a,

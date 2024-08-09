@@ -7,6 +7,7 @@ struct Payload
 
 [Shader("node")]
 [NodeLaunch("thread")]
+[NodeIsProgramEntry]
 void EntryNode(
 	[MaxRecords(2)] [NodeID("Recursive")] NodeOutput<Payload> p)
 {
