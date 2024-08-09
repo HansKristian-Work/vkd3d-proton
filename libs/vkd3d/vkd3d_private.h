@@ -4434,7 +4434,7 @@ struct vkd3d_sampler_feedback_resolve_ops
 
 struct vkd3d_workgraph_payload_offsets_args
 {
-    VkDeviceAddress packet_offset_counts;
+    VkDeviceAddress packed_offset_counts;
     VkDeviceAddress unrolled_offsets;
     VkDeviceAddress commands;
     VkDeviceAddress payload;
