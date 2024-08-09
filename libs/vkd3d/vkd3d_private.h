@@ -2456,10 +2456,14 @@ struct d3d12_command_allocator
 };
 
 HRESULT d3d12_command_allocator_create(struct d3d12_device *device,
-        D3D12_COMMAND_LIST_TYPE type, struct d3d12_command_allocator **allocator);
+        D3D12_COMMAND_LIST_TYPE type,
+        uint32_t vk_family_index,
+        struct d3d12_command_allocator **allocator);
 bool d3d12_command_allocator_allocate_query_from_type_index(
         struct d3d12_command_allocator *allocator,
         uint32_t type_index, VkQueryPool *query_pool, uint32_t *query_index);
+
+struct d3d12_command_list *d3d12_command_list_from_iface(ID3D12CommandList *iface);
 
 enum vkd3d_pipeline_dirty_flag
 {
@@ -2944,6 +2948,7 @@ HRESULT d3d12_command_list_create(struct d3d12_device *device,
 bool d3d12_command_list_reset_query(struct d3d12_command_list *list,
         VkQueryPool vk_pool, uint32_t index);
 void d3d12_command_list_end_current_render_pass(struct d3d12_command_list *list, bool suspend);
+void d3d12_command_list_invalidate_all_state(struct d3d12_command_list *list);
 
 static inline struct vkd3d_pipeline_bindings *d3d12_command_list_get_bindings(
         struct d3d12_command_list *list, enum vkd3d_pipeline_type pipeline_type)
@@ -3218,7 +3223,7 @@ struct d3d12_command_queue
 };
 
 HRESULT d3d12_command_queue_create(struct d3d12_device *device,
-        const D3D12_COMMAND_QUEUE_DESC *desc, struct d3d12_command_queue **queue);
+        const D3D12_COMMAND_QUEUE_DESC *desc, uint32_t vk_family_index, struct d3d12_command_queue **queue);
 void d3d12_command_queue_submit_stop(struct d3d12_command_queue *queue);
 void d3d12_command_queue_signal_inline(struct d3d12_command_queue *queue, d3d12_fence_iface *fence, uint64_t value);
 void d3d12_command_queue_enqueue_callback(struct d3d12_command_queue *queue, void (*callback)(void *), void *userdata);
@@ -4551,7 +4556,7 @@ struct vkd3d_descriptor_qa_heap_buffer_data;
 typedef ID3D12DeviceExt1 d3d12_device_vkd3d_ext_iface;
 
 /* ID3D12DXVKInteropDevice */
-typedef ID3D12DXVKInteropDevice d3d12_dxvk_interop_device_iface;
+typedef ID3D12DXVKInteropDevice1 d3d12_dxvk_interop_device_iface;
 
 /* ID3DLowLatencyDevice */
 typedef ID3DLowLatencyDevice d3d_low_latency_device_iface;
@@ -4855,7 +4860,8 @@ struct d3d12_device
 HRESULT d3d12_device_create(struct vkd3d_instance *instance,
         const struct vkd3d_device_create_info *create_info, struct d3d12_device **device);
 struct vkd3d_queue_family_info *d3d12_device_get_vkd3d_queue_family(struct d3d12_device *device,
-        D3D12_COMMAND_LIST_TYPE type);
+        D3D12_COMMAND_LIST_TYPE type,
+        uint32_t vk_family_index);
 struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct d3d12_device *device,
         struct vkd3d_queue_family_info *queue_family);
 void d3d12_device_unmap_vkd3d_queue(struct d3d12_device *device,

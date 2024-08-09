@@ -3418,7 +3418,7 @@ void d3d12_device_return_query_pool(struct d3d12_device *device, const struct vk
 
 /* ID3D12Device */
 extern ULONG STDMETHODCALLTYPE d3d12_device_vkd3d_ext_AddRef(d3d12_device_vkd3d_ext_iface *iface);
-extern ULONG STDMETHODCALLTYPE d3d12_dxvk_interop_device_AddRef(ID3D12DXVKInteropDevice *iface);
+extern ULONG STDMETHODCALLTYPE d3d12_dxvk_interop_device_AddRef(d3d12_dxvk_interop_device_iface *iface);
 extern ULONG STDMETHODCALLTYPE d3d12_low_latency_device_AddRef(ID3DLowLatencyDevice *iface);
 
 HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
@@ -3459,7 +3459,8 @@ HRESULT STDMETHODCALLTYPE d3d12_device_QueryInterface(d3d12_device_iface *iface,
         return S_OK;
     }
 
-    if (IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice))
+    if (IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice)
+            || IsEqualGUID(riid, &IID_ID3D12DXVKInteropDevice1))
     {
         struct d3d12_device *device = impl_from_ID3D12Device(iface);
         d3d12_dxvk_interop_device_AddRef(&device->ID3D12DXVKInteropDevice_iface);
@@ -3656,7 +3657,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandQueue(d3d12_device_if
     TRACE("iface %p, desc %p, riid %s, command_queue %p.\n",
             iface, desc, debugstr_guid(riid), command_queue);
 
-    if (FAILED(hr = d3d12_command_queue_create(device, desc, &object)))
+    if (FAILED(hr = d3d12_command_queue_create(device, desc, VK_QUEUE_FAMILY_IGNORED, &object)))
         return hr;
 
     return return_interface(&object->ID3D12CommandQueue_iface, &IID_ID3D12CommandQueue,
@@ -3683,7 +3684,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CreateCommandAllocator(d3d12_devic
     else
     {
         struct d3d12_command_allocator *object;
-        if (FAILED(hr = d3d12_command_allocator_create(device, type, &object)))
+        if (FAILED(hr = d3d12_command_allocator_create(device, type, VK_QUEUE_FAMILY_IGNORED, &object)))
             return hr;
         allocator_iface = &object->ID3D12CommandAllocator_iface;
     }
@@ -8706,7 +8707,7 @@ static void d3d12_device_replace_vtable(struct d3d12_device *device)
 }
 
 extern CONST_VTBL struct ID3D12DeviceExt1Vtbl d3d12_device_vkd3d_ext_vtbl;
-extern CONST_VTBL struct ID3D12DXVKInteropDeviceVtbl d3d12_dxvk_interop_device_vtbl;
+extern CONST_VTBL struct ID3D12DXVKInteropDevice1Vtbl d3d12_dxvk_interop_device_vtbl;
 extern CONST_VTBL struct ID3DLowLatencyDeviceVtbl d3d_low_latency_device_vtbl;
 
 static void vkd3d_scratch_pool_init(struct d3d12_device *device)
