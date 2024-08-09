@@ -13,8 +13,8 @@ layout(constant_id = 1) const uint FUSED_DIVIDER = 0;
 
 layout(buffer_reference, buffer_reference_align = 8, std430) buffer NodeAtomics
 {
-	// First uint is payload offset atomic. Not interesting here.
-	NodeCounts node_counts[];
+	uint payload_atomic;
+	layout(offset = 8) NodeCounts node_counts[];
 };
 
 layout(buffer_reference, buffer_reference_align = 16, std430) writeonly buffer IndirectCommandsBuffer
@@ -92,4 +92,8 @@ void main()
 		// Wave-uniform accumulate.
 		linear_offset += total_scan;
 	}
+
+	// Reset the counters so we don't have to do an extra pass on next iteration.
+	if (gl_SubgroupInvocationID == 0)
+		registers.atomics.payload_atomic = 0;
 }
