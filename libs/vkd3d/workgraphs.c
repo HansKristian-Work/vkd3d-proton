@@ -39,11 +39,21 @@ struct d3d12_workgraph_indirect_command
     uint32_t padding[2];
 };
 
+struct d3d12_workgraph_node_shared_execution
+{
+    unsigned int node_pipeline_index;
+    unsigned int node_payload_index;
+};
+
 struct d3d12_workgraph_level_execution
 {
     unsigned int *nodes;
     size_t nodes_size;
     size_t nodes_count;
+
+    struct d3d12_workgraph_node_shared_execution *shared_nodes;
+    size_t shared_nodes_size;
+    size_t shared_nodes_count;
 };
 
 struct d3d12_wg_state_object_pipeline
@@ -133,7 +143,10 @@ static void d3d12_state_object_free_programs(
     {
         vkd3d_free((void *)programs[i].name);
         for (j = 0; j < programs[i].num_levels; j++)
+        {
             vkd3d_free(programs[i].levels[j].nodes);
+            vkd3d_free(programs[i].levels[j].shared_nodes);
+        }
 
         for (j = 0; j < programs[i].num_pipelines; j++)
         {
@@ -298,6 +311,8 @@ static HRESULT d3d12_wg_state_object_program_add_node_to_level(
         return E_INVALIDARG;
     }
 
+    entry = &data->entry_points[entry_point_index];
+
     exec = &program->levels[level];
     for (i = 0; i < exec->nodes_count; i++)
         if (exec->nodes[i] == entry_point_index)
@@ -307,8 +322,6 @@ static HRESULT d3d12_wg_state_object_program_add_node_to_level(
             exec->nodes_count + 1, sizeof(*exec->nodes));
     exec->nodes[exec->nodes_count++] = entry_point_index;
     program->num_levels = max(program->num_levels, level + 1);
-
-    entry = &data->entry_points[entry_point_index];
 
     if (!is_recursing)
     {
@@ -355,6 +368,32 @@ static HRESULT d3d12_wg_state_object_program_add_node_to_level(
                     program, data, node_index, level + 1, false)))
             {
                 return hr;
+            }
+        }
+    }
+
+    for (i = 0; i < data->entry_points_count; i++)
+    {
+        /* Fish for shared inputs. */
+        const struct vkd3d_shader_node_input_data *candidate = data->entry_points[i].node_input;
+        if (!candidate)
+            continue;
+
+        if (candidate->node_share_input_id &&
+                strcmp(candidate->node_share_input_id, entry->node_input->node_id) == 0 &&
+                candidate->node_share_input_array_index == entry->node_input->node_array_index)
+        {
+            for (j = 0; j < exec->shared_nodes_count; j++)
+                if (exec->shared_nodes[j].node_pipeline_index == i)
+                    break;
+
+            if (j == exec->shared_nodes_count)
+            {
+                vkd3d_array_reserve((void **)&exec->shared_nodes, &exec->shared_nodes_size,
+                        exec->shared_nodes_count + 1, sizeof(*exec->shared_nodes));
+                exec->shared_nodes[exec->shared_nodes_count].node_pipeline_index = i;
+                exec->shared_nodes[exec->shared_nodes_count].node_payload_index = entry_point_index;
+                exec->shared_nodes_count++;
             }
         }
     }
