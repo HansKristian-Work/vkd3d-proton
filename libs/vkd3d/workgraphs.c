@@ -1217,7 +1217,7 @@ static HRESULT d3d12_wg_state_object_compile_program(
                 vkd3d_meta_get_workgraph_payload_offset_pipeline(&object->device->meta_ops,
                         entry->node_input->node_track_rw_input_sharing ?
                                 entry->node_input->dispatch_grid_type_bits / 8 : 0,
-                        entry->node_input->dispatch_grid_components,
+                        entry->node_input->dispatch_grid_is_upper_bound ? entry->node_input->dispatch_grid_components : 1,
                         &program->pipelines[entry_point_index].payload_offset_expander);
             }
 
@@ -1953,7 +1953,7 @@ static void d3d12_command_list_emit_distribute_payload_offsets(struct d3d12_comm
         args.packed_offset_counts_stride /= sizeof(uint32_t);
         args.payload_stride = node_input->payload_stride;
 
-        if (node_input->dispatch_grid_components)
+        if (node_input->dispatch_grid_is_upper_bound)
         {
             args.grid_offset_or_count = (int)node_input->dispatch_grid_offset;
             /* Component type and components is spec constant. */
@@ -2109,7 +2109,7 @@ static void d3d12_command_list_workgraph_execute_node_gpu(
         num_z = node_input->broadcast_grid[2];
 
         // If the SV_DispatchGrid does not contain a component, it's implied to be 1.
-        if (node_input->dispatch_grid_components)
+        if (node_input->dispatch_grid_is_upper_bound)
         {
             if (node_input->dispatch_grid_components < 3)
                 num_z = 1;
