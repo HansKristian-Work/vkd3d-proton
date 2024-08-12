@@ -415,31 +415,51 @@ static HRESULT d3d12_wg_state_object_resolve_entry_points(struct d3d12_wg_state_
         }
     }
 
+    /* Look at shared inputs. If a node has shared inputs with another node, and that node is output target,
+     * inherit the output state. */
+    for (i = 0; i < data->entry_points_count; i++)
+    {
+        const struct vkd3d_shader_node_input_data *node_input = data->entry_points[i].node_input;
+        uint32_t node_index;
+
+        if (!node_input)
+            continue;
+        if (!node_input->node_share_input_id || *node_input->node_share_input_id == '\0')
+            continue;
+
+        node_index = d3d12_work_graph_find_node_by_id(
+                data->entry_points, data->entry_points_count,
+                node_input->node_share_input_id, node_input->node_share_input_array_index);
+
+        /* If we don't find the node, assume there is no sharing to care about anyway, so *shrug*. */
+        if (node_index != UINT32_MAX)
+            node_is_output_target[i] = node_is_output_target[node_index];
+    }
+
     /* We cannot override this state yet, so verify shader matches our expectation. */
     for (i = 0; i < data->entry_points_count; i++)
     {
-        if (!data->entry_points[i].node_input)
+        const struct vkd3d_shader_node_input_data *node_input = data->entry_points[i].node_input;
+        if (!node_input)
             continue;
 
-        if (node_is_output_target[i] && data->entry_points[i].node_input->is_program_entry)
+        if (node_is_output_target[i] && node_input->is_program_entry)
         {
             FIXME("Node %s[%u] was marked as entry point, but it is used as node output.\n",
-                    data->entry_points[i].node_input->node_id,
-                    data->entry_points[i].node_input->node_array_index);
+                    node_input->node_id, node_input->node_array_index);
             hr = E_NOTIMPL;
             goto fail;
         }
-        else if (!node_is_output_target[i] && !data->entry_points[i].node_input->is_program_entry)
+        else if (!node_is_output_target[i] && !node_input->is_program_entry)
         {
             FIXME("Node %s[%u] was not marked as entry point, but it is used as entry point.\n",
-                    data->entry_points[i].node_input->node_id,
-                    data->entry_points[i].node_input->node_array_index);
+                    node_input->node_id, node_input->node_array_index);
             hr = E_NOTIMPL;
             goto fail;
         }
 
         /* Recurse through the nodes. Start with entry point and fill in any dependencies. */
-        if (data->entry_points[i].node_input->is_program_entry)
+        if (node_input->is_program_entry)
             if (FAILED(hr = d3d12_wg_state_object_program_add_node_to_level(program, data, i, 0, false)))
                 goto fail;
     }
