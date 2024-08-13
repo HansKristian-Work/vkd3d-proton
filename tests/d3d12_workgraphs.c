@@ -135,13 +135,17 @@ static void check_work_graph_properties(ID3D12StateObject *pso,
     index = ID3D12WorkGraphProperties_GetWorkGraphIndex(props, u"DummyDoesNotExist");
     ok(index == UINT32_MAX, "Unexpected index %u\n", index);
 
+    /* There is supposed to be a stable order of nodes, which of course is not documented ... */
     id = ID3D12WorkGraphProperties_GetNodeID(props, 0, 0);
+    todo_if(ID3D12WorkGraphProperties_GetNumNodes(props, 0) > 1)
     ok(export_strequal(id.Name, expected_entry_node), "Unexpected node name.\n");
+    todo_if(ID3D12WorkGraphProperties_GetNumNodes(props, 0) > 1)
     ok(id.ArrayIndex == 0, "Unexpected ArrayIndex %u.\n", id.ArrayIndex);
 
     if (expected_leaf_node)
     {
         id = ID3D12WorkGraphProperties_GetNodeID(props, 0, 0);
+        todo_if(ID3D12WorkGraphProperties_GetNumNodes(props, 0) > 1)
         ok(export_strequal(id.Name, expected_leaf_node), "Unexpected node name.\n");
         ok(id.ArrayIndex == 0, "Unexpected ArrayIndex %u.\n", id.ArrayIndex);
     }
