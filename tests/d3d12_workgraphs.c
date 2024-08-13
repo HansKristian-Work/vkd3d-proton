@@ -726,6 +726,7 @@ void test_workgraph_basic(void)
 
     ID3D12StateObject_Release(pso);
     destroy_workgraph_test_context(&context);
+    vkd3d_test_set_context(NULL);
 }
 
 void test_workgraph_broadcast_input(void)
@@ -847,6 +848,7 @@ void test_workgraph_broadcast_input(void)
     ID3D12StateObject_Release(pso);
 
     destroy_workgraph_test_context(&context);
+    vkd3d_test_set_context(NULL);
 }
 
 void test_workgraph_thread_input(void)
@@ -892,6 +894,7 @@ void test_workgraph_thread_input(void)
 
     ID3D12StateObject_Release(pso);
     destroy_workgraph_test_context(&context);
+    vkd3d_test_set_context(NULL);
 }
 
 void test_workgraph_coalesced_input(void)
@@ -942,6 +945,7 @@ void test_workgraph_coalesced_input(void)
 
     ID3D12StateObject_Release(pso);
     destroy_workgraph_test_context(&context);
+    vkd3d_test_set_context(NULL);
 }
 
 static void test_workgraph_two_level_broadcast_inner(struct test_context_workgraph *context,
@@ -1046,6 +1050,7 @@ void test_workgraph_two_level_broadcast(void)
     test_workgraph_two_level_broadcast_inner(&context, pso[2]);
     vkd3d_test_set_context("Thread - NodeArray");
     test_workgraph_two_level_broadcast_inner(&context, pso[3]);
+    vkd3d_test_set_context(NULL);
 
     for (i = 0; i < ARRAY_SIZE(pso); i++)
         ID3D12StateObject_Release(pso[i]);
