@@ -987,6 +987,7 @@ struct vkd3d_shader_node_input_push_signature
     uint32_t node_grid_dispatch[3];
     uint32_t node_payload_output_offset;
     uint32_t node_payload_output_stride;
+    uint32_t node_remaining_recursion_levels;
 };
 
 struct vkd3d_shader_node_input_data
