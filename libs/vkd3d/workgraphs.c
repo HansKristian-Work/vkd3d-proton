@@ -2393,6 +2393,7 @@ static void d3d12_command_list_workgraph_execute_entry_cpu(
     struct vkd3d_scratch_allocation payload_scratch;
     VkDeviceSize payload_size;
     uint32_t node_index;
+    unsigned int i;
 
     if (desc->NumRecords == 0)
         return;
@@ -2418,6 +2419,18 @@ static void d3d12_command_list_workgraph_execute_entry_cpu(
     d3d12_command_list_workgraph_execute_node_cpu_entry(list, wg_state, program, node_index, desc,
             wg_state->payload[0].va, payload_scratch.va,
             vk_root_param_buffer, vk_root_param_offset);
+
+    /* For any shared nodes, just execute those as well. */
+    for (i = 0; i < program->levels[0].shared_nodes_count; i++)
+    {
+        if (program->levels[0].shared_nodes[i].node_payload_index == node_index)
+        {
+            d3d12_command_list_workgraph_execute_node_cpu_entry(list, wg_state, program,
+                    program->levels[0].shared_nodes[i].node_pipeline_index, desc,
+                    wg_state->payload[0].va, payload_scratch.va,
+                    vk_root_param_buffer, vk_root_param_offset);
+        }
+    }
 }
 
 static void d3d12_command_list_workgraph_execute_entry_level(
