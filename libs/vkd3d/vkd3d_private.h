@@ -4414,9 +4414,10 @@ struct vkd3d_workgraph_payload_offsets_args
 
 struct vkd3d_workgraph_workgroups_args
 {
-    VkDeviceAddress node_atomics;
-    VkDeviceAddress commands;
-    VkDeviceAddress dividers;
+    VkDeviceAddress node_atomics_va;
+    VkDeviceAddress commands_va;
+    VkDeviceAddress dividers_va;
+    VkDeviceAddress node_share_mapping_va;
     uint32_t num_nodes;
 };
 
@@ -4425,6 +4426,7 @@ struct vkd3d_workgraph_setup_gpu_input_args
     VkDeviceAddress gpu_input_va;
     VkDeviceAddress indirect_commands_va;
     VkDeviceAddress coalesce_divider_va;
+    VkDeviceAddress entry_point_mapping_va;
     uint32_t num_entry_points;
 };
 
