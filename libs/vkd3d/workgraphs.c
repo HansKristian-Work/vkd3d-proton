@@ -496,7 +496,8 @@ static HRESULT d3d12_wg_state_object_resolve_entry_points(struct d3d12_wg_state_
                     }
                 }
 
-                node_is_output_target[node_index] = true;
+                if (node_index != UINT32_MAX)
+                    node_is_output_target[node_index] = true;
             }
         }
     }
