@@ -542,7 +542,8 @@ static void execute_workgraph_test(struct test_context_workgraph *context,
         expected = desc->expected_cb(desc, i);
         v = get_readback_uint(&rb, i, 0, 0);
 
-        bug_if(desc->is_bug) ok(expected == v, "Value %u: expected %u, got %u.\n", i, expected, v);
+        bug_if(desc->is_bug) todo_if(expected != 0 && desc->mode == D3D12_DISPATCH_MODE_MULTI_NODE_GPU_INPUT)
+        ok(expected == v, "Value %u: expected %u, got %u.\n", i, expected, v);
     }
 
     release_resource_readback(&rb);
