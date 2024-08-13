@@ -5558,7 +5558,6 @@ struct d3d12_wg_state_object
     size_t entry_points_count;
 
     struct d3d12_wg_state_object_module *modules;
-    uint32_t *coalesce_dividers;
     size_t modules_count;
 
     /* Very hacky. Allocate huge scratch buffers that can hold execution state.
