@@ -346,6 +346,10 @@ static HRESULT d3d12_wg_state_object_program_add_outputs_to_level(
                     data->entry_points, data->entry_points_count,
                     output->node_id, output->node_array_index + j);
 
+            /* We handle recursion separately. */
+            if (node_index == entry_point_index)
+                continue;
+
             if (node_index == UINT32_MAX)
             {
                 /* It's okay if we don't find the input in sparse mode. */
