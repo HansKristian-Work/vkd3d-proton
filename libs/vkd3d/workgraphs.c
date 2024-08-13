@@ -298,6 +298,65 @@ static HRESULT d3d12_wg_state_object_program_add_node_to_level(
         struct d3d12_wg_state_object_data *data,
         unsigned int entry_point_index,
         unsigned int level,
+        bool is_recursing);
+
+static HRESULT d3d12_wg_state_object_program_add_outputs_to_level(
+        struct d3d12_wg_state_object_program *program,
+        struct d3d12_wg_state_object_data *data,
+        unsigned int entry_point_index,
+        unsigned int level)
+{
+    const struct vkd3d_shader_node_output_data *output;
+    struct vkd3d_shader_library_entry_point *entry;
+    uint32_t node_array_size, node_index;
+    unsigned int i, j;
+    HRESULT hr;
+
+    entry = &data->entry_points[entry_point_index];
+
+    for (i = 0; i < entry->node_outputs_count; i++)
+    {
+        output = &entry->node_outputs[i];
+
+        /* Checked on the outside for now as well. */
+        if (output->node_array_size == UINT32_MAX)
+        {
+            FIXME("Unbounded array size is not supported.\n");
+            return E_NOTIMPL;
+        }
+
+        node_array_size = output->node_array_size ? output->node_array_size : 1;
+
+        for (j = 0; j < node_array_size; j++)
+        {
+            node_index = d3d12_work_graph_find_node_by_id(
+                    data->entry_points, data->entry_points_count,
+                    output->node_id, output->node_array_index + j);
+
+            if (node_index == UINT32_MAX)
+            {
+                /* It's okay if we don't find the input in sparse mode. */
+                if (output->sparse_array)
+                    continue;
+                return E_INVALIDARG;
+            }
+
+            if (FAILED(hr = d3d12_wg_state_object_program_add_node_to_level(
+                    program, data, node_index, level, false)))
+            {
+                return hr;
+            }
+        }
+    }
+
+    return S_OK;
+}
+
+static HRESULT d3d12_wg_state_object_program_add_node_to_level(
+        struct d3d12_wg_state_object_program *program,
+        struct d3d12_wg_state_object_data *data,
+        unsigned int entry_point_index,
+        unsigned int level,
         bool is_recursing)
 {
     struct vkd3d_shader_library_entry_point *entry;
@@ -336,41 +395,8 @@ static HRESULT d3d12_wg_state_object_program_add_node_to_level(
         }
     }
 
-    for (i = 0; i < entry->node_outputs_count; i++)
-    {
-        const struct vkd3d_shader_node_output_data *output = &entry->node_outputs[i];
-        uint32_t node_array_size, node_index;
-
-        /* Checked on the outside for now as well. */
-        if (output->node_array_size == UINT32_MAX)
-        {
-            FIXME("Unbounded array size is not supported.\n");
-            hr = E_NOTIMPL;
-        }
-
-        node_array_size = output->node_array_size ? output->node_array_size : 1;
-
-        for (j = 0; j < node_array_size; j++)
-        {
-            node_index = d3d12_work_graph_find_node_by_id(
-                    data->entry_points, data->entry_points_count,
-                    output->node_id, output->node_array_index + j);
-
-            if (node_index == UINT32_MAX)
-            {
-                /* It's okay if we don't find the input in sparse mode. */
-                if (output->sparse_array)
-                    continue;
-                return E_INVALIDARG;
-            }
-
-            if (FAILED(hr = d3d12_wg_state_object_program_add_node_to_level(
-                    program, data, node_index, level + 1, false)))
-            {
-                return hr;
-            }
-        }
-    }
+    if (FAILED(hr = d3d12_wg_state_object_program_add_outputs_to_level(program, data, entry_point_index, level + 1)))
+        return hr;
 
     for (i = 0; i < data->entry_points_count; i++)
     {
@@ -394,6 +420,10 @@ static HRESULT d3d12_wg_state_object_program_add_node_to_level(
                 exec->shared_nodes[exec->shared_nodes_count].node_pipeline_index = i;
                 exec->shared_nodes[exec->shared_nodes_count].node_payload_index = entry_point_index;
                 exec->shared_nodes_count++;
+
+                /* A shared input node may also have its own outputs. */
+                if (FAILED(hr = d3d12_wg_state_object_program_add_outputs_to_level(program, data, i, level + 1)))
+                    return hr;
             }
         }
     }
@@ -1208,25 +1238,28 @@ static CONST_VTBL struct ID3D12WorkGraphPropertiesVtbl d3d12_work_graph_properti
     d3d12_work_graph_properties_GetEntrypointRecordAlignmentInBytes,
 };
 
-static HRESULT d3d12_wg_state_object_compile_program(
+struct d3d12_wg_state_object_spec_constant_tmp
+{
+    VkSpecializationMapEntry *map_entries;
+    uint32_t *spec_data;
+    size_t map_entries_size;
+    size_t spec_data_count;
+    size_t spec_data_size;
+};
+
+static HRESULT d3d12_wg_state_object_compile_pipeline(
         struct d3d12_wg_state_object *object,
         struct d3d12_wg_state_object_data *data,
-        struct d3d12_wg_state_object_program *program)
+        struct d3d12_wg_state_object_program *program,
+        unsigned int entry_point_index,
+        struct d3d12_wg_state_object_spec_constant_tmp *tmp)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &object->device->vk_procs;
-    VkSpecializationMapEntry *map_entries = NULL;
+    const struct vkd3d_shader_library_entry_point *entry;
     VkComputePipelineCreateInfo pipeline_info;
     VkSpecializationInfo spec_info;
-    size_t map_entries_size = 0;
-    uint32_t *spec_data = NULL;
-    size_t spec_data_count = 0;
-    size_t spec_data_size = 0;
-    VkResult vr = VK_SUCCESS;
-    unsigned int level;
-    unsigned int i, j;
-
-    program->pipelines = vkd3d_calloc(data->entry_points_count, sizeof(*program->pipelines));
-    program->num_pipelines = data->entry_points_count;
+    unsigned int i;
+    VkResult vr;
 
     memset(&pipeline_info, 0, sizeof(pipeline_info));
     pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
@@ -1234,6 +1267,116 @@ static HRESULT d3d12_wg_state_object_compile_program(
     pipeline_info.stage.pSpecializationInfo = &spec_info;
     pipeline_info.stage.pName = "main";
     pipeline_info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    if (program->pipelines[entry_point_index].vk_cpu_node_entry_pipeline != VK_NULL_HANDLE ||
+            program->pipelines[entry_point_index].vk_gpu_node_entry_pipeline != VK_NULL_HANDLE ||
+            program->pipelines[entry_point_index].vk_non_entry_pipeline != VK_NULL_HANDLE)
+    {
+        return S_OK;
+    }
+
+    entry = &data->entry_points[entry_point_index];
+
+    /* TODO: These can be overridden during compilation. */
+    program->pipelines[entry_point_index].name = vkd3d_dup_entry_point(entry->node_input->node_id);
+    program->pipelines[entry_point_index].array_index = entry->node_input->node_array_index;
+
+    if (!entry->node_input->is_program_entry)
+    {
+        vkd3d_meta_get_workgraph_payload_offset_pipeline(&object->device->meta_ops,
+                entry->node_input->node_track_rw_input_sharing ?
+                        entry->node_input->dispatch_grid_type_bits / 8 : 0,
+                entry->node_input->dispatch_grid_is_upper_bound ? entry->node_input->dispatch_grid_components : 1,
+                &program->pipelines[entry_point_index].payload_offset_expander);
+    }
+
+    /* Set up spec constants for node outputs, etc. This will
+     * have to be expanded a bit to also cover things like sparse array checks, recursion state, etc. */
+    tmp->spec_data_count = entry->node_outputs_count;
+    /* Workgroup size is also a spec constant. */
+    if (entry->node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_THREAD)
+        tmp->spec_data_count++;
+    if (entry->node_input->is_program_entry)
+        tmp->spec_data_count++;
+
+    if (tmp->spec_data_count)
+    {
+        vkd3d_array_reserve((void **)&tmp->spec_data, &tmp->spec_data_size, tmp->spec_data_count, sizeof(*tmp->spec_data));
+        vkd3d_array_reserve((void **)&tmp->map_entries, &tmp->map_entries_size, tmp->spec_data_count, sizeof(*tmp->map_entries));
+    }
+
+    pipeline_info.stage.module = object->modules[entry_point_index].vk_module;
+    pipeline_info.layout = object->modules[entry_point_index].vk_pipeline_layout;
+    if (d3d12_device_uses_descriptor_buffers(object->device))
+        pipeline_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+    spec_info.pData = tmp->spec_data;
+    spec_info.dataSize = tmp->spec_data_count * sizeof(uint32_t);
+    spec_info.pMapEntries = tmp->map_entries;
+    spec_info.mapEntryCount = tmp->spec_data_count;
+
+    for (i = 0; i < entry->node_outputs_count; i++)
+    {
+        tmp->map_entries[i].offset = sizeof(uint32_t) * i;
+        tmp->map_entries[i].size = sizeof(uint32_t);
+        tmp->map_entries[i].constantID = entry->node_outputs[i].node_index_spec_constant_id;
+        tmp->spec_data[i] = d3d12_work_graph_find_node_by_id(
+                data->entry_points, data->entry_points_count,
+                entry->node_outputs[i].node_id, entry->node_outputs[i].node_array_index);
+    }
+
+    if (entry->node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_THREAD)
+    {
+        tmp->map_entries[entry->node_outputs_count].offset = sizeof(uint32_t) * entry->node_outputs_count;
+        tmp->map_entries[entry->node_outputs_count].size = sizeof(uint32_t);
+        tmp->map_entries[entry->node_outputs_count].constantID = 0;
+        tmp->spec_data[entry->node_outputs_count] = object->device->device_info.vulkan_1_1_properties.subgroupSize;
+    }
+
+    if (entry->node_input->is_program_entry)
+    {
+        tmp->map_entries[tmp->spec_data_count - 1].offset = sizeof(uint32_t) * (tmp->spec_data_count - 1);
+        tmp->map_entries[tmp->spec_data_count - 1].size = sizeof(uint32_t);
+        tmp->map_entries[tmp->spec_data_count - 1].constantID = entry->node_input->is_indirect_bda_stride_program_entry_spec_id;
+
+        tmp->spec_data[tmp->spec_data_count - 1] = 0;
+        vr = VK_CALL(vkCreateComputePipelines(object->device->vk_device,
+                VK_NULL_HANDLE, 1, &pipeline_info, NULL,
+                &program->pipelines[entry_point_index].vk_cpu_node_entry_pipeline));
+
+        tmp->spec_data[tmp->spec_data_count - 1] = 1;
+        vr = VK_CALL(vkCreateComputePipelines(object->device->vk_device,
+                VK_NULL_HANDLE, 1, &pipeline_info, NULL,
+                &program->pipelines[entry_point_index].vk_gpu_node_entry_pipeline));
+    }
+    else
+    {
+        vr = VK_CALL(vkCreateComputePipelines(object->device->vk_device,
+                VK_NULL_HANDLE, 1, &pipeline_info, NULL,
+                &program->pipelines[entry_point_index].vk_non_entry_pipeline));
+    }
+
+    if (vr < 0)
+    {
+        ERR("Failed to create pipeline, vr %d\n", vr);
+        return hresult_from_vk_result(vr);
+    }
+
+    return S_OK;
+}
+
+static HRESULT d3d12_wg_state_object_compile_program(
+        struct d3d12_wg_state_object *object,
+        struct d3d12_wg_state_object_data *data,
+        struct d3d12_wg_state_object_program *program)
+{
+    struct d3d12_wg_state_object_spec_constant_tmp tmp;
+    unsigned int level;
+    HRESULT hr = S_OK;
+    unsigned int i;
+
+    memset(&tmp, 0, sizeof(tmp));
+    program->pipelines = vkd3d_calloc(data->entry_points_count, sizeof(*program->pipelines));
+    program->num_pipelines = data->entry_points_count;
 
     vkd3d_meta_get_workgraph_workgroup_pipeline(&object->device->meta_ops,
             &program->workgroup_distributor);
@@ -1253,110 +1396,19 @@ static HRESULT d3d12_wg_state_object_compile_program(
     for (level = 0; level < program->num_levels; level++)
     {
         const struct d3d12_workgraph_level_execution *exec = &program->levels[level];
-        const struct vkd3d_shader_library_entry_point *entry;
-
         for (i = 0; i < exec->nodes_count; i++)
-        {
-            unsigned int entry_point_index = exec->nodes[i];
-            if (program->pipelines[entry_point_index].vk_cpu_node_entry_pipeline != VK_NULL_HANDLE ||
-                    program->pipelines[entry_point_index].vk_gpu_node_entry_pipeline != VK_NULL_HANDLE ||
-                    program->pipelines[entry_point_index].vk_non_entry_pipeline != VK_NULL_HANDLE)
-            {
-                continue;
-            }
-
-            entry = &data->entry_points[entry_point_index];
-
-            /* TODO: These can be overridden during compilation. */
-            program->pipelines[entry_point_index].name = vkd3d_dup_entry_point(entry->node_input->node_id);
-            program->pipelines[entry_point_index].array_index = entry->node_input->node_array_index;
-
-            if (!entry->node_input->is_program_entry)
-            {
-                vkd3d_meta_get_workgraph_payload_offset_pipeline(&object->device->meta_ops,
-                        entry->node_input->node_track_rw_input_sharing ?
-                                entry->node_input->dispatch_grid_type_bits / 8 : 0,
-                        entry->node_input->dispatch_grid_is_upper_bound ? entry->node_input->dispatch_grid_components : 1,
-                        &program->pipelines[entry_point_index].payload_offset_expander);
-            }
-
-            /* Set up spec constants for node outputs, etc. This will
-             * have to be expanded a bit to also cover things like sparse array checks, recursion state, etc. */
-            spec_data_count = entry->node_outputs_count;
-            /* Workgroup size is also a spec constant. */
-            if (entry->node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_THREAD)
-                spec_data_count++;
-            if (entry->node_input->is_program_entry)
-                spec_data_count++;
-
-            if (spec_data_count)
-            {
-                vkd3d_array_reserve((void **)&spec_data, &spec_data_size, spec_data_count, sizeof(*spec_data));
-                vkd3d_array_reserve((void **)&map_entries, &map_entries_size, spec_data_count, sizeof(*map_entries));
-            }
-
-            pipeline_info.stage.module = object->modules[entry_point_index].vk_module;
-            pipeline_info.layout = object->modules[entry_point_index].vk_pipeline_layout;
-            if (d3d12_device_uses_descriptor_buffers(object->device))
-                pipeline_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
-            spec_info.pData = spec_data;
-            spec_info.dataSize = spec_data_count * sizeof(uint32_t);
-            spec_info.pMapEntries = map_entries;
-            spec_info.mapEntryCount = spec_data_count;
-
-            for (j = 0; j < entry->node_outputs_count; j++)
-            {
-                map_entries[j].offset = sizeof(uint32_t) * j;
-                map_entries[j].size = sizeof(uint32_t);
-                map_entries[j].constantID = entry->node_outputs[j].node_index_spec_constant_id;
-                spec_data[j] = d3d12_work_graph_find_node_by_id(
-                        data->entry_points, data->entry_points_count,
-                        entry->node_outputs[j].node_id, entry->node_outputs[j].node_array_index);
-            }
-
-            if (entry->node_input->launch_type == VKD3D_SHADER_NODE_LAUNCH_TYPE_THREAD)
-            {
-                map_entries[entry->node_outputs_count].offset = sizeof(uint32_t) * entry->node_outputs_count;
-                map_entries[entry->node_outputs_count].size = sizeof(uint32_t);
-                map_entries[entry->node_outputs_count].constantID = 0;
-                spec_data[entry->node_outputs_count] = object->device->device_info.vulkan_1_1_properties.subgroupSize;
-            }
-
-            if (entry->node_input->is_program_entry)
-            {
-                map_entries[spec_data_count - 1].offset = sizeof(uint32_t) * (spec_data_count - 1);
-                map_entries[spec_data_count - 1].size = sizeof(uint32_t);
-                map_entries[spec_data_count - 1].constantID = entry->node_input->is_indirect_bda_stride_program_entry_spec_id;
-
-                spec_data[spec_data_count - 1] = 0;
-                vr = VK_CALL(vkCreateComputePipelines(object->device->vk_device,
-                        VK_NULL_HANDLE, 1, &pipeline_info, NULL,
-                        &program->pipelines[entry_point_index].vk_cpu_node_entry_pipeline));
-
-                spec_data[spec_data_count - 1] = 1;
-                vr = VK_CALL(vkCreateComputePipelines(object->device->vk_device,
-                        VK_NULL_HANDLE, 1, &pipeline_info, NULL,
-                        &program->pipelines[entry_point_index].vk_gpu_node_entry_pipeline));
-            }
-            else
-            {
-                vr = VK_CALL(vkCreateComputePipelines(object->device->vk_device,
-                        VK_NULL_HANDLE, 1, &pipeline_info, NULL,
-                        &program->pipelines[entry_point_index].vk_non_entry_pipeline));
-            }
-
-            if (vr < 0)
-            {
-                ERR("Failed to create pipeline, vr %d\n", vr);
+            if (FAILED(hr = d3d12_wg_state_object_compile_pipeline(object, data, program, exec->nodes[i], &tmp)))
                 goto fail;
-            }
-        }
+
+        for (i = 0; i < exec->shared_nodes_count; i++)
+            if (FAILED(hr = d3d12_wg_state_object_compile_pipeline(object, data, program, exec->shared_nodes[i].node_pipeline_index, &tmp)))
+                goto fail;
     }
 
 fail:
-    vkd3d_free(map_entries);
-    vkd3d_free(spec_data);
-    return hresult_from_vk_result(vr);
+    vkd3d_free(tmp.map_entries);
+    vkd3d_free(tmp.spec_data);
+    return hr;
 }
 
 static HRESULT d3d12_wg_state_object_convert_entry_point(
