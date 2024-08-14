@@ -2464,6 +2464,7 @@ bool d3d12_command_allocator_allocate_query_from_type_index(
         uint32_t type_index, VkQueryPool *query_pool, uint32_t *query_index);
 
 struct d3d12_command_list *d3d12_command_list_from_iface(ID3D12CommandList *iface);
+void d3d12_command_list_decay_tracked_state(struct d3d12_command_list *list);
 
 enum vkd3d_pipeline_dirty_flag
 {

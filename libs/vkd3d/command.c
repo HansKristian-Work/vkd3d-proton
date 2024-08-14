@@ -5297,6 +5297,24 @@ static HRESULT d3d12_command_list_build_init_commands(struct d3d12_command_list 
     return S_OK;
 }
 
+void d3d12_command_list_decay_tracked_state(struct d3d12_command_list *list)
+{
+    /* TODO: Revisit this w.r.t. splitting VkCommandBuffer */
+    d3d12_command_list_end_current_render_pass(list, false);
+    d3d12_command_list_end_transfer_batch(list);
+    d3d12_command_list_flush_rtas_batch(list);
+
+    /* If we have kept some DSV resources in optimal layout throughout the command buffer,
+     * now is the time to decay them. */
+    d3d12_command_list_decay_optimal_dsv_resources(list);
+
+    /* If we have some pending copy barriers, need to resolve those now, since we cannot track across command lists. */
+    d3d12_command_list_resolve_buffer_copy_writes(list);
+
+    /* If there are pending subresource updates, execute them now that all other operations have completed */
+    d3d12_command_list_flush_subresource_updates(list);
+}
+
 static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_iface *iface)
 {
     struct d3d12_command_list *list = impl_from_ID3D12GraphicsCommandList(iface);
@@ -5318,10 +5336,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
     if (d3d12_device_use_embedded_mutable_descriptors(list->device))
         vkd3d_memcpy_non_temporal_barrier();
 
-    /* TODO: Revisit this w.r.t. splitting VkCommandBuffer */
-    d3d12_command_list_end_current_render_pass(list, false);
-    d3d12_command_list_end_transfer_batch(list);
-    d3d12_command_list_flush_rtas_batch(list);
+    d3d12_command_list_decay_tracked_state(list);
 
     if (list->predication.enabled_on_command_buffer)
         VK_CALL(vkCmdEndConditionalRenderingEXT(list->cmd.vk_command_buffer));
@@ -5331,16 +5346,6 @@ static HRESULT STDMETHODCALLTYPE d3d12_command_list_Close(d3d12_command_list_ifa
 
     if (list->is_inside_render_pass)
         d3d12_command_list_mark_as_invalid(list, "Close called with an active render pass.\n");
-
-    /* If we have kept some DSV resources in optimal layout throughout the command buffer,
-     * now is the time to decay them. */
-    d3d12_command_list_decay_optimal_dsv_resources(list);
-
-    /* If we have some pending copy barriers, need to resolve those now, since we cannot track across command lists. */
-    d3d12_command_list_resolve_buffer_copy_writes(list);
-
-    /* If there are pending subresource updates, execute them now that all other operations have completed */
-    d3d12_command_list_flush_subresource_updates(list);
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     if (vkd3d_config_flags & VKD3D_CONFIG_FLAG_BREADCRUMBS)
