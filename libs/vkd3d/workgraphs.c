@@ -197,7 +197,7 @@ static void d3d12_wg_state_object_cleanup_data(
             d3d12_root_signature_dec_ref(data->associations[i].root_signature);
         }
 
-        vkd3d_free((void*)data->associations[i].export);
+        /* Should only free export if we have deep duplication of associations. */
     }
 
     for (i = 0; i < data->subobject_root_signatures_count; i++)
