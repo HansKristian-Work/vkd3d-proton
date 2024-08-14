@@ -129,6 +129,10 @@ struct d3d12_wg_state_object_data
     size_t associations_size;
     size_t associations_count;
 
+    struct d3d12_root_signature **subobject_root_signatures;
+    size_t subobject_root_signatures_size;
+    size_t subobject_root_signatures_count;
+
     /* Used to finalize compilation later. */
     const struct D3D12_DXIL_LIBRARY_DESC **dxil_libraries;
     size_t dxil_libraries_size;
@@ -195,6 +199,11 @@ static void d3d12_wg_state_object_cleanup_data(
 
         vkd3d_free((void*)data->associations[i].export);
     }
+
+    for (i = 0; i < data->subobject_root_signatures_count; i++)
+        d3d12_root_signature_dec_ref(data->subobject_root_signatures[i]);
+    vkd3d_free(data->subobject_root_signatures);
+
     vkd3d_free(data->associations);
 }
 
@@ -202,6 +211,8 @@ static HRESULT d3d12_wg_state_object_parse_subobject(
         struct d3d12_wg_state_object_data *data, struct d3d12_device *device,
         const D3D12_STATE_SUBOBJECT *obj, unsigned int association_priority)
 {
+    unsigned int i;
+
     switch (obj->Type)
     {
         case D3D12_STATE_SUBOBJECT_TYPE_WORK_GRAPH:
@@ -276,6 +287,86 @@ static HRESULT d3d12_wg_state_object_parse_subobject(
             vkd3d_array_reserve((void**)&data->dxil_libraries, &data->dxil_libraries_size,
                     data->dxil_libraries_count + 1, sizeof(*data->dxil_libraries));
             data->dxil_libraries[data->dxil_libraries_count++] = lib;
+            break;
+        }
+
+        case D3D12_STATE_SUBOBJECT_TYPE_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION:
+        {
+            const D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION *association = obj->pDesc;
+            unsigned int num_associations = max(association->NumExports, 1);
+            const struct vkd3d_shader_library_subobject *subobject;
+            unsigned int root_signature_index = 0;
+            for (i = 0; i < data->subobjects_count; i++)
+            {
+                if (vkd3d_export_strequal(association->SubobjectToAssociate, data->subobjects[i].name))
+                    break;
+
+                if (data->subobjects[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE ||
+                        data->subobjects[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE)
+                {
+                    root_signature_index++;
+                }
+            }
+
+            if (i == data->subobjects_count)
+            {
+                ERR("Cannot find subobject %s.\n", debugstr_w(association->SubobjectToAssociate));
+                return E_INVALIDARG;
+            }
+
+            subobject = &data->subobjects[i];
+            vkd3d_array_reserve((void **)&data->associations, &data->associations_size,
+                    data->associations_count + num_associations,
+                    sizeof(*data->associations));
+
+            for (i = 0; i < num_associations; i++)
+            {
+                switch (subobject->kind)
+                {
+                    case VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE:
+                    case VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE:
+                        data->associations[data->associations_count].root_signature =
+                                data->subobject_root_signatures[root_signature_index];
+                        if (data->associations[data->associations_count].root_signature)
+                            d3d12_root_signature_inc_ref(data->associations[data->associations_count].root_signature);
+                        break;
+
+                    default:
+                        ERR("Unexpected type %u for DXIL -> object association.\n", subobject->kind);
+                        return E_INVALIDARG;
+                }
+
+                data->associations[data->associations_count].kind = subobject->kind;
+                data->associations[data->associations_count].export =
+                        association->NumExports ? association->pExports[i] : NULL;
+
+                if (association_priority == VKD3D_ASSOCIATION_PRIORITY_DECLARED_STATE_OBJECT &&
+                        association->NumExports)
+                {
+                    data->associations[data->associations_count].priority = VKD3D_ASSOCIATION_PRIORITY_EXPLICIT;
+                }
+                else if (association_priority == VKD3D_ASSOCIATION_PRIORITY_DECLARED_STATE_OBJECT)
+                {
+                    data->associations[data->associations_count].priority = VKD3D_ASSOCIATION_PRIORITY_EXPLICIT_DEFAULT;
+                }
+                else if (association->NumExports)
+                {
+                    data->associations[data->associations_count].priority =
+                            VKD3D_ASSOCIATION_PRIORITY_DXIL_SUBOBJECT_ASSIGNMENT_EXPLICIT;
+                }
+                else
+                {
+                    data->associations[data->associations_count].priority =
+                            VKD3D_ASSOCIATION_PRIORITY_DXIL_SUBOBJECT_ASSIGNMENT_DEFAULT;
+                }
+
+                TRACE("  Export: %s (prio %u)\n",
+                        association->NumExports ? debugstr_w(association->pExports[i]) : "NULL",
+                        data->associations[data->associations_count].priority);
+
+                data->associations_count++;
+            }
+
             break;
         }
 
@@ -560,14 +651,86 @@ static HRESULT d3d12_wg_state_object_parse_subobjects(
         struct d3d12_wg_state_object_data *data, struct d3d12_device *device,
         const D3D12_STATE_OBJECT_DESC *desc)
 {
+    struct d3d12_root_signature *root_signature;
     unsigned int i;
     HRESULT hr;
 
     for (i = 0; i < desc->NumSubobjects; i++)
     {
-        if (FAILED(hr = d3d12_wg_state_object_parse_subobject(data, device, &desc->pSubobjects[i],
-                VKD3D_ASSOCIATION_PRIORITY_DECLARED_STATE_OBJECT)))
+        const D3D12_STATE_SUBOBJECT *obj = &desc->pSubobjects[i];
+        if (obj->Type != D3D12_STATE_SUBOBJECT_TYPE_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION &&
+                obj->Type != D3D12_STATE_SUBOBJECT_TYPE_NODE_MASK)
+        {
+            if (FAILED(hr = d3d12_wg_state_object_parse_subobject(data, device, obj,
+                    VKD3D_ASSOCIATION_PRIORITY_DECLARED_STATE_OBJECT)))
+                return hr;
+        }
+    }
+
+    /* Make sure all child state has been parsed. */
+    for (i = 0; i < data->subobjects_count; i++)
+    {
+        D3D12_GLOBAL_ROOT_SIGNATURE obj_root_signature;
+        D3D12_STATE_SUBOBJECT obj;
+        obj.pDesc = NULL;
+
+        switch (data->subobjects[i].kind)
+        {
+            case VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE:
+            case VKD3D_SHADER_SUBOBJECT_KIND_LOCAL_ROOT_SIGNATURE:
+                /* No DXBC header here, just raw root signature binary. */
+                if (FAILED(hr = d3d12_root_signature_create_raw(device,
+                        data->subobjects[i].data.payload.data,
+                        data->subobjects[i].data.payload.size, &root_signature)))
+                    return hr;
+
+                d3d12_root_signature_inc_ref(root_signature);
+                ID3D12RootSignature_Release(&root_signature->ID3D12RootSignature_iface);
+
+                obj_root_signature.pGlobalRootSignature = &root_signature->ID3D12RootSignature_iface;
+                obj.Type = data->subobjects[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_GLOBAL_ROOT_SIGNATURE ?
+                        D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE :
+                        D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE;
+                obj.pDesc = &obj_root_signature;
+
+                vkd3d_array_reserve((void**)&data->subobject_root_signatures, &data->subobject_root_signatures_size,
+                        data->subobject_root_signatures_count + 1, sizeof(*data->subobject_root_signatures));
+                data->subobject_root_signatures[data->subobject_root_signatures_count++] = root_signature;
+                break;
+
+            default:
+                break;
+        }
+
+        if (obj.pDesc && FAILED(hr = d3d12_wg_state_object_parse_subobject(
+                data, device, &obj, VKD3D_ASSOCIATION_PRIORITY_DXIL_SUBOBJECT)))
             return hr;
+    }
+
+    for (i = 0; i < desc->NumSubobjects; i++)
+    {
+        const D3D12_STATE_SUBOBJECT *obj = &desc->pSubobjects[i];
+        /* Now we can parse DXIL subobject -> export associations. */
+        if (obj->Type == D3D12_STATE_SUBOBJECT_TYPE_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION)
+        {
+            if (FAILED(hr = d3d12_wg_state_object_parse_subobject(data, device, obj,
+                    VKD3D_ASSOCIATION_PRIORITY_DECLARED_STATE_OBJECT)))
+                return hr;
+        }
+    }
+
+    /* Finally, parse subobject version of DXIL subobject to export. */
+    for (i = 0; i < data->subobjects_count; i++)
+    {
+        if (data->subobjects[i].kind == VKD3D_SHADER_SUBOBJECT_KIND_SUBOBJECT_TO_EXPORTS_ASSOCIATION)
+        {
+            D3D12_STATE_SUBOBJECT obj;
+            obj.Type = D3D12_STATE_SUBOBJECT_TYPE_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION;
+            obj.pDesc = &data->subobjects[i].data.association;
+            if (FAILED(hr = d3d12_wg_state_object_parse_subobject(data, device, &obj,
+                    VKD3D_ASSOCIATION_PRIORITY_DXIL_SUBOBJECT)))
+                return hr;
+        }
     }
 
     return S_OK;
@@ -1710,6 +1873,8 @@ static HRESULT d3d12_wg_state_object_init(struct d3d12_wg_state_object *object, 
     HRESULT hr = S_OK;
 
     memset(&data, 0, sizeof(data));
+    object->device = device;
+
     if (FAILED(hr = d3d12_wg_state_object_parse_subobjects(&data, device, desc)))
         goto fail;
 
@@ -1718,7 +1883,6 @@ static HRESULT d3d12_wg_state_object_init(struct d3d12_wg_state_object *object, 
     object->ID3D12WorkGraphProperties_iface.lpVtbl = &d3d12_work_graph_properties_vtbl;
     object->refcount = 1;
     object->internal_refcount = 1;
-    object->device = device;
     object->type = desc->Type;
 
     if (FAILED(hr = d3d12_wg_state_object_compile_programs(object, &data)))
@@ -1887,8 +2051,12 @@ static unsigned int d3d12_command_list_workgraph_remaining_levels(
         unsigned int level,
         unsigned int node_index)
 {
+    /* This could be precomputed if need be. */
+
     unsigned int end_level;
     unsigned int i;
+
+    /* Increment the recursion factor as long as we can find the same node duplicated in next level as well. */
     for (end_level = level + 1; end_level < program->num_levels; end_level++)
     {
         for (i = 0; i < program->levels[end_level].nodes_count; i++)
