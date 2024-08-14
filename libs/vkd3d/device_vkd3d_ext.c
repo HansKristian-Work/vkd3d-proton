@@ -493,7 +493,12 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_BeginVkCommandBufferI
     if (!cmd_list)
         return E_INVALIDARG;
 
-    FIXME("Additional state invalidation may be needed. Write+run more tests for mid-command-list interop");
+    if (cmd_list->is_inside_render_pass)
+        FIXME("Interop may not work inside a D3D12 render pass.\n");
+    if (cmd_list->predication.enabled_on_command_buffer)
+        FIXME("Leaking predication across interop barrier. May not work as intended.\n");
+
+    d3d12_command_list_decay_tracked_state(cmd_list);
     d3d12_command_list_invalidate_all_state(cmd_list);
 
     *cmdBuf = cmd_list->cmd.vk_command_buffer;
