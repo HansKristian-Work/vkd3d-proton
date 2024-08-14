@@ -1882,6 +1882,34 @@ static void d3d12_command_list_workgraph_bind_resources(struct d3d12_command_lis
     }
 }
 
+static unsigned int d3d12_command_list_workgraph_remaining_levels(
+        const struct d3d12_wg_state_object_program *program,
+        unsigned int level,
+        unsigned int node_index)
+{
+    unsigned int end_level;
+    unsigned int i;
+    for (end_level = level + 1; end_level < program->num_levels; end_level++)
+    {
+        for (i = 0; i < program->levels[end_level].nodes_count; i++)
+            if (program->levels[end_level].nodes[i] == node_index)
+                break;
+
+        if (i == program->levels[end_level].nodes_count)
+            break;
+    }
+
+    /* This is slightly questionable. I'm not sure if we technically need to track different recursion states
+     * per level. E.g. assume 3 nodes: A, B and C, where C is recursive.
+     * A -> B
+     * A -> C
+     * B -> C
+     * In this situation, inputs coming from B would execute at a different recursion level from A.
+     * Hopefully we don't need to care about this situation. In that case we'd have to invent virtual nodes,
+     * but let's only care about this hypothetical scenario if someone actually relies on that. */
+    return end_level - level - 1;
+}
+
 static void d3d12_command_list_workgraph_execute_node_cpu_entry(struct d3d12_command_list *list,
         const struct d3d12_wg_state_object *state,
         const struct d3d12_wg_state_object_program *program,
@@ -1909,6 +1937,7 @@ static void d3d12_command_list_workgraph_execute_node_cpu_entry(struct d3d12_com
 
     push.node_payload_bda = input_payload;
     push.node_payload_output_bda = output_payload;
+    push.node_remaining_recursion_levels = d3d12_command_list_workgraph_remaining_levels(program, 0, node_index);
 
     push.node_payload_stride_or_offsets_bda = desc->RecordStrideInBytes;
     if (!d3d12_command_allocator_allocate_scratch_memory(list->allocator,
@@ -2153,7 +2182,7 @@ static void d3d12_command_list_workgraph_execute_node_gpu(
         struct d3d12_command_list *list, const struct d3d12_wg_state_object *state,
         const struct d3d12_wg_state_object_program *program,
         D3D12_GPU_VIRTUAL_ADDRESS output_va, D3D12_GPU_VIRTUAL_ADDRESS input_va,
-        unsigned int node_index, const struct vkd3d_scratch_allocation *indirect_scratch,
+        unsigned int level, unsigned int node_index, const struct vkd3d_scratch_allocation *indirect_scratch,
         VkBuffer vk_root_parameter_buffer, VkDeviceSize vk_root_parameter_buffer_offset)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &list->device->vk_procs;
@@ -2180,6 +2209,7 @@ static void d3d12_command_list_workgraph_execute_node_gpu(
             vk_root_parameter_buffer, vk_root_parameter_buffer_offset);
 
     push.node_payload_output_bda = output_va;
+    push.node_remaining_recursion_levels = d3d12_command_list_workgraph_remaining_levels(program, level, node_index);
 
     if (indirect_scratch)
     {
@@ -2330,7 +2360,7 @@ static void d3d12_command_list_workgraph_execute_level(struct d3d12_command_list
     for (i = 0; i < program->levels[level].nodes_count; i++)
     {
         d3d12_command_list_workgraph_execute_node_gpu(list, state, program,
-                output_payload, input_payload, program->levels[level].nodes[i], NULL,
+                output_payload, input_payload, level, program->levels[level].nodes[i], NULL,
                 vk_root_parameter_buffer, vk_root_parameter_buffer_offset);
     }
 
@@ -2338,7 +2368,7 @@ static void d3d12_command_list_workgraph_execute_level(struct d3d12_command_list
     for (i = 0; i < program->levels[level].shared_nodes_count; i++)
     {
         d3d12_command_list_workgraph_execute_node_gpu(list, state, program,
-                output_payload, input_payload, program->levels[level].shared_nodes[i].node_pipeline_index, NULL,
+                output_payload, input_payload, level, program->levels[level].shared_nodes[i].node_pipeline_index, NULL,
                 vk_root_parameter_buffer, vk_root_parameter_buffer_offset);
     }
 }
@@ -2460,7 +2490,7 @@ static void d3d12_command_list_workgraph_execute_entry_gpu(
     for (i = 0; i < program->levels[0].nodes_count; i++)
     {
         d3d12_command_list_workgraph_execute_node_gpu(
-                list, state, program, state->payload[0].va, va, program->levels[0].nodes[i],
+                list, state, program, state->payload[0].va, va, 0, program->levels[0].nodes[i],
                 &indirect_scratch, vk_root_param_buffer, vk_root_param_offset);
     }
 
@@ -2468,7 +2498,7 @@ static void d3d12_command_list_workgraph_execute_entry_gpu(
     for (i = 0; i < program->levels[0].shared_nodes_count; i++)
     {
         d3d12_command_list_workgraph_execute_node_gpu(
-                list, state, program, state->payload[0].va, va, program->levels[0].shared_nodes[i].node_pipeline_index,
+                list, state, program, state->payload[0].va, va, 0, program->levels[0].shared_nodes[i].node_pipeline_index,
                 &indirect_scratch, vk_root_param_buffer, vk_root_param_offset);
     }
 }
