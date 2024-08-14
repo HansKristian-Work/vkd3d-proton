@@ -2000,7 +2000,7 @@ void d3d12_command_list_workgraph_initialize_scratch(struct d3d12_command_list *
 static void d3d12_command_list_workgraph_bind_resources(struct d3d12_command_list *list,
         const struct d3d12_wg_state_object *state,
         const struct d3d12_wg_state_object_program *program,
-        VkPipelineLayout vk_layout, uint32_t vk_push_set,
+        const struct d3d12_wg_state_object_module *module,
         VkBuffer vk_root_parameter_buffer, VkDeviceSize vk_root_parameter_buffer_offset)
 {
     const struct vkd3d_bindless_state *bindless_state = &list->device->bindless_state;
@@ -2012,7 +2012,7 @@ static void d3d12_command_list_workgraph_bind_resources(struct d3d12_command_lis
     if (d3d12_device_uses_descriptor_buffers(list->device))
     {
         VK_CALL(vkCmdSetDescriptorBufferOffsetsEXT(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                vk_layout, 0, bindless_state->set_count,
+                module->vk_pipeline_layout, 0, bindless_state->set_count,
                 bindless_state->vk_descriptor_buffer_indices,
                 list->descriptor_heap.buffers.vk_offsets));
     }
@@ -2023,13 +2023,13 @@ static void d3d12_command_list_workgraph_bind_resources(struct d3d12_command_lis
             if (list->descriptor_heap.sets.vk_sets[i])
             {
                 VK_CALL(vkCmdBindDescriptorSets(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                        vk_layout, i, 1,
+                        module->vk_pipeline_layout, i, 1,
                         &list->descriptor_heap.sets.vk_sets[i], 0, NULL));
             }
         }
     }
 
-    if (vk_push_set != UINT32_MAX)
+    if (module->push_set_index != UINT32_MAX)
     {
         memset(&write, 0, sizeof(write));
         write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -2042,8 +2042,26 @@ static void d3d12_command_list_workgraph_bind_resources(struct d3d12_command_lis
         buffer_info.range = sizeof(union vkd3d_root_parameter_data);
 
         VK_CALL(vkCmdPushDescriptorSetKHR(list->cmd.vk_command_buffer,
-                VK_PIPELINE_BIND_POINT_COMPUTE, vk_layout, vk_push_set, 1, &write));
+                VK_PIPELINE_BIND_POINT_COMPUTE, module->vk_pipeline_layout, module->push_set_index, 1, &write));
     }
+
+    if (module->root_signature)
+    {
+        if (module->root_signature->vk_sampler_set)
+        {
+            VK_CALL(vkCmdBindDescriptorSets(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    module->vk_pipeline_layout,
+                    module->root_signature->sampler_descriptor_set,
+                    1, &module->root_signature->vk_sampler_set, 0, NULL));
+        }
+        else if (module->root_signature->vk_sampler_descriptor_layout)
+        {
+            VK_CALL(vkCmdBindDescriptorBufferEmbeddedSamplersEXT(list->cmd.vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    module->vk_pipeline_layout, module->root_signature->sampler_descriptor_set));
+        }
+    }
+
+    /* TODO: Bind local sampler set. */
 }
 
 static unsigned int d3d12_command_list_workgraph_remaining_levels(
@@ -2098,7 +2116,7 @@ static void d3d12_command_list_workgraph_execute_node_cpu_entry(struct d3d12_com
     /* Just rebind resources every time. We have to execute intermediate shaders anyway,
      * which clobbers all descriptor state. */
     d3d12_command_list_workgraph_bind_resources(list, state, program,
-            vk_layout, state->modules[node_index].push_set_index,
+            &state->modules[node_index],
             vk_root_parameter_buffer, vk_root_parameter_buffer_offset);
 
     node_input = state->entry_points[node_index].node_input;
@@ -2373,7 +2391,7 @@ static void d3d12_command_list_workgraph_execute_node_gpu(
     /* Just rebind resources every time. We have to execute intermediate shaders anyway,
      * which clobbers all descriptor state. */
     d3d12_command_list_workgraph_bind_resources(list, state, program,
-            vk_layout, state->modules[node_index].push_set_index,
+            &state->modules[node_index],
             vk_root_parameter_buffer, vk_root_parameter_buffer_offset);
 
     push.node_payload_output_bda = output_va;
