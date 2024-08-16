@@ -53,11 +53,11 @@ if [[ -z $d3d12_bin || ! -f "$d3d12_bin" ]] ; then
 	exit 1
 fi
 
-tests=()
+mapfile -t tests < <(grep -w decl_test tests/d3d12_tests.h|cut -d'(' -f2|cut -d')' -f1)
 if [[ -z $run_stress ]] ; then
-	tests=($(grep -w decl_test tests/d3d12_tests.h|grep -v stress|cut -d'(' -f2|cut -d')' -f1))
-else
-	tests=($(grep -w decl_test tests/d3d12_tests.h|cut -d'(' -f2|cut -d')' -f1))
+	for index in "${!tests[@]}" ; do
+		[[ "${tests[$index]}" != *stress* ]] || unset -v 'tests[$index]'
+	done
 fi
 
 # runtime variable init
