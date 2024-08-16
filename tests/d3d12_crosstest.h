@@ -772,6 +772,12 @@ static inline void parse_args(int argc, char **argv)
             use_warp_device = true;
         else if (!strcmp(argv[i], "--adapter") && i + 1 < argc)
             use_adapter_idx = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--list-tests")) {
+#define decl_test(x) printf("%s\n", #x)
+#include "d3d12_tests.h"
+#undef decl_test
+          exit(0);
+        }
     }
 }
 
