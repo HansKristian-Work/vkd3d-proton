@@ -53,7 +53,7 @@ if [[ -z $d3d12_bin || ! -f "$d3d12_bin" ]] ; then
 	exit 1
 fi
 
-mapfile -t tests < <(grep -w decl_test tests/d3d12_tests.h|cut -d'(' -f2|cut -d')' -f1)
+mapfile -t tests < <("$d3d12_bin" --list-tests)
 if [[ -z $run_stress ]] ; then
 	for index in "${!tests[@]}" ; do
 		[[ "${tests[$index]}" != *stress* ]] || unset -v 'tests[$index]'
