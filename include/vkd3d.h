@@ -113,9 +113,9 @@ struct vkd3d_instance_create_info
     PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr;
 
     const char * const *instance_extensions;
-    uint32_t instance_extension_count;
-
     const char * const *optional_instance_extensions;
+
+    uint32_t instance_extension_count;
     uint32_t optional_instance_extension_count;
 };
 

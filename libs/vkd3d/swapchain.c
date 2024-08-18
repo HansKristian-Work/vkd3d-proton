@@ -64,8 +64,8 @@ struct dxgi_vk_swap_chain_present_request
     DXGI_FORMAT dxgi_format;
     DXGI_COLOR_SPACE_TYPE dxgi_color_space_type;
     DXGI_VK_HDR_METADATA dxgi_hdr_metadata;
-    uint32_t swap_interval;
     uint64_t low_latency_frame_id;
+    uint32_t swap_interval;
     struct low_latency_state requested_low_latency_state;
     bool low_latency_update_requested;
     bool modifies_hdr_metadata;
