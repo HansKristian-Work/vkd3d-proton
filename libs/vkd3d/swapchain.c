@@ -112,6 +112,7 @@ struct dxgi_vk_swap_chain
 
     UINT frame_latency;
     UINT frame_latency_internal;
+    uint32_t frame_latency_internal_blocking;
     VkSurfaceKHR vk_surface;
 
     struct low_latency_state requested_low_latency_state;
@@ -971,6 +972,9 @@ static void dxgi_vk_swap_chain_wait_internal_handle(struct dxgi_vk_swap_chain *c
         }
     }
 
+    if (!vkd3d_atomic_uint32_load_explicit(&chain->frame_latency_internal_blocking, vkd3d_memory_order_relaxed))
+        non_blocking_internal_handle_wait = true;
+
     if (non_blocking_internal_handle_wait)
     {
         /* Just make sure the counter doesn't get unbounded. */
@@ -1365,15 +1369,25 @@ static HRESULT dxgi_vk_swap_chain_init_sync_objects(struct dxgi_vk_swap_chain *c
          * This effect has been observed in enough games now that it's too risky to enable that behavior by default. */
         chain->frame_latency_internal = DEFAULT_FRAME_LATENCY;
 
+        /* If game is using latency handles, we should let the app have control over blocking,
+         * but some games are broken, so if we dynamically detect that the game is not properly
+         * waiting on latency handles, then we kick in blocking behavior. */
+        chain->frame_latency_internal_blocking =
+                (chain->desc.Flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT) ? 0 : 1;
+
         if (vkd3d_get_env_var("VKD3D_SWAPCHAIN_LATENCY_FRAMES", env, sizeof(env)))
         {
             latency_override = strtoul(env, NULL, 0);
             if (latency_override >= 1 && latency_override <= DXGI_MAX_SWAP_CHAIN_BUFFERS)
+            {
                 chain->frame_latency_internal = latency_override;
+                /* If we have explicit latency, start in the blocking path. */
+                chain->frame_latency_internal_blocking = 1;
+            }
         }
 
-        INFO("Ensure maximum latency of %u frames with KHR_present_wait.\n",
-                chain->frame_latency_internal);
+        INFO("Ensure maximum latency of %u frames with KHR_present_wait (blocking %u).\n",
+                chain->frame_latency_internal, chain->frame_latency_internal_blocking);
 
         /* On the first frame, we are supposed to acquire,
          * but we only acquire after a Present, so do the implied one here.
@@ -2741,6 +2755,9 @@ static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
                     WARN("Incrementing frame latency semaphore beyond max latency. "
                             "Did application forget to acquire? (new count = %d, max latency = %u)\n",
                             previous_semaphore + 1, chain->frame_latency);
+
+                    if (!vkd3d_atomic_uint32_exchange_explicit(&chain->frame_latency_internal_blocking, 1, vkd3d_memory_order_relaxed))
+                        INFO("Entering blocking path for latency handles as application appears to forget to acquire the handle.\n");
                 }
             }
             else
