@@ -2615,8 +2615,10 @@ static void dxgi_vk_swap_chain_platform_sleep_for_ns(struct platform_sleep_state
 
 static void dxgi_vk_swap_chain_delay_next_frame(struct dxgi_vk_swap_chain *chain, uint64_t current_time_ns)
 {
+    struct vkd3d_queue_timeline_trace *timeline_trace = &chain->queue->device->queue_timeline_trace;
     struct platform_sleep_state *sleep_state = &chain->frame_rate_limit.sleep_state;
     uint64_t window_start_time_ns, window_total_time_ns;
+    struct vkd3d_queue_timeline_trace_cookie cookie;
     uint64_t sleep_threshold_ns, sleep_duration_ns;
     uint64_t next_deadline_ns = 0;
 
@@ -2678,6 +2680,7 @@ static void dxgi_vk_swap_chain_delay_next_frame(struct dxgi_vk_swap_chain *chain
     sleep_duration_ns = next_deadline_ns - current_time_ns;
     sleep_threshold_ns = sleep_state->sleep_threshold_ns + sleep_duration_ns / 6;
 
+    cookie = vkd3d_queue_timeline_trace_register_delay_sleep(timeline_trace);
     while (sleep_duration_ns > sleep_threshold_ns)
     {
         dxgi_vk_swap_chain_platform_sleep_for_ns(sleep_state, sleep_duration_ns - sleep_threshold_ns);
@@ -2691,6 +2694,7 @@ static void dxgi_vk_swap_chain_delay_next_frame(struct dxgi_vk_swap_chain *chain
         vkd3d_pause();
         current_time_ns = vkd3d_get_current_time_ns();
     }
+    vkd3d_queue_timeline_trace_complete_delay_sleep(timeline_trace, cookie);
 }
 
 static void *dxgi_vk_swap_chain_wait_worker(void *chain_)
