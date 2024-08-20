@@ -516,15 +516,15 @@ struct vkd3d_shader_quirk_info vkd3d_shader_quirk_info;
 
 struct vkd3d_instance_application_meta
 {
-    enum vkd3d_string_compare_mode mode;
     const char *name;
     uint64_t global_flags_add;
     uint64_t global_flags_remove;
+    enum vkd3d_string_compare_mode mode;
     enum vkd3d_application_feature_override override;
 };
 static const struct vkd3d_instance_application_meta application_override[] = {
     /* MSVC fails to compile empty array. */
-    { VKD3D_STRING_COMPARE_EXACT, "GravityMark.exe", VKD3D_CONFIG_FLAG_FORCE_MINIMUM_SUBGROUP_SIZE, 0 },
+    { "GravityMark.exe", VKD3D_CONFIG_FLAG_FORCE_MINIMUM_SUBGROUP_SIZE, 0, VKD3D_STRING_COMPARE_EXACT },
     /* Halo Infinite (1240440).
      * Game relies on NON_ZEROED committed UAVs to be cleared to zero on allocation.
      * This works okay with zerovram on first game boot, but not later, since this memory is guaranteed to be recycled.
@@ -533,76 +533,76 @@ static const struct vkd3d_instance_application_meta application_override[] = {
      * Need another config flag to workaround that as well.
      * Poor loading times and performance with ReBar on some devices.
      */
-    { VKD3D_STRING_COMPARE_EXACT, "HaloInfinite.exe",
+    { "HaloInfinite.exe",
             VKD3D_CONFIG_FLAG_ZERO_MEMORY_WORKAROUNDS_COMMITTED_BUFFER_UAV | VKD3D_CONFIG_FLAG_FORCE_RAW_VA_CBV |
             VKD3D_CONFIG_FLAG_USE_HOST_IMPORT_FALLBACK | VKD3D_CONFIG_FLAG_PREALLOCATE_SRV_MIP_CLAMPS |
             VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES | VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV |
-            VKD3D_CONFIG_FLAG_DISABLE_NV_DGCC, 0 },
+            VKD3D_CONFIG_FLAG_DISABLE_NV_DGCC, 0, VKD3D_STRING_COMPARE_EXACT },
     /* (1182900) Workaround amdgpu kernel bug with host memory import and concurrent submissions. */
-    { VKD3D_STRING_COMPARE_EXACT, "APlagueTaleRequiem_x64.exe",
-            VKD3D_CONFIG_FLAG_USE_HOST_IMPORT_FALLBACK | VKD3D_CONFIG_FLAG_DISABLE_UAV_COMPRESSION, 0 },
+    { "APlagueTaleRequiem_x64.exe",
+            VKD3D_CONFIG_FLAG_USE_HOST_IMPORT_FALLBACK | VKD3D_CONFIG_FLAG_DISABLE_UAV_COMPRESSION, 0, VKD3D_STRING_COMPARE_EXACT },
     /* Shadow of the Tomb Raider (750920).
      * Invariant workarounds actually cause more issues than they resolve on NV.
      * RADV already has workarounds by default.
      * FIXME: The proper workaround will be a workaround which force-emits mul + add + precise. The vertex shaders
      * are broken enough that normal invariance is not enough. */
-    { VKD3D_STRING_COMPARE_EXACT, "SOTTR.exe", VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION, 0 },
+    { "SOTTR.exe", VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION, 0, VKD3D_STRING_COMPARE_EXACT },
     /* Elden Ring (1245620).
      * Game is really churny on committed memory allocations, and does not use NOT_ZEROED. Clearing works causes bubbles.
      * It seems to work just fine however to skip the clears. */
-    { VKD3D_STRING_COMPARE_EXACT, "eldenring.exe",
+    { "eldenring.exe",
             VKD3D_CONFIG_FLAG_MEMORY_ALLOCATOR_SKIP_CLEAR | VKD3D_CONFIG_FLAG_PIPELINE_LIBRARY_IGNORE_MISMATCH_DRIVER |
-            VKD3D_CONFIG_FLAG_RECYCLE_COMMAND_POOLS, 0 },
+            VKD3D_CONFIG_FLAG_RECYCLE_COMMAND_POOLS, 0, VKD3D_STRING_COMPARE_EXACT },
     /* Serious Sam 4 (257420).
      * Invariant workarounds cause graphical glitches when rendering foliage on NV. */
-    { VKD3D_STRING_COMPARE_EXACT, "Sam4.exe", VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION | VKD3D_CONFIG_FLAG_SMALL_VRAM_REBAR, 0 },
+    { "Sam4.exe", VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION | VKD3D_CONFIG_FLAG_SMALL_VRAM_REBAR, 0, VKD3D_STRING_COMPARE_EXACT },
     /* Cyberpunk 2077 (1091500). */
-    { VKD3D_STRING_COMPARE_EXACT, "Cyberpunk2077.exe", VKD3D_CONFIG_FLAG_ALLOW_SBT_COLLECTION, 0 },
+    { "Cyberpunk2077.exe", VKD3D_CONFIG_FLAG_ALLOW_SBT_COLLECTION, 0, VKD3D_STRING_COMPARE_EXACT },
     /* Resident Evil: Village (1196590).
      * Game relies on mesh + sampler feedback to be exposed to use DXR.
      * Likely used as a proxy for Turing+ to avoid potential software fallbacks on Pascal. */
-    { VKD3D_STRING_COMPARE_EXACT, "re8.exe",
-            VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
+    { "re8.exe",
+            VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_STRING_COMPARE_EXACT, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
     /* Resident Evil 2 remake (883710). Same as RE: Village. */
-    { VKD3D_STRING_COMPARE_EXACT, "re2.exe",
-            VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
-    { VKD3D_STRING_COMPARE_EXACT, "re3.exe",
-            VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
-    { VKD3D_STRING_COMPARE_EXACT, "re4.exe",
-            0, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
-    { VKD3D_STRING_COMPARE_EXACT, "re4demo.exe",
-            0, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
-    { VKD3D_STRING_COMPARE_EXACT, "re7.exe",
-            VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
+    { "re2.exe",
+            VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_STRING_COMPARE_EXACT, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
+    { "re3.exe",
+            VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_STRING_COMPARE_EXACT, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
+    { "re4.exe",
+            0, 0, VKD3D_STRING_COMPARE_EXACT, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
+    { "re4demo.exe",
+            0, 0, VKD3D_STRING_COMPARE_EXACT, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
+    { "re7.exe",
+            VKD3D_CONFIG_FLAG_FORCE_NATIVE_FP16, 0, VKD3D_STRING_COMPARE_EXACT, VKD3D_APPLICATION_FEATURE_OVERRIDE_PROMOTE_DXR_TO_ULTIMATE },
     /* Control (870780). Control fails to detect DXR if 1.1 is exposed. */
-    { VKD3D_STRING_COMPARE_EXACT, "Control_DX12.exe", 0, 0, VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0 },
+    { "Control_DX12.exe", 0, 0, VKD3D_STRING_COMPARE_EXACT, VKD3D_APPLICATION_FEATURE_LIMIT_DXR_1_0 },
     /* Hellblade: Senua's Sacrifice (414340). Enables RT by default if supported which is ... jarring and particularly jarring on Deck. */
-    { VKD3D_STRING_COMPARE_EXACT, "HellbladeGame-Win64-Shipping.exe", 0, 0, VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK },
+    { "HellbladeGame-Win64-Shipping.exe", 0, 0, VKD3D_STRING_COMPARE_EXACT, VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK },
     /* Lost Judgment (2058190) */
-    { VKD3D_STRING_COMPARE_EXACT, "LostJudgment.exe", VKD3D_CONFIG_FLAG_FORCE_INITIAL_TRANSITION, 0 },
+    { "LostJudgment.exe", VKD3D_CONFIG_FLAG_FORCE_INITIAL_TRANSITION, 0, VKD3D_STRING_COMPARE_EXACT },
     /* Marvel's Spider-Man Remastered (1817070) */
-    { VKD3D_STRING_COMPARE_EXACT, "Spider-Man.exe", VKD3D_CONFIG_FLAG_FORCE_INITIAL_TRANSITION, 0 },
+    { "Spider-Man.exe", VKD3D_CONFIG_FLAG_FORCE_INITIAL_TRANSITION, 0, VKD3D_STRING_COMPARE_EXACT },
     /* Marvel’s Spider-Man: Miles Morales (1817190) */
-    { VKD3D_STRING_COMPARE_EXACT, "MilesMorales.exe", VKD3D_CONFIG_FLAG_FORCE_INITIAL_TRANSITION, 0 },
-    /* Deus Ex: Mankind United (337000) */
-    { VKD3D_STRING_COMPARE_EXACT, "DXMD.exe", VKD3D_CONFIG_FLAG_FORCE_INITIAL_TRANSITION, 0 },
+    { "MilesMorales.exe", VKD3D_CONFIG_FLAG_FORCE_INITIAL_TRANSITION, 0, VKD3D_STRING_COMPARE_EXACT },
+    /* Deus Ex: Mankind Divided (337000) */
+    { "DXMD.exe", VKD3D_CONFIG_FLAG_FORCE_INITIAL_TRANSITION, 0, VKD3D_STRING_COMPARE_EXACT },
     /* Dead Space (2023) (1693980) */
-    { VKD3D_STRING_COMPARE_EXACT, "Dead Space.exe", VKD3D_CONFIG_FLAG_FORCE_DEDICATED_IMAGE_ALLOCATION, 0 },
+    { "Dead Space.exe", VKD3D_CONFIG_FLAG_FORCE_DEDICATED_IMAGE_ALLOCATION, 0, VKD3D_STRING_COMPARE_EXACT },
     /* Witcher 3 (2023) (292030) */
-    { VKD3D_STRING_COMPARE_EXACT, "witcher3.exe", VKD3D_CONFIG_FLAG_DISABLE_SIMULTANEOUS_UAV_COMPRESSION, 0 },
+    { "witcher3.exe", VKD3D_CONFIG_FLAG_DISABLE_SIMULTANEOUS_UAV_COMPRESSION, 0, VKD3D_STRING_COMPARE_EXACT },
     /* Age of Wonders 4 (1669000). Extremely stuttery performance with ReBAR. */
-    { VKD3D_STRING_COMPARE_EXACT, "AOW4.exe", VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0 },
+    { "AOW4.exe", VKD3D_CONFIG_FLAG_NO_UPLOAD_HVV, 0, VKD3D_STRING_COMPARE_EXACT },
     /* Horizon Forbidden West (2420110). Work around RADV 23.3.1 that ships on stableOS at time of making WAR. */
-    { VKD3D_STRING_COMPARE_EXACT, "HorizonForbiddenWest.exe", VKD3D_CONFIG_FLAG_DRIVER_VERSION_SENSITIVE_SHADERS, 0 },
+    { "HorizonForbiddenWest.exe", VKD3D_CONFIG_FLAG_DRIVER_VERSION_SENSITIVE_SHADERS, 0, VKD3D_STRING_COMPARE_EXACT },
     /* Starfield (1716740) */
-    { VKD3D_STRING_COMPARE_EXACT, "Starfield.exe",
-            VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES | VKD3D_CONFIG_FLAG_REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT, 0 },
+    { "Starfield.exe",
+            VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES | VKD3D_CONFIG_FLAG_REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT, 0, VKD3D_STRING_COMPARE_EXACT },
     /* Persona 3 Reload (2161700). Enables RT by default on Deck and does not run acceptably for a verified title. */
-    { VKD3D_STRING_COMPARE_EXACT, "P3R.exe", 0, 0, VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK },
+    { "P3R.exe", 0, 0, VKD3D_STRING_COMPARE_EXACT, VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK },
     /* Unreal Engine catch-all. ReBAR is a massive uplift on RX 7600 for example in Wukong.
      * AMD windows drivers also seem to have some kind of general app-opt for UE titles. */
-    { VKD3D_STRING_COMPARE_ENDS_WITH, "-Win64-Shipping.exe", VKD3D_CONFIG_FLAG_SMALL_VRAM_REBAR, 0 },
-    { VKD3D_STRING_COMPARE_NEVER, NULL, 0, 0 }
+    { "-Win64-Shipping.exe", VKD3D_CONFIG_FLAG_SMALL_VRAM_REBAR, 0, VKD3D_STRING_COMPARE_ENDS_WITH },
+    { NULL, 0, 0, VKD3D_STRING_COMPARE_NEVER }
 };
 
 struct vkd3d_shader_quirk_meta

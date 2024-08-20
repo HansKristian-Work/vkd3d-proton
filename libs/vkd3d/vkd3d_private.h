@@ -540,12 +540,12 @@ enum vkd3d_waiting_event_type
 
 struct vkd3d_waiting_event
 {
-    enum vkd3d_waiting_event_type wait_type;
     uint64_t value;
     vkd3d_native_sync_handle handle;
     bool *latch;
     uint32_t *payload;
     struct vkd3d_queue_timeline_trace_cookie timeline_cookie;
+    enum vkd3d_waiting_event_type wait_type;
 };
 
 struct d3d12_fence
@@ -793,13 +793,14 @@ enum vkd3d_memory_transfer_op
 
 struct vkd3d_memory_transfer_info
 {
-    enum vkd3d_memory_transfer_op op;
     struct vkd3d_memory_allocation *allocation;
 
     struct d3d12_resource *resource;
     uint32_t subresource_idx;
     VkOffset3D offset;
     VkExtent3D extent;
+
+    enum vkd3d_memory_transfer_op op;
 };
 
 struct vkd3d_memory_transfer_tracked_resource
@@ -5205,8 +5206,8 @@ struct d3d12_state_object_variant
         VkPipelineLayout pipeline_layout;
         VkDescriptorSet desc_set;
         VkDescriptorPool desc_pool;
-        uint32_t set_index;
         uint64_t compatibility_hash;
+        uint32_t set_index;
         bool owned_handles;
     } local_static_sampler;
 };

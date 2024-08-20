@@ -541,8 +541,8 @@ struct vkd3d_shader_register
     enum vkd3d_shader_register_type type;
     enum vkd3d_shader_register_modifier modifier;
     enum vkd3d_data_type data_type;
-    struct vkd3d_shader_register_index idx[3];
     enum vkd3d_immconst_type immconst_type;
+    struct vkd3d_shader_register_index idx[3];
     union
     {
         uint32_t immconst_uint[VKD3D_VEC4_SIZE];

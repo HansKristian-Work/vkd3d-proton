@@ -340,8 +340,8 @@ struct vkd3d_shader_transform_feedback_element
 struct vkd3d_shader_transform_feedback_info
 {
     const struct vkd3d_shader_transform_feedback_element *elements;
-    unsigned int element_count;
     const unsigned int *buffer_strides;
+    unsigned int element_count;
     unsigned int buffer_stride_count;
 };
 
@@ -462,13 +462,13 @@ struct vkd3d_shader_quirk_info
 
 struct vkd3d_shader_compile_arguments
 {
-    enum vkd3d_shader_target target;
+    const enum vkd3d_shader_target_extension *target_extensions;
+    const struct vkd3d_shader_parameter *parameters;
 
     unsigned int target_extension_count;
-    const enum vkd3d_shader_target_extension *target_extensions;
-
     unsigned int parameter_count;
-    const struct vkd3d_shader_parameter *parameters;
+
+    enum vkd3d_shader_target target;
 
     bool dual_source_blending;
     const unsigned int *output_swizzles;
@@ -673,13 +673,13 @@ enum vkd3d_root_parameter_type
 struct vkd3d_root_parameter
 {
     enum vkd3d_root_parameter_type parameter_type;
+    enum vkd3d_shader_visibility shader_visibility;
     union
     {
         struct vkd3d_root_descriptor_table descriptor_table;
         struct vkd3d_root_constants constants;
         struct vkd3d_root_descriptor descriptor;
     };
-    enum vkd3d_shader_visibility shader_visibility;
 };
 
 enum vkd3d_root_signature_flags
@@ -750,30 +750,30 @@ struct vkd3d_root_descriptor1
 struct vkd3d_root_parameter1
 {
     enum vkd3d_root_parameter_type parameter_type;
+    enum vkd3d_shader_visibility shader_visibility;
     union
     {
         struct vkd3d_root_descriptor_table1 descriptor_table;
         struct vkd3d_root_constants constants;
         struct vkd3d_root_descriptor1 descriptor;
     };
-    enum vkd3d_shader_visibility shader_visibility;
 };
 
 struct vkd3d_root_signature_desc1
 {
-    unsigned int parameter_count;
     const struct vkd3d_root_parameter1 *parameters;
-    unsigned int static_sampler_count;
     const struct vkd3d_static_sampler_desc *static_samplers;
+    unsigned int parameter_count;
+    unsigned int static_sampler_count;
     enum vkd3d_root_signature_flags flags;
 };
 
 struct vkd3d_root_signature_desc2
 {
-    unsigned int parameter_count;
     const struct vkd3d_root_parameter1 *parameters;
-    unsigned int static_sampler_count;
     const struct vkd3d_static_sampler_desc1 *static_samplers;
+    unsigned int parameter_count;
+    unsigned int static_sampler_count;
     enum vkd3d_root_signature_flags flags;
 };
 
@@ -990,8 +990,6 @@ enum vkd3d_shader_subobject_kind
 
 struct vkd3d_shader_library_subobject
 {
-    enum vkd3d_shader_subobject_kind kind;
-
     /* All const pointers here point directly to the DXBC blob,
      * so they do not need to be freed.
      * Fortunately for us, the C strings are zero-terminated in the blob itself. */
@@ -999,6 +997,8 @@ struct vkd3d_shader_library_subobject
     /* In the blob, ASCII is used as identifier, where API uses wide strings, sigh ...
      * We need to dup this name for deferred COLLECTIONS, so use wchar instead. */
     WCHAR *name;
+
+    enum vkd3d_shader_subobject_kind kind;
 
     /* If true, any pointers below are just borrowed. */
     bool borrowed_payloads;

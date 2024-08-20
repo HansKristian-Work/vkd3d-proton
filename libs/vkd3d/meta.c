@@ -1895,46 +1895,46 @@ static HRESULT vkd3d_sampler_feedback_ops_init(struct vkd3d_sampler_feedback_res
 
     static const struct pipeline
     {
-        enum vkd3d_sampler_feedback_resolve_type type;
         const uint32_t *code;
         size_t code_size;
+        enum vkd3d_sampler_feedback_resolve_type type;
         bool is_encode;
         bool is_compute;
     } pipelines[] = {
         {
-            VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIN_MIP_TO_BUFFER,
             cs_sampler_feedback_decode_buffer_min_mip,
             sizeof(cs_sampler_feedback_decode_buffer_min_mip),
+            VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIN_MIP_TO_BUFFER,
             false, true,
         },
         {
-            VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIN_MIP_TO_IMAGE,
             fs_sampler_feedback_decode_image_min_mip,
             sizeof(fs_sampler_feedback_decode_image_min_mip),
+            VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIN_MIP_TO_IMAGE,
             false, false,
         },
         {
-            VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIP_USED_TO_IMAGE,
             fs_sampler_feedback_decode_image_mip_used,
             sizeof(fs_sampler_feedback_decode_image_mip_used),
+            VKD3D_SAMPLER_FEEDBACK_RESOLVE_MIP_USED_TO_IMAGE,
             false, false,
         },
         {
-            VKD3D_SAMPLER_FEEDBACK_RESOLVE_BUFFER_TO_MIN_MIP,
             cs_sampler_feedback_encode_buffer_min_mip,
             sizeof(cs_sampler_feedback_encode_buffer_min_mip),
+            VKD3D_SAMPLER_FEEDBACK_RESOLVE_BUFFER_TO_MIN_MIP,
             true, true,
         },
         {
-            VKD3D_SAMPLER_FEEDBACK_RESOLVE_IMAGE_TO_MIN_MIP,
             cs_sampler_feedback_encode_image_min_mip,
             sizeof(cs_sampler_feedback_encode_image_min_mip),
+            VKD3D_SAMPLER_FEEDBACK_RESOLVE_IMAGE_TO_MIN_MIP,
             true, true,
         },
         {
-            VKD3D_SAMPLER_FEEDBACK_RESOLVE_IMAGE_TO_MIP_USED,
             cs_sampler_feedback_encode_image_mip_used,
             sizeof(cs_sampler_feedback_encode_image_mip_used),
+            VKD3D_SAMPLER_FEEDBACK_RESOLVE_IMAGE_TO_MIP_USED,
             true, true,
         },
     };
