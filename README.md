@@ -178,6 +178,11 @@ commas or semicolons.
  - `VKD3D_PROFILE_PATH` - If profiling is enabled in the build, a profiling block is
    emitted to `${VKD3D_PROFILE_PATH}.${pid}`.
 
+### Frame rate limit
+The `VKD3D_FRAME_RATE` environment variable can be used to limit the frame rate. A value of `0` uncaps the frame rate, while any positive value will limit rendering to the given number of frames per second.
+
+The `DXVK_FRAME_RATE` environment variable is also detected on VKD3D-Proton, so you may prefer to use that instead of having to remember two separate variables that do the same thing. `VKD3D_FRAME_RATE`, however, only applies to VKD3D (Direct3D 12) scenarios. If both variables are used, `VKD3D_FRAME_RATE` takes precedence.
+
 ## Shader cache
 
 By default, vkd3d-proton manages its own driver cache.

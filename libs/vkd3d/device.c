@@ -555,7 +555,7 @@ static const struct vkd3d_instance_application_meta application_override[] = {
             VKD3D_CONFIG_FLAG_RECYCLE_COMMAND_POOLS, 0, VKD3D_STRING_COMPARE_EXACT },
     /* Serious Sam 4 (257420).
      * Invariant workarounds cause graphical glitches when rendering foliage on NV. */
-    { "Sam4.exe", VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION, 0, VKD3D_STRING_COMPARE_EXACT },
+    { "Sam4.exe", VKD3D_CONFIG_FLAG_FORCE_NO_INVARIANT_POSITION | VKD3D_CONFIG_FLAG_SMALL_VRAM_REBAR, 0, VKD3D_STRING_COMPARE_EXACT },
     /* Cyberpunk 2077 (1091500). */
     { "Cyberpunk2077.exe", VKD3D_CONFIG_FLAG_ALLOW_SBT_COLLECTION, 0, VKD3D_STRING_COMPARE_EXACT },
     /* Resident Evil: Village (1196590).
@@ -599,6 +599,9 @@ static const struct vkd3d_instance_application_meta application_override[] = {
             VKD3D_CONFIG_FLAG_REQUIRES_COMPUTE_INDIRECT_TEMPLATES | VKD3D_CONFIG_FLAG_REJECT_PADDED_SMALL_RESOURCE_ALIGNMENT, 0, VKD3D_STRING_COMPARE_EXACT },
     /* Persona 3 Reload (2161700). Enables RT by default on Deck and does not run acceptably for a verified title. */
     { "P3R.exe", 0, 0, VKD3D_STRING_COMPARE_EXACT, VKD3D_APPLICATION_FEATURE_NO_DEFAULT_DXR_ON_DECK },
+    /* Unreal Engine catch-all. ReBAR is a massive uplift on RX 7600 for example in Wukong.
+     * AMD windows drivers also seem to have some kind of general app-opt for UE titles. */
+    { "-Win64-Shipping.exe", VKD3D_CONFIG_FLAG_SMALL_VRAM_REBAR, 0, VKD3D_STRING_COMPARE_ENDS_WITH },
     { NULL, 0, 0, VKD3D_STRING_COMPARE_NEVER }
 };
 
@@ -933,6 +936,7 @@ static const struct vkd3d_debug_option vkd3d_config_options[] =
     {"disable_depth_compression", VKD3D_CONFIG_FLAG_DISABLE_DEPTH_COMPRESSION},
     {"disable_color_compression", VKD3D_CONFIG_FLAG_DISABLE_COLOR_COMPRESSION},
     {"app_debug_marker_only", VKD3D_CONFIG_FLAG_APP_DEBUG_MARKER_ONLY},
+    {"small_vram_rebar", VKD3D_CONFIG_FLAG_SMALL_VRAM_REBAR},
 };
 
 static void vkd3d_config_flags_init_once(void)

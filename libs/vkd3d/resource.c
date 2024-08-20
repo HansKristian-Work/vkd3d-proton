@@ -8657,7 +8657,17 @@ static VkMemoryPropertyFlags vkd3d_memory_info_upload_hvv_memory_properties(
     else if (topology->device_local_heap_count <= 1)
     {
         VkDeviceSize largest_size = device->memory_properties.memoryHeaps[topology->largest_device_local_heap_index].size;
-        const VkDeviceSize minimum_rebar_size = 9ull * 1000ull * 1000ull * 1000ull;
+        VkDeviceSize minimum_rebar_size_gb;
+        VkDeviceSize minimum_rebar_size;
+
+        /* 8 GiB GPUs are in an awkward place where they're just large enough
+         * to take reasonable advantage of ReBAR, but small enough there is serious risk
+         * of VRAM spill.
+         * Allow this to be tweaked for app-opt purposes.
+         * 6 GiB cards are extremely tiny in today's games, so ignore those. */
+        minimum_rebar_size_gb =
+            (vkd3d_config_flags & VKD3D_CONFIG_FLAG_SMALL_VRAM_REBAR) ? 7ull : 9ull;
+        minimum_rebar_size = minimum_rebar_size_gb * 1000ull * 1000ull * 1000ull;
 
         if (largest_size < minimum_rebar_size)
         {
