@@ -2456,10 +2456,10 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
         if (chain->present.low_latency_state.mode)
         {
             struct vkd3d_device_frame_markers *markers = &chain->queue->device->frame_markers;
-            spinlock_acquire(&chain->queue->device->swapchain_info.low_latency_swapchain_spinlock);
+            spinlock_acquire(&chain->queue->device->swapchain_info.spinlock);
             chain->present.present_id = max(chain->present.present_id, markers->consumed_present_id + 1);
             markers->consumed_present_id = chain->present.present_id;
-            spinlock_release(&chain->queue->device->swapchain_info.low_latency_swapchain_spinlock);
+            spinlock_release(&chain->queue->device->swapchain_info.spinlock);
         }
 
         if (chain->debug_latency)
@@ -3306,7 +3306,7 @@ HRESULT vkd3d_device_swapchain_info_init(struct vkd3d_device_swapchain_info *inf
     unsigned int i;
     VkResult vr;
 
-    spinlock_init(&info->low_latency_swapchain_spinlock);
+    spinlock_init(&info->spinlock);
 
     create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     create_info.pNext = &type_info;
@@ -3369,7 +3369,7 @@ void vkd3d_device_swapchain_patch_implicit_sync_semaphores(struct vkd3d_device_s
                 sizeof(*signal_submit->pSignalSemaphoreInfos) * signal_submit->signalSemaphoreInfoCount);
     }
 
-    spinlock_acquire(&info->low_latency_swapchain_spinlock);
+    spinlock_acquire(&info->spinlock);
     while (implicit_sync_mask)
     {
         index = vkd3d_bitmask_iter32(&implicit_sync_mask);
@@ -3393,7 +3393,7 @@ void vkd3d_device_swapchain_patch_implicit_sync_semaphores(struct vkd3d_device_s
         sem->deviceIndex = 0;
         sem->stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
     }
-    spinlock_release(&info->low_latency_swapchain_spinlock);
+    spinlock_release(&info->spinlock);
 
     wait_submit->pWaitSemaphoreInfos = wait_semaphores;
     signal_submit->pSignalSemaphoreInfos = signal_semaphores;

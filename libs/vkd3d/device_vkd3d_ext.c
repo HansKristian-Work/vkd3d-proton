@@ -587,10 +587,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_LatencySleep(d3d_low_l
     if (!device->vk_info.NV_low_latency2)
         return E_NOTIMPL;
 
-    spinlock_acquire(&device->swapchain_info.low_latency_swapchain_spinlock);
+    spinlock_acquire(&device->swapchain_info.spinlock);
     if ((low_latency_swapchain = device->swapchain_info.low_latency_swapchain))
         dxgi_vk_swap_chain_incref(low_latency_swapchain);
-    spinlock_release(&device->swapchain_info.low_latency_swapchain_spinlock);
+    spinlock_release(&device->swapchain_info.spinlock);
 
     if (low_latency_swapchain)
     {
@@ -613,13 +613,13 @@ static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_SetLatencySleepMode(d3
     if (!device->vk_info.NV_low_latency2)
         return E_NOTIMPL;
 
-    spinlock_acquire(&device->swapchain_info.low_latency_swapchain_spinlock);
+    spinlock_acquire(&device->swapchain_info.spinlock);
     device->swapchain_info.mode = low_latency_mode;
     device->swapchain_info.boost = low_latency_boost;
     device->swapchain_info.minimum_us = minimum_interval_us;
     if ((low_latency_swapchain = device->swapchain_info.low_latency_swapchain))
         dxgi_vk_swap_chain_incref(low_latency_swapchain);
-    spinlock_release(&device->swapchain_info.low_latency_swapchain_spinlock);
+    spinlock_release(&device->swapchain_info.spinlock);
 
     if (low_latency_swapchain)
     {
@@ -693,10 +693,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_SetLatencyMarker(d3d_l
             break;
     }
 
-    spinlock_acquire(&device->swapchain_info.low_latency_swapchain_spinlock);
+    spinlock_acquire(&device->swapchain_info.spinlock);
     if ((low_latency_swapchain = device->swapchain_info.low_latency_swapchain))
         dxgi_vk_swap_chain_incref(low_latency_swapchain);
-    spinlock_release(&device->swapchain_info.low_latency_swapchain_spinlock);
+    spinlock_release(&device->swapchain_info.spinlock);
 
     if (low_latency_swapchain)
     {
@@ -717,10 +717,10 @@ static HRESULT STDMETHODCALLTYPE d3d12_low_latency_device_GetLatencyInfo(d3d_low
     if (!device->vk_info.NV_low_latency2)
         return E_NOTIMPL;
 
-    spinlock_acquire(&device->swapchain_info.low_latency_swapchain_spinlock);
+    spinlock_acquire(&device->swapchain_info.spinlock);
     if ((low_latency_swapchain = device->swapchain_info.low_latency_swapchain))
         dxgi_vk_swap_chain_incref(low_latency_swapchain);
-    spinlock_release(&device->swapchain_info.low_latency_swapchain_spinlock);
+    spinlock_release(&device->swapchain_info.spinlock);
 
     if (low_latency_swapchain)
     {
