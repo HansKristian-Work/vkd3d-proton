@@ -140,8 +140,10 @@ struct dxgi_vk_swap_chain
 
         /* For blits. Use simple VkFences since we have to use binary semaphores with WSI release anyways.
          * We don't need to wait on these fences on main thread. */
-        VkCommandPool vk_blit_command_pool;
-        VkCommandBuffer vk_blit_command_buffers[DXGI_MAX_SWAP_CHAIN_BUFFERS];
+        VkCommandPool vk_graphics_blit_command_pool;
+        VkCommandBuffer vk_graphics_blit_command_buffers[DXGI_MAX_SWAP_CHAIN_BUFFERS];
+        VkCommandPool vk_compute_blit_command_pool;
+        VkCommandBuffer vk_compute_blit_command_buffers[DXGI_MAX_SWAP_CHAIN_BUFFERS];
         uint64_t backbuffer_blit_timelines[DXGI_MAX_SWAP_CHAIN_BUFFERS];
 
         VkSwapchainKHR vk_swapchain;
@@ -164,7 +166,8 @@ struct dxgi_vk_swap_chain
         uint32_t backbuffer_count;
         VkFormat backbuffer_format;
 
-        struct vkd3d_swapchain_info pipeline;
+        struct vkd3d_swapchain_info graphics_pipeline;
+        struct vkd3d_swapchain_info compute_pipeline;
 
         uint32_t is_occlusion_state; /* Updated atomically. */
 
@@ -388,6 +391,7 @@ static void dxgi_vk_swap_chain_drain_queue(struct dxgi_vk_swap_chain *chain)
 
     /* Wait for pending blits to complete on the GPU */
     dxgi_vk_swap_chain_drain_complete_semaphore(chain, chain->user.present_count);
+    dxgi_vk_swap_chain_drain_internal_blit_semaphore(chain, chain->present.internal_blit_count);
 
     if (chain->swapchain_maintenance1)
         dxgi_vk_swap_chain_drain_swapchain_fences(chain);
@@ -465,7 +469,8 @@ static void dxgi_vk_swap_chain_cleanup_common(struct dxgi_vk_swap_chain *chain)
 
     VK_CALL(vkDestroySemaphore(chain->queue->device->vk_device, chain->present.vk_internal_blit_semaphore, NULL));
     VK_CALL(vkDestroySemaphore(chain->queue->device->vk_device, chain->present.vk_complete_semaphore, NULL));
-    VK_CALL(vkDestroyCommandPool(chain->queue->device->vk_device, chain->present.vk_blit_command_pool, NULL));
+    VK_CALL(vkDestroyCommandPool(chain->queue->device->vk_device, chain->present.vk_graphics_blit_command_pool, NULL));
+    VK_CALL(vkDestroyCommandPool(chain->queue->device->vk_device, chain->present.vk_compute_blit_command_pool, NULL));
     for (i = 0; i < ARRAY_SIZE(chain->present.vk_release_semaphores); i++)
         VK_CALL(vkDestroySemaphore(chain->queue->device->vk_device, chain->present.vk_release_semaphores[i], NULL));
     for (i = 0; i < ARRAY_SIZE(chain->present.vk_backbuffer_image_views); i++)
@@ -1340,7 +1345,9 @@ static HRESULT dxgi_vk_swap_chain_create_surface(struct dxgi_vk_swap_chain *chai
      * This way we can hide the blit overhead and also avoid false work spilling into main queue.
      * This is vitally important to make FSR3 FG work well.
      * NVIDIA has more than one graphics queue, so the assumption is that NVIDIA can deal with it as-is
-     * since FSR3 creates a different queue for frame-gen presentation. */
+     * since FSR3 creates a different queue for frame-gen presentation.
+     * Only attempt this if the application is asking for an "unusual" priority, since this
+     * implies some out of order shenanigans. */
     family_info = chain->queue->device->queue_families[VKD3D_QUEUE_FAMILY_COMPUTE];
     if (chain->queue->device->queue_families[VKD3D_QUEUE_FAMILY_GRAPHICS]->queue_count == 1 &&
             family_info->vk_family_index != chain->queue->vkd3d_queue->vk_family_index &&
@@ -1349,13 +1356,26 @@ static HRESULT dxgi_vk_swap_chain_create_surface(struct dxgi_vk_swap_chain *chai
     {
         /* Async compute presentation. */
         const VkImageUsageFlags required_usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        VkFormatProperties2 props2;
+        VkFormatProperties3 props3;
         VkSurfaceCapabilitiesKHR caps;
+
+        props2.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2;
+        props2.pNext = &props3;
+        props3.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3;
+        props3.pNext = NULL;
+
+        /* BGRA8 storage image needs special query. Don't bother with async present if this is not supported. */
+        VK_CALL(vkGetPhysicalDeviceFormatProperties2(vk_physical_device, VK_FORMAT_B8G8R8A8_UNORM, &props2));
+        VK_CALL(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device, chain->vk_surface, &caps));
 
         /* Assume that image usage flags won't randomly change under us.
          * That would just be extremely weird, and all relevant drivers support this anyway. */
-        VK_CALL(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device, chain->vk_surface, &caps));
-        if ((caps.supportedUsageFlags & required_usage) == required_usage)
+        if ((props3.optimalTilingFeatures & VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT) &&
+                (caps.supportedUsageFlags & required_usage) == required_usage)
+        {
             chain->async_queue = d3d12_device_allocate_vkd3d_queue(family_info, NULL);
+        }
 
         if (chain->async_queue)
             INFO("Using async compute presentation.\n");
@@ -1650,7 +1670,12 @@ static void dxgi_vk_swap_chain_init_blit_pipeline(struct dxgi_vk_swap_chain *cha
     key.filter = chain->desc.Scaling == DXGI_SCALING_NONE ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
     key.format = chain->present.backbuffer_format;
 
-    if (FAILED(hr = vkd3d_meta_get_swapchain_pipeline(&device->meta_ops, &key, &chain->present.pipeline)))
+    if (FAILED(hr = vkd3d_meta_get_swapchain_pipeline(&device->meta_ops, &key, &chain->present.graphics_pipeline)))
+        ERR("Failed to initialize swapchain pipeline.\n");
+
+    key.bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
+    key.format = VK_FORMAT_UNDEFINED;
+    if (FAILED(hr = vkd3d_meta_get_swapchain_pipeline(&device->meta_ops, &key, &chain->present.compute_pipeline)))
         ERR("Failed to initialize swapchain pipeline.\n");
 }
 
@@ -1961,13 +1986,22 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
     chain->present.backbuffer_format = swapchain_create_info.imageFormat;
     chain->present.current_backbuffer_index = UINT32_MAX;
 
-    if (!chain->present.vk_blit_command_pool)
+    if (!chain->present.vk_graphics_blit_command_pool)
     {
         command_pool_create_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
         command_pool_create_info.pNext = NULL;
         command_pool_create_info.queueFamilyIndex = chain->queue->vkd3d_queue->vk_family_index;
         command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-        VK_CALL(vkCreateCommandPool(vk_device, &command_pool_create_info, NULL, &chain->present.vk_blit_command_pool));
+        VK_CALL(vkCreateCommandPool(vk_device, &command_pool_create_info, NULL, &chain->present.vk_graphics_blit_command_pool));
+    }
+
+    if (!chain->present.vk_compute_blit_command_pool && chain->async_queue)
+    {
+        command_pool_create_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        command_pool_create_info.pNext = NULL;
+        command_pool_create_info.queueFamilyIndex = chain->async_queue->vk_family_index;
+        command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        VK_CALL(vkCreateCommandPool(vk_device, &command_pool_create_info, NULL, &chain->present.vk_compute_blit_command_pool));
     }
 
     dxgi_vk_swap_chain_init_blit_pipeline(chain);
@@ -2029,6 +2063,138 @@ static void dxgi_vk_swap_chain_present_signal_blit_semaphore(struct dxgi_vk_swap
         ERR("Failed to submit present discard, vr = %d.\n", vr);
         VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
     }
+}
+
+static void dxgi_vk_swap_chain_record_compute_blit(struct dxgi_vk_swap_chain *chain, VkCommandBuffer vk_cmd, uint32_t swapchain_index)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
+    VkImageMemoryBarrier2 image_barrier;
+    struct d3d12_resource *resource;
+    VkDependencyInfo dep_info;
+    bool blank_present;
+
+    /* TODO: compute blit in fallback scenarios. */
+    resource = chain->user.backbuffers[chain->request.user_index];
+    blank_present = vkd3d_atomic_uint32_load_explicit(&resource->initial_layout_transition, vkd3d_memory_order_relaxed) != 0;
+
+    if (blank_present)
+        WARN("Application is presenting user index %u, but it has never been rendered to.\n", chain->request.user_index);
+
+    memset(&dep_info, 0, sizeof(dep_info));
+    dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep_info.imageMemoryBarrierCount = 1;
+    dep_info.pImageMemoryBarriers = &image_barrier;
+
+    memset(&image_barrier, 0, sizeof(image_barrier));
+    image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+
+    if (blank_present)
+    {
+        image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+        image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+        image_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        image_barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    }
+    else
+    {
+        image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        image_barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        image_barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    }
+
+    image_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    image_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    image_barrier.image = chain->present.vk_backbuffer_images[swapchain_index];
+    image_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    image_barrier.subresourceRange.levelCount = 1;
+    image_barrier.subresourceRange.layerCount = 1;
+
+    VK_CALL(vkCmdPipelineBarrier2(vk_cmd, &dep_info));
+
+    if (blank_present)
+    {
+        VkClearColorValue clear_value;
+        VkImageSubresourceRange range;
+
+        memset(&clear_value, 0, sizeof(clear_value));
+        range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        range.baseArrayLayer = 0;
+        range.baseMipLevel = 0;
+        range.layerCount = 1;
+        range.levelCount = 1;
+
+        VK_CALL(vkCmdClearColorImage(vk_cmd,
+                image_barrier.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                &clear_value, 1, &range));
+
+        image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+        image_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    }
+    else
+    {
+        VkDescriptorImageInfo image_info[2];
+        VkWriteDescriptorSet write_info[2];
+        float inv_resolution[2];
+
+        inv_resolution[0] = 1.0f / (float)chain->desc.Width;
+        inv_resolution[1] = 1.0f / (float)chain->desc.Height;
+
+        write_info[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_info[0].pNext = NULL;
+        write_info[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write_info[0].pBufferInfo = NULL;
+        write_info[0].dstSet = VK_NULL_HANDLE;
+        write_info[0].pTexelBufferView = NULL;
+        write_info[0].pImageInfo = &image_info[0];
+        write_info[0].dstBinding = 0;
+        write_info[0].dstArrayElement = 0;
+        write_info[0].descriptorCount = 1;
+
+        write_info[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_info[1].pNext = NULL;
+        write_info[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        write_info[1].pBufferInfo = NULL;
+        write_info[1].dstSet = VK_NULL_HANDLE;
+        write_info[1].pTexelBufferView = NULL;
+        write_info[1].pImageInfo = &image_info[1];
+        write_info[1].dstBinding = 1;
+        write_info[1].dstArrayElement = 0;
+        write_info[1].descriptorCount = 1;
+
+        image_info[0].imageView = chain->user.vk_image_views[chain->request.user_index];
+        image_info[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        image_info[0].sampler = VK_NULL_HANDLE;
+
+        image_info[1].imageView = chain->present.vk_backbuffer_image_views[swapchain_index];
+        image_info[1].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        image_info[1].sampler = VK_NULL_HANDLE;
+
+        VK_CALL(vkCmdBindPipeline(vk_cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                chain->present.compute_pipeline.vk_pipeline));
+
+        VK_CALL(vkCmdPushConstants(vk_cmd,
+                chain->present.compute_pipeline.vk_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+                0, sizeof(inv_resolution), inv_resolution));
+
+        VK_CALL(vkCmdPushDescriptorSetKHR(vk_cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                chain->present.compute_pipeline.vk_pipeline_layout, 0, ARRAY_SIZE(write_info), write_info));
+
+        VK_CALL(vkCmdDispatch(vk_cmd,
+                (chain->present.backbuffer_width + 7) / 8,
+                (chain->present.backbuffer_height + 7) / 8,
+                1));
+
+        image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        image_barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    }
+
+    image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+    image_barrier.dstAccessMask = VK_ACCESS_2_NONE;
+    image_barrier.oldLayout = image_barrier.newLayout;
+    image_barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    VK_CALL(vkCmdPipelineBarrier2(vk_cmd, &dep_info));
 }
 
 static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *chain, VkCommandBuffer vk_cmd, uint32_t swapchain_index)
@@ -2127,7 +2293,7 @@ static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *cha
         VK_CALL(vkCmdSetViewport(vk_cmd, 0, 1, &viewport));
         VK_CALL(vkCmdSetScissor(vk_cmd, 0, 1, &rendering_info.renderArea));
         VK_CALL(vkCmdBindPipeline(vk_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    chain->present.pipeline.vk_pipeline));
+                chain->present.graphics_pipeline.vk_pipeline));
 
         write_info.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         write_info.pNext = NULL;
@@ -2144,7 +2310,7 @@ static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *cha
         image_info.sampler = VK_NULL_HANDLE;
 
         VK_CALL(vkCmdPushDescriptorSetKHR(vk_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    chain->present.pipeline.vk_pipeline_layout, 0, 1, &write_info));
+                chain->present.graphics_pipeline.vk_pipeline_layout, 0, 1, &write_info));
 
         VK_CALL(vkCmdDraw(vk_cmd, 3, 1, 0, 0));
     }
@@ -2171,14 +2337,16 @@ static bool dxgi_vk_swap_chain_submit_blit(struct dxgi_vk_swap_chain *chain, uin
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
     VkDevice vk_device = chain->queue->device->vk_device;
-    VkSemaphoreSubmitInfo signal_semaphore_info[2];
+    VkSemaphoreSubmitInfo signal_semaphore_info[3];
+    VkSemaphoreSubmitInfo wait_semaphore_info[2];
     VkSemaphoreCreateInfo semaphore_create_info;
-    VkSemaphoreSubmitInfo wait_semaphore_info;
     VkCommandBufferAllocateInfo allocate_info;
     VkCommandBufferSubmitInfo cmd_buffer_info;
     VkCommandBufferBeginInfo cmd_begin_info;
+    VkCommandBuffer *blit_command_buffers;
     VkSubmitInfo2 submit_infos[2];
     VkCommandBuffer vk_cmd;
+    bool async_compute;
     VkQueue vk_queue;
     VkResult vr;
 
@@ -2197,15 +2365,32 @@ static bool dxgi_vk_swap_chain_submit_blit(struct dxgi_vk_swap_chain *chain, uin
         }
     }
 
-    if (!chain->present.vk_blit_command_buffers[swapchain_index])
+    /* Only opt-in to async compute if we don't have to handle borders in any way.
+     * We could be smarter about ASPECT_RATIO_STRETCH, but eeeeeeeh, noone uses that (famous last words). */
+    async_compute = chain->async_queue != NULL && (chain->desc.Scaling == DXGI_SCALING_STRETCH ||
+            (chain->desc.Width == chain->present.backbuffer_width &&
+            chain->desc.Height == chain->present.backbuffer_height));
+
+    if (chain->async_queue && !async_compute)
+        WARN("Falling back to graphics present even though we expect compute.\n");
+
+    blit_command_buffers = async_compute ?
+            chain->present.vk_compute_blit_command_buffers :
+            chain->present.vk_graphics_blit_command_buffers;
+
+    if (!blit_command_buffers[swapchain_index])
     {
         memset(&allocate_info, 0, sizeof(allocate_info));
         allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocate_info.commandBufferCount = 1;
-        allocate_info.commandPool = chain->present.vk_blit_command_pool;
+
+        allocate_info.commandPool = async_compute ?
+                chain->present.vk_compute_blit_command_pool :
+                chain->present.vk_graphics_blit_command_pool;
+
         allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         vr = VK_CALL(vkAllocateCommandBuffers(vk_device, &allocate_info,
-                    &chain->present.vk_blit_command_buffers[swapchain_index]));
+                    &blit_command_buffers[swapchain_index]));
         if (vr < 0)
         {
             ERR("Failed to allocate command buffers, vr %d\n", vr);
@@ -2215,32 +2400,30 @@ static bool dxgi_vk_swap_chain_submit_blit(struct dxgi_vk_swap_chain *chain, uin
 
     dxgi_vk_swap_chain_drain_internal_blit_semaphore(chain, chain->present.backbuffer_blit_timelines[swapchain_index]);
 
-    vk_cmd = chain->present.vk_blit_command_buffers[swapchain_index];
+    vk_cmd = blit_command_buffers[swapchain_index];
 
     VK_CALL(vkResetCommandBuffer(vk_cmd, 0));
     memset(&cmd_begin_info, 0, sizeof(cmd_begin_info));
     cmd_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     cmd_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_CALL(vkBeginCommandBuffer(vk_cmd, &cmd_begin_info));
-    dxgi_vk_swap_chain_record_render_pass(chain, vk_cmd, swapchain_index);
+    if (async_compute)
+        dxgi_vk_swap_chain_record_compute_blit(chain, vk_cmd, swapchain_index);
+    else
+        dxgi_vk_swap_chain_record_render_pass(chain, vk_cmd, swapchain_index);
     VK_CALL(vkEndCommandBuffer(vk_cmd));
 
     assert(chain->present.acquire_semaphore_signalled[chain->present.acquire_semaphore_index]);
-    memset(&wait_semaphore_info, 0, sizeof(wait_semaphore_info));
-    wait_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-    wait_semaphore_info.semaphore = chain->present.vk_acquire_semaphore[chain->present.acquire_semaphore_index];
-    wait_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    memset(&wait_semaphore_info[0], 0, sizeof(wait_semaphore_info[0]));
+    wait_semaphore_info[0].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    wait_semaphore_info[0].semaphore = chain->present.vk_acquire_semaphore[chain->present.acquire_semaphore_index];
+    wait_semaphore_info[0].stageMask =
+            async_compute ? VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT : VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 
     memset(signal_semaphore_info, 0, sizeof(signal_semaphore_info));
     signal_semaphore_info[0].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
     signal_semaphore_info[0].semaphore = chain->present.vk_release_semaphores[swapchain_index];
     signal_semaphore_info[0].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-
-    chain->present.internal_blit_count += 1;
-    signal_semaphore_info[1].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-    signal_semaphore_info[1].semaphore = chain->present.vk_internal_blit_semaphore;
-    signal_semaphore_info[1].value = chain->present.internal_blit_count;
-    signal_semaphore_info[1].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
     memset(&cmd_buffer_info, 0, sizeof(cmd_buffer_info));
     cmd_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
@@ -2250,20 +2433,34 @@ static bool dxgi_vk_swap_chain_submit_blit(struct dxgi_vk_swap_chain *chain, uin
     submit_infos[0].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
     submit_infos[0].commandBufferInfoCount = 1;
     submit_infos[0].pCommandBufferInfos = &cmd_buffer_info;
-    submit_infos[0].pWaitSemaphoreInfos = &wait_semaphore_info;
+    submit_infos[0].pWaitSemaphoreInfos = &wait_semaphore_info[0];
     submit_infos[0].waitSemaphoreInfoCount = 1;
     submit_infos[0].signalSemaphoreInfoCount = 1;
     submit_infos[0].pSignalSemaphoreInfos = &signal_semaphore_info[0];
+
+    if (async_compute)
+    {
+        vkd3d_device_swapchain_patch_implicit_sync_semaphores(&chain->queue->device->swapchain_info,
+                &submit_infos[0], &submit_infos[0],
+                wait_semaphore_info, signal_semaphore_info,
+                1u << chain->user.backbuffers[chain->request.user_index]->swap_chain_implicit_sync_index);
+    }
 
     /* Internal blit semaphore must be signaled after we signal vk_release_semaphores.
      * To guarantee this, the signals must happen in different batches. */
     submit_infos[1].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
     submit_infos[1].signalSemaphoreInfoCount = 1;
-    submit_infos[1].pSignalSemaphoreInfos = &signal_semaphore_info[1];
+    submit_infos[1].pSignalSemaphoreInfos = &signal_semaphore_info[submit_infos[0].signalSemaphoreInfoCount];
 
-    vk_queue = vkd3d_queue_acquire(chain->queue->vkd3d_queue);
+    chain->present.internal_blit_count += 1;
+    signal_semaphore_info[submit_infos[0].signalSemaphoreInfoCount].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    signal_semaphore_info[submit_infos[0].signalSemaphoreInfoCount].semaphore = chain->present.vk_internal_blit_semaphore;
+    signal_semaphore_info[submit_infos[0].signalSemaphoreInfoCount].value = chain->present.internal_blit_count;
+    signal_semaphore_info[submit_infos[0].signalSemaphoreInfoCount].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+    vk_queue = vkd3d_queue_acquire(async_compute ? chain->async_queue : chain->queue->vkd3d_queue);
     vr = VK_CALL(vkQueueSubmit2(vk_queue, ARRAY_SIZE(submit_infos), submit_infos, VK_NULL_HANDLE));
-    vkd3d_queue_release(chain->queue->vkd3d_queue);
+    vkd3d_queue_release(async_compute ? chain->async_queue : chain->queue->vkd3d_queue);
     VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(chain->queue->device, vr == VK_ERROR_DEVICE_LOST);
 
     if (vr < 0)
@@ -3030,17 +3227,17 @@ static HRESULT dxgi_vk_swap_chain_init(struct dxgi_vk_swap_chain *chain, IDXGIVk
     INFO("Creating swapchain (%u x %u), BufferCount = %u.\n",
             pDesc->Width, pDesc->Height, pDesc->BufferCount);
 
+    if (FAILED(hr = dxgi_vk_swap_chain_create_surface(chain, pFactory)))
+        return hr;
+
     if (FAILED(hr = dxgi_vk_swap_chain_reallocate_user_buffers(chain)))
         goto cleanup_common;
 
     if (FAILED(hr = dxgi_vk_swap_chain_init_sync_objects(chain)))
         goto cleanup_common;
 
-    if (FAILED(hr = dxgi_vk_swap_chain_create_surface(chain, pFactory)))
-        goto cleanup_sync_objects;
-
     if (FAILED(hr = dxgi_vk_swap_chain_init_waiter_thread(chain)))
-        goto cleanup_surface;
+        goto cleanup_sync_objects;
 
     if (FAILED(hr = dxgi_vk_swap_chain_init_low_latency(chain)))
         goto cleanup_waiter_thread;
@@ -3055,12 +3252,11 @@ cleanup_low_latency:
     dxgi_vk_swap_chain_cleanup_low_latency(chain);
 cleanup_waiter_thread:
     dxgi_vk_swap_chain_cleanup_waiter_thread(chain);
-cleanup_surface:
-    dxgi_vk_swap_chain_cleanup_surface(chain);
 cleanup_sync_objects:
     dxgi_vk_swap_chain_cleanup_sync_objects(chain);
 cleanup_common:
     dxgi_vk_swap_chain_cleanup_common(chain);
+    dxgi_vk_swap_chain_cleanup_surface(chain);
     return hr;
 }
 
