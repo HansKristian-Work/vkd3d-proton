@@ -5076,6 +5076,15 @@ static void d3d12_command_list_track_resource_usage(struct d3d12_command_list *l
         transition.resource.perform_initial_transition = perform_initial_transition;
         d3d12_command_list_add_transition(list, &transition);
     }
+
+    /* We're guaranteed to observe first use and last use of a swapchain image.
+     * COMMON/PRESENT state must be transitioned out of, and swapchain image must transition into PRESENT.
+     * We also track any case with rendering. UAVs are banned, so the only potential case is sampling bindless
+     * straight out of COMMON, but it's unclear if that is legal in D3D12, since DXGI swapchains have implicit
+     * sync semantics to begin with. It would also be a moot scenario from a sync PoV, since it would be read-after-read,
+     * so there is no hazard to worry about. */
+    if (resource->flags & VKD3D_RESOURCE_SWAP_CHAIN_IMPLICIT_SYNC)
+        list->implicit_sync_mask |= 1u << resource->swap_chain_implicit_sync_index;
 }
 
 static void d3d12_command_list_track_query_heap(struct d3d12_command_list *list,
@@ -5674,6 +5683,7 @@ static void d3d12_command_list_reset_internal_state(struct d3d12_command_list *l
     list->wbi_batch.batch_len = 0;
     list->query_resolve_count = 0;
     list->submit_allocator = NULL;
+    list->implicit_sync_mask = 0;
 
     d3d12_command_list_clear_rtas_batch(list);
 }
@@ -17292,6 +17302,7 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
 
     sub.execute.debug_capture = false;
     sub.execute.split_submission = false;
+    sub.execute.implicit_sync_mask = 0;
 
     num_transitions = 0;
 
@@ -17354,6 +17365,8 @@ static void STDMETHODCALLTYPE d3d12_command_queue_ExecuteCommandLists(ID3D12Comm
         {
             sub.execute.split_submission = true;
         }
+
+        sub.execute.implicit_sync_mask |= cmd_list->implicit_sync_mask;
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
         if (breadcrumb_indices)
@@ -18208,15 +18221,19 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         const VkSemaphoreSubmitInfo *transition_semaphore,
         struct d3d12_command_allocator **command_allocators, size_t num_command_allocators,
         struct vkd3d_queue_timeline_trace_cookie timeline_cookie,
-        uint64_t low_latency_frame_id, bool debug_capture, bool split_submissions)
+        uint64_t low_latency_frame_id, bool debug_capture, bool split_submissions,
+        uint32_t implicit_sync_mask)
 {
+    VkSemaphoreSubmitInfo implicit_sync_signal_info[VKD3D_IMPLICIT_SYNC_NUM_TIMELINES + 1];
+    VkSemaphoreSubmitInfo implicit_sync_wait_info[VKD3D_IMPLICIT_SYNC_NUM_TIMELINES + 1];
     const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
     struct vkd3d_queue *vkd3d_queue = command_queue->vkd3d_queue;
     VkLatencySubmissionPresentIdNV latency_submit_present_info;
     struct dxgi_vk_swap_chain *low_latency_swapchain;
     VkSemaphoreSubmitInfo signal_semaphore_info;
     VkSemaphoreSubmitInfo binary_semaphore_info;
-    VkSubmitInfo2 submit_desc[4], *submit;
+    VkSubmitInfo2 submit_desc[5], *submit;
+    VkSubmitInfo2 implicit_sync_signal;
     uint32_t num_submits, split_count;
     uint64_t consumed_present_id;
     bool stagger_submissions;
@@ -18312,6 +18329,28 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         {
             submit->waitSemaphoreInfoCount = 1;
             submit->pWaitSemaphoreInfos = transition_semaphore;
+        }
+
+        if (implicit_sync_mask)
+        {
+            if (j == 0)
+            {
+                memset(&implicit_sync_signal, 0, sizeof(implicit_sync_signal));
+                implicit_sync_signal.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+
+                /* We hold the queue lock while this called until we have made the first submission,
+                 * so once we have committed a wait/signal value, we're guaranteed forward progress. */
+                vkd3d_device_swapchain_patch_implicit_sync_semaphores(&command_queue->device->swapchain_info,
+                        submit, &implicit_sync_signal,
+                        implicit_sync_wait_info, implicit_sync_signal_info,
+                        implicit_sync_mask);
+            }
+
+            if (j + 1 == split_count)
+            {
+                submit = &submit_desc[num_submits++];
+                *submit = implicit_sync_signal;
+            }
         }
 
         /* Prefer binary semaphore since timeline signal -> wait pair can cause scheduling bubbles.
@@ -18879,7 +18918,8 @@ static void *d3d12_command_queue_submission_worker_main(void *userdata)
                     submission.execute.timeline_cookie,
                     submission.execute.low_latency_frame_id,
                     submission.execute.debug_capture,
-                    submission.execute.split_submission);
+                    submission.execute.split_submission,
+                    submission.execute.implicit_sync_mask);
 
             /* command_queue_execute takes ownership of the
              * outstanding_submission_counters and queue_timeline_indices allocations.

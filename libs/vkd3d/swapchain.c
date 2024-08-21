@@ -99,6 +99,7 @@ struct dxgi_vk_swap_chain
 {
     IDXGIVkSwapChain2 IDXGIVkSwapChain_iface;
     struct d3d12_command_queue *queue;
+    struct vkd3d_queue *async_queue;
 
     LONG refcount;
     LONG internal_refcount;
@@ -439,6 +440,9 @@ static void dxgi_vk_swap_chain_cleanup_surface(struct dxgi_vk_swap_chain *chain)
             chain->vk_surface, NULL));
     vkd3d_free(chain->properties.formats);
     pthread_mutex_destroy(&chain->properties.lock);
+
+    if (chain->async_queue)
+        d3d12_device_unmap_vkd3d_queue(chain->async_queue, NULL);
 }
 
 static void dxgi_vk_swap_chain_cleanup_sync_objects(struct dxgi_vk_swap_chain *chain)
@@ -711,6 +715,17 @@ static HRESULT dxgi_vk_swap_chain_reallocate_user_buffers(struct dxgi_vk_swap_ch
         /* We need to hold a private reference to the resource, not a public one. */
         vkd3d_resource_incref((ID3D12Resource *)&chain->user.backbuffers[i]->ID3D12Resource_iface);
         ID3D12Resource2_Release(&chain->user.backbuffers[i]->ID3D12Resource_iface);
+
+        /* If we can use compute presentation, we need to make sure we can properly synchronize them
+         * with the graphics queue.
+         * The main flow will be that work happens on direct queue, a timeline is signalled,
+         * that gets synced with compute queue,
+         * and graphics queue is synced against compute queue later once the swap image comes around again. */
+        if (chain->async_queue)
+        {
+            chain->user.backbuffers[i]->flags |= VKD3D_RESOURCE_SWAP_CHAIN_IMPLICIT_SYNC;
+            chain->user.backbuffers[i]->swap_chain_implicit_sync_index = i;
+        }
 
         view_info.format = chain->user.backbuffers[i]->format->vk_format;
         view_info.image = chain->user.backbuffers[i]->res.vk_image;
@@ -1290,6 +1305,7 @@ static bool dxgi_vk_swap_chain_update_formats_locked(struct dxgi_vk_swap_chain *
 static HRESULT dxgi_vk_swap_chain_create_surface(struct dxgi_vk_swap_chain *chain, IDXGIVkSurfaceFactory *pFactory)
 {
     const struct vkd3d_vk_device_procs *vk_procs = &chain->queue->device->vk_procs;
+    struct vkd3d_queue_family_info *family_info;
     VkPhysicalDevice vk_physical_device;
     VkInstance vk_instance;
     VkBool32 supported;
@@ -1305,7 +1321,9 @@ static HRESULT dxgi_vk_swap_chain_create_surface(struct dxgi_vk_swap_chain *chai
         return hresult_from_vk_result(vr);
     }
 
-    vr = VK_CALL(vkGetPhysicalDeviceSurfaceSupportKHR(vk_physical_device, chain->queue->vkd3d_queue->vk_family_index, chain->vk_surface, &supported));
+    vr = VK_CALL(vkGetPhysicalDeviceSurfaceSupportKHR(vk_physical_device, chain->queue->vkd3d_queue->vk_family_index,
+            chain->vk_surface, &supported));
+
     if (vr < 0)
     {
         ERR("Failed to query for surface support, vr %d.\n", vr);
@@ -1316,6 +1334,31 @@ static HRESULT dxgi_vk_swap_chain_create_surface(struct dxgi_vk_swap_chain *chai
     {
         ERR("Surface is not supported for presentation.\n");
         return E_INVALIDARG;
+    }
+
+    /* If available, opt for compute presentation.
+     * This way we can hide the blit overhead and also avoid false work spilling into main queue.
+     * This is vitally important to make FSR3 FG work well.
+     * NVIDIA has more than one graphics queue, so the assumption is that NVIDIA can deal with it as-is
+     * since FSR3 creates a different queue for frame-gen presentation. */
+    family_info = chain->queue->device->queue_families[VKD3D_QUEUE_FAMILY_COMPUTE];
+    if (chain->queue->device->queue_families[VKD3D_QUEUE_FAMILY_GRAPHICS]->queue_count == 1 &&
+            family_info->vk_family_index != chain->queue->vkd3d_queue->vk_family_index &&
+            VK_CALL(vkGetPhysicalDeviceSurfaceSupportKHR(vk_physical_device,
+                    family_info->vk_family_index, chain->vk_surface, &supported)) == VK_SUCCESS && supported)
+    {
+        /* Async compute presentation. */
+        const VkImageUsageFlags required_usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        VkSurfaceCapabilitiesKHR caps;
+
+        /* Assume that image usage flags won't randomly change under us.
+         * That would just be extremely weird, and all relevant drivers support this anyway. */
+        VK_CALL(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device, chain->vk_surface, &caps));
+        if ((caps.supportedUsageFlags & required_usage) == required_usage)
+            chain->async_queue = d3d12_device_allocate_vkd3d_queue(family_info, NULL);
+
+        if (chain->async_queue)
+            INFO("Using async compute presentation.\n");
     }
 
     pthread_mutex_init(&chain->properties.lock, NULL);
@@ -1834,6 +1877,12 @@ static void dxgi_vk_swap_chain_recreate_swapchain_in_present_task(struct dxgi_vk
     swapchain_create_info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
     swapchain_create_info.presentMode = present_mode;
     swapchain_create_info.clipped = VK_TRUE;
+
+    /* All DXGI swapchain formats are either UNORM or FP16, so storage is supported.
+     * storageImageWriteWithoutFormat is baseline requirement, as is ExtendedFormats,
+     * so RGBA8, RGB10A2 and RGBA16F are guaranteed without further checks. */
+    if (chain->async_queue)
+        swapchain_create_info.imageUsage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
 
     /* We don't block directly on Present(), so there's no reason to use more than 3 images if even application requests more.
      * We could get away with 2 if we used WSI acquire semaphore and async acquire was supported, but e.g. Mesa does not support that.
@@ -3251,12 +3300,101 @@ HRESULT dxgi_vk_swap_chain_factory_init(struct d3d12_command_queue *queue, struc
 
 HRESULT vkd3d_device_swapchain_info_init(struct vkd3d_device_swapchain_info *info, struct d3d12_device *device)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    struct VkSemaphoreTypeCreateInfo type_info;
+    VkSemaphoreCreateInfo create_info;
+    unsigned int i;
+    VkResult vr;
+
     spinlock_init(&info->low_latency_swapchain_spinlock);
+
+    create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    create_info.pNext = &type_info;
+    create_info.flags = 0;
+    type_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO_KHR;
+    type_info.pNext = NULL;
+    type_info.initialValue = 0;
+    type_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE_KHR;
+
+    for (i = 0; i < ARRAY_SIZE(info->implicit_sync_timeline); i++)
+    {
+        vr = VK_CALL(vkCreateSemaphore(device->vk_device, &create_info, NULL, &info->implicit_sync_timeline[i]));
+        if (vr < 0)
+        {
+            ERR("Failed to create timeline semaphore, vr %d.\n", vr);
+            return hresult_from_vkd3d_result(vr);
+        }
+
+        info->implicit_sync_timeline_values[i] = 0;
+    }
 
     return S_OK;
 }
 
 void vkd3d_device_swapchain_info_cleanup(struct vkd3d_device_swapchain_info *info, struct d3d12_device *device)
 {
+    const struct vkd3d_vk_device_procs *vk_procs = &device->vk_procs;
+    unsigned int i;
+    for (i = 0; i < ARRAY_SIZE(info->implicit_sync_timeline); i++)
+        VK_CALL(vkDestroySemaphore(device->vk_device, info->implicit_sync_timeline[i], NULL));
+}
 
+void vkd3d_device_swapchain_patch_implicit_sync_semaphores(struct vkd3d_device_swapchain_info *info,
+        VkSubmitInfo2 *wait_submit, VkSubmitInfo2 *signal_submit,
+        VkSemaphoreSubmitInfo *wait_semaphores,
+        VkSemaphoreSubmitInfo *signal_semaphores,
+        uint32_t implicit_sync_mask)
+{
+    VkSemaphoreSubmitInfo *sem;
+    unsigned int index;
+    unsigned int i;
+
+    if (!implicit_sync_mask)
+        return;
+
+    /* If for whatever reason we have more than 4 swapchain images, merge the ranges. */
+    for (i = 16; i >= VKD3D_IMPLICIT_SYNC_NUM_TIMELINES; i /= 2)
+        implicit_sync_mask |= implicit_sync_mask >> i;
+    implicit_sync_mask &= (1u << VKD3D_IMPLICIT_SYNC_NUM_TIMELINES) - 1u;
+
+    if (wait_semaphores != wait_submit->pWaitSemaphoreInfos)
+    {
+        memcpy(wait_semaphores, wait_submit->pWaitSemaphoreInfos,
+                sizeof(*wait_submit->pWaitSemaphoreInfos) * wait_submit->waitSemaphoreInfoCount);
+    }
+
+    if (signal_semaphores != signal_submit->pSignalSemaphoreInfos)
+    {
+        memcpy(signal_semaphores, signal_submit->pSignalSemaphoreInfos,
+                sizeof(*signal_submit->pSignalSemaphoreInfos) * signal_submit->signalSemaphoreInfoCount);
+    }
+
+    spinlock_acquire(&info->low_latency_swapchain_spinlock);
+    while (implicit_sync_mask)
+    {
+        index = vkd3d_bitmask_iter32(&implicit_sync_mask);
+
+        if (info->implicit_sync_timeline_values[index])
+        {
+            sem = &wait_semaphores[wait_submit->waitSemaphoreInfoCount++];
+            sem->sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+            sem->pNext = NULL;
+            sem->semaphore = info->implicit_sync_timeline[index];
+            sem->value = info->implicit_sync_timeline_values[index];
+            sem->deviceIndex = 0;
+            sem->stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        }
+
+        sem = &signal_semaphores[signal_submit->signalSemaphoreInfoCount++];
+        sem->sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+        sem->pNext = NULL;
+        sem->semaphore = info->implicit_sync_timeline[index];
+        sem->value = ++info->implicit_sync_timeline_values[index];
+        sem->deviceIndex = 0;
+        sem->stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    }
+    spinlock_release(&info->low_latency_swapchain_spinlock);
+
+    wait_submit->pWaitSemaphoreInfos = wait_semaphores;
+    signal_submit->pSignalSemaphoreInfos = signal_semaphores;
 }

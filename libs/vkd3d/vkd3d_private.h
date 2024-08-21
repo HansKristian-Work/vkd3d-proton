@@ -917,14 +917,15 @@ static inline struct d3d12_heap *impl_from_ID3D12Heap(ID3D12Heap *iface)
 
 enum vkd3d_resource_flag
 {
-    VKD3D_RESOURCE_COMMITTED              = (1u << 0),
-    VKD3D_RESOURCE_PLACED                 = (1u << 1),
-    VKD3D_RESOURCE_RESERVED               = (1u << 2),
-    VKD3D_RESOURCE_ALLOCATION             = (1u << 3),
-    VKD3D_RESOURCE_LINEAR_STAGING_COPY    = (1u << 4),
-    VKD3D_RESOURCE_EXTERNAL               = (1u << 5),
-    VKD3D_RESOURCE_ACCELERATION_STRUCTURE = (1u << 6),
-    VKD3D_RESOURCE_GENERAL_LAYOUT         = (1u << 7),
+    VKD3D_RESOURCE_COMMITTED                = (1u << 0),
+    VKD3D_RESOURCE_PLACED                   = (1u << 1),
+    VKD3D_RESOURCE_RESERVED                 = (1u << 2),
+    VKD3D_RESOURCE_ALLOCATION               = (1u << 3),
+    VKD3D_RESOURCE_LINEAR_STAGING_COPY      = (1u << 4),
+    VKD3D_RESOURCE_EXTERNAL                 = (1u << 5),
+    VKD3D_RESOURCE_ACCELERATION_STRUCTURE   = (1u << 6),
+    VKD3D_RESOURCE_GENERAL_LAYOUT           = (1u << 7),
+    VKD3D_RESOURCE_SWAP_CHAIN_IMPLICIT_SYNC = (1u << 8),
 };
 
 struct d3d12_sparse_image_region
@@ -1008,6 +1009,7 @@ struct d3d12_resource
     struct d3d12_heap *heap;
 
     uint32_t flags;
+    uint32_t swap_chain_implicit_sync_index;
 
     /* To keep track of initial layout. */
     VkImageLayout common_layout;
@@ -2899,6 +2901,8 @@ struct d3d12_command_list
     size_t init_transitions_size;
     size_t init_transitions_count;
 
+    uint32_t implicit_sync_mask;
+
     struct vkd3d_query_range *query_ranges;
     size_t query_ranges_size;
     size_t query_ranges_count;
@@ -3114,6 +3118,10 @@ struct d3d12_command_queue_submission_signal
     UINT64 value;
 };
 
+/* Assume BufferCount is <= 4, otherwise there might be over-sync.
+ * Increasing this just means creating a lot of redundant timeline semaphores. */
+#define VKD3D_IMPLICIT_SYNC_NUM_TIMELINES 4
+
 struct d3d12_command_queue_submission_execute
 {
     VkCommandBufferSubmitInfo *cmd;
@@ -3124,6 +3132,8 @@ struct d3d12_command_queue_submission_execute
 
     struct vkd3d_initial_transition *transitions;
     size_t transition_count;
+
+    uint32_t implicit_sync_mask;
 
 #ifdef VKD3D_ENABLE_BREADCRUMBS
     /* Replays commands in submission order for heavy debug. */
@@ -4547,10 +4557,18 @@ struct vkd3d_device_swapchain_info
     bool boost;
     uint32_t minimum_us;
     spinlock_t low_latency_swapchain_spinlock;
+
+    VkSemaphore implicit_sync_timeline[VKD3D_IMPLICIT_SYNC_NUM_TIMELINES];
+    uint64_t implicit_sync_timeline_values[VKD3D_IMPLICIT_SYNC_NUM_TIMELINES];
 };
 
 HRESULT vkd3d_device_swapchain_info_init(struct vkd3d_device_swapchain_info *info, struct d3d12_device *device);
 void vkd3d_device_swapchain_info_cleanup(struct vkd3d_device_swapchain_info *info, struct d3d12_device *device);
+void vkd3d_device_swapchain_patch_implicit_sync_semaphores(struct vkd3d_device_swapchain_info *info,
+        VkSubmitInfo2 *wait_submit, VkSubmitInfo2 *signal_submit,
+        VkSemaphoreSubmitInfo *wait_semaphores,
+        VkSemaphoreSubmitInfo *signal_semaphores,
+        uint32_t implicit_sync_mask);
 
 #define VKD3D_LOW_LATENCY_FRAME_ID_STRIDE 10000
 struct vkd3d_device_frame_markers
