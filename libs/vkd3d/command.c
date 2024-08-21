@@ -2657,13 +2657,13 @@ struct vkd3d_queue_family_info *d3d12_device_get_vkd3d_queue_family(struct d3d12
     }
 }
 
-struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct d3d12_device *device,
-        struct vkd3d_queue_family_info *queue_family)
+struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct vkd3d_queue_family_info *queue_family)
 {
     struct vkd3d_queue *queue;
     unsigned int i;
 
-    pthread_mutex_lock(&device->mutex);
+    for (i = 0; i < queue_family->queue_count; i++)
+        pthread_mutex_lock(&queue_family->queues[i]->mutex);
 
     /* Select the queue that has the lowest number of virtual queues mapped
      * to it, in order to avoid situations where we map multiple queues to
@@ -2677,16 +2677,18 @@ struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct d3d12_device *devic
     }
 
     queue->virtual_queue_count++;
-    pthread_mutex_unlock(&device->mutex);
+
+    for (i = 0; i < queue_family->queue_count; i++)
+        pthread_mutex_unlock(&queue_family->queues[i]->mutex);
+
     return queue;
 }
 
-void d3d12_device_unmap_vkd3d_queue(struct d3d12_device *device,
-        struct vkd3d_queue *queue)
+void d3d12_device_unmap_vkd3d_queue(struct vkd3d_queue *queue)
 {
-    pthread_mutex_lock(&device->mutex);
+    pthread_mutex_lock(&queue->mutex);
     queue->virtual_queue_count--;
-    pthread_mutex_unlock(&device->mutex);
+    pthread_mutex_unlock(&queue->mutex);
 }
 
 static HRESULT d3d12_command_allocator_init(struct d3d12_command_allocator *allocator,
@@ -16900,7 +16902,7 @@ ULONG STDMETHODCALLTYPE d3d12_command_queue_Release(ID3D12CommandQueue *iface)
 
         d3d12_command_queue_submit_stop(command_queue);
         vkd3d_fence_worker_stop(&command_queue->fence_worker, device);
-        d3d12_device_unmap_vkd3d_queue(device, command_queue->vkd3d_queue);
+        d3d12_device_unmap_vkd3d_queue(command_queue->vkd3d_queue);
         pthread_join(command_queue->submission_thread, NULL);
         pthread_mutex_destroy(&command_queue->queue_lock);
         pthread_cond_destroy(&command_queue->queue_cond);
@@ -18755,7 +18757,7 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
     if (!queue->desc.NodeMask)
         queue->desc.NodeMask = 0x1;
 
-    queue->vkd3d_queue = d3d12_device_allocate_vkd3d_queue(device, family_info);
+    queue->vkd3d_queue = d3d12_device_allocate_vkd3d_queue(family_info);
     queue->submissions = NULL;
     queue->submissions_count = 0;
     queue->submissions_size = 0;
@@ -18811,7 +18813,7 @@ fail_private_store:
 fail_pthread_cond:
     pthread_mutex_destroy(&queue->queue_lock);
 fail:
-    d3d12_device_unmap_vkd3d_queue(device, queue->vkd3d_queue);
+    d3d12_device_unmap_vkd3d_queue(queue->vkd3d_queue);
     return hr;
 }
 
