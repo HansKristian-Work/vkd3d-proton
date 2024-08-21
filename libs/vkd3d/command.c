@@ -17718,9 +17718,12 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
     VkSemaphoreSubmitInfo signal_semaphore_info;
     struct vkd3d_queue *vkd3d_queue;
     struct d3d12_device *device;
+    VkSemaphoreSignalInfo sig;
     VkSubmitInfo2 submit_info;
+    uint64_t completed_value;
     uint64_t physical_value;
     uint64_t signal_value;
+    bool early_signal;
     VkQueue vk_queue;
     VkResult vr;
     HRESULT hr;
@@ -17757,7 +17760,25 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
         return;
     }
 
-    vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
+    early_signal = false;
+
+    /* If there is no meaningful work in the queue, there's no reason to submit anything,
+     * just joink the timeline forward.
+     * We want to ignore any incidental work submitted to the queue which is outside the scope of D3D12,
+     * e.g. swapchain blits, so we cannot rely on driver eliding these submissions. */
+    if (VK_CALL(vkGetSemaphoreCounterValue(command_queue->device->vk_device,
+            vkd3d_queue->submission_timeline, &completed_value)) == VK_SUCCESS &&
+            completed_value == vkd3d_queue->submission_timeline_count)
+    {
+        sig.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO;
+        sig.pNext = NULL;
+        sig.semaphore = signal_semaphore_info.semaphore;
+        sig.value = signal_semaphore_info.value;
+        vr = VK_CALL(vkSignalSemaphore(command_queue->device->vk_device, &sig));
+        early_signal = true;
+    }
+    else
+        vr = VK_CALL(vkQueueSubmit2(vk_queue, 1, &submit_info, VK_NULL_HANDLE));
 
     if (vr == VK_SUCCESS)
         d3d12_fence_update_pending_value_locked(fence);
@@ -17773,13 +17794,21 @@ static void d3d12_command_queue_signal(struct d3d12_command_queue *command_queue
 
     VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
 
-    cookie = vkd3d_queue_timeline_trace_register_signal(&command_queue->device->queue_timeline_trace,
-            &fence->ID3D12Fence_iface, value);
-
-    if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence->ID3D12Fence_iface,
-            fence->timeline_semaphore, physical_value, true, NULL, 0, &cookie)))
+    if (early_signal)
     {
-        ERR("Failed to enqueue timeline semaphore, hr #%x.\n", hr);
+        if (FAILED(hr = d3d12_fence_signal(fence, &command_queue->fence_worker, physical_value)))
+            ERR("Failed to signal D3D12 fence, hr %#x.\n", hr);
+    }
+    else
+    {
+        cookie = vkd3d_queue_timeline_trace_register_signal(&command_queue->device->queue_timeline_trace,
+                &fence->ID3D12Fence_iface, value);
+
+        if (FAILED(hr = vkd3d_enqueue_timeline_semaphore(&command_queue->fence_worker, &fence->ID3D12Fence_iface,
+                fence->timeline_semaphore, physical_value, true, NULL, 0, &cookie)))
+        {
+            ERR("Failed to enqueue timeline semaphore, hr #%x.\n", hr);
+        }
     }
 
     /* We should probably trigger DEVICE_REMOVED if we hit any errors in the submission thread. */
