@@ -18338,11 +18338,11 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
 
         if (command_queue->device->vk_info.NV_low_latency2)
         {
-            spinlock_acquire(&command_queue->device->low_latency_swapchain_spinlock);
+            spinlock_acquire(&command_queue->device->swapchain_info.low_latency_swapchain_spinlock);
             if ((low_latency_swapchain = command_queue->device->swapchain_info.low_latency_swapchain))
                 dxgi_vk_swap_chain_incref(low_latency_swapchain);
             consumed_present_id = command_queue->device->frame_markers.consumed_present_id;
-            spinlock_release(&command_queue->device->low_latency_swapchain_spinlock);
+            spinlock_release(&command_queue->device->swapchain_info.low_latency_swapchain_spinlock);
 
             /* If we have submitted a swapchain blit to Vulkan,
              * it is not possible for a present ID to keep contributing to the frame's completion.

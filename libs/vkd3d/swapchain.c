@@ -2407,10 +2407,10 @@ static void dxgi_vk_swap_chain_present_iteration(struct dxgi_vk_swap_chain *chai
         if (chain->present.low_latency_state.mode)
         {
             struct vkd3d_device_frame_markers *markers = &chain->queue->device->frame_markers;
-            spinlock_acquire(&chain->queue->device->low_latency_swapchain_spinlock);
+            spinlock_acquire(&chain->queue->device->swapchain_info.low_latency_swapchain_spinlock);
             chain->present.present_id = max(chain->present.present_id, markers->consumed_present_id + 1);
             markers->consumed_present_id = chain->present.present_id;
-            spinlock_release(&chain->queue->device->low_latency_swapchain_spinlock);
+            spinlock_release(&chain->queue->device->swapchain_info.low_latency_swapchain_spinlock);
         }
 
         if (chain->debug_latency)
