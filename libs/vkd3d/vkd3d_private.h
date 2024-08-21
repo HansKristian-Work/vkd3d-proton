@@ -4549,6 +4549,9 @@ struct vkd3d_device_swapchain_info
     spinlock_t low_latency_swapchain_spinlock;
 };
 
+HRESULT vkd3d_device_swapchain_info_init(struct vkd3d_device_swapchain_info *info, struct d3d12_device *device);
+void vkd3d_device_swapchain_info_cleanup(struct vkd3d_device_swapchain_info *info, struct d3d12_device *device);
+
 #define VKD3D_LOW_LATENCY_FRAME_ID_STRIDE 10000
 struct vkd3d_device_frame_markers
 {

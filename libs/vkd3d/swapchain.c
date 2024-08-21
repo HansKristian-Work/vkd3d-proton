@@ -3248,3 +3248,15 @@ HRESULT dxgi_vk_swap_chain_factory_init(struct d3d12_command_queue *queue, struc
     chain->queue = queue;
     return S_OK;
 }
+
+HRESULT vkd3d_device_swapchain_info_init(struct vkd3d_device_swapchain_info *info, struct d3d12_device *device)
+{
+    spinlock_init(&info->low_latency_swapchain_spinlock);
+
+    return S_OK;
+}
+
+void vkd3d_device_swapchain_info_cleanup(struct vkd3d_device_swapchain_info *info, struct d3d12_device *device)
+{
+
+}
