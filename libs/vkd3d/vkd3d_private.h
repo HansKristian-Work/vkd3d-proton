@@ -3021,6 +3021,8 @@ HRESULT d3d12_bundle_create(struct d3d12_device *device,
 void d3d12_bundle_execute(struct d3d12_bundle *bundle, d3d12_command_list_iface *list);
 struct d3d12_bundle *d3d12_bundle_from_iface(ID3D12GraphicsCommandList *iface);
 
+#define VKD3D_QUEUE_INACTIVE_THRESHOLD_NS (1000000000ull) /* 1s */
+
 struct vkd3d_queue
 {
     /* Access to VkQueue must be externally synchronized. */
@@ -3042,6 +3044,10 @@ struct vkd3d_queue
     VkQueueFlags vk_queue_flags;
     uint32_t timestamp_bits;
     uint32_t virtual_queue_count;
+
+    struct d3d12_command_queue **command_queues;
+    size_t command_queue_size;
+    size_t command_queue_count;
 
     VkSemaphoreSubmitInfo *wait_semaphores;
     size_t wait_semaphores_size;
@@ -3216,6 +3222,10 @@ struct d3d12_command_queue
     size_t submissions_size;
     uint64_t drain_count;
     uint64_t queue_drain_count;
+
+    UINT64 last_submission_timeline_value;
+    UINT64 last_submission_time_ns;
+    bool stagger_submissions;
 
     struct vkd3d_fence_worker fence_worker;
     struct vkd3d_private_store private_store;
@@ -4863,8 +4873,9 @@ HRESULT d3d12_device_create(struct vkd3d_instance *instance,
 struct vkd3d_queue_family_info *d3d12_device_get_vkd3d_queue_family(struct d3d12_device *device,
         D3D12_COMMAND_LIST_TYPE type,
         uint32_t vk_family_index);
-struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct vkd3d_queue_family_info *queue_family);
-void d3d12_device_unmap_vkd3d_queue(struct vkd3d_queue *queue);
+struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct vkd3d_queue_family_info *queue_family,
+        struct d3d12_command_queue *command_queue);
+void d3d12_device_unmap_vkd3d_queue(struct vkd3d_queue *queue, struct d3d12_command_queue *command_queue);
 bool d3d12_device_is_uma(struct d3d12_device *device, bool *coherent);
 void d3d12_device_mark_as_removed(struct d3d12_device *device, HRESULT reason,
         const char *message, ...) VKD3D_PRINTF_FUNC(3, 4);

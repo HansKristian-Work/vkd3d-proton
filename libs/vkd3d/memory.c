@@ -145,7 +145,7 @@ HRESULT vkd3d_memory_transfer_queue_init(struct vkd3d_memory_transfer_queue *que
 
     queue->device = device;
     queue->vkd3d_queue = d3d12_device_allocate_vkd3d_queue(
-            device->queue_families[VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE]);
+            device->queue_families[VKD3D_QUEUE_FAMILY_INTERNAL_COMPUTE], NULL);
 
     queue->last_known_value = VKD3D_MEMORY_TRANSFER_COMMAND_BUFFER_COUNT;
     queue->next_signal_value = VKD3D_MEMORY_TRANSFER_COMMAND_BUFFER_COUNT + 1;
