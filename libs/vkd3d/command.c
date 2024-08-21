@@ -252,6 +252,7 @@ void vkd3d_queue_destroy(struct vkd3d_queue *queue, struct d3d12_device *device)
     VK_CALL(vkDestroySemaphore(device->vk_device, queue->submission_timeline, NULL));
 
     pthread_mutex_destroy(&queue->mutex);
+    vkd3d_free(queue->command_queues);
     vkd3d_free(queue->wait_semaphores);
     vkd3d_free(queue->wait_values_virtual);
     vkd3d_free(queue->wait_fences);
@@ -2657,7 +2658,8 @@ struct vkd3d_queue_family_info *d3d12_device_get_vkd3d_queue_family(struct d3d12
     }
 }
 
-struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct vkd3d_queue_family_info *queue_family)
+struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct vkd3d_queue_family_info *queue_family,
+        struct d3d12_command_queue *command_queue)
 {
     struct vkd3d_queue *queue;
     unsigned int i;
@@ -2678,16 +2680,40 @@ struct vkd3d_queue *d3d12_device_allocate_vkd3d_queue(struct vkd3d_queue_family_
 
     queue->virtual_queue_count++;
 
+    if (command_queue)
+    {
+        vkd3d_array_reserve((void**)&queue->command_queues, &queue->command_queue_size,
+                queue->command_queue_count + 1, sizeof(*queue->command_queues));
+
+        queue->command_queues[queue->command_queue_count++] = command_queue;
+    }
+
     for (i = 0; i < queue_family->queue_count; i++)
         pthread_mutex_unlock(&queue_family->queues[i]->mutex);
 
     return queue;
 }
 
-void d3d12_device_unmap_vkd3d_queue(struct vkd3d_queue *queue)
+void d3d12_device_unmap_vkd3d_queue(struct vkd3d_queue *queue, struct d3d12_command_queue *command_queue)
 {
+    size_t i;
+
     pthread_mutex_lock(&queue->mutex);
     queue->virtual_queue_count--;
+
+    if (command_queue)
+    {
+        for (i = 0; i < queue->command_queue_count; i++)
+        {
+            if (queue->command_queues[i] == command_queue)
+            {
+                queue->command_queue_count--;
+                queue->command_queues[i] = queue->command_queues[queue->command_queue_count];
+                break;
+            }
+        }
+    }
+
     pthread_mutex_unlock(&queue->mutex);
 }
 
@@ -16902,7 +16928,7 @@ ULONG STDMETHODCALLTYPE d3d12_command_queue_Release(ID3D12CommandQueue *iface)
 
         d3d12_command_queue_submit_stop(command_queue);
         vkd3d_fence_worker_stop(&command_queue->fence_worker, device);
-        d3d12_device_unmap_vkd3d_queue(command_queue->vkd3d_queue);
+        d3d12_device_unmap_vkd3d_queue(command_queue->vkd3d_queue, command_queue);
         pthread_join(command_queue->submission_thread, NULL);
         pthread_mutex_destroy(&command_queue->queue_lock);
         pthread_cond_destroy(&command_queue->queue_cond);
@@ -18059,6 +18085,67 @@ static VkResult d3d12_command_queue_submit_split_locked(struct d3d12_device *dev
 	return VK_SUCCESS;
 }
 
+static void d3d12_command_queue_wait_staggered_submission(struct d3d12_command_queue *command_queue)
+{
+    const struct vkd3d_vk_device_procs *vk_procs = &command_queue->device->vk_procs;
+    VkSemaphoreWaitInfo wait_info;
+    VkResult vr;
+
+    if (!command_queue->last_submission_timeline_value)
+        return;
+
+    memset(&wait_info, 0, sizeof(wait_info));
+    wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+    wait_info.semaphoreCount = 1;
+    wait_info.pSemaphores = &command_queue->vkd3d_queue->submission_timeline;
+    wait_info.pValues = &command_queue->last_submission_timeline_value;
+
+    if ((vr = VK_CALL(vkWaitSemaphores(command_queue->device->vk_device, &wait_info, UINT64_MAX))))
+        ERR("Failed to wait for semaphore, vr %d.\n", vr);
+
+    command_queue->last_submission_timeline_value = 0;
+}
+
+static bool d3d12_command_queue_needs_staggered_submissions_locked(struct d3d12_command_queue *command_queue)
+{
+    uint64_t current_time_ns, queue_submit_time_ns;
+    int32_t max_priority;
+    unsigned int i;
+
+    if (command_queue->vkd3d_queue->command_queue_count == 1)
+        return false;
+
+    current_time_ns = vkd3d_get_current_time_ns();
+
+    /* Make sure current command queue is recognized as busy */
+    vkd3d_atomic_uint64_store_explicit(&command_queue->last_submission_time_ns,
+            current_time_ns, vkd3d_memory_order_relaxed);
+
+    /* Never stagger submissions for the highest-priority active queue. */
+    max_priority = command_queue->desc.Priority;
+
+    for (i = 0; i < command_queue->vkd3d_queue->command_queue_count; i++)
+    {
+        struct d3d12_command_queue *q = command_queue->vkd3d_queue->command_queues[i];
+
+        queue_submit_time_ns = vkd3d_atomic_uint64_load_explicit(&q->last_submission_time_ns, vkd3d_memory_order_relaxed);
+
+        if (queue_submit_time_ns + VKD3D_QUEUE_INACTIVE_THRESHOLD_NS > current_time_ns)
+            max_priority = max(max_priority, q->desc.Priority);
+    }
+
+    if (command_queue->desc.Priority == max_priority)
+        return false;
+
+    /* Otherwise, submit command buffers from this queue one by one in order
+     * to allow work from an active high-priority queue to get scheduled sooner.
+     * This is relevant for FSR3 frame generation on drivers that only support
+     * one graphics queue, since UI composition and presentation are submitted
+     * mid-frame without any explicit synchronization between the two graphics
+     * queues. */
+    return true;
+}
+
 static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queue,
         const VkCommandBufferSubmitInfo *cmd, UINT count,
         const VkCommandBufferSubmitInfo *transition_cmd,
@@ -18073,44 +18160,17 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     struct dxgi_vk_swap_chain *low_latency_swapchain;
     VkSemaphoreSubmitInfo signal_semaphore_info;
     VkSemaphoreSubmitInfo binary_semaphore_info;
+    VkSubmitInfo2 submit_desc[4], *submit;
+    uint32_t num_submits, split_count;
     uint64_t consumed_present_id;
-    VkSubmitInfo2 submit_desc[4];
-    uint32_t num_submits;
+    bool stagger_submissions;
+    unsigned int i, j;
     VkQueue vk_queue;
-    unsigned int i;
     VkResult vr;
     HRESULT hr;
 
     TRACE("queue %p, command_list_count %u, command_lists %p.\n",
           command_queue, count, cmd);
-
-    memset(submit_desc, 0, sizeof(submit_desc));
-
-    if (transition_cmd->commandBuffer)
-    {
-        /* The transition cmd must happen in-order, since with the advanced aliasing model in D3D12,
-         * it is enough to separate aliases with an ExecuteCommandLists.
-         * A clear-like operation must still happen though in the application which would acquire the alias,
-         * but we must still be somewhat careful about when we emit initial state transitions.
-         * The clear requirement only exists for render targets. */
-        num_submits = 2;
-
-        /* Could use the serializing binary semaphore here,
-         * but we need to keep track of the timeline on CPU as well
-         * to know when we can reset the barrier command buffer. */
-        submit_desc[0].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-        submit_desc[0].signalSemaphoreInfoCount = 1;
-        submit_desc[0].pSignalSemaphoreInfos = transition_semaphore;
-        submit_desc[0].commandBufferInfoCount = 1;
-        submit_desc[0].pCommandBufferInfos = transition_cmd;
-
-        submit_desc[1].waitSemaphoreInfoCount = 1;
-        submit_desc[1].pWaitSemaphoreInfos = transition_semaphore;
-    }
-    else
-    {
-        num_submits = 1;
-    }
 
     if (!(vk_queue = vkd3d_queue_acquire(vkd3d_queue)))
     {
@@ -18121,66 +18181,6 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
         vkd3d_queue_timeline_trace_complete_execute(&command_queue->device->queue_timeline_trace,
                 NULL, timeline_cookie);
         return;
-    }
-
-    memset(&signal_semaphore_info, 0, sizeof(signal_semaphore_info));
-    signal_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-    signal_semaphore_info.semaphore = vkd3d_queue->submission_timeline;
-    signal_semaphore_info.value = ++vkd3d_queue->submission_timeline_count;
-    signal_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-
-    submit_desc[num_submits - 1].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-    submit_desc[num_submits - 1].commandBufferInfoCount = count;
-    submit_desc[num_submits - 1].pCommandBufferInfos = cmd;
-    submit_desc[num_submits - 1].signalSemaphoreInfoCount = 1;
-    submit_desc[num_submits - 1].pSignalSemaphoreInfos = &signal_semaphore_info;
-
-    /* Prefer binary semaphore since timeline signal -> wait pair can cause scheduling bubbles.
-     * Binary semaphores tend to be more well-behaved here since they can lower to kernel primitives more easily. */
-    if (!command_queue->vkd3d_queue->barrier_command_buffer)
-    {
-        binary_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-        binary_semaphore_info.pNext = NULL;
-        binary_semaphore_info.value = 0;
-        binary_semaphore_info.semaphore = command_queue->vkd3d_queue->serializing_binary_semaphore;
-        binary_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-        binary_semaphore_info.deviceIndex = 0;
-
-        submit_desc[num_submits].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-        submit_desc[num_submits].signalSemaphoreInfoCount = 1;
-        submit_desc[num_submits].pSignalSemaphoreInfos = &binary_semaphore_info;
-
-        submit_desc[num_submits + 1].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-        submit_desc[num_submits + 1].waitSemaphoreInfoCount = 1;
-        submit_desc[num_submits + 1].pWaitSemaphoreInfos = &binary_semaphore_info;
-        num_submits += 2;
-    }
-
-    if (command_queue->device->vk_info.NV_low_latency2)
-    {
-        spinlock_acquire(&command_queue->device->low_latency_swapchain_spinlock);
-        if ((low_latency_swapchain = command_queue->device->swapchain_info.low_latency_swapchain))
-            dxgi_vk_swap_chain_incref(low_latency_swapchain);
-        consumed_present_id = command_queue->device->frame_markers.consumed_present_id;
-        spinlock_release(&command_queue->device->low_latency_swapchain_spinlock);
-
-        /* If we have submitted a swapchain blit to Vulkan,
-         * it is not possible for a present ID to keep contributing to the frame's completion.
-         * The likely case here is that application just forgot to signal present ID.
-         * Don't bother trying to mark submission present ID if application isn't bothering to set markers properly. */
-        if (low_latency_swapchain && low_latency_frame_id > consumed_present_id &&
-                dxgi_vk_swap_chain_low_latency_enabled(low_latency_swapchain))
-        {
-            latency_submit_present_info.sType = VK_STRUCTURE_TYPE_LATENCY_SUBMISSION_PRESENT_ID_NV;
-            latency_submit_present_info.pNext = NULL;
-            latency_submit_present_info.presentID = low_latency_frame_id;
-
-            for (i = 0; i < num_submits; i++)
-                submit_desc[i].pNext = &latency_submit_present_info;
-        }
-
-        if (low_latency_swapchain)
-            dxgi_vk_swap_chain_decref(low_latency_swapchain);
     }
 
 #ifdef VKD3D_ENABLE_RENDERDOC
@@ -18195,12 +18195,148 @@ static void d3d12_command_queue_execute(struct d3d12_command_queue *command_queu
     (void)debug_capture;
 #endif
 
-    if (split_submissions)
-        vr = d3d12_command_queue_submit_split_locked(command_queue->device, vk_queue, num_submits, submit_desc);
-    else if ((vr = VK_CALL(vkQueueSubmit2(vk_queue, num_submits, submit_desc, VK_NULL_HANDLE))) < 0)
-        ERR("Failed to submit queue(s), vr %d.\n", vr);
+    stagger_submissions = d3d12_command_queue_needs_staggered_submissions_locked(command_queue);
 
-    VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
+    if (command_queue->stagger_submissions != stagger_submissions)
+    {
+        command_queue->stagger_submissions = stagger_submissions;
+        INFO("%sabling staggered submissions for command queue %p, queue family %u.\n",
+                stagger_submissions ? "En" : "Dis", command_queue, command_queue->vkd3d_queue->vk_family_index);
+    }
+
+    split_count = stagger_submissions ? count : 1;
+
+    memset(submit_desc, 0, sizeof(submit_desc));
+    num_submits = 0;
+
+    if (transition_cmd->commandBuffer)
+    {
+        /* The transition cmd must happen in-order, since with the advanced aliasing model in D3D12,
+         * it is enough to separate aliases with an ExecuteCommandLists.
+         * A clear-like operation must still happen though in the application which would acquire the alias,
+         * but we must still be somewhat careful about when we emit initial state transitions.
+         * The clear requirement only exists for render targets.
+         * Could use the serializing binary semaphore here,
+         * but we need to keep track of the timeline on CPU as well
+         * to know when we can reset the barrier command buffer. */
+        submit = &submit_desc[num_submits++];
+        submit->sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+        submit->signalSemaphoreInfoCount = 1;
+        submit->pSignalSemaphoreInfos = transition_semaphore;
+        submit->commandBufferInfoCount = 1;
+        submit->pCommandBufferInfos = transition_cmd;
+    }
+
+    for (j = 0; j < split_count; j++)
+    {
+        memset(&signal_semaphore_info, 0, sizeof(signal_semaphore_info));
+        signal_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+        signal_semaphore_info.semaphore = vkd3d_queue->submission_timeline;
+        signal_semaphore_info.value = ++vkd3d_queue->submission_timeline_count;
+        signal_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+        submit = &submit_desc[num_submits++];
+        submit->sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+
+        if (stagger_submissions)
+        {
+            submit->commandBufferInfoCount = 1;
+            submit->pCommandBufferInfos = &cmd[j];
+        }
+        else
+        {
+            submit->commandBufferInfoCount = count;
+            submit->pCommandBufferInfos = cmd;
+        }
+
+        submit->signalSemaphoreInfoCount = 1;
+        submit->pSignalSemaphoreInfos = &signal_semaphore_info;
+
+        if (transition_cmd->commandBuffer && !j)
+        {
+            submit->waitSemaphoreInfoCount = 1;
+            submit->pWaitSemaphoreInfos = transition_semaphore;
+        }
+
+        /* Prefer binary semaphore since timeline signal -> wait pair can cause scheduling bubbles.
+         * Binary semaphores tend to be more well-behaved here since they can lower to kernel primitives more easily. */
+        if (!command_queue->vkd3d_queue->barrier_command_buffer && j + 1 == split_count)
+        {
+            binary_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+            binary_semaphore_info.pNext = NULL;
+            binary_semaphore_info.value = 0;
+            binary_semaphore_info.semaphore = command_queue->vkd3d_queue->serializing_binary_semaphore;
+            binary_semaphore_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            binary_semaphore_info.deviceIndex = 0;
+
+            submit = &submit_desc[num_submits++];
+            submit->sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+            submit->signalSemaphoreInfoCount = 1;
+            submit->pSignalSemaphoreInfos = &binary_semaphore_info;
+
+            submit = &submit_desc[num_submits++];
+            submit->sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+            submit->waitSemaphoreInfoCount = 1;
+            submit->pWaitSemaphoreInfos = &binary_semaphore_info;
+        }
+
+        if (command_queue->device->vk_info.NV_low_latency2)
+        {
+            spinlock_acquire(&command_queue->device->low_latency_swapchain_spinlock);
+            if ((low_latency_swapchain = command_queue->device->swapchain_info.low_latency_swapchain))
+                dxgi_vk_swap_chain_incref(low_latency_swapchain);
+            consumed_present_id = command_queue->device->frame_markers.consumed_present_id;
+            spinlock_release(&command_queue->device->low_latency_swapchain_spinlock);
+
+            /* If we have submitted a swapchain blit to Vulkan,
+             * it is not possible for a present ID to keep contributing to the frame's completion.
+             * The likely case here is that application just forgot to signal present ID.
+             * Don't bother trying to mark submission present ID if application isn't bothering to set markers properly. */
+            if (low_latency_swapchain && low_latency_frame_id > consumed_present_id &&
+                    dxgi_vk_swap_chain_low_latency_enabled(low_latency_swapchain))
+            {
+                latency_submit_present_info.sType = VK_STRUCTURE_TYPE_LATENCY_SUBMISSION_PRESENT_ID_NV;
+                latency_submit_present_info.pNext = NULL;
+                latency_submit_present_info.presentID = low_latency_frame_id;
+
+                for (i = 0; i < num_submits; i++)
+                    submit_desc[i].pNext = &latency_submit_present_info;
+            }
+
+            if (low_latency_swapchain)
+                dxgi_vk_swap_chain_decref(low_latency_swapchain);
+        }
+
+        if (split_submissions)
+            vr = d3d12_command_queue_submit_split_locked(command_queue->device, vk_queue, num_submits, submit_desc);
+        else if ((vr = VK_CALL(vkQueueSubmit2(vk_queue, num_submits, submit_desc, VK_NULL_HANDLE))) < 0)
+            ERR("Failed to submit queue(s), vr %d.\n", vr);
+
+        VKD3D_DEVICE_REPORT_FAULT_AND_BREADCRUMB_IF(command_queue->device, vr == VK_ERROR_DEVICE_LOST);
+
+        if (vr != VK_SUCCESS)
+            break;
+
+        memset(submit_desc, 0, sizeof(submit_desc));
+        num_submits = 0;
+
+        if (stagger_submissions)
+        {
+            vkd3d_queue_release(vkd3d_queue);
+
+            /* Wait for previous submission from the current virtual queue to complete.
+             * This essentially allows one command buffer in flight in order to reduce
+             * GPU idle time, as well as delays when processing pending signals. */
+            d3d12_command_queue_wait_staggered_submission(command_queue);
+            command_queue->last_submission_timeline_value = signal_semaphore_info.value;
+
+            if (!(vk_queue = vkd3d_queue_acquire(vkd3d_queue)))
+            {
+                ERR("Failed to acquire queue %p.\n", vkd3d_queue);
+                return;
+            }
+        }
+    }
 
 #ifdef VKD3D_ENABLE_RENDERDOC
     if (debug_capture)
@@ -18757,7 +18893,7 @@ static HRESULT d3d12_command_queue_init(struct d3d12_command_queue *queue,
     if (!queue->desc.NodeMask)
         queue->desc.NodeMask = 0x1;
 
-    queue->vkd3d_queue = d3d12_device_allocate_vkd3d_queue(family_info);
+    queue->vkd3d_queue = d3d12_device_allocate_vkd3d_queue(family_info, queue);
     queue->submissions = NULL;
     queue->submissions_count = 0;
     queue->submissions_size = 0;
@@ -18813,7 +18949,7 @@ fail_private_store:
 fail_pthread_cond:
     pthread_mutex_destroy(&queue->queue_lock);
 fail:
-    d3d12_device_unmap_vkd3d_queue(queue->vkd3d_queue);
+    d3d12_device_unmap_vkd3d_queue(queue->vkd3d_queue, queue);
     return hr;
 }
 
