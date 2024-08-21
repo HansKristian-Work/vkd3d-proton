@@ -4370,3 +4370,254 @@ void test_planar_video_formats(void)
     destroy_test_context(&context);
 #undef MAX_PLANES
 }
+
+void test_large_texel_buffer_view(void)
+{
+    ID3D12Resource *data_buffer, *feedback_buffer;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    ID3D12GraphicsCommandList2 *command_list2;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    D3D12_DESCRIPTOR_RANGE rs_desc_ranges[2];
+    ID3D12PipelineState *uav_pso, *srv_pso;
+    D3D12_HEAP_PROPERTIES heap_properties;
+    ID3D12DescriptorHeap *descriptor_heap;
+    D3D12_ROOT_SIGNATURE_DESC rs_desc;
+    D3D12_RESOURCE_DESC resource_desc;
+    D3D12_ROOT_PARAMETER rs_args[2];
+    struct resource_readback rb;
+    struct test_context context;
+    UINT clear_color[4];
+    unsigned int i, j;
+    HRESULT hr;
+
+#include "shaders/resource/headers/cs_large_tbo_load.h"
+#include "shaders/resource/headers/cs_large_tbo_store.h"
+
+    static const struct
+    {
+        DXGI_FORMAT format;
+        uint32_t element_count;
+        uint32_t element_data;
+    }
+    tests[] =
+    {
+        /* Minimum required texel count for any format */
+        { DXGI_FORMAT_R32G32B32A32_UINT, 1u << 27, 0xf000ba22 },
+
+        /* Above minimum required, but supported on AMD/Nvidia */
+        { DXGI_FORMAT_R32G32_UINT, 1u << 28, 0xdeadbeef },
+        { DXGI_FORMAT_R32_UINT, 1u << 29, 0x01234567 },
+
+        { DXGI_FORMAT_R16G16B16A16_UINT, 1u << 28, 0x8888 },
+        { DXGI_FORMAT_R16G16_UINT, 1u << 29, 0x9999 },
+        { DXGI_FORMAT_R16_UINT, 1u << 29, 0xaaaa },
+
+        { DXGI_FORMAT_R10G10B10A2_UINT, 1u << 29, 0x2ff },
+
+        { DXGI_FORMAT_R8G8B8A8_UINT, 1u << 29, 0xbb },
+        { DXGI_FORMAT_R8G8_UINT, 1u << 29, 0xcc },
+        { DXGI_FORMAT_R8_UINT, 1u << 29, 0xdd },
+#if 0
+        /* These fail on Nvidia native and will be clamped to 2^29 texels */
+        { DXGI_FORMAT_R16_UINT, 1u << 30, 0xa5df },
+        { DXGI_FORMAT_R8_UINT, 1u << 31, 0x31 },
+#endif
+    };
+
+    struct
+    {
+        uint32_t offset;
+        uint32_t data;
+        uint32_t feedback;
+    } shader_args;
+
+    const struct
+    {
+        uint32_t element_count;
+        uint32_t last_value;
+    } *feedback;
+
+    if (!init_compute_test_context(&context))
+        return;
+
+    if (FAILED(ID3D12GraphicsCommandList_QueryInterface(context.list, &IID_ID3D12GraphicsCommandList2, (void**)&command_list2)))
+    {
+        skip("ID3D12GraphicsCommandList2 not supported by implementation.\n");
+        destroy_test_context(&context);
+        return;
+    }
+
+    memset(&heap_properties, 0, sizeof(heap_properties));
+    heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    memset(&resource_desc, 0, sizeof(resource_desc));
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Width = 2048u << 20u;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL, &IID_ID3D12Resource, (void**)&data_buffer);
+
+    if (FAILED(hr))
+    {
+        /* Be robust if the implementation does not support huge allocations */
+        skip("Failed to create data buffer, hr %#x.\n", hr);
+        ID3D12GraphicsCommandList2_Release(command_list2);
+        destroy_test_context(&context);
+        return;
+    }
+
+    resource_desc.Width = sizeof(*feedback) * 3;
+
+    hr = ID3D12Device_CreateCommittedResource(context.device, &heap_properties, D3D12_HEAP_FLAG_NONE,
+            &resource_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL, &IID_ID3D12Resource, (void**)&feedback_buffer);
+    ok(hr == S_OK, "Failed to create feedback buffer, hr %#x.\n", hr);
+
+    descriptor_heap = create_gpu_descriptor_heap(context.device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 4);
+
+    memset(&uav_desc, 0, sizeof(uav_desc));
+    uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    uav_desc.Buffer.StructureByteStride = sizeof(*feedback);
+    uav_desc.Buffer.NumElements = 3;
+
+    ID3D12Device_CreateUnorderedAccessView(context.device, feedback_buffer, NULL,
+            &uav_desc, get_cpu_descriptor_handle(&context, descriptor_heap, 2));
+
+    memset(&rs_desc, 0, sizeof(rs_desc));
+    rs_desc.NumParameters = ARRAY_SIZE(rs_args);
+    rs_desc.pParameters = rs_args;
+
+    memset(rs_args, 0, sizeof(rs_args));
+    rs_args[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rs_args[0].DescriptorTable.NumDescriptorRanges = ARRAY_SIZE(rs_desc_ranges);
+    rs_args[0].DescriptorTable.pDescriptorRanges = rs_desc_ranges;
+    rs_args[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    rs_args[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rs_args[1].Constants.Num32BitValues = sizeof(shader_args) / sizeof(uint32_t);
+    rs_args[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    memset(rs_desc_ranges, 0, sizeof(rs_desc_ranges));
+    rs_desc_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    rs_desc_ranges[0].OffsetInDescriptorsFromTableStart = 0;
+    rs_desc_ranges[0].NumDescriptors = 1;
+
+    rs_desc_ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    rs_desc_ranges[1].OffsetInDescriptorsFromTableStart = 1;
+    rs_desc_ranges[1].NumDescriptors = 2;
+
+    hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
+
+    srv_pso = create_compute_pipeline_state(context.device, context.root_signature, cs_large_tbo_load_dxbc);
+    uav_pso = create_compute_pipeline_state(context.device, context.root_signature, cs_large_tbo_store_dxbc);
+
+    for (i = 0; i < ARRAY_SIZE(tests); i++)
+    {
+        vkd3d_test_set_context("Test %u", i);
+
+        memset(&srv_desc, 0, sizeof(srv_desc));
+        srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        srv_desc.Format = tests[i].format;
+        srv_desc.Buffer.FirstElement = 0;
+        srv_desc.Buffer.NumElements = tests[i].element_count;
+        srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+
+        ID3D12Device_CreateShaderResourceView(context.device, data_buffer,
+                &srv_desc, get_cpu_descriptor_handle(&context, descriptor_heap, 0));
+
+        memset(&uav_desc, 0, sizeof(uav_desc));
+        uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uav_desc.Format = tests[i].format;
+        uav_desc.Buffer.FirstElement = 0;
+        uav_desc.Buffer.NumElements = tests[i].element_count;
+
+        ID3D12Device_CreateUnorderedAccessView(context.device, data_buffer, NULL,
+                &uav_desc, get_cpu_descriptor_handle(&context, descriptor_heap, 1));
+
+        uav_desc.Buffer.FirstElement = tests[i].element_count - 1;
+        uav_desc.Buffer.NumElements = 1;
+
+        ID3D12Device_CreateUnorderedAccessView(context.device, data_buffer, NULL,
+                &uav_desc, get_cpu_descriptor_handle(&context, descriptor_heap, 3));
+
+        shader_args.offset = tests[i].element_count - 1u;
+        shader_args.data = tests[i].element_data;
+        shader_args.feedback = 0;
+
+        memset(clear_color, 0, sizeof(clear_color));
+        clear_color[0] = tests[i].element_data;
+
+        ID3D12GraphicsCommandList2_ClearUnorderedAccessViewUint(command_list2,
+                get_gpu_descriptor_handle(&context, descriptor_heap, 3),
+                get_cpu_descriptor_handle(&context, descriptor_heap, 3),
+                data_buffer, clear_color, 0, NULL);
+
+        transition_resource_state(context.list, data_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+
+        ID3D12GraphicsCommandList2_SetDescriptorHeaps(command_list2, 1, &descriptor_heap);
+        ID3D12GraphicsCommandList2_SetComputeRootSignature(command_list2, context.root_signature);
+        ID3D12GraphicsCommandList2_SetPipelineState(command_list2, srv_pso);
+        ID3D12GraphicsCommandList2_SetComputeRootDescriptorTable(command_list2, 0, get_gpu_descriptor_handle(&context, descriptor_heap, 0));
+        ID3D12GraphicsCommandList2_SetComputeRoot32BitConstants(command_list2, 1, sizeof(shader_args) / sizeof(uint32_t), &shader_args, 0);
+        ID3D12GraphicsCommandList2_Dispatch(command_list2, 1, 1, 1);
+
+        transition_resource_state(context.list, data_buffer, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+        shader_args.feedback = 1;
+
+        ID3D12GraphicsCommandList2_SetPipelineState(command_list2, uav_pso);
+        ID3D12GraphicsCommandList2_SetComputeRoot32BitConstants(command_list2, 1, sizeof(shader_args) / sizeof(uint32_t), &shader_args, 0);
+        ID3D12GraphicsCommandList2_Dispatch(command_list2, 1, 1, 1);
+
+        transition_resource_state(context.list, data_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+
+        shader_args.feedback = 2;
+
+        ID3D12GraphicsCommandList2_SetPipelineState(command_list2, srv_pso);
+        ID3D12GraphicsCommandList2_SetComputeRoot32BitConstants(command_list2, 1, sizeof(shader_args) / sizeof(uint32_t), &shader_args, 0);
+        ID3D12GraphicsCommandList2_Dispatch(command_list2, 1, 1, 1);
+
+        transition_resource_state(context.list, data_buffer, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        transition_resource_state(context.list, feedback_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+        get_buffer_readback_with_command_list(feedback_buffer, DXGI_FORMAT_UNKNOWN, &rb, context.queue, context.list);
+
+        feedback = rb.data;
+
+        for (j = 0; j < 3; j++)
+        {
+            uint32_t expected = tests[i].element_data;
+
+            if (j == 2)
+                expected += 1u;
+
+            ok(feedback[j].element_count == tests[i].element_count, "Got element count %#x, expected %#x at %u.\n",
+                    feedback[j].element_count, tests[i].element_count, j);
+            ok(feedback[j].last_value == expected, "Got data %#x, expected %#x at %u.\n",
+                    feedback[j].last_value, expected, j);
+        }
+
+        release_resource_readback(&rb);
+        reset_command_list(context.list, context.allocator);
+
+        transition_resource_state(context.list, feedback_buffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    }
+
+    ID3D12PipelineState_Release(srv_pso);
+    ID3D12PipelineState_Release(uav_pso);
+
+    ID3D12Resource_Release(feedback_buffer);
+    ID3D12Resource_Release(data_buffer);
+
+    ID3D12DescriptorHeap_Release(descriptor_heap);
+
+    ID3D12GraphicsCommandList2_Release(command_list2);
+
+    destroy_test_context(&context);
+}
