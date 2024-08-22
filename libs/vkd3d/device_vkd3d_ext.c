@@ -162,7 +162,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaTextureObject(d3d
     struct d3d12_device *device;
 
     TRACE("iface %p, srv_handle %zu, sampler_handle %zu, cuda_texture_handle %p.\n",
-            iface, srv_handle.ptr, sampler_handle.ptr, cuda_texture_handle);
+            iface, (size_t)srv_handle.ptr, (size_t)sampler_handle.ptr, cuda_texture_handle);
 
     if (!cuda_texture_handle)
        return E_INVALIDARG;
@@ -188,7 +188,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_vkd3d_ext_GetCudaSurfaceObject(d3d
     struct d3d12_desc_split uav_desc;
     struct d3d12_device *device;
 
-    TRACE("iface %p, uav_handle %zu, cuda_surface_handle %p.\n", iface, uav_handle.ptr, cuda_surface_handle);
+    TRACE("iface %p, uav_handle %zu, cuda_surface_handle %p.\n", iface, (size_t)uav_handle.ptr, cuda_surface_handle);
     if (!cuda_surface_handle)
        return E_INVALIDARG;
 
@@ -453,8 +453,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_CreateInteropCommandQ
     struct d3d12_command_queue *object;
     HRESULT hr;
 
-    TRACE("iface %p, desc %p, vk_family %d, command_queue %p.\n",
-            iface, desc, command_queue);
+    TRACE("iface %p, desc %p, vk_family_index %"PRIu32", command_queue %p.\n",
+            iface, desc, vk_family_index, command_queue);
 
     hr = d3d12_command_queue_create(device, desc, vk_family_index, &object);
     if (FAILED(hr))
@@ -472,8 +472,8 @@ static HRESULT STDMETHODCALLTYPE d3d12_dxvk_interop_device_CreateInteropCommandA
     struct d3d12_command_allocator *object;
     HRESULT hr;
 
-    TRACE("iface %p, type %x, vk_family %d, command_allocator %p.\n",
-            iface, type, command_allocator);
+    TRACE("iface %p, type %x, vk_family_index %"PRIu32", command_allocator %p.\n",
+            iface, type, vk_family_index, command_allocator);
 
     hr = d3d12_command_allocator_create(device, type, vk_family_index, &object);
     if (FAILED(hr))

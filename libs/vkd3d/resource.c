@@ -2213,7 +2213,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_WriteToSubresource(d3d12_resourc
     extent.depth = dst_box->back - dst_box->front;
 
     subresource_layout = &resource->subresource_layouts[dst_sub_resource];
-    TRACE("Offset %#"PRIx64", row pitch %#"PRIx64", depth pitch %#"PRIx64".\n",
+    TRACE("Offset %#zx, row pitch %#zx, depth pitch %#zx.\n",
             subresource_layout->offset, subresource_layout->row_pitch, subresource_layout->depth_pitch);
 
     d3d12_resource_get_map_ptr(resource, (void **)&dst_data);
@@ -2284,7 +2284,7 @@ static HRESULT STDMETHODCALLTYPE d3d12_resource_ReadFromSubresource(d3d12_resour
     }
 
     subresource_layout = &resource->subresource_layouts[src_sub_resource];
-    TRACE("Offset %#"PRIx64", row pitch %#"PRIx64", depth pitch %#"PRIx64".\n",
+    TRACE("Offset %#zx, row pitch %#zx, depth pitch %#zx.\n",
             subresource_layout->offset, subresource_layout->row_pitch, subresource_layout->depth_pitch);
 
     d3d12_resource_get_map_ptr(resource, (void **)&src_data);
@@ -2802,7 +2802,7 @@ HRESULT d3d12_resource_validate_desc(const D3D12_RESOURCE_DESC1 *desc,
                     if ((desc->Width & ((1u << format->plane_footprints[i].subsample_x_log2) - 1u)) ||
                             (desc->Height & ((1u << format->plane_footprints[i].subsample_y_log2) - 1u)))
                     {
-                        WARN("Image size %ux%u not a multiple of %ux%u for format %#x.\n", desc->Width, desc->Height,
+                        WARN("Image size %"PRIu64"x%u not a multiple of %ux%u for format %#x.\n", desc->Width, desc->Height,
                                 1u << format->plane_footprints[i].subsample_x_log2,
                                 1u << format->plane_footprints[i].subsample_y_log2, desc->Format);
                         return E_INVALIDARG;
