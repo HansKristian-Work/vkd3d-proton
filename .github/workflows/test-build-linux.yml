@@ -40,7 +40,7 @@ jobs:
           export CC="gcc -m32"
           export CXX="g++ -m32"
           export PKG_CONFIG_PATH="/usr/lib32/pkgconfig:/usr/lib/i386-linux-gnu/pkgconfig:/usr/lib/pkgconfig"
-          meson setup -Denable_tests=True -Denable_extras=True --buildtype release build-native-gcc-x86
+          meson setup -Denable_tests=True -Denable_extras=True -Dc_args='-Wformat=2 -Wno-format-truncation -Wno-format-nonliteral' --buildtype release build-native-gcc-x86
           ninja -C build-native-gcc-x86
 
     - name: Build Native GCC x64
@@ -50,7 +50,7 @@ jobs:
         command: |
           export CC="gcc"
           export CXX="g++"
-          meson setup -Denable_tests=True -Denable_extras=True --buildtype release build-native-gcc-x64
+          meson setup -Denable_tests=True -Denable_extras=True -Dc_args='-Wformat=2 -Wno-format-truncation -Wno-format-nonliteral' --buildtype release build-native-gcc-x64
           ninja -C build-native-gcc-x64
 
     - name: Build Native Clang x86
