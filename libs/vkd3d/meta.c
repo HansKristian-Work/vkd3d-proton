@@ -643,11 +643,23 @@ static HRESULT vkd3d_meta_create_swapchain_pipeline(struct vkd3d_meta_ops *meta_
     struct vkd3d_swapchain_ops *meta_swapchain_ops = &meta_ops->swapchain;
     VkResult vr;
 
-    if ((vr = vkd3d_meta_create_graphics_pipeline(meta_ops,
-            meta_swapchain_ops->vk_pipeline_layouts[key->filter], key->format, VK_FORMAT_UNDEFINED, VK_IMAGE_ASPECT_COLOR_BIT,
-            meta_swapchain_ops->vk_vs_module, meta_swapchain_ops->vk_fs_module, 1,
-            NULL, 0, NULL, NULL, false, &pipeline->vk_pipeline)) < 0)
-        return hresult_from_vk_result(vr);
+    if (key->bind_point == VK_PIPELINE_BIND_POINT_COMPUTE)
+    {
+        if ((vr = vkd3d_meta_create_compute_pipeline(meta_ops->device,
+                sizeof(cs_swapchain_fullscreen), cs_swapchain_fullscreen,
+                meta_swapchain_ops->vk_pipeline_layouts[key->filter],
+                NULL, false, &pipeline->vk_pipeline)) < 0)
+            return hresult_from_vk_result(vr);
+    }
+    else
+    {
+        if ((vr = vkd3d_meta_create_graphics_pipeline(meta_ops,
+                meta_swapchain_ops->vk_pipeline_layouts[key->filter], key->format, VK_FORMAT_UNDEFINED,
+                VK_IMAGE_ASPECT_COLOR_BIT,
+                meta_swapchain_ops->vk_vs_module, meta_swapchain_ops->vk_fs_module, 1,
+                NULL, 0, NULL, NULL, false, &pipeline->vk_pipeline)) < 0)
+            return hresult_from_vk_result(vr);
+    }
 
     pipeline->key = *key;
     return S_OK;
@@ -1314,7 +1326,8 @@ static void vkd3d_swapchain_ops_cleanup(struct vkd3d_swapchain_ops *meta_swapcha
 
 static HRESULT vkd3d_swapchain_ops_init(struct vkd3d_swapchain_ops *meta_swapchain_ops, struct d3d12_device *device)
 {
-    VkDescriptorSetLayoutBinding set_binding;
+    VkDescriptorSetLayoutBinding set_binding[2];
+    VkPushConstantRange push_range;
     unsigned int i;
     VkResult vr;
     int rc;
@@ -1327,10 +1340,19 @@ static HRESULT vkd3d_swapchain_ops_init(struct vkd3d_swapchain_ops *meta_swapcha
         return hresult_from_errno(rc);
     }
 
-    set_binding.binding = 0;
-    set_binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    set_binding.descriptorCount = 1;
-    set_binding.stageFlags = VK_SHADER_STAGE_ALL; /* Could be compute or graphics, so just use ALL. */
+    set_binding[0].binding = 0;
+    set_binding[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    set_binding[0].descriptorCount = 1;
+    set_binding[0].stageFlags = VK_SHADER_STAGE_ALL; /* Could be compute or graphics, so just use ALL. */
+
+    set_binding[1].binding = 1;
+    set_binding[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    set_binding[1].descriptorCount = 1;
+    set_binding[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    push_range.offset = 0;
+    push_range.size = sizeof(float) * 2;
+    push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
     for (i = 0; i < 2; i++)
     {
@@ -1340,8 +1362,8 @@ static HRESULT vkd3d_swapchain_ops_init(struct vkd3d_swapchain_ops *meta_swapcha
             goto fail;
         }
 
-        set_binding.pImmutableSamplers = &meta_swapchain_ops->vk_samplers[i];
-        if ((vr = vkd3d_meta_create_descriptor_set_layout(device, 1, &set_binding,
+        set_binding[0].pImmutableSamplers = &meta_swapchain_ops->vk_samplers[i];
+        if ((vr = vkd3d_meta_create_descriptor_set_layout(device, ARRAY_SIZE(set_binding), set_binding,
                 false, &meta_swapchain_ops->vk_set_layouts[i])) < 0)
         {
             ERR("Failed to create descriptor set layout, vr %d.\n", vr);
@@ -1349,7 +1371,7 @@ static HRESULT vkd3d_swapchain_ops_init(struct vkd3d_swapchain_ops *meta_swapcha
         }
 
         if ((vr = vkd3d_meta_create_pipeline_layout(device, 1, &meta_swapchain_ops->vk_set_layouts[i],
-                0, NULL, &meta_swapchain_ops->vk_pipeline_layouts[i])))
+                1, &push_range, &meta_swapchain_ops->vk_pipeline_layouts[i])))
         {
             ERR("Failed to create pipeline layout, vr %d.\n", vr);
             goto fail;
