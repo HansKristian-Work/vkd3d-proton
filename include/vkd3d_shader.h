@@ -79,6 +79,7 @@ enum vkd3d_shader_meta_flags
     VKD3D_SHADER_META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH = 1 << 18,
     VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH = 1 << 19,
     VKD3D_SHADER_META_FLAG_USES_DEPTH_STENCIL_WRITE = 1 << 20,
+    VKD3D_SHADER_META_FLAG_DISABLE_OPTIMIZATIONS = 1 << 21
 };
 
 struct vkd3d_shader_meta
@@ -441,6 +442,9 @@ enum vkd3d_shader_quirk
     VKD3D_SHADER_QUIRK_FORCE_PRE_RASTERIZATION_BARRIER = (1 << 16),
     /* Requests META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH to be set in shader meta. */
     VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER = (1 << 17),
+
+    /* VK_PIPELINE_CREATE_DISABLE_OPTIMIZATIONS. For driver workarounds where optimizations break stuff. */
+    VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS = (1 << 18)
 };
 
 struct vkd3d_shader_quirk_hash

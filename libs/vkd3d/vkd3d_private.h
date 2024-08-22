@@ -2063,6 +2063,7 @@ struct d3d12_graphics_pipeline_state
     struct list compiled_fallback_pipelines;
 
     bool xfb_enabled;
+    bool disable_optimization;
 };
 
 static inline unsigned int dsv_attachment_mask(const struct d3d12_graphics_pipeline_state *graphics)

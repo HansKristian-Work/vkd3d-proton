@@ -2871,6 +2871,9 @@ static HRESULT vkd3d_create_compute_pipeline(struct d3d12_pipeline_state *state,
     if (d3d12_device_uses_descriptor_buffers(device))
         pipeline_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
 
+    if (state->compute.code.meta.flags & VKD3D_SHADER_META_FLAG_DISABLE_OPTIMIZATIONS)
+        pipeline_info.flags |= VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
+
     vr = VK_CALL(vkCreateComputePipelines(device->vk_device,
             vk_cache, 1, &pipeline_info, NULL, &state->compute.vk_pipeline));
 
@@ -5051,6 +5054,11 @@ static HRESULT d3d12_pipeline_state_init_static_pipeline(struct d3d12_pipeline_s
     struct d3d12_graphics_pipeline_state *graphics = &state->graphics;
     bool can_compile_pipeline_early, has_gpl, create_library = false;
     VkGraphicsPipelineLibraryFlagsEXT library_flags = 0;
+    unsigned int i;
+
+    for (i = 0; i < graphics->stage_count; i++)
+        if (graphics->code[i].meta.flags & VKD3D_SHADER_META_FLAG_DISABLE_OPTIMIZATIONS)
+            graphics->disable_optimization = true;
 
     has_gpl = state->device->device_info.graphics_pipeline_library_features.graphicsPipelineLibrary;
 
@@ -5638,6 +5646,9 @@ static VkResult d3d12_pipeline_state_link_pipeline_variant(struct d3d12_pipeline
     if (d3d12_device_uses_descriptor_buffers(state->device))
         create_info.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
 
+    if (graphics->disable_optimization)
+        create_info.flags |= VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
+
     /* Only use LINK_TIME_OPTIMIZATION for the primary pipeline for now,
      * accept a small runtime perf hit on subsequent compiles in order
      * to avoid stutter. */
@@ -5825,6 +5836,9 @@ VkPipeline d3d12_pipeline_state_create_pipeline_variant(struct d3d12_pipeline_st
 
     if (d3d12_device_uses_descriptor_buffers(device))
         pipeline_desc.flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+
+    if (graphics->disable_optimization)
+        pipeline_desc.flags |= VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
 
     TRACE("Calling vkCreateGraphicsPipelines.\n");
 

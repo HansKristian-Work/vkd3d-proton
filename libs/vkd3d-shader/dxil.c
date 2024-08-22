@@ -595,6 +595,8 @@ int vkd3d_shader_compile_dxil(const struct vkd3d_shader_code *dxbc,
         spirv->meta.flags |= VKD3D_SHADER_META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH;
     if (quirks & VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER)
         spirv->meta.flags |= VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH;
+    if (quirks & VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS)
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_DISABLE_OPTIMIZATIONS;
 
     dxil_spv_begin_thread_allocator_context();
 
@@ -1207,6 +1209,8 @@ int vkd3d_shader_compile_dxil_export(const struct vkd3d_shader_code *dxil,
         spirv->meta.flags |= VKD3D_SHADER_META_FLAG_FORCE_PRE_RASTERIZATION_BEFORE_DISPATCH;
     if (quirks & VKD3D_SHADER_QUIRK_FORCE_GRAPHICS_BARRIER)
         spirv->meta.flags |= VKD3D_SHADER_META_FLAG_FORCE_GRAPHICS_BEFORE_DISPATCH;
+    if (quirks & VKD3D_SHADER_QUIRK_DISABLE_OPTIMIZATIONS)
+        spirv->meta.flags |= VKD3D_SHADER_META_FLAG_DISABLE_OPTIMIZATIONS;
 
     /* For user provided (not mangled) export names, just inherit that name. */
     if (!demangled_export)
