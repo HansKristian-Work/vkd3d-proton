@@ -2778,10 +2778,16 @@ struct d3d12_command_list_iteration
 {
     VkCommandBuffer vk_command_buffer;
     VkCommandBuffer vk_init_commands;
+    uint32_t estimated_cost;
     struct d3d12_command_list_iteration_indirect_meta indirect_meta;
 };
 
 #define VKD3D_MAX_COMMAND_LIST_SEQUENCES 2
+
+#define VKD3D_COMMAND_COST_LOW              (1u)
+#define VKD3D_COMMAND_COST_HIGH             (16u)
+
+#define VKD3D_COMMAND_COST_MERGE_THRESHOLD  (VKD3D_COMMAND_COST_HIGH)
 
 struct d3d12_command_list_sequence
 {
@@ -2795,6 +2801,10 @@ struct d3d12_command_list_sequence
     unsigned int iteration_count;
     unsigned int active_non_inline_running_queries;
     bool uses_dgc_compute_in_async_compute;
+
+    /* Number of draws, dispatches, copies etc. Used to fuse barrier-only
+     * command buffers for staggered submissions. */
+    uint32_t estimated_cost;
 
     /* Emit normal commands here. */
     VkCommandBuffer vk_command_buffer;
@@ -3117,6 +3127,7 @@ struct d3d12_command_queue_submission_signal
 struct d3d12_command_queue_submission_execute
 {
     VkCommandBufferSubmitInfo *cmd;
+    uint32_t *cmd_cost;
     struct d3d12_command_allocator **command_allocators;
     UINT cmd_count;
     UINT num_command_allocators;
