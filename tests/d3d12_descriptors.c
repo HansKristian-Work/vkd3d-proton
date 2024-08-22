@@ -4526,7 +4526,7 @@ static void test_uav_robustness_oob_structure_element(bool use_dxil)
         uint32_t v = get_readback_uint(&rb, 4 + i, 0, 0);
 
         if (i < 4)
-            ok(v == 0xf001 + i, "Index %u: Expected #%x, got #%x.\n", 0xf001 + i, v);
+            ok(v == 0xf001 + i, "Index %u: Expected #%x, got #%x.\n", i, 0xf001 + i, v);
         else if (i == 4)
         {
             /* UB, either 0 or 0xbaad happens depending how driver deals with robustness. */

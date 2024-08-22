@@ -3407,7 +3407,7 @@ void test_view_instancing(void)
     rs_desc.pParameters = &rs_arg;
 
     hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
 
     /* Shaders must accept SV_ViewID even if view instancing is not supported,
      * or disabled for the PSO. */

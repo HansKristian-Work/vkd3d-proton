@@ -80,7 +80,7 @@ void test_sampler_feedback_resource_creation(void)
     heap_desc.Properties = heap_props;
     heap_desc.Flags = D3D12_HEAP_FLAG_CREATE_NOT_ZEROED | D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
     hr = ID3D12Device_CreateHeap(device, &heap_desc, &IID_ID3D12Heap, (void **)&heap);
-    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n");
+    ok(SUCCEEDED(hr), "Failed to create heap, hr #%x.\n", hr);
 
     for (i = 0; i < ARRAY_SIZE(tests); i++)
     {
@@ -161,7 +161,7 @@ void test_sampler_feedback_format_features(void)
         format.Support2 = UINT32_MAX;
 
         hr = ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FORMAT_SUPPORT, &format, sizeof(format));
-        ok(SUCCEEDED(hr), "Failed to query for format features.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to query for format features, hr #%x.\n", hr);
 
         ok(format.Support1 == (D3D12_FORMAT_SUPPORT1_TEXTURE2D | D3D12_FORMAT_SUPPORT1_MIP), "Unexpected feature support #%x.\n", format.Support1);
         ok(format.Support2 == D3D12_FORMAT_SUPPORT2_SAMPLER_FEEDBACK, "Unexpected feature support #%x.\n", format.Support2);

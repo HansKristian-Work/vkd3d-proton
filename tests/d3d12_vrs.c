@@ -84,7 +84,7 @@ void test_vrs(void)
 
         if (!additional_shading_rates_supported)
         {
-            skip("Skipped test %u, AdditionalShadingRates not supported.\n");
+            skip("Skipped test %u, AdditionalShadingRates not supported.\n", i);
             continue;
         }
 

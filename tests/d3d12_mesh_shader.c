@@ -340,12 +340,12 @@ void test_mesh_shader_rendering(void)
 
     hr = ID3D12Device2_CreateCommittedResource(device2, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&srv_resource);
-    ok(SUCCEEDED(hr), "Failed to create SRV resource, hr %#x.\n");
+    ok(SUCCEEDED(hr), "Failed to create SRV resource, hr %#x.\n", hr);
 
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     hr = ID3D12Device2_CreateCommittedResource(device2, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&uav_resource);
-    ok(SUCCEEDED(hr), "Failed to create UAV resource, hr %#x.\n");
+    ok(SUCCEEDED(hr), "Failed to create UAV resource, hr %#x.\n", hr);
 
     memset(&root_signature_desc, 0, sizeof(root_signature_desc));
     root_signature_desc.NumParameters = 3;
@@ -714,7 +714,7 @@ void test_mesh_shader_execute_indirect(void)
 
     hr = ID3D12Device2_CreateCommittedResource(device2, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&indirect_buffer);
-    ok(SUCCEEDED(hr), "Failed to create SRV resource, hr %#x.\n");
+    ok(SUCCEEDED(hr), "Failed to create SRV resource, hr %#x.\n", hr);
 
     memset(&root_signature_desc, 0, sizeof(root_signature_desc));
     root_signature_desc.NumParameters = 0;
@@ -1103,12 +1103,12 @@ void test_amplification_shader(void)
 
     hr = ID3D12Device2_CreateCommittedResource(device2, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&srv_resource);
-    ok(SUCCEEDED(hr), "Failed to create SRV resource, hr %#x.\n");
+    ok(SUCCEEDED(hr), "Failed to create SRV resource, hr %#x.\n", hr);
 
     resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     hr = ID3D12Device2_CreateCommittedResource(device2, &heap_properties, D3D12_HEAP_FLAG_NONE,
             &resource_desc, D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource, (void **)&uav_resource);
-    ok(SUCCEEDED(hr), "Failed to create UAV resource, hr %#x.\n");
+    ok(SUCCEEDED(hr), "Failed to create UAV resource, hr %#x.\n", hr);
 
     memset(&root_signature_desc, 0, sizeof(root_signature_desc));
     root_signature_desc.NumParameters = 2;

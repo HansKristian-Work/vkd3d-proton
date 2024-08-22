@@ -2454,7 +2454,7 @@ static void test_denorm_behavior(bool use_dxil)
 
             if (tests[i].any_fp32)
             {
-                ok(v == ref || v == alt_ref, "Value %u mismatch, expected %"PRIx64" or %"PRIx64", got % "PRIx64".\n", j, ref, alt_ref, v);
+                ok(v == ref || v == alt_ref, "Value %u mismatch, expected %"PRIx64" or %"PRIx64", got %"PRIx64".\n", j, ref, alt_ref, v);
             }
             else
             {
@@ -3976,7 +3976,7 @@ void test_sm67_integer_sampling(void)
         expected = &reference_output[i];
         v = get_readback_uvec4(&rb, i, 0);
         ok(compare_uvec4(expected, v),
-                "Output (tex %u, samp %u) failed: expected (#%x, #%x, #%x, #%x), got (#%x, #%x, #%x, #%x).\n",
+                "Output (tex %zu, samp %zu) failed: expected (#%x, #%x, #%x, #%x), got (#%x, #%x, #%x, #%x).\n",
                 i % ARRAY_SIZE(srcs), i / ARRAY_SIZE(srcs),
                 expected->x, expected->y, expected->z, expected->w, v->x, v->y, v->z, v->w);
     }
@@ -4085,7 +4085,7 @@ void test_sm68_draw_parameters(void)
     rs_desc.pParameters = root_params;
 
     hr = create_root_signature(context.device, &rs_desc, &context.root_signature);
-    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create root signature, hr %#x.\n", hr);
 
     init_pipeline_state_desc_dxil(&pso_desc, context.root_signature,
             DXGI_FORMAT_UNKNOWN, &vs_draw_args_dxil, NULL, NULL);
@@ -4093,7 +4093,7 @@ void test_sm68_draw_parameters(void)
     memset(&pso_desc.PS, 0, sizeof(pso_desc.PS));
 
     hr = ID3D12Device_CreateGraphicsPipelineState(context.device, &pso_desc, &IID_ID3D12PipelineState, (void**)&context.pipeline_state);
-    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n");
+    ok(hr == S_OK, "Failed to create graphics pipeline, hr %#x.\n", hr);
 
     memset(sig_args, 0, sizeof(sig_args));
     sig_args[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT;
